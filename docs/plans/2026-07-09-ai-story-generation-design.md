@@ -42,6 +42,17 @@ OpenAI documentation recommends the Responses API for direct model requests and 
 8. AI generates the next chapter and choices.
 9. The app updates story memory periodically so long stories stay affordable and coherent.
 
+## Mobile-First Experience
+
+The rebuilt app should treat mobile as the primary experience, not a compressed desktop layout. The main writing flow should work comfortably on a phone with one thumb:
+
+- A sticky bottom action bar for primary actions such as generate, continue, save, and export.
+- Full-width controls with generous tap targets for selectors and route choices.
+- A single-column story creation flow on mobile, with progressive sections instead of dense two-column panels.
+- Readable chapter text with stable line length, comfortable spacing, and no horizontal scrolling.
+- Streaming generation status that stays visible without covering the chapter text.
+- Desktop can add multi-column density, but mobile should remain the design baseline.
+
 ## Architecture
 
 ```mermaid
@@ -263,6 +274,7 @@ Then rebuild the UI in React components while keeping the same labels and workfl
 - Integration test Supabase RLS policies with at least two users.
 - API route test for unauthorized, forbidden story access, quota exceeded, and successful mocked generation.
 - E2E smoke test: sign in, create story, generate first chapter, choose next action, see saved chapter.
+- Mobile viewport E2E smoke test: verify the main creation and generation controls are visible, tappable, and do not overflow at a common phone width.
 
 ## Open Questions
 

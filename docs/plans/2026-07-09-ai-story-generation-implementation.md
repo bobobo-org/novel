@@ -8,6 +8,8 @@
 
 **Tech Stack:** Next.js, React, TypeScript, Supabase Auth/Postgres/RLS, OpenAI Responses API, Vitest, React Testing Library, Playwright.
 
+**UX Requirement:** Build mobile-first. The phone experience is the priority: single-column creation flow, sticky bottom primary actions, large tap targets, no horizontal overflow, readable chapter text, and mobile viewport E2E coverage.
+
 ---
 
 ### Task 1: Scaffold Next.js App
@@ -351,7 +353,7 @@ Test that story form renders theme selectors and that generate panel renders dis
 
 **Step 2: Build UI**
 
-Port existing labels, tabs, selectors, and dark visual style into React components.
+Port existing labels, tabs, selectors, and dark visual style into React components. Implement mobile-first RWD: single-column forms on phones, sticky bottom action bar, large route-choice buttons, no nested cards, no horizontal scrolling, and desktop-only density enhancements above tablet widths.
 
 **Step 3: Wire API calls**
 
@@ -359,7 +361,7 @@ Create story, load stories, generate first chapter, choose next route, and refre
 
 **Step 4: Run tests and build**
 
-Run: `npm test && npm run build`
+Run: `npm test && npm run e2e && npm run build`
 
 Expected: all tests and build pass.
 
@@ -379,6 +381,8 @@ git commit -m "feat: rebuild story generation ui"
 **Step 1: Write smoke test**
 
 Mock AI route if needed. Verify sign-in placeholder, story creation form, and generated chapter display.
+
+Add a mobile viewport smoke test at a common phone size such as 390x844. Verify the story form, generate button, and route choices are visible without horizontal overflow.
 
 **Step 2: Run E2E**
 
