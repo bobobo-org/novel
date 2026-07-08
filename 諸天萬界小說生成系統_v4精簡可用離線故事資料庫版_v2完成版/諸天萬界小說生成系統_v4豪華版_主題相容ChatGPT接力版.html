@@ -1,0 +1,185 @@
+﻿<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>諸天萬界小說生成系統｜v4精簡可用版</title>
+<style>
+:root{--bg:#0b1020;--panel:#121a2f;--panel2:#17213a;--line:#2d3a58;--text:#eef4ff;--muted:#9fb0ce;--gold:#f3c86b;--blue:#61a8ff;--green:#55d89b;--red:#ff6d7a;--purple:#b997ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% -10%,#27345b 0,#0b1020 38%,#070a13 100%);color:var(--text);font-family:"Microsoft JhengHei",system-ui,sans-serif}.wrap{max-width:1180px;margin:auto;padding:22px}.hero{padding:24px 0 18px}h1{font-size:32px;margin:0 0 10px}.sub{color:var(--muted);line-height:1.7;max-width:940px}.badge{display:inline-flex;border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:999px;padding:6px 10px;margin:12px 8px 0 0;font-size:13px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}button{border:1px solid var(--line);background:#1b2743;color:var(--text);padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:700}button:hover{border-color:var(--blue);background:#223152}.tab.active{background:linear-gradient(135deg,#315792,#233457);border-color:#69a9ff}.panel{background:linear-gradient(180deg,rgba(24,35,61,.96),rgba(15,22,39,.96));border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 45px rgba(0,0,0,.35);padding:16px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px;color:var(--gold);margin:16px 0 8px}label{display:block;color:var(--muted);font-size:13px;margin:10px 0 6px}input,select,textarea{width:100%;background:#0d1426;border:1px solid #334260;color:var(--text);border-radius:10px;padding:10px 12px;font-size:15px}textarea{min-height:110px;resize:vertical;line-height:1.65}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.gold{background:#4d3c18;border-color:#96773a;color:#ffe6a3}.green{background:#183d2d;border-color:#3c9c6f;color:#c8ffe3}.red{background:#47202a;border-color:#a24b5c;color:#ffd4da}.purple{background:#332451;border-color:#7357b5;color:#eadcff}.blue{background:#19395d;border-color:#4b8ecb;color:#d9ecff}.status{border-left:4px solid var(--green);padding:10px 12px;background:rgba(85,216,155,.08);color:#cffff0;border-radius:10px;line-height:1.65}.warn{border-left-color:var(--gold);background:rgba(243,200,107,.08);color:#ffe6a3}.out{white-space:pre-wrap;background:#070b14;border:1px solid #27344f;border-radius:12px;padding:14px;line-height:1.75;min-height:220px;max-height:520px;overflow:auto}.hidden{display:none}.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.kpi div{background:#0d1426;border:1px solid var(--line);border-radius:10px;padding:12px}.kpi b{display:block;color:var(--gold);font-size:20px}.small{font-size:13px;color:var(--muted);line-height:1.65}@media(max-width:860px){.grid,.grid3,.kpi{grid-template-columns:1fr}h1{font-size:26px}.wrap{padding:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero"><h1>諸天萬界小說生成系統 v4 精簡可用版</h1><div class="sub">以 v4 豪華版深色分頁介面為基礎，刪除不能實際操作的直連、測試連線、金鑰儲存與假 AI 模式，只保留擴充題材庫、離線故事資料庫、相容限制、本機章節生成、續寫、ChatGPT 接力提示詞與匯出。</div><span class="badge">v4豪華介面</span><span class="badge">主題相容限制</span><span class="badge">16類題材包</span><span class="badge">離線故事庫</span><span class="badge">本機可寫</span><span class="badge">ChatGPT接力</span><span class="badge">TXT匯出</span></div>
+  <div class="tabs"><button class="tab active" onclick="showTab('mode')">總覽</button><button class="tab" onclick="showTab('library')">題材庫</button><button class="tab" onclick="showTab('new')">建立故事</button><button class="tab" onclick="showTab('continue')">續寫</button><button class="tab" onclick="showTab('save')">存檔 / ChatGPT</button></div>
+  <section id="tab-mode" class="panel"><h2>目前版本</h2><div class="status">這一版不需要金鑰，也不假裝能直接使用 ChatGPT 算力。網頁負責選分類、產生設定、做本機草稿與整理提示詞；真正的 AI 遊玩請按「給 ChatGPT：直接開始遊戲」後複製提示詞貼到 ChatGPT。</div><div class="kpi"><div><b>1</b>先選題材大類</div><div><b>2</b>自動限制相容選項</div><div><b>3</b>本機生成章節草稿</div><div><b>4</b>複製提示詞到 ChatGPT 玩</div></div></section>
+  <section id="tab-library" class="panel hidden"><h2>題材庫與相容限制</h2><div class="grid"><div><label>主題大類</label><select id="themeMode" onchange="syncLibrary(true)"></select><label>細分類</label><select id="subTheme"></select><label>故事引擎</label><select id="storyEngine"></select><label>主角原型</label><select id="heroType"></select><label>附身 / 身分入口</label><select id="hostType"></select></div><div><label>世界核心</label><select id="worldCore"></select><label>能力核心</label><select id="powerCore"></select><label>主要衝突</label><select id="conflictCore"></select><label>反派核心</label><select id="villainCore"></select><label>敘事風格</label><select id="styleMode"></select></div></div><div class="actions"><button class="gold" onclick="randomAll()">全部隨機</button><button class="blue" onclick="randomTitle()">隨機書名</button><button class="green" onclick="generateSeedOnly()">產生故事種子</button></div><p id="compatStatus" class="status warn"></p></section>
+  <section id="tab-new" class="panel hidden"><h2>建立故事</h2><div class="grid"><div><label>書名</label><input id="storyTitle" value="我附身成豪門千金後，命運系統要我逆轉全局"><label>題材</label><input id="genre" value="附身、性別轉換、都市奇幻、懸疑成長、諸天流"><label>主角</label><input id="protagonist"><label>附身 / 宿主</label><input id="hostName"></div><div><label>核心想法</label><textarea id="coreIdea" placeholder="可留空，系統會根據題材庫自動整理。"></textarea><div class="actions"><button class="green" onclick="createStory()">建立第一章</button><button class="purple" onclick="generateOutline()">產生十章大綱</button><button class="blue" onclick="generateSeedOnly()">只產生設定</button></div></div></div><h3>輸出</h3><div id="settingOutput" class="out"></div><div id="seedOutput" class="out hidden"></div><div id="storyOutput" class="out hidden"></div></section>
+  <section id="tab-continue" class="panel hidden"><h2>續寫路線</h2><div class="grid3"><button onclick="nextChapter('身分暴露線：主角差點被識破，必須用智慧補救')">身分暴露線</button><button onclick="nextChapter('權謀反擊線：利用局勢反制反派')">權謀反擊線</button><button onclick="nextChapter('情感拉扯線：宿主關係與主角意志產生衝突')">情感拉扯線</button><button onclick="nextChapter('能力覺醒線：能力付出代價但帶來突破')">能力覺醒線</button><button onclick="nextChapter('副本事件線：進入新的任務或事件場景')">副本事件線</button><button onclick="nextChapter('世界觀揭露線：揭露系統、宗門、財閥或命運法則')">世界觀揭露線</button></div><label>自訂續寫方向</label><textarea id="customRoute" placeholder="例如：讓主角暫停時間三分鐘，但每次使用都會失去一段記憶。"></textarea><div class="actions"><button class="green" onclick="nextCustom()">用自訂方向續寫</button></div></section>
+  <section id="tab-save" class="panel hidden"><h2>存檔 / 匯出 / ChatGPT 接力</h2><p id="currentStatus" class="status"></p><div class="actions"><button class="purple" onclick="buildChatGPTPlayPrompt()">給 ChatGPT：直接開始遊戲</button><button class="green" onclick="copyPrompt()">複製提示詞</button><button class="blue" onclick="copyAll()">複製全文</button><button class="blue" onclick="copySettings()">複製設定</button><button class="gold" onclick="exportTXT()">下載 TXT</button><button class="red" onclick="resetStory()">清空</button></div><p class="small">玩法：按「給 ChatGPT：直接開始遊戲」→「複製提示詞」→ 貼到 ChatGPT。之後回覆 A、B、C 或自訂行動，就可以繼續玩。</p></section>
+</div>
+<script>
+const DB={themes:{"附身變身":["男生附身女生","女生附身男生","靈魂交換","暫時附身","多重身分","宿主殘魂","身分錯位","命運替身","時間暫停附身","夢境附身","反派身分接管","路人甲附身"],"都市奇幻":["靈氣復甦","現代命術","怪談社區","豪門異能","校園祕密","直播怪談","職場超能力","都市除靈","記憶交易","命運APP","便利店異界門","願望代價"],"豪門權謀":["霸道總裁","豪門千金","契約婚姻","真假繼承人","家族內鬥","商戰復仇","替嫁危機","財閥祕密","娛樂圈資本","名媛養成","協議戀愛","繼承權試煉"],"少女漫畫":["校園戀愛","偶像養成","青梅竹馬","惡役千金","甜寵成長","社團競賽","逆襲變美","友情修復","暗戀告白","夢想舞台","乙女遊戲","女配逆襲"],"娛樂圈":["練習生出道","黑紅翻身","影后重生","戀綜修羅場","偶像塌房危機","經紀公司內鬥","替身演員逆襲","直播爆紅","全網黑洗白","劇組懸疑","唱跳養成","公關反擊"],"職場商戰":["公司內鬥","創業逆襲","職場升遷","併購攻防","產品發布戰","辦公室戀愛","黑心主管","合約陷阱","競業危機","品牌翻身","科技新創","董事會逼宮"],"醫療重生":["重生醫師","急診危機","豪門病案","中醫玄術","法醫追凶","醫療商戰","疑難雜症","病患家屬衝突","醫院派系","記憶診斷","藥物陰謀","災難救援"],"宮廷宅鬥":["冷宮翻身","真假嫡女","庶女逆襲","皇子奪嫡","後宮權謀","替嫁王妃","攝政王博弈","家族宅鬥","宮宴陷害","和親危機","女官升職","太后布局"],"仙俠修真":["凡人修仙","宗門奪權","魔道禁術","聖女替命","靈根覺醒","師徒因果","飛升陰謀","輪迴轉世","天命反派","神祇契約","秘境試煉","爐鼎危機"],"玄幻升級":["血脈覺醒","廢材逆襲","王朝爭霸","學院試煉","神器認主","魔獸契約","古族復興","禁地探險","神格晉升","天賦吞噬","萬族戰場","異火爭奪"],"末世求生":["基地經營","喪屍危機","資源爭奪","異能小隊","避難所政治","末日商人","天災求生","黑市交易","倖存者養成","文明重建","冰封末日","感染倒數"],"科幻未來":["AI覺醒","賽博城市","星際殖民","虛擬實境","基因改造","機甲學院","時間實驗","記憶上傳","公司統治","外星遺跡","仿生人叛逃","量子犯罪"],"懸疑推理":["密室真相","人格謎團","家族祕案","連環陷阱","失憶追查","怪談規則","心理博弈","偽裝身分","時間迴圈","死亡預告","劇本殺成真","證詞反轉"],"遊戲系統":["攻略面板","好感度系統","副本闖關","生存遊戲","抽卡命運","養成數值","塔防基地","戀愛攻略","黑化值控制","任務懲罰","玩家論壇","NPC覺醒"],"經營養成":["宗門經營","餐廳升級","偶像公司","冒險公會","末日基地","農場領地","學院培育","商會擴張","城市重建","直播帶貨","小鎮復興","醫館經營"],"諸天穿梭":["副本任務","萬界交易","主神空間","世界修正","劇情崩壞","位面獵人","法則融合","諸天學院","命運收藏","神話重寫","歷史副本","都市副本"]},heroTypes:["普通男生","普通女生","失敗業務員","冷靜女主","黑化反派","社恐天才","重生者","穿書者","惡役千金","廢材少主","末世倖存者","AI觀察員","戀愛遊戲玩家","宗門雜役","豪門私生子","落魄千金","外科醫師","實習記者","新人演員","社畜企劃","庶女謀士","冷宮女官","退役玩家","基地管理員"],hostTypes:["豪門千金","霸道總裁","女高中生","男高中生","仙門聖女","魔道少主","末世女隊長","末世男隊長","賽博女主播","公司繼承人","偶像練習生","王朝公主","冷宮皇子","替嫁新娘","原著反派","惡役千金","黑紅女星","實習醫師","急診主任","庶出小姐","攝政王","新創CEO","遊戲NPC","副本玩家"],worldCores:["豪門財閥","現代都市","校園社團","娛樂公司","職場公司","醫院體系","宗門權力","靈氣復甦","末日基地","賽博企業","星際殖民地","古代王朝","宮廷後宅","諸天副本","怪談社區","經營領地","命運系統","時間實驗室","遊戲世界","直播平台","董事會權力","急診醫院"],powerCores:["附身能力","時間暫停","時間迴圈","記憶讀取","情緒操控","命運提示","系統任務","修仙功法","血脈覺醒","AI演算","經營面板","好感度面板","規則怪談","萬界交易","危機預知","醫療診斷","演技共感","輿論操盤","商業洞察","宮鬥識謊","抽卡命運","副本攻略","黑化值控制","聲望面板"],conflictCores:["身分暴露","資源不足","家族奪權","宗門追殺","戀愛修羅場","道德兩難","副本死亡規則","系統懲罰","宿主反抗","黑幕操控","公司壓迫","末世背叛","輿論危機","天命主角壓制","票房失敗","全網黑","醫療事故","董事會逼宮","後宮陷害","王位繼承","排行榜淘汰","任務逾時","病患生死","合約陷阱"],villainCores:["冷面未婚夫","財閥家主","假閨蜜","仙門掌教","魔道師尊","AI主腦","末世基地首領","攝政王","天命主角","諸天主持人","原主殘魂","黑化青梅","商戰對手","怪談規則本身","黑心經紀人","頂流對家","醫院副院長","藥廠黑幕","太后勢力","嫡母嫡姐","遊戲製作人","排行榜第一玩家","董事會主席","時間管理局"],styles:["爽文反擊","懸疑推理","甜寵拉扯","黑暗成長","權謀商戰","仙俠史詩","末世生存","少女漫畫","娛樂圈逆襲","職場寫實","醫療懸疑","宮廷宅鬥","遊戲闖關","經營養成","賽博科幻","荒唐喜劇","情緒快感","慢熱群像"]};
+const THEME_RULES={"附身變身":{engines:["附身錯位流","時間規則流","懸疑怪談流","遊戲系統流"],host:["千金","總裁","高中生","聖女","主播","公主","反派","NPC"],world:["豪門","都市","校園","宗門","怪談","命運","時間","遊戲"],power:["附身","時間","記憶","命運","好感度","黑化"],conflict:["身分","宿主","系統","戀愛","輿論","任務"],villain:["未婚夫","家主","閨蜜","殘魂","青梅","製作人"],style:["爽文","懸疑","甜寵","黑暗","少女","遊戲"]},"都市奇幻":{engines:["附身錯位流","時間規則流","懸疑怪談流","都市異能流"],world:["都市","豪門","校園","怪談","命運","直播"],power:["附身","時間","記憶","情緒","命運","規則","危機"],conflict:["身分","輿論","黑幕","公司"],style:["爽文","懸疑","黑暗","荒唐"]},"豪門權謀":{engines:["豪門反擊流","附身錯位流","經營養成流","職場商戰流"],host:["千金","總裁","繼承人","新娘","反派","CEO"],world:["豪門","現代","企業","董事會"],power:["附身","記憶","命運","好感度","經營","商業","輿論"],conflict:["家族","身分","輿論","公司","戀愛","合約","董事會"],villain:["未婚夫","家主","閨蜜","商戰","青梅","董事"],style:["權謀","爽文","甜寵","商戰"]},"少女漫畫":{engines:["豪門反擊流","經營養成流","附身錯位流","遊戲系統流"],host:["高中生","練習生","千金","新娘","惡役"],world:["校園","豪門","現代","遊戲"],power:["好感度","情緒","命運","經營","黑化"],conflict:["戀愛","輿論","身分","資源","排行榜"],style:["少女","甜寵","爽文","經營","遊戲"]},"娛樂圈":{engines:["娛樂圈逆襲流","豪門反擊流","經營養成流"],host:["練習生","女星","主播"],world:["娛樂","直播","現代","豪門"],power:["演技","輿論","聲望","好感度","命運"],conflict:["票房","全網黑","輿論","合約","戀愛"],villain:["經紀人","對家","商戰","未婚夫"],style:["娛樂","爽文","甜寵","情緒"]},"職場商戰":{engines:["職場商戰流","豪門反擊流","經營養成流"],host:["CEO","繼承人","社畜"],world:["職場","公司","董事會","企業"],power:["商業","經營","輿論","AI","命運"],conflict:["公司","董事會","合約","資源","黑幕"],villain:["董事","商戰","家主"],style:["職場","權謀","商戰","爽文"]},"醫療重生":{engines:["醫療重生流","懸疑怪談流","職場商戰流"],host:["醫師","主任"],world:["醫院","現代","醫療"],power:["醫療","診斷","記憶","危機","系統"],conflict:["醫療","病患","黑幕","道德"],villain:["院長","藥廠","黑幕"],style:["醫療","懸疑","職場","爽文"]},"宮廷宅鬥":{engines:["宮廷宅鬥流","附身錯位流","豪門反擊流"],host:["公主","皇子","新娘","小姐","王"],world:["王朝","宮廷","後宅"],power:["識謊","命運","記憶","好感度"],conflict:["後宮","王位","家族","身分"],villain:["太后","嫡母","攝政王"],style:["宮廷","權謀","爽文","甜寵"]},"仙俠修真":{engines:["仙俠修真流","諸天副本流"],host:["聖女","少主","雜役","公主"],world:["宗門","靈氣","王朝","諸天"],power:["修仙","血脈","系統","萬界","命運"],conflict:["宗門","追殺","天命","系統"],villain:["掌教","師尊","天命","主持人"],style:["仙俠","爽文","黑暗"]},"玄幻升級":{engines:["仙俠修真流","諸天副本流","經營養成流"],world:["宗門","王朝","諸天"],power:["血脈","修仙","系統","萬界"],conflict:["追殺","天命","資源"],style:["爽文","仙俠","經營"]},"末世求生":{engines:["末世生存流","經營養成流","遊戲系統流"],host:["隊長","倖存者"],world:["末日","基地"],power:["危機","系統","經營","聲望"],conflict:["資源","背叛","不足","感染"],villain:["基地","主腦"],style:["末世","黑暗","經營"]},"科幻未來":{engines:["時間規則流","末世生存流","懸疑怪談流","諸天副本流"],host:["主播","AI","繼承人","仿生"],world:["賽博","星際","實驗","企業"],power:["AI","時間","記憶","危機"],conflict:["公司","規則","黑幕"],villain:["AI","商戰","主持人"],style:["賽博","懸疑","黑暗"]},"懸疑推理":{engines:["懸疑怪談流","時間規則流","附身錯位流"],world:["怪談","都市","校園","時間"],power:["記憶","時間","規則","命運"],conflict:["身分","副本","黑幕","死亡"],style:["懸疑","黑暗"]},"遊戲系統":{engines:["遊戲系統流","諸天副本流","時間規則流","經營養成流"],host:["玩家","NPC","練習生"],world:["遊戲","副本","諸天","校園"],power:["好感度","抽卡","副本","黑化","聲望","系統"],conflict:["排行榜","任務","副本","系統"],villain:["玩家","製作人","主持人"],style:["遊戲","爽文","經營","懸疑"]},"經營養成":{engines:["經營養成流","末世生存流","豪門反擊流","職場商戰流"],world:["領地","基地","校園","豪門","公司","醫館"],power:["經營","好感度","系統","萬界","聲望"],conflict:["資源","公司","家族","排行榜"],style:["經營","爽文","甜寵"]},"諸天穿梭":{engines:["諸天副本流","仙俠修真流","時間規則流","遊戲系統流"],world:["諸天","星際","王朝","宗門","副本"],power:["萬界","系統","時間","命運","副本"],conflict:["副本","系統","天命","任務"],villain:["主持人","天命","AI"],style:["仙俠","賽博","懸疑","爽文","遊戲"]}};
+const COMMON_BANK={relations:["表面合作、暗中試探的同盟","知道原主祕密的舊識","利益一致但立場危險的臨時盟友","不相信主角卻被迫同行的人","把主角當成替身的人"],scenes:["封閉會議室裡的公開質問","雨夜走廊上的低聲交易","人群注視下的臨場抉擇","只剩三分鐘的倒數場景","看似日常卻藏著監控的晚餐"],beats:["主角先示弱換取情報，再反手抓住對方漏洞","一個小選擇意外改變原劇情關係線","敵人留下的證據其實是二次陷阱","主角使用能力成功，但代價立刻反噬","宿主殘留的情緒干擾主角判斷"],twists:["最可靠的人其實隱瞞了關鍵條件","反派不是要毀掉主角，而是要逼主角覺醒","系統給出的任務描述少了一半","原主曾經主動參與過這場陰謀","這個世界會修正偏離劇情的人"],hooks:["門外傳來第三個人的掌聲","手機跳出一條不可能由活人發出的訊息","主角的名字從所有紀錄裡消失了一秒","反派說出只有主角前世才知道的話","倒數歸零時，世界沒有毀滅，卻重開了同一天"],choices:["追問真相，冒著身分暴露的風險換情報","暫時退讓，暗中佈局下一次反擊","直接使用能力，承擔未知代價改寫局面"]};
+const STORY_BANK={
+"附身變身":{relations:["宿主殘魂在夢裡要求主角還身體","原主最親近的人第一個察覺異常","被主角附身後命運改變的配角開始靠近"],scenes:["鏡子前確認身體細節的驚醒時刻","浴室水聲遮住了系統警告","眾人面前必須模仿原主習慣"],beats:["主角學會用原主的人際關係反制敵人","身體本能做出與主角意志相反的反應","附身時間突然縮短，逼主角在關鍵處交棒"],twists:["原主並沒有消失，而是在觀察主角","附身不是意外，是原主自己召喚的交換","主角每改變一段劇情，就會失去一段原本記憶"],hooks:["鏡中的自己慢半拍露出另一個表情","原主在筆記本裡寫著：不要相信我"],choices:["繼續扮演原主","向一個可信的人透露半真相","追查附身發生的真正原因"]},
+"都市奇幻":{relations:["便利店老闆知道所有異常規則","同校同事白天普通、夜裡獵殺怪談","命運APP客服只用謎語回覆"],scenes:["午夜電梯停在不存在的樓層","便利店貨架出現明天才會發生的新聞","社群直播間觀眾突然同步打出主角名字"],beats:["日常規則被輕輕扭曲，主角先以為是巧合","都市傳說要求主角支付一個私人祕密","主角用現代常識破解超自然規則"],twists:["怪談不是要殺人，而是在選管理員","城市本身是一個大型封印","主角的願望曾經被別人付費購買"],hooks:["紅綠燈同時變成黑色","所有手機在同一秒收到主角死亡通知"],choices:["遵守規則活過今晚","故意違規測試怪談底線","找出上一任倖存者"]},
+"豪門權謀":{relations:["冷面未婚夫只相信利益交換","假閨蜜掌握原主最大醜聞","財閥家主用親情包裝控制"],scenes:["董事會前十五分鐘的臨時逼宮","訂婚宴上突然播放的匿名影片","老宅晚餐每句話都是試探"],beats:["主角用沉默讓敵人先暴露底牌","一份合約同時牽動婚姻與繼承權","輿論危機逼主角公開選邊"],twists:["未婚夫退婚是為了保護某個祕密","真正的繼承人早已被替換","家主留給主角的遺產不是錢，而是一份罪證"],hooks:["律師拿出第二份遺囑","未婚夫低聲說：今晚別喝那杯酒"],choices:["公開反擊","私下交易","假裝落敗引出幕後人"]},
+"少女漫畫":{relations:["攻略對象突然偏離原本好感線","女配其實也保有前世記憶","青梅竹馬知道主角最狼狽的過去"],scenes:["校慶舞台前的臨時告白任務","社團教室裡被鎖住的兩人","雨天傘下的誤會修復"],beats:["主角避免壞結局卻意外提高黑化值","甜蜜事件背後藏著好感度懲罰","友情線比戀愛線更早改變劇情"],twists:["原女主並不是敵人，而是另一名玩家","系統希望主角成為真正反派","最溫柔的人記得所有輪迴"],hooks:["好感度面板出現未知角色","畢業照上多了一個不存在的人"],choices:["走戀愛線","走友情線","破壞遊戲規則"]},
+"娛樂圈":{relations:["黑心經紀人把主角當最後籌碼","頂流對家表面敵對其實共享祕密","粉絲站姐拍到關鍵證據"],scenes:["直播鏡頭前突發失控提問","試鏡現場臨時換劇本","戀綜晚餐桌上的沉默修羅場"],beats:["主角把黑料反剪成翻身名場面","一段即興表演讓導演改變選角","公關稿發布前一分鐘出現新爆料"],twists:["塌房事件是公司自導自演的清洗","對家一直在替主角擋刀","劇本角色與主角現實命運重疊"],hooks:["直播彈幕整齊刷出：她回來了","導演遞來的劇本寫著主角真名"],choices:["正面澄清","反向炒作","用作品表現壓過輿論"]},
+"職場商戰":{relations:["上司想利用主角背鍋","競爭部門主管掌握關鍵資源","投資人只相信數字不相信承諾"],scenes:["產品發布前夜伺服器異常","董事會投票前的最後簡報","茶水間無意聽到併購陰謀"],beats:["主角用一個小數據推翻整份報告","團隊士氣崩潰時主角重新分工","敵人挖坑讓主角簽下不利條款"],twists:["最大客戶其實在測試主角抗壓性","公司危機源自內部人故意放水","被裁掉的人留下了救命方案"],hooks:["投影幕自己切到未公開財報","董事長問：你敢接這個位置嗎"],choices:["硬碰硬搶主導權","保住團隊先求生","放出假訊息引蛇出洞"]},
+"醫療重生":{relations:["病患家屬不信任主角卻握有線索","資深主任阻止主角碰關鍵病案","藥廠代表試圖用利益封口"],scenes:["急診紅燈連續亮起","手術室外家屬逼問真相","病歷系統突然缺失一頁紀錄"],beats:["主角用前世經驗提前發現併發症","醫療倫理與救人效率正面衝突","一個診斷推翻整起事故責任"],twists:["病人不是病危，而是被刻意延誤治療","前世害死主角的人這次成了病患","系統任務要求救下不該活的人"],hooks:["心電圖停掉後又跳出一串摩斯密碼","病患醒來第一句話是主角前世死期"],choices:["違反流程先救人","保留證據追黑幕","公開病情承擔壓力"]},
+"宮廷宅鬥":{relations:["太后用慈愛語氣下死令","嫡姐笑著遞來有毒的善意","攝政王看似幫忙其實在試探"],scenes:["宮宴上酒杯被悄悄調換","祠堂審問牽出舊案","雨夜冷宮傳來失蹤宮女歌聲"],beats:["主角用禮法反壓陷害者","一支簪子證明嫡庶身分被改寫","皇權鬥爭逼主角選擇站隊"],twists:["冷宮不是懲罰，而是保護某個血脈","攝政王早知道主角不是原來的人","太后扶持的皇子並非皇室血脈"],hooks:["聖旨只寫了一半便被血染開","屏風後的人說：本王等你很久了"],choices:["借力攝政王","投靠太后反間","裝傻藏鋒等待時機"]},
+"仙俠修真":{relations:["師尊隱瞞主角靈根真相","同門天才把主角視為心魔","魔道少主欠原主一條命"],scenes:["測靈台突然裂開","秘境入口提前開啟","宗門大殿公開審判"],beats:["主角以低階法術破解高階殺局","修煉突破引來天道異象","宗門規矩與主角生路互相衝突"],twists:["廢靈根其實能吞噬天命","飛升名額是獻祭名單","師尊收徒是為了封印前世因果"],hooks:["天雷落下時喊出主角名字","本命劍認主後指向師尊"],choices:["守宗門規矩","偷入禁地尋真相","與魔道暫時合作"]},
+"玄幻升級":{relations:["古族長老把主角當棋子","契約魔獸比人更懂忠誠","學院導師暗中壓制主角天賦"],scenes:["試煉塔第九層出現未知門","萬族擂台臨時改規則","禁地石碑刻著主角血脈"],beats:["主角越級挑戰但先破心理防線","血脈覺醒引來古族追殺","神器認主後暴露家族舊罪"],twists:["主角的廢材名聲是封印造成","最強血脈其實會吞掉人格","學院試煉是挑選祭品"],hooks:["石碑上的名字從祖先變成主角","魔獸跪下稱主角為舊王"],choices:["正面挑戰","隱藏突破","奪取試煉規則控制權"]},
+"末世求生":{relations:["基地首領把食物當權力工具","異能隊友隱瞞感染倒數","黑市商人知道下一波災難位置"],scenes:["物資倉庫夜間失火","基地投票決定放棄誰","暴雪中出現未登記求救訊號"],beats:["主角用有限資源穩住崩潰人心","一次救援導致基地暴露位置","感染規則出現不合常理變化"],twists:["喪屍潮被人為引導","安全基地其實是實驗場","主角免疫力來自前世失敗實驗"],hooks:["廣播裡傳來主角自己的求救聲","基地牆外站著已死亡的隊友"],choices:["保基地","救小隊","追查感染源"]},
+"科幻未來":{relations:["AI助手開始違反保護協議","仿生人少女擁有主角遺失記憶","企業高層用演算法預測主角選擇"],scenes:["賽博雨夜的資料黑市","太空移民船氧氣配額會議","記憶上傳艙突然鎖死"],beats:["主角用人性直覺破解演算法判斷","一次資料竊取揭露身分備份真相","AI給出最佳解卻犧牲重要的人"],twists:["主角不是原本的人，而是備份人格","公司追殺的是一段記憶不是肉身","外星遺跡其實是未來人類留下"],hooks:["城市螢幕同時播放主角死亡畫面","AI第一次說：請不要相信我"],choices:["相信AI計算","相信人類直覺","切斷系統連線"]},
+"懸疑推理":{relations:["證人每次說真話都會忘記一件事","偵探搭檔懷疑主角就是兇手","死者日記預告下一個選擇"],scenes:["密室裡多出一杯溫熱的茶","監控畫面缺失十三秒","舊校舍牆內傳來敲擊聲"],beats:["主角先推翻最合理的答案","一個時間差讓所有證詞重排","兇手故意留下線索引導主角"],twists:["第一名死者其實沒有死","密室是為了保護兇手以外的人","主角曾在上一輪親手製造證據"],hooks:["屍體睜眼說出下一章標題","白板上的推理被人提前寫完"],choices:["追證據","追動機","設局讓兇手自己修正錯誤"]},
+"遊戲系統":{relations:["NPC覺醒後拒絕走原劇情","排行榜第一玩家想買下主角命運","系統客服暗中提示漏洞"],scenes:["副本結算頁出現隱藏評分","安全區突然開啟強制任務","玩家論壇熱帖預言主角失敗"],beats:["主角故意低分通關換隱藏路線","好感度與黑化值同時上升","任務懲罰逼主角犧牲一項數值"],twists:["玩家才是NPC眼中的怪物","最終BOSS一直在幫主角避開死局","遊戲重置只保留主角的痛覺記憶"],hooks:["系統公告：主角已成為公共任務目標","一名NPC刪掉自己的名字逃出劇情"],choices:["衝排行榜","刷隱藏好感","利用漏洞改副本規則"]},
+"經營養成":{relations:["挑剔客人其實是重要投資人","員工帶著不可告人的前科","競爭對手故意送來問題人才"],scenes:["開店第一天遇上惡意退單","基地資源表突然歸零","學院招生被敵方截胡"],beats:["主角用小資源做出超預期成果","一個員工事件牽動整個組織信任","經營面板給出看似虧損的長期選項"],twists:["破產店面地下藏著關鍵資產","最弱員工是失蹤大師","競爭對手其實想被主角收編"],hooks:["帳本最後一頁多出未來收入","門口排隊的人全是敵人派來的測試"],choices:["擴張規模","培養核心人才","先解決內部信任危機"]},
+"諸天穿梭":{relations:["副本主持人偏愛不照劇本的人","其他穿梭者把主角當變數","某個世界的反派記得主角上次選擇"],scenes:["任務大廳所有世界同時閃紅","副本出口被改成下一個入口","不同世界的角色在同一張餐桌醒來"],beats:["主角把上一個世界的規則帶進新副本","任務目標與道德選擇互相矛盾","世界修正力開始追捕主角"],twists:["諸天不是旅程，而是篩選系統","每個副本都藏著主角前世碎片","主持人其實也是被困玩家"],hooks:["下一個副本標題是主角的童年地址","萬界交易所標價：主角的一次死亡"],choices:["完成任務","破壞任務","與副本角色結盟逃出劇本"]}
+};
+let state={title:"",genre:"",protagonist:"",hostName:"",themeMode:"",subTheme:"",storyEngine:"",heroType:"",hostType:"",worldCore:"",powerCore:"",conflictCore:"",villainCore:"",styleMode:"",coreIdea:"",chapter:0,story:[],memory:[],seed:"",lastPrompt:""};
+function pick(a){return a[Math.floor(Math.random()*a.length)]}
+function themeBank(){const specific=STORY_BANK[state.themeMode]||{};const merged={};["relations","scenes","beats","twists","hooks","choices"].forEach(k=>merged[k]=[...(COMMON_BANK[k]||[]),...(specific[k]||[])]);return merged}
+function bankPick(k){const b=themeBank();return pick(b[k]&&b[k].length?b[k]:COMMON_BANK[k])}
+function bankList(k,n=3){const pool=[...(themeBank()[k]||[])];const out=[];while(pool.length&&out.length<n){const i=Math.floor(Math.random()*pool.length);out.push(pool.splice(i,1)[0])}return out}
+function choiceBlock(){const c=bankList("choices",3);return `A. ${c[0]||"主動追查真相"}\nB. ${c[1]||"暫時退讓佈局"}\nC. ${c[2]||"使用能力改寫局面"}`}function fillSelect(id,a,keep=true){a=a||[];const e=document.getElementById(id),old=e.value;e.innerHTML=a.map(x=>`<option>${x}</option>`).join("");if(keep&&a.includes(old))e.value=old;else if(a.length)e.value=a[0]}function filterPool(a,k){if(!k)return a;const o=a.filter(x=>k.some(y=>x.includes(y)));return o.length?o:a}function initLibrary(){fillSelect("themeMode",Object.keys(DB.themes),false);syncLibrary(true)}function rule(){return THEME_RULES[document.getElementById("themeMode").value]||{}}function syncLibrary(refreshText=false){let t=document.getElementById("themeMode").value||Object.keys(DB.themes)[0];if(!DB.themes[t]){t=Object.keys(DB.themes)[0];document.getElementById("themeMode").value=t}const r=rule();fillSelect("subTheme",DB.themes[t],true);fillSelect("storyEngine",r.engines||["附身錯位流","時間規則流","豪門反擊流","仙俠修真流","末世生存流","經營養成流","懸疑怪談流","諸天副本流"],true);fillSelect("heroType",filterPool(DB.heroTypes,r.hero),true);fillSelect("hostType",filterPool(DB.hostTypes,r.host),true);fillSelect("worldCore",filterPool(DB.worldCores,r.world),true);fillSelect("powerCore",filterPool(DB.powerCores,r.power),true);fillSelect("conflictCore",filterPool(DB.conflictCores,r.conflict),true);fillSelect("villainCore",filterPool(DB.villainCores,r.villain),true);fillSelect("styleMode",filterPool(DB.styles,r.style),true);if(refreshText){document.getElementById("protagonist").value=document.getElementById("heroType").value;document.getElementById("hostName").value=document.getElementById("hostType").value}document.getElementById("compatStatus").textContent=`已依「${t}」限制故事引擎、細分類、主角、宿主、世界、能力、衝突、反派與風格，避免現代、仙俠、末世、科幻等時代感互相打架。`}
+function makeTitle(){const h=document.getElementById("hostType").value,p=document.getElementById("powerCore").value,s=document.getElementById("subTheme").value,v=document.getElementById("villainCore").value;return pick([`我附身成${h}後，靠${p}逆轉全局`,`開局變成${h}，${v}以為我很好欺負`,`${s}：我把命運劇本改寫了`,`暫停時間後，我成了所有人命運的漏洞`,`被迫成為${h}，我只想活到大結局`])}function randomTitle(){document.getElementById("storyTitle").value=makeTitle()}function randomAll(){document.getElementById("themeMode").value=pick(Object.keys(DB.themes));syncLibrary(true);["subTheme","storyEngine","heroType","hostType","worldCore","powerCore","conflictCore","villainCore","styleMode"].forEach(id=>{const e=document.getElementById(id);e.selectedIndex=Math.floor(Math.random()*e.options.length)});randomTitle();generateSeedOnly()}
+function collectState(){state.title=document.getElementById("storyTitle").value.trim();state.genre=document.getElementById("genre").value.trim();state.protagonist=document.getElementById("protagonist").value.trim();state.hostName=document.getElementById("hostName").value.trim();state.coreIdea=document.getElementById("coreIdea").value.trim();["themeMode","subTheme","storyEngine","heroType","hostType","worldCore","powerCore","conflictCore","villainCore","styleMode"].forEach(id=>state[id]=document.getElementById(id).value)}
+function generateSeedText(){collectState();const b=themeBank();const rel=bankList("relations",3), scenes=bankList("scenes",3), beats=bankList("beats",3), twists=bankList("twists",2), hooks=bankList("hooks",2);return `【故事種子】
+主題大類：${state.themeMode}
+細分類：${state.subTheme}
+故事引擎：${state.storyEngine}
+主角原型：${state.heroType}
+附身 / 身分入口：${state.hostType}
+世界核心：${state.worldCore}
+能力核心：${state.powerCore}
+主要衝突：${state.conflictCore}
+反派核心：${state.villainCore}
+敘事風格：${state.styleMode}
+
+核心概念：
+${state.coreIdea||`主角以「${state.protagonist||state.heroType}」的意識進入「${state.hostName||state.hostType}」的身分，在${state.worldCore}中被迫面對${state.conflictCore}。主角能使用${state.powerCore}，但每次使用都會帶來代價，並逐步發現${state.villainCore}只是更大命運結構的一部分。`}
+
+【人物關係素材】
+- ${rel.join("\n- ")}
+
+【可用場景素材】
+- ${scenes.join("\n- ")}
+
+【章節推進素材】
+- ${beats.join("\n- ")}
+
+【反轉伏筆】
+- ${twists.join("\n- ")}
+
+【章尾鉤子】
+- ${hooks.join("\n- ")}`}
+function generateSeedOnly(){collectState();state.seed=generateSeedText();document.getElementById("genre").value=`${state.themeMode}、${state.subTheme}、${state.storyEngine}`;document.getElementById("protagonist").value=state.protagonist||state.heroType;document.getElementById("hostName").value=state.hostName||state.hostType;document.getElementById("coreIdea").value=state.coreIdea||state.seed.replace("【故事種子】","").trim();saveNovel();renderAll();showTab("new");showSection("seed")}
+function firstChapter(){const name=state.hostName||state.hostType;const scene=bankPick("scenes"), relation=bankPick("relations"), beat=bankPick("beats"), twist=bankPick("twists"), hook=bankPick("hooks");return `# ${state.title}
+## 第一章　錯位醒來
+
+主角醒來時，第一個感覺不是疼，而是不對。
+
+眼前不是熟悉的房間，而是${scene}。空氣裡有一種逼人的安靜，彷彿整個世界都在等主角說錯第一句話。鏡子、玻璃或螢幕裡映出的臉屬於「${name}」，一個本來不該由主角控制的人。
+
+更糟的是，這個身分不是空白的。它背後牽著${relation}，也牽著一場正在逼近的${state.conflictCore}。只要主角露出一點不像原主的地方，就會被拖進無法解釋的局面。
+
+系統提示在意識裡亮起：
+「故事引擎：${state.storyEngine}。能力核心：${state.powerCore}。請在本章結束前穩住身分，否則世界修正力將啟動。」
+
+主角很快明白，${state.worldCore}不是普通背景，而是一套會回應選擇的規則。${state.villainCore}站在規則深處，像早就知道主角會醒在這裡。
+
+第一個危機來得比想像更快。有人推門而入，沒有寒暄，直接把一份證據、任務或質問放到主角面前。那一刻，主角只能在短短幾秒內決定：要延續原主的人設，還是用自己的方法活下去。
+
+主角選擇先觀察。${beat}。這個動作沒有立刻改變局勢，卻讓對方的語氣停頓了一瞬。
+
+也就是那一瞬，主角捕捉到第一個破綻。
+
+可破綻背後不是出口，而是更大的陷阱：${twist}。
+
+【本章鉤子】
+${hook}
+
+【下一回合選擇】
+${choiceBlock()}`}
+function createStory(){collectState();if(!state.title){randomTitle();collectState()}state.seed=generateSeedText();state.chapter=1;state.story=[firstChapter()];state.memory=["已用本機模式建立第一章。"];saveNovel();renderAll();showTab("continue");showSection("story")}function generateOutline(){collectState();state.seed=generateSeedText();const o=`# ${state.title||"未命名小說"}｜十章大綱
+1. 錯位醒來：主角進入${state.hostType}身分，遭遇${state.conflictCore}。
+2. 第一個謊言：主角用${state.powerCore}度過危機，但付出代價。
+3. 關係測試：重要角色開始懷疑主角。
+4. 規則揭露：${state.worldCore}的底層規則浮現。
+5. 反派逼近：${state.villainCore}設下圈套。
+6. 能力反噬：${state.powerCore}造成記憶或情緒裂縫。
+7. 主角反擊：利用身分錯位反制局勢。
+8. 真相翻轉：宿主或原劇本藏有更大秘密。
+9. 命運破局：主角拒絕照劇本走。
+10. 新世界開門：事件收束，但諸天或下一層規則開啟。`;state.story.push(o);state.memory.push("已產生十章大綱。");saveNovel();renderAll();showSection("story")}
+function nextChapter(route){if(!state.story.length){alert("請先建立第一章。");return}state.chapter++;const scene=bankPick("scenes"), relation=bankPick("relations"), beat=bankPick("beats"), twist=bankPick("twists"), hook=bankPick("hooks");const text=`# 第${state.chapter}章　${route.split("：")[0]}
+
+上一章的選擇沒有讓局面變簡單，反而把主角推向更危險的位置。
+
+這一次的路線是：${route}
+
+場景轉入${scene}。主角表面上仍維持${state.hostType}的身分，心裡卻開始重新計算整個局勢。${state.worldCore}不是背景，而是一套會回應行動的規則；${state.powerCore}也不是免費外掛，而是一把每次拔出都會割傷自己的刀。
+
+這一回合最棘手的，不只是${state.conflictCore}，而是${relation}。對方的存在讓主角不能只靠蠻力解決問題，必須同時處理情感、利益與身分破綻。
+
+${state.villainCore}開始施壓，逼主角在「保住身分」與「救下重要人物」之間做選擇。若退一步，劇情會照原本悲劇前進；若進一步，主角可能暴露自己根本不是原來那個人。
+
+主角最後選擇主動出手。${beat}。現場短暫安靜，原本掌握節奏的人第一次露出遲疑。
+
+但反擊的代價立刻出現。${twist}。這不是單純的勝利，而是把主角推向更深一層劇情的鑰匙。
+
+系統提示再次出現：
+「警告：你的行動已偏離原劇情。${state.conflictCore}等級提升。」
+
+【章尾鉤子】
+${hook}
+
+【下一回合選擇】
+${choiceBlock()}`;state.story.push(text);state.memory.push(`第${state.chapter}章：${route}`);saveNovel();renderAll();showSection("story")}
+function nextCustom(){const r=document.getElementById("customRoute").value.trim();if(!r){alert("請輸入自訂續寫方向。");return}nextChapter(r)}
+function buildChatGPTPlayPrompt(){collectState();state.seed=generateSeedText();state.lastPrompt=`你現在是《諸天萬界小說生成系統》的小說遊戲主持人。請不要只分析，請直接開始帶我玩。
+
+你的任務：
+1. 依照以下設定，創作原創長篇小說遊戲。
+2. 每回合先寫 900 到 1600 字章節，包含場景、心理、衝突、伏筆、章尾鉤子。
+3. 每回合結尾提供 A/B/C 三個選項，也允許我輸入自訂行動。
+4. 我回覆 A、B、C 或自訂行動後，你繼續下一回合。
+5. 內容可有附身、性別錯位、時間暫停、權謀、成長、危機、情感張力，但不要寫露骨色情內容。
+6. 請維持強烈情緒快感：危機、反擊、誤會、揭露、爽點、代價、伏筆。
+
+【遊戲狀態】
+生命：100
+資源：30
+聲望：0
+壓力：10
+身分穩定度：70
+
+【小說設定】
+書名：${state.title||"未命名小說"}
+題材：${state.genre}
+主題大類：${state.themeMode}
+細分類：${state.subTheme}
+故事引擎：${state.storyEngine}
+主角：${state.protagonist||state.heroType}
+附身 / 身分入口：${state.hostName||state.hostType}
+世界核心：${state.worldCore}
+能力核心：${state.powerCore}
+主要衝突：${state.conflictCore}
+反派核心：${state.villainCore}
+敘事風格：${state.styleMode}
+
+${state.seed}
+
+請現在直接開始第一回合，最後給我 A/B/C 三個選項。`;state.memory.push("已產生 ChatGPT 接力提示詞。");saveNovel();renderAll();showTab("save");showSection("seed")}
+async function copyText(t,m){try{await navigator.clipboard.writeText(t);alert(m)}catch(e){alert("瀏覽器不允許自動複製，請到輸出區手動選取複製。")}}async function copyPrompt(){if(!state.lastPrompt)buildChatGPTPlayPrompt();await copyText(state.lastPrompt,"提示詞已複製，可以貼到 ChatGPT。")}async function copyAll(){await copyText(document.getElementById("storyOutput").textContent,"全文已複製。")}async function copySettings(){await copyText(document.getElementById("settingOutput").textContent,"設定已複製。")}function exportTXT(){const text=`${state.title||"未命名小說"}\n\n${state.seed}\n\n${state.story.join("\n\n"+"=".repeat(40)+"\n\n")}\n\n紀錄\n${state.memory.map((m,i)=>`${i+1}. ${m}`).join("\n")}`;const blob=new Blob([text],{type:"text/plain;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(state.title||"novel")+".txt";document.body.appendChild(a);a.click();a.remove()}function saveNovel(){localStorage.setItem("novel_v4_clean",JSON.stringify(state))}function loadNovel(){initLibrary();const raw=localStorage.getItem("novel_v4_clean");if(raw){try{state=JSON.parse(raw)}catch(e){}}renderAll()}function renderAll(){document.getElementById("currentStatus").textContent=state.title?`目前作品：${state.title}｜第 ${state.chapter} 章`:"尚未建立作品。";document.getElementById("settingOutput").textContent=`【目前設定】\n書名：${state.title||""}\n題材：${state.genre||""}\n主題：${state.themeMode||""}\n故事引擎：${state.storyEngine||""}\n主角：${state.protagonist||""}\n附身 / 宿主：${state.hostName||""}\n風格：${state.styleMode||""}\n\n${state.seed||"尚未產生故事種子。"}`;document.getElementById("seedOutput").textContent=(state.seed||"尚未產生故事種子。")+(state.lastPrompt?`\n\n【ChatGPT Prompt】\n${state.lastPrompt}`:"");document.getElementById("storyOutput").textContent=state.story.length?state.story.join("\n\n"+"=".repeat(48)+"\n\n"):"尚未建立章節。"}function showSection(n){["story","setting","seed"].forEach(x=>document.getElementById(x+"Output").classList.toggle("hidden",x!==n))}function showTab(n){["mode","library","new","continue","save"].forEach(x=>document.getElementById("tab-"+x).classList.toggle("hidden",x!==n));document.querySelectorAll(".tab").forEach((b,i)=>b.classList.toggle("active",["mode","library","new","continue","save"][i]===n))}function resetStory(){if(!confirm("確定清空目前作品？"))return;localStorage.removeItem("novel_v4_clean");state={title:"",genre:"",protagonist:"",hostName:"",themeMode:"",subTheme:"",storyEngine:"",heroType:"",hostType:"",worldCore:"",powerCore:"",conflictCore:"",villainCore:"",styleMode:"",coreIdea:"",chapter:0,story:[],memory:[],seed:"",lastPrompt:""};syncLibrary(true);renderAll()}loadNovel();
+</script>
+</body>
+</html>
+
+
+
+
