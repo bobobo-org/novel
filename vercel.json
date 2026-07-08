@@ -1,9 +1,3 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/",
-      "destination": "/諸天萬界小說生成系統_v4精簡可用離線故事資料庫版_v2完成版/諸天萬界小說生成系統_v4豪華版_主題相容ChatGPT接力版.html"
-    }
-  ]
+  "cleanUrls": true
 }
