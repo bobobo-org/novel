@@ -5,3 +5,17 @@ node_modules
 dist
 build
 *.log
+
+# Next.js / npm
+.next
+.next/
+out
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.env*.local
+.vercel
+
+# TypeScript
+*.tsbuildinfo
