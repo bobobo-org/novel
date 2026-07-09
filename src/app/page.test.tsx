@@ -1,13 +1,20 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Home from './page';
 
-describe('Home page scaffold', () => {
-  it('renders the app name in the baseline page', () => {
-    render(<Home />);
+describe('Home page', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('renders setup guidance when Supabase env is missing', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', '');
+
+    render(await Home());
 
     expect(screen.getByRole('heading', { name: '諸天萬界小說生成系統' })).toBeInTheDocument();
-    expect(screen.getByText(/AI 生成與 Supabase 持久化重建版本/)).toBeInTheDocument();
+    expect(screen.getByText(/請先在 Vercel 設定 Supabase/)).toBeInTheDocument();
   });
 });
