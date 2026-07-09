@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getAuthCallbackUrl } from '@/lib/site-url';
 
 export async function signInWithEmail(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim();
@@ -19,7 +20,7 @@ export async function signInWithEmail(formData: FormData) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${origin}/auth/callback`,
+      emailRedirectTo: getAuthCallbackUrl(origin),
     },
   });
 

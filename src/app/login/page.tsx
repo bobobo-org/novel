@@ -1,15 +1,30 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { SignInForm } from '@/components/auth/sign-in-form';
 import { hasPublicSupabaseEnv } from '@/lib/env';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 import { signInWithEmail } from './actions';
+
+export const dynamic = 'force-dynamic';
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ message?: string }>;
 }) {
+  if (hasPublicSupabaseEnv()) {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      redirect('/');
+    }
+  }
+
   const params = await searchParams;
   const message = params.message;
 
