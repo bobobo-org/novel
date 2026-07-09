@@ -43,7 +43,7 @@ async function countSuccessfulEvents(supabaseAdmin: SupabaseClient, userId: stri
     .from('generation_events')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .eq('status', 'succeeded')
+    .in('status', ['started', 'succeeded'])
     .gte('created_at', since.toISOString());
 
   if (error) {
