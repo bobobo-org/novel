@@ -432,6 +432,8 @@ export const STORY_DATABASE = {
   ]
 } as const satisfies StoryDatabase;
 
+export type ThemeName = keyof typeof STORY_DATABASE.themes;
+
 export const THEME_RULES = {
   "附身變身": {
     "engines": [
@@ -1089,7 +1091,7 @@ export const THEME_RULES = {
       "遊戲"
     ]
   }
-} as const satisfies Record<string, ThemeRule>;
+} as const satisfies Partial<Record<ThemeName, ThemeRule>>;
 
 export const COMMON_BANK = {
   "relations": [
@@ -1631,4 +1633,4 @@ export const STORY_BANK = {
       "與副本角色結盟逃出劇本"
     ]
   }
-} as const satisfies Record<string, StoryBankEntry>;
+} as const satisfies Record<ThemeName, StoryBankEntry>;
