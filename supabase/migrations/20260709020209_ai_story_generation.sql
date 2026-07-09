@@ -4,7 +4,6 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   display_name text,
-  plan text not null default 'free',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -206,4 +205,24 @@ create policy "Users can read own generation events"
 create policy "Users can insert own generation events"
   on public.generation_events for insert
   to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = user_id
+    and (
+      story_id is null
+      or exists (
+        select 1
+        from public.stories
+        where stories.id = generation_events.story_id
+          and stories.user_id = (select auth.uid())
+      )
+    )
+    and (
+      chapter_id is null
+      or exists (
+        select 1
+        from public.chapters
+        where chapters.id = generation_events.chapter_id
+          and chapters.user_id = (select auth.uid())
+      )
+    )
+  );
