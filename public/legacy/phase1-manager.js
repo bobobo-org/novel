@@ -234,10 +234,8 @@
       title.classList.add("phase1-sidebar-heading");
       title.setAttribute("aria-hidden", "true");
     });
-    const keep = new Set(["creation", "export"]);
     document.querySelectorAll(".nav button[data-view]").forEach((button) => {
-      const view = button.getAttribute("data-view");
-      if (!keep.has(view)) button.classList.add("phase1-advanced-nav");
+      button.classList.remove("phase1-advanced-nav");
     });
     const creationButton = document.querySelector('.nav button[data-view="creation"]');
     if (creationButton) creationButton.textContent = "建立 / 繼續";
