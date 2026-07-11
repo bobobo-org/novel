@@ -1,16 +1,21 @@
-const CACHE_VERSION = "novel-system-v6-offline-20260711-1";
+const CACHE_VERSION = "novel-system-phase1-20260711-7";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const OFFLINE_URL = "./novel-system.html";
+const OFFLINE_URL = "./offline.html";
 
 const CORE_ASSETS = [
   "./",
   "./novel-system.html",
   "./novel-system.css",
   "./db.js",
+  "./db-v2.js",
+  "./migration.js",
   "./offline-engine.js",
   "./ai-service.js",
+  "./backup-service.js",
   "./novel-system.js",
+  "./phase1-manager.js",
   "./manifest.json",
+  "./offline.html",
   "../file.svg"
 ];
 
@@ -73,7 +78,7 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(async () => {
           const cache = await caches.open(STATIC_CACHE);
-          return (await cache.match(OFFLINE_URL)) || Response.error();
+          return (await cache.match("./novel-system.html")) || (await cache.match(OFFLINE_URL)) || Response.error();
         })
     );
     return;
