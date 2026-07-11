@@ -30,6 +30,11 @@
   }
 
   function validateConfig(config) {
+    if (config.provider === "gemini") {
+      // Server-side route holds the key; user needs nothing but a connection.
+      if (!navigator.onLine) throw new Error("目前離線，Gemini 需要網路。可改用「離線規則續寫」。");
+      return;
+    }
     if (config.provider === "cloud" || config.provider === "openai" || config.provider === "chat") {
       if (!navigator.onLine) throw new Error("目前離線，雲端 AI 需要網路。");
       if (!config.endpoint) throw new Error("尚未設定雲端 AI 端點。");
@@ -59,6 +64,25 @@
   async function generate(prompt, options = {}) {
     const config = { ...getConfig(), ...(options.config || {}) };
     validateConfig(config);
+
+    if (config.provider === "gemini") {
+      // Calls this site's own server route (app/api/generate); the Gemini key
+      // stays on the server and never touches the browser or saved state.
+      let response;
+      try {
+        response = await timeoutFetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        }, options.timeoutMs || 60000);
+      } catch (error) {
+        throw new Error("Gemini 連線逾時或網路中斷。");
+      }
+      let data = {};
+      try { data = await response.json(); } catch (e) {}
+      if (!response.ok) throw new Error(data.error || `Gemini 回應失敗：HTTP ${response.status}`);
+      return data.text || "";
+    }
 
     if (config.provider === "ollama") {
       let response;
