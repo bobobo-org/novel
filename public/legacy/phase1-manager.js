@@ -238,7 +238,24 @@
       button.classList.remove("phase1-advanced-nav");
     });
     const creationButton = document.querySelector('.nav button[data-view="creation"]');
-    if (creationButton) creationButton.textContent = "建立 / 繼續";
+    if (creationButton) {
+      creationButton.textContent = "繼續上次創作";
+      creationButton.onclick = (event) => {
+        event.preventDefault();
+        openLatestForWriting();
+      };
+      if (!$("phase1NewWorkNavButton")) {
+        const newWorkButton = document.createElement("button");
+        newWorkButton.id = "phase1NewWorkNavButton";
+        newWorkButton.type = "button";
+        newWorkButton.textContent = "建立新作品";
+        newWorkButton.onclick = (event) => {
+          event.preventDefault();
+          showNewWork();
+        };
+        creationButton.insertAdjacentElement("afterend", newWorkButton);
+      }
+    }
     const exportButton = document.querySelector('.nav button[data-view="export"]');
     if (exportButton) exportButton.textContent = "我的作品";
   }
