@@ -216,6 +216,9 @@
 .phase1-show-advanced .phase1-advanced-nav {
   display: block !important;
 }
+.phase1-home-ia .phase1-sidebar-heading {
+  display: none !important;
+}
 .phase1-card .bar,
 .phase1-home-card .bar {
   margin-top: 10px;

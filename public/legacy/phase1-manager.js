@@ -229,6 +229,11 @@
   }
 
   function simplifyNavigation() {
+    document.body.classList.add("phase1-home-ia");
+    document.querySelectorAll(".nav .navTitle").forEach((title) => {
+      title.classList.add("phase1-sidebar-heading");
+      title.setAttribute("aria-hidden", "true");
+    });
     const keep = new Set(["creation", "export"]);
     document.querySelectorAll(".nav button[data-view]").forEach((button) => {
       const view = button.getAttribute("data-view");
