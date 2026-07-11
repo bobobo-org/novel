@@ -91,7 +91,7 @@
     panel.id = "continuePanel";
     panel.className = "continue-panel";
     panel.innerHTML = `
-      <h2>繼續上次小說</h2>
+      <h2>繼續上次創作</h2>
       <div id="continueContent" class="muted">正在讀取作品...</div>
     `;
     target.insertBefore(panel, target.firstChild.nextSibling);
@@ -117,8 +117,8 @@
       </div>
       <div class="bar">
         <button class="btn green" onclick="NovelApp.continueLastProject()">繼續寫作</button>
-        <button onclick="NovelApp.readFullText()">閱讀全文</button>
-        <button onclick="NovelApp.showVersions()">版本紀錄</button>
+        <button onclick="NovelApp.readFullText()">閱讀作品</button>
+        <button onclick="NovelApp.showVersions()">作品管理</button>
       </div>
     `;
   }
@@ -130,8 +130,8 @@
     entry.id = "mainEntryBar";
     entry.className = "bar";
     entry.innerHTML = `
-      <button class="btn green" onclick="NovelApp.startNewNovel()">開始新小說</button>
-      <button class="btn gold" onclick="NovelApp.continueLastProject()">繼續上次小說</button>
+      <button class="btn green" onclick="NovelApp.startNewNovel()">建立新作品</button>
+      <button class="btn gold" onclick="NovelApp.continueLastProject()">繼續上次創作</button>
       <button onclick="showView('export')">我的作品</button>
       <button onclick="importJSONPrompt()">匯入備份</button>
       <button onclick="NovelApp.toggleAdvancedTools()">進階工具</button>

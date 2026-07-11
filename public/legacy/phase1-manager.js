@@ -132,6 +132,19 @@
     return rows;
   }
 
+  async function findRecentProject() {
+    const projects = (await NovelDB.getAll("projects")).map(normalizeProject);
+    if (!projects.length) return null;
+    const timeValue = (project, index) => {
+      const value = project.updatedAt || project.lastSavedAt || project.state?.lastSavedAt || project.createdAt || "";
+      const time = value ? Date.parse(value) : Number.NaN;
+      return Number.isFinite(time) ? time : index;
+    };
+    return projects
+      .map((project, index) => ({ project, score: timeValue(project, index), index }))
+      .sort((a, b) => (b.score - a.score) || (b.index - a.index))[0].project;
+  }
+
   function getLegacyState() {
     try {
       if (typeof state !== "undefined") return state;
@@ -279,7 +292,7 @@
           <input id="phase1ChapterTitle" placeholder="章節標題" oninput="Phase1Novel.scheduleSave()">
           <textarea id="phase1ChapterContent" placeholder="在這裡寫正文，輸入後 1 秒自動存檔。" oninput="Phase1Novel.scheduleSave()" onkeyup="Phase1Novel.capturePosition()" onclick="Phase1Novel.capturePosition()" onscroll="Phase1Novel.capturePosition()"></textarea>
           <div class="bar">
-            <button class="btn green" onclick="Phase1Novel.saveCurrentChapter('manual')">手動儲存</button>
+            <button class="btn green" onclick="Phase1Novel.saveCurrentChapter('manual')">儲存目前作品</button>
             <button onclick="Phase1Novel.showVersions()">版本列表</button>
             <button onclick="Phase1Novel.exportCurrentProject()">匯出作品JSON</button>
           </div>
@@ -303,11 +316,11 @@
           <div id="phase1DraftPreview" class="out">尚未產生續寫預覽。</div>
         </div>
         <div class="phase1-card">
-          <h3>AI完整續寫</h3>
+          <h3>AI續寫</h3>
           <p class="muted">雲端AI需要網路；Ollama / LM Studio 可使用本機模型。失敗時不會覆蓋原文，也不會建立空白章節。</p>
           <div id="phase1AiStatus" class="notice">尚未設定</div>
           <div class="bar">
-            <button id="phase1CloudAiButton" class="btn gold" onclick="Phase1Novel.aiContinue()">AI完整續寫（新章預覽）</button>
+            <button id="phase1CloudAiButton" class="btn gold" onclick="Phase1Novel.aiContinue()">AI續寫（新章預覽）</button>
             <button onclick="NovelAIService.clearToken();Phase1Novel.refreshNetworkStatus()">清除金鑰</button>
           </div>
         </div>
@@ -330,7 +343,7 @@
       const intro = document.createElement("div");
       intro.id = "phase1NewWorkIntro";
       intro.className = "phase1-card hidden";
-      intro.innerHTML = "<h2>建立新作品</h2><p class=\"muted\">這裡才是分類包、主題大類、故事引擎、主角原型、世界核心、能力核心與故事種子表單。它不會影響既有作品，除非你主動建立章節或保存。</p>";
+      intro.innerHTML = "<h2>建立新作品</h2><p class=\"muted\">此區用於建立新的小說，不會修改既有作品。</p>";
       legacySplit.id = "phase1NewWorkArea";
       legacySplit.classList.add("hidden", "phase1-new-work-area");
       legacySplit.style.display = "none";
@@ -457,7 +470,7 @@
     const box = $("phase1ContinueCard");
     if (!box) return;
     try {
-      const rawProject = await NovelDB.latestProject();
+      const rawProject = await findRecentProject();
       if (!rawProject) {
         box.innerHTML = `
           <div class="phase1-continue-layout">
@@ -475,51 +488,33 @@
       const lastOpen = await getLastOpen();
       const chapters = sortedChapters(bundle.chapters).map(normalizeChapter);
       const latest = chooseResumeChapter(project, bundle, lastOpen);
-      const latestVolume = bundle.volumes.find((volume) => volume.id === latest?.volumeId) || bundle.volumes.find((volume) => volume.id === project.currentVolumeId);
-      const targetWords = Number(project.targetWords || 0);
-      const bookPct = targetWords ? pct(project.totalWords || 0, targetWords) : "尚未設定全書字數目標";
-      const chapterTarget = latest?.chapterTargetWords || 3000;
-      const chapterPct = latest ? pct(latest.wordCount || 0, chapterTarget) : "尚未建立章節";
-      const progress = project.status === "finished" ? "已完結" : chapters.length ? `${stageLabels[project.storyStage] || "發展期"}｜第 ${chapters.length} 章` : "尚未建立章節";
-      const cover = project.coverText || String(project.title || "書").trim().slice(0, 2);
+      const recentEditedAt = project.updatedAt || project.lastSavedAt || project.state?.lastSavedAt || project.createdAt || "";
+      const latestSavedAt = latest?.lastSavedAt || project.lastSavedAt || project.state?.lastSavedAt || project.updatedAt || "";
       box.innerHTML = `
         <div class="phase1-continue-layout">
           <div class="phase1-continue-main">
-            <p class="phase1-eyebrow">最近編輯作品</p>
-            <div class="phase1-continue-title">
-              <span class="phase1-text-cover" aria-label="文字封面">${esc(cover || "書")}</span>
-              <div>
-                <h2>繼續上次創作</h2>
-                <h3>${esc(project.title || "未命名小說")}</h3>
-              </div>
-            </div>
+            <p class="phase1-eyebrow">最近作品</p>
+            <h2>繼續上次創作</h2>
+            <h3>${esc(project.title || "未命名小說")}</h3>
             <div class="continue-grid">
-              <div class="continue-stat"><b>題材</b>${esc(project.genre || "尚未設定")}</div>
-              <div class="continue-stat"><b>最新分卷</b>${esc(latestVolume?.title || "尚未建立分卷")}</div>
-              <div class="continue-stat"><b>最新章節</b>${esc(latest?.title || "尚未建立章節")}</div>
-              <div class="continue-stat"><b>目前章數</b>${chapters.length}</div>
+              <div class="continue-stat"><b>最近作品名稱</b>${esc(project.title || "未命名小說")}</div>
+              <div class="continue-stat"><b>最近編輯時間</b>${recentEditedAt ? new Date(recentEditedAt).toLocaleString("zh-TW") : "未知"}</div>
+              <div class="continue-stat"><b>目前章節名稱</b>${esc(latest?.title || "尚未建立章節")}</div>
+              <div class="continue-stat"><b>目前章數</b>${chapters.length || project.currentChapter || 0}</div>
               <div class="continue-stat"><b>總字數</b>${fmt(project.totalWords || 0)}</div>
-              <div class="continue-stat"><b>目標字數</b>${targetWords ? fmt(targetWords) : "尚未設定"}</div>
-              <div class="continue-stat"><b>全書完成</b>${esc(bookPct)}</div>
-              <div class="continue-stat"><b>最新章節字數</b>${latest ? fmt(latest.wordCount || 0) : "0字"}</div>
-              <div class="continue-stat"><b>章節完成</b>${esc(chapterPct)}</div>
-              <div class="continue-stat"><b>寫作進度</b>${esc(progress)}</div>
-              <div class="continue-stat"><b>最後編輯時間</b>${project.updatedAt ? new Date(project.updatedAt).toLocaleString("zh-TW") : "未知"}</div>
-              <div class="continue-stat"><b>最後存檔時間</b>${latest?.lastSavedAt ? new Date(latest.lastSavedAt).toLocaleString("zh-TW") : "尚未儲存"}</div>
-              <div class="continue-stat"><b>自動存檔狀態</b>${UI.saving ? "儲存中" : "已就緒"}</div>
+              <div class="continue-stat"><b>最後存檔時間</b>${latestSavedAt ? new Date(latestSavedAt).toLocaleString("zh-TW") : "尚未儲存"}</div>
             </div>
             <div class="bar">
               <button class="btn green" onclick="Phase1Novel.openLatestForWriting()">繼續寫作</button>
-              <button onclick="Phase1Novel.readPreviousChapter('${project.id}')">閱讀上一章</button>
+              <button onclick="Phase1Novel.readProject('${project.id}')">閱讀作品</button>
               <button onclick="Phase1Novel.focusManager('${project.id}')">作品管理</button>
-              <button onclick="Phase1Novel.focusProjectSettings('${project.id}')">作品設定</button>
-              <button onclick="Phase1Novel.showNewWork()">建立新作品</button>
             </div>
           </div>
         </div>
       `;
     } catch (error) {
-      box.innerHTML = `<h2>繼續上次創作</h2><div class="warning-box">作品資料讀取異常：${esc(error.message || error)}。請到「我的作品」檢查或匯入備份。</div>`;
+      console.warn("[phase1] recent project read failed", error);
+      box.innerHTML = `<h2>繼續上次創作</h2><div class="warning-box">無法讀取最近作品，但原有作品資料不會被刪除。請前往作品存檔槽重新載入。</div>`;
     }
   }
 
@@ -688,7 +683,7 @@
   }
 
   async function openLatestForWriting() {
-    const rawProject = await NovelDB.latestProject();
+    const rawProject = await findRecentProject();
     if (!rawProject) return showNewWork();
     const project = normalizeProject(rawProject);
     UI.projectId = project.id;
@@ -922,7 +917,7 @@
       UI.lastSaveAt = now;
       updateSaveStatus("已儲存", textTime());
     } catch (error) {
-      updateSaveStatus("儲存失敗", `${error.message || String(error)}。原文已保留，請按「手動儲存」重試。`);
+      updateSaveStatus("儲存失敗", `${error.message || String(error)}。原文已保留，請按「儲存目前作品」重試。`);
     } finally {
       UI.saving = false;
       await loadLists();
