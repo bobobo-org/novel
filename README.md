@@ -1,38 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 諸天萬界小說生成系統
 
-## Getting Started
+這個 repo 是「諸天萬界小說生成系統」的部署版專案。首頁使用 Next.js，完整離線平台版放在 `public/legacy/novel-system.html`，可直接由網站入口開啟。
 
-First, run the development server:
+## 目前版本
+
+- 版本：v5.9.1 閉端 AI 多章批量操作章節號修正版
+- 入口：`/legacy/novel-system.html`
+- 已合併功能：Explore、快速創作、互動故事、ChatGPT 接力、小型閉端 AI、章節草稿生成、草稿迭代、長程一致性守護、版本分支、多章批量操作
+
+## 本地開發
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+開啟 `http://localhost:3000`，再點「開啟 v5.9.1 完整系統」。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 建置檢查
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+每次修改後建議先跑建置，再 commit 到 `main`。
 
-To learn more about Next.js, take a look at the following resources:
+## 部署
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`.github/workflows/deploy.yml` 會在 push 到 `main` 時執行 Vercel 部署。GitHub repository secrets 需要設定：
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
 
-## Deploy on Vercel
+若之後要接 Supabase 管理流程，可另外設定：
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `SUPABASE_ACCESS_TOKEN`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+請不要把任何 token、API key、密碼或 service role key commit 進 repo。若密鑰曾經貼在聊天或公開地方，建議到 Vercel / Supabase 後台重新產生並撤銷舊密鑰。
 
-<!-- auto-commit watcher test 14:36:10 -->
+## 維護流程
+
+1. 在本地修改功能。
+2. 執行 `npm run build`。
+3. `git add`、`git commit`。
+4. push 到 `main`。
+5. GitHub Actions 自動部署到 Vercel。
