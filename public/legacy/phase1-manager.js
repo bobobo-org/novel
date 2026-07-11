@@ -6,8 +6,11 @@
     volumeId: "",
     chapterId: "",
     autosaveTimer: null,
+    positionTimer: null,
     saving: false,
     pendingDraft: null,
+    lastRestore: null,
+    lastSaveAt: "",
     projects: [],
     volumes: [],
     chapters: []
@@ -16,6 +19,118 @@
   const $ = (id) => document.getElementById(id);
   const textTime = () => new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
   const esc = (text) => String(text ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
+  const clamp = (num, min, max) => Math.max(min, Math.min(max, Number(num) || 0));
+  const pct = (value, target) => target ? `${Math.min(100, Math.round((value / target) * 100))}%` : "尚未設定";
+  const fmt = (num) => `${Number(num || 0).toLocaleString("zh-TW")}字`;
+  const todayKey = () => new Date().toISOString().slice(0, 10);
+  const stageLabels = { opening: "開篇", development: "發展期", midpoint: "中段轉折", climax: "高潮", ending: "結局", unset: "尚未設定" };
+  const chapterStatusLabels = { not_started: "尚未開始", draft: "草稿中", revision: "待修訂", done: "已完成", published: "已發布" };
+
+  function normalizeProject(project = {}) {
+    return {
+      ...project,
+      targetWords: project.targetWords ?? null,
+      expectedChapters: project.expectedChapters ?? null,
+      storyStage: project.storyStage || "development"
+    };
+  }
+
+  function normalizeChapter(chapter = {}) {
+    const content = chapter.content || "";
+    const wordCount = chapter.wordCount ?? NovelDB.words(content);
+    return {
+      ...chapter,
+      wordCount,
+      chapterTargetWords: Number(chapter.chapterTargetWords || 3000),
+      status: chapter.status || (wordCount ? "draft" : "not_started"),
+      goal: chapter.goal || "",
+      lastCursorPosition: Number.isFinite(Number(chapter.lastCursorPosition)) ? Number(chapter.lastCursorPosition) : content.length,
+      lastScrollPosition: Number(chapter.lastScrollPosition || 0),
+      lastSavedAt: chapter.lastSavedAt || chapter.updatedAt || ""
+    };
+  }
+
+  function sortedChapters(chapters = []) {
+    return [...chapters].sort((a, b) => (a.order || a.chapterNumber || 0) - (b.order || b.chapterNumber || 0));
+  }
+
+  function currentEditorPosition() {
+    const content = $("phase1ChapterContent");
+    if (!content) return { cursor: 0, scroll: 0 };
+    return {
+      cursor: clamp(content.selectionStart ?? content.value.length, 0, content.value.length),
+      scroll: Math.max(0, Number(content.scrollTop || 0))
+    };
+  }
+
+  async function getLastOpen() {
+    const saved = await NovelDB.getSetting("last-open");
+    return {
+      lastProjectId: saved?.lastProjectId || localStorage.getItem("novel_last_project_id") || "",
+      lastVolumeId: saved?.lastVolumeId || localStorage.getItem("novel_last_volume_id") || "",
+      lastChapterId: saved?.lastChapterId || localStorage.getItem("novel_last_chapter_id") || "",
+      lastCursorPosition: saved?.lastCursorPosition,
+      lastScrollPosition: saved?.lastScrollPosition,
+      lastOpenedAt: saved?.lastOpenedAt || ""
+    };
+  }
+
+  async function saveLastOpen(extra = {}) {
+    if (!UI.projectId) return;
+    const position = currentEditorPosition();
+    const value = {
+      lastProjectId: UI.projectId,
+      lastVolumeId: UI.volumeId || "",
+      lastChapterId: UI.chapterId || "",
+      lastCursorPosition: extra.lastCursorPosition ?? position.cursor,
+      lastScrollPosition: extra.lastScrollPosition ?? position.scroll,
+      lastOpenedAt: extra.lastOpenedAt || new Date().toISOString()
+    };
+    localStorage.setItem("novel_last_project_id", value.lastProjectId);
+    localStorage.setItem("novel_last_volume_id", value.lastVolumeId);
+    localStorage.setItem("novel_last_chapter_id", value.lastChapterId);
+    await NovelDB.saveSetting("last-open", value);
+  }
+
+  function chooseResumeChapter(project, bundle, lastOpen) {
+    const chapters = sortedChapters(bundle?.chapters || []).map(normalizeChapter);
+    if (!chapters.length) return null;
+    const last = lastOpen?.lastProjectId === project.id ? chapters.find((chapter) => chapter.id === lastOpen.lastChapterId) : null;
+    return last || chapters.find((chapter) => chapter.id === project.currentChapterId) || chapters.at(-1);
+  }
+
+  function findPreviousChapter(chapterId) {
+    const chapters = sortedChapters(UI.chapters);
+    const index = chapters.findIndex((chapter) => chapter.id === chapterId);
+    return index > 0 ? normalizeChapter(chapters[index - 1]) : null;
+  }
+
+  function shortText(text, limit = 160) {
+    const value = String(text || "").replace(/\s+/g, " ").trim();
+    return value ? value.slice(0, limit) : "尚無";
+  }
+
+  async function recordWritingDelta(oldWords, newWords) {
+    const delta = Number(newWords || 0) - Number(oldWords || 0);
+    if (!delta) return;
+    const key = `writing-progress-${todayKey()}`;
+    const row = (await NovelDB.getSetting(key)) || { date: todayKey(), addedWords: 0, netWords: 0 };
+    row.addedWords = Number(row.addedWords || 0) + Math.max(delta, 0);
+    row.netWords = Number(row.netWords || 0) + delta;
+    row.updatedAt = new Date().toISOString();
+    await NovelDB.saveSetting(key, row);
+  }
+
+  async function readWritingWindow(days = 7) {
+    const rows = [];
+    for (let index = days - 1; index >= 0; index -= 1) {
+      const date = new Date();
+      date.setDate(date.getDate() - index);
+      const key = date.toISOString().slice(0, 10);
+      rows.push((await NovelDB.getSetting(`writing-progress-${key}`)) || { date: key, addedWords: 0, netWords: 0 });
+    }
+    return rows;
+  }
 
   function getLegacyState() {
     try {
@@ -162,7 +277,7 @@
         <div class="phase1-card phase1-editor-card">
           <h3>章節正文</h3>
           <input id="phase1ChapterTitle" placeholder="章節標題" oninput="Phase1Novel.scheduleSave()">
-          <textarea id="phase1ChapterContent" placeholder="在這裡寫正文，輸入後 1 秒自動存檔。" oninput="Phase1Novel.scheduleSave()"></textarea>
+          <textarea id="phase1ChapterContent" placeholder="在這裡寫正文，輸入後 1 秒自動存檔。" oninput="Phase1Novel.scheduleSave()" onkeyup="Phase1Novel.capturePosition()" onclick="Phase1Novel.capturePosition()" onscroll="Phase1Novel.capturePosition()"></textarea>
           <div class="bar">
             <button class="btn green" onclick="Phase1Novel.saveCurrentChapter('manual')">手動儲存</button>
             <button onclick="Phase1Novel.showVersions()">版本列表</button>
@@ -170,6 +285,7 @@
           </div>
           <div id="phase1SaveStatus" class="notice">尚未儲存</div>
         </div>
+        <div class="phase1-card phase1-progress-card" id="phase1ProgressPanel"></div>
       </div>
       <div class="phase1-grid hidden" id="phase1AssistTools">
         <div class="phase1-card">
@@ -260,6 +376,28 @@
     if (exportButton) exportButton.textContent = "我的作品";
   }
 
+  function bindPhase1NavigationGuard() {
+    if (document.body.dataset.phase1NavGuard === "1") return;
+    document.body.dataset.phase1NavGuard = "1";
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      const label = button.textContent.trim();
+      const isPrimaryNav = button.closest(".nav") || button.closest(".bottomNav") || button.id === "phase1NewWorkNavButton";
+      if (!isPrimaryNav) return;
+      if (label === "繼續上次創作") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openLatestForWriting();
+      }
+      if (label === "建立新作品") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        showNewWork();
+      }
+    }, true);
+  }
+
   function toggleAdvanced() {
     document.body.classList.toggle("phase1-show-advanced");
     if (document.body.classList.contains("phase1-show-advanced")) showSection("phase1UtilityTools");
@@ -267,16 +405,23 @@
   }
 
   async function loadLists() {
-    UI.projects = (await NovelDB.getAll("projects")).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-    if (!UI.projectId) UI.projectId = localStorage.getItem("novel_last_project_id") || UI.projects[0]?.id || "";
+    const lastOpen = await getLastOpen();
+    UI.projects = (await NovelDB.getAll("projects")).map(normalizeProject).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+    if (!UI.projectId) UI.projectId = lastOpen.lastProjectId || UI.projects[0]?.id || "";
     if (UI.projectId) {
       UI.volumes = (await NovelDB.getByIndex("volumes", "projectId", UI.projectId)).sort((a, b) => a.order - b.order);
       if (!UI.volumes.length) UI.volumes = [await NovelDB.defaultVolume(UI.projectId)];
-      if (!UI.volumeId || !UI.volumes.some((volume) => volume.id === UI.volumeId)) UI.volumeId = UI.volumes[0]?.id || "";
-      UI.chapters = (await NovelDB.getByIndex("chapters", "projectId", UI.projectId)).sort((a, b) => (a.order || 0) - (b.order || 0));
+      if (!UI.volumeId || !UI.volumes.some((volume) => volume.id === UI.volumeId)) {
+        const savedVolume = lastOpen.lastProjectId === UI.projectId ? UI.volumes.find((volume) => volume.id === lastOpen.lastVolumeId) : null;
+        UI.volumeId = savedVolume?.id || UI.volumes[0]?.id || "";
+      }
+      UI.chapters = sortedChapters(await NovelDB.getByIndex("chapters", "projectId", UI.projectId)).map(normalizeChapter);
       if (UI.volumeId) {
         const inVolume = UI.chapters.filter((chapter) => chapter.volumeId === UI.volumeId);
-        if (!UI.chapterId || !inVolume.some((chapter) => chapter.id === UI.chapterId)) UI.chapterId = inVolume[0]?.id || UI.chapters[0]?.id || "";
+        if (!UI.chapterId || !inVolume.some((chapter) => chapter.id === UI.chapterId)) {
+          const resume = lastOpen.lastProjectId === UI.projectId ? inVolume.find((chapter) => chapter.id === lastOpen.lastChapterId) : null;
+          UI.chapterId = resume?.id || inVolume[0]?.id || UI.chapters[0]?.id || "";
+        }
       }
     } else {
       UI.volumes = [];
@@ -312,8 +457,8 @@
     const box = $("phase1ContinueCard");
     if (!box) return;
     try {
-      const project = await NovelDB.latestProject();
-      if (!project) {
+      const rawProject = await NovelDB.latestProject();
+      if (!rawProject) {
         box.innerHTML = `
           <div class="phase1-continue-layout">
             <div>
@@ -324,27 +469,51 @@
           </div>`;
         return;
       }
+      const project = normalizeProject(rawProject);
       const bundle = await NovelDB.listProjectBundle(project.id);
       if (!bundle) throw new Error("作品資料讀取失敗。");
-      const latest = bundle.chapters.at(-1);
-      const progress = project.status === "finished" ? "已完結" : bundle.chapters.length ? `連載中｜第 ${bundle.chapters.length} 章` : "尚未建立章節";
+      const lastOpen = await getLastOpen();
+      const chapters = sortedChapters(bundle.chapters).map(normalizeChapter);
+      const latest = chooseResumeChapter(project, bundle, lastOpen);
+      const latestVolume = bundle.volumes.find((volume) => volume.id === latest?.volumeId) || bundle.volumes.find((volume) => volume.id === project.currentVolumeId);
+      const targetWords = Number(project.targetWords || 0);
+      const bookPct = targetWords ? pct(project.totalWords || 0, targetWords) : "尚未設定全書字數目標";
+      const chapterTarget = latest?.chapterTargetWords || 3000;
+      const chapterPct = latest ? pct(latest.wordCount || 0, chapterTarget) : "尚未建立章節";
+      const progress = project.status === "finished" ? "已完結" : chapters.length ? `${stageLabels[project.storyStage] || "發展期"}｜第 ${chapters.length} 章` : "尚未建立章節";
+      const cover = project.coverText || String(project.title || "書").trim().slice(0, 2);
       box.innerHTML = `
         <div class="phase1-continue-layout">
           <div class="phase1-continue-main">
             <p class="phase1-eyebrow">最近編輯作品</p>
-            <h2>繼續上次創作</h2>
-            <h3>${esc(project.title || "未命名小說")}</h3>
+            <div class="phase1-continue-title">
+              <span class="phase1-text-cover" aria-label="文字封面">${esc(cover || "書")}</span>
+              <div>
+                <h2>繼續上次創作</h2>
+                <h3>${esc(project.title || "未命名小說")}</h3>
+              </div>
+            </div>
             <div class="continue-grid">
-              <div class="continue-stat"><b>最近編輯時間</b>${project.updatedAt ? new Date(project.updatedAt).toLocaleString() : "未知"}</div>
-              <div class="continue-stat"><b>最新章節名稱</b>${esc(latest?.title || "尚未建立章節")}</div>
-              <div class="continue-stat"><b>目前章數</b>${bundle.chapters.length}</div>
-              <div class="continue-stat"><b>總字數</b>${project.totalWords || 0}</div>
+              <div class="continue-stat"><b>題材</b>${esc(project.genre || "尚未設定")}</div>
+              <div class="continue-stat"><b>最新分卷</b>${esc(latestVolume?.title || "尚未建立分卷")}</div>
+              <div class="continue-stat"><b>最新章節</b>${esc(latest?.title || "尚未建立章節")}</div>
+              <div class="continue-stat"><b>目前章數</b>${chapters.length}</div>
+              <div class="continue-stat"><b>總字數</b>${fmt(project.totalWords || 0)}</div>
+              <div class="continue-stat"><b>目標字數</b>${targetWords ? fmt(targetWords) : "尚未設定"}</div>
+              <div class="continue-stat"><b>全書完成</b>${esc(bookPct)}</div>
+              <div class="continue-stat"><b>最新章節字數</b>${latest ? fmt(latest.wordCount || 0) : "0字"}</div>
+              <div class="continue-stat"><b>章節完成</b>${esc(chapterPct)}</div>
               <div class="continue-stat"><b>寫作進度</b>${esc(progress)}</div>
+              <div class="continue-stat"><b>最後編輯時間</b>${project.updatedAt ? new Date(project.updatedAt).toLocaleString("zh-TW") : "未知"}</div>
+              <div class="continue-stat"><b>最後存檔時間</b>${latest?.lastSavedAt ? new Date(latest.lastSavedAt).toLocaleString("zh-TW") : "尚未儲存"}</div>
+              <div class="continue-stat"><b>自動存檔狀態</b>${UI.saving ? "儲存中" : "已就緒"}</div>
             </div>
             <div class="bar">
               <button class="btn green" onclick="Phase1Novel.openLatestForWriting()">繼續寫作</button>
-              <button onclick="Phase1Novel.readProject('${project.id}')">閱讀全文</button>
+              <button onclick="Phase1Novel.readPreviousChapter('${project.id}')">閱讀上一章</button>
               <button onclick="Phase1Novel.focusManager('${project.id}')">作品管理</button>
+              <button onclick="Phase1Novel.focusProjectSettings('${project.id}')">作品設定</button>
+              <button onclick="Phase1Novel.showNewWork()">建立新作品</button>
             </div>
           </div>
         </div>
@@ -354,14 +523,93 @@
     }
   }
 
+  async function renderProgressPanel() {
+    const panel = $("phase1ProgressPanel");
+    if (!panel) return;
+    const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    if (!project?.id || !chapter?.id) {
+      panel.innerHTML = `<h3>寫作進度</h3><p class="muted">尚未選擇作品或章節。</p>`;
+      return;
+    }
+    const previous = findPreviousChapter(chapter.id);
+    const targetWords = Number(project.targetWords || 0);
+    const chapterTarget = Number(chapter.chapterTargetWords || 3000);
+    const weekly = await readWritingWindow(7);
+    const today = weekly.at(-1) || { addedWords: 0, netWords: 0 };
+    const weekAdded = weekly.reduce((sum, row) => sum + Number(row.addedWords || 0), 0);
+    const weekNet = weekly.reduce((sum, row) => sum + Number(row.netWords || 0), 0);
+    const bookPercent = targetWords ? Math.min(100, Math.round(((project.totalWords || 0) / targetWords) * 100)) : 0;
+    const chapterPercent = chapterTarget ? Math.min(100, Math.round(((chapter.wordCount || 0) / chapterTarget) * 100)) : 0;
+    panel.innerHTML = `
+      <h3>寫作進度</h3>
+      <div class="phase1-progress-meta">
+        <label>全書目標字數</label>
+        <input id="phase1TargetWords" type="number" min="0" placeholder="尚未設定" value="${targetWords || ""}">
+        <label>預計總章數</label>
+        <input id="phase1ExpectedChapters" type="number" min="0" placeholder="可留空" value="${project.expectedChapters || ""}">
+        <label>目前故事階段</label>
+        <select id="phase1StoryStage">
+          ${Object.entries(stageLabels).map(([value, label]) => `<option value="${value}" ${value === project.storyStage ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <label>本章目標字數</label>
+        <input id="phase1ChapterTargetWords" type="number" min="500" value="${chapterTarget}">
+        <label>章節狀態</label>
+        <select id="phase1ChapterStatus">
+          ${Object.entries(chapterStatusLabels).map(([value, label]) => `<option value="${value}" ${value === chapter.status ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <label>本章目標</label>
+        <textarea id="phase1ChapterGoal" placeholder="例如：讓主角做出選擇，推進反派壓迫。">${esc(chapter.goal || "")}</textarea>
+        <button onclick="Phase1Novel.saveProgressSettings()">儲存進度設定</button>
+      </div>
+      <div class="phase1-progress-block">
+        <b>全書完成度</b>
+        <span>${fmt(project.totalWords || 0)} / ${targetWords ? fmt(targetWords) : "尚未設定全書字數目標"}</span>
+        <div class="phase1-progress-meter"><i style="width:${bookPercent}%"></i></div>
+        <small>${targetWords ? `${bookPercent}%` : "可在上方設定全書字數目標"}｜已完成 ${UI.chapters.length} 章${project.expectedChapters ? ` / 預計 ${project.expectedChapters} 章` : ""}</small>
+      </div>
+      <div class="phase1-progress-block">
+        <b>章節完成度</b>
+        <span>${fmt(chapter.wordCount || 0)} / ${fmt(chapterTarget)}</span>
+        <div class="phase1-progress-meter"><i style="width:${chapterPercent}%"></i></div>
+        <small>${chapterPercent}%｜${chapterStatusLabels[chapter.status] || "草稿中"}</small>
+      </div>
+      <div class="continue-grid phase1-progress-stats">
+        <div class="continue-stat"><b>今日新增</b>${fmt(today.addedWords)}</div>
+        <div class="continue-stat"><b>今日淨增加</b>${fmt(today.netWords)}</div>
+        <div class="continue-stat"><b>本週新增</b>${fmt(weekAdded)}</div>
+        <div class="continue-stat"><b>本週淨增加</b>${fmt(weekNet)}</div>
+      </div>
+      <div class="phase1-context-box">
+        <b>上一章摘要</b>
+        <p>${esc(previous?.summary || shortText(previous?.content) || "沒有上一章")}</p>
+        <b>本章未完成狀態</b>
+        <p>${chapter.status === "done" || chapter.status === "published" ? "此章已標記完成。" : `尚未完成，距離本章目標約 ${fmt(Math.max(0, chapterTarget - (chapter.wordCount || 0)))}`}</p>
+        <b>最後存檔時間</b>
+        <p>${chapter.lastSavedAt ? new Date(chapter.lastSavedAt).toLocaleString("zh-TW") : "尚未儲存"}</p>
+      </div>
+    `;
+  }
+
   async function renderEditor() {
     const title = $("phase1ChapterTitle");
     const content = $("phase1ChapterContent");
     if (!title || !content) return;
-    const chapter = UI.chapters.find((item) => item.id === UI.chapterId);
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
     title.value = chapter?.title || "";
     content.value = chapter?.content || "";
+    if (chapter?.id && UI.lastRestore?.chapterId === chapter.id) {
+      const cursor = clamp(UI.lastRestore.cursor ?? chapter.lastCursorPosition, 0, content.value.length);
+      const scroll = Math.max(0, Number((UI.lastRestore.scroll ?? chapter.lastScrollPosition) || 0));
+      requestAnimationFrame(() => {
+        content.focus();
+        content.setSelectionRange(cursor, cursor);
+        content.scrollTop = scroll;
+      });
+      UI.lastRestore = null;
+    }
     updateSaveStatus(chapter ? "已載入" : "尚未選擇章節", chapter ? `最後更新 ${new Date(chapter.updatedAt).toLocaleTimeString("zh-TW")}` : "");
+    await renderProgressPanel();
     if (UI.projectId) await syncLegacyFromProject(UI.projectId, UI.chapterId);
   }
 
@@ -387,6 +635,9 @@
       style: $("styleMode")?.value || "",
       status: "writing",
       totalWords: 0,
+      targetWords: null,
+      expectedChapters: null,
+      storyStage: "development",
       currentVolumeId: "",
       currentChapterId: "",
       createdAt: NovelDB.now(),
@@ -400,6 +651,7 @@
     UI.chapterId = "";
     UI.chapters = [];
     await createChapter("第一章", "");
+    await saveLastOpen({ lastCursorPosition: 0, lastScrollPosition: 0 });
     await refresh();
   }
 
@@ -430,25 +682,37 @@
     UI.volumeId = "";
     UI.chapterId = "";
     localStorage.setItem("novel_last_project_id", id);
+    await saveLastOpen();
     await refresh();
     if (typeof showView === "function") showView("creation");
   }
 
   async function openLatestForWriting() {
-    const project = await NovelDB.latestProject();
-    if (!project) return showNewWork();
+    const rawProject = await NovelDB.latestProject();
+    if (!rawProject) return showNewWork();
+    const project = normalizeProject(rawProject);
     UI.projectId = project.id;
     const bundle = await NovelDB.listProjectBundle(project.id);
-    const latest = bundle?.chapters?.at(-1);
+    const lastOpen = await getLastOpen();
+    const latest = chooseResumeChapter(project, bundle, lastOpen);
     UI.volumeId = latest?.volumeId || project.currentVolumeId || "";
     UI.chapterId = latest?.id || project.currentChapterId || "";
+    UI.lastRestore = latest ? {
+      chapterId: latest.id,
+      cursor: lastOpen.lastProjectId === project.id && lastOpen.lastChapterId === latest.id ? lastOpen.lastCursorPosition : latest.lastCursorPosition,
+      scroll: lastOpen.lastProjectId === project.id && lastOpen.lastChapterId === latest.id ? lastOpen.lastScrollPosition : latest.lastScrollPosition
+    } : null;
+    await saveLastOpen({ lastCursorPosition: UI.lastRestore?.cursor || 0, lastScrollPosition: UI.lastRestore?.scroll || 0 });
     await refresh();
     showSection("phase1Manager");
     showSection("phase1AssistTools");
     hideSection("phase1NewWorkArea");
     hideSection("phase1NewWorkIntro");
     hideSection("phase1MyWorks");
-    $("phase1ChapterContent")?.focus();
+    if (!latest) {
+      notify("此作品尚未建立章節，請先建立第一章。");
+      $("phase1NewChapterTitleInput")?.focus();
+    }
   }
 
   async function createVolume() {
@@ -492,6 +756,7 @@
     await saveCurrentChapter("switch-volume", false);
     UI.volumeId = id;
     UI.chapterId = "";
+    await saveLastOpen();
     await refresh();
   }
 
@@ -512,6 +777,12 @@
       summary: "",
       hook: "",
       wordCount: NovelDB.words(defaultContent || ""),
+      chapterTargetWords: 3000,
+      status: defaultContent ? "draft" : "not_started",
+      goal: "",
+      lastCursorPosition: NovelDB.words(defaultContent || "") ? (defaultContent || "").length : 0,
+      lastScrollPosition: 0,
+      lastSavedAt: NovelDB.now(),
       order,
       chapterNumber: order,
       createdAt: NovelDB.now(),
@@ -520,6 +791,7 @@
     });
     UI.chapterId = chapter.id;
     await updateProjectTotals(UI.projectId);
+    await saveLastOpen({ lastCursorPosition: chapter.lastCursorPosition, lastScrollPosition: 0 });
     await refresh();
     return chapter;
   }
@@ -528,6 +800,10 @@
     await saveCurrentChapter("switch-chapter", false);
     UI.chapterId = id;
     localStorage.setItem("novel_last_chapter_id", id);
+    const chapter = UI.chapters.find((item) => item.id === id);
+    UI.volumeId = chapter?.volumeId || UI.volumeId;
+    UI.lastRestore = chapter ? { chapterId: id, cursor: chapter.lastCursorPosition, scroll: chapter.lastScrollPosition } : null;
+    await saveLastOpen({ lastCursorPosition: UI.lastRestore?.cursor || 0, lastScrollPosition: UI.lastRestore?.scroll || 0 });
     await refresh();
   }
 
@@ -572,9 +848,9 @@
   }
 
   async function updateProjectTotals(projectId) {
-    const project = await NovelDB.get("projects", projectId);
-    if (!project) return;
-    const chapters = (await NovelDB.getByIndex("chapters", "projectId", projectId)).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const project = normalizeProject(await NovelDB.get("projects", projectId));
+    if (!project.id) return;
+    const chapters = sortedChapters(await NovelDB.getByIndex("chapters", "projectId", projectId)).map(normalizeChapter);
     const current = chapters.find((chapter) => chapter.id === UI.chapterId) || chapters.at(-1);
     const story = chapters.map((chapter) => chapter.content);
     await NovelDB.put("projects", {
@@ -588,9 +864,21 @@
     });
   }
 
+  async function capturePosition() {
+    if (!UI.chapterId) return;
+    const position = currentEditorPosition();
+    localStorage.setItem("novel_last_project_id", UI.projectId || "");
+    localStorage.setItem("novel_last_volume_id", UI.volumeId || "");
+    localStorage.setItem("novel_last_chapter_id", UI.chapterId || "");
+    clearTimeout(UI.positionTimer);
+    UI.positionTimer = setTimeout(() => {
+      saveLastOpen({ lastCursorPosition: position.cursor, lastScrollPosition: position.scroll }).catch((error) => console.warn("[phase1] position save failed", error));
+    }, 350);
+  }
+
   function scheduleSave() {
     clearTimeout(UI.autosaveTimer);
-    updateSaveStatus("儲存中");
+    updateSaveStatus("尚未儲存");
     UI.autosaveTimer = setTimeout(() => saveCurrentChapter("auto"), 1000);
   }
 
@@ -600,34 +888,100 @@
     if (!UI.chapterId || !titleInput || !contentInput || UI.saving) return;
     UI.saving = true;
     try {
-      const old = await NovelDB.get("chapters", UI.chapterId);
-      if (!old) return;
+      updateSaveStatus("儲存中");
+      const old = normalizeChapter(await NovelDB.get("chapters", UI.chapterId));
+      if (!old.id) return;
       if (makeVersion) {
         const loaded = await NovelDB.loadProject(UI.projectId);
         await NovelDB.createVersion(UI.projectId, reason === "manual" ? "手動儲存前快照" : "AI改寫前快照", loaded, { reason });
       }
       const content = contentInput.value;
+      const wordCount = NovelDB.words(content);
+      const position = currentEditorPosition();
+      const now = NovelDB.now();
+      await recordWritingDelta(old.wordCount || 0, wordCount);
       await NovelDB.put("chapters", {
         ...old,
         title: titleInput.value.trim() || old.title,
         content,
         summary: content.replace(/\s+/g, " ").slice(0, 180),
         hook: content.slice(-180),
-        wordCount: NovelDB.words(content),
-        updatedAt: NovelDB.now(),
+        wordCount,
+        chapterTargetWords: Number($("phase1ChapterTargetWords")?.value || old.chapterTargetWords || 3000),
+        status: $("phase1ChapterStatus")?.value || old.status || (wordCount ? "draft" : "not_started"),
+        goal: $("phase1ChapterGoal")?.value.trim() || old.goal || "",
+        lastCursorPosition: position.cursor,
+        lastScrollPosition: position.scroll,
+        lastSavedAt: now,
+        updatedAt: now,
         version: (old.version || 0) + 1
       });
       await updateProjectTotals(UI.projectId);
+      await saveLastOpen({ lastCursorPosition: position.cursor, lastScrollPosition: position.scroll, lastOpenedAt: now });
       await syncLegacyFromProject(UI.projectId, UI.chapterId);
+      UI.lastSaveAt = now;
       updateSaveStatus("已儲存", textTime());
     } catch (error) {
-      updateSaveStatus("儲存失敗", error.message || String(error));
+      updateSaveStatus("儲存失敗", `${error.message || String(error)}。原文已保留，請按「手動儲存」重試。`);
     } finally {
       UI.saving = false;
       await loadLists();
       renderSelects();
       await renderContinueCard();
+      await renderProgressPanel();
     }
+  }
+
+  async function saveProgressSettings() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先選擇作品與章節。", "error");
+    const targetWords = Number($("phase1TargetWords")?.value || 0) || null;
+    const expectedChapters = Number($("phase1ExpectedChapters")?.value || 0) || null;
+    const storyStage = $("phase1StoryStage")?.value || "development";
+    const chapterTargetWords = Number($("phase1ChapterTargetWords")?.value || 3000);
+    const chapterStatus = $("phase1ChapterStatus")?.value || "draft";
+    const chapterGoal = $("phase1ChapterGoal")?.value.trim() || "";
+    await saveCurrentChapter("progress-settings", false);
+    const project = normalizeProject(await NovelDB.get("projects", UI.projectId));
+    const chapter = normalizeChapter(await NovelDB.get("chapters", UI.chapterId));
+    await NovelDB.put("projects", {
+      ...project,
+      targetWords,
+      expectedChapters,
+      storyStage,
+      updatedAt: NovelDB.now()
+    });
+    await NovelDB.put("chapters", {
+      ...chapter,
+      chapterTargetWords,
+      status: chapterStatus,
+      goal: chapterGoal,
+      updatedAt: NovelDB.now()
+    });
+    await updateProjectTotals(UI.projectId);
+    updateSaveStatus("已儲存", textTime());
+    await refresh();
+  }
+
+  async function readPreviousChapter(projectId = UI.projectId) {
+    await focusManager(projectId);
+    const current = UI.chapters.find((chapter) => chapter.id === UI.chapterId);
+    const previous = current ? findPreviousChapter(current.id) : sortedChapters(UI.chapters).at(-1);
+    if (!previous) return notify("此作品沒有可閱讀的上一章。");
+    const panel = $("phase1VersionPanel");
+    if (!panel) return;
+    panel.classList.remove("hidden");
+    panel.innerHTML = `
+      <h3>閱讀上一章｜${esc(previous.title)}</h3>
+      <div class="out">${esc(previous.content || "此章尚無正文。")}</div>
+      <div class="bar"><button onclick="document.getElementById('phase1VersionPanel').classList.add('hidden')">關閉</button></div>
+    `;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function focusProjectSettings(projectId = UI.projectId) {
+    await focusManager(projectId);
+    $("phase1ProjectTitleInput")?.focus();
+    notify("已打開作品設定。分類包只會在「建立新作品」使用，不會改動既有作品。");
   }
 
   function buildOfflineState() {
@@ -851,7 +1205,7 @@
             <p class="muted">${new Date(project.updatedAt || project.createdAt || Date.now()).toLocaleString()}｜${project.currentChapter || 0}章｜${project.totalWords || 0}字</p>
           </div>
           <div class="bar">
-            <button class="btn green" onclick="Phase1Novel.selectProject('${project.id}')">繼續</button>
+            <button class="btn green" onclick="Phase1Novel.focusManager('${project.id}')">繼續寫作</button>
             <button onclick="Phase1Novel.readProject('${project.id}')">閱讀</button>
             <button onclick="Phase1Novel.focusManager('${project.id}')">管理</button>
           </div>
@@ -893,6 +1247,7 @@
   async function init() {
     ensureShell();
     simplifyNavigation();
+    bindPhase1NavigationGuard();
     patchLegacyExportImport();
     window.addEventListener("online", refreshNetworkStatus);
     window.addEventListener("offline", refreshNetworkStatus);
@@ -900,7 +1255,11 @@
       const title = $("phase1ChapterTitle");
       const content = $("phase1ChapterContent");
       if (UI.chapterId && title && content) {
-        localStorage.setItem("novel_phase1_unload_backup", JSON.stringify({ chapterId: UI.chapterId, title: title.value, content: content.value, savedAt: new Date().toISOString() }));
+        const position = currentEditorPosition();
+        localStorage.setItem("novel_phase1_unload_backup", JSON.stringify({ chapterId: UI.chapterId, title: title.value, content: content.value, cursor: position.cursor, scroll: position.scroll, savedAt: new Date().toISOString() }));
+        localStorage.setItem("novel_last_project_id", UI.projectId || "");
+        localStorage.setItem("novel_last_volume_id", UI.volumeId || "");
+        localStorage.setItem("novel_last_chapter_id", UI.chapterId || "");
       }
     });
     await NovelDB.openDb();
@@ -928,7 +1287,9 @@
     deleteChapter,
     moveChapter,
     scheduleSave,
+    capturePosition,
     saveCurrentChapter,
+    saveProgressSettings,
     previewOfflineContinue,
     regenerateOffline,
     applyOfflineDraft,
@@ -942,7 +1303,9 @@
     exportCurrentProject,
     importBackup,
     readProject,
+    readPreviousChapter,
     focusManager,
+    focusProjectSettings,
     toggleAdvanced,
     runMigration
   };
