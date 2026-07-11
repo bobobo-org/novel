@@ -299,7 +299,6 @@
       if (!project) {
         box.innerHTML = `
           <div class="phase1-continue-layout">
-            <div class="phase1-cover empty">新</div>
             <div>
               <h2>繼續上次創作</h2>
               <p class="muted">尚未建立作品。</p>
@@ -314,7 +313,6 @@
       const progress = project.status === "finished" ? "已完結" : bundle.chapters.length ? `連載中｜第 ${bundle.chapters.length} 章` : "尚未建立章節";
       box.innerHTML = `
         <div class="phase1-continue-layout">
-          <div class="phase1-cover">${esc(String(project.title || "書").slice(0, 2))}</div>
           <div class="phase1-continue-main">
             <p class="phase1-eyebrow">最近編輯作品</p>
             <h2>繼續上次創作</h2>

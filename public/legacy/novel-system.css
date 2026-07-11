@@ -109,8 +109,8 @@
 }
 .phase1-continue-layout {
   display: grid;
-  grid-template-columns: 116px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   align-items: stretch;
 }
 .phase1-cover,
