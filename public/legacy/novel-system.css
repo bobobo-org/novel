@@ -89,6 +89,11 @@
   gap: 14px;
   margin-bottom: 18px;
 }
+.phase1-panel .hidden,
+.phase1-new-work-area.hidden,
+#phase1NewWorkIntro.hidden {
+  display: none !important;
+}
 .phase1-home-card,
 .phase1-card,
 .phase1-warning {
@@ -96,6 +101,85 @@
   border-radius: 8px;
   background: rgba(10, 18, 32, 0.86);
   padding: 14px;
+}
+.phase1-home-card {
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(28, 43, 72, 0.96), rgba(9, 17, 32, 0.96) 58%, rgba(44, 31, 55, 0.92));
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+}
+.phase1-continue-layout {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.phase1-cover,
+.phase1-mini-cover {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(242, 200, 107, 0.42);
+  border-radius: 8px;
+  background: radial-gradient(circle at 30% 20%, #f2c86b, #243652 48%, #0a1220 100%);
+  color: #fff7d7;
+  font-weight: 800;
+}
+.phase1-cover {
+  min-height: 150px;
+  font-size: 34px;
+}
+.phase1-cover.empty {
+  background: #101a2b;
+}
+.phase1-mini-cover {
+  width: 48px;
+  height: 64px;
+  flex: 0 0 auto;
+}
+.phase1-eyebrow {
+  margin: 0 0 4px;
+  color: #f2c86b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.phase1-continue-main h2,
+.phase1-continue-main h3 {
+  margin: 0 0 8px;
+}
+.phase1-entry-grid {
+  display: grid;
+  grid-template-columns: 1.25fr repeat(4, 1fr);
+  gap: 10px;
+}
+.phase1-entry-card {
+  min-height: 86px;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+  background: #0c1423;
+  color: #edf4ff;
+}
+.phase1-entry-card b,
+.phase1-entry-card span {
+  display: block;
+}
+.phase1-entry-card span {
+  margin-top: 6px;
+  color: #9fb0cf;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.phase1-entry-primary {
+  border-color: rgba(86, 198, 139, 0.56);
+  background: #10251d;
+}
+.phase1-work-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 10px 0;
 }
 .phase1-warning {
   color: #ffdca8;
@@ -142,6 +226,14 @@
   width: 100%;
 }
 @media (max-width: 900px) {
+  .phase1-continue-layout,
+  .phase1-entry-grid,
+  .phase1-work-row {
+    grid-template-columns: 1fr;
+  }
+  .phase1-cover {
+    min-height: 96px;
+  }
   .phase1-grid {
     grid-template-columns: 1fr;
   }

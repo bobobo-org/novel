@@ -60,6 +60,20 @@
     }
   }
 
+  function hideSection(id) {
+    const el = $(id);
+    if (!el) return;
+    el.classList.add("hidden");
+    el.style.display = "none";
+  }
+
+  function showSection(id) {
+    const el = $(id);
+    if (!el) return;
+    el.classList.remove("hidden");
+    el.style.display = "";
+  }
+
   async function syncLegacyFromProject(projectId, chapterId = "") {
     const project = await NovelDB.loadProject(projectId);
     if (!project) return;
@@ -87,16 +101,31 @@
     panel.className = "phase1-panel";
     panel.innerHTML = `
       <div class="phase1-home-card" id="phase1ContinueCard"></div>
-      <div class="phase1-toolbar">
-        <button class="btn green" onclick="Phase1Novel.createProject()">建立新作品</button>
-        <button onclick="Phase1Novel.focusManager()">我的作品</button>
-        <button onclick="Phase1Novel.importBackup()">匯入備份</button>
-        <button onclick="Phase1Novel.toggleAdvanced()">進階工具</button>
-        <button onclick="Phase1Novel.runMigration(true)">遷移舊資料</button>
+      <div class="phase1-entry-grid" aria-label="首頁主要入口">
+        <button class="phase1-entry-card phase1-entry-primary" onclick="Phase1Novel.openLatestForWriting()">
+          <b>繼續上次創作</b><span>直接回到最近作品的最新章節</span>
+        </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.showNewWork()">
+          <b>建立新作品</b><span>打開分類包、故事種子與第一章工具</span>
+        </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.showMyWorks()">
+          <b>我的作品</b><span>查看、切換與管理已存作品</span>
+        </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.showInspiration()">
+          <b>靈感探索</b><span>分類書庫、熱門搜尋、角色與文風</span>
+        </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.toggleAdvanced()">
+          <b>進階工具</b><span>顯示原有進階功能與工具頁</span>
+        </button>
       </div>
       <div class="phase1-warning">作品主要儲存在目前瀏覽器。若清除網站資料、使用無痕模式、更換瀏覽器或更換裝置，作品可能消失，請定期下載JSON備份。</div>
+      <div id="phase1MyWorks" class="phase1-card hidden"></div>
       <textarea id="phase1ImportJson" class="hidden" placeholder="貼上 JSON 備份後按「匯入備份」。"></textarea>
-      <div class="phase1-grid" id="phase1Manager">
+      <div class="phase1-toolbar hidden" id="phase1UtilityTools">
+        <button onclick="Phase1Novel.importBackup()">匯入備份</button>
+        <button onclick="Phase1Novel.runMigration(true)">遷移舊資料</button>
+      </div>
+      <div class="phase1-grid hidden" id="phase1Manager">
         <div class="phase1-card">
           <h3>作品 / 分卷 / 章節</h3>
           <label>新作品名稱 / 編輯作品名稱</label>
@@ -142,7 +171,7 @@
           <div id="phase1SaveStatus" class="notice">尚未儲存</div>
         </div>
       </div>
-      <div class="phase1-grid">
+      <div class="phase1-grid hidden" id="phase1AssistTools">
         <div class="phase1-card">
           <h3>離線故事續寫</h3>
           <label>本章目標</label>
@@ -170,6 +199,33 @@
       <div id="phase1VersionPanel" class="phase1-card hidden"></div>
     `;
     creation.insertBefore(panel, creation.children[1] || null);
+    organizeCreationView();
+  }
+
+  function organizeCreationView() {
+    const creation = $("view-creation");
+    if (!creation) return;
+    const oldContinue = $("continuePanel");
+    if (oldContinue) oldContinue.classList.add("hidden");
+    const heading = creation.querySelector("h2");
+    if (heading) heading.textContent = "小說創作首頁";
+    const legacySplit = creation.querySelector(":scope > .split");
+    if (legacySplit && !$("phase1NewWorkArea")) {
+      const intro = document.createElement("div");
+      intro.id = "phase1NewWorkIntro";
+      intro.className = "phase1-card hidden";
+      intro.innerHTML = "<h2>建立新作品</h2><p class=\"muted\">這裡才是分類包、主題大類、故事引擎、主角原型、世界核心、能力核心與故事種子表單。它不會影響既有作品，除非你主動建立章節或保存。</p>";
+      legacySplit.id = "phase1NewWorkArea";
+      legacySplit.classList.add("hidden", "phase1-new-work-area");
+      legacySplit.style.display = "none";
+      legacySplit.parentNode.insertBefore(intro, legacySplit);
+    }
+    hideSection("phase1Manager");
+    hideSection("phase1AssistTools");
+    hideSection("phase1NewWorkIntro");
+    hideSection("phase1NewWorkArea");
+    hideSection("phase1MyWorks");
+    hideSection("phase1UtilityTools");
   }
 
   function simplifyNavigation() {
@@ -186,6 +242,8 @@
 
   function toggleAdvanced() {
     document.body.classList.toggle("phase1-show-advanced");
+    if (document.body.classList.contains("phase1-show-advanced")) showSection("phase1UtilityTools");
+    else hideSection("phase1UtilityTools");
   }
 
   async function loadLists() {
@@ -233,28 +291,49 @@
   async function renderContinueCard() {
     const box = $("phase1ContinueCard");
     if (!box) return;
-    const project = await NovelDB.latestProject();
-    if (!project) {
-      box.innerHTML = `<h2>繼續上次創作</h2><p class="muted">尚未建立作品。</p><button class="btn green" onclick="Phase1Novel.createProject()">建立新作品</button>`;
-      return;
+    try {
+      const project = await NovelDB.latestProject();
+      if (!project) {
+        box.innerHTML = `
+          <div class="phase1-continue-layout">
+            <div class="phase1-cover empty">新</div>
+            <div>
+              <h2>繼續上次創作</h2>
+              <p class="muted">尚未建立作品。</p>
+              <button class="btn green" onclick="Phase1Novel.showNewWork()">建立第一部小說</button>
+            </div>
+          </div>`;
+        return;
+      }
+      const bundle = await NovelDB.listProjectBundle(project.id);
+      if (!bundle) throw new Error("作品資料讀取失敗。");
+      const latest = bundle.chapters.at(-1);
+      const progress = project.status === "finished" ? "已完結" : bundle.chapters.length ? `連載中｜第 ${bundle.chapters.length} 章` : "尚未建立章節";
+      box.innerHTML = `
+        <div class="phase1-continue-layout">
+          <div class="phase1-cover">${esc(String(project.title || "書").slice(0, 2))}</div>
+          <div class="phase1-continue-main">
+            <p class="phase1-eyebrow">最近編輯作品</p>
+            <h2>繼續上次創作</h2>
+            <h3>${esc(project.title || "未命名小說")}</h3>
+            <div class="continue-grid">
+              <div class="continue-stat"><b>最近編輯時間</b>${project.updatedAt ? new Date(project.updatedAt).toLocaleString() : "未知"}</div>
+              <div class="continue-stat"><b>最新章節名稱</b>${esc(latest?.title || "尚未建立章節")}</div>
+              <div class="continue-stat"><b>目前章數</b>${bundle.chapters.length}</div>
+              <div class="continue-stat"><b>總字數</b>${project.totalWords || 0}</div>
+              <div class="continue-stat"><b>寫作進度</b>${esc(progress)}</div>
+            </div>
+            <div class="bar">
+              <button class="btn green" onclick="Phase1Novel.openLatestForWriting()">繼續寫作</button>
+              <button onclick="Phase1Novel.readProject('${project.id}')">閱讀全文</button>
+              <button onclick="Phase1Novel.focusManager('${project.id}')">作品管理</button>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (error) {
+      box.innerHTML = `<h2>繼續上次創作</h2><div class="warning-box">作品資料讀取異常：${esc(error.message || error)}。請到「我的作品」檢查或匯入備份。</div>`;
     }
-    const bundle = await NovelDB.listProjectBundle(project.id);
-    const latest = bundle.chapters.at(-1);
-    box.innerHTML = `
-      <h2>繼續上次創作</h2>
-      <div class="continue-grid">
-        <div class="continue-stat"><b>作品名稱</b>${esc(project.title)}</div>
-        <div class="continue-stat"><b>最近編輯時間</b>${new Date(project.updatedAt).toLocaleString()}</div>
-        <div class="continue-stat"><b>目前章數</b>${bundle.chapters.length}</div>
-        <div class="continue-stat"><b>總字數</b>${project.totalWords || 0}</div>
-        <div class="continue-stat"><b>最新章節</b>${esc(latest?.title || "尚無章節")}</div>
-      </div>
-      <div class="bar">
-        <button class="btn green" onclick="Phase1Novel.selectProject('${project.id}')">繼續寫作</button>
-        <button onclick="Phase1Novel.readProject('${project.id}')">閱讀全文</button>
-        <button onclick="Phase1Novel.focusManager()">作品管理</button>
-      </div>
-    `;
   }
 
   async function renderEditor() {
@@ -335,6 +414,23 @@
     localStorage.setItem("novel_last_project_id", id);
     await refresh();
     if (typeof showView === "function") showView("creation");
+  }
+
+  async function openLatestForWriting() {
+    const project = await NovelDB.latestProject();
+    if (!project) return showNewWork();
+    UI.projectId = project.id;
+    const bundle = await NovelDB.listProjectBundle(project.id);
+    const latest = bundle?.chapters?.at(-1);
+    UI.volumeId = latest?.volumeId || project.currentVolumeId || "";
+    UI.chapterId = latest?.id || project.currentChapterId || "";
+    await refresh();
+    showSection("phase1Manager");
+    showSection("phase1AssistTools");
+    hideSection("phase1NewWorkArea");
+    hideSection("phase1NewWorkIntro");
+    hideSection("phase1MyWorks");
+    $("phase1ChapterContent")?.focus();
   }
 
   async function createVolume() {
@@ -707,8 +803,58 @@
     }
   }
 
-  function focusManager() {
+  function showNewWork() {
     if (typeof showView === "function") showView("creation");
+    showSection("phase1NewWorkIntro");
+    showSection("phase1NewWorkArea");
+    hideSection("phase1Manager");
+    hideSection("phase1AssistTools");
+    hideSection("phase1MyWorks");
+    $("phase1NewWorkIntro")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function showMyWorks() {
+    if (typeof showView === "function") showView("creation");
+    await loadLists();
+    const box = $("phase1MyWorks");
+    if (!box) return;
+    showSection("phase1MyWorks");
+    hideSection("phase1Manager");
+    hideSection("phase1AssistTools");
+    hideSection("phase1NewWorkArea");
+    hideSection("phase1NewWorkIntro");
+    box.innerHTML = `
+      <h2>我的作品</h2>
+      ${UI.projects.length ? UI.projects.map((project) => `
+        <div class="phase1-work-row">
+          <div class="phase1-mini-cover">${esc(String(project.title || "書").slice(0, 2))}</div>
+          <div>
+            <b>${esc(project.title || "未命名小說")}</b>
+            <p class="muted">${new Date(project.updatedAt || project.createdAt || Date.now()).toLocaleString()}｜${project.currentChapter || 0}章｜${project.totalWords || 0}字</p>
+          </div>
+          <div class="bar">
+            <button class="btn green" onclick="Phase1Novel.selectProject('${project.id}')">繼續</button>
+            <button onclick="Phase1Novel.readProject('${project.id}')">閱讀</button>
+            <button onclick="Phase1Novel.focusManager('${project.id}')">管理</button>
+          </div>
+        </div>`).join("") : "<p class='muted'>尚未建立作品。</p><button class='btn green' onclick='Phase1Novel.showNewWork()'>建立第一部小說</button>"}
+    `;
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function showInspiration() {
+    document.body.classList.add("phase1-show-advanced");
+    if (typeof showView === "function") showView("home");
+  }
+
+  async function focusManager(projectId = "") {
+    if (projectId) await selectProject(projectId);
+    if (typeof showView === "function") showView("creation");
+    showSection("phase1Manager");
+    showSection("phase1AssistTools");
+    hideSection("phase1NewWorkArea");
+    hideSection("phase1NewWorkIntro");
+    hideSection("phase1MyWorks");
     $("phase1Manager")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -746,6 +892,10 @@
 
   window.Phase1Novel = {
     refresh,
+    openLatestForWriting,
+    showNewWork,
+    showMyWorks,
+    showInspiration,
     createProject,
     editProject,
     deleteProject,

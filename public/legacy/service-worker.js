@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-system-phase1-20260711-7";
+const CACHE_VERSION = "novel-system-phase1-home-20260711-3";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "./offline.html";
 
