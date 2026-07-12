@@ -23,6 +23,7 @@
     sectionWriting: null,
     sectionCandidate: "",
     combinedChapterPreview: "",
+    storyStateCandidates: [],
     writingMode: "free",
     lastRestore: null,
     lastSaveAt: "",
@@ -201,6 +202,8 @@
     const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
     const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
     const previous = UI.chapterId ? findPreviousChapter(UI.chapterId) : null;
+    const memory = getStoryMemory();
+    const memoryStory = memory.storyState || {};
     const tail = String(chapter.content || "").slice(-1000);
     return {
       project,
@@ -221,7 +224,11 @@
       coreIdea: legacy.coreIdea || project.synopsis || "本章需要繼續推進主線",
       lastText: tail || String(previous?.content || "").slice(-800) || "目前正文尚少，請從本章目標開始推進。",
       previousSummary: previous?.summary || shortText(previous?.content, 220) || "沒有上一章摘要",
-      currentPlan: chapter.goal || ""
+      currentPlan: chapter.goal || "",
+      storyMemory: memory,
+      stateReference: nextChapterReference(memory),
+      previousResult: memoryStory.chapterResult || "",
+      nextHook: memoryStory.nextHook || ""
     };
   }
 
@@ -535,6 +542,7 @@
                   <textarea id="phase1CombinedChapterPreview" placeholder="八段完成後可在這裡預覽完整章節。"></textarea>
                   <div class="bar">
                     <button class="btn green" onclick="Phase1Novel.applyCombinedChapter()">套用為本章正文</button>
+                    <button class="btn gold" onclick="Phase1Novel.prepareStoryStateCandidates()">整理本章故事狀態</button>
                     <button onclick="Phase1Novel.copyCombinedChapter()">複製全文</button>
                     <button onclick="Phase1Novel.saveCombinedAsVersion()">儲存為候選版本</button>
                     <button onclick="Phase1Novel.hideCombinedPreview()">回到分段修改</button>
@@ -561,6 +569,52 @@
               <button class="btn red" onclick="Phase1Novel.discardAiCandidate()">放棄結果</button>
             </div>
           </div>
+        </div>
+        <div class="phase1-card" id="phase1StoryStatePanel">
+          <h3>故事狀態記憶</h3>
+          <p class="muted">每部作品獨立保存。候選變化必須由作者接受後才會寫入，不會改動正文。</p>
+          <div id="phase1NextChapterReference" class="notice">下一章寫作參考：尚未建立故事狀態。</div>
+          <div class="grid2">
+            <div>
+              <h3>當前故事</h3>
+              <div id="phase1StoryCurrent" class="out phase1-small-out"></div>
+            </div>
+            <div>
+              <h3>防錯警告</h3>
+              <div id="phase1StoryWarnings" class="out phase1-small-out"></div>
+            </div>
+          </div>
+          <div class="grid2">
+            <div>
+              <h3>角色狀態</h3>
+              <div id="phase1CharactersState" class="out phase1-small-out"></div>
+              <div class="bar"><button onclick="Phase1Novel.addStoryStateItem('character')">新增角色狀態</button></div>
+            </div>
+            <div>
+              <h3>未解事件</h3>
+              <div id="phase1EventsState" class="out phase1-small-out"></div>
+              <div class="bar"><button onclick="Phase1Novel.addStoryStateItem('event')">新增未解事件</button></div>
+            </div>
+          </div>
+          <div class="grid2">
+            <div>
+              <h3>秘密</h3>
+              <div id="phase1SecretsState" class="out phase1-small-out"></div>
+              <div class="bar"><button onclick="Phase1Novel.addStoryStateItem('secret')">新增秘密</button></div>
+            </div>
+            <div>
+              <h3>道具</h3>
+              <div id="phase1ItemsState" class="out phase1-small-out"></div>
+              <div class="bar"><button onclick="Phase1Novel.addStoryStateItem('item')">新增道具</button></div>
+            </div>
+          </div>
+          <div class="bar">
+            <button class="btn gold" onclick="Phase1Novel.prepareStoryStateCandidates()">整理本章故事狀態</button>
+            <button class="btn green" onclick="Phase1Novel.acceptAllStoryStateCandidates()">全部接受</button>
+            <button onclick="Phase1Novel.ignoreAllStoryStateCandidates()">全部忽略</button>
+            <button class="btn green" onclick="Phase1Novel.saveAcceptedStoryStateCandidates()">儲存確認結果</button>
+          </div>
+          <div id="phase1StoryStateCandidates" class="out phase1-small-out">尚未產生狀態更新候選。</div>
         </div>
         <div class="phase1-card">
           <h3>作品 / 分卷 / 章節</h3>
@@ -1661,7 +1715,7 @@
     const button = $("phase1SectionAiButton");
     if (button) button.disabled = true;
     try {
-      const result = await NovelAIService.generate(prompt);
+      const result = await NovelAIService.generate(`${prompt}\n\n下一章寫作參考：\n${stateReference}`);
       UI.sectionCandidate = result;
       section.selectedMethod = "ai";
       section.status = "drafting";
@@ -1835,6 +1889,421 @@
     notify("已放棄本次組合預覽，段落內容仍保留。");
   }
 
+  function emptyStoryMemory() {
+    return {
+      storyState: { currentChapter: 0, currentTime: "", currentLocation: "", mainConflict: "", chapterResult: "", nextHook: "" },
+      characterStates: [],
+      unresolvedEvents: [],
+      secrets: [],
+      storyItems: [],
+      stateUpdatedAt: ""
+    };
+  }
+
+  function normalizeStoryMemory(raw = {}) {
+    const base = emptyStoryMemory();
+    return {
+      storyState: { ...base.storyState, ...(raw.storyState || {}) },
+      characterStates: Array.isArray(raw.characterStates) ? raw.characterStates : [],
+      unresolvedEvents: Array.isArray(raw.unresolvedEvents) ? raw.unresolvedEvents : [],
+      secrets: Array.isArray(raw.secrets) ? raw.secrets : [],
+      storyItems: Array.isArray(raw.storyItems) ? raw.storyItems : [],
+      stateUpdatedAt: raw.stateUpdatedAt || ""
+    };
+  }
+
+  function currentProject() {
+    return UI.projects.find((item) => item.id === UI.projectId) || {};
+  }
+
+  function getStoryMemory() {
+    return normalizeStoryMemory(currentProject().state || {});
+  }
+
+  async function saveStoryMemory(memory) {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    const project = await NovelDB.get("projects", UI.projectId);
+    if (!project) return notify("找不到目前作品。", "error");
+    const nextMemory = normalizeStoryMemory({ ...memory, stateUpdatedAt: NovelDB.now() });
+    await NovelDB.put("projects", {
+      ...project,
+      state: NovelDB.sanitizeState({ ...(project.state || {}), ...nextMemory }),
+      updatedAt: NovelDB.now()
+    });
+    await loadLists();
+    renderStoryStatePanel();
+  }
+
+  function latestChapterText() {
+    return $("phase1CombinedChapterPreview")?.value.trim()
+      || UI.combinedChapterPreview
+      || buildCombinedChapterText()
+      || $("phase1ChapterContent")?.value
+      || UI.chapters.find((item) => item.id === UI.chapterId)?.content
+      || "";
+  }
+
+  function sectionTextBundle() {
+    return (UI.sectionWriting?.sections || [])
+      .map((section) => section.finalContent || section.draftContent || "")
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  function pickLocation(text) {
+    const match = String(text || "").match(/(?:來到|抵達|留在|站在|回到|進入|轉入|場景轉入|位於|在)([^，。；\n]{2,16})(?:中|裡|內|前|上|旁|。|，|；|\n)/);
+    return match ? match[1].trim() : "";
+  }
+
+  function inferImportance(text) {
+    return /死亡|背叛|真相|黑幕|身份|身分|核心|最終|重大|代價/.test(text) ? "高" : (/疑點|證據|調查|衝突/.test(text) ? "中" : "低");
+  }
+
+  function buildStoryStateCandidates() {
+    const ctx = getModeContext();
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    const chapterNumber = chapter.order || chapter.chapterNumber || UI.chapters.length || 1;
+    const plan = UI.guidedChapterPlan || $("phase1GuidedPlan")?.value || "";
+    const text = [plan, sectionTextBundle(), latestChapterText()].join("\n\n").trim();
+    const tail = shortText(text.slice(-600), 260);
+    const location = pickLocation(text) || getStoryMemory().storyState.currentLocation || ctx.worldCore || "";
+    const hook = (/章尾|懸念|鉤子|下一章|下回/.test(text) ? tail : shortText(chapter.hook || text.slice(-180), 180));
+    const result = shortText(text.slice(-360), 180);
+    const protagonist = ctx.protagonist || "主角";
+    const opponent = ctx.opponent || "對手";
+    const candidates = [];
+    const add = (type, label, data) => candidates.push({ id: NovelDB.safeId("state_candidate"), type, label, data, decision: "pending" });
+
+    add("story", `更新當前故事：地點「${location || "未標明"}」，本章結果「${result}」，下一步懸念「${hook}」。`, {
+      currentChapter: chapterNumber,
+      currentTime: "本章結束後",
+      currentLocation: location,
+      mainConflict: ctx.conflict || "",
+      chapterResult: result,
+      nextHook: hook
+    });
+    add("character", `更新角色狀態：${protagonist} 目標轉為「處理${ctx.conflict || "目前衝突"}」，位置在「${location || "未標明"}」。`, {
+      name: protagonist,
+      currentGoal: `處理${ctx.conflict || "目前衝突"}`,
+      emotion: /失敗|代價|受傷|背叛/.test(text) ? "緊繃" : "警覺",
+      location,
+      condition: /受傷|流血|昏迷|重傷/.test(text) ? "受傷或狀態不穩" : "可行動",
+      alive: !/死亡|身亡|死去/.test(text),
+      knownInfo: shortText(plan || ctx.conflict, 120),
+      lastSeenChapter: chapterNumber
+    });
+    if (opponent && opponent !== protagonist) {
+      add("character", `更新角色狀態：${opponent} 已對主角造成壓力或開始警覺。`, {
+        name: opponent,
+        currentGoal: "壓制主角或維持優勢",
+        emotion: /被揭穿|失敗/.test(text) ? "不安" : "警覺",
+        location: location || "未知",
+        condition: "可行動",
+        alive: true,
+        knownInfo: "已注意到主角的行動",
+        lastSeenChapter: chapterNumber
+      });
+    }
+    if (/失蹤|調包|黑幕|背叛|謎|疑點|倒數|追殺|威脅|未解|陷阱/.test(text)) {
+      add("event", `新增未解事件：${ctx.conflict || "本章留下的衝突"}。`, {
+        eventName: ctx.conflict || "本章留下的衝突",
+        description: tail,
+        createdChapter: chapterNumber,
+        importance: inferImportance(text),
+        status: "未處理"
+      });
+    }
+    if (/解決|揭穿|平息|破局|找到答案|真相大白/.test(text)) {
+      add("resolvedEvent", `標記可能已解決事件：${ctx.conflict || "上一章衝突"}。`, {
+        eventName: ctx.conflict || "上一章衝突",
+        status: "已解決"
+      });
+    }
+    if (/秘密|真相|身份|身分|血脈|內鬼|證據|不能說|隱瞞/.test(text)) {
+      const secretText = shortText(text.match(/(?:秘密|真相|身份|身分|血脈|內鬼|證據)[^。；\n]{0,100}/)?.[0] || "本章出現新的秘密或關鍵資訊", 120);
+      add("secret", `新增秘密：${secretText}。`, {
+        content: secretText,
+        knownBy: [protagonist],
+        isPublic: /公開|曝光|揭露|眾人知道/.test(text),
+        publicChapter: /公開|曝光|揭露|眾人知道/.test(text) ? chapterNumber : null
+      });
+    }
+    if (/公開|曝光|揭露|眾人知道/.test(text)) {
+      add("publicSecret", "標記可能已公開秘密：本章有秘密被公開或曝光。", {
+        content: "本章有秘密被公開或曝光",
+        publicChapter: chapterNumber
+      });
+    }
+    const itemMatch = text.match(/(證據|帳冊|鑰匙|信件|玉佩|令牌|手機|卷軸|道具|武器|戒指)[^。；\n]{0,40}/);
+    if (itemMatch) {
+      add("item", `更新道具：${itemMatch[0]} 目前由 ${protagonist} 或相關角色掌握。`, {
+        itemName: itemMatch[0],
+        holder: protagonist,
+        location,
+        status: "出現或轉移",
+        lastSeenChapter: chapterNumber
+      });
+    }
+    return candidates;
+  }
+
+  async function prepareStoryStateCandidates() {
+    if (!UI.projectId) return notify("請先選擇或建立作品，再整理故事狀態。", "error");
+    UI.storyStateCandidates = buildStoryStateCandidates();
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+    $("phase1StoryStatePanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    notify("已產生故事狀態更新候選，請逐項接受、修改或忽略。");
+  }
+
+  function mergeByName(rows, next, nameKey) {
+    const copy = [...rows];
+    const index = copy.findIndex((row) => String(row[nameKey] || "").trim() === String(next[nameKey] || "").trim());
+    if (index >= 0) copy[index] = { ...copy[index], ...next };
+    else copy.push({ id: NovelDB.safeId(nameKey), ...next });
+    return copy;
+  }
+
+  function applyStoryCandidate(memory, candidate) {
+    const data = candidate.data || {};
+    if (candidate.type === "story") memory.storyState = { ...memory.storyState, ...data };
+    if (candidate.type === "character") memory.characterStates = mergeByName(memory.characterStates, data, "name");
+    if (candidate.type === "event") memory.unresolvedEvents = mergeByName(memory.unresolvedEvents, data, "eventName");
+    if (candidate.type === "resolvedEvent") memory.unresolvedEvents = memory.unresolvedEvents.map((event) => event.eventName === data.eventName ? { ...event, status: "已解決" } : event);
+    if (candidate.type === "secret") memory.secrets = mergeByName(memory.secrets, data, "content");
+    if (candidate.type === "publicSecret") memory.secrets = memory.secrets.map((secret) => String(secret.content || "").includes(String(data.content || "").slice(0, 8)) ? { ...secret, isPublic: true, publicChapter: data.publicChapter } : secret);
+    if (candidate.type === "item") memory.storyItems = mergeByName(memory.storyItems, data, "itemName");
+    return memory;
+  }
+
+  async function decideStoryStateCandidate(index, decision) {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    const candidate = UI.storyStateCandidates[index];
+    if (!candidate) return;
+    candidate.decision = decision;
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+  }
+
+  async function editStoryStateCandidate(index) {
+    const candidate = UI.storyStateCandidates[index];
+    if (!candidate) return;
+    const next = prompt("修改候選文字：", candidate.label || "");
+    if (next === null) return;
+    candidate.label = next.trim() || candidate.label;
+    candidate.decision = "accepted";
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+  }
+
+  async function acceptAllStoryStateCandidates() {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    UI.storyStateCandidates = UI.storyStateCandidates.map((candidate) => ({ ...candidate, decision: "accepted" }));
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+  }
+
+  async function ignoreAllStoryStateCandidates() {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    UI.storyStateCandidates = UI.storyStateCandidates.map((candidate) => ({ ...candidate, decision: "ignored" }));
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+  }
+
+  async function saveAcceptedStoryStateCandidates() {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    let memory = getStoryMemory();
+    UI.storyStateCandidates.filter((candidate) => candidate.decision === "accepted").forEach((candidate) => {
+      memory = applyStoryCandidate(memory, candidate);
+    });
+    await saveStoryMemory(memory);
+    UI.storyStateCandidates = UI.storyStateCandidates.filter((candidate) => candidate.decision === "pending");
+    await NovelDB.saveSetting(`story-state-candidates-${UI.projectId}`, UI.storyStateCandidates);
+    renderStoryStatePanel();
+    notify("故事狀態已儲存，正文未被修改。");
+  }
+
+  function itemSummary(type, row) {
+    if (type === "character") return `${row.name || "未命名"}｜目標：${row.currentGoal || "未設定"}｜情緒：${row.emotion || "未設定"}｜位置：${row.location || "未知"}｜狀況：${row.condition || "未設定"}｜${row.alive === false ? "死亡" : "存活"}｜已知：${row.knownInfo || "無"}｜最後出場：${row.lastSeenChapter || "-"}`;
+    if (type === "event") return `${row.eventName || "未命名事件"}｜${row.status || "未處理"}｜重要度：${row.importance || "中"}｜建立章節：${row.createdChapter || "-"}｜${row.description || ""}`;
+    if (type === "secret") return `${row.content || "未命名秘密"}｜知情：${Array.isArray(row.knownBy) ? row.knownBy.join("、") : (row.knownBy || "未設定")}｜${row.isPublic ? `已公開 第${row.publicChapter || "-"}章` : "未公開"}`;
+    return `${row.itemName || "未命名道具"}｜持有人：${row.holder || "未知"}｜位置：${row.location || "未知"}｜狀態：${row.status || "未設定"}｜最後出現：${row.lastSeenChapter || "-"}`;
+  }
+
+  function renderStateList(boxId, rows, type) {
+    const box = $(boxId);
+    if (!box) return;
+    box.innerHTML = rows.length ? rows.map((row, index) => `
+      <div class="phase1-state-row">
+        <p>${esc(itemSummary(type, row))}</p>
+        <button onclick="Phase1Novel.editStoryStateItem('${type}', ${index})">編輯</button>
+        <button class="btn red" onclick="Phase1Novel.deleteStoryStateItem('${type}', ${index})">刪除</button>
+      </div>
+    `).join("") : "尚未建立資料。";
+  }
+
+  function storyWarnings(memory) {
+    const warnings = [];
+    const latest = latestChapterText();
+    memory.characterStates.forEach((character) => {
+      if (character.alive === false && character.name && latest.includes(character.name)) warnings.push(`已死亡角色「${character.name}」仍出現在最新章節，請確認是否為回憶、誤植或復活設定。`);
+      if (character.previousLocation && character.location && character.previousLocation !== character.location && !/移動|前往|抵達|離開|返回|來到|進入/.test(latest)) warnings.push(`角色「${character.name}」位置由「${character.previousLocation}」變成「${character.location}」，但章節中缺少移動說明。`);
+    });
+    const holders = {};
+    memory.storyItems.forEach((item) => {
+      if (!item.itemName) return;
+      holders[item.itemName] = holders[item.itemName] || new Set();
+      if (item.holder) holders[item.itemName].add(item.holder);
+    });
+    Object.entries(holders).forEach(([name, set]) => {
+      if (set.size > 1) warnings.push(`道具「${name}」同時有多個持有人：${[...set].join("、")}。`);
+    });
+    memory.secrets.forEach((secret) => {
+      if (secret.isPublic && !secret.publicChapter) warnings.push(`秘密「${secret.content}」標示已公開，但沒有公開章節。`);
+      if (!secret.isPublic && secret.publicChapter) warnings.push(`秘密「${secret.content}」已有公開章節，卻仍標示未公開。`);
+    });
+    const eventMap = {};
+    memory.unresolvedEvents.forEach((event) => {
+      const key = event.eventName || "";
+      eventMap[key] = eventMap[key] || new Set();
+      eventMap[key].add(event.status || "未處理");
+    });
+    Object.entries(eventMap).forEach(([name, set]) => {
+      if (set.has("已解決") && (set.has("未處理") || set.has("進行中"))) warnings.push(`事件「${name}」同時出現已解決與未處理/進行中狀態。`);
+    });
+    return warnings;
+  }
+
+  function nextChapterReference(memory) {
+    const protagonist = memory.characterStates[0] || {};
+    const openEvents = memory.unresolvedEvents.filter((event) => event.status !== "已解決" && event.status !== "已放棄").slice(0, 3);
+    const hiddenSecrets = memory.secrets.filter((secret) => !secret.isPublic).slice(0, 3);
+    const items = memory.storyItems.slice(0, 3);
+    return [
+      `主角目前目標：${protagonist.currentGoal || "尚未設定"}`,
+      `主角所在位置：${protagonist.location || memory.storyState.currentLocation || "未知"}`,
+      `主要衝突：${memory.storyState.mainConflict || "尚未設定"}`,
+      `尚未解決事件：${openEvents.map((event) => event.eventName).join("、") || "無"}`,
+      `尚未公開秘密：${hiddenSecrets.map((secret) => secret.content).join("、") || "無"}`,
+      `重要道具持有人：${items.map((item) => `${item.itemName}-${item.holder || "未知"}`).join("、") || "無"}`,
+      `上一章結果：${memory.storyState.chapterResult || "尚未整理"}`,
+      `上一章鉤子：${memory.storyState.nextHook || "尚未整理"}`
+    ].join("\n");
+  }
+
+  function renderStoryStateCandidates() {
+    const box = $("phase1StoryStateCandidates");
+    if (!box) return;
+    box.innerHTML = UI.storyStateCandidates.length ? UI.storyStateCandidates.map((candidate, index) => `
+      <div class="phase1-state-row">
+        <p><b>${esc(candidate.decision === "accepted" ? "已接受" : candidate.decision === "ignored" ? "已忽略" : "待確認")}</b>｜${esc(candidate.label)}</p>
+        <button onclick="Phase1Novel.decideStoryStateCandidate(${index}, 'accepted')">接受</button>
+        <button onclick="Phase1Novel.editStoryStateCandidate(${index})">修改</button>
+        <button onclick="Phase1Novel.decideStoryStateCandidate(${index}, 'ignored')">忽略</button>
+      </div>
+    `).join("") : "尚未產生狀態更新候選。";
+  }
+
+  function renderStoryStatePanel() {
+    const panel = $("phase1StoryStatePanel");
+    if (!panel) return;
+    const memory = getStoryMemory();
+    const current = $("phase1StoryCurrent");
+    if (current) {
+      current.textContent = [
+        `目前章節：第 ${memory.storyState.currentChapter || (UI.chapters.length || 0)} 章`,
+        `目前時間：${memory.storyState.currentTime || "未設定"}`,
+        `目前地點：${memory.storyState.currentLocation || "未設定"}`,
+        `主要衝突：${memory.storyState.mainConflict || "未設定"}`,
+        `本章結果：${memory.storyState.chapterResult || "未整理"}`,
+        `下一步懸念：${memory.storyState.nextHook || "未整理"}`,
+        `最後更新：${memory.stateUpdatedAt ? new Date(memory.stateUpdatedAt).toLocaleString("zh-TW") : "尚未更新"}`
+      ].join("\n");
+    }
+    const reference = $("phase1NextChapterReference");
+    if (reference) reference.textContent = `下一章寫作參考：\n${nextChapterReference(memory)}`;
+    renderStateList("phase1CharactersState", memory.characterStates, "character");
+    renderStateList("phase1EventsState", memory.unresolvedEvents, "event");
+    renderStateList("phase1SecretsState", memory.secrets, "secret");
+    renderStateList("phase1ItemsState", memory.storyItems, "item");
+    const warnings = $("phase1StoryWarnings");
+    if (warnings) warnings.textContent = storyWarnings(memory).join("\n") || "目前沒有明顯衝突。";
+    renderStoryStateCandidates();
+  }
+
+  async function addStoryStateItem(type) {
+    const memory = getStoryMemory();
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    const chapterNumber = chapter.order || chapter.chapterNumber || UI.chapters.length || 1;
+    if (type === "character") {
+      const name = prompt("角色姓名：");
+      if (!name) return;
+      memory.characterStates.push({ id: NovelDB.safeId("character_state"), name, currentGoal: prompt("目前目標：") || "", emotion: prompt("情緒：") || "", location: prompt("所在位置：") || "", condition: prompt("傷勢或身體狀況：") || "", alive: confirm("角色是否存活？按確定=存活，取消=死亡"), knownInfo: prompt("已知資訊：") || "", lastSeenChapter: chapterNumber });
+    }
+    if (type === "event") {
+      const eventName = prompt("事件名稱：");
+      if (!eventName) return;
+      memory.unresolvedEvents.push({ id: NovelDB.safeId("event_state"), eventName, description: prompt("描述：") || "", createdChapter: chapterNumber, importance: prompt("重要度（高/中/低）：") || "中", status: prompt("狀態（未處理/進行中/已解決/已放棄）：") || "未處理" });
+    }
+    if (type === "secret") {
+      const content = prompt("秘密內容：");
+      if (!content) return;
+      memory.secrets.push({ id: NovelDB.safeId("secret_state"), content, knownBy: (prompt("知情角色，用逗號分隔：") || "").split(/[,，]/).map((x) => x.trim()).filter(Boolean), isPublic: false, publicChapter: null });
+    }
+    if (type === "item") {
+      const itemName = prompt("道具名稱：");
+      if (!itemName) return;
+      memory.storyItems.push({ id: NovelDB.safeId("item_state"), itemName, holder: prompt("持有人：") || "", location: prompt("所在位置：") || "", status: prompt("目前狀態：") || "", lastSeenChapter: chapterNumber });
+    }
+    await saveStoryMemory(memory);
+  }
+
+  async function editStoryStateItem(type, index) {
+    const memory = getStoryMemory();
+    const map = { character: "characterStates", event: "unresolvedEvents", secret: "secrets", item: "storyItems" };
+    const list = memory[map[type]];
+    const row = list?.[index];
+    if (!row) return;
+    if (type === "character") {
+      const oldLocation = row.location || "";
+      row.name = prompt("角色姓名：", row.name || "") || row.name;
+      row.currentGoal = prompt("目前目標：", row.currentGoal || "") || row.currentGoal;
+      row.emotion = prompt("情緒：", row.emotion || "") || row.emotion;
+      row.previousLocation = oldLocation;
+      row.location = prompt("所在位置：", row.location || "") || row.location;
+      row.condition = prompt("傷勢或身體狀況：", row.condition || "") || row.condition;
+      row.alive = confirm("角色是否存活？按確定=存活，取消=死亡");
+      row.knownInfo = prompt("已知資訊：", row.knownInfo || "") || row.knownInfo;
+    }
+    if (type === "event") {
+      row.eventName = prompt("事件名稱：", row.eventName || "") || row.eventName;
+      row.description = prompt("描述：", row.description || "") || row.description;
+      row.importance = prompt("重要度（高/中/低）：", row.importance || "中") || row.importance;
+      row.status = prompt("狀態（未處理/進行中/已解決/已放棄）：", row.status || "未處理") || row.status;
+    }
+    if (type === "secret") {
+      row.content = prompt("秘密內容：", row.content || "") || row.content;
+      row.knownBy = (prompt("知情角色，用逗號分隔：", Array.isArray(row.knownBy) ? row.knownBy.join("、") : row.knownBy || "") || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
+      row.isPublic = confirm("是否已公開？按確定=已公開，取消=未公開");
+      row.publicChapter = row.isPublic ? (Number(prompt("公開章節：", row.publicChapter || "")) || row.publicChapter || null) : null;
+    }
+    if (type === "item") {
+      row.itemName = prompt("道具名稱：", row.itemName || "") || row.itemName;
+      row.holder = prompt("持有人：", row.holder || "") || row.holder;
+      row.location = prompt("所在位置：", row.location || "") || row.location;
+      row.status = prompt("目前狀態：", row.status || "") || row.status;
+    }
+    await saveStoryMemory(memory);
+  }
+
+  async function deleteStoryStateItem(type, index) {
+    if (!confirmSafe("確定刪除此故事狀態項目？正文不會被修改。")) return;
+    const memory = getStoryMemory();
+    const map = { character: "characterStates", event: "unresolvedEvents", secret: "secrets", item: "storyItems" };
+    memory[map[type]].splice(index, 1);
+    await saveStoryMemory(memory);
+  }
+
   function renderAiModeStatus() {
     const status = $("phase1AiModeStatus");
     const button = $("phase1AiModeGenerateButton");
@@ -1916,6 +2385,7 @@
     updateSaveStatus(chapter ? "已載入" : "尚未選擇章節", chapter ? `最後更新 ${new Date(chapter.updatedAt).toLocaleTimeString("zh-TW")}` : "");
     await renderProgressPanel();
     renderWritingModePanel();
+    renderStoryStatePanel();
     if (UI.projectId) await syncLegacyFromProject(UI.projectId, UI.chapterId);
   }
 
@@ -1924,6 +2394,7 @@
     await loadLists();
     await loadWritingMode();
     await loadGuidedState();
+    UI.storyStateCandidates = UI.projectId ? ((await NovelDB.getSetting(`story-state-candidates-${UI.projectId}`)) || []) : [];
     renderSelects();
     await renderContinueCard();
     await renderEditor();
@@ -2424,6 +2895,7 @@
       const request = $("phase1AiModeRequest")?.value.trim() || "延續目前章節，保持人物與前文一致，產生下一段可編輯正文。";
       const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
       const previous = findPreviousChapter(UI.chapterId);
+      const stateReference = nextChapterReference(getStoryMemory());
       const prompt = [
         "請產生小說候選正文。只輸出可放入正文的內容，不要覆蓋原文，不要只給大綱。",
         `作品：${UI.projects.find((item) => item.id === UI.projectId)?.title || ""}`,
@@ -2509,6 +2981,8 @@
       coreIdea: project.synopsis || "",
       seed: project.synopsis || "",
       conflictCore: conflict,
+      storyMemory: getStoryMemory(),
+      nextChapterReference: nextChapterReference(getStoryMemory()),
       story: chapters.map((chapter) => chapter.content),
       nextGoal: goal
     };
@@ -2873,6 +3347,16 @@
     saveCombinedAsVersion,
     hideCombinedPreview,
     discardCombinedChapter,
+    prepareStoryStateCandidates,
+    decideStoryStateCandidate,
+    editStoryStateCandidate,
+    acceptAllStoryStateCandidates,
+    ignoreAllStoryStateCandidates,
+    saveAcceptedStoryStateCandidates,
+    addStoryStateItem,
+    editStoryStateItem,
+    deleteStoryStateItem,
+    renderStoryStatePanel,
     openAiSettings,
     generateAiCandidate,
     applyAiCandidate,
