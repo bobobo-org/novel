@@ -404,12 +404,6 @@
         <button class="phase1-entry-card" onclick="Phase1Novel.toggleAdvanced()">
           <b>進階工具</b><span>顯示原有進階功能與工具頁</span>
         </button>
-        <button class="phase1-entry-card" onclick="Phase1Novel.showLocalAiCenter()">
-          <b>本地AI管理</b><span>Ollama、模型、生成驗收</span>
-        </button>
-        <button class="phase1-entry-card" onclick="Phase1Novel.showTrainingCenter()">
-          <b>AI訓練中心</b><span>樣本、JSONL、LoRA服務</span>
-        </button>
       </div>
       <div class="phase1-warning">作品主要儲存在目前瀏覽器。若清除網站資料、使用無痕模式、更換瀏覽器或更換裝置，作品可能消失，請定期下載JSON備份。</div>
       <div id="phase1MyWorks" class="phase1-card hidden"></div>
@@ -496,10 +490,17 @@
                   <button onclick="Phase1Novel.detectOllamaModels()">重新偵測模型</button>
                   <button onclick="Phase1Novel.testOllamaModel()">測試模型</button>
                   <button class="btn red" onclick="Phase1Novel.abortGuidedGeneration()">中止生成</button>
+                  <select id="phase1RegenerateSceneSelect">
+                    <option value="1">場景 1</option>
+                    <option value="2">場景 2</option>
+                    <option value="3">場景 3</option>
+                  </select>
+                  <button class="btn gold" onclick="Phase1Novel.regenerateGuidedScene()">重新生成單一場景</button>
+                  <button onclick="Phase1Novel.runGuidedLoopAcceptance()">最小閉環驗收</button>
                 </div>
                 <div id="phase1GuidedGenerationPreview" class="out">完成五輪後，可按「儲存並生成本章」產生完整正文候選。</div>
                 <div class="bar">
-                  <button class="btn green" onclick="Phase1Novel.acceptGuidedGeneratedChapter('append')">接受並加入目前章節</button>
+                  <button class="btn green" onclick="Phase1Novel.acceptGuidedGeneratedChapter('append')">接受並加入作品</button>
                   <button onclick="Phase1Novel.acceptGuidedGeneratedChapter('new')">接受並建立新章節</button>
                   <button onclick="Phase1Novel.discardGuidedGeneratedChapter()">放棄候選正文</button>
                 </div>
@@ -612,7 +613,7 @@
             </div>
           </div>
         </div>
-        <div class="phase1-card" id="phase1LocalAiCenter">
+        <div class="phase1-card hidden" id="phase1LocalAiCenter">
           <h3>本地 AI 管理中心</h3>
           <p class="muted">本區分開顯示網際網路、本機橋接服務、Ollama、本地模型、正文生成與訓練服務。Ollama 可用時會自動列出模型，不需要手動輸入模型名稱。</p>
           <div class="phase1-mode-summary">
@@ -638,7 +639,7 @@
           </div>
           <div id="phase1CenterOutput" class="out phase1-small-out">尚未偵測。</div>
         </div>
-        <div class="phase1-card" id="phase1TrainingCenter">
+        <div class="phase1-card hidden" id="phase1TrainingCenter">
           <h3>AI 訓練中心</h3>
           <p class="muted">這裡只處理模型訓練相關資料。作品記憶、偏好學習、本地推理與 LoRA／QLoRA 權重訓練會分開標示。</p>
           <div class="phase1-mode-summary">
@@ -3326,6 +3327,67 @@
     ].join("\n");
   }
 
+  function chapterScenesFromContext(context) {
+    const protagonist = context.protagonist?.name || "主角";
+    const opponent = context.world?.villainCore || "對手";
+    const conflict = context.world?.conflictCore || context.chapter?.goal || "目前衝突";
+    const selected = context.guided?.selections || {};
+    const sceneSeeds = [
+      {
+        id: "setup",
+        title: "場景一：開場與衝突入局",
+        purpose: `${protagonist}進入本章核心情境，讓讀者看見「${conflict}」如何逼近。`,
+        requiredFacts: [selected.purpose?.text, selected.strategy?.text]
+      },
+      {
+        id: "confrontation",
+        title: "場景二：對抗升高與代價浮現",
+        purpose: `${protagonist}採取行動，${opponent}或局勢給出反制，代價開始出現。`,
+        requiredFacts: [selected.strategy?.text, selected.cost?.text]
+      },
+      {
+        id: "result_hook",
+        title: "場景三：結果落點與章尾鉤子",
+        purpose: "交代本章結果，保留下一章必須追下去的懸念。",
+        requiredFacts: [selected.result?.text, selected.hook?.text]
+      }
+    ];
+    return {
+      chapterTitle: context.chapter.title || `${context.project.title} 下一章`,
+      chapterGoal: context.chapter.goal || context.guided.chapterPlan,
+      scenes: sceneSeeds.map((scene, index) => ({
+        ...scene,
+        order: index + 1,
+        location: context.world.currentLocation || context.world.worldCore || "目前場景",
+        characters: [protagonist, opponent].filter(Boolean),
+        conflict,
+        requiredFacts: scene.requiredFacts.filter(Boolean),
+        forbiddenFacts: context.constraints || [],
+        endingState: index === 2 ? "必須形成下一章懸念" : "必須自然銜接下一場景"
+      })),
+      chapterHook: selected.hook?.text || context.storyMemory.nextChapterReference || ""
+    };
+  }
+
+  function buildScenePrompt(context, scenePlan, previousSceneText = "") {
+    return [
+      "你是繁體中文小說正文生成器。請只生成目前這一個場景的正文。",
+      "必須根據上下文、五輪選擇與場景規劃寫可閱讀正文，不要輸出說明、提示詞或大綱。",
+      "",
+      "【本章上下文】",
+      JSON.stringify(context, null, 2),
+      "",
+      "【目前場景規劃】",
+      JSON.stringify(scenePlan, null, 2),
+      "",
+      "【上一場景結尾】",
+      shortText(previousSceneText.slice(-700), 700),
+      "",
+      "【輸出規則】",
+      "每場景 250 到 650 字。必須承接上一場景，不可重複上一場景全文，不可新增大量陌生角色，不可改變已確定主角姓名，不可寫系統提示文字。"
+    ].join("\n");
+  }
+
   async function runLocalConsistencyCheck(context, fullText, cfg) {
     const preview = $("phase1GuidedGenerationPreview");
     try {
@@ -3377,8 +3439,8 @@
       const sceneOutputs = [];
       for (const scene of scenePlan.scenes) {
         let sceneText = "";
-        if (buttonStatus) buttonStatus.textContent = `生成中：第${scene.order}/8段 ${scene.title}`;
-        if (preview) preview.textContent += `\n\n【第${scene.order}/8段｜${scene.title}｜生成中】\n`;
+        if (buttonStatus) buttonStatus.textContent = `生成中：第${scene.order}/3場景 ${scene.title}`;
+        if (preview) preview.textContent += `\n\n【第${scene.order}/3場景｜${scene.title}｜生成中】\n`;
         const prompt = buildScenePrompt(context, scene, sceneOutputs.at(-1) || "");
         for await (const token of NovelAIService.generateStream({
           provider: "ollama",
@@ -3392,7 +3454,7 @@
           if (preview) preview.textContent = `${preview.textContent}${token}`;
         }
         sceneOutputs.push(sceneText.trim());
-        if (preview) preview.textContent += `\n【第${scene.order}/8段完成｜${NovelDB.words(sceneText)}字】\n`;
+        if (preview) preview.textContent += `\n【第${scene.order}/3場景完成｜${NovelDB.words(sceneText)}字】\n`;
       }
       UI.guidedGeneratedChapter = sceneOutputs.filter(Boolean).join("\n\n");
       UI.guidedSceneOutputs = sceneOutputs;
@@ -3427,6 +3489,87 @@
   function abortGuidedGeneration() {
     NovelAIService.abortOllama();
     renderLocalAiStatus("已要求中止生成");
+  }
+
+  async function regenerateGuidedScene(sceneOrder = Number($("phase1RegenerateSceneSelect")?.value || 1)) {
+    const preview = $("phase1GuidedGenerationPreview");
+    const buttonStatus = $("phase1LocalGenerationStatus");
+    try {
+      const cfg = selectedOllamaConfig();
+      if (!cfg.model) {
+        const models = await detectOllamaModels();
+        if (!models.length) throw new Error("Ollama 可連線但沒有可用模型。請先執行 ollama pull llama3.1 或安裝任一模型。");
+        cfg.model = $("phase1OllamaModel")?.value || models[0].id;
+      }
+      const context = UI.guidedGenerationContext || buildChapterContext();
+      const scenePlan = UI.guidedScenePlan || chapterScenesFromContext(context);
+      const scene = scenePlan.scenes.find((item) => item.order === sceneOrder);
+      if (!scene) throw new Error("找不到指定場景。");
+      const previousSceneText = (UI.guidedSceneOutputs || [])[sceneOrder - 2] || "";
+      let sceneText = "";
+      if (buttonStatus) buttonStatus.textContent = `重新生成中：第${scene.order}/3場景 ${scene.title}`;
+      if (preview) preview.textContent += `\n\n【重新生成第${scene.order}/3場景｜${scene.title}】\n`;
+      const prompt = buildScenePrompt(context, scene, previousSceneText);
+      for await (const token of NovelAIService.generateStream({
+        provider: "ollama",
+        model: cfg.model,
+        prompt,
+        system: "你是繁體中文小說正文生成器。請只生成指定單一場景正文。",
+        temperature: 0.78,
+        numCtx: 8192
+      }, { config: { provider: "ollama", endpoint: cfg.endpoint, model: cfg.model } })) {
+        sceneText += token;
+        if (preview) preview.textContent += token;
+      }
+      const outputs = Array.isArray(UI.guidedSceneOutputs) ? [...UI.guidedSceneOutputs] : [];
+      outputs[sceneOrder - 1] = sceneText.trim();
+      UI.guidedSceneOutputs = outputs;
+      UI.guidedGeneratedChapter = outputs.filter(Boolean).join("\n\n");
+      if (preview) preview.textContent += `\n\n【重新整合後候選正文｜尚未套用】\n${UI.guidedGeneratedChapter}`;
+      if (buttonStatus) buttonStatus.textContent = "單一場景已重新生成";
+    } catch (error) {
+      if (buttonStatus) buttonStatus.textContent = "單場景生成失敗";
+      if (preview) preview.textContent += `\n\n【單場景生成失敗】${error.message || error}`;
+      notify(error.message || "單場景生成失敗", "error");
+    }
+  }
+
+  async function runGuidedLoopAcceptance() {
+    const preview = $("phase1GuidedGenerationPreview");
+    const rows = [];
+    const add = (name, ok, detail = "") => rows.push(`${ok ? "PASS" : "FAIL"}｜${name}${detail ? "｜" + detail : ""}`);
+    const skip = (name, detail = "") => rows.push(`SKIP｜${name}${detail ? "｜" + detail : ""}`);
+    try {
+      const guidedState = (await NovelDB.getSetting(guidedKey())) || {};
+      const selectedCount = Object.keys(UI.guidedSelections || {}).length;
+      add("五輪答案狀態", selectedCount >= 5, `目前 ${selectedCount}/5`);
+      add("已保存五輪狀態", !!guidedState.guidedSelections, guidedKey());
+      add("第五輪後摘要", !!(($("phase1GuidedPlan")?.value || UI.guidedChapterPlan || "").trim()));
+      add("儲存並生成本章按鈕", !!document.querySelector("[onclick=\"Phase1Novel.generateGuidedChapterWithOllama()\"]"));
+      const context = buildChapterContext();
+      add("建立本章上下文", !!context.project && !!context.chapter);
+      const plan = chapterScenesFromContext(context);
+      add("三場景規劃", plan.scenes.length === 3, `${plan.scenes.length}/3`);
+      const cfg = selectedOllamaConfig();
+      let models = [];
+      try {
+        models = await NovelAIService.listLocalModels({ endpoint: cfg.endpoint, provider: "ollama" });
+        add("Ollama /api/tags 連線", true, cfg.endpoint);
+        add("Ollama 模型清單", models.length > 0, models.length ? models.map((model) => model.id).join(", ") : "沒有模型，請先 ollama pull");
+      } catch (error) {
+        add("Ollama /api/tags 連線", false, error.message || String(error));
+        skip("測試生成", "Ollama 未連線");
+      }
+      add("串流候選正文狀態", !!(UI.guidedGeneratedChapter || "").trim(), UI.guidedSceneOutputs?.length ? `${UI.guidedSceneOutputs.length} 場景` : "尚未生成");
+      add("中止生成函式", typeof NovelAIService.abortOllama === "function");
+      add("單場景重生函式", typeof regenerateGuidedScene === "function");
+      add("接受寫入作品函式", typeof acceptGuidedGeneratedChapter === "function");
+      add("目前正式章節", !!UI.chapterId, UI.chapterId || "尚未開啟章節");
+    } catch (error) {
+      add("驗收流程", false, error.message || String(error));
+    }
+    if (preview) preview.textContent = `【最小閉環驗收】\n${rows.join("\n")}`;
+    return rows;
   }
 
   async function acceptGuidedGeneratedChapter(mode = "append") {
@@ -3778,7 +3921,7 @@
     try { const models = await NovelAIService.listLocalModels({ endpoint: ($("phase1CenterOllamaEndpoint")?.value || "http://localhost:11434"), provider: "ollama" }); add("Ollama連線", "PASS", `${models.length}模型`); add("取得模型", models.length ? "PASS" : "FAIL"); } catch (e) { add("Ollama連線", "FAIL", e.message); add("取得模型", "SKIP"); }
     try { await testLocalAiGeneration(); add("測試生成", "PASS"); } catch (e) { add("測試生成", "FAIL", e.message); }
     add("五輪狀態測試", UI.guidedSelections && Object.keys(UI.guidedSelections).length >= 5 ? "PASS" : "SKIP", "需完成五輪後驗證");
-    add("八段式測試", UI.guidedSceneOutputs?.length === 8 || UI.sectionWriting?.sections?.length === 8 ? "PASS" : "SKIP", "需完成逐段生成或逐段寫作");
+    add("三場景生成測試", UI.guidedSceneOutputs?.length === 3 ? "PASS" : "SKIP", "需先完成本地三場景生成");
     add("保存正文", UI.chapterId ? "PASS" : "SKIP", "需開啟章節");
     try { const samples = await getTrainingSamples(); add("建立訓練樣本", samples.length ? "PASS" : "SKIP"); } catch (e) { add("建立訓練樣本", "FAIL", e.message); }
     try { const samples = (await getTrainingSamples()).map(toSftSample); await LocalTrainingService.validateDataset(samples); add("匯出/驗證JSONL", "PASS"); } catch (e) { add("匯出/驗證JSONL", "FAIL", e.message); }
@@ -4270,25 +4413,10 @@
     testOllamaModel,
     generateGuidedChapterWithOllama,
     abortGuidedGeneration,
+    regenerateGuidedScene,
+    runGuidedLoopAcceptance,
     acceptGuidedGeneratedChapter,
     discardGuidedGeneratedChapter,
-    showLocalAiCenter,
-    showTrainingCenter,
-    detectLocalAiCenter,
-    saveDefaultLocalModel,
-    testLocalAiGeneration,
-    abortLocalAiGeneration,
-    runLocalAiAcceptance,
-    addTrainingSample,
-    renderTrainingSamples,
-    exportTrainingJsonl,
-    importTrainingJsonl,
-    validateTrainingDataset,
-    buildTrainingDataset,
-    checkTrainingHardware,
-    startLoraTraining,
-    stopLoraTraining,
-    refreshTrainingStatus,
     startSectionWriting,
     setSectionMethod,
     selectSection,
