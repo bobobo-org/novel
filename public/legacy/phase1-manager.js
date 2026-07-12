@@ -200,6 +200,7 @@
 
   function getModeContext() {
     const legacy = getLegacyState() || {};
+    const protagonistProfile = readProtagonistLink();
     const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
     const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
     const previous = UI.chapterId ? findPreviousChapter(UI.chapterId) : null;
@@ -214,8 +215,14 @@
       genre: project.genre || legacy.themeMode || legacy.genre || "未分類題材",
       subTheme: legacy.subTheme || "未指定細分類",
       engine: legacy.storyEngine || "通用故事引擎",
-      protagonist: legacy.protagonist || legacy.hostName || legacy.heroType || "主角",
-      heroType: legacy.heroType || "主角",
+      protagonist: protagonistProfile.name || legacy.protagonist || legacy.hostName || legacy.heroType || "主角",
+      heroType: protagonistProfile.archetype || legacy.heroType || "主角",
+      protagonistProfile,
+      archetype: protagonistProfile.archetype || legacy.heroType || "尚未設定",
+      actionStyle: protagonistProfile.actionStyle || "依情勢判斷後行動",
+      speechStyle: protagonistProfile.speechStyle || "自然直接",
+      protagonistGoal: protagonistProfile.goal || "推進目前目標",
+      conflictStyle: protagonistProfile.conflictStyle || protagonistProfile.conflictHabit || "先判斷風險，再採取行動",
       opponent: legacy.villainCore || legacy.conflictCore || "對手",
       ally: legacy.hostName && legacy.hostName !== legacy.protagonist ? legacy.hostName : "盟友",
       worldCore: legacy.worldCore || project.genre || "目前世界",
@@ -4611,18 +4618,459 @@
     };
   }
 
+  const protagonistProfileFields = ["personality", "goal", "actionStyle", "strengths", "weaknesses", "fear", "speechStyle", "conflictStyle", "characterArc"];
+  const protagonistFieldLabels = {
+    personality: "核心性格",
+    goal: "主要目標",
+    actionStyle: "行動方式",
+    strengths: "優勢",
+    weaknesses: "弱點",
+    fear: "恐懼",
+    speechStyle: "說話方式",
+    conflictStyle: "面對衝突方式",
+    characterArc: "成長方向"
+  };
+
+  function protagonistStorageKey() {
+    const legacy = getLegacyState() || {};
+    const base = UI.projectId || legacy.projectId || legacy.title || "current";
+    return `novel_protagonist_profile_v2_${String(base).replace(/[^\w\u4e00-\u9fff-]+/g, "_")}`;
+  }
+
+  function blankProtagonistProfile() {
+    return {
+      name: "",
+      archetype: "",
+      personality: "",
+      goal: "",
+      actionStyle: "",
+      strengths: "",
+      weaknesses: "",
+      fear: "",
+      speechStyle: "",
+      conflictStyle: "",
+      characterArc: "",
+      dirtyFields: {},
+      updatedAt: ""
+    };
+  }
+
+  function readProtagonistLink() {
+    const legacy = getLegacyState() || {};
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(protagonistStorageKey()) || "{}"); } catch (error) { saved = {}; }
+    let fallback = {};
+    try { fallback = JSON.parse(localStorage.getItem(protagonistLinkKey) || "{}"); } catch (error) { fallback = {}; }
+    const fromState = legacy.protagonistProfile || {};
+    return {
+      ...blankProtagonistProfile(),
+      ...fallback,
+      ...fromState,
+      ...saved,
+      name: saved.name || fromState.name || fallback.name || legacy.protagonistName || legacy.protagonist || "",
+      archetype: saved.archetype || fromState.archetype || fallback.archetype || legacy.protagonistArchetype || legacy.heroType || "",
+      dirtyFields: { ...(fallback.dirtyFields || {}), ...(fromState.dirtyFields || {}), ...(saved.dirtyFields || {}) }
+    };
+  }
+
+  function archetypeSuggestion(archetype = "") {
+    const value = String(archetype || "").trim();
+    const base = {
+      personality: "目標明確，會依情勢調整策略。",
+      goal: "在壓力中完成自己的核心目標，並逐步取得主導權。",
+      actionStyle: "先判斷風險，再採取行動。",
+      strengths: "適應力強，能在變局中找到可用資源。",
+      weaknesses: "容易在壓力下猶豫，或過度衡量得失。",
+      fear: "害怕自己的選擇傷害重要的人，或讓局面失控。",
+      speechStyle: "依人物關係調整語氣，必要時保持克制。",
+      conflictStyle: "先觀察衝突核心，再選擇正面處理或迂迴破解。",
+      characterArc: "逐步理解自身目標與責任，從被局勢推動走向主動選擇。"
+    };
+    const table = [
+      [/黑色幽默|旁白|社畜|失敗上班族/, {
+        personality: "冷靜、敏銳，擅長觀察荒謬與人性破綻。",
+        goal: "在混亂局面中活下來，並用自己的判斷拆穿虛偽規則。",
+        actionStyle: "先觀察，再用出其不意的方法反擊。",
+        strengths: "洞察人性、反應快速、能把壓力轉成諷刺式判斷。",
+        weaknesses: "常以嘲諷掩飾真實情緒，容易讓盟友誤會。",
+        fear: "害怕認真投入後再次失望。",
+        speechStyle: "表面平靜，內心帶諷刺，關鍵時刻一句話刺中問題。",
+        conflictStyle: "不急著翻臉，先看清荒謬規則，再用反差行動破解。",
+        characterArc: "從旁觀與自我保護，走向真正承擔責任。"
+      }],
+      [/隱忍|布局|主母|庶女|謀士|冷宮|女官/, {
+        personality: "表面溫順克制，實際冷靜敏銳，擅長觀察權力關係。",
+        goal: "守住自身位置，累積證據與籌碼，逐步反制壓迫者。",
+        actionStyle: "不急於正面衝突，先收集證據，再利用對手弱點反擊。",
+        strengths: "耐心、觀察力、長線布局能力。",
+        weaknesses: "容易壓抑真實情緒，錯過直接求助的時機。",
+        fear: "害怕再次被親近的人背叛或犧牲。",
+        speechStyle: "語氣克制，表面有禮，關鍵時刻帶有隱約諷刺。",
+        conflictStyle: "表面退讓，暗中留下可以反制對方的證據。",
+        characterArc: "從只求自保，成長為能主動守護他人與改寫規則的人。"
+      }],
+      [/主動|進攻|廢材|少主|玩家|退役/, {
+        personality: "果斷、好勝，不願被動接受安排。",
+        goal: "快速突破困境，證明自己能改變既定評價。",
+        actionStyle: "先搶回主動權，用直接行動迫使對手回應。",
+        strengths: "行動力、膽識、臨場反應。",
+        weaknesses: "容易低估代價，或在情緒上頭時暴露破綻。",
+        fear: "害怕被視為無能或再次失去選擇權。",
+        speechStyle: "直接、有壓迫感，常用短句切入重點。",
+        conflictStyle: "正面壓上，逼對手在眾人面前露出破綻。",
+        characterArc: "從只想贏，成長為懂得承擔勝利代價的人。"
+      }],
+      [/冷靜|調查|記者|醫師|研究生|調查員|編輯/, {
+        personality: "理性、細膩，重視證據與因果。",
+        goal: "找出真相，避免被錯誤資訊牽著走。",
+        actionStyle: "暫時不揭穿異常，先確認線索來源與動機。",
+        strengths: "推理、觀察、資料整理能力。",
+        weaknesses: "容易過度分析，導致情感表達不足。",
+        fear: "害怕因判斷錯誤害到無辜者。",
+        speechStyle: "清楚、克制，習慣用問題逼近核心。",
+        conflictStyle: "先蒐證，再選擇最小代價的突破口。",
+        characterArc: "從只相信證據，走向能同時理解人心與真相。"
+      }],
+      [/衝動|復仇|黑化|反派|繼承人/, {
+        personality: "情緒強烈，記仇但有明確底線。",
+        goal: "向傷害自己或重要之人的對手討回代價。",
+        actionStyle: "抓住機會快速出手，即使必須承擔高風險。",
+        strengths: "爆發力、決心、威懾感。",
+        weaknesses: "容易被仇恨牽動判斷。",
+        fear: "害怕復仇後仍無法挽回失去的一切。",
+        speechStyle: "鋒利直接，情緒壓在字句底下。",
+        conflictStyle: "以高壓行動打亂對手節奏，但可能犧牲信任關係。",
+        characterArc: "從被仇恨推動，成長為能選擇自己未來的人。"
+      }],
+      [/新人|普通|成長|學徒|助理|練習生|店員/, {
+        personality: "尚未成熟，但願意學習並承認不足。",
+        goal: "在陌生壓力中找到自己的位置與能力邊界。",
+        actionStyle: "先從小行動累積信心，再逐步承擔更大選擇。",
+        strengths: "可塑性、共感力、學習速度。",
+        weaknesses: "經驗不足，容易被強勢角色影響。",
+        fear: "害怕自己不夠格，拖累他人。",
+        speechStyle: "真誠、略帶遲疑，越到關鍵時刻越堅定。",
+        conflictStyle: "先尋求理解，再用學到的方法面對問題。",
+        characterArc: "從被推著走，成長為能做出清楚選擇的人。"
+      }],
+      [/權謀|家主|豪門|商戰|董事|CEO/, {
+        personality: "理性克制，擅長盤算利益與人心。",
+        goal: "取得局勢主導權，讓對手按自己的節奏行動。",
+        actionStyle: "先設局，再讓對手以為那是自己的選擇。",
+        strengths: "策略、談判、資源整合。",
+        weaknesses: "不容易信任別人，情感表達過度保守。",
+        fear: "害怕失控或被人看穿真正弱點。",
+        speechStyle: "精準、留白多，常用反問試探對方。",
+        conflictStyle: "不直接掀桌，而是改變桌上的籌碼。",
+        characterArc: "從只控制局面，成長為懂得信任與放手。"
+      }],
+      [/溫柔|堅定|療癒|小鎮|圖書館|咖啡/, {
+        personality: "溫和但有底線，願意理解他人痛苦。",
+        goal: "在衝突中保護重要關係，同時守住自己的原則。",
+        actionStyle: "先穩住情緒與關係，再用堅定方式推進問題。",
+        strengths: "共感力、耐心、修復關係的能力。",
+        weaknesses: "容易把他人的痛苦攬到自己身上。",
+        fear: "害怕自己的堅持傷害親近的人。",
+        speechStyle: "溫柔清楚，不尖銳但不退讓。",
+        conflictStyle: "先讓對方願意聽，再說出不可退讓的底線。",
+        characterArc: "從照顧所有人，成長為也能照顧自己。"
+      }],
+      [/理性|策略|AI|觀察員|管理員|企劃/, {
+        personality: "冷靜、重邏輯，習慣拆解問題。",
+        goal: "找出最有效率且代價可控的解法。",
+        actionStyle: "先建立模型與風險清單，再分步執行。",
+        strengths: "規劃、抽象思考、風險控管。",
+        weaknesses: "容易忽略情緒與人際變數。",
+        fear: "害怕不可預測的人心破壞計畫。",
+        speechStyle: "條理分明，必要時帶一點疏離感。",
+        conflictStyle: "用資訊差與節奏控制降低正面衝突成本。",
+        characterArc: "從相信計算，走向理解人不是變數而是答案的一部分。"
+      }],
+      [/被迫|捲入|穿書|重生|附身|宿主|錯位/, {
+        personality: "一開始被動警覺，但求生意識強。",
+        goal: "先活下來並弄清規則，再決定是否改寫命運。",
+        actionStyle: "先隱藏異常，觀察原有人際關係與危險來源。",
+        strengths: "警覺、適應、快速吸收新規則。",
+        weaknesses: "資訊不足，容易被原身關係拖累。",
+        fear: "害怕身分暴露或被世界規則修正。",
+        speechStyle: "前期保守試探，熟悉局勢後逐漸犀利。",
+        conflictStyle: "先避免露餡，再利用資訊差找反擊點。",
+        characterArc: "從被迫扮演，走向真正選擇自己的身份。"
+      }]
+    ];
+    const found = table.find(([pattern]) => pattern.test(value));
+    return found ? { ...base, ...found[1] } : base;
+  }
+
+  function writeProtagonistLink(next = {}, options = {}) {
+    const current = readProtagonistLink();
+    const dirtyFields = { ...(current.dirtyFields || {}), ...(next.dirtyFields || {}) };
+    if (options.markDirty) dirtyFields[options.markDirty] = true;
+    const merged = { ...current, ...next, dirtyFields, updatedAt: new Date().toISOString() };
+    localStorage.setItem(protagonistStorageKey(), JSON.stringify(merged));
+    localStorage.setItem(protagonistLinkKey, JSON.stringify(merged));
+    try {
+      if (typeof state !== "undefined") {
+        state.protagonistName = merged.name || "";
+        state.protagonist = merged.name || state.protagonist || "";
+        state.protagonistArchetype = merged.archetype || "";
+        state.heroType = merged.archetype || state.heroType || "";
+        state.protagonistProfile = { ...merged };
+        if (typeof saveNovel === "function") saveNovel();
+      }
+    } catch (error) {}
+    try {
+      if (UI.projectId) {
+        NovelDB.loadProject(UI.projectId).then((project) => {
+          if (!project) return;
+          project.state = {
+            ...(project.state || {}),
+            protagonistName: merged.name,
+            protagonistArchetype: merged.archetype,
+            protagonistProfile: { ...merged }
+          };
+          project.updatedAt = NovelDB.now();
+          return NovelDB.put("projects", project);
+        }).catch(() => {});
+      }
+    } catch (error) {}
+    return merged;
+  }
+
+  function applyArchetypeToProfile(archetype, mode = "preserveDirty") {
+    const current = readProtagonistLink();
+    const suggestion = archetypeSuggestion(archetype);
+    const dirty = current.dirtyFields || {};
+    const next = { name: current.name, archetype };
+    protagonistProfileFields.forEach((field) => {
+      next[field] = mode === "overwrite" || !dirty[field] ? suggestion[field] : current[field];
+    });
+    return writeProtagonistLink(next);
+  }
+
+  function renderProtagonistLinkPreview() {
+    const nameInput = document.getElementById("protagonist");
+    const heroSelect = document.getElementById("heroType");
+    const host = document.getElementById("hostName");
+    if (!nameInput || !heroSelect || !host) return;
+    const current = readProtagonistLink();
+    const profile = writeProtagonistLink({
+      name: nameInput.value.trim() || current.name || "",
+      archetype: heroSelect.value || current.archetype || ""
+    });
+    let box = document.getElementById("protagonistLinkPreview");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "protagonistLinkPreview";
+      box.className = "card";
+      host.parentNode.insertBefore(box, host);
+    }
+    const suggestion = archetypeSuggestion(profile.archetype);
+    const mismatch = /衝動|直接|立即|正面/.test(profile.actionStyle || profile.personality || "") && /隱忍|布局|謀士|主母/.test(profile.archetype || "");
+    const fields = protagonistProfileFields.map((field) => `
+      <label>${protagonistFieldLabels[field]}</label>
+      <textarea data-protagonist-field="${field}" oninput="Phase1Novel.updateProtagonistProfileField('${field}', this.value)">${esc(profile[field] || "")}</textarea>
+    `).join("");
+    box.innerHTML = `
+      <h3>主角設定預覽</h3>
+      ${profile.name || profile.archetype ? `
+        <p class="metric">${esc(profile.name || "尚未設定姓名")}｜${esc(profile.archetype || "尚未設定原型")}</p>
+        <div class="notice">
+          核心性格：${esc(profile.personality || "尚未設定")}<br>
+          行動方式：${esc(profile.actionStyle || "尚未設定")}<br>
+          說話方式：${esc(profile.speechStyle || "尚未設定")}
+        </div>
+        ${mismatch ? `<div class="notice">目前人物設定與主角原型存在差異。這可以成為人物反差，也可以套用原型建議進行調整。<div class="bar"><button onclick="Phase1Novel.keepProtagonistContrast()">保留反差</button><button onclick="Phase1Novel.showProtagonistSuggestion()">查看原型建議</button><button class="btn gold" onclick="Phase1Novel.applyProtagonistArchetypeSuggestion()">套用原型建議</button></div></div>` : ""}
+        <details open><summary>人物設定欄位</summary>${fields}</details>
+        <details><summary>目前原型建議</summary><div class="out">${esc(Object.entries(suggestion).map(([key, value]) => `${protagonistFieldLabels[key] || key}：${value}`).join("\n"))}</div></details>
+      ` : `<p class="muted">尚未完成主角設定。</p>`}
+    `;
+  }
+
+  function updateProtagonistProfileField(field, value) {
+    if (!protagonistProfileFields.includes(field)) return;
+    writeProtagonistLink({ [field]: value }, { markDirty: field });
+    renderSeedOutputsIfVisible();
+  }
+
+  function applyProtagonistArchetypeSuggestion() {
+    const heroSelect = document.getElementById("heroType");
+    const archetype = heroSelect?.value || readProtagonistLink().archetype || "";
+    const current = readProtagonistLink();
+    const hasDirty = Object.values(current.dirtyFields || {}).some(Boolean);
+    const overwrite = hasDirty && confirm("已有作者手動修改的人物欄位。按「確定」會覆蓋手動欄位；按「取消」只更新未手動修改欄位。");
+    applyArchetypeToProfile(archetype, overwrite ? "overwrite" : "preserveDirty");
+    renderProtagonistLinkPreview();
+    renderSeedOutputsIfVisible();
+  }
+
+  function keepProtagonistContrast() {
+    const profile = readProtagonistLink();
+    writeProtagonistLink({ dirtyFields: { ...(profile.dirtyFields || {}), actionStyle: true, personality: true } });
+    renderProtagonistLinkPreview();
+  }
+
+  function showProtagonistSuggestion() {
+    const suggestion = archetypeSuggestion(readProtagonistLink().archetype);
+    alert(Object.entries(suggestion).map(([key, value]) => `${protagonistFieldLabels[key] || key}：${value}`).join("\n"));
+  }
+
+  function setupProtagonistLinking() {
+    const nameInput = document.getElementById("protagonist");
+    const heroSelect = document.getElementById("heroType");
+    if (!nameInput || !heroSelect) return;
+    const saved = readProtagonistLink();
+    if (saved.name && !nameInput.value.trim()) nameInput.value = saved.name;
+    if (saved.archetype && [...heroSelect.options].some((option) => option.value === saved.archetype)) heroSelect.value = saved.archetype;
+    if (!nameInput.dataset.protagonistLinkedV2) {
+      nameInput.dataset.protagonistLinkedV2 = "1";
+      nameInput.addEventListener("input", () => {
+        writeProtagonistLink({ name: nameInput.value.trim() });
+        renderProtagonistLinkPreview();
+      });
+    }
+    if (!heroSelect.dataset.protagonistLinkedV2) {
+      heroSelect.dataset.protagonistLinkedV2 = "1";
+      heroSelect.addEventListener("change", () => {
+        const current = readProtagonistLink();
+        const previous = current.archetype;
+        const nextArchetype = heroSelect.value || "";
+        const hasProfile = protagonistProfileFields.some((field) => current[field]);
+        let choice = hasProfile ? prompt("是否依照新的主角原型更新人物設定？\n1：更新人物設定\n2：只更換原型名稱\n3：取消", "1") : "1";
+        if (choice === "3" || choice === null) {
+          if (previous && [...heroSelect.options].some((option) => option.value === previous)) heroSelect.value = previous;
+          return;
+        }
+        if (choice === "2") writeProtagonistLink({ archetype: nextArchetype });
+        else applyArchetypeToProfile(nextArchetype, "preserveDirty");
+        renderProtagonistLinkPreview();
+        renderSeedOutputsIfVisible();
+      });
+    }
+    renderProtagonistLinkPreview();
+  }
+
+  function protagonistSummary(profile = readProtagonistLink()) {
+    if (!profile.name && !profile.archetype) return "主角尚未完整設定。";
+    return [
+      `姓名：${profile.name || "尚未設定"}`,
+      `主角原型：${profile.archetype || "尚未設定"}`,
+      `核心性格：${profile.personality || "尚未設定"}`,
+      `主要目標：${profile.goal || "尚未設定"}`,
+      `行動方式：${profile.actionStyle || "尚未設定"}`,
+      `弱點：${profile.weaknesses || "尚未設定"}`,
+      `說話方式：${profile.speechStyle || "尚未設定"}`,
+      `面對衝突方式：${profile.conflictStyle || "尚未設定"}`
+    ].join("\n");
+  }
+
+  function renderSeedOutputsIfVisible() {
+    const seedOut = document.getElementById("seedOutput");
+    if (seedOut && !seedOut.classList.contains("hidden") && typeof window.generateSeedOnly === "function") {
+      try { window.generateSeedOnly(); } catch (error) {}
+    }
+  }
+
+  function patchProtagonistConsumers() {
+    if (window.__protagonistProfilePatchApplied) return;
+    window.__protagonistProfilePatchApplied = true;
+    const originalCollectState = window.collectState;
+    if (typeof originalCollectState === "function") {
+      window.collectState = function (...args) {
+        const result = originalCollectState.apply(this, args);
+        const profile = readProtagonistLink();
+        try {
+          state.protagonistName = profile.name || state.protagonist || "";
+          state.protagonist = profile.name || state.protagonist || "";
+          state.protagonistArchetype = profile.archetype || state.heroType || "";
+          state.heroType = profile.archetype || state.heroType || "";
+          state.protagonistProfile = { ...profile };
+        } catch (error) {}
+        return result;
+      };
+    }
+    const originalGenerateSeedText = window.generateSeedText;
+    if (typeof originalGenerateSeedText === "function") {
+      window.generateSeedText = function (...args) {
+        const text = originalGenerateSeedText.apply(this, args);
+        const profile = readProtagonistLink();
+        const block = `\n\n【主角人物設定】\n${protagonistSummary(profile)}`;
+        return String(text || "").includes("【主角人物設定】") ? text : `${text}${block}`;
+      };
+    }
+    const originalFirstChapter = window.firstChapter;
+    if (typeof originalFirstChapter === "function") {
+      window.firstChapter = function (...args) {
+        const text = originalFirstChapter.apply(this, args);
+        const profile = readProtagonistLink();
+        if (!profile.name && !profile.archetype) return text;
+        const intro = `\n\n【主角設定承接】\n${profile.name || "主角"}是「${profile.archetype || "未設定原型"}」。${profile.personality || ""}${profile.actionStyle ? `行動方式：${profile.actionStyle}` : ""}${profile.speechStyle ? `說話方式：${profile.speechStyle}` : ""}\n`;
+        return String(text || "").replace(/\n\n/, `${intro}\n`);
+      };
+    }
+    const originalGenerateOutline = window.generateOutline;
+    if (typeof originalGenerateOutline === "function") {
+      window.generateOutline = function (...args) {
+        const result = originalGenerateOutline.apply(this, args);
+        try {
+          const profile = readProtagonistLink();
+          const add = `\n\n【主角設定】\n${protagonistSummary(profile)}`;
+          if (state.outline && !state.outline.includes("【主角設定】")) {
+            state.outline += add;
+            if (Array.isArray(state.story) && state.story.length) state.story[state.story.length - 1] = state.outline;
+            if (typeof saveNovel === "function") saveNovel();
+            const out = document.getElementById("outlineOutput");
+            if (out) out.textContent = state.outline;
+          }
+        } catch (error) {}
+        return result;
+      };
+    }
+    const originalBuildChatGPTPlayPrompt = window.buildChatGPTPlayPrompt;
+    if (typeof originalBuildChatGPTPlayPrompt === "function") {
+      window.buildChatGPTPlayPrompt = function (...args) {
+        const result = originalBuildChatGPTPlayPrompt.apply(this, args);
+        try {
+          const profile = readProtagonistLink();
+          const block = `\n\n【主角人物設定】\n${protagonistSummary(profile)}`;
+          if (state.lastPrompt && !state.lastPrompt.includes("【主角人物設定】")) {
+            state.lastPrompt += block;
+            if (typeof saveNovel === "function") saveNovel();
+            const out = document.getElementById("promptOutput");
+            if (out) out.textContent = state.lastPrompt;
+          }
+        } catch (error) {}
+        return result;
+      };
+    }
+  }
+
   const originalApplyThemeLinkSetup = window.applyTheme;
   if (typeof originalApplyThemeLinkSetup === "function") {
     window.applyTheme = function (...args) {
       const result = originalApplyThemeLinkSetup.apply(this, args);
-      setTimeout(setupProtagonistLinking, 0);
+      setTimeout(() => {
+        patchProtagonistConsumers();
+        setupProtagonistLinking();
+      }, 0);
       return result;
     };
   }
 
   window.Phase1Novel.applyProtagonistArchetypeSuggestion = applyProtagonistArchetypeSuggestion;
-  setTimeout(setupProtagonistLinking, 0);
-  document.addEventListener("DOMContentLoaded", setupProtagonistLinking);
+  window.Phase1Novel.updateProtagonistProfileField = updateProtagonistProfileField;
+  window.Phase1Novel.keepProtagonistContrast = keepProtagonistContrast;
+  window.Phase1Novel.showProtagonistSuggestion = showProtagonistSuggestion;
+  window.Phase1Novel.readProtagonistProfile = readProtagonistLink;
+  window.Phase1Novel.renderProtagonistLinkPreview = renderProtagonistLinkPreview;
+  setTimeout(() => {
+    patchProtagonistConsumers();
+    setupProtagonistLinking();
+  }, 0);
+  document.addEventListener("DOMContentLoaded", () => {
+    patchProtagonistConsumers();
+    setupProtagonistLinking();
+  });
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
