@@ -3528,6 +3528,151 @@
     runMigration
   };
 
+  const protagonistLinkKey = "novel_protagonist_link_v1";
+
+  function readProtagonistLink() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(protagonistLinkKey) || "{}");
+      const legacy = JSON.parse(localStorage.getItem("novel_platform_state") || "{}");
+      return {
+        name: saved.name || legacy.protagonistName || legacy.protagonist || "",
+        archetype: saved.archetype || legacy.protagonistArchetype || legacy.heroType || "",
+        personality: saved.personality || "",
+        goal: saved.goal || "",
+        actionStyle: saved.actionStyle || "",
+        strengths: saved.strengths || "",
+        weaknesses: saved.weaknesses || "",
+        fear: saved.fear || "",
+        speechStyle: saved.speechStyle || "",
+        conflictHabit: saved.conflictHabit || "",
+        characterArc: saved.characterArc || ""
+      };
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function archetypeSuggestion(archetype = "") {
+    const value = String(archetype || "主角").trim();
+    const base = {
+      personality: "冷靜、敏銳，能在壓力下保持判斷",
+      goal: "在主線危機中掌握主動權",
+      actionStyle: "先觀察局勢，再選擇最有效的反擊方式",
+      strengths: "洞察力、適應力、承受壓力",
+      weaknesses: "不容易信任他人，容易把情緒藏起來",
+      fear: "失去重要關係或再次被命運推著走",
+      speechStyle: "語氣克制，關鍵時刻直接切中問題",
+      conflictHabit: "先判斷對方弱點，再決定正面反擊或暗中布局",
+      characterArc: "從被局勢牽動，成長為能主動選擇道路的人"
+    };
+    if (/重生|主母|謀士|庶女|冷宮|權謀/.test(value)) return { ...base, personality: "隱忍、清醒、擅長布局", actionStyle: "表面退讓，暗中蒐集證據並借力反擊", speechStyle: "溫和有禮，但話中常留後手", strengths: "長期規劃、情緒控制、讀懂人心", weaknesses: "容易過度防備，不願示弱", characterArc: "從只求自保，成長為能保護身邊人的掌局者" };
+    if (/黑化|反派|復仇/.test(value)) return { ...base, personality: "強烈、偏執、對背叛極度敏感", actionStyle: "用高壓手段逼迫局勢表態", speechStyle: "短句、冷感、帶威脅意味", strengths: "決斷力、壓迫感、敢付代價", weaknesses: "容易孤立自己，難以接受善意", characterArc: "從只想摧毀，轉向理解自己真正想守住什麼" };
+    if (/社恐|天才|AI|研究|醫師/.test(value)) return { ...base, personality: "理性、專注，不擅長處理情緒場面", actionStyle: "先分析規則與資料，再做精準行動", speechStyle: "精準、簡短，偶爾過度理性", strengths: "專業、推理、學習速度快", weaknesses: "人際反應慢，容易忽略他人感受", characterArc: "從只相信邏輯，成長為能理解人心與選擇" };
+    if (/幽默|旁白|荒誕/.test(value)) return { ...base, personality: "冷靜、敏銳、擅長看穿荒謬", actionStyle: "先觀察，再以出其不意的方式反擊", speechStyle: "表面平靜，內心帶諷刺", strengths: "洞察人性、化解壓力、反諷視角", weaknesses: "容易用嘲諷掩飾真實情感", characterArc: "從旁觀嘲諷，成長為願意真正投入與承擔" };
+    return base;
+  }
+
+  function writeProtagonistLink(next) {
+    const current = readProtagonistLink();
+    const merged = { ...current, ...next, updatedAt: new Date().toISOString() };
+    localStorage.setItem(protagonistLinkKey, JSON.stringify(merged));
+    try {
+      const legacy = JSON.parse(localStorage.getItem("novel_platform_state") || "{}");
+      legacy.protagonistName = merged.name || legacy.protagonist || "";
+      legacy.protagonist = legacy.protagonistName;
+      legacy.protagonistArchetype = merged.archetype || legacy.heroType || "";
+      legacy.protagonistProfile = { ...merged };
+      localStorage.setItem("novel_platform_state", JSON.stringify(legacy));
+    } catch (error) {}
+    return merged;
+  }
+
+  function renderProtagonistLinkPreview() {
+    const nameInput = document.getElementById("protagonist");
+    const heroSelect = document.getElementById("heroType");
+    const host = document.getElementById("hostName");
+    if (!nameInput || !heroSelect || !host) return;
+    const saved = readProtagonistLink();
+    const profile = writeProtagonistLink({
+      name: nameInput.value.trim() || saved.name || "",
+      archetype: heroSelect.value || saved.archetype || ""
+    });
+    let box = document.getElementById("protagonistLinkPreview");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "protagonistLinkPreview";
+      box.className = "notice";
+      host.parentNode.insertBefore(box, host);
+    }
+    const mismatch = /衝動|直接|莽撞/.test(profile.personality || "") && /謀士|布局|隱忍|主母/.test(profile.archetype || "");
+    box.innerHTML = `<b>主角設定預覽</b><br>${esc(profile.name || "尚未設定")}｜${esc(profile.archetype || "尚未設定")}<br>核心性格：${esc(profile.personality || "尚未設定")}<br>行動方式：${esc(profile.actionStyle || "尚未設定")}<br>說話方式：${esc(profile.speechStyle || "尚未設定")}<br>主要目標：${esc(profile.goal || "尚未設定")}<br>優勢：${esc(profile.strengths || "尚未設定")}<br>缺點：${esc(profile.weaknesses || "尚未設定")}<br>成長方向：${esc(profile.characterArc || "尚未設定")}${mismatch ? '<br><br>目前主角性格與所選原型存在差異。你可以保留這種反差，也可以同步調整人物設定。 <button onclick="Phase1Novel.applyProtagonistArchetypeSuggestion()">套用原型建議</button>' : ""}`;
+  }
+
+  function applyProtagonistArchetypeSuggestion() {
+    const heroSelect = document.getElementById("heroType");
+    const nameInput = document.getElementById("protagonist");
+    const archetype = heroSelect?.value || readProtagonistLink().archetype || "";
+    writeProtagonistLink({ name: nameInput?.value.trim() || "", archetype, ...archetypeSuggestion(archetype) });
+    renderProtagonistLinkPreview();
+  }
+
+  function setupProtagonistLinking() {
+    const nameInput = document.getElementById("protagonist");
+    const heroSelect = document.getElementById("heroType");
+    if (!nameInput || !heroSelect || nameInput.dataset.protagonistLinked) return;
+    nameInput.dataset.protagonistLinked = "1";
+    heroSelect.dataset.protagonistLinked = "1";
+    const saved = readProtagonistLink();
+    if (saved.name && !nameInput.value.trim()) nameInput.value = saved.name;
+    if (saved.archetype && [...heroSelect.options].some((option) => option.value === saved.archetype)) heroSelect.value = saved.archetype;
+    nameInput.addEventListener("input", () => {
+      writeProtagonistLink({ name: nameInput.value.trim() });
+      renderProtagonistLinkPreview();
+    });
+    heroSelect.addEventListener("change", () => {
+      const existing = readProtagonistLink();
+      const choice = existing.personality ? prompt("是否根據新的主角原型更新人物設定？\n1：更新人物設定\n2：只更換原型名稱\n3：取消", "1") : "1";
+      if (choice === "3" || choice === null) {
+        if (existing.archetype) heroSelect.value = existing.archetype;
+        return;
+      }
+      const next = { name: nameInput.value.trim(), archetype: heroSelect.value };
+      writeProtagonistLink(choice === "1" ? { ...next, ...archetypeSuggestion(heroSelect.value) } : next);
+      renderProtagonistLinkPreview();
+    });
+    renderProtagonistLinkPreview();
+    const originalContext = window.simpleGuideContext;
+    window.simpleGuideContext = function () {
+      const profile = readProtagonistLink();
+      const base = typeof originalContext === "function" ? originalContext() : {};
+      return { ...base, protagonist: profile.name || base.protagonist || "主角", archetype: profile.archetype || "尚未設定原型", actionStyle: profile.actionStyle || "自己的行動模式", speechStyle: profile.speechStyle || "自然直接", goal: profile.goal || "推進目前目標" };
+    };
+    window.simpleGuideOptionText = function (step, key) {
+      const c = window.simpleGuideContext();
+      const map = {
+        purpose: { A: `${c.protagonist}依照「${c.archetype}」的敘事功能，直接推進「${c.conflict}」。`, B: `${c.protagonist}用「${c.speechStyle}」的方式與${c.ally || "盟友"}互動，讓人物關係推動本章。`, C: `${c.protagonist}發現與${c.opponent || "對手"}有關的重要秘密或資訊。`, D: "作者自訂" },
+        strategy: { A: `${c.protagonist}用「${c.actionStyle}」向${c.opponent || "對手"}攤牌，逼迫對方回應。`, B: `${c.protagonist}保持外在克制，先蒐集「${c.conflict}」的線索。`, C: `${c.protagonist}借第三方或高風險手段改變局勢。`, D: "作者自訂" },
+        cost: { A: `${c.protagonist}的身分或秘密可能曝光。`, B: `${c.protagonist}的重要關係開始失去信任。`, C: `${c.opponent || "對手"}提前警覺，或主角能力付出代價。`, D: "作者自訂" },
+        result: { A: `${c.protagonist}朝「${c.goal}」前進一步，表面成功但留下隱患。`, B: `${c.protagonist}暫時失敗，但取得重要情報。`, C: `${c.protagonist}取得勝利，但付出重大代價。`, D: "作者自訂" },
+        hook: { A: `新人物或新勢力突然出現，改變${c.protagonist}的處境。`, B: `證據、道具或情報異常，讓「${c.conflict}」更複雜。`, C: `${c.protagonist}的身分、秘密或背叛即將曝光。`, D: "作者自訂" }
+      };
+      return map[step?.key]?.[key] || `${key}：作者自訂`;
+    };
+  }
+
+  const originalApplyThemeLinkSetup = window.applyTheme;
+  if (typeof originalApplyThemeLinkSetup === "function") {
+    window.applyTheme = function (...args) {
+      const result = originalApplyThemeLinkSetup.apply(this, args);
+      setTimeout(setupProtagonistLinking, 0);
+      return result;
+    };
+  }
+
+  window.Phase1Novel.applyProtagonistArchetypeSuggestion = applyProtagonistArchetypeSuggestion;
+  setTimeout(setupProtagonistLinking, 0);
+  document.addEventListener("DOMContentLoaded", setupProtagonistLinking);
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
