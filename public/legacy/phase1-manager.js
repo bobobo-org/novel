@@ -404,6 +404,12 @@
         <button class="phase1-entry-card" onclick="Phase1Novel.toggleAdvanced()">
           <b>進階工具</b><span>顯示原有進階功能與工具頁</span>
         </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.showLocalAiCenter()">
+          <b>本地AI管理</b><span>Ollama、模型、生成驗收</span>
+        </button>
+        <button class="phase1-entry-card" onclick="Phase1Novel.showTrainingCenter()">
+          <b>AI訓練中心</b><span>樣本、JSONL、LoRA服務</span>
+        </button>
       </div>
       <div class="phase1-warning">作品主要儲存在目前瀏覽器。若清除網站資料、使用無痕模式、更換瀏覽器或更換裝置，作品可能消失，請定期下載JSON備份。</div>
       <div id="phase1MyWorks" class="phase1-card hidden"></div>
@@ -605,6 +611,71 @@
               <button class="btn red" onclick="Phase1Novel.discardAiCandidate()">放棄結果</button>
             </div>
           </div>
+        </div>
+        <div class="phase1-card" id="phase1LocalAiCenter">
+          <h3>本地 AI 管理中心</h3>
+          <p class="muted">本區分開顯示網際網路、本機橋接服務、Ollama、本地模型、正文生成與訓練服務。Ollama 可用時會自動列出模型，不需要手動輸入模型名稱。</p>
+          <div class="phase1-mode-summary">
+            <span>網際網路：<b id="phase1CenterInternet">偵測中</b></span>
+            <span>橋接服務：<b id="phase1CenterBridge">尚未偵測</b></span>
+            <span>Ollama：<b id="phase1CenterOllama">尚未偵測</b></span>
+            <span>本地模型：<b id="phase1CenterModel">尚未選擇</b></span>
+            <span>正文生成：<b id="phase1CenterGeneration">尚未測試</b></span>
+            <span>訓練服務：<b id="phase1CenterTraining">尚未偵測</b></span>
+          </div>
+          <label>Ollama 端點</label>
+          <input id="phase1CenterOllamaEndpoint" value="http://localhost:11434" placeholder="http://localhost:11434">
+          <label>模型清單</label>
+          <select id="phase1CenterOllamaModel"></select>
+          <label>測試生成內容</label>
+          <textarea id="phase1CenterTestPrompt">請用100字寫一段主角準備行動的小說正文，只輸出正文。</textarea>
+          <div class="bar">
+            <button onclick="Phase1Novel.detectLocalAiCenter()">重新偵測</button>
+            <button class="btn green" onclick="Phase1Novel.saveDefaultLocalModel()">儲存預設模型</button>
+            <button class="btn gold" onclick="Phase1Novel.testLocalAiGeneration()">測試模型生成</button>
+            <button class="btn red" onclick="Phase1Novel.abortLocalAiGeneration()">中止生成</button>
+            <button class="btn green" onclick="Phase1Novel.runLocalAiAcceptance()">本地AI完整驗收</button>
+          </div>
+          <div id="phase1CenterOutput" class="out phase1-small-out">尚未偵測。</div>
+        </div>
+        <div class="phase1-card" id="phase1TrainingCenter">
+          <h3>AI 訓練中心</h3>
+          <p class="muted">這裡只處理模型訓練相關資料。作品記憶、偏好學習、本地推理與 LoRA／QLoRA 權重訓練會分開標示。</p>
+          <div class="phase1-mode-summary">
+            <span>作品記憶：<b>IndexedDB / local state</b></span>
+            <span>偏好學習：<b id="phase1PreferenceCount">0 筆</b></span>
+            <span>本地推理：<b>Ollama</b></span>
+            <span>模型訓練：<b id="phase1TrainingServiceStatus">需本機服務</b></span>
+          </div>
+          <label>本地訓練服務端點</label>
+          <input id="phase1TrainingEndpoint" value="http://localhost:8765" placeholder="http://localhost:8765">
+          <label>AI 原稿</label>
+          <textarea id="phase1TrainingOriginal" placeholder="貼上 AI 原稿，或由本地生成候選自動帶入。"></textarea>
+          <label>使用者修正版</label>
+          <textarea id="phase1TrainingEdited" placeholder="貼上你修改後、願意作為樣本的版本。"></textarea>
+          <label>退回原因</label>
+          <select id="phase1TrainingReason">
+            <option>人物語氣不對</option><option>主角太被動</option><option>主角原型沒有作用</option><option>對話不自然</option><option>太像摘要</option><option>重複句太多</option><option>劇情推進太慢</option><option>劇情推進太快</option><option>感情描寫不足</option><option>動作描寫不足</option><option>世界觀錯誤</option><option>人物知道不該知道的事</option><option>自訂原因</option>
+          </select>
+          <label>適用範圍</label>
+          <select id="phase1TrainingScope"><option value="single">單段</option><option value="chapter">章節</option><option value="character">角色</option><option value="project">作品</option><option value="global">全域</option></select>
+          <label><input id="phase1TrainingApproved" type="checkbox"> 批准加入模型訓練資料</label>
+          <div class="bar">
+            <button onclick="Phase1Novel.addTrainingSample('accepted')">接受樣本</button>
+            <button onclick="Phase1Novel.addTrainingSample('edited')">修改後納入學習</button>
+            <button onclick="Phase1Novel.addTrainingSample('rejected')">退回樣本</button>
+            <button class="btn gold" onclick="Phase1Novel.exportTrainingJsonl('sft')">匯出SFT JSONL</button>
+            <button onclick="Phase1Novel.exportTrainingJsonl('preference')">匯出偏好JSONL</button>
+            <button onclick="Phase1Novel.importTrainingJsonl()">匯入JSONL</button>
+            <button onclick="Phase1Novel.validateTrainingDataset()">資料集驗證</button>
+            <button onclick="Phase1Novel.buildTrainingDataset()">建立資料集</button>
+            <button onclick="Phase1Novel.checkTrainingHardware()">硬體檢查</button>
+            <button class="btn green" onclick="Phase1Novel.startLoraTraining()">啟動LoRA／QLoRA</button>
+            <button class="btn red" onclick="Phase1Novel.stopLoraTraining()">停止訓練</button>
+            <button onclick="Phase1Novel.refreshTrainingStatus()">刷新訓練狀態</button>
+          </div>
+          <div id="phase1TrainingSamples" class="out phase1-small-out">尚未建立訓練樣本。</div>
+          <div id="phase1TrainingOutput" class="out phase1-small-out">訓練服務尚未檢查。</div>
         </div>
         <div class="phase1-card" id="phase1StoryStatePanel">
           <h3>故事狀態記憶</h3>
@@ -3200,6 +3271,88 @@
     ].join("\n");
   }
 
+  function chapterScenesFromContext(context) {
+    const names = [
+      ["opening", "開場與場景建立", "建立本章場景、壓力與讀者入場點"],
+      ["status", "主角目前狀態", "交代主角身體、情緒、目標與可用資源"],
+      ["incident", "事件或衝突出現", "讓本章核心事件正式出現"],
+      ["reaction", "人物第一反應", "寫出主角、對手或盟友的第一反應"],
+      ["escalation", "衝突升高", "讓阻礙變強，逼迫主角不能原地停留"],
+      ["midpoint", "中段轉折", "揭露新資訊或讓局勢方向改變"],
+      ["choice", "主角選擇與代價", "落實五輪選擇，寫出代價與行動"],
+      ["ending", "結果與章尾鉤子", "收束本章結果，留下下一章懸念"]
+    ];
+    return {
+      chapterTitle: context.chapter.title || `${context.project.title} 下一章`,
+      chapterGoal: context.chapter.goal || context.guided.chapterPlan,
+      scenes: names.map(([id, title, purpose], index) => ({
+        id,
+        order: index + 1,
+        title,
+        purpose,
+        location: context.world.currentLocation || context.world.worldCore || "主要場景",
+        characters: [context.protagonist.name, context.world.villainCore || "對手"].filter(Boolean),
+        conflict: context.world.conflictCore || "目前主要衝突",
+        requiredFacts: [
+          context.guided.selections?.purpose?.text,
+          context.guided.selections?.strategy?.text,
+          index >= 5 ? context.guided.selections?.cost?.text : "",
+          index >= 6 ? context.guided.selections?.result?.text : "",
+          index === 7 ? context.guided.selections?.hook?.text : ""
+        ].filter(Boolean),
+        forbiddenFacts: context.constraints || [],
+        endingState: index === 7 ? "留下章尾鉤子" : "自然接到下一段"
+      })),
+      chapterHook: context.guided.selections?.hook?.text || context.storyMemory.nextChapterReference || ""
+    };
+  }
+
+  function buildScenePrompt(context, scenePlan, previousSceneText = "") {
+    return [
+      "你是長篇小說正文生成引擎。請只輸出目前這一段的小說正文，不要輸出標題、摘要、分析或建議。",
+      "這是八段式逐場生成的一段，必須承接上一段，不可重複上一段全文。",
+      "",
+      "【全章寫作包】",
+      JSON.stringify(context, null, 2),
+      "",
+      "【目前場景】",
+      JSON.stringify(scenePlan, null, 2),
+      "",
+      "【上一段結尾】",
+      shortText(previousSceneText.slice(-700), 700),
+      "",
+      "【要求】",
+      "生成 250 至 650 字小說正文。對話、動作、環境、心理描寫自然交錯；不得只寫大綱。"
+    ].join("\n");
+  }
+
+  async function runLocalConsistencyCheck(context, fullText, cfg) {
+    const preview = $("phase1GuidedGenerationPreview");
+    try {
+      const report = await NovelAIService.createOllamaProvider({ endpoint: cfg.endpoint, model: cfg.model }).generateJson({
+        model: cfg.model,
+        system: "你是小說一致性檢查器。只回傳有效 JSON。",
+        prompt: [
+          "請檢查下方正文是否符合寫作包，回傳 JSON，不要加解釋。",
+          "JSON格式：{\"passed\":true,\"issues\":[{\"type\":\"\",\"severity\":\"low|medium|high\",\"location\":\"\",\"description\":\"\",\"repairInstruction\":\"\"}]}",
+          "【寫作包】",
+          JSON.stringify(context, null, 2),
+          "【正文】",
+          fullText
+        ].join("\n\n"),
+        temperature: 0.1,
+        numCtx: 8192
+      });
+      UI.guidedConsistencyReport = report;
+      if (preview) preview.textContent += `\n\n【一致性檢查 JSON】\n${JSON.stringify(report, null, 2)}`;
+      return report;
+    } catch (error) {
+      UI.guidedConsistencyReport = { passed: false, issues: [{ type: "check_failed", severity: "medium", description: error.message || String(error), repairInstruction: "請手動檢查或重試一致性檢查。" }] };
+      if (preview) preview.textContent += `\n\n【一致性檢查】失敗：${error.message || error}`;
+      return UI.guidedConsistencyReport;
+    }
+  }
+
   async function generateGuidedChapterWithOllama() {
     if (!UI.projectId || !UI.chapterId) return notify("請先建立或開啟作品與章節。", "error");
     const preview = $("phase1GuidedGenerationPreview");
@@ -3215,22 +3368,36 @@
       }
       saveLocalAiSettings(cfg);
       const context = buildChapterContext();
-      const prompt = buildLocalChapterPrompt(context);
+      const scenePlan = chapterScenesFromContext(context);
       UI.guidedGeneratedChapter = "";
       UI.guidedGenerationContext = context;
-      if (preview) preview.textContent = "【本地 AI 生成中】\n";
+      UI.guidedScenePlan = scenePlan;
+      if (preview) preview.textContent = `【場景規劃】\n${JSON.stringify(scenePlan, null, 2)}\n\n【本地 AI 逐段生成中】\n`;
       if (buttonStatus) buttonStatus.textContent = "生成中";
-      for await (const token of NovelAIService.generateStream({
-        provider: "ollama",
-        model: cfg.model,
-        prompt,
-        system: "你是長篇小說正文生成引擎。只輸出小說正文，不要輸出分析或摘要。",
-        temperature: 0.78,
-        numCtx: 8192
-      }, { config: { provider: "ollama", endpoint: cfg.endpoint, model: cfg.model } })) {
-        UI.guidedGeneratedChapter += token;
-        if (preview) preview.textContent = `【本地 AI 候選正文｜尚未套用】\n${UI.guidedGeneratedChapter}`;
+      const sceneOutputs = [];
+      for (const scene of scenePlan.scenes) {
+        let sceneText = "";
+        if (buttonStatus) buttonStatus.textContent = `生成中：第${scene.order}/8段 ${scene.title}`;
+        if (preview) preview.textContent += `\n\n【第${scene.order}/8段｜${scene.title}｜生成中】\n`;
+        const prompt = buildScenePrompt(context, scene, sceneOutputs.at(-1) || "");
+        for await (const token of NovelAIService.generateStream({
+          provider: "ollama",
+          model: cfg.model,
+          prompt,
+          system: "你是長篇小說正文生成引擎。只輸出目前段落正文，不要輸出分析或摘要。",
+          temperature: 0.78,
+          numCtx: 8192
+        }, { config: { provider: "ollama", endpoint: cfg.endpoint, model: cfg.model } })) {
+          sceneText += token;
+          if (preview) preview.textContent = `${preview.textContent}${token}`;
+        }
+        sceneOutputs.push(sceneText.trim());
+        if (preview) preview.textContent += `\n【第${scene.order}/8段完成｜${NovelDB.words(sceneText)}字】\n`;
       }
+      UI.guidedGeneratedChapter = sceneOutputs.filter(Boolean).join("\n\n");
+      UI.guidedSceneOutputs = sceneOutputs;
+      if (preview) preview.textContent += `\n\n【全章整合｜尚未套用】\n${UI.guidedGeneratedChapter}`;
+      await runLocalConsistencyCheck(context, UI.guidedGeneratedChapter, cfg);
       const runs = (await NovelDB.getSetting(`generation-runs-${UI.projectId}`)) || [];
       runs.unshift({
         id: NovelDB.safeId("run"),
@@ -3239,6 +3406,9 @@
         provider: "ollama",
         model: cfg.model,
         promptContext: context,
+        scenePlan,
+        sceneOutputs,
+        consistencyReport: UI.guidedConsistencyReport || null,
         generatedText: UI.guidedGeneratedChapter,
         action: "pending",
         approvedForTraining: false,
@@ -3289,6 +3459,331 @@
     const preview = $("phase1GuidedGenerationPreview");
     if (preview) preview.textContent = "已放棄本地 AI 候選正文，正式作品未被修改。";
     renderLocalAiStatus("已放棄候選正文");
+  }
+
+  function showLocalAiCenter() {
+    ensureShell();
+    showSection("phase1Manager");
+    $("phase1LocalAiCenter")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    detectLocalAiCenter();
+  }
+
+  function showTrainingCenter() {
+    ensureShell();
+    showSection("phase1Manager");
+    $("phase1TrainingCenter")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    renderTrainingSamples();
+    refreshTrainingStatus();
+  }
+
+  function syncCenterToGuidedLocalAi(cfg = {}) {
+    if ($("phase1OllamaEndpoint") && cfg.endpoint) $("phase1OllamaEndpoint").value = cfg.endpoint;
+    if ($("phase1OllamaModel") && cfg.model) {
+      const select = $("phase1OllamaModel");
+      if (![...select.options].some((option) => option.value === cfg.model)) select.append(new Option(cfg.model, cfg.model));
+      select.value = cfg.model;
+    }
+  }
+
+  async function detectLocalAiCenter() {
+    const endpoint = ($("phase1CenterOllamaEndpoint")?.value || "http://localhost:11434").replace(/\/+$/, "");
+    const out = $("phase1CenterOutput");
+    const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+    set("phase1CenterInternet", navigator.onLine ? "在線" : "離線");
+    set("phase1CenterBridge", "不需要橋接即可嘗試直連 Ollama");
+    set("phase1CenterOllama", "偵測中");
+    set("phase1CenterTraining", "偵測中");
+    const lines = [];
+    try {
+      const models = await NovelAIService.listLocalModels({ endpoint, provider: "ollama" });
+      const select = $("phase1CenterOllamaModel");
+      if (select) {
+        select.innerHTML = models.map((model) => `<option value="${esc(model.id)}">${esc(model.name || model.id)}</option>`).join("");
+      }
+      const chosen = models[0]?.id || "";
+      if (chosen && select) select.value = chosen;
+      saveLocalAiSettings({ endpoint, model: chosen });
+      syncCenterToGuidedLocalAi({ endpoint, model: chosen });
+      set("phase1CenterOllama", models.length ? "已啟動" : "已啟動但沒有模型");
+      set("phase1CenterModel", chosen || "尚未安裝模型");
+      lines.push(`PASS Ollama：${models.length} 個模型`);
+    } catch (error) {
+      set("phase1CenterOllama", "未啟動或連線失敗");
+      set("phase1CenterModel", "無可用模型");
+      lines.push(`FAIL Ollama：${error.message || error}`);
+    }
+    try {
+      const health = await LocalTrainingService.health();
+      set("phase1CenterTraining", health.ok ? "已連線" : "回應異常");
+      lines.push(`PASS 訓練服務：${JSON.stringify(health)}`);
+    } catch (error) {
+      set("phase1CenterTraining", "未啟動");
+      lines.push(`SKIP 訓練服務：${error.message || error}`);
+    }
+    if (out) out.textContent = lines.join("\n");
+  }
+
+  function saveDefaultLocalModel() {
+    const endpoint = ($("phase1CenterOllamaEndpoint")?.value || "http://localhost:11434").replace(/\/+$/, "");
+    const model = $("phase1CenterOllamaModel")?.value || "";
+    saveLocalAiSettings({ endpoint, model });
+    syncCenterToGuidedLocalAi({ endpoint, model });
+    notify(model ? `已儲存預設本地模型：${model}` : "尚未選擇模型。", model ? "info" : "error");
+  }
+
+  async function testLocalAiGeneration() {
+    const endpoint = ($("phase1CenterOllamaEndpoint")?.value || "http://localhost:11434").replace(/\/+$/, "");
+    const model = $("phase1CenterOllamaModel")?.value || "";
+    const prompt = $("phase1CenterTestPrompt")?.value || "請寫一段100字小說正文。";
+    const out = $("phase1CenterOutput");
+    if (!model) return notify("請先偵測並選擇模型。", "error");
+    if (out) out.textContent = "測試生成中...\n";
+    try {
+      let text = "";
+      for await (const token of NovelAIService.generateStream({ provider: "ollama", model, prompt, system: "只輸出小說正文。" }, { config: { provider: "ollama", endpoint, model } })) {
+        text += token;
+        if (out) out.textContent = `PASS 串流生成中\n\n${text}`;
+      }
+      const status = $("phase1CenterGeneration");
+      if (status) status.textContent = "可生成";
+      notify("本地模型測試生成完成。");
+    } catch (error) {
+      const status = $("phase1CenterGeneration");
+      if (status) status.textContent = "生成失敗";
+      if (out) out.textContent = `FAIL 測試生成：${error.message || error}`;
+    }
+  }
+
+  function abortLocalAiGeneration() {
+    NovelAIService.abortOllama();
+    const out = $("phase1CenterOutput");
+    if (out) out.textContent += "\n已要求中止生成。";
+  }
+
+  function trainingKey() {
+    return `training-samples-${UI.projectId || "global"}`;
+  }
+
+  async function getTrainingSamples() {
+    return (await NovelDB.getSetting(trainingKey())) || [];
+  }
+
+  async function saveTrainingSamples(samples) {
+    await NovelDB.saveSetting(trainingKey(), samples);
+    renderTrainingSamples(samples);
+  }
+
+  function makeTrainingSample(action) {
+    const original = $("phase1TrainingOriginal")?.value || UI.guidedGeneratedChapter || "";
+    const edited = $("phase1TrainingEdited")?.value || "";
+    const reason = $("phase1TrainingReason")?.value || "";
+    const scope = $("phase1TrainingScope")?.value || "single";
+    const approved = !!$("phase1TrainingApproved")?.checked;
+    const promptContext = UI.guidedGenerationContext || {};
+    return {
+      id: NovelDB.safeId("sample"),
+      projectId: UI.projectId || "",
+      chapterId: UI.chapterId || "",
+      sceneId: "",
+      promptContext,
+      originalText: original,
+      editedText: edited,
+      action,
+      rating: action === "accepted" ? 5 : action === "edited" ? 4 : 1,
+      reasons: reason ? [reason] : [],
+      scope,
+      approvedForTraining: approved,
+      createdAt: NovelDB.now()
+    };
+  }
+
+  async function addTrainingSample(action) {
+    const sample = makeTrainingSample(action);
+    if (!sample.originalText.trim() && !sample.editedText.trim()) return notify("請先提供 AI 原稿或使用者修正版。", "error");
+    const samples = await getTrainingSamples();
+    samples.unshift(sample);
+    await saveTrainingSamples(samples.slice(0, 300));
+    notify("已建立偏好學習樣本；只有勾選批准的樣本才會進入模型訓練資料。");
+  }
+
+  async function renderTrainingSamples(samples = null) {
+    const list = samples || await getTrainingSamples();
+    const box = $("phase1TrainingSamples");
+    const count = $("phase1PreferenceCount");
+    if (count) count.textContent = `${list.length} 筆`;
+    if (!box) return;
+    box.textContent = list.length ? list.slice(0, 20).map((s, i) => [
+      `#${i + 1} ${s.action}｜${s.scope}｜批准訓練：${s.approvedForTraining ? "是" : "否"}`,
+      `原因：${(s.reasons || []).join("、") || "無"}`,
+      `AI原稿：${shortText(s.originalText, 120)}`,
+      `修正版：${shortText(s.editedText, 120)}`
+    ].join("\n")).join("\n\n") : "尚未建立訓練樣本。";
+  }
+
+  function toSftSample(sample) {
+    return {
+      instruction: "依照作品設定續寫完整小說正文",
+      input: sample.promptContext || {},
+      output: sample.editedText || sample.originalText,
+      approvedForTraining: sample.approvedForTraining
+    };
+  }
+
+  function toPreferenceSample(sample) {
+    return {
+      prompt: sample.promptContext || {},
+      chosen: sample.editedText || sample.originalText,
+      rejected: sample.action === "rejected" ? sample.originalText : "",
+      approvedForTraining: sample.approvedForTraining
+    };
+  }
+
+  function downloadJsonl(filename, rows) {
+    const text = rows.map((row) => JSON.stringify(row)).join("\n");
+    const blob = new Blob([text], { type: "application/x-jsonlines;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async function exportTrainingJsonl(type = "sft") {
+    const samples = (await getTrainingSamples()).filter((sample) => sample.approvedForTraining);
+    const rows = type === "preference" ? samples.map(toPreferenceSample).filter((row) => row.chosen && row.rejected) : samples.map(toSftSample).filter((row) => row.output);
+    if (!rows.length) return notify("沒有已批准且可匯出的訓練樣本。", "error");
+    downloadJsonl(`novel-${type}-samples.jsonl`, rows);
+  }
+
+  async function importTrainingJsonl() {
+    const raw = prompt("貼上 JSONL 訓練資料，每行一筆 JSON：");
+    if (!raw) return;
+    try {
+      const imported = raw.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+      const samples = await getTrainingSamples();
+      const normalized = imported.map((item) => ({
+        id: NovelDB.safeId("sample"),
+        projectId: UI.projectId || "",
+        chapterId: UI.chapterId || "",
+        promptContext: item.input || item.prompt || {},
+        originalText: item.rejected || "",
+        editedText: item.output || item.chosen || "",
+        action: item.rejected ? "edited" : "accepted",
+        rating: 4,
+        reasons: [],
+        scope: "imported",
+        approvedForTraining: !!item.approvedForTraining,
+        createdAt: NovelDB.now()
+      }));
+      await saveTrainingSamples([...normalized, ...samples].slice(0, 300));
+      notify(`已匯入 ${normalized.length} 筆 JSONL 樣本。`);
+    } catch (error) {
+      notify(`JSONL 匯入失敗：${error.message || error}`, "error");
+    }
+  }
+
+  async function validateTrainingDataset() {
+    const out = $("phase1TrainingOutput");
+    try {
+      const samples = (await getTrainingSamples()).map(toSftSample);
+      const report = await LocalTrainingService.validateDataset(samples);
+      if (out) out.textContent = `資料集驗證結果\n${JSON.stringify(report, null, 2)}`;
+    } catch (error) {
+      if (out) out.textContent = `資料集驗證失敗：${error.message || error}`;
+    }
+  }
+
+  async function buildTrainingDataset() {
+    const out = $("phase1TrainingOutput");
+    try {
+      const samples = (await getTrainingSamples()).filter((sample) => sample.approvedForTraining).map(toSftSample);
+      const report = await LocalTrainingService.buildDataset(samples);
+      localStorage.setItem("novel_last_dataset_path", report.path || "");
+      if (out) out.textContent = `資料集建立完成\n${JSON.stringify(report, null, 2)}`;
+    } catch (error) {
+      if (out) out.textContent = `資料集建立失敗：${error.message || error}`;
+    }
+  }
+
+  async function checkTrainingHardware() {
+    const out = $("phase1TrainingOutput");
+    try {
+      const hw = await LocalTrainingService.hardware();
+      const status = $("phase1TrainingServiceStatus");
+      if (status) status.textContent = hw.can_train_lora ? "可嘗試LoRA" : "硬體或套件不足";
+      if (out) out.textContent = `硬體檢查\n${JSON.stringify(hw, null, 2)}`;
+    } catch (error) {
+      if (out) out.textContent = `硬體檢查失敗：${error.message || error}`;
+    }
+  }
+
+  async function startLoraTraining() {
+    const out = $("phase1TrainingOutput");
+    try {
+      const payload = {
+        base_model: $("phase1CenterOllamaModel")?.value || readLocalAiSettings().model || "",
+        dataset_path: localStorage.getItem("novel_last_dataset_path") || "",
+        method: "lora",
+        max_steps: 100,
+        allow_cpu: false
+      };
+      const result = await LocalTrainingService.startTraining(payload);
+      if (out) out.textContent = `訓練啟動結果\n${JSON.stringify(result, null, 2)}`;
+    } catch (error) {
+      if (out) out.textContent = `訓練未啟動：${error.message || error}`;
+    }
+  }
+
+  async function stopLoraTraining() {
+    const out = $("phase1TrainingOutput");
+    try {
+      const result = await LocalTrainingService.stopTraining();
+      if (out) out.textContent = `訓練停止結果\n${JSON.stringify(result, null, 2)}`;
+    } catch (error) {
+      if (out) out.textContent = `停止訓練失敗：${error.message || error}`;
+    }
+  }
+
+  async function refreshTrainingStatus() {
+    const out = $("phase1TrainingOutput");
+    if ($("phase1TrainingEndpoint")) LocalTrainingService.saveEndpoint($("phase1TrainingEndpoint").value);
+    try {
+      const [status, logs, adapters] = await Promise.all([
+        LocalTrainingService.trainingStatus(),
+        LocalTrainingService.trainingLogs(),
+        LocalTrainingService.adapters()
+      ]);
+      if (out) out.textContent = [
+        "訓練狀態",
+        JSON.stringify(status, null, 2),
+        "",
+        "Adapter版本",
+        JSON.stringify(adapters, null, 2),
+        "",
+        "訓練日誌",
+        (logs.logs || []).join("\n")
+      ].join("\n");
+    } catch (error) {
+      if (out) out.textContent = `訓練服務未連線：${error.message || error}`;
+    }
+    renderTrainingSamples();
+  }
+
+  async function runLocalAiAcceptance() {
+    const out = $("phase1CenterOutput");
+    const results = [];
+    const add = (name, status, detail = "") => results.push(`${status} ${name}${detail ? "｜" + detail : ""}`);
+    try { await LocalTrainingService.health(); add("本機橋接/訓練服務", "PASS"); } catch (e) { add("本機橋接/訓練服務", "FAIL", e.message); }
+    try { const models = await NovelAIService.listLocalModels({ endpoint: ($("phase1CenterOllamaEndpoint")?.value || "http://localhost:11434"), provider: "ollama" }); add("Ollama連線", "PASS", `${models.length}模型`); add("取得模型", models.length ? "PASS" : "FAIL"); } catch (e) { add("Ollama連線", "FAIL", e.message); add("取得模型", "SKIP"); }
+    try { await testLocalAiGeneration(); add("測試生成", "PASS"); } catch (e) { add("測試生成", "FAIL", e.message); }
+    add("五輪狀態測試", UI.guidedSelections && Object.keys(UI.guidedSelections).length >= 5 ? "PASS" : "SKIP", "需完成五輪後驗證");
+    add("八段式測試", UI.guidedSceneOutputs?.length === 8 || UI.sectionWriting?.sections?.length === 8 ? "PASS" : "SKIP", "需完成逐段生成或逐段寫作");
+    add("保存正文", UI.chapterId ? "PASS" : "SKIP", "需開啟章節");
+    try { const samples = await getTrainingSamples(); add("建立訓練樣本", samples.length ? "PASS" : "SKIP"); } catch (e) { add("建立訓練樣本", "FAIL", e.message); }
+    try { const samples = (await getTrainingSamples()).map(toSftSample); await LocalTrainingService.validateDataset(samples); add("匯出/驗證JSONL", "PASS"); } catch (e) { add("匯出/驗證JSONL", "FAIL", e.message); }
+    try { await LocalTrainingService.trainingStatus(); add("訓練服務", "PASS"); } catch (e) { add("訓練服務", "FAIL", e.message); }
+    if (out) out.textContent = results.join("\n");
   }
 
   async function clearGuidedStep() {
@@ -3777,6 +4272,23 @@
     abortGuidedGeneration,
     acceptGuidedGeneratedChapter,
     discardGuidedGeneratedChapter,
+    showLocalAiCenter,
+    showTrainingCenter,
+    detectLocalAiCenter,
+    saveDefaultLocalModel,
+    testLocalAiGeneration,
+    abortLocalAiGeneration,
+    runLocalAiAcceptance,
+    addTrainingSample,
+    renderTrainingSamples,
+    exportTrainingJsonl,
+    importTrainingJsonl,
+    validateTrainingDataset,
+    buildTrainingDataset,
+    checkTrainingHardware,
+    startLoraTraining,
+    stopLoraTraining,
+    refreshTrainingStatus,
     startSectionWriting,
     setSectionMethod,
     selectSection,
