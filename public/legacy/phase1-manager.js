@@ -24,6 +24,7 @@
     sectionCandidate: "",
     combinedChapterPreview: "",
     storyStateCandidates: [],
+    chapterClosingSummary: null,
     writingMode: "free",
     lastRestore: null,
     lastSaveAt: "",
@@ -265,6 +266,14 @@
 
   function sectionWritingKey() {
     return `section-writing-${UI.projectId || "no-project"}-${UI.chapterId || "no-chapter"}`;
+  }
+
+  function chapterClosingKey(projectId = UI.projectId, chapterId = UI.chapterId) {
+    return `chapter-closing-summary-${projectId || "no-project"}-${chapterId || "no-chapter"}`;
+  }
+
+  function chapterClosingNextKey(projectId = UI.projectId) {
+    return `chapter-closing-next-reference-${projectId || "no-project"}`;
   }
 
   function guidedStep() {
@@ -1889,6 +1898,139 @@
     notify("已放棄本次組合預覽，段落內容仍保留。");
   }
 
+  function emptyChapterClosingSummary() {
+    return {
+      chapterResult: "",
+      protagonistState: "",
+      currentLocation: "",
+      unresolvedEvent: "",
+      nextChapterHook: "",
+      updatedAt: ""
+    };
+  }
+
+  function ensureChapterClosingPanel() {
+    if ($("phase1ChapterClosingPanel")) return;
+    const host = $("phase1SectionCombinePanel");
+    if (!host) return;
+    const panel = document.createElement("div");
+    panel.id = "phase1ChapterClosingPanel";
+    panel.className = "phase1-guided-plan-box";
+    panel.innerHTML = `
+      <h3>本章結束整理</h3>
+      <p class="muted">只保存本章銜接資訊，不會改動正文、八段內容或作品設定。</p>
+      <div class="grid2">
+        <label>本章結果<textarea id="phase1ClosingResult" placeholder="例如：主角暫時解決眼前危機，但反派已經察覺。"></textarea></label>
+        <label>主角目前狀態<textarea id="phase1ClosingProtagonistState" placeholder="例如：受傷、警覺、掌握新線索、情緒動搖。"></textarea></label>
+        <label>目前地點<textarea id="phase1ClosingLocation" placeholder="例如：仙門後山、公司會議室、皇城暗牢。"></textarea></label>
+        <label>尚未解決的事件<textarea id="phase1ClosingUnresolved" placeholder="例如：帳冊來源未明、盟友是否背叛仍未確認。"></textarea></label>
+        <label>下一章懸念<textarea id="phase1ClosingHook" placeholder="例如：一封不該存在的信出現在主角房中。"></textarea></label>
+      </div>
+      <div class="bar">
+        <button class="btn green" onclick="Phase1Novel.saveChapterClosingSummary()">儲存本章整理</button>
+        <button class="btn gold" onclick="Phase1Novel.applyChapterClosingToNextReference()">套用到下一章參考</button>
+        <button class="btn red" onclick="Phase1Novel.clearChapterClosingSummary()">清除本章整理</button>
+      </div>
+      <div id="phase1ChapterClosingStatus" class="notice">本章整理尚未儲存。</div>
+      <div id="phase1ChapterBridgeReference" class="out phase1-small-out">上一章銜接資料：尚未套用。</div>
+    `;
+    host.appendChild(panel);
+  }
+
+  async function readChapterClosingSummary() {
+    if (!UI.projectId || !UI.chapterId) return emptyChapterClosingSummary();
+    return { ...emptyChapterClosingSummary(), ...((await NovelDB.getSetting(chapterClosingKey())) || {}) };
+  }
+
+  function collectChapterClosingSummary() {
+    return {
+      chapterResult: $("phase1ClosingResult")?.value || "",
+      protagonistState: $("phase1ClosingProtagonistState")?.value || "",
+      currentLocation: $("phase1ClosingLocation")?.value || "",
+      unresolvedEvent: $("phase1ClosingUnresolved")?.value || "",
+      nextChapterHook: $("phase1ClosingHook")?.value || "",
+      updatedAt: NovelDB.now()
+    };
+  }
+
+  async function renderChapterClosingSummaryPanel() {
+    ensureChapterClosingPanel();
+    const panel = $("phase1ChapterClosingPanel");
+    if (!panel) return;
+    const active = document.activeElement;
+    const editing = active && panel.contains(active);
+    const summary = await readChapterClosingSummary();
+    UI.chapterClosingSummary = summary;
+    if (!editing) {
+      if ($("phase1ClosingResult")) $("phase1ClosingResult").value = summary.chapterResult || "";
+      if ($("phase1ClosingProtagonistState")) $("phase1ClosingProtagonistState").value = summary.protagonistState || "";
+      if ($("phase1ClosingLocation")) $("phase1ClosingLocation").value = summary.currentLocation || "";
+      if ($("phase1ClosingUnresolved")) $("phase1ClosingUnresolved").value = summary.unresolvedEvent || "";
+      if ($("phase1ClosingHook")) $("phase1ClosingHook").value = summary.nextChapterHook || "";
+    }
+    const status = $("phase1ChapterClosingStatus");
+    if (status) status.textContent = summary.updatedAt ? `本章整理已儲存：${new Date(summary.updatedAt).toLocaleString("zh-TW")}` : "本章整理尚未儲存。";
+    await renderChapterClosingReference();
+  }
+
+  async function renderChapterClosingReference() {
+    const box = $("phase1ChapterBridgeReference");
+    if (!box || !UI.projectId) return;
+    const ref = (await NovelDB.getSetting(chapterClosingNextKey())) || null;
+    if (!ref) {
+      box.textContent = "上一章銜接資料：尚未套用。";
+      return;
+    }
+    box.textContent = [
+      "上一章銜接資料",
+      `上一章結果：${ref.chapterResult || "未填寫"}`,
+      `主角狀態：${ref.protagonistState || "未填寫"}`,
+      `起始地點：${ref.currentLocation || "未填寫"}`,
+      `未解事件：${ref.unresolvedEvent || "未填寫"}`,
+      `下一章懸念：${ref.nextChapterHook || "未填寫"}`
+    ].join("\n");
+  }
+
+  async function saveChapterClosingSummary() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先選擇作品與章節。", "error");
+    try {
+      const summary = collectChapterClosingSummary();
+      await NovelDB.saveSetting(chapterClosingKey(), summary);
+      UI.chapterClosingSummary = summary;
+      await renderChapterClosingSummaryPanel();
+      notify("本章整理已儲存。");
+    } catch (error) {
+      notify("本章整理儲存失敗，但正文與原有作品資料仍然安全。", "error");
+    }
+  }
+
+  async function applyChapterClosingToNextReference() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先選擇作品與章節。", "error");
+    try {
+      const summary = collectChapterClosingSummary();
+      await NovelDB.saveSetting(chapterClosingKey(), summary);
+      await NovelDB.saveSetting(chapterClosingNextKey(), { ...summary, sourceChapterId: UI.chapterId });
+      UI.chapterClosingSummary = summary;
+      await renderChapterClosingSummaryPanel();
+      notify("已套用到下一章參考，不會覆蓋正文。");
+    } catch (error) {
+      notify("本章整理儲存失敗，但正文與原有作品資料仍然安全。", "error");
+    }
+  }
+
+  async function clearChapterClosingSummary() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先選擇作品與章節。", "error");
+    if (!confirmSafe("確定清除此章的本章結束整理？正文、規劃、八段內容與作品設定都不會被刪除。")) return;
+    try {
+      await NovelDB.saveSetting(chapterClosingKey(), emptyChapterClosingSummary());
+      UI.chapterClosingSummary = emptyChapterClosingSummary();
+      await renderChapterClosingSummaryPanel();
+      notify("已清除此章整理，正文未被修改。");
+    } catch (error) {
+      notify("本章整理儲存失敗，但正文與原有作品資料仍然安全。", "error");
+    }
+  }
+
   function emptyStoryMemory() {
     return {
       storyState: { currentChapter: 0, currentTime: "", currentLocation: "", mainConflict: "", chapterResult: "", nextHook: "" },
@@ -2385,6 +2527,7 @@
     updateSaveStatus(chapter ? "已載入" : "尚未選擇章節", chapter ? `最後更新 ${new Date(chapter.updatedAt).toLocaleTimeString("zh-TW")}` : "");
     await renderProgressPanel();
     renderWritingModePanel();
+    await renderChapterClosingSummaryPanel();
     renderStoryStatePanel();
     if (UI.projectId) await syncLegacyFromProject(UI.projectId, UI.chapterId);
   }
@@ -3347,6 +3490,9 @@
     saveCombinedAsVersion,
     hideCombinedPreview,
     discardCombinedChapter,
+    saveChapterClosingSummary,
+    applyChapterClosingToNextReference,
+    clearChapterClosingSummary,
     prepareStoryStateCandidates,
     decideStoryStateCandidate,
     editStoryStateCandidate,
