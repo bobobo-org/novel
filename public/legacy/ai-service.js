@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  let currentOllamaProvider = null;
+
   function maskKey(key) {
     if (!key) return "";
     return key.length <= 8 ? "****" : `${key.slice(0, 4)}...${key.slice(-4)}`;
@@ -59,6 +61,115 @@
     } finally {
       clearTimeout(id);
     }
+  }
+
+  function ollamaBaseUrl(endpoint = "") {
+    const raw = endpoint || "http://localhost:11434";
+    return raw
+      .replace(/\/api\/chat.*$/i, "")
+      .replace(/\/api\/generate.*$/i, "")
+      .replace(/\/+$/, "");
+  }
+
+  function createOllamaProvider(config = {}) {
+    let activeController = null;
+    const provider = {
+      id: "ollama",
+      name: "Ollama",
+      type: "local",
+      baseUrl: ollamaBaseUrl(config.endpoint),
+      async isAvailable() {
+        try {
+          const response = await timeoutFetch(`${provider.baseUrl}/api/tags`, {}, 3000);
+          return response.ok;
+        } catch (error) {
+          return false;
+        }
+      },
+      async listModels() {
+        let response;
+        try {
+          response = await timeoutFetch(`${provider.baseUrl}/api/tags`, {}, 4000);
+        } catch (error) {
+          throw new Error("Ollama 未啟動，或瀏覽器無法連到 http://localhost:11434。");
+        }
+        if (!response.ok) throw new Error(`Ollama 模型清單讀取失敗：HTTP ${response.status}`);
+        const data = await response.json();
+        return (data.models || []).map((model) => ({
+          id: model.name,
+          name: model.name,
+          size: model.size || 0,
+          modifiedAt: model.modified_at || ""
+        }));
+      },
+      async *generate(request = {}) {
+        const model = request.model || config.model;
+        if (!model) throw new Error("尚未選擇 Ollama 模型。");
+        activeController = new AbortController();
+        let response;
+        try {
+          response = await fetch(`${provider.baseUrl}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: activeController.signal,
+            body: JSON.stringify({
+              model,
+              stream: true,
+              options: {
+                temperature: request.temperature ?? 0.78,
+                num_ctx: request.numCtx || 8192
+              },
+              messages: [
+                { role: "system", content: request.system || "你是長篇小說正文生成引擎。只輸出小說正文。" },
+                { role: "user", content: request.prompt || "" }
+              ]
+            })
+          });
+        } catch (error) {
+          if (error.name === "AbortError") throw new Error("已中止生成。");
+          throw new Error("尚未連接本機模型：Ollama 未啟動、模型未載入，或 localhost 連線被瀏覽器阻擋。");
+        }
+        if (!response.ok) throw new Error(`Ollama 回應失敗：HTTP ${response.status}`);
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("瀏覽器不支援串流讀取。");
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const text = line.trim();
+            if (!text) continue;
+            let data;
+            try {
+              data = JSON.parse(text);
+            } catch (error) {
+              throw new Error("Ollama 回傳串流 JSON 格式錯誤。");
+            }
+            const token = data.message?.content || data.response || "";
+            if (token) yield token;
+            if (data.done) return;
+          }
+        }
+      },
+      async generateJson(request = {}) {
+        let text = "";
+        for await (const token of provider.generate(request)) text += token;
+        const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+        try {
+          return JSON.parse(cleaned);
+        } catch (error) {
+          throw new Error("本機模型沒有回傳有效 JSON。");
+        }
+      },
+      abort() {
+        if (activeController) activeController.abort();
+      }
+    };
+    return provider;
   }
 
   async function generate(prompt, options = {}) {
@@ -167,10 +278,46 @@
     return "本機模型未連線";
   }
 
+  async function listLocalModels(options = {}) {
+    const config = { ...getConfig(), ...options };
+    if (config.provider && config.provider !== "ollama") config.provider = "ollama";
+    return createOllamaProvider(config).listModels();
+  }
+
+  async function testLocalModel(options = {}) {
+    const config = { ...getConfig(), ...options, provider: "ollama" };
+    const provider = createOllamaProvider(config);
+    const models = await provider.listModels();
+    if (!models.length) throw new Error("Ollama 已啟動，但尚未安裝任何模型。");
+    return {
+      ok: true,
+      models,
+      selectedModel: config.model || models[0].id
+    };
+  }
+
+  function generateStream(request = {}, options = {}) {
+    const config = { ...getConfig(), ...(options.config || {}) };
+    if ((config.provider || request.provider) === "ollama") {
+      currentOllamaProvider = createOllamaProvider(config);
+      return currentOllamaProvider.generate(request);
+    }
+    throw new Error("目前第一階段串流正文生成只支援 Ollama 本機模型。");
+  }
+
+  function abortOllama() {
+    if (currentOllamaProvider) currentOllamaProvider.abort();
+  }
+
   window.NovelAIService = {
     getConfig,
     validateConfig,
     generate,
+    generateStream,
+    listLocalModels,
+    testLocalModel,
+    createOllamaProvider,
+    abortOllama,
     checkLocalModel,
     saveSessionToken,
     clearToken,

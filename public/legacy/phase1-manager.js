@@ -459,17 +459,44 @@
               <button onclick="Phase1Novel.setWritingMode('free')">返回自由寫作</button>
             </div>
             <div class="phase1-guided-plan-box">
-              <label>本章規劃</label>
+              <label>本章續寫設定摘要／本章規劃</label>
               <textarea id="phase1GuidedPlan" placeholder="完成五輪後會組合成本章規劃，也可以手動編輯。"></textarea>
               <label>作者補充</label>
               <textarea id="phase1GuidedAuthorNote" placeholder="可補充這章一定要保留的情緒、台詞、伏筆或禁忌。"></textarea>
               <div class="bar">
                 <button onclick="Phase1Novel.editGuidedPlan()">編輯本章規劃</button>
                 <button class="btn gold" onclick="Phase1Novel.saveGuidedPlan()">儲存本章規劃</button>
+                <button class="btn green" onclick="Phase1Novel.generateGuidedChapterWithOllama()">儲存並生成本章</button>
                 <button onclick="Phase1Novel.copyGuidedPlan()">複製規劃</button>
                 <button class="btn green" onclick="Phase1Novel.applyGuidedPlan()">套用到自由寫作提示區</button>
                 <button class="btn green" onclick="Phase1Novel.startSectionWriting()">開始逐段寫作</button>
                 <button onclick="Phase1Novel.restartGuidedFlow()">重新引導</button>
+              </div>
+              <div class="phase1-card" style="margin-top:12px">
+                <h3>本地 AI 引導式寫作</h3>
+                <p class="muted">第一階段支援 Ollama 本機模型。小說內容只送到 localhost，不會送到雲端。</p>
+                <div class="phase1-mode-summary">
+                  <span>網際網路：<b id="phase1LocalInternetStatus">偵測中</b></span>
+                  <span>Ollama：<b id="phase1OllamaStatus">尚未偵測</b></span>
+                  <span>正文生成：<b id="phase1LocalGenerationStatus">尚未開始</b></span>
+                </div>
+                <label>Ollama 端點</label>
+                <input id="phase1OllamaEndpoint" value="http://localhost:11434" placeholder="http://localhost:11434">
+                <label>本地模型</label>
+                <select id="phase1OllamaModel"></select>
+                <label>目標字數</label>
+                <input id="phase1LocalTargetWords" type="number" min="800" max="6000" value="1800">
+                <div class="bar">
+                  <button onclick="Phase1Novel.detectOllamaModels()">重新偵測模型</button>
+                  <button onclick="Phase1Novel.testOllamaModel()">測試模型</button>
+                  <button class="btn red" onclick="Phase1Novel.abortGuidedGeneration()">中止生成</button>
+                </div>
+                <div id="phase1GuidedGenerationPreview" class="out">完成五輪後，可按「儲存並生成本章」產生完整正文候選。</div>
+                <div class="bar">
+                  <button class="btn green" onclick="Phase1Novel.acceptGuidedGeneratedChapter('append')">接受並加入目前章節</button>
+                  <button onclick="Phase1Novel.acceptGuidedGeneratedChapter('new')">接受並建立新章節</button>
+                  <button onclick="Phase1Novel.discardGuidedGeneratedChapter()">放棄候選正文</button>
+                </div>
               </div>
             </div>
             <div id="phase1SectionWriter" class="phase1-section-writer hidden">
@@ -2482,7 +2509,10 @@
     if (words) words.textContent = fmt($("phase1ChapterContent")?.value ? NovelDB.words($("phase1ChapterContent").value) : chapter.wordCount || 0);
     const save = $("phase1FreeSaveStatus");
     if (save) save.textContent = UI.lastSaveAt ? `已儲存 ${new Date(UI.lastSaveAt).toLocaleTimeString("zh-TW")}` : (chapter.lastSavedAt ? `已儲存 ${new Date(chapter.lastSavedAt).toLocaleTimeString("zh-TW")}` : "尚未儲存");
-    if (mode === "guided") renderGuidedRound();
+    if (mode === "guided") {
+      renderGuidedRound();
+      renderLocalAiStatus();
+    }
     if (mode === "ai") renderAiModeStatus();
   }
 
@@ -2965,7 +2995,7 @@
     await saveGuidedState();
     await loadLists();
     await renderProgressPanel();
-    notify("本章規劃已儲存，正文未被覆蓋。");
+    notify("本章規則已儲存，尚未生成正文。");
   }
 
   function editGuidedPlan() {
@@ -2984,6 +3014,281 @@
     } catch (error) {
       notify("無法直接複製，請手動選取本章規劃文字。", "error");
     }
+  }
+
+  function localAiSettingKey() {
+    return `phase1-local-ai-${UI.projectId || "global"}`;
+  }
+
+  function readLocalAiSettings() {
+    try {
+      return JSON.parse(localStorage.getItem(localAiSettingKey()) || localStorage.getItem("phase1-local-ai-global") || "{}");
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function saveLocalAiSettings(next = {}) {
+    const current = readLocalAiSettings();
+    const settings = { ...current, ...next, updatedAt: NovelDB.now() };
+    localStorage.setItem(localAiSettingKey(), JSON.stringify(settings));
+    if (!UI.projectId) localStorage.setItem("phase1-local-ai-global", JSON.stringify(settings));
+    return settings;
+  }
+
+  function renderLocalAiStatus(message = "") {
+    const internet = $("phase1LocalInternetStatus");
+    if (internet) internet.textContent = navigator.onLine ? "在線" : "離線";
+    const status = $("phase1LocalGenerationStatus");
+    if (status && message) status.textContent = message;
+    const saved = readLocalAiSettings();
+    const endpoint = $("phase1OllamaEndpoint");
+    if (endpoint && !endpoint.value) endpoint.value = saved.endpoint || "http://localhost:11434";
+    const target = $("phase1LocalTargetWords");
+    if (target && saved.targetWords && !target.value) target.value = saved.targetWords;
+  }
+
+  function selectedOllamaConfig() {
+    const endpoint = ($("phase1OllamaEndpoint")?.value || "http://localhost:11434").replace(/\/+$/, "");
+    const model = $("phase1OllamaModel")?.value || readLocalAiSettings().model || "";
+    const targetWords = Number($("phase1LocalTargetWords")?.value || 1800) || 1800;
+    saveLocalAiSettings({ endpoint, model, targetWords });
+    return { provider: "ollama", endpoint, model, targetWords };
+  }
+
+  async function detectOllamaModels() {
+    const status = $("phase1OllamaStatus");
+    const modelSelect = $("phase1OllamaModel");
+    const cfg = selectedOllamaConfig();
+    if (status) status.textContent = "偵測中...";
+    try {
+      const models = await NovelAIService.listLocalModels({ endpoint: cfg.endpoint, provider: "ollama" });
+      if (!models.length) {
+        if (status) status.textContent = "已連線，但尚未安裝模型";
+        if (modelSelect) modelSelect.innerHTML = "";
+        return [];
+      }
+      const saved = cfg.model || readLocalAiSettings().model || models[0].id;
+      if (modelSelect) {
+        modelSelect.innerHTML = models.map((model) => `<option value="${esc(model.id)}">${esc(model.name || model.id)}</option>`).join("");
+        modelSelect.value = models.some((model) => model.id === saved) ? saved : models[0].id;
+      }
+      saveLocalAiSettings({ endpoint: cfg.endpoint, model: modelSelect?.value || models[0].id });
+      if (status) status.textContent = `已連線｜${models.length} 個模型`;
+      renderLocalAiStatus("模型可用，尚未生成");
+      return models;
+    } catch (error) {
+      if (status) status.textContent = "Ollama 未啟動或無法連線";
+      renderLocalAiStatus("本地模型未連線");
+      notify(error.message || "Ollama 偵測失敗。", "error");
+      return [];
+    }
+  }
+
+  async function testOllamaModel() {
+    const status = $("phase1OllamaStatus");
+    const cfg = selectedOllamaConfig();
+    try {
+      const result = await NovelAIService.testLocalModel({ endpoint: cfg.endpoint, model: cfg.model, provider: "ollama" });
+      if (status) status.textContent = `已連線｜目前模型：${result.selectedModel}`;
+      notify(`Ollama 可用：${result.selectedModel}`);
+    } catch (error) {
+      if (status) status.textContent = "測試失敗";
+      notify(error.message || "Ollama 測試失敗。", "error");
+    }
+  }
+
+  function buildChapterContext() {
+    const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    const previous = findPreviousChapter(UI.chapterId) || {};
+    const stateMemory = getStoryMemory();
+    const protagonist = readProtagonistLink();
+    const guidedPlan = $("phase1GuidedPlan")?.value.trim() || UI.guidedChapterPlan || buildGuidedChapterPlan();
+    const authorNote = $("phase1GuidedAuthorNote")?.value.trim() || UI.guidedCustomInputs?.authorNote || "";
+    const currentContent = $("phase1ChapterContent")?.value || chapter.content || "";
+    const selections = {};
+    guidedSteps.forEach((step) => {
+      const item = UI.guidedSelections?.[step.key];
+      selections[step.key] = item ? {
+        question: item.question,
+        label: item.label,
+        text: item.text,
+        risk: item.risk,
+        progress: item.progress,
+        cost: item.cost,
+        impact: item.impact
+      } : null;
+    });
+    return {
+      project: {
+        id: project.id,
+        title: project.title || "未命名小說",
+        genre: project.genre || "",
+        subTheme: project.state?.subTheme || "",
+        engine: project.state?.storyEngine || "",
+        style: project.style || project.state?.styleMode || "",
+        synopsis: project.synopsis || project.state?.seed || ""
+      },
+      chapter: {
+        id: chapter.id,
+        title: chapter.title || "",
+        targetWords: Number($("phase1LocalTargetWords")?.value || chapter.chapterTargetWords || 1800) || 1800,
+        existingContentTail: shortText(currentContent.slice(-1600), 1600),
+        goal: chapter.goal || guidedPlan
+      },
+      previousChapter: {
+        title: previous.title || "",
+        summary: previous.summary || shortText(previous.content || "", 500),
+        ending: shortText((previous.content || "").slice(-1600), 1600)
+      },
+      world: {
+        worldCore: project.state?.worldCore || "",
+        powerCore: project.state?.powerCore || "",
+        conflictCore: project.state?.conflictCore || "",
+        villainCore: project.state?.villainCore || "",
+        currentLocation: stateMemory?.storyState?.currentLocation || "",
+        timeline: stateMemory?.storyState?.currentTime || ""
+      },
+      protagonist: {
+        name: protagonist.name || project.state?.protagonist || "主角",
+        archetype: protagonist.archetype || project.state?.heroType || "尚未設定",
+        personality: protagonist.personality || "",
+        goal: protagonist.goal || "",
+        actionStyle: protagonist.actionStyle || "",
+        speechStyle: protagonist.speechStyle || "",
+        strengths: protagonist.strengths || "",
+        weaknesses: protagonist.weaknesses || "",
+        characterArc: protagonist.characterArc || ""
+      },
+      storyMemory: {
+        nextChapterReference: nextChapterReference(stateMemory),
+        unresolvedEvents: (stateMemory?.unresolvedEvents || []).filter((item) => item.status !== "已解決").slice(0, 8),
+        secrets: (stateMemory?.secrets || []).filter((item) => !item.revealed).slice(0, 8),
+        items: (stateMemory?.storyItems || []).slice(0, 8),
+        characters: (stateMemory?.characterStates || []).slice(0, 10)
+      },
+      guided: {
+        chapterPlan: guidedPlan,
+        authorNote,
+        selections
+      },
+      constraints: [
+        "只輸出小說正文，不要輸出摘要、大綱、分析或建議。",
+        "延續上一章結尾與目前章節既有內容，不可重複貼上前文。",
+        "主角原型只能影響主角的行動方式、語氣與判斷邏輯，不可變成另一個角色。",
+        "不可讓人物知道尚未揭露的資訊。",
+        "不可無故新增重要人物或改寫世界規則。",
+        "必須落實五輪引導選擇與本章規劃。",
+        "章末需要留下推進或懸念。"
+      ]
+    };
+  }
+
+  function buildLocalChapterPrompt(context) {
+    return [
+      "你是長篇小說正文生成引擎。",
+      "請依照下方本章寫作包生成完整、可直接閱讀並收錄進作品的小說正文。",
+      "不可只輸出摘要、大綱、分析或創作建議；不可在正文前後加入解釋。",
+      "",
+      "【本章寫作包】",
+      JSON.stringify(context, null, 2),
+      "",
+      "【輸出要求】",
+      `目標字數：約 ${context.chapter.targetWords} 字。`,
+      "請只輸出小說正文。"
+    ].join("\n");
+  }
+
+  async function generateGuidedChapterWithOllama() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先建立或開啟作品與章節。", "error");
+    const preview = $("phase1GuidedGenerationPreview");
+    const buttonStatus = $("phase1LocalGenerationStatus");
+    try {
+      await saveCurrentChapter("before-local-guided-generation", true);
+      await saveGuidedPlan();
+      const cfg = selectedOllamaConfig();
+      if (!cfg.model) {
+        const models = await detectOllamaModels();
+        if (!models.length) throw new Error("尚未選擇可用的 Ollama 模型。");
+        cfg.model = $("phase1OllamaModel")?.value || models[0].id;
+      }
+      saveLocalAiSettings(cfg);
+      const context = buildChapterContext();
+      const prompt = buildLocalChapterPrompt(context);
+      UI.guidedGeneratedChapter = "";
+      UI.guidedGenerationContext = context;
+      if (preview) preview.textContent = "【本地 AI 生成中】\n";
+      if (buttonStatus) buttonStatus.textContent = "生成中";
+      for await (const token of NovelAIService.generateStream({
+        provider: "ollama",
+        model: cfg.model,
+        prompt,
+        system: "你是長篇小說正文生成引擎。只輸出小說正文，不要輸出分析或摘要。",
+        temperature: 0.78,
+        numCtx: 8192
+      }, { config: { provider: "ollama", endpoint: cfg.endpoint, model: cfg.model } })) {
+        UI.guidedGeneratedChapter += token;
+        if (preview) preview.textContent = `【本地 AI 候選正文｜尚未套用】\n${UI.guidedGeneratedChapter}`;
+      }
+      const runs = (await NovelDB.getSetting(`generation-runs-${UI.projectId}`)) || [];
+      runs.unshift({
+        id: NovelDB.safeId("run"),
+        projectId: UI.projectId,
+        chapterId: UI.chapterId,
+        provider: "ollama",
+        model: cfg.model,
+        promptContext: context,
+        generatedText: UI.guidedGeneratedChapter,
+        action: "pending",
+        approvedForTraining: false,
+        createdAt: NovelDB.now()
+      });
+      await NovelDB.saveSetting(`generation-runs-${UI.projectId}`, runs.slice(0, 30));
+      if (buttonStatus) buttonStatus.textContent = "已生成候選正文，尚未加入作品";
+      notify("本地 AI 已生成候選正文，請預覽後再接受。");
+    } catch (error) {
+      if (buttonStatus) buttonStatus.textContent = "生成失敗";
+      if (preview) preview.textContent = `生成失敗：${error.message || error}\n\n正文與原有作品資料仍然安全。`;
+      notify(error.message || "本地 AI 生成失敗。", "error");
+    }
+  }
+
+  function abortGuidedGeneration() {
+    NovelAIService.abortOllama();
+    renderLocalAiStatus("已要求中止生成");
+  }
+
+  async function acceptGuidedGeneratedChapter(mode = "append") {
+    const text = (UI.guidedGeneratedChapter || "").trim();
+    if (!text) return notify("尚未有可接受的本地 AI 候選正文。", "error");
+    await NovelDB.createVersion(UI.projectId, "接受本地AI正文前快照", await NovelDB.loadProject(UI.projectId), { reason: "before-accept-local-ai" });
+    if (mode === "new") {
+      await createChapter(`本地AI生成章節 ${new Date().toLocaleTimeString("zh-TW")}`, text);
+    } else {
+      const content = $("phase1ChapterContent");
+      if (!content) return notify("找不到正文編輯區。", "error");
+      content.value = `${content.value.trimEnd()}\n\n${text}`.trim();
+      content.setSelectionRange(content.value.length, content.value.length);
+      await saveCurrentChapter("accept-local-ai-guided", true);
+    }
+    const runs = (await NovelDB.getSetting(`generation-runs-${UI.projectId}`)) || [];
+    if (runs[0]) {
+      runs[0].action = "accepted";
+      runs[0].acceptedAt = NovelDB.now();
+      await NovelDB.saveSetting(`generation-runs-${UI.projectId}`, runs);
+    }
+    notify(mode === "new" ? "已接受候選正文並建立新章節。" : "已接受候選正文並加入目前章節。");
+    UI.guidedGeneratedChapter = "";
+    const status = $("phase1LocalGenerationStatus");
+    if (status) status.textContent = "已接受並存檔";
+  }
+
+  function discardGuidedGeneratedChapter() {
+    UI.guidedGeneratedChapter = "";
+    const preview = $("phase1GuidedGenerationPreview");
+    if (preview) preview.textContent = "已放棄本地 AI 候選正文，正式作品未被修改。";
+    renderLocalAiStatus("已放棄候選正文");
   }
 
   async function clearGuidedStep() {
@@ -3466,6 +3771,12 @@
     saveGuidedPlan,
     editGuidedPlan,
     copyGuidedPlan,
+    detectOllamaModels,
+    testOllamaModel,
+    generateGuidedChapterWithOllama,
+    abortGuidedGeneration,
+    acceptGuidedGeneratedChapter,
+    discardGuidedGeneratedChapter,
     startSectionWriting,
     setSectionMethod,
     selectSection,
