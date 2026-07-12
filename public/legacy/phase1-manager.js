@@ -19,6 +19,10 @@
     guidedOptionHistory: [],
     guidedChapterPlan: "",
     guidedUpdatedAt: "",
+    sectionCurrentIndex: 0,
+    sectionWriting: null,
+    sectionCandidate: "",
+    combinedChapterPreview: "",
     writingMode: "free",
     lastRestore: null,
     lastSaveAt: "",
@@ -237,8 +241,23 @@
     hook: ["新人物出現", "證據被調包", "身分即將曝光", "盟友背叛", "反派提前行動", "能力產生異常", "收到不可能存在的訊息"]
   };
 
+  const sectionBlueprints = [
+    { sectionId: "opening", sectionType: "opening", title: "開場與場景建立", goal: "用具體場景把讀者帶回本章局面，交代時間、地點與壓力來源。" },
+    { sectionId: "status", sectionType: "character_state", title: "主角目前狀態", goal: "呈現主角的身體、情緒、資源與當下顧慮。" },
+    { sectionId: "incident", sectionType: "conflict_arrival", title: "事件或衝突出現", goal: "讓事件真正發生，逼主角無法只停留在思考。" },
+    { sectionId: "reaction", sectionType: "first_reaction", title: "人物第一反應", goal: "寫出主角、對手或盟友對事件的第一個可見反應。" },
+    { sectionId: "escalation", sectionType: "conflict_escalation", title: "衝突升高", goal: "提高壓力，讓主角付出的代價或暴露的風險變明顯。" },
+    { sectionId: "midpoint", sectionType: "midpoint_turn", title: "中段轉折", goal: "加入資訊反轉、關係變化或策略失效，讓本章不平鋪直敘。" },
+    { sectionId: "choice", sectionType: "choice_cost", title: "主角選擇與代價", goal: "讓主角做出明確選擇，並承受相應代價。" },
+    { sectionId: "ending", sectionType: "result_hook", title: "結果與章尾鉤子", goal: "收束本章直接結果，留下下一章最想看的懸念。" }
+  ];
+
   function guidedKey() {
     return `guided-writing-${UI.projectId || "no-project"}-${UI.chapterId || "no-chapter"}`;
+  }
+
+  function sectionWritingKey() {
+    return `section-writing-${UI.projectId || "no-project"}-${UI.chapterId || "no-chapter"}`;
   }
 
   function guidedStep() {
@@ -398,6 +417,7 @@
             <div class="bar">
               <button class="btn green" onclick="Phase1Novel.saveCurrentChapter('manual')">儲存目前內容</button>
               <button onclick="Phase1Novel.completeCurrentChapter()">完成章節</button>
+              <button onclick="Phase1Novel.markEditorAsCurrentSection()">標記為目前段落內容</button>
               <button class="btn gold" onclick="Phase1Novel.setWritingMode('guided')">我卡住了</button>
             </div>
           </div>
@@ -432,7 +452,95 @@
                 <button class="btn gold" onclick="Phase1Novel.saveGuidedPlan()">儲存本章規劃</button>
                 <button onclick="Phase1Novel.copyGuidedPlan()">複製規劃</button>
                 <button class="btn green" onclick="Phase1Novel.applyGuidedPlan()">套用到自由寫作提示區</button>
+                <button class="btn green" onclick="Phase1Novel.startSectionWriting()">開始逐段寫作</button>
                 <button onclick="Phase1Novel.restartGuidedFlow()">重新引導</button>
+              </div>
+            </div>
+            <div id="phase1SectionWriter" class="phase1-section-writer hidden">
+              <div class="phase1-section-head">
+                <div>
+                  <h3>逐段正文寫作</h3>
+                  <p id="phase1SectionProgress" class="muted">尚未開始。</p>
+                </div>
+                <div class="bar">
+                  <button onclick="Phase1Novel.startSectionWriting()">重新載入段落流程</button>
+                  <button class="btn gold" onclick="Phase1Novel.combineChapterSections()">組合本章正文</button>
+                </div>
+              </div>
+              <div id="phase1SectionList" class="phase1-section-list"></div>
+              <div class="phase1-section-current">
+                <div class="phase1-guided-progress">
+                  <b id="phase1SectionTitle">目前段落</b>
+                  <span id="phase1SectionStatus">未開始</span>
+                </div>
+                <div class="phase1-section-meta">
+                  <div><b>段落目的</b><p id="phase1SectionGoal">尚未選擇段落。</p></div>
+                  <div><b>上一段摘要</b><p id="phase1SectionPrevSummary">無</p></div>
+                  <div><b>下一段預告</b><p id="phase1SectionNextHint">無</p></div>
+                </div>
+                <div class="phase1-mode-tabs phase1-section-methods">
+                  <button id="phase1SectionMethodManual" onclick="Phase1Novel.setSectionMethod('manual')">自己寫</button>
+                  <button id="phase1SectionMethodOptions" onclick="Phase1Novel.setSectionMethod('options')">A／B／C／D引導</button>
+                  <button id="phase1SectionMethodOffline" onclick="Phase1Novel.setSectionMethod('offline')">離線短草稿</button>
+                  <button id="phase1SectionMethodAi" onclick="Phase1Novel.setSectionMethod('ai')">AI候選稿</button>
+                </div>
+                <div id="phase1SectionManualPanel" class="phase1-section-panel">
+                  <label>本段內容</label>
+                  <textarea id="phase1SectionContent" placeholder="在這裡撰寫本段正文。"></textarea>
+                  <div class="bar">
+                    <button class="btn green" onclick="Phase1Novel.saveCurrentSection()">儲存本段</button>
+                    <button onclick="Phase1Novel.markCurrentSectionComplete()">標記完成</button>
+                    <button onclick="Phase1Novel.markCurrentSectionNeedsRevision()">標記待修訂</button>
+                    <button onclick="Phase1Novel.restoreSectionPrevious()">恢復上一版本</button>
+                    <button onclick="Phase1Novel.prevSection()">返回上一段</button>
+                    <button onclick="Phase1Novel.nextSection()">進入下一段</button>
+                  </div>
+                </div>
+                <div id="phase1SectionOptionsPanel" class="phase1-section-panel hidden">
+                  <div id="phase1SectionOptions" class="phase1-guided-options"></div>
+                  <label>D 自訂寫法</label>
+                  <textarea id="phase1SectionCustom" placeholder="例如：這段改成主角先沉默觀察，再用一句話逼對手露出破綻。"></textarea>
+                  <div class="bar">
+                    <button onclick="Phase1Novel.chooseSectionOption('D')">使用 D 自訂寫法</button>
+                    <button class="btn green" onclick="Phase1Novel.confirmSectionOption()">確認選擇</button>
+                    <button onclick="Phase1Novel.regenerateSectionOptions()">重新產生本段選項</button>
+                  </div>
+                  <div id="phase1SectionOptionOutcome" class="out phase1-small-out">尚未選擇本段寫法。</div>
+                </div>
+                <div id="phase1SectionOfflinePanel" class="phase1-section-panel hidden">
+                  <div class="bar">
+                    <button class="btn gold" onclick="Phase1Novel.generateOfflineSectionDraft()">產生離線短草稿</button>
+                    <button onclick="Phase1Novel.generateOfflineSectionDraft(true)">重新產生</button>
+                    <button class="btn green" onclick="Phase1Novel.applySectionCandidate('insert')">插入本段</button>
+                    <button onclick="Phase1Novel.applySectionCandidate('append')">追加到本段</button>
+                    <button onclick="Phase1Novel.editSectionCandidate()">自己修改</button>
+                    <button class="btn red" onclick="Phase1Novel.discardSectionCandidate()">放棄</button>
+                  </div>
+                  <div id="phase1SectionCandidate" class="out phase1-small-out">尚未產生候選稿。</div>
+                </div>
+                <div id="phase1SectionAiPanel" class="phase1-section-panel hidden">
+                  <div id="phase1SectionAiStatus" class="notice">AI候選稿只會套用到目前段落。</div>
+                  <label>本段AI要求</label>
+                  <textarea id="phase1SectionAiRequest" placeholder="例如：這段要更緊張，但不要新增陌生人物。"></textarea>
+                  <div class="bar">
+                    <button id="phase1SectionAiButton" class="btn gold" onclick="Phase1Novel.generateAiSectionCandidate()">產生本段AI候選稿</button>
+                    <button class="btn green" onclick="Phase1Novel.applySectionCandidate('insert')">插入本段</button>
+                    <button onclick="Phase1Novel.applySectionCandidate('append')">追加到本段</button>
+                    <button class="btn red" onclick="Phase1Novel.discardSectionCandidate()">放棄</button>
+                  </div>
+                  <div id="phase1SectionAiCandidate" class="out phase1-small-out">尚未產生本段AI候選稿。</div>
+                </div>
+                <div id="phase1SectionCombinePanel" class="phase1-guided-plan-box hidden">
+                  <label>本章組合預覽</label>
+                  <textarea id="phase1CombinedChapterPreview" placeholder="八段完成後可在這裡預覽完整章節。"></textarea>
+                  <div class="bar">
+                    <button class="btn green" onclick="Phase1Novel.applyCombinedChapter()">套用為本章正文</button>
+                    <button onclick="Phase1Novel.copyCombinedChapter()">複製全文</button>
+                    <button onclick="Phase1Novel.saveCombinedAsVersion()">儲存為候選版本</button>
+                    <button onclick="Phase1Novel.hideCombinedPreview()">回到分段修改</button>
+                    <button class="btn red" onclick="Phase1Novel.discardCombinedChapter()">放棄組合</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1107,6 +1215,624 @@
     if (!plan) return;
     UI.guidedChapterPlan = UI.guidedChapterPlan || buildGuidedChapterPlan();
     if (document.activeElement !== plan) plan.value = UI.guidedChapterPlan;
+  }
+
+  function makeDefaultSection(blueprint, index) {
+    const now = NovelDB.now();
+    return {
+      sectionId: blueprint.sectionId,
+      sectionType: blueprint.sectionType,
+      title: blueprint.title,
+      goal: blueprint.goal,
+      selectedMethod: "manual",
+      selectedOption: "",
+      customInstruction: "",
+      draftContent: "",
+      finalContent: "",
+      previousFinalContent: "",
+      summary: "",
+      status: index === 0 ? "planning" : "not_started",
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  function normalizeSectionWriting(saved = {}) {
+    const existing = Array.isArray(saved.sections) ? saved.sections : [];
+    const sections = sectionBlueprints.map((blueprint, index) => {
+      const found = existing.find((item) => item.sectionId === blueprint.sectionId) || {};
+      return {
+        ...makeDefaultSection(blueprint, index),
+        ...found,
+        title: blueprint.title,
+        goal: found.goal || blueprint.goal,
+        sectionType: blueprint.sectionType
+      };
+    });
+    return {
+      version: "section-v1",
+      currentIndex: clamp(saved.currentIndex ?? UI.sectionCurrentIndex ?? 0, 0, sections.length - 1),
+      sections,
+      combinedPreview: saved.combinedPreview || "",
+      updatedAt: saved.updatedAt || ""
+    };
+  }
+
+  async function loadSectionWritingState() {
+    UI.sectionCandidate = "";
+    UI.combinedChapterPreview = "";
+    if (!UI.projectId) {
+      UI.sectionWriting = normalizeSectionWriting();
+      return;
+    }
+    const saved = await NovelDB.getSetting(sectionWritingKey());
+    UI.sectionWriting = normalizeSectionWriting(saved || {});
+    UI.sectionCurrentIndex = UI.sectionWriting.currentIndex || 0;
+    UI.combinedChapterPreview = UI.sectionWriting.combinedPreview || "";
+  }
+
+  async function saveSectionWritingState() {
+    if (!UI.projectId || !UI.sectionWriting) return;
+    UI.sectionWriting.currentIndex = clamp(UI.sectionCurrentIndex || 0, 0, sectionBlueprints.length - 1);
+    UI.sectionWriting.combinedPreview = UI.combinedChapterPreview || $("phase1CombinedChapterPreview")?.value || "";
+    UI.sectionWriting.updatedAt = NovelDB.now();
+    await NovelDB.saveSetting(sectionWritingKey(), UI.sectionWriting);
+  }
+
+  function currentSection() {
+    if (!UI.sectionWriting) UI.sectionWriting = normalizeSectionWriting();
+    return UI.sectionWriting.sections[clamp(UI.sectionCurrentIndex || 0, 0, UI.sectionWriting.sections.length - 1)];
+  }
+
+  function sectionStatusLabel(status) {
+    return {
+      not_started: "未完成",
+      planning: "規劃中",
+      drafting: "草稿中",
+      completed: "已完成",
+      needs_revision: "待修訂"
+    }[status] || "未完成";
+  }
+
+  function summarizeSection(text) {
+    const value = String(text || "").replace(/\s+/g, " ").trim();
+    if (!value) return "上一段尚未完成。";
+    const sentences = value.split(/[。！？!?]/).map((item) => item.trim()).filter(Boolean).slice(-3);
+    return sentences.length ? `${sentences.join("。")}。` : value.slice(0, 120);
+  }
+
+  function previousSectionSummary(index = UI.sectionCurrentIndex) {
+    if (!UI.sectionWriting || index <= 0) return "這是本章第一段。";
+    const previous = UI.sectionWriting.sections[index - 1];
+    return previous.summary || summarizeSection(previous.finalContent || previous.draftContent);
+  }
+
+  function nextSectionHint(index = UI.sectionCurrentIndex) {
+    if (!UI.sectionWriting || index >= UI.sectionWriting.sections.length - 1) return "下一步可以組合本章正文。";
+    const next = UI.sectionWriting.sections[index + 1];
+    return `${next.title}：${next.goal}`;
+  }
+
+  async function startSectionWriting() {
+    if (!UI.projectId || !UI.chapterId) return notify("請先選擇作品與章節。", "error");
+    UI.guidedChapterPlan = $("phase1GuidedPlan")?.value.trim() || UI.guidedChapterPlan || buildGuidedChapterPlan();
+    await saveGuidedState();
+    await loadSectionWritingState();
+    showSection("phase1SectionWriter");
+    renderSectionWriting();
+    $("phase1SectionWriter")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function renderSectionWriting() {
+    const writer = $("phase1SectionWriter");
+    if (!writer || !UI.sectionWriting) return;
+    showSection("phase1SectionWriter");
+    const sections = UI.sectionWriting.sections;
+    const section = currentSection();
+    const completed = sections.filter((item) => item.status === "completed").length;
+    const progress = $("phase1SectionProgress");
+    if (progress) progress.textContent = `已完成${completed}／${sections.length}段｜目前第${(UI.sectionCurrentIndex || 0) + 1}段`;
+    const list = $("phase1SectionList");
+    if (list) {
+      list.innerHTML = sections.map((item, index) => `
+        <button class="${index === UI.sectionCurrentIndex ? "active" : ""}" onclick="Phase1Novel.selectSection(${index})">
+          <b>${index + 1}. ${esc(item.title)}</b>
+          <span>${sectionStatusLabel(item.status)}</span>
+        </button>`).join("");
+    }
+    const title = $("phase1SectionTitle");
+    if (title) title.textContent = `第${(UI.sectionCurrentIndex || 0) + 1}段｜${section.title}`;
+    const status = $("phase1SectionStatus");
+    if (status) status.textContent = `${sectionStatusLabel(section.status)}｜${section.updatedAt ? new Date(section.updatedAt).toLocaleTimeString("zh-TW") : "尚未儲存"}`;
+    const goal = $("phase1SectionGoal");
+    if (goal) goal.textContent = section.goal;
+    const prev = $("phase1SectionPrevSummary");
+    if (prev) prev.textContent = previousSectionSummary();
+    const next = $("phase1SectionNextHint");
+    if (next) next.textContent = nextSectionHint();
+    const content = $("phase1SectionContent");
+    if (content && document.activeElement !== content) content.value = section.finalContent || section.draftContent || "";
+    const custom = $("phase1SectionCustom");
+    if (custom && document.activeElement !== custom) custom.value = section.customInstruction || "";
+    renderSectionMethods();
+    renderSectionOptions();
+    renderSectionAiStatus();
+  }
+
+  function renderSectionMethods() {
+    const section = currentSection();
+    const method = section.selectedMethod || "manual";
+    ["Manual", "Options", "Offline", "Ai"].forEach((name) => {
+      const key = name === "Manual" ? "manual" : name === "Options" ? "options" : name === "Offline" ? "offline" : "ai";
+      const button = $(`phase1SectionMethod${name}`);
+      if (button) button.classList.toggle("active", method === key);
+      const panel = $(`phase1Section${name}Panel`);
+      if (panel) panel.classList.toggle("hidden", method !== key);
+    });
+  }
+
+  function buildSectionOptions(section = currentSection()) {
+    const ctx = getModeContext();
+    const previous = previousSectionSummary();
+    const plan = UI.guidedChapterPlan || buildGuidedChapterPlan();
+    const base = `${section.title}${section.goal}${previous}${plan}`;
+    const action = {
+      push: pickDynamic(["當場逼問", "直接指出破綻", "主動交出線索", "先聲奪人"], base),
+      cautious: pickDynamic(["先壓下情緒", "暗中確認細節", "暫時不揭穿", "觀察對手反應"], base),
+      twist: pickDynamic(["盟友突然改口", "證據出現矛盾", "對手提前佈局", "能力產生異常"], base)
+    };
+    const sectionSpecific = {
+      opening: [
+        `${ctx.protagonist}一進入${ctx.worldCore}的核心場景，就感覺到${ctx.opponent}留下的壓迫感。`,
+        `${ctx.protagonist}先觀察場景裡不合理的細節，讓讀者慢慢回到本章氣氛。`,
+        `開場直接讓${action.twist}，把平靜場景轉成危機。`
+      ],
+      status: [
+        `${ctx.protagonist}主動檢查自己的資源與${ctx.powerCore}，準備把局面往前推。`,
+        `${ctx.protagonist}先承認自己狀態不穩，選擇保留底牌。`,
+        `${ctx.protagonist}發現身體或心理狀態出現異常，迫使策略改變。`
+      ],
+      incident: [
+        `${ctx.opponent}當眾指出關鍵破綻，迫使${ctx.protagonist}立即回應。`,
+        `${ctx.protagonist}先察覺證據被動過，選擇暫時不揭穿。`,
+        `原本支持${ctx.protagonist}的${ctx.ally}突然承認線索由自己提供。`
+      ],
+      reaction: [
+        `${ctx.protagonist}立刻用一句話反壓回去，讓場面安靜下來。`,
+        `${ctx.protagonist}先觀察眾人眼神，判斷誰正在說謊。`,
+        `${ctx.ally}的反應比${ctx.opponent}更激烈，讓局勢偏離預期。`
+      ],
+      escalation: [
+        `${ctx.protagonist}${action.push}，把${ctx.opponent}逼到必須亮出下一張牌。`,
+        `${ctx.protagonist}${action.cautious}，但壓力仍因旁人追問而升高。`,
+        `${action.twist}讓衝突從言語變成不可退讓的選擇。`
+      ],
+      midpoint: [
+        `${ctx.protagonist}突然看穿真正問題不在證據，而在${ctx.opponent}刻意引導的方向。`,
+        `${ctx.protagonist}暫時放棄反擊，改追查誰最早知道這件事。`,
+        `${ctx.ally}拿出一個反常證據，讓主角原本的判斷被推翻。`
+      ],
+      choice: [
+        `${ctx.protagonist}選擇公開一部分真相，換取主線快速推進。`,
+        `${ctx.protagonist}選擇保護${ctx.ally}，暫時吞下被誤解的代價。`,
+        `${ctx.protagonist}用${ctx.powerCore}解決眼前困境，但留下反噬或身分風險。`
+      ],
+      ending: [
+        `${ctx.protagonist}表面穩住局面，卻在章尾收到一個不可能存在的訊息。`,
+        `${ctx.protagonist}只得到半個答案，真正證據落到${ctx.opponent}手中。`,
+        `${ctx.ally}在章尾做出不符合立場的選擇，讓下一章充滿懸念。`
+      ]
+    }[section.sectionId] || [];
+    return {
+      A: {
+        label: "A",
+        trait: "積極推進",
+        text: sectionSpecific[0] || `${ctx.protagonist}主動推進本段目標，讓衝突更快浮上檯面。`,
+        risk: "高",
+        progress: "快",
+        cost: "容易暴露底牌或讓對手警覺。",
+        impact: "主線速度提升，張力明顯增加。",
+        pace: "快節奏"
+      },
+      B: {
+        label: "B",
+        trait: "謹慎處理",
+        text: sectionSpecific[1] || `${ctx.protagonist}先保留判斷，從上一段留下的細節中尋找更穩的切入點。`,
+        risk: "低至中",
+        progress: "中",
+        cost: "需要靠細節維持讀者期待。",
+        impact: "角色會更穩，但爽點延後。",
+        pace: "穩定鋪陳"
+      },
+      C: {
+        label: "C",
+        trait: "轉折或高代價",
+        text: sectionSpecific[2] || `${action.twist}，讓本段從預期路線轉向更高代價的局面。`,
+        risk: "中高",
+        progress: "中",
+        cost: "可能造成關係變化或後續矛盾。",
+        impact: "段落記憶點更強，後段需要承接。",
+        pace: "轉折節奏"
+      }
+    };
+  }
+
+  function renderSectionOptions() {
+    const box = $("phase1SectionOptions");
+    if (!box || !UI.sectionWriting) return;
+    const section = currentSection();
+    const options = buildSectionOptions(section);
+    box.innerHTML = ["A", "B", "C"].map((key) => {
+      const option = options[key];
+      const active = section.selectedOption === key ? " active" : "";
+      return `
+        <button class="phase1-guided-choice${active}" onclick="Phase1Novel.chooseSectionOption('${key}')">
+          <b>${option.label}｜${option.trait}</b>
+          <span>${esc(option.text)}</span>
+          <small>風險：${option.risk}｜推進：${option.progress}｜代價：${esc(option.cost)}</small>
+        </button>`;
+    }).join("");
+    const outcome = $("phase1SectionOptionOutcome");
+    if (outcome) {
+      const selected = section.selectedOption === "D" ? buildSectionCustomOption() : options[section.selectedOption];
+      outcome.textContent = selected ? formatSectionOption(selected) : "尚未選擇本段寫法。";
+    }
+  }
+
+  function buildSectionCustomOption() {
+    const text = $("phase1SectionCustom")?.value.trim() || currentSection().customInstruction || "作者自訂本段寫法";
+    const outcome = estimateCustomOutcome(text);
+    return { label: "D", trait: "自訂寫法", text, ...outcome };
+  }
+
+  function formatSectionOption(option) {
+    return [
+      `【本段選擇】${option.label}｜${option.trait}`,
+      option.text,
+      "",
+      `風險：${option.risk}`,
+      `主線推進：${option.progress}`,
+      `可能代價：${option.cost}`,
+      `可能影響：${option.impact}`,
+      `適合節奏：${option.pace}`
+    ].join("\n");
+  }
+
+  async function setSectionMethod(method) {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const section = currentSection();
+    section.selectedMethod = method;
+    section.status = section.status === "not_started" ? "planning" : section.status;
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+  }
+
+  function chooseSectionOption(option) {
+    const section = currentSection();
+    section.selectedMethod = "options";
+    section.selectedOption = option;
+    if (option === "D") section.customInstruction = $("phase1SectionCustom")?.value.trim() || section.customInstruction || "";
+    const selected = option === "D" ? buildSectionCustomOption() : buildSectionOptions(section)[option];
+    const outcome = $("phase1SectionOptionOutcome");
+    if (outcome) outcome.textContent = selected ? formatSectionOption(selected) : "尚未選擇本段寫法。";
+    renderSectionOptions();
+  }
+
+  async function confirmSectionOption() {
+    const section = currentSection();
+    if (!section.selectedOption) return notify("請先選擇本段 A／B／C，或輸入 D 自訂寫法。", "error");
+    const selected = section.selectedOption === "D" ? buildSectionCustomOption() : buildSectionOptions(section)[section.selectedOption];
+    section.customInstruction = section.selectedOption === "D" ? selected.text : section.customInstruction || "";
+    section.draftContent = section.draftContent || `【本段規劃】\n${formatSectionOption(selected)}`;
+    section.status = "planning";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("已保存本段寫法，尚未覆蓋其他段落。");
+  }
+
+  async function regenerateSectionOptions() {
+    const section = currentSection();
+    section.selectedOption = "";
+    section.customInstruction = "";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+  }
+
+  function activeSectionChoiceText(section = currentSection()) {
+    if (section.selectedOption === "D") return section.customInstruction || $("phase1SectionCustom")?.value.trim() || "";
+    if (!section.selectedOption) return "";
+    return buildSectionOptions(section)[section.selectedOption]?.text || "";
+  }
+
+  function buildOfflineSectionDraft() {
+    const ctx = getModeContext();
+    const section = currentSection();
+    const previous = previousSectionSummary();
+    const choice = activeSectionChoiceText(section);
+    const plan = UI.guidedChapterPlan || $("phase1GuidedPlan")?.value.trim() || buildGuidedChapterPlan();
+    const tone = ctx.style.includes("爽") ? "節奏要快，句子要有壓迫感" : ctx.style.includes("甜") ? "情緒要細，互動要清楚" : "節奏穩定，細節清楚";
+    const opener = {
+      opening: `${ctx.protagonist}重新站在${ctx.worldCore}的壓力中心，四周的聲音像被壓低了一層。`,
+      status: `上一段的餘波還沒有散去，${ctx.protagonist}先確認自己的狀態與手中能用的資源。`,
+      incident: `就在局面似乎可以暫時穩住時，真正的衝突忽然出現。`,
+      reaction: `${ctx.protagonist}沒有立刻說話，而是先看向最可能出手的人。`,
+      escalation: `事情沒有照原本的方向停下，反而因為一句話被推得更高。`,
+      midpoint: `直到這一刻，${ctx.protagonist}才意識到自己前面的判斷少了一塊。`,
+      choice: `${ctx.protagonist}知道再拖下去只會失去主動權，所以必須做出選擇。`,
+      ending: `本章的結果看似落定，但真正的懸念才剛被推到眼前。`
+    }[section.sectionId] || `${ctx.protagonist}順著上一段的壓力繼續往前走。`;
+    const action = choice || section.goal;
+    const draft = [
+      opener,
+      `上一段留下的重點是：${previous}`,
+      `${action} 這個決定讓${ctx.opponent}的反應變得更難預測，也讓${ctx.ally}不得不重新判斷主角的立場。`,
+      `${tone}。因此本段不急著寫完整一章，只把焦點放在「${section.title}」：${section.goal}`,
+      `到段落結尾時，${ctx.protagonist}至少要得到一個新的判斷，或付出一個小代價，讓下一段能自然接上。`
+    ].join("\n\n");
+    return draft.slice(0, 720);
+  }
+
+  async function generateOfflineSectionDraft(regenerate = false) {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const section = currentSection();
+    section.selectedMethod = "offline";
+    UI.sectionCandidate = buildOfflineSectionDraft();
+    section.status = "drafting";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    const box = $("phase1SectionCandidate");
+    if (box) box.textContent = `【離線短草稿】\n${UI.sectionCandidate}`;
+    renderSectionWriting();
+    notify(regenerate ? "已重新產生本段離線短草稿。" : "已產生本段離線短草稿。");
+  }
+
+  function editSectionCandidate() {
+    const box = $("phase1SectionCandidate");
+    const sectionContent = $("phase1SectionContent");
+    if (box && sectionContent) {
+      sectionContent.value = UI.sectionCandidate || box.textContent.replace(/^【.*?】\s*/, "");
+      setSectionMethod("manual");
+    }
+  }
+
+  async function applySectionCandidate(mode) {
+    const candidate = UI.sectionCandidate || $("phase1SectionCandidate")?.textContent.replace(/^【.*?】\s*/, "").trim() || $("phase1SectionAiCandidate")?.textContent.replace(/^【.*?】\s*/, "").trim();
+    if (!candidate) return notify("尚未產生本段候選稿。", "error");
+    const section = currentSection();
+    const current = $("phase1SectionContent")?.value || section.finalContent || section.draftContent || "";
+    section.previousFinalContent = section.finalContent || section.previousFinalContent || "";
+    if (mode === "append" && current.trim()) section.finalContent = `${current.trimEnd()}\n\n${candidate}`;
+    else section.finalContent = candidate;
+    section.draftContent = section.finalContent;
+    section.status = "drafting";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("候選稿已套用到目前段落，未覆蓋其他段落。");
+  }
+
+  function discardSectionCandidate() {
+    UI.sectionCandidate = "";
+    const box = $("phase1SectionCandidate");
+    if (box) box.textContent = "已放棄本段候選稿。";
+    const aiBox = $("phase1SectionAiCandidate");
+    if (aiBox) aiBox.textContent = "已放棄本段AI候選稿。";
+  }
+
+  function renderSectionAiStatus() {
+    const status = $("phase1SectionAiStatus");
+    const button = $("phase1SectionAiButton");
+    if (!status) return;
+    const cfg = window.NovelAIService?.getConfig ? NovelAIService.getConfig() : { provider: "chat", model: "" };
+    const cloud = cfg.provider === "gemini" || cfg.provider === "chat" || cfg.provider === "cloud" || cfg.provider === "openai";
+    if (cloud && !navigator.onLine) {
+      status.textContent = "雲端AI需要網路；離線短草稿與A/B/C/D仍可使用。";
+      if (button) button.disabled = true;
+      return;
+    }
+    if (button) button.disabled = false;
+    status.textContent = `目前模式：${cfg.provider || "未設定"}｜模型：${cfg.model || "尚未設定"}｜只產生目前段落候選稿`;
+  }
+
+  async function generateAiSectionCandidate() {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const cfg = NovelAIService.getConfig();
+    const cloud = cfg.provider === "gemini" || cfg.provider === "chat" || cfg.provider === "cloud" || cfg.provider === "openai";
+    if (cloud && !navigator.onLine) return notify("雲端AI需要網路；請改用離線短草稿。", "error");
+    const section = currentSection();
+    const ctx = getModeContext();
+    const request = $("phase1SectionAiRequest")?.value.trim() || "請生成本段候選正文。";
+    const prompt = [
+      "請只產生目前段落的小說候選正文，150至400字，不要寫完整一章，不要覆蓋其他段落。",
+      `作品核心：${ctx.title}｜${ctx.genre}｜${ctx.coreIdea}`,
+      `本章規劃：${UI.guidedChapterPlan || buildGuidedChapterPlan()}`,
+      `上一段摘要：${previousSectionSummary()}`,
+      `本段：${section.title}`,
+      `本段目的：${section.goal}`,
+      `本段選擇：${activeSectionChoiceText(section) || "尚未指定"}`,
+      `下一段方向：${nextSectionHint()}`,
+      `文風：${ctx.style}`,
+      "禁止修改事項：不要更改主角姓名，不要新增大量陌生人物，不要重寫整章。",
+      `作者要求：${request}`
+    ].join("\n\n");
+    const button = $("phase1SectionAiButton");
+    if (button) button.disabled = true;
+    try {
+      const result = await NovelAIService.generate(prompt);
+      UI.sectionCandidate = result;
+      section.selectedMethod = "ai";
+      section.status = "drafting";
+      section.updatedAt = NovelDB.now();
+      await saveSectionWritingState();
+      const box = $("phase1SectionCandidate");
+      if (box) box.textContent = `【AI本段候選稿】\n${result}`;
+      const aiBox = $("phase1SectionAiCandidate");
+      if (aiBox) aiBox.textContent = `【AI本段候選稿】\n${result}`;
+      notify("已產生本段AI候選稿，尚未套用。");
+    } catch (error) {
+      notify(`AI候選稿產生失敗：${error.message || error}。原段落內容已保留。`, "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function saveCurrentSection() {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const section = currentSection();
+    const text = $("phase1SectionContent")?.value || "";
+    section.previousFinalContent = section.finalContent && section.finalContent !== text ? section.finalContent : section.previousFinalContent || "";
+    section.finalContent = text;
+    section.draftContent = text;
+    section.summary = summarizeSection(text);
+    section.status = text.trim() ? "drafting" : "planning";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    if (UI.sectionCurrentIndex < UI.sectionWriting.sections.length - 1 && text.trim()) {
+      notify("本段已儲存。若你修改了前段，請確認後續段落是否仍然連貫。");
+    } else {
+      notify("本段已儲存。");
+    }
+  }
+
+  async function markCurrentSectionComplete() {
+    await saveCurrentSection();
+    const section = currentSection();
+    section.status = "completed";
+    section.summary = summarizeSection(section.finalContent || section.draftContent);
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("本段已標記完成。");
+  }
+
+  async function markCurrentSectionNeedsRevision() {
+    const section = currentSection();
+    section.status = "needs_revision";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("本段已標記待修訂。");
+  }
+
+  async function restoreSectionPrevious() {
+    const section = currentSection();
+    if (!section.previousFinalContent) return notify("此段沒有可恢復的上一版本。", "error");
+    section.finalContent = section.previousFinalContent;
+    section.draftContent = section.previousFinalContent;
+    section.summary = summarizeSection(section.finalContent);
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("已恢復本段上一版本，其他段落未變更。");
+  }
+
+  async function selectSection(index) {
+    if (!UI.sectionWriting) await startSectionWriting();
+    await saveCurrentSection();
+    UI.sectionCurrentIndex = clamp(index, 0, UI.sectionWriting.sections.length - 1);
+    UI.sectionWriting.currentIndex = UI.sectionCurrentIndex;
+    UI.sectionCandidate = "";
+    await saveSectionWritingState();
+    renderSectionWriting();
+  }
+
+  async function prevSection() {
+    if (!UI.sectionWriting || UI.sectionCurrentIndex <= 0) return notify("已經是第一段。");
+    await selectSection(UI.sectionCurrentIndex - 1);
+  }
+
+  async function nextSection() {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const section = currentSection();
+    await saveCurrentSection();
+    if (section.status !== "completed") notify("上一段尚未完成，後續內容可能不連貫。");
+    if (UI.sectionCurrentIndex >= UI.sectionWriting.sections.length - 1) return combineChapterSections();
+    await selectSection(UI.sectionCurrentIndex + 1);
+  }
+
+  async function markEditorAsCurrentSection() {
+    if (!UI.sectionWriting) await startSectionWriting();
+    const editor = $("phase1ChapterContent");
+    const text = editor?.value || "";
+    if (!text.trim()) return notify("自由寫作正文目前是空的，無法標記為本段內容。", "error");
+    const section = currentSection();
+    section.previousFinalContent = section.finalContent || "";
+    section.finalContent = text.slice(-1200);
+    section.draftContent = section.finalContent;
+    section.summary = summarizeSection(section.finalContent);
+    section.status = "drafting";
+    section.updatedAt = NovelDB.now();
+    await saveSectionWritingState();
+    renderSectionWriting();
+    notify("已將自由寫作正文末段標記為目前段落內容。");
+  }
+
+  function buildCombinedChapterText() {
+    if (!UI.sectionWriting) return "";
+    return UI.sectionWriting.sections
+      .map((section) => String(section.finalContent || section.draftContent || "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  async function combineChapterSections() {
+    if (!UI.sectionWriting) await startSectionWriting();
+    await saveCurrentSection();
+    UI.combinedChapterPreview = buildCombinedChapterText();
+    const panel = $("phase1SectionCombinePanel");
+    const preview = $("phase1CombinedChapterPreview");
+    if (panel) showSection("phase1SectionCombinePanel");
+    if (preview) preview.value = UI.combinedChapterPreview;
+    await saveSectionWritingState();
+    notify("已組合本章正文預覽，尚未套用到章節正文。");
+  }
+
+  async function applyCombinedChapter() {
+    if (!UI.chapterId) return notify("請先選擇章節。", "error");
+    const text = $("phase1CombinedChapterPreview")?.value.trim() || UI.combinedChapterPreview || buildCombinedChapterText();
+    if (!text) return notify("沒有可套用的本章正文。", "error");
+    const loaded = await NovelDB.loadProject(UI.projectId);
+    await NovelDB.createVersion(UI.projectId, "套用分段正文前快照", loaded, { reason: "apply-section-combined" });
+    const editor = $("phase1ChapterContent");
+    if (editor) editor.value = text;
+    await saveCurrentChapter("apply-section-combined", true);
+    notify("已套用為本章正文，並建立版本快照。");
+  }
+
+  async function copyCombinedChapter() {
+    const text = $("phase1CombinedChapterPreview")?.value.trim() || UI.combinedChapterPreview || buildCombinedChapterText();
+    if (!text) return notify("沒有可複製的本章正文。", "error");
+    try {
+      await navigator.clipboard.writeText(text);
+      notify("本章全文已複製。");
+    } catch (error) {
+      notify("無法直接複製，請手動選取全文。", "error");
+    }
+  }
+
+  async function saveCombinedAsVersion() {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    UI.combinedChapterPreview = $("phase1CombinedChapterPreview")?.value.trim() || UI.combinedChapterPreview || buildCombinedChapterText();
+    await saveSectionWritingState();
+    const loaded = await NovelDB.loadProject(UI.projectId);
+    await NovelDB.createVersion(UI.projectId, "分段正文候選版本", loaded, { reason: "section-combined-candidate", combinedPreview: UI.combinedChapterPreview });
+    notify("已儲存為候選版本，未覆蓋正文。");
+  }
+
+  function hideCombinedPreview() {
+    hideSection("phase1SectionCombinePanel");
+  }
+
+  function discardCombinedChapter() {
+    UI.combinedChapterPreview = "";
+    const preview = $("phase1CombinedChapterPreview");
+    if (preview) preview.value = "";
+    hideCombinedPreview();
+    notify("已放棄本次組合預覽，段落內容仍保留。");
   }
 
   function renderAiModeStatus() {
@@ -2123,6 +2849,30 @@
     saveGuidedPlan,
     editGuidedPlan,
     copyGuidedPlan,
+    startSectionWriting,
+    setSectionMethod,
+    selectSection,
+    chooseSectionOption,
+    confirmSectionOption,
+    regenerateSectionOptions,
+    generateOfflineSectionDraft,
+    generateAiSectionCandidate,
+    applySectionCandidate,
+    discardSectionCandidate,
+    editSectionCandidate,
+    saveCurrentSection,
+    markCurrentSectionComplete,
+    markCurrentSectionNeedsRevision,
+    restoreSectionPrevious,
+    prevSection,
+    nextSection,
+    markEditorAsCurrentSection,
+    combineChapterSections,
+    applyCombinedChapter,
+    copyCombinedChapter,
+    saveCombinedAsVersion,
+    hideCombinedPreview,
+    discardCombinedChapter,
     openAiSettings,
     generateAiCandidate,
     applyAiCandidate,

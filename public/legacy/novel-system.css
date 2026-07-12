@@ -355,6 +355,84 @@
 #phase1GuidedAuthorNote {
   min-height: 72px;
 }
+.phase1-section-writer {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.phase1-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.phase1-section-head h3 {
+  margin-top: 0;
+}
+.phase1-section-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.phase1-section-list button {
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #0a1220;
+  color: #edf4ff;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+.phase1-section-list button.active {
+  border-color: rgba(242, 200, 107, 0.72);
+  background: #493916;
+  color: #ffe4a1;
+}
+.phase1-section-list b,
+.phase1-section-list span {
+  display: block;
+}
+.phase1-section-list span {
+  margin-top: 4px;
+  color: #9fb0cf;
+  font-size: 12px;
+}
+.phase1-section-current {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(10, 18, 32, 0.72);
+}
+.phase1-section-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.phase1-section-meta div {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: #0a1220;
+  padding: 10px;
+}
+.phase1-section-meta b {
+  display: block;
+  color: #f2c86b;
+  margin-bottom: 4px;
+}
+.phase1-section-meta p {
+  margin: 0;
+  color: #c8d5ef;
+  line-height: 1.55;
+}
+.phase1-section-panel {
+  margin-top: 12px;
+}
+#phase1SectionContent,
+#phase1CombinedChapterPreview {
+  min-height: 220px;
+}
 .phase1-progress-meta {
   display: grid;
   gap: 7px;
@@ -410,12 +488,16 @@
   }
   .phase1-mode-head,
   .phase1-guided-progress,
+  .phase1-section-head,
   .phase1-mode-tabs,
   .phase1-guided-options,
-  .phase1-mode-summary {
+  .phase1-mode-summary,
+  .phase1-section-list,
+  .phase1-section-meta {
     grid-template-columns: 1fr;
   }
-  .phase1-mode-head {
+  .phase1-mode-head,
+  .phase1-section-head {
     display: block;
   }
   .phase1-guided-progress {
