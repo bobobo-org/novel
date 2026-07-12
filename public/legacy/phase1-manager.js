@@ -9,6 +9,11 @@
     positionTimer: null,
     saving: false,
     pendingDraft: null,
+    aiCandidate: null,
+    guidedRound: null,
+    guidedHistory: [],
+    guidedSelection: "",
+    writingMode: "free",
     lastRestore: null,
     lastSaveAt: "",
     projects: [],
@@ -154,6 +159,49 @@
     return null;
   }
 
+  const writingModeDescriptions = {
+    free: "自由寫作：由你直接撰寫正文，系統只負責保存與基本輔助。",
+    guided: "引導式寫作：離線也可使用，由系統逐步提供具體選項與後果。",
+    ai: "AI協作寫作：使用雲端AI或本機模型產生候選正文與修改建議。"
+  };
+
+  async function loadWritingMode() {
+    const fallback = localStorage.getItem("novel_writing_mode") || "free";
+    if (!UI.projectId) {
+      UI.writingMode = ["free", "guided", "ai"].includes(fallback) ? fallback : "free";
+      return;
+    }
+    const saved = await NovelDB.getSetting(`writing-mode-${UI.projectId}`);
+    const mode = saved?.writingMode || fallback;
+    UI.writingMode = ["free", "guided", "ai"].includes(mode) ? mode : "free";
+  }
+
+  async function saveWritingMode() {
+    localStorage.setItem("novel_writing_mode", UI.writingMode);
+    if (UI.projectId) {
+      await NovelDB.saveSetting(`writing-mode-${UI.projectId}`, {
+        writingMode: UI.writingMode,
+        updatedAt: NovelDB.now()
+      });
+    }
+  }
+
+  function getModeContext() {
+    const legacy = getLegacyState() || {};
+    const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    const previous = UI.chapterId ? findPreviousChapter(UI.chapterId) : null;
+    return {
+      project,
+      chapter,
+      previous,
+      protagonist: legacy.protagonist || legacy.hostName || legacy.heroType || "主角",
+      opponent: legacy.villainCore || legacy.conflictCore || "對手",
+      conflict: $("phase1Conflict")?.value.trim() || chapter.goal || project.synopsis || legacy.coreIdea || "目前衝突尚未明朗",
+      setting: legacy.worldCore || project.genre || "目前世界"
+    };
+  }
+
   function setLegacyState(next) {
     try {
       if (typeof state !== "undefined") {
@@ -254,6 +302,64 @@
         <button onclick="Phase1Novel.runMigration(true)">遷移舊資料</button>
       </div>
       <div class="phase1-grid hidden" id="phase1Manager">
+        <div class="phase1-card phase1-mode-card" id="phase1WritingModeCard">
+          <div class="phase1-mode-head">
+            <div>
+              <h3>作品寫作模式</h3>
+              <p id="phase1ModeDescription" class="muted">自由寫作：由你直接撰寫正文，系統只負責保存與基本輔助。</p>
+            </div>
+            <div class="phase1-mode-tabs" role="tablist" aria-label="寫作模式">
+              <button id="phase1ModeFree" onclick="Phase1Novel.setWritingMode('free')">自由寫作</button>
+              <button id="phase1ModeGuided" onclick="Phase1Novel.setWritingMode('guided')">引導式寫作</button>
+              <button id="phase1ModeAi" onclick="Phase1Novel.setWritingMode('ai')">AI協作寫作</button>
+            </div>
+          </div>
+          <div id="phase1FreeModePanel" class="phase1-mode-panel">
+            <div class="phase1-mode-summary">
+              <span>目前字數：<b id="phase1FreeWordCount">0字</b></span>
+              <span>自動存檔：<b id="phase1FreeSaveStatus">尚未儲存</b></span>
+            </div>
+            <div class="bar">
+              <button class="btn green" onclick="Phase1Novel.saveCurrentChapter('manual')">儲存目前內容</button>
+              <button onclick="Phase1Novel.completeCurrentChapter()">完成章節</button>
+              <button class="btn gold" onclick="Phase1Novel.setWritingMode('guided')">我卡住了</button>
+            </div>
+          </div>
+          <div id="phase1GuidedModePanel" class="phase1-mode-panel hidden">
+            <div id="phase1GuidedQuestion" class="notice">按「重新產生選項」開始本輪引導。</div>
+            <div id="phase1GuidedOptions" class="phase1-guided-options"></div>
+            <label>D 自訂行動</label>
+            <textarea id="phase1GuidedCustom" placeholder="例如：讓主角先保護盟友，再用假情報引出真正的對手。"></textarea>
+            <div class="bar">
+              <button id="phase1GuidedCustomButton" onclick="Phase1Novel.chooseGuidedOption('D')">使用 D 自訂行動</button>
+            </div>
+            <div id="phase1GuidedOutcome" class="out phase1-small-out">尚未選擇行動。</div>
+            <div class="bar">
+              <button onclick="Phase1Novel.regenerateGuidedOptions()">重新產生選項</button>
+              <button onclick="Phase1Novel.guidedBack()">返回上一輪</button>
+              <button class="btn green" onclick="Phase1Novel.confirmGuidedChoice()">確認選擇</button>
+              <button class="btn gold" onclick="Phase1Novel.applyGuidedPlan()">套用到本章規劃</button>
+              <button onclick="Phase1Novel.setWritingMode('free')">返回自由寫作</button>
+            </div>
+          </div>
+          <div id="phase1AiModePanel" class="phase1-mode-panel hidden">
+            <div id="phase1AiModeStatus" class="notice">尚未讀取 AI 設定。</div>
+            <label>續寫要求</label>
+            <textarea id="phase1AiModeRequest" placeholder="例如：延續上一段，讓主角先試探對手，不要直接揭露底牌。"></textarea>
+            <div class="bar">
+              <button id="phase1AiModeGenerateButton" class="btn gold" onclick="Phase1Novel.generateAiCandidate()">產生候選正文</button>
+              <button onclick="Phase1Novel.openAiSettings()">查看原有AI設定</button>
+              <button onclick="Phase1Novel.setWritingMode('guided')">返回引導式寫作</button>
+            </div>
+            <div id="phase1AiCandidatePreview" class="out phase1-small-out">尚未產生候選正文。</div>
+            <div class="bar">
+              <button class="btn green" onclick="Phase1Novel.applyAiCandidate('append')">插入正文結尾</button>
+              <button onclick="Phase1Novel.applyAiCandidate('newChapter')">建立新章節</button>
+              <button onclick="Phase1Novel.applyAiCandidate('replaceSelection')">取代選取段落</button>
+              <button class="btn red" onclick="Phase1Novel.discardAiCandidate()">放棄結果</button>
+            </div>
+          </div>
+        </div>
         <div class="phase1-card">
           <h3>作品 / 分卷 / 章節</h3>
           <label>新作品名稱 / 編輯作品名稱</label>
@@ -586,6 +692,167 @@
     `;
   }
 
+  function buildGuidedRound() {
+    const ctx = getModeContext();
+    const source = `${ctx.project.title || ""}${ctx.chapter.title || ""}${ctx.conflict || ""}${Date.now()}`;
+    const variant = source.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 4;
+    const actionTargets = [
+      `逼迫${ctx.opponent}當場回應`,
+      `先保護關鍵盟友`,
+      `追查上一章留下的線索`,
+      `用假破綻引出真正黑手`
+    ];
+    const target = actionTargets[variant];
+    return {
+      question: `本輪問題：${ctx.protagonist}面對「${shortText(ctx.conflict, 80)}」時，下一步要怎麼推進？`,
+      options: {
+        A: {
+          label: "A",
+          trait: "主動進攻",
+          text: `${ctx.protagonist}立即公開手中線索，${target}，讓局勢在眾人面前升溫。`,
+          risk: "高",
+          progress: "快",
+          cost: "可能提前暴露底牌，讓對手有機會反咬一口。",
+          relation: "盟友會被迫表態，信任度可能快速上升或破裂。"
+        },
+        B: {
+          label: "B",
+          trait: "保守調查",
+          text: `${ctx.protagonist}暫時隱忍，暗中比對上一章的異常細節，先確認證據來源。`,
+          risk: "低",
+          progress: "慢",
+          cost: "短期爽點較弱，對手可能趁空檔佈局。",
+          relation: "盟友會覺得主角穩重，但也可能誤會主角退縮。"
+        },
+        C: {
+          label: "C",
+          trait: "意外轉折 / 高代價",
+          text: `${ctx.protagonist}故意向第三方放出半真半假的消息，測試${ctx.opponent}是否會露出破綻。`,
+          risk: "中高",
+          progress: "中",
+          cost: "若第三方倒戈，主角會失去一個重要支點。",
+          relation: "人物關係會變得更複雜，適合製造章尾反轉。"
+        }
+      }
+    };
+  }
+
+  function renderGuidedRound() {
+    const round = UI.guidedRound || buildGuidedRound();
+    UI.guidedRound = round;
+    const question = $("phase1GuidedQuestion");
+    const options = $("phase1GuidedOptions");
+    if (question) question.textContent = round.question;
+    if (options) {
+      options.innerHTML = ["A", "B", "C"].map((key) => {
+        const option = round.options[key];
+        const active = UI.guidedSelection === key ? " active" : "";
+        return `
+          <button class="phase1-guided-choice${active}" onclick="Phase1Novel.chooseGuidedOption('${key}')">
+            <b>${option.label}｜${option.trait}</b>
+            <span>${esc(option.text)}</span>
+            <small>風險：${option.risk}｜主線推進：${option.progress}</small>
+          </button>`;
+      }).join("");
+    }
+    const customButton = $("phase1GuidedCustomButton");
+    if (customButton) customButton.classList.toggle("active", UI.guidedSelection === "D");
+    renderGuidedOutcome();
+  }
+
+  function guidedOptionFromSelection(selection) {
+    if (selection === "D") {
+      const custom = $("phase1GuidedCustom")?.value.trim() || "使用者自訂行動";
+      return {
+        label: "D",
+        trait: "自訂行動",
+        text: custom,
+        risk: "依行動而定",
+        progress: "依行動而定",
+        cost: "系統不會自動覆蓋正文，請確認後再套用到本章規劃。",
+        relation: "人物關係影響取決於自訂行動。"
+      };
+    }
+    return UI.guidedRound?.options?.[selection] || null;
+  }
+
+  function renderGuidedOutcome() {
+    const box = $("phase1GuidedOutcome");
+    if (!box) return;
+    const option = guidedOptionFromSelection(UI.guidedSelection);
+    if (!option) {
+      box.textContent = "尚未選擇行動。";
+      return;
+    }
+    box.textContent = [
+      `【已選擇】${option.label}｜${option.trait}`,
+      option.text,
+      "",
+      `風險：${option.risk}`,
+      `主線推進：${option.progress}`,
+      `可能代價：${option.cost}`,
+      `人物關係：${option.relation}`
+    ].join("\n");
+  }
+
+  function renderAiModeStatus() {
+    const status = $("phase1AiModeStatus");
+    const button = $("phase1AiModeGenerateButton");
+    if (!status) return;
+    const cfg = window.NovelAIService?.getConfig ? NovelAIService.getConfig() : { provider: "chat", model: "" };
+    const cloud = cfg.provider === "gemini" || cfg.provider === "chat" || cfg.provider === "cloud" || cfg.provider === "openai";
+    const providerLabel = { gemini: "Gemini", chat: "OpenAI-compatible", cloud: "雲端AI", openai: "OpenAI-compatible", ollama: "Ollama", lmstudio: "LM Studio" }[cfg.provider] || cfg.provider || "尚未設定";
+    if (cloud && !navigator.onLine) {
+      status.textContent = `目前連線模式：${providerLabel}｜模型：${cfg.model || "尚未設定"}｜離線｜雲端AI需要網路`;
+      if (button) button.disabled = true;
+      return;
+    }
+    if (button) button.disabled = false;
+    const localHint = cfg.provider === "ollama" || cfg.provider === "lmstudio" ? "本機模型需確認已啟動" : "雲端AI需保持在線";
+    status.textContent = `目前連線模式：${providerLabel}｜模型：${cfg.model || "尚未設定"}｜${navigator.onLine ? "在線" : "離線"}｜${localHint}`;
+  }
+
+  function renderWritingModePanel() {
+    const card = $("phase1WritingModeCard");
+    if (!card) return;
+    const mode = UI.writingMode || "free";
+    ["free", "guided", "ai"].forEach((key) => {
+      const btn = $(`phase1Mode${key === "free" ? "Free" : key === "guided" ? "Guided" : "Ai"}`);
+      if (btn) btn.classList.toggle("active", mode === key);
+    });
+    const desc = $("phase1ModeDescription");
+    if (desc) desc.textContent = writingModeDescriptions[mode] || writingModeDescriptions.free;
+    ["Free", "Guided", "Ai"].forEach((name) => {
+      const panel = $(`phase1${name}ModePanel`);
+      if (panel) panel.classList.toggle("hidden", name.toLowerCase() !== (mode === "ai" ? "ai" : mode));
+    });
+    const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+    const words = $("phase1FreeWordCount");
+    if (words) words.textContent = fmt($("phase1ChapterContent")?.value ? NovelDB.words($("phase1ChapterContent").value) : chapter.wordCount || 0);
+    const save = $("phase1FreeSaveStatus");
+    if (save) save.textContent = UI.lastSaveAt ? `已儲存 ${new Date(UI.lastSaveAt).toLocaleTimeString("zh-TW")}` : (chapter.lastSavedAt ? `已儲存 ${new Date(chapter.lastSavedAt).toLocaleTimeString("zh-TW")}` : "尚未儲存");
+    if (mode === "guided") renderGuidedRound();
+    if (mode === "ai") renderAiModeStatus();
+  }
+
+  async function setWritingMode(mode) {
+    if (!["free", "guided", "ai"].includes(mode)) return;
+    if (UI.chapterId) await saveCurrentChapter("switch-writing-mode", false);
+    UI.writingMode = mode;
+    if (mode === "guided" && !UI.guidedRound) UI.guidedRound = buildGuidedRound();
+    await saveWritingMode();
+    renderWritingModePanel();
+    $("phase1WritingModeCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function completeCurrentChapter() {
+    if (!UI.chapterId) return notify("請先選擇章節。", "error");
+    const selector = $("phase1ChapterStatus");
+    if (selector) selector.value = "done";
+    await saveCurrentChapter("complete-chapter", true);
+    notify("章節已標記完成並儲存。");
+  }
+
   async function renderEditor() {
     const title = $("phase1ChapterTitle");
     const content = $("phase1ChapterContent");
@@ -605,12 +872,14 @@
     }
     updateSaveStatus(chapter ? "已載入" : "尚未選擇章節", chapter ? `最後更新 ${new Date(chapter.updatedAt).toLocaleTimeString("zh-TW")}` : "");
     await renderProgressPanel();
+    renderWritingModePanel();
     if (UI.projectId) await syncLegacyFromProject(UI.projectId, UI.chapterId);
   }
 
   async function refresh() {
     ensureShell();
     await loadLists();
+    await loadWritingMode();
     renderSelects();
     await renderContinueCard();
     await renderEditor();
@@ -874,6 +1143,7 @@
   function scheduleSave() {
     clearTimeout(UI.autosaveTimer);
     updateSaveStatus("尚未儲存");
+    renderWritingModePanel();
     UI.autosaveTimer = setTimeout(() => saveCurrentChapter("auto"), 1000);
   }
 
@@ -924,6 +1194,7 @@
       renderSelects();
       await renderContinueCard();
       await renderProgressPanel();
+      renderWritingModePanel();
     }
   }
 
@@ -955,6 +1226,133 @@
     await updateProjectTotals(UI.projectId);
     updateSaveStatus("已儲存", textTime());
     await refresh();
+  }
+
+  function chooseGuidedOption(option) {
+    UI.guidedSelection = option;
+    renderGuidedRound();
+  }
+
+  function regenerateGuidedOptions() {
+    if (UI.guidedRound) UI.guidedHistory.push({ round: UI.guidedRound, selection: UI.guidedSelection });
+    UI.guidedRound = buildGuidedRound();
+    UI.guidedSelection = "";
+    renderGuidedRound();
+  }
+
+  function guidedBack() {
+    const previous = UI.guidedHistory.pop();
+    if (!previous) return notify("沒有上一輪引導可以返回。");
+    UI.guidedRound = previous.round;
+    UI.guidedSelection = previous.selection || "";
+    renderGuidedRound();
+  }
+
+  function confirmGuidedChoice() {
+    const custom = $("phase1GuidedCustom")?.value.trim();
+    if (!UI.guidedSelection && custom) UI.guidedSelection = "D";
+    if (!UI.guidedSelection) return notify("請先選擇 A／B／C，或輸入 D 自訂行動。", "error");
+    renderGuidedOutcome();
+    notify("已確認本輪選擇，尚未覆蓋正文。可按「套用到本章規劃」。");
+  }
+
+  async function applyGuidedPlan() {
+    const custom = $("phase1GuidedCustom")?.value.trim();
+    if (!UI.guidedSelection && custom) UI.guidedSelection = "D";
+    const option = guidedOptionFromSelection(UI.guidedSelection);
+    if (!option || !UI.chapterId) return notify("請先選擇本輪行動與章節。", "error");
+    const chapter = normalizeChapter(await NovelDB.get("chapters", UI.chapterId));
+    const plan = [
+      UI.guidedRound?.question || "本輪問題",
+      `選擇：${option.label}｜${option.trait}`,
+      `行動：${option.text}`,
+      `風險：${option.risk}`,
+      `主線推進：${option.progress}`,
+      `可能代價：${option.cost}`,
+      `人物關係：${option.relation}`
+    ].join("\n");
+    const goal = $("phase1ChapterGoal");
+    if (goal) goal.value = plan;
+    const nextGoal = $("phase1NextGoal");
+    if (nextGoal) nextGoal.value = option.text;
+    await NovelDB.put("chapters", { ...chapter, goal: plan, updatedAt: NovelDB.now() });
+    notify("已套用到本章規劃，正文未被覆蓋。");
+    await loadLists();
+    await renderProgressPanel();
+  }
+
+  function openAiSettings() {
+    if (typeof showView === "function") showView("chatnovel");
+    $("view-chatnovel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function generateAiCandidate() {
+    if (!UI.projectId) return notify("請先選擇作品。", "error");
+    const button = $("phase1AiModeGenerateButton");
+    const preview = $("phase1AiCandidatePreview");
+    const status = $("phase1AiModeStatus");
+    const cfg = NovelAIService.getConfig();
+    const cloud = cfg.provider === "gemini" || cfg.provider === "chat" || cfg.provider === "cloud" || cfg.provider === "openai";
+    if (cloud && !navigator.onLine) {
+      if (status) status.textContent = "雲端AI需要網路。你可以返回引導式寫作，或改用 Ollama / LM Studio。";
+      return;
+    }
+    if (button) button.disabled = true;
+    try {
+      await saveCurrentChapter("before-ai-candidate", true);
+      if (status) status.textContent = "生成中";
+      const request = $("phase1AiModeRequest")?.value.trim() || "延續目前章節，保持人物與前文一致，產生下一段可編輯正文。";
+      const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
+      const previous = findPreviousChapter(UI.chapterId);
+      const prompt = [
+        "請產生小說候選正文。只輸出可放入正文的內容，不要覆蓋原文，不要只給大綱。",
+        `作品：${UI.projects.find((item) => item.id === UI.projectId)?.title || ""}`,
+        `目前章節：${chapter.title || ""}`,
+        `上一章摘要：${shortText(previous?.summary || previous?.content, 300)}`,
+        `目前正文末段：${shortText(chapter.content?.slice(-600), 600)}`,
+        `使用者要求：${request}`
+      ].join("\n\n");
+      const result = await NovelAIService.generate(prompt);
+      UI.aiCandidate = result;
+      if (preview) preview.textContent = `【AI候選正文】\n${result}`;
+      if (status) status.textContent = "已生成候選正文，尚未套用。";
+    } catch (error) {
+      UI.aiCandidate = null;
+      if (preview) preview.textContent = "生成失敗，原文已保留。";
+      if (status) status.textContent = `生成失敗：${error.message || error}`;
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function applyAiCandidate(mode) {
+    const candidate = UI.aiCandidate;
+    if (!candidate) return notify("尚未產生 AI 候選正文。", "error");
+    const content = $("phase1ChapterContent");
+    if (mode === "newChapter") {
+      await createChapter(`AI候選章節 ${new Date().toLocaleTimeString("zh-TW")}`, candidate);
+      notify("已用 AI 候選正文建立新章節。");
+      return;
+    }
+    if (!content || !UI.chapterId) return notify("請先開啟章節。", "error");
+    if (mode === "replaceSelection") {
+      const start = content.selectionStart;
+      const end = content.selectionEnd;
+      if (start === end) return notify("請先選取要取代的段落。", "error");
+      content.value = `${content.value.slice(0, start)}${candidate}${content.value.slice(end)}`;
+      content.setSelectionRange(start + candidate.length, start + candidate.length);
+    } else {
+      content.value = `${content.value.trimEnd()}\n\n${candidate}`.trim();
+      content.setSelectionRange(content.value.length, content.value.length);
+    }
+    await saveCurrentChapter("apply-ai-candidate", true);
+    notify("已套用 AI 候選正文。");
+  }
+
+  function discardAiCandidate() {
+    UI.aiCandidate = null;
+    const preview = $("phase1AiCandidatePreview");
+    if (preview) preview.textContent = "已放棄 AI 候選正文。";
   }
 
   async function readPreviousChapter(projectId = UI.projectId) {
@@ -1085,6 +1483,7 @@
       else if (cfg.provider === "ollama" || cfg.provider === "lmstudio") status.textContent = "本機模型狀態請先確認是否已啟動";
       else status.textContent = cfg.model ? "已設定" : "尚未設定";
     }
+    renderAiModeStatus();
   }
 
   async function showVersions() {
@@ -1239,11 +1638,45 @@
     window.importJSONPrompt = importBackup;
   }
 
+  function patchModeEntrances() {
+    const interactive = $("view-interactive");
+    if (interactive && !$("phase1EnterGuidedFromInteractive")) {
+      const bar = interactive.querySelector(".bar") || interactive.querySelector(".card");
+      if (bar) {
+        const button = document.createElement("button");
+        button.id = "phase1EnterGuidedFromInteractive";
+        button.className = "btn gold";
+        button.textContent = "進入引導式寫作";
+        button.onclick = async () => {
+          await focusManager(UI.projectId || "");
+          await setWritingMode("guided");
+        };
+        bar.prepend(button);
+      }
+    }
+    const chatnovel = $("view-chatnovel");
+    if (chatnovel && !$("phase1EnterAiFromChatnovel")) {
+      const bar = chatnovel.querySelector(".bar") || chatnovel.querySelector(".card");
+      if (bar) {
+        const button = document.createElement("button");
+        button.id = "phase1EnterAiFromChatnovel";
+        button.className = "btn gold";
+        button.textContent = "進入AI協作寫作";
+        button.onclick = async () => {
+          await focusManager(UI.projectId || "");
+          await setWritingMode("ai");
+        };
+        bar.prepend(button);
+      }
+    }
+  }
+
   async function init() {
     ensureShell();
     simplifyNavigation();
     bindPhase1NavigationGuard();
     patchLegacyExportImport();
+    patchModeEntrances();
     window.addEventListener("online", refreshNetworkStatus);
     window.addEventListener("offline", refreshNetworkStatus);
     window.addEventListener("beforeunload", () => {
@@ -1284,6 +1717,17 @@
     scheduleSave,
     capturePosition,
     saveCurrentChapter,
+    setWritingMode,
+    completeCurrentChapter,
+    regenerateGuidedOptions,
+    chooseGuidedOption,
+    guidedBack,
+    confirmGuidedChoice,
+    applyGuidedPlan,
+    openAiSettings,
+    generateAiCandidate,
+    applyAiCandidate,
+    discardAiCandidate,
     saveProgressSettings,
     previewOfflineContinue,
     regenerateOffline,
