@@ -286,6 +286,24 @@
 .phase1-mode-panel {
   margin-top: 12px;
 }
+.phase1-guided-progress {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: #0a1220;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.phase1-guided-progress b {
+  color: #ffe4a1;
+}
+.phase1-guided-progress span {
+  color: #9fb0cf;
+  font-size: 13px;
+}
 .phase1-mode-summary,
 .phase1-guided-options {
   display: grid;
@@ -325,6 +343,17 @@
 .phase1-small-out {
   min-height: 120px;
   max-height: 280px;
+}
+.phase1-guided-plan-box {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.phase1-guided-plan-box textarea {
+  min-height: 160px;
+}
+#phase1GuidedAuthorNote {
+  min-height: 72px;
 }
 .phase1-progress-meta {
   display: grid;
@@ -380,12 +409,16 @@
     grid-template-columns: 1fr;
   }
   .phase1-mode-head,
+  .phase1-guided-progress,
   .phase1-mode-tabs,
   .phase1-guided-options,
   .phase1-mode-summary {
     grid-template-columns: 1fr;
   }
   .phase1-mode-head {
+    display: block;
+  }
+  .phase1-guided-progress {
     display: block;
   }
   .phase1-mode-tabs button {

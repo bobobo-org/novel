@@ -11,8 +11,14 @@
     pendingDraft: null,
     aiCandidate: null,
     guidedRound: null,
-    guidedHistory: [],
     guidedSelection: "",
+    guidedCurrentStep: 1,
+    guidedRounds: {},
+    guidedSelections: {},
+    guidedCustomInputs: {},
+    guidedOptionHistory: [],
+    guidedChapterPlan: "",
+    guidedUpdatedAt: "",
     writingMode: "free",
     lastRestore: null,
     lastSaveAt: "",
@@ -161,7 +167,7 @@
 
   const writingModeDescriptions = {
     free: "自由寫作：由你直接撰寫正文，系統只負責保存與基本輔助。",
-    guided: "引導式寫作：離線也可使用，由系統逐步提供具體選項與後果。",
+    guided: "離線引導式寫作：根據目前作品與上一輪選擇，提供具體行動與後果；不需連接AI。",
     ai: "AI協作寫作：使用雲端AI或本機模型產生候選正文與修改建議。"
   };
 
@@ -191,14 +197,84 @@
     const project = normalizeProject(UI.projects.find((item) => item.id === UI.projectId));
     const chapter = normalizeChapter(UI.chapters.find((item) => item.id === UI.chapterId));
     const previous = UI.chapterId ? findPreviousChapter(UI.chapterId) : null;
+    const tail = String(chapter.content || "").slice(-1000);
     return {
       project,
       chapter,
       previous,
+      title: project.title || legacy.title || "未命名作品",
+      genre: project.genre || legacy.themeMode || legacy.genre || "未分類題材",
+      subTheme: legacy.subTheme || "未指定細分類",
+      engine: legacy.storyEngine || "通用故事引擎",
       protagonist: legacy.protagonist || legacy.hostName || legacy.heroType || "主角",
+      heroType: legacy.heroType || "主角",
       opponent: legacy.villainCore || legacy.conflictCore || "對手",
+      ally: legacy.hostName && legacy.hostName !== legacy.protagonist ? legacy.hostName : "盟友",
+      worldCore: legacy.worldCore || project.genre || "目前世界",
+      powerCore: legacy.powerCore || "主角的核心能力",
       conflict: $("phase1Conflict")?.value.trim() || chapter.goal || project.synopsis || legacy.coreIdea || "目前衝突尚未明朗",
-      setting: legacy.worldCore || project.genre || "目前世界"
+      style: legacy.styleMode || project.style || "穩定敘事",
+      coreIdea: legacy.coreIdea || project.synopsis || "本章需要繼續推進主線",
+      lastText: tail || String(previous?.content || "").slice(-800) || "目前正文尚少，請從本章目標開始推進。",
+      previousSummary: previous?.summary || shortText(previous?.content, 220) || "沒有上一章摘要",
+      currentPlan: chapter.goal || ""
+    };
+  }
+
+  const guidedSteps = [
+    { key: "purpose", title: "第1輪：本章功能", question: "這一章最主要要推進什麼？" },
+    { key: "strategy", title: "第2輪：主角策略", question: "主角準備如何處理眼前問題？" },
+    { key: "cost", title: "第3輪：阻礙與代價", question: "這次行動應付出什麼代價？" },
+    { key: "result", title: "第4輪：結果方向", question: "本章結束時，主角得到什麼結果？" },
+    { key: "hook", title: "第5輪：章尾鉤子", question: "下一章最值得期待的懸念是什麼？" }
+  ];
+
+  const guidedSynonyms = {
+    expose: ["公開", "揭開", "交出", "拋出"],
+    investigate: ["暗查", "比對", "追蹤", "試探"],
+    twist: ["放出假線索", "借第三方出手", "反向佈局", "故意示弱"],
+    cost: ["身分破綻", "關係裂痕", "能力反噬", "對手警覺"],
+    hook: ["新人物出現", "證據被調包", "身分即將曝光", "盟友背叛", "反派提前行動", "能力產生異常", "收到不可能存在的訊息"]
+  };
+
+  function guidedKey() {
+    return `guided-writing-${UI.projectId || "no-project"}-${UI.chapterId || "no-chapter"}`;
+  }
+
+  function guidedStep() {
+    return guidedSteps[clamp(UI.guidedCurrentStep, 1, guidedSteps.length) - 1] || guidedSteps[0];
+  }
+
+  function pickDynamic(items, seedText = "") {
+    const seed = String(seedText || "").split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) + Date.now();
+    return items[Math.abs(seed) % items.length];
+  }
+
+  function deDuplicateOption(text) {
+    const recent = UI.guidedOptionHistory || [];
+    if (!recent.includes(text)) return text;
+    return `${text}，但這次改由${pickDynamic(["盟友", "旁觀者", "對手", "主角自己"], text)}先做出反應。`;
+  }
+
+  function estimateCustomOutcome(text) {
+    const value = String(text || "").trim();
+    if (!value || value.length < 8) {
+      return {
+        risk: "中",
+        progress: "中",
+        cost: "自訂行動較短，後果需由作者自行決定。",
+        impact: "建議補上具體人物、行動與目標。",
+        pace: "可調整"
+      };
+    }
+    const highRisk = /公開|攤牌|決鬥|揭穿|犧牲|背叛|暴露|殺|逃/.test(value);
+    const lowRisk = /觀察|等待|暗中|調查|確認|試探/.test(value);
+    return {
+      risk: highRisk ? "高" : lowRisk ? "低至中" : "中",
+      progress: highRisk ? "快" : lowRisk ? "中" : "中",
+      cost: highRisk ? "可能引發身分或秘密風險。" : lowRisk ? "可能拖慢主線但保留安全空間。" : "後果需由作者自行決定。",
+      impact: value.includes("盟友") || value.includes("朋友") ? "可能影響人物信任。" : value.includes("對手") || value.includes("反派") ? "可能讓對手提前警覺。" : "可能影響需由作者自行判斷。",
+      pace: highRisk ? "高張力快節奏" : "穩定推進"
     };
   }
 
@@ -310,7 +386,7 @@
             </div>
             <div class="phase1-mode-tabs" role="tablist" aria-label="寫作模式">
               <button id="phase1ModeFree" onclick="Phase1Novel.setWritingMode('free')">自由寫作</button>
-              <button id="phase1ModeGuided" onclick="Phase1Novel.setWritingMode('guided')">引導式寫作</button>
+              <button id="phase1ModeGuided" onclick="Phase1Novel.setWritingMode('guided')">離線引導式寫作</button>
               <button id="phase1ModeAi" onclick="Phase1Novel.setWritingMode('ai')">AI協作寫作</button>
             </div>
           </div>
@@ -326,6 +402,10 @@
             </div>
           </div>
           <div id="phase1GuidedModePanel" class="phase1-mode-panel hidden">
+            <div class="phase1-guided-progress">
+              <b id="phase1GuidedStepLabel">第1輪 / 共5輪</b>
+              <span id="phase1GuidedSavedAt">尚未儲存引導進度</span>
+            </div>
             <div id="phase1GuidedQuestion" class="notice">按「重新產生選項」開始本輪引導。</div>
             <div id="phase1GuidedOptions" class="phase1-guided-options"></div>
             <label>D 自訂行動</label>
@@ -335,11 +415,25 @@
             </div>
             <div id="phase1GuidedOutcome" class="out phase1-small-out">尚未選擇行動。</div>
             <div class="bar">
+              <button class="btn green" onclick="Phase1Novel.confirmGuidedChoice()">確認選擇</button>
               <button onclick="Phase1Novel.regenerateGuidedOptions()">重新產生選項</button>
               <button onclick="Phase1Novel.guidedBack()">返回上一輪</button>
-              <button class="btn green" onclick="Phase1Novel.confirmGuidedChoice()">確認選擇</button>
-              <button class="btn gold" onclick="Phase1Novel.applyGuidedPlan()">套用到本章規劃</button>
+              <button onclick="Phase1Novel.clearGuidedStep()">清除本輪</button>
+              <button onclick="Phase1Novel.restartGuidedFlow()">重新開始引導</button>
               <button onclick="Phase1Novel.setWritingMode('free')">返回自由寫作</button>
+            </div>
+            <div class="phase1-guided-plan-box">
+              <label>本章規劃</label>
+              <textarea id="phase1GuidedPlan" placeholder="完成五輪後會組合成本章規劃，也可以手動編輯。"></textarea>
+              <label>作者補充</label>
+              <textarea id="phase1GuidedAuthorNote" placeholder="可補充這章一定要保留的情緒、台詞、伏筆或禁忌。"></textarea>
+              <div class="bar">
+                <button onclick="Phase1Novel.editGuidedPlan()">編輯本章規劃</button>
+                <button class="btn gold" onclick="Phase1Novel.saveGuidedPlan()">儲存本章規劃</button>
+                <button onclick="Phase1Novel.copyGuidedPlan()">複製規劃</button>
+                <button class="btn green" onclick="Phase1Novel.applyGuidedPlan()">套用到自由寫作提示區</button>
+                <button onclick="Phase1Novel.restartGuidedFlow()">重新引導</button>
+              </div>
             </div>
           </div>
           <div id="phase1AiModePanel" class="phase1-mode-panel hidden">
@@ -694,55 +788,199 @@
 
   function buildGuidedRound() {
     const ctx = getModeContext();
-    const source = `${ctx.project.title || ""}${ctx.chapter.title || ""}${ctx.conflict || ""}${Date.now()}`;
-    const variant = source.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 4;
-    const actionTargets = [
-      `逼迫${ctx.opponent}當場回應`,
-      `先保護關鍵盟友`,
-      `追查上一章留下的線索`,
-      `用假破綻引出真正黑手`
-    ];
-    const target = actionTargets[variant];
-    return {
-      question: `本輪問題：${ctx.protagonist}面對「${shortText(ctx.conflict, 80)}」時，下一步要怎麼推進？`,
-      options: {
+    const step = guidedStep();
+    const previous = Object.values(UI.guidedSelections || {}).map((item) => item?.text).filter(Boolean).join("；");
+    const action = {
+      expose: pickDynamic(guidedSynonyms.expose, ctx.title + previous),
+      investigate: pickDynamic(guidedSynonyms.investigate, ctx.conflict + previous),
+      twist: pickDynamic(guidedSynonyms.twist, ctx.lastText + previous),
+      cost: pickDynamic(guidedSynonyms.cost, ctx.powerCore + previous),
+      hook: pickDynamic(guidedSynonyms.hook, ctx.title + ctx.lastText + previous)
+    };
+    const templates = {
+      purpose: {
         A: {
-          label: "A",
-          trait: "主動進攻",
-          text: `${ctx.protagonist}立即公開手中線索，${target}，讓局勢在眾人面前升溫。`,
+          trait: "積極推進主要衝突",
+          text: `${ctx.protagonist}在${ctx.worldCore}中${action.expose}關鍵線索，直接把「${shortText(ctx.conflict, 42)}」推到檯面上。`,
           risk: "高",
           progress: "快",
-          cost: "可能提前暴露底牌，讓對手有機會反咬一口。",
-          relation: "盟友會被迫表態，信任度可能快速上升或破裂。"
+          cost: "可能提前暴露底牌或身分破綻。",
+          impact: `${ctx.opponent}會被迫提前回應。`,
+          pace: "開場即升溫"
         },
         B: {
-          label: "B",
-          trait: "保守調查",
-          text: `${ctx.protagonist}暫時隱忍，暗中比對上一章的異常細節，先確認證據來源。`,
-          risk: "低",
-          progress: "慢",
-          cost: "短期爽點較弱，對手可能趁空檔佈局。",
-          relation: "盟友會覺得主角穩重，但也可能誤會主角退縮。"
+          trait: "深化人物關係",
+          text: `${ctx.protagonist}先找${ctx.ally}確認上一章留下的異常，讓兩人的信任或裂痕變成推進本章的核心。`,
+          risk: "中",
+          progress: "中",
+          cost: "主線推進較慢，但人物情緒會更扎實。",
+          impact: `${ctx.ally}對主角的態度會產生變化。`,
+          pace: "情緒鋪墊"
         },
         C: {
-          label: "C",
-          trait: "意外轉折 / 高代價",
-          text: `${ctx.protagonist}故意向第三方放出半真半假的消息，測試${ctx.opponent}是否會露出破綻。`,
+          trait: "揭露秘密或世界資訊",
+          text: `${ctx.protagonist}從最後一段正文的線索中發現${ctx.worldCore}的隱藏規則，讓${ctx.powerCore}出現新的限制。`,
           risk: "中高",
           progress: "中",
-          cost: "若第三方倒戈，主角會失去一個重要支點。",
-          relation: "人物關係會變得更複雜，適合製造章尾反轉。"
+          cost: "世界資訊增加後，需要補上明確代價避免突兀。",
+          impact: "讀者會更理解世界，但也會期待下一步驗證。",
+          pace: "資訊揭露"
+        }
+      },
+      strategy: {
+        A: {
+          trait: "主動進攻",
+          text: `${ctx.protagonist}當眾${action.expose}一個刻意留下破綻的證據，引誘${ctx.opponent}主動辯解。`,
+          risk: "高",
+          progress: "快",
+          cost: "若對手識破，主角會被反咬一口。",
+          impact: "主線衝突會立刻升級。",
+          pace: "強爽點"
+        },
+        B: {
+          trait: "保守調查",
+          text: `${ctx.protagonist}先${action.investigate}證據來源，並把真正底牌藏在${ctx.ally}不知道的位置。`,
+          risk: "低至中",
+          progress: "中",
+          cost: "本章需要用細節維持張力。",
+          impact: "主角會顯得更謹慎，對手暫時不易察覺。",
+          pace: "懸疑推進"
+        },
+        C: {
+          trait: "借力或意外轉折",
+          text: `${ctx.protagonist}${action.twist}，讓原本旁觀的人物被迫介入，但代價是${ctx.ally}可能誤會主角。`,
+          risk: "中高",
+          progress: "中",
+          cost: "可能失去盟友信任。",
+          impact: "人物關係會被迫改變。",
+          pace: "轉折節奏"
+        }
+      },
+      cost: {
+        A: {
+          trait: "身分或秘密風險",
+          text: `${ctx.protagonist}為了推進行動，不得不使用只有自己才知道的資訊，讓${ctx.opponent}開始懷疑主角的真實身分。`,
+          risk: "高",
+          progress: "快",
+          cost: "身分或秘密接近曝光。",
+          impact: "之後章節需要處理補救或反偵查。",
+          pace: "壓迫感上升"
+        },
+        B: {
+          trait: "人際關係損失",
+          text: `${ctx.protagonist}選擇暫時隱瞞${ctx.ally}，換取行動空間，但讓兩人的信任開始出現裂縫。`,
+          risk: "中",
+          progress: "中",
+          cost: "盟友信任下降。",
+          impact: "情感線或合作線會留下後續修復需求。",
+          pace: "情感代價"
+        },
+        C: {
+          trait: "反派警覺或能力代價",
+          text: `${ctx.protagonist}啟動${ctx.powerCore}處理危機，卻讓${ctx.opponent}察覺異常，能力本身也留下反噬。`,
+          risk: "高",
+          progress: "快",
+          cost: `${action.cost}變成下一章必須處理的負擔。`,
+          impact: "反派會提前行動，主角也不能無代價使用能力。",
+          pace: "高代價推進"
+        }
+      },
+      result: {
+        A: {
+          trait: "表面成功但留下隱患",
+          text: `${ctx.protagonist}成功讓${ctx.opponent}退讓一步，但最後發現證據中有一處被刻意改動。`,
+          risk: "中",
+          progress: "快",
+          cost: "勝利不完整，隱患會滾到下一章。",
+          impact: "讀者會得到爽點，也會期待真相。",
+          pace: "勝中藏危"
+        },
+        B: {
+          trait: "暫時失敗但得到情報",
+          text: `${ctx.protagonist}行動受阻，卻從對手反應中抓到真正關鍵的人名或地點。`,
+          risk: "低至中",
+          progress: "中",
+          cost: "主角表面吃虧，需要下一章翻回來。",
+          impact: "主線資訊增加，情緒壓抑感上升。",
+          pace: "蓄力反擊"
+        },
+        C: {
+          trait: "取得勝利但付出重大代價",
+          text: `${ctx.protagonist}成功扳回局面，但必須犧牲一段關係、資源或安全身分作交換。`,
+          risk: "高",
+          progress: "快",
+          cost: "勝利會留下明顯傷口。",
+          impact: "人物弧線會更立體，也更容易導入下一章危機。",
+          pace: "高情緒爆點"
+        }
+      },
+      hook: {
+        A: {
+          trait: "新懸念出現",
+          text: `章尾讓${action.hook}，而且這件事只和${ctx.protagonist}上一章的選擇有關。`,
+          risk: "中",
+          progress: "快",
+          cost: "下一章必須處理新線索，不能只放著不管。",
+          impact: "讀者會期待下一章解釋。",
+          pace: "強鉤子"
+        },
+        B: {
+          trait: "證據或情報反轉",
+          text: `${ctx.protagonist}以為掌握關鍵證據，章尾卻發現證據被調包，真正版本落到${ctx.opponent}手上。`,
+          risk: "高",
+          progress: "中",
+          cost: "主角暫時失去主動權。",
+          impact: "反派壓迫感會提升。",
+          pace: "懸疑反轉"
+        },
+        C: {
+          trait: "人物關係鉤子",
+          text: `${ctx.ally}在章尾做出一個不符合過去立場的選擇，讓${ctx.protagonist}第一次懷疑盟友是否可信。`,
+          risk: "中高",
+          progress: "中",
+          cost: "信任線會進入不穩定狀態。",
+          impact: "下一章可走情感衝突或背叛調查。",
+          pace: "關係拉扯"
         }
       }
+    };
+    const options = templates[step.key] || templates.purpose;
+    Object.keys(options).forEach((key) => {
+      options[key] = {
+        label: key,
+        ...options[key],
+        text: deDuplicateOption(options[key].text)
+      };
+    });
+    return {
+      step: UI.guidedCurrentStep,
+      key: step.key,
+      title: step.title,
+      question: step.question,
+      context: ctx,
+      options
     };
   }
 
   function renderGuidedRound() {
-    const round = UI.guidedRound || buildGuidedRound();
+    const stepKey = guidedStep().key;
+    const round = (UI.guidedRound?.key === stepKey ? UI.guidedRound : null) || UI.guidedRounds?.[stepKey] || buildGuidedRound();
     UI.guidedRound = round;
+    UI.guidedRounds[stepKey] = round;
+    if (!UI.guidedSelection) UI.guidedSelection = UI.guidedSelections?.[round.key]?.label || "";
     const question = $("phase1GuidedQuestion");
     const options = $("phase1GuidedOptions");
+    const stepLabel = $("phase1GuidedStepLabel");
+    const savedAt = $("phase1GuidedSavedAt");
+    if (stepLabel) stepLabel.textContent = `${round.title}｜第${round.step}輪 / 共5輪`;
+    if (savedAt) savedAt.textContent = UI.guidedUpdatedAt ? `已儲存 ${new Date(UI.guidedUpdatedAt).toLocaleTimeString("zh-TW")}` : "尚未儲存引導進度";
     if (question) question.textContent = round.question;
+    const custom = $("phase1GuidedCustom");
+    if (custom) custom.value = UI.guidedCustomInputs?.[round.key] || "";
+    const plan = $("phase1GuidedPlan");
+    if (plan && document.activeElement !== plan) plan.value = UI.guidedChapterPlan || buildGuidedChapterPlan();
+    const note = $("phase1GuidedAuthorNote");
+    if (note && document.activeElement !== note) note.value = UI.guidedCustomInputs?.authorNote || "";
     if (options) {
       options.innerHTML = ["A", "B", "C"].map((key) => {
         const option = round.options[key];
@@ -751,7 +989,7 @@
           <button class="phase1-guided-choice${active}" onclick="Phase1Novel.chooseGuidedOption('${key}')">
             <b>${option.label}｜${option.trait}</b>
             <span>${esc(option.text)}</span>
-            <small>風險：${option.risk}｜主線推進：${option.progress}</small>
+            <small>風險：${option.risk}｜主線推進：${option.progress}｜可能代價：${esc(option.cost)}｜影響：${esc(option.impact)}｜節奏：${esc(option.pace)}</small>
           </button>`;
       }).join("");
     }
@@ -763,14 +1001,16 @@
   function guidedOptionFromSelection(selection) {
     if (selection === "D") {
       const custom = $("phase1GuidedCustom")?.value.trim() || "使用者自訂行動";
+      const outcome = estimateCustomOutcome(custom);
       return {
         label: "D",
         trait: "自訂行動",
         text: custom,
-        risk: "依行動而定",
-        progress: "依行動而定",
-        cost: "系統不會自動覆蓋正文，請確認後再套用到本章規劃。",
-        relation: "人物關係影響取決於自訂行動。"
+        risk: outcome.risk,
+        progress: outcome.progress,
+        cost: outcome.cost,
+        impact: outcome.impact,
+        pace: outcome.pace
       };
     }
     return UI.guidedRound?.options?.[selection] || null;
@@ -791,8 +1031,82 @@
       `風險：${option.risk}`,
       `主線推進：${option.progress}`,
       `可能代價：${option.cost}`,
-      `人物關係：${option.relation}`
+      `可能影響：${option.impact}`,
+      `適合節奏：${option.pace}`
     ].join("\n");
+  }
+
+  async function loadGuidedState() {
+    UI.guidedCurrentStep = 1;
+    UI.guidedRounds = {};
+    UI.guidedSelections = {};
+    UI.guidedCustomInputs = {};
+    UI.guidedOptionHistory = [];
+    UI.guidedChapterPlan = "";
+    UI.guidedUpdatedAt = "";
+    UI.guidedRound = null;
+    UI.guidedSelection = "";
+    if (!UI.projectId) return;
+    const saved = await NovelDB.getSetting(guidedKey());
+    if (!saved) return;
+    UI.guidedCurrentStep = clamp(saved.guidedCurrentStep || 1, 1, guidedSteps.length);
+    UI.guidedRounds = saved.guidedRounds || {};
+    UI.guidedSelections = saved.guidedSelections || {};
+    UI.guidedCustomInputs = saved.guidedCustomInputs || {};
+    UI.guidedOptionHistory = Array.isArray(saved.guidedOptionHistory) ? saved.guidedOptionHistory.slice(-10) : [];
+    UI.guidedChapterPlan = saved.guidedChapterPlan || "";
+    UI.guidedUpdatedAt = saved.guidedUpdatedAt || "";
+    UI.guidedSelection = UI.guidedSelections[guidedStep().key]?.label || "";
+  }
+
+  async function saveGuidedState() {
+    if (!UI.projectId) return;
+    UI.guidedUpdatedAt = NovelDB.now();
+    UI.guidedCustomInputs.authorNote = $("phase1GuidedAuthorNote")?.value.trim() || UI.guidedCustomInputs.authorNote || "";
+    await NovelDB.saveSetting(guidedKey(), {
+      guidedCurrentStep: UI.guidedCurrentStep,
+      guidedRounds: UI.guidedRounds || {},
+      guidedSelections: UI.guidedSelections || {},
+      guidedCustomInputs: UI.guidedCustomInputs || {},
+      guidedOptionHistory: (UI.guidedOptionHistory || []).slice(-10),
+      guidedChapterPlan: UI.guidedChapterPlan || $("phase1GuidedPlan")?.value || "",
+      guidedUpdatedAt: UI.guidedUpdatedAt
+    });
+  }
+
+  function buildGuidedChapterPlan() {
+    const ctx = getModeContext();
+    const selected = (key) => UI.guidedSelections?.[key];
+    const purpose = selected("purpose");
+    const strategy = selected("strategy");
+    const cost = selected("cost");
+    const result = selected("result");
+    const hook = selected("hook");
+    const plan = [
+      "【本章規劃】",
+      `作品：${ctx.title}`,
+      `題材：${ctx.genre} / ${ctx.subTheme}`,
+      `故事引擎：${ctx.engine}`,
+      "",
+      `本章目的：${purpose?.text || "尚未完成第1輪：本章功能。"}`,
+      `主角策略：${strategy?.text || "尚未完成第2輪：主角策略。"}`,
+      `主要阻礙：${ctx.conflict}`,
+      `行動代價：${cost?.text || "尚未完成第3輪：阻礙與代價。"}`,
+      `中段轉折：${strategy?.impact || cost?.impact || "等待引導完成後補充。"}`,
+      `本章結果：${result?.text || "尚未完成第4輪：結果方向。"}`,
+      `章尾鉤子：${hook?.text || "尚未完成第5輪：章尾鉤子。"}`,
+      "",
+      "作者補充：",
+      $("phase1GuidedAuthorNote")?.value || ""
+    ];
+    return plan.join("\n");
+  }
+
+  function refreshGuidedPlanBox() {
+    const plan = $("phase1GuidedPlan");
+    if (!plan) return;
+    UI.guidedChapterPlan = UI.guidedChapterPlan || buildGuidedChapterPlan();
+    if (document.activeElement !== plan) plan.value = UI.guidedChapterPlan;
   }
 
   function renderAiModeStatus() {
@@ -839,7 +1153,10 @@
     if (!["free", "guided", "ai"].includes(mode)) return;
     if (UI.chapterId) await saveCurrentChapter("switch-writing-mode", false);
     UI.writingMode = mode;
-    if (mode === "guided" && !UI.guidedRound) UI.guidedRound = buildGuidedRound();
+    if (mode === "guided") {
+      await loadGuidedState();
+      if (!UI.guidedRound) UI.guidedRound = buildGuidedRound();
+    }
     await saveWritingMode();
     renderWritingModePanel();
     $("phase1WritingModeCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -880,6 +1197,7 @@
     ensureShell();
     await loadLists();
     await loadWritingMode();
+    await loadGuidedState();
     renderSelects();
     await renderContinueCard();
     await renderEditor();
@@ -1230,55 +1548,131 @@
 
   function chooseGuidedOption(option) {
     UI.guidedSelection = option;
+    const round = UI.guidedRound || buildGuidedRound();
+    if (option === "D") {
+      UI.guidedCustomInputs[round.key] = $("phase1GuidedCustom")?.value.trim() || "";
+    }
     renderGuidedRound();
   }
 
-  function regenerateGuidedOptions() {
-    if (UI.guidedRound) UI.guidedHistory.push({ round: UI.guidedRound, selection: UI.guidedSelection });
+  async function regenerateGuidedOptions() {
+    const currentTexts = Object.values(UI.guidedRound?.options || {}).map((item) => item.text);
+    UI.guidedOptionHistory = [...(UI.guidedOptionHistory || []), ...currentTexts].slice(-10);
     UI.guidedRound = buildGuidedRound();
+    UI.guidedRounds[guidedStep().key] = UI.guidedRound;
     UI.guidedSelection = "";
+    await saveGuidedState();
     renderGuidedRound();
   }
 
-  function guidedBack() {
-    const previous = UI.guidedHistory.pop();
-    if (!previous) return notify("沒有上一輪引導可以返回。");
-    UI.guidedRound = previous.round;
-    UI.guidedSelection = previous.selection || "";
+  async function guidedBack() {
+    if (UI.guidedCurrentStep <= 1) return notify("已經是第一輪，沒有上一輪可以返回。");
+    UI.guidedCurrentStep -= 1;
+    UI.guidedRound = UI.guidedRounds[guidedStep().key] || buildGuidedRound();
+    UI.guidedRounds[guidedStep().key] = UI.guidedRound;
+    UI.guidedSelection = UI.guidedSelections[guidedStep().key]?.label || "";
+    await saveGuidedState();
     renderGuidedRound();
   }
 
-  function confirmGuidedChoice() {
+  async function confirmGuidedChoice() {
+    const round = UI.guidedRound || buildGuidedRound();
     const custom = $("phase1GuidedCustom")?.value.trim();
     if (!UI.guidedSelection && custom) UI.guidedSelection = "D";
     if (!UI.guidedSelection) return notify("請先選擇 A／B／C，或輸入 D 自訂行動。", "error");
+    if (UI.guidedSelection === "D" && custom) UI.guidedCustomInputs[round.key] = custom;
+    const option = guidedOptionFromSelection(UI.guidedSelection);
+    UI.guidedRounds[round.key] = round;
+    UI.guidedSelections[round.key] = { ...option, question: round.question, step: round.step, key: round.key };
+    UI.guidedOptionHistory = [...(UI.guidedOptionHistory || []), option.text].slice(-10);
+    if (UI.guidedCurrentStep < guidedSteps.length) {
+      UI.guidedCurrentStep += 1;
+      UI.guidedSelection = UI.guidedSelections[guidedStep().key]?.label || "";
+      UI.guidedRound = UI.guidedRounds[guidedStep().key] || buildGuidedRound();
+      UI.guidedRounds[guidedStep().key] = UI.guidedRound;
+      UI.guidedChapterPlan = buildGuidedChapterPlan();
+      await saveGuidedState();
+      renderGuidedRound();
+      notify(`已儲存第${round.step}輪選擇，進入第${UI.guidedCurrentStep}輪。`);
+      return;
+    }
+    UI.guidedChapterPlan = buildGuidedChapterPlan();
+    await saveGuidedState();
     renderGuidedOutcome();
-    notify("已確認本輪選擇，尚未覆蓋正文。可按「套用到本章規劃」。");
+    refreshGuidedPlanBox();
+    notify("五輪引導已完成，已產生本章規劃，正文未被覆蓋。");
   }
 
   async function applyGuidedPlan() {
-    const custom = $("phase1GuidedCustom")?.value.trim();
-    if (!UI.guidedSelection && custom) UI.guidedSelection = "D";
-    const option = guidedOptionFromSelection(UI.guidedSelection);
-    if (!option || !UI.chapterId) return notify("請先選擇本輪行動與章節。", "error");
-    const chapter = normalizeChapter(await NovelDB.get("chapters", UI.chapterId));
-    const plan = [
-      UI.guidedRound?.question || "本輪問題",
-      `選擇：${option.label}｜${option.trait}`,
-      `行動：${option.text}`,
-      `風險：${option.risk}`,
-      `主線推進：${option.progress}`,
-      `可能代價：${option.cost}`,
-      `人物關係：${option.relation}`
-    ].join("\n");
-    const goal = $("phase1ChapterGoal");
-    if (goal) goal.value = plan;
+    if (!UI.chapterId) return notify("請先選擇章節。", "error");
+    UI.guidedChapterPlan = $("phase1GuidedPlan")?.value.trim() || buildGuidedChapterPlan();
     const nextGoal = $("phase1NextGoal");
-    if (nextGoal) nextGoal.value = option.text;
-    await NovelDB.put("chapters", { ...chapter, goal: plan, updatedAt: NovelDB.now() });
-    notify("已套用到本章規劃，正文未被覆蓋。");
+    if (nextGoal) nextGoal.value = UI.guidedChapterPlan;
+    const goal = $("phase1ChapterGoal");
+    if (goal) goal.value = UI.guidedChapterPlan;
+    await saveGuidedPlan();
+    notify("已套用到自由寫作提示區與本章目標，正文未被覆蓋。");
+  }
+
+  async function saveGuidedPlan() {
+    if (!UI.chapterId) return notify("請先選擇章節。", "error");
+    UI.guidedCustomInputs.authorNote = $("phase1GuidedAuthorNote")?.value.trim() || UI.guidedCustomInputs.authorNote || "";
+    UI.guidedChapterPlan = $("phase1GuidedPlan")?.value.trim() || buildGuidedChapterPlan();
+    const chapter = normalizeChapter(await NovelDB.get("chapters", UI.chapterId));
+    const goal = $("phase1ChapterGoal");
+    if (goal) goal.value = UI.guidedChapterPlan;
+    await NovelDB.put("chapters", { ...chapter, goal: UI.guidedChapterPlan, updatedAt: NovelDB.now() });
+    await saveGuidedState();
     await loadLists();
     await renderProgressPanel();
+    notify("本章規劃已儲存，正文未被覆蓋。");
+  }
+
+  function editGuidedPlan() {
+    const plan = $("phase1GuidedPlan");
+    if (plan) {
+      plan.focus();
+      plan.setSelectionRange(plan.value.length, plan.value.length);
+    }
+  }
+
+  async function copyGuidedPlan() {
+    UI.guidedChapterPlan = $("phase1GuidedPlan")?.value.trim() || buildGuidedChapterPlan();
+    try {
+      await navigator.clipboard.writeText(UI.guidedChapterPlan);
+      notify("本章規劃已複製。");
+    } catch (error) {
+      notify("無法直接複製，請手動選取本章規劃文字。", "error");
+    }
+  }
+
+  async function clearGuidedStep() {
+    const step = guidedStep();
+    delete UI.guidedSelections[step.key];
+    delete UI.guidedCustomInputs[step.key];
+    UI.guidedSelection = "";
+    UI.guidedRound = buildGuidedRound();
+    UI.guidedRounds[step.key] = UI.guidedRound;
+    UI.guidedChapterPlan = buildGuidedChapterPlan();
+    await saveGuidedState();
+    renderGuidedRound();
+    notify("已清除本輪選擇，正文未被清除。");
+  }
+
+  async function restartGuidedFlow() {
+    if (!confirmSafe("確定重新開始引導？這只會清除本章引導選擇與規劃，不會清除正文。")) return;
+    if (!confirmSafe("再次確認：重新引導後，本章規劃會重新建立。確定？")) return;
+    UI.guidedCurrentStep = 1;
+    UI.guidedRounds = {};
+    UI.guidedSelections = {};
+    UI.guidedCustomInputs = {};
+    UI.guidedOptionHistory = [];
+    UI.guidedChapterPlan = "";
+    UI.guidedSelection = "";
+    UI.guidedRound = buildGuidedRound();
+    await saveGuidedState();
+    renderGuidedRound();
+    notify("已重新開始引導，正文保持不變。");
   }
 
   function openAiSettings() {
@@ -1724,6 +2118,11 @@
     guidedBack,
     confirmGuidedChoice,
     applyGuidedPlan,
+    clearGuidedStep,
+    restartGuidedFlow,
+    saveGuidedPlan,
+    editGuidedPlan,
+    copyGuidedPlan,
     openAiSettings,
     generateAiCandidate,
     applyAiCandidate,
