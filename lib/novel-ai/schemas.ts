@@ -44,7 +44,8 @@ export const StoryContextSchema = z.object({
 });
 
 export const AnalysisEvidenceSchema = z.object({
-  sourceType: z.enum(["主角設定", "上一章", "近期正文", "未解事件", "秘密", "道具", "世界狀態", "作者要求"]),
+  sourceType: z.enum(["主角設定", "故事摘要", "上一章", "近期正文", "未解事件", "秘密", "道具", "世界狀態", "作者要求"]),
+  sourceId: z.string().max(120).optional(),
   sourceLabel: z.string().max(200),
   reason: z.string().max(600),
 });
@@ -101,6 +102,7 @@ export const StoryAnalysisSchema = z.object({
 
 export const NovelMemorySchema = z.object({
   projectId: z.string().min(1).max(120),
+  version: z.number().int().min(1).default(1),
   globalSummary: z.string().max(3000).default(""),
   recentChapterSummaries: z.array(z.object({
     chapterId: z.string().max(120),
@@ -108,8 +110,18 @@ export const NovelMemorySchema = z.object({
     summary: z.string().max(1200),
     chapterResult: z.string().max(800),
     endingHook: z.string().max(800),
+    timelinePosition: z.string().max(200).default(""),
     createdAt: z.string(),
   })).max(20).default([]),
+  chapterSummaries: z.array(z.object({
+    chapterId: z.string().max(120),
+    chapterTitle: z.string().max(200),
+    summary: z.string().max(1200),
+    chapterResult: z.string().max(800),
+    endingHook: z.string().max(800),
+    timelinePosition: z.string().max(200).default(""),
+    createdAt: z.string(),
+  })).max(200).default([]),
   characterStates: z.array(z.object({
     characterId: z.string().max(120),
     name: z.string().max(120),
@@ -120,6 +132,12 @@ export const NovelMemorySchema = z.object({
     currentLocation: z.string().max(300).default(""),
     physicalCondition: z.string().max(300).default(""),
     relationshipChanges: z.array(z.string().max(200)).default([]),
+    relationships: z.array(z.object({
+      targetCharacterId: z.string().max(120),
+      relationship: z.string().max(160),
+      currentStatus: z.string().max(200),
+      recentChange: z.string().max(300),
+    })).default([]),
     knownInformation: z.array(z.string().max(200)).default([]),
     unknownInformation: z.array(z.string().max(200)).default([]),
     alive: z.boolean().default(true),
@@ -131,6 +149,7 @@ export const NovelMemorySchema = z.object({
     description: z.string().max(800),
     importance: z.enum(["低", "中", "高"]),
     introducedChapterId: z.string().max(120),
+    relatedCharacters: z.array(z.string().max(120)).default([]),
     expectedResolutionChapter: z.string().max(120).optional(),
     status: z.enum(["未處理", "進行中", "已解決", "已放棄"]),
   })).max(80).default([]),
@@ -139,6 +158,7 @@ export const NovelMemorySchema = z.object({
     content: z.string().max(800),
     knownBy: z.array(z.string().max(120)).default([]),
     revealed: z.boolean().default(false),
+    revealedToReader: z.boolean().default(false),
     revealedChapterId: z.string().max(120).optional(),
   })).max(80).default([]),
   importantItems: z.array(z.object({
@@ -171,7 +191,9 @@ export const MemoryUpdateCandidateSchema = z.object({
   chapterSummary: z.string().max(1200),
   chapterResult: z.string().max(800),
   endingHook: z.string().max(800),
+  timelinePosition: z.string().max(200).default(""),
   characterUpdates: z.array(z.object({
+    characterId: z.string().max(120).optional(),
     characterName: z.string().max(120),
     changedFields: z.record(z.string(), z.unknown()),
     evidence: z.string().max(800),
@@ -181,20 +203,30 @@ export const MemoryUpdateCandidateSchema = z.object({
     title: z.string().max(200),
     description: z.string().max(800),
     importance: z.enum(["低", "中", "高"]),
+    relatedCharacters: z.array(z.string().max(120)).default([]),
+    decision: z.enum(["accept", "ignore"]).optional(),
+  })).default([]),
+  updatedUnresolvedEvents: z.array(z.object({
+    eventId: z.string().max(120),
+    newStatus: z.enum(["未處理", "進行中", "已解決", "已放棄"]),
+    evidence: z.string().max(800),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
   resolvedEventIds: z.array(z.string().max(120)).default([]),
   newSecrets: z.array(z.object({
     content: z.string().max(800),
     knownBy: z.array(z.string().max(120)).default([]),
+    revealedToReader: z.boolean().default(false),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
   revealedSecretIds: z.array(z.string().max(120)).default([]),
   itemUpdates: z.array(z.object({
+    itemId: z.string().max(120).optional(),
     itemName: z.string().max(120),
     owner: z.string().max(120).optional(),
     location: z.string().max(200).optional(),
     status: z.string().max(200).optional(),
+    evidence: z.string().max(800).optional(),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
   worldStateUpdates: z.object({

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { CONTEXT_BUILDER_VERSION, MEMORY_VERSION, SCHEMA_VERSION } from "./memory";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
+import { QUALITY_GATE_VERSION } from "./provider";
 import type { FeedbackInput, FeedbackPatchInput, TrainingReviewInput } from "./schemas";
 
 type AiTaskType = "story_analysis" | "story_options" | "chapter_plan" | "continuity_review";
@@ -13,6 +14,9 @@ export type AiRunRecord = {
   provider: string;
   model: string;
   promptVersion: string;
+  contextBuilderVersion: string;
+  memoryVersion: string;
+  qualityGateVersion: string;
   inputHash: string;
   inputContext: unknown;
   modelOutput?: unknown;
@@ -46,6 +50,9 @@ export type TrainingExampleRecord = {
   sourceFeedbackId: string;
   taskType: AiTaskType;
   promptVersion: string;
+  contextBuilderVersion: string;
+  memoryVersion: string;
+  qualityGateVersion: string;
   systemPrompt: string;
   userInput: unknown;
   idealOutput: unknown;
@@ -78,10 +85,13 @@ export function inputHash(input: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
-export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion">): AiRunRecord {
+export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion" | "contextBuilderVersion" | "memoryVersion" | "qualityGateVersion">): AiRunRecord {
   const row: AiRunRecord = {
     id: id("airun"),
     promptVersion: PROMPT_VERSION,
+    contextBuilderVersion: CONTEXT_BUILDER_VERSION,
+    memoryVersion: MEMORY_VERSION,
+    qualityGateVersion: QUALITY_GATE_VERSION,
     createdAt: new Date().toISOString(),
     ...input,
   };
@@ -120,6 +130,9 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
       sourceFeedbackId: feedback.id,
       taskType: aiRun.taskType,
       promptVersion: aiRun.promptVersion,
+      contextBuilderVersion: aiRun.contextBuilderVersion,
+      memoryVersion: aiRun.memoryVersion,
+      qualityGateVersion: aiRun.qualityGateVersion,
       systemPrompt: STORY_ANALYZER_SYSTEM_PROMPT,
       userInput: aiRun.inputContext,
       idealOutput: input.decision === "edited" ? input.editedOutput : aiRun.modelOutput,
@@ -225,12 +238,13 @@ export function trainingStats() {
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
       promptVersion: PROMPT_VERSION,
-      storyAnalyzerVersion: "story-analyzer-v3",
-      chapterPlannerVersion: "chapter-planner-v3",
-      continuityReviewerVersion: "continuity-reviewer-v3",
+      storyAnalyzerVersion: "story-analyzer-v4",
+      chapterPlannerVersion: "chapter-planner-v4",
+      continuityReviewerVersion: "continuity-reviewer-v4",
       memoryVersion: MEMORY_VERSION,
       contextBuilderVersion: CONTEXT_BUILDER_VERSION,
       schemaVersion: SCHEMA_VERSION,
+      qualityGateVersion: QUALITY_GATE_VERSION,
     },
     aiAbility: {
       analyzedCount: store().aiRuns.filter((x) => x.taskType === "story_analysis").length,
@@ -274,6 +288,9 @@ export function exportApprovedJsonl(): string {
           projectId: x.projectId,
           taskType: x.taskType,
           promptVersion: x.promptVersion,
+          contextBuilderVersion: x.contextBuilderVersion,
+          memoryVersion: x.memoryVersion,
+          qualityGateVersion: x.qualityGateVersion,
           sourceFeedbackId: x.sourceFeedbackId,
         },
       }),

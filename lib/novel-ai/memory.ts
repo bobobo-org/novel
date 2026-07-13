@@ -6,7 +6,7 @@ const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: Me
 
 export const MEMORY_VERSION = "novel-memory-v1";
 export const CONTEXT_BUILDER_VERSION = "context-builder-v2";
-export const SCHEMA_VERSION = "novel-ai-schema-v3";
+export const SCHEMA_VERSION = "novel-ai-schema-v4";
 
 function db(): MemoryStore {
   if (!globalMemory.__novelMemoryStore) globalMemory.__novelMemoryStore = { memories: {}, candidates: {} };
@@ -22,7 +22,9 @@ export function getNovelMemory(projectId: string): NovelMemory {
 }
 
 export function saveNovelMemory(memory: NovelMemory): NovelMemory {
-  const clean = NovelMemorySchema.parse({ ...memory, updatedAt: new Date().toISOString() });
+  const recent = memory.recentChapterSummaries || [];
+  const all = memory.chapterSummaries?.length ? memory.chapterSummaries : recent;
+  const clean = NovelMemorySchema.parse({ ...memory, version: memory.version || 1, recentChapterSummaries: recent, chapterSummaries: all, updatedAt: new Date().toISOString() });
   db().memories[clean.projectId] = clean;
   return clean;
 }
@@ -63,6 +65,7 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
       version: MEMORY_VERSION,
       globalSummary: memory.globalSummary,
       recentChapterSummaries: compact(memory.recentChapterSummaries, recentChapterLimit),
+      chapterSummaries: compact(memory.chapterSummaries, task === "story_analysis" ? 12 : 5),
       characterStates: compact(memory.characterStates, 12),
       unresolvedEvents: relevantEvents,
       unrevealedSecrets: hiddenSecrets,
@@ -71,6 +74,22 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
     },
     contextSelection: selected,
   };
+}
+
+export function buildStoryAnalysisContext(context: StoryContext): StoryContext {
+  return buildTaskContext(context, "story_analysis");
+}
+
+export function buildChapterPlanContext(context: StoryContext): StoryContext {
+  return buildTaskContext(context, "chapter_plan");
+}
+
+export function buildContinuityContext(context: StoryContext): StoryContext {
+  return buildTaskContext(context, "continuity_review");
+}
+
+export function buildMemoryUpdateContext(context: StoryContext): StoryContext {
+  return buildTaskContext(context, "continuity_review");
 }
 
 function extractSentences(text: string): string[] {
@@ -97,14 +116,16 @@ export function proposeMemoryUpdate(input: {
     chapterSummary: summary,
     chapterResult: sentences.slice(-2).join("。") || summary,
     endingHook: hook,
+    timelinePosition: `第${memory.recentChapterSummaries.length + 1}章後`,
     characterUpdates: [{
       characterName: protagonist,
       changedFields: { lastAppearedChapterId: input.chapterId || "", currentGoal: "承接本章結果，處理下一個衝突。" },
       evidence: summary,
     }],
-    newUnresolvedEvents: hook ? [{ title: "下一章懸念", description: hook, importance: "中" }] : [],
+    newUnresolvedEvents: hook ? [{ title: "下一章懸念", description: hook, importance: "中", relatedCharacters: [protagonist] }] : [],
+    updatedUnresolvedEvents: [],
     resolvedEventIds: [],
-    newSecrets: /秘密|真相|隱瞞|身分|身份/.test(text) ? [{ content: "本章提到一項可能影響後續的秘密或真相。", knownBy: [protagonist] }] : [],
+    newSecrets: /秘密|真相|隱瞞|身分|身份/.test(text) ? [{ content: "本章提到一項可能影響後續的秘密或真相。", knownBy: [protagonist], revealedToReader: /公開|揭露|說出|攤牌/.test(text) }] : [],
     revealedSecretIds: [],
     itemUpdates: [],
     worldStateUpdates: {},
@@ -119,15 +140,19 @@ export function proposeMemoryUpdate(input: {
 export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemory {
   const memory = getNovelMemory(candidate.projectId);
   const chapterId = candidate.chapterId || `chapter-${memory.recentChapterSummaries.length + 1}`;
-  memory.recentChapterSummaries.unshift({
+  const chapterSummary = {
     chapterId,
     chapterTitle: `第${memory.recentChapterSummaries.length + 1}章`,
     summary: candidate.chapterSummary,
     chapterResult: candidate.chapterResult,
     endingHook: candidate.endingHook,
+    timelinePosition: candidate.timelinePosition || `第${memory.recentChapterSummaries.length + 1}章後`,
     createdAt: new Date().toISOString(),
-  });
+  };
+  memory.recentChapterSummaries.unshift(chapterSummary);
   memory.recentChapterSummaries = memory.recentChapterSummaries.slice(0, 20);
+  memory.chapterSummaries.unshift(chapterSummary);
+  memory.chapterSummaries = memory.chapterSummaries.slice(0, 200);
 
   for (const event of candidate.newUnresolvedEvents.filter((x) => x.decision !== "ignore")) {
     memory.unresolvedEvents.unshift({
@@ -135,12 +160,40 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
       title: event.title,
       description: event.description,
       importance: event.importance,
+      relatedCharacters: event.relatedCharacters,
       introducedChapterId: chapterId,
       status: "未處理",
     });
   }
+  for (const update of candidate.updatedUnresolvedEvents.filter((x) => x.decision !== "ignore")) {
+    const event = memory.unresolvedEvents.find((x) => x.id === update.eventId);
+    if (event) event.status = update.newStatus;
+  }
+  for (const eventId of candidate.resolvedEventIds) {
+    const event = memory.unresolvedEvents.find((x) => x.id === eventId);
+    if (event) event.status = "已解決";
+  }
   for (const secret of candidate.newSecrets.filter((x) => x.decision !== "ignore")) {
-    memory.secrets.unshift({ id: crypto.randomUUID(), content: secret.content, knownBy: secret.knownBy, revealed: false });
+    memory.secrets.unshift({ id: crypto.randomUUID(), content: secret.content, knownBy: secret.knownBy, revealed: secret.revealedToReader, revealedToReader: secret.revealedToReader, revealedChapterId: secret.revealedToReader ? chapterId : undefined });
+  }
+  for (const secretId of candidate.revealedSecretIds) {
+    const secret = memory.secrets.find((x) => x.id === secretId);
+    if (secret) {
+      secret.revealed = true;
+      secret.revealedToReader = true;
+      secret.revealedChapterId = chapterId;
+    }
+  }
+  for (const item of candidate.itemUpdates.filter((x) => x.decision !== "ignore")) {
+    const existing = item.itemId ? memory.importantItems.find((x) => x.id === item.itemId) : memory.importantItems.find((x) => x.name === item.itemName);
+    if (existing) {
+      if (item.owner) existing.owner = item.owner;
+      if (item.location) existing.location = item.location;
+      if (item.status) existing.status = item.status;
+      existing.lastSeenChapterId = chapterId;
+    } else {
+      memory.importantItems.unshift({ id: crypto.randomUUID(), name: item.itemName, owner: item.owner || "", location: item.location || "", status: item.status || "", lastSeenChapterId: chapterId });
+    }
   }
   if (candidate.worldStateUpdates.currentLocation) memory.worldState.currentLocation = candidate.worldStateUpdates.currentLocation;
   if (candidate.worldStateUpdates.currentTime) memory.worldState.currentTime = candidate.worldStateUpdates.currentTime;

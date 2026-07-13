@@ -1,7 +1,7 @@
 import { createNovelProvider, ModelConfigurationError } from "@/lib/novel-ai/provider";
 import { jsonError, timedRun } from "@/lib/novel-ai/http";
 import { StoryContextSchema } from "@/lib/novel-ai/schemas";
-import { buildTaskContext } from "@/lib/novel-ai/memory";
+import { buildStoryAnalysisContext } from "@/lib/novel-ai/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const builtContext = buildTaskContext(parsed, "story_analysis");
+    const builtContext = buildStoryAnalysisContext(parsed);
     const { result, aiRun } = await timedRun("story_analysis", builtContext.projectId, builtContext.chapterId, builtContext, () =>
       createNovelProvider().analyzeStory(builtContext),
     );

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createNovelProvider, ModelConfigurationError } from "@/lib/novel-ai/provider";
 import { jsonError, timedRun } from "@/lib/novel-ai/http";
 import { StoryContextSchema } from "@/lib/novel-ai/schemas";
-import { buildTaskContext } from "@/lib/novel-ai/memory";
+import { buildContinuityContext } from "@/lib/novel-ai/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const builtContext = buildTaskContext(input.context, "continuity_review");
+    const builtContext = buildContinuityContext(input.context);
     const builtInput = { ...input, context: builtContext };
     const { result, aiRun } = await timedRun("continuity_review", builtContext.projectId, builtContext.chapterId, builtInput, () =>
       createNovelProvider().reviewContinuity(builtContext, input.candidateText),

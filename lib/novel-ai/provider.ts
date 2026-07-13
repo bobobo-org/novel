@@ -18,6 +18,8 @@ import {
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 
+export const QUALITY_GATE_VERSION = "quality-gate-v1";
+
 export interface NovelModelProvider {
   analyzeStory(context: StoryContext): Promise<StoryAnalysis>;
   generateChapterPlan(context: StoryContext, selection: StoryOption, authorSupplement?: string): Promise<ChapterPlan>;
@@ -144,11 +146,12 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
   if (evidence.length === 0) {
     evidence.push({
       sourceType: "主角設定",
+      sourceId: "protagonist",
       sourceLabel: context.protagonist.name || "主角",
       reason: `選項需符合「${context.protagonist.archetype || "未設定原型"}」與行動方式「${context.protagonist.actionStyle || "未設定"}」。`,
     });
-    if (context.previousChapterSummary) evidence.push({ sourceType: "上一章", sourceLabel: "上一章摘要", reason: context.previousChapterSummary.slice(0, 200) });
-    if (context.unresolvedEvents?.[0]) evidence.push({ sourceType: "未解事件", sourceLabel: "未解事件", reason: context.unresolvedEvents[0] });
+    if (context.previousChapterSummary) evidence.push({ sourceType: "上一章", sourceId: "previousChapterSummary", sourceLabel: "上一章摘要", reason: context.previousChapterSummary.slice(0, 200) });
+    if (context.unresolvedEvents?.[0]) evidence.push({ sourceType: "未解事件", sourceId: "unresolvedEvents.0", sourceLabel: "未解事件", reason: context.unresolvedEvents[0] });
   }
   if (evidence.length < 2) warnings.push("AI引用證據少於 2 項，可能沒有充分使用作品記憶。");
   const scores = analysis.analysisScores || {
