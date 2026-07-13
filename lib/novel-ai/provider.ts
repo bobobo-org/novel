@@ -15,6 +15,8 @@ import {
   buildContinuityPrompt,
   STORY_ANALYZER_SYSTEM_PROMPT,
 } from "./prompts";
+import { generateText } from "ai";
+import { google } from "@ai-sdk/google";
 
 export interface NovelModelProvider {
   analyzeStory(context: StoryContext): Promise<StoryAnalysis>;
@@ -27,9 +29,15 @@ export class ModelConfigurationError extends Error {
 }
 
 function modelConfig() {
+  const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
+  const provider = process.env.AI_PROVIDER || (googleKey ? "google" : "openai-compatible");
+  const requestedModel = process.env.AI_MODEL || "";
+  const googleModel = requestedModel.startsWith("gemini") ? requestedModel : "gemini-flash-latest";
   return {
+    provider,
     apiKey: process.env.AI_API_KEY || process.env.OPENAI_API_KEY || "",
-    model: process.env.AI_MODEL || "gpt-4o-mini",
+    googleKey,
+    model: provider === "google" ? googleModel : requestedModel || "gpt-4o-mini",
     baseUrl: (process.env.AI_BASE_URL || "https://api.openai.com/v1/chat/completions").replace(/\/$/, ""),
   };
 }
@@ -47,6 +55,19 @@ function extractJson(text: string): unknown {
 
 async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<unknown> {
   const cfg = modelConfig();
+  if (cfg.provider === "google") {
+    if (!cfg.googleKey) {
+      throw new ModelConfigurationError("尚未設定 GOOGLE_GENERATIVE_AI_API_KEY，雲端專屬小說 AI 無法呼叫 Gemini。");
+    }
+    const { text } = await generateText({
+      model: google(cfg.model),
+      system: STORY_ANALYZER_SYSTEM_PROMPT,
+      prompt: userPrompt,
+      abortSignal: signal,
+    });
+    return extractJson(text);
+  }
+
   if (!cfg.apiKey) {
     throw new ModelConfigurationError("尚未設定 AI_API_KEY，雲端專屬小說 AI 無法呼叫模型。");
   }
@@ -70,8 +91,15 @@ async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`模型呼叫失敗：${response.status} ${body.slice(0, 240)}`);
+    let code = "MODEL_HTTP_ERROR";
+    try {
+      const body = await response.json();
+      code = typeof body?.error?.type === "string" ? body.error.type : code;
+    } catch {
+      // Intentionally do not expose provider response bodies because they can contain
+      // redacted keys, request IDs, or deployment-specific metadata.
+    }
+    throw new Error(`模型呼叫失敗：HTTP ${response.status}（${code}）。請檢查伺服器端模型金鑰與 AI_BASE_URL。`);
   }
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
@@ -112,10 +140,10 @@ export class OpenAICompatibleNovelProvider implements NovelModelProvider {
 export function providerMeta() {
   const cfg = modelConfig();
   return {
-    provider: "openai-compatible",
+    provider: cfg.provider,
     model: cfg.model,
     baseUrl: cfg.baseUrl.replace(/\/chat\/completions$/, "/chat/completions"),
-    configured: Boolean(cfg.apiKey),
+    configured: cfg.provider === "google" ? Boolean(cfg.googleKey) : Boolean(cfg.apiKey),
   };
 }
 
