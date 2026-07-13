@@ -7,9 +7,9 @@ import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: "a0532fb80e9b2037d4ac50094f08e397ece3011e",
-  buildTimestamp: "2026-07-13T21:55:41Z",
-  releaseTag: "novel-ai-p0b2-db-first",
+  appCommit: process.env.APP_COMMIT || "a0532fb80e9b2037d4ac50094f08e397ece3011e",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-13T21:55:41Z",
+  releaseTag: process.env.RELEASE_TAG || "novel-ai-p0b2-db-first",
 };
 
 function deploymentId() {
