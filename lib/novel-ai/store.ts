@@ -3,6 +3,7 @@ import { CONTEXT_BUILDER_VERSION, CORE_SYSTEM_VERSION, MEMORY_UPDATER_VERSION, M
 import { AUTHOR_PREFERENCE_VERSION, preferenceStats, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
 import { QUALITY_GATE_VERSION } from "./provider";
+import { persistAiRun, persistFeedback, persistTrainingExample } from "./persistence";
 import type { FeedbackInput, FeedbackPatchInput, TrainingReviewInput } from "./schemas";
 
 type AiTaskType = "story_analysis" | "story_options" | "chapter_plan" | "continuity_review";
@@ -103,6 +104,7 @@ export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promp
     ...input,
   };
   store().aiRuns.unshift(row);
+  persistAiRun(row);
   return row;
 }
 
@@ -128,6 +130,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
     updatedAt: now,
   };
   store().feedback.unshift(feedback);
+  persistFeedback(feedback);
   const preference = updateAuthorPreference({
     projectId: aiRun.projectId,
     decision: input.decision,
@@ -158,6 +161,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
       createdAt: now,
     };
     store().trainingExamples.unshift(trainingExample);
+    persistTrainingExample(trainingExample);
   }
 
   return { feedback, trainingExample, preference };
@@ -172,6 +176,7 @@ export function patchFeedback(feedbackId: string, patch: FeedbackPatchInput) {
   if (patch.rejectionReasons !== undefined) feedback.rejectionReasons = patch.rejectionReasons;
   if (patch.authorNote !== undefined) feedback.authorNote = patch.authorNote;
   feedback.updatedAt = new Date().toISOString();
+  persistFeedback(feedback);
 
   const example = store().trainingExamples.find((x) => x.sourceFeedbackId === feedback.id);
   if (example) {
@@ -179,6 +184,7 @@ export function patchFeedback(feedbackId: string, patch: FeedbackPatchInput) {
     if (feedback.decision === "accepted") example.idealOutput = feedback.originalOutput;
     if (feedback.decision === "edited") example.idealOutput = feedback.editedOutput;
     if (patch.reviewerNote) example.reviewerNote = patch.reviewerNote;
+    persistTrainingExample(example);
   }
   return { feedback, trainingExample: example };
 }
@@ -230,6 +236,7 @@ export function reviewTrainingExample(exampleId: string, input: TrainingReviewIn
   example.qualityStatus = issues.length ? "needs_revision" : input.qualityStatus;
   example.reviewerNote = issues.length ? issues.join("；") : input.reviewerNote;
   example.reviewedAt = new Date().toISOString();
+  persistTrainingExample(example);
   return { example, issues };
 }
 

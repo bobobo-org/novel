@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { MemoryUpdateCandidateSchema, NovelMemorySchema, type MemoryUpdateCandidate, type NovelMemory, type StoryContext } from "./schemas";
 import { AUTHOR_PREFERENCE_VERSION, getAuthorPreference } from "./preference";
+import { markMemoryCandidateReviewed, persistMemoryCandidate, persistStoryMemory } from "./persistence";
 
 type MemoryStore = { memories: Record<string, NovelMemory>; candidates: Record<string, MemoryUpdateCandidate> };
 const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: MemoryStore };
@@ -38,6 +39,7 @@ export function saveNovelMemory(memory: NovelMemory): NovelMemory {
     updatedAt: new Date().toISOString(),
   });
   db().memories[clean.projectId] = clean;
+  persistStoryMemory(clean);
   return clean;
 }
 
@@ -241,8 +243,13 @@ export function proposeMemoryUpdate(input: {
     originalCandidate: { chapterTitle: input.chapterTitle, chapterPlan: input.chapterPlan, abcChoice: input.abcChoice },
   });
   const id = crypto.randomUUID();
-  db().candidates[id] = candidate;
-  return { ...candidate, originalCandidate: { ...(candidate.originalCandidate as object), candidateId: id } };
+  const storedCandidate = {
+    ...candidate,
+    originalCandidate: { ...(candidate.originalCandidate as object), candidateId: id },
+  };
+  db().candidates[id] = storedCandidate;
+  persistMemoryCandidate(storedCandidate);
+  return storedCandidate;
 }
 
 export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemory {
@@ -351,5 +358,6 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
   if (candidate.worldStateUpdates.currentTime) memory.worldState.currentTime = candidate.worldStateUpdates.currentTime;
   if (candidate.worldStateUpdates.majorEvents) memory.worldState.majorEvents.unshift(...candidate.worldStateUpdates.majorEvents);
   memory.globalSummary = [candidate.chapterSummary, memory.globalSummary].filter(Boolean).join("\n").slice(0, 3000);
+  markMemoryCandidateReviewed(candidate, "approved");
   return saveNovelMemory(memory);
 }

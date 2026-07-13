@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
+import { persistenceHealth } from "@/lib/novel-ai/persistence";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,7 @@ export async function GET() {
   const meta = providerMeta();
   const runs = aiRunStats();
   const stats = trainingStats();
+  const persistence = await persistenceHealth();
   const configured = meta.configured;
   const ping = configured ? await pingModel() : { ok: false, elapsedMs: 0, error: "MODEL_NOT_CONFIGURED" };
 
@@ -23,7 +25,17 @@ export async function GET() {
     modelVersion: meta.modelVersion,
     analyzerVersion: stats.versions.storyAnalyzerVersion,
     benchmarkVersion: stats.versions.candidateAnalyzerVersion,
-    database: process.env.DATABASE_URL ? "configured" : "memory",
+    database: persistence.storeType,
+    storeType: persistence.storeType,
+    persistenceStatus: persistence.persistenceStatus,
+    databaseStatus: persistence.databaseStatus,
+    databaseProjectRef: persistence.databaseProjectRef,
+    databaseLatencyMs: persistence.databaseLatencyMs,
+    migrationVersion: persistence.migrationVersion,
+    writeTestStatus: persistence.writeTestStatus,
+    lastSuccessfulWriteAt: persistence.lastSuccessfulWriteAt,
+    lastDatabaseError: persistence.lastDatabaseError,
+    dualWriteStatus: persistence.dualWriteStatus,
     key: "server-only",
     fallbackEnabled: true,
     fallbackModel: "local-rule",

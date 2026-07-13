@@ -3,6 +3,7 @@ import path from "node:path";
 import { requireAdmin } from "@/lib/novel-ai/admin";
 import { trainingStats } from "@/lib/novel-ai/store";
 import { providerMeta } from "@/lib/novel-ai/provider";
+import { persistEvaluationRun } from "@/lib/novel-ai/persistence";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,21 @@ export async function POST(req: Request) {
     failures: rows.filter((row) => !row.context?.projectId).map((row) => ({ caseId: row.id, failedRules: ["missing projectId"] })),
     createdAt: new Date().toISOString(),
   };
+  persistEvaluationRun({
+    id: report.evalRunId,
+    benchmarkVersion: "novel-ai-evals-v1-static",
+    analyzerVersion: report.currentAnalyzerVersion,
+    provider: report.provider,
+    modelId: meta.modelId,
+    evaluationType: "static_dataset",
+    totalCases: total,
+    passedCases: total - report.failures.length,
+    averageScore: scores.totalScore,
+    jsonValidRate: 1,
+    schemaValidRate: scores.schemaPassRate,
+    fallbackRate: 0,
+    resultJson: report,
+  });
   return Response.json({
     total,
     schemaSuccessRate: scores.schemaPassRate,
