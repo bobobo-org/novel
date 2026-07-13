@@ -1,15 +1,16 @@
 import crypto from "crypto";
-import { generateText } from "ai";
+import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
-export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1";
+export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.1";
 export const STORY_BIBLE_CONFLICT_PROMPT_VERSION = "story-bible-conflict-review-v1";
 export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
 
 type JsonRecord = Record<string, unknown>;
+type CandidateTrust = "cloud-validated" | "cloud-repaired" | "cloud-reduced" | "local-rule" | "invalid";
 
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -54,23 +55,75 @@ async function upsert(table: string, row: JsonRecord, onConflict = "id") {
 
 async function insertRows(table: string, rows: JsonRecord[]) {
   if (rows.length === 0) return [];
-  return rest<JsonRecord[]>(table, {
-    method: "POST",
-    body: JSON.stringify(rows),
-  });
+  return rest<JsonRecord[]>(table, { method: "POST", body: JSON.stringify(rows) });
 }
 
 function hashText(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
-function clampText(value: unknown, max = 1200) {
-  return String(value ?? "").trim().slice(0, max);
-}
-
 function nowIso() {
   return new Date().toISOString();
 }
+
+function clampText(value: unknown, max = 1000) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function estimateTokensFromText(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+const EvidenceTypeSchema = z.enum([
+  "direct_statement",
+  "dialogue",
+  "action",
+  "narration",
+  "object_transfer",
+  "world_rule",
+  "foreshadowing",
+  "promise",
+  "ambiguous",
+]);
+
+const SimpleEntityTypeSchema = z.enum(["character", "event", "item", "world_rule", "foreshadowing", "open_thread"]);
+const CandidateOperationSchema = z.enum(["create", "update", "append", "no-change"]);
+const PrimitiveValueSchema = z.union([
+  z.string().max(800),
+  z.number(),
+  z.boolean(),
+  z.array(z.string().max(200)).max(10),
+]);
+
+export const ModelSourceRefSchema = z.strictObject({
+  paragraphIndex: z.number().int().min(0).max(200),
+  excerpt: z.string().min(2).max(500),
+  evidenceType: EvidenceTypeSchema,
+});
+
+export const ModelCandidateSchema = z.strictObject({
+  entityType: SimpleEntityTypeSchema,
+  temporaryEntityId: z.string().min(3).max(80).regex(/^[a-z][a-z0-9_-]{2,79}$/),
+  operation: CandidateOperationSchema,
+  fieldPath: z.string().min(3).max(160).regex(/^(characters|events|items|worldRules|foreshadowing|openThreads)\[\]\.[a-zA-Z0-9_.-]+$/),
+  proposedValue: z.record(z.string().max(60), PrimitiveValueSchema),
+  confidence: z.number().min(0).max(1),
+  evidenceType: EvidenceTypeSchema,
+  sourceRef: ModelSourceRefSchema,
+  reason: z.string().min(2).max(200),
+});
+
+export const SimpleExtractionSchema = z.strictObject({
+  candidates: z.array(ModelCandidateSchema).max(20).default([]),
+  chapterSummaryCandidate: z.strictObject({
+    summary: z.string().min(2).max(1200),
+    endingState: z.string().max(500).default(""),
+    newThreads: z.array(z.string().max(160)).max(10).default([]),
+    newFacts: z.array(z.string().max(160)).max(20).default([]),
+  }),
+  warnings: z.array(z.string().max(200)).max(12).default([]),
+  confidence: z.number().min(0).max(1),
+});
 
 export const SourceRefSchema = z.object({
   projectId: z.string().min(1).max(120),
@@ -81,25 +134,13 @@ export const SourceRefSchema = z.object({
   textEnd: z.number().int().min(0).optional(),
   excerptHash: z.string().min(8).max(128),
   extractionRunId: z.string().max(160).optional(),
+  excerpt: z.string().max(500).optional(),
+  evidenceType: EvidenceTypeSchema.optional(),
+  sourceValid: z.boolean().optional(),
 });
 
-const CandidateOperationSchema = z.enum(["create", "update", "append", "remove", "supersede", "no-change"]);
-
 export const StoryBibleCandidateSchema = z.object({
-  entityType: z.enum([
-    "project",
-    "character",
-    "relationship",
-    "worldRule",
-    "location",
-    "faction",
-    "item",
-    "event",
-    "timeline",
-    "foreshadowing",
-    "openThread",
-    "chapterSummary",
-  ]),
+  entityType: SimpleEntityTypeSchema,
   entityId: z.string().max(160).optional(),
   temporaryEntityId: z.string().max(160).optional(),
   operation: CandidateOperationSchema,
@@ -108,9 +149,12 @@ export const StoryBibleCandidateSchema = z.object({
   proposedValue: z.unknown(),
   confidence: z.number().min(0).max(1),
   evidence: z.string().max(1200),
+  evidenceType: EvidenceTypeSchema.default("ambiguous"),
   sourceRefs: z.array(SourceRefSchema).max(8).default([]),
   reason: z.string().max(800),
   conflictRisk: z.enum(["low", "medium", "high", "needs-review"]).default("low"),
+  candidateTrust: z.enum(["cloud-validated", "cloud-repaired", "cloud-reduced", "local-rule", "invalid"]).default("cloud-validated"),
+  sourceValid: z.boolean().default(true),
 });
 
 export const StoryBibleConflictSchema = z.object({
@@ -165,6 +209,30 @@ export const StoryBibleExtractionOutputSchema = z.object({
 
 export type StoryBibleExtractionInput = z.infer<typeof StoryBibleExtractionInputSchema>;
 export type StoryBibleExtractionOutput = z.infer<typeof StoryBibleExtractionOutputSchema>;
+type SimpleExtraction = z.infer<typeof SimpleExtractionSchema>;
+type ModelCandidate = z.infer<typeof ModelCandidateSchema>;
+
+export type StoryBibleExtractionTrace = {
+  traceId: string;
+  modelId: string;
+  promptVersion: string;
+  schemaVersion: string;
+  inputChars: number;
+  estimatedInputTokens: number;
+  outputChars: number;
+  providerElapsedMs: number;
+  rawOutputReceived: boolean;
+  jsonParseResult: "valid" | "invalid" | "not_needed";
+  schemaValidationErrors: Array<{ path: string; code: string; message: string }>;
+  repairAttempted: boolean;
+  repairElapsedMs: number;
+  repairMethod: string;
+  fieldsRemoved: string[];
+  fieldsCoerced: string[];
+  modelRepairUsed: boolean;
+  finalSchemaValid: boolean;
+  fallbackUsed: CandidateTrust;
+};
 
 function modelConfig() {
   const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
@@ -176,93 +244,194 @@ function modelConfig() {
   };
 }
 
-function buildSourceRefs(input: StoryBibleExtractionInput, extractionRunId: string) {
-  const paragraphs = input.chapterText
+function paragraphList(text: string) {
+  return text
     .split(/\n{2,}|\r?\n/)
     .map((x) => x.trim())
     .filter(Boolean)
-    .slice(0, 80);
-  let cursor = 0;
-  return paragraphs.map((paragraph, index) => {
-    const textStart = input.chapterText.indexOf(paragraph, cursor);
-    const safeStart = textStart >= 0 ? textStart : cursor;
-    const textEnd = safeStart + paragraph.length;
-    cursor = textEnd;
-    return {
+    .slice(0, 200);
+}
+
+function buildModelPrompt(input: StoryBibleExtractionInput) {
+  const paragraphs = paragraphList(input.chapterText).map((text, index) => ({ paragraphIndex: index, text }));
+  return JSON.stringify({
+    task: "story_bible_candidate_extraction_v1_1",
+    language: "Traditional Chinese",
+    rules: [
+      "Extract candidates only. Do not mark anything as canonical.",
+      "Allowed entityType only: character, event, item, world_rule, foreshadowing, open_thread.",
+      "Use direct text evidence only. Lies, rumors, dreams, hallucinations, and memories must be marked as low confidence or open_thread, not objective event facts.",
+      "If a paragraph has no new story fact, do not invent a candidate.",
+      "sourceRef.excerpt must be an exact substring from the provided paragraph.",
+      "No markdown, no code fence, no extra keys.",
+    ],
+    fieldPathExamples: [
+      "characters[].canonicalName",
+      "characters[].age",
+      "events[].title",
+      "items[].currentOwner",
+      "worldRules[].description",
+      "foreshadowing[].description",
+      "openThreads[].description",
+    ],
+    chapter: {
       projectId: input.projectId,
       chapterId: input.chapterId,
-      paragraphIndex: index,
-      textStart: safeStart,
-      textEnd,
-      excerptHash: hashText(paragraph),
-      extractionRunId,
-      excerpt: paragraph.slice(0, 500),
-    };
+      chapterNumber: input.chapterNumber,
+      chapterTitle: input.chapterTitle,
+      previousChapterSummary: input.previousChapterSummary.slice(0, 800),
+      paragraphs,
+    },
   });
 }
 
-function sourceRefForText(input: StoryBibleExtractionInput, extractionRunId: string, text: string, fallbackIndex = 0) {
-  const idx = text ? input.chapterText.indexOf(text.slice(0, Math.min(40, text.length))) : -1;
-  const excerpt = idx >= 0 ? input.chapterText.slice(idx, Math.min(input.chapterText.length, idx + Math.max(80, text.length))) : input.chapterText.slice(0, 240);
+function normalizeJsonText(text: string) {
+  return text
+    .replace(/```(?:json)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1")
+    .trim();
+}
+
+function repairCandidate(raw: unknown, index: number, stats: { fieldsRemoved: string[]; fieldsCoerced: string[] }): ModelCandidate | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const source = raw as JsonRecord;
+  const allowed = new Set(["entityType", "temporaryEntityId", "operation", "fieldPath", "proposedValue", "confidence", "evidenceType", "sourceRef", "reason"]);
+  for (const key of Object.keys(source)) if (!allowed.has(key)) stats.fieldsRemoved.push(`candidates[${index}].${key}`);
+  const entity = String(source.entityType || "").replace(/worldRule/i, "world_rule").replace(/openThread/i, "open_thread");
+  const proposed = source.proposedValue && typeof source.proposedValue === "object" && !Array.isArray(source.proposedValue)
+    ? Object.fromEntries(Object.entries(source.proposedValue as JsonRecord).slice(0, 8).map(([key, value]) => {
+        if (value == null) {
+          stats.fieldsCoerced.push(`candidates[${index}].proposedValue.${key}`);
+          return [key, ""];
+        }
+        if (typeof value === "object") {
+          stats.fieldsCoerced.push(`candidates[${index}].proposedValue.${key}`);
+          return [key, JSON.stringify(value).slice(0, 300)];
+        }
+        return [key, value];
+      }))
+    : { value: clampText(source.proposedValue, 500) };
+  const sourceRef = source.sourceRef && typeof source.sourceRef === "object" ? source.sourceRef as JsonRecord : {};
+  const repaired = {
+    entityType: entity,
+    temporaryEntityId: String(source.temporaryEntityId || `temp_${entity || "fact"}_${index}`).toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 80),
+    operation: source.operation || "create",
+    fieldPath: String(source.fieldPath || `${entity === "world_rule" ? "worldRules" : entity === "open_thread" ? "openThreads" : `${entity}s`}[].description`),
+    proposedValue: proposed,
+    confidence: Number(source.confidence ?? 0.5),
+    evidenceType: source.evidenceType || sourceRef.evidenceType || "ambiguous",
+    sourceRef: {
+      paragraphIndex: Number(sourceRef.paragraphIndex ?? 0),
+      excerpt: clampText(sourceRef.excerpt || source.evidence || "", 500),
+      evidenceType: sourceRef.evidenceType || source.evidenceType || "ambiguous",
+    },
+    reason: clampText(source.reason || "model candidate", 200),
+  };
+  const parsed = ModelCandidateSchema.safeParse(repaired);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function repairSimpleExtraction(value: unknown) {
+  const started = Date.now();
+  const stats = {
+    repairAttempted: true,
+    repairElapsedMs: 0,
+    repairMethod: "local-json-normalize-and-field-prune",
+    fieldsRemoved: [] as string[],
+    fieldsCoerced: [] as string[],
+    modelRepairUsed: false,
+  };
+  let source: JsonRecord | undefined;
+  try {
+    source = typeof value === "string" ? JSON.parse(normalizeJsonText(value)) as JsonRecord : value as JsonRecord;
+  } catch {
+    stats.repairElapsedMs = Date.now() - started;
+    return { value: undefined, stats };
+  }
+  if (!source || typeof source !== "object") {
+    stats.repairElapsedMs = Date.now() - started;
+    return { value: undefined, stats };
+  }
+  const rootAllowed = new Set(["candidates", "chapterSummaryCandidate", "warnings", "confidence"]);
+  for (const key of Object.keys(source)) if (!rootAllowed.has(key)) stats.fieldsRemoved.push(key);
+  const candidates = Array.isArray(source.candidates)
+    ? source.candidates.map((candidate, index) => repairCandidate(candidate, index, stats)).filter(Boolean)
+    : [];
+  if (!Array.isArray(source.candidates)) stats.fieldsCoerced.push("candidates");
+  const summaryRaw = source.chapterSummaryCandidate && typeof source.chapterSummaryCandidate === "object"
+    ? source.chapterSummaryCandidate as JsonRecord
+    : {};
+  const repaired = {
+    candidates,
+    chapterSummaryCandidate: {
+      summary: clampText(summaryRaw.summary || source.summary || "", 1200) || "本章沒有足夠可抽取的新事實。",
+      endingState: clampText(summaryRaw.endingState || "", 500),
+      newThreads: Array.isArray(summaryRaw.newThreads) ? summaryRaw.newThreads.map((x) => clampText(x, 160)).slice(0, 10) : [],
+      newFacts: Array.isArray(summaryRaw.newFacts) ? summaryRaw.newFacts.map((x) => clampText(x, 160)).slice(0, 20) : [],
+    },
+    warnings: Array.isArray(source.warnings) ? source.warnings.map((x) => clampText(x, 200)).slice(0, 12) : [],
+    confidence: Number(source.confidence ?? 0.5),
+  };
+  stats.repairElapsedMs = Date.now() - started;
+  const parsed = SimpleExtractionSchema.safeParse(repaired);
+  return { value: parsed.success ? parsed.data : undefined, stats };
+}
+
+function sourceRefForExcerpt(input: StoryBibleExtractionInput, extractionRunId: string, ref: z.infer<typeof ModelSourceRefSchema>) {
+  const paragraphs = paragraphList(input.chapterText);
+  const paragraph = paragraphs[ref.paragraphIndex] || "";
+  let idx = ref.excerpt ? input.chapterText.indexOf(ref.excerpt) : -1;
+  if (idx < 0 && paragraph) idx = input.chapterText.indexOf(paragraph);
+  const sourceValid = ref.excerpt ? idx >= 0 : false;
+  const excerpt = sourceValid ? ref.excerpt : (paragraph || input.chapterText).slice(0, 300);
+  const textStart = idx >= 0 ? idx : Math.max(0, input.chapterText.indexOf(excerpt));
+  const start = textStart >= 0 ? textStart : 0;
   return {
     projectId: input.projectId,
     chapterId: input.chapterId,
-    paragraphIndex: fallbackIndex,
-    textStart: idx >= 0 ? idx : 0,
-    textEnd: idx >= 0 ? idx + excerpt.length : Math.min(input.chapterText.length, excerpt.length),
+    paragraphIndex: ref.paragraphIndex,
+    textStart: start,
+    textEnd: Math.min(input.chapterText.length, start + excerpt.length),
     excerptHash: hashText(excerpt),
     extractionRunId,
+    excerpt,
+    evidenceType: ref.evidenceType,
+    sourceValid,
   };
 }
 
-function localExtraction(input: StoryBibleExtractionInput, extractionRunId: string, reason: string): StoryBibleExtractionOutput {
-  const text = input.chapterText;
-  const safeReason = clampText(reason, 240);
-  const sourceRef = sourceRefForText(input, extractionRunId, text.slice(0, 120), 0);
-  const possibleNames = Array.from(new Set((text.match(/[\u4e00-\u9fff]{2,4}/g) || []).filter((x) => !/[的是了在與和也就都而及或]/.test(x)).slice(0, 8)));
-  const candidates: z.infer<typeof StoryBibleCandidateSchema>[] = [];
-  for (const name of possibleNames.slice(0, 3)) {
-    candidates.push({
-      entityType: "character",
-      temporaryEntityId: `temp_character_${hashText(name).slice(0, 8)}`,
-      operation: "create",
-      fieldPath: "characters[].canonicalName",
-      proposedValue: { canonicalName: name, note: "本地規則從章節文字偵測到可能人物名稱，需作者確認。" },
-      confidence: 0.45,
-      evidence: `章節中出現「${name}」。`,
+function convertSimpleOutput(input: StoryBibleExtractionInput, extractionRunId: string, simple: SimpleExtraction, trust: CandidateTrust): StoryBibleExtractionOutput {
+  const perType = new Map<string, number>();
+  const candidates = simple.candidates.filter((candidate) => {
+    const count = perType.get(candidate.entityType) || 0;
+    if (count >= 5) return false;
+    perType.set(candidate.entityType, count + 1);
+    return true;
+  }).map((candidate) => {
+    const sourceRef = sourceRefForExcerpt(input, extractionRunId, candidate.sourceRef);
+    const sourceValid = Boolean(sourceRef.sourceValid);
+    const confidence = sourceValid ? candidate.confidence : Math.min(candidate.confidence, 0.45);
+    const risk = sourceValid && trust !== "local-rule" ? "low" : "needs-review";
+    return StoryBibleCandidateSchema.parse({
+      entityType: candidate.entityType,
+      temporaryEntityId: candidate.temporaryEntityId,
+      operation: candidate.operation,
+      fieldPath: candidate.fieldPath,
+      proposedValue: candidate.proposedValue,
+      confidence,
+      evidence: sourceRef.excerpt || candidate.reason,
+      evidenceType: candidate.evidenceType,
       sourceRefs: [sourceRef],
-      reason: "local-rule-basic-extraction name heuristic",
-      conflictRisk: "needs-review",
+      reason: candidate.reason,
+      conflictRisk: risk,
+      candidateTrust: trust,
+      sourceValid,
     });
-  }
-  candidates.push({
-    entityType: "event",
-    temporaryEntityId: `temp_event_${hashText(text).slice(0, 8)}`,
-    operation: "create",
-    fieldPath: "events[].title",
-    proposedValue: { title: input.chapterTitle || `第${input.chapterNumber || 0}章事件`, description: text.slice(0, 500) },
-    confidence: 0.5,
-    evidence: text.slice(0, 500),
-    sourceRefs: [sourceRef],
-    reason: safeReason,
-    conflictRisk: "needs-review",
   });
-  const hookMatch = text.match(/(?:然而|但是|忽然|下一刻|沒想到|卻)([^。！？]{8,80}[。！？]?)/);
-  if (hookMatch?.[0]) {
-    candidates.push({
-      entityType: "openThread",
-      temporaryEntityId: `temp_thread_${hashText(hookMatch[0]).slice(0, 8)}`,
-      operation: "create",
-      fieldPath: "openThreads[].description",
-      proposedValue: { title: "章尾或中段懸念", description: hookMatch[0], status: "open" },
-      confidence: 0.42,
-      evidence: hookMatch[0],
-      sourceRefs: [sourceRefForText(input, extractionRunId, hookMatch[0], 0)],
-      reason: "local-rule-basic-extraction hook heuristic",
-      conflictRisk: "needs-review",
-    });
-  }
-  return {
+  return StoryBibleExtractionOutputSchema.parse({
     candidateFacts: candidates,
     candidateUpdates: [],
     candidateDeletions: [],
@@ -271,110 +440,79 @@ function localExtraction(input: StoryBibleExtractionInput, extractionRunId: stri
       chapterId: input.chapterId,
       chapterNumber: input.chapterNumber,
       title: input.chapterTitle,
-      summary: text.slice(0, 1000),
+      summary: simple.chapterSummaryCandidate.summary,
       characterChanges: [],
       worldChanges: [],
-      newFacts: candidates.map((x) => clampText(x.evidence, 160)),
+      newFacts: simple.chapterSummaryCandidate.newFacts,
       resolvedThreads: [],
-      newThreads: candidates.filter((x) => x.entityType === "openThread").map((x) => clampText((x.proposedValue as JsonRecord).description, 180)),
-      plantedForeshadowing: [],
+      newThreads: simple.chapterSummaryCandidate.newThreads,
+      plantedForeshadowing: candidates.filter((x) => x.entityType === "foreshadowing").map((x) => clampText(x.evidence, 200)),
       paidForeshadowing: [],
-      endingState: text.slice(-500),
-      sourceHash: hashText(text),
+      endingState: simple.chapterSummaryCandidate.endingState,
+      sourceHash: hashText(input.chapterText),
     },
-    extractionWarnings: [`已使用本地規則降級抽取：${safeReason}`],
-    confidence: 0.45,
-  };
-}
-
-function buildExtractionPrompt(input: StoryBibleExtractionInput, extractionRunId: string) {
-  return JSON.stringify({
-    task: "STORY_BIBLE_CANDIDATE_EXTRACTION",
-    schemaVersion: STORY_BIBLE_SCHEMA_VERSION,
-    promptVersion: STORY_BIBLE_EXTRACT_PROMPT_VERSION,
-    rules: [
-      "只抽取候選資料，不得直接宣稱為正式 Canonical Fact。",
-      "所有候選必須有 evidence 與 sourceRefs。",
-      "若不確定，conflictRisk 使用 needs-review，confidence 降低。",
-      "不要輸出 Markdown，只輸出 JSON。",
-      "不要輸出 API key、token、connection string 或任何敏感資料。",
-    ],
-    outputShape: {
-      candidateFacts: "StoryBibleCandidate[] <= 40",
-      candidateUpdates: "StoryBibleCandidate[] <= 40",
-      candidateDeletions: "StoryBibleCandidate[] <= 20",
-      candidateConflicts: "StoryBibleConflict[] <= 20",
-      chapterSummaryCandidate: "ChapterSummaryCandidate",
-      extractionWarnings: "string[]",
-      confidence: "number 0-1",
-    },
-    sourceRefTemplate: {
-      projectId: input.projectId,
-      chapterId: input.chapterId,
-      paragraphIndex: 0,
-      textStart: 0,
-      textEnd: 0,
-      excerptHash: "use provided paragraph hash when possible",
-      extractionRunId,
-    },
-    currentCanonicalSnapshot: input.currentCanonicalSnapshot || {},
-    chapter: {
-      projectId: input.projectId,
-      chapterId: input.chapterId,
-      chapterNumber: input.chapterNumber,
-      chapterTitle: input.chapterTitle,
-      previousChapterSummary: input.previousChapterSummary,
-      chapterText: input.chapterText.slice(0, 12000),
-    },
+    extractionWarnings: simple.warnings,
+    confidence: simple.confidence,
   });
 }
 
-async function extractWithModel(input: StoryBibleExtractionInput, extractionRunId: string) {
+function localExtraction(input: StoryBibleExtractionInput, extractionRunId: string, reason: string): StoryBibleExtractionOutput {
+  const text = input.chapterText;
+  const markerMatch = text.match(/\b[A-Z][A-Z0-9_]{4,}\b/);
+  const candidateText = markerMatch?.[0] || text.slice(0, 120);
+  const sourceRef = sourceRefForExcerpt(input, extractionRunId, { paragraphIndex: 0, excerpt: candidateText, evidenceType: "direct_statement" });
+  const simple: SimpleExtraction = {
+    candidates: candidateText.trim()
+      ? [{
+          entityType: "event",
+          temporaryEntityId: `temp_event_${hashText(candidateText).slice(0, 8)}`,
+          operation: "create",
+          fieldPath: "events[].title",
+          proposedValue: { title: clampText(input.chapterTitle || "candidate event", 120), description: clampText(candidateText, 300) },
+          confidence: 0.35,
+          evidenceType: "direct_statement",
+          sourceRef: { paragraphIndex: sourceRef.paragraphIndex || 0, excerpt: sourceRef.excerpt || candidateText, evidenceType: "direct_statement" },
+          reason: "本地規則只保留明確可定位文字，需人工確認。",
+        }]
+      : [],
+    chapterSummaryCandidate: {
+      summary: clampText(text, 1000) || "本章沒有足夠可抽取的新事實。",
+      endingState: clampText(text.slice(-500), 500),
+      newThreads: [],
+      newFacts: [],
+    },
+    warnings: [`local-rule fallback: ${clampText(reason, 160)}`],
+    confidence: 0.35,
+  };
+  return convertSimpleOutput(input, extractionRunId, simple, "local-rule");
+}
+
+async function extractWithModel(input: StoryBibleExtractionInput, extractionRunId: string, trace: StoryBibleExtractionTrace) {
   const cfg = modelConfig();
   if (!cfg.googleKey) throw new Error("MODEL_NOT_CONFIGURED");
-  const prompt = buildExtractionPrompt(input, extractionRunId);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("STORY_BIBLE_EXTRACT_TIMEOUT")), 18_000);
-  try {
-    const { text } = await generateText({
-      model: google(cfg.modelId),
-      system: "你是長篇小說 Story Bible 抽取器。只輸出符合指定 schema 的繁體中文 JSON，不要寫 Markdown，不得把候選當成正式記憶。",
-      prompt,
-      temperature: 0.15,
-      maxOutputTokens: 2200,
-      abortSignal: controller.signal,
-    });
-    const match = text.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(match ? match[0] : text);
-    return StoryBibleExtractionOutputSchema.parse(parsed);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function withRunSourceRefs(output: StoryBibleExtractionOutput, input: StoryBibleExtractionInput, extractionRunId: string) {
-  const fix = (candidate: z.infer<typeof StoryBibleCandidateSchema>, index: number) => {
-    const refs = candidate.sourceRefs.length ? candidate.sourceRefs : [sourceRefForText(input, extractionRunId, candidate.evidence, index)];
-    return { ...candidate, sourceRefs: refs.map((ref) => ({ ...ref, projectId: input.projectId, chapterId: ref.chapterId || input.chapterId, extractionRunId })) };
-  };
-  return StoryBibleExtractionOutputSchema.parse({
-    ...output,
-    candidateFacts: output.candidateFacts.map(fix),
-    candidateUpdates: output.candidateUpdates.map(fix),
-    candidateDeletions: output.candidateDeletions.map(fix),
-    candidateConflicts: output.candidateConflicts.map((conflict, index) => ({
-      ...conflict,
-      sourceRefs: (conflict.sourceRefs.length ? conflict.sourceRefs : [sourceRefForText(input, extractionRunId, conflict.explanation, index)])
-        .map((ref) => ({ ...ref, projectId: input.projectId, chapterId: ref.chapterId || input.chapterId, extractionRunId })),
-    })),
-    chapterSummaryCandidate: {
-      ...output.chapterSummaryCandidate,
-      chapterId: input.chapterId,
-      chapterNumber: input.chapterNumber,
-      title: output.chapterSummaryCandidate.title || input.chapterTitle,
-      sourceHash: output.chapterSummaryCandidate.sourceHash || hashText(input.chapterText),
-    },
+  const prompt = buildModelPrompt(input);
+  trace.inputChars = prompt.length;
+  trace.estimatedInputTokens = estimateTokensFromText(prompt);
+  const started = Date.now();
+  const { object, usage } = await generateObject({
+    model: google(cfg.modelId),
+    schema: SimpleExtractionSchema,
+    schemaName: "StoryBibleReducedExtraction",
+    schemaDescription: "Reduced Story Bible candidate extraction result. No canonical writes.",
+    system: "You extract pending Story Bible candidates. Return only structured JSON matching the schema. No markdown. Do not invent facts.",
+    prompt,
+    temperature: 0.05,
+    maxOutputTokens: 1600,
   });
+  trace.providerElapsedMs = Date.now() - started;
+  trace.outputChars = JSON.stringify(object).length;
+  trace.rawOutputReceived = true;
+  trace.jsonParseResult = "valid";
+  trace.finalSchemaValid = true;
+  trace.fallbackUsed = "cloud-validated";
+  trace.repairMethod = "none";
+  trace.estimatedInputTokens = trace.estimatedInputTokens || Number(usage?.inputTokens || 0);
+  return object;
 }
 
 export async function extractStoryBibleCandidates(input: StoryBibleExtractionInput) {
@@ -382,37 +520,81 @@ export async function extractStoryBibleCandidates(input: StoryBibleExtractionInp
   const traceId = crypto.randomUUID();
   const cfg = modelConfig();
   const started = Date.now();
-  let fallbackLevel: "cloud-full" | "local-rule-basic-extraction" = "cloud-full";
-  let warning = "";
-  let output: StoryBibleExtractionOutput;
-  try {
-    output = await extractWithModel(input, extractionRunId);
-  } catch (error) {
-    fallbackLevel = "local-rule-basic-extraction";
-    warning = error instanceof Error ? error.message : String(error);
-    output = localExtraction(input, extractionRunId, warning);
-  }
-  const normalized = withRunSourceRefs(output, input, extractionRunId);
-  await persistStoryBibleExtraction({
-    input,
-    output: normalized,
-    extractionRunId,
+  const trace: StoryBibleExtractionTrace = {
     traceId,
-    modelId: cfg.modelId,
-    fallbackLevel,
-    elapsedMs: Date.now() - started,
-  });
-  return {
-    ...normalized,
-    sourceRefs: collectSourceRefs(normalized),
     modelId: cfg.modelId,
     promptVersion: STORY_BIBLE_EXTRACT_PROMPT_VERSION,
     schemaVersion: STORY_BIBLE_SCHEMA_VERSION,
-    confidence: normalized.confidence,
+    inputChars: 0,
+    estimatedInputTokens: 0,
+    outputChars: 0,
+    providerElapsedMs: 0,
+    rawOutputReceived: false,
+    jsonParseResult: "not_needed",
+    schemaValidationErrors: [],
+    repairAttempted: false,
+    repairElapsedMs: 0,
+    repairMethod: "none",
+    fieldsRemoved: [],
+    fieldsCoerced: [],
+    modelRepairUsed: false,
+    finalSchemaValid: false,
+    fallbackUsed: "invalid",
+  };
+  let output: StoryBibleExtractionOutput;
+  let trust: CandidateTrust = "cloud-validated";
+  try {
+    const simple = await extractWithModel(input, extractionRunId, trace);
+    output = convertSimpleOutput(input, extractionRunId, simple, "cloud-validated");
+  } catch (error) {
+    const issueText = error instanceof z.ZodError
+      ? error.issues.map((issue) => `${issue.path.join(".")}:${issue.code}:${issue.message}`).join("; ")
+      : error instanceof Error ? error.message : String(error);
+    trace.schemaValidationErrors = error instanceof z.ZodError
+      ? error.issues.map((issue) => ({ path: issue.path.join("."), code: issue.code, message: issue.message }))
+      : [{ path: "model", code: "MODEL_OR_SCHEMA_ERROR", message: clampText(issueText, 500) }];
+    const repaired = repairSimpleExtraction(error instanceof Error ? error.message : String(error));
+    trace.repairAttempted = repaired.stats.repairAttempted;
+    trace.repairElapsedMs = repaired.stats.repairElapsedMs;
+    trace.repairMethod = repaired.stats.repairMethod;
+    trace.fieldsRemoved = repaired.stats.fieldsRemoved;
+    trace.fieldsCoerced = repaired.stats.fieldsCoerced;
+    trace.modelRepairUsed = repaired.stats.modelRepairUsed;
+    if (repaired.value) {
+      trust = "cloud-repaired";
+      trace.finalSchemaValid = true;
+      trace.fallbackUsed = trust;
+      output = convertSimpleOutput(input, extractionRunId, repaired.value, trust);
+    } else {
+      trust = "local-rule";
+      trace.fallbackUsed = trust;
+      output = localExtraction(input, extractionRunId, issueText);
+      trace.finalSchemaValid = true;
+    }
+  }
+  await persistStoryBibleExtraction({
+    input,
+    output,
+    extractionRunId,
+    traceId,
+    modelId: cfg.modelId,
+    fallbackLevel: trust,
+    elapsedMs: Date.now() - started,
+    trace,
+  });
+  return {
+    ...output,
+    candidates: output.candidateFacts,
+    sourceRefs: collectSourceRefs(output),
+    modelId: cfg.modelId,
+    promptVersion: STORY_BIBLE_EXTRACT_PROMPT_VERSION,
+    schemaVersion: STORY_BIBLE_SCHEMA_VERSION,
+    confidence: output.confidence,
     traceId,
     extractionRunId,
-    fallbackLevel,
+    fallbackLevel: trust,
     elapsedMs: Date.now() - started,
+    trace,
   };
 }
 
@@ -456,8 +638,9 @@ export async function persistStoryBibleExtraction(args: {
   extractionRunId: string;
   traceId: string;
   modelId: string;
-  fallbackLevel: string;
+  fallbackLevel: CandidateTrust | string;
   elapsedMs: number;
+  trace?: StoryBibleExtractionTrace;
 }) {
   if (!isConfigured()) throw new Error("STORY_BIBLE_PERSISTENCE_NOT_CONFIGURED");
   const { input, output, extractionRunId, traceId, modelId, fallbackLevel } = args;
@@ -491,16 +674,16 @@ export async function persistStoryBibleExtraction(args: {
       candidateConflicts: output.candidateConflicts.length,
       elapsedMs: args.elapsedMs,
       traceId,
+      trace: args.trace,
     },
     created_at: nowIso(),
   });
-  const allCandidates = [
-    ...output.candidateFacts,
-    ...output.candidateUpdates,
-    ...output.candidateDeletions,
-  ];
+  const allCandidates = [...output.candidateFacts, ...output.candidateUpdates, ...output.candidateDeletions];
   const candidateRows = allCandidates.map((candidate) => {
     const id = `story_candidate_${crypto.randomUUID()}`;
+    const status = candidate.candidateTrust === "local-rule" || !candidate.sourceValid || candidate.conflictRisk === "needs-review"
+      ? "needs-review"
+      : "pending";
     return {
       id,
       project_id: input.projectId,
@@ -517,7 +700,7 @@ export async function persistStoryBibleExtraction(args: {
       source_refs: candidate.sourceRefs,
       reason: candidate.reason,
       conflict_risk: candidate.conflictRisk,
-      status: candidate.conflictRisk === "needs-review" ? "needs-review" : "pending",
+      status,
       created_at: nowIso(),
     };
   });
@@ -551,7 +734,7 @@ export async function persistStoryBibleExtraction(args: {
     text_start: ref.textStart ?? null,
     text_end: ref.textEnd ?? null,
     excerpt_hash: ref.excerptHash,
-    excerpt: input.chapterText.slice(ref.textStart || 0, Math.min(input.chapterText.length, ref.textEnd || (ref.textStart || 0) + 500)).slice(0, 500),
+    excerpt: ref.excerpt || input.chapterText.slice(ref.textStart || 0, Math.min(input.chapterText.length, ref.textEnd || (ref.textStart || 0) + 500)).slice(0, 500),
     created_at: nowIso(),
   }));
   await insertRows("story_fact_sources", sourceRows);

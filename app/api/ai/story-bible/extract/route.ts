@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     const input = StoryBibleExtractionInputSchema.parse(body);
     const result = await extractStoryBibleCandidates(input);
     return Response.json({
+      candidates: result.candidates,
       candidateFacts: result.candidateFacts,
       candidateUpdates: result.candidateUpdates,
       candidateDeletions: result.candidateDeletions,
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
       traceId: result.traceId,
       extractionRunId: result.extractionRunId,
       fallbackLevel: result.fallbackLevel,
+      trace: result.trace,
       elapsedMs: result.elapsedMs,
       persistence: {
         status: "written",

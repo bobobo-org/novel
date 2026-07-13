@@ -71,7 +71,7 @@ export async function GET() {
     persistenceStatus: persistence.persistenceStatus,
     databaseStatus: persistence.databaseStatus,
     databaseLatencyMs: persistence.databaseLatencyMs,
-    migrationVersion: persistence.migrationVersion,
+    migrationVersion: [persistence.migrationVersion, storyBible.storyBibleMigrationVersion].filter(Boolean).join(","),
     writeTestStatus: writeTest,
     lastSuccessfulWriteAt: persistence.lastSuccessfulWriteAt,
     lastDatabaseError: persistence.lastDatabaseError ? "database_error_available_in_admin_logs" : null,
