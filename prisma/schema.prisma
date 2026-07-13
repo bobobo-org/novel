@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AiRun {
+  id            String   @id
+  projectId     String
+  chapterId     String?
+  taskType      String
+  provider      String
+  model         String
+  promptVersion String
+  inputHash     String
+  latencyMs     Int
+  inputTokens   Int?
+  outputTokens  Int?
+  estimatedCost Float?
+  status        String
+  errorCode     String?
+  createdAt     DateTime @default(now())
+
+  feedback AiFeedback[]
+
+  @@index([projectId, chapterId])
+  @@index([taskType, createdAt])
+}
+
+model AiFeedback {
+  id               String   @id
+  aiRunId          String?
+  projectId        String
+  chapterId        String?
+  decision         String
+  selectedOption   String?
+  originalOutput   Json
+  editedOutput     Json?
+  rejectionReasons Json?
+  authorNote       String?
+  createdAt        DateTime @default(now())
+
+  aiRun AiRun? @relation(fields: [aiRunId], references: [id])
+  trainingExamples TrainingExample[]
+
+  @@index([projectId, chapterId])
+  @@index([decision, createdAt])
+}
+
+model TrainingExample {
+  id               String   @id
+  projectId        String
+  sourceFeedbackId String
+  taskType         String
+  systemPrompt     String
+  userInput        Json
+  idealOutput      Json
+  qualityStatus    String
+  reviewedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  sourceFeedback AiFeedback @relation(fields: [sourceFeedbackId], references: [id])
+
+  @@index([projectId, taskType])
+  @@index([qualityStatus, createdAt])
+}
