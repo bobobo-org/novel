@@ -97,6 +97,9 @@ export async function GET() {
     storyBibleExtractionStatus: storyBible.storyBibleExtractionStatus,
     storyBibleMigrationVersion: storyBible.storyBibleMigrationVersion,
     storyBibleRecentExtractionAt: "storyBibleRecentExtractionAt" in storyBible ? storyBible.storyBibleRecentExtractionAt : null,
+    storyBibleApprovalStatus: "storyBibleApprovalStatus" in storyBible ? storyBible.storyBibleApprovalStatus : "unavailable",
+    storyBibleVersioningStatus: "storyBibleVersioningStatus" in storyBible ? storyBible.storyBibleVersioningStatus : "unavailable",
+    storyBibleConflictEngineStatus: "storyBibleConflictEngineStatus" in storyBible ? storyBible.storyBibleConflictEngineStatus : "unavailable",
   }, {
     headers: {
       "Cache-Control": "no-store, max-age=0",

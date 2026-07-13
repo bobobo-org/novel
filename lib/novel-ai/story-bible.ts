@@ -5,12 +5,14 @@ import { z } from "zod";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
+export const STORY_BIBLE_C2A_MIGRATION_VERSION = "p0c2a_conflict_engine_004";
 export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.1";
 export const STORY_BIBLE_CONFLICT_PROMPT_VERSION = "story-bible-conflict-review-v1";
 export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
 
 type JsonRecord = Record<string, unknown>;
 type CandidateTrust = "cloud-validated" | "cloud-repaired" | "cloud-reduced" | "local-rule" | "invalid";
+type CandidateReviewStatus = "pending" | "needs_review" | "approved" | "rejected" | "stale" | "superseded" | "failed";
 
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -668,6 +670,172 @@ function collectSourceRefs(output: StoryBibleExtractionOutput) {
   });
 }
 
+function candidateInitialStatus(candidate: z.infer<typeof StoryBibleCandidateSchema>): CandidateReviewStatus {
+  if (candidate.candidateTrust === "invalid") return "failed";
+  if (candidate.candidateTrust !== "cloud-validated") return "needs_review";
+  if (!candidate.sourceValid || candidate.conflictRisk === "needs-review") return "needs_review";
+  return "pending";
+}
+
+function canonicalTableFor(entityType: string) {
+  switch (entityType) {
+    case "character":
+      return { table: "story_characters", idColumn: "character_id", jsonColumn: "character_json", titleColumn: "canonical_name" };
+    case "event":
+      return { table: "story_events", idColumn: "event_id", jsonColumn: "event_json", titleColumn: "title" };
+    case "item":
+      return { table: "story_items", idColumn: "item_id", jsonColumn: "item_json", titleColumn: "name" };
+    case "world_rule":
+      return { table: "story_world_rules", idColumn: "rule_id", jsonColumn: "rule_json", titleColumn: "title" };
+    case "foreshadowing":
+      return { table: "story_foreshadowing", idColumn: "foreshadow_id", jsonColumn: "foreshadow_json", titleColumn: "title" };
+    case "open_thread":
+      return { table: "story_open_threads", idColumn: "thread_id", jsonColumn: "thread_json", titleColumn: "title" };
+    default:
+      return undefined;
+  }
+}
+
+function parseEntityType(value: unknown): z.infer<typeof SimpleEntityTypeSchema> | undefined {
+  const parsed = SimpleEntityTypeSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function fieldLeaf(fieldPath: string) {
+  return fieldPath.split(".").pop() || "";
+}
+
+function canonicalValueFromRow(row: JsonRecord | undefined, entityType: string, fieldPath: string) {
+  if (!row) return undefined;
+  const adapter = canonicalTableFor(entityType);
+  const leaf = fieldLeaf(fieldPath);
+  const jsonValue = adapter ? row[adapter.jsonColumn] : undefined;
+  if (jsonValue && typeof jsonValue === "object" && leaf in (jsonValue as JsonRecord)) return (jsonValue as JsonRecord)[leaf];
+  if (adapter?.titleColumn && (leaf === "title" || leaf === "name" || leaf === "canonicalName")) return row[adapter.titleColumn];
+  return undefined;
+}
+
+async function loadCanonicalForCandidate(projectId: string, candidate: z.infer<typeof StoryBibleCandidateSchema>) {
+  if (!candidate.entityId) return undefined;
+  const adapter = canonicalTableFor(candidate.entityType);
+  if (!adapter) return undefined;
+  const rows = await rest<JsonRecord[]>(adapter.table, {
+    query: `project_id=eq.${encodeURIComponent(projectId)}&${adapter.idColumn}=eq.${encodeURIComponent(candidate.entityId)}&select=*&limit=1`,
+  });
+  return rows[0];
+}
+
+async function buildConflictsForCandidate(args: {
+  projectId: string;
+  extractionRunId: string;
+  candidateId: string;
+  candidate: z.infer<typeof StoryBibleCandidateSchema>;
+}) {
+  const { projectId, extractionRunId, candidateId, candidate } = args;
+  const conflicts: JsonRecord[] = [];
+  const now = nowIso();
+  const push = (data: {
+    severity: "info" | "warning" | "major" | "blocking";
+    conflictType: string;
+    explanation: string;
+    suggestedResolution?: string;
+    canonicalValue?: unknown;
+    proposedValue?: unknown;
+    autoResolvable?: boolean;
+    confidence?: number;
+  }) => {
+    conflicts.push({
+      id: `story_conflict_${crypto.randomUUID()}`,
+      project_id: projectId,
+      extraction_run_id: extractionRunId,
+      candidate_id: candidateId,
+      severity: data.severity,
+      conflict_type: data.conflictType,
+      canonical_entity_type: candidate.entityType,
+      canonical_entity_id: candidate.entityId || candidate.temporaryEntityId || null,
+      field_path: candidate.fieldPath,
+      canonical_fact: data.canonicalValue == null ? null : { value: data.canonicalValue },
+      candidate_fact: {
+        entityType: candidate.entityType,
+        fieldPath: candidate.fieldPath,
+        proposedValue: data.proposedValue ?? candidate.proposedValue,
+        trust: candidate.candidateTrust,
+      },
+      canonical_value: data.canonicalValue ?? null,
+      proposed_value: data.proposedValue ?? candidate.proposedValue,
+      source_refs: candidate.sourceRefs,
+      explanation: data.explanation,
+      suggested_resolution: data.suggestedResolution || null,
+      auto_resolvable: Boolean(data.autoResolvable),
+      confidence: data.confidence ?? candidate.confidence,
+      status: "open",
+      created_at: now,
+    });
+  };
+
+  if (candidate.candidateTrust === "local-rule") {
+    push({
+      severity: "warning",
+      conflictType: "low_trust_local_rule",
+      explanation: "此候選由本地規則降級產生，只能作為低信心待審資料，不可自動核准。",
+      suggestedResolution: "人工檢查原文與來源後，必要時建立新的高信心候選。",
+      autoResolvable: false,
+      confidence: 0.35,
+    });
+  } else if (candidate.candidateTrust === "cloud-repaired" || candidate.candidateTrust === "cloud-reduced") {
+    push({
+      severity: "info",
+      conflictType: "cloud_output_repaired",
+      explanation: "此候選經過結構化修復或縮減流程，需顯示修復痕跡並由作者確認。",
+      suggestedResolution: "核對 source excerpt 與 proposed value 是否一致。",
+      autoResolvable: false,
+      confidence: Math.min(candidate.confidence, 0.8),
+    });
+  }
+
+  if (!candidate.sourceValid || candidate.sourceRefs.some((ref) => ref.sourceValid === false)) {
+    push({
+      severity: "major",
+      conflictType: "source_reference_invalid",
+      explanation: "候選的 source excerpt 無法在章節正文中定位，不能作為高信心事實。",
+      suggestedResolution: "重新抽取來源，或人工修正 excerpt 後再審核。",
+      autoResolvable: false,
+      confidence: Math.min(candidate.confidence, 0.45),
+    });
+  }
+
+  const canonical = await loadCanonicalForCandidate(projectId, candidate);
+  if (canonical) {
+    const currentValue = canonicalValueFromRow(canonical, candidate.entityType, candidate.fieldPath);
+    if (candidate.entityType === "world_rule" && canonical.immutable === true && candidate.operation !== "no-change") {
+      push({
+        severity: "blocking",
+        conflictType: "immutable_world_rule_change",
+        canonicalValue: currentValue,
+        proposedValue: candidate.proposedValue,
+        explanation: "候選嘗試修改 immutable world rule。P0-C2A 僅能標記衝突，不能寫入 canonical。",
+        suggestedResolution: "若確為例外，請在後續 conflict resolution 階段建立 exception，而非直接覆蓋規則。",
+        autoResolvable: false,
+        confidence: candidate.confidence,
+      });
+    }
+    if (currentValue !== undefined && JSON.stringify(currentValue) !== JSON.stringify(candidate.proposedValue)) {
+      push({
+        severity: "major",
+        conflictType: "canonical_value_mismatch",
+        canonicalValue: currentValue,
+        proposedValue: candidate.proposedValue,
+        explanation: "候選值與目前 canonical 值不同，需人工判斷是更新、例外、誤抽取或舊資料過時。",
+        suggestedResolution: "保留 canonical、接受候選、編輯候選或延後處理。",
+        autoResolvable: false,
+        confidence: candidate.confidence,
+      });
+    }
+  }
+
+  return conflicts;
+}
+
 async function ensureStoryBible(projectId: string, input: StoryBibleExtractionInput) {
   const now = nowIso();
   await upsert("story_bibles", {
@@ -733,41 +901,60 @@ export async function persistStoryBibleExtraction(args: {
     created_at: nowIso(),
   });
   const allCandidates = [...output.candidateFacts, ...output.candidateUpdates, ...output.candidateDeletions];
-  const candidateRows = allCandidates.map((candidate) => {
+  const candidatePairs = allCandidates.map((candidate) => {
     const id = `story_candidate_${crypto.randomUUID()}`;
-    const status = candidate.candidateTrust === "local-rule" || !candidate.sourceValid || candidate.conflictRisk === "needs-review"
-      ? "needs-review"
-      : "pending";
+    const status = candidateInitialStatus(candidate);
     return {
-      id,
-      project_id: input.projectId,
-      extraction_run_id: extractionRunId,
-      entity_type: candidate.entityType,
-      entity_id: candidate.entityId || null,
-      temporary_entity_id: candidate.temporaryEntityId || null,
-      operation: candidate.operation,
-      field_path: candidate.fieldPath,
-      previous_value: candidate.previousValue ?? null,
-      proposed_value: candidate.proposedValue,
-      confidence: candidate.confidence,
-      evidence: candidate.evidence,
-      source_refs: candidate.sourceRefs,
-      reason: candidate.reason,
-      conflict_risk: candidate.conflictRisk,
-      status,
-      created_at: nowIso(),
+      candidate,
+      row: {
+        id,
+        project_id: input.projectId,
+        extraction_run_id: extractionRunId,
+        entity_type: candidate.entityType,
+        entity_id: candidate.entityId || null,
+        temporary_entity_id: candidate.temporaryEntityId || null,
+        operation: candidate.operation,
+        field_path: candidate.fieldPath,
+        previous_value: candidate.previousValue ?? null,
+        proposed_value: candidate.proposedValue,
+        confidence: candidate.confidence,
+        evidence: candidate.evidence,
+        source_refs: candidate.sourceRefs,
+        reason: candidate.reason,
+        conflict_risk: candidate.conflictRisk,
+        status,
+        previous_status: null,
+        candidate_trust: candidate.candidateTrust,
+        source_valid: candidate.sourceValid,
+        status_updated_at: nowIso(),
+        created_at: nowIso(),
+      },
     };
   });
+  const candidateRows = candidatePairs.map((pair) => pair.row);
   await insertRows("story_fact_candidates", candidateRows);
-  const conflicts = output.candidateConflicts.map((conflict, index) => ({
+  const generatedConflicts = (await Promise.all(candidatePairs.map((pair) =>
+    buildConflictsForCandidate({
+      projectId: input.projectId,
+      extractionRunId,
+      candidateId: pair.row.id,
+      candidate: pair.candidate,
+    })
+  ))).flat();
+  const modelConflicts = output.candidateConflicts.map((conflict, index) => ({
     id: conflict.conflictId || `story_conflict_${crypto.randomUUID()}`,
     project_id: input.projectId,
     extraction_run_id: extractionRunId,
     candidate_id: candidateRows[index]?.id || null,
     severity: conflict.severity,
     conflict_type: conflict.conflictType,
+    canonical_entity_type: candidateRows[index]?.entity_type || null,
+    canonical_entity_id: candidateRows[index]?.entity_id || candidateRows[index]?.temporary_entity_id || null,
+    field_path: candidateRows[index]?.field_path || null,
     canonical_fact: conflict.canonicalFact ?? null,
     candidate_fact: conflict.candidateFact,
+    canonical_value: conflict.canonicalFact ?? null,
+    proposed_value: conflict.candidateFact,
     source_refs: conflict.sourceRefs,
     explanation: conflict.explanation,
     suggested_resolution: conflict.suggestedResolution || null,
@@ -776,12 +963,13 @@ export async function persistStoryBibleExtraction(args: {
     status: "open",
     created_at: nowIso(),
   }));
+  const conflicts = [...modelConflicts, ...generatedConflicts];
   await insertRows("story_fact_conflicts", conflicts);
-  const sourceRows = collectSourceRefs(output).map((ref) => ({
+  const sourceRows = candidatePairs.flatMap((pair) => pair.candidate.sourceRefs.map((ref) => ({
     id: `story_source_${crypto.randomUUID()}`,
     project_id: input.projectId,
     extraction_run_id: extractionRunId,
-    candidate_id: null,
+    candidate_id: pair.row.id,
     chapter_id: ref.chapterId || input.chapterId,
     scene_id: ref.sceneId || null,
     paragraph_index: ref.paragraphIndex ?? null,
@@ -790,7 +978,7 @@ export async function persistStoryBibleExtraction(args: {
     excerpt_hash: ref.excerptHash,
     excerpt: ref.excerpt || input.chapterText.slice(ref.textStart || 0, Math.min(input.chapterText.length, ref.textEnd || (ref.textStart || 0) + 500)).slice(0, 500),
     created_at: nowIso(),
-  }));
+  })));
   await insertRows("story_fact_sources", sourceRows);
   await upsert("story_chapter_summaries", {
     id: `story_chapter_summary_${input.projectId}_${input.chapterId}`,
@@ -817,9 +1005,10 @@ export async function storyBibleHealth() {
   }
   try {
     const migrationRows = await rest<Array<{ version: string }>>("schema_migrations", {
-      query: `select=version&version=eq.${STORY_BIBLE_MIGRATION_VERSION}&limit=1`,
+      query: `select=version&version=in.(${STORY_BIBLE_MIGRATION_VERSION},${STORY_BIBLE_C2A_MIGRATION_VERSION})`,
     });
     const migrationOk = migrationRows.some((row) => row.version === STORY_BIBLE_MIGRATION_VERSION);
+    const c2aOk = migrationRows.some((row) => row.version === STORY_BIBLE_C2A_MIGRATION_VERSION);
     const runs = migrationOk
       ? await rest<Array<JsonRecord>>("story_bible_extraction_runs", { query: "select=id,status,created_at&order=created_at.desc&limit=10" })
       : [];
@@ -827,8 +1016,11 @@ export async function storyBibleHealth() {
       storyBibleStatus: migrationOk ? "ready" : "migration_required",
       storyBibleSchemaVersion: STORY_BIBLE_SCHEMA_VERSION,
       storyBibleExtractionStatus: runs[0]?.status || "not_run",
-      storyBibleMigrationVersion: migrationOk ? STORY_BIBLE_MIGRATION_VERSION : "",
+      storyBibleMigrationVersion: [migrationOk ? STORY_BIBLE_MIGRATION_VERSION : "", c2aOk ? STORY_BIBLE_C2A_MIGRATION_VERSION : ""].filter(Boolean).join(","),
       storyBibleRecentExtractionAt: runs[0]?.created_at || null,
+      storyBibleApprovalStatus: c2aOk ? "ready" : "unavailable",
+      storyBibleVersioningStatus: c2aOk ? "ready" : "unavailable",
+      storyBibleConflictEngineStatus: c2aOk ? "ready" : "unavailable",
     };
   } catch (error) {
     return {
@@ -836,6 +1028,9 @@ export async function storyBibleHealth() {
       storyBibleSchemaVersion: STORY_BIBLE_SCHEMA_VERSION,
       storyBibleExtractionStatus: "error",
       storyBibleMigrationVersion: "",
+      storyBibleApprovalStatus: "unavailable",
+      storyBibleVersioningStatus: "unavailable",
+      storyBibleConflictEngineStatus: "unavailable",
       storyBibleError: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
     };
   }
@@ -845,4 +1040,113 @@ export async function listStoryBibleCandidates(projectId: string, limit = 20) {
   return rest<Array<JsonRecord>>("story_fact_candidates", {
     query: `project_id=eq.${encodeURIComponent(projectId)}&select=*&order=created_at.desc&limit=${Math.max(1, Math.min(100, limit))}`,
   });
+}
+
+export const StoryBibleListQuerySchema = z.object({
+  projectId: z.string().min(1).max(120),
+  status: z.string().max(40).optional(),
+  entityType: z.string().max(60).optional(),
+  chapterId: z.string().max(120).optional(),
+  extractionRunId: z.string().max(160).optional(),
+  conflictSeverity: z.string().max(40).optional(),
+  minConfidence: z.coerce.number().min(0).max(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+function queryValue(value: string) {
+  return encodeURIComponent(value);
+}
+
+export async function listStoryBibleCandidateRows(query: z.infer<typeof StoryBibleListQuerySchema>) {
+  const filters = [
+    `project_id=eq.${queryValue(query.projectId)}`,
+    "select=*",
+    "order=created_at.desc",
+    `limit=${query.limit}`,
+  ];
+  if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
+  if (query.entityType) filters.push(`entity_type=eq.${queryValue(query.entityType)}`);
+  if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
+  if (query.minConfidence != null) filters.push(`confidence=gte.${query.minConfidence}`);
+  const candidates = await rest<Array<JsonRecord>>("story_fact_candidates", { query: filters.join("&") });
+  if (!query.chapterId) return candidates;
+  const sources = await rest<Array<JsonRecord>>("story_fact_sources", {
+    query: `project_id=eq.${queryValue(query.projectId)}&chapter_id=eq.${queryValue(query.chapterId)}&select=candidate_id`,
+  });
+  const ids = new Set(sources.map((row) => row.candidate_id).filter(Boolean));
+  return candidates.filter((candidate) => ids.has(candidate.id));
+}
+
+export async function getStoryBibleCandidate(projectId: string, candidateId: string) {
+  const rows = await rest<Array<JsonRecord>>("story_fact_candidates", {
+    query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(candidateId)}&select=*&limit=1`,
+  });
+  const candidate = rows[0];
+  if (!candidate) return null;
+  const [sourceRefs, conflicts, runs] = await Promise.all([
+    rest<Array<JsonRecord>>("story_fact_sources", {
+      query: `project_id=eq.${queryValue(projectId)}&candidate_id=eq.${queryValue(candidateId)}&select=*&order=created_at.asc`,
+    }),
+    rest<Array<JsonRecord>>("story_fact_conflicts", {
+      query: `project_id=eq.${queryValue(projectId)}&candidate_id=eq.${queryValue(candidateId)}&select=*&order=created_at.desc`,
+    }),
+    rest<Array<JsonRecord>>("story_bible_extraction_runs", {
+      query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(String(candidate.extraction_run_id || ""))}&select=id,chapter_id,chapter_number,extraction_mode,schema_version,prompt_version,model_id,fallback_level,status,confidence,warnings,created_at&limit=1`,
+    }),
+  ]);
+  const entityType = parseEntityType(candidate.entity_type);
+  const currentCanonicalValue = entityType ? await loadCanonicalForCandidate(projectId, {
+    entityType,
+    entityId: candidate.entity_id ? String(candidate.entity_id) : undefined,
+    temporaryEntityId: candidate.temporary_entity_id ? String(candidate.temporary_entity_id) : undefined,
+    operation: "create",
+    fieldPath: String(candidate.field_path || ""),
+    proposedValue: candidate.proposed_value,
+    confidence: Number(candidate.confidence || 0),
+    evidence: String(candidate.evidence || ""),
+    evidenceType: "ambiguous",
+    sourceRefs: [],
+    reason: String(candidate.reason || ""),
+    conflictRisk: "low",
+    candidateTrust: "cloud-validated",
+    sourceValid: true,
+  }) : undefined;
+  return {
+    candidate,
+    sourceRefs,
+    conflicts,
+    extractionProvenance: runs[0] || null,
+    currentCanonicalValue: currentCanonicalValue ? canonicalValueFromRow(currentCanonicalValue, String(candidate.entity_type), String(candidate.field_path)) : null,
+    basedOnVersion: {
+      versionId: candidate.based_on_version_id || null,
+      versionNumber: candidate.based_on_version_number || null,
+    },
+    staleStatus: candidate.status === "stale" ? "stale" : "current",
+  };
+}
+
+export async function listStoryBibleConflicts(query: z.infer<typeof StoryBibleListQuerySchema>) {
+  const filters = [
+    `project_id=eq.${queryValue(query.projectId)}`,
+    "select=*",
+    "order=created_at.desc",
+    `limit=${query.limit}`,
+  ];
+  if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
+  if (query.conflictSeverity) filters.push(`severity=eq.${queryValue(query.conflictSeverity)}`);
+  if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
+  if (query.entityType) filters.push(`canonical_entity_type=eq.${queryValue(query.entityType)}`);
+  if (query.minConfidence != null) filters.push(`confidence=gte.${query.minConfidence}`);
+  return rest<Array<JsonRecord>>("story_fact_conflicts", { query: filters.join("&") });
+}
+
+export async function getStoryBibleConflict(projectId: string, conflictId: string) {
+  const rows = await rest<Array<JsonRecord>>("story_fact_conflicts", {
+    query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(conflictId)}&select=*&limit=1`,
+  });
+  const conflict = rows[0];
+  if (!conflict) return null;
+  const candidateId = conflict.candidate_id ? String(conflict.candidate_id) : "";
+  const candidate = candidateId ? await getStoryBibleCandidate(projectId, candidateId) : null;
+  return { conflict, candidate };
 }
