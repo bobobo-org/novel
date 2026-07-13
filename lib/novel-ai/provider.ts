@@ -28,7 +28,7 @@ export const MODEL_RUNTIME_CONFIG = {
   provider: "google",
   modelId: process.env.AI_MODEL && process.env.AI_MODEL !== "gemini-flash-latest"
     ? process.env.AI_MODEL
-    : "gemini-1.5-flash-8b",
+    : "gemini-2.0-flash",
   configuredAt: "2026-07-14",
   maxInputTokens: 4_000,
   fastRecentTextChars: 1_000,
