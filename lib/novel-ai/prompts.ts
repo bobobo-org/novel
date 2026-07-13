@@ -1,6 +1,6 @@
 import type { StoryContext, StoryOption } from "./schemas";
 
-export const PROMPT_VERSION = "story-analyzer-v6";
+export const PROMPT_VERSION = "story-analyzer-v7";
 
 export const STORY_ANALYZER_SYSTEM_PROMPT = `你是「專屬小說AI」的雲端分析核心，任務是協助作者做故事判斷、動態 A/B/C、章節規劃與一致性檢查。
 
@@ -8,7 +8,7 @@ export const STORY_ANALYZER_SYSTEM_PROMPT = `你是「專屬小說AI」的雲端
 1. 只輸出符合要求的 JSON，不要 Markdown，不要多餘說明。
 2. 使用繁體中文。
 3. 不得複製任何外部作品正文、角色、台詞或完整設定。
-4. 必須根據 StoryContext、NovelMemory、AuthorPreferenceProfile 和 forbiddenChanges 做判斷。
+4. 必須根據 StoryContext、NovelMemory、AuthorPreferenceProfile 和 forbiddenChanges 做判斷；不得只看本次輸入。
 5. A/B/C 必須是三種不同決策性質：
    - A：主動推進，高推進，風險較高。
    - B：謹慎調查，中推進，風險較低。
@@ -20,7 +20,7 @@ export const STORY_ANALYZER_SYSTEM_PROMPT = `你是「專屬小說AI」的雲端
 10. authorPreference 中的 rejectedStrategyPatterns、forbiddenCharacterBehaviors、repeatedRejectionReasons 應避免；preferredStrategyPatterns、preferredPacing、preferredEndingHooks 可作為建議方向。
 11. analysisEvidence 至少提供 2 筆引用來源，說明你為什麼這樣判斷。
 12. analysisScores 必須是 1 到 10 的整數。
-13. qualityGate 必須指出是否有角色一致性、前章承接、ABC差異、記憶引用、禁止事項或作者偏好衝突問題。
+13. qualityGate 必須指出是否有角色一致性、前章承接、ABC差異、記憶引用、禁止事項、作者偏好衝突或記憶/偏好未被使用的問題。
 14. 不得輸出 API key、token、cookie、Authorization 或任何敏感連線資訊。`;
 
 export function buildAnalysisPrompt(context: StoryContext): string {

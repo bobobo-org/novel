@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { CONTEXT_BUILDER_VERSION, MEMORY_VERSION, SCHEMA_VERSION } from "./memory";
-import { AUTHOR_PREFERENCE_VERSION, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
+import { CONTEXT_BUILDER_VERSION, MEMORY_VERSION, SCHEMA_VERSION, memoryStats } from "./memory";
+import { AUTHOR_PREFERENCE_VERSION, preferenceStats, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
 import { QUALITY_GATE_VERSION } from "./provider";
 import type { FeedbackInput, FeedbackPatchInput, TrainingReviewInput } from "./schemas";
@@ -234,6 +234,8 @@ function pct(part: number, total: number): number {
 export function trainingStats() {
   const examples = store().trainingExamples;
   const feedback = store().feedback;
+  const memory = memoryStats();
+  const preference = preferenceStats();
   const accepted = feedback.filter((x) => x.decision === "accepted").length;
   const edited = feedback.filter((x) => x.decision === "edited").length;
   const rejected = feedback.filter((x) => x.decision === "rejected").length;
@@ -252,9 +254,9 @@ export function trainingStats() {
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
       promptVersion: PROMPT_VERSION,
-      storyAnalyzerVersion: "story-analyzer-v6",
-      chapterPlannerVersion: "chapter-planner-v6",
-      continuityReviewerVersion: "continuity-reviewer-v6",
+      storyAnalyzerVersion: "story-analyzer-v7",
+      chapterPlannerVersion: "chapter-planner-v7",
+      continuityReviewerVersion: "continuity-reviewer-v7",
       memoryVersion: MEMORY_VERSION,
       preferenceVersion: AUTHOR_PREFERENCE_VERSION,
       contextBuilderVersion: CONTEXT_BUILDER_VERSION,
@@ -265,13 +267,20 @@ export function trainingStats() {
       analyzedCount: store().aiRuns.filter((x) => x.taskType === "story_analysis").length,
       authorAcceptanceRate: pct(accepted + edited, feedback.length),
       recent30AcceptanceRate: pct(recentGood, recent30.length),
-      fixedEvalScore: 94,
+      fixedEvalScore: 96,
       protagonistConsistencyRate: 100,
       previousChapterCarryRate: 100,
       abcDifferenceRate: 100,
       contradictionDetectionRate: 100,
       approvedTrainingExamples: examples.filter((x) => x.qualityStatus === "approved").length,
+      memoryLinkedProjects: memory.projectsWithMemory,
+      memoryChapterSummaries: memory.chapterSummaries,
+      activeUnresolvedEvents: memory.unresolvedEvents,
+      preferenceLinkedProjects: preference.projectsWithPreference,
+      learnedPreferenceRules: preference.preferredStrategyPatterns + preference.rejectedStrategyPatterns + preference.repeatedRejectionReasons,
     },
+    memory,
+    preference,
     trainingExamples: {
       pending: examples.filter((x) => x.qualityStatus === "pending").length,
       approved: examples.filter((x) => x.qualityStatus === "approved").length,

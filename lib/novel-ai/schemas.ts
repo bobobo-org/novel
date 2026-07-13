@@ -124,7 +124,7 @@ const ChapterSummarySchema = z.object({
 
 export const NovelMemorySchema = z.object({
   projectId: z.string().min(1).max(120),
-  version: z.number().int().min(1).default(1),
+  version: z.number().int().min(1).default(2),
   globalSummary: z.string().max(3000).default(""),
   recentChapterSummaries: z.array(ChapterSummarySchema).max(20).default([]),
   chapterSummaries: z.array(ChapterSummarySchema).max(200).default([]),

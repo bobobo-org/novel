@@ -18,7 +18,7 @@ import {
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 
-export const QUALITY_GATE_VERSION = "quality-gate-v3";
+export const QUALITY_GATE_VERSION = "quality-gate-v4";
 
 export interface NovelModelProvider {
   analyzeStory(context: StoryContext): Promise<StoryAnalysis>;
@@ -132,9 +132,17 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
   const warnings = [...(analysis.qualityGate?.warnings || [])];
   const actions = analysis.options.map((x) => x.action.trim());
   const preference = (context.authorPreference || {}) as {
+    preferredStrategyPatterns?: string[];
+    preferredEndingHooks?: string[];
     forbiddenCharacterBehaviors?: string[];
     rejectedStrategyPatterns?: string[];
     repeatedRejectionReasons?: Array<{ reason?: string; count?: number }>;
+  };
+  const memory = (context.novelMemory || {}) as {
+    recentChapterSummaries?: unknown[];
+    unresolvedEvents?: unknown[];
+    unrevealedSecrets?: unknown[];
+    importantItems?: unknown[];
   };
 
   if (new Set(actions).size !== actions.length || optionSimilarity(actions[0], actions[1]) || optionSimilarity(actions[1], actions[2]) || optionSimilarity(actions[0], actions[2])) {
@@ -161,6 +169,15 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
       warnings.push(`本次候選可能重複作者常見拒絕原因：${reason.reason}`);
     }
   }
+  if ((memory.recentChapterSummaries?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "上一章摘要" || x.sourceType === "全書摘要")) {
+    warnings.push("本次分析未明確引用章節記憶。");
+  }
+  if ((memory.unresolvedEvents?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "未解事件")) {
+    warnings.push("本次分析未明確引用未解事件。");
+  }
+  if ((preference.preferredStrategyPatterns?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "作者偏好")) {
+    warnings.push("本次分析未明確引用作者偏好。");
+  }
 
   const evidence = [...(analysis.analysisEvidence || [])];
   if (evidence.length === 0) {
@@ -176,6 +193,17 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
   }
   if (context.unresolvedEvents?.[0] && evidence.length < 2) {
     evidence.push({ sourceType: "未解事件", sourceId: "unresolvedEvents.0", sourceLabel: "未解事件", reason: context.unresolvedEvents[0] });
+  }
+  if ((preference.preferredStrategyPatterns?.length || preference.repeatedRejectionReasons?.length) && evidence.length < 3) {
+    evidence.push({
+      sourceType: "作者偏好",
+      sourceId: "authorPreference",
+      sourceLabel: "作者偏好學習",
+      reason: [
+        preference.preferredStrategyPatterns?.[0] ? `偏好：${preference.preferredStrategyPatterns[0]}` : "",
+        preference.repeatedRejectionReasons?.[0]?.reason ? `常拒絕：${preference.repeatedRejectionReasons[0].reason}` : "",
+      ].filter(Boolean).join("；") || "本次已讀取作者偏好資料。",
+    });
   }
   if (evidence.length < 2) warnings.push("分析證據少於 2 筆，建議補足故事記憶或上一章摘要。");
 
