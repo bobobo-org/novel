@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
 import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from "@/lib/novel-ai/persistence";
+import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function GET() {
   const meta = providerMeta();
   const memoryRuns = aiRunStats();
   const memoryStats = trainingStats();
+  const storyBible = await storyBibleHealth();
   const persistenceBeforeProbe = await persistenceHealth();
   if (persistenceBeforeProbe.persistenceStatus === "ok") await runWriteProbe();
   const persistence = await persistenceHealth();
@@ -90,6 +92,11 @@ export async function GET() {
     trainingExamples: stats.trainingExamples,
     feedback: stats.feedback,
     settings: meta.settings,
+    storyBibleStatus: storyBible.storyBibleStatus,
+    storyBibleSchemaVersion: storyBible.storyBibleSchemaVersion,
+    storyBibleExtractionStatus: storyBible.storyBibleExtractionStatus,
+    storyBibleMigrationVersion: storyBible.storyBibleMigrationVersion,
+    storyBibleRecentExtractionAt: "storyBibleRecentExtractionAt" in storyBible ? storyBible.storyBibleRecentExtractionAt : null,
   }, {
     headers: {
       "Cache-Control": "no-store, max-age=0",
