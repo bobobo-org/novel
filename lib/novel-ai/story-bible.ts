@@ -106,7 +106,7 @@ export const ModelCandidateSchema = z.strictObject({
   temporaryEntityId: z.string().min(3).max(80).regex(/^[a-z][a-z0-9_-]{2,79}$/),
   operation: CandidateOperationSchema,
   fieldPath: z.string().min(3).max(160).regex(/^(characters|events|items|worldRules|foreshadowing|openThreads)\[\]\.[a-zA-Z0-9_.-]+$/),
-  proposedValue: z.record(z.string().max(60), PrimitiveValueSchema),
+  proposedValue: PrimitiveValueSchema,
   confidence: z.number().min(0).max(1),
   evidenceType: EvidenceTypeSchema,
   sourceRef: ModelSourceRefSchema,
@@ -263,6 +263,7 @@ function buildModelPrompt(input: StoryBibleExtractionInput) {
       "Use direct text evidence only. Lies, rumors, dreams, hallucinations, and memories must be marked as low confidence or open_thread, not objective event facts.",
       "If a paragraph has no new story fact, do not invent a candidate.",
       "sourceRef.excerpt must be an exact substring from the provided paragraph.",
+      "proposedValue must be a scalar string, number, boolean, or short string array; never return an object.",
       "No markdown, no code fence, no extra keys.",
     ],
     fieldPathExamples: [
@@ -301,19 +302,18 @@ function repairCandidate(raw: unknown, index: number, stats: { fieldsRemoved: st
   const allowed = new Set(["entityType", "temporaryEntityId", "operation", "fieldPath", "proposedValue", "confidence", "evidenceType", "sourceRef", "reason"]);
   for (const key of Object.keys(source)) if (!allowed.has(key)) stats.fieldsRemoved.push(`candidates[${index}].${key}`);
   const entity = String(source.entityType || "").replace(/worldRule/i, "world_rule").replace(/openThread/i, "open_thread");
-  const proposed = source.proposedValue && typeof source.proposedValue === "object" && !Array.isArray(source.proposedValue)
-    ? Object.fromEntries(Object.entries(source.proposedValue as JsonRecord).slice(0, 8).map(([key, value]) => {
-        if (value == null) {
-          stats.fieldsCoerced.push(`candidates[${index}].proposedValue.${key}`);
-          return [key, ""];
-        }
-        if (typeof value === "object") {
-          stats.fieldsCoerced.push(`candidates[${index}].proposedValue.${key}`);
-          return [key, JSON.stringify(value).slice(0, 300)];
-        }
-        return [key, value];
-      }))
-    : { value: clampText(source.proposedValue, 500) };
+  let proposed: z.infer<typeof PrimitiveValueSchema>;
+  if (Array.isArray(source.proposedValue)) {
+    proposed = source.proposedValue.slice(0, 10).map((item) => clampText(item, 200));
+  } else if (typeof source.proposedValue === "string" || typeof source.proposedValue === "number" || typeof source.proposedValue === "boolean") {
+    proposed = source.proposedValue;
+  } else if (source.proposedValue && typeof source.proposedValue === "object") {
+    stats.fieldsCoerced.push(`candidates[${index}].proposedValue`);
+    proposed = JSON.stringify(source.proposedValue).slice(0, 800);
+  } else {
+    stats.fieldsCoerced.push(`candidates[${index}].proposedValue`);
+    proposed = "";
+  }
   const sourceRef = source.sourceRef && typeof source.sourceRef === "object" ? source.sourceRef as JsonRecord : {};
   const repaired = {
     entityType: entity,
@@ -468,7 +468,7 @@ function localExtraction(input: StoryBibleExtractionInput, extractionRunId: stri
           temporaryEntityId: `temp_event_${hashText(candidateText).slice(0, 8)}`,
           operation: "create",
           fieldPath: "events[].title",
-          proposedValue: { title: clampText(input.chapterTitle || "candidate event", 120), description: clampText(candidateText, 300) },
+          proposedValue: clampText(input.chapterTitle || candidateText || "candidate event", 300),
           confidence: 0.35,
           evidenceType: "direct_statement",
           sourceRef: { paragraphIndex: sourceRef.paragraphIndex || 0, excerpt: sourceRef.excerpt || candidateText, evidenceType: "direct_statement" },
