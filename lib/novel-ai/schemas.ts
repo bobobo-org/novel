@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export const RiskLevelSchema = z.enum(["低", "中", "高"]);
+export const StrategyTypeSchema = z.enum(["主動進攻", "謹慎調查", "轉折高代價"]);
+export const ImportanceSchema = z.enum(["低", "中", "高"]);
+export const EventStatusSchema = z.enum(["未處理", "進行中", "已解決", "已放棄"]);
+
 export const StoryItemSchema = z.object({
   name: z.string().max(120),
   owner: z.string().max(120).optional(),
@@ -49,10 +54,10 @@ export const AnalysisEvidenceSchema = z.object({
     "主角設定",
     "全書摘要",
     "上一章摘要",
-    "近期正文",
+    "最近正文",
     "未解事件",
     "秘密",
-    "道具",
+    "重要道具",
     "世界狀態",
     "作者偏好",
     "禁止變更",
@@ -65,9 +70,9 @@ export const AnalysisEvidenceSchema = z.object({
 export const StoryOptionSchema = z.object({
   label: z.enum(["A", "B", "C"]),
   action: z.string().min(8).max(700),
-  strategyType: z.enum(["主動推進", "謹慎調查", "轉折高代價"]),
+  strategyType: StrategyTypeSchema,
   reason: z.string().min(4).max(700),
-  risk: z.enum(["低", "中", "高"]),
+  risk: RiskLevelSchema,
   possibleCost: z.string().min(2).max(500),
   expectedEffect: z.string().min(2).max(500),
   characterFitScore: z.number().int().min(1).max(10),
@@ -79,7 +84,7 @@ export const StoryAnalysisSchema = z.object({
   situation: z.string().min(4).max(1200),
   currentStoryStage: z.string().min(2).max(160),
   characterConsistency: z.object({
-    status: z.enum(["穩定", "需要確認", "可能矛盾"]),
+    status: z.enum(["穩定", "需要注意", "疑似衝突"]),
     explanation: z.string().min(4).max(800),
   }),
   recommendedStrategy: z.string().min(2).max(600),
@@ -124,7 +129,7 @@ const ChapterSummarySchema = z.object({
 
 export const NovelMemorySchema = z.object({
   projectId: z.string().min(1).max(120),
-  version: z.number().int().min(1).default(2),
+  version: z.number().int().min(1).default(3),
   globalSummary: z.string().max(3000).default(""),
   recentChapterSummaries: z.array(ChapterSummarySchema).max(20).default([]),
   chapterSummaries: z.array(ChapterSummarySchema).max(200).default([]),
@@ -153,11 +158,11 @@ export const NovelMemorySchema = z.object({
     id: z.string().max(120),
     title: z.string().max(200),
     description: z.string().max(800),
-    importance: z.enum(["低", "中", "高"]),
+    importance: ImportanceSchema,
     introducedChapterId: z.string().max(120),
     relatedCharacters: z.array(z.string().max(120)).default([]),
     expectedResolutionChapter: z.string().max(120).optional(),
-    status: z.enum(["未處理", "進行中", "已解決", "已放棄"]),
+    status: EventStatusSchema,
   })).max(80).default([]),
   secrets: z.array(z.object({
     id: z.string().max(120),
@@ -208,13 +213,13 @@ export const MemoryUpdateCandidateSchema = z.object({
   newUnresolvedEvents: z.array(z.object({
     title: z.string().max(200),
     description: z.string().max(800),
-    importance: z.enum(["低", "中", "高"]),
+    importance: ImportanceSchema,
     relatedCharacters: z.array(z.string().max(120)).default([]),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
   updatedUnresolvedEvents: z.array(z.object({
     eventId: z.string().max(120),
-    newStatus: z.enum(["未處理", "進行中", "已解決", "已放棄"]),
+    newStatus: EventStatusSchema,
     evidence: z.string().max(800),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
@@ -277,10 +282,10 @@ const FeedbackBaseSchema = z.object({
 
 export const FeedbackSchema = FeedbackBaseSchema.superRefine((value, ctx) => {
   if (value.decision === "edited" && value.editedOutput == null) {
-    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受時必須提供 editedOutput。" });
+    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "選擇 edited 時必須提供 editedOutput。" });
   }
   if (value.decision === "rejected" && (!value.rejectionReasons || value.rejectionReasons.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕時必須至少提供一個原因。" });
+    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "退回時請至少提供一個原因。" });
   }
 });
 

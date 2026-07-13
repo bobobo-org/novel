@@ -30,6 +30,6 @@ export async function POST(req: Request) {
     return Response.json({ chapterPlan: result, aiRunId: aiRun.id, contextSelection: builtContext.contextSelection || [] });
   } catch (error) {
     const status = error instanceof ModelConfigurationError ? 503 : 502;
-    return jsonError(error instanceof Error ? error.message : "雲端 AI 章節規劃失敗。", status, "MODEL_ERROR");
+    return jsonError(error instanceof Error ? error.message : "雲端小說 AI 章節規劃失敗。", status, "MODEL_ERROR");
   }
 }

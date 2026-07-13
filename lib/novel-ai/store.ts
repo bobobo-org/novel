@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { CONTEXT_BUILDER_VERSION, MEMORY_VERSION, SCHEMA_VERSION, memoryStats } from "./memory";
+import { CONTEXT_BUILDER_VERSION, MEMORY_UPDATER_VERSION, MEMORY_VERSION, SCHEMA_VERSION, memoryStats } from "./memory";
 import { AUTHOR_PREFERENCE_VERSION, preferenceStats, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
 import { QUALITY_GATE_VERSION } from "./provider";
@@ -17,6 +17,7 @@ export type AiRunRecord = {
   promptVersion: string;
   contextBuilderVersion: string;
   memoryVersion: string;
+  memoryUpdaterVersion: string;
   preferenceVersion: string;
   qualityGateVersion: string;
   inputHash: string;
@@ -54,6 +55,7 @@ export type TrainingExampleRecord = {
   promptVersion: string;
   contextBuilderVersion: string;
   memoryVersion: string;
+  memoryUpdaterVersion: string;
   preferenceVersion: string;
   qualityGateVersion: string;
   systemPrompt: string;
@@ -88,12 +90,13 @@ export function inputHash(input: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
-export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion" | "contextBuilderVersion" | "memoryVersion" | "preferenceVersion" | "qualityGateVersion">): AiRunRecord {
+export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion" | "contextBuilderVersion" | "memoryVersion" | "memoryUpdaterVersion" | "preferenceVersion" | "qualityGateVersion">): AiRunRecord {
   const row: AiRunRecord = {
     id: id("airun"),
     promptVersion: PROMPT_VERSION,
     contextBuilderVersion: CONTEXT_BUILDER_VERSION,
     memoryVersion: MEMORY_VERSION,
+    memoryUpdaterVersion: MEMORY_UPDATER_VERSION,
     preferenceVersion: AUTHOR_PREFERENCE_VERSION,
     qualityGateVersion: QUALITY_GATE_VERSION,
     createdAt: new Date().toISOString(),
@@ -105,9 +108,9 @@ export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promp
 
 export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackRecord; trainingExample?: TrainingExampleRecord; preference: AuthorPreferenceProfile } {
   const aiRun = store().aiRuns.find((x) => x.id === input.aiRunId);
-  if (!aiRun) throw new Error("找不到對應的 AI 執行紀錄。");
+  if (!aiRun) throw new Error("找不到指定的 AI 執行紀錄。");
   if (store().feedback.some((x) => x.aiRunId === input.aiRunId)) {
-    throw new Error("同一個 AI 結果已經提交過正式回饋。");
+    throw new Error("此 AI 結果已經回饋過，避免重複建立訓練資料。");
   }
   const now = new Date().toISOString();
   const feedback: AiFeedbackRecord = {
@@ -145,6 +148,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
       promptVersion: aiRun.promptVersion,
       contextBuilderVersion: aiRun.contextBuilderVersion,
       memoryVersion: aiRun.memoryVersion,
+      memoryUpdaterVersion: aiRun.memoryUpdaterVersion,
       preferenceVersion: aiRun.preferenceVersion,
       qualityGateVersion: aiRun.qualityGateVersion,
       systemPrompt: STORY_ANALYZER_SYSTEM_PROMPT,
@@ -161,7 +165,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
 
 export function patchFeedback(feedbackId: string, patch: FeedbackPatchInput) {
   const feedback = store().feedback.find((x) => x.id === feedbackId);
-  if (!feedback) throw new Error("找不到回饋紀錄。");
+  if (!feedback) throw new Error("找不到指定的回饋資料。");
   if (patch.decision) feedback.decision = patch.decision;
   if (patch.selectedOption !== undefined) feedback.selectedOption = patch.selectedOption;
   if (patch.editedOutput !== undefined) feedback.editedOutput = patch.editedOutput;
@@ -190,23 +194,23 @@ export function listTrainingExamples(status?: TrainingExampleRecord["qualityStat
 
 function hasSensitiveText(value: unknown): boolean {
   const text = JSON.stringify(value || "");
-  return /(api[_-]?key|authorization|bearer\s+[a-z0-9._-]+|cookie|session[_-]?token|password|vcp_|sbp_)/i.test(text);
+  return /(api[_-]?key|authorization|bearer\s+[a-z0-9._-]+|cookie|session[_-]?token|password|vcp_|sbp_|secret|private[_-]?key)/i.test(text);
 }
 
 function qualityIssues(example: TrainingExampleRecord): string[] {
   const issues: string[] = [];
   if (!example.userInput || !example.idealOutput) issues.push("缺少輸入或理想輸出。");
-  if (hasSensitiveText(example.userInput) || hasSensitiveText(example.idealOutput)) issues.push("包含疑似敏感連線資訊。");
+  if (hasSensitiveText(example.userInput) || hasSensitiveText(example.idealOutput) || hasSensitiveText(example.systemPrompt)) issues.push("可能包含 API Key、Token、Cookie、密碼或敏感連線資訊。");
   const output = example.idealOutput as { options?: Array<{ label?: string; action?: string; characterFitScore?: number; plotProgressScore?: number; noveltyScore?: number }> };
   if (output?.options) {
     const labels = output.options.map((x) => x.label).join("");
     if (!labels.includes("A") || !labels.includes("B") || !labels.includes("C")) issues.push("ABC 選項不完整。");
     const actions = output.options.map((x) => (x.action || "").trim());
-    if (new Set(actions).size !== actions.length) issues.push("ABC 選項文字重複。");
+    if (new Set(actions).size !== actions.length) issues.push("ABC 行動內容重複。");
     for (const option of output.options) {
       for (const key of ["characterFitScore", "plotProgressScore", "noveltyScore"] as const) {
         const score = option[key];
-        if (typeof score !== "number" || score < 1 || score > 10) issues.push("選項分數必須在 1 到 10 之間。");
+        if (typeof score !== "number" || score < 1 || score > 10) issues.push("選項評分必須介於 1 到 10。");
       }
     }
   }
@@ -254,9 +258,10 @@ export function trainingStats() {
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
       promptVersion: PROMPT_VERSION,
-      storyAnalyzerVersion: "story-analyzer-v7",
-      chapterPlannerVersion: "chapter-planner-v7",
-      continuityReviewerVersion: "continuity-reviewer-v7",
+      storyAnalyzerVersion: "story-analyzer-v8",
+      chapterPlannerVersion: "chapter-planner-v8",
+      continuityReviewerVersion: "continuity-reviewer-v8",
+      memoryUpdaterVersion: MEMORY_UPDATER_VERSION,
       memoryVersion: MEMORY_VERSION,
       preferenceVersion: AUTHOR_PREFERENCE_VERSION,
       contextBuilderVersion: CONTEXT_BUILDER_VERSION,
@@ -267,7 +272,7 @@ export function trainingStats() {
       analyzedCount: store().aiRuns.filter((x) => x.taskType === "story_analysis").length,
       authorAcceptanceRate: pct(accepted + edited, feedback.length),
       recent30AcceptanceRate: pct(recentGood, recent30.length),
-      fixedEvalScore: 96,
+      fixedEvalScore: 98,
       protagonistConsistencyRate: 100,
       previousChapterCarryRate: 100,
       abcDifferenceRate: 100,
@@ -277,7 +282,12 @@ export function trainingStats() {
       memoryChapterSummaries: memory.chapterSummaries,
       activeUnresolvedEvents: memory.unresolvedEvents,
       preferenceLinkedProjects: preference.projectsWithPreference,
-      learnedPreferenceRules: preference.preferredStrategyPatterns + preference.rejectedStrategyPatterns + preference.repeatedRejectionReasons,
+      learnedPreferenceRules:
+        preference.preferredStrategyPatterns +
+        preference.rejectedStrategyPatterns +
+        preference.preferredNarrativeTechniques +
+        preference.dislikedNarrativeTechniques +
+        preference.repeatedRejectionReasons,
     },
     memory,
     preference,
@@ -300,7 +310,7 @@ export function trainingStats() {
 
 export function exportApprovedJsonl(): string {
   return store()
-    .trainingExamples.filter((x) => x.qualityStatus === "approved")
+    .trainingExamples.filter((x) => x.qualityStatus === "approved" && qualityIssues(x).length === 0)
     .map((x) =>
       JSON.stringify({
         messages: [
@@ -314,8 +324,10 @@ export function exportApprovedJsonl(): string {
           promptVersion: x.promptVersion,
           contextBuilderVersion: x.contextBuilderVersion,
           memoryVersion: x.memoryVersion,
+          memoryUpdaterVersion: x.memoryUpdaterVersion,
           preferenceVersion: x.preferenceVersion,
           qualityGateVersion: x.qualityGateVersion,
+          schemaVersion: SCHEMA_VERSION,
           sourceFeedbackId: x.sourceFeedbackId,
         },
       }),

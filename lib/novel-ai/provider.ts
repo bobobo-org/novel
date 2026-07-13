@@ -18,7 +18,8 @@ import {
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 
-export const QUALITY_GATE_VERSION = "quality-gate-v4";
+export const QUALITY_GATE_VERSION = "quality-gate-v5";
+const DEFAULT_TIMEOUT_MS = 55_000;
 
 export interface NovelModelProvider {
   analyzeStory(context: StoryContext): Promise<StoryAnalysis>;
@@ -50,62 +51,74 @@ function extractJson(text: string): unknown {
     return JSON.parse(trimmed);
   } catch {
     const match = trimmed.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("模型回應中找不到可解析的 JSON。");
+    if (!match) throw new Error("模型沒有回傳可解析的 JSON。");
     return JSON.parse(match[0]);
   }
 }
 
-async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<unknown> {
+async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("MODEL_TIMEOUT")), timeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callJsonModel(userPrompt: string): Promise<unknown> {
   const cfg = modelConfig();
-  if (cfg.provider === "google") {
-    if (!cfg.googleKey) {
-      throw new ModelConfigurationError("尚未設定 GOOGLE_GENERATIVE_AI_API_KEY，無法使用 Gemini。");
+  return withTimeout(async (signal) => {
+    if (cfg.provider === "google") {
+      if (!cfg.googleKey) {
+        throw new ModelConfigurationError("尚未設定 GOOGLE_GENERATIVE_AI_API_KEY，無法使用 Gemini。");
+      }
+      const { text } = await generateText({
+        model: google(cfg.model),
+        system: STORY_ANALYZER_SYSTEM_PROMPT,
+        prompt: userPrompt,
+        abortSignal: signal,
+      });
+      return extractJson(text);
     }
-    const { text } = await generateText({
-      model: google(cfg.model),
-      system: STORY_ANALYZER_SYSTEM_PROMPT,
-      prompt: userPrompt,
-      abortSignal: signal,
+
+    if (!cfg.apiKey) {
+      throw new ModelConfigurationError("尚未設定 AI_API_KEY 或 OPENAI_API_KEY，無法使用 OpenAI-compatible 模型。");
+    }
+
+    const response = await fetch(cfg.baseUrl, {
+      method: "POST",
+      signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        temperature: 0.35,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: STORY_ANALYZER_SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+      }),
     });
-    return extractJson(text);
-  }
 
-  if (!cfg.apiKey) {
-    throw new ModelConfigurationError("尚未設定 AI_API_KEY 或 OPENAI_API_KEY，無法使用 OpenAI-compatible 模型。");
-  }
-
-  const response = await fetch(cfg.baseUrl, {
-    method: "POST",
-    signal,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${cfg.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0.35,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: STORY_ANALYZER_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    let code = "MODEL_HTTP_ERROR";
-    try {
-      const body = await response.json();
-      code = typeof body?.error?.type === "string" ? body.error.type : code;
-    } catch {
-      // Do not expose provider response bodies because they can contain request IDs.
+    if (!response.ok) {
+      let code = "MODEL_HTTP_ERROR";
+      try {
+        const body = await response.json();
+        code = typeof body?.error?.type === "string" ? body.error.type : code;
+      } catch {
+        // Never expose raw provider bodies; they may contain request IDs.
+      }
+      throw new Error(`模型服務回應失敗：HTTP ${response.status}（${code}）。`);
     }
-    throw new Error(`模型服務呼叫失敗：HTTP ${response.status}，${code}。請檢查 AI_BASE_URL、模型名稱與金鑰。`);
-  }
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("模型回應缺少 choices[0].message.content。");
-  return extractJson(content);
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("模型回應缺少 choices[0].message.content。");
+    return extractJson(content);
+  });
 }
 
 async function withRepair<T>(prompt: string, parse: (value: unknown) => T): Promise<T> {
@@ -115,7 +128,7 @@ async function withRepair<T>(prompt: string, parse: (value: unknown) => T): Prom
   } catch (error) {
     const repairPrompt =
       `${prompt}\n\n上一版 JSON 不符合 schema：${error instanceof Error ? error.message : "未知錯誤"}\n` +
-      `請只回傳修正後的 JSON，不要 Markdown，不要說明。上一版輸出：${JSON.stringify(first).slice(0, 5000)}`;
+      `請只輸出修正後 JSON，不要輸出 Markdown。上一版內容摘要：${JSON.stringify(first).slice(0, 5000)}`;
     return parse(await callJsonModel(repairPrompt));
   }
 }
@@ -128,6 +141,10 @@ function optionSimilarity(a: string, b: string): boolean {
   return overlap / denom > 0.82;
 }
 
+function includesAny(text: string, values: string[] | undefined): string | undefined {
+  return (values || []).find((value) => value && text.includes(value.slice(0, Math.min(value.length, 24))));
+}
+
 function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): StoryAnalysis {
   const warnings = [...(analysis.qualityGate?.warnings || [])];
   const actions = analysis.options.map((x) => x.action.trim());
@@ -136,6 +153,8 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
     preferredEndingHooks?: string[];
     forbiddenCharacterBehaviors?: string[];
     rejectedStrategyPatterns?: string[];
+    preferredNarrativeTechniques?: string[];
+    dislikedNarrativeTechniques?: string[];
     repeatedRejectionReasons?: Array<{ reason?: string; count?: number }>;
   };
   const memory = (context.novelMemory || {}) as {
@@ -146,37 +165,34 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
   };
 
   if (new Set(actions).size !== actions.length || optionSimilarity(actions[0], actions[1]) || optionSimilarity(actions[1], actions[2]) || optionSimilarity(actions[0], actions[2])) {
-    warnings.push("A/B/C 選項過於相似，應提供三種不同決策後果。");
+    warnings.push("A/B/C 選項過於相似，必須提供三種不同決策。");
   }
   for (const option of analysis.options) {
-    if (option.action.length < 18) warnings.push(`${option.label} 選項太短，應包含具體人物行動。`);
-    if (!option.action.includes(context.protagonist.name || "主角")) warnings.push(`${option.label} 未明確引用主角姓名或主角稱呼。`);
-    if (option.risk === "高" && option.possibleCost.length < 4) warnings.push(`${option.label} 是高風險選項，但代價描寫不足。`);
-    for (const forbidden of context.forbiddenChanges || []) {
-      if (forbidden && option.action.includes(forbidden)) warnings.push(`${option.label} 可能違反禁止變更：${forbidden}`);
-    }
-    for (const forbiddenBehavior of preference.forbiddenCharacterBehaviors || []) {
-      if (forbiddenBehavior && option.action.includes(forbiddenBehavior.slice(0, 24))) warnings.push(`${option.label} 可能踩到作者反覆拒絕的角色行為。`);
-    }
-    for (const rejectedStrategy of preference.rejectedStrategyPatterns || []) {
-      if (rejectedStrategy && (option.strategyType.includes(rejectedStrategy) || option.action.includes(rejectedStrategy.slice(0, 16)))) {
-        warnings.push(`${option.label} 使用了作者曾拒絕的策略：${rejectedStrategy}`);
-      }
-    }
+    if (option.action.length < 18) warnings.push(`${option.label} 選項過短，需包含具體人物行動。`);
+    if (!option.action.includes(context.protagonist.name || "主角")) warnings.push(`${option.label} 選項未明確引用主角。`);
+    if (option.risk === "高" && option.possibleCost.length < 4) warnings.push(`${option.label} 高風險選項需要明確代價。`);
+    const forbiddenChange = includesAny(option.action, context.forbiddenChanges);
+    if (forbiddenChange) warnings.push(`${option.label} 可能違反禁止變更：${forbiddenChange}`);
+    const forbiddenBehavior = includesAny(option.action, preference.forbiddenCharacterBehaviors);
+    if (forbiddenBehavior) warnings.push(`${option.label} 可能重複作者不喜歡的角色行為。`);
+    const rejectedStrategy = includesAny(`${option.strategyType} ${option.action}`, preference.rejectedStrategyPatterns);
+    if (rejectedStrategy) warnings.push(`${option.label} 可能採用作者曾退回的策略：${rejectedStrategy}`);
+    const dislikedTechnique = includesAny(option.action, preference.dislikedNarrativeTechniques);
+    if (dislikedTechnique) warnings.push(`${option.label} 可能採用作者不喜歡的敘事技法：${dislikedTechnique}`);
   }
   for (const reason of preference.repeatedRejectionReasons || []) {
     if ((reason.count || 0) >= 2 && actions.some((action) => reason.reason && action.includes(reason.reason.slice(0, 16)))) {
-      warnings.push(`本次候選可能重複作者常見拒絕原因：${reason.reason}`);
+      warnings.push(`可能重複作者多次退回的問題：${reason.reason}`);
     }
   }
   if ((memory.recentChapterSummaries?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "上一章摘要" || x.sourceType === "全書摘要")) {
-    warnings.push("本次分析未明確引用章節記憶。");
+    warnings.push("分析未明確引用上一章或全書記憶。");
   }
   if ((memory.unresolvedEvents?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "未解事件")) {
-    warnings.push("本次分析未明確引用未解事件。");
+    warnings.push("分析未明確引用未解事件。");
   }
-  if ((preference.preferredStrategyPatterns?.length || 0) > 0 && !analysis.analysisEvidence?.some((x) => x.sourceType === "作者偏好")) {
-    warnings.push("本次分析未明確引用作者偏好。");
+  if ((preference.preferredStrategyPatterns?.length || preference.repeatedRejectionReasons?.length) && !analysis.analysisEvidence?.some((x) => x.sourceType === "作者偏好")) {
+    warnings.push("分析未明確引用作者偏好。");
   }
 
   const evidence = [...(analysis.analysisEvidence || [])];
@@ -185,7 +201,7 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
       sourceType: "主角設定",
       sourceId: "protagonist",
       sourceLabel: context.protagonist.name || "主角",
-      reason: `依據主角原型「${context.protagonist.archetype || "尚未設定"}」與行動方式「${context.protagonist.actionStyle || "尚未設定"}」判斷。`,
+      reason: `根據主角原型「${context.protagonist.archetype || "未設定"}」與行動方式「${context.protagonist.actionStyle || "未設定"}」判斷。`,
     });
   }
   if (context.previousChapterSummary && evidence.length < 2) {
@@ -198,14 +214,14 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
     evidence.push({
       sourceType: "作者偏好",
       sourceId: "authorPreference",
-      sourceLabel: "作者偏好學習",
+      sourceLabel: "作者偏好與退回理由",
       reason: [
         preference.preferredStrategyPatterns?.[0] ? `偏好：${preference.preferredStrategyPatterns[0]}` : "",
-        preference.repeatedRejectionReasons?.[0]?.reason ? `常拒絕：${preference.repeatedRejectionReasons[0].reason}` : "",
-      ].filter(Boolean).join("；") || "本次已讀取作者偏好資料。",
+        preference.repeatedRejectionReasons?.[0]?.reason ? `退回：${preference.repeatedRejectionReasons[0].reason}` : "",
+      ].filter(Boolean).join("；") || "已有作者偏好資料。",
     });
   }
-  if (evidence.length < 2) warnings.push("分析證據少於 2 筆，建議補足故事記憶或上一章摘要。");
+  if (evidence.length < 2) warnings.push("分析證據少於 2 項，建議補充記憶或正文依據。");
 
   const scores = analysis.analysisScores || {
     plotProgress: 7,
@@ -216,8 +232,8 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
     riskClarity: 7,
     evidenceUse: 7,
   };
-  if (scores.characterConsistency < 6) warnings.push("角色一致性分數偏低，請檢查主角行為是否偏離原型。");
-  if (scores.evidenceUse < 6) warnings.push("證據引用分數偏低，請增加對上下文的明確承接。");
+  if (scores.characterConsistency < 6) warnings.push("角色一致性分數偏低，建議檢查主角行動是否符合原型。");
+  if (scores.evidenceUse < 6) warnings.push("證據使用分數偏低，建議引用 NovelMemory 或 AuthorPreference。");
 
   return {
     ...analysis,

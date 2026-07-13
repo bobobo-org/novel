@@ -1,31 +1,19 @@
 import type { StoryContext, StoryOption } from "./schemas";
 
-export const PROMPT_VERSION = "story-analyzer-v7";
+export const PROMPT_VERSION = "story-analyzer-v8";
 
-export const STORY_ANALYZER_SYSTEM_PROMPT = `你是「專屬小說AI」的雲端分析核心，任務是協助作者做故事判斷、動態 A/B/C、章節規劃與一致性檢查。
-
+export const STORY_ANALYZER_SYSTEM_PROMPT = `你是專屬小說寫作 AI 核心系統整合版 v1。請只輸出符合指定 JSON schema 的繁體中文 JSON，不要輸出 Markdown。
+你必須同時使用 StoryContext、NovelMemory v3、AuthorPreferenceProfile v3、forbiddenChanges、contextSelection 與作者指令。
 輸出規則：
-1. 只輸出符合要求的 JSON，不要 Markdown，不要多餘說明。
-2. 使用繁體中文。
-3. 不得複製任何外部作品正文、角色、台詞或完整設定。
-4. 必須根據 StoryContext、NovelMemory、AuthorPreferenceProfile 和 forbiddenChanges 做判斷；不得只看本次輸入。
-5. A/B/C 必須是三種不同決策性質：
-   - A：主動推進，高推進，風險較高。
-   - B：謹慎調查，中推進，風險較低。
-   - C：轉折高代價，帶來關係變化或重大後果。
-6. 每個選項必須包含具體人物行動，不可只寫抽象路線名稱。
-7. 盡量引用主角姓名、主角原型、行動方式、主要衝突、上一章結果、未解事件與秘密。
-8. 不得讓已死亡角色行動，不得讓同一道具同時有兩個持有人，不得讓已公開秘密又被當成未公開秘密。
-9. 必須遵守 forbiddenChanges。
-10. authorPreference 中的 rejectedStrategyPatterns、forbiddenCharacterBehaviors、repeatedRejectionReasons 應避免；preferredStrategyPatterns、preferredPacing、preferredEndingHooks 可作為建議方向。
-11. analysisEvidence 至少提供 2 筆引用來源，說明你為什麼這樣判斷。
-12. analysisScores 必須是 1 到 10 的整數。
-13. qualityGate 必須指出是否有角色一致性、前章承接、ABC差異、記憶引用、禁止事項、作者偏好衝突或記憶/偏好未被使用的問題。
-14. 不得輸出 API key、token、cookie、Authorization 或任何敏感連線資訊。`;
+1. A/B/C 必須是三種不同決策：A 主動進攻、B 謹慎調查、C 轉折或高代價。
+2. 每個選項必須有具體人物行動、原因、風險、代價、預期效果與 1 到 10 分評分。
+3. 不得改名、復活已死角色、移動重要道具持有人、公開尚未公開秘密，除非 context 明確允許。
+4. 必須引用至少 2 個 evidence；有記憶或偏好時，至少引用其中一項。
+5. 作者偏好是學習資料，不是硬規則；rejected/forbidden 優先避免，preferred 可優先採用。
+6. 不得輸出 API key、token、cookie、Authorization、密碼或任何敏感連線資訊。`;
 
 export function buildAnalysisPrompt(context: StoryContext): string {
   return `請根據以下 StoryContext 輸出 StoryAnalysis JSON。
-
 JSON 形狀：
 {
   "situation": "",
@@ -42,7 +30,7 @@ JSON 形狀：
   "analysisScores": {"plotProgress":7,"characterConsistency":7,"novelty":7,"readerHook":7,"emotionalPayoff":7,"riskClarity":7,"evidenceUse":7},
   "qualityGate": {"passed": true, "warnings": []},
   "options": [
-    {"label":"A","action":"","strategyType":"主動推進","reason":"","risk":"高","possibleCost":"","expectedEffect":"","characterFitScore":1,"plotProgressScore":1,"noveltyScore":1},
+    {"label":"A","action":"","strategyType":"主動進攻","reason":"","risk":"高","possibleCost":"","expectedEffect":"","characterFitScore":1,"plotProgressScore":1,"noveltyScore":1},
     {"label":"B","action":"","strategyType":"謹慎調查","reason":"","risk":"中","possibleCost":"","expectedEffect":"","characterFitScore":1,"plotProgressScore":1,"noveltyScore":1},
     {"label":"C","action":"","strategyType":"轉折高代價","reason":"","risk":"高","possibleCost":"","expectedEffect":"","characterFitScore":1,"plotProgressScore":1,"noveltyScore":1}
   ]
@@ -53,7 +41,8 @@ ${JSON.stringify(context, null, 2)}`;
 }
 
 export function buildChapterPlanPrompt(context: StoryContext, selection: StoryOption, authorSupplement = ""): string {
-  return `請根據 StoryContext 與作者選擇輸出 ChapterPlan JSON。章節規劃必須承接前章、角色狀態、未解事件與作者偏好，不得覆蓋作者已寫正文。
+  return `請根據 StoryContext 與作者選擇，輸出 ChapterPlan JSON。
+必須承接上一章摘要、記憶、作者偏好與禁止變更；不要直接生成完整正文。
 
 StoryContext:
 ${JSON.stringify(context, null, 2)}

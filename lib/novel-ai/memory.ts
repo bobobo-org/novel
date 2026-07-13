@@ -5,9 +5,12 @@ import { AUTHOR_PREFERENCE_VERSION, getAuthorPreference } from "./preference";
 type MemoryStore = { memories: Record<string, NovelMemory>; candidates: Record<string, MemoryUpdateCandidate> };
 const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: MemoryStore };
 
-export const MEMORY_VERSION = "novel-memory-v2";
-export const CONTEXT_BUILDER_VERSION = "context-builder-v5";
-export const SCHEMA_VERSION = "novel-ai-schema-v4";
+export const MEMORY_VERSION = "novel-memory-v3";
+export const MEMORY_UPDATER_VERSION = "memory-updater-v1";
+export const CONTEXT_BUILDER_VERSION = "context-builder-v6";
+export const SCHEMA_VERSION = "novel-ai-schema-v5";
+
+type ContextTask = "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update" | "writing";
 
 function db(): MemoryStore {
   if (!globalMemory.__novelMemoryStore) globalMemory.__novelMemoryStore = { memories: {}, candidates: {} };
@@ -15,12 +18,12 @@ function db(): MemoryStore {
 }
 
 export function emptyMemory(projectId: string): NovelMemory {
-  return NovelMemorySchema.parse({ projectId, version: 2, updatedAt: new Date().toISOString() });
+  return NovelMemorySchema.parse({ projectId, version: 3, updatedAt: new Date().toISOString() });
 }
 
 export function getNovelMemory(projectId: string): NovelMemory {
   const existing = db().memories[projectId];
-  return existing ? NovelMemorySchema.parse({ ...existing, version: 2 }) : emptyMemory(projectId);
+  return existing ? NovelMemorySchema.parse({ ...existing, version: 3 }) : emptyMemory(projectId);
 }
 
 export function saveNovelMemory(memory: NovelMemory): NovelMemory {
@@ -28,7 +31,7 @@ export function saveNovelMemory(memory: NovelMemory): NovelMemory {
   const all = memory.chapterSummaries?.length ? memory.chapterSummaries : recent;
   const clean = NovelMemorySchema.parse({
     ...memory,
-    version: 2,
+    version: 3,
     recentChapterSummaries: recent.slice(0, 20),
     chapterSummaries: all.slice(0, 200),
     updatedAt: new Date().toISOString(),
@@ -53,14 +56,15 @@ function compact<T>(items: T[], limit: number): T[] {
   return items.slice(0, limit);
 }
 
-function contextLimits(task: "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update") {
+function contextLimits(task: ContextTask) {
   if (task === "story_analysis") return { recentChapters: 8, chapterHistory: 18, recentText: 4200 };
   if (task === "chapter_plan") return { recentChapters: 5, chapterHistory: 10, recentText: 3200 };
   if (task === "memory_update") return { recentChapters: 4, chapterHistory: 8, recentText: 5000 };
+  if (task === "writing") return { recentChapters: 6, chapterHistory: 12, recentText: 5200 };
   return { recentChapters: 6, chapterHistory: 10, recentText: 7000 };
 }
 
-export function buildTaskContext(context: StoryContext, task: "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update"): StoryContext {
+export function buildTaskContext(context: StoryContext, task: ContextTask): StoryContext {
   const memory = getNovelMemory(context.projectId);
   const preference = getAuthorPreference(context.projectId);
   const limits = contextLimits(task);
@@ -74,8 +78,8 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
   const worldRules = memory.worldState.activeRules.slice(0, 12);
 
   if (memory.globalSummary) selected.push("全書摘要");
-  if (memory.recentChapterSummaries.length) selected.push("近期章節摘要");
-  if (context.recentText) selected.push(`近期正文後 ${Math.min(context.recentText.length, limits.recentText)} 字`);
+  if (memory.recentChapterSummaries.length) selected.push("最近章節摘要");
+  if (context.recentText) selected.push(`最近正文 ${Math.min(context.recentText.length, limits.recentText)} 字`);
   if (context.protagonist?.name) selected.push(`主角設定：${context.protagonist.name}`);
   if (context.mainConflict) selected.push("主要衝突");
   if (characters.length) selected.push("角色狀態");
@@ -85,7 +89,7 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
   if (items.length) selected.push("重要道具");
   if (memory.worldState.currentLocation || memory.worldState.currentTime || worldRules.length) selected.push("世界狀態");
   if (context.forbiddenChanges.length || memory.forbiddenChanges.length) selected.push("禁止變更");
-  if (preference.preferredStrategyPatterns.length || preference.repeatedRejectionReasons.length) selected.push("作者偏好學習");
+  if (preference.preferredStrategyPatterns.length || preference.repeatedRejectionReasons.length) selected.push("作者偏好");
 
   return {
     ...context,
@@ -119,6 +123,8 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
       dislikedPacing: preference.dislikedPacing.slice(0, 14),
       preferredCharacterBehaviors: preference.preferredCharacterBehaviors.slice(0, 12),
       forbiddenCharacterBehaviors: preference.forbiddenCharacterBehaviors.slice(0, 12),
+      preferredNarrativeTechniques: preference.preferredNarrativeTechniques.slice(0, 12),
+      dislikedNarrativeTechniques: preference.dislikedNarrativeTechniques.slice(0, 12),
       preferredEndingHooks: preference.preferredEndingHooks.slice(0, 12),
       repeatedRejectionReasons: preference.repeatedRejectionReasons.slice(0, 14),
     },
@@ -142,22 +148,26 @@ export function buildMemoryUpdateContext(context: StoryContext): StoryContext {
   return buildTaskContext(context, "memory_update");
 }
 
+export function buildWritingContext(context: StoryContext): StoryContext {
+  return buildTaskContext(context, "writing");
+}
+
 function extractSentences(text: string): string[] {
   return text.replace(/\s+/g, " ").split(/[。！？!?；;\n]/).map((x) => x.trim()).filter(Boolean);
 }
 
 function detectLocation(text: string): string | undefined {
-  const match = text.match(/(?:來到|抵達|回到|進入|站在|位於|留在)(.{2,18}?)(?:，|。|、|的|前|中|裡)/);
+  const match = text.match(/(?:在|回到|走進|抵達|來到|進入)(.{2,18}?)(?:時|後|裡|中|前|。|，|,)/);
   return match?.[1]?.trim();
 }
 
 function detectTime(text: string): string | undefined {
-  const match = text.match(/(清晨|早晨|上午|午後|黃昏|深夜|午夜|三日後|隔天|翌日|同一晚|此刻)/);
+  const match = text.match(/(清晨|早上|午後|黃昏|夜裡|深夜|三日後|隔天|此刻|同時)/);
   return match?.[1];
 }
 
 function detectItem(text: string): string | undefined {
-  const match = text.match(/(帳冊|證據|密信|玉佩|鑰匙|卷宗|令牌|藥瓶|契約|錄音|照片|資料)/);
+  const match = text.match(/(帳冊|信件|玉佩|令牌|鑰匙|契約|手機|檔案|丹藥|劍|戒指|證據)/);
   return match?.[1];
 }
 
@@ -172,15 +182,15 @@ export function proposeMemoryUpdate(input: {
   const memory = getNovelMemory(input.projectId);
   const text = (input.chapterText || "").replace(/\s+/g, " ").slice(0, 5000);
   const sentences = extractSentences(text);
-  const summary = sentences.slice(0, 3).join("。") || "本章推進了目前局勢，並留下下一步需要處理的問題。";
-  const hook = sentences.slice(-1)[0] || "下一章仍有新的變化等待處理。";
+  const summary = sentences.slice(0, 3).join("。") || "本章已有新的情節推進，但正文不足以自動摘要。";
+  const hook = sentences.slice(-1)[0] || "下一章仍有待揭露的懸念。";
   const protagonist = memory.characterStates[0]?.name || "主角";
   const chapterId = input.chapterId || `chapter-${memory.recentChapterSummaries.length + 1}`;
   const location = detectLocation(text);
   const time = detectTime(text);
   const item = detectItem(text);
-  const secretDetected = /秘密|真相|身份|身分|隱瞞|藏著|調包|背叛|不可能存在/.test(text);
-  const revealed = /揭露|公開|說出|看見|發現|承認/.test(text);
+  const secretDetected = /秘密|真相|隱瞞|身份|身分|背叛|調包|不能說/.test(text);
+  const revealed = /公開|揭露|說破|承認|攤牌|曝光/.test(text);
 
   const candidate = MemoryUpdateCandidateSchema.parse({
     projectId: input.projectId,
@@ -193,14 +203,14 @@ export function proposeMemoryUpdate(input: {
       characterName: protagonist,
       changedFields: {
         lastAppearedChapterId: chapterId,
-        currentGoal: "承接本章結果，處理下一步衝突",
+        currentGoal: "延續本章行動結果，處理下一個衝突。",
         currentLocation: location || memory.worldState.currentLocation,
-        knownInformation: secretDetected ? ["本章出現新的秘密或異常線索"] : [],
+        knownInformation: secretDetected ? ["本章出現與秘密或真相相關的新資訊。"] : [],
       },
       evidence: summary,
     }],
     newUnresolvedEvents: hook ? [{
-      title: "下一章待處理懸念",
+      title: "下一章懸念",
       description: hook,
       importance: secretDetected ? "高" : "中",
       relatedCharacters: [protagonist],
@@ -208,7 +218,7 @@ export function proposeMemoryUpdate(input: {
     updatedUnresolvedEvents: [],
     resolvedEventIds: [],
     newSecrets: secretDetected ? [{
-      content: "本章出現可能影響後續判斷的新秘密或真相線索。",
+      content: "本章出現尚需作者確認的秘密或真相線索。",
       knownBy: [protagonist],
       revealedToReader: revealed,
     }] : [],
@@ -217,7 +227,7 @@ export function proposeMemoryUpdate(input: {
       itemName: item,
       owner: protagonist,
       location: location || "",
-      status: "本章出現，後續需要追蹤用途與持有人",
+      status: "本章再次被提及，可能影響後續情節。",
       evidence: summary,
     }] : [],
     worldStateUpdates: {

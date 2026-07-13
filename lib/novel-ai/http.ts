@@ -6,6 +6,11 @@ export function jsonError(message: string, status = 400, code = "BAD_REQUEST") {
   return NextResponse.json({ error: message, code }, { status });
 }
 
+function estimateTokens(value: unknown): number {
+  const text = JSON.stringify(value || "");
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
 export async function timedRun<T>(
   taskType: "story_analysis" | "story_options" | "chapter_plan" | "continuity_review",
   projectId: string,
@@ -27,6 +32,8 @@ export async function timedRun<T>(
       inputContext: input,
       modelOutput: result,
       latencyMs: Date.now() - started,
+      inputTokens: estimateTokens(input),
+      outputTokens: estimateTokens(result),
       status: "completed",
     });
     return { result, aiRun };
@@ -40,6 +47,7 @@ export async function timedRun<T>(
       inputHash: inputHash(input),
       inputContext: input,
       latencyMs: Date.now() - started,
+      inputTokens: estimateTokens(input),
       status: "failed",
       errorCode: error instanceof Error ? error.name : "UNKNOWN_ERROR",
     });
