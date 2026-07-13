@@ -76,6 +76,23 @@ export const StoryAnalysisSchema = z.object({
   forbiddenActions: z.array(z.string().max(400)).max(12),
   options: z.tuple([StoryOptionSchema, StoryOptionSchema, StoryOptionSchema]),
   analysisEvidence: z.array(AnalysisEvidenceSchema).max(12).default([]),
+  analysisScores: z.object({
+    plotProgress: z.number().int().min(1).max(10),
+    characterConsistency: z.number().int().min(1).max(10),
+    novelty: z.number().int().min(1).max(10),
+    readerHook: z.number().int().min(1).max(10),
+    emotionalPayoff: z.number().int().min(1).max(10),
+    riskClarity: z.number().int().min(1).max(10),
+    evidenceUse: z.number().int().min(1).max(10),
+  }).default({
+    plotProgress: 7,
+    characterConsistency: 7,
+    novelty: 7,
+    readerHook: 7,
+    emotionalPayoff: 7,
+    riskClarity: 7,
+    evidenceUse: 7,
+  }),
   qualityGate: z.object({
     passed: z.boolean(),
     warnings: z.array(z.string().max(300)).max(20),

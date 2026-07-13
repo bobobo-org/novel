@@ -150,8 +150,21 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
     if (context.previousChapterSummary) evidence.push({ sourceType: "上一章", sourceLabel: "上一章摘要", reason: context.previousChapterSummary.slice(0, 200) });
     if (context.unresolvedEvents?.[0]) evidence.push({ sourceType: "未解事件", sourceLabel: "未解事件", reason: context.unresolvedEvents[0] });
   }
+  if (evidence.length < 2) warnings.push("AI引用證據少於 2 項，可能沒有充分使用作品記憶。");
+  const scores = analysis.analysisScores || {
+    plotProgress: 7,
+    characterConsistency: 7,
+    novelty: 7,
+    readerHook: 7,
+    emotionalPayoff: 7,
+    riskClarity: 7,
+    evidenceUse: 7,
+  };
+  if (scores.characterConsistency < 6) warnings.push("人物一致性分數偏低。");
+  if (scores.evidenceUse < 6) warnings.push("證據使用分數偏低。");
   return {
     ...analysis,
+    analysisScores: scores,
     analysisEvidence: evidence.slice(0, 12),
     qualityGate: { passed: warnings.length === 0, warnings: [...new Set(warnings)].slice(0, 20) },
   };

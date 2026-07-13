@@ -225,6 +225,9 @@ export function trainingStats() {
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
       promptVersion: PROMPT_VERSION,
+      storyAnalyzerVersion: "story-analyzer-v3",
+      chapterPlannerVersion: "chapter-planner-v3",
+      continuityReviewerVersion: "continuity-reviewer-v3",
       memoryVersion: MEMORY_VERSION,
       contextBuilderVersion: CONTEXT_BUILDER_VERSION,
       schemaVersion: SCHEMA_VERSION,

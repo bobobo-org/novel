@@ -5,8 +5,8 @@ type MemoryStore = { memories: Record<string, NovelMemory>; candidates: Record<s
 const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: MemoryStore };
 
 export const MEMORY_VERSION = "novel-memory-v1";
-export const CONTEXT_BUILDER_VERSION = "context-builder-v1";
-export const SCHEMA_VERSION = "novel-ai-schema-v2";
+export const CONTEXT_BUILDER_VERSION = "context-builder-v2";
+export const SCHEMA_VERSION = "novel-ai-schema-v3";
 
 function db(): MemoryStore {
   if (!globalMemory.__novelMemoryStore) globalMemory.__novelMemoryStore = { memories: {}, candidates: {} };
@@ -37,15 +37,22 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
   const relevantEvents = memory.unresolvedEvents.filter((x) => x.status === "未處理" || x.status === "進行中").slice(0, 8);
   const hiddenSecrets = memory.secrets.filter((x) => !x.revealed).slice(0, 8);
   const items = memory.importantItems.slice(0, 8);
+  const recentChapterLimit = task === "story_analysis" ? 5 : task === "chapter_plan" ? 3 : 4;
+  const recentTextLimit = task === "continuity_review" ? 5000 : 3000;
   if (memory.globalSummary) selected.push("全書摘要");
   if (memory.recentChapterSummaries.length) selected.push("近期章節摘要");
+  if (context.recentText) selected.push(`近期正文末段${Math.min(context.recentText.length, recentTextLimit)}字`);
+  if (context.protagonist?.name) selected.push(`主角設定：${context.protagonist.name}`);
+  if (context.mainConflict) selected.push("主要衝突");
   if (relevantEvents.length) selected.push("未解事件");
   if (hiddenSecrets.length) selected.push("未公開秘密");
   if (items.length) selected.push("重要道具");
   if (memory.worldState.currentLocation || memory.worldState.currentTime) selected.push("世界狀態");
+  if (context.forbiddenChanges.length || memory.forbiddenChanges.length) selected.push("禁止變更");
 
   return {
     ...context,
+    recentText: context.recentText.slice(-recentTextLimit),
     previousChapterSummary: context.previousChapterSummary || memory.recentChapterSummaries[0]?.summary || "",
     unresolvedEvents: [...new Set([...context.unresolvedEvents, ...relevantEvents.map((x) => `${x.title}：${x.description}`)])].slice(0, 12),
     unrevealedSecrets: [...new Set([...context.unrevealedSecrets, ...hiddenSecrets.map((x) => x.content)])].slice(0, 12),
@@ -55,7 +62,7 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
     novelMemory: {
       version: MEMORY_VERSION,
       globalSummary: memory.globalSummary,
-      recentChapterSummaries: compact(memory.recentChapterSummaries, task === "story_analysis" ? 3 : 1),
+      recentChapterSummaries: compact(memory.recentChapterSummaries, recentChapterLimit),
       characterStates: compact(memory.characterStates, 12),
       unresolvedEvents: relevantEvents,
       unrevealedSecrets: hiddenSecrets,
