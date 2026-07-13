@@ -6,7 +6,7 @@ type MemoryStore = { memories: Record<string, NovelMemory>; candidates: Record<s
 const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: MemoryStore };
 
 export const MEMORY_VERSION = "novel-memory-v1";
-export const CONTEXT_BUILDER_VERSION = "context-builder-v3";
+export const CONTEXT_BUILDER_VERSION = "context-builder-v4";
 export const SCHEMA_VERSION = "novel-ai-schema-v4";
 
 function db(): MemoryStore {
@@ -25,7 +25,13 @@ export function getNovelMemory(projectId: string): NovelMemory {
 export function saveNovelMemory(memory: NovelMemory): NovelMemory {
   const recent = memory.recentChapterSummaries || [];
   const all = memory.chapterSummaries?.length ? memory.chapterSummaries : recent;
-  const clean = NovelMemorySchema.parse({ ...memory, version: memory.version || 1, recentChapterSummaries: recent, chapterSummaries: all, updatedAt: new Date().toISOString() });
+  const clean = NovelMemorySchema.parse({
+    ...memory,
+    version: memory.version || 1,
+    recentChapterSummaries: recent,
+    chapterSummaries: all,
+    updatedAt: new Date().toISOString(),
+  });
   db().memories[clean.projectId] = clean;
   return clean;
 }
@@ -34,57 +40,69 @@ function compact<T>(items: T[], limit: number): T[] {
   return items.slice(0, limit);
 }
 
-export function buildTaskContext(context: StoryContext, task: "story_analysis" | "chapter_plan" | "continuity_review"): StoryContext {
+function contextLimits(task: "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update") {
+  if (task === "story_analysis") return { recentChapters: 6, chapterHistory: 16, recentText: 3500 };
+  if (task === "chapter_plan") return { recentChapters: 4, chapterHistory: 8, recentText: 2600 };
+  if (task === "memory_update") return { recentChapters: 3, chapterHistory: 5, recentText: 4000 };
+  return { recentChapters: 5, chapterHistory: 8, recentText: 6000 };
+}
+
+export function buildTaskContext(context: StoryContext, task: "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update"): StoryContext {
   const memory = getNovelMemory(context.projectId);
   const preference = getAuthorPreference(context.projectId);
+  const limits = contextLimits(task);
   const selected: string[] = [];
-  const relevantEvents = memory.unresolvedEvents.filter((x) => x.status === "未處理" || x.status === "進行中").slice(0, 8);
-  const hiddenSecrets = memory.secrets.filter((x) => !x.revealed).slice(0, 8);
-  const items = memory.importantItems.slice(0, 8);
-  const recentChapterLimit = task === "story_analysis" ? 5 : task === "chapter_plan" ? 3 : 4;
-  const recentTextLimit = task === "continuity_review" ? 5000 : 3000;
+
+  const relevantEvents = memory.unresolvedEvents.filter((x) => x.status === "未處理" || x.status === "進行中").slice(0, 10);
+  const hiddenSecrets = memory.secrets.filter((x) => !x.revealedToReader && !x.revealed).slice(0, 10);
+  const items = memory.importantItems.slice(0, 10);
+  const characters = memory.characterStates.slice(0, 12);
+
   if (memory.globalSummary) selected.push("全書摘要");
   if (memory.recentChapterSummaries.length) selected.push("近期章節摘要");
-  if (context.recentText) selected.push(`近期正文末段${Math.min(context.recentText.length, recentTextLimit)}字`);
+  if (context.recentText) selected.push(`近期正文後 ${Math.min(context.recentText.length, limits.recentText)} 字`);
   if (context.protagonist?.name) selected.push(`主角設定：${context.protagonist.name}`);
   if (context.mainConflict) selected.push("主要衝突");
+  if (characters.length) selected.push("角色狀態");
   if (relevantEvents.length) selected.push("未解事件");
   if (hiddenSecrets.length) selected.push("未公開秘密");
   if (items.length) selected.push("重要道具");
-  if (memory.worldState.currentLocation || memory.worldState.currentTime) selected.push("世界狀態");
+  if (memory.worldState.currentLocation || memory.worldState.currentTime || memory.worldState.activeRules.length) selected.push("世界狀態");
   if (context.forbiddenChanges.length || memory.forbiddenChanges.length) selected.push("禁止變更");
   if (preference.preferredStrategyPatterns.length || preference.repeatedRejectionReasons.length) selected.push("作者偏好學習");
 
   return {
     ...context,
-    recentText: context.recentText.slice(-recentTextLimit),
+    recentText: context.recentText.slice(-limits.recentText),
     previousChapterSummary: context.previousChapterSummary || memory.recentChapterSummaries[0]?.summary || "",
-    unresolvedEvents: [...new Set([...context.unresolvedEvents, ...relevantEvents.map((x) => `${x.title}：${x.description}`)])].slice(0, 12),
-    unrevealedSecrets: [...new Set([...context.unrevealedSecrets, ...hiddenSecrets.map((x) => x.content)])].slice(0, 12),
-    importantItems: [...context.importantItems, ...items.map((x) => ({ name: x.name, owner: x.owner, location: x.location, status: x.status }))].slice(0, 12),
-    forbiddenChanges: [...new Set([...context.forbiddenChanges, ...memory.forbiddenChanges])].slice(0, 20),
-    recentChoices: [...new Set([...context.recentChoices, ...memory.recentChoices.map((x) => `${x.choice} => ${x.consequence}`)])].slice(0, 8),
+    unresolvedEvents: [...new Set([...context.unresolvedEvents, ...relevantEvents.map((x) => `${x.title}：${x.description}`)])].slice(0, 14),
+    unrevealedSecrets: [...new Set([...context.unrevealedSecrets, ...hiddenSecrets.map((x) => x.content)])].slice(0, 14),
+    importantItems: [...context.importantItems, ...items.map((x) => ({ name: x.name, owner: x.owner, location: x.location, status: x.status }))].slice(0, 14),
+    forbiddenChanges: [...new Set([...context.forbiddenChanges, ...memory.forbiddenChanges])].slice(0, 24),
+    recentChoices: [...new Set([...context.recentChoices, ...memory.recentChoices.map((x) => `${x.choice} => ${x.consequence}`)])].slice(0, 10),
     novelMemory: {
       version: MEMORY_VERSION,
       globalSummary: memory.globalSummary,
-      recentChapterSummaries: compact(memory.recentChapterSummaries, recentChapterLimit),
-      chapterSummaries: compact(memory.chapterSummaries, task === "story_analysis" ? 12 : 5),
-      characterStates: compact(memory.characterStates, 12),
+      recentChapterSummaries: compact(memory.recentChapterSummaries, limits.recentChapters),
+      chapterSummaries: compact(memory.chapterSummaries, limits.chapterHistory),
+      characterStates: characters,
       unresolvedEvents: relevantEvents,
       unrevealedSecrets: hiddenSecrets,
       importantItems: items,
       worldState: memory.worldState,
+      recentChoices: compact(memory.recentChoices, 10),
+      forbiddenChanges: memory.forbiddenChanges,
     },
     authorPreference: {
       version: AUTHOR_PREFERENCE_VERSION,
-      preferredStrategyPatterns: preference.preferredStrategyPatterns.slice(0, 10),
-      rejectedStrategyPatterns: preference.rejectedStrategyPatterns.slice(0, 10),
-      preferredPacing: preference.preferredPacing.slice(0, 10),
-      dislikedPacing: preference.dislikedPacing.slice(0, 10),
-      preferredCharacterBehaviors: preference.preferredCharacterBehaviors.slice(0, 8),
-      forbiddenCharacterBehaviors: preference.forbiddenCharacterBehaviors.slice(0, 8),
-      preferredEndingHooks: preference.preferredEndingHooks.slice(0, 8),
-      repeatedRejectionReasons: preference.repeatedRejectionReasons.slice(0, 10),
+      preferredStrategyPatterns: preference.preferredStrategyPatterns.slice(0, 12),
+      rejectedStrategyPatterns: preference.rejectedStrategyPatterns.slice(0, 12),
+      preferredPacing: preference.preferredPacing.slice(0, 12),
+      dislikedPacing: preference.dislikedPacing.slice(0, 12),
+      preferredCharacterBehaviors: preference.preferredCharacterBehaviors.slice(0, 10),
+      forbiddenCharacterBehaviors: preference.forbiddenCharacterBehaviors.slice(0, 10),
+      preferredEndingHooks: preference.preferredEndingHooks.slice(0, 10),
+      repeatedRejectionReasons: preference.repeatedRejectionReasons.slice(0, 12),
     },
     contextSelection: selected,
   };
@@ -103,11 +121,21 @@ export function buildContinuityContext(context: StoryContext): StoryContext {
 }
 
 export function buildMemoryUpdateContext(context: StoryContext): StoryContext {
-  return buildTaskContext(context, "continuity_review");
+  return buildTaskContext(context, "memory_update");
 }
 
 function extractSentences(text: string): string[] {
-  return text.replace(/\s+/g, " ").split(/[。！？!?；;]/).map((x) => x.trim()).filter(Boolean);
+  return text.replace(/\s+/g, " ").split(/[。！？!?；;\n]/).map((x) => x.trim()).filter(Boolean);
+}
+
+function detectLocation(text: string): string | undefined {
+  const match = text.match(/(?:來到|抵達|回到|進入|站在|位於)(.{2,18}?)(?:，|。|、|的|前|中|裡)/);
+  return match?.[1]?.trim();
+}
+
+function detectTime(text: string): string | undefined {
+  const match = text.match(/(清晨|早晨|上午|午後|黃昏|深夜|午夜|三日後|隔天|翌日|同一晚)/);
+  return match?.[1];
 }
 
 export function proposeMemoryUpdate(input: {
@@ -119,30 +147,57 @@ export function proposeMemoryUpdate(input: {
   abcChoice?: string;
 }): MemoryUpdateCandidate {
   const memory = getNovelMemory(input.projectId);
-  const text = (input.chapterText || "").replace(/\s+/g, " ").slice(0, 3000);
+  const text = (input.chapterText || "").replace(/\s+/g, " ").slice(0, 5000);
   const sentences = extractSentences(text);
-  const summary = sentences.slice(0, 3).join("。") || "本章已完成一段新的情節推進，但正文資訊不足，需要作者補充摘要。";
-  const hook = sentences.slice(-1)[0] || "下一章仍有尚未解開的懸念。";
+  const summary = sentences.slice(0, 3).join("。") || "本章推進了目前局勢，並留下下一步需要處理的問題。";
+  const hook = sentences.slice(-1)[0] || "下一章仍有新的變化等待處理。";
   const protagonist = memory.characterStates[0]?.name || "主角";
+  const chapterId = input.chapterId || `chapter-${memory.recentChapterSummaries.length + 1}`;
+  const location = detectLocation(text);
+  const time = detectTime(text);
+
   const candidate = MemoryUpdateCandidateSchema.parse({
     projectId: input.projectId,
-    chapterId: input.chapterId,
+    chapterId,
     chapterSummary: summary,
     chapterResult: sentences.slice(-2).join("。") || summary,
     endingHook: hook,
     timelinePosition: `第${memory.recentChapterSummaries.length + 1}章後`,
     characterUpdates: [{
       characterName: protagonist,
-      changedFields: { lastAppearedChapterId: input.chapterId || "", currentGoal: "承接本章結果，處理下一個衝突。" },
+      changedFields: {
+        lastAppearedChapterId: chapterId,
+        currentGoal: "承接本章結果，處理下一步衝突",
+        currentLocation: location || memory.worldState.currentLocation,
+      },
       evidence: summary,
     }],
-    newUnresolvedEvents: hook ? [{ title: "下一章懸念", description: hook, importance: "中", relatedCharacters: [protagonist] }] : [],
+    newUnresolvedEvents: hook ? [{
+      title: "下一章待處理懸念",
+      description: hook,
+      importance: "中",
+      relatedCharacters: [protagonist],
+    }] : [],
     updatedUnresolvedEvents: [],
     resolvedEventIds: [],
-    newSecrets: /秘密|真相|隱瞞|身分|身份/.test(text) ? [{ content: "本章提到一項可能影響後續的秘密或真相。", knownBy: [protagonist], revealedToReader: /公開|揭露|說出|攤牌/.test(text) }] : [],
+    newSecrets: /秘密|真相|身份|身分|隱瞞|藏著|調包|背叛/.test(text) ? [{
+      content: "本章出現可能影響後續判斷的新秘密或真相線索。",
+      knownBy: [protagonist],
+      revealedToReader: /揭露|公開|說出|看見|發現/.test(text),
+    }] : [],
     revealedSecretIds: [],
-    itemUpdates: [],
-    worldStateUpdates: {},
+    itemUpdates: /道具|證據|帳冊|玉佩|密信|鑰匙|卷宗/.test(text) ? [{
+      itemName: "本章關鍵物件",
+      owner: protagonist,
+      location: location || "",
+      status: "需要在後續章節確認用途",
+      evidence: summary,
+    }] : [],
+    worldStateUpdates: {
+      currentLocation: location,
+      currentTime: time,
+      majorEvents: [summary].filter(Boolean),
+    },
     continuityWarnings: [],
     originalCandidate: { chapterPlan: input.chapterPlan, abcChoice: input.abcChoice },
   });
@@ -156,7 +211,9 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
   const chapterId = candidate.chapterId || `chapter-${memory.recentChapterSummaries.length + 1}`;
   const chapterSummary = {
     chapterId,
-    chapterTitle: `第${memory.recentChapterSummaries.length + 1}章`,
+    chapterTitle: candidate.originalCandidate && typeof candidate.originalCandidate === "object" && "chapterTitle" in candidate.originalCandidate
+      ? String((candidate.originalCandidate as { chapterTitle?: unknown }).chapterTitle || `第${memory.recentChapterSummaries.length + 1}章`)
+      : `第${memory.recentChapterSummaries.length + 1}章`,
     summary: candidate.chapterSummary,
     chapterResult: candidate.chapterResult,
     endingHook: candidate.endingHook,
@@ -167,6 +224,31 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
   memory.recentChapterSummaries = memory.recentChapterSummaries.slice(0, 20);
   memory.chapterSummaries.unshift(chapterSummary);
   memory.chapterSummaries = memory.chapterSummaries.slice(0, 200);
+
+  for (const update of candidate.characterUpdates.filter((x) => x.decision !== "ignore")) {
+    const existing = update.characterId ? memory.characterStates.find((x) => x.characterId === update.characterId) : memory.characterStates.find((x) => x.name === update.characterName);
+    if (existing) {
+      Object.assign(existing, update.changedFields);
+      existing.lastAppearedChapterId = chapterId;
+    } else {
+      memory.characterStates.unshift({
+        characterId: crypto.randomUUID(),
+        name: update.characterName,
+        role: update.characterName === "主角" ? "主角" : "",
+        archetype: "",
+        currentGoal: String(update.changedFields.currentGoal || ""),
+        currentEmotion: String(update.changedFields.currentEmotion || ""),
+        currentLocation: String(update.changedFields.currentLocation || ""),
+        physicalCondition: String(update.changedFields.physicalCondition || ""),
+        alive: true,
+        knownInformation: [],
+        unknownInformation: [],
+        relationships: [],
+        relationshipChanges: [],
+        lastAppearedChapterId: chapterId,
+      });
+    }
+  }
 
   for (const event of candidate.newUnresolvedEvents.filter((x) => x.decision !== "ignore")) {
     memory.unresolvedEvents.unshift({
@@ -188,7 +270,14 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
     if (event) event.status = "已解決";
   }
   for (const secret of candidate.newSecrets.filter((x) => x.decision !== "ignore")) {
-    memory.secrets.unshift({ id: crypto.randomUUID(), content: secret.content, knownBy: secret.knownBy, revealed: secret.revealedToReader, revealedToReader: secret.revealedToReader, revealedChapterId: secret.revealedToReader ? chapterId : undefined });
+    memory.secrets.unshift({
+      id: crypto.randomUUID(),
+      content: secret.content,
+      knownBy: secret.knownBy,
+      revealed: secret.revealedToReader,
+      revealedToReader: secret.revealedToReader,
+      revealedChapterId: secret.revealedToReader ? chapterId : undefined,
+    });
   }
   for (const secretId of candidate.revealedSecretIds) {
     const secret = memory.secrets.find((x) => x.id === secretId);
@@ -206,7 +295,14 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
       if (item.status) existing.status = item.status;
       existing.lastSeenChapterId = chapterId;
     } else {
-      memory.importantItems.unshift({ id: crypto.randomUUID(), name: item.itemName, owner: item.owner || "", location: item.location || "", status: item.status || "", lastSeenChapterId: chapterId });
+      memory.importantItems.unshift({
+        id: crypto.randomUUID(),
+        name: item.itemName,
+        owner: item.owner || "",
+        location: item.location || "",
+        status: item.status || "",
+        lastSeenChapterId: chapterId,
+      });
     }
   }
   if (candidate.worldStateUpdates.currentLocation) memory.worldState.currentLocation = candidate.worldStateUpdates.currentLocation;

@@ -45,7 +45,18 @@ export const StoryContextSchema = z.object({
 });
 
 export const AnalysisEvidenceSchema = z.object({
-  sourceType: z.enum(["主角設定", "故事摘要", "上一章", "近期正文", "未解事件", "秘密", "道具", "世界狀態", "作者要求"]),
+  sourceType: z.enum([
+    "主角設定",
+    "全書摘要",
+    "上一章摘要",
+    "近期正文",
+    "未解事件",
+    "秘密",
+    "道具",
+    "世界狀態",
+    "作者偏好",
+    "禁止變更",
+  ]),
   sourceId: z.string().max(120).optional(),
   sourceLabel: z.string().max(200),
   reason: z.string().max(600),
@@ -68,7 +79,7 @@ export const StoryAnalysisSchema = z.object({
   situation: z.string().min(4).max(1200),
   currentStoryStage: z.string().min(2).max(160),
   characterConsistency: z.object({
-    status: z.enum(["穩定", "可能偏移", "明顯矛盾"]),
+    status: z.enum(["穩定", "需要確認", "可能矛盾"]),
     explanation: z.string().min(4).max(800),
   }),
   recommendedStrategy: z.string().min(2).max(600),
@@ -101,28 +112,22 @@ export const StoryAnalysisSchema = z.object({
   }).default({ passed: true, warnings: [] }),
 });
 
+const ChapterSummarySchema = z.object({
+  chapterId: z.string().max(120),
+  chapterTitle: z.string().max(200),
+  summary: z.string().max(1200),
+  chapterResult: z.string().max(800),
+  endingHook: z.string().max(800),
+  timelinePosition: z.string().max(200).default(""),
+  createdAt: z.string(),
+});
+
 export const NovelMemorySchema = z.object({
   projectId: z.string().min(1).max(120),
   version: z.number().int().min(1).default(1),
   globalSummary: z.string().max(3000).default(""),
-  recentChapterSummaries: z.array(z.object({
-    chapterId: z.string().max(120),
-    chapterTitle: z.string().max(200),
-    summary: z.string().max(1200),
-    chapterResult: z.string().max(800),
-    endingHook: z.string().max(800),
-    timelinePosition: z.string().max(200).default(""),
-    createdAt: z.string(),
-  })).max(20).default([]),
-  chapterSummaries: z.array(z.object({
-    chapterId: z.string().max(120),
-    chapterTitle: z.string().max(200),
-    summary: z.string().max(1200),
-    chapterResult: z.string().max(800),
-    endingHook: z.string().max(800),
-    timelinePosition: z.string().max(200).default(""),
-    createdAt: z.string(),
-  })).max(200).default([]),
+  recentChapterSummaries: z.array(ChapterSummarySchema).max(20).default([]),
+  chapterSummaries: z.array(ChapterSummarySchema).max(200).default([]),
   characterStates: z.array(z.object({
     characterId: z.string().max(120),
     name: z.string().max(120),
@@ -272,10 +277,10 @@ const FeedbackBaseSchema = z.object({
 
 export const FeedbackSchema = FeedbackBaseSchema.superRefine((value, ctx) => {
   if (value.decision === "edited" && value.editedOutput == null) {
-    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受必須提供 editedOutput。" });
+    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受時必須提供 editedOutput。" });
   }
   if (value.decision === "rejected" && (!value.rejectionReasons || value.rejectionReasons.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕必須至少提供一個原因。" });
+    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕時必須至少提供一個原因。" });
   }
 });
 

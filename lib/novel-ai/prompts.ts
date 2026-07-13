@@ -1,34 +1,36 @@
 import type { StoryContext, StoryOption } from "./schemas";
 
-export const PROMPT_VERSION = "story-analyzer-v5";
+export const PROMPT_VERSION = "story-analyzer-v6";
 
-export const STORY_ANALYZER_SYSTEM_PROMPT = `你是專門分析長篇小說情節、人物一致性、劇情推進與章節策略的繁體中文小說判斷AI。
+export const STORY_ANALYZER_SYSTEM_PROMPT = `你是「專屬小說AI」的雲端分析核心，任務是協助作者做故事判斷、動態 A/B/C、章節規劃與一致性檢查。
 
-你必須遵守：
-1. 只輸出合法 JSON，不要 Markdown，不要解釋 JSON 之外的文字。
-2. 先做多階段判斷：情境判斷、人物一致性、前章承接、未解事件、禁止變更、資訊缺口、再提出 A/B/C。
-3. A 必須是主動推進、高行動、高風險。
-4. B 必須是謹慎調查、中推進、低到中風險。
-5. C 必須是轉折或高代價，帶來關係或局勢變化。
-6. 每個選項都要是具體人物行動，不可只寫抽象路線。
-7. 必須引用主角姓名、主角原型、行動方式與主要衝突。
-8. 不可無故新增重大角色、改變主角姓名、改寫已確定世界規則。
+輸出規則：
+1. 只輸出符合要求的 JSON，不要 Markdown，不要多餘說明。
+2. 使用繁體中文。
+3. 不得複製任何外部作品正文、角色、台詞或完整設定。
+4. 必須根據 StoryContext、NovelMemory、AuthorPreferenceProfile 和 forbiddenChanges 做判斷。
+5. A/B/C 必須是三種不同決策性質：
+   - A：主動推進，高推進，風險較高。
+   - B：謹慎調查，中推進，風險較低。
+   - C：轉折高代價，帶來關係變化或重大後果。
+6. 每個選項必須包含具體人物行動，不可只寫抽象路線名稱。
+7. 盡量引用主角姓名、主角原型、行動方式、主要衝突、上一章結果、未解事件與秘密。
+8. 不得讓已死亡角色行動，不得讓同一道具同時有兩個持有人，不得讓已公開秘密又被當成未公開秘密。
 9. 必須遵守 forbiddenChanges。
-10. 資料不足時，列入 missingInformation，不要假裝知道。
-11. analysisEvidence 至少列出 2 項你使用的上下文證據，能對應記憶項目時請填 sourceId。
-12. analysisScores 必須以 1 到 10 分評估：劇情推進、人物一致、新意、讀者鉤子、情感回收、風險清楚、證據使用。
-13. 若 StoryContext 有 authorPreference，必須優先避開 rejectedStrategyPatterns、forbiddenCharacterBehaviors 與 repeatedRejectionReasons。
-14. 可以使用 preferredStrategyPatterns、preferredPacing、preferredEndingHooks 來調整 A/B/C 的語氣與節奏，但不可犧牲人物一致性。
-15. qualityGate 必須反映選項是否重複、是否違反禁改、是否太空泛、是否踩到作者反覆拒絕的偏好。
-16. 不得輸出 API key、token、密碼或敏感連線資訊。`;
+10. authorPreference 中的 rejectedStrategyPatterns、forbiddenCharacterBehaviors、repeatedRejectionReasons 應避免；preferredStrategyPatterns、preferredPacing、preferredEndingHooks 可作為建議方向。
+11. analysisEvidence 至少提供 2 筆引用來源，說明你為什麼這樣判斷。
+12. analysisScores 必須是 1 到 10 的整數。
+13. qualityGate 必須指出是否有角色一致性、前章承接、ABC差異、記憶引用、禁止事項或作者偏好衝突問題。
+14. 不得輸出 API key、token、cookie、Authorization 或任何敏感連線資訊。`;
 
 export function buildAnalysisPrompt(context: StoryContext): string {
   return `請根據以下 StoryContext 輸出 StoryAnalysis JSON。
-輸出格式：
+
+JSON 形狀：
 {
   "situation": "",
   "currentStoryStage": "",
-  "characterConsistency": {"status": "穩定|可能偏移|明顯矛盾", "explanation": ""},
+  "characterConsistency": {"status": "穩定", "explanation": ""},
   "recommendedStrategy": "",
   "recommendationReason": "",
   "continuityWarnings": [],
@@ -51,26 +53,30 @@ ${JSON.stringify(context, null, 2)}`;
 }
 
 export function buildChapterPlanPrompt(context: StoryContext, selection: StoryOption, authorSupplement = ""): string {
-  return `請根據 StoryContext 與作者選擇，輸出 ChapterPlan JSON。必須承接故事記憶與前章結果，不能覆蓋正文。
+  return `請根據 StoryContext 與作者選擇輸出 ChapterPlan JSON。章節規劃必須承接前章、角色狀態、未解事件與作者偏好，不得覆蓋作者已寫正文。
+
 StoryContext:
 ${JSON.stringify(context, null, 2)}
 
-作者選擇:
+作者選擇：
 ${JSON.stringify(selection, null, 2)}
 
-作者補充:
+作者補充：
 ${authorSupplement || "無"}
 
-輸出格式：{"chapterPurpose":"","openingSituation":"","protagonistStrategy":"","mainObstacle":"","turningPoint":"","cost":"","chapterResult":"","endingHook":""}`;
+請只輸出：
+{"chapterPurpose":"","openingSituation":"","protagonistStrategy":"","mainObstacle":"","turningPoint":"","cost":"","chapterResult":"","endingHook":""}`;
 }
 
 export function buildContinuityPrompt(context: StoryContext, candidateText: string): string {
-  return `請檢查候選正文是否違反 StoryContext，輸出 ContinuityReview JSON。
+  return `請檢查候選正文是否符合 StoryContext、NovelMemory、AuthorPreferenceProfile 與 forbiddenChanges，輸出 ContinuityReview JSON。
+
 StoryContext:
 ${JSON.stringify(context, null, 2)}
 
 候選正文：
-${candidateText.slice(0, 6000)}
+${candidateText.slice(0, 8000)}
 
-輸出格式：{"passed":true,"characterIssues":[],"timelineIssues":[],"secretIssues":[],"itemIssues":[],"repetitionIssues":[],"suggestedFixes":[]}`;
+請只輸出：
+{"passed":true,"characterIssues":[],"timelineIssues":[],"secretIssues":[],"itemIssues":[],"repetitionIssues":[],"suggestedFixes":[]}`;
 }
