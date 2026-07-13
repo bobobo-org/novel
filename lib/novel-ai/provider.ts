@@ -607,6 +607,53 @@ export function providerMeta() {
   };
 }
 
+export async function pingModel(timeoutMs = 3_500): Promise<{ ok: boolean; elapsedMs: number; error?: string }> {
+  const started = Date.now();
+  try {
+    const cfg = modelConfig();
+    if (cfg.provider === "google") {
+      if (!cfg.googleKey) throw new ModelConfigurationError("GOOGLE_GENERATIVE_AI_API_KEY is not configured.");
+      await withTimeout(
+        (signal) =>
+          generateText({
+            model: google(cfg.model),
+            system: "Return compact JSON only.",
+            prompt: "{\"ping\":true}",
+            abortSignal: signal,
+            temperature: 0,
+            maxOutputTokens: 24,
+          }),
+        timeoutMs,
+        "MODEL_HEALTH_TIMEOUT",
+      );
+      return { ok: true, elapsedMs: Date.now() - started };
+    }
+    if (!cfg.apiKey) throw new ModelConfigurationError("AI_API_KEY or OPENAI_API_KEY is not configured.");
+    const response = await withTimeout(
+      (signal) =>
+        fetch(cfg.baseUrl, {
+          method: "POST",
+          signal,
+          headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+          body: JSON.stringify({
+            model: cfg.model,
+            max_tokens: 8,
+            messages: [
+              { role: "system", content: "Return JSON only." },
+              { role: "user", content: "{\"ping\":true}" },
+            ],
+          }),
+        }),
+      timeoutMs,
+      "MODEL_HEALTH_TIMEOUT",
+    );
+    if (!response.ok) throw new Error(`MODEL_HEALTH_HTTP_${response.status}`);
+    return { ok: true, elapsedMs: Date.now() - started };
+  } catch (error) {
+    return { ok: false, elapsedMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function createNovelProvider(): NovelModelProvider {
   return new OpenAICompatibleNovelProvider();
 }
