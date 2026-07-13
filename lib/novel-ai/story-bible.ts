@@ -60,6 +60,14 @@ async function insertRows(table: string, rows: JsonRecord[]) {
   return rest<JsonRecord[]>(table, { method: "POST", body: JSON.stringify(rows) });
 }
 
+async function deleteWhereProject(table: string, projectId: string) {
+  return rest(table, {
+    method: "DELETE",
+    query: `project_id=eq.${encodeURIComponent(projectId)}`,
+    headers: { prefer: "return=minimal" },
+  });
+}
+
 function hashText(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
@@ -715,6 +723,62 @@ function canonicalValueFromRow(row: JsonRecord | undefined, entityType: string, 
   return undefined;
 }
 
+function arrayFromSnapshot(snapshot: unknown, keys: string[]) {
+  if (!snapshot || typeof snapshot !== "object") return [];
+  const source = snapshot as JsonRecord;
+  for (const key of keys) {
+    const value = source[key];
+    if (Array.isArray(value)) return value.filter((item): item is JsonRecord => Boolean(item && typeof item === "object")) as JsonRecord[];
+  }
+  return [];
+}
+
+function snapshotCanonicalForCandidate(input: StoryBibleExtractionInput, candidate: z.infer<typeof StoryBibleCandidateSchema>) {
+  const text = `${candidate.evidence} ${candidate.reason} ${JSON.stringify(candidate.proposedValue)}`;
+  const findBy = (rows: JsonRecord[], idKeys: string[], nameKeys: string[]) => {
+    if (candidate.entityId) {
+      const byId = rows.find((row) => idKeys.some((key) => row[key] === candidate.entityId));
+      if (byId) return byId;
+    }
+    const matched = rows.find((row) => nameKeys.some((key) => row[key] && text.includes(String(row[key]))));
+    if (matched) return matched;
+    return rows.length === 1 ? rows[0] : undefined;
+  };
+  const snapshot = input.currentCanonicalSnapshot;
+  switch (candidate.entityType) {
+    case "character":
+      return findBy(arrayFromSnapshot(snapshot, ["characters", "storyCharacters"]), ["characterId", "character_id", "id"], ["canonicalName", "canonical_name", "name"]);
+    case "item":
+      return findBy(arrayFromSnapshot(snapshot, ["items", "storyItems"]), ["itemId", "item_id", "id"], ["name", "title"]);
+    case "world_rule":
+      return findBy(arrayFromSnapshot(snapshot, ["worldRules", "world_rules", "rules"]), ["ruleId", "rule_id", "id"], ["title", "description"]);
+    case "foreshadowing":
+      return findBy(arrayFromSnapshot(snapshot, ["foreshadowing", "foreshadows"]), ["foreshadowId", "foreshadow_id", "id"], ["title", "description"]);
+    case "open_thread":
+      return findBy(arrayFromSnapshot(snapshot, ["openThreads", "open_threads"]), ["threadId", "thread_id", "id"], ["title", "description"]);
+    case "event":
+      return findBy(arrayFromSnapshot(snapshot, ["events", "storyEvents"]), ["eventId", "event_id", "id"], ["title", "description"]);
+    default:
+      return undefined;
+  }
+}
+
+function canonicalValueFromSnapshot(row: JsonRecord | undefined, fieldPath: string) {
+  if (!row) return undefined;
+  const leaf = fieldLeaf(fieldPath);
+  if (leaf in row) return row[leaf];
+  const aliases: Record<string, string[]> = {
+    canonicalName: ["canonical_name", "name"],
+    currentOwnerCharacterId: ["current_owner_character_id", "ownerId", "owner"],
+    currentLocationId: ["current_location_id", "locationId", "location"],
+    lifeStatus: ["life_status", "status"],
+  };
+  for (const key of aliases[leaf] || []) if (key in row) return row[key];
+  const nested = row.json || row.character_json || row.item_json || row.rule_json || row.foreshadow_json || row.event_json || row.thread_json;
+  if (nested && typeof nested === "object" && leaf in (nested as JsonRecord)) return (nested as JsonRecord)[leaf];
+  return undefined;
+}
+
 async function loadCanonicalForCandidate(projectId: string, candidate: z.infer<typeof StoryBibleCandidateSchema>) {
   if (!candidate.entityId) return undefined;
   const adapter = canonicalTableFor(candidate.entityType);
@@ -727,11 +791,12 @@ async function loadCanonicalForCandidate(projectId: string, candidate: z.infer<t
 
 async function buildConflictsForCandidate(args: {
   projectId: string;
+  input: StoryBibleExtractionInput;
   extractionRunId: string;
   candidateId: string;
   candidate: z.infer<typeof StoryBibleCandidateSchema>;
 }) {
-  const { projectId, extractionRunId, candidateId, candidate } = args;
+  const { projectId, input, extractionRunId, candidateId, candidate } = args;
   const conflicts: JsonRecord[] = [];
   const now = nowIso();
   const push = (data: {
@@ -804,10 +869,11 @@ async function buildConflictsForCandidate(args: {
     });
   }
 
-  const canonical = await loadCanonicalForCandidate(projectId, candidate);
+  const canonical = snapshotCanonicalForCandidate(input, candidate) || await loadCanonicalForCandidate(projectId, candidate);
   if (canonical) {
-    const currentValue = canonicalValueFromRow(canonical, candidate.entityType, candidate.fieldPath);
-    if (candidate.entityType === "world_rule" && canonical.immutable === true && candidate.operation !== "no-change") {
+    const currentValue = canonicalValueFromSnapshot(canonical, candidate.fieldPath) ?? canonicalValueFromRow(canonical, candidate.entityType, candidate.fieldPath);
+    const immutable = canonical.immutable === true || canonical.immutable === "true";
+    if (candidate.entityType === "world_rule" && immutable && JSON.stringify(currentValue) !== JSON.stringify(candidate.proposedValue) && candidate.operation !== "no-change") {
       push({
         severity: "blocking",
         conflictType: "immutable_world_rule_change",
@@ -815,6 +881,42 @@ async function buildConflictsForCandidate(args: {
         proposedValue: candidate.proposedValue,
         explanation: "候選嘗試修改 immutable world rule。P0-C2A 僅能標記衝突，不能寫入 canonical。",
         suggestedResolution: "若確為例外，請在後續 conflict resolution 階段建立 exception，而非直接覆蓋規則。",
+        autoResolvable: false,
+        confidence: candidate.confidence,
+      });
+    }
+    if (candidate.entityType === "item" && fieldLeaf(candidate.fieldPath) === "currentOwnerCharacterId" && currentValue !== undefined && JSON.stringify(currentValue) !== JSON.stringify(candidate.proposedValue)) {
+      push({
+        severity: "major",
+        conflictType: "item_double_owner",
+        canonicalValue: currentValue,
+        proposedValue: candidate.proposedValue,
+        explanation: "同一重要道具已有 canonical 持有人，候選提出另一位持有人，需確認是否為轉移事件或雙重持有錯誤。",
+        suggestedResolution: "若為轉移，需補來源事件；否則保留 canonical 持有人。",
+        autoResolvable: false,
+        confidence: candidate.confidence,
+      });
+    }
+    if (candidate.entityType === "character" && fieldLeaf(candidate.fieldPath) === "currentLocationId" && currentValue !== undefined && JSON.stringify(currentValue) !== JSON.stringify(candidate.proposedValue)) {
+      push({
+        severity: "major",
+        conflictType: "timeline_location_conflict",
+        canonicalValue: currentValue,
+        proposedValue: candidate.proposedValue,
+        explanation: "同一角色目前所在地與候選所在地不同，需確認是否有移動事件或時間差。",
+        suggestedResolution: "補移動事件、調整時間點，或維持原所在地。",
+        autoResolvable: false,
+        confidence: candidate.confidence,
+      });
+    }
+    if (candidate.entityType === "foreshadowing" && fieldLeaf(candidate.fieldPath) === "status" && currentValue === "paid" && candidate.proposedValue !== "paid") {
+      push({
+        severity: "major",
+        conflictType: "paid_foreshadowing_reopened",
+        canonicalValue: currentValue,
+        proposedValue: candidate.proposedValue,
+        explanation: "已回收伏筆被候選改回未回收狀態，可能造成長篇記憶倒退。",
+        suggestedResolution: "除非作者明確重開伏筆，否則保留 paid 狀態。",
         autoResolvable: false,
         confidence: candidate.confidence,
       });
@@ -852,6 +954,108 @@ async function ensureStoryBible(projectId: string, input: StoryBibleExtractionIn
     created_at: now,
     updated_at: now,
   }, "project_id");
+}
+
+export function conflictFixtureSnapshot() {
+  return {
+    characters: [{
+      characterId: "char_test_001",
+      canonicalName: "林昭",
+      age: 28,
+      lifeStatus: "alive",
+      currentLocationId: "loc_capital",
+    }],
+    worldRules: [{
+      ruleId: "rule_test_001",
+      title: "死者不可復生",
+      description: "死者不可復生",
+      immutable: true,
+    }],
+    items: [{
+      itemId: "item_test_001",
+      name: "赤霄劍",
+      currentOwnerCharacterId: "char_test_001",
+    }],
+    foreshadowing: [{
+      foreshadowId: "fs_test_001",
+      title: "赤霄劍真主伏筆",
+      status: "paid",
+    }],
+  };
+}
+
+export async function seedStoryBibleConflictFixtures(projectId: string) {
+  const now = nowIso();
+  await upsert("story_bibles", {
+    project_id: projectId,
+    schema_version: STORY_BIBLE_SCHEMA_VERSION,
+    status: "active",
+    core_json: { projectId, purpose: "p0c2a-conflict-fixture" },
+    created_at: now,
+    updated_at: now,
+  }, "project_id");
+  await upsert("story_characters", {
+    id: `${projectId}_char_test_001`,
+    project_id: projectId,
+    character_id: "char_test_001",
+    canonical_name: "林昭",
+    character_json: { age: 28, lifeStatus: "alive", currentLocationId: "loc_capital" },
+    confidence: 1,
+    updated_at: now,
+  });
+  await upsert("story_world_rules", {
+    id: `${projectId}_rule_test_001`,
+    project_id: projectId,
+    rule_id: "rule_test_001",
+    title: "死者不可復生",
+    rule_json: { description: "死者不可復生" },
+    immutable: true,
+    confidence: 1,
+    updated_at: now,
+  });
+  await upsert("story_items", {
+    id: `${projectId}_item_test_001`,
+    project_id: projectId,
+    item_id: "item_test_001",
+    name: "赤霄劍",
+    item_json: { currentOwnerCharacterId: "char_test_001" },
+    updated_at: now,
+  });
+  await upsert("story_foreshadowing", {
+    id: `${projectId}_fs_test_001`,
+    project_id: projectId,
+    foreshadow_id: "fs_test_001",
+    title: "赤霄劍真主伏筆",
+    status: "paid",
+    foreshadow_json: { description: "赤霄劍真主伏筆" },
+    updated_at: now,
+  });
+  return conflictFixtureSnapshot();
+}
+
+export async function cleanupStoryBibleProject(projectId: string) {
+  for (const table of [
+    "story_fact_sources",
+    "story_fact_conflicts",
+    "story_fact_candidates",
+    "story_chapter_summaries",
+    "story_bible_extraction_runs",
+    "story_characters",
+    "story_relationships",
+    "story_world_rules",
+    "story_locations",
+    "story_factions",
+    "story_items",
+    "story_events",
+    "story_timeline",
+    "story_foreshadowing",
+    "story_open_threads",
+    "story_bible_versions",
+    "story_bibles",
+  ]) {
+    await deleteWhereProject(table, projectId).catch(() => undefined);
+  }
+  return { projectId, cleaned: true };
 }
 
 export async function persistStoryBibleExtraction(args: {
@@ -936,11 +1140,18 @@ export async function persistStoryBibleExtraction(args: {
   const generatedConflicts = (await Promise.all(candidatePairs.map((pair) =>
     buildConflictsForCandidate({
       projectId: input.projectId,
+      input,
       extractionRunId,
       candidateId: pair.row.id,
       candidate: pair.candidate,
     })
   ))).flat();
+  const conflictCandidateIds = new Set(generatedConflicts
+    .filter((conflict) => ["warning", "major", "blocking"].includes(String(conflict.severity)))
+    .map((conflict) => String(conflict.candidate_id)));
+  for (const pair of candidatePairs) {
+    if (conflictCandidateIds.has(String(pair.row.id))) pair.row.status = "needs_review";
+  }
   const modelConflicts = output.candidateConflicts.map((conflict, index) => ({
     id: conflict.conflictId || `story_conflict_${crypto.randomUUID()}`,
     project_id: input.projectId,
@@ -1018,8 +1229,8 @@ export async function storyBibleHealth() {
       storyBibleExtractionStatus: runs[0]?.status || "not_run",
       storyBibleMigrationVersion: [migrationOk ? STORY_BIBLE_MIGRATION_VERSION : "", c2aOk ? STORY_BIBLE_C2A_MIGRATION_VERSION : ""].filter(Boolean).join(","),
       storyBibleRecentExtractionAt: runs[0]?.created_at || null,
-      storyBibleApprovalStatus: c2aOk ? "ready" : "unavailable",
-      storyBibleVersioningStatus: c2aOk ? "ready" : "unavailable",
+      storyBibleApprovalStatus: c2aOk ? "not_implemented" : "unavailable",
+      storyBibleVersioningStatus: c2aOk ? "schema_ready" : "unavailable",
       storyBibleConflictEngineStatus: c2aOk ? "ready" : "unavailable",
     };
   } catch (error) {
@@ -1046,6 +1257,7 @@ export const StoryBibleListQuerySchema = z.object({
   projectId: z.string().min(1).max(120),
   status: z.string().max(40).optional(),
   entityType: z.string().max(60).optional(),
+  candidateId: z.string().max(160).optional(),
   chapterId: z.string().max(120).optional(),
   extractionRunId: z.string().max(160).optional(),
   conflictSeverity: z.string().max(40).optional(),
@@ -1065,6 +1277,7 @@ export async function listStoryBibleCandidateRows(query: z.infer<typeof StoryBib
     `limit=${query.limit}`,
   ];
   if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
+  if (query.candidateId) filters.push(`id=eq.${queryValue(query.candidateId)}`);
   if (query.entityType) filters.push(`entity_type=eq.${queryValue(query.entityType)}`);
   if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
   if (query.minConfidence != null) filters.push(`confidence=gte.${query.minConfidence}`);
@@ -1133,6 +1346,7 @@ export async function listStoryBibleConflicts(query: z.infer<typeof StoryBibleLi
     `limit=${query.limit}`,
   ];
   if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
+  if (query.candidateId) filters.push(`candidate_id=eq.${queryValue(query.candidateId)}`);
   if (query.conflictSeverity) filters.push(`severity=eq.${queryValue(query.conflictSeverity)}`);
   if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
   if (query.entityType) filters.push(`canonical_entity_type=eq.${queryValue(query.entityType)}`);
