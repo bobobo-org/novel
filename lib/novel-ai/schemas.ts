@@ -39,12 +39,20 @@ export const StoryContextSchema = z.object({
   forbiddenChanges: z.array(z.string().max(300)).max(30).default([]),
   chapterGoal: z.string().max(800).optional(),
   authorInstruction: z.string().max(1200).optional(),
+  novelMemory: z.unknown().optional(),
+  contextSelection: z.array(z.string().max(300)).max(50).optional(),
+});
+
+export const AnalysisEvidenceSchema = z.object({
+  sourceType: z.enum(["主角設定", "上一章", "近期正文", "未解事件", "秘密", "道具", "世界狀態", "作者要求"]),
+  sourceLabel: z.string().max(200),
+  reason: z.string().max(600),
 });
 
 export const StoryOptionSchema = z.object({
   label: z.enum(["A", "B", "C"]),
   action: z.string().min(8).max(700),
-  strategyType: z.enum(["積極推進", "謹慎調查", "轉折高代價"]),
+  strategyType: z.enum(["主動推進", "謹慎調查", "轉折高代價"]),
   reason: z.string().min(4).max(700),
   risk: z.enum(["低", "中", "高"]),
   possibleCost: z.string().min(2).max(500),
@@ -58,7 +66,7 @@ export const StoryAnalysisSchema = z.object({
   situation: z.string().min(4).max(1200),
   currentStoryStage: z.string().min(2).max(160),
   characterConsistency: z.object({
-    status: z.enum(["一致", "可能偏離", "明顯矛盾"]),
+    status: z.enum(["穩定", "可能偏移", "明顯矛盾"]),
     explanation: z.string().min(4).max(800),
   }),
   recommendedStrategy: z.string().min(2).max(600),
@@ -67,6 +75,117 @@ export const StoryAnalysisSchema = z.object({
   missingInformation: z.array(z.string().max(400)).max(12),
   forbiddenActions: z.array(z.string().max(400)).max(12),
   options: z.tuple([StoryOptionSchema, StoryOptionSchema, StoryOptionSchema]),
+  analysisEvidence: z.array(AnalysisEvidenceSchema).max(12).default([]),
+  qualityGate: z.object({
+    passed: z.boolean(),
+    warnings: z.array(z.string().max(300)).max(20),
+  }).default({ passed: true, warnings: [] }),
+});
+
+export const NovelMemorySchema = z.object({
+  projectId: z.string().min(1).max(120),
+  globalSummary: z.string().max(3000).default(""),
+  recentChapterSummaries: z.array(z.object({
+    chapterId: z.string().max(120),
+    chapterTitle: z.string().max(200),
+    summary: z.string().max(1200),
+    chapterResult: z.string().max(800),
+    endingHook: z.string().max(800),
+    createdAt: z.string(),
+  })).max(20).default([]),
+  characterStates: z.array(z.object({
+    characterId: z.string().max(120),
+    name: z.string().max(120),
+    role: z.string().max(120).default(""),
+    archetype: z.string().max(160).default(""),
+    currentGoal: z.string().max(500).default(""),
+    currentEmotion: z.string().max(300).default(""),
+    currentLocation: z.string().max(300).default(""),
+    physicalCondition: z.string().max(300).default(""),
+    relationshipChanges: z.array(z.string().max(200)).default([]),
+    knownInformation: z.array(z.string().max(200)).default([]),
+    unknownInformation: z.array(z.string().max(200)).default([]),
+    alive: z.boolean().default(true),
+    lastAppearedChapterId: z.string().max(120).default(""),
+  })).max(80).default([]),
+  unresolvedEvents: z.array(z.object({
+    id: z.string().max(120),
+    title: z.string().max(200),
+    description: z.string().max(800),
+    importance: z.enum(["低", "中", "高"]),
+    introducedChapterId: z.string().max(120),
+    expectedResolutionChapter: z.string().max(120).optional(),
+    status: z.enum(["未處理", "進行中", "已解決", "已放棄"]),
+  })).max(80).default([]),
+  secrets: z.array(z.object({
+    id: z.string().max(120),
+    content: z.string().max(800),
+    knownBy: z.array(z.string().max(120)).default([]),
+    revealed: z.boolean().default(false),
+    revealedChapterId: z.string().max(120).optional(),
+  })).max(80).default([]),
+  importantItems: z.array(z.object({
+    id: z.string().max(120),
+    name: z.string().max(120),
+    owner: z.string().max(120).default(""),
+    location: z.string().max(200).default(""),
+    status: z.string().max(200).default(""),
+    lastSeenChapterId: z.string().max(120).default(""),
+  })).max(80).default([]),
+  worldState: z.object({
+    currentTime: z.string().max(200).default(""),
+    currentLocation: z.string().max(200).default(""),
+    majorEvents: z.array(z.string().max(300)).default([]),
+    activeRules: z.array(z.string().max(300)).default([]),
+  }).default({ currentTime: "", currentLocation: "", majorEvents: [], activeRules: [] }),
+  recentChoices: z.array(z.object({
+    chapterId: z.string().max(120),
+    choice: z.string().max(500),
+    consequence: z.string().max(500),
+  })).max(30).default([]),
+  forbiddenChanges: z.array(z.string().max(300)).max(50).default([]),
+  updatedAt: z.string().default(""),
+});
+
+export const MemoryUpdateCandidateSchema = z.object({
+  projectId: z.string().min(1).max(120),
+  chapterId: z.string().max(120).optional(),
+  originalCandidate: z.unknown().optional(),
+  chapterSummary: z.string().max(1200),
+  chapterResult: z.string().max(800),
+  endingHook: z.string().max(800),
+  characterUpdates: z.array(z.object({
+    characterName: z.string().max(120),
+    changedFields: z.record(z.string(), z.unknown()),
+    evidence: z.string().max(800),
+    decision: z.enum(["accept", "ignore"]).optional(),
+  })).default([]),
+  newUnresolvedEvents: z.array(z.object({
+    title: z.string().max(200),
+    description: z.string().max(800),
+    importance: z.enum(["低", "中", "高"]),
+    decision: z.enum(["accept", "ignore"]).optional(),
+  })).default([]),
+  resolvedEventIds: z.array(z.string().max(120)).default([]),
+  newSecrets: z.array(z.object({
+    content: z.string().max(800),
+    knownBy: z.array(z.string().max(120)).default([]),
+    decision: z.enum(["accept", "ignore"]).optional(),
+  })).default([]),
+  revealedSecretIds: z.array(z.string().max(120)).default([]),
+  itemUpdates: z.array(z.object({
+    itemName: z.string().max(120),
+    owner: z.string().max(120).optional(),
+    location: z.string().max(200).optional(),
+    status: z.string().max(200).optional(),
+    decision: z.enum(["accept", "ignore"]).optional(),
+  })).default([]),
+  worldStateUpdates: z.object({
+    currentTime: z.string().max(200).optional(),
+    currentLocation: z.string().max(200).optional(),
+    majorEvents: z.array(z.string().max(300)).optional(),
+  }).default({}),
+  continuityWarnings: z.array(z.string().max(500)).default([]),
 });
 
 export const ChapterPlanSchema = z.object({
@@ -103,10 +222,10 @@ const FeedbackBaseSchema = z.object({
 
 export const FeedbackSchema = FeedbackBaseSchema.superRefine((value, ctx) => {
   if (value.decision === "edited" && value.editedOutput == null) {
-    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受必須包含 editedOutput。" });
+    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受必須提供 editedOutput。" });
   }
   if (value.decision === "rejected" && (!value.rejectionReasons || value.rejectionReasons.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕必須至少選擇一個原因。" });
+    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕必須至少提供一個原因。" });
   }
 });
 
@@ -123,6 +242,8 @@ export const TrainingReviewSchema = z.object({
 export type StoryContext = z.infer<typeof StoryContextSchema>;
 export type StoryOption = z.infer<typeof StoryOptionSchema>;
 export type StoryAnalysis = z.infer<typeof StoryAnalysisSchema>;
+export type NovelMemory = z.infer<typeof NovelMemorySchema>;
+export type MemoryUpdateCandidate = z.infer<typeof MemoryUpdateCandidateSchema>;
 export type ChapterPlan = z.infer<typeof ChapterPlanSchema>;
 export type ContinuityReview = z.infer<typeof ContinuityReviewSchema>;
 export type FeedbackInput = z.infer<typeof FeedbackSchema>;

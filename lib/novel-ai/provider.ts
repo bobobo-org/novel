@@ -48,7 +48,7 @@ function extractJson(text: string): unknown {
     return JSON.parse(trimmed);
   } catch {
     const match = trimmed.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("模型沒有回傳 JSON。");
+    if (!match) throw new Error("模型回覆不是可解析的 JSON。");
     return JSON.parse(match[0]);
   }
 }
@@ -57,7 +57,7 @@ async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<
   const cfg = modelConfig();
   if (cfg.provider === "google") {
     if (!cfg.googleKey) {
-      throw new ModelConfigurationError("尚未設定 GOOGLE_GENERATIVE_AI_API_KEY，雲端專屬小說 AI 無法呼叫 Gemini。");
+      throw new ModelConfigurationError("尚未設定 GOOGLE_GENERATIVE_AI_API_KEY，無法呼叫 Gemini。");
     }
     const { text } = await generateText({
       model: google(cfg.model),
@@ -69,7 +69,7 @@ async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<
   }
 
   if (!cfg.apiKey) {
-    throw new ModelConfigurationError("尚未設定 AI_API_KEY，雲端專屬小說 AI 無法呼叫模型。");
+    throw new ModelConfigurationError("尚未設定 AI_API_KEY 或 OPENAI_API_KEY，無法呼叫 OpenAI-compatible 模型。");
   }
 
   const response = await fetch(cfg.baseUrl, {
@@ -96,14 +96,14 @@ async function callJsonModel(userPrompt: string, signal?: AbortSignal): Promise<
       const body = await response.json();
       code = typeof body?.error?.type === "string" ? body.error.type : code;
     } catch {
-      // Intentionally do not expose provider response bodies because they can contain
-      // redacted keys, request IDs, or deployment-specific metadata.
+      // Do not expose provider response bodies because they can contain request IDs
+      // or deployment-specific metadata.
     }
-    throw new Error(`模型呼叫失敗：HTTP ${response.status}（${code}）。請檢查伺服器端模型金鑰與 AI_BASE_URL。`);
+    throw new Error(`模型端點回應失敗：HTTP ${response.status}，${code}。請檢查模型、金鑰與 AI_BASE_URL。`);
   }
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("模型回應格式不含 content。");
+  if (typeof content !== "string") throw new Error("模型回覆缺少 choices[0].message.content。");
   return extractJson(content);
 }
 
@@ -113,16 +113,54 @@ async function withRepair<T>(prompt: string, parse: (value: unknown) => T): Prom
     return parse(first);
   } catch (error) {
     const repairPrompt =
-      `${prompt}\n\n上一輪 JSON 未通過驗證，錯誤如下：${error instanceof Error ? error.message : "未知錯誤"}\n` +
-      `請只回傳符合 schema 的修正 JSON，不要加入 Markdown。上一輪內容：${JSON.stringify(first).slice(0, 5000)}`;
+      `${prompt}\n\n上一版 JSON 未通過 schema，錯誤：${error instanceof Error ? error.message : "未知錯誤"}\n` +
+      `請只輸出符合 schema 的合法 JSON，不要 Markdown。上一版內容：${JSON.stringify(first).slice(0, 5000)}`;
     return parse(await callJsonModel(repairPrompt));
   }
+}
+
+function optionSimilarity(a: string, b: string): boolean {
+  const left = new Set(a.replace(/[^\p{L}\p{N}]/gu, "").split(""));
+  const right = new Set(b.replace(/[^\p{L}\p{N}]/gu, "").split(""));
+  const overlap = [...left].filter((x) => right.has(x)).length;
+  const denom = Math.max(left.size, right.size, 1);
+  return overlap / denom > 0.82;
+}
+
+function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): StoryAnalysis {
+  const warnings = [...(analysis.qualityGate?.warnings || [])];
+  const actions = analysis.options.map((x) => x.action.trim());
+  if (new Set(actions).size !== actions.length || optionSimilarity(actions[0], actions[1]) || optionSimilarity(actions[1], actions[2]) || optionSimilarity(actions[0], actions[2])) {
+    warnings.push("A/B/C 選項疑似過於相似，需要作者再確認差異。");
+  }
+  for (const option of analysis.options) {
+    if (option.action.length < 18) warnings.push(`${option.label} 選項行動過短，可能不夠具體。`);
+    if (option.risk === "高" && option.possibleCost.length < 4) warnings.push(`${option.label} 是高風險選項，但代價描述不足。`);
+    for (const forbidden of context.forbiddenChanges || []) {
+      if (forbidden && option.action.includes(forbidden)) warnings.push(`${option.label} 可能觸及禁止變更：${forbidden}`);
+    }
+  }
+  const evidence = [...(analysis.analysisEvidence || [])];
+  if (evidence.length === 0) {
+    evidence.push({
+      sourceType: "主角設定",
+      sourceLabel: context.protagonist.name || "主角",
+      reason: `選項需符合「${context.protagonist.archetype || "未設定原型"}」與行動方式「${context.protagonist.actionStyle || "未設定"}」。`,
+    });
+    if (context.previousChapterSummary) evidence.push({ sourceType: "上一章", sourceLabel: "上一章摘要", reason: context.previousChapterSummary.slice(0, 200) });
+    if (context.unresolvedEvents?.[0]) evidence.push({ sourceType: "未解事件", sourceLabel: "未解事件", reason: context.unresolvedEvents[0] });
+  }
+  return {
+    ...analysis,
+    analysisEvidence: evidence.slice(0, 12),
+    qualityGate: { passed: warnings.length === 0, warnings: [...new Set(warnings)].slice(0, 20) },
+  };
 }
 
 export class OpenAICompatibleNovelProvider implements NovelModelProvider {
   async analyzeStory(context: StoryContext): Promise<StoryAnalysis> {
     return withRepair(buildAnalysisPrompt(context), (value) =>
-      enforceOptionLabels(StoryAnalysisSchema.parse(value)),
+      applyQualityGate(context, enforceOptionLabels(StoryAnalysisSchema.parse(value))),
     );
   }
 

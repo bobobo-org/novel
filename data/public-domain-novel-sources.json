@@ -1,0 +1,30 @@
+[
+  {
+    "title": "三國志演義",
+    "source": "Project Gutenberg",
+    "url": "https://www.gutenberg.org/ebooks/23950",
+    "rights": "Public domain in the USA; verify local jurisdiction before full-text redistribution.",
+    "safeUse": "可萃取群像權謀、聯盟背叛、戰略反轉、章回鉤子等抽象敘事結構。"
+  },
+  {
+    "title": "西遊記",
+    "source": "Project Gutenberg",
+    "url": "https://www.gutenberg.org/ebooks/23962",
+    "rights": "Public domain in the USA; verify local jurisdiction before full-text redistribution.",
+    "safeUse": "可萃取取經任務、單元副本、師徒關係、妖怪試煉、能力限制等抽象敘事結構。"
+  },
+  {
+    "title": "Romance of the Three Kingdoms, Volume 1",
+    "source": "Project Gutenberg",
+    "url": "https://www.gutenberg.org/ebooks/77416",
+    "rights": "Public domain in the USA; verify local jurisdiction before full-text redistribution.",
+    "safeUse": "可作為英文公版章回結構參考，不直接複製文字。"
+  },
+  {
+    "title": "紅樓夢",
+    "source": "Reference entry",
+    "url": "https://en.wikipedia.org/wiki/Dream_of_the_Red_Chamber",
+    "rights": "Classical public-domain work; verify edition before ingesting full text.",
+    "safeUse": "可萃取家族群像、情感伏筆、物件象徵、盛衰結構等抽象敘事方法。"
+  }
+]
