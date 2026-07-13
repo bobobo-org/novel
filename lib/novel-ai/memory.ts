@@ -9,6 +9,7 @@ export const MEMORY_VERSION = "novel-memory-v3";
 export const MEMORY_UPDATER_VERSION = "memory-updater-v1";
 export const CONTEXT_BUILDER_VERSION = "context-builder-v6";
 export const SCHEMA_VERSION = "novel-ai-schema-v5";
+export const CORE_SYSTEM_VERSION = "dedicated-novel-ai-core-v2";
 
 type ContextTask = "story_analysis" | "chapter_plan" | "continuity_review" | "memory_update" | "writing";
 
@@ -274,6 +275,7 @@ export function confirmMemoryUpdate(candidate: MemoryUpdateCandidate): NovelMemo
         name: update.characterName,
         role: update.characterName === "主角" ? "主角" : "",
         archetype: "",
+        personality: String(update.changedFields.personality || ""),
         currentGoal: String(update.changedFields.currentGoal || ""),
         currentEmotion: String(update.changedFields.currentEmotion || ""),
         currentLocation: String(update.changedFields.currentLocation || ""),

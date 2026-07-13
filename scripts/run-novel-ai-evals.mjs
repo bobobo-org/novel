@@ -20,6 +20,11 @@ const results = rows.map((row) => {
   return { id: row.id, status: checks.every(Boolean) ? "PASS" : "FAIL", checks };
 });
 
+if (rows.length < 50) {
+  console.error(`FAIL eval-count expected >= 50, got ${rows.length}`);
+  process.exit(1);
+}
+
 for (const result of results) {
   console.log(`${result.status} ${result.id}`);
 }

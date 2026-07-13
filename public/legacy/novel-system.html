@@ -664,6 +664,7 @@ const t=data.trainingExamples||{},f=data.feedback||{},a=data.aiAbility||{},v=dat
 cloudNovelAiStatus(`${prefix}｜訓練資料 pending ${t.pending||0}、approved ${t.approved||0}、rejected ${t.rejected||0}、needs_revision ${t.needs_revision||0}，回饋 accepted ${f.accepted||0}、edited ${f.edited||0}、rejected ${f.rejected||0}`);
 cloudNovelAiLearningOut(`【AI能力與版本】
 Provider：${data.provider||'server'}
+Core：${v.coreSystemVersion||'unknown'}
 Prompt：${v.promptVersion||'unknown'}
 Story Analyzer：${v.storyAnalyzerVersion||'unknown'}
 Chapter Planner：${v.chapterPlannerVersion||'unknown'}
@@ -710,6 +711,7 @@ async function cloudNovelAiRunEvals(){try{const data=await cloudNovelAiFetch('/a
 Run：${r.evalRunId||'runtime'}
 Provider：${r.provider||'unknown'}
 模型：${r.model||'unknown'}
+Core：${r.coreSystemVersion||'unknown'}
 Prompt：${r.promptVersion||'unknown'}
 Context：${r.contextBuilderVersion||'unknown'}
 Memory：${r.memoryVersion||'unknown'}

@@ -9,6 +9,6 @@ export async function POST(req: Request) {
     const input = FeedbackSchema.parse(await req.json());
     return Response.json(recordFeedback(input));
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "AI 回饋保存失敗，但作品正文與原有 AI 結果仍然安全。", 400, "FEEDBACK_SAVE_ERROR");
+    return jsonError(error instanceof Error ? error.message : "AI 回饋儲存失敗，原有作品與 AI 結果仍然安全。", 400, "FEEDBACK_SAVE_ERROR");
   }
 }

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { CONTEXT_BUILDER_VERSION, MEMORY_UPDATER_VERSION, MEMORY_VERSION, SCHEMA_VERSION, memoryStats } from "./memory";
+import { CONTEXT_BUILDER_VERSION, CORE_SYSTEM_VERSION, MEMORY_UPDATER_VERSION, MEMORY_VERSION, SCHEMA_VERSION, memoryStats } from "./memory";
 import { AUTHOR_PREFERENCE_VERSION, preferenceStats, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
 import { QUALITY_GATE_VERSION } from "./provider";
@@ -257,6 +257,7 @@ export function trainingStats() {
     totalFeedback: feedback.length,
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
+      coreSystemVersion: CORE_SYSTEM_VERSION,
       promptVersion: PROMPT_VERSION,
       storyAnalyzerVersion: "story-analyzer-v8",
       chapterPlannerVersion: "chapter-planner-v8",

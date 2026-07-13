@@ -138,6 +138,7 @@ export const NovelMemorySchema = z.object({
     name: z.string().max(120),
     role: z.string().max(120).default(""),
     archetype: z.string().max(160).default(""),
+    personality: z.string().max(500).default(""),
     currentGoal: z.string().max(500).default(""),
     currentEmotion: z.string().max(300).default(""),
     currentLocation: z.string().max(300).default(""),
@@ -162,6 +163,7 @@ export const NovelMemorySchema = z.object({
     introducedChapterId: z.string().max(120),
     relatedCharacters: z.array(z.string().max(120)).default([]),
     expectedResolutionChapter: z.string().max(120).optional(),
+    expectedResolution: z.string().max(200).optional(),
     status: EventStatusSchema,
   })).max(80).default([]),
   secrets: z.array(z.object({

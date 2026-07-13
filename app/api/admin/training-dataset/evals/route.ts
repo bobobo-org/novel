@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     evalRunId: `eval_${Date.now()}`,
     provider: meta.provider,
     model: meta.model,
+    coreSystemVersion: stats.versions.coreSystemVersion,
     promptVersion: stats.versions.promptVersion,
     contextBuilderVersion: stats.versions.contextBuilderVersion,
     memoryVersion: stats.versions.memoryVersion,
