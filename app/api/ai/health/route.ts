@@ -1,18 +1,41 @@
 import { NextResponse } from "next/server";
 import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
-import { persistenceHealth } from "@/lib/novel-ai/persistence";
+import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from "@/lib/novel-ai/persistence";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const started = Date.now();
   const meta = providerMeta();
-  const runs = aiRunStats();
-  const stats = trainingStats();
+  const memoryRuns = aiRunStats();
+  const memoryStats = trainingStats();
+  const persistenceBeforeProbe = await persistenceHealth();
+  if (persistenceBeforeProbe.persistenceStatus === "ok") await runWriteProbe();
   const persistence = await persistenceHealth();
+  let runs: Record<string, unknown> = memoryRuns;
+  let stats: Record<string, unknown> = memoryStats;
+  const versions = memoryStats.versions;
+  if (persistence.persistenceStatus === "ok") {
+    try {
+      runs = { ...memoryRuns, ...(await dbAiRunStats()) };
+      stats = { ...memoryStats, ...(await dbTrainingStats(memoryStats.versions)) };
+    } catch {
+      runs = memoryRuns;
+      stats = memoryStats;
+    }
+  }
   const configured = meta.configured;
   const ping = configured ? await pingModel() : { ok: false, elapsedMs: 0, error: "MODEL_NOT_CONFIGURED" };
+  const writeTest = persistence.writeTestStatus && typeof persistence.writeTestStatus === "object"
+    ? {
+        status: persistence.writeTestStatus.status,
+        lastRunAt: persistence.writeTestStatus.lastRunAt,
+        latencyMs: persistence.writeTestStatus.latencyMs,
+        cleanupStatus: persistence.writeTestStatus.cleanupStatus,
+        errorCode: persistence.writeTestStatus.errorCode,
+      }
+    : persistence.writeTestStatus;
 
   return NextResponse.json({
     status: configured ? "ok" : "needs_configuration",
@@ -23,18 +46,18 @@ export async function GET() {
     model: meta.model,
     modelId: meta.modelId,
     modelVersion: meta.modelVersion,
-    analyzerVersion: stats.versions.storyAnalyzerVersion,
-    benchmarkVersion: stats.versions.candidateAnalyzerVersion,
+    analyzerVersion: versions.storyAnalyzerVersion,
+    benchmarkVersion: versions.candidateAnalyzerVersion,
+    databaseProvider: "supabase-postgres",
     database: persistence.storeType,
     storeType: persistence.storeType,
     persistenceStatus: persistence.persistenceStatus,
     databaseStatus: persistence.databaseStatus,
-    databaseProjectRef: persistence.databaseProjectRef,
     databaseLatencyMs: persistence.databaseLatencyMs,
     migrationVersion: persistence.migrationVersion,
-    writeTestStatus: persistence.writeTestStatus,
+    writeTestStatus: writeTest,
     lastSuccessfulWriteAt: persistence.lastSuccessfulWriteAt,
-    lastDatabaseError: persistence.lastDatabaseError,
+    lastDatabaseError: persistence.lastDatabaseError ? "database_error_available_in_admin_logs" : null,
     dualWriteStatus: persistence.dualWriteStatus,
     key: "server-only",
     fallbackEnabled: true,
@@ -45,10 +68,10 @@ export async function GET() {
     lastSuccessAt: runs.lastSuccessAt,
     lastAnalysisSuccessAt: runs.lastAnalysisSuccessAt,
     lastError: ping.ok ? runs.lastError : { createdAt: new Date().toISOString(), taskType: "health", errorCode: ping.error || "MODEL_HEALTH_FAILED" },
-    last24hSuccessRate: runs.last24hSuccessRate,
-    last24hFailureRate: runs.last24hFailureRate,
-    dailyTokenUsage: runs.dailyTokens,
-    monthlyEstimatedCost: runs.monthlyEstimatedCost,
+    last24hSuccessRate: runs.last24hSuccessRate ?? null,
+    last24hFailureRate: runs.last24hFailureRate ?? null,
+    dailyTokenUsage: runs.dailyTokens ?? null,
+    monthlyEstimatedCost: runs.monthlyEstimatedCost ?? null,
     trainingExamples: stats.trainingExamples,
     feedback: stats.feedback,
     settings: meta.settings,

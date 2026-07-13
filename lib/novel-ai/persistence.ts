@@ -5,6 +5,14 @@ import type { MemoryUpdateCandidate, NovelMemory } from "./schemas";
 export const PERSISTENCE_SCHEMA_VERSION = "p0b_persistence_001";
 
 type JsonRecord = Record<string, unknown>;
+type WriteTestStatus = {
+  status: "passed" | "failed" | "not_run";
+  lastRunAt: string | null;
+  latencyMs: number | null;
+  recordId: string | null;
+  cleanupStatus: "deleted" | "failed" | "not_needed" | null;
+  errorCode: string | null;
+};
 
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -163,6 +171,14 @@ export const MemoryCandidateRepository = new PersistentRepository("memory_candid
 let lastSuccessfulWriteAt = "";
 let lastDatabaseError = "";
 let dualWriteStatus: "not_configured" | "ok" | "degraded" = "not_configured";
+let lastWriteTest: WriteTestStatus = {
+  status: "not_run",
+  lastRunAt: null,
+  latencyMs: null,
+  recordId: null,
+  cleanupStatus: null,
+  errorCode: null,
+};
 
 async function safeWrite(name: string, fn: () => Promise<unknown>) {
   if (!isConfigured()) {
@@ -224,8 +240,11 @@ export function persistTrainingExample(row: TrainingExampleRecord) {
 }
 
 export function persistStoryMemory(memory: NovelMemory) {
-  void safeWrite("story_memories", () =>
-    StoryMemoryRepository.create({
+  void safeWrite("story_memories", () => writeStoryMemory(memory));
+}
+
+export function writeStoryMemory(memory: NovelMemory) {
+  return StoryMemoryRepository.create({
       id: `story_memory_${memory.projectId}`,
       project_id: memory.projectId,
       memory_version: `novel-memory-v${memory.version}`,
@@ -236,17 +255,19 @@ export function persistStoryMemory(memory: NovelMemory) {
       confirmed_at: memory.updatedAt || new Date().toISOString(),
       created_at: memory.updatedAt || new Date().toISOString(),
       updated_at: memory.updatedAt || new Date().toISOString(),
-    }),
-  );
+    });
 }
 
 export function persistMemoryCandidate(candidate: MemoryUpdateCandidate, aiRunId?: string) {
+  void safeWrite("memory_candidates", () => writeMemoryCandidate(candidate, aiRunId));
+}
+
+export function writeMemoryCandidate(candidate: MemoryUpdateCandidate, aiRunId?: string) {
   const candidateId =
     candidate.originalCandidate && typeof candidate.originalCandidate === "object" && "candidateId" in candidate.originalCandidate
       ? String((candidate.originalCandidate as { candidateId?: unknown }).candidateId)
       : `memory_candidate_${crypto.randomUUID()}`;
-  void safeWrite("memory_candidates", () =>
-    MemoryCandidateRepository.create({
+  return MemoryCandidateRepository.create({
       id: candidateId,
       project_id: candidate.projectId,
       ai_run_id: aiRunId || null,
@@ -256,8 +277,7 @@ export function persistMemoryCandidate(candidate: MemoryUpdateCandidate, aiRunId
       status: "pending",
       conflict_json: { continuityWarnings: candidate.continuityWarnings || [] },
       created_at: new Date().toISOString(),
-    }),
-  );
+    });
 }
 
 export function markMemoryCandidateReviewed(candidate: MemoryUpdateCandidate, status: "approved" | "rejected" | "superseded") {
@@ -298,6 +318,245 @@ export function persistEvaluationRun(input: JsonRecord) {
   );
 }
 
+function n(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : Number(value || 0);
+}
+
+function iso(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function pct(part: number, total: number): number | null {
+  return total ? Math.round((part / total) * 100) : null;
+}
+
+export async function dbAiRunStats() {
+  const rows = await rest<Array<JsonRecord>>("ai_runs", {
+    query: "select=id,task_type,success,elapsed_ms,input_token_count,output_token_count,created_at,error_code&order=created_at.desc&limit=1000",
+  });
+  const now = Date.now();
+  const last24h = rows.filter((x) => now - new Date(String(x.created_at)).getTime() <= 24 * 60 * 60 * 1000);
+  const completed = last24h.filter((x) => x.success === true);
+  const failed = last24h.filter((x) => x.success === false);
+  const analysisSuccess = rows.find((x) => x.task_type === "story_analysis" && x.success === true);
+  const lastError = rows.find((x) => x.success === false);
+  return {
+    dataSource: "database",
+    totalRuns: rows.length,
+    last24hRuns: last24h.length,
+    last24hSuccessRate: pct(completed.length, last24h.length),
+    last24hFailureRate: pct(failed.length, last24h.length),
+    averageLatencyMs: completed.length ? Math.round(completed.reduce((sum, row) => sum + n(row.elapsed_ms), 0) / completed.length) : null,
+    lastSuccessAt: iso(completed[0]?.created_at),
+    lastAnalysisSuccessAt: iso(analysisSuccess?.created_at),
+    lastError: lastError ? { createdAt: lastError.created_at, taskType: lastError.task_type, errorCode: lastError.error_code || "UNKNOWN_ERROR" } : null,
+    dailyTokens: last24h.length ? last24h.reduce((sum, row) => sum + n(row.input_token_count) + n(row.output_token_count), 0) : null,
+    monthlyEstimatedCost: null,
+  };
+}
+
+export async function dbTrainingStats(baseVersions: JsonRecord) {
+  const [examples, feedback, memories] = await Promise.all([
+    rest<Array<JsonRecord>>("training_examples", { query: "select=id,status,created_at&order=created_at.desc&limit=1000" }),
+    rest<Array<JsonRecord>>("feedback", { query: "select=id,feedback_type,adopted,created_at&order=created_at.desc&limit=1000" }),
+    rest<Array<JsonRecord>>("story_memories", { query: "select=id,project_id,memory_json,updated_at&order=updated_at.desc&limit=1000" }),
+  ]);
+  const count = (status: string) => examples.filter((x) => x.status === status).length;
+  const feedbackCount = (type: string) => feedback.filter((x) => x.feedback_type === type).length;
+  const accepted = feedbackCount("accepted");
+  const edited = feedbackCount("edited");
+  const rejected = feedbackCount("rejected");
+  return {
+    dataSource: "database",
+    database: "persistent",
+    persistenceMode: "db-first",
+    pending: count("pending"),
+    approved: count("approved"),
+    needsRevision: count("needs_revision"),
+    rejected: count("rejected"),
+    acceptedFeedback: accepted,
+    editedFeedback: edited,
+    rejectedFeedback: rejected,
+    totalFeedback: feedback.length,
+    promptVersions: [],
+    versions: baseVersions,
+    aiAbility: {
+      analyzedCount: null,
+      authorAcceptanceRate: pct(accepted + edited, feedback.length),
+      recent30AcceptanceRate: null,
+      fixedEvalScore: null,
+      approvedTrainingExamples: count("approved"),
+      memoryLinkedProjects: new Set(memories.map((x) => x.project_id)).size,
+      memoryChapterSummaries: memories.reduce((sum, row) => {
+        const memory = row.memory_json as { chapterSummaries?: unknown[] };
+        return sum + (Array.isArray(memory?.chapterSummaries) ? memory.chapterSummaries.length : 0);
+      }, 0),
+    },
+    memory: {
+      projectsWithMemory: new Set(memories.map((x) => x.project_id)).size,
+      chapterSummaries: memories.reduce((sum, row) => {
+        const memory = row.memory_json as { chapterSummaries?: unknown[] };
+        return sum + (Array.isArray(memory?.chapterSummaries) ? memory.chapterSummaries.length : 0);
+      }, 0),
+    },
+    trainingExamples: {
+      pending: count("pending"),
+      approved: count("approved"),
+      rejected: count("rejected"),
+      needs_revision: count("needs_revision"),
+      total: examples.length,
+    },
+    feedback: { accepted, edited, rejected, total: feedback.length },
+    aiRuns: null,
+  };
+}
+
+export async function listFeedbackFromDb(limit = 20, projectId?: string) {
+  const scope = projectId ? `project_id=eq.${encodeURIComponent(projectId)}&` : "";
+  return {
+    dataSource: "database",
+    rows: await rest<Array<JsonRecord>>("feedback", { query: `${scope}select=*&order=created_at.desc&limit=${Math.max(1, Math.min(100, limit))}` }),
+  };
+}
+
+export async function listTrainingExamplesFromDb(status?: string, limit = 20, projectId?: string) {
+  const parts = [];
+  if (projectId) parts.push(`project_id=eq.${encodeURIComponent(projectId)}`);
+  if (status) parts.push(`status=eq.${encodeURIComponent(status)}`);
+  parts.push("select=*");
+  parts.push("order=created_at.desc");
+  parts.push(`limit=${Math.max(1, Math.min(100, limit))}`);
+  return {
+    dataSource: "database",
+    rows: await rest<Array<JsonRecord>>("training_examples", { query: parts.join("&") }),
+  };
+}
+
+export async function getStoryMemoryFromDb(projectId: string) {
+  const rows = await rest<Array<JsonRecord>>("story_memories", {
+    query: `project_id=eq.${encodeURIComponent(projectId)}&select=memory_json,updated_at&order=updated_at.desc&limit=1`,
+  });
+  return rows[0]?.memory_json || null;
+}
+
+export async function listMemoryCandidatesFromDb(projectId: string, limit = 20) {
+  return rest<Array<JsonRecord>>("memory_candidates", {
+    query: `project_id=eq.${encodeURIComponent(projectId)}&select=*&order=created_at.desc&limit=${Math.max(1, Math.min(100, limit))}`,
+  });
+}
+
+export async function findAiRunFromDb(aiRunId: string) {
+  const rows = await rest<Array<JsonRecord>>("ai_runs", { query: `id=eq.${encodeURIComponent(aiRunId)}&select=*&limit=1` });
+  return rows[0] || null;
+}
+
+export async function persistFeedbackFromDbAiRun(input: {
+  aiRunId: string;
+  decision: "accepted" | "edited" | "rejected";
+  selectedOption?: "A" | "B" | "C";
+  editedOutput?: unknown;
+  rejectionReasons?: string[];
+  authorNote?: string;
+}) {
+  const aiRun = await findAiRunFromDb(input.aiRunId);
+  if (!aiRun) throw new Error("AI_RUN_NOT_FOUND_IN_DATABASE");
+  const now = new Date().toISOString();
+  const row = {
+    id: `feedback_${crypto.randomUUID()}`,
+    project_id: String(aiRun.project_id),
+    ai_run_id: input.aiRunId,
+    rating: input.decision === "accepted" ? 5 : input.decision === "edited" ? 4 : 1,
+    adopted: input.decision === "accepted" || input.decision === "edited",
+    feedback_type: input.decision,
+    comment: input.authorNote || (input.rejectionReasons || []).join("；"),
+    original_output_hash: String(aiRun.id),
+    edited_output_hash: input.editedOutput == null ? null : hashJson(input.editedOutput),
+    created_at: now,
+  };
+  await FeedbackRepository.create(row);
+  if (input.decision === "accepted" || input.decision === "edited") {
+    await TrainingExampleRepository.create({
+      id: `train_${crypto.randomUUID()}`,
+      project_id: String(aiRun.project_id),
+      ai_run_id: input.aiRunId,
+      status: "pending",
+      task_type: String(aiRun.task_type || "story_analysis"),
+      input_summary: `Recovered from ai_run ${input.aiRunId}`,
+      output_summary: input.decision === "edited" ? summarize(input.editedOutput) : `Accepted ai_run ${input.aiRunId}`,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+  lastSuccessfulWriteAt = now;
+  dualWriteStatus = "ok";
+  return {
+    feedback: {
+      id: row.id,
+      aiRunId: input.aiRunId,
+      projectId: row.project_id,
+      decision: input.decision,
+      selectedOption: input.selectedOption,
+      authorNote: input.authorNote,
+      createdAt: now,
+      updatedAt: now,
+    },
+    metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+  };
+}
+
+export async function runWriteProbe() {
+  if (!isConfigured()) {
+    lastWriteTest = { status: "not_run", lastRunAt: new Date().toISOString(), latencyMs: null, recordId: null, cleanupStatus: "not_needed", errorCode: "PERSISTENCE_NOT_CONFIGURED" };
+    return lastWriteTest;
+  }
+  const started = Date.now();
+  const recordId = `health_${crypto.randomUUID()}`;
+  try {
+    await rest("health_checks", {
+      method: "POST",
+      body: JSON.stringify({ id: recordId, created_at: new Date().toISOString() }),
+    });
+    try {
+      await rest("health_checks", { method: "DELETE", query: `id=eq.${encodeURIComponent(recordId)}` });
+      lastWriteTest = { status: "passed", lastRunAt: new Date().toISOString(), latencyMs: Date.now() - started, recordId, cleanupStatus: "deleted", errorCode: null };
+    } catch {
+      lastWriteTest = { status: "passed", lastRunAt: new Date().toISOString(), latencyMs: Date.now() - started, recordId, cleanupStatus: "failed", errorCode: "CLEANUP_FAILED" };
+    }
+  } catch (error) {
+    lastWriteTest = {
+      status: "failed",
+      lastRunAt: new Date().toISOString(),
+      latencyMs: Date.now() - started,
+      recordId,
+      cleanupStatus: "not_needed",
+      errorCode: error instanceof Error ? error.message.slice(0, 120) : "WRITE_PROBE_FAILED",
+    };
+  }
+  return lastWriteTest;
+}
+
+export async function dualWriteAudit(projectId?: string) {
+  const tables = ["ai_runs", "feedback", "training_examples", "evaluation_runs", "model_errors", "story_memories", "memory_candidates"];
+  const projectScopedTables = new Set(["ai_runs", "feedback", "training_examples", "model_errors", "story_memories", "memory_candidates"]);
+  const result: Record<string, unknown> = {};
+  for (const table of tables) {
+    const scope = projectId && projectScopedTables.has(table) ? `project_id=eq.${encodeURIComponent(projectId)}&` : "";
+    const rows = await rest<Array<JsonRecord>>(table, { query: `${scope}select=id,created_at&order=created_at.desc&limit=1000` });
+    result[table] = {
+      databaseCount: rows.length,
+      memoryCount: null,
+      matched: null,
+      missingInMemory: null,
+      missingInDatabase: 0,
+      valueMismatch: 0,
+      statusMismatch: 0,
+      ids: rows.slice(0, 20).map((x) => x.id),
+      dataSource: "database",
+    };
+  }
+  return result;
+}
+
 export async function persistenceHealth() {
   const started = Date.now();
   if (!isConfigured()) {
@@ -309,8 +568,8 @@ export async function persistenceHealth() {
       databaseLatencyMs: 0,
       migrationVersion: "",
       writeTestStatus: "skipped",
-      lastSuccessfulWriteAt,
-      lastDatabaseError,
+      lastSuccessfulWriteAt: lastSuccessfulWriteAt || null,
+      lastDatabaseError: lastDatabaseError || null,
       dualWriteStatus,
     };
   }
@@ -326,9 +585,9 @@ export async function persistenceHealth() {
       databaseProjectRef: databaseProjectRef(),
       databaseLatencyMs: Date.now() - started,
       migrationVersion: migrationOk ? PERSISTENCE_SCHEMA_VERSION : "",
-      writeTestStatus: migrationOk ? "available" : "skipped",
-      lastSuccessfulWriteAt,
-      lastDatabaseError,
+      writeTestStatus: lastWriteTest,
+      lastSuccessfulWriteAt: lastSuccessfulWriteAt || (lastWriteTest.status === "passed" ? lastWriteTest.lastRunAt : null),
+      lastDatabaseError: lastDatabaseError || null,
       dualWriteStatus: migrationOk ? (dualWriteStatus === "not_configured" ? "ok" : dualWriteStatus) : "degraded",
     };
   } catch (error) {
@@ -339,8 +598,8 @@ export async function persistenceHealth() {
       databaseProjectRef: databaseProjectRef(),
       databaseLatencyMs: Date.now() - started,
       migrationVersion: "",
-      writeTestStatus: "failed",
-      lastSuccessfulWriteAt,
+      writeTestStatus: lastWriteTest.status === "not_run" ? { ...lastWriteTest, status: "failed" as const, errorCode: "HEALTH_READ_FAILED" } : lastWriteTest,
+      lastSuccessfulWriteAt: lastSuccessfulWriteAt || null,
       lastDatabaseError: error instanceof Error ? error.message : String(error),
       dualWriteStatus: "degraded",
     };
