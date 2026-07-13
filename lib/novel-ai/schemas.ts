@@ -90,18 +90,34 @@ export const ContinuityReviewSchema = z.object({
   suggestedFixes: z.array(z.string().max(500)).max(20),
 });
 
-export const FeedbackSchema = z.object({
-  projectId: z.string().min(1).max(120),
-  chapterId: z.string().max(120).optional(),
-  taskType: z.enum(["story_analysis", "chapter_plan", "continuity_review"]),
-  inputContext: StoryContextSchema,
-  modelOutput: z.unknown(),
+export const AiTaskTypeSchema = z.enum(["story_analysis", "story_options", "chapter_plan", "continuity_review"]);
+
+const FeedbackBaseSchema = z.object({
+  aiRunId: z.string().min(1).max(120),
   decision: z.enum(["accepted", "edited", "rejected"]),
   selectedOption: z.enum(["A", "B", "C"]).optional(),
   editedOutput: z.unknown().optional(),
   rejectionReasons: z.array(z.string().max(200)).max(20).optional(),
   authorNote: z.string().max(1000).optional(),
-  aiRunId: z.string().max(120).optional(),
+});
+
+export const FeedbackSchema = FeedbackBaseSchema.superRefine((value, ctx) => {
+  if (value.decision === "edited" && value.editedOutput == null) {
+    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "修改後接受必須包含 editedOutput。" });
+  }
+  if (value.decision === "rejected" && (!value.rejectionReasons || value.rejectionReasons.length === 0)) {
+    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "拒絕必須至少選擇一個原因。" });
+  }
+});
+
+export const FeedbackPatchSchema = FeedbackBaseSchema.partial().extend({
+  reviewerNote: z.string().max(1000).optional(),
+});
+
+export const TrainingReviewSchema = z.object({
+  qualityStatus: z.enum(["approved", "rejected", "needs_revision"]),
+  reviewerNote: z.string().max(1000).optional(),
+  editedIdealOutput: z.unknown().optional(),
 });
 
 export type StoryContext = z.infer<typeof StoryContextSchema>;
@@ -110,6 +126,8 @@ export type StoryAnalysis = z.infer<typeof StoryAnalysisSchema>;
 export type ChapterPlan = z.infer<typeof ChapterPlanSchema>;
 export type ContinuityReview = z.infer<typeof ContinuityReviewSchema>;
 export type FeedbackInput = z.infer<typeof FeedbackSchema>;
+export type FeedbackPatchInput = z.infer<typeof FeedbackPatchSchema>;
+export type TrainingReviewInput = z.infer<typeof TrainingReviewSchema>;
 
 export function enforceOptionLabels(analysis: StoryAnalysis): StoryAnalysis {
   return {

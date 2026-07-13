@@ -16,6 +16,8 @@ model AiRun {
   model         String
   promptVersion String
   inputHash     String
+  inputContext  Json
+  modelOutput   Json?
   latencyMs     Int
   inputTokens   Int?
   outputTokens  Int?
@@ -42,6 +44,7 @@ model AiFeedback {
   rejectionReasons Json?
   authorNote       String?
   createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   aiRun AiRun? @relation(fields: [aiRunId], references: [id])
   trainingExamples TrainingExample[]
@@ -55,10 +58,12 @@ model TrainingExample {
   projectId        String
   sourceFeedbackId String
   taskType         String
+  promptVersion    String
   systemPrompt     String
   userInput        Json
   idealOutput      Json
   qualityStatus    String
+  reviewerNote     String?
   reviewedAt       DateTime?
   createdAt        DateTime @default(now())
 

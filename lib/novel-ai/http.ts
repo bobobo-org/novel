@@ -7,7 +7,7 @@ export function jsonError(message: string, status = 400, code = "BAD_REQUEST") {
 }
 
 export async function timedRun<T>(
-  taskType: "story_analysis" | "chapter_plan" | "continuity_review",
+  taskType: "story_analysis" | "story_options" | "chapter_plan" | "continuity_review",
   projectId: string,
   chapterId: string | undefined,
   input: unknown,
@@ -24,8 +24,10 @@ export async function timedRun<T>(
       provider: meta.provider,
       model: meta.model,
       inputHash: inputHash(input),
+      inputContext: input,
+      modelOutput: result,
       latencyMs: Date.now() - started,
-      status: "success",
+      status: "completed",
     });
     return { result, aiRun };
   } catch (error) {
@@ -36,8 +38,9 @@ export async function timedRun<T>(
       provider: meta.provider,
       model: meta.model,
       inputHash: inputHash(input),
+      inputContext: input,
       latencyMs: Date.now() - started,
-      status: "error",
+      status: "failed",
       errorCode: error instanceof Error ? error.name : "UNKNOWN_ERROR",
     });
     throw error;
