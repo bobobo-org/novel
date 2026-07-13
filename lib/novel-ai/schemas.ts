@@ -40,6 +40,7 @@ export const StoryContextSchema = z.object({
   chapterGoal: z.string().max(800).optional(),
   authorInstruction: z.string().max(1200).optional(),
   novelMemory: z.unknown().optional(),
+  authorPreference: z.unknown().optional(),
   contextSelection: z.array(z.string().max(300)).max(50).optional(),
 });
 

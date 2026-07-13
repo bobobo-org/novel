@@ -39,6 +39,8 @@ export async function POST(req: Request) {
     promptVersion: stats.versions.promptVersion,
     contextBuilderVersion: stats.versions.contextBuilderVersion,
     memoryVersion: stats.versions.memoryVersion,
+    preferenceVersion: stats.versions.preferenceVersion,
+    qualityGateVersion: stats.versions.qualityGateVersion,
     totalCases: total,
     scores,
     failures: rows.filter((row) => !row.context?.projectId).map((row) => ({ caseId: row.id, failedRules: ["missing projectId"], output: null })),

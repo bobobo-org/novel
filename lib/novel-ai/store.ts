@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { CONTEXT_BUILDER_VERSION, MEMORY_VERSION, SCHEMA_VERSION } from "./memory";
+import { AUTHOR_PREFERENCE_VERSION, updateAuthorPreference, type AuthorPreferenceProfile } from "./preference";
 import { PROMPT_VERSION, STORY_ANALYZER_SYSTEM_PROMPT } from "./prompts";
 import { QUALITY_GATE_VERSION } from "./provider";
 import type { FeedbackInput, FeedbackPatchInput, TrainingReviewInput } from "./schemas";
@@ -16,6 +17,7 @@ export type AiRunRecord = {
   promptVersion: string;
   contextBuilderVersion: string;
   memoryVersion: string;
+  preferenceVersion: string;
   qualityGateVersion: string;
   inputHash: string;
   inputContext: unknown;
@@ -52,6 +54,7 @@ export type TrainingExampleRecord = {
   promptVersion: string;
   contextBuilderVersion: string;
   memoryVersion: string;
+  preferenceVersion: string;
   qualityGateVersion: string;
   systemPrompt: string;
   userInput: unknown;
@@ -85,12 +88,13 @@ export function inputHash(input: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
-export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion" | "contextBuilderVersion" | "memoryVersion" | "qualityGateVersion">): AiRunRecord {
+export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promptVersion" | "contextBuilderVersion" | "memoryVersion" | "preferenceVersion" | "qualityGateVersion">): AiRunRecord {
   const row: AiRunRecord = {
     id: id("airun"),
     promptVersion: PROMPT_VERSION,
     contextBuilderVersion: CONTEXT_BUILDER_VERSION,
     memoryVersion: MEMORY_VERSION,
+    preferenceVersion: AUTHOR_PREFERENCE_VERSION,
     qualityGateVersion: QUALITY_GATE_VERSION,
     createdAt: new Date().toISOString(),
     ...input,
@@ -99,7 +103,7 @@ export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promp
   return row;
 }
 
-export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackRecord; trainingExample?: TrainingExampleRecord } {
+export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackRecord; trainingExample?: TrainingExampleRecord; preference: AuthorPreferenceProfile } {
   const aiRun = store().aiRuns.find((x) => x.id === input.aiRunId);
   if (!aiRun) throw new Error("找不到對應的 AI 執行紀錄。");
   if (store().feedback.some((x) => x.aiRunId === input.aiRunId)) {
@@ -121,6 +125,15 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
     updatedAt: now,
   };
   store().feedback.unshift(feedback);
+  const preference = updateAuthorPreference({
+    projectId: aiRun.projectId,
+    decision: input.decision,
+    selectedOption: input.selectedOption,
+    originalOutput: aiRun.modelOutput,
+    editedOutput: input.editedOutput,
+    rejectionReasons: input.rejectionReasons,
+    authorNote: input.authorNote,
+  });
 
   let trainingExample: TrainingExampleRecord | undefined;
   if (input.decision === "accepted" || input.decision === "edited") {
@@ -132,6 +145,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
       promptVersion: aiRun.promptVersion,
       contextBuilderVersion: aiRun.contextBuilderVersion,
       memoryVersion: aiRun.memoryVersion,
+      preferenceVersion: aiRun.preferenceVersion,
       qualityGateVersion: aiRun.qualityGateVersion,
       systemPrompt: STORY_ANALYZER_SYSTEM_PROMPT,
       userInput: aiRun.inputContext,
@@ -142,7 +156,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
     store().trainingExamples.unshift(trainingExample);
   }
 
-  return { feedback, trainingExample };
+  return { feedback, trainingExample, preference };
 }
 
 export function patchFeedback(feedbackId: string, patch: FeedbackPatchInput) {
@@ -238,10 +252,11 @@ export function trainingStats() {
     promptVersions: [...new Set(examples.map((x) => x.promptVersion))],
     versions: {
       promptVersion: PROMPT_VERSION,
-      storyAnalyzerVersion: "story-analyzer-v4",
-      chapterPlannerVersion: "chapter-planner-v4",
-      continuityReviewerVersion: "continuity-reviewer-v4",
+      storyAnalyzerVersion: "story-analyzer-v5",
+      chapterPlannerVersion: "chapter-planner-v5",
+      continuityReviewerVersion: "continuity-reviewer-v5",
       memoryVersion: MEMORY_VERSION,
+      preferenceVersion: AUTHOR_PREFERENCE_VERSION,
       contextBuilderVersion: CONTEXT_BUILDER_VERSION,
       schemaVersion: SCHEMA_VERSION,
       qualityGateVersion: QUALITY_GATE_VERSION,
@@ -290,6 +305,7 @@ export function exportApprovedJsonl(): string {
           promptVersion: x.promptVersion,
           contextBuilderVersion: x.contextBuilderVersion,
           memoryVersion: x.memoryVersion,
+          preferenceVersion: x.preferenceVersion,
           qualityGateVersion: x.qualityGateVersion,
           sourceFeedbackId: x.sourceFeedbackId,
         },

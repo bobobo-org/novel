@@ -18,7 +18,7 @@ import {
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 
-export const QUALITY_GATE_VERSION = "quality-gate-v1";
+export const QUALITY_GATE_VERSION = "quality-gate-v2";
 
 export interface NovelModelProvider {
   analyzeStory(context: StoryContext): Promise<StoryAnalysis>;
@@ -132,6 +132,11 @@ function optionSimilarity(a: string, b: string): boolean {
 function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): StoryAnalysis {
   const warnings = [...(analysis.qualityGate?.warnings || [])];
   const actions = analysis.options.map((x) => x.action.trim());
+  const preference = (context.authorPreference || {}) as {
+    forbiddenCharacterBehaviors?: string[];
+    rejectedStrategyPatterns?: string[];
+    repeatedRejectionReasons?: Array<{ reason?: string; count?: number }>;
+  };
   if (new Set(actions).size !== actions.length || optionSimilarity(actions[0], actions[1]) || optionSimilarity(actions[1], actions[2]) || optionSimilarity(actions[0], actions[2])) {
     warnings.push("A/B/C 選項疑似過於相似，需要作者再確認差異。");
   }
@@ -140,6 +145,17 @@ function applyQualityGate(context: StoryContext, analysis: StoryAnalysis): Story
     if (option.risk === "高" && option.possibleCost.length < 4) warnings.push(`${option.label} 是高風險選項，但代價描述不足。`);
     for (const forbidden of context.forbiddenChanges || []) {
       if (forbidden && option.action.includes(forbidden)) warnings.push(`${option.label} 可能觸及禁止變更：${forbidden}`);
+    }
+    for (const forbiddenBehavior of preference.forbiddenCharacterBehaviors || []) {
+      if (forbiddenBehavior && option.action.includes(forbiddenBehavior.slice(0, 24))) warnings.push(`${option.label} 可能踩到作者避雷行為。`);
+    }
+    for (const rejectedStrategy of preference.rejectedStrategyPatterns || []) {
+      if (rejectedStrategy && option.strategyType.includes(rejectedStrategy)) warnings.push(`${option.label} 使用了作者曾拒絕的策略類型：${rejectedStrategy}`);
+    }
+  }
+  for (const reason of preference.repeatedRejectionReasons || []) {
+    if ((reason.count || 0) >= 2 && actions.some((action) => reason.reason && action.includes(reason.reason.slice(0, 16)))) {
+      warnings.push(`候選內容可能重複踩到作者反覆拒絕原因：${reason.reason}`);
     }
   }
   const evidence = [...(analysis.analysisEvidence || [])];

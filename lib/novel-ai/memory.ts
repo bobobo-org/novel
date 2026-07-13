@@ -1,11 +1,12 @@
 import crypto from "crypto";
 import { MemoryUpdateCandidateSchema, NovelMemorySchema, type MemoryUpdateCandidate, type NovelMemory, type StoryContext } from "./schemas";
+import { AUTHOR_PREFERENCE_VERSION, getAuthorPreference } from "./preference";
 
 type MemoryStore = { memories: Record<string, NovelMemory>; candidates: Record<string, MemoryUpdateCandidate> };
 const globalMemory = globalThis as typeof globalThis & { __novelMemoryStore?: MemoryStore };
 
 export const MEMORY_VERSION = "novel-memory-v1";
-export const CONTEXT_BUILDER_VERSION = "context-builder-v2";
+export const CONTEXT_BUILDER_VERSION = "context-builder-v3";
 export const SCHEMA_VERSION = "novel-ai-schema-v4";
 
 function db(): MemoryStore {
@@ -35,6 +36,7 @@ function compact<T>(items: T[], limit: number): T[] {
 
 export function buildTaskContext(context: StoryContext, task: "story_analysis" | "chapter_plan" | "continuity_review"): StoryContext {
   const memory = getNovelMemory(context.projectId);
+  const preference = getAuthorPreference(context.projectId);
   const selected: string[] = [];
   const relevantEvents = memory.unresolvedEvents.filter((x) => x.status === "未處理" || x.status === "進行中").slice(0, 8);
   const hiddenSecrets = memory.secrets.filter((x) => !x.revealed).slice(0, 8);
@@ -51,6 +53,7 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
   if (items.length) selected.push("重要道具");
   if (memory.worldState.currentLocation || memory.worldState.currentTime) selected.push("世界狀態");
   if (context.forbiddenChanges.length || memory.forbiddenChanges.length) selected.push("禁止變更");
+  if (preference.preferredStrategyPatterns.length || preference.repeatedRejectionReasons.length) selected.push("作者偏好學習");
 
   return {
     ...context,
@@ -71,6 +74,17 @@ export function buildTaskContext(context: StoryContext, task: "story_analysis" |
       unrevealedSecrets: hiddenSecrets,
       importantItems: items,
       worldState: memory.worldState,
+    },
+    authorPreference: {
+      version: AUTHOR_PREFERENCE_VERSION,
+      preferredStrategyPatterns: preference.preferredStrategyPatterns.slice(0, 10),
+      rejectedStrategyPatterns: preference.rejectedStrategyPatterns.slice(0, 10),
+      preferredPacing: preference.preferredPacing.slice(0, 10),
+      dislikedPacing: preference.dislikedPacing.slice(0, 10),
+      preferredCharacterBehaviors: preference.preferredCharacterBehaviors.slice(0, 8),
+      forbiddenCharacterBehaviors: preference.forbiddenCharacterBehaviors.slice(0, 8),
+      preferredEndingHooks: preference.preferredEndingHooks.slice(0, 8),
+      repeatedRejectionReasons: preference.repeatedRejectionReasons.slice(0, 10),
     },
     contextSelection: selected,
   };
