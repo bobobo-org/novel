@@ -27,20 +27,44 @@ const CompareSchema = z.object({
   candidate: OutputSchema,
 });
 
+function average(values: number[]) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+function optionSimilarity(a: string, b: string): boolean {
+  const left = new Set(a.replace(/[^\p{L}\p{N}]/gu, "").split(""));
+  const right = new Set(b.replace(/[^\p{L}\p{N}]/gu, "").split(""));
+  const overlap = [...left].filter((x) => right.has(x)).length;
+  return overlap / Math.max(left.size, right.size, 1) > 0.82;
+}
+
 function scoreOutput(value: z.infer<typeof OutputSchema>) {
   const options = value.options || [];
-  const actionSet = new Set(options.map((x) => (x.action || "").trim()).filter(Boolean));
-  const optionScore = options.length >= 3 && actionSet.size >= 3 ? 25 : options.length * 5;
+  const actions = options.map((x) => (x.action || "").trim()).filter(Boolean);
+  const actionSet = new Set(actions);
+  const hasThreeDifferentOptions = options.length >= 3 && actionSet.size >= 3 && !optionSimilarity(actions[0] || "", actions[1] || "") && !optionSimilarity(actions[0] || "", actions[2] || "") && !optionSimilarity(actions[1] || "", actions[2] || "");
+  const optionStructureScore = hasThreeDifferentOptions ? 25 : Math.min(20, options.length * 5 + actionSet.size * 2);
   const scoreValues = options
     .flatMap((x) => [x.characterFitScore, x.plotProgressScore, x.noveltyScore])
     .filter((x): x is number => typeof x === "number");
-  const averageOptionScore = scoreValues.length ? scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length : 0;
-  const evidenceScore = Math.min(20, (value.analysisEvidence || []).length * 8);
-  const gateScore = value.qualityGate?.passed ? 20 : Math.max(0, 12 - (value.qualityGate?.warnings || []).length * 2);
-  const analysisScore = value.analysisScores
-    ? Math.min(20, Object.values(value.analysisScores).reduce((a, b) => a + b, 0) / Math.max(1, Object.values(value.analysisScores).length) * 2)
-    : 0;
-  return Math.round(Math.min(100, optionScore + averageOptionScore * 3 + evidenceScore + gateScore + analysisScore));
+  const averageOptionScore = average(scoreValues);
+  const evidenceCount = (value.analysisEvidence || []).length;
+  const evidenceScore = Math.min(20, evidenceCount * 8);
+  const gateWarnings = value.qualityGate?.warnings || [];
+  const gateScore = value.qualityGate?.passed ? 20 : Math.max(0, 12 - gateWarnings.length * 2);
+  const analysisScore = value.analysisScores ? Math.min(20, average(Object.values(value.analysisScores)) * 2) : 0;
+  const total = Math.round(Math.min(100, optionStructureScore + averageOptionScore * 3 + evidenceScore + gateScore + analysisScore));
+  return {
+    total,
+    optionStructureScore,
+    averageOptionScore: Math.round(averageOptionScore * 10) / 10,
+    evidenceScore,
+    gateScore,
+    analysisScore: Math.round(analysisScore),
+    evidenceCount,
+    hasThreeDifferentOptions,
+    warnings: gateWarnings,
+  };
 }
 
 export async function POST(req: Request) {
@@ -51,22 +75,39 @@ export async function POST(req: Request) {
     const stats = trainingStats();
     const currentScore = scoreOutput(input.current);
     const candidateScore = scoreOutput(input.candidate);
+    const delta = candidateScore.total - currentScore.total;
     return Response.json({
       provider: providerMeta().provider,
       model: providerMeta().model,
-      versions: stats.versions,
+      versions: {
+        ...stats.versions,
+        currentAnalyzerVersion: "story-analyzer-v8",
+        candidateAnalyzerVersion: "story-analyzer-v9",
+      },
       current: {
-        score: currentScore,
+        label: "Current",
+        analyzerVersion: "story-analyzer-v8",
+        score: currentScore.total,
         optionCount: input.current.options?.length || 0,
-        warnings: input.current.qualityGate?.warnings || [],
+        qualityGatePassed: Boolean(input.current.qualityGate?.passed),
+        breakdown: currentScore,
       },
       candidate: {
-        score: candidateScore,
+        label: "Candidate",
+        analyzerVersion: "story-analyzer-v9",
+        score: candidateScore.total,
         optionCount: input.candidate.options?.length || 0,
-        warnings: input.candidate.qualityGate?.warnings || [],
+        qualityGatePassed: Boolean(input.candidate.qualityGate?.passed),
+        breakdown: candidateScore,
       },
-      winner: candidateScore > currentScore ? "candidate" : currentScore > candidateScore ? "current" : "tie",
-      delta: candidateScore - currentScore,
+      winner: candidateScore.total > currentScore.total ? "candidate" : currentScore.total > candidateScore.total ? "current" : "tie",
+      delta,
+      promotionReady: candidateScore.total >= currentScore.total && candidateScore.hasThreeDifferentOptions && candidateScore.evidenceCount >= 2 && candidateScore.warnings.length === 0,
+      recommendation: delta > 0
+        ? "Candidate 較適合進入下一輪實測。"
+        : delta < 0
+          ? "Current 仍較穩定，Candidate 需要修正。"
+          : "兩者分數相同，請以作者實測回饋決定。",
       createdAt: new Date().toISOString(),
     });
   } catch (error) {

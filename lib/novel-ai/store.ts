@@ -259,7 +259,9 @@ export function trainingStats() {
     versions: {
       coreSystemVersion: CORE_SYSTEM_VERSION,
       promptVersion: PROMPT_VERSION,
-      storyAnalyzerVersion: "story-analyzer-v8",
+      storyAnalyzerVersion: PROMPT_VERSION,
+      currentAnalyzerVersion: "story-analyzer-v8",
+      candidateAnalyzerVersion: "story-analyzer-v9",
       chapterPlannerVersion: "chapter-planner-v8",
       continuityReviewerVersion: "continuity-reviewer-v8",
       memoryUpdaterVersion: MEMORY_UPDATER_VERSION,

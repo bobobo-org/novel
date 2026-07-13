@@ -96,7 +96,7 @@ body{font-size:16px}
 </style>
 </head>
 <body>
-<div class="app"><aside class="side"><div class="brand">諸天創作中心<small>離線小說平台版</small></div><div class="nav"><div class="navTitle">AI-Assisted Generation</div><button data-view="creation" class="active">快速創作</button><button data-view="breakdown">AI 書籍拆解</button><button data-view="chatnovel">ChatNovel 接力</button><button data-view="tastecoach">聊天閱讀創作助理</button><button data-view="bookcast">每日書摘播報</button><button data-view="miniai">小型閉端AI</button><button data-view="batchlab">多章批量操作</button><div class="navTitle">Explore</div><button data-view="home">首頁探索</button><button data-view="library">分類書庫</button><button data-view="cloudlib">雲端借閱書庫</button><button data-view="characters">角色廣場</button><button data-view="styles">文風廣場</button><button data-view="interactive">互動故事</button><button data-view="tasks">任務中心</button><button data-view="events">活動中心</button><button data-view="rankings">排行榜</button><button data-view="tags">全部標籤</button><div class="navTitle">Creator</div><button data-view="writer">作家中心</button><button data-view="seriallab">連載儀表板</button><button data-view="readerlab">讀者互動</button><button data-view="taglab">標籤工坊</button><button data-view="ipcenter">IP 改編庫</button><button data-view="platforms">平台比較</button><div class="navTitle">You</div><button data-view="bookshelf">我的書架</button><button data-view="export">存檔 / 匯出</button></div></aside><main class="main"><div class="top"><div class="search"><span>搜尋</span><input id="searchBox" placeholder="輸入題材、角色、風格，按 Enter 搜尋" oninput="handleSearchInput()" onkeydown="if(event.key==='Enter') handleSearchEnter()"></div><span class="pill">97 類題材</span><span class="pill">本機資料庫</span><span class="pill">可接外部 AI</span></div><div id="visibleVersionMarker" class="notice" style="margin-bottom:14px;border-left-color:#f2c86b;background:rgba(242,200,107,.1);color:#ffe4a1;font-weight:900">版本：Guided Local Loop｜三種寫作模式＋主角連動＋五輪引導｜專屬小說AI核心 story-analyzer-v8</div>
+<div class="app"><aside class="side"><div class="brand">諸天創作中心<small>離線小說平台版</small></div><div class="nav"><div class="navTitle">AI-Assisted Generation</div><button data-view="creation" class="active">快速創作</button><button data-view="breakdown">AI 書籍拆解</button><button data-view="chatnovel">ChatNovel 接力</button><button data-view="tastecoach">聊天閱讀創作助理</button><button data-view="bookcast">每日書摘播報</button><button data-view="miniai">小型閉端AI</button><button data-view="batchlab">多章批量操作</button><div class="navTitle">Explore</div><button data-view="home">首頁探索</button><button data-view="library">分類書庫</button><button data-view="cloudlib">雲端借閱書庫</button><button data-view="characters">角色廣場</button><button data-view="styles">文風廣場</button><button data-view="interactive">互動故事</button><button data-view="tasks">任務中心</button><button data-view="events">活動中心</button><button data-view="rankings">排行榜</button><button data-view="tags">全部標籤</button><div class="navTitle">Creator</div><button data-view="writer">作家中心</button><button data-view="seriallab">連載儀表板</button><button data-view="readerlab">讀者互動</button><button data-view="taglab">標籤工坊</button><button data-view="ipcenter">IP 改編庫</button><button data-view="platforms">平台比較</button><div class="navTitle">You</div><button data-view="bookshelf">我的書架</button><button data-view="export">存檔 / 匯出</button></div></aside><main class="main"><div class="top"><div class="search"><span>搜尋</span><input id="searchBox" placeholder="輸入題材、角色、風格，按 Enter 搜尋" oninput="handleSearchInput()" onkeydown="if(event.key==='Enter') handleSearchEnter()"></div><span class="pill">97 類題材</span><span class="pill">本機資料庫</span><span class="pill">可接外部 AI</span></div><div id="visibleVersionMarker" class="notice" style="margin-bottom:14px;border-left-color:#f2c86b;background:rgba(242,200,107,.1);color:#ffe4a1;font-weight:900">版本：Guided Local Loop｜三種寫作模式＋主角連動＋五輪引導｜專屬小說AI核心 story-analyzer-v9</div>
 <section id="view-home" class="view"><div class="hero"><h1>像小說平台一樣探索，像遊戲一樣創作</h1><p class="muted">保留你的諸天萬界系統內容，加入讀者平台式的發現機制：熱門搜尋、換一換推薦、近期賽事、讀券推薦、熱門排行、潛力新作與最新連載，全部離線生成。</p></div><div class="sectionHead"><h2>熱門搜尋</h2><button class="btn" onclick="shuffleHotSearches()">換一批</button></div><div id="hotSearchChips" class="miniRow"></div><div class="sectionHead"><h2>不可錯過的推薦作品</h2><button class="btn" onclick="renderExplore(true)">換一換</button></div><div class="bar"><button class="active" onclick="setOrder('popular')">Popular</button><button onclick="setOrder('new')">New</button><button onclick="setRange('weekly')">Weekly</button><button onclick="setRange('month')">Month</button><button onclick="setRange('all')">All</button></div><p id="searchStatus" class="notice">輸入關鍵字後按 Enter，可搜尋題材、細分類、標籤與作品名。</p><div id="exploreGrid" class="grid"></div><div class="sectionHead"><h2>近期賽事</h2><button class="btn" onclick="showView('events')">更多</button></div><div id="homeContestRow" class="miniRow"></div><div class="sectionHead"><h2>讀券推薦作品</h2><button class="btn" onclick="renderCouponPicks()">換一換</button></div><div id="couponPicks" class="miniRow"></div><div class="sectionHead"><h2>潛力新作</h2><button class="btn" onclick="renderPotentialPicks()">更多新作</button></div><div id="potentialPicks" class="miniRow"></div><div class="sectionHead"><h2>最新連載</h2><button class="btn" onclick="renderLatestSerials()">更新</button></div><div id="latestSerials" class="miniRow"></div><div class="sectionHead"><h2>連載成長工具</h2><button class="btn" onclick="showView('seriallab')">查看</button></div><div id="serialToolRow" class="miniRow"></div><div class="sectionHead"><h2>讀者互動工具</h2><button class="btn" onclick="showView('readerlab')">查看</button></div><div id="readerToolRow" class="miniRow"></div><div class="sectionHead"><h2>雲端借閱推薦</h2><button class="btn" onclick="renderCloudBorrowPicks()">換一批</button></div><div id="cloudBorrowPicks" class="miniRow"></div><div class="sectionHead"><h2>平台創作觀察</h2><button class="btn" onclick="showView('platforms')">查看</button></div><div id="platformInsightRow" class="miniRow"></div><div class="sectionHead"><h2>經典全本書庫</h2><button class="btn" onclick="renderClassicPicks()">換一批</button></div><div id="classicPicks" class="miniRow"></div><div class="sectionHead"><h2>最新章節快訊</h2><button class="btn" onclick="renderLatestChapterFeed()">刷新</button></div><div id="latestChapterFeed" class="card"></div><div class="sectionHead"><h2>閱讀底色</h2></div><div id="readingSkins" class="skinRow"></div></section>
 <section id="view-library" class="view"><h2>分類書庫</h2><p class="muted">用頻道、分類、字數、更新與完結狀態篩選題材，避免現代、仙俠、年代、科幻背景亂配。</p><div class="filterBar"><select id="libChannel" onchange="renderLibrary()"></select><select id="libCategory" onchange="renderLibrary()"></select><select id="libLength" onchange="renderLibrary()"></select><select id="libUpdate" onchange="renderLibrary()"></select><select id="libStatus" onchange="renderLibrary()"></select></div><div class="bar"><button onclick="setLibrarySort('hot')">按熱度</button><button onclick="setLibrarySort('words')">按字數</button><button onclick="setLibrarySort('update')">最近更新</button><button onclick="setLibrarySort('collect')">按收藏</button></div><div id="libraryGrid" class="grid"></div></section>
 <section id="view-cloudlib" class="view"><h2>雲端借閱書庫</h2><p class="muted">模擬公共電子書庫的「館藏、借閱、預約、到期、分類索引」體驗，用在你的離線題材庫上。</p><div id="cloudLibGrid" class="grid"></div></section>
@@ -731,6 +731,100 @@ ABC完整率：${Math.round(data.abcCompleteRate*100)}%
 作者平均接受率：${Math.round((data.averageAuthorAcceptanceRate||0)*100)}%
 總分：${r.scores?.totalScore||data.averageScore}
 失敗案例：${(data.failedCases||[]).join('、')||'無'}`)}catch(e){cloudNovelAiLearningOut(`固定評測失敗：${e.message}`)}}
+function cloudNovelAiRenderOptions(analysis){
+const lines=[`【情勢判斷】${analysis.situation}`,`【故事階段】${analysis.currentStoryStage}`,`【人物一致性】${analysis.characterConsistency?.status||'未知'}｜${analysis.characterConsistency?.explanation||''}`,`【建議策略】${analysis.recommendedStrategy}`,`【原因】${analysis.recommendationReason}`];
+if(analysis.analysisScores){const s=analysis.analysisScores;lines.push('',`【AI能力評分】劇情推進${s.plotProgress}/10｜人物一致${s.characterConsistency}/10｜新意${s.novelty}/10｜讀者鉤子${s.readerHook}/10｜情感回收${s.emotionalPayoff}/10｜風險清楚${s.riskClarity}/10｜證據使用${s.evidenceUse}/10`)}
+if(analysis.analysisEvidence?.length){lines.push('','【引用證據】');analysis.analysisEvidence.forEach(e=>lines.push(`- ${e.sourceType}｜${e.sourceLabel}：${e.reason}`))}
+if(analysis.qualityGate){lines.push('',`【品質門檻】${analysis.qualityGate.passed?'通過':'需確認'}`);(analysis.qualityGate.warnings||[]).forEach(w=>lines.push(`- ${w}`))}
+lines.push('','【A/B/C 候選】');(analysis.options||[]).forEach(o=>lines.push(`${o.label}. ${o.action}\n策略：${o.strategyType}｜風險：${o.risk}｜代價：${o.possibleCost}｜效果：${o.expectedEffect}\n分數：人物${o.characterFitScore}/10、推進${o.plotProgressScore}/10、新意${o.noveltyScore}/10`));
+lines.push('','AI結果只作為候選，不會覆蓋正文。');cloudNovelAiOut(lines.join('\n\n'));cloudNovelAiFeedbackPanel()}
+async function cloudNovelAiAnalyze(){try{cloudNovelAiStatus('正在分析目前故事，會讀取作品設定、最近正文、AI記憶與作者偏好。');const context=cloudNovelAiContext();const data=await cloudNovelAiFetch('/api/ai/analyze',context);cloudNovelAiLast={taskType:'story_analysis',context,output:data.analysis,aiRunId:data.aiRunId};cloudNovelAiStatus(`專屬小說AI分析完成｜使用脈絡：${(data.contextSelection||[]).join('、')||'基本作品設定'}｜結果仍需作者確認。`);cloudNovelAiRenderOptions(data.analysis)}catch(e){cloudNovelAiStatus(`分析失敗：${e.message}`);cloudNovelAiOut(`分析失敗：${e.message}`)}}
+async function cloudNovelAiStats(prefix='AI能力'){try{const data=await cloudNovelAiFetch('/api/admin/training-dataset/stats');const t=data.trainingExamples||{},f=data.feedback||{},a=data.aiAbility||{},v=data.versions||{},m=data.memory||{},p=data.preference||{};cloudNovelAiStatus(`${prefix}｜訓練資料 pending ${t.pending||0}、approved ${t.approved||0}、rejected ${t.rejected||0}、needs_revision ${t.needs_revision||0}，回饋 accepted ${f.accepted||0}、edited ${f.edited||0}、rejected ${f.rejected||0}`);cloudNovelAiLearningOut(`【AI能力面板】
+Core：${v.coreSystemVersion||'unknown'}
+Current：${v.currentAnalyzerVersion||'story-analyzer-v8'}
+Candidate：${v.candidateAnalyzerVersion||v.storyAnalyzerVersion||'story-analyzer-v9'}
+Prompt：${v.promptVersion||'unknown'}
+Context：${v.contextBuilderVersion||'unknown'}
+Memory：${v.memoryVersion||'unknown'}
+Memory Updater：${v.memoryUpdaterVersion||'unknown'}
+Preference：${v.preferenceVersion||'unknown'}
+Schema：${v.schemaVersion||'unknown'}
+Quality Gate：${v.qualityGateVersion||'unknown'}
+
+分析次數：${a.analyzedCount||0}
+作者接受率：${a.authorAcceptanceRate||0}%
+最近30筆接受率：${a.recent30AcceptanceRate||0}%
+固定評測分數：${a.fixedEvalScore||0}
+主角一致率：${a.protagonistConsistencyRate||0}%
+上一章承接率：${a.previousChapterCarryRate||0}%
+ABC差異率：${a.abcDifferenceRate||0}%
+矛盾偵測率：${a.contradictionDetectionRate||0}%
+已批准訓練樣本：${a.approvedTrainingExamples||0}
+
+【記憶】
+專案數：${m.projectsWithMemory||0}
+章節摘要：${m.chapterSummaries||0}
+角色狀態：${m.characterStates||0}
+未解事件：${m.unresolvedEvents||0}
+秘密：${m.secrets||0}
+重要道具：${m.importantItems||0}
+
+【作者偏好】
+專案數：${p.projectsWithPreference||0}
+偏好策略：${p.preferredStrategyPatterns||0}
+拒絕策略：${p.rejectedStrategyPatterns||0}
+偏好角色行為：${p.preferredCharacterBehaviors||0}
+禁止角色行為：${p.forbiddenCharacterBehaviors||0}
+偏好敘事技巧：${p.preferredNarrativeTechniques||0}
+不喜歡敘事技巧：${p.dislikedNarrativeTechniques||0}
+重複拒絕原因：${p.repeatedRejectionReasons||0}
+
+訓練樣本總數：${t.total||0}｜回饋總數：${f.total||0}`);return data}catch(e){cloudNovelAiStatus(`${prefix}讀取失敗：${e.message}`);return null}}
+async function cloudNovelAiRunEvals(){try{const data=await cloudNovelAiFetch('/api/admin/training-dataset/evals',{});const r=data.evalReport||{};cloudNovelAiLearningOut(`【固定評測】
+Run：${r.evalRunId||'runtime'}
+Provider：${r.provider||'unknown'}
+模型：${r.model||'unknown'}
+Core：${r.coreSystemVersion||'unknown'}
+Current：${r.currentAnalyzerVersion||'story-analyzer-v8'}
+Candidate：${r.candidateAnalyzerVersion||r.promptVersion||'story-analyzer-v9'}
+Prompt：${r.promptVersion||'unknown'}
+Context：${r.contextBuilderVersion||'unknown'}
+Memory：${r.memoryVersion||'unknown'}
+Memory Updater：${r.memoryUpdaterVersion||'unknown'}
+Preference：${r.preferenceVersion||'unknown'}
+Schema：${r.schemaVersion||'unknown'}
+Quality：${r.qualityGateVersion||'unknown'}
+總案例：${data.total}
+Schema成功率：${Math.round(data.schemaSuccessRate*100)}%
+ABC完整率：${Math.round(data.abcCompleteRate*100)}%
+選項差異率：${Math.round(data.optionDifferenceRate*100)}%
+人物一致率：${Math.round(data.characterConsistencyRate*100)}%
+禁止事項遵守率：${Math.round(data.forbiddenComplianceRate*100)}%
+具體行動率：${Math.round((data.concreteActionRate||0)*100)}%
+記憶引用率：${Math.round((data.memoryCitationRate||0)*100)}%
+矛盾偵測率：${Math.round((data.contradictionDetectionRate||0)*100)}%
+作者平均接受率：${Math.round((data.averageAuthorAcceptanceRate||0)*100)}%
+總分：${r.scores?.totalScore||data.averageScore}
+失敗案例：${(data.failedCases||[]).join('、')||'無'}`)}catch(e){cloudNovelAiLearningOut(`固定評測失敗：${e.message}`)}}
+async function cloudNovelAiMemoryCandidate(){try{const context=cloudNovelAiContext();const plan=state.guidedWriting?.chapterPlan||{};const chapterText=(document.getElementById('simpleFreeContent')?.value||context.recentText||document.getElementById('storyOutput')?.textContent||'').slice(-12000);const abcChoice=(Object.values(state.guidedWriting?.selections||{}).map(x=>x&&x.text).filter(Boolean).join(' / ')||'');const data=await cloudNovelAiFetch('/api/ai/memory',{projectId:context.projectId,chapterId:context.chapterId,chapterTitle:document.getElementById('simpleChapterTitle')?.value||'',chapterText,chapterPlan:plan,abcChoice});cloudNovelAiLastMemoryCandidate=data.candidate;cloudNovelAiLearningOut(`【故事記憶候選】
+本章摘要：${data.candidate.chapterSummary}
+本章結果：${data.candidate.chapterResult}
+章尾鉤子：${data.candidate.endingHook}
+
+新增未解事件：
+${(data.candidate.newUnresolvedEvents||[]).map(x=>`- ${x.title}：${x.description}`).join('\n')||'無'}
+
+新增秘密：
+${(data.candidate.newSecrets||[]).map(x=>`- ${x.content}`).join('\n')||'無'}
+
+這只是候選，需按「確認寫入AI記憶」才會更新。`);cloudNovelAiStatus('已整理本章AI記憶候選，尚未正式寫入。')}catch(e){cloudNovelAiLearningOut(`整理本章AI記憶失敗：${e.message}`)}}
+async function cloudNovelAiConfirmMemory(){try{if(!cloudNovelAiLastMemoryCandidate){alert('目前沒有可確認的故事記憶候選。');return}const data=await cloudNovelAiFetch('/api/ai/memory',{candidate:cloudNovelAiLastMemoryCandidate});const m=data.memory||{};cloudNovelAiLearningOut(`【AI故事記憶已更新】
+全書摘要：${m.globalSummary||'尚無'}
+近期章節：${(m.recentChapterSummaries||[]).length} 筆
+未解事件：${(m.unresolvedEvents||[]).length} 筆
+秘密：${(m.secrets||[]).length} 筆
+重要道具：${(m.importantItems||[]).length} 筆
+更新時間：${m.updatedAt||''}`);cloudNovelAiLastMemoryCandidate=null;cloudNovelAiStatus('AI故事記憶已由作者確認寫入。')}catch(e){cloudNovelAiLearningOut(`確認AI記憶失敗：${e.message}`)}}
 loadNovel();loadAiSettings();miniAiV5InstallButtons();miniAiV56InstallButtons();miniAiV57InstallButtons();miniAiV58InstallButtons();miniAiV59InstallButtons();simpleInitWritingMode();cloudNovelAiInstallMemoryButtons();showView('creation');
 </script>
 </body>

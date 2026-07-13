@@ -40,6 +40,8 @@ export async function POST(req: Request) {
     model: meta.model,
     coreSystemVersion: stats.versions.coreSystemVersion,
     promptVersion: stats.versions.promptVersion,
+    currentAnalyzerVersion: stats.versions.currentAnalyzerVersion,
+    candidateAnalyzerVersion: stats.versions.candidateAnalyzerVersion,
     contextBuilderVersion: stats.versions.contextBuilderVersion,
     memoryVersion: stats.versions.memoryVersion,
     memoryUpdaterVersion: stats.versions.memoryUpdaterVersion,

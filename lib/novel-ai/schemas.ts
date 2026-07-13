@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const RiskLevelSchema = z.enum(["低", "中", "高"]);
-export const StrategyTypeSchema = z.enum(["主動進攻", "謹慎調查", "轉折高代價"]);
-export const ImportanceSchema = z.enum(["低", "中", "高"]);
+export const StrategyTypeSchema = z.enum(["主動進攻", "保守調查", "轉折高代價"]);
+export const ImportanceSchema = z.enum(["高", "中", "低"]);
 export const EventStatusSchema = z.enum(["未處理", "進行中", "已解決", "已放棄"]);
 
 export const StoryItemSchema = z.object({
@@ -52,7 +52,7 @@ export const StoryContextSchema = z.object({
 export const AnalysisEvidenceSchema = z.object({
   sourceType: z.enum([
     "主角設定",
-    "全書摘要",
+    "作品總結",
     "上一章摘要",
     "最近正文",
     "未解事件",
@@ -60,7 +60,7 @@ export const AnalysisEvidenceSchema = z.object({
     "重要道具",
     "世界狀態",
     "作者偏好",
-    "禁止變更",
+    "禁止改動",
   ]),
   sourceId: z.string().max(120).optional(),
   sourceLabel: z.string().max(200),
@@ -84,7 +84,7 @@ export const StoryAnalysisSchema = z.object({
   situation: z.string().min(4).max(1200),
   currentStoryStage: z.string().min(2).max(160),
   characterConsistency: z.object({
-    status: z.enum(["穩定", "需要注意", "疑似衝突"]),
+    status: z.enum(["穩定", "需要注意", "明顯偏離"]),
     explanation: z.string().min(4).max(800),
   }),
   recommendedStrategy: z.string().min(2).max(600),
@@ -129,7 +129,7 @@ const ChapterSummarySchema = z.object({
 
 export const NovelMemorySchema = z.object({
   projectId: z.string().min(1).max(120),
-  version: z.number().int().min(1).default(3),
+  version: z.number().int().min(1).default(4),
   globalSummary: z.string().max(3000).default(""),
   recentChapterSummaries: z.array(ChapterSummarySchema).max(20).default([]),
   chapterSummaries: z.array(ChapterSummarySchema).max(200).default([]),
@@ -217,6 +217,7 @@ export const MemoryUpdateCandidateSchema = z.object({
     description: z.string().max(800),
     importance: ImportanceSchema,
     relatedCharacters: z.array(z.string().max(120)).default([]),
+    expectedResolution: z.string().max(200).optional(),
     decision: z.enum(["accept", "ignore"]).optional(),
   })).default([]),
   updatedUnresolvedEvents: z.array(z.object({
@@ -284,10 +285,10 @@ const FeedbackBaseSchema = z.object({
 
 export const FeedbackSchema = FeedbackBaseSchema.superRefine((value, ctx) => {
   if (value.decision === "edited" && value.editedOutput == null) {
-    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "選擇 edited 時必須提供 editedOutput。" });
+    ctx.addIssue({ code: "custom", path: ["editedOutput"], message: "edited 回饋必須提供 editedOutput。" });
   }
   if (value.decision === "rejected" && (!value.rejectionReasons || value.rejectionReasons.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "退回時請至少提供一個原因。" });
+    ctx.addIssue({ code: "custom", path: ["rejectionReasons"], message: "rejected 回饋必須至少提供一個拒絕原因。" });
   }
 });
 
