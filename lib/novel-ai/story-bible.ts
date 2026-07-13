@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { generateObject } from "ai";
+import { generateObject, generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
@@ -515,6 +515,46 @@ async function extractWithModel(input: StoryBibleExtractionInput, extractionRunI
   return object;
 }
 
+async function repairWithModelJson(input: StoryBibleExtractionInput, trace: StoryBibleExtractionTrace, failureReason: string) {
+  const cfg = modelConfig();
+  if (!cfg.googleKey) return undefined;
+  const prompt = [
+    "Return compact JSON only. No markdown. No code fence.",
+    "Root keys: candidates, chapterSummaryCandidate, warnings, confidence.",
+    "Candidate keys: entityType, temporaryEntityId, operation, fieldPath, proposedValue, confidence, evidenceType, sourceRef, reason.",
+    "Allowed entityType: character, event, item, world_rule, foreshadowing, open_thread.",
+    "proposedValue must be string, number, boolean, or short string array. Never an object.",
+    "sourceRef only: paragraphIndex, excerpt, evidenceType. excerpt must be exact source text.",
+    "If there is no new fact, return candidates: [].",
+    `Previous schema failure: ${clampText(failureReason, 300)}`,
+    buildModelPrompt(input),
+  ].join("\n");
+  const started = Date.now();
+  const { text, usage } = await generateText({
+    model: google(cfg.modelId),
+    system: "You repair structured Story Bible extraction into strict JSON. Output JSON only.",
+    prompt,
+    temperature: 0.02,
+    maxOutputTokens: 1400,
+  });
+  const repairStats = repairSimpleExtraction(text);
+  trace.repairAttempted = true;
+  trace.repairElapsedMs = Date.now() - started;
+  trace.repairMethod = repairStats.value ? "model-json-repair-and-local-validate" : "model-json-repair-failed";
+  trace.fieldsRemoved = repairStats.stats.fieldsRemoved;
+  trace.fieldsCoerced = repairStats.stats.fieldsCoerced;
+  trace.modelRepairUsed = true;
+  trace.rawOutputReceived = Boolean(text);
+  trace.outputChars = text.length;
+  trace.providerElapsedMs += Date.now() - started;
+  trace.estimatedInputTokens = trace.estimatedInputTokens || Number(usage?.inputTokens || 0);
+  if (repairStats.value) {
+    trace.finalSchemaValid = true;
+    trace.jsonParseResult = "valid";
+  }
+  return repairStats.value;
+}
+
 export async function extractStoryBibleCandidates(input: StoryBibleExtractionInput) {
   const extractionRunId = `story_extract_${crypto.randomUUID()}`;
   const traceId = crypto.randomUUID();
@@ -566,10 +606,24 @@ export async function extractStoryBibleCandidates(input: StoryBibleExtractionInp
       trace.fallbackUsed = trust;
       output = convertSimpleOutput(input, extractionRunId, repaired.value, trust);
     } else {
-      trust = "local-rule";
-      trace.fallbackUsed = trust;
-      output = localExtraction(input, extractionRunId, issueText);
-      trace.finalSchemaValid = true;
+      const modelRepaired = await repairWithModelJson(input, trace, issueText).catch((repairError) => {
+        trace.schemaValidationErrors.push({
+          path: "modelRepair",
+          code: "MODEL_REPAIR_ERROR",
+          message: clampText(repairError instanceof Error ? repairError.message : String(repairError), 500),
+        });
+        return undefined;
+      });
+      if (modelRepaired) {
+        trust = "cloud-repaired";
+        trace.fallbackUsed = trust;
+        output = convertSimpleOutput(input, extractionRunId, modelRepaired, trust);
+      } else {
+        trust = "local-rule";
+        trace.fallbackUsed = trust;
+        output = localExtraction(input, extractionRunId, issueText);
+        trace.finalSchemaValid = true;
+      }
     }
   }
   await persistStoryBibleExtraction({
