@@ -313,6 +313,33 @@ export function trainingStats() {
   };
 }
 
+export function aiRunStats() {
+  const runs = store().aiRuns;
+  const now = Date.now();
+  const last24h = runs.filter((x) => now - new Date(x.createdAt).getTime() <= 24 * 60 * 60 * 1000);
+  const completed = last24h.filter((x) => x.status === "completed");
+  const failed = last24h.filter((x) => x.status === "failed");
+  const analysisRuns = runs.filter((x) => x.taskType === "story_analysis");
+  const successfulAnalysis = analysisRuns.find((x) => x.status === "completed");
+  const lastError = runs.find((x) => x.status === "failed");
+  const averageLatencyMs = completed.length
+    ? Math.round(completed.reduce((sum, row) => sum + row.latencyMs, 0) / completed.length)
+    : 0;
+  const dailyTokens = last24h.reduce((sum, row) => sum + (row.inputTokens || 0) + (row.outputTokens || 0), 0);
+  return {
+    totalRuns: runs.length,
+    last24hRuns: last24h.length,
+    last24hSuccessRate: pct(completed.length, last24h.length),
+    last24hFailureRate: pct(failed.length, last24h.length),
+    averageLatencyMs,
+    lastSuccessAt: completed[0]?.createdAt || "",
+    lastAnalysisSuccessAt: successfulAnalysis?.createdAt || "",
+    lastError: lastError ? { createdAt: lastError.createdAt, taskType: lastError.taskType, errorCode: lastError.errorCode || "UNKNOWN_ERROR" } : null,
+    dailyTokens,
+    monthlyEstimatedCost: 0,
+  };
+}
+
 export function exportApprovedJsonl(): string {
   return store()
     .trainingExamples.filter((x) => x.qualityStatus === "approved" && qualityIssues(x).length === 0)
