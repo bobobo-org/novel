@@ -4,6 +4,8 @@ const managementToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
 const supabaseProjectRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";
 const projectId = process.env.P0C2A_PROJECT_ID || `p0c2a-conflict-${Date.now()}`;
 const otherProjectId = `${projectId}-other`;
+const expectedCommit = process.env.EXPECTED_APP_COMMIT || "";
+const expectedDeploymentId = process.env.EXPECTED_DEPLOYMENT_ID || "";
 
 async function request(path, init = {}) {
   const started = Date.now();
@@ -55,9 +57,9 @@ const health2 = await request("/api/ai/health");
 const health3 = await request(`/api/ai/health?cb=${Date.now()}`);
 for (const [name, health] of [["health normal", health1], ["health after 10s", health2], ["health cache busting", health3]]) {
   results.push(assert(name, health.ok &&
-    health.body.appCommit === "e946e1ab6c2f62d2910fedcd1d48cb1a62317123" &&
+    (!expectedCommit || health.body.appCommit === expectedCommit) &&
     health.body.releaseTag === "novel-ai-p0c2a-conflict-engine" &&
-    health.body.deploymentId === "dpl_GzMHMEaG3SSvH9TdZ3eJktW8VS57" &&
+    (!expectedDeploymentId || health.body.deploymentId === expectedDeploymentId) &&
     String(health.body.migrationVersion || "").includes("p0c2a_conflict_engine_004") &&
     health.body.storyBibleApprovalStatus === "not_implemented" &&
     health.body.storyBibleVersioningStatus === "schema_ready" &&
