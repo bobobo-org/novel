@@ -217,6 +217,7 @@ function sourceRefForText(input: StoryBibleExtractionInput, extractionRunId: str
 
 function localExtraction(input: StoryBibleExtractionInput, extractionRunId: string, reason: string): StoryBibleExtractionOutput {
   const text = input.chapterText;
+  const safeReason = clampText(reason, 240);
   const sourceRef = sourceRefForText(input, extractionRunId, text.slice(0, 120), 0);
   const possibleNames = Array.from(new Set((text.match(/[\u4e00-\u9fff]{2,4}/g) || []).filter((x) => !/[的是了在與和也就都而及或]/.test(x)).slice(0, 8)));
   const candidates: z.infer<typeof StoryBibleCandidateSchema>[] = [];
@@ -243,7 +244,7 @@ function localExtraction(input: StoryBibleExtractionInput, extractionRunId: stri
     confidence: 0.5,
     evidence: text.slice(0, 500),
     sourceRefs: [sourceRef],
-    reason,
+    reason: safeReason,
     conflictRisk: "needs-review",
   });
   const hookMatch = text.match(/(?:然而|但是|忽然|下一刻|沒想到|卻)([^。！？]{8,80}[。！？]?)/);
@@ -281,7 +282,7 @@ function localExtraction(input: StoryBibleExtractionInput, extractionRunId: stri
       endingState: text.slice(-500),
       sourceHash: hashText(text),
     },
-    extractionWarnings: [`已使用本地規則降級抽取：${reason}`],
+    extractionWarnings: [`已使用本地規則降級抽取：${safeReason}`],
     confidence: 0.45,
   };
 }
