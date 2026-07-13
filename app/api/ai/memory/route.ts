@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     const input = CandidateInputSchema.parse(body);
     return Response.json({ candidate: proposeMemoryUpdate(input) });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "建立記憶更新候選失敗。", 400, "MEMORY_CANDIDATE_ERROR");
+    return jsonError(error instanceof Error ? error.message : "整理故事記憶候選失敗。", 400, "MEMORY_CANDIDATE_ERROR");
   }
 }
 
@@ -41,6 +41,6 @@ export async function PATCH(req: Request) {
     const candidate = MemoryUpdateCandidateSchema.parse(body.candidate);
     return Response.json({ memory: confirmMemoryUpdate(candidate) });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "確認記憶更新失敗，原有記憶不會被刪除。", 400, "MEMORY_CONFIRM_ERROR");
+    return jsonError(error instanceof Error ? error.message : "確認故事記憶失敗，原有記憶資料仍然安全。", 400, "MEMORY_CONFIRM_ERROR");
   }
 }

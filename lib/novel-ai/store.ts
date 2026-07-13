@@ -108,9 +108,9 @@ export function recordAiRun(input: Omit<AiRunRecord, "id" | "createdAt" | "promp
 
 export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackRecord; trainingExample?: TrainingExampleRecord; preference: AuthorPreferenceProfile } {
   const aiRun = store().aiRuns.find((x) => x.id === input.aiRunId);
-  if (!aiRun) throw new Error("找不到指定的 AI 執行紀錄。");
+  if (!aiRun) throw new Error("找不到對應的 AI 執行紀錄。");
   if (store().feedback.some((x) => x.aiRunId === input.aiRunId)) {
-    throw new Error("此 AI 結果已經回饋過，避免重複建立訓練資料。");
+    throw new Error("同一個 AI 結果已提交過正式回饋，請改用修改回饋。");
   }
   const now = new Date().toISOString();
   const feedback: AiFeedbackRecord = {
@@ -165,7 +165,7 @@ export function recordFeedback(input: FeedbackInput): { feedback: AiFeedbackReco
 
 export function patchFeedback(feedbackId: string, patch: FeedbackPatchInput) {
   const feedback = store().feedback.find((x) => x.id === feedbackId);
-  if (!feedback) throw new Error("找不到指定的回饋資料。");
+  if (!feedback) throw new Error("找不到回饋資料。");
   if (patch.decision) feedback.decision = patch.decision;
   if (patch.selectedOption !== undefined) feedback.selectedOption = patch.selectedOption;
   if (patch.editedOutput !== undefined) feedback.editedOutput = patch.editedOutput;
@@ -194,13 +194,15 @@ export function listTrainingExamples(status?: TrainingExampleRecord["qualityStat
 
 function hasSensitiveText(value: unknown): boolean {
   const text = JSON.stringify(value || "");
-  return /(api[_-]?key|authorization|bearer\s+[a-z0-9._-]+|cookie|session[_-]?token|password|vcp_|sbp_|secret|private[_-]?key)/i.test(text);
+  return /(vcp_[A-Za-z0-9]+|sbp_[A-Za-z0-9]+|bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key["']?\s*[:=]\s*["'][^"']{8,}|authorization["']?\s*[:=]\s*["'][^"']{8,}|cookie["']?\s*[:=]\s*["'][^"']{8,}|session[_-]?token["']?\s*[:=]\s*["'][^"']{8,}|password["']?\s*[:=]\s*["'][^"']{6,}|client[_-]?secret["']?\s*[:=]\s*["'][^"']{8,}|private[_-]?key\s*-----BEGIN)/i.test(text);
 }
 
 function qualityIssues(example: TrainingExampleRecord): string[] {
   const issues: string[] = [];
   if (!example.userInput || !example.idealOutput) issues.push("缺少輸入或理想輸出。");
-  if (hasSensitiveText(example.userInput) || hasSensitiveText(example.idealOutput) || hasSensitiveText(example.systemPrompt)) issues.push("可能包含 API Key、Token、Cookie、密碼或敏感連線資訊。");
+  if (hasSensitiveText(example.userInput) || hasSensitiveText(example.idealOutput) || hasSensitiveText(example.systemPrompt)) {
+    issues.push("訓練樣本疑似含有 API key、token、cookie、密碼或私鑰。");
+  }
   const output = example.idealOutput as { options?: Array<{ label?: string; action?: string; characterFitScore?: number; plotProgressScore?: number; noveltyScore?: number }> };
   if (output?.options) {
     const labels = output.options.map((x) => x.label).join("");
@@ -210,7 +212,7 @@ function qualityIssues(example: TrainingExampleRecord): string[] {
     for (const option of output.options) {
       for (const key of ["characterFitScore", "plotProgressScore", "noveltyScore"] as const) {
         const score = option[key];
-        if (typeof score !== "number" || score < 1 || score > 10) issues.push("選項評分必須介於 1 到 10。");
+        if (typeof score !== "number" || score < 1 || score > 10) issues.push("選項分數必須介於 1 到 10。");
       }
     }
   }
