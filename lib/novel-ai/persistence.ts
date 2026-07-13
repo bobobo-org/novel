@@ -2,7 +2,7 @@ import crypto from "crypto";
 import type { AiFeedbackRecord, AiRunRecord, TrainingExampleRecord } from "./store";
 import type { MemoryUpdateCandidate, NovelMemory } from "./schemas";
 
-export const PERSISTENCE_SCHEMA_VERSION = "p0b_persistence_001";
+export const PERSISTENCE_SCHEMA_VERSION = "p0b2_db_first_002";
 
 type JsonRecord = Record<string, unknown>;
 type WriteTestStatus = {

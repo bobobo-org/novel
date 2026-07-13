@@ -5,6 +5,19 @@ import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from 
 
 export const runtime = "nodejs";
 
+const RELEASE_META = {
+  appCommit: "a0532fb80e9b2037d4ac50094f08e397ece3011e",
+  buildTimestamp: "2026-07-13T21:55:41Z",
+  releaseTag: "novel-ai-p0b2-db-first",
+};
+
+function deploymentId() {
+  return process.env.VERCEL_DEPLOYMENT_ID
+    || process.env.VERCEL_URL
+    || process.env.NEXT_PUBLIC_VERCEL_URL
+    || "local";
+}
+
 export async function GET() {
   const started = Date.now();
   const meta = providerMeta();
@@ -38,6 +51,8 @@ export async function GET() {
     : persistence.writeTestStatus;
 
   return NextResponse.json({
+    ...RELEASE_META,
+    deploymentId: deploymentId(),
     status: configured ? "ok" : "needs_configuration",
     apiStatus: "online",
     modelStatus: configured ? (ping.ok ? "available" : "configured_but_unavailable") : "not_configured",
@@ -75,5 +90,9 @@ export async function GET() {
     trainingExamples: stats.trainingExamples,
     feedback: stats.feedback,
     settings: meta.settings,
+  }, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+    },
   });
 }
