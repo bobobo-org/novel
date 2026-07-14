@@ -61,7 +61,12 @@ export function requiredAtomicChangeIds(changes: NormalizedChangeSet[], selected
     ["status", "payoffChapterId"],
     ["status", "resolvedChapterId"],
     ["currentOwnerCharacterId", "history"],
+    ["currentOwnerCharacterId", "possessions"],
+    ["status", "history"],
     ["lifeStatus", "deathEventId"],
+    ["status", "consequences"],
+    ["abandonedReason", "status"],
+    ["immutable", "description", "scope"],
   ];
   for (const group of relatedGroups) {
     const hits = changes.filter((change) => group.some((field) => change.fieldPath.endsWith(field)));

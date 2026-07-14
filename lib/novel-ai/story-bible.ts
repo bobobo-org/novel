@@ -1309,7 +1309,7 @@ export async function storyBibleHealth() {
       storyBibleApprovalStatus: c2b2Ok ? "ready" : c2b1Ok ? "partial" : c2aOk ? "not_implemented" : "unavailable",
       storyBibleVersioningStatus: c2c3Ok ? "ready" : c2c1Ok ? "partial" : c2b2Ok ? "partial" : c2aOk ? "schema_ready" : "unavailable",
       storyBibleConflictEngineStatus: c2aOk ? "ready" : "unavailable",
-      storyBibleProvenanceStatus: c2c1Ok ? "partial" : "unavailable",
+      storyBibleProvenanceStatus: c2c3Ok ? "ready" : c2c1Ok ? "partial" : "unavailable",
       storyBibleDiffStatus: c2c2aOk ? "ready" : "unavailable",
       storyBibleIntegrityStatus: c2c2bOk ? "ready" : c2c2aOk ? "partial" : "unavailable",
       storyBibleExportStatus: c2c2cOk ? "ready" : c2c2bOk ? "partial" : "not_implemented",
