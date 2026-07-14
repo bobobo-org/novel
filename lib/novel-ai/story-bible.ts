@@ -27,7 +27,7 @@ export const STORY_BIBLE_L0A2E_MIGRATION_VERSION = "p0_l0a2e_extraction_idempote
 export const STORY_BIBLE_L0A2E2_MIGRATION_VERSION = "p0_l0a2e2_rollback_fixture_contract_014";
 export const STORY_BIBLE_L0A2E2_SOURCE_NATURAL_KEY_MIGRATION_VERSION = "p0_l0a2e2_project_source_natural_key_015";
 export const STORY_BIBLE_SOURCE_NATURAL_KEY_VERSION = "source-natural-key-v1";
-export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.1";
+export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.2";
 export const STORY_BIBLE_CONFLICT_PROMPT_VERSION = "story-bible-conflict-review-v1";
 export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
 
@@ -252,6 +252,8 @@ function buildModelPrompt(input: StoryBibleExtractionInput) {
       "If a paragraph has no new story fact, do not invent a candidate.",
       "sourceRef must contain only paragraphIndex and evidenceType. The server derives the exact excerpt.",
       "proposedValue must be a scalar string, number, boolean, or short string array; never return an object.",
+      "fieldPath must exactly use pluralRoot[].field with one of these roots: characters, events, items, worldRules, foreshadowing, openThreads. Never omit [].",
+      "For a foreshadowing payoff, use fieldPath foreshadowing[].status with proposedValue paid.",
       "No markdown, no code fence, no extra keys.",
     ],
     fieldPathExamples: [
