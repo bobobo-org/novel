@@ -207,6 +207,11 @@ function sanitizeVersion(row: JsonRecord) {
     previousIntegrityHash: row.previous_integrity_hash || null,
     integrityAlgorithm: row.integrity_algorithm || STORY_BIBLE_INTEGRITY_ALGORITHM,
     integritySchemaVersion: row.integrity_schema_version || STORY_BIBLE_INTEGRITY_SCHEMA_VERSION,
+    targetVersionId: row.target_version_id ? exportSafeId("version", row.target_version_id) : null,
+    selectedChangeIds: asArray(row.selected_change_ids).map((id) => exportSafeId("change", id)),
+    inverseChangeSet: redactSecretsDeep(row.inverse_change_set || null).value,
+    dependencySummary: redactSecretsDeep(row.dependency_summary || null).value,
+    previewHash: row.preview_hash || null,
   };
 }
 
@@ -458,7 +463,7 @@ function compatibility(options: StoryBibleExportOptions) {
     requiresExternalProvider: false,
     requiresChapterText: Boolean(options.includeChapterText),
     minimumImporterVersion: "not_implemented",
-    unsupportedFeatures: ["import", "revert", "batch_approve"],
+    unsupportedFeatures: ["import", "batch_approve"],
   };
 }
 

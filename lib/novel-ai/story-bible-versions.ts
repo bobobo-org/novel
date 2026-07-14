@@ -246,7 +246,12 @@ export async function getStoryBibleVersionDetail(projectId: string, versionId: s
     revertInfo: {
       revertedVersionId: version.reverted_version_id || null,
       revertReason: version.revert_reason || null,
-      isRevert: version.operation_type === "revert",
+      isRevert: version.operation_type === "revert" || version.operation_type === "partial_revert",
+      targetVersionId: version.target_version_id || version.reverted_version_id || null,
+      selectedChangeIds: version.selected_change_ids || [],
+      inverseChangeSet: version.inverse_change_set || null,
+      dependencySummary: version.dependency_summary || null,
+      previewHash: version.preview_hash || null,
     },
     providerProvenance: {
       operationSource: version.operation_source || null,
