@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.APP_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || "local",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-14T12:20:00Z",
-  releaseTag: process.env.RELEASE_TAG || "novel-ai-p0c2c2c-history-export",
+  releaseTag: process.env.RELEASE_TAG || "novel-ai-l0a2-storage-boundary-adoption",
 };
 
 function deploymentId() {
@@ -108,12 +108,12 @@ export async function GET() {
     storyBibleRevertStatus: "storyBibleRevertStatus" in storyBible ? storyBible.storyBibleRevertStatus : "not_implemented",
     localCanonicalAuthorityStatus: "ready",
     storageAdapterStatus: "partial",
-    supabaseStorageAdapterStatus: "partial",
+    supabaseStorageAdapterStatus: "service_boundary_partial",
     memoryStorageAdapterStatus: "test_ready",
     sqliteStorageStatus: "prototype",
     indexedDbStorageStatus: "schema_only",
     cloudOptionalStatus: "architecture_ready",
-    coreServicesUseStorageAdapter: "read_paths_partial",
+    coreServicesUseStorageAdapter: "read_paths_and_supabase_service_boundary_partial",
     directStorageBoundaryStatus: "ready",
     primaryStorage: "SUPABASE_CLOUD",
     canonicalAuthority: "local",

@@ -5,6 +5,7 @@ const root = process.cwd();
 const scanRoots = ["lib/novel-ai", "app/api/story-bible", "app/api/admin/story-bible", "scripts"];
 const allowlist = [
   { pattern: /^lib\/novel-ai\/storage\/supabase-adapter\.ts$/, owner: "storage", reason: "Supabase-specific adapter implementation.", removalStage: "kept-private" },
+  { pattern: /^lib\/novel-ai\/storage\/supabase\//, owner: "storage", reason: "Supabase-specific storage extension implementation.", removalStage: "kept-private" },
   { pattern: /^lib\/novel-ai\/storage\/(?:types|capabilities|authority|registry|index)\.ts$/, owner: "storage", reason: "Storage abstraction may name storage modes without performing direct queries.", removalStage: "kept-interface" },
   { pattern: /^lib\/novel-ai\/persistence\.ts$/, owner: "persistence", reason: "Non-Story-Bible AI run persistence remains outside L0A.1 adapter scope.", removalStage: "P0-persistence-adapter" },
   { pattern: /^lib\/novel-ai\/story-bible-export-sanitizer\.ts$/, owner: "story-bible", reason: "Sanitizer only removes cloud/provider metadata from export packages.", removalStage: "kept-sanitizer" },
@@ -38,10 +39,19 @@ function allow(file) {
   return allowlist.find((entry) => entry.pattern.test(file));
 }
 
+function isStorageFacade(file, text) {
+  if (!/^lib\/novel-ai\/story-bible-(?:mutations|versions|diff|integrity|export|revert)\.ts$/.test(file)) return false;
+  const nonEmptyLines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return nonEmptyLines.length > 0
+    && nonEmptyLines.every((line) => /^export\b/.test(line) || /^[A-Za-z0-9_,{}\s]+$/.test(line) || /^} from "\.\/storage\/supabase\/supabase-[a-z-]+-storage";$/.test(line))
+    && text.includes("./storage/supabase/");
+}
+
 const findings = [];
 for (const base of scanRoots) {
   for (const file of walk(base)) {
     const text = readFileSync(join(root, file), "utf8");
+    if (isStorageFacade(file, text)) continue;
     const tableMatches = [...new Set([...text.matchAll(tablePattern)].map((m) => m[1]))];
     const supabaseMatches = [...new Set((text.match(supabasePattern) || []).map((x) => x.toLowerCase()))];
     if (tableMatches.length || supabaseMatches.length) {
