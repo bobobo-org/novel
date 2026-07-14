@@ -7,9 +7,9 @@ import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.APP_COMMIT || "a0532fb80e9b2037d4ac50094f08e397ece3011e",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-13T21:55:41Z",
-  releaseTag: process.env.RELEASE_TAG || "novel-ai-p0b2-db-first",
+  appCommit: process.env.APP_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || "local",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-14T12:20:00Z",
+  releaseTag: process.env.RELEASE_TAG || "novel-ai-p0c2c2c-history-export",
 };
 
 function deploymentId() {
