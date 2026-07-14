@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T06:00:00Z",
-  releaseTag: "novel-ai-l0a2-full-storage-adoption",
+  releaseTag: "novel-ai-l0b1-sqlite-foundation",
 };
 
 const L0A2E2D_TEST_META = {
@@ -144,7 +144,11 @@ export async function GET() {
     storageAdapterStatus: "ready",
     supabaseStorageAdapterStatus: "ready",
     memoryStorageAdapterStatus: "test_ready",
-    sqliteStorageStatus: "prototype",
+    sqliteStorageStatus: "partial",
+    sqliteMigrationStatus: "partial",
+    sqliteTransactionStatus: "partial",
+    sqliteParityStatus: "not_implemented",
+    sqliteOfflineStatus: "partial",
     indexedDbStorageStatus: "schema_only",
     fullOfflineStatus: "not_implemented",
     browserAIStatus: "not_implemented",
@@ -167,6 +171,8 @@ export async function GET() {
     },
     cloudOptional: true,
     offlineCapable: false,
+    offlineDataLayerStatus: "partial",
+    fullOfflineAIStatus: "not_implemented",
     activeProjectStorageMode: "SUPABASE_CLOUD",
   }, {
     headers: {

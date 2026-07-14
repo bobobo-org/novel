@@ -20,6 +20,7 @@
     "test:story-bible:l0a2:performance": "node --experimental-specifier-resolution=node scripts/run-story-bible-l0a2-performance.mjs",
     "test:story-bible:l0a2:full": "node scripts/run-story-bible-l0a2-full.mjs",
     "test:story-bible:l0a2:production-smoke": "node scripts/run-story-bible-c2c3-full-matrix.mjs",
+    "test:story-bible:l0b1:sqlite-foundation": "node scripts/run-story-bible-l0b1-sqlite-foundation.mjs",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

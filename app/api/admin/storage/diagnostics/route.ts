@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/novel-ai/admin";
 import { getStorageCapabilities, listRegisteredStorageAdapters, registerStorageAdapter, resetStorageAdapterRegistryForTests } from "@/lib/novel-ai/storage/registry";
 import { MemoryStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/memory-adapter";
+import { SQLiteStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/sqlite/sqlite-adapter";
 import { SupabaseStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/supabase-adapter";
 import { runL0AContractTests } from "@/lib/novel-ai/storage/contract-tests";
 
@@ -13,8 +14,27 @@ export async function GET(req: Request) {
 
   resetStorageAdapterRegistryForTests();
   registerStorageAdapter(new MemoryStoryBibleStorageAdapter());
+  const sqlite = registerStorageAdapter(new SQLiteStoryBibleStorageAdapter());
   registerStorageAdapter(new SupabaseStoryBibleStorageAdapter());
   const contract = await runL0AContractTests();
+  let sqliteDiagnostics: Record<string, unknown> = {
+    sqliteAdapterRegistered: true,
+    sqliteDriver: "node:sqlite",
+    databaseOpenStatus: "not_opened",
+    lastDatabaseError: null,
+  };
+  try {
+    sqliteDiagnostics = {
+      ...sqliteDiagnostics,
+      ...await (sqlite as SQLiteStoryBibleStorageAdapter).diagnostics("diagnostics-l0b1"),
+    };
+  } catch (error) {
+    sqliteDiagnostics = {
+      ...sqliteDiagnostics,
+      databaseOpenStatus: "error",
+      lastDatabaseError: error instanceof Error ? error.name : "SQLITE_UNKNOWN_ERROR",
+    };
+  }
 
   return NextResponse.json({
     storageArchitectureVersion: "story-bible-storage-l0a",
@@ -94,9 +114,19 @@ export async function GET(req: Request) {
     transactionSupport: {
       SUPABASE_CLOUD: "partial",
       MEMORY_TEST: "supported",
-      SQLITE_LOCAL: "prototype",
+      SQLITE_LOCAL: "partial",
       INDEXEDDB_BROWSER: "schema_only",
     },
+    sqliteStorageStatus: "partial",
+    sqliteMigrationStatus: "partial",
+    sqliteTransactionStatus: "partial",
+    sqliteParityStatus: "not_implemented",
+    sqliteOfflineStatus: "partial",
+    localCanonicalAuthorityStatus: "ready",
+    sqliteContractPassCount: "pending_l0b1_script",
+    sqliteParityPassCount: "not_implemented",
+    sqliteOfflinePassCount: "pending_l0b1_script",
+    ...sqliteDiagnostics,
     persistenceStatus: "supabase-production-ready",
     silentFallbackBlocked: true,
     silentStorageFallbackBlocked: true,

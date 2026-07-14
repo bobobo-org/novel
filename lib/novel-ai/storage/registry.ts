@@ -1,5 +1,6 @@
 import { INDEXEDDB_SCHEMA_CAPABILITIES, MEMORY_CAPABILITIES, SQLITE_PROTOTYPE_CAPABILITIES, SUPABASE_CAPABILITIES } from "./capabilities";
 import { MemoryStoryBibleStorageAdapter } from "./memory-adapter";
+import { SQLiteStoryBibleStorageAdapter } from "./sqlite/sqlite-adapter";
 import { SupabaseStoryBibleStorageAdapter } from "./supabase-adapter";
 import type { StorageMode, StoryBibleStorageAdapter, StoryBibleStorageCapabilities } from "./types";
 
@@ -19,6 +20,7 @@ export function registerStorageAdapter(adapter: StoryBibleStorageAdapter) {
 
 export function ensureDefaultStorageAdapters() {
   if (!adapters.has("SUPABASE_CLOUD")) adapters.set("SUPABASE_CLOUD", new SupabaseStoryBibleStorageAdapter());
+  if (!adapters.has("SQLITE_LOCAL")) adapters.set("SQLITE_LOCAL", new SQLiteStoryBibleStorageAdapter());
   if (!adapters.has("MEMORY_TEST")) adapters.set("MEMORY_TEST", new MemoryStoryBibleStorageAdapter());
 }
 

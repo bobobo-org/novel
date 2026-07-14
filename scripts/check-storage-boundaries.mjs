@@ -21,6 +21,7 @@ function walk(dir) {
 }
 
 function ownerOf(file) {
+  if (/^lib\/novel-ai\/storage\/sqlite\//.test(file)) return "adapter";
   if (/^lib\/novel-ai\/storage\/supabase\//.test(file) || /^lib\/novel-ai\/storage\/supabase-adapter\.ts$/.test(file)) return "adapter";
   if (/^lib\/novel-ai\/storage\/(?:types|capabilities|authority|registry|index|source-identity|memory-adapter)\.ts$/.test(file)) return "storage-interface";
   if (/^app\/api\/admin\//.test(file)) return "admin";
