@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T09:00:00Z",
-  releaseTag: "novel-ai-l0b2-sqlite-core-parity",
+  releaseTag: "novel-ai-l0b3a-sqlite-export",
 };
 
 const L0A2E2D_TEST_META = {
@@ -150,11 +150,17 @@ export async function GET() {
     sqliteParityStatus: "ready",
     sqliteIntegrityStatus: "ready",
     sqliteDiffStatus: "ready",
+    sqliteExportStatus: "ready",
+    sqliteRevertStatus: "not_implemented",
+    sqliteBackupStatus: "not_implemented",
+    sqliteRestoreStatus: "not_implemented",
     sqliteOfflineStatus: "data_layer_ready",
     sqliteContractPassCount: 37,
     sqliteContractFailCount: 0,
     sqliteCoreParityPassCount: 37,
     sqliteCoreParityFailCount: 0,
+    sqliteExportPassCount: 13,
+    sqliteExportFailCount: 0,
     indexedDbStorageStatus: "schema_only",
     fullOfflineStatus: "not_implemented",
     browserAIStatus: "not_implemented",

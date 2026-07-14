@@ -2,8 +2,10 @@ import crypto from "crypto";
 import { SQLITE_LOCAL_CAPABILITIES } from "./sqlite-capabilities";
 import { SQLiteProjectConnection, type SQLiteConnectionDiagnostics } from "./sqlite-connection";
 import { SQLiteTransactionContext } from "./sqlite-transaction-context";
+import { buildSQLiteStoryBibleExportPackage, previewSQLiteStoryBibleExportPackage } from "./sqlite-export";
 import { createSourceNaturalKey, createSourceNaturalKeyHash } from "../source-identity";
 import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "../types";
+import type { StoryBibleExportOptions } from "../../story-bible-export-schema";
 
 type ActiveTx = { projectId?: string; connection?: SQLiteProjectConnection };
 
@@ -511,6 +513,11 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     return clone(updated);
   }
 
+  async listMutationRequests(projectId: string, limit = 10000) {
+    const db = await this.connectionForProject(projectId);
+    return asRows(db.all("SELECT row_json FROM mutation_requests WHERE project_id = ? ORDER BY updated_at ASC LIMIT ?", [projectId, limit]));
+  }
+
   async persistExtractionRows(rows: ExtractionPersistenceRows) {
     const db = await this.connectionForProject(rows.projectId);
     const run = () => this.persistExtractionRowsInConnection(db, rows);
@@ -594,6 +601,14 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     const db = await this.connectionForProject(projectId);
     db.run("INSERT OR REPLACE INTO export_audits(id, project_id, row_json) VALUES(?,?,?)", [String(stored.id), projectId, json(stored)]);
     return clone(stored);
+  }
+
+  async buildExportPackage(options: StoryBibleExportOptions) {
+    return buildSQLiteStoryBibleExportPackage(this, options);
+  }
+
+  async previewExportPackage(options: StoryBibleExportOptions) {
+    return previewSQLiteStoryBibleExportPackage(this, options);
   }
 
   async createRevertAudit(audit: JsonRecord) {
