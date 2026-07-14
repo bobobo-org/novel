@@ -1,11 +1,12 @@
 import crypto from "crypto";
-import { generateObject, generateText } from "ai";
+import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
 export const STORY_BIBLE_C2A_MIGRATION_VERSION = "p0c2a_conflict_engine_004";
+export const STORY_BIBLE_C2B1_MIGRATION_VERSION = "p0c2b1_mutation_foundation_005";
 export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.1";
 export const STORY_BIBLE_CONFLICT_PROMPT_VERSION = "story-bible-conflict-review-v1";
 export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
@@ -13,6 +14,18 @@ export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
 type JsonRecord = Record<string, unknown>;
 type CandidateTrust = "cloud-validated" | "cloud-repaired" | "cloud-reduced" | "local-rule" | "invalid";
 type CandidateReviewStatus = "pending" | "needs_review" | "approved" | "rejected" | "stale" | "superseded" | "failed";
+
+export class StoryBibleMutationError extends Error {
+  constructor(
+    public errorCode: string,
+    message: string,
+    public status = 400,
+    public details: JsonRecord = {},
+  ) {
+    super(message);
+    this.name = "StoryBibleMutationError";
+  }
+}
 
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -107,7 +120,6 @@ const PrimitiveValueSchema = z.union([
 
 export const ModelSourceRefSchema = z.strictObject({
   paragraphIndex: z.number().int().min(0).max(200),
-  excerpt: z.string().min(2).max(500),
   evidenceType: EvidenceTypeSchema,
 });
 
@@ -272,7 +284,7 @@ function buildModelPrompt(input: StoryBibleExtractionInput) {
       "Allowed entityType only: character, event, item, world_rule, foreshadowing, open_thread.",
       "Use direct text evidence only. Lies, rumors, dreams, hallucinations, and memories must be marked as low confidence or open_thread, not objective event facts.",
       "If a paragraph has no new story fact, do not invent a candidate.",
-      "sourceRef.excerpt must be an exact substring from the provided paragraph.",
+      "sourceRef must contain only paragraphIndex and evidenceType. The server derives the exact excerpt.",
       "proposedValue must be a scalar string, number, boolean, or short string array; never return an object.",
       "No markdown, no code fence, no extra keys.",
     ],
@@ -335,7 +347,6 @@ function repairCandidate(raw: unknown, index: number, stats: { fieldsRemoved: st
     evidenceType: source.evidenceType || sourceRef.evidenceType || "ambiguous",
     sourceRef: {
       paragraphIndex: Number(sourceRef.paragraphIndex ?? 0),
-      excerpt: clampText(sourceRef.excerpt || source.evidence || "", 500),
       evidenceType: sourceRef.evidenceType || source.evidenceType || "ambiguous",
     },
     reason: clampText(source.reason || "model candidate", 200),
@@ -390,13 +401,17 @@ function repairSimpleExtraction(value: unknown) {
   return { value: parsed.success ? parsed.data : undefined, stats };
 }
 
-function sourceRefForExcerpt(input: StoryBibleExtractionInput, extractionRunId: string, ref: z.infer<typeof ModelSourceRefSchema>) {
+function sourceRefForExcerpt(
+  input: StoryBibleExtractionInput,
+  extractionRunId: string,
+  ref: z.infer<typeof ModelSourceRefSchema> & { excerpt?: string },
+) {
   const paragraphs = paragraphList(input.chapterText);
   const paragraph = paragraphs[ref.paragraphIndex] || "";
-  let idx = ref.excerpt ? input.chapterText.indexOf(ref.excerpt) : -1;
-  if (idx < 0 && paragraph) idx = input.chapterText.indexOf(paragraph);
-  const sourceValid = ref.excerpt ? idx >= 0 : false;
-  const excerpt = sourceValid ? ref.excerpt : (paragraph || input.chapterText).slice(0, 300);
+  const requestedExcerpt = clampText(ref.excerpt, 500);
+  const excerpt = paragraph || requestedExcerpt || input.chapterText.slice(0, 300);
+  let idx = excerpt ? input.chapterText.indexOf(excerpt) : -1;
+  const sourceValid = Boolean(excerpt) && idx >= 0;
   const textStart = idx >= 0 ? idx : Math.max(0, input.chapterText.indexOf(excerpt));
   const start = textStart >= 0 ? textStart : 0;
   return {
@@ -481,7 +496,7 @@ function localExtraction(input: StoryBibleExtractionInput, extractionRunId: stri
           proposedValue: clampText(input.chapterTitle || candidateText || "candidate event", 300),
           confidence: 0.35,
           evidenceType: "direct_statement",
-          sourceRef: { paragraphIndex: sourceRef.paragraphIndex || 0, excerpt: sourceRef.excerpt || candidateText, evidenceType: "direct_statement" },
+          sourceRef: { paragraphIndex: sourceRef.paragraphIndex || 0, evidenceType: "direct_statement" },
           reason: "本地規則只保留明確可定位文字，需人工確認。",
         }]
       : [],
@@ -504,25 +519,39 @@ async function extractWithModel(input: StoryBibleExtractionInput, extractionRunI
   trace.inputChars = prompt.length;
   trace.estimatedInputTokens = estimateTokensFromText(prompt);
   const started = Date.now();
-  const { object, usage } = await generateObject({
+  const { text, usage } = await generateText({
     model: google(cfg.modelId),
-    schema: SimpleExtractionSchema,
-    schemaName: "StoryBibleReducedExtraction",
-    schemaDescription: "Reduced Story Bible candidate extraction result. No canonical writes.",
     system: "You extract pending Story Bible candidates. Return only structured JSON matching the schema. No markdown. Do not invent facts.",
     prompt,
     temperature: 0.05,
     maxOutputTokens: 1600,
   });
   trace.providerElapsedMs = Date.now() - started;
-  trace.outputChars = JSON.stringify(object).length;
-  trace.rawOutputReceived = true;
-  trace.jsonParseResult = "valid";
-  trace.finalSchemaValid = true;
-  trace.fallbackUsed = "cloud-validated";
-  trace.repairMethod = "none";
+  trace.outputChars = text.length;
+  trace.rawOutputReceived = Boolean(text);
   trace.estimatedInputTokens = trace.estimatedInputTokens || Number(usage?.inputTokens || 0);
-  return object;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalizeJsonText(text));
+  } catch {
+    trace.jsonParseResult = "invalid";
+    throw new Error(`MODEL_JSON_PARSE_FAILED:${text.slice(0, 1200)}`);
+  }
+  const strict = SimpleExtractionSchema.safeParse(parsed);
+  if (strict.success) {
+    trace.jsonParseResult = "valid";
+    trace.finalSchemaValid = true;
+    trace.fallbackUsed = "cloud-validated";
+    trace.repairMethod = "none";
+    return strict.data;
+  }
+  trace.jsonParseResult = "valid";
+  trace.schemaValidationErrors = strict.error.issues.map((issue) => ({
+    path: issue.path.join("."),
+    code: issue.code,
+    message: issue.message,
+  }));
+  throw new Error(`MODEL_SCHEMA_FAILED:${text.slice(0, 1200)}`);
 }
 
 async function repairWithModelJson(input: StoryBibleExtractionInput, trace: StoryBibleExtractionTrace, failureReason: string) {
@@ -534,7 +563,7 @@ async function repairWithModelJson(input: StoryBibleExtractionInput, trace: Stor
     "Candidate keys: entityType, temporaryEntityId, operation, fieldPath, proposedValue, confidence, evidenceType, sourceRef, reason.",
     "Allowed entityType: character, event, item, world_rule, foreshadowing, open_thread.",
     "proposedValue must be string, number, boolean, or short string array. Never an object.",
-    "sourceRef only: paragraphIndex, excerpt, evidenceType. excerpt must be exact source text.",
+    "sourceRef only: paragraphIndex, evidenceType. Do not return excerpt.",
     "If there is no new fact, return candidates: [].",
     `Previous schema failure: ${clampText(failureReason, 300)}`,
     buildModelPrompt(input),
@@ -1035,6 +1064,7 @@ export async function seedStoryBibleConflictFixtures(projectId: string) {
 
 export async function cleanupStoryBibleProject(projectId: string) {
   for (const table of [
+    "story_bible_mutation_requests",
     "story_fact_sources",
     "story_fact_conflicts",
     "story_fact_candidates",
@@ -1216,10 +1246,11 @@ export async function storyBibleHealth() {
   }
   try {
     const migrationRows = await rest<Array<{ version: string }>>("schema_migrations", {
-      query: `select=version&version=in.(${STORY_BIBLE_MIGRATION_VERSION},${STORY_BIBLE_C2A_MIGRATION_VERSION})`,
+      query: `select=version&version=in.(${STORY_BIBLE_MIGRATION_VERSION},${STORY_BIBLE_C2A_MIGRATION_VERSION},${STORY_BIBLE_C2B1_MIGRATION_VERSION})`,
     });
     const migrationOk = migrationRows.some((row) => row.version === STORY_BIBLE_MIGRATION_VERSION);
     const c2aOk = migrationRows.some((row) => row.version === STORY_BIBLE_C2A_MIGRATION_VERSION);
+    const c2b1Ok = migrationRows.some((row) => row.version === STORY_BIBLE_C2B1_MIGRATION_VERSION);
     const runs = migrationOk
       ? await rest<Array<JsonRecord>>("story_bible_extraction_runs", { query: "select=id,status,created_at&order=created_at.desc&limit=10" })
       : [];
@@ -1227,9 +1258,13 @@ export async function storyBibleHealth() {
       storyBibleStatus: migrationOk ? "ready" : "migration_required",
       storyBibleSchemaVersion: STORY_BIBLE_SCHEMA_VERSION,
       storyBibleExtractionStatus: runs[0]?.status || "not_run",
-      storyBibleMigrationVersion: [migrationOk ? STORY_BIBLE_MIGRATION_VERSION : "", c2aOk ? STORY_BIBLE_C2A_MIGRATION_VERSION : ""].filter(Boolean).join(","),
+      storyBibleMigrationVersion: [
+        migrationOk ? STORY_BIBLE_MIGRATION_VERSION : "",
+        c2aOk ? STORY_BIBLE_C2A_MIGRATION_VERSION : "",
+        c2b1Ok ? STORY_BIBLE_C2B1_MIGRATION_VERSION : "",
+      ].filter(Boolean).join(","),
       storyBibleRecentExtractionAt: runs[0]?.created_at || null,
-      storyBibleApprovalStatus: c2aOk ? "not_implemented" : "unavailable",
+      storyBibleApprovalStatus: c2b1Ok ? "partial" : c2aOk ? "not_implemented" : "unavailable",
       storyBibleVersioningStatus: c2aOk ? "schema_ready" : "unavailable",
       storyBibleConflictEngineStatus: c2aOk ? "ready" : "unavailable",
     };
@@ -1363,4 +1398,244 @@ export async function getStoryBibleConflict(projectId: string, conflictId: strin
   const candidateId = conflict.candidate_id ? String(conflict.candidate_id) : "";
   const candidate = candidateId ? await getStoryBibleCandidate(projectId, candidateId) : null;
   return { conflict, candidate };
+}
+
+export const StoryBibleRejectRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(120),
+  reviewerId: z.string().min(1).max(120),
+  requestId: z.string().min(8).max(160),
+  expectedCandidateStatus: z.enum(["pending", "needs_review"]),
+  expectedStoryBibleVersion: z.number().int().min(0),
+  reviewReason: z.string().min(2).max(1000),
+});
+
+export const StoryBibleUnsupportedMutationRequestSchema = StoryBibleRejectRequestSchema.extend({
+  editedValue: z.unknown().optional(),
+  editReason: z.string().max(1000).optional(),
+  sourceMode: z.enum(["ai-supported", "author-declared"]).optional(),
+});
+
+type RejectRequest = z.infer<typeof StoryBibleRejectRequestSchema>;
+
+function mutationTraceId() {
+  return `story_mutation_trace_${crypto.randomUUID()}`;
+}
+
+function mutationRequestHash(input: unknown) {
+  return hashText(JSON.stringify(input || null));
+}
+
+async function getMutationRequest(requestId: string) {
+  const rows = await rest<Array<JsonRecord>>("story_bible_mutation_requests", {
+    query: `request_id=eq.${queryValue(requestId)}&select=*&limit=1`,
+  });
+  return rows[0] || null;
+}
+
+async function createMutationRequest(input: {
+  requestId: string;
+  projectId: string;
+  operation: string;
+  candidateId: string;
+  requestHash: string;
+  reviewerId: string;
+  expectedCandidateStatus: string;
+  expectedStoryBibleVersion: number;
+}) {
+  const now = nowIso();
+  return insertRows("story_bible_mutation_requests", [{
+    request_id: input.requestId,
+    project_id: input.projectId,
+    operation: input.operation,
+    candidate_ids: [input.candidateId],
+    status: "running",
+    request_hash: input.requestHash,
+    response_hash: input.requestHash,
+    reviewer_id: input.reviewerId,
+    expected_candidate_status: input.expectedCandidateStatus,
+    expected_story_bible_version: input.expectedStoryBibleVersion,
+    created_at: now,
+  }]);
+}
+
+async function completeMutationRequest(requestId: string, response: JsonRecord, status = "completed", errorCode: string | null = null) {
+  const now = nowIso();
+  return rest("story_bible_mutation_requests", {
+    method: "PATCH",
+    query: `request_id=eq.${queryValue(requestId)}`,
+    body: JSON.stringify({
+      status,
+      response_json: response,
+      error_code: errorCode,
+      result_version_id: response.versionId || null,
+      completed_at: now,
+    }),
+  });
+}
+
+export async function currentStoryBibleVersion(projectId: string) {
+  const rows = await rest<Array<JsonRecord>>("story_bible_versions", {
+    query: `project_id=eq.${queryValue(projectId)}&select=id,version_number&order=version_number.desc&limit=1`,
+  });
+  const latest = rows[0];
+  return {
+    versionId: latest?.id ? String(latest.id) : null,
+    versionNumber: latest?.version_number == null ? 0 : Number(latest.version_number),
+  };
+}
+
+async function updateCandidateReviewStatus(input: {
+  projectId: string;
+  candidateId: string;
+  status: CandidateReviewStatus;
+  previousStatus: string;
+  reviewerId: string;
+  reviewReason: string;
+  requestId: string;
+}) {
+  const rows = await rest<Array<JsonRecord>>("story_fact_candidates", {
+    method: "PATCH",
+    query: `project_id=eq.${queryValue(input.projectId)}&id=eq.${queryValue(input.candidateId)}&select=*`,
+    body: JSON.stringify({
+      status: input.status,
+      previous_status: input.previousStatus,
+      reviewer_id: input.reviewerId,
+      review_reason: input.reviewReason,
+      request_id: input.requestId,
+      reviewed_at: nowIso(),
+      status_updated_at: nowIso(),
+    }),
+  });
+  return rows[0] || null;
+}
+
+export async function rejectStoryBibleCandidate(candidateId: string, body: unknown) {
+  const traceId = mutationTraceId();
+  const parsed = StoryBibleRejectRequestSchema.parse(body);
+  const requestHash = mutationRequestHash({ operation: "reject", candidateId, ...parsed });
+  const existingRequest = await getMutationRequest(parsed.requestId);
+  if (existingRequest) {
+    if (existingRequest.request_hash !== requestHash && existingRequest.response_hash !== requestHash) {
+      throw new StoryBibleMutationError("IDEMPOTENCY_KEY_REUSED", "同一 requestId 不可搭配不同 payload 重複使用。", 409, {
+        traceId,
+        requestId: parsed.requestId,
+        retryable: false,
+      });
+    }
+    if (existingRequest.status === "completed" && existingRequest.response_json) {
+      return { ...(existingRequest.response_json as JsonRecord), idempotentReplay: true, traceId };
+    }
+  } else {
+    await createMutationRequest({
+      requestId: parsed.requestId,
+      projectId: parsed.projectId,
+      operation: "reject",
+      candidateId,
+      requestHash,
+      reviewerId: parsed.reviewerId,
+      expectedCandidateStatus: parsed.expectedCandidateStatus,
+      expectedStoryBibleVersion: parsed.expectedStoryBibleVersion,
+    });
+  }
+
+  try {
+    const candidateDetail = await getStoryBibleCandidate(parsed.projectId, candidateId);
+    if (!candidateDetail) {
+      throw new StoryBibleMutationError("CANDIDATE_NOT_FOUND", "找不到此 project 內的候選資料。", 404, {
+        traceId,
+        projectIdHash: hashText(parsed.projectId).slice(0, 12),
+        candidateId,
+        requestId: parsed.requestId,
+        retryable: false,
+      });
+    }
+    const candidate = candidateDetail.candidate as JsonRecord;
+    const currentStatus = String(candidate.status || "");
+    if (currentStatus !== parsed.expectedCandidateStatus) {
+      throw new StoryBibleMutationError("CANDIDATE_STATUS_MISMATCH", "候選狀態已改變，請重新讀取後再審核。", 409, {
+        traceId,
+        candidateId,
+        requestId: parsed.requestId,
+        currentStatus,
+        expectedStatus: parsed.expectedCandidateStatus,
+        retryable: true,
+      });
+    }
+    if (!["pending", "needs_review"].includes(currentStatus)) {
+      throw new StoryBibleMutationError("CANDIDATE_NOT_REVIEWABLE", "此候選目前不可執行 Reject。", 409, {
+        traceId,
+        candidateId,
+        requestId: parsed.requestId,
+        currentStatus,
+        retryable: false,
+      });
+    }
+    const currentVersion = await currentStoryBibleVersion(parsed.projectId);
+    if (currentVersion.versionNumber !== parsed.expectedStoryBibleVersion) {
+      throw new StoryBibleMutationError("STORY_BIBLE_VERSION_MISMATCH", "Story Bible 版本已變更，請重新讀取候選資料。", 409, {
+        traceId,
+        candidateId,
+        requestId: parsed.requestId,
+        currentVersion: currentVersion.versionNumber,
+        expectedVersion: parsed.expectedStoryBibleVersion,
+        candidateBasedOnVersion: candidate.based_on_version_number ?? null,
+        staleReason: "expectedStoryBibleVersion differs from currentStoryBibleVersion",
+        retryable: true,
+      });
+    }
+    const updated = await updateCandidateReviewStatus({
+      projectId: parsed.projectId,
+      candidateId,
+      status: "rejected",
+      previousStatus: currentStatus,
+      reviewerId: parsed.reviewerId,
+      reviewReason: parsed.reviewReason,
+      requestId: parsed.requestId,
+    });
+    const response = {
+      ok: true,
+      operation: "reject",
+      traceId,
+      requestId: parsed.requestId,
+      candidateId,
+      projectId: parsed.projectId,
+      previousStatus: currentStatus,
+      status: updated?.status || "rejected",
+      reviewerId: parsed.reviewerId,
+      reviewReason: parsed.reviewReason,
+      reviewedAt: updated?.reviewed_at || null,
+      versionId: null,
+      storyBibleVersion: currentVersion.versionNumber,
+      canonicalChanged: false,
+      sourceChanged: false,
+      conflictChanged: false,
+    };
+    await completeMutationRequest(parsed.requestId, response);
+    return response;
+  } catch (error) {
+    const err = error instanceof StoryBibleMutationError
+      ? error
+      : new StoryBibleMutationError("STORY_BIBLE_REJECT_FAILED", error instanceof Error ? error.message : "Reject failed.", 500, { traceId, retryable: true });
+    await completeMutationRequest(parsed.requestId, {
+      ok: false,
+      operation: "reject",
+      traceId,
+      requestId: parsed.requestId,
+      candidateId,
+      errorCode: err.errorCode,
+      userMessage: err.message,
+      ...err.details,
+    }, "failed", err.errorCode).catch(() => undefined);
+    throw err;
+  }
+}
+
+export function unsupportedStoryBibleMutation(operation: "approve" | "edit-and-approve", body: unknown) {
+  const parsed = StoryBibleUnsupportedMutationRequestSchema.parse(body);
+  throw new StoryBibleMutationError("MUTATION_NOT_IMPLEMENTED", `${operation} 尚未在 P0-C2B1 開放；本階段只支援 Reject。`, 501, {
+    operation,
+    projectIdHash: hashText(parsed.projectId).slice(0, 12),
+    requestId: parsed.requestId,
+    retryable: false,
+  });
 }
