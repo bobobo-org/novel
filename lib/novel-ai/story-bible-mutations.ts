@@ -181,6 +181,12 @@ async function getCandidateConflicts(projectId: string, candidateId: string) {
   return readRows("story_fact_conflicts", `project_id=eq.${queryValue(projectId)}&candidate_id=eq.${queryValue(candidateId)}&status=eq.open&select=*`);
 }
 
+async function getExtractionRun(projectId: string, extractionRunId: string) {
+  if (!extractionRunId) return null;
+  const rows = await readRows("story_bible_extraction_runs", `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(extractionRunId)}&select=id,model_id,fallback_level,prompt_version&limit=1`);
+  return rows[0] || null;
+}
+
 async function getMutationRequest(requestId: string) {
   const rows = await readRows("story_bible_mutation_requests", `request_id=eq.${queryValue(requestId)}&select=*&limit=1`);
   return rows[0] || null;
@@ -364,8 +370,29 @@ async function createVersion(input: {
   candidateId: string;
   changeSet: JsonRecord;
   requestId: string;
+  sourceMode: SourceMode;
+  candidateTrust: string;
+  extractionRun: JsonRecord | null;
 }) {
   const versionId = `story_version_${crypto.randomUUID()}`;
+  const sourceProviderType = input.sourceMode === "author-declared"
+    ? "author"
+    : input.candidateTrust === "local-rule"
+      ? "local_rule"
+      : input.candidateTrust === "cloud-reduced"
+        ? "gemini"
+        : input.candidateTrust === "cloud-repaired"
+          ? "gemini"
+          : input.candidateTrust === "cloud-validated"
+            ? "gemini"
+            : "legacy_unknown";
+  const changeHashBase = {
+    projectId: input.projectId,
+    versionNumber: input.versionNumber,
+    parentVersionId: input.parentVersionId,
+    operationType: input.operationType,
+    changeSet: input.changeSet,
+  };
   const rows = await rest<JsonRecord[]>("story_bible_versions", {
     method: "POST",
     body: JSON.stringify([{
@@ -379,6 +406,17 @@ async function createVersion(input: {
       change_set: input.changeSet,
       created_by: reviewerFromAdmin(),
       request_id: input.requestId,
+      operation_source: sourceProviderType,
+      mutation_request_ids: [input.requestId],
+      summary: String(input.changeSet.reason || `${input.operationType} ${input.changeSet.fieldPath || ""}`).slice(0, 500),
+      source_provider_type: sourceProviderType,
+      source_provider_location: sourceProviderType === "author" ? "reviewer" : "server",
+      source_model_id: input.extractionRun?.model_id || null,
+      source_execution_id: input.extractionRun?.id || null,
+      source_mode: input.sourceMode,
+      data_left_device: sourceProviderType === "gemini",
+      storage_location: "supabase-postgres",
+      integrity_hash: hashText(JSON.stringify(changeHashBase)),
       created_at: nowIso(),
     }]),
   });
@@ -529,6 +567,7 @@ export async function applyStoryBibleCandidateMutation(candidateId: string, oper
       });
     }
     const sourceRefs = await getCandidateSources(parsed.projectId, candidateId);
+    const extractionRun = await getExtractionRun(parsed.projectId, String(candidate.extraction_run_id || ""));
     if (sourceMode === "ai-supported" && (candidate.source_valid === false || sourceRefs.length === 0)) {
       throw new StoryBibleMutationError("INVALID_SOURCE_REFERENCE", "AI-supported 核准需要有效 source reference。", 409, { traceId: mutationTrace, retryable: false });
     }
@@ -604,6 +643,9 @@ export async function applyStoryBibleCandidateMutation(candidateId: string, oper
       candidateId,
       changeSet,
       requestId: parsed.requestId,
+      sourceMode,
+      candidateTrust: String(candidate.candidate_trust || "legacy_unknown"),
+      extractionRun,
     });
     rollback.push(async () => {
       await rest("story_bible_versions", { method: "DELETE", query: `project_id=eq.${queryValue(parsed.projectId)}&id=eq.${queryValue(String(newVersion.id))}` });

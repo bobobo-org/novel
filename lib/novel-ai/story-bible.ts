@@ -8,6 +8,7 @@ export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
 export const STORY_BIBLE_C2A_MIGRATION_VERSION = "p0c2a_conflict_engine_004";
 export const STORY_BIBLE_C2B1_MIGRATION_VERSION = "p0c2b1_mutation_foundation_005";
 export const STORY_BIBLE_C2B2_MIGRATION_VERSION = "p0c2b2_canonical_transaction_006";
+export const STORY_BIBLE_C2C1_MIGRATION_VERSION = "p0c2c1_version_history_007";
 export const STORY_BIBLE_EXTRACT_PROMPT_VERSION = "story-bible-extractor-v1.1";
 export const STORY_BIBLE_CONFLICT_PROMPT_VERSION = "story-bible-conflict-review-v1";
 export const STORY_BIBLE_SUMMARY_PROMPT_VERSION = "story-bible-summary-v1";
@@ -1271,12 +1272,13 @@ export async function storyBibleHealth() {
   }
   try {
     const migrationRows = await rest<Array<{ version: string }>>("schema_migrations", {
-      query: `select=version&version=in.(${STORY_BIBLE_MIGRATION_VERSION},${STORY_BIBLE_C2A_MIGRATION_VERSION},${STORY_BIBLE_C2B1_MIGRATION_VERSION},${STORY_BIBLE_C2B2_MIGRATION_VERSION})`,
+      query: `select=version&version=in.(${STORY_BIBLE_MIGRATION_VERSION},${STORY_BIBLE_C2A_MIGRATION_VERSION},${STORY_BIBLE_C2B1_MIGRATION_VERSION},${STORY_BIBLE_C2B2_MIGRATION_VERSION},${STORY_BIBLE_C2C1_MIGRATION_VERSION})`,
     });
     const migrationOk = migrationRows.some((row) => row.version === STORY_BIBLE_MIGRATION_VERSION);
     const c2aOk = migrationRows.some((row) => row.version === STORY_BIBLE_C2A_MIGRATION_VERSION);
     const c2b1Ok = migrationRows.some((row) => row.version === STORY_BIBLE_C2B1_MIGRATION_VERSION);
     const c2b2Ok = migrationRows.some((row) => row.version === STORY_BIBLE_C2B2_MIGRATION_VERSION);
+    const c2c1Ok = migrationRows.some((row) => row.version === STORY_BIBLE_C2C1_MIGRATION_VERSION);
     const runs = migrationOk
       ? await rest<Array<JsonRecord>>("story_bible_extraction_runs", { query: "select=id,status,created_at&order=created_at.desc&limit=10" })
       : [];
@@ -1289,11 +1291,13 @@ export async function storyBibleHealth() {
         c2aOk ? STORY_BIBLE_C2A_MIGRATION_VERSION : "",
         c2b1Ok ? STORY_BIBLE_C2B1_MIGRATION_VERSION : "",
         c2b2Ok ? STORY_BIBLE_C2B2_MIGRATION_VERSION : "",
+        c2c1Ok ? STORY_BIBLE_C2C1_MIGRATION_VERSION : "",
       ].filter(Boolean).join(","),
       storyBibleRecentExtractionAt: runs[0]?.created_at || null,
       storyBibleApprovalStatus: c2b2Ok ? "ready" : c2b1Ok ? "partial" : c2aOk ? "not_implemented" : "unavailable",
-      storyBibleVersioningStatus: c2b2Ok ? "partial" : c2aOk ? "schema_ready" : "unavailable",
+      storyBibleVersioningStatus: c2c1Ok ? "partial" : c2b2Ok ? "partial" : c2aOk ? "schema_ready" : "unavailable",
       storyBibleConflictEngineStatus: c2aOk ? "ready" : "unavailable",
+      storyBibleProvenanceStatus: c2c1Ok ? "partial" : "unavailable",
     };
   } catch (error) {
     return {
@@ -1304,6 +1308,7 @@ export async function storyBibleHealth() {
       storyBibleApprovalStatus: "unavailable",
       storyBibleVersioningStatus: "unavailable",
       storyBibleConflictEngineStatus: "unavailable",
+      storyBibleProvenanceStatus: "unavailable",
       storyBibleError: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
     };
   }
