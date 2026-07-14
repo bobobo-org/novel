@@ -8,6 +8,7 @@ import {
   reconstructStateFromVersions,
   stableValueKey,
 } from "./story-bible-change-sets";
+import { verifyVersionChain } from "./story-bible-integrity";
 
 const EntityTypeSchema = z.enum(["character", "event", "item", "world_rule", "foreshadowing", "open_thread"]);
 const VersionRefSchema = z.string().min(1).max(180);
@@ -21,6 +22,7 @@ export const VersionDiffQuerySchema = z.object({
   fieldPath: z.string().max(300).optional(),
   includeUnchanged: z.coerce.boolean().default(false),
   includeSources: z.coerce.boolean().default(true),
+  allowUnsafeRead: z.coerce.boolean().default(false),
 });
 
 export const CurrentDiffQuerySchema = z.object({
@@ -294,6 +296,21 @@ async function buildDiff(query: DiffQuery) {
 
 export async function getStoryBibleVersionDiff(input: unknown) {
   const query = VersionDiffQuerySchema.parse(input);
+  if (!query.allowUnsafeRead) {
+    const check = await verifyVersionChain({
+      projectId: query.projectId,
+      fromVersion: /^\d+$/.test(query.fromVersion) ? Number(query.fromVersion) : undefined,
+      toVersion: /^\d+$/.test(query.toVersion) ? Number(query.toVersion) : undefined,
+      includeDetails: false,
+    });
+    if (!check.valid) {
+      throw new StoryBibleDiffError("VERSION_INTEGRITY_FAILED", "Story Bible integrity check failed; diff is blocked until the version chain is repaired or backfilled.", 409, {
+        firstInvalidVersion: check.firstInvalidVersion,
+        integritySchemaVersion: check.integritySchemaVersion,
+        retryable: true,
+      });
+    }
+  }
   return buildDiff(query);
 }
 
@@ -322,6 +339,7 @@ export async function getStoryBibleCurrentDiff(versionId: string, input: unknown
     entityId: query.entityId,
     includeUnchanged: false,
     includeSources: query.includeSources,
+    allowUnsafeRead: true,
   });
   return {
     projectId: query.projectId,

@@ -1,6 +1,12 @@
 import crypto from "crypto";
 import { z } from "zod";
 import { StoryBibleMutationError } from "./story-bible";
+import {
+  buildIntegrityPayload,
+  computeIntegrityHash,
+  STORY_BIBLE_INTEGRITY_ALGORITHM,
+  STORY_BIBLE_INTEGRITY_SCHEMA_VERSION,
+} from "./story-bible-integrity";
 
 type JsonRecord = Record<string, unknown>;
 type CandidateStatus = "pending" | "needs_review" | "approved" | "rejected" | "stale" | "superseded" | "failed";
@@ -242,6 +248,11 @@ async function currentVersion(projectId: string) {
   };
 }
 
+async function currentVersionWithIntegrity(projectId: string) {
+  const rows = await readRows("story_bible_versions", `project_id=eq.${queryValue(projectId)}&select=*&order=version_number.desc&limit=1`);
+  return rows[0] || null;
+}
+
 async function loadCanonical(projectId: string, entityType: EntityType, entityId: string) {
   const adapter = adapterMap[entityType];
   const rows = await readRows(adapter.table, `project_id=eq.${queryValue(projectId)}&${adapter.idColumn}=eq.${queryValue(entityId)}&select=*&limit=1`);
@@ -375,6 +386,8 @@ async function createVersion(input: {
   extractionRun: JsonRecord | null;
 }) {
   const versionId = `story_version_${crypto.randomUUID()}`;
+  const parent = await currentVersionWithIntegrity(input.projectId);
+  const previousIntegrityHash = parent?.integrity_hash ? String(parent.integrity_hash) : null;
   const sourceProviderType = input.sourceMode === "author-declared"
     ? "author"
     : input.candidateTrust === "local-rule"
@@ -386,6 +399,36 @@ async function createVersion(input: {
           : input.candidateTrust === "cloud-validated"
             ? "gemini"
             : "legacy_unknown";
+  const versionRow: JsonRecord = {
+    id: versionId,
+    project_id: input.projectId,
+    version_number: input.versionNumber,
+    parent_version_id: input.parentVersionId,
+    operation_type: input.operationType,
+    candidate_ids: [input.candidateId],
+    approved_candidate_ids: [input.candidateId],
+    change_set: input.changeSet,
+    created_by: reviewerFromAdmin(),
+    request_id: input.requestId,
+    operation_source: sourceProviderType,
+    mutation_request_ids: [input.requestId],
+    summary: String(input.changeSet.reason || `${input.operationType} ${input.changeSet.fieldPath || ""}`).slice(0, 500),
+    source_provider_type: sourceProviderType,
+    source_provider_location: sourceProviderType === "author" ? "reviewer" : "server",
+    source_model_id: input.extractionRun?.model_id || null,
+    source_execution_id: input.extractionRun?.id || null,
+    source_mode: input.sourceMode,
+    data_left_device: sourceProviderType === "gemini",
+    storage_location: "supabase-postgres",
+    canonical_authority: "local",
+    previous_integrity_hash: previousIntegrityHash,
+    integrity_algorithm: STORY_BIBLE_INTEGRITY_ALGORITHM,
+    integrity_schema_version: STORY_BIBLE_INTEGRITY_SCHEMA_VERSION,
+    integrity_status: "valid",
+    created_at: nowIso(),
+  };
+  versionRow.integrity_hash = computeIntegrityHash(buildIntegrityPayload(versionRow, previousIntegrityHash));
+  versionRow.integrity_computed_at = nowIso();
   const changeHashBase = {
     projectId: input.projectId,
     versionNumber: input.versionNumber,
@@ -395,30 +438,7 @@ async function createVersion(input: {
   };
   const rows = await rest<JsonRecord[]>("story_bible_versions", {
     method: "POST",
-    body: JSON.stringify([{
-      id: versionId,
-      project_id: input.projectId,
-      version_number: input.versionNumber,
-      parent_version_id: input.parentVersionId,
-      operation_type: input.operationType,
-      candidate_ids: [input.candidateId],
-      approved_candidate_ids: [input.candidateId],
-      change_set: input.changeSet,
-      created_by: reviewerFromAdmin(),
-      request_id: input.requestId,
-      operation_source: sourceProviderType,
-      mutation_request_ids: [input.requestId],
-      summary: String(input.changeSet.reason || `${input.operationType} ${input.changeSet.fieldPath || ""}`).slice(0, 500),
-      source_provider_type: sourceProviderType,
-      source_provider_location: sourceProviderType === "author" ? "reviewer" : "server",
-      source_model_id: input.extractionRun?.model_id || null,
-      source_execution_id: input.extractionRun?.id || null,
-      source_mode: input.sourceMode,
-      data_left_device: sourceProviderType === "gemini",
-      storage_location: "supabase-postgres",
-      integrity_hash: hashText(JSON.stringify(changeHashBase)),
-      created_at: nowIso(),
-    }]),
+    body: JSON.stringify([{ ...versionRow, legacy_integrity_hash_base: undefined, integrity_hash: versionRow.integrity_hash || hashText(JSON.stringify(changeHashBase)) }]),
   });
   return rows[0] || { id: versionId, version_number: input.versionNumber };
 }
