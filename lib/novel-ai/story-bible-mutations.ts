@@ -100,6 +100,7 @@ const adapterMap: Record<EntityType, {
   titleColumn: string;
   fields: string[];
   statusColumn?: string;
+  hasUpdatedAt?: boolean;
 }> = {
   character: {
     table: "story_characters",
@@ -143,6 +144,7 @@ const adapterMap: Record<EntityType, {
     jsonColumn: "thread_json",
     titleColumn: "title",
     statusColumn: "status",
+    hasUpdatedAt: false,
     fields: ["threadType", "title", "description", "relatedCharacters", "relatedEvents", "urgency", "expectedResolution", "status", "resolvedChapterId"],
   },
 };
@@ -327,8 +329,8 @@ function rowPayload(projectId: string, entityType: EntityType, entityId: string,
     [adapter.idColumn]: entityId,
     [adapter.titleColumn]: titleValue,
     [adapter.jsonColumn]: json,
-    updated_at: now,
   };
+  if (adapter.hasUpdatedAt !== false) payload.updated_at = now;
   if (entityType === "world_rule") payload.immutable = field === "immutable" ? Boolean(nextValue) : Boolean(existing?.immutable);
   if (adapter.statusColumn) payload[adapter.statusColumn] = field === "status" ? String(nextValue) : String(existing?.[adapter.statusColumn] || (entityType === "foreshadowing" ? "planted" : "open"));
   return payload;
