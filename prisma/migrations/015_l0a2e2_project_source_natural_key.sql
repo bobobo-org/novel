@@ -44,7 +44,7 @@ returns text
 language sql
 immutable
 as $$
-  select encode(digest(public.story_source_natural_key(p_source), 'sha256'), 'hex');
+  select encode(extensions.digest(public.story_source_natural_key(p_source), 'sha256'), 'hex');
 $$;
 
 update public.story_fact_sources
