@@ -1,44 +1,33 @@
 type JsonRecord = Record<string, unknown>;
 
+export const STORY_BIBLE_EXTRACTION_ATOMIC_RPC = "persist_story_bible_extraction_atomic";
+
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   return { url: url.replace(/\/$/, ""), key };
 }
 
-async function rest<T>(table: string, init: RequestInit & { query?: string } = {}): Promise<T> {
+async function rpc<T>(functionName: string, payload: JsonRecord): Promise<T> {
   const cfg = supabaseConfig();
-  if (!cfg.url || !cfg.key) throw new Error("STORY_BIBLE_PERSISTENCE_NOT_CONFIGURED");
-  const query = init.query ? `?${init.query}` : "";
-  const response = await fetch(`${cfg.url}/rest/v1/${table}${query}`, {
-    ...init,
+  if (!cfg.url || !cfg.key) throw new Error("STORAGE_ADAPTER_UNAVAILABLE:STORY_BIBLE_PERSISTENCE_NOT_CONFIGURED");
+  const response = await fetch(`${cfg.url}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
     headers: {
       apikey: cfg.key,
       authorization: `Bearer ${cfg.key}`,
       "content-type": "application/json",
-      prefer: "return=representation,resolution=merge-duplicates",
-      ...(init.headers || {}),
+      prefer: "return=representation",
     },
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`STORY_BIBLE_HTTP_${response.status}:${text.slice(0, 300)}`);
+    const code = response.status === 404 || response.status === 400 ? "STORAGE_SCHEMA_INCOMPATIBLE" : "STORAGE_PERSISTENCE_FAILED";
+    throw new Error(`${code}:${response.status}:${text.slice(0, 300)}`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
-}
-
-async function upsert(table: string, row: JsonRecord, onConflict = "id") {
-  return rest<JsonRecord[]>(table, {
-    method: "POST",
-    query: `on_conflict=${encodeURIComponent(onConflict)}`,
-    body: JSON.stringify(row),
-  });
-}
-
-async function insertRows(table: string, rows: JsonRecord[]) {
-  if (rows.length === 0) return [];
-  return rest<JsonRecord[]>(table, { method: "POST", body: JSON.stringify(rows) });
 }
 
 export async function persistStoryBibleExtractionRows(input: {
@@ -50,10 +39,19 @@ export async function persistStoryBibleExtractionRows(input: {
   sourceRows: JsonRecord[];
   chapterSummaryRow: JsonRecord;
 }) {
-  await upsert("story_bibles", input.storyBibleRow, "project_id");
-  await upsert("story_bible_extraction_runs", input.extractionRunRow);
-  await insertRows("story_fact_candidates", input.candidateRows);
-  await insertRows("story_fact_conflicts", input.conflictRows);
-  await insertRows("story_fact_sources", input.sourceRows);
-  await upsert("story_chapter_summaries", input.chapterSummaryRow);
+  const result = await rpc<JsonRecord>(STORY_BIBLE_EXTRACTION_ATOMIC_RPC, {
+    p_payload: {
+      projectId: input.projectId,
+      storyBibleRow: input.storyBibleRow,
+      extractionRunRow: input.extractionRunRow,
+      candidateRows: input.candidateRows,
+      conflictRows: input.conflictRows,
+      sourceRows: input.sourceRows,
+      chapterSummaryRow: input.chapterSummaryRow,
+    },
+  });
+  if (result?.transactionStatus !== "committed") {
+    throw new Error(`STORAGE_TRANSACTION_FAILED:${String(result?.transactionStatus || "unknown")}`);
+  }
+  return result;
 }

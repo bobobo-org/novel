@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.APP_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || "local",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-14T12:20:00Z",
-  releaseTag: process.env.RELEASE_TAG || "novel-ai-l0a2-storage-boundary-adoption",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-14T12:50:00Z",
+  releaseTag: process.env.RELEASE_TAG || "novel-ai-l0a2d-atomic-extraction-rpc",
 };
 
 function deploymentId() {
@@ -106,6 +106,8 @@ export async function GET() {
     storyBibleIntegrityStatus: "storyBibleIntegrityStatus" in storyBible ? storyBible.storyBibleIntegrityStatus : "unavailable",
     storyBibleExportStatus: "storyBibleExportStatus" in storyBible ? storyBible.storyBibleExportStatus : "unavailable",
     storyBibleRevertStatus: "storyBibleRevertStatus" in storyBible ? storyBible.storyBibleRevertStatus : "not_implemented",
+    extractionAtomicTransactionStatus: "extractionAtomicTransactionStatus" in storyBible ? storyBible.extractionAtomicTransactionStatus : "unavailable",
+    extractionAtomicRpcVersion: "extractionAtomicRpcVersion" in storyBible ? storyBible.extractionAtomicRpcVersion : "",
     localCanonicalAuthorityStatus: "ready",
     storageAdapterStatus: "partial",
     supabaseStorageAdapterStatus: "service_boundary_partial",
