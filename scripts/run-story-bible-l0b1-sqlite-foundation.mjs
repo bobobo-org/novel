@@ -178,13 +178,15 @@ await check("adapter implements Storage Adapter class", () => {
   const text = read("lib/novel-ai/storage/sqlite/sqlite-adapter.ts");
   assert(text.includes("class SQLiteStoryBibleStorageAdapter") && text.includes("implements StoryBibleStorageAdapter"), "adapter class missing");
 });
-await check("registry registers SQLite adapter", () => {
+await check("registry keeps SQLite lazy to avoid native bundle tracing", () => {
   const text = read("lib/novel-ai/storage/registry.ts");
-  assert(text.includes("new SQLiteStoryBibleStorageAdapter()"), "registry did not register SQLite");
+  assert(!text.includes("new SQLiteStoryBibleStorageAdapter()"), "registry should not eagerly instantiate SQLite");
+  assert(text.includes('mode === "SQLITE_LOCAL"'), "registry should still expose SQLite capabilities");
 });
-await check("health marks SQLite foundation partial", () => {
+await check("health marks SQLite data layer ready without full offline AI", () => {
   const text = read("app/api/ai/health/route.ts");
-  assert(text.includes('sqliteStorageStatus: "partial"') && text.includes('releaseTag: "novel-ai-l0b1-sqlite-foundation"'), "health L0B.1 status missing");
+  assert(text.includes('sqliteStorageStatus: "ready"') && text.includes('releaseTag: "novel-ai-l0b2-sqlite-core-parity"'), "health L0B.2 status missing");
+  assert(text.includes('fullOfflineAIStatus: "not_implemented"'), "health must not claim full offline AI");
 });
 await check("diagnostics excludes raw path", () => {
   const text = read("app/api/admin/storage/diagnostics/route.ts");

@@ -24,7 +24,18 @@ function rowId(row: JsonRecord, fallbackPrefix: string) {
 }
 
 function json(row: JsonRecord) {
-  return JSON.stringify(row);
+  return stableStringify(row);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+}
+
+function hashJson(value: unknown) {
+  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
 function parseRow(row: Record<string, unknown> | undefined, key = "row_json") {
@@ -97,7 +108,9 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     const stored = { ...project, id: projectId, projectId, project_id: projectId };
     const db = await this.connectionForProject(projectId);
     db.run(
-      "INSERT OR REPLACE INTO projects(id, project_id, row_json, updated_at) VALUES(?,?,?,?)",
+      `INSERT INTO projects(id, project_id, row_json, updated_at)
+       VALUES(?,?,?,?)
+       ON CONFLICT(project_id) DO UPDATE SET row_json = excluded.row_json, updated_at = excluded.updated_at`,
       [projectId, projectId, json(stored), new Date().toISOString()],
     );
     return clone(stored);
@@ -222,7 +235,7 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   async createCanonicalEntity(entityType: string, entity: JsonRecord) {
     const projectId = projectIdOf(entity);
     const entityId = String(entity.entityId || entity.entity_id || entity.id || id(entityType));
-    const stored: JsonRecord = { ...entity, id: entityId, entityId, entity_id: entityId, entityType, entity_type: entityType, active: entity.active ?? true };
+    const stored: JsonRecord = { ...entity, id: entityId, entityId, entity_id: entityId, entityType, entity_type: entityType, active: entity.active ?? true, storageLocation: "local_sqlite", canonicalAuthority: "local", dataLeftDevice: false };
     const db = await this.connectionForProject(projectId);
     db.run(
       "INSERT OR REPLACE INTO canonical_entities(project_id, entity_type, entity_id, active, version_number, row_json, updated_at) VALUES(?,?,?,?,?,?,?)",
@@ -239,7 +252,8 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   async updateCanonicalEntity(projectId: string, entityType: string, entityId: string, patch: JsonRecord) {
     const current = await this.getCanonicalEntity(projectId, entityType, entityId);
     if (!current) throw new Error("STORAGE_CANONICAL_NOT_FOUND");
-    return this.createCanonicalEntity(entityType, { ...current, ...patch, projectId, project_id: projectId, entityId, entity_id: entityId });
+    const nextVersion = Number(current.versionNumber || current.version_number || 1) + 1;
+    return this.createCanonicalEntity(entityType, { ...current, ...patch, projectId, project_id: projectId, entityId, entity_id: entityId, versionNumber: nextVersion, version_number: nextVersion });
   }
 
   async listCanonicalEntities(projectId: string, entityType: string, limit = 20) {
@@ -297,7 +311,17 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     const projectId = projectIdOf(version);
     const db = await this.connectionForProject(projectId);
     const current = this.maxVersionNumber(db, projectId);
-    const stored: JsonRecord = { ...version, id: rowId(version, "version"), projectId, project_id: projectId, versionNumber: Number(version.versionNumber || version.version_number || current + 1) };
+    const changes = Array.isArray(version.changes) ? version.changes as JsonRecord[] : Array.isArray(version.changeSet) ? version.changeSet as JsonRecord[] : [];
+    const stored: JsonRecord = {
+      ...version,
+      id: rowId(version, "version"),
+      projectId,
+      project_id: projectId,
+      versionNumber: Number(version.versionNumber || version.version_number || current + 1),
+      parentVersionId: version.parentVersionId || version.parent_version_id || null,
+      revertedVersionId: version.revertedVersionId || version.reverted_version_id || null,
+      changes,
+    };
     db.run("INSERT OR REPLACE INTO versions(id, project_id, version_number, entity_type, entity_id, field_path, row_json) VALUES(?,?,?,?,?,?,?)", [
       String(stored.id),
       projectId,
@@ -307,6 +331,19 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
       String(stored.fieldPath || stored.field_path || ""),
       json(stored),
     ]);
+    changes.forEach((change, index) => {
+      const changeRow = {
+        ...change,
+        id: String(change.id || `change_${stored.id}_${index + 1}`),
+        projectId,
+        project_id: projectId,
+        versionId: stored.id,
+        version_id: stored.id,
+        versionNumber: stored.versionNumber,
+        createdAt: change.createdAt || new Date().toISOString(),
+      };
+      db.run("INSERT OR REPLACE INTO version_change_sets(id, project_id, version_id, row_json) VALUES(?,?,?,?)", [String(changeRow.id), projectId, String(stored.id), json(changeRow)]);
+    });
     return clone(stored);
   }
 
@@ -318,6 +355,11 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   async getVersion(projectId: string, versionId: string) {
     const db = await this.connectionForProject(projectId);
     return parseRow(db.get("SELECT row_json FROM versions WHERE project_id = ? AND id = ?", [projectId, versionId]));
+  }
+
+  async getVersionByNumber(projectId: string, versionNumber: number) {
+    const db = await this.connectionForProject(projectId);
+    return parseRow(db.get("SELECT row_json FROM versions WHERE project_id = ? AND version_number = ?", [projectId, versionNumber]));
   }
 
   async listVersions(projectId: string, limit = 20) {
@@ -347,8 +389,29 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
 
   async saveIntegrityMetadata(metadata: JsonRecord) {
     const projectId = projectIdOf(metadata);
-    const stored: JsonRecord = { ...metadata, id: rowId(metadata, "integrity"), projectId, project_id: projectId };
     const db = await this.connectionForProject(projectId);
+    const versionNumber = Number(metadata.versionNumber || metadata.version_number || 0);
+    const previous = db.get("SELECT row_json FROM integrity_metadata WHERE project_id = ? AND version_number < ? ORDER BY version_number DESC LIMIT 1", [projectId, versionNumber]) as Record<string, unknown> | undefined;
+    const previousRow = parseRow(previous);
+    const previousIntegrityHash = String(metadata.previousIntegrityHash || metadata.previous_integrity_hash || previousRow?.integrityHash || previousRow?.integrity_hash || "");
+    const payload = {
+      projectId,
+      versionNumber,
+      contentHash: metadata.contentHash || metadata.content_hash || hashJson(metadata.content || metadata.changeSet || metadata),
+      previousIntegrityHash,
+      integrityAlgorithm: "SHA-256",
+      integritySchemaVersion: "story-bible-integrity-v1",
+    };
+    const stored: JsonRecord = {
+      ...metadata,
+      ...payload,
+      id: rowId(metadata, "integrity"),
+      projectId,
+      project_id: projectId,
+      version_number: versionNumber,
+      previous_integrity_hash: previousIntegrityHash,
+      integrityHash: String(metadata.integrityHash || metadata.integrity_hash || hashJson(payload)),
+    };
     db.run("INSERT OR REPLACE INTO integrity_metadata(id, project_id, version_number, row_json) VALUES(?,?,?,?)", [String(stored.id), projectId, Number(stored.versionNumber || stored.version_number || 0), json(stored)]);
     return clone(stored);
   }
@@ -359,7 +422,59 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   }
 
   async verifyStoredIntegrityFields(projectId: string) {
-    return { ok: true, checked: (await this.getIntegrityChain(projectId)).length, errors: [] };
+    const chain = await this.getIntegrityChain(projectId);
+    const errors: JsonRecord[] = [];
+    let previous = "";
+    for (const row of chain) {
+      const versionNumber = Number(row.versionNumber || row.version_number || 0);
+      const actualPrevious = String(row.previousIntegrityHash || row.previous_integrity_hash || "");
+      const actualHash = String(row.integrityHash || row.integrity_hash || "");
+      const contentHash = String(row.contentHash || row.content_hash || "");
+      if (actualPrevious !== previous) errors.push({ versionNumber, code: "VERSION_INTEGRITY_PREVIOUS_HASH_MISMATCH", expected: previous, actual: actualPrevious });
+      const expected = hashJson({
+        projectId,
+        versionNumber,
+        contentHash,
+        previousIntegrityHash: actualPrevious,
+        integrityAlgorithm: "SHA-256",
+        integritySchemaVersion: "story-bible-integrity-v1",
+      });
+      if (actualHash !== expected) errors.push({ versionNumber, code: "VERSION_INTEGRITY_HASH_MISMATCH", expected, actual: actualHash });
+      previous = actualHash;
+    }
+    return { ok: errors.length === 0, checked: chain.length, errors };
+  }
+
+  async getVersionDiff(projectId: string, fromVersion: number, toVersion: number, filters: JsonRecord = {}) {
+    const verify = await this.verifyStoredIntegrityFields(projectId);
+    if (!verify.ok) throw Object.assign(new Error("VERSION_INTEGRITY_FAILED"), { code: "VERSION_INTEGRITY_FAILED", errors: verify.errors });
+    if (fromVersion === toVersion) return { projectId, fromVersion, toVersion, changes: [], summary: { totalChanges: 0 } };
+    const low = Math.min(fromVersion, toVersion) + 1;
+    const high = Math.max(fromVersion, toVersion);
+    const db = await this.connectionForProject(projectId);
+    let changes = asRows(db.all(
+      "SELECT vcs.row_json FROM version_change_sets vcs JOIN versions v ON v.id = vcs.version_id WHERE vcs.project_id = ? AND v.version_number BETWEEN ? AND ? ORDER BY v.version_number ASC",
+      [projectId, low, high],
+    ));
+    if (filters.entityType) changes = changes.filter((row) => row.entityType === filters.entityType || row.entity_type === filters.entityType);
+    if (filters.entityId) changes = changes.filter((row) => row.entityId === filters.entityId || row.entity_id === filters.entityId);
+    if (filters.fieldPath) changes = changes.filter((row) => row.fieldPath === filters.fieldPath || row.field_path === filters.fieldPath);
+    if (toVersion < fromVersion) {
+      changes = changes.reverse().map((row) => ({
+        ...row,
+        operation: row.operation === "create" ? "delete" : row.operation === "delete" ? "create" : row.operation,
+        previousValue: row.newValue ?? row.new_value,
+        newValue: row.previousValue ?? row.previous_value,
+      }));
+    }
+    return {
+      projectId,
+      fromVersion,
+      toVersion,
+      direction: toVersion >= fromVersion ? "forward" : "reverse",
+      changes,
+      summary: { totalChanges: changes.length },
+    };
   }
 
   async beginMutationRequest(request: JsonRecord) {
@@ -434,8 +549,18 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   }
 
   private createProjectSync(db: SQLiteProjectConnection, project: JsonRecord) {
-    db.run("INSERT OR REPLACE INTO projects(id, project_id, row_json, updated_at) VALUES(?,?,?,?)", [String(project.id), projectIdOf(project), json(project), new Date().toISOString()]);
-    db.run("INSERT OR REPLACE INTO story_bibles(project_id, row_json, updated_at) VALUES(?,?,?)", [projectIdOf(project), json(project), new Date().toISOString()]);
+    db.run(
+      `INSERT INTO projects(id, project_id, row_json, updated_at)
+       VALUES(?,?,?,?)
+       ON CONFLICT(project_id) DO UPDATE SET row_json = excluded.row_json, updated_at = excluded.updated_at`,
+      [String(project.id), projectIdOf(project), json(project), new Date().toISOString()],
+    );
+    db.run(
+      `INSERT INTO story_bibles(project_id, row_json, updated_at)
+       VALUES(?,?,?)
+       ON CONFLICT(project_id) DO UPDATE SET row_json = excluded.row_json, updated_at = excluded.updated_at`,
+      [projectIdOf(project), json(project), new Date().toISOString()],
+    );
   }
 
   private createCandidateSync(db: SQLiteProjectConnection, candidate: JsonRecord) {

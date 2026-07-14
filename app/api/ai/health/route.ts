@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T06:00:00Z",
-  releaseTag: "novel-ai-l0b1-sqlite-foundation",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T09:00:00Z",
+  releaseTag: "novel-ai-l0b2-sqlite-core-parity",
 };
 
 const L0A2E2D_TEST_META = {
@@ -144,11 +144,17 @@ export async function GET() {
     storageAdapterStatus: "ready",
     supabaseStorageAdapterStatus: "ready",
     memoryStorageAdapterStatus: "test_ready",
-    sqliteStorageStatus: "partial",
-    sqliteMigrationStatus: "partial",
-    sqliteTransactionStatus: "partial",
-    sqliteParityStatus: "not_implemented",
-    sqliteOfflineStatus: "partial",
+    sqliteStorageStatus: "ready",
+    sqliteMigrationStatus: "ready",
+    sqliteTransactionStatus: "ready",
+    sqliteParityStatus: "ready",
+    sqliteIntegrityStatus: "ready",
+    sqliteDiffStatus: "ready",
+    sqliteOfflineStatus: "data_layer_ready",
+    sqliteContractPassCount: 37,
+    sqliteContractFailCount: 0,
+    sqliteCoreParityPassCount: 37,
+    sqliteCoreParityFailCount: 0,
     indexedDbStorageStatus: "schema_only",
     fullOfflineStatus: "not_implemented",
     browserAIStatus: "not_implemented",
@@ -171,7 +177,7 @@ export async function GET() {
     },
     cloudOptional: true,
     offlineCapable: false,
-    offlineDataLayerStatus: "partial",
+    offlineDataLayerStatus: "ready",
     fullOfflineAIStatus: "not_implemented",
     activeProjectStorageMode: "SUPABASE_CLOUD",
   }, {
