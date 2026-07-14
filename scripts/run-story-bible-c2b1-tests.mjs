@@ -63,15 +63,18 @@ function mutationBody(candidate, requestId, overrides = {}) {
 }
 
 const health = await request("/api/ai/health");
-results.push(assert("health returns P0-C2B1 semantics", health.ok
+const healthPass = health.ok
   && health.body?.releaseTag === "novel-ai-p0c2b1-mutation-foundation"
-  && (!expectedCommit || health.body?.appCommit === expectedCommit)
-  && (!expectedDeploymentId || health.body?.deploymentId === expectedDeploymentId)
+  && (!expectedCommit || String(health.body?.appCommit || "") === String(expectedCommit).trim())
+  && (!expectedDeploymentId || String(health.body?.deploymentId || "") === String(expectedDeploymentId).trim())
   && String(health.body?.migrationVersion || "").includes("p0c2b1_mutation_foundation_005")
   && health.body?.storyBibleApprovalStatus === "partial"
   && health.body?.storyBibleVersioningStatus === "schema_ready"
-  && health.body?.storyBibleConflictEngineStatus === "ready", {
+  && health.body?.storyBibleConflictEngineStatus === "ready";
+results.push(assert("health returns P0-C2B1 semantics", healthPass, {
     status: health.status,
+    expectedCommit: String(expectedCommit || "").trim(),
+    expectedDeploymentId: String(expectedDeploymentId || "").trim(),
     appCommit: health.body?.appCommit,
     deploymentId: health.body?.deploymentId,
     releaseTag: health.body?.releaseTag,
@@ -185,20 +188,21 @@ order by created_at asc;
   if (mutationRows.skipped) {
     results.push(assert("mutation request rows query skipped", true, { reason: "SUPABASE env not provided" }));
   } else {
-    const rows = mutationRows.result || [];
+    const rows = Array.isArray(mutationRows) ? mutationRows : mutationRows.result || mutationRows.value || [];
     results.push(assert("mutation request rows persisted", rows.some((row) => row.request_id === rejectReq && row.status === "completed") && rows.some((row) => row.error_code === "CANDIDATE_STATUS_MISMATCH"), {
       rows,
     }));
   }
 
   const cleanup = await admin("/api/admin/story-bible/conflict-test", { action: "cleanup", projectId });
+  await admin("/api/admin/story-bible/conflict-test", { action: "cleanup", projectId: otherProjectId });
   const cleanupCounts = await supabaseSql(`
 select 'candidates' as kind, count(*)::int as count from public.story_fact_candidates where project_id='${projectId}'
 union all select 'conflicts', count(*)::int from public.story_fact_conflicts where project_id='${projectId}'
 union all select 'mutation_requests', count(*)::int from public.story_bible_mutation_requests where project_id='${projectId}'
 union all select 'bibles', count(*)::int from public.story_bibles where project_id='${projectId}';
 `);
-  const cleanedRows = cleanupCounts.result || [];
+  const cleanedRows = Array.isArray(cleanupCounts) ? cleanupCounts : cleanupCounts.result || cleanupCounts.value || [];
   results.push(assert("test data cleanup removed story rows", cleanup.ok
     && cleanedRows.find((x) => x.kind === "candidates")?.count === 0
     && cleanedRows.find((x) => x.kind === "conflicts")?.count === 0
