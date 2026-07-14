@@ -10,6 +10,8 @@
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",
     "test:story-bible:l0a": "node scripts/run-story-bible-l0a-tests.mjs",
     "test:story-bible:l0a2e2": "node scripts/run-story-bible-l0a2e2-smoke.mjs",
+    "test:story-bible:l0a2e2:concurrency": "node scripts/run-story-bible-l0a2e2-concurrency.mjs",
+    "test:story-bible:l0a2e2:all": "pnpm test:story-bible:l0a2e2 && pnpm test:story-bible:l0a2e2:concurrency",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
