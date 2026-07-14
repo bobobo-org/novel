@@ -297,6 +297,27 @@ function buildModelPrompt(input: StoryBibleExtractionInput) {
       "foreshadowing[].description",
       "openThreads[].description",
     ],
+    outputContract: {
+      candidates: [{
+        entityType: "character | event | item | world_rule | foreshadowing | open_thread",
+        temporaryEntityId: "lowercase_id",
+        operation: "create | update | append | no-change",
+        fieldPath: "one fieldPathExample",
+        proposedValue: "scalar or short string array",
+        confidence: "number 0..1",
+        evidenceType: "direct_statement | dialogue | action | narration | object_transfer | world_rule | foreshadowing | promise | ambiguous",
+        sourceRef: { paragraphIndex: "integer", evidenceType: "same allowed evidenceType" },
+        reason: "short explanation",
+      }],
+      chapterSummaryCandidate: {
+        summary: "required summary",
+        endingState: "short ending state",
+        newThreads: ["short thread"],
+        newFacts: ["short fact"],
+      },
+      warnings: ["short warning"],
+      confidence: "number 0..1",
+    },
     chapter: {
       projectId: input.projectId,
       chapterId: input.chapterId,
