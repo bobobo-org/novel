@@ -1,6 +1,6 @@
 const baseUrl = process.env.BASE_URL || "https://novel-orcin.vercel.app";
 const deploymentUrl = process.env.EXPECTED_DEPLOYMENT_URL || "";
-const expectedReleaseTag = process.env.EXPECTED_RELEASE_TAG || "novel-ai-l0a2e2-rollback-fixture-contract";
+const expectedReleaseTag = process.env.EXPECTED_RELEASE_TAG || "novel-ai-l0a2e2-source-natural-key-contract";
 const expectedMigration = "p0_l0a2e2_rollback_fixture_contract_014";
 const supabaseToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
 const supabaseRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";

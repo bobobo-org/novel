@@ -3,7 +3,7 @@ const expectedReleaseTag = process.env.EXPECTED_RELEASE_TAG || "novel-ai-l0a2e2-
 const requiredMigration = "p0_l0a2e2_project_source_natural_key_015";
 const supabaseToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
 const supabaseRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";
-const prefix = `l0a2e_concurrency_${Date.now()}_`;
+const prefix = `l0a2e_source_dedup_${Date.now()}_`;
 const results = [];
 const timings = [];
 
@@ -24,7 +24,7 @@ async function sql(query, expectOk = true) {
     body: JSON.stringify({ query }),
   });
   const text = await res.text();
-  timings.push({ kind: "sql", elapsedMs: Date.now() - started, status: res.status });
+  timings.push(Date.now() - started);
   let body;
   try { body = JSON.parse(text); } catch { body = text; }
   if (expectOk && !res.ok) throw new Error(`SQL_${res.status}:${text.slice(0, 800)}`);
@@ -32,10 +32,8 @@ async function sql(query, expectOk = true) {
 }
 
 async function health() {
-  const started = Date.now();
-  const res = await fetch(`${baseUrl}/api/ai/health?concurrency=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+  const res = await fetch(`${baseUrl}/api/ai/health?sourceDedup=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
   const body = await res.json();
-  timings.push({ kind: "http", elapsedMs: Date.now() - started, status: res.status });
   return { ok: res.ok, status: res.status, cacheControl: res.headers.get("cache-control"), body };
 }
 
@@ -46,11 +44,11 @@ function candidateRow(project, run, candidateId, now) {
     extraction_run_id: run,
     entity_type: "character",
     entity_id: null,
-    temporary_entity_id: "char_concurrent",
+    temporary_entity_id: "char_source_contract",
     operation: "create",
     field_path: "characters[].canonicalName",
     previous_value: null,
-    proposed_value: "\"林昭\"",
+    proposed_value: "\"Lin Zhao\"",
     confidence: 0.9,
     evidence: "fixture",
     source_refs: [],
@@ -72,7 +70,7 @@ function candidateRow(project, run, candidateId, now) {
   };
 }
 
-function payload({ project, suffix, requestId, sourceHash = "shared_hash", chapterId = "shared_chapter", changed = false }) {
+function payload({ project, suffix, requestId, sourceHash = "same_hash", chapterId = "chapter_1", paragraphIndex = 0, textStart = 0, textEnd = 12, sourceType = "text_excerpt" }) {
   const now = new Date().toISOString();
   const run = `run_${suffix}`;
   const candidateId = `cand_${suffix}`;
@@ -83,7 +81,7 @@ function payload({ project, suffix, requestId, sourceHash = "shared_hash", chapt
       project_id: project,
       schema_version: "story-bible-v1",
       status: "active",
-      core_json: { fixture: true, changed },
+      core_json: { fixture: "source-dedup" },
       created_at: now,
       updated_at: now,
     },
@@ -94,13 +92,13 @@ function payload({ project, suffix, requestId, sourceHash = "shared_hash", chapt
       chapter_number: 1,
       extraction_mode: "chapter-new",
       schema_version: "story-bible-v1",
-      prompt_version: "concurrency-fixture",
+      prompt_version: "source-dedup-fixture",
       model_id: "fixture",
       fallback_level: "fixture",
       status: "completed",
       confidence: 0.9,
       warnings: [],
-      input_hash: `hash_${suffix}_${changed ? "changed" : "same"}`,
+      input_hash: `hash_${suffix}`,
       output_json: {},
       error_code: null,
       created_at: now,
@@ -114,11 +112,12 @@ function payload({ project, suffix, requestId, sourceHash = "shared_hash", chapt
       candidate_id: candidateId,
       chapter_id: chapterId,
       scene_id: null,
-      paragraph_index: 0,
-      text_start: 0,
-      text_end: 2,
+      paragraph_index: paragraphIndex,
+      text_start: textStart,
+      text_end: textEnd,
       excerpt_hash: sourceHash,
-      excerpt: "林昭",
+      excerpt: "shared text",
+      source_type: sourceType,
       created_at: now,
     }],
     chapterSummaryRow: {
@@ -126,7 +125,7 @@ function payload({ project, suffix, requestId, sourceHash = "shared_hash", chapt
       project_id: project,
       chapter_id: chapterId,
       chapter_number: 1,
-      title: "concurrency fixture",
+      title: "source dedup fixture",
       summary: "fixture summary",
       summary_json: {},
       source_hash: `summary_${suffix}`,
@@ -141,8 +140,8 @@ function rpcSql(body) {
 
 function cleanupSql() {
   return `
-delete from public.story_fact_sources where project_id like '${prefix}%';
 delete from public.story_fact_candidate_sources where project_id like '${prefix}%';
+delete from public.story_fact_sources where project_id like '${prefix}%';
 delete from public.story_fact_conflicts where project_id like '${prefix}%';
 delete from public.story_fact_candidates where project_id like '${prefix}%';
 delete from public.story_chapter_summaries where project_id like '${prefix}%';
@@ -159,104 +158,79 @@ async function counts(project) {
     (select count(*)::int from public.story_fact_candidates where project_id='${project}') as candidates,
     (select count(*)::int from public.story_fact_sources where project_id='${project}') as sources,
     (select count(*)::int from public.story_fact_candidate_sources where project_id='${project}') as source_relations,
+    (select count(distinct natural_key_hash)::int from public.story_fact_sources where project_id='${project}') as natural_keys,
     (select count(*)::int from public.story_chapter_summaries where project_id='${project}') as summaries`);
   return res.body[0];
 }
 
-async function parallelSameRequest(count) {
-  const project = `${prefix}same_${count}`;
-  const body = payload({ project, suffix: `same_${count}`, requestId: `req_same_${count}` });
-  const calls = await Promise.allSettled(Array.from({ length: count }, () => sql(rpcSql(body), false)));
-  const ok = calls.filter((call) => call.status === "fulfilled" && call.value.ok).length;
+async function runRpc(body) {
+  const res = await sql(rpcSql(body));
+  return res.body?.[0]?.result || {};
+}
+
+async function sameProjectSameIdentity() {
+  const project = `${prefix}same_identity`;
+  const a = await runRpc(payload({ project, suffix: "same_a", requestId: "req_same_a" }));
+  const b = await runRpc(payload({ project, suffix: "same_b", requestId: "req_same_b" }));
   const rowCounts = await counts(project);
-  assert(`${count} parallel same requestId same payload`, ok === count && rowCounts.requests === 1 && rowCounts.runs === 1 && rowCounts.candidates === 1 && rowCounts.sources === 1 && rowCounts.source_relations === 1 && rowCounts.summaries === 1, { ok, rowCounts });
+  assert("same project same identity reuses one source", rowCounts.sources === 1 && rowCounts.source_relations === 2 && rowCounts.natural_keys === 1, { rowCounts, a, b });
+  assert("rpc reports reused source on second write", Number(b.createdCounts?.reusedSources || 0) >= 1, b.createdCounts);
 }
 
-async function parallelSameRequestDifferentPayload() {
-  const project = `${prefix}payload_conflict`;
-  const requestId = "req_payload_conflict";
-  const a = payload({ project, suffix: "conflict_a", requestId });
-  const b = payload({ project, suffix: "conflict_b", requestId, changed: true });
-  const calls = await Promise.allSettled([sql(rpcSql(a), false), sql(rpcSql(b), false)]);
-  const ok = calls.filter((call) => call.status === "fulfilled" && call.value.ok).length;
-  const blocked = calls.filter((call) => call.status === "fulfilled" && !call.value.ok).length;
+async function concurrentSameIdentity(count) {
+  const project = `${prefix}parallel_${count}`;
+  const bodies = Array.from({ length: count }, (_, index) => payload({ project, suffix: `par_${index}`, requestId: `req_par_${index}` }));
+  const calls = await Promise.allSettled(bodies.map(runRpc));
+  const ok = calls.filter((call) => call.status === "fulfilled").length;
   const rowCounts = await counts(project);
-  assert("2 parallel same requestId different payload", ok === 1 && blocked === 1 && rowCounts.requests === 1 && rowCounts.runs === 1, { ok, blocked, rowCounts, calls });
+  assert(`${count} concurrent same identity rows collapse`, ok === count && rowCounts.sources === 1 && rowCounts.source_relations === count && rowCounts.requests === count, { ok, rowCounts });
 }
 
-async function parallelDifferentRequestsSameSource(count) {
-  const project = `${prefix}source_${count}`;
-  const bodies = Array.from({ length: count }, (_, index) => payload({
-    project,
-    suffix: `src_${index}`,
-    requestId: `req_src_${index}`,
-    sourceHash: "same_source_hash",
-    chapterId: "same_chapter",
-  }));
-  const calls = await Promise.allSettled(bodies.map((body) => sql(rpcSql(body), false)));
-  const ok = calls.filter((call) => call.status === "fulfilled" && call.value.ok).length;
+async function variantsStaySeparate() {
+  const project = `${prefix}variants`;
+  await runRpc(payload({ project, suffix: "base", requestId: "req_base" }));
+  await runRpc(payload({ project, suffix: "range", requestId: "req_range", paragraphIndex: 1, textStart: 20, textEnd: 32 }));
+  await runRpc(payload({ project, suffix: "type", requestId: "req_type", sourceType: "author_note" }));
   const rowCounts = await counts(project);
-  assert(`${count} parallel different requestIds same source identity`, ok === count && rowCounts.requests === count && rowCounts.runs === count && rowCounts.candidates === count && rowCounts.sources === 1 && rowCounts.source_relations === count && rowCounts.summaries === 1, { ok, rowCounts });
+  assert("different range/source type stay separate", rowCounts.sources === 3 && rowCounts.source_relations === 3 && rowCounts.natural_keys === 3, rowCounts);
 }
 
-async function parallelSameChapter(count) {
-  const project = `${prefix}chapter_${count}`;
-  const bodies = Array.from({ length: count }, (_, index) => payload({
-    project,
-    suffix: `chapter_${index}`,
-    requestId: `req_chapter_${index}`,
-    sourceHash: `chapter_source_${index}`,
-    chapterId: "same_chapter",
-  }));
-  const calls = await Promise.allSettled(bodies.map((body) => sql(rpcSql(body), false)));
-  const ok = calls.filter((call) => call.status === "fulfilled" && call.value.ok).length;
+async function crossProjectIsolation() {
+  const a = `${prefix}cross_a`;
+  const b = `${prefix}cross_b`;
+  await runRpc(payload({ project: a, suffix: "cross_a", requestId: "req_cross_a" }));
+  await runRpc(payload({ project: b, suffix: "cross_b", requestId: "req_cross_b" }));
+  const ca = await counts(a);
+  const cb = await counts(b);
+  assert("same identity is isolated by project", ca.sources === 1 && cb.sources === 1 && ca.source_relations === 1 && cb.source_relations === 1, { ca, cb });
+}
+
+async function idempotentReplayDoesNotDuplicateRelation() {
+  const project = `${prefix}replay`;
+  const body = payload({ project, suffix: "replay", requestId: "req_replay" });
+  const a = await runRpc(body);
+  const b = await runRpc(body);
   const rowCounts = await counts(project);
-  assert(`${count} parallel same chapter extractions`, ok === count && rowCounts.requests === count && rowCounts.runs === count && rowCounts.candidates === count && rowCounts.sources === count && rowCounts.source_relations === count && rowCounts.summaries === 1, { ok, rowCounts });
-}
-
-async function crossProjectSameSourceHash() {
-  const projects = [`${prefix}cross_a`, `${prefix}cross_b`];
-  const bodies = projects.map((project, index) => payload({
-    project,
-    suffix: `cross_${index}`,
-    requestId: `req_cross_${index}`,
-    sourceHash: "cross_project_same_hash",
-    chapterId: "same_chapter",
-  }));
-  const calls = await Promise.allSettled(bodies.map((body) => sql(rpcSql(body), false)));
-  const ok = calls.filter((call) => call.status === "fulfilled" && call.value.ok).length;
-  const countRows = await Promise.all(projects.map((project) => counts(project)));
-  assert("cross-project same source hash stays isolated", ok === 2 && countRows.every((row) => row.requests === 1 && row.sources === 1 && row.source_relations === 1), { ok, countRows });
-}
-
-async function concurrentReadDuringExtraction() {
-  const project = `${prefix}read`;
-  const body = payload({ project, suffix: "read", requestId: "req_read" });
-  const [write, read] = await Promise.allSettled([
-    sql(rpcSql(body), false),
-    fetch(`${baseUrl}/api/story-bible/candidates?projectId=${encodeURIComponent(project)}&limit=5`).then(async (res) => ({ ok: res.ok, status: res.status, body: await res.json().catch(() => null) })),
-  ]);
-  assert("concurrent extraction and candidate read", write.status === "fulfilled" && write.value.ok && read.status === "fulfilled" && [200, 404].includes(read.value.status), { write, read });
+  assert("same request replay does not duplicate source relation", rowCounts.requests === 1 && rowCounts.sources === 1 && rowCounts.source_relations === 1 && b.idempotentReplay === true, { a, b, rowCounts });
 }
 
 async function run() {
   await sql(cleanupSql());
   const h = await health();
-  assert("health version before concurrency", h.ok
+  assert("health source dedup version", h.ok
     && h.cacheControl === "no-store, max-age=0"
     && h.body.releaseTag === expectedReleaseTag
-    && String(h.body.migrationVersion || "").includes(requiredMigration), h.body);
+    && String(h.body.migrationVersion || "").includes(requiredMigration)
+    && h.body.extractionSourceDedupStatus === "ready"
+    && h.body.sourceNaturalKeyVersion === "source-natural-key-v1"
+    && h.body.sourceDedupScope === "project", h.body);
 
-  await parallelSameRequest(2);
-  await parallelSameRequest(10);
-  await parallelSameRequestDifferentPayload();
-  await parallelDifferentRequestsSameSource(10);
-  await parallelSameChapter(10);
-  await crossProjectSameSourceHash();
-  await concurrentReadDuringExtraction();
+  await sameProjectSameIdentity();
+  await concurrentSameIdentity(10);
+  await variantsStaySeparate();
+  await crossProjectIsolation();
+  await idempotentReplayDoesNotDuplicateRelation();
 
-  const statusRows = await sql(`select status, count(*)::int from public.story_bible_extraction_requests where project_id like '${prefix}%' group by status order by status`);
-  assert("no processing rows remain", !statusRows.body.some((row) => row.status === "processing"), statusRows.body);
   await sql(cleanupSql());
   const remaining = await sql(`select
     (select count(*)::int from public.story_bibles where project_id like '${prefix}%') as bibles,
@@ -266,7 +240,7 @@ async function run() {
     (select count(*)::int from public.story_fact_candidate_sources where project_id like '${prefix}%') as source_relations,
     (select count(*)::int from public.story_fact_candidates where project_id like '${prefix}%') as candidates,
     (select count(*)::int from public.story_chapter_summaries where project_id like '${prefix}%') as summaries`);
-  assert("concurrency fixture cleanup", Object.values(remaining.body[0]).every((value) => Number(value) === 0), remaining.body[0]);
+  assert("source dedup fixture cleanup", Object.values(remaining.body[0]).every((value) => Number(value) === 0), remaining.body[0]);
 }
 
 try {
@@ -282,19 +256,14 @@ function percentile(values, p) {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
 }
 
-const sqlTimes = timings.filter((item) => item.kind === "sql").map((item) => item.elapsedMs);
-const httpTimes = timings.filter((item) => item.kind === "http").map((item) => item.elapsedMs);
 const summary = {
   baseUrl,
   prefix,
   pass: results.filter((item) => item.status === "PASS").length,
   fail: results.filter((item) => item.status === "FAIL").length,
   skip: 0,
-  maxConcurrentRequestsTested: 10,
-  sqlP50: percentile(sqlTimes, 50),
-  sqlP95: percentile(sqlTimes, 95),
-  httpP50: percentile(httpTimes, 50),
-  httpP95: percentile(httpTimes, 95),
+  sqlP50: percentile(timings, 50),
+  sqlP95: percentile(timings, 95),
 };
 
 console.log(JSON.stringify({ summary, results }, null, 2));

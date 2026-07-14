@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { MEMORY_CAPABILITIES } from "./capabilities";
+import { createSourceNaturalKey, createSourceNaturalKeyHash } from "./source-identity";
 import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "./types";
 
 type MemoryTables = {
@@ -36,6 +37,10 @@ function rowId(row: JsonRecord, fallbackPrefix: string) {
 
 function key(projectId: string, entityType: string, entityId: string) {
   return `${projectId}:${entityType}:${entityId}`;
+}
+
+function relationId(projectId: string, candidateId: string, sourceId: string, relationType = "evidence") {
+  return `rel_${crypto.createHash("md5").update(`${projectId}:${candidateId}:${sourceId}:${relationType}`).digest("hex")}`;
 }
 
 export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter {
@@ -191,7 +196,21 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
   }
 
   async createSource(source: JsonRecord) {
-    const stored = { ...source, id: rowId(source, "source") };
+    const projectId = projectIdOf(source);
+    const naturalKey = createSourceNaturalKey(source);
+    const naturalKeyHash = createSourceNaturalKeyHash(source);
+    const existing = Array.from(this.tables.sources.values()).find((row) =>
+      projectIdOf(row) === projectId && String(row.natural_key_hash || row.naturalKeyHash || "") === naturalKeyHash
+    );
+    if (existing) return clone(existing);
+    const stored = {
+      ...source,
+      id: rowId(source, "source"),
+      source_type: source.source_type || source.sourceType || "text_excerpt",
+      natural_key: naturalKey,
+      natural_key_hash: naturalKeyHash,
+      sourceNaturalKeyVersion: "source-natural-key-v1",
+    };
     this.tables.sources.set(String(stored.id), clone(stored));
     return clone(stored);
   }
@@ -287,8 +306,22 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     await this.createProject({ ...rows.storyBibleRow, id: rows.projectId, projectId: rows.projectId });
     const extractionRun = { ...rows.extractionRunRow, id: rowId(rows.extractionRunRow, "extraction_run") };
     this.tables.extractionRuns.set(String(extractionRun.id), clone(extractionRun));
-    for (const source of rows.sourceRows) await this.createSource(source);
     for (const candidate of rows.candidateRows) await this.createCandidate(candidate);
+    for (const source of rows.sourceRows) {
+      const storedSource = await this.createSource(source);
+      const candidateId = String(source.candidate_id || source.candidateId || "");
+      if (candidateId) {
+        const storedRelation = {
+          id: relationId(rows.projectId, candidateId, String(storedSource.id), "evidence"),
+          project_id: rows.projectId,
+          candidate_id: candidateId,
+          source_id: String(storedSource.id),
+          relation_type: "evidence",
+          created_at: new Date().toISOString(),
+        };
+        this.tables.sourceRelations.set(String(storedRelation.id), clone(storedRelation));
+      }
+    }
     for (const conflict of rows.conflictRows) await this.createConflict(conflict);
     const summary = { ...rows.chapterSummaryRow, id: rowId(rows.chapterSummaryRow, "chapter_summary") };
     this.tables.chapterSummaries.set(String(summary.id), clone(summary));
