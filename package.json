@@ -9,6 +9,7 @@
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",
     "test:story-bible:l0a": "node scripts/run-story-bible-l0a-tests.mjs",
+    "test:story-bible:l0a2e2": "node scripts/run-story-bible-l0a2e2-smoke.mjs",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
