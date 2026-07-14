@@ -1,5 +1,5 @@
 const baseUrl = process.env.BASE_URL || "https://novel-orcin.vercel.app";
-const expectedReleaseTag = process.env.EXPECTED_RELEASE_TAG || "novel-ai-l0a2e2-source-natural-key-contract";
+const expectedReleaseTag = process.env.EXPECTED_RELEASE_TAG || "novel-ai-l0a2e2c-boundary-silent-fallback";
 const requiredMigration = "p0_l0a2e2_project_source_natural_key_015";
 const supabaseToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
 const supabaseRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";

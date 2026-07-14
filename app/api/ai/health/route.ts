@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "1a1e3c961ebfd8f51d702304edbf082a2afbd3e2",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T00:00:00Z",
-  releaseTag: "novel-ai-l0a2e2-source-natural-key-contract",
+  releaseTag: "novel-ai-l0a2e2c-boundary-silent-fallback",
 };
 
 function deploymentId() {
