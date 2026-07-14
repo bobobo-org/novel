@@ -1,0 +1,69 @@
+import type { StoryBibleStorageCapabilities } from "./types";
+
+export const SUPABASE_CAPABILITIES: StoryBibleStorageCapabilities = {
+  transactions: "partial",
+  optimisticLock: "supported",
+  advisoryLock: "partial",
+  fullTextSearch: "partial",
+  vectorSearch: "unsupported",
+  streaming: "unsupported",
+  batchWrite: "supported",
+  integrityChain: "supported",
+  export: "supported",
+  import: "unsupported",
+  offline: "unsupported",
+  browserCompatible: "unsupported",
+  maxRecommendedProjectSize: 100000,
+  maxRecommendedVersionCount: 10000,
+};
+
+export const MEMORY_CAPABILITIES: StoryBibleStorageCapabilities = {
+  transactions: "supported",
+  optimisticLock: "supported",
+  advisoryLock: "supported",
+  fullTextSearch: "partial",
+  vectorSearch: "unsupported",
+  streaming: "unsupported",
+  batchWrite: "supported",
+  integrityChain: "partial",
+  export: "partial",
+  import: "partial",
+  offline: "supported",
+  browserCompatible: "supported",
+  maxRecommendedProjectSize: 1000,
+  maxRecommendedVersionCount: 500,
+};
+
+export const SQLITE_PROTOTYPE_CAPABILITIES: StoryBibleStorageCapabilities = {
+  transactions: "supported",
+  optimisticLock: "supported",
+  advisoryLock: "partial",
+  fullTextSearch: "partial",
+  vectorSearch: "unsupported",
+  streaming: "unsupported",
+  batchWrite: "supported",
+  integrityChain: "partial",
+  export: "partial",
+  import: "partial",
+  offline: "supported",
+  browserCompatible: "unsupported",
+  maxRecommendedProjectSize: 50000,
+  maxRecommendedVersionCount: 5000,
+};
+
+export const INDEXEDDB_SCHEMA_CAPABILITIES: StoryBibleStorageCapabilities = {
+  transactions: "partial",
+  optimisticLock: "partial",
+  advisoryLock: "unsupported",
+  fullTextSearch: "unsupported",
+  vectorSearch: "unsupported",
+  streaming: "unsupported",
+  batchWrite: "partial",
+  integrityChain: "partial",
+  export: "partial",
+  import: "partial",
+  offline: "supported",
+  browserCompatible: "supported",
+  maxRecommendedProjectSize: 10000,
+  maxRecommendedVersionCount: 1000,
+};

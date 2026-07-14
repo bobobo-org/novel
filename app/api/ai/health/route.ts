@@ -3,6 +3,7 @@ import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
 import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from "@/lib/novel-ai/persistence";
 import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
+import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,23 @@ export async function GET() {
     storyBibleIntegrityStatus: "storyBibleIntegrityStatus" in storyBible ? storyBible.storyBibleIntegrityStatus : "unavailable",
     storyBibleExportStatus: "storyBibleExportStatus" in storyBible ? storyBible.storyBibleExportStatus : "unavailable",
     storyBibleRevertStatus: "storyBibleRevertStatus" in storyBible ? storyBible.storyBibleRevertStatus : "not_implemented",
+    localCanonicalAuthorityStatus: "partial",
+    storageAdapterStatus: "partial",
+    sqliteStorageStatus: "prototype",
+    indexedDbStorageStatus: "schema_only",
+    cloudOptionalStatus: "partial",
+    primaryStorage: "SUPABASE_CLOUD",
+    canonicalAuthority: "local",
+    storageAdapterType: "supabase-wrapper",
+    storageCapabilities: {
+      SUPABASE_CLOUD: getStorageCapabilities("SUPABASE_CLOUD"),
+      SQLITE_LOCAL: getStorageCapabilities("SQLITE_LOCAL"),
+      INDEXEDDB_BROWSER: getStorageCapabilities("INDEXEDDB_BROWSER"),
+      MEMORY_TEST: getStorageCapabilities("MEMORY_TEST"),
+    },
+    cloudOptional: true,
+    offlineCapable: false,
+    activeProjectStorageMode: "SUPABASE_CLOUD",
   }, {
     headers: {
       "Cache-Control": "no-store, max-age=0",
