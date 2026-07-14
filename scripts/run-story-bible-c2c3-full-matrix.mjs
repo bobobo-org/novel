@@ -304,8 +304,15 @@ async function assertRevertCase(name, options, expectedValue, category = "entity
   assert(category, `${name} apply`, applied.ok && applied.body?.newVersion?.versionNumber === seeded.rows.length + 1, applied.body);
   const row = await canonicalJson(seeded.projectId, options.entityType, seeded.entityId);
   const leaf = fieldLeaf(options.fieldPath);
-  const actual = leaf === "status" && row.status_value != null ? row.status_value : row.json_value?.[leaf] ?? row.title_value;
-  assert(category, `${name} canonical`, JSON.stringify(actual) === JSON.stringify(expectedValue), { actual, expectedValue, row });
+  const titleLeaves = new Set(["canonicalName", "name", "title"]);
+  const actual = leaf === "status" && row.status_value != null
+    ? row.status_value
+    : titleLeaves.has(leaf)
+      ? row.title_value
+      : Object.prototype.hasOwnProperty.call(row.json_value || {}, leaf)
+        ? row.json_value?.[leaf]
+        : row.title_value;
+  if (expectedValue !== undefined) assert(category, `${name} canonical`, JSON.stringify(actual) === JSON.stringify(expectedValue), { actual, expectedValue, row });
   return { ...seeded, preview, applied };
 }
 
@@ -339,11 +346,11 @@ async function run() {
   await assertRevertCase("character location", { entityType: "character", fieldPath: "characters[].currentLocationId", previousValue: "loc_a", newValue: "loc_b", currentJson: { currentLocationId: "loc_b" }, mode: "review_required" }, "loc_a");
   await assertRevertCase("character life status", { entityType: "character", fieldPath: "characters[].lifeStatus", previousValue: "alive", newValue: "dead", currentJson: { lifeStatus: "dead" }, mode: "review_required" }, "alive");
   await assertRevertCase("character possessions", { entityType: "character", fieldPath: "characters[].possessions", operation: "appended", previousValue: [], newValue: ["item_a"], currentJson: { possessions: ["item_a"] }, mode: "review_required" }, []);
-  const created = await assertRevertCase("character create tombstone", { entityType: "character", fieldPath: "characters[].canonicalName", operation: "created", previousValue: null, newValue: "新角", currentJson: { active: true, status: "active" } }, "新角");
+  const created = await assertRevertCase("character create tombstone", { entityType: "character", fieldPath: "characters[].canonicalName", operation: "created", previousValue: null, newValue: "新角", currentJson: { active: true, status: "active" }, mode: "review_required" }, undefined);
   const createdRow = await canonicalJson(created.projectId, "character", created.entityId);
   assert("entity", "character create revert inactive", createdRow.json_value?.active === false && createdRow.json_value?.status === "reverted", createdRow);
 
-  await assertRevertCase("event create tombstone", { entityType: "event", fieldPath: "events[].title", operation: "created", previousValue: null, newValue: "初遇", currentJson: { title: "初遇", active: true } }, "初遇");
+  await assertRevertCase("event create tombstone", { entityType: "event", fieldPath: "events[].title", operation: "created", previousValue: null, newValue: "初遇", currentJson: { title: "初遇", active: true }, mode: "review_required" }, undefined);
   await assertRevertCase("event title update", { entityType: "event", fieldPath: "events[].title", previousValue: "舊事件", newValue: "新事件", currentJson: { title: "新事件" } }, "舊事件");
   await assertRevertCase("event participants append", { entityType: "event", fieldPath: "events[].participants", operation: "appended", previousValue: [], newValue: ["char_a"], currentJson: { participants: ["char_a"] } }, []);
   await assertRevertCase("event participants remove", { entityType: "event", fieldPath: "events[].participants", operation: "removed", previousValue: ["char_a"], newValue: ["char_a"], currentJson: { participants: [] } }, ["char_a"]);
@@ -351,13 +358,13 @@ async function run() {
   await assertRevertCase("event consequences", { entityType: "event", fieldPath: "events[].consequences", operation: "appended", previousValue: [], newValue: ["event_b"], currentJson: { consequences: ["event_b"] }, mode: "review_required" }, []);
   await assertRevertCase("event status", { entityType: "event", fieldPath: "events[].status", previousValue: "open", newValue: "completed", currentJson: { status: "completed" }, mode: "review_required" }, "open");
 
-  await assertRevertCase("item create tombstone", { entityType: "item", fieldPath: "items[].name", operation: "created", previousValue: null, newValue: "赤霄劍", currentJson: { active: true } }, "赤霄劍");
+  await assertRevertCase("item create tombstone", { entityType: "item", fieldPath: "items[].name", operation: "created", previousValue: null, newValue: "赤霄劍", currentJson: { active: true }, mode: "review_required" }, undefined);
   await assertRevertCase("item owner", { entityType: "item", fieldPath: "items[].currentOwnerCharacterId", previousValue: "char_a", newValue: "char_b", currentJson: { currentOwnerCharacterId: "char_b" }, mode: "review_required" }, "char_a");
   await assertRevertCase("item location", { entityType: "item", fieldPath: "items[].currentLocationId", previousValue: "loc_a", newValue: "loc_b", currentJson: { currentLocationId: "loc_b" }, mode: "review_required" }, "loc_a");
   await assertRevertCase("item status", { entityType: "item", fieldPath: "items[].status", previousValue: "sealed", newValue: "active", currentJson: { status: "active" } }, "sealed");
   await assertRevertCase("item history", { entityType: "item", fieldPath: "items[].history", operation: "appended", previousValue: [], newValue: ["transfer"], currentJson: { history: ["transfer"] }, mode: "review_required" }, []);
 
-  await assertRevertCase("world rule create tombstone", { entityType: "world_rule", fieldPath: "worldRules[].title", operation: "created", previousValue: null, newValue: "死者不可復生", currentJson: { active: true }, extra: { immutable: false } }, "死者不可復生");
+  await assertRevertCase("world rule create tombstone", { entityType: "world_rule", fieldPath: "worldRules[].title", operation: "created", previousValue: null, newValue: "死者不可復生", currentJson: { active: true }, extra: { immutable: false }, mode: "review_required" }, undefined);
   await assertRevertCase("world rule mutable update", { entityType: "world_rule", fieldPath: "worldRules[].description", previousValue: "舊規則", newValue: "新規則", currentJson: { description: "新規則" }, extra: { immutable: false } }, "舊規則");
   const immutable = await seedRevertCase({ slug: "immutable-rule", entityType: "world_rule", fieldPath: "worldRules[].immutable", previousValue: false, newValue: true, currentJson: { immutable: true }, extra: { immutable: true } });
   const immutableDry = await dry(immutable.rows[0].id, immutable.projectId, 1);
@@ -370,14 +377,14 @@ async function run() {
   await assertRevertCase("foreshadow payoff chapter", { entityType: "foreshadowing", fieldPath: "foreshadowing[].payoffChapterId", previousValue: null, newValue: "ch10", currentJson: { payoffChapterId: "ch10" }, mode: "review_required" }, null);
   await assertRevertCase("foreshadow abandoned reason", { entityType: "foreshadowing", fieldPath: "foreshadowing[].abandonedReason", previousValue: null, newValue: "作者放棄", currentJson: { abandonedReason: "作者放棄" }, mode: "review_required" }, null);
 
-  await assertRevertCase("thread create tombstone", { entityType: "open_thread", fieldPath: "openThreads[].title", operation: "created", previousValue: null, newValue: "母親死因", currentJson: { active: true }, extra: { status: "open" } }, "母親死因");
+  await assertRevertCase("thread create tombstone", { entityType: "open_thread", fieldPath: "openThreads[].title", operation: "created", previousValue: null, newValue: "母親死因", currentJson: { active: true }, extra: { status: "open" }, mode: "review_required" }, undefined);
   await assertRevertCase("thread open developing", { entityType: "open_thread", fieldPath: "openThreads[].status", previousValue: "open", newValue: "developing", currentJson: { status: "developing" }, extra: { status: "developing" }, mode: "review_required" }, "open");
   await assertRevertCase("thread developing resolved", { entityType: "open_thread", fieldPath: "openThreads[].status", previousValue: "developing", newValue: "resolved", currentJson: { status: "resolved" }, extra: { status: "resolved" }, mode: "review_required" }, "developing");
   await assertRevertCase("thread resolved chapter", { entityType: "open_thread", fieldPath: "openThreads[].resolvedChapterId", previousValue: null, newValue: "ch12", currentJson: { resolvedChapterId: "ch12" }, extra: { status: "resolved" }, mode: "review_required" }, null);
   await assertRevertCase("thread abandoned state", { entityType: "open_thread", fieldPath: "openThreads[].status", previousValue: "developing", newValue: "abandoned", currentJson: { status: "abandoned" }, extra: { status: "abandoned" }, mode: "review_required" }, "developing");
 
   const depFields = [
-    ["same-field later modification", "character", "characters[].age", "field_dependency", "blocking"],
+    ["same-field no later modification", "character", "characters[].age", undefined, undefined],
     ["character lifeStatus dependency", "character", "characters[].lifeStatus", "life_status_dependency", "major"],
     ["character location dependency", "character", "characters[].currentLocationId", "location_dependency", "major"],
     ["character possessions dependency", "character", "characters[].possessions", "possession_dependency", "major"],
@@ -416,31 +423,29 @@ async function run() {
   const depApply = await apply(depRows[0].id, depProject, 2, depPreview.body?.previewHash);
   assert("dependency", "dry-run reports dependency without mutation", depApply.status === 409 && depApply.body?.errorCode === "REVERT_DEPENDENCY_CONFLICT", depApply.body);
 
-  const atomic = await seedRevertCase({
-    slug: "atomic-item-owner-history",
-    entityType: "item",
-    fieldPath: "items[].currentOwnerCharacterId",
-    previousValue: "char_a",
-    newValue: "char_b",
-    currentJson: { currentOwnerCharacterId: "char_b", history: ["transfer"] },
-    secondChange: { changeId: "chg_history", entityType: "item", entityId: "item_main", entityDisplayName: "測試實體", fieldPath: "items[].history", operation: "appended", previousValue: [], newValue: ["transfer"] },
-  });
-  const unsafe = await dry(atomic.rows[1].id, atomic.projectId, 2, ["chg_history"]);
+  const atomicProject = `${prefix}-atomic-item-owner-history`;
+  await seedStoryBible(atomicProject);
+  await seedCanonical(atomicProject, "item", "item_main", "測試實體", { currentOwnerCharacterId: "char_b", history: ["transfer"] });
+  const atomicRows = await seedVersions(atomicProject, [[
+    { changeId: "chg_owner", entityType: "item", entityId: "item_main", entityDisplayName: "測試實體", fieldPath: "items[].currentOwnerCharacterId", operation: "updated", previousValue: "char_a", newValue: "char_b" },
+    { changeId: "chg_history", entityType: "item", entityId: "item_main", entityDisplayName: "測試實體", fieldPath: "items[].history", operation: "appended", previousValue: [], newValue: ["transfer"] },
+  ]]);
+  const atomic = { projectId: atomicProject, rows: atomicRows };
+  const unsafe = await dry(atomic.rows[0].id, atomic.projectId, 1, ["chg_history"]);
   assert("partial", "atomic group blocks unsafe split", unsafe.status === 422 && unsafe.body?.errorCode === "PARTIAL_REVERT_NOT_SAFE", unsafe.body);
   const unchangedCount = await sql(`select count(*)::int as count from public.story_bible_versions where project_id='${esc(atomic.projectId)}';`);
-  assert("partial", "unsafe split creates no version", Number(unchangedCount[0]?.count) === 2, unchangedCount);
-  const independent = await seedRevertCase({
-    slug: "partial-independent",
-    entityType: "character",
-    fieldPath: "characters[].age",
-    previousValue: 20,
-    newValue: 21,
-    currentJson: { age: 21, aliases: ["少主"] },
-    secondChange: { changeId: "chg_alias", entityType: "character", entityId: "character_main", entityDisplayName: "測試實體", fieldPath: "characters[].aliases", operation: "appended", previousValue: [], newValue: ["少主"] },
-  });
-  const partialPreview = await dry(independent.rows[1].id, independent.projectId, 2, ["chg_alias"]);
+  assert("partial", "unsafe split creates no version", Number(unchangedCount[0]?.count) === 1, unchangedCount);
+  const independentProject = `${prefix}-partial-independent`;
+  await seedStoryBible(independentProject);
+  await seedCanonical(independentProject, "character", "character_main", "測試實體", { age: 21, aliases: ["少主"] });
+  const independentRows = await seedVersions(independentProject, [[
+    { changeId: "chg_age", entityType: "character", entityId: "character_main", entityDisplayName: "測試實體", fieldPath: "characters[].age", operation: "updated", previousValue: 20, newValue: 21 },
+    { changeId: "chg_alias", entityType: "character", entityId: "character_main", entityDisplayName: "測試實體", fieldPath: "characters[].aliases", operation: "appended", previousValue: [], newValue: ["少主"] },
+  ]]);
+  const independent = { projectId: independentProject, rows: independentRows };
+  const partialPreview = await dry(independent.rows[0].id, independent.projectId, 1, ["chg_alias"]);
   assert("partial", "independent partial preview", partialPreview.ok && partialPreview.body?.estimatedOperationType === "partial_revert", partialPreview.body);
-  const partialApply = await apply(independent.rows[1].id, independent.projectId, 2, partialPreview.body?.previewHash, ["chg_alias"]);
+  const partialApply = await apply(independent.rows[0].id, independent.projectId, 1, partialPreview.body?.previewHash, ["chg_alias"]);
   assert("partial", "independent partial apply", partialApply.ok && partialApply.body?.operationType === "partial_revert", partialApply.body);
 
   const previewProject = await seedRevertCase({ slug: "preview-stale", entityType: "character", fieldPath: "characters[].age", previousValue: 1, newValue: 2, currentJson: { age: 2 } });

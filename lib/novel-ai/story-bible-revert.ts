@@ -266,8 +266,8 @@ function patchCanonical(row: JsonRecord | null, projectId: string, change: Inver
     [adapter.idColumn]: change.entityId,
     [adapter.titleColumn]: row?.[adapter.titleColumn] || change.entityDisplayName || change.entityId,
     [adapter.jsonColumn]: json,
-    updated_at: nowIso(),
   };
+  if (adapter.hasUpdatedAt !== false) payload.updated_at = nowIso();
   if (change.operation === "deactivated") {
     json.active = false;
     json.status = "reverted";
