@@ -332,6 +332,7 @@ function rowPayload(projectId: string, entityType: EntityType, entityId: string,
   };
   if (adapter.hasUpdatedAt !== false) payload.updated_at = now;
   if (entityType === "world_rule") payload.immutable = field === "immutable" ? Boolean(nextValue) : Boolean(existing?.immutable);
+  if (entityType === "open_thread") payload.thread_type = field === "threadType" ? String(nextValue) : String(existing?.thread_type || json.threadType || "general");
   if (adapter.statusColumn) payload[adapter.statusColumn] = field === "status" ? String(nextValue) : String(existing?.[adapter.statusColumn] || (entityType === "foreshadowing" ? "planted" : "open"));
   return payload;
 }
