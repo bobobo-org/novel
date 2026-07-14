@@ -1,6 +1,7 @@
 import { jsonError } from "@/lib/novel-ai/http";
 import { requireAdmin } from "@/lib/novel-ai/admin";
-import { StoryBibleMutationError, unsupportedStoryBibleMutation } from "@/lib/novel-ai/story-bible";
+import { StoryBibleMutationError } from "@/lib/novel-ai/story-bible";
+import { applyStoryBibleCandidateMutation } from "@/lib/novel-ai/story-bible-mutations";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -27,11 +28,13 @@ function mutationError(error: unknown) {
   return jsonError(error instanceof Error ? error.message : "Story Bible approve failed.", 500, "STORY_BIBLE_APPROVE_FAILED");
 }
 
-export async function POST(req: Request) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const denied = requireAdmin(req);
     if (denied) return denied;
-    unsupportedStoryBibleMutation("approve", await req.json());
+    const { id } = await ctx.params;
+    const result = await applyStoryBibleCandidateMutation(id, "approve", await req.json());
+    return Response.json(result);
   } catch (error) {
     return mutationError(error);
   }
