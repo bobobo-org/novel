@@ -42,6 +42,7 @@ export async function persistStoryBibleExtractionRows(input: {
   const result = await rpc<JsonRecord>(STORY_BIBLE_EXTRACTION_ATOMIC_RPC, {
     p_payload: {
       projectId: input.projectId,
+      requestId: String(input.extractionRunRow.id || ""),
       storyBibleRow: input.storyBibleRow,
       extractionRunRow: input.extractionRunRow,
       candidateRows: input.candidateRows,

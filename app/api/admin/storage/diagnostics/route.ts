@@ -37,7 +37,9 @@ export async function GET(req: Request) {
     extractionServiceUsesAdapter: "partial",
     extractionPersistenceUsesAdapter: true,
     extractionAtomicRpcStatus: "migration_defined",
-    extractionAtomicRpcVersion: "p0_l0a2d_atomic_extraction_rpc_012",
+    extractionAtomicRpcVersion: "p0_l0a2e_extraction_idempotency_dedup_013",
+    extractionIdempotencyStatus: "migration_defined",
+    extractionSourceDedupStatus: "retry_safe_migration_defined",
     transactionScopedAdapterEnabled: "partial",
     coreDirectQueryCount: 1,
     adapterImplementationQueryCount: 9,
@@ -63,6 +65,7 @@ export async function GET(req: Request) {
       "p0c2c2c_history_export_010",
       "p0c2c3_safe_revert_011",
       "p0_l0a2d_atomic_extraction_rpc_012",
+      "p0_l0a2e_extraction_idempotency_dedup_013",
     ],
     capabilities: {
       SUPABASE_CLOUD: getStorageCapabilities("SUPABASE_CLOUD"),

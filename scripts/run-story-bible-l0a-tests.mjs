@@ -25,6 +25,7 @@ const files = {
   diagnostics: file("app/api/admin/storage/diagnostics/route.ts"),
   health: file("app/api/ai/health/route.ts"),
   atomicMigration: file("prisma/migrations/012_l0a2d_atomic_extraction_rpc.sql"),
+  idempotencyMigration: file("prisma/migrations/013_l0a2e_extraction_idempotency_dedup.sql"),
 };
 
 assert("Storage Adapter interface exists", files.types.includes("interface StoryBibleStorageAdapter"));
@@ -39,7 +40,10 @@ assert("Supabase adapter implements extraction persistence", files.supabase.incl
 assert("Supabase transaction exposes extraction persistence", files.supabase.includes("extractionPersistence") && files.supabase.includes("persistRows: (rows) => this.persistExtractionRows(rows)"));
 assert("Extraction persistence storage is isolated under Supabase storage boundary", files.extractionStorage.includes("persistStoryBibleExtractionRows") && files.extractionStorage.includes("STORY_BIBLE_EXTRACTION_ATOMIC_RPC"));
 assert("Atomic extraction RPC migration exists", files.atomicMigration.includes("persist_story_bible_extraction_atomic") && files.atomicMigration.includes("p0_l0a2d_atomic_extraction_rpc_012"));
+assert("Extraction idempotency migration exists", files.idempotencyMigration.includes("story_bible_extraction_requests") && files.idempotencyMigration.includes("p0_l0a2e_extraction_idempotency_dedup_013"));
+assert("Extraction source dedup index exists", files.idempotencyMigration.includes("story_fact_sources_retry_dedup_idx") && files.idempotencyMigration.includes("on conflict do nothing"));
 assert("Supabase extraction persistence calls atomic RPC", files.extractionStorage.includes("/rest/v1/rpc/") && files.extractionStorage.includes("persist_story_bible_extraction_atomic"));
+assert("Supabase extraction persistence sends deterministic requestId", files.extractionStorage.includes("requestId: String(input.extractionRunRow.id"));
 assert("Supabase extraction persistence blocks silent REST fallback", !files.extractionStorage.includes('insertRows("story_fact_candidates"') && !files.extractionStorage.includes('upsert("story_bible_extraction_runs"'));
 assert("Story Bible extraction uses transaction-scoped storage context", files.storyBible.includes("adapter.transaction((tx) => tx.extractionPersistence.persistRows"));
 assert("Contract tests include transaction rollback", files.contract.includes("transaction rollback"));
@@ -49,6 +53,7 @@ assert("Diagnostics route requires admin", files.diagnostics.includes("requireAd
 assert("Health exposes local canonical authority", files.health.includes("localCanonicalAuthorityStatus"));
 assert("Health exposes storage adapter status", files.health.includes("storageAdapterStatus"));
 assert("Health exposes extraction atomic transaction status", files.health.includes("extractionAtomicTransactionStatus"));
+assert("Health exposes extraction idempotency and dedup status", files.health.includes("extractionIdempotencyStatus") && files.health.includes("extractionSourceDedupStatus"));
 assert("Health does not claim full offline ready", !files.health.includes('fullOfflineStatus: "ready"'));
 
 const nodeDir = process.env.CODEX_NODE_DIR || "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin";
