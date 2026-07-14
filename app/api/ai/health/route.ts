@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.APP_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || "local",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "1a1e3c961ebfd8f51d702304edbf082a2afbd3e2",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-14T12:50:00Z",
-  releaseTag: process.env.RELEASE_TAG || "novel-ai-l0a2d-atomic-extraction-rpc",
+  releaseTag: "novel-ai-l0a2d-atomic-extraction-rpc",
 };
 
 function deploymentId() {
