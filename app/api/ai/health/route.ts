@@ -101,6 +101,10 @@ export async function GET() {
     storyBibleVersioningStatus: "storyBibleVersioningStatus" in storyBible ? storyBible.storyBibleVersioningStatus : "unavailable",
     storyBibleConflictEngineStatus: "storyBibleConflictEngineStatus" in storyBible ? storyBible.storyBibleConflictEngineStatus : "unavailable",
     storyBibleProvenanceStatus: "storyBibleProvenanceStatus" in storyBible ? storyBible.storyBibleProvenanceStatus : "unavailable",
+    storyBibleDiffStatus: "storyBibleDiffStatus" in storyBible ? storyBible.storyBibleDiffStatus : "unavailable",
+    storyBibleIntegrityStatus: "storyBibleIntegrityStatus" in storyBible ? storyBible.storyBibleIntegrityStatus : "unavailable",
+    storyBibleExportStatus: "storyBibleExportStatus" in storyBible ? storyBible.storyBibleExportStatus : "unavailable",
+    storyBibleRevertStatus: "storyBibleRevertStatus" in storyBible ? storyBible.storyBibleRevertStatus : "not_implemented",
   }, {
     headers: {
       "Cache-Control": "no-store, max-age=0",
