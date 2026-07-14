@@ -15,6 +15,11 @@
     "test:story-bible:l0a2e2:concurrency": "node scripts/run-story-bible-l0a2e2-concurrency.mjs",
     "test:story-bible:l0a2e2:silent-fallback": "node scripts/run-story-bible-l0a2e2-silent-fallback.mjs",
     "test:story-bible:l0a2e2:all": "pnpm test:story-bible:l0a2e2:contracts && pnpm test:story-bible:l0a2e2 && pnpm test:story-bible:l0a2e2:source-dedup && pnpm test:story-bible:l0a2e2:concurrency && pnpm test:story-bible:l0a2e2:silent-fallback",
+    "test:story-bible:l0a2:regression": "node --experimental-specifier-resolution=node scripts/run-story-bible-l0a2-regression.mjs",
+    "test:story-bible:l0a2:parity": "node scripts/run-story-bible-l0a2-parity.mjs",
+    "test:story-bible:l0a2:performance": "node --experimental-specifier-resolution=node scripts/run-story-bible-l0a2-performance.mjs",
+    "test:story-bible:l0a2:full": "node scripts/run-story-bible-l0a2-full.mjs",
+    "test:story-bible:l0a2:production-smoke": "node scripts/run-story-bible-c2c3-full-matrix.mjs",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

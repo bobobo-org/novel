@@ -60,7 +60,7 @@ assert("Health exposes storage adapter status", files.health.includes("storageAd
 assert("Health exposes extraction atomic transaction status", files.health.includes("extractionAtomicTransactionStatus"));
 assert("Health exposes extraction idempotency and dedup status", files.health.includes("extractionIdempotencyStatus") && files.health.includes("extractionSourceDedupStatus"));
 assert("Health exposes rollback fixture and concurrency status", files.health.includes("extractionRollbackMatrixStatus") && files.health.includes("extractionFaultInjectionStatus") && files.health.includes("extractionConcurrencyStatus"));
-assert("Diagnostics does not claim full extraction concurrency ready", !files.diagnostics.includes('extractionConcurrencyStatus: "ready"'));
+assert("Diagnostics claims extraction concurrency ready after final L0A.2 closure", files.diagnostics.includes('extractionConcurrencyStatus: "ready"'));
 assert("Health does not claim full offline ready", !files.health.includes('fullOfflineStatus: "ready"'));
 
 const nodeDir = process.env.CODEX_NODE_DIR || "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin";
