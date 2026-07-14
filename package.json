@@ -13,7 +13,8 @@
     "test:story-bible:l0a2e2:contracts": "node scripts/run-story-bible-l0a2e2-contracts.mjs",
     "test:story-bible:l0a2e2:source-dedup": "node scripts/run-story-bible-l0a2e2-source-dedup.mjs",
     "test:story-bible:l0a2e2:concurrency": "node scripts/run-story-bible-l0a2e2-concurrency.mjs",
-    "test:story-bible:l0a2e2:all": "pnpm test:story-bible:l0a2e2:contracts && pnpm test:story-bible:l0a2e2 && pnpm test:story-bible:l0a2e2:source-dedup && pnpm test:story-bible:l0a2e2:concurrency",
+    "test:story-bible:l0a2e2:silent-fallback": "node scripts/run-story-bible-l0a2e2-silent-fallback.mjs",
+    "test:story-bible:l0a2e2:all": "pnpm test:story-bible:l0a2e2:contracts && pnpm test:story-bible:l0a2e2 && pnpm test:story-bible:l0a2e2:source-dedup && pnpm test:story-bible:l0a2e2:concurrency && pnpm test:story-bible:l0a2e2:silent-fallback",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
