@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",
-    "test:story-bible:l0a": "node scripts/run-story-bible-l0a-tests.mjs"
+    "test:story-bible:l0a": "node scripts/run-story-bible-l0a-tests.mjs",
+    "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.12",

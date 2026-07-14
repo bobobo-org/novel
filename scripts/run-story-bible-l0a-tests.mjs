@@ -46,6 +46,15 @@ assert("Next build passes", build.status === 0, {
   stderrTail: build.stderr.slice(-1200),
 });
 
+const boundary = spawnSync(process.execPath, ["scripts/check-storage-boundaries.mjs"], { cwd: root, encoding: "utf8", env: buildEnv });
+let boundarySummary = {};
+try { boundarySummary = JSON.parse(boundary.stdout || "{}"); } catch { boundarySummary = { parseError: true, stdout: boundary.stdout.slice(-1000) }; }
+assert("Storage boundary checker passes", boundary.status === 0, {
+  status: boundary.status,
+  summary: boundarySummary,
+  stderrTail: boundary.stderr.slice(-1000),
+});
+
 const summary = {
   pass: results.filter((x) => x.status === "PASS").length,
   fail: results.filter((x) => x.status === "FAIL").length,

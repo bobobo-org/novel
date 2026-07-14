@@ -1,4 +1,6 @@
 import { INDEXEDDB_SCHEMA_CAPABILITIES, MEMORY_CAPABILITIES, SQLITE_PROTOTYPE_CAPABILITIES, SUPABASE_CAPABILITIES } from "./capabilities";
+import { MemoryStoryBibleStorageAdapter } from "./memory-adapter";
+import { SupabaseStoryBibleStorageAdapter } from "./supabase-adapter";
 import type { StorageMode, StoryBibleStorageAdapter, StoryBibleStorageCapabilities } from "./types";
 
 const adapters = new Map<StorageMode, StoryBibleStorageAdapter>();
@@ -15,12 +17,18 @@ export function registerStorageAdapter(adapter: StoryBibleStorageAdapter) {
   return adapter;
 }
 
+export function ensureDefaultStorageAdapters() {
+  if (!adapters.has("SUPABASE_CLOUD")) adapters.set("SUPABASE_CLOUD", new SupabaseStoryBibleStorageAdapter());
+  if (!adapters.has("MEMORY_TEST")) adapters.set("MEMORY_TEST", new MemoryStoryBibleStorageAdapter());
+}
+
 export function resetStorageAdapterRegistryForTests() {
   adapters.clear();
   projectModes.clear();
 }
 
 export function getStorageAdapter(mode: StorageMode): StoryBibleStorageAdapter {
+  ensureDefaultStorageAdapters();
   const adapter = adapters.get(mode);
   if (!adapter) {
     throw Object.assign(new Error(`Storage adapter not found: ${mode}`), {
@@ -32,6 +40,7 @@ export function getStorageAdapter(mode: StorageMode): StoryBibleStorageAdapter {
 }
 
 export function listRegisteredStorageAdapters() {
+  ensureDefaultStorageAdapters();
   return Array.from(adapters.values()).map((adapter) => ({
     id: adapter.id,
     mode: adapter.mode,
@@ -41,6 +50,7 @@ export function listRegisteredStorageAdapters() {
 }
 
 export function getStorageCapabilities(mode: StorageMode): StoryBibleStorageCapabilities {
+  ensureDefaultStorageAdapters();
   const adapter = adapters.get(mode);
   if (adapter) return adapter.capabilities;
   if (mode === "SUPABASE_CLOUD") return SUPABASE_CAPABILITIES;
@@ -56,6 +66,10 @@ export function setProjectStorageMode(projectId: string, mode: StorageMode) {
 
 export function getProjectStorageMode(projectId: string): StorageMode {
   return projectModes.get(projectId) || "SUPABASE_CLOUD";
+}
+
+export function getStorageAdapterForProject(projectId: string): StoryBibleStorageAdapter {
+  return getStorageAdapter(getProjectStorageMode(projectId));
 }
 
 export function validateStorageMode(mode: string): asserts mode is StorageMode {

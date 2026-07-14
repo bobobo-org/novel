@@ -18,6 +18,27 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     storageArchitectureVersion: "story-bible-storage-l0a",
+    coreServicesUsingAdapter: {
+      candidateList: true,
+      candidateDetail: true,
+      conflictList: true,
+      conflictDetail: true,
+      mutationTransaction: false,
+      canonicalTransaction: false,
+      versionHistory: false,
+      diff: false,
+      integrity: false,
+      export: false,
+      revert: false,
+    },
+    directSupabaseImportCount: 27,
+    directQueryFileCount: 27,
+    legacyBoundaryAllowlist: [
+      { owner: "storage", reason: "Supabase adapter private implementation", plannedRemovalStage: "kept-private" },
+      { owner: "story-bible", reason: "C2C3 validated mutation/version/diff/integrity/export/revert paths pending L0A.2 adapter migration", plannedRemovalStage: "L0A.2" },
+      { owner: "qa", reason: "Production smoke scripts use Supabase Management SQL for verification", plannedRemovalStage: "kept-admin-tools" },
+      { owner: "persistence", reason: "Non-Story-Bible AI run persistence is out of L0A.1 scope", plannedRemovalStage: "P0-persistence-adapter" },
+    ],
     registeredAdapters: listRegisteredStorageAdapters(),
     currentPrimaryAdapter: "SUPABASE_CLOUD",
     directQueryLegacyCount: 1,
@@ -45,6 +66,8 @@ export async function GET(req: Request) {
       INDEXEDDB_BROWSER: "schema_only",
     },
     persistenceStatus: "supabase-production-ready",
+    silentFallbackBlocked: true,
+    projectStoragePolicyStatus: "legacy_projects_normalized_to_supabase_cloud_local_authority",
     lastAdapterError: null,
     lastContractTestResult: contract,
   }, {

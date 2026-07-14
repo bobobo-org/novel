@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
+import { getStorageAdapterForProject } from "./storage/registry";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
@@ -1357,65 +1358,40 @@ function queryValue(value: string) {
 }
 
 export async function listStoryBibleCandidateRows(query: z.infer<typeof StoryBibleListQuerySchema>) {
-  const filters = [
-    `project_id=eq.${queryValue(query.projectId)}`,
-    "select=*",
-    "order=created_at.desc",
-    `limit=${query.limit}`,
-  ];
-  if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
-  if (query.candidateId) filters.push(`id=eq.${queryValue(query.candidateId)}`);
-  if (query.entityType) filters.push(`entity_type=eq.${queryValue(query.entityType)}`);
-  if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
-  if (query.minConfidence != null) filters.push(`confidence=gte.${query.minConfidence}`);
-  const candidates = await rest<Array<JsonRecord>>("story_fact_candidates", { query: filters.join("&") });
+  const adapter = getStorageAdapterForProject(query.projectId);
+  let candidates = await adapter.listCandidates(query.projectId, query.limit);
+  if (query.status) candidates = candidates.filter((candidate) => String(candidate.status || "") === query.status);
+  if (query.candidateId) candidates = candidates.filter((candidate) => String(candidate.id || "") === query.candidateId);
+  if (query.entityType) candidates = candidates.filter((candidate) => String(candidate.entity_type || candidate.entityType || "") === query.entityType);
+  if (query.extractionRunId) candidates = candidates.filter((candidate) => String(candidate.extraction_run_id || candidate.extractionRunId || "") === query.extractionRunId);
+  if (query.minConfidence != null) candidates = candidates.filter((candidate) => Number(candidate.confidence || 0) >= Number(query.minConfidence));
   if (!query.chapterId) return candidates;
-  const sources = await rest<Array<JsonRecord>>("story_fact_sources", {
-    query: `project_id=eq.${queryValue(query.projectId)}&chapter_id=eq.${queryValue(query.chapterId)}&select=candidate_id`,
-  });
-  const ids = new Set(sources.map((row) => row.candidate_id).filter(Boolean));
+  const sources = await adapter.listSources(query.projectId, 1000);
+  const ids = new Set(sources
+    .filter((row) => String(row.chapter_id || row.chapterId || "") === query.chapterId)
+    .map((row) => row.candidate_id || row.candidateId)
+    .filter(Boolean));
   return candidates.filter((candidate) => ids.has(candidate.id));
 }
 
 export async function getStoryBibleCandidate(projectId: string, candidateId: string) {
-  const rows = await rest<Array<JsonRecord>>("story_fact_candidates", {
-    query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(candidateId)}&select=*&limit=1`,
-  });
-  const candidate = rows[0];
+  const adapter = getStorageAdapterForProject(projectId);
+  const candidate = await adapter.getCandidate(projectId, candidateId);
   if (!candidate) return null;
-  const [sourceRefs, conflicts, runs] = await Promise.all([
-    rest<Array<JsonRecord>>("story_fact_sources", {
-      query: `project_id=eq.${queryValue(projectId)}&candidate_id=eq.${queryValue(candidateId)}&select=*&order=created_at.asc`,
-    }),
-    rest<Array<JsonRecord>>("story_fact_conflicts", {
-      query: `project_id=eq.${queryValue(projectId)}&candidate_id=eq.${queryValue(candidateId)}&select=*&order=created_at.desc`,
-    }),
-    rest<Array<JsonRecord>>("story_bible_extraction_runs", {
-      query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(String(candidate.extraction_run_id || ""))}&select=id,chapter_id,chapter_number,extraction_mode,schema_version,prompt_version,model_id,fallback_level,status,confidence,warnings,created_at&limit=1`,
-    }),
+  const [allSources, allConflicts] = await Promise.all([
+    adapter.listSources(projectId, 1000),
+    adapter.listConflicts(projectId, 1000),
   ]);
+  const sourceRefs = allSources.filter((row) => String(row.candidate_id || row.candidateId || "") === candidateId);
+  const conflicts = allConflicts.filter((row) => String(row.candidate_id || row.candidateId || "") === candidateId);
   const entityType = parseEntityType(candidate.entity_type);
-  const currentCanonicalValue = entityType ? await loadCanonicalForCandidate(projectId, {
-    entityType,
-    entityId: candidate.entity_id ? String(candidate.entity_id) : undefined,
-    temporaryEntityId: candidate.temporary_entity_id ? String(candidate.temporary_entity_id) : undefined,
-    operation: "create",
-    fieldPath: String(candidate.field_path || ""),
-    proposedValue: candidate.proposed_value,
-    confidence: Number(candidate.confidence || 0),
-    evidence: String(candidate.evidence || ""),
-    evidenceType: "ambiguous",
-    sourceRefs: [],
-    reason: String(candidate.reason || ""),
-    conflictRisk: "low",
-    candidateTrust: "cloud-validated",
-    sourceValid: true,
-  }) : undefined;
+  const candidateEntityId = candidate.entity_id ? String(candidate.entity_id) : "";
+  const currentCanonicalValue = entityType && candidateEntityId ? await adapter.getCanonicalEntity(projectId, entityType, candidateEntityId) : undefined;
   return {
     candidate,
     sourceRefs,
     conflicts,
-    extractionProvenance: runs[0] || null,
+    extractionProvenance: null,
     currentCanonicalValue: currentCanonicalValue ? canonicalValueFromRow(currentCanonicalValue, String(candidate.entity_type), String(candidate.field_path)) : null,
     basedOnVersion: {
       versionId: candidate.based_on_version_id || null,
@@ -1426,26 +1402,20 @@ export async function getStoryBibleCandidate(projectId: string, candidateId: str
 }
 
 export async function listStoryBibleConflicts(query: z.infer<typeof StoryBibleListQuerySchema>) {
-  const filters = [
-    `project_id=eq.${queryValue(query.projectId)}`,
-    "select=*",
-    "order=created_at.desc",
-    `limit=${query.limit}`,
-  ];
-  if (query.status) filters.push(`status=eq.${queryValue(query.status)}`);
-  if (query.candidateId) filters.push(`candidate_id=eq.${queryValue(query.candidateId)}`);
-  if (query.conflictSeverity) filters.push(`severity=eq.${queryValue(query.conflictSeverity)}`);
-  if (query.extractionRunId) filters.push(`extraction_run_id=eq.${queryValue(query.extractionRunId)}`);
-  if (query.entityType) filters.push(`canonical_entity_type=eq.${queryValue(query.entityType)}`);
-  if (query.minConfidence != null) filters.push(`confidence=gte.${query.minConfidence}`);
-  return rest<Array<JsonRecord>>("story_fact_conflicts", { query: filters.join("&") });
+  const adapter = getStorageAdapterForProject(query.projectId);
+  let conflicts = await adapter.listConflicts(query.projectId, query.limit);
+  if (query.status) conflicts = conflicts.filter((conflict) => String(conflict.status || "") === query.status);
+  if (query.candidateId) conflicts = conflicts.filter((conflict) => String(conflict.candidate_id || conflict.candidateId || "") === query.candidateId);
+  if (query.conflictSeverity) conflicts = conflicts.filter((conflict) => String(conflict.severity || "") === query.conflictSeverity);
+  if (query.extractionRunId) conflicts = conflicts.filter((conflict) => String(conflict.extraction_run_id || conflict.extractionRunId || "") === query.extractionRunId);
+  if (query.entityType) conflicts = conflicts.filter((conflict) => String(conflict.canonical_entity_type || conflict.canonicalEntityType || "") === query.entityType);
+  if (query.minConfidence != null) conflicts = conflicts.filter((conflict) => Number(conflict.confidence || 0) >= Number(query.minConfidence));
+  return conflicts;
 }
 
 export async function getStoryBibleConflict(projectId: string, conflictId: string) {
-  const rows = await rest<Array<JsonRecord>>("story_fact_conflicts", {
-    query: `project_id=eq.${queryValue(projectId)}&id=eq.${queryValue(conflictId)}&select=*&limit=1`,
-  });
-  const conflict = rows[0];
+  const adapter = getStorageAdapterForProject(projectId);
+  const conflict = await adapter.getConflict(projectId, conflictId);
   if (!conflict) return null;
   const candidateId = conflict.candidate_id ? String(conflict.candidate_id) : "";
   const candidate = candidateId ? await getStoryBibleCandidate(projectId, candidateId) : null;
