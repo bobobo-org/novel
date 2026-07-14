@@ -287,20 +287,22 @@ async function buildDiff(query: DiffQuery) {
     fieldDiffs,
     entityGroups: entityGroups(fieldDiffs),
     warnings: [
-      "integrity chain is not verified in P0-C2C2A",
+      ...(query.allowUnsafeRead ? ["unsafe read was explicitly requested; diff output is untrusted"] : []),
       ...(direction === "same" && !query.includeUnchanged ? ["same-version diff returns no changed fields unless includeUnchanged=true"] : []),
     ],
-    integrityVerified: "not_checked",
+    integrityVerified: query.allowUnsafeRead ? "unsafe_untrusted" : "checked",
   };
 }
 
 export async function getStoryBibleVersionDiff(input: unknown) {
   const query = VersionDiffQuerySchema.parse(input);
   if (!query.allowUnsafeRead) {
+    const fromNumber = /^\d+$/.test(query.fromVersion) ? Number(query.fromVersion) : undefined;
+    const toNumber = /^\d+$/.test(query.toVersion) ? Number(query.toVersion) : undefined;
     const check = await verifyVersionChain({
       projectId: query.projectId,
-      fromVersion: /^\d+$/.test(query.fromVersion) ? Number(query.fromVersion) : undefined,
-      toVersion: /^\d+$/.test(query.toVersion) ? Number(query.toVersion) : undefined,
+      fromVersion: fromNumber != null && toNumber != null ? Math.min(fromNumber, toNumber) : fromNumber,
+      toVersion: fromNumber != null && toNumber != null ? Math.max(fromNumber, toNumber) : toNumber,
       includeDetails: false,
     });
     if (!check.valid) {

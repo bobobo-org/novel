@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/novel-ai/http";
+import { requireAdmin } from "@/lib/novel-ai/admin";
 import { getStoryBibleVersionDiff, StoryBibleDiffError } from "@/lib/novel-ai/story-bible-diff";
 import { z } from "zod";
 
@@ -31,6 +32,10 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const projectId = url.searchParams.get("projectId") || "";
     if (!projectId) return jsonError("projectId is required.", 400, "PROJECT_ID_REQUIRED");
+    if (url.searchParams.get("allowUnsafeRead") === "true") {
+      const denied = requireAdmin(req);
+      if (denied) return denied;
+    }
     const result = await getStoryBibleVersionDiff(Object.fromEntries(url.searchParams.entries()));
     return Response.json(result);
   } catch (error) {

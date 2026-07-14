@@ -314,6 +314,16 @@ export async function updateVersionIntegrity(projectId: string, versionId: strin
   return rows[0] || null;
 }
 
+async function bulkUpdateVersionIntegrity(patches: JsonRecord[]) {
+  if (patches.length === 0) return [];
+  return rest<JsonRecord[]>("story_bible_versions", {
+    method: "POST",
+    query: "on_conflict=id&select=id,version_number,integrity_hash",
+    headers: { prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(patches.map((patch) => ({ ...patch, integrity_computed_at: new Date().toISOString() }))),
+  });
+}
+
 export async function backfillStoryBibleIntegrity(input: unknown) {
   const query = IntegrityBackfillSchema.parse(input);
   const started = Date.now();
@@ -325,7 +335,25 @@ export async function backfillStoryBibleIntegrity(input: unknown) {
   const updated: JsonRecord[] = [];
   const conflicts: JsonRecord[] = [];
   const failures: JsonRecord[] = [];
+  let pendingPatches: JsonRecord[] = [];
   let previousHash: string | null = null;
+
+  async function flushPatches() {
+    if (query.dryRun || pendingPatches.length === 0) return;
+    const batch = pendingPatches;
+    pendingPatches = [];
+    try {
+      const patchedRows = await bulkUpdateVersionIntegrity(batch);
+      for (const patched of patchedRows) {
+        updated.push({ versionId: patched.id, versionNumber: patched.version_number, integrityHash: patched.integrity_hash });
+      }
+    } catch (error) {
+      for (const patch of batch) {
+        failures.push({ versionId: patch.id, versionNumber: patch.version_number, error: error instanceof Error ? error.message : String(error) });
+      }
+      if (query.stopOnError) throw error;
+    }
+  }
 
   for (const version of versions) {
     const payloadVersion = {
@@ -361,24 +389,22 @@ export async function backfillStoryBibleIntegrity(input: unknown) {
       continue;
     }
     if (!query.dryRun && canWrite) {
-      try {
-        const patched = await updateVersionIntegrity(query.projectId, String(version.id), {
+      pendingPatches.push({
+          id: version.id,
+          project_id: query.projectId,
+          version_number: version.version_number,
           previous_integrity_hash: previousHash,
           integrity_algorithm: STORY_BIBLE_INTEGRITY_ALGORITHM,
           integrity_schema_version: STORY_BIBLE_INTEGRITY_SCHEMA_VERSION,
           integrity_hash: expectedHash,
           integrity_status: "valid",
           canonical_authority: "local",
-        });
-        updated.push({ versionId: patched?.id || version.id, versionNumber: version.version_number, integrityHash: expectedHash });
-      } catch (error) {
-        failures.push({ ...row, error: error instanceof Error ? error.message : String(error) });
-        await updateVersionIntegrity(query.projectId, String(version.id), { integrity_status: "backfill_failed" }).catch(() => undefined);
-        if (query.stopOnError) break;
-      }
+      });
+      if (pendingPatches.length >= query.batchSize) await flushPatches();
     }
     previousHash = expectedHash;
   }
+  await flushPatches();
 
   return {
     projectId: query.projectId,
