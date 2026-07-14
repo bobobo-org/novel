@@ -55,6 +55,19 @@ export type JsonRecord = Record<string, unknown>;
 
 export type TransactionContext = {
   transactionId: string;
+  extractionPersistence: {
+    persistRows(rows: ExtractionPersistenceRows): Promise<void>;
+  };
+};
+
+export type ExtractionPersistenceRows = {
+  projectId: string;
+  storyBibleRow: JsonRecord;
+  extractionRunRow: JsonRecord;
+  candidateRows: JsonRecord[];
+  conflictRows: JsonRecord[];
+  sourceRows: JsonRecord[];
+  chapterSummaryRow: JsonRecord;
 };
 
 export interface StoryBibleStorageAdapter {
@@ -109,6 +122,8 @@ export interface StoryBibleStorageAdapter {
   getMutationRequest(requestId: string): Promise<JsonRecord | null>;
   completeMutationRequest(requestId: string, response: JsonRecord): Promise<JsonRecord>;
   failMutationRequest(requestId: string, error: JsonRecord): Promise<JsonRecord>;
+
+  persistExtractionRows(rows: ExtractionPersistenceRows): Promise<void>;
 
   createExportAudit(audit: JsonRecord): Promise<JsonRecord>;
   createRevertAudit(audit: JsonRecord): Promise<JsonRecord>;

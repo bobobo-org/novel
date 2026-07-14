@@ -1,5 +1,6 @@
 import { SUPABASE_CAPABILITIES } from "./capabilities";
-import type { JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "./types";
+import { persistStoryBibleExtractionRows } from "./supabase/supabase-extraction-persistence-storage";
+import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "./types";
 
 function config() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -212,6 +213,10 @@ export class SupabaseStoryBibleStorageAdapter implements StoryBibleStorageAdapte
     return first(await rest<JsonRecord[]>("story_bible_mutation_requests", { method: "PATCH", query: `request_id=eq.${queryValue(requestId)}`, body: JSON.stringify({ status: "failed", response_json: error, error_code: error.errorCode || "STORAGE_TRANSACTION_FAILED" }) })) || error;
   }
 
+  async persistExtractionRows(rows: ExtractionPersistenceRows) {
+    await persistStoryBibleExtractionRows(rows);
+  }
+
   async createExportAudit(audit: JsonRecord) {
     return first(await rest<JsonRecord[]>("story_bible_export_audits", { method: "POST", body: JSON.stringify(audit) })) || audit;
   }
@@ -225,7 +230,12 @@ export class SupabaseStoryBibleStorageAdapter implements StoryBibleStorageAdapte
   }
 
   async transaction<T>(callback: (ctx: TransactionContext) => Promise<T>) {
-    return callback({ transactionId: `supabase-rest-${Date.now()}` });
+    return callback({
+      transactionId: `supabase-rest-${Date.now()}`,
+      extractionPersistence: {
+        persistRows: (rows) => this.persistExtractionRows(rows),
+      },
+    });
   }
 
   async advisoryLock(lockKey: string) {

@@ -3,7 +3,6 @@ import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { getStorageAdapterForProject } from "./storage/registry";
-import { persistStoryBibleExtractionRows } from "./storage/supabase/supabase-extraction-persistence-storage";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
@@ -1260,7 +1259,8 @@ export async function persistStoryBibleExtraction(args: {
     source_hash: output.chapterSummaryCandidate.sourceHash,
     updated_at: nowIso(),
   };
-  await persistStoryBibleExtractionRows({
+  const adapter = getStorageAdapterForProject(input.projectId);
+  await adapter.transaction((tx) => tx.extractionPersistence.persistRows({
     projectId: input.projectId,
     storyBibleRow: buildStoryBibleRootRow(input.projectId, input),
     extractionRunRow,
@@ -1268,7 +1268,7 @@ export async function persistStoryBibleExtraction(args: {
     conflictRows: conflicts,
     sourceRows,
     chapterSummaryRow,
-  });
+  }));
   return { extractionRunId, candidateCount: candidateRows.length, conflictCount: conflicts.length, sourceRefCount: sourceRows.length };
 }
 

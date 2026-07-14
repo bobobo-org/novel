@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { MEMORY_CAPABILITIES } from "./capabilities";
-import type { JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "./types";
+import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "./types";
 
 type MemoryTables = {
   projects: Map<string, JsonRecord>;
@@ -9,6 +9,8 @@ type MemoryTables = {
   canonical: Map<string, JsonRecord>;
   sources: Map<string, JsonRecord>;
   sourceRelations: Map<string, JsonRecord>;
+  extractionRuns: Map<string, JsonRecord>;
+  chapterSummaries: Map<string, JsonRecord>;
   versions: Map<string, JsonRecord>;
   integrity: Map<string, JsonRecord>;
   mutationRequests: Map<string, JsonRecord>;
@@ -51,6 +53,8 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
       canonical: new Map(),
       sources: new Map(),
       sourceRelations: new Map(),
+      extractionRuns: new Map(),
+      chapterSummaries: new Map(),
       versions: new Map(),
       integrity: new Map(),
       mutationRequests: new Map(),
@@ -279,6 +283,17 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
     return clone(updated);
   }
 
+  async persistExtractionRows(rows: ExtractionPersistenceRows) {
+    await this.createProject({ ...rows.storyBibleRow, id: rows.projectId, projectId: rows.projectId });
+    const extractionRun = { ...rows.extractionRunRow, id: rowId(rows.extractionRunRow, "extraction_run") };
+    this.tables.extractionRuns.set(String(extractionRun.id), clone(extractionRun));
+    for (const source of rows.sourceRows) await this.createSource(source);
+    for (const candidate of rows.candidateRows) await this.createCandidate(candidate);
+    for (const conflict of rows.conflictRows) await this.createConflict(conflict);
+    const summary = { ...rows.chapterSummaryRow, id: rowId(rows.chapterSummaryRow, "chapter_summary") };
+    this.tables.chapterSummaries.set(String(summary.id), clone(summary));
+  }
+
   async createExportAudit(audit: JsonRecord) {
     const stored = { ...audit, id: rowId(audit, "export_audit") };
     this.tables.exportAudits.set(String(stored.id), clone(stored));
@@ -303,6 +318,8 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
       canonical: Array.from(this.tables.canonical.entries()),
       sources: Array.from(this.tables.sources.entries()),
       sourceRelations: Array.from(this.tables.sourceRelations.entries()),
+      extractionRuns: Array.from(this.tables.extractionRuns.entries()),
+      chapterSummaries: Array.from(this.tables.chapterSummaries.entries()),
       versions: Array.from(this.tables.versions.entries()),
       integrity: Array.from(this.tables.integrity.entries()),
       mutationRequests: Array.from(this.tables.mutationRequests.entries()),
@@ -310,7 +327,12 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
       revertAudits: Array.from(this.tables.revertAudits.entries()),
     });
     try {
-      return await callback({ transactionId: id("tx") });
+      return await callback({
+        transactionId: id("tx"),
+        extractionPersistence: {
+          persistRows: (rows) => this.persistExtractionRows(rows),
+        },
+      });
     } catch (error) {
       this.tables.projects = new Map(snapshot.projects);
       this.tables.candidates = new Map(snapshot.candidates);
@@ -318,6 +340,8 @@ export class MemoryStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
       this.tables.canonical = new Map(snapshot.canonical);
       this.tables.sources = new Map(snapshot.sources);
       this.tables.sourceRelations = new Map(snapshot.sourceRelations);
+      this.tables.extractionRuns = new Map(snapshot.extractionRuns);
+      this.tables.chapterSummaries = new Map(snapshot.chapterSummaries);
       this.tables.versions = new Map(snapshot.versions);
       this.tables.integrity = new Map(snapshot.integrity);
       this.tables.mutationRequests = new Map(snapshot.mutationRequests);

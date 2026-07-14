@@ -19,6 +19,8 @@ const files = {
   registry: file("lib/novel-ai/storage/registry.ts"),
   memory: file("lib/novel-ai/storage/memory-adapter.ts"),
   supabase: file("lib/novel-ai/storage/supabase-adapter.ts"),
+  extractionStorage: file("lib/novel-ai/storage/supabase/supabase-extraction-persistence-storage.ts"),
+  storyBible: file("lib/novel-ai/story-bible.ts"),
   contract: file("lib/novel-ai/storage/contract-tests.ts"),
   diagnostics: file("app/api/admin/storage/diagnostics/route.ts"),
   health: file("app/api/ai/health/route.ts"),
@@ -29,6 +31,13 @@ assert("Authority constants exist", ["LOCAL_CANONICAL", "EXTERNAL_ADVISORY", "CL
 assert("Registry exposes required functions", ["registerStorageAdapter", "getStorageAdapter", "getStorageCapabilities", "setProjectStorageMode", "validateStorageMode", "assertStorageAllowed"].every((x) => files.registry.includes(x)));
 assert("Memory adapter exists", files.memory.includes("class MemoryStoryBibleStorageAdapter"));
 assert("Supabase adapter wrapper exists", files.supabase.includes("class SupabaseStoryBibleStorageAdapter"));
+assert("Storage Adapter includes extraction persistence contract", files.types.includes("persistExtractionRows(rows: ExtractionPersistenceRows)") && files.types.includes("extractionPersistence"));
+assert("Memory adapter implements extraction persistence", files.memory.includes("async persistExtractionRows") && files.memory.includes("extractionRuns") && files.memory.includes("chapterSummaries"));
+assert("Memory transaction exposes extraction persistence", files.memory.includes("extractionPersistence") && files.memory.includes("persistRows: (rows) => this.persistExtractionRows(rows)"));
+assert("Supabase adapter implements extraction persistence", files.supabase.includes("async persistExtractionRows") && files.supabase.includes("persistStoryBibleExtractionRows"));
+assert("Supabase transaction exposes extraction persistence", files.supabase.includes("extractionPersistence") && files.supabase.includes("persistRows: (rows) => this.persistExtractionRows(rows)"));
+assert("Extraction persistence storage is isolated under Supabase storage boundary", files.extractionStorage.includes("persistStoryBibleExtractionRows") && files.extractionStorage.includes("story_bible_extraction_runs"));
+assert("Story Bible extraction uses transaction-scoped storage context", files.storyBible.includes("adapter.transaction((tx) => tx.extractionPersistence.persistRows"));
 assert("Contract tests include transaction rollback", files.contract.includes("transaction rollback"));
 assert("Contract tests include project isolation", files.contract.includes("project isolation"));
 assert("Diagnostics route exists", files.diagnostics.includes("GET(req: Request)"));
