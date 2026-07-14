@@ -535,7 +535,7 @@ async function extractWithModel(input: StoryBibleExtractionInput, extractionRunI
     parsed = JSON.parse(normalizeJsonText(text));
   } catch {
     trace.jsonParseResult = "invalid";
-    throw new Error(`MODEL_JSON_PARSE_FAILED:${text.slice(0, 1200)}`);
+    throw new Error(text.slice(0, 5000));
   }
   const strict = SimpleExtractionSchema.safeParse(parsed);
   if (strict.success) {
@@ -551,7 +551,7 @@ async function extractWithModel(input: StoryBibleExtractionInput, extractionRunI
     code: issue.code,
     message: issue.message,
   }));
-  throw new Error(`MODEL_SCHEMA_FAILED:${text.slice(0, 1200)}`);
+  throw new Error(text.slice(0, 5000));
 }
 
 async function repairWithModelJson(input: StoryBibleExtractionInput, trace: StoryBibleExtractionTrace, failureReason: string) {
@@ -629,9 +629,11 @@ export async function extractStoryBibleCandidates(input: StoryBibleExtractionInp
     const issueText = error instanceof z.ZodError
       ? error.issues.map((issue) => `${issue.path.join(".")}:${issue.code}:${issue.message}`).join("; ")
       : error instanceof Error ? error.message : String(error);
-    trace.schemaValidationErrors = error instanceof z.ZodError
-      ? error.issues.map((issue) => ({ path: issue.path.join("."), code: issue.code, message: issue.message }))
-      : [{ path: "model", code: "MODEL_OR_SCHEMA_ERROR", message: clampText(issueText, 500) }];
+    if (trace.schemaValidationErrors.length === 0) {
+      trace.schemaValidationErrors = error instanceof z.ZodError
+        ? error.issues.map((issue) => ({ path: issue.path.join("."), code: issue.code, message: issue.message }))
+        : [{ path: "model", code: "MODEL_OR_SCHEMA_ERROR", message: clampText(issueText, 500) }];
+    }
     const repaired = repairSimpleExtraction(error instanceof Error ? error.message : String(error));
     trace.repairAttempted = repaired.stats.repairAttempted;
     trace.repairElapsedMs = repaired.stats.repairElapsedMs;
