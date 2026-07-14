@@ -114,6 +114,8 @@ export async function GET() {
     indexedDbStorageStatus: "schema_only",
     cloudOptionalStatus: "architecture_ready",
     coreServicesUseStorageAdapter: "read_paths_and_supabase_service_boundary_partial",
+    extractionPersistenceUsesStorageAdapter: true,
+    transactionScopedStorageStatus: "partial",
     directStorageBoundaryStatus: "ready",
     primaryStorage: "SUPABASE_CLOUD",
     canonicalAuthority: "local",

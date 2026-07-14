@@ -3,6 +3,7 @@ import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { getStorageAdapterForProject } from "./storage/registry";
+import { persistStoryBibleExtractionRows } from "./storage/supabase/supabase-extraction-persistence-storage";
 
 export const STORY_BIBLE_SCHEMA_VERSION = "story-bible-v1";
 export const STORY_BIBLE_MIGRATION_VERSION = "p0c_story_bible_003";
@@ -997,9 +998,9 @@ async function buildConflictsForCandidate(args: {
   return conflicts;
 }
 
-async function ensureStoryBible(projectId: string, input: StoryBibleExtractionInput) {
+function buildStoryBibleRootRow(projectId: string, input: StoryBibleExtractionInput) {
   const now = nowIso();
-  await upsert("story_bibles", {
+  return {
     project_id: projectId,
     schema_version: STORY_BIBLE_SCHEMA_VERSION,
     status: "active",
@@ -1012,7 +1013,7 @@ async function ensureStoryBible(projectId: string, input: StoryBibleExtractionIn
     },
     created_at: now,
     updated_at: now,
-  }, "project_id");
+  };
 }
 
 export function conflictFixtureSnapshot() {
@@ -1131,7 +1132,6 @@ export async function persistStoryBibleExtraction(args: {
 }) {
   if (!isConfigured()) throw new Error("STORY_BIBLE_PERSISTENCE_NOT_CONFIGURED");
   const { input, output, extractionRunId, traceId, modelId, fallbackLevel } = args;
-  await ensureStoryBible(input.projectId, input);
   const inputHash = hashText(JSON.stringify({
     projectId: input.projectId,
     chapterId: input.chapterId,
@@ -1140,31 +1140,31 @@ export async function persistStoryBibleExtraction(args: {
     chapterTextHash: hashText(input.chapterText),
     currentCanonicalSnapshotHash: hashText(JSON.stringify(input.currentCanonicalSnapshot || {})),
   }));
-  await upsert("story_bible_extraction_runs", {
-    id: extractionRunId,
-    project_id: input.projectId,
-    chapter_id: input.chapterId,
-    chapter_number: input.chapterNumber ?? null,
-    extraction_mode: input.extractionMode,
-    schema_version: STORY_BIBLE_SCHEMA_VERSION,
-    prompt_version: STORY_BIBLE_EXTRACT_PROMPT_VERSION,
-    model_id: modelId,
-    fallback_level: fallbackLevel,
-    status: "completed",
-    confidence: output.confidence,
-    warnings: output.extractionWarnings,
-    input_hash: inputHash,
-    output_json: {
-      candidateFacts: output.candidateFacts.length,
-      candidateUpdates: output.candidateUpdates.length,
-      candidateDeletions: output.candidateDeletions.length,
-      candidateConflicts: output.candidateConflicts.length,
-      elapsedMs: args.elapsedMs,
-      traceId,
-      trace: args.trace,
-    },
-    created_at: nowIso(),
-  });
+  const extractionRunRow = {
+      id: extractionRunId,
+      project_id: input.projectId,
+      chapter_id: input.chapterId,
+      chapter_number: input.chapterNumber ?? null,
+      extraction_mode: input.extractionMode,
+      schema_version: STORY_BIBLE_SCHEMA_VERSION,
+      prompt_version: STORY_BIBLE_EXTRACT_PROMPT_VERSION,
+      model_id: modelId,
+      fallback_level: fallbackLevel,
+      status: "completed",
+      confidence: output.confidence,
+      warnings: output.extractionWarnings,
+      input_hash: inputHash,
+      output_json: {
+        candidateFacts: output.candidateFacts.length,
+        candidateUpdates: output.candidateUpdates.length,
+        candidateDeletions: output.candidateDeletions.length,
+        candidateConflicts: output.candidateConflicts.length,
+        elapsedMs: args.elapsedMs,
+        traceId,
+        trace: args.trace,
+      },
+      created_at: nowIso(),
+    };
   const allCandidates = [...output.candidateFacts, ...output.candidateUpdates, ...output.candidateDeletions];
   const candidatePairs = allCandidates.map((candidate) => {
     const id = `story_candidate_${crypto.randomUUID()}`;
@@ -1196,8 +1196,6 @@ export async function persistStoryBibleExtraction(args: {
       },
     };
   });
-  const candidateRows = candidatePairs.map((pair) => pair.row);
-  await insertRows("story_fact_candidates", candidateRows);
   const generatedConflicts = (await Promise.all(candidatePairs.map((pair) =>
     buildConflictsForCandidate({
       projectId: input.projectId,
@@ -1213,6 +1211,7 @@ export async function persistStoryBibleExtraction(args: {
   for (const pair of candidatePairs) {
     if (conflictCandidateIds.has(String(pair.row.id))) pair.row.status = "needs_review";
   }
+  const candidateRows = candidatePairs.map((pair) => pair.row);
   const modelConflicts = output.candidateConflicts.map((conflict, index) => ({
     id: conflict.conflictId || `story_conflict_${crypto.randomUUID()}`,
     project_id: input.projectId,
@@ -1236,7 +1235,6 @@ export async function persistStoryBibleExtraction(args: {
     created_at: nowIso(),
   }));
   const conflicts = [...modelConflicts, ...generatedConflicts];
-  await insertRows("story_fact_conflicts", conflicts);
   const sourceRows = candidatePairs.flatMap((pair) => pair.candidate.sourceRefs.map((ref) => ({
     id: `story_source_${crypto.randomUUID()}`,
     project_id: input.projectId,
@@ -1251,8 +1249,7 @@ export async function persistStoryBibleExtraction(args: {
     excerpt: ref.excerpt || input.chapterText.slice(ref.textStart || 0, Math.min(input.chapterText.length, ref.textEnd || (ref.textStart || 0) + 500)).slice(0, 500),
     created_at: nowIso(),
   })));
-  await insertRows("story_fact_sources", sourceRows);
-  await upsert("story_chapter_summaries", {
+  const chapterSummaryRow = {
     id: `story_chapter_summary_${input.projectId}_${input.chapterId}`,
     project_id: input.projectId,
     chapter_id: input.chapterId,
@@ -1262,6 +1259,15 @@ export async function persistStoryBibleExtraction(args: {
     summary_json: output.chapterSummaryCandidate,
     source_hash: output.chapterSummaryCandidate.sourceHash,
     updated_at: nowIso(),
+  };
+  await persistStoryBibleExtractionRows({
+    projectId: input.projectId,
+    storyBibleRow: buildStoryBibleRootRow(input.projectId, input),
+    extractionRunRow,
+    candidateRows,
+    conflictRows: conflicts,
+    sourceRows,
+    chapterSummaryRow,
   });
   return { extractionRunId, candidateCount: candidateRows.length, conflictCount: conflicts.length, sourceRefCount: sourceRows.length };
 }
