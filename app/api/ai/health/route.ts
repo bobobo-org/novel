@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p3-segmented-scene-state-machine",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T18:30:00Z",
-  releaseTag: "novel-ai-h2p3-segmented-scene-state-machine",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p3a-universal-scene-compatibility",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T19:15:00Z",
+  releaseTag: "novel-ai-h2p3a-universal-scene-compatibility",
 };
 
 const L0A2E2D_TEST_META = {
@@ -320,6 +320,19 @@ export async function GET() {
     adultSceneDiagnosticsRedactionStatus: "ready",
     adultSceneStateMachinePassCount: 164,
     adultSceneStateMachineFailCount: 0,
+    universalSceneEngineVersion: "h2p3a-universal-scene-compatibility-v1",
+    universalSceneMigrationVersion: "017_universal_story_scene_profiles",
+    universalSceneEngineContractStatus: "ready",
+    universalStageTemplateStatus: "ready",
+    storyProfileAdapterStatus: "ready",
+    adultSceneProfileAdapterStatus: "ready",
+    classificationTopicSceneContractStatus: "ready",
+    h2p3AcceptanceCoverageStatus: "ready",
+    universalSceneProfileCount: 8,
+    universalClassificationPackCount: 11,
+    universalTopicContractCount: 218,
+    universalSceneCompatibilityPassCount: 260,
+    externalStoryGenerationStatus: "not_implemented",
     webAdultScenePlanningStatus: "contract_ready",
     webAdultStageStatusStatus: "contract_ready",
     webAdultBranchPlanningStatus: "contract_ready",

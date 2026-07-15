@@ -895,4 +895,90 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
     );
   `),
+  migration(17, "017_universal_story_scene_profiles", `
+    CREATE TABLE IF NOT EXISTS story_scene_profiles (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL UNIQUE,
+      profile_name TEXT NOT NULL,
+      profile_family TEXT NOT NULL,
+      adapter_id TEXT NOT NULL,
+      default_stage_template_id TEXT NOT NULL,
+      continuity_schema_version TEXT NOT NULL,
+      provider_policy_id TEXT NOT NULL,
+      fallback_profile_id TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_stage_templates (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL UNIQUE,
+      profile_id TEXT NOT NULL,
+      template_name TEXT NOT NULL,
+      stage_types_json TEXT NOT NULL,
+      stage_goals_json TEXT NOT NULL,
+      dependency_rules_json TEXT NOT NULL,
+      continuity_schema_version TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_story_stage_templates_profile ON story_stage_templates(profile_id);
+
+    CREATE TABLE IF NOT EXISTS story_stage_template_versions (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(template_id, version)
+    );
+
+    CREATE TABLE IF NOT EXISTS classification_topic_scene_profiles (
+      id TEXT PRIMARY KEY,
+      classification_pack_id TEXT NOT NULL,
+      topic_id TEXT NOT NULL,
+      story_engine_id TEXT NOT NULL,
+      scene_profile_id TEXT NOT NULL,
+      default_stage_template_id TEXT NOT NULL,
+      allowed_stage_template_ids_json TEXT NOT NULL,
+      recommended_scene_purposes_json TEXT NOT NULL,
+      policy_adapter_ids_json TEXT NOT NULL,
+      provider_policy_id TEXT NOT NULL,
+      continuity_schema_version TEXT NOT NULL,
+      fallback_profile_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(classification_pack_id, topic_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_classification_topic_scene_profiles_profile ON classification_topic_scene_profiles(scene_profile_id);
+
+    CREATE TABLE IF NOT EXISTS story_provider_policies (
+      id TEXT PRIMARY KEY,
+      provider_policy_id TEXT NOT NULL UNIQUE,
+      privacy_mode TEXT NOT NULL,
+      allowed_providers_json TEXT NOT NULL,
+      blocked_providers_json TEXT NOT NULL,
+      external_fallback_allowed INTEGER NOT NULL DEFAULT 0 CHECK(external_fallback_allowed IN (0,1)),
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_scene_profile_adapters (
+      id TEXT PRIMARY KEY,
+      adapter_id TEXT NOT NULL UNIQUE,
+      adapter_type TEXT NOT NULL,
+      source_profile_id TEXT NOT NULL,
+      target_engine TEXT NOT NULL,
+      policy_gate_json TEXT NOT NULL,
+      compatibility_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `),
 ];

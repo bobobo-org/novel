@@ -70,6 +70,8 @@
     "test:ai:h2p3:persistence": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p3-core.mjs persistence",
     "test:ai:h2p3:runtime-contract": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p3-core.mjs runtime-contract",
     "test:ai:h2p3:all": "pnpm test:ai:h2p3:schema && pnpm test:ai:h2p3:scene && pnpm test:ai:h2p3:state-machine && pnpm test:ai:h2p3:versioning && pnpm test:ai:h2p3:continuity && pnpm test:ai:h2p3:branching && pnpm test:ai:h2p3:persistence && pnpm test:ai:h2p3:runtime-contract",
+    "test:ai:h2p3a:universal-scene": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p3a-universal-scene.mjs",
+    "test:ai:h2p3a:all": "pnpm test:ai:h2p3a:universal-scene",
     "test:ai:h2w1:runtime-client": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w1-runtime-client.mjs",
     "test:ai:h2w1:handshake": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w1-handshake.mjs",
     "test:ai:h2w1:actions": "node scripts/run-ai-h2w1-actions.mjs",

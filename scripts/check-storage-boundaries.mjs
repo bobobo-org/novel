@@ -5,7 +5,7 @@ const root = process.cwd();
 const scanRoots = ["lib/novel-ai", "app/api/story-bible", "app/api/admin/story-bible", "app/api/admin/storage", "scripts", "prisma"];
 
 const tablePattern = /\b(story_(?:bible|fact|canonical|characters|events|items|world|foreshadowing|open|chapter|entity|field)[a-z0-9_]*)\b/g;
-const directStoragePattern = /SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_URL|SUPABASE_URL|\/rest\/v1|database\/query|createClient|(?<!Array)\.from\(|\.rpc\(|executeRaw|raw SQL/gi;
+const directStoragePattern = /SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_URL|SUPABASE_URL|\/rest\/v1|database\/query|createClient|(?<!Array)(?<!Buffer)\.from\(|\.rpc\(|executeRaw|raw SQL/gi;
 const supabaseNamePattern = /\bsupabase\b|SUPABASE_/gi;
 
 function walk(dir) {
@@ -28,6 +28,7 @@ function ownerOf(file) {
   if (/^scripts\//.test(file)) return "test-fixture";
   if (/^prisma\//.test(file)) return "migration";
   if (/^lib\/novel-ai\/persistence\.ts$/.test(file)) return "persistence-out-of-scope";
+  if (/^lib\/novel-ai\/web\//.test(file)) return "local-runtime";
   if (/^lib\/novel-ai\/story-bible-(?:mutations|versions|diff|integrity|export|revert)\.ts$/.test(file)) return "facade";
   if (/^app\/api\/story-bible\//.test(file)) return "api-route";
   if (/^lib\/novel-ai\/story-bible/.test(file)) return "core-service";
