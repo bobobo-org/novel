@@ -29,7 +29,7 @@ export class OllamaClient {
 
   constructor(options: OllamaClientOptions = {}) {
     this.endpoint = normalizeOllamaEndpoint(options.endpoint);
-    this.timeoutMs = options.timeoutMs ?? 20_000;
+    this.timeoutMs = options.timeoutMs ?? 120_000;
   }
 
   private async request(path: string, init: RequestInit = {}, signal?: AbortSignal) {

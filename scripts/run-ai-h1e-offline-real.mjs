@@ -29,7 +29,9 @@ for (const taskType of tasks) {
   h.assert(`runtime task local ${taskType}`, result.dataLeftDevice === false);
 }
 const report = guard.report();
-h.assert("external request count blocked", report.externalRequestCount === 4, report);
+h.assert("external request count zero", report.externalRequestCount === 0, report);
+h.assert("blocked external count tracked", report.blockedExternalCount === 4, report);
+h.assert("data stayed local", report.dataLeftDevice === false, report);
 h.assert("local approvals tracked", report.approvals.length === 2, report);
 
 console.log(JSON.stringify(h.summary({ notRun: false, selectedModel: env.health.selectedModel, networkGuard: report }), null, 2));

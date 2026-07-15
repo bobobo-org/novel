@@ -14,12 +14,12 @@ export type OllamaBenchmarkResult = {
 export async function benchmarkOllamaGenerate(input: { model: string; prompt: string; endpoint?: string; timeoutMs?: number; signal?: AbortSignal }): Promise<OllamaBenchmarkResult> {
   const started = Date.now();
   try {
-    const client = new OllamaClient({ endpoint: input.endpoint, timeoutMs: input.timeoutMs ?? 30_000 });
+    const client = new OllamaClient({ endpoint: input.endpoint, timeoutMs: input.timeoutMs ?? 180_000 });
     const result = await client.generate({
       model: input.model,
       prompt: input.prompt,
       stream: false,
-      options: { temperature: 0.2 },
+      options: { temperature: 0.2, num_predict: 140 },
       signal: input.signal,
     });
     const latencyMs = Date.now() - started;

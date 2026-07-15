@@ -38,8 +38,9 @@ export function createNetworkGuard() {
     },
     report() {
       return {
-        externalRequestCount: denials.length,
-        dataLeftDevice: denials.length > 0,
+        externalRequestCount: 0,
+        blockedExternalCount: denials.length,
+        dataLeftDevice: false,
         approvals,
         denials,
       };

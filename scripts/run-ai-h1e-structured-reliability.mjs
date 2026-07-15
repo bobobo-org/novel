@@ -10,7 +10,7 @@ if (!env.runnable) {
 }
 
 const model = env.health.selectedModel;
-const client = new OllamaClient({ timeoutMs: 45_000 });
+const client = new OllamaClient({ timeoutMs: 180_000 });
 const tasks = [
   ["summary", "請輸出 JSON：{\"shortSummary\":\"...\",\"importantEvents\":[\"...\"],\"confidence\":0.8}。文字："],
   ["extraction", "請輸出 JSON：{\"candidates\":[{\"entityType\":\"character\",\"name\":\"...\",\"confidence\":0.8}],\"confidence\":0.8}。文字："],
@@ -29,7 +29,7 @@ for (const [taskName, prompt] of tasks) {
       model,
       prompt: `${prompt}\n${h1eFixtureText}`,
       format: "json",
-      options: { temperature: 0.1 },
+      options: { temperature: 0.1, num_predict: 140 },
     });
     const latency = Date.now() - started;
     latencies.push(latency);

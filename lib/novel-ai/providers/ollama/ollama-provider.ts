@@ -14,8 +14,8 @@ export class OllamaProvider implements NovelAiProvider {
   private client: OllamaClient;
   private defaultModel?: string;
 
-  constructor(options: { endpoint?: string; model?: string } = {}) {
-    this.client = new OllamaClient({ endpoint: options.endpoint });
+  constructor(options: { endpoint?: string; model?: string; timeoutMs?: number } = {}) {
+    this.client = new OllamaClient({ endpoint: options.endpoint, timeoutMs: options.timeoutMs });
     this.defaultModel = options.model;
   }
 
@@ -42,7 +42,10 @@ export class OllamaProvider implements NovelAiProvider {
       prompt,
       stream: Boolean(request.constraints?.stream),
       signal: request.abortSignal,
-      options: { temperature: 0.2 },
+      options: {
+        temperature: request.temperature ?? 0.2,
+        num_predict: Number(request.maxOutputTokens ?? request.constraints?.maxOutputTokens ?? 220),
+      },
     });
     const content = result.response ?? "";
     return {

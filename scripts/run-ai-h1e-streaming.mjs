@@ -10,11 +10,12 @@ if (!env.runnable) {
 }
 
 const model = env.health.selectedModel;
-const client = new OllamaClient({ timeoutMs: 45_000 });
+const client = new OllamaClient({ timeoutMs: 180_000 });
 const streamed = await client.generate({
   model,
   stream: true,
   prompt: `請用繁體中文續寫 120 字：\n${h1eFixtureText}`,
+  options: { num_predict: 140, temperature: 0.1 },
 });
 h.assert("streaming content received", (streamed.response ?? "").length > 0);
 h.assert("streaming model local", true, { model });

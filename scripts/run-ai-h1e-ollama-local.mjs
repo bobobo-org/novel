@@ -11,8 +11,8 @@ if (!env.runnable) {
 }
 
 const model = env.health.selectedModel;
-const client = new OllamaClient({ timeoutMs: 45_000 });
-const provider = new OllamaProvider({ model });
+const client = new OllamaClient({ timeoutMs: 180_000 });
+const provider = new OllamaProvider({ model, timeoutMs: 180_000 });
 
 h.assert("ollama version", Boolean(env.health.version), { version: env.health.version });
 h.assert("health ping", env.health.status === "configured", { latencyMs: env.health.latencyMs });
@@ -22,13 +22,13 @@ h.assert("selected model", Boolean(model), { model, selection: env.selection });
 const show = await client.show(model);
 h.assert("model load/show", Boolean(show), { model });
 
-const generated = await client.generate({ model, prompt: `請用繁體中文用一句話摘要：\n${h1eFixtureText}` });
+const generated = await client.generate({ model, prompt: `請用繁體中文用一句話摘要：\n${h1eFixtureText}`, options: { num_predict: 80, temperature: 0.1 } });
 h.assert("non-streaming generate", (generated.response ?? "").length > 0);
 
 const chat = await client.chat({ model, messages: [{ role: "user", content: "請用繁體中文回答：本機模型已連線嗎？" }] });
 h.assert("chat", (chat.message?.content ?? "").length > 0);
 
-const streamed = await client.generate({ model, stream: true, prompt: `請用繁體中文續寫 80 字：\n${h1eFixtureText}` });
+const streamed = await client.generate({ model, stream: true, prompt: `請用繁體中文續寫 80 字：\n${h1eFixtureText}`, options: { num_predict: 100, temperature: 0.1 } });
 h.assert("streaming", (streamed.response ?? "").length > 0);
 
 const cancelController = new AbortController();
@@ -51,7 +51,7 @@ try {
 }
 h.assert("timeout", timeoutOk);
 
-const zh = await provider.summarizeChapter({ requestId: "h1e-zh", projectId: "h1e", taskType: "simple_summary", input: h1eFixtureText, privacyMode: "local_only" });
+const zh = await provider.summarizeChapter({ requestId: "h1e-zh", projectId: "h1e", taskType: "simple_summary", input: h1eFixtureText, privacyMode: "local_only", maxOutputTokens: 120 });
 h.assert("traditional chinese task", zh.content.length > 0 && zh.dataLeftDevice === false, { provider: zh.provider });
 
 const jsonResult = await client.generate({

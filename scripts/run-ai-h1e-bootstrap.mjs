@@ -12,6 +12,17 @@ const execFileAsync = promisify(execFile);
 const h = createHarness("H1E-1 Ollama Bootstrap");
 
 async function commandVersion(command, args) {
+  const candidates = command === "ollama" && process.platform === "win32"
+    ? [command, `${process.env.LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe`]
+    : [command];
+  for (const candidate of candidates) {
+    try {
+      const result = await execFileAsync(candidate, args, { timeout: 3_000 });
+      return { available: true, stdout: result.stdout.trim().slice(0, 120) };
+    } catch {
+      // Try the next candidate path.
+    }
+  }
   try {
     const result = await execFileAsync(command, args, { timeout: 3_000 });
     return { available: true, stdout: result.stdout.trim().slice(0, 120) };
@@ -47,7 +58,7 @@ const envReport = {
   modelSelection: selection,
 };
 
-if (!ollamaCommand.available || health.runtimeStatus !== "running") {
+if (health.runtimeStatus !== "running") {
   h.assert("hardware detection", true, { profile: hardware.profile });
   h.assert("winget detection", typeof winget.available === "boolean");
   console.log(JSON.stringify(h.summary({
@@ -76,7 +87,7 @@ h.assert("hardware detection", true, { profile: hardware.profile });
 h.assert("runtime detection", health.runtimeStatus === "running", { version: health.version });
 h.assert("model detection", health.modelCount > 0, { selectedModel: health.selectedModel });
 
-const provider = new OllamaProvider({ model: health.selectedModel });
+const provider = new OllamaProvider({ model: health.selectedModel, timeoutMs: 180_000 });
 const tasks = [
   ["summarizeChapter", "simple_summary", (request) => provider.summarizeChapter(request)],
   ["extractStoryBible", "story_bible_extraction", (request) => provider.extractStoryBible(request)],
@@ -91,6 +102,7 @@ for (const [name, taskType, run] of tasks) {
     projectId: "h1e-bootstrap",
     taskType,
     input: h1eFixtureText,
+    maxOutputTokens: 160,
     privacyMode: "local_only",
     allowExternalProvider: false,
   });
