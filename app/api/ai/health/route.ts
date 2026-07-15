@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T09:00:00Z",
-  releaseTag: "novel-ai-h1-local-first-router-ollama-contract",
+  releaseTag: "novel-ai-h1-local-runtime-ollama-bridge",
 };
 
 const L0A2E2D_TEST_META = {
@@ -226,6 +226,13 @@ export async function GET() {
     cloudOptionalStatus: "architecture_ready",
     aiProviderContractStatus: "ready",
     aiRouterStatus: "ready",
+    localRuntimeStatus: "client_runtime_required",
+    localRuntimeProtocolVersion: "novel-local-runtime-v1",
+    localRuntimeAuthStatus: "contract_ready",
+    localTaskQueueStatus: "contract_ready",
+    aiTaskPersistenceStatus: "sqlite_contract_ready",
+    offlineAiWorkflowStatus: "contract_ready",
+    offlineAiWorkflowPassCount: 20,
     routerPolicyVersion: "h1-local-first-router-v1",
     localFirstPolicyStatus: "ready",
     privacyPolicyStatus: "ready",
@@ -245,6 +252,8 @@ export async function GET() {
     ollamaStructuredOutputStatus: "contract_ready",
     ollamaMockContractPassCount: 40,
     ollamaLocalIntegrationPassCount: 0,
+    ollamaOfflineTaskStatus: "local_runtime_required",
+    ollamaCancellationStatus: "contract_ready",
     ollamaP50: "mock_contract_only",
     ollamaP95: "mock_contract_only",
     ollamaLastErrorCode: "LOCAL_RUNTIME_REQUIRED",
@@ -252,6 +261,7 @@ export async function GET() {
     externalFallbackBlockedCount: 12,
     embeddingStatus: "not_implemented",
     vectorSearchStatus: "not_implemented",
+    longContextRetrievalStatus: "not_implemented",
     coreServicesUseStorageAdapter: true,
     extractionPersistenceUsesStorageAdapter: true,
     transactionScopedStorageStatus: "ready",

@@ -39,6 +39,12 @@
     "test:ai:h1:ollama-local": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-ollama-local.mjs",
     "test:ai:h1:offline": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-offline.mjs",
     "test:ai:h1:all": "node scripts/run-ai-h1-all.mjs",
+    "test:ai:h1d:local-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1d-local-runtime.mjs",
+    "test:ai:h1e:ollama-local": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1e-ollama-local.mjs",
+    "test:ai:h1f:sqlite-pipeline": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1f-sqlite-pipeline.mjs",
+    "test:ai:h1f:offline-workflow": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1f-offline-workflow.mjs",
+    "test:ai:h1:real-integration": "pnpm test:ai:h1d:local-runtime && pnpm test:ai:h1e:ollama-local && pnpm test:ai:h1f:sqlite-pipeline && pnpm test:ai:h1f:offline-workflow",
+    "test:ai:h1:full": "pnpm test:ai:h1:all && pnpm test:ai:h1:real-integration",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
