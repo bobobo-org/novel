@@ -32,6 +32,13 @@
     "test:story-bible:l0b3b:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core && pnpm test:story-bible:l0b3:sqlite-export && pnpm test:story-bible:l0b3:sqlite-revert",
     "test:story-bible:l0b3c:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core && pnpm test:story-bible:l0b3:sqlite-export && pnpm test:story-bible:l0b3:sqlite-revert && node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs all",
     "test:story-bible:l0b:full": "node scripts/run-story-bible-l0b-full.mjs",
+    "test:ai:h1:provider-contract": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-provider-contract.mjs",
+    "test:ai:h1:router": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-router.mjs",
+    "test:ai:h1:privacy-context": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-privacy-context.mjs",
+    "test:ai:h1:ollama-mock": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-ollama-mock.mjs",
+    "test:ai:h1:ollama-local": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-ollama-local.mjs",
+    "test:ai:h1:offline": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-offline.mjs",
+    "test:ai:h1:all": "node scripts/run-ai-h1-all.mjs",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
