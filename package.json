@@ -58,6 +58,9 @@
     "test:ai:h2a:adult-metadata": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2a-adult-metadata.mjs",
     "test:ai:h2a:all": "pnpm test:ai:h2a:embedding && pnpm test:ai:h2a:embedding-real && pnpm test:ai:h2a:chunking && pnpm test:ai:h2a:vector-blob && pnpm test:ai:h2a:indexing && pnpm test:ai:h2a:adult-metadata",
     "test:ai:h2p:policy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p-policy.mjs",
+    "test:ai:h2p:taxonomy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p-taxonomy.mjs",
+    "test:ai:h2p:scenario-discovery": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p-scenario-discovery.mjs",
+    "test:ai:h2p2:all": "pnpm test:ai:h2p:taxonomy && pnpm test:ai:h2p:scenario-discovery",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

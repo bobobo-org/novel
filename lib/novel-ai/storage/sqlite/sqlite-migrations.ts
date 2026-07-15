@@ -504,4 +504,166 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
     );
   `),
+  migration(15, "015_adult_taxonomy_scenarios", `
+    CREATE TABLE IF NOT EXISTS adult_taxonomy_categories (
+      id TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_taxonomy_tags (
+      id TEXT PRIMARY KEY,
+      tag_id TEXT NOT NULL UNIQUE,
+      category_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      adult_only INTEGER NOT NULL DEFAULT 0 CHECK(adult_only IN (0,1)),
+      minimum_rating TEXT NOT NULL CHECK(minimum_rating IN ('E0','E1','E2','E3','E4','E5')),
+      default_weight REAL NOT NULL DEFAULT 1,
+      preference_weight REAL NOT NULL DEFAULT 1,
+      novelty_weight REAL NOT NULL DEFAULT 1,
+      repetition_weight REAL NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(category_id) REFERENCES adult_taxonomy_categories(category_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_adult_tags_category ON adult_taxonomy_tags(category_id, enabled);
+
+    CREATE TABLE IF NOT EXISTS adult_tag_aliases (
+      tag_id TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      alias_normalized TEXT NOT NULL,
+      PRIMARY KEY(tag_id, alias_normalized),
+      FOREIGN KEY(tag_id) REFERENCES adult_taxonomy_tags(tag_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_tag_compatibility (
+      tag_id TEXT NOT NULL,
+      compatible_tag_id TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1,
+      PRIMARY KEY(tag_id, compatible_tag_id),
+      FOREIGN KEY(tag_id) REFERENCES adult_taxonomy_tags(tag_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_tag_requirements (
+      tag_id TEXT NOT NULL,
+      required_tag_id TEXT NOT NULL,
+      PRIMARY KEY(tag_id, required_tag_id),
+      FOREIGN KEY(tag_id) REFERENCES adult_taxonomy_tags(tag_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_tag_exclusions (
+      tag_id TEXT NOT NULL,
+      excluded_tag_id TEXT NOT NULL,
+      PRIMARY KEY(tag_id, excluded_tag_id),
+      FOREIGN KEY(tag_id) REFERENCES adult_taxonomy_tags(tag_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_packs (
+      id TEXT PRIMARY KEY,
+      scenario_pack_id TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      premise TEXT NOT NULL,
+      participant_roles_json TEXT NOT NULL,
+      required_relationship_stages_json TEXT NOT NULL,
+      required_setup_json TEXT NOT NULL,
+      location_options_json TEXT NOT NULL,
+      emotional_tone_options_json TEXT NOT NULL,
+      stage_template_json TEXT NOT NULL,
+      narrative_purpose TEXT NOT NULL,
+      consequence_template TEXT NOT NULL,
+      compatible_tags_json TEXT NOT NULL,
+      incompatible_tags_json TEXT NOT NULL,
+      rating_min TEXT NOT NULL CHECK(rating_min IN ('E0','E1','E2','E3','E4','E5')),
+      rating_max TEXT NOT NULL CHECK(rating_max IN ('E0','E1','E2','E3','E4','E5')),
+      version INTEGER NOT NULL DEFAULT 1,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_pack_tags (
+      scenario_pack_id TEXT NOT NULL,
+      tag_id TEXT NOT NULL,
+      PRIMARY KEY(scenario_pack_id, tag_id),
+      FOREIGN KEY(scenario_pack_id) REFERENCES adult_scenario_packs(scenario_pack_id) ON DELETE CASCADE,
+      FOREIGN KEY(tag_id) REFERENCES adult_taxonomy_tags(tag_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_pack_versions (
+      id TEXT PRIMARY KEY,
+      scenario_pack_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(scenario_pack_id, version)
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_usage (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scenario_pack_id TEXT NOT NULL,
+      used_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      row_json TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_adult_scenario_usage_project ON adult_scenario_usage(project_id, scenario_pack_id, used_at);
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_favorites (
+      project_id TEXT NOT NULL,
+      scenario_pack_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, scenario_pack_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_hidden (
+      project_id TEXT NOT NULL,
+      scenario_pack_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, scenario_pack_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_scenario_feedback (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scenario_pack_id TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+      feedback_text TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_adult_taxonomy_preferences (
+      project_id TEXT NOT NULL,
+      tag_id TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, tag_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_adult_taxonomy_exclusions (
+      project_id TEXT NOT NULL,
+      tag_id TEXT NOT NULL,
+      reason TEXT,
+      row_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, tag_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+  `),
 ];
