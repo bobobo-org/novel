@@ -4,6 +4,7 @@ import { collectOllamaStream } from "./ollama-stream-parser";
 
 export type OllamaClientOptions = { endpoint?: string; timeoutMs?: number };
 export type OllamaGenerateRequest = { model: string; prompt: string; stream?: boolean; format?: "json"; options?: Record<string, unknown>; signal?: AbortSignal };
+export type OllamaEmbedRequest = { model: string; input: string | string[]; truncate?: boolean; options?: Record<string, unknown>; signal?: AbortSignal; timeoutMs?: number };
 
 export function normalizeOllamaEndpoint(endpoint = "http://127.0.0.1:11434") {
   let url: URL;
@@ -32,9 +33,9 @@ export class OllamaClient {
     this.timeoutMs = options.timeoutMs ?? 120_000;
   }
 
-  private async request(path: string, init: RequestInit = {}, signal?: AbortSignal) {
+  private async request(path: string, init: RequestInit = {}, signal?: AbortSignal, timeoutMs = this.timeoutMs) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -58,7 +59,7 @@ export class OllamaClient {
 
   async tags(signal?: AbortSignal) {
     const response = await this.request("/api/tags", { method: "GET" }, signal);
-    return response.json() as Promise<{ models?: Array<{ name?: string; model?: string }> }>;
+    return response.json() as Promise<{ models?: Array<{ name?: string; model?: string; size?: number; digest?: string; details?: Record<string, unknown>; capabilities?: string[] }> }>;
   }
 
   async version(signal?: AbortSignal) {
@@ -93,5 +94,18 @@ export class OllamaClient {
     }, input.signal);
     if (input.stream) return { message: { content: await collectOllamaStream(response, input.signal) } };
     return response.json() as Promise<{ message?: { content?: string } }>;
+  }
+
+  async embed(input: OllamaEmbedRequest) {
+    const response = await this.request("/api/embed", {
+      method: "POST",
+      body: JSON.stringify({
+        model: input.model,
+        input: input.input,
+        truncate: input.truncate ?? false,
+        options: input.options,
+      }),
+    }, input.signal, input.timeoutMs);
+    return response.json() as Promise<{ model?: string; embeddings?: number[][]; total_duration?: number; load_duration?: number; prompt_eval_count?: number }>;
   }
 }
