@@ -260,6 +260,7 @@ export async function GET(req: Request) {
     ollamaLocalIntegrationPassCount: 0,
     ollamaOfflineTaskStatus: "local_runtime_required",
     ollamaRuntimeDetectionStatus: "client_runtime_required",
+    ollamaBootstrapStatus: "runtime_install_permission_required",
     ollamaModelSelectionStatus: "client_runtime_required",
     ollamaStructuredReliabilityStatus: "not_run_without_local_model",
     ollamaNetworkGuardStatus: "contract_ready",

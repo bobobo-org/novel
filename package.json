@@ -40,6 +40,7 @@
     "test:ai:h1:offline": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1-offline.mjs",
     "test:ai:h1:all": "node scripts/run-ai-h1-all.mjs",
     "test:ai:h1d:local-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1d-local-runtime.mjs",
+    "test:ai:h1e:bootstrap": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1e-bootstrap.mjs",
     "test:ai:h1e:ollama-local": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1e-ollama-local.mjs",
     "test:ai:h1e:structured-reliability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1e-structured-reliability.mjs",
     "test:ai:h1e:streaming": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h1e-streaming.mjs",

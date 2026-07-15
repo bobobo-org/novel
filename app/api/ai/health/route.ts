@@ -246,6 +246,7 @@ export async function GET() {
     ollamaEndpointStatus: "local_runtime_required",
     ollamaModelStatus: "local_runtime_required",
     ollamaRuntimeDetectionStatus: "client_runtime_required",
+    ollamaBootstrapStatus: "runtime_install_permission_required",
     ollamaModelSelectionStatus: "client_runtime_required",
     ollamaStructuredReliabilityStatus: "not_run_without_local_model",
     ollamaPerformanceStatus: "not_run_without_local_model",
