@@ -372,4 +372,136 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
     );
   `),
+  migration(14, "014_adult_story_policy", `
+    CREATE TABLE IF NOT EXISTS project_adult_policy (
+      project_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+      rating TEXT NOT NULL CHECK(rating IN ('E0','E1','E2','E3','E4','E5')),
+      explicitness INTEGER NOT NULL DEFAULT 0 CHECK(explicitness >= 0 AND explicitness <= 5),
+      direct_language INTEGER NOT NULL DEFAULT 0 CHECK(direct_language IN (0,1)),
+      fade_to_black INTEGER NOT NULL DEFAULT 1 CHECK(fade_to_black IN (0,1)),
+      pacing TEXT NOT NULL,
+      dialogue_ratio INTEGER NOT NULL DEFAULT 35 CHECK(dialogue_ratio >= 0 AND dialogue_ratio <= 100),
+      sensory_detail INTEGER NOT NULL DEFAULT 1 CHECK(sensory_detail >= 0 AND sensory_detail <= 5),
+      emotional_detail INTEGER NOT NULL DEFAULT 3 CHECK(emotional_detail >= 0 AND emotional_detail <= 5),
+      psychological_detail INTEGER NOT NULL DEFAULT 3 CHECK(psychological_detail >= 0 AND psychological_detail <= 5),
+      default_scene_length INTEGER NOT NULL DEFAULT 600 CHECK(default_scene_length >= 0),
+      aftermath_length INTEGER NOT NULL DEFAULT 150 CHECK(aftermath_length >= 0),
+      public_version_mode TEXT NOT NULL,
+      generation_mode TEXT NOT NULL,
+      policy_version INTEGER NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_adult_policy_versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      policy_version INTEGER NOT NULL,
+      change_reason TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, policy_version),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_adult_preferences (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      preference_key TEXT NOT NULL,
+      preference_value TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, preference_key),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_adult_exclusions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      exclusion_key TEXT NOT NULL,
+      reason TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, exclusion_key),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS character_adult_assertions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      age_value INTEGER,
+      age_source TEXT NOT NULL,
+      verification_status TEXT NOT NULL CHECK(verification_status IN ('verified_adult','verified_minor','unknown','conflicting','revoked')),
+      canonical_entity_id TEXT,
+      verified_at TEXT,
+      verification_version INTEGER NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, character_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_character_adult_assertions_project_status ON character_adult_assertions(project_id, verification_status);
+
+    CREATE TABLE IF NOT EXISTS relationship_intimacy_rules (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      relationship_id TEXT NOT NULL,
+      participant_ids_json TEXT NOT NULL,
+      relationship_type TEXT NOT NULL,
+      relationship_stage TEXT NOT NULL,
+      intimacy_allowed INTEGER NOT NULL DEFAULT 0 CHECK(intimacy_allowed IN (0,1)),
+      allowed_from_chapter INTEGER,
+      required_events_json TEXT NOT NULL,
+      forbidden_events_json TEXT NOT NULL,
+      exclusivity_rule TEXT,
+      public_risk INTEGER NOT NULL DEFAULT 0 CHECK(public_risk >= 0 AND public_risk <= 5),
+      trust_level INTEGER NOT NULL DEFAULT 0 CHECK(trust_level >= 0 AND trust_level <= 5),
+      attraction_level INTEGER NOT NULL DEFAULT 0 CHECK(attraction_level >= 0 AND attraction_level <= 5),
+      resentment_level INTEGER NOT NULL DEFAULT 0 CHECK(resentment_level >= 0 AND resentment_level <= 5),
+      power_balance TEXT,
+      consequence_profile TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, relationship_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS adult_policy_audits (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      policy_version INTEGER,
+      action TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT,
+      prompt_template_version TEXT,
+      validation_status TEXT NOT NULL,
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      external_request_count INTEGER NOT NULL DEFAULT 0,
+      output_hash TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_adult_policy_audits_project ON adult_policy_audits(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS adult_policy_profiles (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, profile_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+  `),
 ];

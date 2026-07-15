@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2a-local-embedding-index",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T10:30:00Z",
-  releaseTag: "novel-ai-h2a-local-embedding-index",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p1-adult-policy-foundation",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T12:00:00Z",
+  releaseTag: "novel-ai-h2p1-adult-policy-foundation",
 };
 
 const L0A2E2D_TEST_META = {
@@ -294,8 +294,18 @@ export async function GET() {
     embeddingIndexRestartStatus: "ready",
     adultPolicyMetadataStatus: "schema_ready",
     intimacyStageMetadataStatus: "schema_ready",
-    adultStoryPolicyStatus: "not_implemented",
+    adultStoryPolicyStatus: "ready",
+    adultPolicySchemaVersion: "adult-policy-v1",
+    adultPolicyPassCount: 38,
+    adultPolicyVersioningStatus: "ready",
+    adultCharacterVerificationStatus: "ready",
+    adultRelationshipPolicyStatus: "ready",
     adultSegmentedGenerationStatus: "not_implemented",
+    adultPreferenceTaxonomyStatus: "not_implemented",
+    adultScenarioDiscoveryStatus: "not_implemented",
+    intimacySceneStateMachineStatus: "not_implemented",
+    adultLocalGenerationStatus: "not_implemented",
+    privatePublicVersionStatus: "not_implemented",
     keywordRetrievalStatus: "not_implemented",
     hybridRetrievalStatus: "not_implemented",
     retrievalQualityStatus: "not_implemented",
