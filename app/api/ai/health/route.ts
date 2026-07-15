@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-15T09:00:00Z",
-  releaseTag: "novel-ai-h1-local-runtime-ollama-bridge",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T03:45:00Z",
+  releaseTag: "novel-ai-h1e-runtime-diagnostics",
 };
 
 const L0A2E2D_TEST_META = {
@@ -245,6 +245,11 @@ export async function GET() {
     ollamaBridgeStatus: "contract_ready",
     ollamaEndpointStatus: "local_runtime_required",
     ollamaModelStatus: "local_runtime_required",
+    ollamaRuntimeDetectionStatus: "client_runtime_required",
+    ollamaModelSelectionStatus: "client_runtime_required",
+    ollamaStructuredReliabilityStatus: "not_run_without_local_model",
+    ollamaPerformanceStatus: "not_run_without_local_model",
+    ollamaNetworkGuardStatus: "contract_ready",
     ollamaInstalledModelCount: 0,
     ollamaSelectedModel: null,
     ollamaContextWindow: null,

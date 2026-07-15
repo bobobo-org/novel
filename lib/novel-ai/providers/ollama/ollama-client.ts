@@ -61,6 +61,11 @@ export class OllamaClient {
     return response.json() as Promise<{ models?: Array<{ name?: string; model?: string }> }>;
   }
 
+  async version(signal?: AbortSignal) {
+    const response = await this.request("/api/version", { method: "GET" }, signal);
+    return response.json() as Promise<{ version?: string }>;
+  }
+
   async show(model: string, signal?: AbortSignal) {
     const response = await this.request("/api/show", { method: "POST", body: JSON.stringify({ model }) }, signal);
     return response.json();
