@@ -666,4 +666,233 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
     );
   `),
+  migration(16, "016_segmented_scene_state_machine", `
+    CREATE TABLE IF NOT EXISTS intimacy_scenes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      chapter_id TEXT,
+      branch_id TEXT NOT NULL,
+      scenario_pack_id TEXT,
+      policy_version INTEGER NOT NULL,
+      rating TEXT NOT NULL,
+      explicitness INTEGER NOT NULL DEFAULT 0 CHECK(explicitness >= 0 AND explicitness <= 5),
+      title TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('planned','ready','active','paused','completed','cancelled','blocked','archived')),
+      current_stage_id TEXT,
+      current_stage_type TEXT,
+      planned_stage_count INTEGER NOT NULL DEFAULT 0,
+      approved_stage_count INTEGER NOT NULL DEFAULT 0,
+      participant_count INTEGER NOT NULL DEFAULT 0,
+      version INTEGER NOT NULL DEFAULT 1,
+      archived_at TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_intimacy_scenes_project_status ON intimacy_scenes(project_id, status, branch_id);
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_participants (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      participant_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      verified_adult_status TEXT NOT NULL,
+      relationship_id TEXT,
+      relationship_stage TEXT,
+      consent_state TEXT NOT NULL,
+      required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+      ordinal INTEGER NOT NULL,
+      joined_at TEXT NOT NULL,
+      left_at TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, scene_id, participant_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_stages (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      stage_type TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      target_length INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('planned','ready','active','paused','draft_ready','approved','rejected','failed','cancelled','superseded','archived','skipped')),
+      current_version_id TEXT,
+      previous_stage_id TEXT,
+      next_stage_id TEXT,
+      required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+      skippable INTEGER NOT NULL DEFAULT 0 CHECK(skippable IN (0,1)),
+      version INTEGER NOT NULL DEFAULT 1,
+      archived_at TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, scene_id, branch_id, stage_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_intimacy_stages_scene_status ON intimacy_scene_stages(project_id, scene_id, status);
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_stage_versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      parent_version_id TEXT,
+      operation TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('draft','current','approved','rejected','superseded','restored','archived')),
+      goal_snapshot TEXT NOT NULL,
+      continuity_input_hash TEXT NOT NULL,
+      policy_version INTEGER NOT NULL,
+      prompt_template_version TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      superseded_at TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, version_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_intimacy_versions_stage ON intimacy_scene_stage_versions(project_id, scene_id, stage_id, status);
+
+    CREATE TABLE IF NOT EXISTS intimacy_continuity_states (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT,
+      version_id TEXT,
+      branch_id TEXT NOT NULL,
+      continuity_version INTEGER NOT NULL DEFAULT 1,
+      before_snapshot_json TEXT,
+      after_snapshot_json TEXT,
+      delta_json TEXT,
+      validation_result_json TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_branches (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      parent_branch_id TEXT,
+      divergence_stage_id TEXT,
+      divergence_version_id TEXT,
+      branch_name TEXT NOT NULL,
+      branch_status TEXT NOT NULL CHECK(branch_status IN ('active','paused','completed','rejected','archived')),
+      continuity_snapshot_id TEXT,
+      policy_version INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, scene_id, branch_id),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_transitions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT,
+      branch_id TEXT,
+      transition_type TEXT NOT NULL,
+      previous_status TEXT NOT NULL,
+      next_status TEXT NOT NULL,
+      validation_result_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_audits (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT,
+      stage_id TEXT,
+      version_id TEXT,
+      branch_id TEXT,
+      action TEXT NOT NULL,
+      previous_status TEXT,
+      next_status TEXT,
+      policy_version INTEGER,
+      validation_result_json TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      content_hash TEXT,
+      summary_hash TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_intimacy_audits_project_scene ON intimacy_scene_audits(project_id, scene_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_drafts (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT,
+      branch_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected','archived')),
+      summary TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_stage_dependencies (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      depends_on_stage_id TEXT NOT NULL,
+      dependency_type TEXT NOT NULL,
+      required_status TEXT NOT NULL,
+      condition_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, scene_id, stage_id, depends_on_stage_id, dependency_type),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS intimacy_scene_stage_requirements (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      requirement_type TEXT NOT NULL,
+      requirement_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','met','waived','blocked')),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES intimacy_scenes(id) ON DELETE CASCADE
+    );
+  `),
 ];
