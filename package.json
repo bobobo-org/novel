@@ -61,6 +61,14 @@
     "test:ai:h2p:taxonomy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p-taxonomy.mjs",
     "test:ai:h2p:scenario-discovery": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2p-scenario-discovery.mjs",
     "test:ai:h2p2:all": "pnpm test:ai:h2p:taxonomy && pnpm test:ai:h2p:scenario-discovery",
+    "test:ai:h2w1:runtime-client": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w1-runtime-client.mjs",
+    "test:ai:h2w1:handshake": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w1-handshake.mjs",
+    "test:ai:h2w1:actions": "node scripts/run-ai-h2w1-actions.mjs",
+    "test:ai:h2w1:streaming": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w1-streaming.mjs",
+    "test:ai:h2w1:task-center": "node scripts/run-ai-h2w1-task-center.mjs",
+    "test:ai:h2w1:scenario-ui": "node scripts/run-ai-h2w1-scenario-ui.mjs",
+    "test:ai:h2w1:offline": "node scripts/run-ai-h2w1-offline.mjs",
+    "test:ai:h2w1:all": "pnpm test:ai:h2w1:runtime-client && pnpm test:ai:h2w1:handshake && pnpm test:ai:h2w1:actions && pnpm test:ai:h2w1:streaming && pnpm test:ai:h2w1:task-center && pnpm test:ai:h2w1:scenario-ui && pnpm test:ai:h2w1:offline",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

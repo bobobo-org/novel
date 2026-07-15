@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p2-adult-taxonomy-discovery",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T16:00:00Z",
-  releaseTag: "novel-ai-h2p2-adult-taxonomy-discovery",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2w1-web-local-ai-connection",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T17:30:00Z",
+  releaseTag: "novel-ai-h2w1-web-local-ai-connection",
 };
 
 const L0A2E2D_TEST_META = {
@@ -308,6 +308,19 @@ export async function GET() {
     adultScenarioDiscoveryStatus: "ready",
     adultScenarioRecommendationStatus: "ready",
     adultScenarioPersistenceStatus: "ready",
+    webLocalRuntimeClientStatus: "ready",
+    webLocalRuntimeClientVersion: "h2w1-web-local-runtime-client",
+    webLocalRuntimeHandshakeStatus: "ready",
+    webClosedAiStatusPanelStatus: "ready",
+    webAiActionsStatus: "ready",
+    webAiTaskCenterStatus: "ready",
+    webAiStreamingStatus: "ready",
+    webDraftReviewStatus: "ready",
+    webCandidateReviewIntegrationStatus: "ready",
+    webScenarioDiscoveryStatus: "ready",
+    webAdultSegmentedGenerationStatus: "not_implemented",
+    webHybridRetrievalStatus: "not_implemented",
+    webWholeNovelAiStatus: "not_implemented",
     intimacySceneStateMachineStatus: "not_implemented",
     adultLocalGenerationStatus: "not_implemented",
     privatePublicVersionStatus: "not_implemented",
