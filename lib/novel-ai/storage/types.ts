@@ -22,6 +22,9 @@ export type StoryBibleStorageCapabilities = {
   integrityChain: StorageSupport;
   export: StorageSupport;
   import: StorageSupport;
+  revert?: StorageSupport;
+  backup?: StorageSupport;
+  restore?: StorageSupport;
   offline: StorageSupport;
   browserCompatible: StorageSupport;
   maxRecommendedProjectSize: number;
