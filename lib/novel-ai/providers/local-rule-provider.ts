@@ -68,7 +68,7 @@ export class LocalRuleProvider implements NovelAiProvider {
       provider: this.id,
       status: "ready",
       models: ["local-rule-v1"],
-      capabilities: ["text", "structured_json", "local_only", "story_bible", "consistency_check"],
+      capabilities: ["text", "structured_json", "local_only", "story_bible", "consistency_check", "generative_writing"],
       maxContextTokens: 4096,
       supportsAbort: false,
       supportsStreaming: false,
