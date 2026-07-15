@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T08:30:00Z",
-  releaseTag: "novel-ai-h1-ollama-local-ai-foundation",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2a-local-embedding-index",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T10:30:00Z",
+  releaseTag: "novel-ai-h2a-local-embedding-index",
 };
 
 const L0A2E2D_TEST_META = {
@@ -286,8 +286,16 @@ export async function GET() {
     chunkingStatus: "ready",
     chunkingVersion: "novel-chunking-v1",
     chunkingContractPassCount: 40,
-    incrementalIndexStatus: "not_implemented",
-    sqliteVectorStorageStatus: "not_implemented",
+    incrementalIndexStatus: "ready",
+    sqliteVectorStorageStatus: "ready",
+    sqliteEmbeddingStorageStatus: "ready",
+    vectorBlobStorageStatus: "ready",
+    embeddingIndexIntegrityStatus: "ready",
+    embeddingIndexRestartStatus: "ready",
+    adultPolicyMetadataStatus: "schema_ready",
+    intimacyStageMetadataStatus: "schema_ready",
+    adultStoryPolicyStatus: "not_implemented",
+    adultSegmentedGenerationStatus: "not_implemented",
     keywordRetrievalStatus: "not_implemented",
     hybridRetrievalStatus: "not_implemented",
     retrievalQualityStatus: "not_implemented",
