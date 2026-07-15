@@ -39,6 +39,14 @@ export type SQLiteConnectionDiagnostics = {
   safeDatabaseName: string;
 };
 
+export type SQLiteProjectFileInfo = {
+  storageDir: string;
+  databasePath: string;
+  walPath: string;
+  shmPath: string;
+  safeDatabaseName: string;
+};
+
 let DatabaseSync: DatabaseCtor | null = null;
 
 async function loadDatabaseCtor(): Promise<DatabaseCtor> {
@@ -251,6 +259,27 @@ export class SQLiteProjectConnection {
       databaseFileSizeBytes: stat?.size || 0,
       storageDirectoryWritable: isDirectoryWritable(this.storageDir),
       safeDatabaseName: this.safeDatabaseName,
+    };
+  }
+
+  fileInfo(): SQLiteProjectFileInfo {
+    return {
+      storageDir: this.storageDir,
+      databasePath: this.filePath,
+      walPath: `${this.filePath}-wal`,
+      shmPath: `${this.filePath}-shm`,
+      safeDatabaseName: this.safeDatabaseName,
+    };
+  }
+
+  checkpoint(mode: "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE" = "TRUNCATE") {
+    const row = this.get(`PRAGMA wal_checkpoint(${mode});`) || {};
+    return {
+      mode,
+      busy: Number(row.busy || 0),
+      log: Number(row.log || 0),
+      checkpointed: Number(row.checkpointed || 0),
+      status: Number(row.busy || 0) === 0 ? "ok" : "busy",
     };
   }
 

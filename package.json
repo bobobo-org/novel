@@ -25,7 +25,12 @@
     "test:story-bible:l0b2:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core",
     "test:story-bible:l0b3:sqlite-export": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-export.mjs",
     "test:story-bible:l0b3:sqlite-revert": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-revert.mjs",
+    "test:story-bible:l0b3:sqlite-backup": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs backup",
+    "test:story-bible:l0b3:sqlite-restore": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs restore",
+    "test:story-bible:l0b3:sqlite-wal-recovery": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs wal",
+    "test:story-bible:l0b3:sqlite-corruption": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs corruption",
     "test:story-bible:l0b3b:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core && pnpm test:story-bible:l0b3:sqlite-export && pnpm test:story-bible:l0b3:sqlite-revert",
+    "test:story-bible:l0b3c:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core && pnpm test:story-bible:l0b3:sqlite-export && pnpm test:story-bible:l0b3:sqlite-revert && node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-disaster-recovery.mjs all",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

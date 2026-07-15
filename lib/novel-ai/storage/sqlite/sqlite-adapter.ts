@@ -2,7 +2,10 @@ import crypto from "crypto";
 import { SQLITE_LOCAL_CAPABILITIES } from "./sqlite-capabilities";
 import { SQLiteProjectConnection, type SQLiteConnectionDiagnostics } from "./sqlite-connection";
 import { SQLiteTransactionContext } from "./sqlite-transaction-context";
+import { createSQLiteManualBackup, deleteSQLiteBackup, enforceSQLiteBackupRetention, listSQLiteBackups, verifySQLiteBackup } from "./sqlite-backup";
 import { buildSQLiteStoryBibleExportPackage, previewSQLiteStoryBibleExportPackage } from "./sqlite-export";
+import { detectSQLiteRecoveryState, verifySQLiteWalRecovery } from "./sqlite-recovery";
+import { restoreSQLiteBackup } from "./sqlite-restore";
 import { applySQLiteRevert, createSQLiteRevertPreview, revertSQLiteStoryBibleVersion } from "./sqlite-revert";
 import { createSourceNaturalKey, createSourceNaturalKeyHash } from "../source-identity";
 import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "../types";
@@ -76,6 +79,16 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
 
   getLastDiagnostics() {
     return this.lastDiagnostics ? clone(this.lastDiagnostics) : null;
+  }
+
+  async getProjectFileInfo(projectId: string) {
+    const connection = await this.connectionForProject(projectId);
+    return clone(connection.fileInfo());
+  }
+
+  async checkpointProject(projectId: string, mode: "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE" = "TRUNCATE") {
+    const connection = await this.connectionForProject(projectId);
+    return clone(connection.checkpoint(mode));
   }
 
   closeAll() {
@@ -647,6 +660,42 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
 
   async revertVersion(versionIdOrNumber: string, body: unknown) {
     return revertSQLiteStoryBibleVersion(this, versionIdOrNumber, body);
+  }
+
+  async createManualBackup(options: { projectId: string; requestId?: string; reason?: string; protected?: boolean; retentionLimit?: number }) {
+    return createSQLiteManualBackup(this, options);
+  }
+
+  async createPreMigrationBackup(options: { projectId: string; requestId?: string; reason?: string }) {
+    return createSQLiteManualBackup(this, { ...options, reason: options.reason || "pre-migration", protected: true });
+  }
+
+  async verifyBackup(backupPath: string, expectedProjectId?: string) {
+    return verifySQLiteBackup(this, backupPath, expectedProjectId);
+  }
+
+  async listBackups(projectId: string) {
+    return listSQLiteBackups(this, projectId);
+  }
+
+  async deleteBackup(projectId: string, backupPath: string) {
+    return deleteSQLiteBackup(this, projectId, backupPath);
+  }
+
+  async enforceRetentionPolicy(projectId: string, limit = 5) {
+    return enforceSQLiteBackupRetention(this, projectId, limit);
+  }
+
+  async restoreBackup(options: { projectId: string; requestId?: string; backupPath: string; reason?: string }) {
+    return restoreSQLiteBackup(this, options);
+  }
+
+  async detectRecoveryState(projectId: string) {
+    return detectSQLiteRecoveryState(this, projectId);
+  }
+
+  async verifyWalRecovery(projectId: string) {
+    return verifySQLiteWalRecovery(this, projectId);
   }
 
   async transaction<T>(callback: (ctx: TransactionContext) => Promise<T>) {
