@@ -24,6 +24,8 @@
     "test:story-bible:l0b2:sqlite-core": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b2-sqlite-core.mjs",
     "test:story-bible:l0b2:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core",
     "test:story-bible:l0b3:sqlite-export": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-export.mjs",
+    "test:story-bible:l0b3:sqlite-revert": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-bible-l0b3-sqlite-revert.mjs",
+    "test:story-bible:l0b3b:all": "pnpm build && pnpm check:storage-boundaries && pnpm test:story-bible:l0b1:sqlite-foundation && pnpm test:story-bible:l0b2:sqlite-core && pnpm test:story-bible:l0b3:sqlite-export && pnpm test:story-bible:l0b3:sqlite-revert",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

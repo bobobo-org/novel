@@ -3,6 +3,7 @@ import { SQLITE_LOCAL_CAPABILITIES } from "./sqlite-capabilities";
 import { SQLiteProjectConnection, type SQLiteConnectionDiagnostics } from "./sqlite-connection";
 import { SQLiteTransactionContext } from "./sqlite-transaction-context";
 import { buildSQLiteStoryBibleExportPackage, previewSQLiteStoryBibleExportPackage } from "./sqlite-export";
+import { applySQLiteRevert, createSQLiteRevertPreview, revertSQLiteStoryBibleVersion } from "./sqlite-revert";
 import { createSourceNaturalKey, createSourceNaturalKeyHash } from "../source-identity";
 import type { ExtractionPersistenceRows, JsonRecord, StoryBibleStorageAdapter, TransactionContext } from "../types";
 import type { StoryBibleExportOptions } from "../../story-bible-export-schema";
@@ -621,6 +622,31 @@ export class SQLiteStoryBibleStorageAdapter implements StoryBibleStorageAdapter 
 
   async saveRevertMetadata(metadata: JsonRecord) {
     return this.createRevertAudit({ ...metadata, metadata: true });
+  }
+
+  async listRevertAudits(projectId: string, limit = 10000) {
+    const db = await this.connectionForProject(projectId);
+    return asRows(db.all("SELECT row_json FROM revert_audits WHERE project_id = ? ORDER BY created_at ASC LIMIT ?", [projectId, limit]));
+  }
+
+  async createRevertPreview(versionIdOrNumber: string, body: unknown) {
+    return createSQLiteRevertPreview(this, versionIdOrNumber, body);
+  }
+
+  async validateRevertPreview(versionIdOrNumber: string, body: unknown) {
+    return createSQLiteRevertPreview(this, versionIdOrNumber, body);
+  }
+
+  async applyFullRevert(versionIdOrNumber: string, body: unknown) {
+    return applySQLiteRevert(this, versionIdOrNumber, { ...(body as JsonRecord || {}), selectedChangeIds: undefined, dryRun: false });
+  }
+
+  async applyPartialRevert(versionIdOrNumber: string, body: unknown) {
+    return applySQLiteRevert(this, versionIdOrNumber, { ...(body as JsonRecord || {}), dryRun: false });
+  }
+
+  async revertVersion(versionIdOrNumber: string, body: unknown) {
+    return revertSQLiteStoryBibleVersion(this, versionIdOrNumber, body);
   }
 
   async transaction<T>(callback: (ctx: TransactionContext) => Promise<T>) {
