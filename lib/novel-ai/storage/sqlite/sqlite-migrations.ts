@@ -1029,4 +1029,160 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_story_consequence_candidates_project_scene ON story_consequence_candidates(project_id, scene_id, stage_id, status);
   `),
+  migration(19, "019_story_scene_version_transforms", `
+    CREATE TABLE IF NOT EXISTS story_scene_versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT,
+      branch_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      parent_version_id TEXT,
+      version_type TEXT NOT NULL,
+      rating TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      canonical_status TEXT NOT NULL,
+      content_text TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      outcome_snapshot_json TEXT NOT NULL,
+      retrieval_metadata_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      archived_at TEXT,
+      UNIQUE(project_id, version_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_story_scene_versions_project_scene ON story_scene_versions(project_id, scene_id, branch_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS story_scene_version_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_version_id TEXT NOT NULL,
+      target_version_id TEXT NOT NULL,
+      link_type TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, source_version_id, target_version_id, link_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS story_scene_transforms (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_version_id TEXT NOT NULL,
+      target_version_id TEXT NOT NULL,
+      transform_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0 CHECK(external_request_count >= 0),
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_scene_transform_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_version_id TEXT NOT NULL,
+      target_version_id TEXT,
+      transform_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_code TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_scene_outcome_snapshots (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, version_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS story_scene_outcome_parity_results (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_version_id TEXT NOT NULL,
+      target_version_id TEXT NOT NULL,
+      parity_status TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      matched_outcomes_json TEXT NOT NULL,
+      missing_outcomes_json TEXT NOT NULL,
+      changed_outcomes_json TEXT NOT NULL,
+      unsupported_facts_json TEXT NOT NULL,
+      recommended_fixes_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_branch_comparisons (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_branch_id TEXT NOT NULL,
+      target_branch_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_branch_promotion_candidates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      source_version_id TEXT,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS story_retrieval_metadata (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT,
+      stage_id TEXT,
+      version_id TEXT,
+      branch_id TEXT,
+      version_type TEXT,
+      rating TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      canonical_status TEXT NOT NULL,
+      consequence_status TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      indexed_at TEXT,
+      deleted_at TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_story_retrieval_metadata_project_scope ON story_retrieval_metadata(project_id, visibility, branch_id, version_type);
+
+    CREATE TABLE IF NOT EXISTS story_visibility_policies (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      policy_id TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      rating TEXT NOT NULL,
+      export_allowed INTEGER NOT NULL DEFAULT 0 CHECK(export_allowed IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, policy_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS story_export_profiles (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      export_profile_id TEXT NOT NULL,
+      target_visibility TEXT NOT NULL,
+      allowed_ratings_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, export_profile_id)
+    );
+  `),
 ];

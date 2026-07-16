@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p4-universal-local-stage-generation",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T21:45:00Z",
-  releaseTag: "novel-ai-h2p4-universal-local-stage-generation",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p5-story-version-branch-transforms",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
+  releaseTag: "novel-ai-h2p5-story-version-branch-transforms",
 };
 
 const L0A2E2D_TEST_META = {
@@ -316,12 +316,12 @@ export async function GET() {
     adultScenePersistenceStatus: "ready",
     adultSegmentedGenerationStatus: "ready",
     adultLocalGenerationStatus: "verified_on_client_runtime",
-    privatePublicVersionStatus: "not_implemented",
+    privatePublicVersionStatus: "ready",
     adultSceneDiagnosticsRedactionStatus: "ready",
     adultSceneStateMachinePassCount: 164,
     adultSceneStateMachineFailCount: 0,
     universalSceneEngineVersion: "h2p3a-universal-scene-compatibility-v1",
-    universalSceneMigrationVersion: "017_universal_story_scene_profiles,018_story_stage_generation_runtime",
+    universalSceneMigrationVersion: "017_universal_story_scene_profiles,018_story_stage_generation_runtime,019_story_scene_version_transforms",
     universalSceneEngineContractStatus: "ready",
     universalStageTemplateStatus: "ready",
     storyProfileAdapterStatus: "ready",
@@ -344,6 +344,16 @@ export async function GET() {
     storyStageGenerationVersion: "h2p4-universal-local-stage-generation-v1",
     storyStagePromptRegistryVersion: "story-stage-prompts-h2p4-v1",
     storyStageGenerationMigrationVersion: "018_story_stage_generation_runtime",
+    storyVersionTransformStatus: "ready",
+    storyBranchStatus: "ready",
+    adultBranchStatus: "ready",
+    versionOutcomeParityStatus: "ready",
+    adultShortDramaTransformStatus: "ready",
+    adultAudioDramaTransformStatus: "ready",
+    retrievalMetadataPreparationStatus: "ready",
+    storyVisibilityPolicyStatus: "ready",
+    storyVersionTransformVersion: "h2p5-story-version-branch-transforms-v1",
+    storyVersionTransformMigrationVersion: "019_story_scene_version_transforms",
     webAdultScenePlanningStatus: "contract_ready",
     webAdultStageStatusStatus: "contract_ready",
     webAdultBranchPlanningStatus: "contract_ready",
