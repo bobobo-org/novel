@@ -1571,4 +1571,260 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       PRIMARY KEY(project_id, audit_id)
     );
   `),
+  migration(22, "022_public_fiction_corpus_foundation", `
+    CREATE TABLE IF NOT EXISTS public_corpus_sources (
+      project_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_url TEXT,
+      license_type TEXT NOT NULL,
+      jurisdiction TEXT,
+      language TEXT NOT NULL,
+      country TEXT,
+      publication_year INTEGER,
+      completeness TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      duplicate_group_id TEXT,
+      allow_full_text_analysis INTEGER NOT NULL DEFAULT 0,
+      allow_derivative_reference INTEGER NOT NULL DEFAULT 0,
+      allow_export INTEGER NOT NULL DEFAULT 0,
+      human_reviewed INTEGER NOT NULL DEFAULT 0,
+      visibility TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      imported_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_public_corpus_sources_license ON public_corpus_sources(project_id, license_type, visibility);
+    CREATE TABLE IF NOT EXISTS public_corpus_licenses (
+      project_id TEXT NOT NULL,
+      license_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      license_type TEXT NOT NULL,
+      license_status TEXT NOT NULL,
+      license_evidence TEXT NOT NULL,
+      license_verified_at TEXT,
+      jurisdiction TEXT,
+      allow_full_text_analysis INTEGER NOT NULL DEFAULT 0,
+      allow_derivative_reference INTEGER NOT NULL DEFAULT 0,
+      allow_export INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, license_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_license_evidence (
+      project_id TEXT NOT NULL,
+      evidence_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      license_id TEXT NOT NULL,
+      evidence_type TEXT NOT NULL,
+      evidence_text TEXT NOT NULL,
+      evidence_url TEXT,
+      captured_at TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(project_id, evidence_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_authors (
+      project_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      canonical_name TEXT NOT NULL,
+      birth_year INTEGER,
+      death_year INTEGER,
+      nationality TEXT,
+      language TEXT,
+      authority_source TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, author_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_author_aliases (
+      project_id TEXT NOT NULL,
+      alias_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, alias_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_works (
+      project_id TEXT NOT NULL,
+      work_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      canonical_title TEXT NOT NULL,
+      original_language TEXT NOT NULL,
+      first_publication_year INTEGER,
+      genre TEXT,
+      topics_json TEXT NOT NULL,
+      public_domain_status TEXT NOT NULL,
+      copyright_jurisdiction TEXT,
+      work_status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, work_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_work_titles (
+      project_id TEXT NOT NULL,
+      title_id TEXT NOT NULL,
+      work_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      title_type TEXT NOT NULL,
+      language TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, title_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_editions (
+      project_id TEXT NOT NULL,
+      edition_id TEXT NOT NULL,
+      work_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      publisher TEXT,
+      publication_year INTEGER,
+      language TEXT NOT NULL,
+      translator TEXT,
+      license_id TEXT NOT NULL,
+      completeness TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, edition_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_translations (
+      project_id TEXT NOT NULL,
+      translation_id TEXT NOT NULL,
+      work_id TEXT NOT NULL,
+      edition_id TEXT NOT NULL,
+      source_language TEXT NOT NULL,
+      target_language TEXT NOT NULL,
+      translator TEXT,
+      license_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, translation_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_volumes (
+      project_id TEXT NOT NULL,
+      volume_id TEXT NOT NULL,
+      edition_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      volume_order INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, volume_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_chapters (
+      project_id TEXT NOT NULL,
+      chapter_id TEXT NOT NULL,
+      edition_id TEXT NOT NULL,
+      volume_id TEXT,
+      title TEXT NOT NULL,
+      chapter_order INTEGER NOT NULL,
+      checksum TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, chapter_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_texts (
+      project_id TEXT NOT NULL,
+      text_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      edition_id TEXT,
+      chapter_id TEXT,
+      text_kind TEXT NOT NULL,
+      text_status TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      storage_policy TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, text_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_import_jobs (
+      project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, job_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_import_files (
+      project_id TEXT NOT NULL,
+      file_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, file_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_provenance (
+      project_id TEXT NOT NULL,
+      provenance_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      source_url TEXT,
+      imported_at TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(project_id, provenance_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_dedup_groups (
+      project_id TEXT NOT NULL,
+      dedup_group_id TEXT NOT NULL,
+      dedup_type TEXT NOT NULL,
+      canonical_entity_type TEXT NOT NULL,
+      canonical_entity_id TEXT NOT NULL,
+      exact_checksum TEXT,
+      normalized_checksum TEXT,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, dedup_group_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_quality_flags (
+      project_id TEXT NOT NULL,
+      flag_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      flag_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, flag_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_visibility_rules (
+      project_id TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      local_only INTEGER NOT NULL DEFAULT 0,
+      allow_cross_project INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, rule_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_audits (
+      project_id TEXT NOT NULL,
+      audit_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, audit_id)
+    );
+  `),
 ];

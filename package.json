@@ -137,6 +137,16 @@
     "test:ai:h2b:incremental": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2b-hybrid-retrieval.mjs incremental",
     "test:ai:h2b:runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2b-hybrid-retrieval.mjs runtime",
     "test:ai:h2b:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2b-hybrid-retrieval.mjs all",
+    "test:ai:h2d1:schema": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs schema",
+    "test:ai:h2d1:license": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs license",
+    "test:ai:h2d1:provenance": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs provenance",
+    "test:ai:h2d1:authors": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs authors",
+    "test:ai:h2d1:works": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs works",
+    "test:ai:h2d1:editions": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs editions",
+    "test:ai:h2d1:dedup": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs dedup",
+    "test:ai:h2d1:visibility": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs visibility",
+    "test:ai:h2d1:persistence": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs persistence",
+    "test:ai:h2d1:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs all",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

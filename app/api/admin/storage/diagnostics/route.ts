@@ -6,6 +6,7 @@ import { SupabaseStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/supabas
 import { runL0AContractTests } from "@/lib/novel-ai/storage/contract-tests";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
+import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
 
 export const runtime = "nodejs";
 
@@ -375,6 +376,7 @@ export async function GET(req: Request) {
     dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
     ...HYBRID_RETRIEVAL_HEALTH,
+    ...PUBLIC_FICTION_CORPUS_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",

@@ -6,13 +6,14 @@ import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
+import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2b-hybrid-retrieval",
+  releaseTag: "novel-ai-h2d1-public-fiction-corpus-foundation",
 };
 
 const L0A2E2D_TEST_META = {
@@ -390,6 +391,7 @@ export async function GET() {
     dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
     ...HYBRID_RETRIEVAL_HEALTH,
+    ...PUBLIC_FICTION_CORPUS_HEALTH,
     webHybridRetrievalStatus: "contract_ready",
     webWholeNovelAiStatus: "not_implemented",
     contextComposerStatus: "not_implemented",
