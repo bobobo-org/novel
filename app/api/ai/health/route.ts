@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p3a-universal-scene-compatibility",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T19:15:00Z",
-  releaseTag: "novel-ai-h2p3a-universal-scene-compatibility",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p4-universal-local-stage-generation",
+  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T21:45:00Z",
+  releaseTag: "novel-ai-h2p4-universal-local-stage-generation",
 };
 
 const L0A2E2D_TEST_META = {
@@ -314,14 +314,14 @@ export async function GET() {
     intimacyContinuityFoundationStatus: "ready",
     adultBranchFoundationStatus: "ready",
     adultScenePersistenceStatus: "ready",
-    adultSegmentedGenerationStatus: "state_machine_ready",
-    adultLocalGenerationStatus: "not_implemented",
+    adultSegmentedGenerationStatus: "ready",
+    adultLocalGenerationStatus: "verified_on_client_runtime",
     privatePublicVersionStatus: "not_implemented",
     adultSceneDiagnosticsRedactionStatus: "ready",
     adultSceneStateMachinePassCount: 164,
     adultSceneStateMachineFailCount: 0,
     universalSceneEngineVersion: "h2p3a-universal-scene-compatibility-v1",
-    universalSceneMigrationVersion: "017_universal_story_scene_profiles",
+    universalSceneMigrationVersion: "017_universal_story_scene_profiles,018_story_stage_generation_runtime",
     universalSceneEngineContractStatus: "ready",
     universalStageTemplateStatus: "ready",
     storyProfileAdapterStatus: "ready",
@@ -333,6 +333,17 @@ export async function GET() {
     universalTopicContractCount: 218,
     universalSceneCompatibilityPassCount: 260,
     externalStoryGenerationStatus: "not_implemented",
+    universalLocalStageGenerationStatus: "ready",
+    storyStagePromptRegistryStatus: "ready",
+    storyStageRewriteStatus: "ready",
+    storySceneMergeStatus: "ready",
+    storyContinuityUpdateStatus: "ready",
+    storyConsequenceCandidateStatus: "ready",
+    intimacyContinuityStatus: "ready",
+    adultConsequenceMemoryStatus: "ready",
+    storyStageGenerationVersion: "h2p4-universal-local-stage-generation-v1",
+    storyStagePromptRegistryVersion: "story-stage-prompts-h2p4-v1",
+    storyStageGenerationMigrationVersion: "018_story_stage_generation_runtime",
     webAdultScenePlanningStatus: "contract_ready",
     webAdultStageStatusStatus: "contract_ready",
     webAdultBranchPlanningStatus: "contract_ready",

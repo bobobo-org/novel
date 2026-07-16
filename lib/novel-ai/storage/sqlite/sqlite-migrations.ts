@@ -981,4 +981,52 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `),
+  migration(18, "018_story_stage_generation_runtime", `
+    CREATE TABLE IF NOT EXISTS story_stage_generation_versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      stage_type TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      parent_version_id TEXT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      stage_summary TEXT NOT NULL,
+      prompt_hash TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0 CHECK(external_request_count >= 0),
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      continuity_changes_json TEXT NOT NULL,
+      consequence_candidate_json TEXT NOT NULL,
+      used_context_ids_json TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, version_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_story_stage_generation_versions_project_scene ON story_stage_generation_versions(project_id, scene_id, stage_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS story_consequence_candidates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected','archived')),
+      candidate_type TEXT NOT NULL,
+      consequence_json TEXT NOT NULL,
+      source_version_id TEXT NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0 CHECK(external_request_count >= 0),
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_story_consequence_candidates_project_scene ON story_consequence_candidates(project_id, scene_id, stage_id, status);
+  `),
 ];
