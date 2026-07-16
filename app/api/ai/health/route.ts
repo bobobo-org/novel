@@ -5,13 +5,14 @@ import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from 
 import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
+import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2v-viral-absurd-story-engine",
+  releaseTag: "novel-ai-h2b-hybrid-retrieval",
 };
 
 const L0A2E2D_TEST_META = {
@@ -388,15 +389,12 @@ export async function GET() {
     externalRequestCount: 0,
     dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
-    webHybridRetrievalStatus: "not_implemented",
+    ...HYBRID_RETRIEVAL_HEALTH,
+    webHybridRetrievalStatus: "contract_ready",
     webWholeNovelAiStatus: "not_implemented",
-    keywordRetrievalStatus: "not_implemented",
-    hybridRetrievalStatus: "not_implemented",
-    retrievalQualityStatus: "not_implemented",
-    retrievalIsolationStatus: "not_implemented",
     contextComposerStatus: "not_implemented",
     retrievalAugmentedTaskStatus: "not_implemented",
-    vectorSearchStatus: "not_implemented",
+    vectorSearchStatus: "ready",
     longContextRetrievalStatus: "not_implemented",
     coreServicesUseStorageAdapter: true,
     extractionPersistenceUsesStorageAdapter: true,

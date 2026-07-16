@@ -5,6 +5,7 @@ import { MemoryStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/memory-ad
 import { SupabaseStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/supabase-adapter";
 import { runL0AContractTests } from "@/lib/novel-ai/storage/contract-tests";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
+import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 
 export const runtime = "nodejs";
 
@@ -373,13 +374,10 @@ export async function GET(req: Request) {
     externalRequestCount: 0,
     dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
+    ...HYBRID_RETRIEVAL_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",
-    keywordRetrievalStatus: "not_implemented",
-    hybridRetrievalStatus: "not_implemented",
-    retrievalQualityStatus: "not_implemented",
-    retrievalIsolationStatus: "not_implemented",
     contextComposerStatus: "not_implemented",
     retrievalAugmentedTaskStatus: "not_implemented",
     projectStoragePolicyStatus: "legacy_projects_normalized_to_supabase_cloud_local_authority",

@@ -1,0 +1,20 @@
+-- H2B Hybrid Retrieval marker migration for production metadata.
+-- Runtime SQLite projects apply the executable schema in sqlite-migrations.ts.
+CREATE TABLE IF NOT EXISTS public.retrieval_documents (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_chunks (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_fts (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_vectors (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_metadata (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_entities (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_events (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_relationships (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_queries (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_query_results (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_quality_cases (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_quality_results (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_rank_profiles (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_source_scopes (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_visibility_rules (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_dedup_groups (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_refresh_jobs (id text primary key);
+CREATE TABLE IF NOT EXISTS public.retrieval_audits (id text primary key);

@@ -157,7 +157,15 @@ function runClosureAssertions() {
   ];
   for (const field of requiredHealthReady) assertClosure(health.includes(field), `health exposes ${field}`);
 
-  const notImplementedFields = ["hybridRetrievalStatus", "contextComposerStatus", "webWholeNovelAiStatus"];
+  const hybridRetrievalService = read("lib/novel-ai/retrieval/hybrid/hybrid-retrieval-service.ts");
+  assertClosure(
+    health.includes("HYBRID_RETRIEVAL_HEALTH") &&
+      hybridRetrievalService.includes("hybridRetrievalStatus") &&
+      (hybridRetrievalService.includes('"ready"') || hybridRetrievalService.includes('"not_implemented"')),
+    "health exposes hybridRetrievalStatus with explicit implementation state",
+  );
+
+  const notImplementedFields = ["contextComposerStatus", "webWholeNovelAiStatus"];
   for (const field of notImplementedFields) assertClosure(health.includes(`${field}: "not_implemented"`), `health keeps ${field} not implemented`);
 
   const diagnosticsFields = [

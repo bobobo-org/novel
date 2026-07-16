@@ -1371,4 +1371,204 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       PRIMARY KEY(project_id, classification_pack_id, topic_id)
     );
   `),
+  migration(21, "021_hybrid_retrieval", `
+    CREATE TABLE IF NOT EXISTS retrieval_documents (
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      document_type TEXT NOT NULL,
+      canonical_status TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      version_id TEXT,
+      chapter_id TEXT,
+      scene_id TEXT,
+      stage_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      PRIMARY KEY(project_id, document_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_chunks (
+      project_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      token_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      PRIMARY KEY(project_id, chunk_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_fts (
+      project_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      normalized_body TEXT NOT NULL,
+      token_blob TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, chunk_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrieval_fts_project_body ON retrieval_fts(project_id, normalized_body);
+    CREATE TABLE IF NOT EXISTS retrieval_vectors (
+      project_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      vector_blob BLOB NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, chunk_id, model_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_metadata (
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      document_type TEXT NOT NULL,
+      canonical_status TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      chapter_id TEXT,
+      scene_id TEXT,
+      stage_id TEXT,
+      classification_pack_id TEXT,
+      topic_id TEXT,
+      scene_type TEXT,
+      stage_type TEXT,
+      rating TEXT,
+      adult_only INTEGER NOT NULL DEFAULT 0,
+      unresolved INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      reverted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, document_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrieval_metadata_project_branch ON retrieval_metadata(project_id, branch_id, canonical_status, visibility);
+    CREATE TABLE IF NOT EXISTS retrieval_entities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      alias TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrieval_entities_project_entity ON retrieval_entities(project_id, entity_id, entity_type);
+    CREATE TABLE IF NOT EXISTS retrieval_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      chapter_id TEXT,
+      row_json TEXT NOT NULL,
+      unresolved INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrieval_events_project_event ON retrieval_events(project_id, event_id, unresolved);
+    CREATE TABLE IF NOT EXISTS retrieval_relationships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      relationship_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrieval_relationships_project_relationship ON retrieval_relationships(project_id, relationship_id);
+    CREATE TABLE IF NOT EXISTS retrieval_queries (
+      project_id TEXT NOT NULL,
+      query_id TEXT NOT NULL,
+      query_text TEXT NOT NULL,
+      rank_profile TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      execution_ms INTEGER NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0,
+      data_left_device INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, query_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_query_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      query_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      final_score REAL NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_quality_cases (
+      project_id TEXT NOT NULL,
+      case_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, case_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_quality_results (
+      project_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      pass_count INTEGER NOT NULL,
+      fail_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, run_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_rank_profiles (
+      project_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, profile_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_source_scopes (
+      project_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, source_scope)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_visibility_rules (
+      project_id TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, rule_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_dedup_groups (
+      project_id TEXT NOT NULL,
+      dedup_group_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, dedup_group_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_refresh_jobs (
+      project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      job_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, job_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_audits (
+      project_id TEXT NOT NULL,
+      audit_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, audit_id)
+    );
+  `),
 ];
