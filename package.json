@@ -107,6 +107,7 @@
     "test:ai:h2w2:privacy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs privacy",
     "test:ai:h2w2:browser-real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs browser-real",
     "test:ai:h2w2:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs all",
+    "test:ai:h2p:all": "node scripts/run-ai-h2p-full-closure.mjs",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {

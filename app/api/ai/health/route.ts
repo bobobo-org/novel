@@ -8,9 +8,9 @@ import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2w2-web-segmented-story-workspace",
+  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2w2-web-segmented-story-workspace",
+  releaseTag: "novel-ai-h2p-universal-adult-story-engine",
 };
 
 const L0A2E2D_TEST_META = {
@@ -332,6 +332,10 @@ export async function GET() {
     universalClassificationPackCount: 11,
     universalTopicContractCount: 218,
     universalSceneCompatibilityPassCount: 260,
+    universalSceneEngineStatus: "ready",
+    universalStageGenerationStatus: "ready",
+    classificationPackIntegrationStatus: "ready",
+    topicGenerationContractStatus: "ready",
     externalStoryGenerationStatus: "not_implemented",
     universalLocalStageGenerationStatus: "ready",
     storyStagePromptRegistryStatus: "ready",
@@ -378,6 +382,9 @@ export async function GET() {
     webPrivatePublicTransformStatus: "ready",
     webWorkspaceStreamingCancellationStatus: "ready",
     webSegmentedWorkspaceVersion: "h2w2-web-segmented-story-workspace-v1",
+    h2pFullClosureStatus: "ready",
+    h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
+    externalRequestCount: 0,
     webHybridRetrievalStatus: "not_implemented",
     webWholeNovelAiStatus: "not_implemented",
     keywordRetrievalStatus: "not_implemented",
