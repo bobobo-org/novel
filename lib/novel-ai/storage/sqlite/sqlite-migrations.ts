@@ -1827,4 +1827,223 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       PRIMARY KEY(project_id, audit_id)
     );
   `),
+  migration(23, "023_public_fiction_corpus_import_index", `
+    CREATE TABLE IF NOT EXISTS public_corpus_normalized_texts (
+      project_id TEXT NOT NULL,
+      normalized_text_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      edition_id TEXT,
+      chapter_id TEXT,
+      raw_text_hash TEXT NOT NULL,
+      normalized_text_hash TEXT NOT NULL,
+      normalization_profile TEXT NOT NULL,
+      normalization_changes_json TEXT NOT NULL,
+      language TEXT,
+      text_content TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, normalized_text_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_public_corpus_normalized_source ON public_corpus_normalized_texts(project_id, source_id, normalized_text_hash);
+
+    CREATE TABLE IF NOT EXISTS public_corpus_language_results (
+      project_id TEXT NOT NULL,
+      language_result_id TEXT NOT NULL,
+      normalized_text_id TEXT NOT NULL,
+      primary_language TEXT NOT NULL,
+      detected_languages_json TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      script TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, language_result_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_chapter_detection (
+      project_id TEXT NOT NULL,
+      detection_id TEXT NOT NULL,
+      normalized_text_id TEXT NOT NULL,
+      chapter_count INTEGER NOT NULL,
+      profile TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      chapters_json TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, detection_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_import_results (
+      project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      work_id TEXT,
+      edition_id TEXT,
+      status TEXT NOT NULL,
+      quality_status TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, job_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_import_steps (
+      project_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      step_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      elapsed_ms INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, step_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_chunk_mappings (
+      project_id TEXT NOT NULL,
+      chunk_mapping_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      work_id TEXT,
+      edition_id TEXT,
+      chapter_id TEXT,
+      chunk_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, chunk_mapping_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_public_corpus_chunk_scope ON public_corpus_chunk_mappings(project_id, source_scope, work_id, edition_id);
+
+    CREATE TABLE IF NOT EXISTS public_corpus_index_jobs (
+      project_id TEXT NOT NULL,
+      index_job_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      indexed_chunks INTEGER NOT NULL DEFAULT 0,
+      embedded_chunks INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, index_job_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_index_results (
+      project_id TEXT NOT NULL,
+      index_result_id TEXT NOT NULL,
+      index_job_id TEXT NOT NULL,
+      fts_document_count INTEGER NOT NULL,
+      embedding_link_count INTEGER NOT NULL,
+      hybrid_index_count INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, index_result_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_embedding_links (
+      project_id TEXT NOT NULL,
+      embedding_link_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      embedding_provider TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_dimensions INTEGER NOT NULL,
+      vector_checksum TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, embedding_link_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_fts_documents (
+      project_id TEXT NOT NULL,
+      fts_document_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      work_id TEXT,
+      edition_id TEXT,
+      chapter_id TEXT,
+      language TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      license_type TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, fts_document_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_public_corpus_fts_scope ON public_corpus_fts_documents(project_id, source_scope, language, visibility);
+
+    CREATE TABLE IF NOT EXISTS public_corpus_import_errors (
+      project_id TEXT NOT NULL,
+      error_id TEXT NOT NULL,
+      job_id TEXT,
+      error_code TEXT NOT NULL,
+      error_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      retryable INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, error_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_cleanup_jobs (
+      project_id TEXT NOT NULL,
+      cleanup_job_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      cleanup_status TEXT NOT NULL,
+      removed_rows INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, cleanup_job_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_import_checkpoints (
+      project_id TEXT NOT NULL,
+      checkpoint_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      current_step TEXT NOT NULL,
+      last_completed_step TEXT,
+      processed_bytes INTEGER NOT NULL DEFAULT 0,
+      processed_chapters INTEGER NOT NULL DEFAULT 0,
+      processed_chunks INTEGER NOT NULL DEFAULT 0,
+      embedded_chunks INTEGER NOT NULL DEFAULT 0,
+      indexed_chunks INTEGER NOT NULL DEFAULT 0,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      checkpoint_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, checkpoint_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_import_rollbacks (
+      project_id TEXT NOT NULL,
+      rollback_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      rollback_status TEXT NOT NULL,
+      rolled_back_rows INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, rollback_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS public_corpus_format_profiles (
+      project_id TEXT NOT NULL,
+      format_profile_id TEXT NOT NULL,
+      format_type TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      allow_import INTEGER NOT NULL DEFAULT 1,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, format_profile_id)
+    );
+  `),
 ];

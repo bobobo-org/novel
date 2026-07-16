@@ -7,6 +7,7 @@ import { runL0AContractTests } from "@/lib/novel-ai/storage/contract-tests";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
+import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 
 export const runtime = "nodejs";
 
@@ -377,6 +378,7 @@ export async function GET(req: Request) {
     ...VIRAL_STORY_HEALTH,
     ...HYBRID_RETRIEVAL_HEALTH,
     ...PUBLIC_FICTION_CORPUS_HEALTH,
+    ...PUBLIC_CORPUS_IMPORT_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",
