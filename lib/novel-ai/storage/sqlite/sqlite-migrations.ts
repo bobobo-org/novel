@@ -1185,4 +1185,190 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       UNIQUE(project_id, export_profile_id)
     );
   `),
+  migration(20, "020_viral_absurd_story_engine", `
+    CREATE TABLE IF NOT EXISTS viral_story_profiles (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      archived_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, profile_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_trope_registry (
+      project_id TEXT NOT NULL,
+      trope_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      version TEXT NOT NULL,
+      archived_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, trope_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_trope_compatibility (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      trope_id TEXT NOT NULL,
+      compatible_trope_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, trope_id, compatible_trope_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_trope_exclusions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      trope_id TEXT NOT NULL,
+      excluded_trope_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, trope_id, excluded_trope_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_story_plans (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      quality_status TEXT NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0 CHECK(external_request_count >= 0),
+      data_left_device INTEGER NOT NULL DEFAULT 0 CHECK(data_left_device IN (0,1)),
+      archived_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_viral_story_plans_project_branch ON viral_story_plans(project_id, branch_id, created_at);
+    CREATE TABLE IF NOT EXISTS viral_story_plan_tropes (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      trope_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id, trope_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_identity_layers (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_identity_knowledge (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      knowledge_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS viral_reversal_plans (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      reversal_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, reversal_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_reversal_clues (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      clue_id TEXT NOT NULL,
+      reversal_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0 CHECK(used IN (0,1)),
+      resolved INTEGER NOT NULL DEFAULT 0 CHECK(resolved IN (0,1)),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, clue_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_reveal_schedules (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_hook_candidates (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_cliffhangers (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS viral_quote_moments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS viral_screenshot_moments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS viral_short_drama_versions (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_quality_results (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      quality_status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, plan_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_story_feedback (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      feedback_type TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS viral_story_versions (
+      project_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, version_id)
+    );
+    CREATE TABLE IF NOT EXISTS viral_topic_profiles (
+      project_id TEXT NOT NULL,
+      classification_pack_id TEXT NOT NULL,
+      topic_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      archived_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(project_id, classification_pack_id, topic_id)
+    );
+  `),
 ];

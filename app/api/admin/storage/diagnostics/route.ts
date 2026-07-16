@@ -4,6 +4,7 @@ import { getStorageCapabilities, listRegisteredStorageAdapters, registerStorageA
 import { MemoryStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/memory-adapter";
 import { SupabaseStoryBibleStorageAdapter } from "@/lib/novel-ai/storage/supabase-adapter";
 import { runL0AContractTests } from "@/lib/novel-ai/storage/contract-tests";
+import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 
 export const runtime = "nodejs";
 
@@ -371,6 +372,7 @@ export async function GET(req: Request) {
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
     externalRequestCount: 0,
     dataLeftDevice: false,
+    ...VIRAL_STORY_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",

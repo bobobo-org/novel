@@ -4,13 +4,14 @@ import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
 import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from "@/lib/novel-ai/persistence";
 import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
+import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2p-universal-adult-story-engine",
+  releaseTag: "novel-ai-h2v-viral-absurd-story-engine",
 };
 
 const L0A2E2D_TEST_META = {
@@ -386,6 +387,7 @@ export async function GET() {
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
     externalRequestCount: 0,
     dataLeftDevice: false,
+    ...VIRAL_STORY_HEALTH,
     webHybridRetrievalStatus: "not_implemented",
     webWholeNovelAiStatus: "not_implemented",
     keywordRetrievalStatus: "not_implemented",
