@@ -98,6 +98,15 @@
     "test:ai:h2w1:scenario-ui": "node scripts/run-ai-h2w1-scenario-ui.mjs",
     "test:ai:h2w1:offline": "node scripts/run-ai-h2w1-offline.mjs",
     "test:ai:h2w1:all": "pnpm test:ai:h2w1:runtime-client && pnpm test:ai:h2w1:handshake && pnpm test:ai:h2w1:actions && pnpm test:ai:h2w1:streaming && pnpm test:ai:h2w1:task-center && pnpm test:ai:h2w1:scenario-ui && pnpm test:ai:h2w1:offline",
+    "test:ai:h2w2:scene-workspace": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs scene-workspace",
+    "test:ai:h2w2:stage-actions": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs stage-actions",
+    "test:ai:h2w2:adult-workspace": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs adult-workspace",
+    "test:ai:h2w2:continuity": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs continuity",
+    "test:ai:h2w2:versions": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs versions",
+    "test:ai:h2w2:branches": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs branches",
+    "test:ai:h2w2:privacy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs privacy",
+    "test:ai:h2w2:browser-real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs browser-real",
+    "test:ai:h2w2:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w2-segmented-workspace.mjs all",
     "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
   },
   "dependencies": {
