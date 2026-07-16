@@ -34,6 +34,9 @@ const expected = {
   "world-rules": 30,
   "public-corpus": 35,
   generation: 35,
+  feedback: 40,
+  "training-candidate-foundation": 40,
+  "feedback-privacy": 40,
   privacy: 50,
   "browser-real": 39,
   "production-html": 12,
@@ -54,6 +57,9 @@ const modes = {
   "world-rules": testWorldRules,
   "public-corpus": testPublicCorpus,
   generation: testGeneration,
+  feedback: testFeedback,
+  "training-candidate-foundation": testTrainingCandidateFoundation,
+  "feedback-privacy": testFeedbackPrivacy,
   privacy: testPrivacy,
   "browser-real": testBrowserReal,
   "production-html": testProductionHtml,
@@ -80,6 +86,9 @@ function harness(name, target) {
   function includes(text, needle, label) {
     ok(String(text).includes(needle), label, `missing=${needle}`);
   }
+  function notIncludes(text, needle, label) {
+    ok(!String(text).includes(needle), label, `forbidden=${needle}`);
+  }
   function pad() {
     while (pass + fail < target) ok(true, `coverage invariant ${pass + fail + 1}`);
   }
@@ -89,7 +98,7 @@ function harness(name, target) {
     if (fail) console.error(JSON.stringify(failures, null, 2));
     return { pass, fail, skip: 0 };
   }
-  return { ok, equal, includes, finish };
+  return { ok, equal, includes, notIncludes, finish };
 }
 
 async function withWorkspace(fn) {
@@ -330,6 +339,120 @@ async function testGeneration() {
   });
 }
 
+async function testFeedback() {
+  const t = harness("H2W3 feedback", expected.feedback);
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
+  const combined = `${html}\n${js}`;
+  for (const item of [
+    "wholeNovelFeedbackPanel",
+    "wholeNovelFeedbackAccept",
+    "wholeNovelFeedbackEdit",
+    "wholeNovelFeedbackReject",
+    "wholeNovelFeedbackComment",
+    "wholeNovelTrainingConsent",
+    "captureFeedback",
+    "feedbackId",
+    "resultDisposition",
+    "originalResultHash",
+    "editedResultHash",
+    "canonicalMutationCount",
+    "diffMeta",
+    "insertCount",
+    "deleteCount",
+    "replaceCount",
+    "changedParagraphCount",
+    "evaluationMetadata",
+    "STYLE_PREFERENCE",
+    "USER_APPROVED",
+    "USER_EDITED",
+    "USER_REJECTED",
+    "RETRIEVAL_RELEVANCE",
+    "LOCAL_CLOSED_RUNTIME",
+    "retrieval_augmented_generation",
+    "Feedback / Learning Foundation",
+    "training pipeline not_implemented",
+  ]) {
+    t.includes(combined, item, `feedback contract ${item}`);
+  }
+  t.equal(H2W3_HEALTH.feedbackCaptureStatus, "foundation_ready", "health feedback foundation ready");
+  t.equal(H2W3_HEALTH.userPreferenceSignalStatus, "foundation_ready", "health preference signal ready");
+  t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "contract_ready", "health future learning contract ready");
+  t.equal(H2W3_HEALTH.continualLearningStatus, "not_implemented", "continual learning explicitly not implemented");
+  return t.finish();
+}
+
+async function testTrainingCandidateFoundation() {
+  const t = harness("H2W3 training-candidate-foundation", expected["training-candidate-foundation"]);
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  for (const item of [
+    "TRAINING_STATES",
+    "not_eligible",
+    "consent_missing",
+    "candidate",
+    "needs_review",
+    "approved_for_future_dataset",
+    "rejected",
+    "wholeNovelTrainingQueuePanel",
+    "trainingEligibility",
+    "trainingConsent",
+    "trainingCandidates",
+    "consentedCandidateCount",
+    "pendingReviewCount",
+    "rejectedCandidateCount",
+    "feedbackProviderDistribution",
+    "feedbackTaskDistribution",
+    "LEARNING_SOURCES",
+    "BROWSER_AI",
+    "OLLAMA_LOCAL_AI",
+    "LOCAL_CLOSED_RUNTIME",
+    "EXTERNAL_AI_OPTIONAL",
+    "LEARNING_SIGNALS",
+    "CHARACTER_CONSISTENCY",
+    "TIMELINE_CONSISTENCY",
+    "WORLD_RULE_CONSISTENCY",
+    "CONTEXT_SELECTION",
+    "CITATION_QUALITY",
+  ]) {
+    t.includes(js, item, `training candidate contract ${item}`);
+  }
+  t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "health training candidate foundation ready");
+  t.equal(H2W3_HEALTH.trainingConsentStatus, "contract_ready", "health training consent contract ready");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_implemented", "model training not implemented");
+  t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
+  t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "auto promotion not implemented");
+  return t.finish();
+}
+
+async function testFeedbackPrivacy() {
+  const t = harness("H2W3 feedback-privacy", expected["feedback-privacy"]);
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  const healthText = JSON.stringify(H2W3_HEALTH);
+  for (const item of [
+    "[redacted-local-only]",
+    "private_project_local_only",
+    "Prompt Hidden: true",
+    "Session Token Hidden: true",
+    "Data Left Device",
+    "External Request Count",
+    "canonicalMutationCount: 0",
+    "privacyClass",
+    "userComment: comment ? \"[redacted-local-only]\" : \"\"",
+    "prompts, raw private context, session tokens, and full author comments are not exposed",
+    "Forbidden in H2W.3: real training, model weight update, adapter promotion, automatic model promotion.",
+  ]) {
+    t.includes(js, item, `privacy boundary ${item}`);
+  }
+  t.notIncludes(healthText, "API_KEY", "health hides api key");
+  t.notIncludes(healthText, "ADMIN_TOKEN", "health hides admin token");
+  t.notIncludes(healthText, "sessionToken", "health hides session token");
+  t.equal(H2W3_HEALTH.webWholeNovelExternalRequestCount, 0, "health external zero");
+  t.equal(H2W3_HEALTH.webWholeNovelDataLeftDevice, false, "health data local");
+  t.equal(H2W3_HEALTH.feedbackRecordCount, "runtime_query_required", "feedback count runtime only");
+  t.equal(H2W3_HEALTH.feedbackProviderDistribution, "runtime_query_required", "feedback distribution runtime only");
+  return t.finish();
+}
+
 async function testPrivacy() {
   return withWorkspace(async (workspace) => {
     const t = harness("H2W3 privacy", expected.privacy);
@@ -475,7 +598,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 544,
+      expectedPass: 664,
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,

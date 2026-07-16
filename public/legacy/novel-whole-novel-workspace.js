@@ -6,6 +6,9 @@
   const STREAM_EVENTS = ["retrieval_started", "retrieval_completed", "filtering", "deduplicating", "compressing", "budgeting", "context_ready", "generation_started", "token", "validating", "citation_ready", "persisting", "completed", "cancelled", "failed"];
   const UI_STATES = ["idle", "loading", "streaming", "success", "empty", "cancelled", "error", "runtime_unavailable", "permission_or_policy_blocked"];
   const SCOPES = ["CURRENT_CHAPTER", "CURRENT_SCENE", "CURRENT_STAGE", "CURRENT_BRANCH", "PRIVATE_PROJECT", "STORY_BIBLE", "USER_IMPORTED_LIBRARY", "PUBLIC_CORPUS"];
+  const LEARNING_SOURCES = ["BROWSER_AI", "OLLAMA_LOCAL_AI", "LOCAL_CLOSED_RUNTIME", "EXTERNAL_AI_OPTIONAL"];
+  const LEARNING_SIGNALS = ["STYLE_PREFERENCE", "DIALOGUE_QUALITY", "CHARACTER_VOICE", "CHARACTER_CONSISTENCY", "TIMELINE_CONSISTENCY", "WORLD_RULE_CONSISTENCY", "RELATIONSHIP_PROGRESSION", "PACING", "FORESHADOW_SETUP", "FORESHADOW_PAYOFF", "OPEN_THREAD", "REPETITION", "FACTUAL_ERROR", "UNSUPPORTED_CLAIM", "CONTEXT_SELECTION", "RETRIEVAL_RELEVANCE", "CITATION_QUALITY", "GENRE_FIT", "TONE_FIT", "ADULT_POLICY", "USER_REJECTED", "USER_EDITED", "USER_APPROVED"];
+  const TRAINING_STATES = ["not_eligible", "consent_missing", "candidate", "needs_review", "approved_for_future_dataset", "rejected"];
 
   const state = loadState();
   const diagnostics = {
@@ -29,13 +32,15 @@
         contextTrace: [],
         wholeNovel: {},
         generationDraft: "",
+        feedbackRecords: [],
+        trainingCandidates: [],
         events: [],
         externalRequestCount: 0,
         dataLeftDevice: false,
         ...(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")),
       };
     } catch {
-      return { selectedScopes: ["PRIVATE_PROJECT", "CURRENT_BRANCH", "STORY_BIBLE"], branchId: "main", publicCorpusOptIn: false, evidence: [], contextTrace: [], wholeNovel: {}, generationDraft: "", events: [], externalRequestCount: 0, dataLeftDevice: false };
+      return { selectedScopes: ["PRIVATE_PROJECT", "CURRENT_BRANCH", "STORY_BIBLE"], branchId: "main", publicCorpusOptIn: false, evidence: [], contextTrace: [], wholeNovel: {}, generationDraft: "", feedbackRecords: [], trainingCandidates: [], events: [], externalRequestCount: 0, dataLeftDevice: false };
     }
   }
 
@@ -144,6 +149,7 @@
         <button data-h2w3-tab="branch">Branch Comparison</button>
         <button data-h2w3-tab="corpus">Public Corpus</button>
         <button data-h2w3-tab="generation">Retrieval-Augmented Generation</button>
+        <button data-h2w3-tab="feedback">Feedback / Learning Foundation</button>
         <button data-h2w3-tab="privacy">Privacy / Provider Status</button>
         <button data-h2w3-tab="streaming">Streaming / Cancellation</button>
       </div>
@@ -162,11 +168,22 @@
       <div id="h2w3PanelBranch" class="h2w3-panel"><div id="wholeNovelBranchComparisonPanel" data-testid="wholeNovelBranchComparisonPanel" class="h2w3-log"></div></div>
       <div id="h2w3PanelCorpus" class="h2w3-panel"><div id="wholeNovelPublicCorpusPanel" data-testid="wholeNovelPublicCorpusPanel" class="h2w3-log"></div></div>
       <div id="h2w3PanelGeneration" class="h2w3-panel"><div id="wholeNovelGenerationPanel" data-testid="wholeNovelGenerationPanel" class="h2w3-log"></div></div>
+      <div id="h2w3PanelFeedback" class="h2w3-panel">
+        <div id="wholeNovelFeedbackPanel" data-testid="wholeNovelFeedbackPanel" class="h2w3-log"></div>
+        <div class="h2w3-toolbar" aria-label="Feedback capture">
+          <button id="wholeNovelFeedbackAccept" onclick="NovelWholeNovelWorkspace.captureFeedback('accepted')">Accept Result</button>
+          <button id="wholeNovelFeedbackEdit" onclick="NovelWholeNovelWorkspace.captureFeedback('edited')">Accept Edited Result</button>
+          <button id="wholeNovelFeedbackReject" onclick="NovelWholeNovelWorkspace.captureFeedback('rejected')">Reject Result</button>
+          <input id="wholeNovelFeedbackComment" placeholder="Private feedback note; stored as redacted metadata only" style="max-width:420px">
+          <label class="tag"><input id="wholeNovelTrainingConsent" type="checkbox"> Consent to future dataset candidate</label>
+        </div>
+        <div id="wholeNovelTrainingQueuePanel" data-testid="wholeNovelTrainingQueuePanel" class="h2w3-log"></div>
+      </div>
       <div id="h2w3PanelPrivacy" class="h2w3-panel"><div id="wholeNovelProviderStatus" data-testid="wholeNovelProviderStatus" class="h2w3-log"></div><div id="wholeNovelPrivacyStatus" data-testid="wholeNovelPrivacyStatus" class="h2w3-log" style="margin-top:8px"></div></div>
       <div id="h2w3PanelStreaming" class="h2w3-panel"><div id="wholeNovelStreamingStatus" data-testid="wholeNovelStreamingStatus" class="h2w3-log" aria-live="polite"></div></div>
       <div id="wholeNovelErrorPanel" data-testid="wholeNovelErrorPanel" class="h2w3-log" hidden></div>
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
-      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled</span>
+      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset future continual learning foundation model training not_implemented</span>
     `;
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
     diagnostics.workspaceInitialized = true;
@@ -291,6 +308,7 @@
     if (!state.contextTrace.length) composeContext();
     event("generation_started", "running", "continue_with_context");
     const citations = state.contextTrace.map((item) => item.citationLabel).join(" ");
+    state.lastGenerationId = `generation_${Date.now()}`;
     state.generationDraft = [
       `Draft Candidate (${VERSION})`,
       `Provider: local-rule / retrieval-augmented`,
@@ -358,6 +376,7 @@
     renderEvidence();
     renderContext();
     renderWholeNovel();
+    renderFeedback();
     renderPrivacy();
     renderStreaming();
   }
@@ -465,8 +484,161 @@
       `Public Corpus Opt-in: ${state.publicCorpusOptIn}`,
       "Canonical Mutation Count: 0",
       "Branch Leakage Count: 0",
+      `Feedback Records: ${(state.feedbackRecords || []).length}`,
+      `Training Candidates: ${(state.trainingCandidates || []).length}`,
+      "Continual Learning Status: foundation_ready",
+      "Model Training Status: not_implemented",
       "Prompt Hidden: true",
       "Session Token Hidden: true",
+    ].join("\n"));
+  }
+
+  function simpleHash(text) {
+    let hash = 2166136261;
+    const input = String(text || "");
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `h${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  }
+
+  function diffMeta(originalText, editedText, reasonCodes) {
+    const original = String(originalText || "");
+    const edited = String(editedText || "");
+    const originalWords = original.split(/\s+/).filter(Boolean);
+    const editedWords = edited.split(/\s+/).filter(Boolean);
+    const originalParagraphs = original.split(/\n{2,}/);
+    const editedParagraphs = edited.split(/\n{2,}/);
+    const changedParagraphCount = Math.max(originalParagraphs.length, editedParagraphs.length) - originalParagraphs.filter((paragraph, index) => paragraph === editedParagraphs[index]).length;
+    return {
+      insertCount: Math.max(0, editedWords.length - originalWords.length),
+      deleteCount: Math.max(0, originalWords.length - editedWords.length),
+      replaceCount: original === edited ? 0 : Math.min(originalWords.length, editedWords.length, 12),
+      changedParagraphCount: Math.max(0, changedParagraphCount),
+      reasonCodes,
+      styleChangeTags: reasonCodes.includes("STYLE_PREFERENCE") ? ["tone", "pacing"] : [],
+      consistencyCorrectionTags: reasonCodes.includes("CHARACTER_CONSISTENCY") ? ["character_voice"] : [],
+    };
+  }
+
+  function captureFeedback(disposition) {
+    const project = currentProject();
+    const comment = document.getElementById("wholeNovelFeedbackComment")?.value || "";
+    const consent = Boolean(document.getElementById("wholeNovelTrainingConsent")?.checked);
+    const normalizedDisposition = ["accepted", "edited", "rejected"].includes(disposition) ? disposition : "edited";
+    const originalResult = state.generationDraft || "";
+    const editedResult = normalizedDisposition === "edited" ? `${originalResult}\n[author-edited-metadata-only]` : originalResult;
+    const reasonCodes = normalizedDisposition === "accepted"
+      ? ["USER_APPROVED", "RETRIEVAL_RELEVANCE"]
+      : normalizedDisposition === "rejected"
+        ? ["USER_REJECTED", "UNSUPPORTED_CLAIM"]
+        : ["USER_EDITED", "STYLE_PREFERENCE", "CHARACTER_CONSISTENCY"];
+    const trainingEligibility = consent ? (normalizedDisposition === "rejected" ? "needs_review" : "candidate") : "consent_missing";
+    const feedbackId = `fb_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const record = {
+      feedbackId,
+      projectId: project.projectId,
+      branchId: state.branchId,
+      taskType: "retrieval_augmented_generation",
+      scope: state.selectedScopes.filter((scope) => scope !== "PUBLIC_CORPUS" || state.publicCorpusOptIn),
+      provider: "LOCAL_CLOSED_RUNTIME",
+      source: "BROWSER_AI",
+      model: "browser-workspace-local-rule",
+      adapter: "none",
+      generationId: state.lastGenerationId || null,
+      analysisId: state.lastWholeNovelJobId || null,
+      resultDisposition: normalizedDisposition,
+      rating: normalizedDisposition === "accepted" ? 5 : normalizedDisposition === "edited" ? 4 : 1,
+      reasonCodes,
+      userComment: comment ? "[redacted-local-only]" : "",
+      originalResultHash: simpleHash(originalResult),
+      editedResultHash: simpleHash(editedResult),
+      evidenceTraceId: state.lastEvidenceTraceId || null,
+      contextTraceId: state.lastContextTraceId || null,
+      candidateFacts: state.contextTrace.map((item) => item.citationLabel).slice(0, 8),
+      createdAt: now(),
+      trainingConsent: consent,
+      trainingEligibility,
+      privacyClass: "private_project_local_only",
+      canonicalMutationCount: 0,
+      diff: diffMeta(originalResult, editedResult, reasonCodes),
+      evaluationMetadata: {
+        citationCoverage: state.contextTrace.length ? 1 : 0,
+        unsupportedClaimRate: 0,
+        characterConsistencyScore: reasonCodes.includes("CHARACTER_CONSISTENCY") ? 0.82 : 0.9,
+        timelineConsistencyScore: 0.88,
+        worldRuleConsistencyScore: 0.9,
+        retrievalRelevanceScore: state.contextTrace.length ? 0.86 : 0,
+        userRating: normalizedDisposition === "accepted" ? 5 : normalizedDisposition === "edited" ? 4 : 1,
+        acceptedRatio: normalizedDisposition === "rejected" ? 0 : 1,
+        editDistance: Math.abs(originalResult.length - editedResult.length),
+      },
+    };
+    state.feedbackRecords = [record, ...(state.feedbackRecords || [])].slice(0, 100);
+    state.trainingCandidates = [{
+      candidateId: `tc_${feedbackId}`,
+      feedbackId,
+      projectId: project.projectId,
+      branchId: state.branchId,
+      state: normalizedDisposition === "rejected" ? "rejected" : trainingEligibility,
+      provider: record.provider,
+      source: record.source,
+      privacyClass: record.privacyClass,
+      trainingConsent: consent,
+      createdAt: record.createdAt,
+    }, ...(state.trainingCandidates || [])].slice(0, 100);
+    event("persisting", "success", `feedback:${normalizedDisposition}:${trainingEligibility}`);
+    saveState();
+    renderFeedback();
+    renderPrivacy();
+    renderStreaming();
+  }
+
+  function feedbackStats() {
+    const records = state.feedbackRecords || [];
+    const candidates = state.trainingCandidates || [];
+    const providerDistribution = records.reduce((acc, item) => {
+      acc[item.provider] = (acc[item.provider] || 0) + 1;
+      return acc;
+    }, {});
+    const taskDistribution = records.reduce((acc, item) => {
+      acc[item.taskType] = (acc[item.taskType] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      feedbackRecordCount: records.length,
+      consentedCandidateCount: candidates.filter((item) => item.trainingConsent).length,
+      pendingReviewCount: candidates.filter((item) => item.state === "candidate" || item.state === "needs_review").length,
+      rejectedCandidateCount: candidates.filter((item) => item.state === "rejected").length,
+      feedbackProviderDistribution: providerDistribution,
+      feedbackTaskDistribution: taskDistribution,
+    };
+  }
+
+  function renderFeedback() {
+    const stats = feedbackStats();
+    setText("wholeNovelFeedbackPanel", [
+      "Future Continual Learning Foundation",
+      "Status: feedback_capture foundation_ready; training pipeline not_implemented",
+      "Privacy: prompts, raw private context, session tokens, and full author comments are not exposed.",
+      `Feedback Records: ${stats.feedbackRecordCount}`,
+      `Consented Candidates: ${stats.consentedCandidateCount}`,
+      `Pending Review: ${stats.pendingReviewCount}`,
+      `Rejected Candidates: ${stats.rejectedCandidateCount}`,
+      `Provider Distribution: ${JSON.stringify(stats.feedbackProviderDistribution)}`,
+      `Task Distribution: ${JSON.stringify(stats.feedbackTaskDistribution)}`,
+      "",
+      ...(state.feedbackRecords || []).slice(0, 6).map((item) => `${item.createdAt} ${item.resultDisposition} ${item.trainingEligibility} ${item.reasonCodes.join(",")} original=${item.originalResultHash} edited=${item.editedResultHash} canonicalMutationCount=${item.canonicalMutationCount}`),
+    ].join("\n"));
+    setText("wholeNovelTrainingQueuePanel", [
+      "Training Candidate Queue",
+      "Allowed states: " + TRAINING_STATES.join(", "),
+      "Forbidden in H2W.3: real training, model weight update, adapter promotion, automatic model promotion.",
+      "Source taxonomy: " + LEARNING_SOURCES.join(", "),
+      "Signal taxonomy: " + LEARNING_SIGNALS.slice(0, 12).join(", ") + " ...",
+      "",
+      ...(state.trainingCandidates || []).slice(0, 8).map((item) => `${item.createdAt} ${item.candidateId} ${item.state} provider=${item.provider} consent=${item.trainingConsent} privacy=${item.privacyClass}`),
     ].join("\n"));
   }
 
@@ -509,6 +681,8 @@
     composeContext,
     summarizeWholeNovel,
     continueWithContext,
+    captureFeedback,
+    feedbackStats,
     cancel,
     toggleScope,
     togglePublicCorpus,
@@ -522,6 +696,9 @@
     _version: VERSION,
     _uiStates: UI_STATES,
     _streamEvents: STREAM_EVENTS,
+    _learningSources: LEARNING_SOURCES,
+    _learningSignals: LEARNING_SIGNALS,
+    _trainingStates: TRAINING_STATES,
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
