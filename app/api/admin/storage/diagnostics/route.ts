@@ -9,6 +9,7 @@ import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
 import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
+import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 
 export const runtime = "nodejs";
 
@@ -381,6 +382,7 @@ export async function GET(req: Request) {
     ...PUBLIC_FICTION_CORPUS_HEALTH,
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
     ...H2C_HEALTH,
+    ...H2W3_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",

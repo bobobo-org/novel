@@ -23,8 +23,8 @@ t.includes(health, "webAiActionsStatus", "health exposes AI actions status");
 t.includes(health, "webAiStreamingStatus", "health exposes streaming status");
 t.includes(health, "webScenarioDiscoveryStatus", "health exposes scenario discovery status");
 t.includes(health, "webAdultSegmentedGenerationStatus", "health marks segmented generation not implemented");
-t.includes(health, "webHybridRetrievalStatus", "health marks hybrid retrieval not implemented");
-t.includes(health, "webWholeNovelAiStatus", "health marks whole novel AI not implemented");
+t.includes(health, "H2W3_HEALTH", "health imports H2W3 whole-novel readiness");
+t.includes(health, "...H2W3_HEALTH", "health exposes H2W3 whole-novel fields through release contract");
 t.includes(health, "no-store, max-age=0", "health remains no-store");
 
 t.finish();
