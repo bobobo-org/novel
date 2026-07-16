@@ -385,6 +385,7 @@ export async function GET() {
     h2pFullClosureStatus: "ready",
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
     externalRequestCount: 0,
+    dataLeftDevice: false,
     webHybridRetrievalStatus: "not_implemented",
     webWholeNovelAiStatus: "not_implemented",
     keywordRetrievalStatus: "not_implemented",

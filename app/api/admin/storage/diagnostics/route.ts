@@ -370,6 +370,7 @@ export async function GET(req: Request) {
     h2pFullClosureStatus: "ready",
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
     externalRequestCount: 0,
+    dataLeftDevice: false,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",
