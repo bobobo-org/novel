@@ -8,6 +8,16 @@
   const SCOPES = ["CURRENT_CHAPTER", "CURRENT_SCENE", "CURRENT_STAGE", "CURRENT_BRANCH", "PRIVATE_PROJECT", "STORY_BIBLE", "USER_IMPORTED_LIBRARY", "PUBLIC_CORPUS"];
 
   const state = loadState();
+  const diagnostics = {
+    workspaceScriptLoaded: true,
+    workspaceInitialized: false,
+    workspaceMounted: false,
+    workspaceVisible: false,
+    workspaceVisibilityReason: "user_not_opened",
+    workspaceMountTarget: "#wholeNovelWorkspaceMount",
+    workspaceVersion: "h2w3-web-whole-novel-ai-v1",
+    workspaceInitializationError: null,
+  };
 
   function loadState() {
     try {
@@ -75,22 +85,30 @@
   }
 
   function injectWorkspace() {
-    if (document.getElementById("wholeNovelAiWorkspace")) return;
     injectStyle();
-    const shell = document.createElement("section");
-    shell.id = "wholeNovelAiWorkspace";
-    shell.dataset.testid = "wholeNovelAiWorkspace";
-    shell.dataset.wholeNovelWorkspaceVersion = VERSION;
-    shell.className = "h2w3-shell";
-    shell.innerHTML = `
-      <div class="h2w3-head">
-        <div><h2>Web Whole-Novel AI Workspace</h2><p class="muted">H2W.3 | Retrieval Evidence, Context Inspector, Whole-Novel Analysis, and Retrieval-Augmented Generation. Local-first; no external request by default.</p></div>
-        <span class="pill">${VERSION}</span>
-      </div>
+    let shell = document.getElementById("wholeNovelAiWorkspace");
+    if (!shell) {
+      shell = document.createElement("section");
+      shell.id = "wholeNovelAiWorkspace";
+      shell.dataset.testid = "wholeNovelAiWorkspace";
+      shell.dataset.wholeNovelWorkspaceVersion = "h2w3-web-whole-novel-ai-v1";
+      shell.className = "h2w3-shell";
+      shell.hidden = true;
+      shell.innerHTML = `
+        <header class="h2w3-head">
+          <div><h2>全書閉端 AI 工作區</h2><p class="muted">針對整部小說進行本機檢索、上下文組合、全書分析與候選稿生成。結果只進入 Draft / Candidate，不直接修改 Canonical。</p></div>
+          <button id="wholeNovelWorkspaceClose" type="button" aria-controls="wholeNovelAiWorkspace" onclick="NovelWholeNovelWorkspace.setWorkspaceCollapsed(true)">關閉</button>
+        </header>
+        <div id="wholeNovelWorkspaceDiagnostics" class="h2w3-log" aria-live="polite"></div>
+        <div id="wholeNovelWorkspaceMount"></div>
+      `;
+      const anchor = document.getElementById("h2w2SegmentedWorkspace")?.nextSibling || document.getElementById("h2wClosedAiCenter")?.nextSibling || document.querySelector(".main")?.firstChild || document.body.firstChild;
+      (document.querySelector(".main") || document.body).insertBefore(shell, anchor);
+    }
+    const mount = document.getElementById("wholeNovelWorkspaceMount") || shell;
+    mount.innerHTML = `
       <div id="h2w3StatusGrid" class="h2w3-grid"></div>
       <div class="h2w3-toolbar">
-        <button id="wholeNovelWorkspaceOpen" data-testid="wholeNovelWorkspaceOpen" onclick="NovelWholeNovelWorkspace.setWorkspaceCollapsed(false)">Open Workspace</button>
-        <button id="wholeNovelWorkspaceClose" data-testid="wholeNovelWorkspaceClose" onclick="NovelWholeNovelWorkspace.setWorkspaceCollapsed(true)">Close Workspace</button>
         <select id="wholeNovelProjectSelector" data-testid="wholeNovelProjectSelector" onchange="NovelWholeNovelWorkspace.setProject(this.value)">
           <option value="legacy-browser-project">Current Browser Project</option>
         </select>
@@ -150,9 +168,10 @@
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
       <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled</span>
     `;
-    const anchor = document.getElementById("h2w2SegmentedWorkspace")?.nextSibling || document.getElementById("h2wClosedAiCenter")?.nextSibling || document.querySelector(".main")?.firstChild || document.body.firstChild;
-    (document.querySelector(".main") || document.body).insertBefore(shell, anchor);
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
+    diagnostics.workspaceInitialized = true;
+    diagnostics.workspaceMounted = Boolean(document.getElementById("wholeNovelWorkspaceMount") || document.getElementById("h2w3StatusGrid"));
+    updateDiagnostics();
     renderScopeSelector();
     renderAll();
   }
@@ -308,9 +327,14 @@
   }
 
   function setWorkspaceCollapsed(collapsed) {
+    const shell = document.getElementById("wholeNovelAiWorkspace");
+    if (shell) shell.hidden = Boolean(collapsed);
     const panels = document.querySelectorAll("#wholeNovelAiWorkspace .h2w3-panel, #wholeNovelAiWorkspace .h2w3-toolbar, #wholeNovelAiWorkspace .h2w3-scope");
     panels.forEach((node) => { node.hidden = Boolean(collapsed); });
+    diagnostics.workspaceVisible = !collapsed;
+    diagnostics.workspaceVisibilityReason = collapsed ? "user_closed" : "opened";
     event(collapsed ? "cancelled" : "context_ready", "success", collapsed ? "workspace collapsed" : "workspace opened");
+    updateDiagnostics();
     renderStreaming();
   }
 
@@ -328,6 +352,7 @@
   }
 
   function renderAll() {
+    updateDiagnostics();
     renderStatus();
     renderRetrieval();
     renderEvidence();
@@ -454,8 +479,29 @@
     if (node) node.textContent = text;
   }
 
+  function getDiagnostics() {
+    const shell = document.getElementById("wholeNovelAiWorkspace");
+    diagnostics.workspaceMounted = Boolean(document.getElementById("wholeNovelWorkspaceMount") || document.getElementById("h2w3StatusGrid"));
+    diagnostics.workspaceVisible = Boolean(shell && !shell.hidden);
+    if (!diagnostics.workspaceVisible && diagnostics.workspaceVisibilityReason === "opened") diagnostics.workspaceVisibilityReason = "user_not_opened";
+    return { ...diagnostics };
+  }
+
+  function updateDiagnostics() {
+    const node = document.getElementById("wholeNovelWorkspaceDiagnostics");
+    if (!node) return;
+    const info = getDiagnostics();
+    node.textContent = Object.entries(info).map(([key, value]) => `${key} = ${value}`).join("\n");
+  }
+
   function boot() {
-    injectWorkspace();
+    try {
+      injectWorkspace();
+    } catch (error) {
+      diagnostics.workspaceInitializationError = error?.message || String(error);
+      updateDiagnostics();
+      throw error;
+    }
   }
 
   window.NovelWholeNovelWorkspace = {
@@ -470,6 +516,8 @@
     setBranch,
     setProject,
     setWorkspaceCollapsed,
+    getDiagnostics,
+    mount: boot,
     _state: state,
     _version: VERSION,
     _uiStates: UI_STATES,

@@ -36,7 +36,8 @@ const expected = {
   generation: 35,
   privacy: 50,
   "browser-real": 39,
-  "production-smoke": 44,
+  "production-html": 12,
+  "production-smoke": 58,
 };
 
 const modes = {
@@ -55,6 +56,7 @@ const modes = {
   generation: testGeneration,
   privacy: testPrivacy,
   "browser-real": testBrowserReal,
+  "production-html": testProductionHtml,
   "production-smoke": testProductionSmoke,
 };
 
@@ -353,8 +355,11 @@ async function testBrowserReal() {
   const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
   t.includes(html, "novel-whole-novel-workspace.js?v=h2w3-web-whole-novel-ai", "legacy page loads H2W3 workspace");
   t.includes(html, "data-whole-novel-workspace-version=\"h2w3-web-whole-novel-ai\"", "release fingerprint on script");
+  t.includes(html, "id=\"wholeNovelWorkspaceOpen\"", "navigation entry exists in raw html");
+  t.includes(html, "aria-controls=\"wholeNovelAiWorkspace\"", "navigation entry controls workspace");
+  t.includes(html, "id=\"wholeNovelWorkspaceMount\"", "workspace mount target exists in raw html");
   for (const id of ["wholeNovelAiWorkspace", "wholeNovelWorkspaceOpen", "wholeNovelWorkspaceClose", "wholeNovelProjectSelector", "wholeNovelScopeSelector", "wholeNovelBranchSelector", "wholeNovelSearchInput", "wholeNovelSearchMode", "wholeNovelSearchButton", "wholeNovelSearchCancel", "wholeNovelSearchResults", "wholeNovelEvidencePanel", "wholeNovelContextInspector", "wholeNovelTokenBudget", "wholeNovelAnalysisPanel", "wholeNovelCharacterArcPanel", "wholeNovelTimelinePanel", "wholeNovelForeshadowPanel", "wholeNovelOpenThreadsPanel", "wholeNovelRelationshipPanel", "wholeNovelPacingPanel", "wholeNovelWorldRulesPanel"]) {
-    t.includes(js, id, `browser dom id ${id}`);
+    t.ok(html.includes(id) || js.includes(id), `browser dom id ${id}`);
   }
   for (const action of ["Run Hybrid Search", "Compose Context", "Summarize Whole Novel", "Continue with Context", "Cancel", "Report Conflict"]) {
     t.includes(js, action, `browser action ${action}`);
@@ -363,6 +368,24 @@ async function testBrowserReal() {
   t.includes(js, "window.NovelWholeNovelWorkspace", "debug api exported");
   t.includes(js, "externalRequestCount", "external request tracked");
   t.includes(js, "dataLeftDevice", "data-left-device tracked");
+  return t.finish();
+}
+
+async function testProductionHtml() {
+  const t = harness("H2W3 production-html", expected["production-html"]);
+  const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
+  t.includes(html, "全書閉端 AI 工作區", "navigation label present");
+  t.includes(html, "id=\"wholeNovelWorkspaceOpen\"", "workspace open button in raw html");
+  t.includes(html, "id=\"wholeNovelAiWorkspace\"", "workspace shell in raw html");
+  t.includes(html, "id=\"wholeNovelWorkspaceMount\"", "workspace mount target in raw html");
+  t.includes(html, "data-whole-novel-workspace-version=\"h2w3-web-whole-novel-ai-v1\"", "workspace version on shell");
+  t.includes(html, "hidden><header class=\"h2w3-head\"", "workspace hidden before open");
+  t.includes(html, "workspaceScriptLoaded = false", "diagnostics default present");
+  t.includes(html, "workspaceInitializationError = null", "diagnostics error field present");
+  t.includes(html, "novel-whole-novel-workspace.js?v=h2w3-web-whole-novel-ai", "workspace script referenced");
+  t.includes(html, "data-whole-novel-workspace-version=\"h2w3-web-whole-novel-ai\"", "script release attribute present");
+  t.includes(html, "document.querySelectorAll('.nav button[data-view]')", "nav binding excludes workspace button");
+  t.includes(html, "Draft / Candidate", "candidate safety copy present");
   return t.finish();
 }
 
@@ -376,6 +399,8 @@ async function testProductionSmoke() {
     "data-whole-novel-workspace-version",
     "wholeNovelAiWorkspace",
     "wholeNovelWorkspaceOpen",
+    "aria-controls=\"wholeNovelAiWorkspace\"",
+    "wholeNovelWorkspaceMount",
     "wholeNovelProjectSelector",
     "wholeNovelBranchSelector",
     "PRIVATE_PROJECT",
@@ -416,6 +441,18 @@ async function testProductionSmoke() {
     "public corpus disabled",
     "dataLeftDevice: false",
     "externalRequestCount: 0",
+    "workspaceScriptLoaded",
+    "workspaceInitialized",
+    "workspaceMounted",
+    "workspaceVisible",
+    "workspaceVisibilityReason",
+    "workspaceMountTarget",
+    "workspaceVersion",
+    "workspaceInitializationError",
+    "getDiagnostics",
+    "id=\"wholeNovelWorkspaceOpen\"",
+    "hidden><header class=\"h2w3-head\"",
+    "setWorkspaceCollapsed(false)",
   ]) {
     t.includes(combined, item, `production smoke artifact ${item}`);
   }
@@ -438,7 +475,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 529,
+      expectedPass: 544,
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,
