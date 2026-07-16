@@ -8,6 +8,7 @@ import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
 import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
+import { H2C_HEALTH } from "@/lib/novel-ai/context";
 
 export const runtime = "nodejs";
 
@@ -379,11 +380,10 @@ export async function GET(req: Request) {
     ...HYBRID_RETRIEVAL_HEALTH,
     ...PUBLIC_FICTION_CORPUS_HEALTH,
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
+    ...H2C_HEALTH,
     adultPreferenceTaxonomyStatus: "not_implemented",
     adultScenarioDiscoveryStatus: "not_implemented",
     adultLocalGenerationStatus: "verified_on_client_runtime",
-    contextComposerStatus: "not_implemented",
-    retrievalAugmentedTaskStatus: "not_implemented",
     projectStoragePolicyStatus: "legacy_projects_normalized_to_supabase_cloud_local_authority",
     lastAdapterError: null,
     lastContractTestResult: contract,

@@ -2046,4 +2046,284 @@ export const SQLITE_MIGRATIONS: SQLiteMigration[] = [
       PRIMARY KEY(project_id, format_profile_id)
     );
   `),
+  migration(24, "024_context_composer_whole_novel", `
+    CREATE TABLE IF NOT EXISTS context_composition_jobs (
+      project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      task_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      policy_version TEXT NOT NULL,
+      token_budget_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, job_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_composition_inputs (
+      project_id TEXT NOT NULL,
+      input_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, input_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_composition_items (
+      project_id TEXT NOT NULL,
+      context_item_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      chunk_id TEXT,
+      branch_id TEXT NOT NULL,
+      version_id TEXT,
+      canonical_status TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      retrieval_score REAL NOT NULL DEFAULT 0,
+      selected_reason TEXT NOT NULL,
+      priority INTEGER NOT NULL,
+      token_count INTEGER NOT NULL,
+      citation_label TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, context_item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_context_items_job ON context_composition_items(project_id, job_id, priority);
+    CREATE TABLE IF NOT EXISTS context_composition_outputs (
+      project_id TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      used_context_ids_json TEXT NOT NULL,
+      omitted_context_json TEXT NOT NULL,
+      source_scopes_json TEXT NOT NULL,
+      token_utilization REAL NOT NULL,
+      unsupported_claim_rate REAL NOT NULL,
+      citation_coverage REAL NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, output_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_token_budgets (
+      project_id TEXT NOT NULL,
+      budget_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      model_context_limit INTEGER NOT NULL,
+      reserved_output_tokens INTEGER NOT NULL,
+      safety_margin INTEGER NOT NULL,
+      total_available_tokens INTEGER NOT NULL,
+      used_tokens INTEGER NOT NULL,
+      omitted_tokens INTEGER NOT NULL,
+      compressed_tokens INTEGER NOT NULL,
+      utilization REAL NOT NULL,
+      overflow_prevented INTEGER NOT NULL DEFAULT 0,
+      budget_breakdown_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, budget_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_citations (
+      project_id TEXT NOT NULL,
+      citation_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      context_item_id TEXT NOT NULL,
+      citation_label TEXT NOT NULL,
+      source_scope TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      evidence_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, citation_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_omissions (
+      project_id TEXT NOT NULL,
+      omission_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      token_count INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, omission_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_conflicts (
+      project_id TEXT NOT NULL,
+      context_conflict_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      conflict_id TEXT,
+      competing_items_json TEXT NOT NULL,
+      selected_item_id TEXT,
+      selection_reason TEXT NOT NULL,
+      unresolved INTEGER NOT NULL DEFAULT 0,
+      severity TEXT NOT NULL,
+      suggested_review TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, context_conflict_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_compression_results (
+      project_id TEXT NOT NULL,
+      compression_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      source_item_ids_json TEXT NOT NULL,
+      original_token_count INTEGER NOT NULL,
+      compressed_token_count INTEGER NOT NULL,
+      compression_method TEXT NOT NULL,
+      preserved_facts_json TEXT NOT NULL,
+      omitted_facts_json TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, compression_id)
+    );
+    CREATE TABLE IF NOT EXISTS context_validation_results (
+      project_id TEXT NOT NULL,
+      validation_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      citation_coverage REAL NOT NULL,
+      unsupported_claim_rate REAL NOT NULL,
+      token_overflow_count INTEGER NOT NULL DEFAULT 0,
+      branch_leakage_count INTEGER NOT NULL DEFAULT 0,
+      canonical_mutation_count INTEGER NOT NULL DEFAULT 0,
+      public_corpus_opt_in_violation_count INTEGER NOT NULL DEFAULT 0,
+      warnings_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, validation_id)
+    );
+    CREATE TABLE IF NOT EXISTS whole_novel_analysis_jobs (
+      project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      analysis_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, job_id)
+    );
+    CREATE TABLE IF NOT EXISTS whole_novel_analysis_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      premise TEXT NOT NULL,
+      major_arcs_json TEXT NOT NULL,
+      major_events_json TEXT NOT NULL,
+      unresolved_threads_json TEXT NOT NULL,
+      foreshadowing_json TEXT NOT NULL,
+      pacing_notes_json TEXT NOT NULL,
+      evidence_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS character_arc_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS timeline_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS foreshadow_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS open_thread_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      urgency TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS relationship_progression_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      relationship_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS pacing_analysis_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      pacing_profile TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS repeated_pattern_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      pattern_type TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS world_rule_audit_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS branch_comparison_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      branch_ids_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS public_corpus_comparison_results (
+      project_id TEXT NOT NULL,
+      result_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      selected_works_json TEXT NOT NULL,
+      originality_risks_json TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, result_id)
+    );
+    CREATE TABLE IF NOT EXISTS retrieval_generation_traces (
+      project_id TEXT NOT NULL,
+      trace_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      task_type TEXT NOT NULL,
+      retrieved_context_ids_json TEXT NOT NULL,
+      used_context_ids_json TEXT NOT NULL,
+      cited_evidence_json TEXT NOT NULL,
+      unsupported_claims_json TEXT NOT NULL,
+      source_scopes_json TEXT NOT NULL,
+      external_request_count INTEGER NOT NULL DEFAULT 0,
+      data_left_device INTEGER NOT NULL DEFAULT 0,
+      row_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, trace_id)
+    );
+  `),
 ];

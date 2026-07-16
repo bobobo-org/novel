@@ -8,13 +8,14 @@ import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
 import { HYBRID_RETRIEVAL_HEALTH } from "@/lib/novel-ai/retrieval/hybrid";
 import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-fiction";
 import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
+import { H2C_HEALTH } from "@/lib/novel-ai/context";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2d2-public-fiction-corpus-index",
+  releaseTag: "novel-ai-h2c-context-composer-whole-novel",
 };
 
 const L0A2E2D_TEST_META = {
@@ -394,12 +395,11 @@ export async function GET() {
     ...HYBRID_RETRIEVAL_HEALTH,
     ...PUBLIC_FICTION_CORPUS_HEALTH,
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
+    ...H2C_HEALTH,
     webHybridRetrievalStatus: "contract_ready",
     webWholeNovelAiStatus: "not_implemented",
-    contextComposerStatus: "not_implemented",
-    retrievalAugmentedTaskStatus: "not_implemented",
     vectorSearchStatus: "ready",
-    longContextRetrievalStatus: "not_implemented",
+    longContextRetrievalStatus: "ready",
     coreServicesUseStorageAdapter: true,
     extractionPersistenceUsesStorageAdapter: true,
     transactionScopedStorageStatus: "ready",
