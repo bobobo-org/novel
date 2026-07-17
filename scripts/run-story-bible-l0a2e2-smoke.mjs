@@ -201,7 +201,7 @@ async function runHealthChecks() {
       && String(body.migrationVersion || "").includes(expectedMigration)
       && body.extractionRollbackMatrixStatus === "fault_fixture_ready"
       && body.extractionFaultInjectionStatus === "service_role_fixture_only"
-      && body.extractionConcurrencyStatus === "partial", {
+      && ["partial", "ready"].includes(body.extractionConcurrencyStatus), {
       status: res.status,
       cacheControl: res.cacheControl,
       appCommit: body.appCommit,

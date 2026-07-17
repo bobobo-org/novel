@@ -5,7 +5,7 @@
   window.NOVEL_STATIC_RELEASE = {
     appCommit: "__NOVEL_STATIC_APP_COMMIT__",
     releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
-    expectedReleaseTag: "novel-ai-h2w3-production-visible-body-closure",
+    expectedReleaseTag: "novel-ai-h2-complete-local-story-intelligence",
     visibleUiSemanticVersion: "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__",
     visibleUiBodyHash: "__NOVEL_VISIBLE_UI_BODY_HASH__",
   };

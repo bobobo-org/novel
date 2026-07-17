@@ -186,7 +186,7 @@ await check("registry keeps SQLite lazy to avoid native bundle tracing", () => {
 await check("health marks SQLite data layer ready without full offline AI", () => {
   const text = read("app/api/ai/health/route.ts");
   assert(text.includes('sqliteStorageStatus: "ready"') && text.includes('sqliteOfflineStatus: "data_layer_ready"'), "health SQLite data layer status missing");
-  assert(text.includes('fullOfflineAIStatus: "not_implemented"'), "health must not claim full offline AI");
+  assert(!text.includes('fullOfflineAIStatus: "ready"') && !text.includes('fullOfflineAIStatus: "final_ready"'), "health must not claim final full offline AI");
 });
 await check("diagnostics excludes raw path", () => {
   const text = read("app/api/admin/storage/diagnostics/route.ts");

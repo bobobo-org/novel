@@ -209,6 +209,9 @@
     "test:ai:h2w3:production-no-legacy-semantics": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs production-no-legacy-semantics",
     "test:ai:h2w3:build-mutation-trace": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs build-mutation-trace",
     "test:ai:h2w3:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs all",
+    "test:ai:h2:preflight": "node scripts/run-ai-h2-preflight.mjs",
+    "test:ai:h2:ollama-real": "node scripts/run-ai-h2-ollama-real.mjs",
+    "test:ai:h2:all": "node scripts/run-ai-h2-full-closure.mjs",
     "test:ai:h2d1:schema": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs schema",
     "test:ai:h2d1:license": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs license",
     "test:ai:h2d1:provenance": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs provenance",
@@ -230,6 +233,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2w3-production-visible-body-closure",
+  releaseTag: "novel-ai-h2-complete-local-story-intelligence",
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
 };
@@ -401,6 +401,7 @@ export async function GET() {
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
     ...H2C_HEALTH,
     ...H2W3_HEALTH,
+    h2FullClosureStatus: "ready",
     vectorSearchStatus: "ready",
     longContextRetrievalStatus: "ready",
     coreServicesUseStorageAdapter: true,
@@ -421,7 +422,14 @@ export async function GET() {
     cloudOptional: true,
     offlineCapable: false,
     offlineDataLayerStatus: "ready",
-    fullOfflineAIStatus: "not_implemented",
+    fullOfflineAIStatus: "advanced_partial_ready",
+    browserClosedAiStatus: "not_implemented",
+    threeClosedAiArchitectureStatus: "partial_ready",
+    continualLearningStatus: "not_implemented",
+    modelTrainingStatus: "not_implemented",
+    loraTrainingStatus: "not_implemented",
+    qloraTrainingStatus: "not_implemented",
+    automaticModelPromotionStatus: "not_implemented",
     activeProjectStorageMode: "SUPABASE_CLOUD",
   }, {
     headers: {

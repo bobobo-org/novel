@@ -30,7 +30,7 @@ const mode = process.argv[2] || "all";
 const projectId = `h2w3_project_${process.pid}`;
 const storageDir = path.join(process.cwd(), ".test-runtime", "h2w3");
 const PRODUCTION_ORIGIN = process.env.H2W3_PRODUCTION_ORIGIN || "https://novel-orcin.vercel.app";
-const H2W3_RELEASE_TAG = "novel-ai-h2w3-production-visible-body-closure";
+const H2W3_RELEASE_TAG = process.env.H2W3_EXPECTED_RELEASE_TAG || "novel-ai-h2-complete-local-story-intelligence";
 const PRODUCTION_VERIFICATION_DIR = path.join(process.cwd(), "artifacts", "production-verification");
 
 const expected = {

@@ -165,8 +165,8 @@ function runClosureAssertions() {
     "health exposes hybridRetrievalStatus with explicit implementation state",
   );
 
-  const notImplementedFields = ["contextComposerStatus", "webWholeNovelAiStatus"];
-  for (const field of notImplementedFields) assertClosure(health.includes(`${field}: "not_implemented"`), `health keeps ${field} not implemented`);
+  const h2ReadyFields = ["contextComposerStatus", "webWholeNovelAiStatus"];
+  for (const field of h2ReadyFields) assertClosure(health.includes(`${field}: "ready"`), `health exposes ${field} ready`);
 
   const diagnosticsFields = [
     "storyVersionTransformVersion",

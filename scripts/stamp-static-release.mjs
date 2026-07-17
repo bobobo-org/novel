@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
-const releaseTag = "novel-ai-h2w3-production-visible-body-closure";
+const releaseTag = "novel-ai-h2-complete-local-story-intelligence";
 const visibleUiSemanticVersion = "h2w3-visible-ui-semantic-closure-v1";
 const visibleUiRequiredStrings = [
   "三路閉端 AI 工作區",
