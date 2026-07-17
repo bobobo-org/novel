@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import releaseManifest from "../release-manifest.json" with { type: "json" };
 
-const releaseTag = "novel-ai-h2-complete-local-story-intelligence";
+const releaseTag = releaseManifest.releaseTag;
 const visibleUiSemanticVersion = "h2w3-visible-ui-semantic-closure-v1";
 const visibleUiRequiredStrings = [
   "三路閉端 AI 工作區",

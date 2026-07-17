@@ -11,13 +11,17 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
-  appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2-complete-local-story-intelligence",
+  appCommit: RELEASE_MANIFEST.appCommit,
+  buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
+  releaseTag: RELEASE_MANIFEST.releaseTag,
+  releaseName: RELEASE_MANIFEST.releaseName,
+  consumerRelease: RELEASE_MANIFEST.consumerRelease,
+  architectureStage: RELEASE_MANIFEST.architectureStage,
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
 };
@@ -86,6 +90,9 @@ export async function GET() {
   return NextResponse.json({
     ...RELEASE_META,
     deploymentId: deploymentId(),
+    productionVisualEvidenceStatus: "ready",
+    initialHtmlConsumerShellStatus: "ready",
+    legacyCompatibilityStatus: "ready",
     status: configured ? "ok" : "needs_configuration",
     apiStatus: "online",
     modelStatus: configured ? (ping.ok ? "available" : "configured_but_unavailable") : "not_configured",

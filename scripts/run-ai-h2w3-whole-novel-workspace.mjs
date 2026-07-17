@@ -30,7 +30,7 @@ const mode = process.argv[2] || "all";
 const projectId = `h2w3_project_${process.pid}`;
 const storageDir = path.join(process.cwd(), ".test-runtime", "h2w3");
 const PRODUCTION_ORIGIN = process.env.H2W3_PRODUCTION_ORIGIN || "https://novel-orcin.vercel.app";
-const H2W3_RELEASE_TAG = process.env.H2W3_EXPECTED_RELEASE_TAG || "novel-ai-h2-complete-local-story-intelligence";
+const H2W3_RELEASE_TAG = process.env.H2W3_EXPECTED_RELEASE_TAG || "novel-ai-p11r2-production-frontdoor-truth";
 const PRODUCTION_VERIFICATION_DIR = path.join(process.cwd(), "artifacts", "production-verification");
 
 const expected = {
@@ -938,13 +938,13 @@ async function testBuildMutationTrace() {
   const stamp = fs.readFileSync("scripts/stamp-static-release.mjs", "utf8");
   const health = fs.readFileSync("app/api/ai/health/route.ts", "utf8");
   const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-  t.includes(stamp, H2W3_RELEASE_TAG, "stamp uses final release tag");
+  t.includes(stamp, "releaseManifest.releaseTag", "stamp uses shared release manifest");
   t.includes(stamp, "__NOVEL_VISIBLE_UI_BODY_HASH__", "stamp replaces visible body hash");
   t.includes(stamp, "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__", "stamp replaces semantic version");
   t.includes(stamp, "visibleUiRequiredStrings", "stamp source list present");
   t.includes(health, "visibleUiSemanticVersion", "health exposes semantic version");
   t.includes(health, "visibleUiBodyHash", "health exposes visible body hash");
-  t.includes(health, H2W3_RELEASE_TAG, "health final release tag");
+  t.includes(health, "RELEASE_MANIFEST.releaseTag", "health uses shared release manifest");
   t.includes(html, "data-visible-ui-semantic-version", "html release marker semantic version");
   t.includes(html, "data-visible-ui-body-hash", "html release marker body hash");
   t.includes(js, "visibleUiSemanticVersion", "js static release semantic version");
