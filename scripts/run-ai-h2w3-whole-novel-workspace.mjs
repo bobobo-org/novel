@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import { SQLiteProjectConnection } from "../lib/novel-ai/storage/sqlite/sqlite-connection.ts";
 import { WholeNovelWorkspaceClient, H2W3_HEALTH, WEB_WHOLE_NOVEL_WORKSPACE_VERSION } from "../lib/novel-ai/web/whole-novel-workspace-client.ts";
@@ -20,7 +20,7 @@ const mode = process.argv[2] || "all";
 const projectId = `h2w3_project_${process.pid}`;
 const storageDir = path.join(process.cwd(), ".test-runtime", "h2w3");
 const PRODUCTION_ORIGIN = process.env.H2W3_PRODUCTION_ORIGIN || "https://novel-orcin.vercel.app";
-const H2W3_RELEASE_TAG = "novel-ai-h2w3-static-html-consistency-fix";
+const H2W3_RELEASE_TAG = "novel-ai-h2w3-visible-ui-semantic-closure";
 
 const expected = {
   retrieval: 40,
@@ -41,6 +41,7 @@ const expected = {
   "feedback-privacy": 40,
   "architecture-alignment": 20,
   "learning-status-semantics": 20,
+  "visible-ui-semantics": 30,
   privacy: 50,
   "browser-real": 39,
   "production-html": 15,
@@ -67,6 +68,7 @@ const modes = {
   "feedback-privacy": testFeedbackPrivacy,
   "architecture-alignment": testArchitectureAlignment,
   "learning-status-semantics": testLearningStatusSemantics,
+  "visible-ui-semantics": testVisibleUiSemantics,
   privacy: testPrivacy,
   "browser-real": testBrowserReal,
   "production-html": testProductionHtml,
@@ -469,13 +471,13 @@ async function testArchitectureAlignment() {
   for (const item of [
     "三路閉端 AI 工作區",
     "三路閉端 AI 架構",
-    "Browser Closed AI",
+    "瀏覽器閉端 AI",
     "Browser AI not implemented",
-    "Ollama Local AI",
+    "Ollama 本機 AI",
     "Ollama status dynamic",
-    "Local Closed Runtime",
+    "本機閉端 Runtime",
     "Local runtime status dynamic",
-    "External AI optional",
+    "外部 AI：可選輔助",
     "Draft / Candidate only",
     "not_implemented",
     "partial_ready",
@@ -489,10 +491,47 @@ async function testArchitectureAlignment() {
   t.ok(["ready", "available", "unavailable"].includes(H2W3_HEALTH.localClosedRuntimeStatus), "health local runtime status enum");
   t.equal(H2W3_HEALTH.threeClosedAiArchitectureStatus, "partial_ready", "health architecture partial until H3A");
   t.notIncludes(combined, "Continual Learning Status: foundation_ready", "ui does not claim active continual learning");
-  t.includes(combined, "External AI: optional only", "external ai optional wording");
+  t.includes(combined, "外部 AI：可選輔助", "external ai optional wording");
   return t.finish();
 }
 
+async function testVisibleUiSemantics() {
+  const t = harness("H2W3 visible-ui-semantics", expected["visible-ui-semantics"]);
+  const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  const combined = `${html}\n${js}`;
+  t.includes(html, "三路閉端 AI 架構", "top badges include three-route closed AI architecture");
+  t.includes(html, "外部 AI 可選", "top badges mark external AI optional");
+  t.notIncludes(html, "可接外部 AI", "legacy top badge removed");
+  t.includes(html, "H2 Local Story Intelligence", "visible version no longer uses v9 label");
+  t.notIncludes(html, "story-analyzer-v9", "legacy story-analyzer v9 marker absent from visible HTML");
+  t.includes(html, "本機創作助理", "small closed AI renamed as local creation helper");
+  t.notIncludes(html, "小型閉端AI", "legacy small closed AI label absent");
+  t.includes(combined, "三路閉端 AI 工作區", "workspace title aligned");
+  t.notIncludes(combined, "全書閉端 AI 工作區", "legacy workspace title absent");
+  t.includes(combined, "瀏覽器閉端 AI", "browser closed AI localized");
+  t.includes(combined, "Ollama 本機 AI", "ollama local AI localized");
+  t.includes(combined, "本機閉端 Runtime", "local runtime localized");
+  t.includes(combined, "外部 AI：可選輔助", "external AI optional localized");
+  t.includes(html, "外部 AI 輔助（可選）", "cloud assistant marked optional");
+  t.notIncludes(html, "專屬小說AI", "dedicated cloud AI wording removed");
+  t.includes(html, "回饋與未來學習資料", "learning section renamed as feedback/future data");
+  t.includes(html, "匯出已核准樣本 JSONL", "training export renamed");
+  t.includes(html, "執行品質基準測試", "fixed eval renamed as quality benchmark");
+  t.notIncludes(html, "匯出訓練資料", "legacy training export absent");
+  t.notIncludes(html, "執行AI固定評測", "legacy AI eval wording absent");
+  t.includes(html, "尚未讀取回饋與未來學習資料", "learning empty state renamed");
+  t.notIncludes(html, "尚未讀取學習資料", "legacy learning empty state absent");
+  t.includes(js, "Continual Learning Status: not_implemented", "continual learning not implemented visible");
+  t.includes(js, "Model Training Status: not_implemented", "model training not implemented visible");
+  t.notIncludes(js, "Continual Learning Status: foundation_ready", "active continual learning not claimed");
+  t.notIncludes(html, "AI學習資料", "legacy AI learning title absent");
+  t.includes(html, "AI能力狀態面板", "AI capability panel wording softened");
+  t.notIncludes(html, "尚未產生雲端AI結果", "legacy cloud result text absent");
+  t.notIncludes(html, "尚未檢查雲端AI狀態", "legacy cloud status text absent");
+  t.includes(combined, "Draft / Candidate", "candidate safety wording present");
+  return t.finish();
+}
 async function testLearningStatusSemantics() {
   const t = harness("H2W3 learning-status-semantics", expected["learning-status-semantics"]);
   const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
@@ -650,7 +689,7 @@ async function testProductionSmoke() {
     "NOVEL_STATIC_RELEASE",
     "novelStaticRelease",
     "novel-static-release",
-    "novel-ai-h2w3-static-html-consistency-fix",
+    "novel-ai-h2w3-visible-ui-semantic-closure",
   ]) {
     t.includes(combined, item, `production smoke artifact ${item}`);
   }
@@ -716,7 +755,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 707,
+      expectedPass: 737,
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,

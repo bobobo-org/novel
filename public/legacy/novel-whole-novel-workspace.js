@@ -5,7 +5,7 @@
   window.NOVEL_STATIC_RELEASE = {
     appCommit: "__NOVEL_STATIC_APP_COMMIT__",
     releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
-    expectedReleaseTag: "novel-ai-h2w3-static-html-consistency-fix",
+    expectedReleaseTag: "novel-ai-h2w3-visible-ui-semantic-closure",
   };
   const STORAGE_KEY = "novel_h2w3_whole_novel_workspace";
   const STREAM_EVENTS = ["retrieval_started", "retrieval_completed", "filtering", "deduplicating", "compressing", "budgeting", "context_ready", "generation_started", "token", "validating", "citation_ready", "persisting", "completed", "cancelled", "failed"];
@@ -106,7 +106,7 @@
       shell.hidden = true;
       shell.innerHTML = `
         <header class="h2w3-head">
-          <div><h2>全書閉端 AI 工作區</h2><p class="muted">針對整部小說進行本機檢索、上下文組合、全書分析與候選稿生成。結果只進入 Draft / Candidate，不直接修改 Canonical。</p></div>
+          <div><h2>三路閉端 AI 工作區</h2><p class="muted">目前顯示三路閉端 AI 架構：瀏覽器閉端 AI 尚未實作；Ollama 本機 AI 需偵測本機 Runtime；本機閉端 Runtime 已可執行本機檢索、上下文組合與候選稿管線。結果只進入 Draft / Candidate，不直接修改 Canonical。</p></div>
           <button id="wholeNovelWorkspaceClose" type="button" aria-controls="wholeNovelAiWorkspace" onclick="NovelWholeNovelWorkspace.setWorkspaceCollapsed(true)">關閉</button>
         </header>
         <div id="wholeNovelWorkspaceDiagnostics" class="h2w3-log" aria-live="polite"></div>
@@ -119,10 +119,10 @@
     mount.innerHTML = `
       <div class="h2w3-log" id="h2w3ArchitectureAlignment" data-testid="h2w3ArchitectureAlignment">
 三路閉端 AI 架構
-1. Browser Closed AI：not_implemented；H3A 才會處理瀏覽器模型推理。
-2. Ollama Local AI：available when localhost runtime is detected；屬於本機模型來源，不等於整套閉端 AI 已完成。
-3. Local Closed Runtime：ready；目前 H2W.3 使用本機檢索、上下文組合與候選稿管線。
-External AI：optional only；本工作區預設不發出外部 AI 請求。
+1. 瀏覽器閉端 AI：not_implemented；H3A 才會處理瀏覽器模型推理。
+2. Ollama 本機 AI：available when localhost runtime is detected；屬於本機模型來源，不等於整套閉端 AI 已完成。
+3. 本機閉端 Runtime：ready；目前 H2W.3 使用本機檢索、上下文組合與候選稿管線。
+外部 AI：可選輔助；本工作區預設不發出外部 AI 請求。
 Draft / Candidate only：不直接修改 Canonical。
       </div>
       <div id="h2w3StatusGrid" class="h2w3-grid"></div>
@@ -196,7 +196,7 @@ Draft / Candidate only：不直接修改 Canonical。
       <div id="h2w3PanelStreaming" class="h2w3-panel"><div id="wholeNovelStreamingStatus" data-testid="wholeNovelStreamingStatus" class="h2w3-log" aria-live="polite"></div></div>
       <div id="wholeNovelErrorPanel" data-testid="wholeNovelErrorPanel" class="h2w3-log" hidden></div>
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
-      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture Browser Closed AI Ollama Local AI Local Closed Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic External AI optional future continual learning foundation continual learning not_implemented model training not_implemented</span>
+      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture 瀏覽器閉端 AI Ollama 本機 AI 本機閉端 Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic 外部 AI 可選 future continual learning foundation continual learning not_implemented model training not_implemented</span>
     `;
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
     diagnostics.workspaceInitialized = true;
@@ -407,10 +407,10 @@ Draft / Candidate only：不直接修改 Canonical。
       ["Evidence", state.evidence.length],
       ["Context Items", state.contextTrace.length],
       ["Public Corpus", state.publicCorpusOptIn ? "opt-in" : "disabled"],
-      ["Browser Closed AI", "not_implemented"],
-      ["Ollama Local AI", "available when localhost runtime is detected"],
-      ["Local Closed Runtime", "ready / browser workspace retrieval pipeline"],
-      ["External AI", "optional only; not used by this workspace"],
+      ["瀏覽器閉端 AI", "not_implemented"],
+      ["Ollama 本機 AI", "available when localhost runtime is detected"],
+      ["本機閉端 Runtime", "ready / browser workspace retrieval pipeline"],
+      ["外部 AI", "可選輔助；not used by this workspace"],
       ["Provider", "local-rule / local-runtime"],
       ["External Request Count", state.externalRequestCount],
       ["Data Left Device", String(state.dataLeftDevice)],
@@ -491,14 +491,14 @@ Draft / Candidate only：不直接修改 Canonical。
   function renderPrivacy() {
     setText("wholeNovelProviderStatus", [
       "Architecture: three-closed-ai / partial_ready",
-      "Browser Closed AI: not_implemented; H3A owns browser model inference",
-      "Ollama Local AI: available when localhost runtime is detected; not required for this workspace",
-      "Local Closed Runtime: ready; browser workspace retrieval and candidate pipeline",
+      "瀏覽器閉端 AI: not_implemented; H3A owns browser model inference",
+      "Ollama 本機 AI: available when localhost runtime is detected; not required for this workspace",
+      "本機閉端 Runtime: ready; browser workspace retrieval and candidate pipeline",
       "Provider: local-rule / local-runtime",
       "Model: browser workspace candidate; no cloud model by default",
       "Embedding Model: local-index metadata",
-      "External AI: optional only; no external request by default",
-      "Runtime Available: Local Closed Runtime ready",
+      "外部 AI：可選輔助；no external request by default",
+      "Runtime Available: 本機閉端 Runtime ready",
     ].join("\n"));
     setText("wholeNovelPrivacyStatus", [
       `External Request Count: ${state.externalRequestCount}`,
@@ -647,8 +647,8 @@ Draft / Candidate only：不直接修改 Canonical。
   function renderFeedback() {
     const stats = feedbackStats();
     setText("wholeNovelFeedbackPanel", [
-      "Feedback Foundation / Future Learning Contract",
-      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; training pipeline not_implemented",
+      "採用 / 編輯採用",
+      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; model training not_implemented; training pipeline not_implemented",
       "Privacy: prompts, raw private context, session tokens, and full author comments are not exposed.",
       `Feedback Records: ${stats.feedbackRecordCount}`,
       `Consented Candidates: ${stats.consentedCandidateCount}`,

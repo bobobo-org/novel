@@ -199,6 +199,7 @@
     "test:ai:h2w3:feedback-privacy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs feedback-privacy",
     "test:ai:h2w3:architecture-alignment": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs architecture-alignment",
     "test:ai:h2w3:learning-status-semantics": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs learning-status-semantics",
+    "test:ai:h2w3:visible-ui-semantics": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs visible-ui-semantics",
     "test:ai:h2w3:privacy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs privacy",
     "test:ai:h2w3:browser-real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs browser-real",
     "test:ai:h2w3:production-html": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs production-html",

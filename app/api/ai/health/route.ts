@@ -16,7 +16,7 @@ export const runtime = "nodejs";
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2w3-static-html-consistency-fix",
+  releaseTag: "novel-ai-h2w3-visible-ui-semantic-closure",
 };
 
 const L0A2E2D_TEST_META = {

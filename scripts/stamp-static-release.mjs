@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 
-const releaseTag = "novel-ai-h2w3-static-html-consistency-fix";
+const releaseTag = "novel-ai-h2w3-visible-ui-semantic-closure";
 
 if (process.env.VERCEL !== "1" && process.env.NOVEL_STATIC_STAMP !== "1") {
   console.log("Skipping static release stamping outside deployment.");
