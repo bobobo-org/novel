@@ -112,6 +112,14 @@
     }
     const mount = document.getElementById("wholeNovelWorkspaceMount") || shell;
     mount.innerHTML = `
+      <div class="h2w3-log" id="h2w3ArchitectureAlignment" data-testid="h2w3ArchitectureAlignment">
+三路閉端 AI 架構
+1. Browser Closed AI：not_implemented；H3A 才會處理瀏覽器模型推理。
+2. Ollama Local AI：available when localhost runtime is detected；屬於本機模型來源，不等於整套閉端 AI 已完成。
+3. Local Closed Runtime：ready；目前 H2W.3 使用本機檢索、上下文組合與候選稿管線。
+External AI：optional only；本工作區預設不發出外部 AI 請求。
+Draft / Candidate only：不直接修改 Canonical。
+      </div>
       <div id="h2w3StatusGrid" class="h2w3-grid"></div>
       <div class="h2w3-toolbar">
         <select id="wholeNovelProjectSelector" data-testid="wholeNovelProjectSelector" onchange="NovelWholeNovelWorkspace.setProject(this.value)">
@@ -183,7 +191,7 @@
       <div id="h2w3PanelStreaming" class="h2w3-panel"><div id="wholeNovelStreamingStatus" data-testid="wholeNovelStreamingStatus" class="h2w3-log" aria-live="polite"></div></div>
       <div id="wholeNovelErrorPanel" data-testid="wholeNovelErrorPanel" class="h2w3-log" hidden></div>
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
-      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset future continual learning foundation model training not_implemented</span>
+      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture Browser Closed AI Ollama Local AI Local Closed Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic External AI optional future continual learning foundation continual learning not_implemented model training not_implemented</span>
     `;
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
     diagnostics.workspaceInitialized = true;
@@ -387,12 +395,17 @@
     const project = currentProject();
     const rows = [
       ["Workspace", VERSION],
+      ["Architecture", "three-closed-ai / partial_ready"],
       ["Project", project.title],
       ["Branch", state.branchId],
       ["Scopes", state.selectedScopes.join(", ")],
       ["Evidence", state.evidence.length],
       ["Context Items", state.contextTrace.length],
       ["Public Corpus", state.publicCorpusOptIn ? "opt-in" : "disabled"],
+      ["Browser Closed AI", "not_implemented"],
+      ["Ollama Local AI", "available when localhost runtime is detected"],
+      ["Local Closed Runtime", "ready / browser workspace retrieval pipeline"],
+      ["External AI", "optional only; not used by this workspace"],
       ["Provider", "local-rule / local-runtime"],
       ["External Request Count", state.externalRequestCount],
       ["Data Left Device", String(state.dataLeftDevice)],
@@ -472,11 +485,15 @@
 
   function renderPrivacy() {
     setText("wholeNovelProviderStatus", [
-      "Runtime: Browser legacy workspace",
+      "Architecture: three-closed-ai / partial_ready",
+      "Browser Closed AI: not_implemented; H3A owns browser model inference",
+      "Ollama Local AI: available when localhost runtime is detected; not required for this workspace",
+      "Local Closed Runtime: ready; browser workspace retrieval and candidate pipeline",
       "Provider: local-rule / local-runtime",
       "Model: browser workspace candidate; no cloud model by default",
       "Embedding Model: local-index metadata",
-      "Runtime Available: browser fallback available",
+      "External AI: optional only; no external request by default",
+      "Runtime Available: Local Closed Runtime ready",
     ].join("\n"));
     setText("wholeNovelPrivacyStatus", [
       `External Request Count: ${state.externalRequestCount}`,
@@ -486,8 +503,14 @@
       "Branch Leakage Count: 0",
       `Feedback Records: ${(state.feedbackRecords || []).length}`,
       `Training Candidates: ${(state.trainingCandidates || []).length}`,
-      "Continual Learning Status: foundation_ready",
+      "Feedback Foundation Status: foundation_ready",
+      "Training Candidate Foundation Status: foundation_ready",
+      "Future Continual Learning Contract Status: foundation_ready",
+      "Continual Learning Status: not_implemented",
       "Model Training Status: not_implemented",
+      "LoRA Training Status: not_implemented",
+      "QLoRA Training Status: not_implemented",
+      "Automatic Model Promotion Status: not_implemented",
       "Prompt Hidden: true",
       "Session Token Hidden: true",
     ].join("\n"));
@@ -619,8 +642,8 @@
   function renderFeedback() {
     const stats = feedbackStats();
     setText("wholeNovelFeedbackPanel", [
-      "Future Continual Learning Foundation",
-      "Status: feedback_capture foundation_ready; training pipeline not_implemented",
+      "Feedback Foundation / Future Learning Contract",
+      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; training pipeline not_implemented",
       "Privacy: prompts, raw private context, session tokens, and full author comments are not exposed.",
       `Feedback Records: ${stats.feedbackRecordCount}`,
       `Consented Candidates: ${stats.consentedCandidateCount}`,

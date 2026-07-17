@@ -37,6 +37,8 @@ const expected = {
   feedback: 40,
   "training-candidate-foundation": 40,
   "feedback-privacy": 40,
+  "architecture-alignment": 20,
+  "learning-status-semantics": 20,
   privacy: 50,
   "browser-real": 39,
   "production-html": 12,
@@ -60,6 +62,8 @@ const modes = {
   feedback: testFeedback,
   "training-candidate-foundation": testTrainingCandidateFoundation,
   "feedback-privacy": testFeedbackPrivacy,
+  "architecture-alignment": testArchitectureAlignment,
+  "learning-status-semantics": testLearningStatusSemantics,
   privacy: testPrivacy,
   "browser-real": testBrowserReal,
   "production-html": testProductionHtml,
@@ -377,7 +381,7 @@ async function testFeedback() {
   }
   t.equal(H2W3_HEALTH.feedbackCaptureStatus, "foundation_ready", "health feedback foundation ready");
   t.equal(H2W3_HEALTH.userPreferenceSignalStatus, "foundation_ready", "health preference signal ready");
-  t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "contract_ready", "health future learning contract ready");
+  t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "foundation_ready", "health future learning contract foundation ready");
   t.equal(H2W3_HEALTH.continualLearningStatus, "not_implemented", "continual learning explicitly not implemented");
   return t.finish();
 }
@@ -417,7 +421,7 @@ async function testTrainingCandidateFoundation() {
     t.includes(js, item, `training candidate contract ${item}`);
   }
   t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "health training candidate foundation ready");
-  t.equal(H2W3_HEALTH.trainingConsentStatus, "contract_ready", "health training consent contract ready");
+  t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "health training consent foundation ready");
   t.equal(H2W3_HEALTH.modelTrainingStatus, "not_implemented", "model training not implemented");
   t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
   t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "auto promotion not implemented");
@@ -450,6 +454,66 @@ async function testFeedbackPrivacy() {
   t.equal(H2W3_HEALTH.webWholeNovelDataLeftDevice, false, "health data local");
   t.equal(H2W3_HEALTH.feedbackRecordCount, "runtime_query_required", "feedback count runtime only");
   t.equal(H2W3_HEALTH.feedbackProviderDistribution, "runtime_query_required", "feedback distribution runtime only");
+  return t.finish();
+}
+
+async function testArchitectureAlignment() {
+  const t = harness("H2W3 architecture-alignment", expected["architecture-alignment"]);
+  const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  const combined = `${html}\n${js}`;
+  for (const item of [
+    "三路閉端 AI 工作區",
+    "三路閉端 AI 架構",
+    "Browser Closed AI",
+    "Browser AI not implemented",
+    "Ollama Local AI",
+    "Ollama status dynamic",
+    "Local Closed Runtime",
+    "Local runtime status dynamic",
+    "External AI optional",
+    "Draft / Candidate only",
+    "not_implemented",
+    "partial_ready",
+    "wholeNovelWorkspaceOpen",
+    "wholeNovelAiWorkspace",
+  ]) {
+    t.includes(combined, item, `architecture text ${item}`);
+  }
+  t.equal(H2W3_HEALTH.browserClosedAiStatus, "not_implemented", "health browser ai not implemented");
+  t.ok(["ready", "available", "unavailable"].includes(H2W3_HEALTH.ollamaLocalAiStatus), "health ollama status enum");
+  t.ok(["ready", "available", "unavailable"].includes(H2W3_HEALTH.localClosedRuntimeStatus), "health local runtime status enum");
+  t.equal(H2W3_HEALTH.threeClosedAiArchitectureStatus, "partial_ready", "health architecture partial until H3A");
+  t.notIncludes(combined, "Continual Learning Status: foundation_ready", "ui does not claim active continual learning");
+  t.includes(combined, "External AI: optional only", "external ai optional wording");
+  return t.finish();
+}
+
+async function testLearningStatusSemantics() {
+  const t = harness("H2W3 learning-status-semantics", expected["learning-status-semantics"]);
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  t.equal(H2W3_HEALTH.feedbackCaptureStatus, "foundation_ready", "feedback foundation ready");
+  t.equal(H2W3_HEALTH.userPreferenceSignalStatus, "foundation_ready", "preference signal foundation ready");
+  t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "training candidate foundation ready");
+  t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "training consent foundation ready");
+  t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "foundation_ready", "future contract foundation ready");
+  t.equal(H2W3_HEALTH.continualLearningStatus, "not_implemented", "continual learning not implemented");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_implemented", "model training not implemented");
+  t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
+  t.equal(H2W3_HEALTH.qloraTrainingStatus, "not_implemented", "qlora not implemented");
+  t.equal(H2W3_HEALTH.adapterTrainingStatus, "not_implemented", "adapter training not implemented");
+  t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "automatic promotion not implemented");
+  for (const item of [
+    "Feedback Foundation Status: foundation_ready",
+    "Training Candidate Foundation Status: foundation_ready",
+    "Future Continual Learning Contract Status: foundation_ready",
+    "Continual Learning Status: not_implemented",
+    "Model Training Status: not_implemented",
+    "LoRA Training Status: not_implemented",
+    "QLoRA Training Status: not_implemented",
+    "active continual learning not_implemented",
+  ]) t.includes(js, item, `learning ui ${item}`);
+  t.notIncludes(js, "Continual Learning Status: foundation_ready", "no active learning claim in UI");
   return t.finish();
 }
 
@@ -497,7 +561,7 @@ async function testBrowserReal() {
 async function testProductionHtml() {
   const t = harness("H2W3 production-html", expected["production-html"]);
   const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
-  t.includes(html, "全書閉端 AI 工作區", "navigation label present");
+  t.includes(html, "三路閉端 AI 工作區", "navigation label present");
   t.includes(html, "id=\"wholeNovelWorkspaceOpen\"", "workspace open button in raw html");
   t.includes(html, "id=\"wholeNovelAiWorkspace\"", "workspace shell in raw html");
   t.includes(html, "id=\"wholeNovelWorkspaceMount\"", "workspace mount target in raw html");
@@ -598,7 +662,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 664,
+      expectedPass: 704,
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,
