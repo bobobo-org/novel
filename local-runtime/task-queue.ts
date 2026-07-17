@@ -51,7 +51,6 @@ export async function runRuntimeTask(input: RuntimeTaskInput): Promise<RuntimeTa
   const controller = new AbortController();
   runningControllers.set(taskId, controller);
   try {
-    const provider = selectedProvider === "ollama-local" ? new OllamaProvider({ model: selectedModel }) : new LocalRuleProvider();
     const request = {
       requestId: taskId,
       projectId: input.projectId,
@@ -62,17 +61,36 @@ export async function runRuntimeTask(input: RuntimeTaskInput): Promise<RuntimeTa
       abortSignal: controller.signal,
       constraints: { targetLength: input.targetLength },
     };
-    const result = input.taskType === "story_bible_extraction"
-      ? await provider.extractStoryBible(request)
-      : input.taskType === "consistency_check"
-        ? await provider.checkConsistency(request)
-        : input.taskType === "continue_writing"
-          ? await provider.continueWriting(request)
-          : input.taskType === "rewrite"
-            ? await provider.rewriteText(request)
-            : input.taskType === "plot_brainstorm"
-              ? await provider.brainstormPlot(request)
-              : await provider.summarizeChapter(request);
+    async function runProvider(provider: LocalRuleProvider | OllamaProvider) {
+      return input.taskType === "story_bible_extraction"
+        ? await provider.extractStoryBible(request)
+        : input.taskType === "consistency_check"
+          ? await provider.checkConsistency(request)
+          : input.taskType === "continue_writing"
+            ? await provider.continueWriting(request)
+            : input.taskType === "rewrite"
+              ? await provider.rewriteText(request)
+              : input.taskType === "plot_brainstorm"
+                ? await provider.brainstormPlot(request)
+                : await provider.summarizeChapter(request);
+    }
+    let result;
+    try {
+      const provider = selectedProvider === "ollama-local" ? new OllamaProvider({ model: selectedModel }) : new LocalRuleProvider();
+      result = await runProvider(provider);
+    } catch (error) {
+      if (selectedProvider === "local-rule") throw error;
+      const localResult = await runProvider(new LocalRuleProvider());
+      result = {
+        ...localResult,
+        fallbackUsed: true,
+        warnings: [
+          ...decision.warnings,
+          `local runtime fallback from ${selectedProvider}: ${error instanceof Error ? error.message : "provider failed"}`,
+          ...localResult.warnings,
+        ],
+      };
+    }
     store.addResult(taskId, input.projectId, {
       provider: result.provider,
       model: result.model,

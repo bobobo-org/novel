@@ -401,6 +401,8 @@ export async function GET() {
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
     ...H2C_HEALTH,
     ...H2W3_HEALTH,
+    contextComposerStatus: "ready",
+    webWholeNovelAiStatus: "ready",
     h2FullClosureStatus: "ready",
     vectorSearchStatus: "ready",
     longContextRetrievalStatus: "ready",
