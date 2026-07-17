@@ -8,9 +8,9 @@ const healthPath = path.join(root, "app", "api", "ai", "health", "route.ts");
 const mode = process.argv[2] || "all";
 
 const expected = {
-  all: 42,
-  static: 24,
-  integration: 18,
+  all: 60,
+  static: 34,
+  integration: 26,
 };
 
 function harness(name, target) {
@@ -79,6 +79,13 @@ function testStatic() {
   h.includes(script, "consumerDashboardStatus", "P1 script exposes consumerDashboardStatus");
   h.includes(script, "adultExperienceFoundationStatus", "P1 script exposes adultExperienceFoundationStatus");
   h.includes(script, "monetizationFoundationStatus", "P1 script exposes monetizationFoundationStatus");
+  h.includes(script, "consumerDashboardStatus: \"foundation_ready\"", "Dashboard is correctly marked foundation_ready");
+  h.includes(script, "adultExperienceFoundationStatus: \"foundation_ready\"", "Adult experience is correctly marked foundation_ready");
+  h.includes(script, "monetizationFoundationStatus: \"foundation_ready\"", "Monetization is correctly marked foundation_ready");
+  h.includes(script, "branch_choice", "P1 exposes branch choice task");
+  h.includes(script, "rewrite_scene", "P1 exposes rewrite task");
+  h.includes(script, "actualExecutor: \"deterministic_rule\"", "P1 labels deterministic rule executor");
+  h.includes(script, "Browser AI runtime is reserved for H3A", "P1 does not overclaim Browser AI runtime");
   h.includes(script, "window.NovelConsumerCenter", "P1 browser API is exported");
   h.includes(script, "novel_p1_consumer_creation_center", "P1 persists isolated state");
   h.notIncludes(script, "fetch(\"https://", "P1 client script does not call external HTTPS by default");
@@ -90,6 +97,9 @@ function testStatic() {
   h.includes(health, "consumerExternalRequestDefault", "Health exposes external request default");
   h.includes(health, "consumerDataLeftDeviceDefault", "Health exposes data-left-device default");
   h.includes(health, "monetizationFoundationStatus", "Health exposes monetization foundation status");
+  h.includes(health, "consumerAiProviderSlots", "Health exposes provider slot taxonomy");
+  h.includes(health, "consumerRouterDecisionFields", "Health exposes router decision fields");
+  h.includes(health, "consumerCoreActionCount: 8", "Health exposes eight core consumer actions");
 
   return h.finish();
 }
@@ -112,6 +122,14 @@ function testIntegration() {
   h.includes(script, "browser-workspace-local-rule", "P1 labels actual H2W3 browser model");
   h.includes(script, "externalRequestCount", "P1 reads external request count");
   h.includes(script, "dataLeftDevice", "P1 reads data-left-device flag");
+  h.includes(script, "externalConsent: false", "P1 defaults to no external consent");
+  h.includes(script, "outputDestination: \"draft_candidate_only\"", "P1 routes output to draft/candidate only");
+  h.includes(script, "Canonical", "P1 UI warns Canonical is not directly mutated");
+  h.includes(script, "browser_ai ollama local_runtime external_ai deterministic_rule", "P1 exposes all router provider slots");
+  h.includes(script, "taskType requestedCapability selectedProvider actualExecutor selectionReason fallbackReason externalConsent contextSources outputDestination executionStatus", "P1 exposes full router decision contract");
+  h.includes(health, "consumerDefaultProvider: \"LOCAL_CLOSED_RUNTIME\"", "Health default provider is local runtime");
+  h.includes(health, "consumerDefaultModel: \"browser-workspace-local-rule\"", "Health default model/executor label is explicit");
+  h.includes(health, "consumerDraftCandidateOnly: true", "Health confirms candidate-only destination");
 
   return h.finish();
 }
