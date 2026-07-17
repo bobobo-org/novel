@@ -2,6 +2,11 @@
   "use strict";
 
   const VERSION = "h2w3-web-whole-novel-ai";
+  window.NOVEL_STATIC_RELEASE = {
+    appCommit: "__NOVEL_STATIC_APP_COMMIT__",
+    releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
+    expectedReleaseTag: "novel-ai-h2w3-static-html-consistency-fix",
+  };
   const STORAGE_KEY = "novel_h2w3_whole_novel_workspace";
   const STREAM_EVENTS = ["retrieval_started", "retrieval_completed", "filtering", "deduplicating", "compressing", "budgeting", "context_ready", "generation_started", "token", "validating", "citation_ready", "persisting", "completed", "cancelled", "failed"];
   const UI_STATES = ["idle", "loading", "streaming", "success", "empty", "cancelled", "error", "runtime_unavailable", "permission_or_policy_blocked"];

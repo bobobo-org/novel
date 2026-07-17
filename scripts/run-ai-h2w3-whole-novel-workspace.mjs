@@ -19,6 +19,8 @@ import { RetrievalGenerationClient } from "../lib/novel-ai/web/retrieval-generat
 const mode = process.argv[2] || "all";
 const projectId = `h2w3_project_${process.pid}`;
 const storageDir = path.join(process.cwd(), ".test-runtime", "h2w3");
+const PRODUCTION_ORIGIN = process.env.H2W3_PRODUCTION_ORIGIN || "https://novel-orcin.vercel.app";
+const H2W3_RELEASE_TAG = "novel-ai-h2w3-static-html-consistency-fix";
 
 const expected = {
   retrieval: 40,
@@ -41,8 +43,9 @@ const expected = {
   "learning-status-semantics": 20,
   privacy: 50,
   "browser-real": 39,
-  "production-html": 12,
-  "production-smoke": 58,
+  "production-html": 15,
+  "production-smoke": 62,
+  "production-artifact-consistency": 12,
 };
 
 const modes = {
@@ -68,6 +71,7 @@ const modes = {
   "browser-real": testBrowserReal,
   "production-html": testProductionHtml,
   "production-smoke": testProductionSmoke,
+  "production-artifact-consistency": testProductionArtifactConsistency,
 };
 
 function harness(name, target) {
@@ -119,11 +123,11 @@ async function withWorkspace(fn) {
 
 async function seed(workspace) {
   const docs = [
-    { documentId: "chapter_001", sourceScope: "CHAPTERS", documentType: "chapter", chapterId: "1", title: "Opening Promise", body: "沈清禾 keeps a hidden promise. The main conflict starts when the rival moves the ledger. Foreshadow: the red jade token is missing.", characterIds: ["char_shen", "char_rival"], relationshipIds: ["rel_shen_rival"], eventIds: ["event_ledger"], canonicalStatus: "approved" },
+    { documentId: "chapter_001", sourceScope: "CHAPTERS", documentType: "chapter", chapterId: "1", title: "Opening Promise", body: "Shen Qinghe keeps a hidden promise. The main conflict starts when the rival moves the ledger. Foreshadow: the red jade token is missing.", characterIds: ["char_shen", "char_rival"], relationshipIds: ["rel_shen_rival"], eventIds: ["event_ledger"], canonicalStatus: "approved" },
     { documentId: "chapter_002", sourceScope: "CHAPTERS", documentType: "chapter", chapterId: "2", title: "Second Pressure", body: "The protagonist learns a world rule: oath magic requires a memory cost. The ally distrusts her and an open thread remains unresolved.", characterIds: ["char_shen", "char_ally"], relationshipIds: ["rel_shen_ally"], eventIds: ["event_oath"], canonicalStatus: "approved" },
     { documentId: "scene_001", sourceScope: "SCENES", documentType: "scene", sceneId: "scene_1", title: "Confrontation Scene", body: "A private confrontation escalates. The protagonist chooses patience instead of a direct attack.", characterIds: ["char_shen"], eventIds: ["event_confront"], canonicalStatus: "current_scene" },
     { documentId: "stage_001", sourceScope: "STAGES", documentType: "stage", stageId: "stage_1", title: "Cost Stage", body: "The cost is emotional pressure and a weaker alliance. The hook points to a secret room.", characterIds: ["char_shen"], eventIds: ["event_cost"], canonicalStatus: "draft" },
-    { documentId: "character_shen", sourceScope: "STORY_BIBLE", documentType: "character", title: "沈清禾", body: "沈清禾 is patient, strategic, afraid of betrayal, and currently focused on proving the ledger was altered.", characterIds: ["char_shen"], canonicalStatus: "approved" },
+    { documentId: "character_shen", sourceScope: "STORY_BIBLE", documentType: "character", title: "Shen Qinghe", body: "Shen Qinghe is patient, strategic, afraid of betrayal, and currently focused on proving the ledger was altered.", characterIds: ["char_shen"], canonicalStatus: "approved" },
     { documentId: "world_rule_001", sourceScope: "STORY_BIBLE", documentType: "world_rule", title: "Oath Magic Cost", body: "World rule: oath magic cannot be used without losing a personal memory.", eventIds: ["event_oath"], canonicalStatus: "approved" },
     { documentId: "library_001", sourceScope: "USER_IMPORTED_LIBRARY", documentType: "chapter", title: "User Library Note", body: "Imported private reference: a slow-burn investigation alternates between clue and emotional consequence.", canonicalStatus: "approved" },
     { documentId: "public_001", sourceScope: "PUBLIC_CORPUS", documentType: "chapter", title: "Public Corpus Structure", body: "Public-domain structure note: chapter opens with a clue, raises a moral cost, and closes with reversal.", canonicalStatus: "approved", visibility: "public" },
@@ -562,6 +566,9 @@ async function testProductionHtml() {
   const t = harness("H2W3 production-html", expected["production-html"]);
   const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
   t.includes(html, "三路閉端 AI 工作區", "navigation label present");
+  t.includes(html, "name=\"novel-static-release\"", "static commit meta present");
+  t.includes(html, "id=\"novelStaticRelease\"", "static release body marker present");
+  t.includes(html, "__NOVEL_STATIC_APP_COMMIT__", "static commit placeholder present before build stamping");
   t.includes(html, "id=\"wholeNovelWorkspaceOpen\"", "workspace open button in raw html");
   t.includes(html, "id=\"wholeNovelAiWorkspace\"", "workspace shell in raw html");
   t.includes(html, "id=\"wholeNovelWorkspaceMount\"", "workspace mount target in raw html");
@@ -640,14 +647,61 @@ async function testProductionSmoke() {
     "id=\"wholeNovelWorkspaceOpen\"",
     "hidden><header class=\"h2w3-head\"",
     "setWorkspaceCollapsed(false)",
+    "NOVEL_STATIC_RELEASE",
+    "novelStaticRelease",
+    "novel-static-release",
+    "novel-ai-h2w3-static-html-consistency-fix",
   ]) {
     t.includes(combined, item, `production smoke artifact ${item}`);
   }
   return t.finish();
 }
 
+function extractStaticReleaseFromHtml(html) {
+  const metaCommit = html.match(/<meta\s+name="novel-static-release"\s+content="([^"]+)"/)?.[1] || "";
+  const divCommit = html.match(/id="novelStaticRelease"[^>]*data-app-commit="([^"]+)"/)?.[1] || "";
+  const divTag = html.match(/id="novelStaticRelease"[^>]*data-release-tag="([^"]+)"/)?.[1] || "";
+  return { metaCommit, divCommit, divTag };
+}
+
+function extractStaticReleaseFromJs(js) {
+  const appCommit = js.match(/appCommit:\s*"([^"]+)"/)?.[1] || "";
+  const releaseTag = js.match(/releaseTag:\s*"([^"]+)"/)?.[1] || "";
+  return { appCommit, releaseTag };
+}
+
+async function fetchProductionText(pathname) {
+  const url = `${PRODUCTION_ORIGIN}${pathname}${pathname.includes("?") ? "&" : "?"}h2w3Verify=${Date.now()}`;
+  const response = await fetch(url, { cache: "no-store" });
+  const text = await response.text();
+  return { response, text, url };
+}
+
+async function testProductionArtifactConsistency() {
+  const t = harness("H2W3 production-artifact-consistency", expected["production-artifact-consistency"]);
+  const healthFetch = await fetchProductionText("/api/ai/health");
+  const htmlFetch = await fetchProductionText("/legacy/novel-system.html");
+  const jsFetch = await fetchProductionText("/legacy/novel-whole-novel-workspace.js");
+  const health = JSON.parse(healthFetch.text);
+  const htmlRelease = extractStaticReleaseFromHtml(htmlFetch.text);
+  const jsRelease = extractStaticReleaseFromJs(jsFetch.text);
+  t.equal(healthFetch.response.status, 200, "health reachable");
+  t.equal(htmlFetch.response.status, 200, "html reachable");
+  t.equal(jsFetch.response.status, 200, "js reachable");
+  t.equal(health.releaseTag, H2W3_RELEASE_TAG, "health release tag matches expected");
+  t.equal(htmlRelease.metaCommit, health.appCommit, "html meta commit matches health");
+  t.equal(htmlRelease.divCommit, health.appCommit, "html body commit matches health");
+  t.equal(jsRelease.appCommit, health.appCommit, "js static commit matches health");
+  t.equal(htmlRelease.divTag, health.releaseTag, "html release tag matches health");
+  t.equal(jsRelease.releaseTag, health.releaseTag, "js release tag matches health");
+  t.includes(htmlFetch.text, "三路閉端 AI 工作區", "production html architecture wording present");
+  t.notIncludes(htmlFetch.text, "全書閉端 AI 工作區", "production html legacy wording absent");
+  t.ok(String(htmlFetch.response.url).startsWith(PRODUCTION_ORIGIN), "production alias response url used", htmlFetch.response.url);
+  return t.finish();
+}
+
 async function main() {
-  const selected = mode === "all" ? Object.entries(modes).filter(([name]) => name !== "production-smoke") : [[mode, modes[mode]]];
+  const selected = mode === "all" ? Object.entries(modes).filter(([name]) => !["production-smoke", "production-artifact-consistency"].includes(name)) : [[mode, modes[mode]]];
   if (!selected[0]?.[1]) throw new Error(`Unknown H2W.3 mode: ${mode}`);
   let pass = 0;
   let fail = 0;
@@ -662,7 +716,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 704,
+      expectedPass: 707,
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,

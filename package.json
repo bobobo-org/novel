@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/stamp-static-release.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",
@@ -203,6 +203,7 @@
     "test:ai:h2w3:browser-real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs browser-real",
     "test:ai:h2w3:production-html": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs production-html",
     "test:ai:h2w3:production-smoke": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs production-smoke",
+    "test:ai:h2w3:production-artifact-consistency": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs production-artifact-consistency",
     "test:ai:h2w3:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2w3-whole-novel-workspace.mjs all",
     "test:ai:h2d1:schema": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs schema",
     "test:ai:h2d1:license": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs license",
