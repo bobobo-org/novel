@@ -5,7 +5,9 @@
   window.NOVEL_STATIC_RELEASE = {
     appCommit: "__NOVEL_STATIC_APP_COMMIT__",
     releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
-    expectedReleaseTag: "novel-ai-h2w3-visible-ui-semantic-closure",
+    expectedReleaseTag: "novel-ai-h2w3-production-visible-body-closure",
+    visibleUiSemanticVersion: "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__",
+    visibleUiBodyHash: "__NOVEL_VISIBLE_UI_BODY_HASH__",
   };
   const STORAGE_KEY = "novel_h2w3_whole_novel_workspace";
   const STREAM_EVENTS = ["retrieval_started", "retrieval_completed", "filtering", "deduplicating", "compressing", "budgeting", "context_ready", "generation_started", "token", "validating", "citation_ready", "persisting", "completed", "cancelled", "failed"];

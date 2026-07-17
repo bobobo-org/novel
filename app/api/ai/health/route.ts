@@ -10,13 +10,16 @@ import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-ficti
 import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
+import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
 
 export const runtime = "nodejs";
 
 const RELEASE_META = {
   appCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-h2p-full-closure",
   buildTimestamp: process.env.BUILD_TIMESTAMP || "2026-07-16T23:20:00Z",
-  releaseTag: "novel-ai-h2w3-visible-ui-semantic-closure",
+  releaseTag: "novel-ai-h2w3-production-visible-body-closure",
+  visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
+  visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
 };
 
 const L0A2E2D_TEST_META = {

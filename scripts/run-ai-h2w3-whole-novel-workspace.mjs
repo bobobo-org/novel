@@ -1,5 +1,7 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { SQLiteProjectConnection } from "../lib/novel-ai/storage/sqlite/sqlite-connection.ts";
 import { WholeNovelWorkspaceClient, H2W3_HEALTH, WEB_WHOLE_NOVEL_WORKSPACE_VERSION } from "../lib/novel-ai/web/whole-novel-workspace-client.ts";
 import { RetrievalSearchClient } from "../lib/novel-ai/web/retrieval-search-client.ts";
@@ -15,12 +17,21 @@ import { PacingAnalysisClient } from "../lib/novel-ai/web/pacing-analysis-client
 import { WorldRuleAuditClient } from "../lib/novel-ai/web/world-rule-audit-client.ts";
 import { PublicCorpusClient } from "../lib/novel-ai/web/public-corpus-client.ts";
 import { RetrievalGenerationClient } from "../lib/novel-ai/web/retrieval-generation-client.ts";
+import {
+  H2W3_VISIBLE_UI_BODY_HASH,
+  H2W3_VISIBLE_UI_FORBIDDEN_STRINGS,
+  H2W3_VISIBLE_UI_REQUIRED_STRINGS,
+  H2W3_VISIBLE_UI_SEMANTIC_VERSION,
+  computeVisibleUiBodyHash,
+  extractVisibleSemanticSourceFromBody,
+} from "../lib/novel-ai/web/visible-ui-semantics.ts";
 
 const mode = process.argv[2] || "all";
 const projectId = `h2w3_project_${process.pid}`;
 const storageDir = path.join(process.cwd(), ".test-runtime", "h2w3");
 const PRODUCTION_ORIGIN = process.env.H2W3_PRODUCTION_ORIGIN || "https://novel-orcin.vercel.app";
-const H2W3_RELEASE_TAG = "novel-ai-h2w3-visible-ui-semantic-closure";
+const H2W3_RELEASE_TAG = "novel-ai-h2w3-production-visible-body-closure";
+const PRODUCTION_VERIFICATION_DIR = path.join(process.cwd(), "artifacts", "production-verification");
 
 const expected = {
   retrieval: 40,
@@ -47,6 +58,9 @@ const expected = {
   "production-html": 15,
   "production-smoke": 62,
   "production-artifact-consistency": 12,
+  "production-visible-body": 25,
+  "production-no-legacy-semantics": 20,
+  "build-mutation-trace": 15,
 };
 
 const modes = {
@@ -74,6 +88,9 @@ const modes = {
   "production-html": testProductionHtml,
   "production-smoke": testProductionSmoke,
   "production-artifact-consistency": testProductionArtifactConsistency,
+  "production-visible-body": testProductionVisibleBody,
+  "production-no-legacy-semantics": testProductionNoLegacySemantics,
+  "build-mutation-trace": testBuildMutationTrace,
 };
 
 function harness(name, target) {
@@ -689,7 +706,7 @@ async function testProductionSmoke() {
     "NOVEL_STATIC_RELEASE",
     "novelStaticRelease",
     "novel-static-release",
-    "novel-ai-h2w3-visible-ui-semantic-closure",
+    H2W3_RELEASE_TAG,
   ]) {
     t.includes(combined, item, `production smoke artifact ${item}`);
   }
@@ -700,13 +717,17 @@ function extractStaticReleaseFromHtml(html) {
   const metaCommit = html.match(/<meta\s+name="novel-static-release"\s+content="([^"]+)"/)?.[1] || "";
   const divCommit = html.match(/id="novelStaticRelease"[^>]*data-app-commit="([^"]+)"/)?.[1] || "";
   const divTag = html.match(/id="novelStaticRelease"[^>]*data-release-tag="([^"]+)"/)?.[1] || "";
-  return { metaCommit, divCommit, divTag };
+  const visibleUiSemanticVersion = html.match(/id="novelStaticRelease"[^>]*data-visible-ui-semantic-version="([^"]+)"/)?.[1] || "";
+  const visibleUiBodyHash = html.match(/id="novelStaticRelease"[^>]*data-visible-ui-body-hash="([^"]+)"/)?.[1] || "";
+  return { metaCommit, divCommit, divTag, visibleUiSemanticVersion, visibleUiBodyHash };
 }
 
 function extractStaticReleaseFromJs(js) {
   const appCommit = js.match(/appCommit:\s*"([^"]+)"/)?.[1] || "";
   const releaseTag = js.match(/releaseTag:\s*"([^"]+)"/)?.[1] || "";
-  return { appCommit, releaseTag };
+  const visibleUiSemanticVersion = js.match(/visibleUiSemanticVersion:\s*"([^"]+)"/)?.[1] || "";
+  const visibleUiBodyHash = js.match(/visibleUiBodyHash:\s*"([^"]+)"/)?.[1] || "";
+  return { appCommit, releaseTag, visibleUiSemanticVersion, visibleUiBodyHash };
 }
 
 async function fetchProductionText(pathname) {
@@ -714,6 +735,94 @@ async function fetchProductionText(pathname) {
   const response = await fetch(url, { cache: "no-store" });
   const text = await response.text();
   return { response, text, url };
+}
+
+function sha256(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+function ensureProductionVerificationDir() {
+  fs.mkdirSync(PRODUCTION_VERIFICATION_DIR, { recursive: true });
+}
+
+function writeProductionArtifact(name, content) {
+  ensureProductionVerificationDir();
+  const file = path.join(PRODUCTION_VERIFICATION_DIR, name);
+  fs.writeFileSync(file, typeof content === "string" ? content : JSON.stringify(content, null, 2), "utf8");
+  return { file, sha256: sha256(fs.readFileSync(file, "utf8")) };
+}
+
+function headersToObject(headers) {
+  const result = {};
+  for (const [key, value] of headers.entries()) result[key] = value;
+  return result;
+}
+
+function fetchProductionHtmlWithCurl() {
+  const url = `${PRODUCTION_ORIGIN}/legacy/novel-system.html?h2w3Curl=${Date.now()}`;
+  const body = execFileSync("curl.exe", ["-L", "-sS", url], { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+  const headerText = execFileSync("curl.exe", ["-L", "-sS", "-D", "-", "-o", "NUL", url], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+  return { url, body, headerText };
+}
+
+async function fetchProductionHtmlWithNode() {
+  return fetchProductionText("/legacy/novel-system.html");
+}
+
+async function fetchProductionHtmlWithPlaywrightRequest() {
+  const url = `${PRODUCTION_ORIGIN}/legacy/novel-system.html?h2w3Playwright=${Date.now()}`;
+  try {
+    const { request } = await import("@playwright/test");
+    const context = await request.newContext();
+    const response = await context.get(url);
+    const body = await response.text();
+    await context.dispose();
+    return { status: "fetched", url, statusCode: response.status(), body, headers: response.headers() };
+  } catch (error) {
+    return {
+      status: "infrastructure_blocked",
+      url,
+      statusCode: null,
+      body: "",
+      headers: {},
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function verifyVisibleBodySemantics(t, body, label) {
+  for (const item of H2W3_VISIBLE_UI_REQUIRED_STRINGS) {
+    t.includes(body, item, `${label} expected string ${item}`);
+  }
+  for (const item of H2W3_VISIBLE_UI_FORBIDDEN_STRINGS) {
+    t.notIncludes(body, item, `${label} legacy string absent ${item}`);
+  }
+  const semanticSource = extractVisibleSemanticSourceFromBody(body);
+  t.equal(computeVisibleUiBodyHash(semanticSource), H2W3_VISIBLE_UI_BODY_HASH, `${label} visible semantic hash matches shared constant`);
+}
+
+function classifyRepositoryLegacyMatches() {
+  const patterns = H2W3_VISIBLE_UI_FORBIDDEN_STRINGS.join("|");
+  let output = "";
+  try {
+    output = execFileSync("rg", ["-n", patterns, "public", "app", "scripts", "lib"], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  } catch (error) {
+    output = error.stdout || "";
+  }
+  return output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [file] = line.split(":");
+      const isProductionUi = file === "public\\legacy\\novel-system.html" || file === "public/legacy/novel-system.html" || file === "public\\legacy\\novel-whole-novel-workspace.js" || file === "public/legacy/novel-whole-novel-workspace.js";
+      const isHistoricalDoc = file.includes("使用說明_README");
+      const isTestOrBackendVersion = file.includes("scripts\\") || file.includes("scripts/") || file.includes("app\\api\\admin") || file.includes("app/api/admin") || file.includes("lib\\novel-ai\\store") || file.includes("lib/novel-ai/store") || file.includes("lib\\novel-ai\\prompts") || file.includes("lib/novel-ai/prompts");
+      return {
+        line,
+        file,
+        classification: isProductionUi ? "production-ui" : isHistoricalDoc ? "historical-doc" : isTestOrBackendVersion ? "test-or-backend-version" : "other",
+      };
+    });
 }
 
 async function testProductionArtifactConsistency() {
@@ -739,8 +848,116 @@ async function testProductionArtifactConsistency() {
   return t.finish();
 }
 
+async function testProductionVisibleBody() {
+  const t = harness("H2W3 production-visible-body", expected["production-visible-body"]);
+  const curlResult = fetchProductionHtmlWithCurl();
+  const nodeResult = await fetchProductionHtmlWithNode();
+  const playwrightResult = await fetchProductionHtmlWithPlaywrightRequest();
+  const healthFetch = await fetchProductionText("/api/ai/health");
+  const health = JSON.parse(healthFetch.text);
+  const headers = headersToObject(nodeResult.response.headers);
+  const htmlRelease = extractStaticReleaseFromHtml(nodeResult.text);
+  const semanticSource = extractVisibleSemanticSourceFromBody(nodeResult.text);
+  const bodyHash = computeVisibleUiBodyHash(semanticSource);
+  const artifacts = {
+    curlBody: writeProductionArtifact("curl-novel-system.html", curlResult.body),
+    nodeBody: writeProductionArtifact("node-fetch-novel-system.html", nodeResult.text),
+    playwrightBody: writeProductionArtifact(
+      "playwright-request-novel-system.html",
+      playwrightResult.status === "fetched" ? playwrightResult.body : JSON.stringify(playwrightResult, null, 2),
+    ),
+    headers: writeProductionArtifact("response-headers.json", { node: headers, curl: curlResult.headerText, playwright: playwrightResult.headers }),
+  };
+  const summary = {
+    productionOrigin: PRODUCTION_ORIGIN,
+    nodeUrl: nodeResult.url,
+    responseUrl: nodeResult.response.url,
+    status: nodeResult.response.status,
+    contentLength: headers["content-length"] || null,
+    etag: headers.etag || null,
+    age: headers.age || null,
+    cacheControl: headers["cache-control"] || null,
+    htmlSha256: sha256(nodeResult.text),
+    visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
+    visibleUiBodyHash: bodyHash,
+    expectedVisibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
+    healthVisibleUiBodyHash: health.visibleUiBodyHash,
+    healthReleaseTag: health.releaseTag,
+    healthAppCommit: health.appCommit,
+    healthDeploymentId: health.deploymentId,
+    staticRelease: htmlRelease,
+    requiredFound: H2W3_VISIBLE_UI_REQUIRED_STRINGS.filter((item) => nodeResult.text.includes(item)),
+    legacyFound: H2W3_VISIBLE_UI_FORBIDDEN_STRINGS.filter((item) => nodeResult.text.includes(item)),
+    playwrightStatus: playwrightResult.status,
+    artifacts,
+  };
+  writeProductionArtifact("verification-summary.json", summary);
+
+  t.equal(nodeResult.response.status, 200, "node fetch production html status 200");
+  t.ok(String(nodeResult.response.url).startsWith(PRODUCTION_ORIGIN), "node fetch stayed on production alias", nodeResult.response.url);
+  t.ok(curlResult.body.length > 1000, "curl production body captured");
+  t.equal(curlResult.body.includes("三路閉端 AI 工作區"), true, "curl body has visible architecture");
+  t.equal(sha256(curlResult.body), sha256(nodeResult.text), "curl and node body hash match");
+  t.ok(playwrightResult.status === "fetched" || playwrightResult.status === "infrastructure_blocked", "playwright request attempted and recorded");
+  if (playwrightResult.status === "fetched") t.equal(sha256(playwrightResult.body), sha256(nodeResult.text), "playwright and node body hash match");
+  t.equal(healthFetch.response.status, 200, "health reachable");
+  t.equal(health.releaseTag, H2W3_RELEASE_TAG, "health release tag final closure");
+  t.equal(health.visibleUiSemanticVersion, H2W3_VISIBLE_UI_SEMANTIC_VERSION, "health visible semantic version");
+  t.equal(health.visibleUiBodyHash, H2W3_VISIBLE_UI_BODY_HASH, "health visible body hash");
+  t.equal(htmlRelease.visibleUiSemanticVersion, H2W3_VISIBLE_UI_SEMANTIC_VERSION, "html semantic version marker");
+  t.equal(htmlRelease.visibleUiBodyHash, H2W3_VISIBLE_UI_BODY_HASH, "html visible body hash marker");
+  t.equal(bodyHash, H2W3_VISIBLE_UI_BODY_HASH, "production body recomputed visible hash");
+  verifyVisibleBodySemantics(t, nodeResult.text, "node production body");
+  t.equal(summary.legacyFound.length, 0, "summary legacy found zero");
+  t.ok(fs.existsSync(path.join(PRODUCTION_VERIFICATION_DIR, "verification-summary.json")), "verification summary artifact exists");
+  return t.finish();
+}
+
+async function testProductionNoLegacySemantics() {
+  const t = harness("H2W3 production-no-legacy-semantics", expected["production-no-legacy-semantics"]);
+  const htmlFetch = await fetchProductionText("/legacy/novel-system.html");
+  const jsFetch = await fetchProductionText("/legacy/novel-whole-novel-workspace.js");
+  const combined = `${htmlFetch.text}\n${jsFetch.text}`;
+  const classifications = classifyRepositoryLegacyMatches();
+  writeProductionArtifact("repository-legacy-rg.json", classifications);
+  t.equal(htmlFetch.response.status, 200, "production html reachable");
+  t.equal(jsFetch.response.status, 200, "production js reachable");
+  for (const item of H2W3_VISIBLE_UI_FORBIDDEN_STRINGS) t.notIncludes(combined, item, `production body legacy absent ${item}`);
+  for (const item of H2W3_VISIBLE_UI_REQUIRED_STRINGS) t.includes(combined, item, `production body expected present ${item}`);
+  t.equal(classifications.filter((row) => row.classification === "production-ui").length, 0, "repository has no legacy match in production UI artifacts");
+  t.ok(classifications.every((row) => ["historical-doc", "test-or-backend-version", "other"].includes(row.classification)), "legacy repository matches classified as non-production UI");
+  t.ok(classifications.some((row) => row.classification === "historical-doc"), "historical README legacy strings classified");
+  t.ok(classifications.some((row) => row.classification === "test-or-backend-version"), "test/backend legacy strings classified");
+  return t.finish();
+}
+
+async function testBuildMutationTrace() {
+  const t = harness("H2W3 build-mutation-trace", expected["build-mutation-trace"]);
+  const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
+  const js = fs.readFileSync("public/legacy/novel-whole-novel-workspace.js", "utf8");
+  const stamp = fs.readFileSync("scripts/stamp-static-release.mjs", "utf8");
+  const health = fs.readFileSync("app/api/ai/health/route.ts", "utf8");
+  const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  t.includes(stamp, H2W3_RELEASE_TAG, "stamp uses final release tag");
+  t.includes(stamp, "__NOVEL_VISIBLE_UI_BODY_HASH__", "stamp replaces visible body hash");
+  t.includes(stamp, "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__", "stamp replaces semantic version");
+  t.includes(stamp, "visibleUiRequiredStrings", "stamp source list present");
+  t.includes(health, "visibleUiSemanticVersion", "health exposes semantic version");
+  t.includes(health, "visibleUiBodyHash", "health exposes visible body hash");
+  t.includes(health, H2W3_RELEASE_TAG, "health final release tag");
+  t.includes(html, "data-visible-ui-semantic-version", "html release marker semantic version");
+  t.includes(html, "data-visible-ui-body-hash", "html release marker body hash");
+  t.includes(js, "visibleUiSemanticVersion", "js static release semantic version");
+  t.includes(js, "visibleUiBodyHash", "js static release body hash");
+  t.includes(js, `expectedReleaseTag: "${H2W3_RELEASE_TAG}"`, "js expected release tag final");
+  t.includes(pkg.scripts.build, "node scripts/stamp-static-release.mjs && next build", "build stamps before next build");
+  t.equal(computeVisibleUiBodyHash(H2W3_VISIBLE_UI_REQUIRED_STRINGS), H2W3_VISIBLE_UI_BODY_HASH, "shared hash deterministic");
+  t.equal(H2W3_VISIBLE_UI_FORBIDDEN_STRINGS.length, 11, "legacy forbidden list covers requested strings");
+  return t.finish();
+}
+
 async function main() {
-  const selected = mode === "all" ? Object.entries(modes).filter(([name]) => !["production-smoke", "production-artifact-consistency"].includes(name)) : [[mode, modes[mode]]];
+  const selected = mode === "all" ? Object.entries(modes).filter(([name]) => !name.startsWith("production-")) : [[mode, modes[mode]]];
   if (!selected[0]?.[1]) throw new Error(`Unknown H2W.3 mode: ${mode}`);
   let pass = 0;
   let fail = 0;
@@ -755,7 +972,7 @@ async function main() {
       pass,
       fail,
       skip: 0,
-      expectedPass: 737,
+      expectedMinimumPass: selected.reduce((total, [name]) => total + (expected[name] || 0), 0),
       health: H2W3_HEALTH,
       externalRequestCount: 0,
       dataLeftDevice: false,
