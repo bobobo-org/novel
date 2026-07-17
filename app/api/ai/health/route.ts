@@ -425,7 +425,6 @@ export async function GET() {
     adultEntrySafetyStatus: "partial",
     productionRouteConvergenceStatus: "ready",
     mobileConsumerExperienceStatus: "ready",
-    browserAiStatus: "not_implemented",
     consumerAiProviderSlots: ["browser_ai", "ollama", "local_runtime", "external_ai", "deterministic_rule"],
     consumerRouterDecisionFields: [
       "taskType",

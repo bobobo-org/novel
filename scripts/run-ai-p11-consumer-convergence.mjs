@@ -19,7 +19,7 @@ check("三選一引用作品",choice.includes("NovelConsumer.activeProject")&&ch
 check("分支與一次回復",choice.includes("branches.push")&&choice.includes("回到上一個選擇點")&&choice.includes("snapshot.stats"));
 check("數值歷程完整",core.includes("before,delta")&&core.includes("reason")&&core.includes("branchId")&&dashboard.includes("最近變化"));
 check("成人入口雙確認",(read("public/legacy/adult-entry-guard.js").match(/confirm\(/g)||[]).length===2);
-check("Browser AI 不冒充",app.includes("Browser AI not_implemented")&&health.includes('browserAiStatus: "not_implemented"'));
+check("Browser AI 不冒充",app.includes("Browser AI not_implemented")&&health.includes('browserAIStatus: "not_implemented"'));
 check("Health 誠實狀態",health.includes('dynamicThreeChoiceStatus: "partial"')&&health.includes('storyThemeSystemStatus: "foundation_ready"')&&health.includes('adultEntrySafetyStatus: "partial"'));
 check("預設外部請求為零",health.includes("consumerExternalRequestDefault: 0")&&health.includes("consumerDataLeftDeviceDefault: false"));
 check("手機版版面",css.includes("@media(max-width:820px)")&&css.includes("@media(max-width:520px)"));
