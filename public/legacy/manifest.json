@@ -3,7 +3,7 @@
   "short_name": "小說生成系統",
   "description": "可離線使用的小說創作、作品管理、規則式續寫與本機 AI 輔助系統。",
   "lang": "zh-Hant",
-  "start_url": "./novel-system.html",
+  "start_url": "/studio",
   "scope": "./",
   "display": "standalone",
   "background_color": "#090d18",

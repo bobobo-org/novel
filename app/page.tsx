@@ -1,50 +1,24 @@
+const entries = [
+  ["開始新故事", "從五個簡單步驟建立人物、世界與玩法。", "/studio?screen=create"],
+  ["繼續我的故事", "回到最近作品與最後編輯的章節。", "/studio?screen=write"],
+  ["玩互動故事", "讓每次選擇改變分支與故事數值。", "/studio?screen=choice"],
+  ["修改目前作品", "改寫選取內容，先預覽候選稿再決定。", "/studio?screen=write&task=rewrite_scene"],
+  ["檢查整本作品", "檢查矛盾、時間線與未回收伏筆。", "/studio?screen=inspect"],
+  ["我的作品", "管理作品、版本、存檔與備份。", "/studio?screen=library"],
+];
+
 export default function Home() {
-  return (
-    <main className="min-h-screen bg-[#090d18] px-6 py-10 text-[#edf4ff]">
-      <section className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl flex-col justify-center">
-        <p className="mb-4 text-sm font-semibold tracking-[0.2em] text-[#f2c86b]">
-          ZHUTIAN NOVEL SYSTEM
-        </p>
-        <h1 className="max-w-3xl text-4xl font-black leading-tight sm:text-6xl">
-          諸天萬界小說生成系統
-        </h1>
-        <p className="mt-6 max-w-3xl text-lg leading-8 text-[#b8c8e8]">
-          v5.9.1 閉端 AI 多章批量操作章節號修正版已合併到此 repo。
-          目前完整離線平台版以靜態 HTML 形式提供，包含 Explore、快速創作、
-          ChatGPT 接力、小型閉端 AI、章節版本管理、多章批量操作與一致性守護。
-        </p>
-
-        <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-          <a
-            className="rounded-lg border border-[#97763b] bg-[#493916] px-6 py-4 text-center font-bold text-[#ffe4a1] transition hover:border-[#f2c86b]"
-            href="/legacy/novel-system.html"
-          >
-            開啟 v5.9.1 完整系統
-          </a>
-          <a
-            className="rounded-lg border border-[#344967] bg-[#182642] px-6 py-4 text-center font-bold text-[#edf4ff] transition hover:border-[#5ba7ff]"
-            href="/legacy/使用說明_README.txt"
-          >
-            查看使用說明
-          </a>
-        </div>
-
-        <div className="mt-10 grid gap-4 sm:grid-cols-3">
-          {[
-            ["閉端 AI", "章節草稿、迭代、監督、一致性檢查"],
-            ["版本分支", "保存、比對、設為主線、分支實驗"],
-            ["批量操作", "最近多章統一加強反派、代價與情感線"],
-          ].map(([title, body]) => (
-            <article
-              className="rounded-xl border border-[#2c3852] bg-[#141d31] p-5"
-              key={title}
-            >
-              <h2 className="text-lg font-bold text-[#f2c86b]">{title}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#b8c8e8]">{body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
+  return <main className="frontdoor">
+    <header className="frontdoorNav">
+      <a className="brandLockup" href="/" aria-label="諸天萬界小說生成系統首頁"><span className="brandSeal">創</span><span><b>諸天萬界</b><small>小說生成系統</small></span></a>
+      <nav aria-label="主要導覽"><a className="active" href="/">首頁</a><a href="/studio?screen=create">創作</a><a href="/studio?screen=write">AI 助手</a><a href="/studio?screen=choice">互動故事</a><a href="/studio?screen=library">我的作品</a></nav>
+      <a className="navCta" href="/studio">進入創作中心</a>
+    </header>
+    <section className="frontdoorHero">
+      <div className="heroCopy"><p className="eyebrow">你的故事，從這裡開始</p><h1>諸天萬界小說生成系統</h1><p className="lead">創作、互動、養成與經營的 AI 故事平台</p><h2>今天想創作什麼樣的故事？</h2><div className="heroActions"><a className="primaryAction" href="/studio?screen=create">開始新故事</a><a className="secondaryAction" href="/studio?screen=write">繼續最近作品</a></div></div>
+      <div className="worldPreview" aria-label="故事世界預覽"><span className="moon"/><span className="mountain mountainBack"/><span className="mountain mountainFront"/><div className="previewCaption"><small>目前模式</small><b>本機優先・候選稿安全邊界</b></div></div>
+    </section>
+    <section className="frontdoorEntries" aria-labelledby="entryTitle"><div className="sectionTitle"><span>六種開始方式</span><h2 id="entryTitle">選一件現在最想做的事</h2></div><div className="entryGrid">{entries.map(([title, description, href], index) => <a className="entryCard" href={href} key={title}><span className="entryIndex">{String(index + 1).padStart(2,"0")}</span><h3>{title}</h3><p>{description}</p><span className="entryArrow" aria-hidden="true">→</span></a>)}</div></section>
+    <footer className="frontdoorFooter"><p>作品預設保存在目前裝置。AI 產出先進入候選稿，不會直接覆蓋正文。</p><a href="/studio?mode=professional">專業工具</a></footer>
+  </main>;
 }

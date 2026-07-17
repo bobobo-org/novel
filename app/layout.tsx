@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "諸天萬界小說生成系統",
-  description: "v5.9.1 閉端 AI 多章批量操作章節號修正版",
+  description: "創作、互動、養成與經營的 AI 故事平台",
 };
 
 export default function RootLayout({

@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return [{ source: "/studio", destination: "/legacy/novel-system.html" }];
+  },
 };
 
 export default nextConfig;
