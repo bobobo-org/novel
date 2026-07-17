@@ -10,8 +10,8 @@
     consumerCreationCenterStatus: "ready",
     interactiveChoiceFoundationStatus: "ready",
     storyStatsFoundationStatus: "ready",
-    consumerDashboardStatus: "ready",
-    adultExperienceFoundationStatus: "ready",
+    consumerDashboardStatus: "foundation_ready",
+    adultExperienceFoundationStatus: "foundation_ready",
     monetizationFoundationStatus: "foundation_ready",
   };
   const ROUTER_EVENTS = [
@@ -28,7 +28,9 @@
   const TASKS = [
     { id: "create_story", label: "AI 建立故事", intent: "依照目前題材與核心想法，建立故事候選方向。" },
     { id: "plan_chapter", label: "AI 規劃章節", intent: "讀取全書上下文，規劃下一章候選。" },
+    { id: "branch_choice", label: "AI 建立選擇分支", intent: "建立分支／選擇點候選，不污染 Canonical。" },
     { id: "continue_story", label: "AI 續寫候選", intent: "使用檢索到的作品資料續寫候選正文。" },
+    { id: "rewrite_scene", label: "AI 改寫候選", intent: "依照上下文產生局部改寫候選，不直接覆蓋正文。" },
     { id: "diagnose_story", label: "AI 全文診斷", intent: "整理全文風險、節奏、伏筆與一致性提醒。" },
     { id: "fix_conflicts", label: "AI 修正衝突", intent: "根據檢索證據提出衝突修正候選，不直接覆蓋正文。" },
     { id: "learn_preferences", label: "AI 學習作品", intent: "把作者接受、修改、拒絕回饋寫入本機學習基礎資料。" },
@@ -146,10 +148,20 @@
         `${name}先收束線索與人物關係，避免下一章失去因果支撐。`,
         `${name}用意外轉折逼迫對手提前行動，但保留章尾鉤子。`,
       ],
+      branch_choice: [
+        `${name}選擇正面突破，開啟一條高風險分支候選。`,
+        `${name}選擇暫時隱忍，保留主線但延後衝突爆發。`,
+        `${name}讓盟友或對手介入，形成一個代價更高的分歧點。`,
+      ],
       continue_story: [
         `${name}依照${archetype}的習慣採取行動，將上一段衝突推向新局面。`,
         `${name}先觀察並確認證據來源，讓續寫承接已知情節而非跳脫。`,
         `${name}做出高風險選擇，換取短期突破，但留下後續代價。`,
+      ],
+      rewrite_scene: [
+        `${name}保持既有目標不變，只重寫行動細節，讓段落更貼近${archetype}。`,
+        `${name}保留原事件順序，改強情緒鋪陳與對話辨識度。`,
+        `${name}把原本突兀的轉折改成有代價的選擇，但不改 Canonical。`,
       ],
       diagnose_story: [
         `優先檢查${name}的目標、語氣與行動是否和${archetype}一致。`,
@@ -246,6 +258,8 @@
       </div>
       <h3>AI 工作流程</h3>
       <div id="p1WorkflowLog" class="p1-workflow">${renderWorkflow()}</div>
+      <h3>Router Decision</h3>
+      <div id="p1RouterDecision" class="p1-workflow">${renderRouterDecision()}</div>
       <h3>候選結果</h3>
       <div id="p1CandidatePreview" class="p1-candidate">${state.lastCandidate ? esc(state.lastCandidate) : "尚未產生候選。請選擇任務後執行真實 H2 AI 流程。"}</div>
       <span hidden>${hiddenSentinel()}</span>
@@ -279,8 +293,26 @@
       `monetizationFoundationStatus=${STATUSES.monetizationFoundationStatus}`,
       ROUTER_EVENTS.join(" "),
       "LOCAL_RUNTIME_UNAVAILABLE",
+      "browser_ai ollama local_runtime external_ai deterministic_rule",
+      "taskType requestedCapability selectedProvider actualExecutor selectionReason fallbackReason externalConsent contextSources outputDestination executionStatus",
       "Draft / Candidate only",
     ].join(" ");
+  }
+
+  function renderRouterDecision() {
+    const decision = state.lastRouterDecision || {
+      taskType: state.selectedTask,
+      requestedCapability: "retrieval_augmented_candidate",
+      selectedProvider: "LOCAL_CLOSED_RUNTIME",
+      actualExecutor: "deterministic_rule",
+      selectionReason: "waiting_for_user_execution",
+      fallbackReason: "",
+      externalConsent: false,
+      contextSources: [],
+      outputDestination: "draft_candidate_only",
+      executionStatus: "idle",
+    };
+    return Object.entries(decision).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join("\n");
   }
 
   function renderWorkflow() {
@@ -331,9 +363,24 @@
 
     pushWorkflow("analyze_task", "running", task.id);
     pushWorkflow("read_project", "success", `${project.title}; words=${project.wordCount}`);
+    state.lastRouterDecision = {
+      taskType: task.id,
+      requestedCapability: "retrieval_augmented_candidate",
+      selectedProvider: "LOCAL_CLOSED_RUNTIME",
+      actualExecutor: "deterministic_rule",
+      selectionReason: "H2W3 local retrieval/context/generation pipeline is available; Browser AI runtime is reserved for H3A.",
+      fallbackReason: "",
+      externalConsent: false,
+      contextSources: ["PRIVATE_PROJECT", "CURRENT_BRANCH", "STORY_BIBLE"],
+      outputDestination: "draft_candidate_only",
+      executionStatus: "running",
+    };
+    saveState();
     const workspace = h2w3();
     if (!workspace) {
       pushWorkflow("provider_selection", "failed", "LOCAL_RUNTIME_UNAVAILABLE");
+      state.lastRouterDecision.executionStatus = "fallback_local_rule";
+      state.lastRouterDecision.fallbackReason = "H2W3 browser workspace API unavailable; deterministic rule executor used and labelled.";
       state.lastCandidate = localCandidate(task, project);
       pushWorkflow("completed", "success", "local-rule candidate because workspace unavailable");
       saveState();
@@ -369,6 +416,7 @@
       workspace._state?.generationDraft || localCandidate(task, project),
     ].join("\n");
     state.taskHistory.unshift({ taskId: task.id, choice: state.editedChoice, at: now(), source: "LOCAL_CLOSED_RUNTIME", externalRequestCount: runtimeStatus().externalRequestCount });
+    state.lastRouterDecision.executionStatus = "completed";
     state.taskHistory = state.taskHistory.slice(0, 50);
     pushWorkflow("completed", "success", "candidate_ready");
     saveState();
