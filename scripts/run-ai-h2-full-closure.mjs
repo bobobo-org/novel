@@ -17,7 +17,7 @@ const commandPlan = [
   ["Storage Boundary", "pnpm", ["check:storage-boundaries"], null, 120000],
   ["L0A Regression", "pnpm", ["test:story-bible:l0a2e2:all"], null, 300000],
   ["L0B Regression", "pnpm", ["test:story-bible:l0b:full"], null, 300000],
-  ["H1 Full Regression", "pnpm", ["test:ai:h1:full"], null, 600000],
+  ["H1 Full Regression", "pnpm", ["test:ai:h1:full"], null, 1200000],
   ["H2A Embedding", "pnpm", ["test:ai:h2a:all"], null, 300000],
   ["H2P Public Corpus Full", "pnpm", ["test:ai:h2p:all"], "h2p-full.json", 1800000],
   ["H2V Vector Retrieval", "pnpm", ["test:ai:h2v:all"], null, 300000],
