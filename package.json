@@ -212,6 +212,7 @@
     "test:ai:h2:preflight": "node scripts/run-ai-h2-preflight.mjs",
     "test:ai:h2:ollama-real": "node scripts/run-ai-h2-ollama-real.mjs",
     "test:ai:h2:all": "node scripts/run-ai-h2-full-closure.mjs",
+    "test:ai:p1:consumer": "node scripts/run-ai-p1-consumer-experience.mjs",
     "test:ai:h2d1:schema": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs schema",
     "test:ai:h2d1:license": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs license",
     "test:ai:h2d1:provenance": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs provenance",
