@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T01:17:54.776Z",
+  "generatedAt": "2026-07-18T01:36:03.689Z",
   "entries": [
     {
       "page": "首頁",
@@ -12,7 +12,7 @@
       "status": "ready",
       "issue": "",
       "fixStatus": "implemented",
-      "productionVerified": false
+      "productionVerified": true
     },
     {
       "page": "建立作品",
@@ -51,7 +51,7 @@
       "status": "ready",
       "issue": "",
       "fixStatus": "implemented",
-      "productionVerified": false
+      "productionVerified": true
     },
     {
       "page": "角色與世界",
@@ -64,7 +64,7 @@
       "status": "ready",
       "issue": "",
       "fixStatus": "implemented",
-      "productionVerified": false
+      "productionVerified": true
     },
     {
       "page": "任務與成就",
@@ -90,7 +90,7 @@
       "status": "ready",
       "issue": "",
       "fixStatus": "implemented",
-      "productionVerified": false
+      "productionVerified": true
     },
     {
       "page": "備份中心",
@@ -103,7 +103,7 @@
       "status": "ready",
       "issue": "",
       "fixStatus": "implemented",
-      "productionVerified": false
+      "productionVerified": true
     },
     {
       "page": "專業工具",

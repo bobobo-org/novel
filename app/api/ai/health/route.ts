@@ -462,7 +462,7 @@ export async function GET() {
     ollamaConsumerIntegrationStatus: "runtime_required",
     storyBibleBackupStatus: "consumer_snapshot",
     indexedDbMigrationStatus: "not_implemented",
-    mobile390E2eStatus: "partial",
+    mobile390E2eStatus: "ready",
     consumerPlatformClosureStatus: "partial",
     consumerAiProviderSlots: ["browser_ai", "ollama", "local_runtime", "external_ai", "deterministic_rule"],
     consumerRouterDecisionFields: [

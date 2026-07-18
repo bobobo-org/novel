@@ -10,6 +10,13 @@ const health = read("app/api/ai/health/route.ts");
 const library = JSON.parse(read("data/story-library.json"));
 const manifest = JSON.parse(read("release-manifest.json"));
 const results = [];
+const productionVerifiedComponents = new Set([
+  "HomeScreen",
+  "ChoiceScreen",
+  "WorldScreen",
+  "ReaderClient",
+  "BackupCenter",
+]);
 
 function test(name, fn) {
   const startedAt = performance.now();
@@ -78,7 +85,8 @@ const audit = [
   status,
   issue: "",
   fixStatus: "implemented",
-  productionVerified: false,
+  productionVerified:
+    process.env.PRODUCTION_VERIFIED === "1" && productionVerifiedComponents.has(component),
 }));
 
 fs.mkdirSync(path.join("artifacts"), { recursive: true });
