@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/stamp-static-release.mjs && next build",
+    "build": "node scripts/build-story-library.mjs && node scripts/stamp-static-release.mjs && next build",
+    "build:story-library": "node scripts/build-story-library.mjs",
+    "audit:story-library": "node scripts/audit-story-library.mjs",
+    "test:p12": "node scripts/run-p12-tests.mjs",
     "start": "next start",
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",

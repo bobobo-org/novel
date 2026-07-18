@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p11r2-production-frontdoor-truth",
-  "releaseName": "P1.1R2 公開消費者介面真實收斂修復",
-  "consumerRelease": "p11r2-consumer-shell-v1",
-  "architectureStage": "P1.1R2",
-  "buildTime": "2026-07-18T07:10:00+08:00"
+  "releaseTag": "novel-ai-p12-consumer-story-center",
+  "releaseName": "P1.2 Consumer Story Center",
+  "consumerRelease": "p12-consumer-story-center-v1",
+  "architectureStage": "P1.2",
+  "buildTime": "2026-07-18T08:50:00+08:00"
 }

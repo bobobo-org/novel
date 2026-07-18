@@ -33,6 +33,18 @@ export function createLocalRuntimeServer(config: Partial<LocalRuntimeConfig> = {
   const runtimeConfig = createLocalRuntimeConfig(config);
   const server = http.createServer(async (req, res) => {
     try {
+      const origin = String(req.headers.origin || "");
+      if (origin && runtimeConfig.allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-novel-local-token");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      }
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, { "Cache-Control": "no-store" });
+        res.end();
+        return;
+      }
       const url = new URL(req.url || "/", `http://${runtimeConfig.host}:${runtimeConfig.port}`);
       if (req.method === "GET" && url.pathname === "/health") {
         const health = await localRuntimeHealth();

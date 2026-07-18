@@ -1,7 +1,7 @@
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import StudioClient from "./studio-client";
 
-const screens = new Set(["home", "create", "write", "choice", "inspect", "library"]);
+const screens = new Set(["home", "create", "write", "choice", "inspect", "library", "world", "dashboard", "backup"]);
 
 export default async function StudioPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;

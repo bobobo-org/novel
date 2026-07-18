@@ -12,6 +12,7 @@ import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { storyLibraryStats } from "@/lib/novel-data/story-library";
 
 export const runtime = "nodejs";
 
@@ -412,6 +413,22 @@ export async function GET() {
     webWholeNovelAiStatus: "ready",
     p1ConsumerExperienceVersion: "p1-consumer-real-ai-execution-v1",
     p11ConsumerFrontdoorVersion: "p11-consumer-convergence-v1",
+    p12StoryLibraryVersion: "p12-complete-story-library-v1",
+    storyLibraryStatus: "ready",
+    storyLibrarySchemaVersion: storyLibraryStats().schemaVersion,
+    storyLibraryPackCount: storyLibraryStats().packs,
+    storyLibraryClassicTopicCount: storyLibraryStats().classicTopics,
+    storyLibraryConsumerGroupCount: storyLibraryStats().consumerGroups,
+    storyLibraryAdultTopicCount: storyLibraryStats().adultTopics,
+    progressiveCreationStatus: "ready",
+    optionalStoryFieldsStatus: "ready",
+    closedCreationAssistantStatus: "partial_ready",
+    browserAiStatus: "not_implemented",
+    ollamaConsumerStatus: "runtime_required",
+    localStoryRecommendationStatus: "ready",
+    externalAiConsumerDefault: "disabled",
+    immersiveReaderStatus: "ready",
+    focusWritingStatus: "ready",
     consumerExperienceStatus: "ready",
     consumerAiTaskRouterStatus: "ready",
     realAiActionIntegrationStatus: "ready",
@@ -459,6 +476,7 @@ export async function GET() {
     ],
     consumerDefaultProvider: "LOCAL_CLOSED_RUNTIME",
     consumerDefaultModel: "browser-workspace-local-rule",
+    consumerDefaultLabel: "本機故事建議",
     consumerExternalRequestDefault: 0,
     consumerDataLeftDeviceDefault: false,
     consumerDraftCandidateOnly: true,
