@@ -161,8 +161,9 @@ test("正式採用內容可觸發自動備份", () =>
 test("每日備份每作品每日一次", () =>
   studio.includes("novel_daily_backup_") &&
   studio.includes('state.autoBackup !== "daily"'));
-test("章節完成自動備份不假裝已接通", () =>
-  studio.includes("尚未連接章節完成事件"));
+test("章節完成事件可觸發自動備份", () =>
+  studio.includes('task: "chapter_completed"') &&
+  studio.includes('value.autoBackup === "chapter_complete"'));
 test("舊版作品備份可轉換", () =>
   studio.includes("function coerceBackupPackage") &&
   studio.includes("source.currentProject") && studio.includes("source.novel"));
@@ -171,8 +172,12 @@ test("成人作品標記在遷移時保留", () =>
 test("匯入預設建立新作品", () => studio.includes("匯入為新作品"));
 test("安全還原先建立完整備份", () =>
   studio.includes('makeBackupRecord(project, "full", state)'));
-test("備份誠實標示Story Bible未接通", () =>
-  studio.includes('storyBibleStatus: "not_connected"'));
+test("備份包含已確認的角色與世界快照", () =>
+  studio.includes('storyBibleStatus: "consumer_snapshot"') &&
+  studio.includes("storyBibleSnapshot"));
+test("備份包含閱讀位置書籤與筆記", () =>
+  studio.includes("readingProgress") &&
+  studio.includes("novel_reader_progress_"));
 test("提供TXT Markdown HTML匯出", () =>
   ["下載 TXT", "下載 Markdown", "下載 HTML"].every((label) =>
     studio.includes(label),

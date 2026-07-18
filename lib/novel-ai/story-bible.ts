@@ -399,7 +399,7 @@ function sourceRefForExcerpt(
   const paragraph = paragraphs[ref.paragraphIndex] || "";
   const requestedExcerpt = clampText(ref.excerpt, 500);
   const excerpt = paragraph || requestedExcerpt || input.chapterText.slice(0, 300);
-  let idx = excerpt ? input.chapterText.indexOf(excerpt) : -1;
+  const idx = excerpt ? input.chapterText.indexOf(excerpt) : -1;
   const sourceValid = Boolean(excerpt) && idx >= 0;
   const textStart = idx >= 0 ? idx : Math.max(0, input.chapterText.indexOf(excerpt));
   const start = textStart >= 0 ? textStart : 0;

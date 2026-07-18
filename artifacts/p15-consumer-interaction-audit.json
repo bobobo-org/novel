@@ -1,0 +1,122 @@
+{
+  "generatedAt": "2026-07-18T01:17:54.776Z",
+  "entries": [
+    {
+      "page": "首頁",
+      "component": "HomeScreen",
+      "visibleLabel": "繼續最近作品",
+      "expectedAction": "開啟最近作品寫作區",
+      "actualAction": "navigate(write)",
+      "route": "/studio?screen=write",
+      "executor": "consumer-router",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "建立作品",
+      "component": "CreateScreen",
+      "visibleLabel": "下一步",
+      "expectedAction": "前往下一個設定步驟",
+      "actualAction": "step clamped to 5",
+      "route": "/studio?screen=create",
+      "executor": "local-state",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "寫作中心",
+      "component": "WriteScreen",
+      "visibleLabel": "完成章節",
+      "expectedAction": "建立版本並觸發章節完成事件",
+      "actualAction": "chapter_completed",
+      "route": "/studio?screen=write",
+      "executor": "local-event",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "互動故事",
+      "component": "ChoiceScreen",
+      "visibleLabel": "A／B／C卡片",
+      "expectedAction": "產生後續故事候選",
+      "actualAction": "submit(choice,true)",
+      "route": "/studio?screen=choice",
+      "executor": "local-runtime-or-rule",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "角色與世界",
+      "component": "WorldScreen",
+      "visibleLabel": "查看詳情",
+      "expectedAction": "開啟可編輯詳情面板",
+      "actualAction": "open(card.id)",
+      "route": "/studio?screen=world",
+      "executor": "local-state",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "任務與成就",
+      "component": "StoryDashboard",
+      "visibleLabel": "數值／任務／成就卡",
+      "expectedAction": "開啟來源與歷史詳情",
+      "actualAction": "setPanel",
+      "route": "/studio?screen=dashboard",
+      "executor": "local-state",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "閱讀模式",
+      "component": "ReaderClient",
+      "visibleLabel": "回到上次位置",
+      "expectedAction": "回復保存的閱讀捲動位置",
+      "actualAction": "window.scrollTo",
+      "route": "/studio/read/[projectId]",
+      "executor": "local-storage",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "備份中心",
+      "component": "BackupCenter",
+      "visibleLabel": "立即快速備份",
+      "expectedAction": "建立可下載作品備份",
+      "actualAction": "makeBackupRecord",
+      "route": "/studio?screen=backup",
+      "executor": "local-storage",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    },
+    {
+      "page": "專業工具",
+      "component": "ProfessionalClient",
+      "visibleLabel": "查看詳細技術資料",
+      "expectedAction": "展開真實健康與本機執行狀態",
+      "actualAction": "health + local runtime",
+      "route": "/professional",
+      "executor": "health-and-runtime",
+      "status": "ready",
+      "issue": "",
+      "fixStatus": "implemented",
+      "productionVerified": false
+    }
+  ]
+}

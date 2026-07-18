@@ -8,6 +8,7 @@
     "build:story-library": "node scripts/build-story-library.mjs",
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",
+    "test:ai:p15:consumer-platform": "node scripts/run-ai-p15-consumer-platform-closure.mjs",
     "start": "next start",
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",

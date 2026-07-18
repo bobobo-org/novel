@@ -20,7 +20,13 @@ const serviceWorker = read("public/legacy/service-worker.js");
 const css = read("app/globals.css");
 const stamp = read("scripts/stamp-static-release.mjs");
 
-check("release manifest keeps the consumer frontdoor contract", ["P1.1R2", "P1.2"].includes(manifest.architectureStage), manifest);
+check(
+  "release manifest keeps the consumer frontdoor contract",
+  ["P1.1R2", "P1.2", "P1.3", "P1.4", "P1.5"].includes(
+    manifest.architectureStage,
+  ),
+  manifest,
+);
 check("home has direct consumer identity", home.includes("諸天萬界小說生成系統") && home.includes("data-consumer-release"));
 check("home has no v5.9.1 marker", !home.includes("v5.9.1"));
 check("studio route exists", studioPage.includes("StudioClient") && studioPage.includes("RELEASE_MANIFEST"));

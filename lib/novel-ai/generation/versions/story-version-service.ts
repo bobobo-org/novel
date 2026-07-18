@@ -20,12 +20,20 @@ function mustConnection(options: StoryVersionOptions) {
   return options.connection;
 }
 
-function parseRow<T>(row: any): T | null {
+type SQLiteParameters = Parameters<
+  NonNullable<StoryVersionOptions["connection"]>["run"]
+>[1];
+
+function parseRow<T>(row: Record<string, unknown> | undefined): T | null {
   if (!row?.row_json) return null;
   return JSON.parse(String(row.row_json)) as T;
 }
 
-function persistJson(connection: NonNullable<StoryVersionOptions["connection"]>, sql: string, values: any[]) {
+function persistJson(
+  connection: NonNullable<StoryVersionOptions["connection"]>,
+  sql: string,
+  values: SQLiteParameters,
+) {
   connection.run(sql, values);
 }
 

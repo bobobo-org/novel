@@ -143,8 +143,19 @@ type BackupPackage = {
   gameState: GameState;
   branches: StudioState["branches"];
   candidate: Candidate;
-  storyBibleSnapshot: null;
-  storyBibleStatus: "not_connected";
+  readingProgress: Record<string, unknown>;
+  storyBibleSnapshot: {
+    projectId: string;
+    title: string;
+    characters: Array<{ name: string; identity: string; goal: string }>;
+    world: string;
+    worldRule: string;
+    conflict: string;
+    unresolvedThreads: string[];
+    updatedAt: string;
+    source: "consumer_confirmed_fields";
+  };
+  storyBibleStatus: "consumer_snapshot";
 };
 type BackupRecord = {
   backupId: string;
@@ -282,6 +293,11 @@ const assistantTasks = [
   ["plan_chapter", "產生十章大綱"],
   ["first_chapter", "建立第一章候選"],
   ["continue_story", "續寫下一章"],
+  ["rewrite_selection", "改寫選取內容"],
+  ["dialogue_boost", "加強人物對話"],
+  ["emotion_boost", "增加情緒張力"],
+  ["pacing_tune", "調整節奏"],
+  ["chapter_hook", "製造章尾懸念"],
   ["three_choices", "產生三個選擇"],
 ] as const;
 const choiceProgressSteps = [
@@ -336,6 +352,35 @@ function buildBackupPackage(
   type: "quick" | "full",
   state: StudioState,
 ): BackupPackage {
+  const fields = project.optionalFields,
+    protagonist = optionalValue(fields, "protagonist"),
+    storyBibleSnapshot: BackupPackage["storyBibleSnapshot"] = {
+      projectId: project.id,
+      title: project.title,
+      characters: protagonist
+        ? [
+            {
+              name: protagonist,
+              identity: optionalValue(fields, "identity"),
+              goal: optionalValue(fields, "goal"),
+            },
+          ]
+        : [],
+      world: optionalValue(fields, "world"),
+      worldRule: optionalValue(fields, "worldRule"),
+      conflict: optionalValue(fields, "conflict"),
+      unresolvedThreads: optionalValue(fields, "conflict")
+        ? [optionalValue(fields, "conflict")]
+        : [],
+      updatedAt: new Date().toISOString(),
+      source: "consumer_confirmed_fields",
+    };
+  let readingProgress: Record<string, unknown> = {};
+  try {
+    readingProgress = JSON.parse(
+      localStorage.getItem(`novel_reader_progress_${project.id}`) || "{}",
+    ) as Record<string, unknown>;
+  } catch {}
   return {
     schemaVersion: "consumer-backup-v1",
     backupType: type,
@@ -347,8 +392,9 @@ function buildBackupPackage(
         ? state.branches.filter((branch) => branch.projectId === project.id)
         : [],
     candidate: type === "full" ? state.candidate : null,
-    storyBibleSnapshot: null,
-    storyBibleStatus: "not_connected",
+    readingProgress,
+    storyBibleSnapshot,
+    storyBibleStatus: "consumer_snapshot",
   };
 }
 function makeBackupRecord(
@@ -403,8 +449,24 @@ function coerceBackupPackage(raw: unknown): BackupPackage {
       ? (source.branches as BackupPackage["branches"])
       : [],
     candidate: null,
-    storyBibleSnapshot: null,
-    storyBibleStatus: "not_connected",
+    readingProgress:
+      source.readingProgress && typeof source.readingProgress === "object"
+        ? (source.readingProgress as Record<string, unknown>)
+        : {},
+    storyBibleSnapshot: {
+      projectId: project.id,
+      title: project.title,
+      characters: [],
+      world: optionalValue(project.optionalFields, "world"),
+      worldRule: optionalValue(project.optionalFields, "worldRule"),
+      conflict: optionalValue(project.optionalFields, "conflict"),
+      unresolvedThreads: optionalValue(project.optionalFields, "conflict")
+        ? [optionalValue(project.optionalFields, "conflict")]
+        : [],
+      updatedAt: new Date().toISOString(),
+      source: "consumer_confirmed_fields",
+    },
+    storyBibleStatus: "consumer_snapshot",
   };
 }
 
@@ -772,6 +834,10 @@ export default function StudioClient({
       ],
       candidate: null,
     }));
+    localStorage.setItem(
+      `novel_reader_progress_${project.id}`,
+      JSON.stringify(record.snapshot.readingProgress || {}),
+    );
   }
   function deleteBackup(backupId: string) {
     update({ backups: state.backups.filter((backup) => backup.backupId !== backupId) });
@@ -798,6 +864,49 @@ export default function StudioClient({
           : item,
       ),
     }));
+  }
+  function completeChapter() {
+    if (!project) return;
+    const completedAt = new Date().toISOString(),
+      old = {
+        at: completedAt,
+        title: "完成章節前",
+        content: project.draft,
+      };
+    setState((value) => {
+      const projects = value.projects.map((item) =>
+          item.id === project.id
+            ? {
+                ...item,
+                updatedAt: completedAt,
+                versions: [old, ...item.versions],
+              }
+            : item,
+        ),
+        nextState = { ...value, projects },
+        nextProject = projects.find((item) => item.id === project.id)!,
+        chapterBackup =
+          value.autoBackup === "chapter_complete"
+            ? [makeBackupRecord(nextProject, "full", nextState)]
+            : [];
+      return {
+        ...nextState,
+        backups: [...chapterBackup, ...value.backups],
+        executionLogs: [
+          {
+            id: crypto.randomUUID(),
+            task: "chapter_completed",
+            source: "正式章節完成事件",
+            model: "local-event",
+            elapsedMs: 0,
+            externalRequest: false,
+            at: completedAt,
+            status: "completed" as const,
+          },
+          ...value.executionLogs,
+        ].slice(0, 50),
+      };
+    });
   }
   function contextFor(task: string) {
     const fields = project?.optionalFields ?? state.wizard.optionalFields;
@@ -882,6 +991,21 @@ export default function StudioClient({
         : sparse,
       continue_story: project?.draft
         ? `${name}沒有立刻下結論，而是從最近發生的事情中挑出一個可驗證的細節。`
+        : sparse,
+      rewrite_selection: project?.draft
+        ? `可把目前章節中最摘要的段落改成具體場景：讓${name}先做出一個小動作，再讓旁人用反應呈現壓力。`
+        : sparse,
+      dialogue_boost: hasContext
+        ? `新增一段對話時，讓${name}的每句話都帶著目標；對方則用迴避、追問或試探，使「${conflict}」更清楚。`
+        : sparse,
+      emotion_boost: hasContext
+        ? `不要直接說情緒，改用${name}的停頓、視線、握緊物件或改變語氣來呈現壓力。`
+        : sparse,
+      pacing_tune: project?.draft
+        ? "可先刪掉重複說明，再用一個具體阻礙把段落推向下一個行動。"
+        : sparse,
+      chapter_hook: hasContext
+        ? `章尾可讓${name}剛以為問題暫時穩住，卻發現「${conflict}」背後還藏著另一個更急迫的後果。`
         : sparse,
       three_choices: hasContext
         ? `A｜${name}主動處理${conflict}，推進較快但風險較高。\nB｜${name}先調查再決定，推進較慢但資訊較多。\nC｜${name}借第三方製造轉折，人物關係可能改變。`
@@ -1434,6 +1558,7 @@ export default function StudioClient({
               navigate={navigate}
               saveDraft={saveDraft}
               runTask={runTask}
+              completeChapter={completeChapter}
               acceptCandidate={acceptCandidate}
               discard={() => update({ candidate: null })}
               assistantStatus={assistantStatus}
@@ -1989,10 +2114,10 @@ function CreateScreen({
         </button>
         {step < 5 ? (
           <>
-            <button onClick={() => setStep(Math.min(5, step + 1))}>
-              略過這一步
-            </button>
-            <button className="gold" onClick={() => setStep(step + 1)}>
+          <button onClick={() => setStep(Math.min(5, step + 1))}>
+            略過這一步
+          </button>
+            <button className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
               下一步
             </button>
           </>
@@ -2012,6 +2137,7 @@ function WriteScreen({
   navigate,
   saveDraft,
   runTask,
+  completeChapter,
   acceptCandidate,
   discard,
   assistantStatus,
@@ -2021,6 +2147,7 @@ function WriteScreen({
   navigate: (screen: Screen) => void;
   saveDraft: (title: string, draft: string) => void;
   runTask: (task: string) => Promise<void>;
+  completeChapter: () => void;
   acceptCandidate: (content?: string) => void;
   discard: () => void;
   assistantStatus: AssistantStatus;
@@ -2050,12 +2177,12 @@ function WriteScreen({
           <p>{project.topicName || "題材尚未設定"}</p>
           <nav>
             <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-            <button>章節列表</button>
-            <button>故事設定</button>
+            <button onClick={() => navigate("library")}>章節列表</button>
+            <button onClick={() => navigate("create")}>故事設定</button>
             <button onClick={() => navigate("world")}>主要角色</button>
             <button onClick={() => navigate("world")}>世界設定</button>
-            <button>伏筆與線索</button>
-            <button>版本紀錄</button>
+            <button onClick={() => navigate("world")}>伏筆與線索</button>
+            <button onClick={() => navigate("backup")}>版本紀錄</button>
           </nav>
         </aside>
       )}
@@ -2088,6 +2215,7 @@ function WriteScreen({
               {focus ? "離開專注模式" : "專注寫作"}
             </button>
             <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
+            <button onClick={completeChapter}>完成章節</button>
             <button className="gold" onClick={() => saveDraft(title, draft)}>
               儲存草稿
             </button>
@@ -2111,6 +2239,11 @@ function WriteScreen({
               ? assistantTasks.filter(([id]) =>
                   [
                     "continue_story",
+                    "rewrite_selection",
+                    "dialogue_boost",
+                    "emotion_boost",
+                    "pacing_tune",
+                    "chapter_hook",
                     "improve_settings",
                     "three_choices",
                   ].includes(id),
@@ -2559,11 +2692,11 @@ function ChoiceScreen({
     );
     return () => clearInterval(timer);
   }, [loading]);
-  async function submit() {
+  async function submit(choiceKey = selected, ignoreCustom = false) {
     if (!project) return;
     const option =
-        choices.find((choice) => choice.key === selected) || choices[0],
-      text = custom.trim() || option.text;
+        choices.find((choice) => choice.key === choiceKey) || choices[0],
+      text = ignoreCustom ? option.text : custom.trim() || option.text;
     controller.current = new AbortController();
     setCancelled(false);
     setLoading(true);
@@ -2662,7 +2795,9 @@ function ChoiceScreen({
                 onClick={() => {
                   setSelected(choice.key);
                   setCustom("");
+                  void submit(choice.key, true);
                 }}
+                disabled={loading}
               >
                 <b>
                   {choice.key}. {choice.text}
@@ -2844,10 +2979,10 @@ function BackupCenter({
     <div className="backupActions"><button className="gold" disabled={busy} onClick={() => void startBackup("quick")}>立即快速備份</button><button disabled={busy} onClick={() => void startBackup("full")}>建立完整備份</button><label className="fileButton">匯入作品備份<input type="file" accept="application/json,.json" onChange={async (event) => {setError("");const file=event.target.files?.[0];if(!file)return;try{setImportPreview(coerceBackupPackage(JSON.parse(await file.text())))}catch(reason){setError(`無法讀取備份：${reason instanceof Error?reason.message:"檔案已損壞"}`)}finally{event.target.value=""}}}/></label></div>
     {message && <div className="backupNotice" role="status">{message}</div>}{error && <div className="backupError" role="alert">{error}</div>}
     <section><h2>純文字匯出</h2><div className="backupActions"><button onClick={() => download(`${project.title}.txt`, project.draft, "text/plain;charset=utf-8")}>下載 TXT</button><button onClick={() => download(`${project.title}.md`, `# ${project.title}\n\n## ${project.chapterTitle}\n\n${project.draft}`, "text/markdown;charset=utf-8")}>下載 Markdown</button><button onClick={() => download(`${project.title}.html`, `<!doctype html><meta charset="utf-8"><title>${project.title}</title><h1>${project.title}</h1><h2>${project.chapterTitle}</h2>${project.draft.split("\n").map((line) => `<p>${line.replace(/[&<>]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[char]||char))}</p>`).join("")}`, "text/html;charset=utf-8")}>下載 HTML</button></div></section>
-    <section><h2>自動備份</h2><label>備份時機<select value={autoBackup} onChange={(event) => setAutoBackup(event.target.value as StudioState["autoBackup"])}><option value="off">關閉</option><option value="accepted_content">每次正式採用內容後</option><option value="chapter_complete" disabled>每完成一章後（尚未連接章節完成事件）</option><option value="daily">每日第一次開啟作品時</option></select></label><p>自動備份保存在此瀏覽器；仍建議定期下載備份檔。</p></section>
+    <section><h2>自動備份</h2><label>備份時機<select value={autoBackup} onChange={(event) => setAutoBackup(event.target.value as StudioState["autoBackup"])}><option value="off">關閉</option><option value="accepted_content">每次正式採用內容後</option><option value="chapter_complete">每完成一章後</option><option value="daily">每日第一次開啟作品時</option></select></label><p>自動備份保存在此瀏覽器；仍建議定期下載備份檔。</p></section>
     <section><h2>最近備份</h2>{backups.length ? <div className="backupList">{backups.map((backup) => <article key={backup.backupId}><div><b>{backup.name}</b><span>{formatTime(backup.createdAt)}・{backup.type === "full" ? "完整備份" : "快速備份"}・{Math.max(1,Math.round(backup.bytes/1024))} KB</span></div><button onClick={() => setSelected(backup)}>查看詳情</button><button onClick={() => download(`${backup.name}.json`,JSON.stringify(backup.snapshot,null,2),"application/json")}>下載</button></article>)}</div> : <div className="worldEmpty">這本作品目前還沒有備份。建立第一份備份，可以避免瀏覽器資料遺失。</div>}</section>
     {importPreview && <div className="backupPreview"><h2>匯入預覽</h2><dl><div><dt>作品名稱</dt><dd>{importPreview.project.title}</dd></div><div><dt>備份日期</dt><dd>{formatTime(importPreview.exportedAt)}</dd></div><div><dt>總字數</dt><dd>{words(importPreview.project.draft)}</dd></div><div><dt>版本／分支</dt><dd>{importPreview.project.versions.length}／{importPreview.branches.length}</dd></div><div><dt>任務／成就</dt><dd>{importPreview.gameState.tasks.length}／{importPreview.gameState.achievements.length}</dd></div><div><dt>成人內容標記</dt><dd>{importPreview.project.adultMode?"有":"無"}</dd></div></dl><button className="gold" onClick={() => {importBackup(importPreview);setImportPreview(null);setMessage("已匯入為新作品。")}}>匯入為新作品</button><button onClick={() => setImportPreview(null)}>取消</button></div>}
-    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>Story Bible</dt><dd>{selected.snapshot.storyBibleStatus === "not_connected" ? "這份消費者作品尚未連接正式故事資料庫" : "包含"}</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務與成就。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" onClick={() => {restoreBackup(selected,false);setSelected(null);setMessage("已先建立安全備份並完成還原。")}}>安全還原</button><button onClick={() => {restoreBackup(selected,true);setSelected(null);setMessage("已還原為新副本。")}}>還原成新副本</button><button onClick={() => {deleteBackup(selected.backupId);setSelected(null);setMessage("備份已刪除。")}}>刪除備份</button></footer></aside></div>}
+    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>角色與世界資料</dt><dd>包含已確認的消費者設定快照</dd></div><div><dt>閱讀資料</dt><dd>包含閱讀位置、書籤與筆記</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務、成就與閱讀進度。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" onClick={() => {restoreBackup(selected,false);setSelected(null);setMessage("已先建立安全備份並完成還原。")}}>安全還原</button><button onClick={() => {restoreBackup(selected,true);setSelected(null);setMessage("已還原為新副本。")}}>還原成新副本</button><button onClick={() => {deleteBackup(selected.backupId);setSelected(null);setMessage("備份已刪除。")}}>刪除備份</button></footer></aside></div>}
   </section>;
 }
 
