@@ -161,7 +161,10 @@ await test("LEGACY_SERVICE_FROZEN", "NovelAIService console 直呼與覆寫皆�
   await expectDisabled(() => harness.window.NovelAIService.generate({}));
   await expectDisabled(() => harness.window.NovelAIService.listLocalModels());
   const descriptor = Object.getOwnPropertyDescriptor(harness.window, "NovelAIService");
-  assert.equal(descriptor?.writable, false);
+  const protectedService = harness.window.NovelAIService;
+  harness.window.NovelAIService = {};
+  assert.equal(harness.window.NovelAIService, protectedService);
+  assert.equal(typeof descriptor?.set, "function");
   assert.equal(descriptor?.configurable, false);
   assert.equal(Object.isFrozen(harness.window.NovelAIService), true);
 });
@@ -169,7 +172,10 @@ await test("LEGACY_FUNCTION_BYPASS", "舊全域函式與 console 直呼被阻擋
   for (const name of ["askExternalAI", "miniAiAskLocal", "detectOllamaModels", "centerStartGeneration"]) {
     await expectDisabled(() => harness.window[name]());
     const descriptor = Object.getOwnPropertyDescriptor(harness.window, name);
-    assert.equal(descriptor?.writable, false);
+    const protectedFunction = harness.window[name];
+    harness.window[name] = () => "bypass";
+    assert.equal(harness.window[name], protectedFunction);
+    assert.equal(typeof descriptor?.set, "function");
     assert.equal(descriptor?.configurable, false);
   }
 });
@@ -177,7 +183,10 @@ await test("LEGACY_PHASE1_OBJECT_BYPASS", "Phase1Novel 物件方法不能由 con
   for (const name of ["detectOllamaModels", "testOllamaModel", "generateGuidedChapterWithOllama", "generateAiCandidate", "aiContinue"]) {
     await expectDisabled(() => harness.window.Phase1Novel[name]());
     const descriptor = Object.getOwnPropertyDescriptor(harness.window.Phase1Novel, name);
-    assert.equal(descriptor?.writable, false);
+    const protectedFunction = harness.window.Phase1Novel[name];
+    harness.window.Phase1Novel[name] = () => "bypass";
+    assert.equal(harness.window.Phase1Novel[name], protectedFunction);
+    assert.equal(typeof descriptor?.set, "function");
     assert.equal(descriptor?.configurable, false);
   }
 });

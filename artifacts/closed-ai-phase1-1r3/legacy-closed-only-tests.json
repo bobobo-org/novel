@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T21:46:57.923Z",
+  "generatedAt": "2026-07-19T22:14:13.846Z",
   "pass": 20,
   "fail": 0,
   "results": [
@@ -31,7 +31,7 @@
       "id": "LEGACY_DIRECT_OLLAMA",
       "title": "直接 Ollama 11434 被阻擋",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "id": "LEGACY_DIRECT_LMSTUDIO",
@@ -115,13 +115,13 @@
       "id": "LEGACY_NO_EXTERNAL_TRAFFIC",
       "title": "所有被拒絕路徑沒有抵達底層 fetch",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 3
     },
     {
       "id": "LEGACY_DIAGNOSTICS_SCOPE",
       "title": "diagnostics query 只顯示診斷，不解除網路邊界",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     }
   ]
 }

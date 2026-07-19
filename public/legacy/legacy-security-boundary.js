@@ -50,6 +50,24 @@
     return Promise.reject(disabledError());
   }
 
+  function lockGlobal(name, value) {
+    Object.defineProperty(window, name, {
+      configurable: false,
+      enumerable: true,
+      get: () => value,
+      set: () => undefined,
+    });
+  }
+
+  function lockObjectMethod(target, name, value) {
+    Object.defineProperty(target, name, {
+      configurable: false,
+      enumerable: true,
+      get: () => value,
+      set: () => undefined,
+    });
+  }
+
   function installStorageGuard() {
     let removed = 0;
     for (const storage of [window.localStorage, window.sessionStorage]) {
@@ -112,8 +130,8 @@
       clearToken: () => "舊連線憑證已清除。",
       checkLocalModel: async () => "舊本機模型直連已停用",
     });
-    Object.defineProperty(window, "NovelAIService", { configurable: false, writable: false, value: service });
-    for (const name of blockedFunctions) Object.defineProperty(window, name, { configurable: false, writable: false, value: disabledAction });
+    lockGlobal("NovelAIService", service);
+    for (const name of blockedFunctions) lockGlobal(name, disabledAction);
     const trainingService = Object.freeze({
       status: "blocked",
       baseUrl: () => "",
@@ -135,11 +153,11 @@
       activateAdapter: reject,
       deleteAdapter: reject,
     });
-    Object.defineProperty(window, "LocalTrainingService", { configurable: false, writable: false, value: trainingService });
+    lockGlobal("LocalTrainingService", trainingService);
     if (window.Phase1Novel && typeof window.Phase1Novel === "object") {
       for (const name of blockedPhase1Methods) {
         if (!(name in window.Phase1Novel)) continue;
-        Object.defineProperty(window.Phase1Novel, name, { configurable: false, writable: false, value: disabledAction });
+        lockObjectMethod(window.Phase1Novel, name, disabledAction);
       }
     }
   }
