@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "closed-ai-phase0-regression-v1",
+  "results": [
+    {"command":"pnpm test:ai:closed:phase0","status":"PASS","pass":54,"fail":0,"skip":0,"externalModelCalls":0},
+    {"command":"pnpm test:ai:closed:training:phase0","status":"PASS","pass":25,"fail":0,"skip":0,"realTrainingRuns":0,"externalModelCalls":0},
+    {"command":"pnpm exec tsc --noEmit","status":"PASS"},
+    {"command":"pnpm lint","status":"PASS","errors":0,"note":"pre-existing warnings remain"},
+    {"command":"pnpm test:ai:h1:all","status":"PASS","note":"all six aggregate component suites passed"},
+    {"command":"pnpm test:ai:p21r1:high-risk","status":"PASS","pass":21,"fail":0},
+    {"command":"pnpm test:story-bible:l0a2:full","status":"BLOCKED_EXTERNAL_PREREQUISITE","passedStages":2,"failedStages":1,"skippedStages":3,"reason":"SUPABASE_MANAGEMENT_TOKEN was not present for the Production smoke stage; build and local storage-boundary stages passed."}
+  ],
+  "notClaimed": [
+    "real model quality evaluation",
+    "human review",
+    "Production closed AI E2E",
+    "real external AI teacher execution"
+  ]
+}

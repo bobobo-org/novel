@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "closed-ai-phase1-readiness-v1",
+  "decision": "Local Ollama bridge",
+  "status": "recommended_not_started",
+  "evidenceRanking": [
+    {"direction":"Local Ollama bridge","rank":1,"reason":"Existing loopback client, diagnostics, streaming, cancellation, and structured-output foundations provide the shortest path to a real closed runtime."},
+    {"direction":"Router strengthening","rank":2,"reason":"Phase 0 closes the principal policy contract, but runtime telemetry and persistent audit storage remain future work."},
+    {"direction":"Retrieval/Story Bible integration strengthening","rank":3,"reason":"Existing foundations should be connected after one real closed runtime is proven."},
+    {"direction":"Browser AI runtime","rank":4,"reason":"No installed browser model runtime was demonstrated."},
+    {"direction":"Private Hub gateway","rank":5,"reason":"Current evidence is contract-only and depends on private infrastructure."}
+  ],
+  "automaticPhase1Start": false
+}
+

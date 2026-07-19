@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "closed-ai-inventory-v1",
+  "items": [
+    {"area":"provider registry","path":"lib/novel-ai/providers/provider-registry.ts","action":"reused"},
+    {"area":"provider interface","path":"lib/novel-ai/providers/provider-interface.ts","action":"reused"},
+    {"area":"H1 router","path":"lib/novel-ai/router/ai-router.ts","action":"inventory_only"},
+    {"area":"P2 platform router","path":"lib/novel-ai/router/platform-router.ts","action":"extended"},
+    {"area":"browser provider","path":"lib/novel-ai/providers/browser-ai/browser-ai-provider.ts","action":"inventory_only"},
+    {"area":"Ollama providers","path":"lib/novel-ai/providers/ollama","action":"inventory_only"},
+    {"area":"local Ollama provider","path":"lib/novel-ai/providers/local-ollama/local-ollama-provider.ts","action":"inventory_only"},
+    {"area":"private hub","path":"lib/novel-ai/providers/private-ai-hub/private-ai-hub.ts","action":"inventory_only"},
+    {"area":"embedding","path":"lib/novel-ai/embedding","action":"inventory_only"},
+    {"area":"retrieval","path":"lib/novel-ai/retrieval","action":"inventory_only"},
+    {"area":"Story Bible","path":"lib/story-bible","action":"inventory_only"},
+    {"area":"whole-novel context","path":"lib/novel-ai/context","action":"inventory_only"}
+  ],
+  "duplicateArchitectureAdded": false
+}
+

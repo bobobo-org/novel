@@ -1,0 +1,282 @@
+{
+  "suite": "closed-ai-phase0",
+  "schemaVersion": "closed-ai-phase0-results-v1",
+  "generatedAt": "2026-07-19T17:39:09.990Z",
+  "pass": 54,
+  "fail": 0,
+  "skip": 0,
+  "externalModelCalls": 0,
+  "deterministicProvidersProductionRegistered": false,
+  "results": [
+    {
+      "name": "provider descriptor valid:browser",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "provider explicitly test-only:browser",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider schema version:browser",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider descriptor valid:ollama",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider explicitly test-only:ollama",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider schema version:ollama",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider descriptor valid:privateHub",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider explicitly test-only:privateHub",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider schema version:privateHub",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "invalid provider profile rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "browser selected for device-only",
+      "status": "PASS",
+      "elapsedMs": 18
+    },
+    {
+      "name": "ollama selected when browser unavailable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "private hub allowed only on private infrastructure",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "device-only blocks private hub",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "closed-only blocks preferred external provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "closed-only excludes deterministic rule provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "all closed unavailable fails explicitly",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "structured capability enforced",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "context limit enforced",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "fallback privacy guard blocks external",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "router audit records successful decision",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "router audit records terminal error",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "router audit lists rejection reasons",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "provider cancellation is deterministic",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "privacy contract validates closed-only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "privacy contract blocks external fallback",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "privacy contract rejects misplaced consent",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "privacy contract rejects offline external mode",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:summarize",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:classify",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:extract_story_facts",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:rewrite",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:proofread",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:generate_names",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:generate_choices",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:continue_scene",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:generate_chapter",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:plan_story",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:analyze_character",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:check_continuity",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:retrieve_context",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:embed_text",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:rank_context",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:full_novel_analysis",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:evaluate_output",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "task catalog:revise_output",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "private user content requires training consent",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unapproved teacher record cannot export",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approved cleared synthetic record validates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "teacher workspace boundary enforced",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "benchmark fixture validates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "deterministic benchmark passes constraints",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "deterministic benchmark reports missed constraint",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "model quality remains not run in phase 0",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}
