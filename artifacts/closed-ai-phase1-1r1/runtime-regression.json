@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-runtime-regression-v1",
+  "phase11Contract": { "pass": 10, "fail": 0 },
+  "launcher": { "pass": 13, "fail": 0 },
+  "launcherCleanShell": { "pass": 6, "fail": 0 },
+  "realRuntime": { "pass": 15, "fail": 0, "skip": 0 },
+  "windowsRuntime": { "pass": 4, "fail": 0 },
+  "studioUi": {
+    "pairing": "PASS",
+    "forcedExpiry": "PASS",
+    "repairing": "PASS",
+    "streaming": "PASS",
+    "cancellation": "PASS",
+    "completedGeneration": "PASS",
+    "modelQualityRejection": "PASS",
+    "consoleErrors": 0
+  },
+  "realCompletedRequest": {
+    "requestId": "8c393183-191a-4685-93e9-fe14d12a517b",
+    "modelId": "qwen2.5:3b",
+    "firstTokenMs": 11633,
+    "elapsedMs": 19335
+  }
+}

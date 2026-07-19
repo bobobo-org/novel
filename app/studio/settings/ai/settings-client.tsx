@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
-import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { LOCAL_MODEL_OUTPUT_UNRELIABLE, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
 type Status = { browser: string; bridge: string; pairing: string; ollama: string; model: string; hub: string; privacy: string; external: boolean; error: string };
@@ -26,6 +27,7 @@ const errorGuidance: Record<string, string> = {
   OLLAMA_CANCELLED: "本次生成已取消，可以修改內容後重新送出。",
   LOCAL_CONCURRENCY_LIMIT: "本機 AI 正在處理其他工作，請稍候再試。",
   LOCAL_DUPLICATE_REQUEST: "這個要求已送出，系統已阻止重複生成。",
+  LOCAL_MODEL_OUTPUT_UNRELIABLE: "本機模型的結果缺少可驗證證據，這次內容不會進入正式資料。請縮短原文或重新嘗試。",
 };
 
 const initial: Status = { browser: "檢查中", bridge: "檢查中", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", hub: "檢查中", privacy: "strict-local", external: false, error: "" };
@@ -66,7 +68,7 @@ export default function AISettingsClient() {
         const available = (result.models || []).filter((model: ModelOption) => model.capabilities?.textGeneration?.value === true);
         setModels(available);
         const savedModel = localStorage.getItem("novel_local_ai_model") || "";
-        refreshedModel = available.some((model: ModelOption) => model.modelId === savedModel) ? savedModel : available[0]?.modelId || "";
+        refreshedModel = selectAvailableTextModel(available, savedModel) || "";
         if (savedModel && savedModel !== refreshedModel) modelError = "原本選用的模型已不存在，請確認目前模型後再開始生成。";
         configureLocalBridgeClient(client);
         configureLocalBridgeModel(refreshedModel || null);
@@ -116,7 +118,7 @@ export default function AISettingsClient() {
       const available = (result.models || []).filter((model: ModelOption) => model.capabilities?.textGeneration?.value === true);
       setModels(available);
       const savedModel = localStorage.getItem("novel_local_ai_model") || "";
-      const selected = available.some((model: ModelOption) => model.modelId === savedModel) ? savedModel : available[0]?.modelId || "";
+      const selected = selectAvailableTextModel(available, savedModel) || "";
       configureLocalBridgeModel(selected || null);
       if (selected) localStorage.setItem("novel_local_ai_model", selected);
       setStatus((value) => ({ ...value, pairing: "已配對", bridge: "本機橋接服務已啟動", ollama: available.length ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型", model: selected || "尚未選用" }));
@@ -139,19 +141,28 @@ export default function AISettingsClient() {
     const controller = new AbortController();
     const currentRequestId = crypto.randomUUID();
     const modelForRequest = status.model;
+    const requestModelSnapshot = snapshotLocalModelForRequest(currentRequestId, modelForRequest);
     const startedAt = performance.now();
+    let generatedContent = "";
+    let streamCompleted = false;
     generationController.current = controller;
     firstTokenSeen.current = false;
     setRequestId(currentRequestId); setActiveModel(modelForRequest); setOutput(""); setElapsedMs(null); setFirstTokenMs(null); setGenerationStatus("generating"); setStatus((value) => ({ ...value, error: "" }));
     try {
-      for await (const event of client.generate({ requestId: currentRequestId, model: modelForRequest, prompt: prompt.trim(), systemInstruction: "請使用繁體中文，遵守使用者提供的角色、時間線與故事設定。只輸出候選內容。", taskType, timeoutMs, options: { num_predict: taskType.includes("review") ? 256 : 512 }, signal: controller.signal })) {
+      for await (const event of client.generate({ requestId: requestModelSnapshot.requestId, model: requestModelSnapshot.modelId, prompt: prompt.trim(), systemInstruction: taskSystemInstruction(taskType), taskType, timeoutMs, options: { num_predict: taskType.includes("review") ? 256 : 512 }, signal: controller.signal })) {
         if (event.type === "token") {
           if (!firstTokenSeen.current) { firstTokenSeen.current = true; setFirstTokenMs(Math.round(performance.now() - startedAt)); }
-          setOutput((value) => value + String(event.text || ""));
+          generatedContent += String(event.text || "");
+          setOutput(generatedContent);
         }
-        if (event.type === "completed") setGenerationStatus("completed");
+        if (event.type === "completed") streamCompleted = true;
         if (event.type === "cancelled") setGenerationStatus("cancelled");
         if (event.type === "failed") throw Object.assign(new Error(String(event.errorCode || "OLLAMA_STREAM_INTERRUPTED")), { code: event.errorCode });
+      }
+      if (streamCompleted) {
+        const validation = validateStudioTaskOutput({ taskType, prompt: prompt.trim(), output: generatedContent, modelId: modelForRequest, requestId: currentRequestId });
+        if (validation.status === "reject") throw Object.assign(new Error(LOCAL_MODEL_OUTPUT_UNRELIABLE), { code: LOCAL_MODEL_OUTPUT_UNRELIABLE });
+        setGenerationStatus("completed");
       }
     } catch (error) {
       if (controller.signal.aborted) setGenerationStatus("cancelled");

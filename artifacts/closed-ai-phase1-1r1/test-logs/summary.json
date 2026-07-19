@@ -1,0 +1,100 @@
+﻿[
+    {
+        "name":  "quality",
+        "command":  "pnpm test:ai:closed:phase1-1r1:quality",
+        "exitCode":  0,
+        "elapsedMs":  1461,
+        "status":  "PASS"
+    },
+    {
+        "name":  "launcher-clean",
+        "command":  "pnpm test:ai:closed:launcher:clean-shell",
+        "exitCode":  0,
+        "elapsedMs":  68883,
+        "status":  "PASS"
+    },
+    {
+        "name":  "phase11-contract",
+        "command":  "pnpm test:ai:closed:phase1-1:contract",
+        "exitCode":  0,
+        "elapsedMs":  1187,
+        "status":  "PASS"
+    },
+    {
+        "name":  "launcher",
+        "command":  "pnpm test:ai:closed:launcher",
+        "exitCode":  0,
+        "elapsedMs":  11070,
+        "status":  "PASS"
+    },
+    {
+        "name":  "bridge-contract",
+        "command":  "pnpm test:ai:closed:bridge:contract",
+        "exitCode":  0,
+        "elapsedMs":  1259,
+        "status":  "PASS"
+    },
+    {
+        "name":  "bridge-real",
+        "command":  "pnpm test:ai:closed:bridge:real",
+        "exitCode":  0,
+        "elapsedMs":  70979,
+        "status":  "PASS"
+    },
+    {
+        "name":  "bridge-windows",
+        "command":  "pnpm test:ai:closed:bridge:windows",
+        "exitCode":  0,
+        "elapsedMs":  2967,
+        "status":  "PASS"
+    },
+    {
+        "name":  "phase0",
+        "command":  "pnpm test:ai:closed:phase0",
+        "exitCode":  0,
+        "elapsedMs":  1673,
+        "status":  "PASS"
+    },
+    {
+        "name":  "training-governance",
+        "command":  "pnpm test:ai:closed:training:phase0",
+        "exitCode":  0,
+        "elapsedMs":  1181,
+        "status":  "PASS"
+    },
+    {
+        "name":  "p21r1",
+        "command":  "pnpm test:ai:p21r1:high-risk",
+        "exitCode":  0,
+        "elapsedMs":  1110,
+        "status":  "PASS"
+    },
+    {
+        "name":  "h1-aggregate",
+        "command":  "pnpm test:ai:h1:all",
+        "exitCode":  0,
+        "elapsedMs":  93292,
+        "status":  "PASS"
+    },
+    {
+        "name":  "typescript",
+        "command":  "pnpm exec tsc --noEmit",
+        "exitCode":  0,
+        "elapsedMs":  4022,
+        "status":  "PASS"
+    },
+    {
+        "name":  "eslint",
+        "command":  "pnpm lint",
+        "exitCode":  0,
+        "elapsedMs":  20550,
+        "status":  "PASS"
+    },
+    {
+        "name":  "build",
+        "command":  "pnpm build",
+        "exitCode":  0,
+        "elapsedMs":  22673,
+        "status":  "PASS"
+    }
+]

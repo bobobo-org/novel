@@ -1,47 +1,79 @@
 # Novel Local Bridge
 
-The Local Bridge connects the browser Studio to the user's own Ollama process without exposing Ollama to the public network.
+The Local Bridge connects Studio to the user's own Ollama process. It only
+listens on `127.0.0.1:3217`; it never opens Ollama to a LAN or public network.
 
 ## Prerequisites
 
-1. Install Ollama from its official distribution.
-2. Start Ollama locally and install a text model yourself. The Bridge never downloads a model.
-3. Node.js 22 or the bundled Codex Node runtime.
+1. Install and start Ollama yourself.
+2. Install a text-generation model yourself. The Bridge never downloads one.
+3. Install Node.js 22 or set `NOVEL_NODE_PATH` to a compatible `node.exe`.
 
-## Start on Windows
+## Windows launcher
 
-```powershell
-ollama serve
-pnpm start:ai:closed:bridge
-```
-
-The Bridge listens on `127.0.0.1:3217`. It refuses `0.0.0.0`, LAN addresses, public addresses, wildcard CORS, and Ollama endpoints other than `http://127.0.0.1:11434`. No firewall rule is added.
-
-Open Studio's **AI 使用方式** page, choose **開始安全配對**, read the six-digit code from the local Bridge window, and enter it in Studio. The authorization token remains in page memory; it is not written to localStorage, a URL, or normal logs.
-
-## Stop and revoke
-
-- Use **撤銷配對** in Studio before stopping when possible.
-- Stop the Bridge with `Ctrl+C`.
-- A Bridge restart creates a new instance ID and invalidates old in-memory authorization.
-- To remove local runtime data, stop the Bridge. Phase 1 stores no prompt, output, or token files.
-
-## Optional origins
-
-Extra preview origins require an explicit environment setting and HTTPS:
+Use a fresh PowerShell window. The explicit execution-policy flag avoids
+machine policy ambiguity without changing the machine policy:
 
 ```powershell
-$env:BRIDGE_ALLOWED_ORIGINS='https://your-preview.example'
-pnpm start:ai:closed:bridge
+$launcher = ".\local-ai\bridge\novel-local-ai.ps1"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher diagnose
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher start
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher status
 ```
 
-## Common errors
+If Node.js is not on `PATH`, point to an existing installation for this shell:
 
-- `BRIDGE_NOT_PAIRED`: request a new local pairing.
+```powershell
+$env:NOVEL_NODE_PATH = "C:\Program Files\nodejs\node.exe"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher diagnose
+```
+
+The launcher supports `diagnose`, `start`, `status`, `stop`, `restart`,
+`pair`, and `revoke`. It does not install software, edit `PATH`, modify the
+firewall, or stop Ollama.
+
+After Studio requests pairing, read the one-time code locally:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher pair
+```
+
+Enter that code in Studio. The authorization token remains in page memory. It
+is not written to localStorage, sessionStorage, a URL, or normal logs. Reloading
+Studio or restarting the Bridge requires a new pairing.
+
+## Security and limits
+
+- Bridge bind address: `127.0.0.1`
+- Ollama endpoint: `http://127.0.0.1:11434`
+- CORS: explicit Studio origins only
+- Pairing: origin-bound, instance-bound, short-lived, revocable
+- Logging: request ID, task type, provider, model ID, timing, status, and
+  sanitized error code only
+- Full prompts, outputs, Story Bible content, authorization headers, and
+  pairing tokens are not logged
+- Prompt size, output tokens, concurrency, queue depth, timeouts, and
+  per-origin request rates are bounded by the Bridge runtime
+
+## Stop and recover
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher stop
+```
+
+Stopping releases port 3217 and leaves Ollama running. A Bridge restart creates
+a new instance ID, so old in-memory authorization cannot be reused.
+
+Common errors:
+
+- `LAUNCHER_NODE_NOT_FOUND`: install Node.js 22 or set `NOVEL_NODE_PATH`.
+- `BRIDGE_NOT_PAIRED`: request a new pairing in Studio, then run `pair`.
+- `BRIDGE_PAIRING_EXPIRED`: request and confirm a new one-time code.
 - `OLLAMA_UNREACHABLE`: start or restart Ollama.
 - `OLLAMA_MODEL_NOT_FOUND`: select an installed text model.
-- `OLLAMA_TIMEOUT`: retry with a shorter task or larger allowed timeout.
-- `LOCAL_CONCURRENCY_LIMIT`: wait for the active local generation to finish.
-- `EADDRINUSE`: another Bridge process already owns port 3217.
+- `OLLAMA_TIMEOUT`: shorten the task or raise the task timeout.
+- `LOCAL_CONCURRENCY_LIMIT`: wait for the active request to finish.
+- `EADDRINUSE`: another process already owns port 3217.
 
-Debug content logging is not implemented in Phase 1. Normal logs contain only request ID, task type, provider, model ID, timing, status, and sanitized error code.
+Physical mobile devices cannot use the desktop's loopback Bridge. Phase 1.1R1
+does not expose a LAN endpoint or implement a remote desktop Bridge.

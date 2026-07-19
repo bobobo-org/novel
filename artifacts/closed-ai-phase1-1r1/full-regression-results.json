@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-full-regression-v1",
+  "status": "PASS",
+  "runs": [
+    { "name": "Phase 1.1 contract", "pass": 10, "fail": 0 },
+    { "name": "Launcher", "pass": 13, "fail": 0 },
+    { "name": "Launcher clean shell", "pass": 6, "fail": 0 },
+    { "name": "Phase 1 Bridge contract/security", "pass": 31, "fail": 0, "skip": 0 },
+    { "name": "Real runtime", "pass": 15, "fail": 0, "skip": 0 },
+    { "name": "Windows runtime", "pass": 4, "fail": 0 },
+    { "name": "Phase 0", "pass": 54, "fail": 0, "skip": 0 },
+    { "name": "Training governance", "pass": 25, "fail": 0, "skip": 0 },
+    { "name": "P2.1R1", "pass": 21, "fail": 0 },
+    { "name": "H1 aggregate", "pass": 9, "fail": 0, "skip": 0 },
+    { "name": "Phase 1.1R1 quality", "pass": 26, "fail": 0 },
+    { "name": "TypeScript", "status": "PASS" },
+    { "name": "ESLint", "status": "PASS", "errors": 0, "warnings": 98, "newWarnings": 0 },
+    { "name": "Production build", "status": "PASS" }
+  ],
+  "environmentSetupFailureExcluded": {
+    "occurred": true,
+    "reason": "The first orchestration shell omitted Node from PATH, so every command failed before executing product code.",
+    "resolution": "Re-run in the same worktree with the bundled Node and pnpm directories explicitly prepended.",
+    "productDefect": false
+  },
+  "details": "test-logs/summary.json"
+}

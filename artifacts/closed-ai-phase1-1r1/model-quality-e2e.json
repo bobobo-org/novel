@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-real-model-quality-e2e-v1",
+  "modelId": "qwen2.5:3b",
+  "taskType": "character.extract",
+  "requestId": "ba8fe8bd-1d6f-434b-aaa1-11db09f41c8d",
+  "firstTokenMs": 2548,
+  "elapsedMs": 24519,
+  "rawOutputReceived": true,
+  "rawOutputStoredInArtifact": false,
+  "rawSchemaPass": false,
+  "failureClass": "MODEL_QUALITY_INSUFFICIENT",
+  "systemValidationFailure": false,
+  "validatorDisposition": "rejected",
+  "formalStoryBibleWrites": 0,
+  "rawHallucinationRate": null,
+  "rawHallucinationRateReason": "One real structured extraction run is insufficient for a statistically valid hallucination rate.",
+  "postValidationUnsupportedFactsAccepted": 0,
+  "finalCommittedIncorrectFacts": 0,
+  "note": "The model returned JSON but omitted the required formal fact structure. The working validator blocked it."
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-model-switch-v1",
+  "installedTextModels": ["qwen2.5:3b"],
+  "realMultiModelSwitch": "MULTI_MODEL_REAL_SWITCH_NOT_AVAILABLE",
+  "autoDownload": false,
+  "deterministicTests": {
+    "removedSelectedModelFallsBackOnlyToInstalledTextModel": "PASS",
+    "noTextModelReturnsNotReady": "PASS",
+    "inFlightRequestKeepsOriginalModelAttribution": "PASS"
+  },
+  "productionClaim": "A real two-model switch is not claimed because only one text-generation model is installed."
+}

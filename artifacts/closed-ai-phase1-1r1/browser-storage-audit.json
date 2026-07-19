@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-browser-storage-audit-v1",
+  "status": "PARTIAL",
+  "performedThroughStudioUi": true,
+  "devtoolsStateInjectionUsed": false,
+  "directBridgeApiUsedInsteadOfUi": false,
+  "verified": {
+    "reloadRequiresRepairing": true,
+    "bridgeRestartInvalidatesPriorPairing": true,
+    "pairingCodeAbsentFromUrl": true,
+    "requestIdVisible": true,
+    "pairingTokenVisibleInUi": false,
+    "fullPromptPersistedByBridge": false,
+    "fullOutputPersistedByBridge": false
+  },
+  "notDirectlyInspected": [
+    "localStorage values",
+    "sessionStorage values",
+    "IndexedDB values",
+    "Cache Storage values",
+    "cookie values"
+  ],
+  "reason": "The approved in-app browser control surface prohibits inspecting browser storage, cookies, or profiles. Static code and reload behavior support the contract, but they do not replace a DevTools storage audit.",
+  "readyImpact": "Blocks PHASE1_1R1_READY"
+}

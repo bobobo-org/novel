@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-quality-fixtures-v1",
+  "cases": [
+    "explicit fact with exact evidence",
+    "legal JSON without evidence",
+    "invented quotation",
+    "missing age",
+    "relative years without exact year",
+    "same name with different entity IDs",
+    "alias with shared entity ID",
+    "similar but distinct locations",
+    "cross-chapter age conflict",
+    "cross-chapter location conflict",
+    "unknown fact handling",
+    "inferred fact protection",
+    "candidate stage skip",
+    "validated candidate approval gate",
+    "bounded retry strategies",
+    "3B guarded task routing",
+    "3B whole-novel rejection",
+    "removed model selection",
+    "no installed text model",
+    "in-flight model attribution",
+    "failure class separation",
+    "minimal rejection audit",
+    "stable extraction fingerprint",
+    "stale revision rejection",
+    "validation version mismatch",
+    "matching approved revision"
+  ],
+  "containsPrivateStoryText": false
+}

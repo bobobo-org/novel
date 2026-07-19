@@ -114,7 +114,25 @@ async function pair() {
 
 async function diagnose() {
   const details = await status();
-  return { ...details, diagnostics: { nodeVersion: process.versions.node, platform: `${process.platform} ${os.release()}`, bridgeEndpoint: `http://${host}:${port}`, ollamaEndpoint: "http://127.0.0.1:11434", runtimeDirectoryWritable: await access(runtimeDir, constants.W_OK).then(() => true, () => false), firewallModified: false, nonLoopbackListening: false, autoDownload: false, telemetry: false } };
+  return { ...details, diagnostics: {
+    nodeDetected: true,
+    nodePath: process.execPath,
+    nodeVersion: process.versions.node,
+    platform: `${process.platform} ${os.release()}`,
+    bridgeEntryPoint: serverPath,
+    bridgeEndpoint: `http://${host}:${port}`,
+    portAvailable: !(await isPortOpen()) || Boolean(details.bridge?.alive),
+    ollamaStatus: details.ollama?.status ?? "unavailable",
+    ollamaEndpoint: "http://127.0.0.1:11434",
+    modelAvailability: Array.isArray(details.ollama?.models) && details.ollama.models.length > 0,
+    loopbackOnly: true,
+    securityMode: "loopback-paired",
+    runtimeDirectoryWritable: await access(runtimeDir, constants.W_OK).then(() => true, () => false),
+    firewallModified: false,
+    nonLoopbackListening: false,
+    autoDownload: false,
+    telemetry: false,
+  } };
 }
 
 async function main() {

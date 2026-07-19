@@ -5,6 +5,17 @@ const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
+export type LocalTextModel = { modelId: string; capabilities?: { textGeneration?: { value?: boolean } } };
+
+export function selectAvailableTextModel(models: LocalTextModel[], preferredModelId: string) {
+  const available = models.filter((model) => model.capabilities?.textGeneration?.value === true);
+  return available.find((model) => model.modelId === preferredModelId)?.modelId ?? available[0]?.modelId ?? null;
+}
+
+export function snapshotLocalModelForRequest(requestId: string, modelId: string) {
+  if (!requestId || !modelId) throw new AiProviderError("OLLAMA_MODEL_NOT_FOUND", "A request requires an available model snapshot.", { retryable: false });
+  return Object.freeze({ requestId, modelId });
+}
 
 function normalizeBridgeEndpoint(value = DEFAULT_ENDPOINT) {
   const url = new URL(value);

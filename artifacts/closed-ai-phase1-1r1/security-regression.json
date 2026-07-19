@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-security-regression-v1",
+  "status": "PASS_WITH_UNVERIFIED_BROWSER_STORAGE",
+  "bridgeContract": { "pass": 31, "fail": 0, "skip": 0 },
+  "phase0": { "pass": 54, "fail": 0, "skip": 0 },
+  "closedOnlyExternalFallback": "blocked by existing Phase 0 regression",
+  "loopbackOnly": true,
+  "firewallModified": false,
+  "nonLoopbackListening": false,
+  "promptOrOutputLogged": false,
+  "pairingTokenInArtifacts": false,
+  "browserStorageDirectAudit": "PARTIAL"
+}

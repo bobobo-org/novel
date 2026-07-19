@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-browser-network-audit-v1",
+  "status": "PASS_WITH_SCOPE",
+  "observedDuringStudioGeneration": [
+    {
+      "source": "browser process",
+      "destination": "127.0.0.1:3217",
+      "purpose": "Studio to Local Bridge"
+    },
+    {
+      "source": "Local Bridge contract and runtime tests",
+      "destination": "127.0.0.1:11434",
+      "purpose": "Local Bridge to Ollama"
+    }
+  ],
+  "externalAiDestinationsObserved": [],
+  "bridgeBindAddress": "127.0.0.1",
+  "lanListening": false,
+  "firewallModified": false,
+  "limitations": "A packet capture was not performed. Socket evidence and Bridge runtime tests cover the local path."
+}
