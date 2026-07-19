@@ -134,7 +134,11 @@ export function safelyRepairModelExtraction(raw: string, sources: SourceDocument
     const entityId = String(fact.entityId || "").slice(0, 160);
     const field = String(fact.field || "").slice(0, 120);
     if (!entityId || !field) return [];
-    const rawSpans = Array.isArray(fact.evidenceSpans) ? fact.evidenceSpans : [];
+    const rawSpans = Array.isArray(fact.evidenceSpans)
+      ? fact.evidenceSpans
+      : typeof fact.evidenceText === "string" && fact.evidenceText
+        ? [{ text: fact.evidenceText }]
+        : [];
     const evidenceSpans = rawSpans.slice(0, 5).flatMap((spanValue) => {
       if (!spanValue || typeof spanValue !== "object") return [];
       const span = spanValue as Record<string, unknown>;
@@ -143,11 +147,13 @@ export function safelyRepairModelExtraction(raw: string, sources: SourceDocument
       const start = source && text ? source.text.indexOf(text) : -1;
       return source && start >= 0 ? [{ sourceChapterId: source.chapterId, start, end: start + text.length, text }] : [];
     });
+    if (rawSpans.length > 0 && evidenceSpans.length === 0) return [];
     const requestedType = String(fact.factType || "");
     const factType: FactType = ["explicit", "inferred", "unknown", "conflicted"].includes(requestedType) ? requestedType as FactType : evidenceSpans.length ? "explicit" : "unknown";
     const rawConfidence = Number(fact.confidence);
     return [{ entityId, field, value: factType === "unknown" ? null : (["string", "number", "boolean"].includes(typeof fact.value) ? fact.value as string | number | boolean : String(fact.value ?? "").slice(0, 500)), factType, evidenceSpans, sourceChapterIds: [...new Set(evidenceSpans.map((span) => span.sourceChapterId))], confidence: Number.isFinite(rawConfidence) ? Math.max(0, Math.min(1, rawConfidence)) : evidenceSpans.length ? 0.85 : 0, validatorStatus: "pending", modelId, requestId, schemaVersion: LOCAL_QUALITY_SCHEMA_VERSION }];
   });
+  if (facts.length > 0 && repaired.length === 0) return null;
   return JSON.stringify({ schemaVersion: LOCAL_QUALITY_SCHEMA_VERSION, facts: repaired });
 }
 

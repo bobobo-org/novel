@@ -12,10 +12,12 @@ const characterExtractionFormat = {
   type: "object", additionalProperties: false, required: ["schemaVersion", "facts"],
   properties: {
     schemaVersion: { type: "string", const: "local-quality-guard-v1" },
-    facts: { type: "array", maxItems: 40, items: { type: "object", additionalProperties: false, required: ["entityId", "field", "value", "factType", "evidenceSpans", "sourceChapterIds", "confidence", "validatorStatus", "modelId", "requestId", "schemaVersion"], properties: {
-      entityId: { type: "string" }, field: { type: "string" }, value: { type: ["string", "number", "boolean", "null"] }, factType: { type: "string", enum: ["explicit", "inferred", "unknown", "conflicted"] },
-      evidenceSpans: { type: "array", maxItems: 5, items: { type: "object", additionalProperties: false, required: ["sourceChapterId", "start", "end", "text"], properties: { sourceChapterId: { type: "string" }, start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, text: { type: "string" } } } },
-      sourceChapterIds: { type: "array", maxItems: 5, items: { type: "string" } }, confidence: { type: "number", minimum: 0, maximum: 1 }, validatorStatus: { type: "string", enum: ["pending", "valid", "invalid", "conflict"] }, modelId: { type: "string" }, requestId: { type: "string" }, schemaVersion: { type: "string", const: "local-quality-guard-v1" },
+    facts: { type: "array", maxItems: 3, items: { type: "object", additionalProperties: false, required: ["entityId", "field", "value", "evidenceText", "confidence"], properties: {
+      entityId: { type: "string", maxLength: 160 },
+      field: { type: "string", enum: ["age", "location", "identity", "lifeStatus"] },
+      value: { type: ["string", "number", "boolean", "null"] },
+      evidenceText: { type: "string", maxLength: 160 },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
     } } },
   },
 };

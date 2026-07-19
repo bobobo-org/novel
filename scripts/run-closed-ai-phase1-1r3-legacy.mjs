@@ -43,7 +43,7 @@ function createHarness(search = "?screen=home") {
     "phase1TrainingEndpoint", "wholeNovelWorkspaceDiagnostics", "h2w3ArchitectureAlignment",
   ];
   const elements = new Map(elementIds.map((id) => [id, new FakeElement(id)]));
-  const blockedButtons = ["askExternalAI()", "detectOllamaModels()", "centerStartGeneration()"].map((handler) => {
+  const blockedButtons = ["askExternalAI()", "detectOllamaModels()", "centerStartGeneration()", "cloudNovelAiAnalyze()"].map((handler) => {
     const button = new FakeElement();
     button.attributes.set("onclick", handler);
     return button;
@@ -176,7 +176,7 @@ await test("LEGACY_SERVICE_FROZEN", "NovelAIService console 直呼與覆寫皆�
   assert.equal(Object.isFrozen(harness.window.NovelAIService), true);
 });
 await test("LEGACY_FUNCTION_BYPASS", "舊全域函式與 console 直呼被阻擋", async () => {
-  for (const name of ["askExternalAI", "miniAiAskLocal", "detectOllamaModels", "centerStartGeneration"]) {
+  for (const name of ["askExternalAI", "miniAiAskLocal", "detectOllamaModels", "centerStartGeneration", "cloudNovelAiFetch", "cloudNovelAiHealth", "cloudNovelAiAnalyze", "cloudNovelAiPlan", "cloudNovelAiReview"]) {
     await expectDisabled(() => harness.window[name]());
     const descriptor = Object.getOwnPropertyDescriptor(harness.window, name);
     const protectedFunction = harness.window[name];

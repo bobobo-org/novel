@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-system-p11r2-20260718-1";
+const CACHE_VERSION = "novel-system-closed-ai-r4-20260720-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "./offline.html";
 
@@ -10,10 +10,9 @@ const CORE_ASSETS = [
   "./db-v2.js",
   "./migration.js",
   "./offline-engine.js",
-  "./ai-service.js",
   "./backup-service.js",
   "./novel-system.js",
-  "./phase1-manager.js",
+  "./legacy-security-boundary.js",
   "./manifest.json",
   "./offline.html",
   "../file.svg"

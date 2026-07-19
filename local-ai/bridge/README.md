@@ -47,6 +47,7 @@ Studio or restarting the Bridge requires a new pairing.
 - Bridge bind address: `127.0.0.1`
 - Ollama endpoint: `http://127.0.0.1:11434`
 - CORS: explicit Studio origins only
+- Preview startup: pass the exact origin with `node local-ai/bridge/launcher.mjs start --origin https://your-preview.example`; wildcard origins are rejected and the authorization ends when the Bridge stops.
 - Pairing: origin-bound, instance-bound, short-lived, revocable
 - Logging: request ID, task type, provider, model ID, timing, status, and
   sanitized error code only

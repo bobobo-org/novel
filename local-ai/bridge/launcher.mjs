@@ -15,11 +15,20 @@ const pairingPath = path.join(runtimeDir, "pairing.json");
 const configPath = path.join(runtimeDir, "config.json");
 const host = "127.0.0.1";
 const port = 3217;
-const origin = process.env.NOVEL_STUDIO_ORIGIN || "http://localhost:3000";
+const launcherArgs = process.argv.slice(2);
 
 class LauncherError extends Error {
   constructor(code, message, nextStep) { super(message); this.code = code; this.nextStep = nextStep; }
 }
+
+function option(name) { const index = launcherArgs.indexOf(name); return index >= 0 ? String(launcherArgs[index + 1] || "") : ""; }
+function validatedOrigin(value) {
+  if (!value || value.includes("*")) throw new LauncherError("LAUNCHER_ORIGIN_INVALID", "Studio origin 必須是精確網址，不能使用 wildcard。", "使用 --origin https://your-preview.example 指定單一 origin。");
+  let parsed; try { parsed = new URL(value); } catch { throw new LauncherError("LAUNCHER_ORIGIN_INVALID", "Studio origin 格式不正確。", "請提供包含協定與主機的完整 origin。"); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.pathname !== '/' || parsed.search || parsed.hash) throw new LauncherError("LAUNCHER_ORIGIN_INVALID", "Studio origin 只能包含協定、主機與連接埠。", "移除路徑、query 與 fragment 後再試一次。");
+  return parsed.origin;
+}
+const origin = validatedOrigin(option("--origin") || process.env.NOVEL_STUDIO_ORIGIN || "http://localhost:3000");
 
 function output(value) { process.stdout.write(`${JSON.stringify(value, null, 2)}\n`); }
 async function ensureRuntimeDir() { await mkdir(runtimeDir, { recursive: true }); await access(runtimeDir, constants.W_OK); }
@@ -73,7 +82,7 @@ async function start() {
     env: { ...process.env, BRIDGE_HOST: host, BRIDGE_PORT: String(port), BRIDGE_PAIRING_FILE: pairingPath, BRIDGE_ALLOWED_ORIGINS: origin },
   });
   child.unref();
-  await writeFile(statePath, JSON.stringify({ schemaVersion: "novel-local-bridge-launcher-v1", pid: child.pid, host, port, startedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  await writeFile(statePath, JSON.stringify({ schemaVersion: "novel-local-bridge-launcher-v1", pid: child.pid, host, port, origin, startedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
   if (!(await waitFor(bridgeHealth, true))) throw new LauncherError("LAUNCHER_START_FAILED", "本機橋接服務沒有成功啟動。", "執行 diagnose 查看狀態，修正問題後再執行 restart。");
   const [bridge, ollama] = await Promise.all([bridgeHealth(), ollamaStatus()]);
   return { status: "started", pid: child.pid, bridge, ollama, modelAvailable: ollama.models.length > 0, nextStep: ollama.reachable ? "回到 Studio 開始安全配對。" : "請先啟動 Ollama，再回到 Studio 重新檢查。" };
@@ -95,7 +104,7 @@ async function status() {
     status: bridge ? bridge.pairingState === "paired" ? "Bridge已配對" : "Bridge已啟動但未配對" : "Bridge未啟動",
     bridge: bridge ? { alive: true, instanceId: bridge.instanceId, protocolVersion: bridge.protocolVersion, pairingState: bridge.pairingState } : { alive: false },
     ollama: ollama.reachable ? { status: ollama.models.length ? "模型可用" : "Ollama已啟動但無模型", version: ollama.version, models: ollama.models } : { status: "Ollama未啟動", models: [] },
-    process: state ? { pid: state.pid, startedAt: state.startedAt } : null,
+    process: state ? { pid: state.pid, origin: state.origin || null, startedAt: state.startedAt } : null,
     nextStep: !bridge ? "執行 start。" : !ollama.reachable ? "啟動 Ollama。" : !ollama.models.length ? "自行安裝一個文字模型。" : bridge.pairingState !== "paired" ? "在 Studio 發起配對，再執行 pair 取得配對碼。" : "可以開始生成。",
   };
 }
@@ -136,7 +145,7 @@ async function diagnose() {
 }
 
 async function main() {
-  const command = process.argv[2] || "status";
+  const command = launcherArgs[0] || "status";
   let result;
   if (command === "start") result = await start();
   else if (command === "status") result = await status();

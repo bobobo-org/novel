@@ -5,7 +5,7 @@ import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
-import { runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
+import { LOCAL_MODEL_INSUFFICIENT_FOR_TASK, runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
 import type { Chapter, NovelProject } from "@/lib/novel-ai/domain/index";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
@@ -42,6 +42,7 @@ const errorGuidance: Record<string, string> = {
   LOCAL_EXTRACTION_CANCELLED: "角色資料整理已取消，後續重試也已停止。",
   LOCAL_EXTRACTION_TOTAL_TIMEOUT: "角色資料整理超過整體時間上限，已停止所有重試。",
   LOCAL_EXTRACTION_SOURCE_CHANGED: "整理期間原文已變更，舊結果已捨棄，請重新執行。",
+  [LOCAL_MODEL_INSUFFICIENT_FOR_TASK]: "目前選用的本機模型無法在有限重試內完成可靠抽取。請改用較強的本機模型；未來也可改用 Private Hub。",
 };
 
 const initial: Status = { browser: "檢查中", bridge: "檢查中", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", hub: "檢查中", privacy: "strict-local", external: false, error: "" };
@@ -62,7 +63,7 @@ export default function AISettingsClient() {
   const [activeModel, setActiveModel] = useState("");
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [firstTokenMs, setFirstTokenMs] = useState<number | null>(null);
-  const [timeoutMs, setTimeoutMs] = useState(60_000);
+  const [timeoutMs, setTimeoutMs] = useState(120_000);
   const generationController = useRef<AbortController | null>(null);
   const firstTokenSeen = useRef(false);
   const [projects, setProjects] = useState<NovelProject[]>([]);
@@ -210,9 +211,9 @@ export default function AISettingsClient() {
     firstTokenSeen.current = false;
     setRequestId(currentRequestId); setActiveModel(modelForRequest); setOutput(""); setElapsedMs(null); setFirstTokenMs(null); setGenerationStatus("generating"); setStatus((value) => ({ ...value, error: "" }));
     try {
-      const collectAttempt = async (attempt: { attemptId: string; modelId: string; prompt: string; systemInstruction: string; signal: AbortSignal }) => {
+      const collectAttempt = async (attempt: { attemptId: string; modelId: string; prompt: string; systemInstruction: string; signal: AbortSignal; timeoutMs?: number; maxOutputTokens?: number }) => {
         let content = ""; let completed = false;
-        for await (const event of client.generate({ requestId: attempt.attemptId, model: attempt.modelId, prompt: attempt.prompt, systemInstruction: attempt.systemInstruction, taskType, timeoutMs, options: { num_predict: taskType === "character.extract" ? 256 : 512, temperature: taskType === "character.extract" ? 0 : undefined }, signal: attempt.signal })) {
+        for await (const event of client.generate({ requestId: attempt.attemptId, model: attempt.modelId, prompt: attempt.prompt, systemInstruction: attempt.systemInstruction, taskType, timeoutMs: attempt.timeoutMs ?? timeoutMs, options: { num_predict: attempt.maxOutputTokens ?? 512, temperature: taskType === "character.extract" ? 0 : undefined }, signal: attempt.signal })) {
           if (event.type === "token") { if (!firstTokenSeen.current) { firstTokenSeen.current = true; setFirstTokenMs(Math.round(performance.now() - startedAt)); } content += String(event.text || ""); setOutput(content); }
           if (event.type === "completed") completed = true;
           if (event.type === "failed") throw Object.assign(new Error(String(event.errorCode || "OLLAMA_STREAM_INTERRUPTED")), { code: event.errorCode });

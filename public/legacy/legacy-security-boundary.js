@@ -1,7 +1,7 @@
 (function legacySecurityBoundary() {
   "use strict";
 
-  const BOUNDARY_VERSION = "legacy-security-boundary-v1";
+  const BOUNDARY_VERSION = "legacy-security-boundary-v2";
   const DISABLED_CODE = "LEGACY_PROVIDER_PATH_DISABLED";
   const blockedStorageKeys = [
     /^novel_external_ai_cfg$/,
@@ -20,6 +20,17 @@
     "centerTestOllama",
     "centerStartGeneration",
     "runLocalAiAcceptance",
+    "cloudNovelAiFetch",
+    "cloudNovelAiHealth",
+    "cloudNovelAiAnalyze",
+    "cloudNovelAiPlan",
+    "cloudNovelAiReview",
+    "cloudNovelAiFeedback",
+    "cloudNovelAiStats",
+    "cloudNovelAiCases",
+    "cloudNovelAiExportJsonl",
+    "cloudNovelAiRunEvals",
+    "cloudNovelAiAbort",
   ];
   const blockedPhase1Methods = [
     "detectOllamaModels",
@@ -244,6 +255,12 @@
       "模型訓練：未實作；現有學習功能僅為偏好、記憶或資料準備",
     ].join("\n");
     if (architecture && architecture.textContent !== architectureText) architecture.textContent = architectureText;
+    const cloudPanel = document.getElementById("cloudNovelAiPanel");
+    if (cloudPanel) {
+      cloudPanel.hidden = true;
+      cloudPanel.setAttribute("aria-hidden", "true");
+      cloudPanel.dataset.legacySecurityBoundary = "disabled";
+    }
   }
 
   installStorageGuard();

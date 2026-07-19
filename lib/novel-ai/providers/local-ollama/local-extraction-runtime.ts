@@ -8,6 +8,7 @@ import {
   SYSTEM_VALIDATION_FAILURE,
   buildExtractionFingerprint,
   buildRejectionAudit,
+  deterministicExtract,
   parseAndValidateModelExtraction,
   retryStrategies,
   safelyRepairModelExtraction,
@@ -19,6 +20,8 @@ export const LOCAL_EXTRACTION_RETRY_EXHAUSTED = "LOCAL_EXTRACTION_RETRY_EXHAUSTE
 export const LOCAL_EXTRACTION_CANCELLED = "LOCAL_EXTRACTION_CANCELLED";
 export const LOCAL_EXTRACTION_TOTAL_TIMEOUT = "LOCAL_EXTRACTION_TOTAL_TIMEOUT";
 export const LOCAL_EXTRACTION_SOURCE_CHANGED = "LOCAL_EXTRACTION_SOURCE_CHANGED";
+export const LOCAL_MODEL_INSUFFICIENT_FOR_TASK = "LOCAL_MODEL_INSUFFICIENT_FOR_TASK";
+const LOCAL_EXTRACTION_ATTEMPT_TIMEOUT = "LOCAL_EXTRACTION_ATTEMPT_TIMEOUT";
 
 export type LocalExtractionAttempt = {
   attempt: number;
@@ -47,6 +50,8 @@ export type LocalExtractionRuntimeInput = {
     systemInstruction: string;
     modelId: string;
     signal: AbortSignal;
+    timeoutMs: number;
+    maxOutputTokens: number;
   }) => Promise<string>;
 };
 
@@ -70,11 +75,28 @@ function runtimeError(code: string, message: string, details: Record<string, unk
 }
 
 function promptForStrategy(strategy: LocalExtractionAttempt["strategy"], sources: SourceDocument[]) {
-  const sourceText = sources.map((source) => `章節 ${source.chapterId}:\n${source.text}`).join("\n\n");
-  const base = `只輸出 JSON。schemaVersion 必須是 ${LOCAL_QUALITY_SCHEMA_VERSION}。每個 explicit 事實必須引用原文中完全相同的 evidenceSpans；不知道就輸出 unknown 與 null。\n\n${sourceText}`;
-  if (strategy === "evidence_only_extraction") return `${base}\n\n第二次修復：只抽取有逐字證據的明確事實。沒有精確引文的欄位不要輸出。`;
-  if (strategy === "constrained_field_by_field_extraction") return `${base}\n\n第三次修復：逐欄檢查，只允許 age、location、identity、lifeStatus；每筆先找到原文位置，再輸出事實。`;
-  return `${base}\n\n抽取角色的明確事實，格式為 {"schemaVersion":"${LOCAL_QUALITY_SCHEMA_VERSION}","facts":[]}.`;
+  const sourceText = sources.map((source) => `[${source.chapterId}] ${source.text}`).join("\n");
+  const hints = deterministicExtract(sources, "deterministic-guard", "deterministic-hint").slice(0, 3).map((fact) => ({
+    entityId: fact.entityId,
+    field: fact.field,
+    value: fact.value,
+    evidenceText: fact.evidenceSpans[0]?.text || "",
+  }));
+  const shape = `{"schemaVersion":"${LOCAL_QUALITY_SCHEMA_VERSION}","facts":[{"entityId":"character:name","field":"age","value":28,"evidenceText":"exact source text","confidence":0.99}]}`;
+  const base = `Return JSON only. Maximum 3 explicit facts. Copy evidenceText exactly from SOURCE. Do not infer missing facts. Shape: ${shape}\nSOURCE:\n${sourceText}`;
+  if (strategy === "evidence_only_extraction") return `${base}\nOnly return facts with an exact quotation. Otherwise return an empty facts array.`;
+  if (strategy === "constrained_field_by_field_extraction") return `${base}\nOnly inspect age, location, identity, and lifeStatus. Guard hints: ${JSON.stringify(hints)}`;
+  return `${base}\nDeterministic guard hints are possible facts, not authority: ${JSON.stringify(hints)}`;
+}
+
+export function extractionAttemptBudget(totalTimeoutMs: number) {
+  if (totalTimeoutMs >= 100_000) return { attemptTimeoutMs: [35_000, 25_000, 25_000] as const, validationReserveMs: 15_000 };
+  const safeTotal = Math.max(1_000, totalTimeoutMs);
+  const reserve = Math.min(10_000, Math.max(500, Math.floor(safeTotal / 6)));
+  const available = Math.max(300, safeTotal - reserve);
+  const first = Math.floor(available * 0.5);
+  const second = Math.floor(available * 0.3);
+  return { attemptTimeoutMs: [first, second, Math.max(100, available - first - second)] as const, validationReserveMs: reserve };
 }
 
 export async function runLocalExtractionWithRetry(input: LocalExtractionRuntimeInput): Promise<LocalExtractionRuntimeResult> {
@@ -85,6 +107,7 @@ export async function runLocalExtractionWithRetry(input: LocalExtractionRuntimeI
   const fingerprint = buildExtractionFingerprint({ sourceRevision: input.sourceRevision, taskType: input.taskType, modelId: input.modelId, schemaVersion: LOCAL_QUALITY_SCHEMA_VERSION, sourceText });
   const startedAt = Date.now();
   const attempts: LocalExtractionAttempt[] = [];
+  const budget = extractionAttemptBudget(input.totalTimeoutMs);
   const chainAbort = new AbortController();
   const relayAbort = () => chainAbort.abort(input.signal?.reason);
   input.signal?.addEventListener("abort", relayAbort, { once: true });
@@ -98,15 +121,22 @@ export async function runLocalExtractionWithRetry(input: LocalExtractionRuntimeI
       if (await input.getCurrentSourceRevision() !== input.sourceRevision) throw runtimeError(LOCAL_EXTRACTION_SOURCE_CHANGED, "The source changed during extraction.", { attempts });
       const attemptStartedAt = Date.now();
       const attemptId = `${input.logicalRequestId}:attempt-${strategy.attempt}`;
+      const attemptController = new AbortController();
+      const relayChainAbort = () => attemptController.abort(chainAbort.signal.reason);
+      chainAbort.signal.addEventListener("abort", relayChainAbort, { once: true });
+      const attemptTimeoutMs = budget.attemptTimeoutMs[strategy.attempt - 1];
+      const attemptTimer = setTimeout(() => attemptController.abort(LOCAL_EXTRACTION_ATTEMPT_TIMEOUT), attemptTimeoutMs);
       try {
         const raw = await input.executeAttempt({
           attempt: strategy.attempt,
           attemptId,
           strategy: strategy.strategy,
-          prompt: `${promptForStrategy(strategy.strategy, input.sources)}\n\n每筆 fact 必須且只能包含 entityId、field、value、factType、evidenceSpans、sourceChapterIds、confidence、validatorStatus、modelId、requestId、schemaVersion。evidenceSpans 必須含 sourceChapterId、start、end、text。modelId 固定為 ${JSON.stringify(input.modelId)}，requestId 固定為 ${JSON.stringify(attemptId)}，validatorStatus 使用 pending。`,
-          systemInstruction: "Return strict JSON only. Do not invent facts or quotations.",
+          prompt: promptForStrategy(strategy.strategy, input.sources),
+          systemInstruction: "Return strict compact JSON only. Never invent a value or quotation.",
           modelId: input.modelId,
-          signal: chainAbort.signal,
+          signal: attemptController.signal,
+          timeoutMs: attemptTimeoutMs,
+          maxOutputTokens: strategy.attempt === 1 ? 128 : strategy.attempt === 2 ? 96 : 64,
         });
         if (await input.getCurrentSourceRevision() !== input.sourceRevision) throw runtimeError(LOCAL_EXTRACTION_SOURCE_CHANGED, "The source changed during extraction.");
         let validation = parseAndValidateModelExtraction(raw, input.sources);
@@ -129,10 +159,14 @@ export async function runLocalExtractionWithRetry(input: LocalExtractionRuntimeI
           attempts.push({ attempt: strategy.attempt, attemptId, strategy: strategy.strategy, elapsedMs: Date.now() - attemptStartedAt, status: timedOut ? "timeout" : "cancelled", errorCode: timedOut ? LOCAL_EXTRACTION_TOTAL_TIMEOUT : LOCAL_EXTRACTION_CANCELLED, schemaValid: false });
           throw runtimeError(timedOut ? LOCAL_EXTRACTION_TOTAL_TIMEOUT : LOCAL_EXTRACTION_CANCELLED, timedOut ? "Local extraction exceeded its total timeout." : "Local extraction was cancelled.", { attempts });
         }
-        attempts.push({ attempt: strategy.attempt, attemptId, strategy: strategy.strategy, elapsedMs: Date.now() - attemptStartedAt, status: "rejected", errorCode: code || MODEL_QUALITY_INSUFFICIENT, schemaValid: false });
+        const attemptTimedOut = attemptController.signal.reason === LOCAL_EXTRACTION_ATTEMPT_TIMEOUT;
+        attempts.push({ attempt: strategy.attempt, attemptId, strategy: strategy.strategy, elapsedMs: Date.now() - attemptStartedAt, status: attemptTimedOut ? "timeout" : "rejected", errorCode: attemptTimedOut ? LOCAL_EXTRACTION_ATTEMPT_TIMEOUT : code || MODEL_QUALITY_INSUFFICIENT, schemaValid: false });
+      } finally {
+        clearTimeout(attemptTimer);
+        chainAbort.signal.removeEventListener("abort", relayChainAbort);
       }
     }
-    throw runtimeError(LOCAL_EXTRACTION_RETRY_EXHAUSTED, "All three local extraction strategies were rejected.", { attempts, fingerprint });
+    throw runtimeError(LOCAL_MODEL_INSUFFICIENT_FOR_TASK, "The selected local model could not produce a validated Story Bible candidate within the bounded retry plan.", { attempts, fingerprint, suggestedAction: "Use a stronger local model or a future Private Hub runtime." });
   } finally {
     clearTimeout(timer);
     input.signal?.removeEventListener("abort", relayAbort);
