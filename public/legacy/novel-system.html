@@ -841,7 +841,7 @@ async function cloudNovelAiConfirmMemory(){try{if(!cloudNovelAiLastMemoryCandida
 重要道具：${(m.importantItems||[]).length} 筆
 更新時間：${m.updatedAt||''}`);cloudNovelAiLastMemoryCandidate=null;cloudNovelAiStatus('AI故事記憶已由作者確認寫入。')}catch(e){cloudNovelAiLearningOut(`確認AI記憶失敗：${e.message}`)}}
 async function cloudNovelAiAudit(){try{cloudNovelAiStatus('正在執行 v9 真實接通稽核。');const data=await cloudNovelAiFetch('/api/admin/training-dataset/audit',{});const lines=(data.results||[]).map(x=>`${x.status}｜${x.item}｜${x.detail}`);cloudNovelAiLearningOut(`【v9真實接通稽核】\n結果：${data.passed?'全部通過':'仍有失敗項'}\nPASS：${data.passCount}｜FAIL：${data.failCount}\nCore：${data.versions?.coreSystemVersion||'unknown'}\nPrompt：${data.versions?.promptVersion||'unknown'}\nMemory：${data.versions?.memoryVersion||'unknown'}\nPreference：${data.versions?.preferenceVersion||'unknown'}\nQuality：${data.versions?.qualityGateVersion||'unknown'}\n\n${lines.join('\n')}`);cloudNovelAiStatus(`v9稽核完成：PASS ${data.passCount}，FAIL ${data.failCount}`)}catch(e){cloudNovelAiLearningOut(`v9稽核失敗：${e.message}`);cloudNovelAiStatus(`v9稽核失敗：${e.message}`)}}
-loadNovel();loadAiSettings();miniAiV5InstallButtons();miniAiV56InstallButtons();miniAiV57InstallButtons();miniAiV58InstallButtons();miniAiV59InstallButtons();simpleInitWritingMode();cloudNovelAiInstallMemoryButtons();setTimeout(()=>{cloudNovelAiHealth();},300);showView('creation');
+loadNovel();loadAiSettings();miniAiV5InstallButtons();miniAiV56InstallButtons();miniAiV57InstallButtons();miniAiV58InstallButtons();miniAiV59InstallButtons();simpleInitWritingMode();cloudNovelAiInstallMemoryButtons();showView('creation');
 </script>
 <script src="/generated/story-library.js"></script>
 <script>

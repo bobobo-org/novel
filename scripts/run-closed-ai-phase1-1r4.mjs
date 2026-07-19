@@ -130,7 +130,7 @@ await test("legacy build source and generated manifest have identical hashes", a
   await execFileAsync(process.execPath, [path.join(root, "scripts", "check-legacy-build-truth.mjs"), "--write-manifest"], { cwd: root });
   const html = await readFile(path.join(root, "public", "legacy", "novel-system.html"));
   const manifest = JSON.parse(await readFile(path.join(root, "public", "legacy", "novel-system.build.json"), "utf8"));
-  assert.equal(manifest.sourceSha256, sha256(html));
+  assert.equal(manifest.buildArtifactRawSha256, sha256(html));
   assert.equal(manifest.buildArtifactSha256, manifest.sourceSha256);
   assert.ok(Object.values(manifest.assertions).every(Boolean));
   return manifest;
