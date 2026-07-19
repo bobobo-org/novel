@@ -4,6 +4,7 @@
   "modified": [
     "app/studio/settings/ai/settings-client.tsx",
     "lib/release-manifest.ts",
+    "lib/novel-ai/providers/local-ollama/local-bridge-client.ts",
     "package.json",
     "public/legacy/novel-system.html"
   ],

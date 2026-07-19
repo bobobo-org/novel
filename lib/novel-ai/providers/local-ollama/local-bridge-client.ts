@@ -2,6 +2,7 @@ import { AiProviderError } from "../provider-errors";
 
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
+const BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
@@ -23,6 +24,11 @@ function normalizeBridgeEndpoint(value = DEFAULT_ENDPOINT) {
     throw new AiProviderError("LOCAL_SECURITY_POLICY_VIOLATION", "Local Bridge endpoint must be exactly http://127.0.0.1:3217", { retryable: false });
   }
   return url.origin;
+}
+
+function controlSignal(signal?: AbortSignal) {
+  const timeoutSignal = AbortSignal.timeout(BRIDGE_CONTROL_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
 export class LocalBridgeClient {
@@ -56,41 +62,42 @@ export class LocalBridgeClient {
   }
 
   async health(signal?: AbortSignal) {
+    const boundedSignal = controlSignal(signal);
     try {
-      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal, cache: "no-store" }));
+      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal: boundedSignal, cache: "no-store" }));
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (boundedSignal.aborted) throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
-      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal, cache: "no-store" }));
+      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal: boundedSignal, cache: "no-store" }));
     }
   }
 
   async requestPairing(signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}", signal }));
+    return this.parse(await fetch(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}", signal: controlSignal(signal) }));
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {
-    const session = await this.parse(await fetch(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }), signal })) as LocalBridgeSession;
+    const session = await this.parse(await fetch(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }), signal: controlSignal(signal) })) as LocalBridgeSession;
     this.session = session;
     return session;
   }
 
   async revoke(signal?: AbortSignal) {
-    const result = await this.parse(await fetch(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }), signal }));
+    const result = await this.parse(await fetch(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }), signal: controlSignal(signal) }));
     this.session = null;
     return result;
   }
 
   async models(signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/models`, { headers: this.headers(true), signal, cache: "no-store" }));
+    return this.parse(await fetch(`${this.endpoint}/models`, { headers: this.headers(true), signal: controlSignal(signal), cache: "no-store" }));
   }
 
   async inspectModel(modelId: string, signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/models/${encodeURIComponent(modelId)}`, { headers: this.headers(true), signal, cache: "no-store" }));
+    return this.parse(await fetch(`${this.endpoint}/models/${encodeURIComponent(modelId)}`, { headers: this.headers(true), signal: controlSignal(signal), cache: "no-store" }));
   }
 
   async cancel(requestId: string, signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/cancel`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ requestId }), signal }));
+    return this.parse(await fetch(`${this.endpoint}/cancel`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ requestId }), signal: controlSignal(signal) }));
   }
 
   async *generate(input: { requestId: string; model: string; prompt?: string; messages?: Array<{ role: string; content: string }>; systemInstruction?: string; taskType: string; timeoutMs?: number; options?: Record<string, unknown>; signal?: AbortSignal }): AsyncGenerator<LocalBridgeEvent> {
