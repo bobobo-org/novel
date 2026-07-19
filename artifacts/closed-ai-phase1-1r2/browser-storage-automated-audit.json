@@ -1,0 +1,7 @@
+{
+  "status": "NOT_VERIFIED",
+  "reason": "The authorized in-app browser control policy prohibits inspection of cookies, localStorage, profiles, and session stores.",
+  "devToolsStateInjectionUsed": false,
+  "directBridgeApiUsedInsteadOfStudio": false,
+  "blocking": true
+}

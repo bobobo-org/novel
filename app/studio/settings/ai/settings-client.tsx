@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
-import { LOCAL_MODEL_OUTPUT_UNRELIABLE, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
+import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
+import { runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
 type Status = { browser: string; bridge: string; pairing: string; ollama: string; model: string; hub: string; privacy: string; external: boolean; error: string };
@@ -28,6 +29,10 @@ const errorGuidance: Record<string, string> = {
   LOCAL_CONCURRENCY_LIMIT: "本機 AI 正在處理其他工作，請稍候再試。",
   LOCAL_DUPLICATE_REQUEST: "這個要求已送出，系統已阻止重複生成。",
   LOCAL_MODEL_OUTPUT_UNRELIABLE: "本機模型的結果缺少可驗證證據，這次內容不會進入正式資料。請縮短原文或重新嘗試。",
+  LOCAL_EXTRACTION_RETRY_EXHAUSTED: "本機模型連續三次都未能提供可靠證據，這次內容不會進入正式資料。",
+  LOCAL_EXTRACTION_CANCELLED: "角色資料整理已取消，後續重試也已停止。",
+  LOCAL_EXTRACTION_TOTAL_TIMEOUT: "角色資料整理超過整體時間上限，已停止所有重試。",
+  LOCAL_EXTRACTION_SOURCE_CHANGED: "整理期間原文已變更，舊結果已捨棄，請重新執行。",
 };
 
 const initial: Status = { browser: "檢查中", bridge: "檢查中", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", hub: "檢查中", privacy: "strict-local", external: false, error: "" };
@@ -42,6 +47,7 @@ export default function AISettingsClient() {
   const [taskType, setTaskType] = useState("rewrite");
   const [prompt, setPrompt] = useState("請將這句話改寫得更有場景感：林昭推開圖書館的門，發現帳冊不見了。");
   const [output, setOutput] = useState("");
+  const promptRef = useRef("");
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus>("idle");
   const [requestId, setRequestId] = useState("");
   const [activeModel, setActiveModel] = useState("");
@@ -142,6 +148,8 @@ export default function AISettingsClient() {
     const currentRequestId = crypto.randomUUID();
     const modelForRequest = status.model;
     const requestModelSnapshot = snapshotLocalModelForRequest(currentRequestId, modelForRequest);
+    const submittedPrompt = prompt.trim();
+    const sourceRevision = buildExtractionFingerprint({ sourceRevision: "studio-current", taskType, modelId: modelForRequest, schemaVersion: "local-quality-guard-v1", sourceText: submittedPrompt });
     const startedAt = performance.now();
     let generatedContent = "";
     let streamCompleted = false;
@@ -149,18 +157,26 @@ export default function AISettingsClient() {
     firstTokenSeen.current = false;
     setRequestId(currentRequestId); setActiveModel(modelForRequest); setOutput(""); setElapsedMs(null); setFirstTokenMs(null); setGenerationStatus("generating"); setStatus((value) => ({ ...value, error: "" }));
     try {
-      for await (const event of client.generate({ requestId: requestModelSnapshot.requestId, model: requestModelSnapshot.modelId, prompt: prompt.trim(), systemInstruction: taskSystemInstruction(taskType), taskType, timeoutMs, options: { num_predict: taskType.includes("review") ? 256 : 512 }, signal: controller.signal })) {
-        if (event.type === "token") {
-          if (!firstTokenSeen.current) { firstTokenSeen.current = true; setFirstTokenMs(Math.round(performance.now() - startedAt)); }
-          generatedContent += String(event.text || "");
-          setOutput(generatedContent);
+      const collectAttempt = async (attempt: { attemptId: string; modelId: string; prompt: string; systemInstruction: string; signal: AbortSignal }) => {
+        let content = ""; let completed = false;
+        for await (const event of client.generate({ requestId: attempt.attemptId, model: attempt.modelId, prompt: attempt.prompt, systemInstruction: attempt.systemInstruction, taskType, timeoutMs, options: { num_predict: taskType === "character.extract" ? 256 : 512, temperature: taskType === "character.extract" ? 0 : undefined }, signal: attempt.signal })) {
+          if (event.type === "token") { if (!firstTokenSeen.current) { firstTokenSeen.current = true; setFirstTokenMs(Math.round(performance.now() - startedAt)); } content += String(event.text || ""); setOutput(content); }
+          if (event.type === "completed") completed = true;
+          if (event.type === "failed") throw Object.assign(new Error(String(event.errorCode || "OLLAMA_STREAM_INTERRUPTED")), { code: event.errorCode });
         }
-        if (event.type === "completed") streamCompleted = true;
-        if (event.type === "cancelled") setGenerationStatus("cancelled");
-        if (event.type === "failed") throw Object.assign(new Error(String(event.errorCode || "OLLAMA_STREAM_INTERRUPTED")), { code: event.errorCode });
+        if (!completed) throw Object.assign(new Error("OLLAMA_STREAM_INTERRUPTED"), { code: "OLLAMA_STREAM_INTERRUPTED" });
+        return content;
+      };
+      if (taskType === "character.extract") {
+        const result = await runLocalExtractionWithRetry({ logicalRequestId: currentRequestId, taskType, modelId: requestModelSnapshot.modelId, sourceRevision, sources: [{ chapterId: "studio-input", text: submittedPrompt }], totalTimeoutMs: timeoutMs, signal: controller.signal, getCurrentSourceRevision: () => buildExtractionFingerprint({ sourceRevision: "studio-current", taskType, modelId: modelForRequest, schemaVersion: "local-quality-guard-v1", sourceText: promptRef.current.trim() }), executeAttempt: collectAttempt });
+        generatedContent = JSON.stringify({ schemaVersion: result.versions.schemaVersion, facts: result.facts }, null, 2);
+        setOutput(generatedContent); streamCompleted = true;
+      } else {
+        generatedContent = await collectAttempt({ attemptId: requestModelSnapshot.requestId, modelId: requestModelSnapshot.modelId, prompt: submittedPrompt, systemInstruction: taskSystemInstruction(taskType), signal: controller.signal });
+        streamCompleted = true;
       }
       if (streamCompleted) {
-        const validation = validateStudioTaskOutput({ taskType, prompt: prompt.trim(), output: generatedContent, modelId: modelForRequest, requestId: currentRequestId });
+        const validation = validateStudioTaskOutput({ taskType, prompt: submittedPrompt, output: generatedContent, modelId: modelForRequest, requestId: currentRequestId });
         if (validation.status === "reject") throw Object.assign(new Error(LOCAL_MODEL_OUTPUT_UNRELIABLE), { code: LOCAL_MODEL_OUTPUT_UNRELIABLE });
         setGenerationStatus("completed");
       }
@@ -186,6 +202,8 @@ export default function AISettingsClient() {
       generationController.current = null;
     }
   };
+
+  promptRef.current = prompt;
 
   const cancelGeneration = () => {
     if (!generationController.current) return;

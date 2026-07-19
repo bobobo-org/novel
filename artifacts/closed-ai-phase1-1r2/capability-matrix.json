@@ -1,0 +1,13 @@
+{
+  "runtimeRetryContract": "ready",
+  "runtimeRetryStudioWiring": "ready",
+  "runtimeRetryReal3BQuality": "degraded",
+  "formalWriteGate": "partial_adapter_transaction_verified_not_studio_approval_wired",
+  "sqliteAtomicTransaction": "ready",
+  "revisionGuard": "ready",
+  "conflictAutoCommit": "blocked_by_policy",
+  "browserStorageAutomatedAudit": "not_verified",
+  "legacyProviderIsolation": "unsafe",
+  "physicalMobileLocalRuntime": "not_supported",
+  "realDualModelSwitch": "not_testable_single_model_environment"
+}

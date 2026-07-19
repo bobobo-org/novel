@@ -1,0 +1,10 @@
+{
+  "directOllamaEndpointAvailable": true,
+  "localBridgeBypassPossible": true,
+  "pairingRequired": false,
+  "originBindingEnforced": false,
+  "csrfEnforced": false,
+  "evidence": ["public/legacy/novel-system.html:223", "public/legacy/novel-system.html:510", "public/legacy/phase1-manager.js:3131"],
+  "severity": "High",
+  "blockingR2": true
+}

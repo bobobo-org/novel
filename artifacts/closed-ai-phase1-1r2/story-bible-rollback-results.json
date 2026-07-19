@@ -1,0 +1,58 @@
+[
+  {
+    "name": "memory rollback at canonical",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "memory rollback at source",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "memory rollback at audit",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "memory rollback at version",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "sqlite rollback at canonical",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "sqlite rollback at source",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "sqlite rollback at audit",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  },
+  {
+    "name": "sqlite rollback at version",
+    "status": "PASS",
+    "evidence": {
+      "partialWrites": 0
+    }
+  }
+]

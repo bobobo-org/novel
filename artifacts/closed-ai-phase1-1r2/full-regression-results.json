@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-07-20T04:00:00+08:00",
+  "passed": [
+    "Phase1.1R2 focused safety suite 28/28",
+    "Phase1.1R1 quality",
+    "Phase1.1 contract",
+    "Bridge contract",
+    "Launcher",
+    "Clean shell",
+    "Windows bridge",
+    "Phase0 54",
+    "Training 25",
+    "P21R1 21",
+    "H1 9",
+    "TypeScript",
+    "ESLint 0 errors",
+    "Build"
+  ],
+  "failed": ["Real qwen2.5:3b structured extraction after 3 attempts"],
+  "eslintWarnings": 98,
+  "newEslintWarnings": 0,
+  "logs": "test-logs/"
+}

@@ -1,0 +1,17 @@
+{
+  "new": [
+    "lib/novel-ai/providers/local-ollama/local-extraction-runtime.ts",
+    "lib/novel-ai/story-bible-local-write-gate.ts",
+    "scripts/run-closed-ai-phase1-1r2.mjs",
+    "scripts/run-closed-ai-phase1-1r2-real.mjs"
+  ],
+  "modified": [
+    "app/studio/settings/ai/settings-client.tsx",
+    "lib/novel-ai/providers/local-ollama/local-quality-guard.ts",
+    "local-ai/bridge/server.mjs"
+  ],
+  "deleted": [],
+  "legacyModified": false,
+  "formalIndexedDbSchemaModified": false,
+  "backupRestoreModified": false
+}

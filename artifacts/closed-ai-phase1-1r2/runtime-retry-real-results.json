@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r2-real-runtime-v1",
+  "generatedAt": "2026-07-19T20:57:42.252Z",
+  "status": "FAIL",
+  "errorCode": "LOCAL_EXTRACTION_TOTAL_TIMEOUT",
+  "message": "Local extraction exceeded its total timeout.",
+  "attempts": [
+    {"attempt":1,"attemptId":"r2-real-1784494542194:attempt-1","strategy":"normal_structured_extraction","elapsedMs":79586,"status":"rejected","errorCode":"LOCAL_MODEL_OUTPUT_UNRELIABLE","schemaValid":false},
+    {"attempt":2,"attemptId":"r2-real-1784494542194:attempt-2","strategy":"evidence_only_extraction","elapsedMs":36186,"status":"rejected","errorCode":"LOCAL_MODEL_OUTPUT_UNRELIABLE","schemaValid":false},
+    {"attempt":3,"attemptId":"r2-real-1784494542194:attempt-3","strategy":"constrained_field_by_field_extraction","elapsedMs":4284,"status":"timeout","errorCode":"LOCAL_EXTRACTION_TOTAL_TIMEOUT","schemaValid":false}
+  ],
+  "elapsedMs": 120138,
+  "networkDestinations": ["127.0.0.1:3217", "127.0.0.1:11434"],
+  "externalAiCalls": 0,
+  "fullPromptOrOutputPersisted": false
+}

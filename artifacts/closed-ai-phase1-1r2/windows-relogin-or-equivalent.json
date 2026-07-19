@@ -1,0 +1,8 @@
+{
+  "cleanShell": "PASS 6/6",
+  "launcher": "PASS 13/13",
+  "windowsRuntime": "PASS 4/4",
+  "actualWindowsRelogin": "NOT_VERIFIED",
+  "equivalent": "fresh shell and isolated launcher runtime directory",
+  "blockingDesktopRuntime": false
+}

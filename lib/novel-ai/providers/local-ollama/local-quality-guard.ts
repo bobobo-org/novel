@@ -122,6 +122,35 @@ function stripCodeFence(raw: string) {
   return raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 }
 
+export function safelyRepairModelExtraction(raw: string, sources: SourceDocument[], modelId: string, requestId: string) {
+  let parsed: unknown;
+  try { parsed = JSON.parse(stripCodeFence(raw)); } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null;
+  const facts = Array.isArray((parsed as { facts?: unknown }).facts) ? (parsed as { facts: unknown[] }).facts : [];
+  if (facts.length === 0) return null;
+  const repaired = facts.slice(0, 40).flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const fact = value as Record<string, unknown>;
+    const entityId = String(fact.entityId || "").slice(0, 160);
+    const field = String(fact.field || "").slice(0, 120);
+    if (!entityId || !field) return [];
+    const rawSpans = Array.isArray(fact.evidenceSpans) ? fact.evidenceSpans : [];
+    const evidenceSpans = rawSpans.slice(0, 5).flatMap((spanValue) => {
+      if (!spanValue || typeof spanValue !== "object") return [];
+      const span = spanValue as Record<string, unknown>;
+      const text = String(span.text || "").slice(0, 500);
+      const source = sources.find((item) => item.chapterId === String(span.sourceChapterId || "")) || sources.find((item) => item.text.includes(text));
+      const start = source && text ? source.text.indexOf(text) : -1;
+      return source && start >= 0 ? [{ sourceChapterId: source.chapterId, start, end: start + text.length, text }] : [];
+    });
+    const requestedType = String(fact.factType || "");
+    const factType: FactType = ["explicit", "inferred", "unknown", "conflicted"].includes(requestedType) ? requestedType as FactType : evidenceSpans.length ? "explicit" : "unknown";
+    const rawConfidence = Number(fact.confidence);
+    return [{ entityId, field, value: factType === "unknown" ? null : (["string", "number", "boolean"].includes(typeof fact.value) ? fact.value as string | number | boolean : String(fact.value ?? "").slice(0, 500)), factType, evidenceSpans, sourceChapterIds: [...new Set(evidenceSpans.map((span) => span.sourceChapterId))], confidence: Number.isFinite(rawConfidence) ? Math.max(0, Math.min(1, rawConfidence)) : evidenceSpans.length ? 0.85 : 0, validatorStatus: "pending", modelId, requestId, schemaVersion: LOCAL_QUALITY_SCHEMA_VERSION }];
+  });
+  return JSON.stringify({ schemaVersion: LOCAL_QUALITY_SCHEMA_VERSION, facts: repaired });
+}
+
 export function parseAndValidateModelExtraction(raw: string, sources: SourceDocument[]) {
   let parsed: unknown;
   try { parsed = JSON.parse(stripCodeFence(raw)); }

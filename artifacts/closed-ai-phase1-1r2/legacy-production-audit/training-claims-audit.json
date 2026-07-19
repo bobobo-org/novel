@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r2-legacy-training-claims-audit-v1",
+  "modelTrainingOperational": false,
+  "actualCapabilities": ["prompt_or_memory_only", "data_collection_only", "contract_only"],
+  "misleadingTrainingClaimsPresent": true,
+  "privateSharedTrainingObserved": false,
+  "recommendedLabel": "not_model_training"
+}

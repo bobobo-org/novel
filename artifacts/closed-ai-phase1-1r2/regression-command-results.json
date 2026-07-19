@@ -1,0 +1,52 @@
+﻿[
+    {
+        "test":  "run-closed-ai-phase1-1r1-quality",
+        "exitCode":  0,
+        "elapsedMs":  3907
+    },
+    {
+        "test":  "run-closed-ai-phase1-1-contract",
+        "exitCode":  0,
+        "elapsedMs":  601
+    },
+    {
+        "test":  "run-closed-ai-bridge-contract",
+        "exitCode":  0,
+        "elapsedMs":  385
+    },
+    {
+        "test":  "run-closed-ai-launcher-tests",
+        "exitCode":  0,
+        "elapsedMs":  11688
+    },
+    {
+        "test":  "run-closed-ai-launcher-clean-shell",
+        "exitCode":  0,
+        "elapsedMs":  67755
+    },
+    {
+        "test":  "run-closed-ai-bridge-windows",
+        "exitCode":  0,
+        "elapsedMs":  2666
+    },
+    {
+        "test":  "run-closed-ai-phase0",
+        "exitCode":  0,
+        "elapsedMs":  406
+    },
+    {
+        "test":  "run-closed-ai-training-phase0",
+        "exitCode":  0,
+        "elapsedMs":  857
+    },
+    {
+        "test":  "run-p21r1-high-risk-closure",
+        "exitCode":  0,
+        "elapsedMs":  583
+    },
+    {
+        "test":  "run-ai-h1-all",
+        "exitCode":  0,
+        "elapsedMs":  83315
+    }
+]

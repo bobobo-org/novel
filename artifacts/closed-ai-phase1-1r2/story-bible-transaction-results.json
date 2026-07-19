@@ -1,0 +1,419 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r2-results-v1",
+  "generatedAt": "2026-07-19T21:14:52.032Z",
+  "pass": 28,
+  "fail": 0,
+  "results": [
+    {
+      "name": "runtime accepts first valid attempt",
+      "status": "PASS",
+      "evidence": [
+        {
+          "attempt": 1,
+          "attemptId": "logical-1:attempt-1",
+          "strategy": "normal_structured_extraction",
+          "elapsedMs": 3,
+          "status": "accepted",
+          "errorCode": null,
+          "schemaValid": true
+        }
+      ]
+    },
+    {
+      "name": "runtime uses three distinct strategies in one lineage",
+      "status": "PASS",
+      "evidence": [
+        {
+          "attempt": 1,
+          "attemptId": "logical-1:attempt-1",
+          "strategy": "normal_structured_extraction",
+          "elapsedMs": 0,
+          "status": "rejected",
+          "errorCode": "LOCAL_MODEL_OUTPUT_UNRELIABLE",
+          "schemaValid": false
+        },
+        {
+          "attempt": 2,
+          "attemptId": "logical-1:attempt-2",
+          "strategy": "evidence_only_extraction",
+          "elapsedMs": 0,
+          "status": "rejected",
+          "errorCode": "LOCAL_MODEL_OUTPUT_UNRELIABLE",
+          "schemaValid": false
+        },
+        {
+          "attempt": 3,
+          "attemptId": "logical-1:attempt-3",
+          "strategy": "constrained_field_by_field_extraction",
+          "elapsedMs": 0,
+          "status": "accepted",
+          "errorCode": null,
+          "schemaValid": true
+        }
+      ]
+    },
+    {
+      "name": "runtime exhausts after exactly three attempts",
+      "status": "PASS",
+      "evidence": {
+        "attempts": 3
+      }
+    },
+    {
+      "name": "cancel stops current and future attempts",
+      "status": "PASS",
+      "evidence": {
+        "attempts": 1
+      }
+    },
+    {
+      "name": "total timeout spans the retry chain",
+      "status": "PASS",
+      "evidence": {
+        "attempts": 1
+      }
+    },
+    {
+      "name": "source change stops retries",
+      "status": "PASS",
+      "evidence": {
+        "staleBlocked": true
+      }
+    },
+    {
+      "name": "non-retryable bridge failure stops after one attempt",
+      "status": "PASS",
+      "evidence": {
+        "attempts": 1,
+        "providerSwitches": 0
+      }
+    },
+    {
+      "name": "system validation failure is not classified as model quality",
+      "status": "PASS",
+      "evidence": {
+        "attempts": 1,
+        "classification": "SYSTEM_VALIDATION_FAILURE"
+      }
+    },
+    {
+      "name": "memory formal commit is atomic",
+      "status": "PASS",
+      "evidence": {
+        "transactionId": "tx_4edccb3f-3c5a-45b4-a38b-4f2a67e127e6",
+        "fullChapterDuplicatedInEvidence": false
+      }
+    },
+    {
+      "name": "memory rollback at canonical",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "memory rollback at source",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "memory rollback at audit",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "memory rollback at version",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "sqlite formal commit is atomic",
+      "status": "PASS",
+      "evidence": {
+        "transactionId": "sqlite_tx_794eccfe-7a1d-4812-8cad-038c3c49e839",
+        "fullChapterDuplicatedInEvidence": false
+      }
+    },
+    {
+      "name": "sqlite rollback at canonical",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "sqlite rollback at source",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "sqlite rollback at audit",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "sqlite rollback at version",
+      "status": "PASS",
+      "evidence": {
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "stale source creates no formal rows",
+      "status": "PASS",
+      "evidence": {
+        "staleWrites": 0
+      }
+    },
+    {
+      "name": "source change during transaction rolls back all formal rows",
+      "status": "PASS",
+      "evidence": {
+        "revisionChecks": 3,
+        "staleWrites": 0,
+        "partialWrites": 0
+      }
+    },
+    {
+      "name": "evidence mismatch is rejected before transaction",
+      "status": "PASS",
+      "evidence": {
+        "hallucinatedEvidenceBlocked": 1,
+        "formalWrites": 0
+      }
+    },
+    {
+      "name": "unresolved conflict cannot write",
+      "status": "PASS",
+      "evidence": {
+        "autoWinner": false
+      }
+    },
+    {
+      "name": "unresolved conflict is preserved for review",
+      "status": "PASS",
+      "evidence": {
+        "conflictId": "conflict_3b9ee0af-b74f-4919-b2e2-fc6a23d6053a",
+        "autoWinner": false,
+        "canonicalWrites": 0
+      }
+    },
+    {
+      "name": "needs-review candidate cannot bypass validation stage",
+      "status": "PASS",
+      "evidence": {
+        "formalWrites": 0
+      }
+    },
+    {
+      "name": "unknown fact cannot write",
+      "status": "PASS",
+      "evidence": {
+        "formalWrites": 0
+      }
+    },
+    {
+      "name": "inferred fact cannot write",
+      "status": "PASS",
+      "evidence": {
+        "formalWrites": 0
+      }
+    },
+    {
+      "name": "low confidence fact cannot write",
+      "status": "PASS",
+      "evidence": {
+        "formalWrites": 0
+      }
+    },
+    {
+      "name": "invalid fact cannot write",
+      "status": "PASS",
+      "evidence": {
+        "formalWrites": 0
+      }
+    }
+  ],
+  "metrics": {
+    "runtimeAttemptsBounded": true,
+    "revisionStaleWritesBlocked": 100,
+    "formalStoryBibleIncorrectWrites": 0,
+    "finalCommittedIncorrectFacts": 0,
+    "partialWrites": 0,
+    "validatorFalseNegative": 0,
+    "systemValidationFailures": 0,
+    "qualitySampleCount": 40
+  },
+  "qualityCases": [
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "retry",
+      "accepted": false
+    },
+    {
+      "type": "cancel",
+      "accepted": false
+    },
+    {
+      "type": "timeout",
+      "accepted": false
+    }
+  ]
+}

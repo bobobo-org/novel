@@ -8,6 +8,17 @@ import {
 } from "./bridge-core.mjs";
 
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, max-age=0" };
+const characterExtractionFormat = {
+  type: "object", additionalProperties: false, required: ["schemaVersion", "facts"],
+  properties: {
+    schemaVersion: { type: "string", const: "local-quality-guard-v1" },
+    facts: { type: "array", maxItems: 40, items: { type: "object", additionalProperties: false, required: ["entityId", "field", "value", "factType", "evidenceSpans", "sourceChapterIds", "confidence", "validatorStatus", "modelId", "requestId", "schemaVersion"], properties: {
+      entityId: { type: "string" }, field: { type: "string" }, value: { type: ["string", "number", "boolean", "null"] }, factType: { type: "string", enum: ["explicit", "inferred", "unknown", "conflicted"] },
+      evidenceSpans: { type: "array", maxItems: 5, items: { type: "object", additionalProperties: false, required: ["sourceChapterId", "start", "end", "text"], properties: { sourceChapterId: { type: "string" }, start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, text: { type: "string" } } } },
+      sourceChapterIds: { type: "array", maxItems: 5, items: { type: "string" } }, confidence: { type: "number", minimum: 0, maximum: 1 }, validatorStatus: { type: "string", enum: ["pending", "valid", "invalid", "conflict"] }, modelId: { type: "string" }, requestId: { type: "string" }, schemaVersion: { type: "string", const: "local-quality-guard-v1" },
+    } } },
+  },
+};
 
 function sendJson(response, status, body, origin) {
   response.writeHead(status, { ...jsonHeaders, ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}) });
@@ -202,7 +213,8 @@ export function createBridgeServer(options = {}) {
           const tagsResponse = await ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" }, 5_000);
           const tags = await tagsResponse.json();
           if (!(tags.models || []).some((item) => (item.model || item.name) === modelId)) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
-          const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
+          const format = body.taskType === "character.extract" ? characterExtractionFormat : undefined;
+          const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, format, options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
           response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Access-Control-Allow-Origin": origin, Vary: "Origin", "X-Content-Type-Options": "nosniff" });
           response.write(`${JSON.stringify({ type: "started", requestId, modelId })}\n`);
           const reader = upstream.body?.getReader();

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "unresolved conflict cannot write",
+    "status": "PASS",
+    "evidence": {
+      "autoWinner": false
+    }
+  },
+  {
+    "name": "unresolved conflict is preserved for review",
+    "status": "PASS",
+    "evidence": {
+      "conflictId": "conflict_3b9ee0af-b74f-4919-b2e2-fc6a23d6053a",
+      "autoWinner": false,
+      "canonicalWrites": 0
+    }
+  }
+]

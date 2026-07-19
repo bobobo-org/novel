@@ -1,0 +1,7 @@
+{
+  "installedTextModels": ["qwen2.5:3b"],
+  "realDualModelSwitch": "NOT_TESTABLE_SINGLE_MODEL_ENVIRONMENT",
+  "contractStateMachineSwitch": "PASS",
+  "modelRemovalBehavior": "PASS",
+  "inFlightModelSnapshot": "PASS"
+}
