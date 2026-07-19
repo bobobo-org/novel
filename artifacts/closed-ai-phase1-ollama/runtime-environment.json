@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "closed-ai-runtime-environment-v1",
+  "operatingSystem": "Windows 10.0.26200",
+  "bridgeVersion": "1.0.0-phase1",
+  "protocolVersion": "novel-local-bridge/v1",
+  "bridgeBind": "127.0.0.1:3217",
+  "ipv6LoopbackTested": true,
+  "ollamaVersion": "0.32.0",
+  "ollamaEndpoint": "http://127.0.0.1:11434",
+  "firewallChanged": false,
+  "modelDownloadedByPhase1": false,
+  "externalAiCalls": 0
+}

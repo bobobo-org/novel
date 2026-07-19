@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "closed-ai-phase1-change-manifest-v1",
+  "branch": "feature/closed-ai-phase1-ollama-bridge",
+  "baseCommit": "ee83e16b06f6f6e3aed0d318ef1fd50d83f4428f",
+  "worktree": "C:\\dev\\novel-h2-closure-closed-ai",
+  "modified": [
+    "app/studio/settings/ai/settings-client.tsx",
+    "lib/novel-ai/providers/local-ollama/local-ollama-provider.ts",
+    "lib/novel-ai/providers/provider-errors.ts",
+    "package.json"
+  ],
+  "new": [
+    "lib/novel-ai/providers/local-ollama/local-bridge-client.ts",
+    "local-ai/bridge/README.md",
+    "local-ai/bridge/bridge-core.mjs",
+    "local-ai/bridge/server.mjs",
+    "scripts/run-closed-ai-bridge-contract.mjs",
+    "scripts/run-closed-ai-bridge-process.mjs",
+    "scripts/run-closed-ai-bridge-real.mjs",
+    "scripts/run-closed-ai-bridge-real-recovery.mjs",
+    "scripts/run-closed-ai-bridge-router.mjs",
+    "scripts/run-closed-ai-bridge-windows.mjs",
+    "scripts/run-closed-ai-ollama-restart.mjs",
+    "artifacts/closed-ai-phase1-ollama/*"
+  ],
+  "deleted": [],
+  "forbiddenBoundariesChanged": {
+    "productionWorkspace": false,
+    "studioStoryTransactions": false,
+    "indexedDbSchema": false,
+    "acceptedChoices": false,
+    "storyBranches": false,
+    "backupRestore": false
+  }
+}

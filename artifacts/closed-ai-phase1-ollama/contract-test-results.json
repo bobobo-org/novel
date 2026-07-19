@@ -1,0 +1,166 @@
+{
+  "schemaVersion": "closed-ai-bridge-contract-results-v1",
+  "generatedAt": "2026-07-19T18:00:17.496Z",
+  "protocolVersion": "novel-local-bridge/v1",
+  "pass": 31,
+  "fail": 0,
+  "skip": 0,
+  "externalAiCalls": 0,
+  "results": [
+    {
+      "name": "protocol health handshake",
+      "status": "PASS",
+      "elapsedMs": 115
+    },
+    {
+      "name": "protocol version mismatch",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "origin allowlist accepts configured origins",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unauthorized origin rejected",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "preflight uses exact origin and no wildcard",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "malformed JSON rejected",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "name": "oversized request rejected",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "pairing lifecycle reaches paired",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "pairing code cannot be reused",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "missing CSRF rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "invalid model id rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "token and prompt absent from sanitized logs",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "pair revoke succeeds",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "revoked token rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "expired pairing rejected",
+      "status": "PASS",
+      "elapsedMs": 16
+    },
+    {
+      "name": "old bridge token rejected by new instance",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IPv4 loopback allowed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IPv6 loopback allowed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "non-loopback bind rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DNS rebinding host rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:file:///tmp/model",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:http://169.254.169.254:11434",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:http://192.168.1.2:11434",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:https://127.0.0.1:11434",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:http://example.com:11434",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unsafe Ollama target rejected:http://127.0.0.1:9999",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "fixed local Ollama endpoint accepted",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "idempotency duplicate rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "idempotency identity mismatch rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "queue limit enforced",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "required error catalog present",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

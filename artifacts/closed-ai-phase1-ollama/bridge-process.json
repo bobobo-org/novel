@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "closed-ai-bridge-process-evidence-v1",
+  "generatedAt": "2026-07-19T18:19:55.602Z",
+  "status": "PASS",
+  "process": {
+    "separateOsProcess": true,
+    "pidRecorded": true,
+    "stopped": true,
+    "exitCode": null,
+    "signalCode": "SIGTERM"
+  },
+  "startup": {
+    "event": "bridge_started",
+    "protocol": "novel-local-bridge/v1",
+    "host": "127.0.0.1",
+    "port": 3222
+  },
+  "health": {
+    "bridgeProcessAlive": true,
+    "bindAddress": "127.0.0.1",
+    "protocolVersion": "novel-local-bridge/v1"
+  },
+  "shutdown": {
+    "graceful": true,
+    "portReleased": true
+  },
+  "logs": {
+    "containedPairingToken": false,
+    "containedPromptOrOutput": false
+  }
+}

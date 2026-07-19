@@ -1,0 +1,230 @@
+{
+  "schemaVersion": "closed-ai-real-runtime-results-v1",
+  "generatedAt": "2026-07-19T18:02:38.554Z",
+  "operatingSystem": "win32 10.0.26200",
+  "ollamaEndpoint": "http://127.0.0.1:11434",
+  "bridgeEndpoint": "http://127.0.0.1:3217",
+  "protocolVersion": "novel-local-bridge/v1",
+  "model": {
+    "modelId": "qwen2.5:3b",
+    "diskSize": 1929912432,
+    "quantization": {
+      "value": "Q4_K_M",
+      "source": "reported"
+    },
+    "parameterSize": {
+      "value": "3.1B",
+      "source": "reported"
+    }
+  },
+  "pass": 15,
+  "fail": 0,
+  "skip": 0,
+  "externalAiCalls": 0,
+  "networkDestinations": [
+    "127.0.0.1:3217",
+    "127.0.0.1:11434"
+  ],
+  "fullPromptOrOutputPersisted": false,
+  "timings": [
+    {
+      "requestId": "phase1-summary-0001",
+      "firstTokenMs": 18022,
+      "totalMs": 24243
+    },
+    {
+      "requestId": "phase1-character-0001",
+      "firstTokenMs": 2340,
+      "totalMs": 11782
+    },
+    {
+      "requestId": "phase1-rewrite-0001",
+      "firstTokenMs": 2483,
+      "totalMs": 4401
+    },
+    {
+      "requestId": "phase1-choices-0001",
+      "firstTokenMs": 1933,
+      "totalMs": 16465
+    },
+    {
+      "requestId": "phase1-story-bible-0001",
+      "firstTokenMs": 2368,
+      "totalMs": 17054
+    },
+    {
+      "requestId": "phase1-continuity-0001",
+      "firstTokenMs": 2017,
+      "totalMs": 8523
+    },
+    {
+      "requestId": "phase1-cancel-0001",
+      "firstTokenMs": 1805,
+      "totalMs": 1832
+    }
+  ],
+  "results": [
+    {
+      "name": "bridge health is paired and Ollama reachable",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "instanceId": "e7b62605-891f-4e14-9f04-e88544c8b697",
+        "ollamaVersion": "0.32.0"
+      }
+    },
+    {
+      "name": "real model discovery",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "modelId": "qwen2.5:3b",
+        "diskSize": 1929912432,
+        "quantization": {
+          "value": "Q4_K_M",
+          "source": "reported"
+        }
+      }
+    },
+    {
+      "name": "real model metadata",
+      "status": "PASS",
+      "elapsedMs": 484,
+      "evidence": {
+        "family": {
+          "value": "qwen2",
+          "source": "reported"
+        },
+        "parameterSize": {
+          "value": "3.1B",
+          "source": "reported"
+        },
+        "capabilitiesSource": "reported"
+      }
+    },
+    {
+      "name": "real generation:summary",
+      "status": "PASS",
+      "elapsedMs": 24250,
+      "evidence": {
+        "chars": 41,
+        "firstTokenMs": 18022,
+        "totalMs": 24243,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "real generation:character",
+      "status": "PASS",
+      "elapsedMs": 11806,
+      "evidence": {
+        "chars": 71,
+        "firstTokenMs": 2340,
+        "totalMs": 11782,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "real generation:rewrite",
+      "status": "PASS",
+      "elapsedMs": 4402,
+      "evidence": {
+        "chars": 17,
+        "firstTokenMs": 2483,
+        "totalMs": 4401,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "real generation:choices",
+      "status": "PASS",
+      "elapsedMs": 16465,
+      "evidence": {
+        "chars": 141,
+        "firstTokenMs": 1933,
+        "totalMs": 16465,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "real generation:story-bible",
+      "status": "PASS",
+      "elapsedMs": 17055,
+      "evidence": {
+        "chars": 159,
+        "firstTokenMs": 2368,
+        "totalMs": 17054,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "missing model reports explicit error",
+      "status": "PASS",
+      "elapsedMs": 41,
+      "evidence": {
+        "status": 404
+      }
+    },
+    {
+      "name": "duplicate request is not regenerated",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "requestStatus": "completed"
+      }
+    },
+    {
+      "name": "real cancellation",
+      "status": "PASS",
+      "elapsedMs": 1834,
+      "evidence": {
+        "partialChars": 3,
+        "completed": false
+      }
+    },
+    {
+      "name": "sanitized bridge logs contain no prompt or token",
+      "status": "PASS",
+      "elapsedMs": 2,
+      "evidence": {
+        "logRecords": 9
+      }
+    },
+    {
+      "name": "real timeout",
+      "status": "PASS",
+      "elapsedMs": 112,
+      "evidence": {
+        "status": 408,
+        "errorCode": "OLLAMA_TIMEOUT"
+      },
+      "recoveryRun": true
+    },
+    {
+      "name": "real generation:continuity",
+      "status": "PASS",
+      "elapsedMs": 8539,
+      "evidence": {
+        "chars": 67,
+        "contentStored": false
+      },
+      "recoveryRun": true
+    },
+    {
+      "name": "bridge restart invalidates old pairing",
+      "status": "PASS",
+      "elapsedMs": 17,
+      "evidence": {
+        "instanceChanged": true,
+        "oldTokenRejected": true,
+        "transientReconnectHandled": true
+      },
+      "recoveryRun": true
+    }
+  ],
+  "recoveryGeneratedAt": "2026-07-19T18:06:35.195Z",
+  "recoveryOnly": [
+    "real generation:continuity",
+    "bridge restart invalidates old pairing"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "closed-ai-offline-network-audit-v1",
+  "generatedAt": "2026-07-19T18:02:38.554Z",
+  "destinations": [
+    "127.0.0.1:3217",
+    "127.0.0.1:11434"
+  ],
+  "selectedProvider": "local-ollama",
+  "selectedModel": "qwen2.5:3b",
+  "closedOnly": true,
+  "externalAiCalls": 0,
+  "dataLeftDevice": false
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "closed-ai-phase1-lint-comparison-v1",
+  "baseline": { "warnings": 98, "errors": 0 },
+  "firstPhase1Run": {
+    "warnings": 99,
+    "errors": 0,
+    "newWarning": "app/studio/settings/ai/settings-client.tsx react-hooks/exhaustive-deps"
+  },
+  "resolution": "Made refresh a useCallback bound to the stable LocalBridgeClient and declared it as the effect dependency.",
+  "final": { "warnings": 98, "errors": 0, "newWarnings": 0, "status": "PASS" }
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "closed-ai-ollama-restart-v1",
+  "generatedAt": "2026-07-19T18:08:13.535Z",
+  "status": "PASS",
+  "before": {
+    "ollamaReachable": true,
+    "runtimeReady": true,
+    "version": "0.32.0"
+  },
+  "during": {
+    "ollamaReachable": false,
+    "runtimeReady": false,
+    "errorHonest": true
+  },
+  "after": {
+    "ollamaReachable": true,
+    "runtimeReady": true,
+    "version": "0.32.0"
+  },
+  "firewallChanged": false,
+  "modelDownloaded": false,
+  "nonLoopbackListener": false
+}

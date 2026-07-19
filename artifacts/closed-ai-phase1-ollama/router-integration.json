@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "closed-ai-router-runtime-results-v1",
+  "generatedAt": "2026-07-19T18:07:56.863Z",
+  "status": "PASS",
+  "selectedProvider": "local-ollama",
+  "selectedModel": "qwen2.5:3b",
+  "closedOnly": true,
+  "deviceOnly": true,
+  "externalProviderRejected": true,
+  "externalAiCalls": 0,
+  "dataLeftDevice": false,
+  "candidateOnly": true,
+  "outputPersisted": false,
+  "audit": {
+    "schemaVersion": "closed-router-audit-v1",
+    "requestId": "phase1-router-runtime-0001",
+    "selectedProvider": "local-ollama",
+    "rejectedProviders": [
+      {
+        "providerId": "gemini",
+        "reason": "blocked_by_privacy_policy"
+      },
+      {
+        "providerId": "browser-ai",
+        "reason": "runtime_unavailable"
+      },
+      {
+        "providerId": "private-ai-hub",
+        "reason": "blocked_by_privacy_policy"
+      },
+      {
+        "providerId": "deterministic-local",
+        "reason": "blocked_by_privacy_policy"
+      }
+    ],
+    "privacyDecision": "passed",
+    "capabilityDecision": "passed",
+    "fallbackOrder": [],
+    "closedOnly": true,
+    "finalErrorCode": null,
+    "createdAt": "2026-07-19T18:07:53.471Z"
+  }
+}
