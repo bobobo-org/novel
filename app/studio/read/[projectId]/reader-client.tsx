@@ -39,7 +39,10 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
       stateRef.current = current; setProject(nextProject); setChapters(ordered); setState(current); setNotes(nextNotes); setBookmarks(nextBookmarks); setNotice("");
     } catch { setNotice("閱讀資料載入失敗，請重新嘗試。"); }
   }
-  useEffect(() => { void load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveState(patch: Partial<ReaderState>) {
     if (!state) return;

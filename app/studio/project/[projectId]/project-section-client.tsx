@@ -15,7 +15,10 @@ const titles: Record<Section, [string, string]> = { characters: ["角色", "查�
 export default function ProjectSectionClient({ projectId, section }: { projectId: string; section: Section }) {
   const [data, setData] = useState<Data | null>(null); const [error, setError] = useState("");
   async function load() { try { const repo = createNovelRepository(); setData({ project: await repo.get("projects", projectId), characters: await repo.list("characters", projectId), worlds: await repo.list("worlds", projectId), rules: await repo.list("worldRules", projectId), timeline: await repo.list("timeline", projectId), bibles: await repo.list("storyBibles", projectId), tasks: await repo.list("tasks", projectId), achievements: await repo.list("achievements", projectId), backups: await repo.list("backups", projectId) }); } catch (cause) { setError(cause instanceof Error ? cause.message : "資料載入失敗"); } }
-  useEffect(() => { void load(); }, [projectId]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <main className="p2ProjectShell"><p>資料載入失敗，請重新嘗試。</p><button onClick={() => void load()}>重新載入</button></main>;
   if (!data) return <main className="p2ProjectShell"><p>正在載入作品資料…</p></main>;
   const [title, desc] = titles[section];
