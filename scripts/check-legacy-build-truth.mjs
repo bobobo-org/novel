@@ -13,6 +13,8 @@ const serviceWorker = fs.readFileSync(swPath, "utf8");
 const boundary = fs.readFileSync(boundaryPath, "utf8");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const normalizeReleaseFields = (value) => value
+  .replace(/(<meta name="novel-static-release" content=")[^"]*(">)/, '$1__NOVEL_STATIC_APP_COMMIT__$2')
+  .replace(/(<meta name="novel-static-release-tag" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_TAG__$2')
   .replace(/data-app-commit="[^"]*"/, 'data-app-commit="__NOVEL_STATIC_APP_COMMIT__"')
   .replace(/data-release-tag="[^"]*"/, 'data-release-tag="__NOVEL_STATIC_RELEASE_TAG__"')
   .replace(/data-visible-ui-semantic-version="[^"]*"/, 'data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__"')
