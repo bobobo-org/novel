@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-07-19T21:46:57.926Z",
+  "status": "PASS",
+  "checks": [
+    {
+      "id": "formal-api-mutations-blocked",
+      "status": "PASS"
+    },
+    {
+      "id": "studio-indexeddb-not-opened-by-legacy-runtime",
+      "status": "PASS"
+    },
+    {
+      "id": "studio-repository-not-imported-by-legacy-runtime",
+      "status": "PASS"
+    },
+    {
+      "id": "legacy-local-storage-is-not-studio-canonical",
+      "status": "PASS"
+    },
+    {
+      "id": "accepted-choice-direct-write-absent",
+      "status": "PASS"
+    },
+    {
+      "id": "story-branch-direct-write-absent",
+      "status": "PASS"
+    }
+  ]
+}

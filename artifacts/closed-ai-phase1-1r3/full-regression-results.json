@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r3-regression-v1",
+  "generatedAt": "2026-07-20T05:52:00+08:00",
+  "status": "PASS",
+  "suites": [
+    {"name":"R3 Legacy boundary","pass":20,"fail":0,"freshRun":true},
+    {"name":"R3 approval functional","pass":9,"fail":0,"freshRun":true,"adapter":"memory","browserE2E":false},
+    {"name":"R2 focused safety","pass":28,"fail":0,"freshRun":true},
+    {"name":"R1 quality guard","pass":26,"fail":0,"freshRun":true},
+    {"name":"Bridge contract","pass":31,"fail":0,"freshRun":true},
+    {"name":"Bridge real Ollama runtime","pass":15,"fail":0,"freshRun":true,"modelId":"qwen2.5:3b","externalAiCalls":0},
+    {"name":"Phase 1.1 browser contract","pass":10,"fail":0,"freshRun":true},
+    {"name":"Phase 0 closed router","pass":54,"fail":0,"freshRun":true},
+    {"name":"Phase 0 training governance","pass":25,"fail":0,"freshRun":true},
+    {"name":"P2.1R1 high risk","pass":21,"fail":0,"freshRun":true},
+    {"name":"TypeScript","pass":1,"fail":0,"freshRun":true},
+    {"name":"ESLint","pass":1,"fail":0,"freshRun":true,"baselineWarnings":98,"newWarnings":0},
+    {"name":"Production build","pass":1,"fail":0,"freshRun":true,"routes":41}
+  ],
+  "notes": [
+    "Preview browser E2E and storage/network audits are intentionally excluded until the exact R3 commit is deployed.",
+    "The R3 approval functional suite uses the repository contract in memory and is not represented as browser E2E evidence.",
+    "No external AI call was made. The real runtime test used only 127.0.0.1:3217 and 127.0.0.1:11434."
+  ]
+}

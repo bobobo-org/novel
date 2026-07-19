@@ -1,0 +1,9 @@
+{
+  "id": "APPROVAL_DUPLICATE",
+  "title": "重複核准回放且不重複寫入",
+  "status": "PASS",
+  "elapsedMs": 1,
+  "detail": {
+    "replayed": true
+  }
+}

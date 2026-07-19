@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r3-capability-wording-v1",
+  "legacy": {
+    "directProviders": "blocked",
+    "closedAiRuntime": "not_available",
+    "formalStoryBibleWrite": "blocked",
+    "diagnostics": "diagnostics_only"
+  },
+  "studio": {
+    "browserAi": "not_implemented",
+    "localOllama": "client_dependent",
+    "privateHub": "contract_only",
+    "storyBibleApproval": "implemented_pending_preview_e2e"
+  },
+  "prohibitedReadyClaimsFound": false
+}

@@ -1,0 +1,7 @@
+{
+  "id": "APPROVAL_FAULT_ROLLBACK",
+  "title": "transaction fault injection 不留下半套資料",
+  "status": "PASS",
+  "elapsedMs": 1,
+  "detail": null
+}

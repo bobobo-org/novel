@@ -6,6 +6,15 @@ import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-
 import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
 import { runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
+import type { Chapter, NovelProject } from "@/lib/novel-ai/domain/index";
+import { createNovelRepository } from "@/lib/novel-ai/repository";
+import {
+  approveLocalStoryBibleCandidate,
+  listLocalStoryBibleReviewState,
+  registerValidatedLocalStoryBibleCandidates,
+  rejectLocalStoryBibleCandidate,
+  type LocalStoryBibleCandidate,
+} from "@/lib/novel-ai/repository/story-bible-approval";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
 type Status = { browser: string; bridge: string; pairing: string; ollama: string; model: string; hub: string; privacy: string; external: boolean; error: string };
@@ -39,6 +48,7 @@ const initial: Status = { browser: "檢查中", bridge: "檢查中", pairing: "�
 
 export default function AISettingsClient() {
   const client = useMemo(() => new LocalBridgeClient({ origin: typeof window === "undefined" ? "http://localhost:3000" : window.location.origin }), []);
+  const repository = useMemo(() => createNovelRepository(), []);
   const [status, setStatus] = useState<Status>(initial);
   const [pairingId, setPairingId] = useState("");
   const [pairingCode, setPairingCode] = useState("");
@@ -47,7 +57,6 @@ export default function AISettingsClient() {
   const [taskType, setTaskType] = useState("rewrite");
   const [prompt, setPrompt] = useState("請將這句話改寫得更有場景感：林昭推開圖書館的門，發現帳冊不見了。");
   const [output, setOutput] = useState("");
-  const promptRef = useRef("");
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus>("idle");
   const [requestId, setRequestId] = useState("");
   const [activeModel, setActiveModel] = useState("");
@@ -56,6 +65,42 @@ export default function AISettingsClient() {
   const [timeoutMs, setTimeoutMs] = useState(60_000);
   const generationController = useRef<AbortController | null>(null);
   const firstTokenSeen = useRef(false);
+  const [projects, setProjects] = useState<NovelProject[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedChapterId, setSelectedChapterId] = useState("");
+  const [reviewCandidates, setReviewCandidates] = useState<LocalStoryBibleCandidate[]>([]);
+  const [reviewStatus, setReviewStatus] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
+
+  const loadReviewState = useCallback(async (projectId: string) => {
+    if (!projectId) { setReviewCandidates([]); return; }
+    try {
+      const { state } = await listLocalStoryBibleReviewState(repository, projectId);
+      setReviewCandidates(state.candidates);
+    } catch {
+      setReviewCandidates([]);
+    }
+  }, [repository]);
+
+  useEffect(() => {
+    void repository.list<NovelProject>("projects").then((rows) => {
+      setProjects(rows);
+      setSelectedProjectId((current) => current || rows[0]?.id || "");
+    }).catch(() => setReviewStatus("無法讀取作品，請重新整理後再試。"));
+  }, [repository]);
+
+  useEffect(() => {
+    if (!selectedProjectId) { setChapters([]); setSelectedChapterId(""); return; }
+    void Promise.all([
+      repository.list<Chapter>("chapters", selectedProjectId),
+      loadReviewState(selectedProjectId),
+    ]).then(([rows]) => {
+      const ordered = [...rows].sort((left, right) => left.order - right.order);
+      setChapters(ordered);
+      setSelectedChapterId((current) => ordered.some((row) => row.id === current) ? current : ordered[0]?.id || "");
+    }).catch(() => setReviewStatus("無法讀取章節與待審建議。"));
+  }, [loadReviewState, repository, selectedProjectId]);
 
   const refresh = useCallback(async () => {
     const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
@@ -141,15 +186,23 @@ export default function AISettingsClient() {
   };
 
   const runGeneration = async () => {
+    const selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId) || null;
+    if (taskType === "character.extract" && (!selectedProjectId || !selectedChapter)) {
+      setStatus((value) => ({ ...value, error: "請先選擇要抽取人物事實的正式作品與章節。" }));
+      return;
+    }
     if (!client.getSessionMetadata()) { setStatus((value) => ({ ...value, error: errorGuidance.BRIDGE_NOT_PAIRED })); return; }
     if (!status.model || status.model === "尚未選用") { setStatus((value) => ({ ...value, error: "請先選擇一個已安裝的文字模型。" })); return; }
-    if (!prompt.trim()) { setStatus((value) => ({ ...value, error: "請先輸入要交給本機 AI 的內容。" })); return; }
+    if (taskType !== "character.extract" && !prompt.trim()) { setStatus((value) => ({ ...value, error: "請先輸入要交給本機 AI 的內容。" })); return; }
     const controller = new AbortController();
     const currentRequestId = crypto.randomUUID();
     const modelForRequest = status.model;
     const requestModelSnapshot = snapshotLocalModelForRequest(currentRequestId, modelForRequest);
-    const submittedPrompt = prompt.trim();
-    const sourceRevision = buildExtractionFingerprint({ sourceRevision: "studio-current", taskType, modelId: modelForRequest, schemaVersion: "local-quality-guard-v1", sourceText: submittedPrompt });
+    const submittedPrompt = taskType === "character.extract" ? String(selectedChapter?.content || "") : prompt.trim();
+    const sourceChapterId = taskType === "character.extract" ? String(selectedChapter?.id || "") : "studio-input";
+    const sourceRevision = taskType === "character.extract"
+      ? `${sourceChapterId}:revision-${selectedChapter?.revision || 0}`
+      : buildExtractionFingerprint({ sourceRevision: "studio-current", taskType, modelId: modelForRequest, schemaVersion: "local-quality-guard-v1", sourceText: submittedPrompt });
     const startedAt = performance.now();
     let generatedContent = "";
     let streamCompleted = false;
@@ -168,15 +221,43 @@ export default function AISettingsClient() {
         return content;
       };
       if (taskType === "character.extract") {
-        const result = await runLocalExtractionWithRetry({ logicalRequestId: currentRequestId, taskType, modelId: requestModelSnapshot.modelId, sourceRevision, sources: [{ chapterId: "studio-input", text: submittedPrompt }], totalTimeoutMs: timeoutMs, signal: controller.signal, getCurrentSourceRevision: () => buildExtractionFingerprint({ sourceRevision: "studio-current", taskType, modelId: modelForRequest, schemaVersion: "local-quality-guard-v1", sourceText: promptRef.current.trim() }), executeAttempt: collectAttempt });
+        const result = await runLocalExtractionWithRetry({
+          logicalRequestId: currentRequestId,
+          taskType,
+          modelId: requestModelSnapshot.modelId,
+          sourceRevision,
+          sources: [{ chapterId: sourceChapterId, text: submittedPrompt }],
+          totalTimeoutMs: timeoutMs,
+          signal: controller.signal,
+          getCurrentSourceRevision: async () => {
+            const current = await repository.get<Chapter>("chapters", sourceChapterId);
+            return current ? `${current.id}:revision-${current.revision}` : "SOURCE_REMOVED";
+          },
+          executeAttempt: collectAttempt,
+        });
         generatedContent = JSON.stringify({ schemaVersion: result.versions.schemaVersion, facts: result.facts }, null, 2);
-        setOutput(generatedContent); streamCompleted = true;
+        setOutput(generatedContent);
+        const registered = await registerValidatedLocalStoryBibleCandidates({
+          repository,
+          projectId: selectedProjectId,
+          chapterId: sourceChapterId,
+          requestId: currentRequestId,
+          sourceRevision,
+          candidateFingerprint: result.fingerprint,
+          modelId: result.modelId,
+          facts: result.facts,
+        });
+        setReviewCandidates((current) => [...current.filter((row) => !registered.candidates.some((candidate) => candidate.candidateId === row.candidateId)), ...registered.candidates]);
+        setReviewStatus(result.facts.length ? "抽取結果已通過格式與原文證據驗證，請逐項確認。" : "本章沒有找到可驗證的新人物事實。");
+        streamCompleted = true;
       } else {
         generatedContent = await collectAttempt({ attemptId: requestModelSnapshot.requestId, modelId: requestModelSnapshot.modelId, prompt: submittedPrompt, systemInstruction: taskSystemInstruction(taskType), signal: controller.signal });
         streamCompleted = true;
       }
       if (streamCompleted) {
-        const validation = validateStudioTaskOutput({ taskType, prompt: submittedPrompt, output: generatedContent, modelId: modelForRequest, requestId: currentRequestId });
+        const validation = taskType === "character.extract"
+          ? { status: "accept" as const }
+          : validateStudioTaskOutput({ taskType, prompt: submittedPrompt, output: generatedContent, modelId: modelForRequest, requestId: currentRequestId });
         if (validation.status === "reject") throw Object.assign(new Error(LOCAL_MODEL_OUTPUT_UNRELIABLE), { code: LOCAL_MODEL_OUTPUT_UNRELIABLE });
         setGenerationStatus("completed");
       }
@@ -203,12 +284,60 @@ export default function AISettingsClient() {
     }
   };
 
-  promptRef.current = prompt;
-
   const cancelGeneration = () => {
     if (!generationController.current) return;
     setGenerationStatus("cancelling");
     generationController.current.abort();
+  };
+
+  const approveCandidate = async (candidate: LocalStoryBibleCandidate) => {
+    if (reviewBusy) return;
+    setReviewBusy(true);
+    setReviewStatus("正在重新核對章節版本與原文證據……");
+    try {
+      const chapter = await repository.get<Chapter>("chapters", candidate.chapterId);
+      if (!chapter) throw new Error("來源章節已不存在，請重新抽取。");
+      const result = await approveLocalStoryBibleCandidate({
+        repository,
+        projectId: selectedProjectId,
+        candidateId: candidate.candidateId,
+        approvalEventId: `approval:${candidate.candidateId}`,
+        idempotencyKey: `approval:${candidate.candidateFingerprint}`,
+        requestId: `approval-request:${candidate.candidateId}`,
+        currentSourceRevision: async () => {
+          const current = await repository.get<Chapter>("chapters", candidate.chapterId);
+          return current ? `${current.id}:revision-${current.revision}` : "SOURCE_REMOVED";
+        },
+        sourceText: chapter.content,
+      });
+      setReviewStatus(result.status === "committed"
+        ? "已寫入正式 Story Bible，並保存證據、核准紀錄與版本。"
+        : result.status === "ALREADY_COMMITTED"
+          ? "這筆建議先前已經核准，沒有重複寫入。"
+          : "這筆建議與既有事實衝突，已保留供你處理，沒有覆蓋舊資料。");
+      await loadReviewState(selectedProjectId);
+    } catch (error) {
+      const code = String((error as { code?: string })?.code || "");
+      setReviewStatus(code === "STORY_BIBLE_SOURCE_REVISION_STALE"
+        ? "來源章節已修改，這筆舊建議沒有寫入；請重新抽取。"
+        : `核准失敗：${error instanceof Error ? error.message : "請重試"}`);
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const rejectCandidate = async (candidate: LocalStoryBibleCandidate) => {
+    if (reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      await rejectLocalStoryBibleCandidate({ repository, projectId: selectedProjectId, candidateId: candidate.candidateId, requestId: `reject:${crypto.randomUUID()}` });
+      setReviewStatus("已拒絕這筆建議，正式 Story Bible 沒有改變。");
+      await loadReviewState(selectedProjectId);
+    } catch (error) {
+      setReviewStatus(`拒絕失敗：${error instanceof Error ? error.message : "請重試"}`);
+    } finally {
+      setReviewBusy(false);
+    }
   };
 
   return <main className="p2Settings">
@@ -240,5 +369,35 @@ export default function AISettingsClient() {
       <label><input type="radio" checked={status.privacy === "external-allowed"} onChange={() => savePrivacy({ ...status, privacy: "external-allowed" })} /> 可在確認後使用外部 AI</label>
       <p>即使選擇外部輔助，每次跨越隱私邊界仍需明確同意，不會無聲回退。</p>
     </section>
+    {taskType === "character.extract" && <section data-testid="story-bible-review">
+      <h2>Story Bible 人物事實審核</h2>
+      <div data-testid="story-bible-source-selection">
+        <label>正式作品
+          <select data-testid="story-project-select" value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
+            <option value="">請選擇作品</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+          </select>
+        </label>
+        <label>證據章節
+          <select data-testid="story-chapter-select" value={selectedChapterId} onChange={(event) => setSelectedChapterId(event.target.value)}>
+            <option value="">請選擇章節</option>
+            {chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}
+          </select>
+        </label>
+        <p>人物事實只會從選定的正式章節抽取；核准前會再次核對章節版本與原文位置。</p>
+      </div>
+      <p aria-live="polite">{reviewStatus || "抽取完成後，這裡會顯示可核對原文的候選事實。"}</p>
+      {reviewCandidates.length === 0 ? <p>目前沒有待審或已處理的建議。</p> : reviewCandidates.map((candidate) => <article key={candidate.candidateId} data-candidate-status={candidate.status}>
+        <h3>{candidate.fact.entityId} · {candidate.fact.field}</h3>
+        <p><strong>建議內容：</strong>{String(candidate.fact.value ?? "資訊不足")}</p>
+        <p><strong>事實類型：</strong>{{ explicit: "原文明確記載", inferred: "推論", unknown: "資訊不足", conflicted: "存在衝突" }[candidate.fact.factType]}</p>
+        <p><strong>可信度：</strong>{Math.round(candidate.fact.confidence * 100)}% · <strong>狀態：</strong>{candidate.status}</p>
+        <details><summary>查看原文證據</summary>{candidate.fact.evidenceSpans.length ? candidate.fact.evidenceSpans.map((span, index) => <blockquote key={`${candidate.candidateId}:${index}`}>{span.text}<footer>{span.sourceChapterId} · {span.start}-{span.end}</footer></blockquote>) : <p>沒有可定位的原文證據，因此不能核准。</p>}</details>
+        {candidate.status === "validated_candidate" && <div><button type="button" disabled={reviewBusy} onClick={() => void approveCandidate(candidate)}>核准並寫入 Story Bible</button><button type="button" disabled={reviewBusy} onClick={() => void rejectCandidate(candidate)}>拒絕</button></div>}
+        {candidate.status === "needs_review" && <div><p>這筆建議需要進一步處理，系統不會自動覆蓋既有事實。</p><button type="button" disabled={reviewBusy} onClick={() => void rejectCandidate(candidate)}>拒絕這筆建議</button></div>}
+        {candidate.status === "committed" && <p>已由作者核准並保存版本紀錄。</p>}
+        {candidate.status === "rejected" && <p>已拒絕，正式資料未改變。</p>}
+      </article>)}
+    </section>}
   </main>;
 }

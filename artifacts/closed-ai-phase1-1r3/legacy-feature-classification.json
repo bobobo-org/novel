@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-07-19T21:46:57.927Z",
+  "classifications": [
+    {
+      "feature": "離線小說編輯與舊作品讀取",
+      "classification": "safe_legacy_tool",
+      "formalStudioWrite": false
+    },
+    {
+      "feature": "TXT/舊 JSON 匯出",
+      "classification": "safe_legacy_tool",
+      "formalStudioWrite": false
+    },
+    {
+      "feature": "舊作品匯入",
+      "classification": "migration_only",
+      "requirement": "schema migration, validation, user review, revision check"
+    },
+    {
+      "feature": "複製提示詞與開啟外部網站",
+      "classification": "manual_external_handoff",
+      "automaticRequest": false
+    },
+    {
+      "feature": "OpenAI-compatible/Gemini 外部連線",
+      "classification": "blocked",
+      "reason": "Legacy cannot bypass Router privacy policy"
+    },
+    {
+      "feature": "Ollama 11434 直連",
+      "classification": "blocked",
+      "replacement": "Studio -> Local Bridge -> Ollama"
+    },
+    {
+      "feature": "LM Studio 1234 直連",
+      "classification": "blocked",
+      "replacement": "No approved adapter"
+    },
+    {
+      "feature": "任意 endpoint",
+      "classification": "blocked",
+      "replacement": "No approved adapter"
+    },
+    {
+      "feature": "Legacy 本機訓練服務",
+      "classification": "deprecated",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "feature": "Legacy Story Bible 正式寫入",
+      "classification": "blocked",
+      "replacement": "Studio validated candidate approval"
+    },
+    {
+      "feature": "Whole Novel diagnostics",
+      "classification": "admin_only",
+      "defaultVisible": false
+    },
+    {
+      "feature": "Legacy localStorage 正式資料",
+      "classification": "migration_only",
+      "sourceOfTruth": false
+    }
+  ]
+}

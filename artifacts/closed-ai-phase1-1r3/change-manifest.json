@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r3-change-manifest-v1",
+  "baselineCommit": "6cb80cd7d54e4ef0ac2813ea087db0141e8335b0",
+  "modified": [
+    "app/studio/settings/ai/settings-client.tsx",
+    "package.json",
+    "public/legacy/novel-system.html"
+  ],
+  "new": [
+    "lib/novel-ai/repository/story-bible-approval.ts",
+    "public/legacy/legacy-security-boundary.js",
+    "scripts/run-closed-ai-phase1-1r3-approval.mjs",
+    "scripts/run-closed-ai-phase1-1r3-legacy.mjs"
+  ],
+  "deleted": [],
+  "protectedAreasModified": {
+    "acceptedChoices": false,
+    "storyBranches": false,
+    "indexedDbSchema": false,
+    "backupRestore": false,
+    "productionWorkspace": false
+  }
+}

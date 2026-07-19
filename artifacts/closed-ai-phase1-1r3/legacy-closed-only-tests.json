@@ -1,0 +1,127 @@
+{
+  "generatedAt": "2026-07-19T21:46:57.923Z",
+  "pass": 20,
+  "fail": 0,
+  "results": [
+    {
+      "id": "LEGACY_SCRIPT_LAST",
+      "title": "安全邊界是 Legacy 最後載入的外部腳本",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "id": "LEGACY_KEYS_REMOVED",
+      "title": "既有敏感 localStorage 與 sessionStorage key 已刪除",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_KEYS_REINJECTION",
+      "title": "localStorage 注入不能恢復敏感設定",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_MIGRATION_SANITIZED",
+      "title": "遷移紀錄不保存敏感值",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_DIRECT_OLLAMA",
+      "title": "直接 Ollama 11434 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "id": "LEGACY_DIRECT_LMSTUDIO",
+      "title": "直接 LM Studio 1234 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_DIRECT_BRIDGE",
+      "title": "Legacy 直接 Local Bridge 3217 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_ARBITRARY_ENDPOINT",
+      "title": "任意跨來源 endpoint 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_EXTERNAL_API",
+      "title": "Gemini/OpenAI 等外部 API 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_SAME_ORIGIN_AI",
+      "title": "同來源舊 AI mutation endpoint 被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_FORMAL_STORY_BIBLE_API",
+      "title": "Legacy 不能直接呼叫正式 Story Bible mutation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_STATIC_ALLOWED",
+      "title": "同來源靜態 GET 保持可用",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_SERVICE_FROZEN",
+      "title": "NovelAIService console 直呼與覆寫皆被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_FUNCTION_BYPASS",
+      "title": "舊全域函式與 console 直呼被阻擋",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_PHASE1_OBJECT_BYPASS",
+      "title": "Phase1Novel 物件方法不能由 console 繞過",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_TRAINING_BYPASS",
+      "title": "Legacy 訓練服務不能由 UI 或 console 直呼",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_UI_DISABLED",
+      "title": "舊 provider controls 與按鈕不可用",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_QUERY_BYPASS",
+      "title": "一般 query/bookmark 不能重新啟用 diagnostics 或 provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "id": "LEGACY_NO_EXTERNAL_TRAFFIC",
+      "title": "所有被拒絕路徑沒有抵達底層 fetch",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "id": "LEGACY_DIAGNOSTICS_SCOPE",
+      "title": "diagnostics query 只顯示診斷，不解除網路邊界",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

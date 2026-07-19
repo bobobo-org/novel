@@ -1,0 +1,187 @@
+{
+  "generatedAt": "2026-07-19T21:46:59.492Z",
+  "adapter": "memory",
+  "pass": 9,
+  "fail": 0,
+  "results": [
+    {
+      "id": "APPROVAL_NORMAL",
+      "title": "正常核准一次提交事實、證據、稽核、版本與核准事件",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": {
+        "fact": {
+          "factId": "77ff5cb0-7d8e-4954-acd3-8bc11f77f9df",
+          "entityId": "character:lin-zhao",
+          "field": "age",
+          "value": 28,
+          "factType": "explicit",
+          "sourceChapterIds": [
+            "chapter-1"
+          ],
+          "evidenceSpans": [
+            {
+              "sourceChapterId": "chapter-1",
+              "start": 4,
+              "end": 6,
+              "text": "28"
+            }
+          ],
+          "sourceRevision": "chapter-1:revision-7",
+          "candidateId": "request-normal:fact:0",
+          "updatedAt": "2026-07-19T21:46:59.484Z"
+        },
+        "approvalEvent": {
+          "approvalEventId": "approval-normal",
+          "idempotencyKey": "approval-normal-key",
+          "requestId": "request-normal",
+          "candidateId": "request-normal:fact:0",
+          "storyId": "r3-project-a:story-bible",
+          "chapterId": "chapter-1",
+          "sourceRevision": "chapter-1:revision-7",
+          "candidateFingerprint": "fnv1a-571506aa",
+          "modelId": "qwen2.5:3b",
+          "providerKind": "local_ollama",
+          "schemaVersion": "local-quality-guard-v1",
+          "validatorVersion": "local-validation-v1",
+          "ruleVersion": "local-deterministic-rules-v1",
+          "evidenceResolverVersion": "local-evidence-resolver-v1",
+          "approvedBy": "local_author",
+          "approvedAt": "2026-07-19T21:46:59.484Z"
+        }
+      }
+    },
+    {
+      "id": "APPROVAL_DUPLICATE",
+      "title": "重複核准回放且不重複寫入",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": {
+        "replayed": true
+      }
+    },
+    {
+      "id": "APPROVAL_STALE",
+      "title": "來源 revision 過期時拒絕且零寫入",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": null
+    },
+    {
+      "id": "APPROVAL_FAULT_ROLLBACK",
+      "title": "transaction fault injection 不留下半套資料",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": null
+    },
+    {
+      "id": "APPROVAL_CONFLICT",
+      "title": "與正式事實衝突時建立 conflict 且不覆寫",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": {
+        "conflictId": "e02ba10d-16e0-4905-b26f-6632f31ccac5",
+        "candidateId": "request-conflict:fact:0",
+        "existingFact": {
+          "factId": "77ff5cb0-7d8e-4954-acd3-8bc11f77f9df",
+          "entityId": "character:lin-zhao",
+          "field": "age",
+          "value": 28,
+          "factType": "explicit",
+          "sourceChapterIds": [
+            "chapter-1"
+          ],
+          "evidenceSpans": [
+            {
+              "sourceChapterId": "chapter-1",
+              "start": 4,
+              "end": 6,
+              "text": "28"
+            }
+          ],
+          "sourceRevision": "chapter-1:revision-7",
+          "candidateId": "request-normal:fact:0",
+          "updatedAt": "2026-07-19T21:46:59.484Z"
+        },
+        "newCandidate": {
+          "entityId": "character:lin-zhao",
+          "field": "age",
+          "value": 35,
+          "factType": "explicit",
+          "evidenceSpans": [
+            {
+              "sourceChapterId": "chapter-2",
+              "start": 4,
+              "end": 6,
+              "text": "35"
+            }
+          ],
+          "sourceChapterIds": [
+            "chapter-2"
+          ],
+          "confidence": 0.98,
+          "validatorStatus": "valid",
+          "modelId": "qwen2.5:3b",
+          "requestId": "request-conflict",
+          "schemaVersion": "local-quality-guard-v1"
+        },
+        "evidenceForBoth": [
+          {
+            "sourceChapterId": "chapter-1",
+            "start": 4,
+            "end": 6,
+            "text": "28"
+          },
+          {
+            "sourceChapterId": "chapter-2",
+            "start": 4,
+            "end": 6,
+            "text": "35"
+          }
+        ],
+        "sourceChapters": [
+          "chapter-1",
+          "chapter-2"
+        ],
+        "conflictType": "age_mismatch",
+        "confidence": 0.98,
+        "resolutionStatus": "unresolved",
+        "createdAt": "2026-07-19T21:46:59.488Z"
+      }
+    },
+    {
+      "id": "APPROVAL_REJECT",
+      "title": "使用者拒絕只更新候選與稽核",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "detail": null
+    },
+    {
+      "id": "APPROVAL_LOW_TRUST_BLOCK",
+      "title": "inferred/低可信候選不能核准",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "detail": null
+    },
+    {
+      "id": "APPROVAL_PROJECT_ISOLATION",
+      "title": "Project A 核准資料不會污染 Project B",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "detail": null
+    },
+    {
+      "id": "APPROVAL_RELOAD_CONSISTENCY",
+      "title": "重新讀取後 fact/evidence/audit/revision/conflict 一致",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "detail": {
+        "facts": 1,
+        "evidence": 1,
+        "audits": 2,
+        "revisions": 1,
+        "conflicts": 1
+      }
+    }
+  ]
+}
