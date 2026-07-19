@@ -36,6 +36,18 @@
   const originalSetItem = Storage.prototype.setItem;
   const originalRemoveItem = Storage.prototype.removeItem;
   const lockFailures = [];
+  const boundaryState = {
+    version: BOUNDARY_VERSION,
+    status: "initializing",
+    closedOnly: true,
+    directProviders: "initializing",
+    lockFailureCount: 0,
+  };
+  Object.defineProperty(window, "LegacySecurityBoundary", {
+    configurable: false,
+    writable: false,
+    value: boundaryState,
+  });
 
   function isBlockedStorageKey(key) {
     return blockedStorageKeys.some((pattern) => pattern.test(String(key || "")));
@@ -240,15 +252,10 @@
   hardenUi();
   window.addEventListener("DOMContentLoaded", hardenUi, { once: true });
   new MutationObserver(hardenUi).observe(document.documentElement, { childList: true, subtree: true });
-  Object.defineProperty(window, "LegacySecurityBoundary", {
-    configurable: false,
-    writable: false,
-    value: Object.freeze({
-      version: BOUNDARY_VERSION,
-      status: lockFailures.length === 0 ? "active" : "degraded",
-      closedOnly: true,
-      directProviders: lockFailures.length === 0 ? "blocked" : "partially_blocked",
-      lockFailureCount: lockFailures.length,
-    }),
+  Object.assign(boundaryState, {
+    status: lockFailures.length === 0 ? "active" : "degraded",
+    directProviders: lockFailures.length === 0 ? "blocked" : "partially_blocked",
+    lockFailureCount: lockFailures.length,
   });
+  Object.freeze(boundaryState);
 })();

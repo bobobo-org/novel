@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T22:21:59.698Z",
+  "generatedAt": "2026-07-19T22:32:03.417Z",
   "pass": 20,
   "fail": 0,
   "results": [
@@ -7,19 +7,19 @@
       "id": "LEGACY_SCRIPT_LAST",
       "title": "安全邊界是 Legacy 最後載入的外部腳本",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 5
     },
     {
       "id": "LEGACY_KEYS_REMOVED",
       "title": "既有敏感 localStorage 與 sessionStorage key 已刪除",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "id": "LEGACY_KEYS_REINJECTION",
       "title": "localStorage 注入不能恢復敏感設定",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "id": "LEGACY_MIGRATION_SANITIZED",
@@ -31,7 +31,7 @@
       "id": "LEGACY_DIRECT_OLLAMA",
       "title": "直接 Ollama 11434 被阻擋",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "id": "LEGACY_DIRECT_LMSTUDIO",
@@ -115,7 +115,7 @@
       "id": "LEGACY_NO_EXTERNAL_TRAFFIC",
       "title": "所有被拒絕路徑沒有抵達底層 fetch",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "id": "LEGACY_DIAGNOSTICS_SCOPE",

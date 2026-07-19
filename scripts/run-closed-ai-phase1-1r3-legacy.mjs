@@ -128,6 +128,7 @@ vm.runInContext(boundarySource, harness.context, { filename: "legacy-security-bo
 await test("LEGACY_SCRIPT_LAST", "安全邊界是 Legacy 最後載入的外部腳本", async () => {
   const scripts = [...htmlSource.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*><\/script>/g)].map((match) => match[1]);
   assert.match(scripts.at(-1) || "", /legacy-security-boundary\.js/);
+  assert.match(await readFile(new URL("../public/legacy/novel-system.js", import.meta.url), "utf8"), /LegacySecurityBoundary\?\.closedOnly/);
 });
 await test("LEGACY_KEYS_REMOVED", "既有敏感 localStorage 與 sessionStorage key 已刪除", async () => {
   for (const key of ["novel_external_ai_cfg", "novel_admin_token", "novel_session_ai_token", "novel_local_training_endpoint", "phase1-local-ai-endpoint"]) assert.equal(harness.localStorage.getItem(key), null);

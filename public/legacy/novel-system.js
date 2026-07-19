@@ -479,6 +479,8 @@
       scheduleAutosave("new-chapter");
     };
 
+    if (window.LegacySecurityBoundary?.closedOnly) return;
+
     window.saveAiSettings = function patchedSaveAiSettings() {
       const cfg = {
         provider: qs("aiProvider")?.value || "chat",
