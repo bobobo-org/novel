@@ -12,6 +12,11 @@ const html = fs.readFileSync(htmlPath, "utf8");
 const serviceWorker = fs.readFileSync(swPath, "utf8");
 const boundary = fs.readFileSync(boundaryPath, "utf8");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+const normalizeReleaseFields = (value) => value
+  .replace(/data-app-commit="[^"]*"/, 'data-app-commit="__NOVEL_STATIC_APP_COMMIT__"')
+  .replace(/data-release-tag="[^"]*"/, 'data-release-tag="__NOVEL_STATIC_RELEASE_TAG__"')
+  .replace(/data-visible-ui-semantic-version="[^"]*"/, 'data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__"')
+  .replace(/data-visible-ui-body-hash="[^"]*"/, 'data-visible-ui-body-hash="__NOVEL_VISIBLE_UI_BODY_HASH__"');
 const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
@@ -56,7 +61,7 @@ if (failures.length) {
   process.exit(1);
 }
 
-let commit = process.env.VERCEL_GIT_COMMIT_SHA || "";
+let commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.NOVEL_STATIC_APP_COMMIT || "";
 if (!commit) {
   try { commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(); }
   catch { commit = "unknown"; }
@@ -65,8 +70,10 @@ const manifest = {
   schemaVersion: "legacy-build-truth-v1",
   sourcePath: "public/legacy/novel-system.html",
   deployedRoute: "/legacy/novel-system.html",
-  sourceSha256: sha256(html),
-  buildArtifactSha256: sha256(html),
+  hashMode: "sha256-normalized-release-fields-v1",
+  sourceSha256: sha256(normalizeReleaseFields(html)),
+  buildArtifactSha256: sha256(normalizeReleaseFields(html)),
+  buildArtifactRawSha256: sha256(html),
   commit,
   assertions: {
     prohibitedStringsAbsent: true,
