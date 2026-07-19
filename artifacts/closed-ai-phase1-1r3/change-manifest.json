@@ -3,6 +3,7 @@
   "baselineCommit": "6cb80cd7d54e4ef0ac2813ea087db0141e8335b0",
   "modified": [
     "app/studio/settings/ai/settings-client.tsx",
+    "lib/release-manifest.ts",
     "package.json",
     "public/legacy/novel-system.html"
   ],
