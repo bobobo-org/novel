@@ -1,6 +1,6 @@
 import type { DomainRecord, ProjectBundle } from "../../domain/index";
 
-export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","storyBibles","tasks","achievements","readerStates","backups","settings","aiJobs","migrationJournal"] as const;
+export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","storyBibles","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal"] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
 
 export class RevisionConflictError extends Error {
@@ -18,4 +18,5 @@ export interface NovelRepository {
   remove(store: NovelStoreName, id: string): Promise<void>;
   createProject(bundle: ProjectBundle, requestId: string): Promise<ProjectBundle>;
   exportProject(projectId: string): Promise<Record<string, unknown[]>>;
+  importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string): Promise<string>;
 }

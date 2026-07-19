@@ -1,0 +1,7 @@
+{
+  "projectCreation": "request ledger replay verified",
+  "backupCreation": "creates a distinct recovery point",
+  "copyImport": "fresh project and record IDs",
+  "replaceRestore": "repeatable validated replacement",
+  "candidateApproval": "existing P0-C2 idempotency boundary retained"
+}

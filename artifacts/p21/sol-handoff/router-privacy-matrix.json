@@ -1,0 +1,7 @@
+{
+  "strictLocal": { "externalProvider": "blocked", "silentFallback": "prohibited", "verifiedBy": "P2 grand integration" },
+  "externalProvider": { "requires": "explicit consent", "verifiedBy": "P2 grand integration" },
+  "browserAI": { "contract": "ready", "runtime": "not installed", "featureFlag": "browserAIRuntime" },
+  "ollama": { "endpoint": "loopback only", "runtime": "client dependent" },
+  "privateAIHub": { "contract": "ready", "runtime": "not connected", "featureFlag": "privateAIHubRuntime" }
+}

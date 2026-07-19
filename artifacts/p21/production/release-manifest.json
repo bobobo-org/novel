@@ -1,0 +1,8 @@
+{
+  "release": "P2.1 Production Hardening and Consumer Closure",
+  "commit": "pending_commit",
+  "deployment": "pending_production_deployment",
+  "previousStableCommit": "6c2b379bf6fea64796100c27b0c7e36b1672bf9a",
+  "previousStableTag": "novel-ai-p2-grand-integration",
+  "rollbackApproved": false
+}

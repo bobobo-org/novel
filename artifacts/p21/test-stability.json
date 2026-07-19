@@ -1,0 +1,6 @@
+{
+  "run1": { "p21": "7/7", "p2": "18/18", "p15": "30/30" },
+  "run2": { "p21": "7/7" },
+  "run3": { "p21": "7/7" },
+  "note": "The three P2.1 data-closure runs passed. The PowerShell display-only formatter emitted a non-product conversion warning after the runs; it did not change their exit status or JSON logs."
+}

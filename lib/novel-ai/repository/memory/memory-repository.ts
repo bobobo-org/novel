@@ -23,4 +23,35 @@ export class MemoryNovelRepository implements NovelRepository {
     this.requests.set(requestId, structuredClone(bundle)); return structuredClone(bundle);
   }
   async exportProject(projectId: string) { const output: Record<string, unknown[]> = {}; for (const store of NOVEL_STORES) output[store] = await this.list(store, projectId); return output; }
+  async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
+    const sourceProject = payload.projects?.[0] as DomainRecord | undefined;
+    if (!sourceProject) throw new Error("BACKUP_PROJECT_MISSING");
+    const sourceId = sourceProject.projectId || sourceProject.id;
+    const nextProjectId = mode === "replace" ? (targetProjectId || sourceId) : crypto.randomUUID();
+    const idMap = new Map<string, string>();
+    if (mode === "copy") for (const store of NOVEL_STORES) for (const raw of payload[store] ?? []) {
+      const row = raw as DomainRecord;
+      if (row?.id) idMap.set(row.id, crypto.randomUUID());
+    }
+    const previous = mode === "replace" ? await this.exportProject(nextProjectId) : null;
+    try {
+      if (mode === "replace") for (const store of NOVEL_STORES.filter((store) => store !== "backups")) for (const record of await this.list(store, nextProjectId)) await this.remove(store, record.id);
+      for (const store of NOVEL_STORES) {
+        if (mode === "replace" && store === "backups") continue;
+        for (const raw of payload[store] ?? []) {
+        const row = raw as DomainRecord;
+        if (!row || typeof row !== "object") continue;
+        const remap = (value: unknown) => typeof value === "string" ? (idMap.get(value) ?? value) : value;
+        const next = { ...row, id: mode === "copy" ? idMap.get(row.id)! : row.id, projectId: nextProjectId, revision: 1, parentRevision: null, migrationVersion: "p21-backup-import-v1" } as Record<string, unknown>;
+        for (const key of ["activeChapterId", "storyBibleId", "storyStateId", "chapterId", "fromCharacterId", "toCharacterId", "worldId", "candidateId"]) next[key] = remap(next[key]);
+        for (const key of ["protagonistIds", "characterIds", "relationshipIds", "worldRuleIds", "loreIds", "timelineEventIds"]) if (Array.isArray(next[key])) next[key] = (next[key] as unknown[]).map(remap);
+        await this.put(store, next as DomainRecord);
+        }
+      }
+      return nextProjectId;
+    } catch (error) {
+      if (previous) { for (const store of NOVEL_STORES) for (const raw of previous[store] ?? []) await this.put(store, raw as DomainRecord); }
+      throw error;
+    }
+  }
 }

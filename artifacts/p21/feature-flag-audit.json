@@ -1,0 +1,9 @@
+{
+  "browserAIRuntime": "disabled",
+  "privateAIHubRuntime": "disabled",
+  "advancedImport": "enabled",
+  "legacyMigration": "preview",
+  "gameEffects": "preview",
+  "experimentalLongContext": "preview",
+  "invalidEnvironmentValue": "fails closed to defaults"
+}

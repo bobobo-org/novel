@@ -1,0 +1,6 @@
+{
+  "readerControls": "native buttons and selects",
+  "backupImport": "native file input label",
+  "errorRecovery": "keyboard-operable reset and navigation links",
+  "fullKeyboardAndMobileE2E": "pending_production_verification"
+}

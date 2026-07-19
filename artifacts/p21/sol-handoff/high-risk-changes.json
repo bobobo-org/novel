@@ -1,0 +1,17 @@
+{
+  "release": "P2.1 Production Hardening and Consumer Closure",
+  "highRiskFiles": [
+    "lib/novel-ai/repository/indexeddb/indexeddb-repository.ts",
+    "lib/novel-ai/repository/memory/memory-repository.ts",
+    "lib/novel-ai/repository/backup.ts",
+    "app/studio/project/[projectId]/project-section-client.tsx",
+    "app/studio/read/[projectId]/reader-client.tsx"
+  ],
+  "safetyControls": [
+    "replace restore executes in one IndexedDB transaction",
+    "safety backups survive replacement restore",
+    "copy import remaps record identifiers and project scope",
+    "backup payload integrity hash is verified before import",
+    "revision conflicts reject stale writes"
+  ]
+}

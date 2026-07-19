@@ -1,0 +1,8 @@
+{
+  "studio": "app/studio/error.tsx",
+  "project": "app/studio/project/[projectId]/error.tsx",
+  "reader": "app/studio/read/[projectId]/error.tsx",
+  "writer": "app/studio/project/[projectId]/write/error.tsx",
+  "backupImport": "handled in project-section-client with safe-data message",
+  "aiRouter": "existing API response boundary retained"
+}

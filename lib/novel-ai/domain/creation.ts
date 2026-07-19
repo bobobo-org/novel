@@ -36,7 +36,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
   const storyState = { ...stateRecord, protagonistStats: {}, resources: {}, money: null, inventory: [], relationships: {}, reputation: null, factionStanding: {}, worldFlags: {}, questStates: {}, achievementStates: {}, timeState: null, locationState: null, riskState: null };
   const project = { ...makeRecord(projectId), id: projectId, title, creationMode: draft.mode, genrePackId: draft.genrePackId, genreId: draft.genreId, subgenreId: draft.subgenreId, coreIdea: draft.coreIdea, narrativeStyle: draft.style, adultMode: false, activeChapterId: null, storyBibleId: storyBible.id, storyStateId: storyState.id };
   const initialTask = { ...makeRecord(projectId), title: "寫下第一章", kind: "writing" as const, status: "not_started" as const, progress: 0, target: 1 };
-  const readerState = { ...makeRecord(projectId), chapterId: null, scrollTop: 0, percentage: 0, lastReadAt: null };
+  const readerState = { ...makeRecord(projectId), chapterId: null, positionType: "ratio" as const, positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0, theme: "night" as const, fontFamily: "system-ui", fontSize: 20, lineHeight: 1.9, contentWidth: 760, paragraphSpacing: 18, lastReadAt: null };
   const initialBackup = { ...makeRecord(projectId), formatVersion: "novel-backup-v2" as const, kind: "initial" as const, byteSize: 0, snapshot: { project, seed, storyBible, protagonist, world, storyState } };
   initialBackup.byteSize = new TextEncoder().encode(JSON.stringify(initialBackup.snapshot)).byteLength;
   return { project, seed, storyBible, protagonist, world, storyState, initialTask, readerState, initialBackup };

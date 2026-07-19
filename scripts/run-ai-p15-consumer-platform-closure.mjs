@@ -33,7 +33,7 @@ function test(name, fn) {
   }
 }
 
-test("P1.5 release manifest remains forward compatible", () => ["P1.5", "P2"].includes(manifest.architectureStage));
+test("P1.5 release manifest remains forward compatible", () => ["P1.5", "P2", "P2.1"].includes(manifest.architectureStage));
 test("11個分類包仍存在", () => library.packs.length === 11);
 test("218個經典題材仍存在", () => library.topics.filter((topic) => topic.classic).length === 218);
 test("題材ID仍唯一", () => new Set(library.topics.map((topic) => topic.topicId)).size === library.topics.length);
@@ -46,10 +46,10 @@ test("主角角色與世界卡可開啟", () => ["protagonist", "archetype", "co
 test("角色修改先成為預覽", () => studio.includes("查看修改預覽") && studio.includes("放棄變更"));
 test("任務成就與數值有詳情", () => studio.includes('kind: "task"') && studio.includes('kind: "achievement"') && studio.includes('kind: "stat"'));
 test("一般小說不顯示假數值", () => studio.includes("這本作品尚未啟用故事數值"));
-test("閱讀器只讀正式正文", () => reader.includes("project.draft") && !reader.includes("candidate"));
+test("閱讀器只讀正式正文", () => reader.includes("activeChapter?.content") && !reader.includes("candidate"));
 test("閱讀器支援四種主題", () => ["light", "night", "eye", "paper"].every((theme) => reader.includes(theme)));
-test("閱讀器支援回到上次位置", () => reader.includes("回到上次位置") && reader.includes("progress.scrollTop"));
-test("閱讀資料可持久保存", () => reader.includes("novel_reader_progress_") && reader.includes("加入書籤") && reader.includes("本章私人筆記"));
+test("閱讀器支援回到上次位置", () => reader.includes("回到上次位置") && reader.includes("contentAnchor") && reader.includes("positionValue"));
+test("閱讀資料可持久保存", () => reader.includes("readerStates") && reader.includes("readerNotes") && reader.includes("readerBookmarks") && reader.includes("加入書籤"));
 test("專注模式提供六種小型助手", () => ["繼續寫", "改寫選取內容", "加強人物對話", "增加情緒張力", "調整節奏", "製造章尾懸念"].every((label) => studio.includes(label)));
 test("AI結果維持建議稿邊界", () => studio.includes("SuggestionCard") && studio.includes("acceptCandidate"));
 test("章節完成事件存在", () => studio.includes('task: "chapter_completed"'));

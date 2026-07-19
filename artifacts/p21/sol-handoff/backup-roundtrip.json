@@ -1,0 +1,15 @@
+{
+  "suite": "p21-data-closure",
+  "status": "passed_in_memory_repository",
+  "pass": 7,
+  "fail": 0,
+  "verified": [
+    "manifest and content hash validation",
+    "reader data in backup",
+    "copy import project isolation",
+    "replace restore",
+    "tampered payload rejection",
+    "revision conflict rejection"
+  ],
+  "productionIndexedDbRoundTrip": "pending_browser_e2e"
+}

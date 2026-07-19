@@ -1,0 +1,4 @@
+{
+  "status": "pending_deployment",
+  "requiredChecks": ["desktop studio", "mobile studio", "health honesty", "reader persistence", "backup import/export smoke", "console errors"]
+}

@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p2-grand-integration",
-  "releaseName": "P2 Novel Intelligence Platform Grand Integration",
-  "consumerRelease": "p2-grand-integration-v1",
-  "architectureStage": "P2",
-  "buildTime": "2026-07-19T16:40:00+08:00"
+  "releaseTag": "novel-ai-p21-production-hardening",
+  "releaseName": "P2.1 Production Hardening and Consumer Closure",
+  "consumerRelease": "p2.1-production-closure-v1",
+  "architectureStage": "P2.1",
+  "buildTime": "2026-07-19T18:00:00+08:00"
 }

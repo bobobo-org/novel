@@ -1,0 +1,35 @@
+﻿{
+  "suite": "p21-data-closure",
+  "pass": 7,
+  "fail": 0,
+  "cases": [
+    {
+      "name": "project creation is idempotent",
+      "status": "PASS"
+    },
+    {
+      "name": "chapter character world reader note bookmark persist in one project",
+      "status": "PASS"
+    },
+    {
+      "name": "backup manifest validates and includes reader data",
+      "status": "PASS"
+    },
+    {
+      "name": "tampered backup is rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "copy import preserves full data and isolates project ids",
+      "status": "PASS"
+    },
+    {
+      "name": "replace restore restores original content",
+      "status": "PASS"
+    },
+    {
+      "name": "revision conflict is not silently overwritten",
+      "status": "PASS"
+    }
+  ]
+}

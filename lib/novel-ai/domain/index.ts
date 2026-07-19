@@ -75,8 +75,46 @@ export type StoryBranch = DomainRecord & { name: string; parentBranchId: string 
 export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[] };
 export type WritingTask = DomainRecord & { title: string; kind: "main" | "side" | "character" | "world" | "writing" | "exploration" | "relationship"; status: "not_started" | "active" | "completed" | "paused"; progress: number; target: number };
 export type Achievement = DomainRecord & { title: string; progress: number; target: number; unlockedAt: string | null };
-export type ReaderState = DomainRecord & { chapterId: string | null; scrollTop: number; percentage: number; lastReadAt: string | null };
-export type ProjectBackup = DomainRecord & { formatVersion: "novel-backup-v2"; kind: "initial" | "quick" | "full" | "safety"; byteSize: number; snapshot: Record<string, unknown> };
+export type ReaderState = DomainRecord & {
+  chapterId: string | null;
+  positionType: "anchor" | "ratio" | "legacy_scroll";
+  positionValue: string | number | null;
+  contentAnchor: string | null;
+  scrollTop: number;
+  percentage: number;
+  theme: "light" | "night" | "eye" | "paper";
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  contentWidth: number;
+  paragraphSpacing: number;
+  lastReadAt: string | null;
+};
+export type ReaderNote = DomainRecord & { chapterId: string; anchor: string; excerpt: string; content: string; needsRelocation: boolean };
+export type ReaderBookmark = DomainRecord & { chapterId: string; anchor: string; excerpt: string; label: string | null; needsRelocation: boolean };
+export type BackupManifest = {
+  format: "novel-project-backup";
+  formatVersion: "novel-backup-v3";
+  backupId: string;
+  projectId: string;
+  projectSchemaVersion: string;
+  createdAt: string;
+  appCommit: string | null;
+  releaseTag: string | null;
+  sourceDevice: "browser";
+  contentHash: string;
+  recordCounts: Record<string, number>;
+  includedStores: string[];
+  compression: "none";
+  encryption: "none";
+};
+export type ProjectBackup = DomainRecord & {
+  formatVersion: "novel-backup-v2" | "novel-backup-v3";
+  kind: "initial" | "quick" | "full" | "safety";
+  byteSize: number;
+  snapshot: Record<string, unknown>;
+  manifest?: BackupManifest;
+};
 export type AIProvenance = Provenance & { providerId: string; modelId: string | null; taskType: string; externalRequest: boolean; dataLeftDevice: boolean; contextSources: string[]; elapsedMs: number | null };
 
 export type ProjectBundle = {

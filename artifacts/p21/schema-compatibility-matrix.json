@@ -1,0 +1,8 @@
+{
+  "p2-to-p21": "compatible_additive",
+  "readerState": "missing fields get defaults on read",
+  "indexedDb": "version 1 to 2 adds stores only",
+  "backupV3": "supported",
+  "legacyBackup": "preserved but not restored by v3 importer",
+  "unknownOptionalFields": "preserved without placeholder replacement"
+}
