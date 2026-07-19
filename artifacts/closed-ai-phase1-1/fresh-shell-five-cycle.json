@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-fresh-shell-v1",
+  "isolatedPowerShellProcesses": true,
+  "nodePrerequisiteInjectedForPassingCycles": true,
+  "unconfiguredShell": {
+    "status": "FAIL",
+    "error": "node is not recognized as an internal or external command",
+    "impact": "The Node-based launcher is not self-contained on a shell where Node is absent from PATH."
+  },
+  "cycles": [
+    { "cycle": 1, "instanceId": "44521aaf-4c33-43d6-8e94-2657f8ffffd8", "start": "PASS", "status": "PASS", "stop": "PASS", "portReleased": true, "ollamaStopped": false },
+    { "cycle": 2, "instanceId": "3ac560f4-c31d-44be-9d18-cc53c87ca2b4", "start": "PASS", "status": "PASS", "stop": "PASS", "portReleased": true, "ollamaStopped": false },
+    { "cycle": 3, "instanceId": "03f536d1-924f-425a-92a4-065275c69982", "start": "PASS", "status": "PASS", "stop": "PASS", "portReleased": true, "ollamaStopped": false },
+    { "cycle": 4, "instanceId": "c4d7e5f8-aca3-42a6-9483-0e6f1b084cf0", "start": "PASS", "status": "PASS", "stop": "PASS", "portReleased": true, "ollamaStopped": false },
+    { "cycle": 5, "instanceId": "a4498459-1904-469b-a1e4-b4a899a4fdcd", "start": "PASS", "status": "PASS", "stop": "PASS", "portReleased": true, "ollamaStopped": false }
+  ],
+  "pass": 5,
+  "fail": 0
+}

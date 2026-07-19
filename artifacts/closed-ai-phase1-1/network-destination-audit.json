@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-network-audit-v1",
+  "capturedDuringRealGeneration": true,
+  "connections": [
+    { "sourceProcess": "browser", "destination": "localhost:3000", "purpose": "Studio" },
+    { "sourceProcess": "browser", "destination": "127.0.0.1:3217", "purpose": "Local Bridge" },
+    { "sourceProcess": "bridge", "destination": "127.0.0.1:11434", "purpose": "Ollama" }
+  ],
+  "externalAiDestinations": [],
+  "externalAiCalls": 0,
+  "nonLoopbackBridgeListener": false
+}

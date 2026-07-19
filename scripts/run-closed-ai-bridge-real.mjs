@@ -11,6 +11,10 @@ const timings = [];
 async function test(name, work) { const started = performance.now(); try { const evidence = await work(); results.push({ name, status: "PASS", elapsedMs: Math.round(performance.now() - started), evidence }); } catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); } }
 const headers = (session, write = false) => ({ Origin: origin, "X-Bridge-Protocol": BRIDGE_PROTOCOL, ...(session ? { Authorization: `Bearer ${session.token}` } : {}), ...(write && session ? { "X-Bridge-CSRF": session.csrf } : {}) });
 const readJson = async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) });
+async function fetchRestartHealth() {
+  try { return await fetch(`${base}/health`, { headers: headers() }); }
+  catch { await new Promise((resolve) => setTimeout(resolve, 100)); return fetch(`${base}/health`, { headers: headers() }); }
+}
 
 async function pair() {
   const request = await readJson(await fetch(`${base}/pair/request`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: "{}" }));
@@ -77,7 +81,7 @@ const firstInstance = session?.instanceId;
 const restarted = createBridgeServer({ testMode: true });
 await restarted.start();
 try {
-  await test("bridge restart invalidates old pairing", async () => { const health = await readJson(await fetch(`${base}/health`, { headers: headers() })); assert.notEqual(health.body.instanceId, firstInstance); assert.equal(health.body.pairingState, "unpaired"); const models = await readJson(await fetch(`${base}/models`, { headers: headers(session) })); assert.equal(models.body.errorCode, "BRIDGE_NOT_PAIRED"); return { oldInstance: firstInstance, newInstance: health.body.instanceId }; });
+  await test("bridge restart invalidates old pairing", async () => { const health = await readJson(await fetchRestartHealth()); assert.notEqual(health.body.instanceId, firstInstance); assert.equal(health.body.pairingState, "unpaired"); const models = await readJson(await fetch(`${base}/models`, { headers: headers(session) })); assert.equal(models.body.errorCode, "BRIDGE_NOT_PAIRED"); return { oldInstance: firstInstance, newInstance: health.body.instanceId }; });
 } finally { await restarted.stop(); }
 
 const pass = results.filter((item) => item.status === "PASS").length;

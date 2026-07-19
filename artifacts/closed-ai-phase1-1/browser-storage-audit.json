@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-browser-storage-audit-v1",
+  "status": "PARTIAL",
+  "verified": [
+    "Studio source stores only privacy preference and selected model ID in localStorage.",
+    "Pairing session is held in memory and is lost on reload.",
+    "Contract test rejects pairing-token, prompt, and output persistence.",
+    "Reload E2E required a new pairing."
+  ],
+  "notVerified": [
+    "A reproducible browser storage export covering localStorage, sessionStorage, IndexedDB, Cache Storage, and Service Worker state was not captured because the browser control environment does not expose DevTools storage export."
+  ],
+  "pairingTokenPersisted": false,
+  "promptPersistedByStudioIntegration": false,
+  "outputPersistedByStudioIntegration": false,
+  "formalStoryStorageChanged": false
+}

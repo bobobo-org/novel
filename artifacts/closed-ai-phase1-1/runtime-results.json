@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-runtime-results-v1",
+  "bridge": { "status": "runtime_ready_local", "bind": "127.0.0.1:3217", "protocol": "novel-local-bridge/v1" },
+  "ollama": { "status": "runtime_ready_local", "version": "0.32.0", "endpoint": "127.0.0.1:11434" },
+  "model": { "id": "qwen2.5:3b", "quantization": "Q4_K_M", "autoDownloaded": false },
+  "studioIntegration": { "status": "partial", "reason": "Core desktop E2E passed; strict mobile keyboard, browser storage export, model-removal UI, and final post-expiry re-pair remain unverified." },
+  "limits": {
+    "maxPromptBytes": 262144,
+    "maxOutputTokens": 4096,
+    "maxConcurrentRequests": 1,
+    "queueLimit": 4,
+    "maxTimeoutMs": 300000,
+    "perOriginRateLimitPerMinute": 30
+  },
+  "idempotency": { "supported": true, "duplicateInFlightBlocked": true, "requestIdVisible": true }
+}

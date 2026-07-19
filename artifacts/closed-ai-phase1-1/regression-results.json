@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-regression-results-v1",
+  "generatedAt": "2026-07-20T03:33:00+08:00",
+  "results": [
+    { "suite": "Phase 1 bridge contract", "pass": 31, "fail": 0 },
+    { "suite": "Phase 1 real runtime", "pass": 15, "fail": 0 },
+    { "suite": "Windows runtime", "pass": 4, "fail": 0 },
+    { "suite": "Bridge process", "pass": 1, "fail": 0 },
+    { "suite": "Phase 0", "pass": 54, "fail": 0 },
+    { "suite": "Training governance", "pass": 25, "fail": 0 },
+    { "suite": "P2.1R1 high risk", "pass": 21, "fail": 0 },
+    { "suite": "H1 aggregate", "pass": 9, "fail": 0 },
+    { "suite": "Phase 1.1 contract", "pass": 10, "fail": 0 },
+    { "suite": "Launcher", "pass": 13, "fail": 0 },
+    { "suite": "TypeScript", "pass": 1, "fail": 0 },
+    { "suite": "Production build", "pass": 1, "fail": 0 }
+  ],
+  "buildEvidence": "H1 aggregate Build PASS",
+  "externalModelCallsFromContractSuites": 0
+}

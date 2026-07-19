@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-lint-v1",
+  "exitCode": 0,
+  "errors": 0,
+  "warnings": 98,
+  "baselineWarnings": 98,
+  "newWarnings": 0
+}

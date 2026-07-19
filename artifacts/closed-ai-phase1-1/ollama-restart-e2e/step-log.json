@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "steps": [
+    { "step": "stop-process", "status": "PASS", "result": "Ollama process 28372 was stopped" },
+    { "step": "restart-detection", "status": "PASS", "result": "Windows Ollama application restarted as process 23868" },
+    { "step": "post-restart-generation", "status": "PASS", "result": "Studio generation completed after restart" },
+    { "step": "unavailable-ui-state", "status": "UNVERIFIED", "reason": "Desktop Ollama automatically respawned before the unavailable state could be captured" }
+  ]
+}

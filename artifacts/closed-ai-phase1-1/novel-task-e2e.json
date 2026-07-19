@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-novel-task-e2e-v1",
+  "generatedAt": "2026-07-19T19:19:27.176Z",
+  "runtime": {
+    "provider": "local_ollama",
+    "model": "qwen2.5:3b",
+    "ollamaVersion": "0.32.0"
+  },
+  "results": [
+    { "task": "summary", "status": "completed", "requestId": "f2b496dc-c8dd-49a5-a057-2e3d2a106b52", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 10911, "outputChars": 46, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "two-sentence summary completed" },
+    { "task": "rewrite", "status": "completed", "requestId": "343388e5-ad47-41e4-9fd2-033e2f72df06", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1014, "outputChars": 24, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "rewrite completed" },
+    { "task": "character.extract", "status": "completed", "requestId": "87458dfb-d20e-4ea7-b3fd-29ed92602e9b", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1438, "outputChars": 192, "closedOnly": true, "externalCallCount": 0, "constraintPass": false, "qualityNote": "hallucinated an organization not present in fixture" },
+    { "task": "story.choices", "status": "completed", "requestId": "b3f1f877-0fe7-4f60-a33b-4d8e469743bc", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1892, "outputChars": 73, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "A/B/C options present" },
+    { "task": "scene.continue", "status": "completed", "requestId": "b3c81de7-f944-49eb-9db4-f60d2c2ccdaa", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1318, "outputChars": 84, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "action and dialogue present" },
+    { "task": "story-bible.continue", "status": "completed", "requestId": "054dac07-3eb4-4d0e-8105-466e62ef8b4e", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 2002, "outputChars": 38, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "age/life/no-magic/key constraints not contradicted" },
+    { "task": "continuity.review", "status": "completed", "requestId": "8351e310-04ed-4d83-9e76-229c7712185d", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1633, "outputChars": 149, "closedOnly": true, "externalCallCount": 0, "constraintPass": false, "qualityNote": "found injury mismatch but missed age and location" },
+    { "task": "timeline.review", "status": "completed", "requestId": "d687a967-c84e-401a-b176-81c04393b7ed", "provider": "local_ollama", "model": "qwen2.5:3b", "firstTokenMs": 1666, "outputChars": 106, "closedOnly": true, "externalCallCount": 0, "constraintPass": true, "qualityNote": "time conflict identified" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-studio-change-audit-v1",
+  "baselineCommit": "15b13a19b8d24416daddf791a84aac193bc7aba7",
+  "result": "PASS",
+  "crossBoundaryChangeFound": false,
+  "files": [
+    {
+      "path": "app/studio/settings/ai/settings-client.tsx",
+      "purpose": "Local Bridge status, pairing, model selection, and local generation controls",
+      "aiSettingsAndLocalConnectionOnly": true,
+      "readsFormalStoryData": false,
+      "writesFormalStoryData": false,
+      "modifiesIndexedDb": false,
+      "modifiesAcceptedChoices": false,
+      "modifiesStoryBranches": false,
+      "modifiesBackupRestore": false,
+      "changesFormalRevision": false,
+      "safeToRetain": true
+    }
+  ]
+}

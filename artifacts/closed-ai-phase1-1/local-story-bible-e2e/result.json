@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "closed-ai-story-intelligence-e2e-v1",
+  "fixture": "synthetic-lin-zhao-story-bible",
+  "provider": "local_ollama",
+  "model": "qwen2.5:3b",
+  "externalAiCalls": 0,
+  "taskEvidence": "../novel-task-e2e.json",
+  "flowStatus": "PASS",
+  "qualityStatus": "PARTIAL",
+  "qualityFindings": [
+    "Character extraction invented an organization not present in the fixture.",
+    "Continuity review found the injury mismatch but missed age and location mismatches."
+  ],
+  "formalStoryDataWritten": false
+}

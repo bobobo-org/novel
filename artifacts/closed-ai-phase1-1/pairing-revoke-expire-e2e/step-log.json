@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "steps": [
+    { "step": "revoke", "status": "PASS", "result": "Studio revoke invalidated generation and displayed re-pair guidance" },
+    { "step": "expire", "status": "PASS", "elapsedMs": 63, "result": "A 1500 ms test session expired and Studio cleared the in-memory session" },
+    { "step": "repair-after-expiry", "status": "UNVERIFIED", "reason": "Browser control reset before the final post-expiry re-pair could be completed" }
+  ],
+  "pairingTokenInEvidence": false
+}

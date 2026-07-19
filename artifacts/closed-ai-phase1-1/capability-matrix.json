@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-capability-matrix-v1",
+  "capabilities": [
+    { "capability": "Local Bridge runtime", "status": "runtime_ready_local", "evidence": "Phase 1 real runtime 15/15" },
+    { "capability": "Local Ollama provider", "status": "runtime_ready_local", "evidence": "qwen2.5:3b real generation" },
+    { "capability": "Studio desktop generation", "status": "verified_local", "evidence": "desktop-e2e-run-1/step-log.json" },
+    { "capability": "Studio cancellation and timeout", "status": "verified_local", "evidence": "desktop-e2e-cancel-timeout/step-log.json" },
+    { "capability": "Studio mobile physical-device UX", "status": "not_verified", "evidence": "mobile-390x844-e2e/step-log.json" },
+    { "capability": "Model quality", "status": "partial", "evidence": "novel-task-e2e.json" },
+    { "capability": "Production web release", "status": "not_attempted", "evidence": "Phase 1.1 deployment prohibited" }
+  ]
+}

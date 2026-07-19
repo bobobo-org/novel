@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-change-manifest-v1",
+  "baselineCommit": "15b13a19b8d24416daddf791a84aac193bc7aba7",
+  "branch": "feature/closed-ai-phase1-1-studio-e2e",
+  "new": [
+    "local-ai/bridge/launcher.mjs",
+    "scripts/run-closed-ai-launcher-tests.mjs",
+    "scripts/run-closed-ai-phase1-1-contract.mjs",
+    "scripts/run-closed-ai-protocol-fixture.mjs",
+    "artifacts/closed-ai-phase1-1/"
+  ],
+  "modified": [
+    "app/globals.css",
+    "app/studio/settings/ai/settings-client.tsx",
+    "local-ai/bridge/server.mjs",
+    "scripts/run-closed-ai-bridge-real.mjs",
+    "package.json"
+  ],
+  "deleted": [],
+  "formalStoryTransactionChanged": false,
+  "indexedDbSchemaChanged": false,
+  "acceptedChoicesChanged": false,
+  "storyBranchesChanged": false,
+  "backupRestoreChanged": false,
+  "studioCanonicalDataChanged": false
+}

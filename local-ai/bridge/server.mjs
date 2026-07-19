@@ -1,5 +1,6 @@
 import http from "node:http";
 import os from "node:os";
+import { rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   BRIDGE_PROTOCOL, BRIDGE_VERSION, DEFAULT_LIMITS, BridgeError, PairingStore, RateLimiter, RequestLedger, WorkLimiter,
@@ -54,13 +55,29 @@ export function createBridgeServer(options = {}) {
   const ollamaEndpoint = normalizeOllamaEndpoint(options.ollamaEndpoint || process.env.OLLAMA_ENDPOINT || "http://127.0.0.1:11434");
   const limits = { ...DEFAULT_LIMITS, ...(options.limits || {}) };
   const allowlist = buildOriginAllowlist(options.extraOrigins ?? process.env.BRIDGE_ALLOWED_ORIGINS ?? "");
-  const pairing = new PairingStore(options.pairingOptions);
+  const envPairingTtlMs = Number(process.env.BRIDGE_PAIRING_TTL_MS || 0);
+  const envSessionTtlMs = Number(process.env.BRIDGE_SESSION_TTL_MS || 0);
+  const pairingOptions = options.pairingOptions || {
+    ...(Number.isFinite(envPairingTtlMs) && envPairingTtlMs > 0 ? { pairingTtlMs: envPairingTtlMs } : {}),
+    ...(Number.isFinite(envSessionTtlMs) && envSessionTtlMs > 0 ? { sessionTtlMs: envSessionTtlMs } : {}),
+  };
+  const pairing = new PairingStore(pairingOptions);
   const rate = new RateLimiter(limits.rateLimitPerMinute);
   const ledger = new RequestLedger();
   const work = new WorkLimiter(limits);
   const active = new Map();
   const logs = [];
   const testMode = options.testMode ?? process.env.BRIDGE_TEST_MODE === "1";
+  const pairingFile = options.pairingFile ?? process.env.BRIDGE_PAIRING_FILE ?? "";
+
+  async function publishPairingCode(pending, origin) {
+    if (!pairingFile) {
+      if (!testMode) process.stderr.write(`Local Bridge pairing code: ${pending.code}\n`);
+      return;
+    }
+    await writeFile(pairingFile, JSON.stringify({ pairingId: pending.pairingId, code: pending.code, expiresAt: pending.expiresAt, origin, instanceId: pairing.instanceId }), { mode: 0o600 });
+  }
+  async function clearPairingCode() { if (pairingFile) await rm(pairingFile, { force: true }).catch(() => undefined); }
 
   const log = (record) => {
     const sanitized = sanitizeLog(record);
@@ -90,10 +107,18 @@ export function createBridgeServer(options = {}) {
       origin = assertOrigin(request.headers.origin, allowlist);
       rate.take(origin);
       if (request.method === "OPTIONS") {
-        assertProtocol(request.headers["x-bridge-protocol"]);
         const requestedHeaders = String(request.headers["access-control-request-headers"] || "").toLowerCase();
-        if (!requestedHeaders.includes("x-bridge-protocol") || !requestedHeaders.includes("content-type")) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Preflight does not request required bridge headers.", 403);
-        response.writeHead(204, { "Access-Control-Allow-Origin": origin, Vary: "Origin", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Bridge-Protocol,X-Bridge-CSRF,Idempotency-Key", "Access-Control-Max-Age": "300" });
+        const requestedMethod = String(request.headers["access-control-request-method"] || "GET").toUpperCase();
+        if (!requestedHeaders.includes("x-bridge-protocol") || (requestedMethod === "POST" && !requestedHeaders.includes("content-type"))) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Preflight does not request required bridge headers.", 403);
+        const privateNetworkRequested = String(request.headers["access-control-request-private-network"] || "").toLowerCase() === "true";
+        response.writeHead(204, {
+          "Access-Control-Allow-Origin": origin,
+          Vary: "Origin, Access-Control-Request-Private-Network",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Bridge-Protocol,X-Bridge-CSRF,Idempotency-Key",
+          ...(privateNetworkRequested ? { "Access-Control-Allow-Private-Network": "true" } : {}),
+          "Access-Control-Max-Age": "300",
+        });
         response.end(); return;
       }
       assertProtocol(request.headers["x-bridge-protocol"]);
@@ -109,13 +134,14 @@ export function createBridgeServer(options = {}) {
       if (request.method === "POST" && url.pathname === "/pair/request") {
         await readJson(request, 1_024);
         const pending = pairing.request(origin);
-        if (!testMode) process.stderr.write(`Local Bridge pairing code: ${pending.code}\n`);
+        await publishPairingCode(pending, origin);
         return sendJson(response, 201, { pairingId: pending.pairingId, expiresAt: pending.expiresAt, state: pending.state, instanceId: pairing.instanceId, protocolVersion: BRIDGE_PROTOCOL, ...(testMode ? { testCode: pending.code } : {}) }, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/pair/confirm") {
         const body = await readJson(request, 2_048);
         const session = pairing.confirm(String(body.pairingId || ""), String(body.code || ""), origin);
+        await clearPairingCode();
         return sendJson(response, 200, session, origin);
       }
 
@@ -219,7 +245,7 @@ export function createBridgeServer(options = {}) {
   });
 
   server.on("clientError", (_error, socket) => socket.end("HTTP/1.1 400 Bad Request\r\n\r\n"));
-  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, logs, active, async start() { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); } };
+  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, logs, active, async start() { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); await clearPairingCode(); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); } };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

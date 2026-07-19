@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-contract-v1",
+  "generatedAt": "2026-07-19T19:32:48.696Z",
+  "pass": 10,
+  "fail": 0,
+  "results": [
+    {
+      "name": "browser GET preflight follows CORS and Private Network Access",
+      "status": "PASS",
+      "evidence": {
+        "status": 204,
+        "privateNetwork": "true"
+      }
+    },
+    {
+      "name": "browser POST preflight requires declared content type",
+      "status": "PASS",
+      "evidence": {
+        "status": 204
+      }
+    },
+    {
+      "name": "old Studio protocol is rejected by new Bridge",
+      "status": "PASS",
+      "evidence": {
+        "status": 409,
+        "errorCode": "BRIDGE_PROTOCOL_INCOMPATIBLE"
+      }
+    },
+    {
+      "name": "unsupported protocol never falls through to runtime",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "BRIDGE_PROTOCOL_INCOMPATIBLE"
+      }
+    },
+    {
+      "name": "Studio exposes protocol upgrade guidance",
+      "status": "PASS",
+      "evidence": {
+        "guidance": true
+      }
+    },
+    {
+      "name": "Studio exposes request ID and first-token latency",
+      "status": "PASS",
+      "evidence": {
+        "requestId": true,
+        "firstTokenMs": true
+      }
+    },
+    {
+      "name": "pairing token is not persisted in browser storage",
+      "status": "PASS",
+      "evidence": {
+        "tokenPersistence": false
+      }
+    },
+    {
+      "name": "prompt and output are not persisted",
+      "status": "PASS",
+      "evidence": {
+        "promptPersistence": false,
+        "outputPersistence": false
+      }
+    },
+    {
+      "name": "model selection is snapshotted per request",
+      "status": "PASS",
+      "evidence": {
+        "requestAttributionStable": true
+      }
+    },
+    {
+      "name": "deterministic provider is not used by Studio integration",
+      "status": "PASS",
+      "evidence": {
+        "provider": "local_ollama"
+      }
+    }
+  ]
+}

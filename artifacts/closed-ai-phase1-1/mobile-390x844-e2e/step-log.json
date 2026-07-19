@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "viewport": { "requested": "390x844", "innerWidth": 390, "documentClientWidth": 375, "bodyScrollWidth": 375, "horizontalOverflow": false },
+  "steps": [
+    { "step": "model-select", "status": "PASS", "result": "Model selector visible and usable" },
+    { "step": "long-prompt", "status": "PASS", "result": "Long prompt remained editable" },
+    { "step": "double-tap", "status": "PASS", "requestId": "2abf80c7-a36e-4262-a2d0-852a6873073b", "result": "Only one request was created" },
+    { "step": "cancel", "status": "PASS", "result": "Cancel control remained accessible" },
+    { "step": "soft-keyboard", "status": "UNVERIFIED", "reason": "Desktop Chromium viewport emulation cannot produce a real mobile operating-system keyboard" },
+    { "step": "long-stream", "status": "PARTIAL", "reason": "Layout remained usable, but no physical mobile device was available" }
+  ],
+  "screenshot": "../browser-e2e/mobile-paired-390x844.png"
+}
