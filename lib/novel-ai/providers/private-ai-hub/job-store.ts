@@ -1,0 +1,8 @@
+import type { PrivateAIJob } from "./private-ai-hub";
+const jobs = new Map<string, PrivateAIJob>();
+export function privateHubEnabled() { return process.env.PRIVATE_AI_HUB_RUNTIME_URL && process.env.PRIVATE_AI_HUB_TOKEN ? true : false; }
+export function requireOwner(request: Request) { const ownerId = request.headers.get("x-private-ai-session")?.trim(); if (!ownerId || ownerId.length < 16) throw Object.assign(new Error("需要有效的私有 AI 工作階段。"), { status: 401, code: "PRIVATE_AI_AUTH_REQUIRED" }); return ownerId; }
+export function createJob(ownerId: string, taskType: string) { if (!privateHubEnabled()) throw Object.assign(new Error("私有 AI 中樞尚未連接執行環境。"), { status: 503, code: "PRIVATE_AI_RUNTIME_NOT_CONNECTED" }); const now = new Date(), job: PrivateAIJob = { jobId: crypto.randomUUID(), ownerId, taskType, status: "queued", createdAt: now.toISOString(), updatedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), result: null, error: null }; jobs.set(job.jobId, job); return job; }
+export function ownedJob(ownerId: string, id: string) { const job = jobs.get(id); if (!job || job.ownerId !== ownerId) throw Object.assign(new Error("找不到這項工作。"), { status: 404, code: "PRIVATE_AI_JOB_NOT_FOUND" }); return job; }
+export function cancelJob(ownerId: string, id: string) { const job = ownedJob(ownerId, id); if (["completed","failed","cancelled","expired"].includes(job.status)) return job; job.status = "cancelled"; job.updatedAt = new Date().toISOString(); return job; }
+export function publicJob(job: PrivateAIJob) { const { ownerId: _ownerId, ...safe } = job; return safe; }

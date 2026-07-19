@@ -1,0 +1,17 @@
+{
+  "url": "https://novel-orcin.vercel.app",
+  "checkedAt": "2026-07-19T08:23:29.519Z",
+  "error": null,
+  "status": 200,
+  "elapsedMs": 5870,
+  "cacheControl": "no-store, max-age=0",
+  "appCommit": "914ccdc375fa5cccce6961ff580188b8d157a001",
+  "deploymentId": "dpl_AAJdvaFrsvvm2Xo5eJxXPakrJrxe",
+  "releaseTag": "novel-ai-p15-consumer-platform-closure",
+  "indexedDbMigrationStatus": "not_implemented",
+  "browserAiStatus": "not_implemented",
+  "repository": {
+    "branch": "main",
+    "head": "914ccdc375fa5cccce6961ff580188b8d157a001"
+  }
+}

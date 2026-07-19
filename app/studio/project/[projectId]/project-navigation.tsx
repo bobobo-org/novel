@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function ProjectNavigation({ projectId, active }: { projectId: string; active: string }) { const links = [["write","寫作"],["characters","角色"],["world","世界"],["timeline","時間線"],["story-bible","故事記憶"],["tasks","任務"],["achievements","成就"],["backups","備份"]]; return <nav className="p2ProjectNav" aria-label="作品功能">{links.map(([path,label]) => <Link key={path} className={active === path ? "active" : ""} href={`/studio/project/${projectId}/${path}`}>{label}</Link>)}</nav>; }

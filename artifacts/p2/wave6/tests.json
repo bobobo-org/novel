@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.391Z",
+  "wave": 6,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 6,
+      "name": "Context builder selects layered minimal context",
+      "status": "PASS",
+      "elapsedMs": 0.68,
+      "detail": {
+        "text": "【目前要求】\n林昭追查城市記憶\n\n【林昭】\n林昭",
+        "evidence": [
+          {
+            "layer": "L0-current",
+            "id": "current",
+            "title": "目前要求",
+            "content": "林昭追查城市記憶",
+            "score": 100
+          },
+          {
+            "layer": "L3-character",
+            "id": "38c933cc-4165-437c-9825-8d2a28eecb3f",
+            "title": "林昭",
+            "content": "林昭",
+            "score": 50
+          }
+        ],
+        "omitted": 1,
+        "characterCount": 10,
+        "layers": [
+          "L0-current",
+          "L3-character"
+        ]
+      }
+    }
+  ]
+}

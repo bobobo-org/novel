@@ -1,0 +1,2 @@
+import { privateHubEnabled } from "@/lib/novel-ai/providers/private-ai-hub/job-store";
+export async function GET() { return Response.json({ status: privateHubEnabled() ? "ready" : "contract_ready_runtime_not_connected", capabilities: privateHubEnabled() ? ["text","structured","streaming","long-context"] : [], limits: { maxConcurrentJobs: 0, maxContextTokens: 0 } }, { headers: { "Cache-Control": "no-store" } }); }

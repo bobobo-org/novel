@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.396Z",
+  "wave": 9,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 9,
+      "name": "Legacy migration retains source data",
+      "status": "PASS",
+      "elapsedMs": 0.19,
+      "detail": "retained"
+    }
+  ]
+}

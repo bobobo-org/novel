@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.387Z",
+  "wave": 3,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 3,
+      "name": "Blank creation needs no optional settings",
+      "status": "PASS",
+      "elapsedMs": 0.02,
+      "detail": "created"
+    }
+  ]
+}

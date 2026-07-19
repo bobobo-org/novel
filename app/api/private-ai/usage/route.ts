@@ -1,0 +1,2 @@
+import { requireOwner } from "@/lib/novel-ai/providers/private-ai-hub/job-store";
+export async function GET(request: Request) { try { requireOwner(request); return Response.json({ jobsToday: 0, quota: 0, status: "runtime_not_connected" }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { const value = error as { status?: number; code?: string; message?: string }; return Response.json({ errorCode: value.code, userMessage: value.message }, { status: value.status || 500 }); } }

@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.395Z",
+  "wave": 8,
+  "pass": 2,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 8,
+      "name": "Studio create is a real route",
+      "status": "PASS",
+      "elapsedMs": 0.17,
+      "detail": "routes exist"
+    },
+    {
+      "wave": 8,
+      "name": "Deep project routes exist",
+      "status": "PASS",
+      "elapsedMs": 0.31,
+      "detail": "all present"
+    }
+  ]
+}

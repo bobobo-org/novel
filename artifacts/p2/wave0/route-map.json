@@ -1,0 +1,331 @@
+{
+  "generatedAt": "2026-07-19T08:23:35.391Z",
+  "count": 65,
+  "routes": [
+    {
+      "file": "app/page.tsx",
+      "kind": "page",
+      "route": "/page.tsx"
+    },
+    {
+      "file": "app/professional/page.tsx",
+      "kind": "page",
+      "route": "/professional"
+    },
+    {
+      "file": "app/studio/page.tsx",
+      "kind": "page",
+      "route": "/studio"
+    },
+    {
+      "file": "app/api/generate/route.ts",
+      "kind": "api",
+      "route": "/api/generate"
+    },
+    {
+      "file": "app/api/story-library/route.ts",
+      "kind": "api",
+      "route": "/api/story-library"
+    },
+    {
+      "file": "app/studio/create/page.tsx",
+      "kind": "page",
+      "route": "/studio/create"
+    },
+    {
+      "file": "app/api/admin/persistence/route.ts",
+      "kind": "api",
+      "route": "/api/admin/persistence"
+    },
+    {
+      "file": "app/api/ai/analyze/route.ts",
+      "kind": "api",
+      "route": "/api/ai/analyze"
+    },
+    {
+      "file": "app/api/ai/chapter-plan/route.ts",
+      "kind": "api",
+      "route": "/api/ai/chapter-plan"
+    },
+    {
+      "file": "app/api/ai/continuity-review/route.ts",
+      "kind": "api",
+      "route": "/api/ai/continuity-review"
+    },
+    {
+      "file": "app/api/ai/feedback/route.ts",
+      "kind": "api",
+      "route": "/api/ai/feedback"
+    },
+    {
+      "file": "app/api/ai/health/route.ts",
+      "kind": "api",
+      "route": "/api/ai/health"
+    },
+    {
+      "file": "app/api/ai/memory/route.ts",
+      "kind": "api",
+      "route": "/api/ai/memory"
+    },
+    {
+      "file": "app/api/ai/providers/route.ts",
+      "kind": "api",
+      "route": "/api/ai/providers"
+    },
+    {
+      "file": "app/api/private-ai/capabilities/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/capabilities"
+    },
+    {
+      "file": "app/api/private-ai/health/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/health"
+    },
+    {
+      "file": "app/api/private-ai/jobs/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/jobs"
+    },
+    {
+      "file": "app/api/private-ai/usage/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/usage"
+    },
+    {
+      "file": "app/api/story-bible/candidates/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/candidates"
+    },
+    {
+      "file": "app/api/story-bible/conflicts/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/conflicts"
+    },
+    {
+      "file": "app/api/story-bible/versions/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions"
+    },
+    {
+      "file": "app/studio/project/[projectId]/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId"
+    },
+    {
+      "file": "app/studio/read/[projectId]/page.tsx",
+      "kind": "page",
+      "route": "/studio/read/:projectId"
+    },
+    {
+      "file": "app/studio/settings/ai/page.tsx",
+      "kind": "page",
+      "route": "/studio/settings/ai"
+    },
+    {
+      "file": "app/studio/settings/storage/page.tsx",
+      "kind": "page",
+      "route": "/studio/settings/storage"
+    },
+    {
+      "file": "app/api/admin/storage/diagnostics/route.ts",
+      "kind": "api",
+      "route": "/api/admin/storage/diagnostics"
+    },
+    {
+      "file": "app/api/admin/story-bible/conflict-test/route.ts",
+      "kind": "api",
+      "route": "/api/admin/story-bible/conflict-test"
+    },
+    {
+      "file": "app/api/admin/story-bible/integrity-backfill/route.ts",
+      "kind": "api",
+      "route": "/api/admin/story-bible/integrity-backfill"
+    },
+    {
+      "file": "app/api/admin/training-dataset/audit/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/audit"
+    },
+    {
+      "file": "app/api/admin/training-dataset/cases/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/cases"
+    },
+    {
+      "file": "app/api/admin/training-dataset/compare/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/compare"
+    },
+    {
+      "file": "app/api/admin/training-dataset/evals/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/evals"
+    },
+    {
+      "file": "app/api/admin/training-dataset/export/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/export"
+    },
+    {
+      "file": "app/api/admin/training-dataset/stats/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/stats"
+    },
+    {
+      "file": "app/api/ai/feedback/[id]/route.ts",
+      "kind": "api",
+      "route": "/api/ai/feedback/:id"
+    },
+    {
+      "file": "app/api/ai/ollama/health/route.ts",
+      "kind": "api",
+      "route": "/api/ai/ollama/health"
+    },
+    {
+      "file": "app/api/ai/ollama/models/route.ts",
+      "kind": "api",
+      "route": "/api/ai/ollama/models"
+    },
+    {
+      "file": "app/api/ai/platform/status/route.ts",
+      "kind": "api",
+      "route": "/api/ai/platform/status"
+    },
+    {
+      "file": "app/api/ai/router/decision/route.ts",
+      "kind": "api",
+      "route": "/api/ai/router/decision"
+    },
+    {
+      "file": "app/api/ai/story-bible/extract/route.ts",
+      "kind": "api",
+      "route": "/api/ai/story-bible/extract"
+    },
+    {
+      "file": "app/api/private-ai/jobs/[jobId]/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/jobs/:jobId"
+    },
+    {
+      "file": "app/api/story-bible/candidates/[id]/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/candidates/:id"
+    },
+    {
+      "file": "app/api/story-bible/conflicts/[id]/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/conflicts/:id"
+    },
+    {
+      "file": "app/api/story-bible/versions/diff/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/diff"
+    },
+    {
+      "file": "app/api/story-bible/versions/export/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/export"
+    },
+    {
+      "file": "app/api/story-bible/versions/integrity/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/integrity"
+    },
+    {
+      "file": "app/api/story-bible/versions/[id]/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/:id"
+    },
+    {
+      "file": "app/studio/project/[projectId]/achievements/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/achievements"
+    },
+    {
+      "file": "app/studio/project/[projectId]/backups/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/backups"
+    },
+    {
+      "file": "app/studio/project/[projectId]/characters/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/characters"
+    },
+    {
+      "file": "app/studio/project/[projectId]/story-bible/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/story-bible"
+    },
+    {
+      "file": "app/studio/project/[projectId]/tasks/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/tasks"
+    },
+    {
+      "file": "app/studio/project/[projectId]/timeline/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/timeline"
+    },
+    {
+      "file": "app/studio/project/[projectId]/world/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/world"
+    },
+    {
+      "file": "app/studio/project/[projectId]/write/page.tsx",
+      "kind": "page",
+      "route": "/studio/project/:projectId/write"
+    },
+    {
+      "file": "app/api/admin/training-dataset/cases/[id]/route.ts",
+      "kind": "api",
+      "route": "/api/admin/training-dataset/cases/:id"
+    },
+    {
+      "file": "app/api/private-ai/jobs/[jobId]/cancel/route.ts",
+      "kind": "api",
+      "route": "/api/private-ai/jobs/:jobId/cancel"
+    },
+    {
+      "file": "app/api/story-bible/candidates/[id]/approve/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/candidates/:id/approve"
+    },
+    {
+      "file": "app/api/story-bible/candidates/[id]/edit-and-approve/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/candidates/:id/edit-and-approve"
+    },
+    {
+      "file": "app/api/story-bible/candidates/[id]/reject/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/candidates/:id/reject"
+    },
+    {
+      "file": "app/api/story-bible/versions/export/preview/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/export/preview"
+    },
+    {
+      "file": "app/api/story-bible/versions/[id]/diff-current/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/:id/diff-current"
+    },
+    {
+      "file": "app/api/story-bible/versions/[id]/revert/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/versions/:id/revert"
+    },
+    {
+      "file": "app/api/story-bible/entities/[entityType]/[entityId]/history/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/entities/:entityType/:entityId/history"
+    },
+    {
+      "file": "app/api/story-bible/entities/[entityType]/[entityId]/fields/history/route.ts",
+      "kind": "api",
+      "route": "/api/story-bible/entities/:entityType/:entityId/fields/history"
+    }
+  ]
+}

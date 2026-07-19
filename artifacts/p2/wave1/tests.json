@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.384Z",
+  "wave": 1,
+  "pass": 2,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 1,
+      "name": "Domain records have version, revision and provenance",
+      "status": "PASS",
+      "elapsedMs": 0.07,
+      "detail": "valid"
+    },
+    {
+      "wave": 1,
+      "name": "Optional fields preserve unset and deferred",
+      "status": "PASS",
+      "elapsedMs": 0.02,
+      "detail": "preserved"
+    }
+  ]
+}

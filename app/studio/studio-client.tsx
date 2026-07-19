@@ -1485,9 +1485,9 @@ export default function StudioClient({
           <b>諸天萬界</b>
           <span>小說生成系統</span>
         </Link>
-        <button className="studioCreate" onClick={() => navigate("create")}>
+        <Link className="studioCreate" href="/studio/create">
           ＋ 建立新作品
-        </button>
+        </Link>
         <nav>
           {navItems.map(([id, label]) => (
             <button
@@ -1660,9 +1660,9 @@ function HomeScreen({
           </p>
         </div>
         <div>
-          <button className="gold" onClick={() => navigate("create")}>
+          <Link className="gold studioLinkButton" href="/studio/create">
             建立新作品
-          </button>
+          </Link>
           <button onClick={() => navigate("write")}>繼續最近作品</button>
           <button onClick={() => navigate("library")}>我的作品</button>
         </div>

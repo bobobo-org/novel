@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-07-19T08:23:35.391Z",
+  "indexedDbFiles": [
+    "lib/novel-ai/repository/index.ts",
+    "lib/novel-ai/repository/indexeddb/indexeddb-repository.ts",
+    "public/legacy/db-v2.js",
+    "public/legacy/db.js"
+  ],
+  "localStorageFiles": [
+    "app/professional/professional-client.tsx",
+    "app/studio/studio-client.tsx",
+    "app/studio/create/create-project-client.tsx",
+    "app/studio/read/[projectId]/reader-client.tsx",
+    "app/studio/settings/ai/settings-client.tsx",
+    "app/studio/settings/storage/settings-client.tsx",
+    "lib/novel-ai/repository/migration/legacy-studio-migration.ts",
+    "public/legacy/ai-service.js",
+    "public/legacy/backup-service.js",
+    "public/legacy/consumer-core.js",
+    "public/legacy/consumer-creation-center.js",
+    "public/legacy/db-v2.js",
+    "public/legacy/db.js",
+    "public/legacy/local-training-service.js",
+    "public/legacy/migration.js",
+    "public/legacy/novel-local-runtime-client.js",
+    "public/legacy/novel-segmented-workspace.js",
+    "public/legacy/novel-system.html",
+    "public/legacy/novel-system.js",
+    "public/legacy/novel-whole-novel-workspace.js",
+    "public/legacy/phase1-manager.js",
+    "public/legacy/使用說明_README.txt"
+  ],
+  "sqliteFiles": [
+    "lib/novel-ai/storage/sqlite/sqlite-adapter.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-backup.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-capabilities.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-connection.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-errors.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-export.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-integrity-check.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-migrations.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-recovery.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-restore.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-revert.ts",
+    "lib/novel-ai/storage/sqlite/sqlite-transaction-context.ts"
+  ],
+  "supabaseFiles": [
+    "lib/novel-ai/storage/supabase/supabase-diff-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-export-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-extraction-persistence-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-integrity-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-mutation-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-rest-client.ts",
+    "lib/novel-ai/storage/supabase/supabase-revert-storage.ts",
+    "lib/novel-ai/storage/supabase/supabase-version-storage.ts"
+  ],
+  "findings": {
+    "consumerStudio": "localStorage-primary before P2",
+    "p2Creation": "IndexedDB-first",
+    "legacy": "retained for compatibility"
+  }
+}

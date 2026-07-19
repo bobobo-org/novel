@@ -9,6 +9,8 @@
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",
     "test:ai:p15:consumer-platform": "node scripts/run-ai-p15-consumer-platform-closure.mjs",
+    "test:ai:p2:grand-integration": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p2-grand-integration.mjs",
+    "audit:p2:wave0": "node scripts/generate-p2-wave0.mjs",
     "start": "next start",
     "lint": "eslint",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",

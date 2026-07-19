@@ -33,7 +33,7 @@ function test(name, fn) {
   }
 }
 
-test("P1.5 release manifest", () => manifest.architectureStage === "P1.5");
+test("P1.5 release manifest remains forward compatible", () => ["P1.5", "P2"].includes(manifest.architectureStage));
 test("11個分類包仍存在", () => library.packs.length === 11);
 test("218個經典題材仍存在", () => library.topics.filter((topic) => topic.classic).length === 218);
 test("題材ID仍唯一", () => new Set(library.topics.map((topic) => topic.topicId)).size === library.topics.length);

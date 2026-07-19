@@ -1,0 +1,12 @@
+{
+  "domain": "implemented",
+  "catalog": "existing 11 packs / 218 classic topics",
+  "indexedDb": "P2 core and creation implemented",
+  "browserAI": "contract ready; runtime not installed",
+  "localOllama": "real loopback provider; client runtime required",
+  "privateAIHub": "secure contract; runtime not connected",
+  "hybridRetrieval": "existing H2 ready",
+  "contextComposer": "existing H2 plus P2 layer adapter",
+  "storyBible": "existing canonical candidate workflow",
+  "gameEffects": "P2 validator and atomic application foundation"
+}

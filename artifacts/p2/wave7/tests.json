@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.393Z",
+  "wave": 7,
+  "pass": 2,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 7,
+      "name": "Story effects validate safe keys",
+      "status": "PASS",
+      "elapsedMs": 0.19,
+      "detail": "valid"
+    },
+    {
+      "wave": 7,
+      "name": "Story effects apply only through validator",
+      "status": "PASS",
+      "elapsedMs": 0.3,
+      "detail": {
+        "勇氣": 2,
+        "money": -10
+      }
+    }
+  ]
+}

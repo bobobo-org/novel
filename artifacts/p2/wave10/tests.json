@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.398Z",
+  "wave": 10,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 10,
+      "name": "Private AI public status does not expose secrets",
+      "status": "PASS",
+      "elapsedMs": 0.12,
+      "detail": "redacted"
+    }
+  ]
+}

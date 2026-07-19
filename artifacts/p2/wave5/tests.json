@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.390Z",
+  "wave": 5,
+  "pass": 3,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 5,
+      "name": "Browser AI status is honest in source",
+      "status": "PASS",
+      "elapsedMs": 0.27,
+      "detail": "contract only"
+    },
+    {
+      "wave": 5,
+      "name": "Ollama endpoint is loopback-only",
+      "status": "PASS",
+      "elapsedMs": 0.16,
+      "detail": "guard present"
+    },
+    {
+      "wave": 5,
+      "name": "Private hub enforces owner boundary",
+      "status": "PASS",
+      "elapsedMs": 0.12,
+      "detail": "guard present"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+import { privateHubEnabled } from "@/lib/novel-ai/providers/private-ai-hub/job-store";
+export const dynamic = "force-dynamic";
+export async function GET() { return Response.json({ status: "partial", privacyDefault: "strict-local", providers: { browserAI: "contract_ready_runtime_not_installed", localOllama: "client_probe_required", privateAIHub: privateHubEnabled() ? "ready" : "contract_ready_runtime_not_connected", deterministicLocal: "ready", externalAI: "disabled_by_default" }, noSilentExternalFallback: true, candidateFirst: true }, { headers: { "Cache-Control": "no-store, max-age=0" } }); }

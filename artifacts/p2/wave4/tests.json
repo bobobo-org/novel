@@ -1,0 +1,34 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.389Z",
+  "wave": 4,
+  "pass": 2,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 4,
+      "name": "Strict local blocks external provider",
+      "status": "PASS",
+      "elapsedMs": 0.22,
+      "detail": {
+        "providerId": "deterministic-local",
+        "modelId": "r",
+        "privacyMode": "strict-local",
+        "reason": "deterministic-local is the first ready provider allowed by strict-local",
+        "contextSources": [],
+        "externalRequest": false,
+        "dataLeavesDevice": false,
+        "fallbackChain": [],
+        "warnings": [
+          "gemini: blocked_by_privacy_policy"
+        ]
+      }
+    },
+    {
+      "wave": 4,
+      "name": "External provider requires explicit consent",
+      "status": "PASS",
+      "elapsedMs": 0.08,
+      "detail": "blocked"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p15-consumer-platform-closure",
-  "releaseName": "P1.5 Consumer Platform Closure",
-  "consumerRelease": "p15-consumer-platform-closure-v1",
-  "architectureStage": "P1.5",
-  "buildTime": "2026-07-18T18:20:00+08:00"
+  "releaseTag": "novel-ai-p2-grand-integration",
+  "releaseName": "P2 Novel Intelligence Platform Grand Integration",
+  "consumerRelease": "p2-grand-integration-v1",
+  "architectureStage": "P2",
+  "buildTime": "2026-07-19T16:40:00+08:00"
 }

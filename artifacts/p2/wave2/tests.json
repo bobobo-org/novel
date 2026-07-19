@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-07-19T08:39:31.386Z",
+  "wave": 2,
+  "pass": 3,
+  "fail": 0,
+  "results": [
+    {
+      "wave": 2,
+      "name": "Atomic project creation writes complete bundle",
+      "status": "PASS",
+      "elapsedMs": 1.4,
+      "detail": {
+        "projects": 1,
+        "creationDrafts": 0,
+        "projectSeeds": 1,
+        "chapters": 0,
+        "scenes": 0,
+        "characters": 1,
+        "relationships": 0,
+        "worlds": 0,
+        "worldRules": 0,
+        "lore": 0,
+        "timeline": 0,
+        "storyStates": 1,
+        "candidates": 0,
+        "storyBibles": 1,
+        "tasks": 1,
+        "achievements": 0,
+        "readerStates": 1,
+        "backups": 1,
+        "settings": 0,
+        "aiJobs": 0,
+        "migrationJournal": 0
+      }
+    },
+    {
+      "wave": 2,
+      "name": "Project creation is idempotent",
+      "status": "PASS",
+      "elapsedMs": 0.14,
+      "detail": "one project"
+    },
+    {
+      "wave": 2,
+      "name": "Optimistic concurrency rejects stale revision",
+      "status": "PASS",
+      "elapsedMs": 0.2,
+      "detail": "blocked"
+    }
+  ]
+}
