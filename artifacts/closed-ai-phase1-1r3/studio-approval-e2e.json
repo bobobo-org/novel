@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T21:46:59.492Z",
+  "generatedAt": "2026-07-19T22:22:34.073Z",
   "adapter": "memory",
   "pass": 9,
   "fail": 0,
@@ -11,7 +11,7 @@
       "elapsedMs": 1,
       "detail": {
         "fact": {
-          "factId": "77ff5cb0-7d8e-4954-acd3-8bc11f77f9df",
+          "factId": "a179f86e-cee3-4a9f-8e02-d9ee0142ba14",
           "entityId": "character:lin-zhao",
           "field": "age",
           "value": 28,
@@ -29,7 +29,7 @@
           ],
           "sourceRevision": "chapter-1:revision-7",
           "candidateId": "request-normal:fact:0",
-          "updatedAt": "2026-07-19T21:46:59.484Z"
+          "updatedAt": "2026-07-19T22:22:34.061Z"
         },
         "approvalEvent": {
           "approvalEventId": "approval-normal",
@@ -47,7 +47,7 @@
           "ruleVersion": "local-deterministic-rules-v1",
           "evidenceResolverVersion": "local-evidence-resolver-v1",
           "approvedBy": "local_author",
-          "approvedAt": "2026-07-19T21:46:59.484Z"
+          "approvedAt": "2026-07-19T22:22:34.061Z"
         }
       }
     },
@@ -80,10 +80,10 @@
       "status": "PASS",
       "elapsedMs": 1,
       "detail": {
-        "conflictId": "e02ba10d-16e0-4905-b26f-6632f31ccac5",
+        "conflictId": "761b5441-03cc-445d-8db7-3d56c0681feb",
         "candidateId": "request-conflict:fact:0",
         "existingFact": {
-          "factId": "77ff5cb0-7d8e-4954-acd3-8bc11f77f9df",
+          "factId": "a179f86e-cee3-4a9f-8e02-d9ee0142ba14",
           "entityId": "character:lin-zhao",
           "field": "age",
           "value": 28,
@@ -101,7 +101,7 @@
           ],
           "sourceRevision": "chapter-1:revision-7",
           "candidateId": "request-normal:fact:0",
-          "updatedAt": "2026-07-19T21:46:59.484Z"
+          "updatedAt": "2026-07-19T22:22:34.061Z"
         },
         "newCandidate": {
           "entityId": "character:lin-zhao",
@@ -146,7 +146,7 @@
         "conflictType": "age_mismatch",
         "confidence": 0.98,
         "resolutionStatus": "unresolved",
-        "createdAt": "2026-07-19T21:46:59.488Z"
+        "createdAt": "2026-07-19T22:22:34.066Z"
       }
     },
     {
@@ -160,7 +160,7 @@
       "id": "APPROVAL_LOW_TRUST_BLOCK",
       "title": "inferred/低可信候選不能核准",
       "status": "PASS",
-      "elapsedMs": 0,
+      "elapsedMs": 1,
       "detail": null
     },
     {

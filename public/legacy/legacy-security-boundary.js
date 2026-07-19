@@ -35,6 +35,7 @@
   const originalFetch = window.fetch.bind(window);
   const originalSetItem = Storage.prototype.setItem;
   const originalRemoveItem = Storage.prototype.removeItem;
+  const lockFailures = [];
 
   function isBlockedStorageKey(key) {
     return blockedStorageKeys.some((pattern) => pattern.test(String(key || "")));
@@ -51,21 +52,53 @@
   }
 
   function lockGlobal(name, value) {
+    const descriptor = Object.getOwnPropertyDescriptor(window, name);
+    if (descriptor && descriptor.configurable === false) {
+      if ("value" in descriptor && descriptor.writable) {
+        Object.defineProperty(window, name, {
+          configurable: false,
+          enumerable: descriptor.enumerable,
+          writable: false,
+          value,
+        });
+        return true;
+      }
+      if ("value" in descriptor && descriptor.value === value) return true;
+      lockFailures.push(`window.${name}`);
+      return false;
+    }
     Object.defineProperty(window, name, {
       configurable: false,
       enumerable: true,
       get: () => value,
       set: () => undefined,
     });
+    return true;
   }
 
   function lockObjectMethod(target, name, value) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, name);
+    if (descriptor && descriptor.configurable === false) {
+      if ("value" in descriptor && descriptor.writable) {
+        Object.defineProperty(target, name, {
+          configurable: false,
+          enumerable: descriptor.enumerable,
+          writable: false,
+          value,
+        });
+        return true;
+      }
+      if ("value" in descriptor && descriptor.value === value) return true;
+      lockFailures.push(`Phase1Novel.${name}`);
+      return false;
+    }
     Object.defineProperty(target, name, {
       configurable: false,
       enumerable: true,
       get: () => value,
       set: () => undefined,
     });
+    return true;
   }
 
   function installStorageGuard() {
@@ -210,6 +243,12 @@
   Object.defineProperty(window, "LegacySecurityBoundary", {
     configurable: false,
     writable: false,
-    value: Object.freeze({ version: BOUNDARY_VERSION, status: "active", closedOnly: true, directProviders: "blocked" }),
+    value: Object.freeze({
+      version: BOUNDARY_VERSION,
+      status: lockFailures.length === 0 ? "active" : "degraded",
+      closedOnly: true,
+      directProviders: lockFailures.length === 0 ? "blocked" : "partially_blocked",
+      lockFailureCount: lockFailures.length,
+    }),
   });
 })();

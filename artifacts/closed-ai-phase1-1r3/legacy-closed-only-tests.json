@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T22:14:13.846Z",
+  "generatedAt": "2026-07-19T22:21:59.698Z",
   "pass": 20,
   "fail": 0,
   "results": [
@@ -7,7 +7,7 @@
       "id": "LEGACY_SCRIPT_LAST",
       "title": "安全邊界是 Legacy 最後載入的外部腳本",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "id": "LEGACY_KEYS_REMOVED",
@@ -115,13 +115,13 @@
       "id": "LEGACY_NO_EXTERNAL_TRAFFIC",
       "title": "所有被拒絕路徑沒有抵達底層 fetch",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 1
     },
     {
       "id": "LEGACY_DIAGNOSTICS_SCOPE",
       "title": "diagnostics query 只顯示診斷，不解除網路邊界",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     }
   ]
 }

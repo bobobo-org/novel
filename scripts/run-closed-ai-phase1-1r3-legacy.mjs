@@ -80,6 +80,12 @@ function createHarness(search = "?screen=home") {
     },
     LocalTrainingService: { startTraining: async () => "old-training" },
   };
+  Object.defineProperty(window, "askExternalAI", {
+    configurable: false,
+    enumerable: true,
+    writable: true,
+    value: async () => "old-external-ai",
+  });
   const context = vm.createContext({
     window,
     document,
@@ -173,9 +179,9 @@ await test("LEGACY_FUNCTION_BYPASS", "舊全域函式與 console 直呼被阻擋
     await expectDisabled(() => harness.window[name]());
     const descriptor = Object.getOwnPropertyDescriptor(harness.window, name);
     const protectedFunction = harness.window[name];
-    harness.window[name] = () => "bypass";
+    Reflect.set(harness.window, name, () => "bypass");
     assert.equal(harness.window[name], protectedFunction);
-    assert.equal(typeof descriptor?.set, "function");
+    assert.equal(typeof descriptor?.set === "function" || descriptor?.writable === false, true);
     assert.equal(descriptor?.configurable, false);
   }
 });
