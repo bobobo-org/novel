@@ -1,0 +1,346 @@
+{
+  "suite": "p21r1-high-risk-three-runs",
+  "generatedAt": "2026-07-19T15:02:33.433Z",
+  "runs": [
+    {
+      "suite": "p21r1-high-risk-closure",
+      "generatedAt": "2026-07-19T15:02:31.360Z",
+      "pass": 21,
+      "fail": 0,
+      "results": [
+        {
+          "name": "accept choice commits all canonical records",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "same idempotency key replays without duplicate effect",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "double click is serialized and idempotent",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "different idempotency key cannot accept accepted candidate",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "project revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "story state revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "invalid effect rolls back transaction",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "project isolation prevents cross-project acceptance",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "rejecting a preview leaves canonical records unchanged",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "interaction queries remain chapter scoped",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "deleting project interactions removes choices branches and journal",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "backup v3 contains acceptedChoices and storyBranches",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "copy import remaps every interaction identifier",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "replace restore preserves accepted interaction round trip",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "copy project remains isolated",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects missing parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects circular parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "capability registry is the single consistent backup source",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio localStorage shell excludes canonical interaction data",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "screen query is presentation state with popstate support",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio and Admin diagnostics use the shared capability resolver",
+          "status": "PASS",
+          "elapsedMs": 0
+        }
+      ]
+    },
+    {
+      "suite": "p21r1-high-risk-closure",
+      "generatedAt": "2026-07-19T15:02:32.523Z",
+      "pass": 21,
+      "fail": 0,
+      "results": [
+        {
+          "name": "accept choice commits all canonical records",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "same idempotency key replays without duplicate effect",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "double click is serialized and idempotent",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "different idempotency key cannot accept accepted candidate",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "project revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "story state revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "invalid effect rolls back transaction",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "project isolation prevents cross-project acceptance",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "rejecting a preview leaves canonical records unchanged",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "interaction queries remain chapter scoped",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "deleting project interactions removes choices branches and journal",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "backup v3 contains acceptedChoices and storyBranches",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "copy import remaps every interaction identifier",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "replace restore preserves accepted interaction round trip",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "copy project remains isolated",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects missing parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects circular parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "capability registry is the single consistent backup source",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio localStorage shell excludes canonical interaction data",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "screen query is presentation state with popstate support",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio and Admin diagnostics use the shared capability resolver",
+          "status": "PASS",
+          "elapsedMs": 0
+        }
+      ]
+    },
+    {
+      "suite": "p21r1-high-risk-closure",
+      "generatedAt": "2026-07-19T15:02:33.433Z",
+      "pass": 21,
+      "fail": 0,
+      "results": [
+        {
+          "name": "accept choice commits all canonical records",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "same idempotency key replays without duplicate effect",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "double click is serialized and idempotent",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "different idempotency key cannot accept accepted candidate",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "project revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "story state revision conflict writes nothing",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "invalid effect rolls back transaction",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "project isolation prevents cross-project acceptance",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "rejecting a preview leaves canonical records unchanged",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "interaction queries remain chapter scoped",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "deleting project interactions removes choices branches and journal",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "backup v3 contains acceptedChoices and storyBranches",
+          "status": "PASS",
+          "elapsedMs": 2
+        },
+        {
+          "name": "copy import remaps every interaction identifier",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "replace restore preserves accepted interaction round trip",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "copy project remains isolated",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects missing parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "backup rejects circular parent branches",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "capability registry is the single consistent backup source",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio localStorage shell excludes canonical interaction data",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "screen query is presentation state with popstate support",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "Studio and Admin diagnostics use the shared capability resolver",
+          "status": "PASS",
+          "elapsedMs": 0
+        }
+      ]
+    }
+  ],
+  "pass": true
+}

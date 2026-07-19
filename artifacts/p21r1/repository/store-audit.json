@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "canonicalRepository": "IndexedDB",
+  "canonicalStores": ["projects", "chapters", "candidates", "storyStates", "acceptedChoices", "storyBranches", "operationJournal"],
+  "projectIsolation": "PASS",
+  "chapterIsolation": "PASS",
+  "cascadeInteractionDelete": "PASS",
+  "invalidParentRejected": "PASS",
+  "circularParentRejectedOnImport": "PASS",
+  "localStorageCanonicalInteractions": false,
+  "silentCanonicalFallback": false
+}

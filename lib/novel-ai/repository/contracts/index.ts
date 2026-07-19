@@ -1,6 +1,6 @@
-import type { DomainRecord, ProjectBundle } from "../../domain/index";
+import type { AcceptedChoice, Chapter, ChoiceCandidate, DomainRecord, NovelProject, ProjectBundle, StoryBranch, StoryState } from "../../domain/index";
 
-export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","storyBibles","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal"] as const;
+export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
 
 export class RevisionConflictError extends Error {
@@ -8,6 +8,36 @@ export class RevisionConflictError extends Error {
   readonly actual: number;
   constructor(expected: number, actual: number) { super(`資料版本已變更（預期 ${expected}，目前 ${actual}）`); this.name = "RevisionConflictError"; this.expected = expected; this.actual = actual; }
 }
+
+export class RepositoryOperationError extends Error {
+  readonly code: string;
+  constructor(code: string, message = code) { super(message); this.name = "RepositoryOperationError"; this.code = code; }
+}
+
+export type AcceptChoiceTransactionInput = {
+  operationId: string;
+  idempotencyKey: string;
+  projectId: string;
+  chapterId: string;
+  candidateId: string;
+  parentBranchId?: string | null;
+  acceptedText: string;
+  choiceLabel?: string | null;
+  expectedProjectRevision: number;
+  expectedChapterRevision: number;
+  expectedCandidateRevision: number;
+  expectedStoryStateRevision: number;
+};
+
+export type AcceptChoiceTransactionResult = {
+  replayed: boolean;
+  project: NovelProject;
+  chapter: Chapter;
+  candidate: ChoiceCandidate;
+  storyState: StoryState;
+  acceptedChoice: AcceptedChoice;
+  branch: StoryBranch;
+};
 
 export interface NovelRepository {
   readonly kind: "indexeddb" | "memory";
@@ -17,6 +47,10 @@ export interface NovelRepository {
   put<T extends DomainRecord>(store: NovelStoreName, record: T, expectedRevision?: number): Promise<T>;
   remove(store: NovelStoreName, id: string): Promise<void>;
   createProject(bundle: ProjectBundle, requestId: string): Promise<ProjectBundle>;
+  acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult>;
+  listAcceptedChoices(projectId: string, chapterId?: string): Promise<AcceptedChoice[]>;
+  listStoryBranches(projectId: string, chapterId?: string): Promise<StoryBranch[]>;
+  deleteInteractionsByProject(projectId: string): Promise<void>;
   exportProject(projectId: string): Promise<Record<string, unknown[]>>;
   importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string): Promise<string>;
 }

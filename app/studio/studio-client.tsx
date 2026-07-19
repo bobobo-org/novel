@@ -17,6 +17,10 @@ import {
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import { WebLocalRuntimeClient } from "@/lib/novel-ai/web/local-runtime-client";
+import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
+import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
+import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
+import type { NovelProject, ProjectBackup, ProjectSeed, StoryState as CanonicalStoryState, StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 
 type Screen =
   | "home"
@@ -49,6 +53,13 @@ type OptionalKey =
   | "style"
   | "storySeed"
   | "outline";
+
+const STUDIO_SCREENS: Screen[] = ["home", "create", "write", "choice", "inspect", "library", "world", "dashboard", "backup"];
+
+function resolveStudioScreen(value: string | null): Screen {
+  if (value === "interactive") return "choice";
+  return STUDIO_SCREENS.includes(value as Screen) ? value as Screen : "home";
+}
 type Wizard = {
   entryMode: EntryMode;
   creationMethod: "" | "topic" | "idea" | "recommend" | "random" | "blank";
@@ -156,6 +167,7 @@ type BackupPackage = {
     source: "consumer_confirmed_fields";
   };
   storyBibleStatus: "consumer_snapshot";
+  formalPayload?: BackupPayload;
 };
 type BackupRecord = {
   backupId: string;
@@ -164,8 +176,10 @@ type BackupRecord = {
   createdAt: string;
   bytes: number;
   snapshot: BackupPackage;
+  formalPayload?: BackupPayload;
 };
 type Candidate = {
+  canonicalCandidateId?: string;
   task: string;
   title: string;
   content: string;
@@ -205,6 +219,9 @@ type StudioState = {
   candidate: Candidate;
   gameStates: Record<string, GameState>;
   branches: Array<{
+    branchId?: string;
+    acceptedChoiceId?: string;
+    reversible?: boolean;
     projectId: string;
     choice: string;
     gameState: GameState;
@@ -418,6 +435,21 @@ function coerceBackupPackage(raw: unknown): BackupPackage {
   if (!raw || typeof raw !== "object")
     throw new Error("檔案中沒有可讀取的作品資料。");
   const source = raw as Record<string, unknown>;
+  if (source.manifest && source.records) {
+    const payload = source as unknown as BackupPayload,
+      records = payload.records,
+      canonicalProject = records.projects?.[0] as Record<string, unknown> | undefined,
+      canonicalChapter = records.chapters?.[0] as { title?: string; content?: string } | undefined,
+      canonicalState = records.storyStates?.[0] as CanonicalStoryState | undefined;
+    if (!canonicalProject) throw new Error("備份缺少作品資料。");
+    const project = migrateProject({ ...canonicalProject, chapterTitle: canonicalChapter?.title, draft: canonicalChapter?.content });
+    return {
+      schemaVersion: "consumer-backup-v1", backupType: "full", exportedAt: payload.manifest.createdAt, project,
+      gameState: canonicalState ? gameStateFromCanonical(canonicalState) : emptyGameState(),
+      branches: ((records.storyBranches ?? []) as CanonicalStoryBranch[]).map((branch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: project.id, choice: branch.name, gameState: canonicalState ? gameStateFromCanonical(canonicalState) : emptyGameState(), draft: project.draft, versionsLength: 0, at: branch.createdAt })),
+      candidate: null, readingProgress: {}, storyBibleSnapshot: { projectId: project.id, title: project.title, characters: [], world: "", worldRule: "", conflict: "", unresolvedThreads: [], updatedAt: payload.manifest.createdAt, source: "consumer_confirmed_fields" }, storyBibleStatus: "consumer_snapshot", formalPayload: payload,
+    };
+  }
   if (source.schemaVersion === "consumer-backup-v1" && source.project)
     return source as unknown as BackupPackage;
   const legacyProject =
@@ -598,6 +630,97 @@ function migrate(): StudioState {
     } catch {}
   return initialState;
 }
+
+function projectSeed(project: Project): StudioProjectSeed {
+  return {
+    id: project.id,
+    title: project.title,
+    chapterTitle: project.chapterTitle,
+    draft: project.draft,
+    packId: project.packId,
+    topicId: project.topicId,
+    subCategory: project.subCategory,
+    coreIdea: project.coreIdea.value,
+    protagonist: optionalValue(project.optionalFields, "protagonist"),
+    goal: optionalValue(project.optionalFields, "goal"),
+    world: optionalValue(project.optionalFields, "world"),
+    worldRule: optionalValue(project.optionalFields, "worldRule"),
+    conflict: optionalValue(project.optionalFields, "conflict"),
+    style: optionalValue(project.optionalFields, "style"),
+    enabledStats: project.enabledStats,
+  };
+}
+
+function shellStateForLocalStorage(state: StudioState): StudioState {
+  return {
+    ...state,
+    candidate: null,
+    gameStates: {},
+    branches: [],
+    backups: [],
+    projects: state.projects.map((project) => ({ ...project, draft: "", versions: [] })),
+  };
+}
+
+function projectFromCanonical(project: NovelProject, seed: ProjectSeed | null, existing?: Project): Project {
+  const fields = existing?.optionalFields ?? emptyOptional();
+  const setIfEmpty = (key: OptionalKey, raw: string | null | undefined) => {
+    if (raw && fields[key].status === "unset") fields[key] = setOptional(raw, "user_defined", "migration");
+  };
+  setIfEmpty("protagonist", seed?.protagonist.value);
+  setIfEmpty("goal", seed?.goal.value);
+  setIfEmpty("world", seed?.world.value);
+  setIfEmpty("worldRule", seed?.worldRule.value);
+  setIfEmpty("conflict", seed?.conflict.value);
+  return {
+    ...(existing ?? {
+      id: project.id, title: project.title, consumerGroupId: null, packId: project.genrePackId, topicId: project.genreId,
+      topicName: null, subCategory: project.subgenreId, coreIdea: project.coreIdea as OptionalField, selectedPlayModeId: null,
+      enabledStats: [], adultMode: project.adultMode, optionalFields: fields, storyLibrarySchemaVersion: STORY_LIBRARY.schemaVersion,
+      chapterTitle: "第一章", draft: "", updatedAt: project.updatedAt, versions: [],
+    }),
+    id: project.id,
+    title: project.title,
+    coreIdea: project.coreIdea as OptionalField,
+    optionalFields: fields,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function gameStateFromCanonical(state: CanonicalStoryState): GameState {
+  return {
+    stats: { ...state.protagonistStats },
+    history: [],
+    tasks: Object.entries(state.questStates).map(([name, progress]) => ({ taskId: `quest:${name}`, name, description: "由正式故事狀態保存", status: Number(progress) >= 100 ? "completed" : "active", progress: Number(progress) || 0, target: 100, reward: "", sourceEventId: "canonical", chapterTitle: "", branchAt: state.updatedAt, versionAt: state.updatedAt, createdAt: state.updatedAt, completedAt: Number(progress) >= 100 ? state.updatedAt : null })),
+    achievements: Object.entries(state.achievementStates).map(([name, progress]) => ({ achievementId: name, name, description: "由正式故事狀態保存", condition: "", progress: Number(progress) || 0, unlocked: Number(progress) >= 100, unlockedAt: Number(progress) >= 100 ? state.updatedAt : null, rarity: "一般", reward: "", hidden: false, sourceEventId: "canonical" })),
+  };
+}
+
+async function hydrateCanonicalStudio(repository: NovelRepository, shell: StudioState): Promise<StudioState> {
+  for (const legacy of shell.projects) await ensureStudioCanonicalProject(repository, projectSeed(legacy));
+  const formalProjects = await repository.list<NovelProject>("projects"), projects: Project[] = [], gameStates: Record<string, GameState> = {}, branches: StudioState["branches"] = [], backups: BackupRecord[] = [];
+  for (const formal of formalProjects) {
+    const seed = (await repository.list<ProjectSeed>("projectSeeds", formal.id))[0] ?? null;
+    const existing = shell.projects.find((item) => item.id === formal.id);
+    const snapshot = await ensureStudioCanonicalProject(repository, projectSeed(projectFromCanonical(formal, seed, existing)));
+    const item = projectFromCanonical(snapshot.project, seed, existing);
+    item.chapterTitle = snapshot.chapter.title;
+    item.draft = snapshot.chapter.content;
+    item.updatedAt = snapshot.chapter.updatedAt;
+    item.versions = [];
+    projects.push(item);
+    gameStates[formal.id] = gameStateFromCanonical(snapshot.storyState);
+    branches.push(...snapshot.branches.map((branch: CanonicalStoryBranch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: gameStateFromCanonical(snapshot.storyState), draft: snapshot.chapter.content, versionsLength: 0, at: branch.createdAt })));
+    for (const backup of await repository.list<ProjectBackup>("backups", formal.id)) if (backup.formatVersion === "novel-backup-v3" && backup.manifest) {
+      const records = backup.snapshot as Record<string, unknown[]>, savedChapter = (records.chapters?.[0] as { title?: string; content?: string } | undefined), savedState = (records.storyStates?.[0] as CanonicalStoryState | undefined) ?? snapshot.storyState;
+      const backupProject = { ...item, chapterTitle: savedChapter?.title || item.chapterTitle, draft: savedChapter?.content || "" }, backupGame = gameStateFromCanonical(savedState);
+      const backupBranches = ((records.storyBranches ?? []) as CanonicalStoryBranch[]).map((branch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: backupGame, draft: backupProject.draft, versionsLength: 0, at: branch.createdAt }));
+      const snapshotPackage = buildBackupPackage(backupProject, backup.kind === "quick" ? "quick" : "full", { ...shell, projects: [backupProject], activeProjectId: formal.id, gameStates: { [formal.id]: backupGame }, branches: backupBranches, candidate: null });
+      backups.push({ backupId: backup.id, name: `${item.title}－${backup.kind === "quick" ? "快速備份" : "完整備份"}`, type: backup.kind === "quick" ? "quick" : "full", createdAt: backup.createdAt, bytes: backup.byteSize, snapshot: snapshotPackage, formalPayload: { manifest: backup.manifest, records } });
+    }
+  }
+  return { ...shell, projects, activeProjectId: projects.some((item) => item.id === shell.activeProjectId) ? shell.activeProjectId : projects[0]?.id || "", candidate: null, gameStates, branches, backups };
+}
 function taskType(task: string) {
   if (task === "continue_story" || task === "first_chapter")
     return "continue_writing";
@@ -632,6 +755,8 @@ export default function StudioClient({
     [customChoice, setCustomChoice] = useState(""),
     [assistantStatus, setAssistantStatus] =
       useState<AssistantStatus>("checking");
+  const repositoryRef = useRef<NovelRepository | null>(null);
+  if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
     () =>
       state.projects.find((item) => item.id === state.activeProjectId) ||
@@ -641,13 +766,22 @@ export default function StudioClient({
   );
   useEffect(() => {
     const timer = setTimeout(() => {
-      setState(migrate());
-      setLoaded(true);
+      void (async () => {
+        const legacy = migrate();
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+        localStorage.setItem("novel_p21r1_interaction_migration_preview", JSON.stringify({ ...auditLegacyStudioInteractions(raw), checkedAt: new Date().toISOString() }));
+        try { setState(await hydrateCanonicalStudio(repositoryRef.current!, legacy)); }
+        catch (error) {
+          console.error("STUDIO_CANONICAL_HYDRATION_FAILED", error);
+          setState({ ...initialState, wizard: legacy.wizard, autoBackup: legacy.autoBackup });
+        }
+        setLoaded(true);
+      })();
     }, 0);
     return () => clearTimeout(timer);
   }, []);
   useEffect(() => {
-    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(shellStateForLocalStorage(state)));
   }, [state, loaded]);
   useEffect(() => {
     if (!loaded || !project || state.autoBackup !== "daily") return;
@@ -656,20 +790,26 @@ export default function StudioClient({
     if (localStorage.getItem(marker)) return;
     localStorage.setItem(marker, "started");
     const timer = setTimeout(
-      () =>
-        setState((value) => ({
-          ...value,
-          backups: [makeBackupRecord(project, "full", value), ...value.backups],
-        })),
+      () => { void createBackup("full").catch((error) => console.error("AUTO_BACKUP_FAILED", error)); },
       0,
     );
     return () => clearTimeout(timer);
-  }, [loaded, project, state.autoBackup]);
+  }, [loaded, project, state.autoBackup]); // eslint-disable-line react-hooks/exhaustive-deps -- use latest canonical snapshot.
   useEffect(() => {
     const url = new URL(location.href);
-    url.searchParams.set("screen", screen);
-    history.replaceState({}, "", url);
+    if (url.searchParams.get("screen") !== screen) {
+      url.searchParams.set("screen", screen);
+      history.replaceState({ screen }, "", url);
+    }
   }, [screen]);
+  useEffect(() => {
+    const onPopState = () => {
+      const requested = new URL(location.href).searchParams.get("screen");
+      setScreen(resolveStudioScreen(requested));
+    };
+    addEventListener("popstate", onPopState);
+    return () => removeEventListener("popstate", onPopState);
+  }, []);
   useEffect(() => {
     if (!loaded) return;
     const token =
@@ -717,10 +857,13 @@ export default function StudioClient({
     });
   }
   function navigate(value: Screen) {
+    const url = new URL(location.href);
+    url.searchParams.set("screen", value);
+    history.pushState({ screen: value }, "", url);
     setScreen(value);
     setMenuOpen(false);
   }
-  function createProject() {
+  async function createProject() {
     const w = state.wizard;
     if (!w.creationMethod) {
       alert("請先選擇一種建立方式，也可以選擇「保持空白」。");
@@ -754,6 +897,8 @@ export default function StudioClient({
       updatedAt: now,
       versions: [],
     };
+    try { await ensureStudioCanonicalProject(repositoryRef.current!, projectSeed(next)); }
+    catch (error) { console.error("PROJECT_CANONICAL_CREATE_FAILED", error); alert("作品保存失敗，尚未建立正式作品，請再試一次。"); return; }
     update({
       projects: [next, ...state.projects],
       activeProjectId: id,
@@ -767,7 +912,7 @@ export default function StudioClient({
     });
     navigate("write");
   }
-  function saveDraft(title: string, draft: string) {
+  async function saveDraft(title: string, draft: string) {
     if (!project) return;
     setState((value) => ({
       ...value,
@@ -782,14 +927,26 @@ export default function StudioClient({
           : item,
       ),
     }));
+    try { await saveStudioChapter(repositoryRef.current!, projectSeed({ ...project, chapterTitle: title, draft })); }
+    catch (error) { console.error("CHAPTER_CANONICAL_SAVE_FAILED", error); }
   }
-  function createBackup(type: "quick" | "full") {
+  async function createBackup(type: "quick" | "full") {
     if (!project) return null;
-    const record = makeBackupRecord(project, type, state);
+    await saveStudioChapter(repositoryRef.current!, projectSeed(project));
+    const formal = await createProjectBackup(repositoryRef.current!, project.id, type, release),
+      record = { ...makeBackupRecord(project, type, state), backupId: formal.backup.id, bytes: formal.backup.byteSize, createdAt: formal.backup.createdAt, formalPayload: formal.payload };
     update({ backups: [record, ...state.backups] });
     return record;
   }
-  function importBackup(snapshot: BackupPackage) {
+  async function importBackup(snapshot: BackupPackage) {
+    if (snapshot.formalPayload) {
+      const validated = await validateBackupPayload(snapshot.formalPayload);
+      if (!validated.valid) throw new Error(validated.reason);
+      const newId = await repositoryRef.current!.importProject(validated.payload.records, "copy");
+      const hydrated = await hydrateCanonicalStudio(repositoryRef.current!, { ...state, activeProjectId: newId });
+      setState(hydrated);
+      return;
+    }
     if (!snapshot?.project || snapshot.schemaVersion !== "consumer-backup-v1")
       throw new Error("這不是有效的作品備份檔。");
     const newId = crypto.randomUUID(),
@@ -803,26 +960,39 @@ export default function StudioClient({
         ...branch,
         projectId: newId,
       }));
+    const importedCanonical = await ensureStudioCanonicalProject(repositoryRef.current!, projectSeed(importedProject)), importedGame = normalizeGameState(snapshot.gameState);
+    await repositoryRef.current!.put("storyStates", { ...importedCanonical.storyState, protagonistStats: importedGame.stats }, importedCanonical.storyState.revision);
     setState((value) => ({
       ...value,
       projects: [importedProject, ...value.projects],
       activeProjectId: newId,
       gameStates: {
         ...value.gameStates,
-        [newId]: normalizeGameState(snapshot.gameState),
+        [newId]: importedGame,
       },
       branches: [...value.branches, ...importedBranches],
       candidate: null,
     }));
   }
-  function restoreBackup(record: BackupRecord, asCopy: boolean) {
+  async function restoreBackup(record: BackupRecord, asCopy: boolean) {
     if (!project) return;
+    if (record.formalPayload) {
+      const validated = await validateBackupPayload(record.formalPayload);
+      if (!validated.valid) throw new Error(validated.reason);
+      if (!asCopy) await createProjectBackup(repositoryRef.current!, project.id, "safety", release);
+      const restoredId = await repositoryRef.current!.importProject(validated.payload.records, asCopy ? "copy" : "replace", asCopy ? undefined : project.id);
+      setState(await hydrateCanonicalStudio(repositoryRef.current!, { ...state, activeProjectId: restoredId }));
+      return;
+    }
     if (asCopy) {
-      importBackup(record.snapshot);
+      await importBackup(record.snapshot);
       return;
     }
     const safety = makeBackupRecord(project, "full", state),
       restored = { ...record.snapshot.project, id: project.id, updatedAt: new Date().toISOString() };
+    await createProjectBackup(repositoryRef.current!, project.id, "safety", release);
+    const restoredCanonical = await saveStudioChapter(repositoryRef.current!, projectSeed(restored)), restoredGame = normalizeGameState(record.snapshot.gameState);
+    await repositoryRef.current!.put("storyStates", { ...restoredCanonical.storyState, protagonistStats: restoredGame.stats }, restoredCanonical.storyState.revision);
     setState((value) => ({
       ...value,
       backups: [safety, ...value.backups],
@@ -839,7 +1009,8 @@ export default function StudioClient({
       JSON.stringify(record.snapshot.readingProgress || {}),
     );
   }
-  function deleteBackup(backupId: string) {
+  async function deleteBackup(backupId: string) {
+    await repositoryRef.current!.remove("backups", backupId);
     update({ backups: state.backups.filter((backup) => backup.backupId !== backupId) });
   }
   function updateProjectOptional(
@@ -1272,10 +1443,25 @@ export default function StudioClient({
               reason: `因為你選擇「${choiceText}」，故事中的行動方式產生了對應影響。`,
             },
           ]
-        : [];
+        : [],
+      optionKey = (["A", "B", "C"].includes(selectedChoice) ? selectedChoice : "custom") as "A" | "B" | "C" | "custom",
+      effect = {
+        statChanges: Object.fromEntries(statChanges.map((change) => [change.stat, change.delta])),
+        relationshipChanges: {}, resourceChanges: {}, moneyChange: 0, worldFlags: {}, questProgress: {}, achievementProgress: {}, timelineEvents: [choiceText],
+      };
+    let canonicalCandidateId: string;
+    try {
+      const saved = await persistStudioChoiceCandidate(repositoryRef.current!, projectSeed(project), { optionKey, text: choiceText, consequence: statChanges.map((change) => change.reason).join("；"), effect, providerId: model === "local-rule" ? "local-rule" : "ollama", modelId: model });
+      canonicalCandidateId = saved.candidate.id;
+    } catch (error) {
+      console.error("CHOICE_CANDIDATE_PERSIST_FAILED", error);
+      setState((value) => ({ ...value, candidate: { task: "branch_choice", title: "故事推進未保存", content: "故事推進沒有成功，請再試一次。", source: "本機故事系統", model: "none", usedLocalMemory: false, externalRequest: false, choiceText, impacts: [], statChanges: [], createdAt: new Date().toISOString() } }));
+      return;
+    }
     setState((value) => ({
       ...value,
       candidate: {
+        canonicalCandidateId,
         task: "branch_choice",
         title: "故事發展",
         content,
@@ -1294,140 +1480,43 @@ export default function StudioClient({
       },
     }));
   }
-  function acceptChoiceResult(content: string) {
-    if (!project || !state.candidate?.choiceText) return;
+  async function acceptChoiceResult(content: string) {
+    if (!project || !state.candidate?.choiceText || !state.candidate.canonicalCandidateId) return;
     const candidate = state.candidate,
       currentGame = state.gameStates[project.id] || emptyGameState(),
-      old = {
-        at: new Date().toISOString(),
-        title: project.chapterTitle,
-        content: project.draft,
-      },
-      nextStats = { ...currentGame.stats },
-      branchAt = new Date().toISOString(),
-      eventId = crypto.randomUUID(),
-      conflict = optionalValue(project.optionalFields, "conflict"),
-      existingTask = currentGame.tasks.find(
-        (task) => task.status === "active" && task.name === conflict,
-      ),
-      nextTasks = conflict
-        ? existingTask
-          ? currentGame.tasks.map((task) =>
-              task.taskId === existingTask.taskId
-                ? {
-                    ...task,
-                    progress: Math.min(task.target, task.progress + 20),
-                    status: task.progress + 20 >= task.target ? "completed" as const : task.status,
-                    completedAt: task.progress + 20 >= task.target ? branchAt : null,
-                  }
-                : task,
-            )
-          : [
-              {
-                taskId: crypto.randomUUID(),
-                name: conflict,
-                description: `依照已接受的故事選擇，處理「${conflict}」。`,
-                status: "active" as const,
-                progress: 20,
-                target: 100,
-                reward: "推進主線並取得新的故事線索",
-                sourceEventId: eventId,
-                chapterTitle: project.chapterTitle,
-                branchAt,
-                versionAt: old.at,
-                createdAt: branchAt,
-                completedAt: null,
-              },
-              ...currentGame.tasks,
-            ]
-        : currentGame.tasks,
-      hasFirstChoice = currentGame.achievements.some(
-        (achievement) => achievement.achievementId === "first-story-choice",
-      ),
-      nextAchievements = hasFirstChoice
-        ? currentGame.achievements
-        : [
-            {
-              achievementId: "first-story-choice",
-              name: "故事由你決定",
-              description: "完成第一次互動故事選擇。",
-              condition: "接受一份互動故事發展",
-              progress: 100,
-              unlocked: true,
-              unlockedAt: branchAt,
-              rarity: "一般" as const,
-              reward: "解鎖故事分支紀錄",
-              hidden: false,
-              sourceEventId: eventId,
-            },
-            ...currentGame.achievements,
-          ];
-    for (const change of candidate.statChanges || [])
-      nextStats[change.stat] = change.after;
-    setState((value) => {
-      const nextGameState: GameState = {
-          stats: nextStats,
-          history: [
-            ...(candidate.statChanges || []).map((change) => ({
-              ...change,
-              projectId: project.id,
-              branchAt,
-              event: candidate.choiceText || "故事選擇",
-              eventId,
-              sourceType: "player_choice" as const,
-              chapterTitle: project.chapterTitle,
-              versionAt: old.at,
-              createdAt: branchAt,
-            })),
-            ...(value.gameStates[project.id]?.history || []),
-          ],
-          tasks: nextTasks,
-          achievements: nextAchievements,
-        },
-        projects = value.projects.map((item) =>
-          item.id === project.id
-            ? {
-                ...item,
-                draft:
-                  `${item.draft}${item.draft ? "\n\n" : ""}${content}`.trim(),
-                updatedAt: new Date().toISOString(),
-                versions: [old, ...item.versions],
-              }
-            : item,
-        ),
-        nextState: StudioState = {
+      old = { at: new Date().toISOString(), title: project.chapterTitle, content: project.draft };
+    try {
+      const result = await acceptStudioChoice(repositoryRef.current!, candidate.canonicalCandidateId!, content, candidate.choiceText),
+        branchAt = result.acceptedChoice.acceptedAt,
+        eventId = result.acceptedChoice.effectOperationId;
+      setState((value) => {
+        const nextGameState: GameState = {
+            ...currentGame,
+            stats: { ...result.storyState.protagonistStats },
+            history: [
+              ...(candidate.statChanges || []).map((change) => ({ ...change, projectId: project.id, branchAt, event: candidate.choiceText || "故事選擇", eventId, sourceType: "player_choice" as const, chapterTitle: project.chapterTitle, versionAt: old.at, createdAt: branchAt })),
+              ...currentGame.history,
+            ],
+          },
+          projects = value.projects.map((item) => item.id === project.id ? { ...item, draft: result.chapter.content, updatedAt: result.chapter.updatedAt, versions: [old, ...item.versions] } : item);
+        return {
           ...value,
           candidate: null,
-          gameStates: { ...value.gameStates, [project.id]: nextGameState },
-          branches: [
-            ...value.branches,
-            {
-              projectId: project.id,
-              choice: candidate.choiceText || "",
-              gameState: JSON.parse(JSON.stringify(currentGame)) as GameState,
-              draft: project.draft,
-              versionsLength: project.versions.length,
-              at: branchAt,
-            },
-          ],
           projects,
-        },
-        nextProject = projects.find((item) => item.id === project.id)!;
-      return value.autoBackup === "accepted_content"
-        ? {
-            ...nextState,
-            backups: [
-              makeBackupRecord(nextProject, "full", nextState),
-              ...value.backups,
-            ],
-          }
-        : nextState;
-    });
+          gameStates: { ...value.gameStates, [project.id]: nextGameState },
+          branches: [...value.branches, { branchId: result.branch.id, acceptedChoiceId: result.acceptedChoice.id, reversible: false, projectId: project.id, choice: candidate.choiceText || "", gameState: currentGame, draft: project.draft, versionsLength: project.versions.length, at: branchAt }],
+        };
+      });
+      if (state.autoBackup === "accepted_content") await createProjectBackup(repositoryRef.current!, project.id, "full", release);
+    } catch (error) {
+      console.error("ACCEPT_CHOICE_TRANSACTION_FAILED", error);
+      alert("故事選擇尚未保存，正式作品沒有變更，請重新整理後再試一次。");
+    }
   }
   function undoBranch() {
     if (!project) return;
     const index = state.branches
-      .map((branch) => branch.projectId)
+      .map((branch) => branch.projectId === project.id && branch.reversible ? project.id : "")
       .lastIndexOf(project.id);
     if (index < 0) return;
     const last = state.branches[index];
@@ -1589,7 +1678,7 @@ export default function StudioClient({
               discard={() => update({ candidate: null })}
               undo={undoBranch}
               canUndo={state.branches.some(
-                (branch) => branch.projectId === project?.id,
+                (branch) => branch.projectId === project?.id && branch.reversible,
               )}
               regenerate={() =>
                 void generateChoiceResult(
@@ -2945,10 +3034,10 @@ function BackupCenter({
   project: Project | null;
   backups: BackupRecord[];
   autoBackup: StudioState["autoBackup"];
-  createBackup: (type: "quick" | "full") => BackupRecord | null;
-  importBackup: (snapshot: BackupPackage) => void;
-  restoreBackup: (record: BackupRecord, asCopy: boolean) => void;
-  deleteBackup: (backupId: string) => void;
+  createBackup: (type: "quick" | "full") => Promise<BackupRecord | null>;
+  importBackup: (snapshot: BackupPackage) => Promise<void>;
+  restoreBackup: (record: BackupRecord, asCopy: boolean) => Promise<void>;
+  deleteBackup: (backupId: string) => Promise<void>;
   setAutoBackup: (value: StudioState["autoBackup"]) => void;
 }) {
   const [busy, setBusy] = useState(false),
@@ -2969,7 +3058,7 @@ function BackupCenter({
     await new Promise((resolve) => setTimeout(resolve, 80));
     setMessage("正在保存章節、角色與世界設定……");
     await new Promise((resolve) => setTimeout(resolve, 80));
-    const record = createBackup(type);
+    const record = await createBackup(type);
     setSelected(record); setMessage(record ? "備份完成。" : "尚未開啟作品。"); setBusy(false);
   };
   if (!project)
@@ -2980,9 +3069,9 @@ function BackupCenter({
     {message && <div className="backupNotice" role="status">{message}</div>}{error && <div className="backupError" role="alert">{error}</div>}
     <section><h2>純文字匯出</h2><div className="backupActions"><button onClick={() => download(`${project.title}.txt`, project.draft, "text/plain;charset=utf-8")}>下載 TXT</button><button onClick={() => download(`${project.title}.md`, `# ${project.title}\n\n## ${project.chapterTitle}\n\n${project.draft}`, "text/markdown;charset=utf-8")}>下載 Markdown</button><button onClick={() => download(`${project.title}.html`, `<!doctype html><meta charset="utf-8"><title>${project.title}</title><h1>${project.title}</h1><h2>${project.chapterTitle}</h2>${project.draft.split("\n").map((line) => `<p>${line.replace(/[&<>]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[char]||char))}</p>`).join("")}`, "text/html;charset=utf-8")}>下載 HTML</button></div></section>
     <section><h2>自動備份</h2><label>備份時機<select value={autoBackup} onChange={(event) => setAutoBackup(event.target.value as StudioState["autoBackup"])}><option value="off">關閉</option><option value="accepted_content">每次正式採用內容後</option><option value="chapter_complete">每完成一章後</option><option value="daily">每日第一次開啟作品時</option></select></label><p>自動備份保存在此瀏覽器；仍建議定期下載備份檔。</p></section>
-    <section><h2>最近備份</h2>{backups.length ? <div className="backupList">{backups.map((backup) => <article key={backup.backupId}><div><b>{backup.name}</b><span>{formatTime(backup.createdAt)}・{backup.type === "full" ? "完整備份" : "快速備份"}・{Math.max(1,Math.round(backup.bytes/1024))} KB</span></div><button onClick={() => setSelected(backup)}>查看詳情</button><button onClick={() => download(`${backup.name}.json`,JSON.stringify(backup.snapshot,null,2),"application/json")}>下載</button></article>)}</div> : <div className="worldEmpty">這本作品目前還沒有備份。建立第一份備份，可以避免瀏覽器資料遺失。</div>}</section>
-    {importPreview && <div className="backupPreview"><h2>匯入預覽</h2><dl><div><dt>作品名稱</dt><dd>{importPreview.project.title}</dd></div><div><dt>備份日期</dt><dd>{formatTime(importPreview.exportedAt)}</dd></div><div><dt>總字數</dt><dd>{words(importPreview.project.draft)}</dd></div><div><dt>版本／分支</dt><dd>{importPreview.project.versions.length}／{importPreview.branches.length}</dd></div><div><dt>任務／成就</dt><dd>{importPreview.gameState.tasks.length}／{importPreview.gameState.achievements.length}</dd></div><div><dt>成人內容標記</dt><dd>{importPreview.project.adultMode?"有":"無"}</dd></div></dl><button className="gold" onClick={() => {importBackup(importPreview);setImportPreview(null);setMessage("已匯入為新作品。")}}>匯入為新作品</button><button onClick={() => setImportPreview(null)}>取消</button></div>}
-    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>角色與世界資料</dt><dd>包含已確認的消費者設定快照</dd></div><div><dt>閱讀資料</dt><dd>包含閱讀位置、書籤與筆記</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務、成就與閱讀進度。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" onClick={() => {restoreBackup(selected,false);setSelected(null);setMessage("已先建立安全備份並完成還原。")}}>安全還原</button><button onClick={() => {restoreBackup(selected,true);setSelected(null);setMessage("已還原為新副本。")}}>還原成新副本</button><button onClick={() => {deleteBackup(selected.backupId);setSelected(null);setMessage("備份已刪除。")}}>刪除備份</button></footer></aside></div>}
+    <section><h2>最近備份</h2>{backups.length ? <div className="backupList">{backups.map((backup) => <article key={backup.backupId}><div><b>{backup.name}</b><span>{formatTime(backup.createdAt)}・{backup.type === "full" ? "完整備份" : "快速備份"}・{Math.max(1,Math.round(backup.bytes/1024))} KB</span></div><button onClick={() => setSelected(backup)}>查看詳情</button><button onClick={() => download(`${backup.name}.json`,JSON.stringify(backup.formalPayload || backup.snapshot,null,2),"application/json")}>下載</button></article>)}</div> : <div className="worldEmpty">這本作品目前還沒有備份。建立第一份備份，可以避免瀏覽器資料遺失。</div>}</section>
+    {importPreview && <div className="backupPreview"><h2>匯入預覽</h2><dl><div><dt>作品名稱</dt><dd>{importPreview.project.title}</dd></div><div><dt>備份日期</dt><dd>{formatTime(importPreview.exportedAt)}</dd></div><div><dt>總字數</dt><dd>{words(importPreview.project.draft)}</dd></div><div><dt>版本／分支</dt><dd>{importPreview.project.versions.length}／{importPreview.branches.length}</dd></div><div><dt>任務／成就</dt><dd>{importPreview.gameState.tasks.length}／{importPreview.gameState.achievements.length}</dd></div><div><dt>成人內容標記</dt><dd>{importPreview.project.adultMode?"有":"無"}</dd></div></dl><button className="gold" onClick={() => void importBackup(importPreview).then(() => {setImportPreview(null);setMessage("已匯入為新作品。");}).catch((reason) => setError(`匯入失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>匯入為新作品</button><button onClick={() => setImportPreview(null)}>取消</button></div>}
+    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>互動選擇與故事分支</dt><dd>{selected.formalPayload ? `${selected.formalPayload.manifest.recordCounts.acceptedChoices || 0}／${selected.formalPayload.manifest.recordCounts.storyBranches || 0}` : "舊格式未完整記錄"}</dd></div><div><dt>角色與世界資料</dt><dd>包含已確認的消費者設定快照</dd></div><div><dt>閱讀資料</dt><dd>包含閱讀位置、書籤與筆記</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務、成就與閱讀進度。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.formalPayload || selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" onClick={() => void restoreBackup(selected,false).then(() => {setSelected(null);setMessage("已先建立安全備份並完成還原。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>安全還原</button><button onClick={() => void restoreBackup(selected,true).then(() => {setSelected(null);setMessage("已還原為新副本。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>還原成新副本</button><button onClick={() => void deleteBackup(selected.backupId).then(() => {setSelected(null);setMessage("備份已刪除。");}).catch((reason) => setError(`刪除失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>刪除備份</button></footer></aside></div>}
   </section>;
 }
 

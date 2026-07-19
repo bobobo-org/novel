@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "mode": "replace",
+  "transactional": true,
+  "safetyBackupBeforeRestore": true,
+  "referenceValidationBeforeCommit": true,
+  "failureLeavesOriginalRows": true
+}

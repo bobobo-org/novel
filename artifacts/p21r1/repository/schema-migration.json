@@ -1,0 +1,11 @@
+{
+  "databaseVersion": 3,
+  "migration": "p21r1-interaction-stores-v3",
+  "rerunnable": true,
+  "preservesExistingStores": true,
+  "newStores": ["acceptedChoices", "storyBranches", "operationJournal"],
+  "acceptedChoiceIndexes": ["projectId", "chapterId", "candidateId", "branchId", "acceptedChoiceId"],
+  "storyBranchIndexes": ["projectId", "chapterId", "parentBranchId", "candidateId", "branchId", "acceptedChoiceId", "status"],
+  "operationJournalIndexes": ["projectId", "idempotencyKey"],
+  "legacyInteractionPolicy": "manual_review_when_identifiers_or_revisions_are_ambiguous"
+}

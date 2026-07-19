@@ -10,6 +10,7 @@ import { PUBLIC_FICTION_CORPUS_HEALTH } from "@/lib/novel-ai/corpus/public-ficti
 import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
+import { resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 
 export const runtime = "nodejs";
 
@@ -126,6 +127,7 @@ export async function GET(req: Request) {
       SQLITE_LOCAL: getStorageCapabilities("SQLITE_LOCAL"),
       INDEXEDDB_BROWSER: getStorageCapabilities("INDEXEDDB_BROWSER"),
     },
+    novelCapabilityCatalog: resolveCapabilityCatalog(),
     transactionSupport: {
       SUPABASE_CLOUD: "partial",
       MEMORY_TEST: "supported",

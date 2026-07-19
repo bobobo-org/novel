@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "sourceOfTruth": "lib/novel-ai/capabilities/capability-registry.ts",
+  "resolver": "lib/novel-ai/capabilities/capability-resolver.ts",
+  "contractReadyClientDependent": [
+    "indexedDb.core",
+    "indexedDb.projects",
+    "indexedDb.reader",
+    "indexedDb.backups",
+    "indexedDb.acceptedChoices",
+    "indexedDb.storyBranches",
+    "backup.repository",
+    "backup.create",
+    "backup.export",
+    "backup.importCopy",
+    "backup.restoreReplace",
+    "backup.hashValidation",
+    "backup.safeRestorePoint",
+    "backup.acceptedChoices",
+    "backup.storyBranches"
+  ],
+  "effectiveReady": ["backup.hashValidation"],
+  "partial": ["indexedDb.fullAdoption", "backup.legacyFormatImport"],
+  "healthUsesResolver": true,
+  "matrixUsesRegistry": true,
+  "contradictoryReadyUnsupportedPairs": 0
+}

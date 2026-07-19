@@ -14,6 +14,7 @@ import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/l
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
+import { capabilityStatus, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,7 @@ function deploymentId() {
 
 export async function GET() {
   const started = Date.now();
+  const capabilityCatalog = resolveCapabilityCatalog();
   const meta = providerMeta();
   const memoryRuns = aiRunStats();
   const memoryStats = trainingStats();
@@ -463,13 +465,15 @@ export async function GET() {
     ollamaConsumerIntegrationStatus: "runtime_required",
     storyBibleBackupStatus: "consumer_snapshot",
     indexedDbMigrationStatus: "not_implemented",
-    indexedDbCore: "ready",
-    indexedDbCreation: "ready",
-    indexedDbWriting: "ready",
-    indexedDbReader: "ready",
-    indexedDbBackups: "ready",
-    indexedDbLegacyMigration: "partial",
-    indexedDbFullAdoption: "partial",
+    indexedDbCore: capabilityStatus(capabilityCatalog, "indexedDb.core"),
+    indexedDbCreation: capabilityStatus(capabilityCatalog, "indexedDb.projects"),
+    indexedDbWriting: capabilityStatus(capabilityCatalog, "indexedDb.projects"),
+    indexedDbReader: capabilityStatus(capabilityCatalog, "indexedDb.reader"),
+    indexedDbBackups: capabilityStatus(capabilityCatalog, "indexedDb.backups"),
+    indexedDbAcceptedChoices: capabilityStatus(capabilityCatalog, "indexedDb.acceptedChoices"),
+    indexedDbStoryBranches: capabilityStatus(capabilityCatalog, "indexedDb.storyBranches"),
+    indexedDbLegacyMigration: capabilityStatus(capabilityCatalog, "backup.legacyFormatImport"),
+    indexedDbFullAdoption: capabilityStatus(capabilityCatalog, "indexedDb.fullAdoption"),
     p2DomainVersion: "novel-domain-v1",
     p2DomainStatus: "ready",
     p2UnifiedRouterStatus: "ready_no_silent_external_fallback",
@@ -489,10 +493,12 @@ export async function GET() {
     readerPreferences: "ready",
     readerNotes: "ready",
     readerBookmarks: "ready",
-    backupCore: "ready",
-    backupExport: "ready",
-    backupImport: "ready",
-    backupRestore: "ready",
+    backupCore: capabilityStatus(capabilityCatalog, "backup.repository"),
+    backupExport: capabilityStatus(capabilityCatalog, "backup.export"),
+    backupImport: capabilityStatus(capabilityCatalog, "backup.importCopy"),
+    backupRestore: capabilityStatus(capabilityCatalog, "backup.restoreReplace"),
+    backupAcceptedChoices: capabilityStatus(capabilityCatalog, "backup.acceptedChoices"),
+    backupStoryBranches: capabilityStatus(capabilityCatalog, "backup.storyBranches"),
     indexedDbProjectData: "ready",
     indexedDbBackup: "ready",
     routerPrivacyPolicy: "ready",
@@ -558,6 +564,7 @@ export async function GET() {
       INDEXEDDB_BROWSER: getStorageCapabilities("INDEXEDDB_BROWSER"),
       MEMORY_TEST: getStorageCapabilities("MEMORY_TEST"),
     },
+    capabilityCatalog,
     cloudOptional: true,
     offlineCapable: false,
     offlineDataLayerStatus: "ready",

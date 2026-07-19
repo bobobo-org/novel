@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "runs": 3,
+  "sameKeyReplay": true,
+  "duplicateAcceptedChoices": 0,
+  "duplicateStoryBranches": 0,
+  "duplicateStoryEffects": 0,
+  "differentKeyAfterAcceptance": "CANDIDATE_ALREADY_ACCEPTED",
+  "multiCallerResult": ["committed", "replayed"]
+}

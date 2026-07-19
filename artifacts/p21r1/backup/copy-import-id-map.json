@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "remapped": ["projectId", "chapterId", "sceneId", "candidateId", "acceptedChoiceId", "branchId", "parentBranchId"],
+  "acceptedChoiceToBranch": "consistent",
+  "branchToAcceptedChoice": "consistent",
+  "sourceIdentifiersRetained": false
+}

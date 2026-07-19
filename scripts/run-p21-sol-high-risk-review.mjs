@@ -24,7 +24,7 @@ await repo.createProject(bundle, "sol-create");
 const projectId = bundle.project.id;
 const chapter = await repo.put("chapters", { ...makeRecord(projectId), id: "sol-chapter", title: "Chapter", order: 1, content: "The door opened.", summary: null, status: "completed" });
 const location = await repo.put("lore", { ...makeRecord(projectId), id: "sol-location", kind: "location", title: "Capital", content: "North gate" });
-const character = await repo.put("characters", { ...makeRecord(projectId), id: "sol-character", name: "Lin Zhao", aliases: [], identity: optionalValue("guard", "user_defined"), personality: optionalValue(null), goal: optionalValue(null), lifeStatus: "alive", locationId: location.id });
+await repo.put("characters", { ...makeRecord(projectId), id: "sol-character", name: "Lin Zhao", aliases: [], identity: optionalValue("guard", "user_defined"), personality: optionalValue(null), goal: optionalValue(null), lifeStatus: "alive", locationId: location.id });
 await repo.put("readerNotes", { ...makeRecord(projectId), id: "sol-note", chapterId: chapter.id, anchor: "0:The door", excerpt: "The door opened.", content: "Remember", needsRelocation: false });
 await repo.put("readerBookmarks", { ...makeRecord(projectId), id: "sol-bookmark", chapterId: chapter.id, anchor: "0:The door", excerpt: "The door opened.", label: "Opening", needsRelocation: false });
 await repo.put("settings", { ...makeRecord(projectId), id: "sol-settings", endpoint: "https://secret.invalid", apiKey: "do-not-export", nested: { authorization: "Bearer secret" } });
@@ -90,9 +90,10 @@ const studio = await readFile(new URL("../app/studio/studio-client.tsx", import.
 await test("formal repository persists accepted choices and story branches", "PASS", async () => { assert.match(contracts, /acceptedChoices/); assert.match(contracts, /storyBranches/); });
 await test("public Studio candidate acceptance uses repository transaction and idempotency key", "PASS", async () => {
   const acceptance = studio.slice(studio.indexOf("function acceptChoiceResult"), studio.indexOf("function", studio.indexOf("function acceptChoiceResult") + 10));
-  assert.doesNotMatch(acceptance, /setState\s*\(/);
-  assert.match(acceptance, /requestId|idempot/i);
-  assert.match(acceptance, /repository|transaction/i);
+  assert.match(acceptance, /await acceptStudioChoice/);
+  assert.ok(acceptance.indexOf("await acceptStudioChoice") < acceptance.indexOf("setState"));
+  assert.doesNotMatch(acceptance, /localStorage|sessionStorage/);
+  assert.match(acceptance, /canonicalCandidateId/);
 });
 
 console.log(JSON.stringify({ suite: "p21-sol-high-risk-review", reviewedCommit: "cb70dfce7bbaca2622652580a2fe60ce325da700", pass: results.filter((item) => item.status === "PASS").length, fail: results.filter((item) => item.status === "FAIL").length, results }, null, 2));

@@ -1,0 +1,11 @@
+{
+  "productionCommit": "cb70dfce7bbaca2622652580a2fe60ce325da700",
+  "reviewPatchCommit": "46a8d41ba1c387ad58452fcf6514823ed9993db3",
+  "branch": "main",
+  "highFindings": [
+    "Studio interaction canonical data used React state and localStorage",
+    "Repository and backup lacked acceptedChoices and storyBranches",
+    "Health and capability matrix reported contradictory states"
+  ],
+  "scope": "P2.1R1 High-Risk Closure only"
+}

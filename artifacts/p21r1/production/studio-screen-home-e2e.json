@@ -1,0 +1,23 @@
+{
+  "case": "P21R1_STUDIO_SCREEN_HOME_CANONICAL_FLOW",
+  "target": "https://novel-orcin.vercel.app/studio?screen=home",
+  "testedReleaseCandidate": "http://localhost:3107/studio?screen=home",
+  "productionDeploymentGate": "pending_independent_sol_review",
+  "browserWalkthrough": {
+    "status": "PASS",
+    "project": "P21R1 首頁閉環測試",
+    "createdFromScreenHome": true,
+    "interactiveCompatibilityRoute": "screen=interactive -> screen=choice",
+    "candidateAccepted": true,
+    "chapterWordsBefore": 59,
+    "chapterWordsAfter": 186,
+    "reloadPreservedBody": true,
+    "recentProjectAfterReload": true,
+    "backupAcceptedChoices": 1,
+    "backupStoryBranches": 1,
+    "desktopScreenshot": "studio-screen-home-desktop.png",
+    "mobileScreenshot": "studio-screen-home-mobile.png",
+    "consoleErrors": 0
+  },
+  "canonicalTestRuns": { "runs": 3, "pass": 3, "fail": 0, "details": "../tests/high-risk-three-runs.json" }
+}

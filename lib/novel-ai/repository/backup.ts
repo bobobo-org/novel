@@ -1,6 +1,7 @@
 import type { BackupManifest, DomainRecord, ProjectBackup } from "../domain";
 import { makeRecord } from "../domain";
 import { NOVEL_STORES, type NovelRepository } from "./contracts";
+import { validateImportRecords } from "./import-remap";
 
 export type BackupPayload = { manifest: BackupManifest; records: Record<string, unknown[]> };
 
@@ -19,7 +20,7 @@ async function digest(value: string) {
   throw new Error("BACKUP_CRYPTO_UNAVAILABLE");
 }
 
-const EXCLUDED_BACKUP_STORES = new Set(["backups", "settings", "aiJobs", "migrationJournal"]);
+const EXCLUDED_BACKUP_STORES = new Set(["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"]);
 const SENSITIVE_KEYS = new Set(["accessToken", "refreshToken", "apiKey", "api_key", "adminToken", "admin_token", "authorization", "endpoint", "baseUrl", "connectionString"]);
 
 function sanitizeBackupValue(value: unknown): unknown {
@@ -65,6 +66,7 @@ export async function validateBackupPayload(input: unknown): Promise<{ valid: tr
   if (containsSensitiveKey(payload.records)) return { valid: false, reason: "BACKUP_SENSITIVE_DATA_NOT_ALLOWED" };
   if (recordStores.join("|") !== manifestStores.join("|")) return { valid: false, reason: "BACKUP_MANIFEST_STORE_MISMATCH" };
   for (const store of recordStores) if (payload.manifest.recordCounts[store] !== payload.records[store].length) return { valid: false, reason: "BACKUP_MANIFEST_COUNT_MISMATCH" };
+  try { validateImportRecords(payload.records); } catch (error) { return { valid: false, reason: error instanceof Error ? error.message : "BACKUP_REFERENCE_INVALID" }; }
   const actualHash = await digest(stableStringify(payload.records));
   if (actualHash !== payload.manifest.contentHash) return { valid: false, reason: "BACKUP_HASH_MISMATCH" };
   return { valid: true, payload };

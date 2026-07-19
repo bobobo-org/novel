@@ -87,12 +87,18 @@ for (const term of [
   test(`一般畫面不顯示 ${term}`, () =>
     !new RegExp(`>[\\s\\S]{0,40}${term}[\\s\\S]{0,40}<`, "i").test(studio));
 test("沉浸閱讀只讀正式作品", () =>
-  reader.includes("project.draft") && !reader.includes("candidate"));
+  reader.includes('repo.get<NovelProject>("projects"') &&
+  reader.includes('repo.list<Chapter>("chapters"') &&
+  !reader.includes('repo.list("candidates"'));
 test("閱讀設定四主題", () =>
   ["light", "night", "eye", "paper"].every((theme) => reader.includes(theme)));
-test("閱讀進度保存", () => reader.includes("novel_reader_progress_"));
+test("閱讀進度保存", () =>
+  reader.includes('repo.put("readerStates"') && !reader.includes("novel_reader_progress_"));
 test("閱讀書籤", () => reader.includes("加入書籤"));
-test("閱讀私人筆記不交AI", () => reader.includes("不會交給 AI"));
+test("閱讀私人筆記不交AI", () =>
+  reader.includes('repo.put("readerNotes"') &&
+  !reader.includes("routeLocalStoryTask") &&
+  !reader.includes("WebLocalRuntimeClient"));
 test("專注寫作模式", () =>
   studio.includes("focusMode") && studio.includes("離開專注模式"));
 test("專注助手仍是建議", () =>
@@ -138,8 +144,9 @@ test("世界背景可開啟", () => compactStudio.includes('id:"world"'));
 test("角色設定可標記不適用", () =>
   studio.includes('blankOptional("not_applicable")'));
 test("任務與成就使用作品專屬狀態", () =>
-  studio.includes("gameStates: Record<string, GameState>") &&
-  studio.includes("currentGame.tasks"));
+  studio.includes('repository.list<StoryState>("storyStates"') ||
+  (studio.includes('repository.list<NovelProject>("projects")') &&
+    studio.includes("gameStateFromCanonical(snapshot.storyState)")));
 test("數值變化保留原因與來源事件", () =>
   studio.includes("sourceType: \"player_choice\"") &&
   studio.includes("sourceEventId"));

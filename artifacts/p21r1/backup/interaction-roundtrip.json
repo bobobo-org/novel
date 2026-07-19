@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "format": "novel-backup-v3",
+  "sourceCounts": { "acceptedChoices": 1, "storyBranches": 1 },
+  "copyImport": "PASS",
+  "replaceRestore": "PASS",
+  "chapterContentPreserved": true,
+  "storyStateEffectPreserved": true,
+  "provenancePreserved": true,
+  "crossProjectIsolation": "PASS",
+  "hashValidation": "PASS"
+}

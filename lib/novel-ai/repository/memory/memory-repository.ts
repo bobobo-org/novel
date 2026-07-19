@@ -1,11 +1,13 @@
-import type { DomainRecord, ProjectBundle } from "../../domain/index";
-import { NOVEL_STORES, RevisionConflictError, type NovelRepository, type NovelStoreName } from "../contracts/index";
+import type { AcceptedChoice, Chapter, ChoiceCandidate, DomainRecord, NovelProject, OperationJournal, ProjectBundle, StoryBranch, StoryState } from "../../domain/index";
+import { buildAcceptedChoiceRecords } from "../../services/accept-choice";
+import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
 import { buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 export class MemoryNovelRepository implements NovelRepository {
   readonly kind = "memory" as const;
   private stores = new Map<NovelStoreName, Map<string, DomainRecord>>(NOVEL_STORES.map((name) => [name, new Map()]));
   private requests = new Map<string, ProjectBundle>();
+  private interactionQueue: Promise<unknown> = Promise.resolve();
   isAvailable() { return true; }
   async get<T extends DomainRecord>(store: NovelStoreName, id: string) { return (structuredClone(this.stores.get(store)?.get(id)) as T | undefined) ?? null; }
   async list<T extends DomainRecord>(store: NovelStoreName, projectId?: string) { return [...(this.stores.get(store)?.values() ?? [])].filter((item) => !projectId || item.projectId === projectId).map((item) => structuredClone(item) as T); }
@@ -23,6 +25,35 @@ export class MemoryNovelRepository implements NovelRepository {
     for (const [store, record] of writes) if (record) await this.put(store, record);
     this.requests.set(requestId, structuredClone(bundle)); return structuredClone(bundle);
   }
+  acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult> {
+    const run = this.interactionQueue.then(() => this.acceptChoiceTransactionInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async acceptChoiceTransactionInternal(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult> {
+    const replay = (await this.list<OperationJournal>("operationJournal", input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
+    if (replay) {
+      if (replay.candidateId !== input.candidateId) throw new RepositoryOperationError("IDEMPOTENCY_KEY_CONFLICT");
+      const [project, chapter, candidate, acceptedChoice, branch] = await Promise.all([
+        this.get<NovelProject>("projects", input.projectId), this.get<Chapter>("chapters", input.chapterId), this.get<ChoiceCandidate>("candidates", input.candidateId),
+        this.get<AcceptedChoice>("acceptedChoices", replay.acceptedChoiceId), this.get<StoryBranch>("storyBranches", replay.branchId),
+      ]);
+      const storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null;
+      if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
+      return { replayed: true, project, chapter, candidate, storyState, acceptedChoice, branch };
+    }
+    const project = await this.get<NovelProject>("projects", input.projectId), chapter = await this.get<Chapter>("chapters", input.chapterId), candidate = await this.get<ChoiceCandidate>("candidates", input.candidateId), storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null, parentBranch = input.parentBranchId ? await this.get<StoryBranch>("storyBranches", input.parentBranchId) : null;
+    if (!project || !chapter || !candidate || !storyState) throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
+    const records = buildAcceptedChoiceRecords(input, { project, chapter, candidate, storyState, parentBranch });
+    const before = new Map(NOVEL_STORES.map((name) => [name, new Map([...(this.stores.get(name)?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]))]));
+    try {
+      for (const [store, row] of [["projects",records.project],["chapters",records.chapter],["candidates",records.candidate],["storyStates",records.storyState],["acceptedChoices",records.acceptedChoice],["storyBranches",records.branch],["operationJournal",records.journal]] as Array<[NovelStoreName, DomainRecord]>) this.stores.get(store)?.set(row.id, structuredClone(row));
+      return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch };
+    } catch (error) { this.stores = before; throw error; }
+  }
+  async listAcceptedChoices(projectId: string, chapterId?: string) { return (await this.list<AcceptedChoice>("acceptedChoices", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
+  async listStoryBranches(projectId: string, chapterId?: string) { return (await this.list<StoryBranch>("storyBranches", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
+  async deleteInteractionsByProject(projectId: string) { for (const store of ["acceptedChoices","storyBranches","operationJournal"] as NovelStoreName[]) for (const row of await this.list(store, projectId)) await this.remove(store, row.id); }
   async exportProject(projectId: string) { const output: Record<string, unknown[]> = {}; for (const store of NOVEL_STORES) output[store] = await this.list(store, projectId); return output; }
   async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
     const { sourceProjectId: sourceId } = validateImportRecords(payload);

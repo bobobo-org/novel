@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "canonicalSource": "IndexedDB NovelRepository",
+  "browserEvidence": {
+    "reloadPreservedAcceptedChapter": true,
+    "formalBackupManifestAcceptedChoices": 1,
+    "formalBackupManifestStoryBranches": 1
+  },
+  "repositoryEvidence": {
+    "acceptedChoiceCreated": true,
+    "storyBranchCreated": true,
+    "storyStateAppliedOnce": true,
+    "operationJournalCreated": true
+  },
+  "localStorageShell": {
+    "candidate": null,
+    "branches": [],
+    "gameStates": {},
+    "chapterBodyStored": false,
+    "versionsStored": false,
+    "formalBackupsStored": false
+  },
+  "queryStateResponsibility": "presentation_only"
+}

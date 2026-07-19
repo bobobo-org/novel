@@ -16,6 +16,20 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     if (!row || typeof row !== "object" || !row.id) throw new Error("BACKUP_RECORD_INVALID");
     if (row.projectId && row.projectId !== sourceProjectId) throw new Error("BACKUP_PROJECT_SCOPE_MISMATCH");
   }
+  const ids = new Set(NOVEL_STORES.flatMap((store) => (payload[store] ?? []).map((raw) => (raw as DomainRecord).id)));
+  const accepted = (payload.acceptedChoices ?? []) as Array<DomainRecord & { candidateId?: string; branchId?: string; chapterId?: string; acceptedChoiceId?: string }>;
+  const branches = (payload.storyBranches ?? []) as Array<DomainRecord & { branchId?: string; parentBranchId?: string | null; acceptedChoiceId?: string; sourceCandidateId?: string; chapterId?: string }>;
+  for (const row of accepted) {
+    if (!row.candidateId || !row.branchId || !row.chapterId || !ids.has(row.candidateId) || !ids.has(row.branchId) || !ids.has(row.chapterId)) throw new Error("BACKUP_ACCEPTED_CHOICE_REFERENCE_INVALID");
+    if (row.acceptedChoiceId && row.acceptedChoiceId !== row.id) throw new Error("BACKUP_ACCEPTED_CHOICE_ID_MISMATCH");
+  }
+  const branchMap = new Map(branches.map((row) => [row.id, row]));
+  for (const row of branches) {
+    if ((row.branchId && row.branchId !== row.id) || !row.acceptedChoiceId || !row.sourceCandidateId || !row.chapterId || !ids.has(row.acceptedChoiceId) || !ids.has(row.sourceCandidateId) || !ids.has(row.chapterId)) throw new Error("BACKUP_STORY_BRANCH_REFERENCE_INVALID");
+    if (row.parentBranchId && !branchMap.has(row.parentBranchId)) throw new Error("BACKUP_PARENT_BRANCH_MISSING");
+    const seen = new Set<string>([row.id]); let parent = row.parentBranchId ?? null;
+    while (parent) { if (seen.has(parent)) throw new Error("BACKUP_BRANCH_CYCLE"); seen.add(parent); parent = branchMap.get(parent)?.parentBranchId ?? null; }
+  }
   return { project, sourceProjectId };
 }
 

@@ -69,9 +69,59 @@ export type StoryState = DomainRecord & {
 };
 
 export type StoryChoiceEffect = { statChanges: Record<string, number>; relationshipChanges: Record<string, number>; resourceChanges: Record<string, number>; moneyChange: number; worldFlags: Record<string, boolean | string | number>; questProgress: Record<string, number>; achievementProgress: Record<string, number>; timelineEvents: string[] };
-export type ChoiceCandidate = DomainRecord & { prompt: string; optionKey: "A" | "B" | "C" | "custom"; text: string; consequence: string; effect: StoryChoiceEffect; status: "pending" | "accepted" | "rejected" };
-export type AcceptedChoice = DomainRecord & { candidateId: string; branchId: string; appliedEffect: StoryChoiceEffect };
-export type StoryBranch = DomainRecord & { name: string; parentBranchId: string | null; headRevision: number };
+export type ChoiceCandidate = Omit<DomainRecord, "provenance"> & {
+  provenance: AIProvenance;
+  prompt: string;
+  optionKey: "A" | "B" | "C" | "custom";
+  text: string;
+  consequence: string;
+  effect: StoryChoiceEffect;
+  status: "pending" | "accepted" | "rejected";
+  chapterId: string;
+  sceneId?: string | null;
+  inputRevision: number;
+  chapterRevision: number;
+  storyStateRevision: number;
+};
+export type AcceptedChoice = Omit<DomainRecord, "provenance"> & {
+  provenance: AIProvenance;
+  acceptedChoiceId: string;
+  chapterId: string;
+  sceneId?: string | null;
+  candidateId: string;
+  branchId: string;
+  choiceKey: "A" | "B" | "C" | "custom";
+  choiceLabel?: string | null;
+  acceptedText: string;
+  inputRevision: number;
+  resultingRevision: number;
+  storyStateRevisionBefore: number;
+  storyStateRevisionAfter: number;
+  effectOperationId: string;
+  appliedEffect: StoryChoiceEffect;
+  acceptedAt: string;
+};
+export type StoryBranch = DomainRecord & {
+  branchId: string;
+  parentBranchId: string | null;
+  sourceCandidateId: string;
+  acceptedChoiceId: string;
+  chapterId: string;
+  sceneId?: string | null;
+  status: "active" | "superseded" | "archived";
+  name: string;
+  headRevision: number;
+};
+export type OperationJournal = DomainRecord & {
+  operationId: string;
+  idempotencyKey: string;
+  operationType: "accept_choice";
+  candidateId: string;
+  acceptedChoiceId: string;
+  branchId: string;
+  resultRevision: number;
+  completedAt: string;
+};
 export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[] };
 export type WritingTask = DomainRecord & { title: string; kind: "main" | "side" | "character" | "world" | "writing" | "exploration" | "relationship"; status: "not_started" | "active" | "completed" | "paused"; progress: number; target: number };
 export type Achievement = DomainRecord & { title: string; progress: number; target: number; unlockedAt: string | null };
