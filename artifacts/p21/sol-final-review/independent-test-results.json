@@ -1,0 +1,26 @@
+{
+  "reviewedCommit": "cb70dfce7bbaca2622652580a2fe60ce325da700",
+  "typecheck": { "command": "pnpm exec tsc --noEmit", "status": "PASS" },
+  "productionBuild": { "command": "pnpm run build", "status": "PASS", "elapsedSeconds": 24.5 },
+  "p21DataClosure": { "status": "PASS", "pass": 7, "fail": 0 },
+  "p2GrandIntegration": { "status": "PASS", "pass": 18, "fail": 0, "skip": 0 },
+  "p15Regression": { "status": "PASS", "pass": 30, "fail": 0, "skip": 0 },
+  "highRiskRuns": [
+    { "run": 1, "pass": 10, "fail": 2 },
+    { "run": 2, "pass": 10, "fail": 2 },
+    { "run": 3, "pass": 10, "fail": 2 }
+  ],
+  "stableHighRiskFailures": [
+    "formal repository persists accepted choices and story branches",
+    "public Studio candidate acceptance uses repository transaction and idempotency key"
+  ],
+  "productionBrowser": {
+    "desktopRootLoaded": true,
+    "rootTitle": "諸天萬界小說生成系統",
+    "mobileStudioLoaded": true,
+    "mobileViewportWidth": 375,
+    "mobileScrollWidth": 375,
+    "horizontalOverflow": false,
+    "consoleErrors": 0
+  }
+}

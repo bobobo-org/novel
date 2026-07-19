@@ -1,0 +1,63 @@
+{
+  "reviewedCommit": "cb70dfce7bbaca2622652580a2fe60ce325da700",
+  "decision": "REJECTED",
+  "counts": { "critical": 0, "high": 3, "medium": 3, "low": 1 },
+  "findings": [
+    {
+      "id": "SOL-H-001",
+      "severity": "High",
+      "title": "Public Studio choice acceptance is not atomic or idempotent",
+      "evidence": ["app/studio/studio-client.tsx:650", "app/studio/studio-client.tsx:1297"],
+      "impact": "A duplicate click, tab race, crash, or reload can duplicate or partially persist正文、版本、分支、任務、成就與數值。",
+      "requiredFix": "Move acceptance to one authoritative repository transaction with requestId replay protection and revision checks."
+    },
+    {
+      "id": "SOL-H-002",
+      "severity": "High",
+      "title": "Formal repository and backup omit accepted choices and story branches",
+      "evidence": ["lib/novel-ai/domain/index.ts:56", "lib/novel-ai/domain/index.ts:57", "lib/novel-ai/repository/contracts/index.ts:3"],
+      "impact": "A formal round-trip cannot preserve all consumer story state even though domain types exist.",
+      "requiredFix": "Add versioned acceptedChoices and storyBranches stores, migration, transaction participation, and round-trip verification."
+    },
+    {
+      "id": "SOL-H-003",
+      "severity": "High",
+      "title": "Production health overstates IndexedDB backup and restore readiness",
+      "evidence": ["app/api/ai/health/route.ts:470", "app/api/ai/health/route.ts:495", "app/api/ai/health/route.ts:558"],
+      "impact": "Operators can promote a release based on contradictory readiness data; the same response reports ready while the capability matrix reports backup/restore unsupported.",
+      "requiredFix": "Derive readiness from one capability source and report the public Studio localStorage/formal IndexedDB split as partial until closed."
+    },
+    {
+      "id": "SOL-M-001",
+      "severity": "Medium",
+      "title": "Rollback compatibility is documented but not executable or browser-verified",
+      "evidence": ["artifacts/p21/rollback-review.md:5", "artifacts/p21/sol-handoff/backup-roundtrip.json:14"],
+      "impact": "The previous build may ignore new records but no safe read-only guard proves it cannot overwrite newer reader data.",
+      "requiredFix": "Add unknown-schema refusal/read-only behavior and run downgrade/upgrade browser fixtures."
+    },
+    {
+      "id": "SOL-M-002",
+      "severity": "Medium",
+      "title": "Error recovery has no emergency export action",
+      "evidence": ["artifacts/p21/error-boundary-audit.json:6"],
+      "impact": "A consumer encountering a route failure receives recovery text but cannot export data from the error surface.",
+      "requiredFix": "Expose a safe local emergency export from project route error boundaries."
+    },
+    {
+      "id": "SOL-M-003",
+      "severity": "Medium",
+      "title": "Long-novel performance remains partial",
+      "evidence": ["production health: longNovelLoadValidation=partial"],
+      "impact": "The 100k/300k/500k load and interaction envelopes are not independently proven.",
+      "requiredFix": "Complete the permitted partial performance matrix before advertising large-novel readiness."
+    },
+    {
+      "id": "SOL-L-001",
+      "severity": "Low",
+      "title": "Checked-in release manifest still contains pending placeholders",
+      "evidence": ["artifacts/p21/production/release-manifest.json:3", "artifacts/p21/production/release-manifest.json:7"],
+      "impact": "Repository evidence does not exactly match the deployed release.",
+      "requiredFix": "Stamp immutable post-deploy evidence without mutating runtime status."
+    }
+  ]
+}

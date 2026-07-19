@@ -1,0 +1,11 @@
+{
+  "status": "PASS_AFTER_REVIEW_PATCH",
+  "runs": 3,
+  "sourceProjectMapping": "source project id -> new target project id",
+  "recordMapping": "every non-project record id -> new UUID",
+  "referenceMapping": "recursive exact-id replacement in arrays and nested objects",
+  "validatedReferences": ["projectId", "chapterId", "locationId", "Story Bible id arrays", "nested record references"],
+  "isolationVerified": true,
+  "oldIdLeakageDetected": false,
+  "implementation": "lib/novel-ai/repository/import-remap.ts"
+}

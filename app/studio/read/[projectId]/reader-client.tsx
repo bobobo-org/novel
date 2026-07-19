@@ -22,6 +22,8 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
   const [notice, setNotice] = useState("正在開啟閱讀器…");
   const [noteText, setNoteText] = useState("");
   const articleRef = useRef<HTMLElement>(null);
+  const stateRef = useRef<ReaderState | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const activeChapter = chapters.find((item) => item.id === state?.chapterId) ?? chapters[0] ?? null;
   const paragraphs = useMemo(() => (activeChapter?.content || "").split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean), [activeChapter]);
 
@@ -34,14 +36,22 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
       const current = { ...stateDefaults(projectId), ...(existingState[0] ?? {}) } as ReaderState;
       if (!current.chapterId && ordered[0]) current.chapterId = ordered[0].id;
       if (!existingState[0] || Object.keys(existingState[0]).length < Object.keys(current).length) await repo.put("readerStates", current, existingState[0]?.revision);
-      setProject(nextProject); setChapters(ordered); setState(current); setNotes(nextNotes); setBookmarks(nextBookmarks); setNotice("");
+      stateRef.current = current; setProject(nextProject); setChapters(ordered); setState(current); setNotes(nextNotes); setBookmarks(nextBookmarks); setNotice("");
     } catch { setNotice("閱讀資料載入失敗，請重新嘗試。"); }
   }
   useEffect(() => { void load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveState(patch: Partial<ReaderState>) {
     if (!state) return;
-    try { const next = await repo.put("readerStates", { ...state, ...patch, lastReadAt: new Date().toISOString() }, state.revision); setState(next); }
+    try {
+      saveQueue.current = saveQueue.current.then(async () => {
+        const current = stateRef.current;
+        if (!current) return;
+        const next = await repo.put("readerStates", { ...current, ...patch, lastReadAt: new Date().toISOString() }, current.revision);
+        stateRef.current = next; setState(next);
+      });
+      await saveQueue.current;
+    }
     catch { setNotice("閱讀位置儲存失敗，原有內容仍然安全。"); }
   }
   useEffect(() => {

@@ -8,7 +8,7 @@ export class PlatformRouterError extends Error { code: string; retryable: boolea
 
 function allowed(id: PlatformProviderId, request: PlatformAIRequest) {
   if (external.has(id)) return request.privacyMode === "external-allowed" && request.externalConsent;
-  if (privateHub.has(id)) return request.privacyMode !== "strict-local";
+  if (privateHub.has(id)) return request.privacyMode === "private-hub-allowed";
   return true;
 }
 

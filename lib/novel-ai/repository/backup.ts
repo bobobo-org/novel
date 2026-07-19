@@ -1,6 +1,6 @@
 import type { BackupManifest, DomainRecord, ProjectBackup } from "../domain";
 import { makeRecord } from "../domain";
-import type { NovelRepository } from "./contracts";
+import { NOVEL_STORES, type NovelRepository } from "./contracts";
 
 export type BackupPayload = { manifest: BackupManifest; records: Record<string, unknown[]> };
 
@@ -16,14 +16,29 @@ async function digest(value: string) {
     const hash = await crypto.subtle.digest("SHA-256", bytes);
     return [...new Uint8Array(hash)].map((item) => item.toString(16).padStart(2, "0")).join("");
   }
-  return `fallback-${bytes.length}-${value.slice(0, 24)}`;
+  throw new Error("BACKUP_CRYPTO_UNAVAILABLE");
+}
+
+const EXCLUDED_BACKUP_STORES = new Set(["backups", "settings", "aiJobs", "migrationJournal"]);
+const SENSITIVE_KEYS = new Set(["accessToken", "refreshToken", "apiKey", "api_key", "adminToken", "admin_token", "authorization", "endpoint", "baseUrl", "connectionString"]);
+
+function sanitizeBackupValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeBackupValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => !SENSITIVE_KEYS.has(key)).map(([key, item]) => [key, sanitizeBackupValue(item)]));
+}
+
+function containsSensitiveKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSensitiveKey);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, item]) => SENSITIVE_KEYS.has(key) || containsSensitiveKey(item));
 }
 
 export async function createProjectBackup(repository: NovelRepository, projectId: string, kind: ProjectBackup["kind"], release: { appCommit?: string | null; releaseTag?: string | null } = {}) {
-  const records = await repository.exportProject(projectId);
+  const exported = await repository.exportProject(projectId);
+  const records = Object.fromEntries(Object.entries(exported).filter(([store]) => !EXCLUDED_BACKUP_STORES.has(store)).map(([store, rows]) => [store, sanitizeBackupValue(rows) as unknown[]]));
   // A backup is a recovery point, not a recursive archive of earlier recovery points.
   // Keeping nested snapshots would grow exponentially with every backup.
-  records.backups = [];
   const body = stableStringify(records);
   const now = new Date().toISOString();
   const manifest: BackupManifest = {
@@ -42,6 +57,14 @@ export async function validateBackupPayload(input: unknown): Promise<{ valid: tr
   const payload = input as BackupPayload;
   if (payload.manifest?.format !== "novel-project-backup" || payload.manifest.formatVersion !== "novel-backup-v3") return { valid: false, reason: "BACKUP_UNSUPPORTED_FORMAT" };
   if (!payload.records || !Array.isArray(payload.records.projects) || payload.records.projects.length !== 1) return { valid: false, reason: "BACKUP_PROJECT_MISSING" };
+  const project = payload.records.projects[0] as DomainRecord;
+  if ((project.projectId || project.id) !== payload.manifest.projectId) return { valid: false, reason: "BACKUP_PROJECT_SCOPE_MISMATCH" };
+  const recordStores = Object.keys(payload.records).sort();
+  const manifestStores = [...payload.manifest.includedStores].sort();
+  if (recordStores.some((store) => !NOVEL_STORES.includes(store as (typeof NOVEL_STORES)[number]) || EXCLUDED_BACKUP_STORES.has(store))) return { valid: false, reason: "BACKUP_STORE_NOT_ALLOWED" };
+  if (containsSensitiveKey(payload.records)) return { valid: false, reason: "BACKUP_SENSITIVE_DATA_NOT_ALLOWED" };
+  if (recordStores.join("|") !== manifestStores.join("|")) return { valid: false, reason: "BACKUP_MANIFEST_STORE_MISMATCH" };
+  for (const store of recordStores) if (payload.manifest.recordCounts[store] !== payload.records[store].length) return { valid: false, reason: "BACKUP_MANIFEST_COUNT_MISMATCH" };
   const actualHash = await digest(stableStringify(payload.records));
   if (actualHash !== payload.manifest.contentHash) return { valid: false, reason: "BACKUP_HASH_MISMATCH" };
   return { valid: true, payload };

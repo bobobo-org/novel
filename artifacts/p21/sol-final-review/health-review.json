@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-07-19T22:06:14+08:00",
+  "url": "https://novel-orcin.vercel.app/api/ai/health?sol_review=20260719",
+  "httpStatus": 200,
+  "cacheControl": "no-store, max-age=0",
+  "appCommit": "cb70dfce7bbaca2622652580a2fe60ce325da700",
+  "releaseTag": "novel-ai-p21-production-hardening",
+  "deploymentId": "dpl_GgecX4wUSiusYPBvKz9Rt2MHg96A",
+  "databaseStatus": "reachable",
+  "indexedDbBackups": "ready",
+  "backupImport": "ready",
+  "backupRestore": "ready",
+  "indexedDbFullAdoption": "partial",
+  "capabilityMatrixIndexedDb": { "export": "partial", "import": "partial", "backup": "unsupported", "restore": "unsupported" },
+  "result": "FAIL",
+  "reason": "Readiness fields contradict the capability matrix and public Studio persistence path."
+}

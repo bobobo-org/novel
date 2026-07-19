@@ -1,5 +1,6 @@
 import type { DomainRecord, ProjectBundle } from "../../domain/index";
 import { NOVEL_STORES, RevisionConflictError, type NovelRepository, type NovelStoreName } from "../contracts/index";
+import { buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 const DB_NAME = "novel-intelligence-platform";
 const DB_VERSION = 2;
@@ -39,36 +40,29 @@ export class IndexedDbNovelRepository implements NovelRepository {
     for (const [store, record] of writes) if (record) tx.objectStore(store).put(record);
     ledger.put({ requestId, projectId: bundle.project.id, bundle, createdAt: new Date().toISOString() }); await complete(tx); return bundle;
   }
-  async exportProject(projectId: string) { const output: Record<string, unknown[]> = {}; for (const store of NOVEL_STORES) output[store] = await this.list(store, projectId); return output; }
+  async exportProject(projectId: string) {
+    const db = await this.open(), tx = db.transaction([...NOVEL_STORES], "readonly"), output: Record<string, unknown[]> = {};
+    await Promise.all(NOVEL_STORES.map(async (store) => { output[store] = await request(tx.objectStore(store).index("projectId").getAll(projectId)); }));
+    await complete(tx); return output;
+  }
   async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
-    const sourceProject = (payload.projects?.[0] as DomainRecord | undefined);
-    if (!sourceProject) throw new Error("BACKUP_PROJECT_MISSING");
-    const sourceId = sourceProject.projectId || sourceProject.id;
+    const { sourceProjectId: sourceId } = validateImportRecords(payload);
     const nextProjectId = mode === "replace" ? (targetProjectId || sourceId) : crypto.randomUUID();
-    const idMap = new Map<string, string>();
-    if (mode === "copy") for (const store of NOVEL_STORES) for (const raw of payload[store] ?? []) {
-      const row = raw as DomainRecord;
-      if (row?.id) idMap.set(row.id, crypto.randomUUID());
-    }
+    const idMap = buildImportIdMap(payload, sourceId, nextProjectId);
     const db = await this.open();
     // Keep recovery points while replacing content. The caller deliberately creates a
     // safety backup before restore; deleting it in the same operation defeats recovery.
     const replaceStores = NOVEL_STORES.filter((store) => store !== "backups");
-    const existing = mode === "replace" ? await Promise.all(replaceStores.map(async (store) => [store, await this.list(store, nextProjectId)] as const)) : [];
     const tx = db.transaction([...NOVEL_STORES], "readwrite");
-    for (const [store, rows] of existing) for (const row of rows) tx.objectStore(store).delete(row.id);
+    if (mode === "replace") for (const store of replaceStores) {
+      const objectStore = tx.objectStore(store);
+      const keys = await request(objectStore.index("projectId").getAllKeys(nextProjectId));
+      for (const key of keys) objectStore.delete(key);
+    }
     for (const store of NOVEL_STORES) {
       if (mode === "replace" && store === "backups") continue;
       for (const raw of payload[store] ?? []) {
-      const row = raw as DomainRecord;
-      if (!row || typeof row !== "object") continue;
-      const id = mode === "copy" ? idMap.get(row.id)! : row.id;
-      const projectId = nextProjectId;
-      const remap = (value: unknown) => typeof value === "string" ? (idMap.get(value) ?? value) : value;
-      const next = { ...row, id, projectId, revision: 1, parentRevision: null, updatedAt: new Date().toISOString(), createdAt: row.createdAt || new Date().toISOString(), migrationVersion: "p21-backup-import-v1" } as Record<string, unknown>;
-      for (const key of ["activeChapterId", "storyBibleId", "storyStateId", "chapterId", "fromCharacterId", "toCharacterId", "worldId", "candidateId"]) next[key] = remap(next[key]);
-      for (const key of ["protagonistIds", "characterIds", "relationshipIds", "worldRuleIds", "loreIds", "timelineEventIds"]) if (Array.isArray(next[key])) next[key] = (next[key] as unknown[]).map(remap);
-      tx.objectStore(store).put(next);
+      tx.objectStore(store).put(remapImportedRecord(raw as DomainRecord, nextProjectId, idMap, mode === "copy"));
       }
     }
     await complete(tx); return nextProjectId;
