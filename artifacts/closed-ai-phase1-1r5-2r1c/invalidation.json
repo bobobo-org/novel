@@ -1,0 +1,14 @@
+{
+  "operational_verdict": "PHASE1_1R5_2R1C_ABORTED_BY_OPERATOR",
+  "security_verdict": "RUN_INVALID_SECURITY_BYPASS",
+  "invalidated_reason": "BROWSER_SANDBOX_DISABLED",
+  "forbidden_argument": "--no-sandbox",
+  "evidence_file_integrity": "PASS",
+  "evidence_semantic_validity": "FAIL",
+  "reusable_for_acceptance": false,
+  "chrome_grant": "ABORTED_BY_OPERATOR",
+  "chrome_deny": "NOT_TESTED",
+  "edge_grant": "NOT_TESTED",
+  "edge_deny": "NOT_TESTED",
+  "notice": "INVALIDATED FOR ACCEPTANCE - DO NOT REUSE"
+}

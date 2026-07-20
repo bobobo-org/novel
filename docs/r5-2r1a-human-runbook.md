@@ -30,9 +30,15 @@ Before browser launch the runner displays the Product Preview URL, product commi
 The operator may only:
 
 1. Choose Allow or Block in the browser's native Local Network Access prompt, matching the displayed flow.
-2. Return to PowerShell and type exactly `CONTINUE`.
+2. Return to PowerShell and type `CONTINUE <decision challenge>` exactly as displayed.
 
-Do not manually change the URL, enrollment command, browser storage, Bridge settings, evidence, or test results. Closing the window, timing out, or entering any other value records `ABORTED_BY_OPERATOR`; the runner does not overwrite that evidence with an automatic retry.
+The runner prints a heartbeat every 30 seconds and does not automatically time out while a real operator is available. To stop safely, type `ABORT <operator challenge>` exactly as displayed. Closing the terminal records `ABORTED_OPERATOR_UNAVAILABLE`.
+
+Do not manually change the URL, enrollment command, browser storage, Bridge settings, evidence, or test results. Invalid input does not advance the run. An explicit challenged `ABORT` records `ABORTED_BY_OPERATOR`; the runner does not overwrite that evidence with an automatic retry.
+
+## Browser sandbox
+
+Both branded browser adapters require the normal Chromium sandbox. The Playwright channel sets `chromiumSandbox: true` and removes Playwright's sandbox-disabling defaults. The CDP fallback does not pass sandbox-disabling switches. After startup, the harness audits the actual process command lines and fails closed before Preview navigation if a forbidden security argument is present or command-line evidence cannot be read.
 
 ## Evidence
 

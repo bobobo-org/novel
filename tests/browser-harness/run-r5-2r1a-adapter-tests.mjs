@@ -84,8 +84,9 @@ await test("origin enrollment precedes Bridge start", () => {
 });
 
 await test("human LNA pause requires CONTINUE", () => {
-  assert.match(adapter, /WAITING_FOR_HUMAN_LNA_DECISION/);
-  assert.match(adapter, /trim\(\) !== "CONTINUE"/);
+  assert.match(adapter, /WAITING_FOR_OPERATOR/);
+  assert.match(adapter, /CONTINUE \$\{challenges\.decisionChallenge\}/);
+  assert.match(adapter, /ABORT \$\{challenges\.operatorChallenge\}/);
   assert.match(adapter, /ABORTED_BY_OPERATOR/);
 });
 

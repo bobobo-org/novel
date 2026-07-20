@@ -20,9 +20,37 @@ export const FORBIDDEN_BROWSER_ARGS = [
   "--disable-features=blockinsecureprivatenetworkrequests",
   "--ignore-certificate-errors",
   "--no-sandbox",
+  "--disable-setuid-sandbox",
   "--disable-site-isolation-trials",
   "--disable-popup-blocking",
+  "--unsafely-disable-devtools-self-xss-warnings",
 ];
+
+const FORBIDDEN_DISABLED_FEATURES = new Set([
+  "localnetworkaccesschecks",
+  "privatenetworkaccess",
+  "blockinsecureprivatenetworkrequests",
+]);
+
+export function findForbiddenBrowserArguments(commandLineOrArgs) {
+  const source = Array.isArray(commandLineOrArgs)
+    ? commandLineOrArgs.map((value) => String(value)).join(" ")
+    : String(commandLineOrArgs || "");
+  const lowered = source.toLowerCase();
+  const found = new Set();
+  for (const argument of FORBIDDEN_BROWSER_ARGS) {
+    if (argument.startsWith("--disable-features=")) continue;
+    const escaped = argument.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(?:^|[\\s\"])(?:${escaped})(?=$|[\\s\"])`, "i").test(lowered)) found.add(argument);
+  }
+  for (const match of lowered.matchAll(/--disable-features=(?:"([^"]*)"|([^\s"]*))/g)) {
+    const features = String(match[1] || match[2] || "").split(",").map((value) => value.trim());
+    for (const feature of features) {
+      if (FORBIDDEN_DISABLED_FEATURES.has(feature)) found.add(`--disable-features=${feature}`);
+    }
+  }
+  return [...found];
+}
 
 const BROWSERS = {
   chrome: {
@@ -50,16 +78,45 @@ export function parseArgs(argv) {
 }
 
 export function assertSafeBrowserArgs(args) {
-  const normalized = args.map((value) => String(value).toLowerCase());
-  const forbidden = normalized.filter((value) =>
-    FORBIDDEN_BROWSER_ARGS.some((entry) => value === entry || value.startsWith(`${entry}=`)),
-  );
+  const forbidden = findForbiddenBrowserArguments(args);
   if (forbidden.length) {
     const error = new Error(`Forbidden browser arguments: ${forbidden.join(", ")}`);
     error.code = "FORBIDDEN_BROWSER_ARGUMENT";
     throw error;
   }
   return true;
+}
+
+export function auditActualBrowserCommandLine(processEvidence) {
+  const rows = (processEvidence || []).map((row) => ({
+    pid: row.pid,
+    parentPid: row.parentPid,
+    executablePath: row.executablePath,
+    commandLine: row.commandLine,
+    forbiddenArguments: findForbiddenBrowserArguments(row.commandLine),
+  }));
+  const forbiddenArguments = [...new Set(rows.flatMap((row) => row.forbiddenArguments))];
+  const audit = {
+    checkedAt: new Date().toISOString(),
+    processCount: rows.length,
+    forbiddenArgumentCount: forbiddenArguments.length,
+    forbiddenArguments,
+    rows,
+    status: forbiddenArguments.length ? "FAIL" : "PASS",
+  };
+  if (!rows.length) {
+    const error = new Error("No browser process command line was available for security verification.");
+    error.code = "BROWSER_COMMAND_LINE_UNAVAILABLE";
+    error.securityAudit = { ...audit, status: "FAIL" };
+    throw error;
+  }
+  if (forbiddenArguments.length) {
+    const error = new Error(`Browser process contains forbidden security arguments: ${forbiddenArguments.join(", ")}`);
+    error.code = "BROWSER_SECURITY_ARGUMENT_DETECTED";
+    error.securityAudit = audit;
+    throw error;
+  }
+  return audit;
 }
 
 export function validateProfilePath(profilePath, browser) {
@@ -148,18 +205,63 @@ async function waitForCdp(port, timeoutMs = 12_000) {
   throw error;
 }
 
-async function waitForOperator(browser, flow, origin) {
-  output.write(`\nWAITING_FOR_HUMAN_LNA_DECISION\nBrowser: ${browser}\nFlow: ${flow}\nPreview origin: ${origin}\nBridge endpoint: http://127.0.0.1:3217\nType CONTINUE after completing the native browser prompt: `);
-  const reader = createInterface({ input, output });
-  const timeout = new Promise((resolve) => setTimeout(() => resolve("__TIMEOUT__"), 120_000));
-  const answer = await Promise.race([reader.question(""), timeout]);
-  reader.close();
-  if (String(answer).trim() !== "CONTINUE") {
-    const error = new Error(answer === "__TIMEOUT__" ? "Operator timed out." : "Operator did not enter CONTINUE.");
-    error.code = "ABORTED_BY_OPERATOR";
+export function createOperatorChallenges() {
+  return {
+    operatorChallenge: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
+    decisionChallenge: randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase(),
+  };
+}
+
+export function parseOperatorCommand(answer, challenges) {
+  const normalized = String(answer || "").trim().toUpperCase();
+  if (normalized === `CONTINUE ${challenges.decisionChallenge}`) return "CONTINUE";
+  if (normalized === `ABORT ${challenges.operatorChallenge}`) return "ABORT";
+  return "INVALID";
+}
+
+export async function waitForOperator(browser, flow, origin, runId, options = {}) {
+  const inputStream = options.inputStream || input;
+  const outputStream = options.outputStream || output;
+  if (!options.testMode && (!inputStream.isTTY || !outputStream.isTTY)) {
+    const error = new Error("An interactive operator terminal is required.");
+    error.code = "ABORTED_OPERATOR_UNAVAILABLE";
     throw error;
   }
-  return new Date().toISOString();
+  const challenges = options.challenges || createOperatorChallenges();
+  const startedAt = Date.now();
+  const renderHeartbeat = () => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+    const hours = String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0");
+    const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
+    const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+    outputStream.write(`\nWAITING_FOR_OPERATOR\nBrowser: ${browser}\nFlow: ${flow}\nRun ID: ${runId}\nElapsed: ${hours}:${minutes}:${seconds}\nOperator challenge: ${challenges.operatorChallenge}\nDecision challenge: ${challenges.decisionChallenge}\nEnter CONTINUE ${challenges.decisionChallenge} after the native decision, or ABORT ${challenges.operatorChallenge} to stop safely.\n> `);
+  };
+  renderHeartbeat();
+  const heartbeat = setInterval(renderHeartbeat, options.heartbeatMs || 30_000);
+  const reader = createInterface({ input: inputStream, output: outputStream });
+  try {
+    while (true) {
+      let answer;
+      try { answer = await reader.question(""); }
+      catch (cause) {
+        const error = new Error("Operator terminal became unavailable.", { cause });
+        error.code = "ABORTED_OPERATOR_UNAVAILABLE";
+        throw error;
+      }
+      const command = parseOperatorCommand(answer, challenges);
+      if (command === "CONTINUE") return { decidedAt: new Date().toISOString(), ...challenges };
+      if (command === "ABORT") {
+        const error = new Error("Operator aborted the run.");
+        error.code = "ABORTED_BY_OPERATOR";
+        error.operatorChallenges = challenges;
+        throw error;
+      }
+      outputStream.write(`Invalid operator response. Enter CONTINUE ${challenges.decisionChallenge} or ABORT ${challenges.operatorChallenge}.\n> `);
+    }
+  } finally {
+    clearInterval(heartbeat);
+    reader.close();
+  }
 }
 
 async function launchChannel(browser, profilePath, harPath) {
@@ -169,11 +271,17 @@ async function launchChannel(browser, profilePath, harPath) {
     const context = await chromium.launchPersistentContext(profilePath, {
       channel: definition.channel,
       headless: false,
+      chromiumSandbox: true,
       args: ["--no-first-run", "--no-default-browser-check"],
-      ignoreDefaultArgs: ["--disable-popup-blocking"],
+      ignoreDefaultArgs: [
+        "--disable-popup-blocking",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--unsafely-disable-devtools-self-xss-warnings",
+      ],
       recordHar: { path: harPath, mode: "full", content: "omit" },
     });
-    return { ok: true, adapter: "playwright-channel", startedAt, context, browserProcess: null, cdpVersion: null, debugPort: null };
+    return { ok: true, adapter: "playwright-channel", startedAt, context, browserProcess: null, cdpVersion: null, debugPort: null, sandboxEnabled: true };
   } catch (error) {
     return {
       ok: false,
@@ -236,6 +344,7 @@ async function launchCdp(browser, profilePath, targetUrl) {
       browserProcess: child,
       cdpVersion,
       debugPort: port,
+      sandboxEnabled: true,
       commandLine: [definition.executable, ...args].join(" "),
       stdout: () => stdout,
       stderr: () => stderr,
@@ -260,6 +369,60 @@ async function closeLaunch(launch) {
     return false;
   }
   return true;
+}
+
+export async function runSandboxSmoke(options) {
+  const browser = options.browser;
+  const definition = BROWSERS[browser];
+  if (!definition) throw new Error(`Unsupported browser: ${browser}`);
+  const profilePath = validateProfilePath(options.profilePath, browser);
+  const artifactDirectory = path.resolve(options.artifactDirectory);
+  await rm(profilePath, { recursive: true, force: true });
+  await mkdir(profilePath, { recursive: true });
+  await mkdir(artifactDirectory, { recursive: true });
+  let launch = null;
+  const result = {
+    browser,
+    profilePath,
+    targetUrl: "about:blank",
+    status: "RUNNING",
+    startedAt: new Date().toISOString(),
+  };
+  try {
+    const channelResult = await launchChannel(browser, profilePath, path.join(artifactDirectory, `${browser}-sandbox-smoke.har`));
+    launch = channelResult.ok ? channelResult : await launchCdp(browser, profilePath, "about:blank");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const processEvidence = readBrowserProcesses(profilePath);
+    const securityAudit = auditActualBrowserCommandLine(processEvidence);
+    const page = launch.context.pages()[0] || await launch.context.newPage();
+    await page.goto("about:blank");
+    const cdpSession = await launch.context.newCDPSession(page);
+    const version = await cdpSession.send("Browser.getVersion");
+    const primaryProcess = processEvidence.find((row) => path.basename(String(row.executablePath || "")).toLowerCase() === path.basename(definition.executable).toLowerCase());
+    const identity = {
+      executablePath: primaryProcess?.executablePath || definition.executable,
+      cdpProduct: version.product,
+    };
+    validateIdentity(browser, identity);
+    result.status = "PASS";
+    result.adapter = launch.adapter;
+    result.sandboxEnabled = launch.sandboxEnabled === true;
+    result.actualCommandLineVerified = securityAudit.status === "PASS";
+    result.securityAudit = securityAudit;
+    result.identity = identity;
+    result.visibleHeadedWindow = true;
+    result.freshProfile = true;
+    result.completedAt = new Date().toISOString();
+    return result;
+  } catch (error) {
+    result.status = "FAIL";
+    result.error = { code: error.code || "SANDBOX_SMOKE_FAILED", message: error.message };
+    if (error.securityAudit) result.securityAudit = error.securityAudit;
+    result.completedAt = new Date().toISOString();
+    throw Object.assign(error, { smokeResult: result });
+  } finally {
+    result.debugPortReleased = launch ? await closeLaunch(launch) : true;
+  }
 }
 
 async function createManifest(runDirectory, runId) {
@@ -300,6 +463,23 @@ export async function runBrowserFlow(options) {
     result.debugPort = launch.debugPort;
     result.commandLine = launch.commandLine || "Playwright channel; inspect process evidence.";
     assertSafeBrowserArgs(result.commandLine.split(/\s+/));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const processEvidence = readBrowserProcesses(profilePath);
+    const securityAudit = auditActualBrowserCommandLine(processEvidence);
+    result.securityAudit = securityAudit;
+    await writeJson(path.join(runDirectory, "adapter-selection.json"), {
+      run_id: runId,
+      browser,
+      adapter_attempted: channelResult.ok ? ["playwright-channel"] : ["playwright-channel", "local-cdp"],
+      adapter_selected: launch.adapter,
+      channel_result: channelResult.ok ? "PASS" : "FAIL",
+      channel_error: channelResult.ok ? null : channelResult.error,
+      cdp_fallback_used: launch.adapter === "local-cdp",
+      sandbox_enabled: launch.sandboxEnabled !== false,
+      actual_command_line_verified: securityAudit.status === "PASS",
+      forbidden_argument_count: securityAudit.forbiddenArgumentCount,
+      final_status: "BROWSER_STARTED_SAFE",
+    });
 
     await launch.context.tracing.start({ screenshots: true, snapshots: true, sources: false });
     const pages = launch.context.pages();
@@ -315,7 +495,6 @@ export async function runBrowserFlow(options) {
     const bodyText = await page.locator("body").innerText();
     const cdpSession = await launch.context.newCDPSession(page);
     const cdpBrowserVersion = await cdpSession.send("Browser.getVersion");
-    const processEvidence = readBrowserProcesses(profilePath);
     const primaryProcess = processEvidence.find((row) => path.basename(String(row.executablePath || "")).toLowerCase() === path.basename(definition.executable).toLowerCase());
     const identity = {
       executablePath: primaryProcess?.executablePath || definition.executable,
@@ -336,7 +515,10 @@ export async function runBrowserFlow(options) {
     if (await detectButton.count() === 0) throw Object.assign(new Error("Bridge detection button not found."), { code: "PREVIEW_BRIDGE_BUTTON_NOT_FOUND" });
     result.uiClickAt = new Date().toISOString();
     await detectButton.click();
-    result.operatorDecisionAt = await waitForOperator(browser, flow, origin);
+    const operatorDecision = await waitForOperator(browser, flow, origin, runId);
+    result.operatorDecisionAt = operatorDecision.decidedAt;
+    result.operatorChallenge = operatorDecision.operatorChallenge;
+    result.decisionChallenge = operatorDecision.decisionChallenge;
     await page.waitForTimeout(2_000);
     result.uiTextAfterDecision = (await page.locator("body").innerText()).slice(0, 4_000);
     result.status = "COMPLETED_FOR_REVIEW";
@@ -350,7 +532,9 @@ export async function runBrowserFlow(options) {
     await writeJson(path.join(runDirectory, "final-result.json"), result);
     return result;
   } catch (error) {
-    result.status = error.code === "ABORTED_BY_OPERATOR" ? "ABORTED_BY_OPERATOR" : "FAILED";
+    result.status = ["ABORTED_BY_OPERATOR", "ABORTED_OPERATOR_UNAVAILABLE"].includes(error.code) ? error.code : "FAILED";
+    if (error.securityAudit) result.securityAudit = error.securityAudit;
+    if (error.operatorChallenges) result.operatorChallenges = error.operatorChallenges;
     result.error = { code: error.code || "BROWSER_FLOW_FAILED", type: error?.constructor?.name, message: error.message, stack: error.stack };
     result.completedAt = new Date().toISOString();
     await writeJson(path.join(runDirectory, "console.json"), { run_id: runId, rows: consoleRows });
