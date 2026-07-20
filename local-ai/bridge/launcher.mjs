@@ -70,7 +70,9 @@ async function start() {
   const major = Number(effectiveNodeVersion.split(".")[0]);
   if (major < 22) throw new LauncherError("LAUNCHER_NODE_UNSUPPORTED", `Node.js ${effectiveNodeVersion} 不相容。`, "請使用 Node.js 22 或更新版本。");
   const enrolledOrigins = registeredOrigins(config);
-  const requestedOriginValue = option("--origin") || process.env.NOVEL_STUDIO_ORIGIN || "";
+  // The page-generated --origin is authoritative. Environment state must never
+  // silently replace the exact origin shown and confirmed by the user.
+  const requestedOriginValue = option("--origin") || "";
   if (requestedOriginValue) {
     const requestedOrigin = validatedOrigin(requestedOriginValue);
     if (!enrolledOrigins.includes(requestedOrigin)) throw new LauncherError("LAUNCHER_ORIGIN_NOT_ENROLLED", `${requestedOrigin} 尚未完成本機授權。`, `先執行 origin add ${requestedOrigin} --confirm ${requestedOrigin}。`);

@@ -120,27 +120,45 @@ export function createBridgeServer(options = {}) {
     let requestErrorCode = null;
     const accessRecord = {
       timestamp: new Date().toISOString(),
+      request_received: true,
       method: request.method || null,
       path: String(request.url || "/").split("?", 1)[0],
       host: String(request.headers.host || ""),
       origin: String(request.headers.origin || ""),
+      user_agent: String(request.headers["user-agent"] || ""),
       protocol: String(request.headers["x-bridge-protocol"] || ""),
       secFetchSite: String(request.headers["sec-fetch-site"] || ""),
       secFetchMode: String(request.headers["sec-fetch-mode"] || ""),
       privateNetworkRequested: String(request.headers["access-control-request-private-network"] || "").toLowerCase() === "true",
+      preflight_private_network: String(request.headers["access-control-request-private-network"] || "").toLowerCase() === "true",
       remoteLoopback: ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(String(request.socket.remoteAddress || "")),
+      cors_decision: "not_evaluated",
+      origin_decision: "not_evaluated",
+      host_decision: "not_evaluated",
     };
     response.once("finish", () => {
-      const row = { ...accessRecord, status: response.statusCode, errorCode: requestErrorCode };
+      const requestState = response.statusCode < 400
+        ? "SUCCESS"
+        : requestErrorCode === "HOST_VALIDATION_FAILED" ? "HOST_REJECTED"
+          : requestErrorCode === "BRIDGE_ORIGIN_NOT_ALLOWED" ? "ORIGIN_REJECTED"
+            : requestErrorCode === "CORS_PREFLIGHT_REJECTED" ? "OPTIONS_REJECTED"
+              : requestErrorCode === "BRIDGE_NOT_PAIRED" ? "PAIRING_REQUIRED"
+                : request.method === "OPTIONS" ? "OPTIONS_RECEIVED" : "GET_RECEIVED";
+      const row = { ...accessRecord, request_state: requestState, response_status: response.statusCode, failure_code: requestErrorCode, status: response.statusCode, errorCode: requestErrorCode };
       accessLogs.push(row);
       if (accessLogs.length > 500) accessLogs.shift();
       if (accessLogPath) void appendFile(accessLogPath, `${JSON.stringify(row)}\n`, { encoding: "utf8", mode: 0o600 }).catch(() => undefined);
     });
     try {
+      accessRecord.host_decision = "checking";
       validateHostHeader(request.headers.host, port);
+      accessRecord.host_decision = "allowed";
+      accessRecord.origin_decision = "checking";
       origin = assertOrigin(request.headers.origin, allowlist);
+      accessRecord.origin_decision = "allowed";
       rate.take(origin);
       if (request.method === "OPTIONS") {
+        accessRecord.cors_decision = "checking";
         const requestedHeaders = String(request.headers["access-control-request-headers"] || "").toLowerCase();
         const requestedMethod = String(request.headers["access-control-request-method"] || "GET").toUpperCase();
         if (!requestedHeaders.includes("x-bridge-protocol") || (requestedMethod === "POST" && !requestedHeaders.includes("content-type"))) throw new BridgeError("CORS_PREFLIGHT_REJECTED", "Preflight does not request required bridge headers.", 403);
@@ -153,6 +171,7 @@ export function createBridgeServer(options = {}) {
           ...(privateNetworkRequested ? { "Access-Control-Allow-Private-Network": "true" } : {}),
           "Access-Control-Max-Age": "300",
         });
+        accessRecord.cors_decision = "allowed";
         response.end(); return;
       }
       assertProtocol(request.headers["x-bridge-protocol"]);
@@ -275,6 +294,9 @@ export function createBridgeServer(options = {}) {
     } catch (error) {
       const bridgeError = error instanceof BridgeError ? error : new BridgeError("OLLAMA_INVALID_RESPONSE", "Local bridge request failed.", 500);
       requestErrorCode = bridgeError.code;
+      if (bridgeError.code === "HOST_VALIDATION_FAILED") accessRecord.host_decision = "rejected";
+      if (bridgeError.code === "BRIDGE_ORIGIN_NOT_ALLOWED") accessRecord.origin_decision = "rejected";
+      if (bridgeError.code === "CORS_PREFLIGHT_REJECTED") accessRecord.cors_decision = "rejected";
       if (!response.headersSent) sendJson(response, bridgeError.status, { errorCode: bridgeError.code, message: bridgeError.message, retryable: bridgeError.retryable, details: bridgeError.details }, origin);
       else response.end();
     }

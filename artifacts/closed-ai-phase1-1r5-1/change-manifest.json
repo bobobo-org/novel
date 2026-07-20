@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-r5-1-change-manifest-v1",
+  "modified": [
+    "app/studio/settings/ai/settings-client.tsx",
+    "local-ai/bridge/launcher.mjs",
+    "local-ai/bridge/server.mjs",
+    "package.json"
+  ],
+  "new": [
+    "lib/novel-ai/providers/local-ollama/studio-origin.ts",
+    "scripts/run-closed-ai-phase1-1r5-1.mjs",
+    "artifacts/closed-ai-phase1-1r5-1/*"
+  ],
+  "deleted": [],
+  "productionChanged": false
+}

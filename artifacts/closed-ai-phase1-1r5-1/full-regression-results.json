@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "closed-ai-r5-1-full-regression-v1",
+  "results": [
+    { "suite": "R5.1 dynamic origin", "pass": 10, "fail": 0 },
+    { "suite": "R5 origin/PNA/Host", "pass": 18, "fail": 0 },
+    { "suite": "Bridge contract", "pass": 31, "fail": 0 },
+    { "suite": "Launcher", "pass": 13, "fail": 0 },
+    { "suite": "Studio approval deterministic", "pass": 9, "fail": 0 },
+    { "suite": "Phase 1.1 contract", "pass": 10, "fail": 0 },
+    { "suite": "Phase 0", "pass": 54, "fail": 0 },
+    { "suite": "Training Phase 0", "pass": 25, "fail": 0 },
+    { "suite": "P2.1R1 high risk", "pass": 21, "fail": 0 },
+    { "suite": "H1 aggregate", "pass": 9, "fail": 0 },
+    { "suite": "TypeScript", "pass": 1, "fail": 0 },
+    { "suite": "Production build", "pass": 1, "fail": 0 },
+    { "suite": "Lint", "errors": 0, "baselineWarnings": 98, "newWarnings": 0 }
+  ],
+  "desktopBrowserE2E": "NOT_TESTED"
+}

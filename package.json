@@ -9,6 +9,7 @@
     "test:ai:closed:phase1-1r4": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r4.mjs",
     "test:ai:closed:phase1-1r4:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r4-real.mjs",
     "test:ai:closed:phase1-1r5": "node scripts/run-closed-ai-phase1-1r5.mjs",
+    "test:ai:closed:phase1-1r5-1": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r5-1.mjs",
     "build:story-library": "node scripts/build-story-library.mjs",
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",

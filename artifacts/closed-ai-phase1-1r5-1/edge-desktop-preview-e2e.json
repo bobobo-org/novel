@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "closed-ai-r5-1-desktop-browser-e2e-v1",
+  "browser": "Microsoft Edge",
+  "installedVersion": "150.0.4078.65",
+  "status": "NOT_TESTED",
+  "reason": "The required Edge control integration is not available in this task environment. No other browser was substituted and no direct API call was counted as UI E2E."
+}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { assertEnrollmentCommandMatchesPage, buildOriginEnrollmentCommand, resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
 import { LOCAL_MODEL_INSUFFICIENT_FOR_TASK, runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
 import type { Chapter, NovelProject } from "@/lib/novel-ai/domain/index";
@@ -54,7 +55,8 @@ const errorGuidance: Record<string, string> = {
 const initial: Status = { browser: "檢查中", bridge: "檢查中", origin: "尚未確認", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", generation: "尚未就緒", hub: "檢查中", privacy: "strict-local", external: false, error: "", errorCode: "" };
 
 export default function AISettingsClient() {
-  const client = useMemo(() => new LocalBridgeClient({ origin: typeof window === "undefined" ? "http://localhost:3000" : window.location.origin }), []);
+  const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
+  const client = useMemo(() => new LocalBridgeClient({ origin: currentOrigin ?? "https://novel-orcin.vercel.app" }), [currentOrigin]);
   const repository = useMemo(() => createNovelRepository(), []);
   const [status, setStatus] = useState<Status>(initial);
   const [pairingId, setPairingId] = useState("");
@@ -81,8 +83,12 @@ export default function AISettingsClient() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [connectionDiagnostics, setConnectionDiagnostics] = useState<Array<{ endpoint: string; reachable: boolean; status: number | null; errorCode: string | null; elapsedMs: number }>>([]);
   const [originCommandCopied, setOriginCommandCopied] = useState(false);
-  const currentOrigin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
-  const originEnrollmentCommand = `node local-ai/bridge/launcher.mjs origin add ${currentOrigin} --confirm ${currentOrigin}`;
+  const originEnrollmentCommand = currentOrigin ? buildOriginEnrollmentCommand(currentOrigin) : null;
+
+  useEffect(() => {
+    const resolved = resolveCurrentStudioOrigin(window.location);
+    setCurrentOrigin(resolved.ready ? resolved.origin : null);
+  }, []);
 
   const loadReviewState = useCallback(async (projectId: string) => {
     if (!projectId) { setReviewCandidates([]); return; }
@@ -114,6 +120,7 @@ export default function AISettingsClient() {
   }, [loadReviewState, repository, selectedProjectId]);
 
   const refresh = useCallback(async () => {
+    if (!currentOrigin) return;
     const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
     let healthError: unknown = null;
     const [browser, health, hub] = await Promise.all([
@@ -362,7 +369,7 @@ export default function AISettingsClient() {
       <div><dt>瀏覽器本機 AI</dt><dd>{status.browser}</dd></div><div><dt>Bridge process reachable</dt><dd>{status.bridge}</dd></div><div><dt>Origin authorized</dt><dd>{status.origin}</dd></div><div><dt>Bridge paired</dt><dd>{status.pairing}</dd></div><div><dt>Ollama reachable</dt><dd>{status.ollama}</dd></div><div><dt>Model available</dt><dd>{status.model}</dd></div><div><dt>Generation ready</dt><dd>{status.generation}</dd></div><div><dt>私有 AI 中樞</dt><dd>{status.hub}</dd></div>
     </dl>{status.error && <><p role="alert">{status.error}</p>{status.errorCode && <details><summary>查看連線分類</summary><code>{status.errorCode}</code></details>}</>}<button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button></section>
     <section><h2>連接我的電腦 AI</h2><p>先在這台電腦啟動 Local Bridge。配對碼只會顯示在本機 Bridge 視窗，授權不會寫入網址或瀏覽器儲存空間。</p>
-      {status.origin !== "目前網站已授權" && <div data-testid="origin-enrollment-help"><ol><li>確認 Bridge 已啟動。</li><li>確認目前網站 origin 已獲授權。</li><li>複製下方安全授權指令。</li><li>在本機 Launcher 明確確認完整網址。</li><li>回到這裡重新檢查。</li></ol><code>{originEnrollmentCommand}</code><button type="button" onClick={() => void navigator.clipboard.writeText(originEnrollmentCommand).then(() => setOriginCommandCopied(true)).catch(() => setStatus((value) => ({ ...value, error: "無法自動複製，請手動選取指令。" })))}>{originCommandCopied ? "已複製" : "複製安全授權指令"}</button><p>系統不會自動授權 Preview、不會開放區域網路，也不會要求關閉瀏覽器安全功能。</p></div>}
+      {status.origin !== "目前網站已授權" && <div data-testid="origin-enrollment-help"><ol><li>確認 Bridge 已啟動。</li><li>確認目前網站 origin 已獲授權。</li><li>複製下方安全授權指令。</li><li>在本機 Launcher 明確確認完整網址。</li><li>回到這裡重新檢查。</li></ol>{currentOrigin && originEnrollmentCommand ? <><p>目前網站：<code data-testid="current-studio-origin">{currentOrigin}</code></p><code data-testid="origin-enrollment-command">{originEnrollmentCommand}</code><button type="button" onClick={() => { try { const exactOrigin = assertEnrollmentCommandMatchesPage(currentOrigin, window.location.origin); const command = buildOriginEnrollmentCommand(exactOrigin); void navigator.clipboard.writeText(command).then(() => setOriginCommandCopied(true)).catch(() => setStatus((value) => ({ ...value, error: "無法自動複製，請手動選取指令。" }))); } catch { setStatus((value) => ({ ...value, error: "授權網址與目前網站不一致，請重新整理後再試。", errorCode: "ORIGIN_COMMAND_MISMATCH" })); } }}>{originCommandCopied ? "已複製" : "複製安全授權指令"}</button></> : <p data-testid="origin-hydration-pending">正在確認目前網站網址，確認完成前不會產生授權指令。</p>}<p>系統不會自動授權 Preview、不會開放區域網路，也不會要求關閉瀏覽器安全功能。</p></div>}
       {connectionDiagnostics.length > 0 && <details><summary>查看 loopback 偵測結果</summary><ul>{connectionDiagnostics.map((row) => <li key={row.endpoint}><code>{row.endpoint}</code>：{row.reachable ? `可連線（HTTP ${row.status}）` : `未連線（${row.errorCode || "未知原因"}）`}，{row.elapsedMs} ms</li>)}</ul></details>}
       {!pairingId && <button data-testid="pair-start" type="button" disabled={busy} onClick={() => void requestPairing()}>開始安全配對</button>}
       {pairingId && status.pairing !== "已配對" && <><label>本機配對碼<input data-testid="pair-code" value={pairingCode} inputMode="numeric" autoComplete="off" onChange={(event) => setPairingCode(event.target.value)} /></label><button data-testid="pair-confirm" type="button" disabled={busy || pairingCode.length !== 6} onClick={() => void confirmPairing()}>確認配對</button></>}
