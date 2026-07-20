@@ -32,7 +32,9 @@ The operator may only:
 1. Choose Allow or Block in the browser's native Local Network Access prompt, matching the displayed flow.
 2. Return to PowerShell and type `CONTINUE <decision challenge>` exactly as displayed.
 
-The runner prints a heartbeat every 30 seconds and does not automatically time out while a real operator is available. To stop safely, type `ABORT <operator challenge>` exactly as displayed. Closing the terminal records `ABORTED_OPERATOR_UNAVAILABLE`.
+The runner prints a heartbeat every 30 seconds and does not automatically time out while a real operator is available. Every heartbeat revalidates the harness process, exact browser PID/profile/session/user, actual command line, browser control channel, Preview page and URL, visible browser window, loopback Bridge, and exact enrolled origin. To stop safely, type `ABORT <operator challenge>` exactly as displayed. Closing the terminal records `ABORTED_OPERATOR_UNAVAILABLE`.
+
+If the browser, control channel, Preview page, visible window, Bridge, or origin enrollment is lost, the wait ends immediately with a specific liveness failure. The run is recorded as `NOT_TESTED`, is not reusable for acceptance, and the runner preserves partial evidence before revoking the origin and cleaning up. A `CONTINUE` command is revalidated against the same gate and is rejected as `OPERATOR_CONTINUE_REJECTED_STALE_BROWSER_STATE` if the browser state became stale.
 
 Do not manually change the URL, enrollment command, browser storage, Bridge settings, evidence, or test results. Invalid input does not advance the run. An explicit challenged `ABORT` records `ABORTED_BY_OPERATOR`; the runner does not overwrite that evidence with an automatic retry.
 
@@ -54,5 +56,7 @@ The runner revokes the Preview origin, stops the Bridge, and verifies port clean
 
 - `COMPLETED_FOR_REVIEW` means automation and the human decision finished; inspect correlation evidence before declaring a grant or deny PASS.
 - `ABORTED_BY_OPERATOR` is final for that `run_id`.
+- `BROWSER_PROCESS_LOST_DURING_OPERATOR_WAIT` is a harness-observed browser loss, never an operator abort.
+- A liveness failure must not automatically restart the same profile or advance to the next matrix flow.
 - Adapter or identity errors are failures and must not be bypassed with security flags or a daily browser profile.
 - Story Bible remains `NOT_TESTED` in R5.2R1A.

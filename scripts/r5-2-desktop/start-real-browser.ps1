@@ -7,6 +7,7 @@ param(
   [Parameter(Mandatory)][string]$ArtifactDirectory,
   [Parameter(Mandatory)][string]$RunId,
   [Parameter(Mandatory)][string]$BrowserVersion,
+  [Parameter(Mandatory)][int]$HarnessPid,
   [string]$NodePath = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 )
 
@@ -23,5 +24,6 @@ if (-not (Test-Path -LiteralPath $adapter)) { throw "ADAPTER_NOT_FOUND: $adapter
   --profile $ProfilePath `
   --artifacts $ArtifactDirectory `
   --run-id $RunId `
-  --browser-version $BrowserVersion
+  --browser-version $BrowserVersion `
+  --harness-pid $HarnessPid
 exit $LASTEXITCODE

@@ -4,10 +4,16 @@ import { createServer } from "node:net";
 import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { PassThrough } from "node:stream";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { BRIDGE_PROTOCOL } from "../../local-ai/bridge/bridge-core.mjs";
+import {
+  BROWSER_LIVENESS_FAILURE_CODES,
+  validateBrowserLiveness,
+} from "./browser-liveness.mjs";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_VERSION = require("@playwright/test/package.json").version;
@@ -179,15 +185,48 @@ async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function readBrowserProcesses(profilePath) {
+export function readBrowserProcesses(profilePath) {
   const escaped = profilePath.replaceAll("'", "''");
-  const command = `$p='${escaped}'; @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('chrome.exe','msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($p,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [pscustomobject]@{ pid=$_.ProcessId; parentPid=$_.ParentProcessId; executablePath=$_.ExecutablePath; commandLine=$_.CommandLine; sessionId=(Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).SessionId } }) | ConvertTo-Json -Depth 4`;
+  const command = `$p='${escaped}'; @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('chrome.exe','msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($p,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $process=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $owner=Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue; [pscustomobject]@{ pid=$_.ProcessId; parentPid=$_.ParentProcessId; executablePath=$_.ExecutablePath; commandLine=$_.CommandLine; sessionId=$process.SessionId; mainWindowHandle=[int64]$process.MainWindowHandle; userName=if($owner -and $owner.User){\"$($owner.Domain)\\$($owner.User)\"}else{$null} } }) | ConvertTo-Json -Depth 4`;
   try {
     const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", command], { encoding: "utf8" }).trim();
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [parsed];
   } catch { return []; }
+}
+
+function processAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try { process.kill(Number(pid), 0); return true; }
+  catch { return false; }
+}
+
+function primaryBrowserProcess(rows, browser, expectedPid) {
+  const executable = browser === "chrome" ? "chrome.exe" : "msedge.exe";
+  if (expectedPid) return rows.find((row) => row.pid === expectedPid) || null;
+  return rows.find((row) => path.basename(String(row.executablePath || "")).toLowerCase() === executable
+    && !/(?:^|\s)--type=/.test(String(row.commandLine || ""))) || null;
+}
+
+async function probeBridge(origin) {
+  try {
+    const response = await fetch("http://127.0.0.1:3217/health", {
+      headers: { Origin: origin, "X-Bridge-Protocol": BRIDGE_PROTOCOL },
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return { alive: false, loopbackOnly: false, originEnrolled: false, status: response.status };
+    const body = await response.json();
+    return {
+      alive: body.bridgeProcessAlive === true,
+      loopbackOnly: body.bindAddress === "127.0.0.1" || body.bindAddress === "::1",
+      originEnrolled: Array.isArray(body.configuredOrigins) && body.configuredOrigins.includes(origin),
+      configuredOrigins: body.configuredOrigins || [],
+      instanceId: body.instanceId || null,
+    };
+  } catch (error) {
+    return { alive: false, loopbackOnly: false, originEnrolled: false, error: error.message };
+  }
 }
 
 async function waitForCdp(port, timeoutMs = 12_000) {
@@ -229,27 +268,72 @@ export async function waitForOperator(browser, flow, origin, runId, options = {}
   }
   const challenges = options.challenges || createOperatorChallenges();
   const startedAt = Date.now();
+  let latestLiveness = options.initialLiveness || null;
+  let lastLivenessError = null;
+  let monitoring = true;
+  let checkInFlight = false;
+  let rejectLiveness;
+  const livenessFailure = new Promise((_, reject) => { rejectLiveness = reject; });
+  void livenessFailure.catch(() => undefined);
+  const checkLiveness = async (force = false) => {
+    if (lastLivenessError) throw lastLivenessError;
+    if (!options.livenessProbe || (!monitoring && !force) || checkInFlight) return latestLiveness;
+    checkInFlight = true;
+    try {
+      latestLiveness = validateBrowserLiveness(await options.livenessProbe(), options.expectedLiveness);
+      await options.onHeartbeat?.(latestLiveness);
+      return latestLiveness;
+    } catch (error) {
+      lastLivenessError = error;
+      monitoring = false;
+      await options.onHeartbeat?.({ status: "FAILED", checkedAt: new Date().toISOString(), errorCode: error.code, ...error.livenessState });
+      rejectLiveness(error);
+      throw error;
+    } finally {
+      checkInFlight = false;
+    }
+  };
+  if (options.livenessProbe) await checkLiveness();
   const renderHeartbeat = () => {
     const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
     const hours = String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0");
     const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
     const seconds = String(elapsedSeconds % 60).padStart(2, "0");
-    outputStream.write(`\nWAITING_FOR_OPERATOR\nBrowser: ${browser}\nFlow: ${flow}\nRun ID: ${runId}\nElapsed: ${hours}:${minutes}:${seconds}\nOperator challenge: ${challenges.operatorChallenge}\nDecision challenge: ${challenges.decisionChallenge}\nEnter CONTINUE ${challenges.decisionChallenge} after the native decision, or ABORT ${challenges.operatorChallenge} to stop safely.\n> `);
+    outputStream.write(`\nWAITING_FOR_OPERATOR\nBrowser: ${browser}\nFlow: ${flow}\nRun ID: ${runId}\nElapsed: ${hours}:${minutes}:${seconds}\nHarness PID: ${latestLiveness?.harnessPid ?? "UNKNOWN"}\nBrowser PID: ${latestLiveness?.browserPid ?? "MISSING"}\nBrowser alive: ${latestLiveness?.browserProcessAlive ?? "UNKNOWN"}\nCDP responsive: ${latestLiveness?.controlChannelResponsive ?? "UNKNOWN"}\nPreview page open: ${latestLiveness?.previewPageOpen ?? "UNKNOWN"}\nVisible window present: ${latestLiveness?.visibleWindowPresent ?? "UNKNOWN"}\nBridge alive: ${latestLiveness?.bridgeProcessAlive ?? "UNKNOWN"}\nOrigin enrolled: ${latestLiveness?.originEnrolled ?? "UNKNOWN"}\nOperator challenge: ${challenges.operatorChallenge}\nDecision challenge: ${challenges.decisionChallenge}\nEnter CONTINUE ${challenges.decisionChallenge} after the native decision, or ABORT ${challenges.operatorChallenge} to stop safely.\n> `);
   };
   renderHeartbeat();
-  const heartbeat = setInterval(renderHeartbeat, options.heartbeatMs || 30_000);
+  const heartbeat = setInterval(() => {
+    void checkLiveness().then(renderHeartbeat).catch(() => undefined);
+  }, options.heartbeatMs || 30_000);
   const reader = createInterface({ input: inputStream, output: outputStream });
   try {
     while (true) {
       let answer;
-      try { answer = await reader.question(""); }
+      try {
+        const question = reader.question("");
+        void question.catch(() => undefined);
+        answer = await Promise.race([question, livenessFailure]);
+      }
       catch (cause) {
+        if (BROWSER_LIVENESS_FAILURE_CODES.includes(cause.code)) throw cause;
         const error = new Error("Operator terminal became unavailable.", { cause });
         error.code = "ABORTED_OPERATOR_UNAVAILABLE";
         throw error;
       }
       const command = parseOperatorCommand(answer, challenges);
-      if (command === "CONTINUE") return { decidedAt: new Date().toISOString(), ...challenges };
+      if (command === "CONTINUE") {
+        try {
+          if (options.livenessProbe) await checkLiveness(true);
+        } catch (cause) {
+          const error = new Error("Operator CONTINUE was rejected because browser state is stale.", { cause });
+          error.code = "OPERATOR_CONTINUE_REJECTED_STALE_BROWSER_STATE";
+          error.livenessFailureCode = cause.code;
+          error.livenessState = cause.livenessState;
+          error.reusableForAcceptance = false;
+          throw error;
+        }
+        return { decidedAt: new Date().toISOString(), latestLiveness, ...challenges };
+      }
       if (command === "ABORT") {
         const error = new Error("Operator aborted the run.");
         error.code = "ABORTED_BY_OPERATOR";
@@ -259,6 +343,7 @@ export async function waitForOperator(browser, flow, origin, runId, options = {}
       outputStream.write(`Invalid operator response. Enter CONTINUE ${challenges.decisionChallenge} or ABORT ${challenges.operatorChallenge}.\n> `);
     }
   } finally {
+    monitoring = false;
     clearInterval(heartbeat);
     reader.close();
   }
@@ -398,7 +483,8 @@ export async function runSandboxSmoke(options) {
     await page.goto("about:blank");
     const cdpSession = await launch.context.newCDPSession(page);
     const version = await cdpSession.send("Browser.getVersion");
-    const primaryProcess = processEvidence.find((row) => path.basename(String(row.executablePath || "")).toLowerCase() === path.basename(definition.executable).toLowerCase());
+    const primaryProcess = primaryBrowserProcess(processEvidence, browser);
+    if (!primaryProcess) throw Object.assign(new Error("Primary browser process was not found."), { code: "BROWSER_PROCESS_LOST_DURING_OPERATOR_WAIT" });
     const identity = {
       executablePath: primaryProcess?.executablePath || definition.executable,
       cdpProduct: version.product,
@@ -422,6 +508,94 @@ export async function runSandboxSmoke(options) {
     throw Object.assign(error, { smokeResult: result });
   } finally {
     result.debugPortReleased = launch ? await closeLaunch(launch) : true;
+  }
+}
+
+export async function runBrowserLossSmoke(options) {
+  const browser = options.browser;
+  const definition = BROWSERS[browser];
+  if (!definition) throw new Error(`Unsupported browser: ${browser}`);
+  const profilePath = validateProfilePath(options.profilePath, browser);
+  const artifactDirectory = path.resolve(options.artifactDirectory);
+  await rm(profilePath, { recursive: true, force: true });
+  await mkdir(profilePath, { recursive: true });
+  await mkdir(artifactDirectory, { recursive: true });
+  let launch = null;
+  let debugPortReleased = true;
+  const result = { browser, status: "RUNNING", profilePath, startedAt: new Date().toISOString() };
+  try {
+    const channelResult = await launchChannel(browser, profilePath, path.join(artifactDirectory, `${browser}-browser-loss.har`));
+    launch = channelResult.ok ? channelResult : await launchCdp(browser, profilePath, "about:blank");
+    const page = launch.context.pages()[0] || await launch.context.newPage();
+    await page.goto("about:blank");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const initialRows = readBrowserProcesses(profilePath);
+    const primary = primaryBrowserProcess(initialRows, browser);
+    if (!primary) throw Object.assign(new Error("Primary browser process missing before smoke."), { code: "BROWSER_COMMAND_LINE_UNAVAILABLE" });
+    const securityAudit = auditActualBrowserCommandLine(initialRows);
+    const cdpSession = await launch.context.newCDPSession(page);
+    const version = await cdpSession.send("Browser.getVersion");
+    validateIdentity(browser, { executablePath: primary.executablePath, cdpProduct: version.product });
+    const expected = { browserPid: primary.pid, profilePath, previewUrl: "about:blank", origin: "https://preview.example" };
+    const probe = async () => {
+      const rows = readBrowserProcesses(profilePath);
+      const current = primaryBrowserProcess(rows, browser, primary.pid);
+      let controlResponsive = true;
+      try { await cdpSession.send("Browser.getVersion"); } catch { controlResponsive = false; }
+      return {
+        harnessPid: process.pid,
+        harnessProcessAlive: true,
+        browserPid: current?.pid || null,
+        browserProcessAlive: Boolean(current),
+        executableIdentityMatches: Boolean(current),
+        sessionMatches: Boolean(current) && current.sessionId === primary.sessionId,
+        userMatches: Boolean(current?.userName) && current.userName === primary.userName,
+        profilePath,
+        profileMatches: Boolean(current) && String(current.commandLine || "").toLowerCase().includes(profilePath.toLowerCase()),
+        commandLineCompliant: current ? findForbiddenBrowserArguments(rows.map((row) => row.commandLine)).length === 0 : false,
+        controlChannelResponsive: controlResponsive,
+        cdpIdentityMatches: controlResponsive,
+        browserContextConnected: controlResponsive,
+        previewPageOpen: !page.isClosed(),
+        previewUrl: page.isClosed() ? null : page.url(),
+        previewUrlExact: !page.isClosed() && page.url() === "about:blank",
+        visibleWindowPresent: rows.some((row) => Number(row.mainWindowHandle) > 0),
+        bridgeProcessAlive: true,
+        bridgeLoopbackOnly: true,
+        originEnrolled: true,
+        enrolledOrigin: expected.origin,
+      };
+    };
+    const inputStream = new PassThrough();
+    const outputStream = new PassThrough();
+    const waiting = waitForOperator(browser, "grant", expected.origin, `${browser}-browser-loss`, {
+      inputStream,
+      outputStream,
+      testMode: true,
+      heartbeatMs: 50,
+      livenessProbe: probe,
+      expectedLiveness: expected,
+    }).then((value) => ({ value }), (error) => ({ error }));
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    debugPortReleased = await closeLaunch(launch);
+    launch = null;
+    const outcome = await waiting;
+    try {
+      if (outcome.error) throw outcome.error;
+      throw new Error("WAITING_STATE_SURVIVES_BROWSER_LOSS");
+    } catch (error) {
+      if (error.code !== "BROWSER_PROCESS_LOST_DURING_OPERATOR_WAIT") throw error;
+      result.status = "PASS";
+      result.failureStatus = "NOT_TESTED";
+      result.failureCode = error.code;
+      result.reusableForAcceptance = false;
+      result.securityAudit = securityAudit;
+      result.debugPortReleased = debugPortReleased;
+      result.completedAt = new Date().toISOString();
+      return result;
+    }
+  } finally {
+    result.debugPortReleased = launch ? await closeLaunch(launch) : debugPortReleased;
   }
 }
 
@@ -495,7 +669,8 @@ export async function runBrowserFlow(options) {
     const bodyText = await page.locator("body").innerText();
     const cdpSession = await launch.context.newCDPSession(page);
     const cdpBrowserVersion = await cdpSession.send("Browser.getVersion");
-    const primaryProcess = processEvidence.find((row) => path.basename(String(row.executablePath || "")).toLowerCase() === path.basename(definition.executable).toLowerCase());
+    const primaryProcess = primaryBrowserProcess(processEvidence, browser);
+    if (!primaryProcess) throw Object.assign(new Error("Primary browser process was not found."), { code: "BROWSER_PROCESS_LOST_DURING_OPERATOR_WAIT" });
     const identity = {
       executablePath: primaryProcess?.executablePath || definition.executable,
       fileProduct: browser === "chrome" ? "Google Chrome" : "Microsoft Edge",
@@ -511,12 +686,82 @@ export async function runBrowserFlow(options) {
     result.preview = { title, url: page.url(), runtimeOrigin, renderedOriginPresent: bodyText.includes(origin) };
     await page.screenshot({ path: path.join(runDirectory, "visible-window.png"), fullPage: true });
 
+    const expectedLiveness = {
+      browserPid: primaryProcess.pid,
+      executablePath: primaryProcess.executablePath,
+      sessionId: primaryProcess.sessionId,
+      userName: primaryProcess.userName,
+      profilePath,
+      cdpProduct: cdpBrowserVersion.product,
+      previewUrl: options.targetUrl,
+      origin,
+    };
+    const livenessProbe = async () => {
+      const currentProcesses = readBrowserProcesses(profilePath);
+      const currentPrimary = primaryBrowserProcess(currentProcesses, browser, expectedLiveness.browserPid);
+      let currentVersion = null;
+      let controlError = null;
+      try { currentVersion = await cdpSession.send("Browser.getVersion"); }
+      catch (error) { controlError = error.message; }
+      let commandLineCompliant = false;
+      let forbiddenArguments = [];
+      try {
+        const commandAudit = auditActualBrowserCommandLine(currentProcesses);
+        commandLineCompliant = commandAudit.status === "PASS";
+        forbiddenArguments = commandAudit.forbiddenArguments;
+      } catch (error) {
+        forbiddenArguments = error.securityAudit?.forbiddenArguments || [];
+      }
+      const bridge = await probeBridge(origin);
+      const contextBrowser = launch.context.browser();
+      return {
+        harnessPid: Number(options.harnessPid || process.ppid),
+        harnessProcessAlive: processAlive(Number(options.harnessPid || process.ppid)),
+        browserPid: currentPrimary?.pid || null,
+        browserProcessAlive: Boolean(currentPrimary),
+        executableIdentityMatches: Boolean(currentPrimary)
+          && path.resolve(String(currentPrimary.executablePath || "")).toLowerCase() === path.resolve(String(expectedLiveness.executablePath || "")).toLowerCase(),
+        sessionMatches: Boolean(currentPrimary) && currentPrimary.sessionId === expectedLiveness.sessionId,
+        userMatches: Boolean(currentPrimary?.userName) && Boolean(expectedLiveness.userName)
+          && currentPrimary.userName === expectedLiveness.userName,
+        profilePath,
+        profileMatches: Boolean(currentPrimary) && String(currentPrimary.commandLine || "").toLowerCase().includes(profilePath.toLowerCase()),
+        commandLineCompliant,
+        forbiddenArguments,
+        controlChannelResponsive: Boolean(currentVersion),
+        controlError,
+        cdpIdentityMatches: Boolean(currentVersion) && currentVersion.product === expectedLiveness.cdpProduct,
+        browserContextConnected: contextBrowser ? contextBrowser.isConnected() : !page.isClosed(),
+        previewPageOpen: !page.isClosed(),
+        previewUrl: page.isClosed() ? null : page.url(),
+        previewUrlExact: !page.isClosed() && page.url() === options.targetUrl,
+        visibleWindowPresent: currentProcesses.some((row) => Number(row.mainWindowHandle) > 0),
+        bridgeProcessAlive: bridge.alive,
+        bridgeLoopbackOnly: bridge.loopbackOnly,
+        originEnrolled: bridge.originEnrolled,
+        enrolledOrigin: bridge.originEnrolled ? origin : null,
+        bridgeInstanceId: bridge.instanceId || null,
+      };
+    };
+
     const detectButton = page.getByRole("button", { name: /重新檢查|檢查本機|偵測|連線/ }).first();
     if (await detectButton.count() === 0) throw Object.assign(new Error("Bridge detection button not found."), { code: "PREVIEW_BRIDGE_BUTTON_NOT_FOUND" });
     result.uiClickAt = new Date().toISOString();
     await detectButton.click();
-    const operatorDecision = await waitForOperator(browser, flow, origin, runId);
+    const operatorDecision = await waitForOperator(browser, flow, origin, runId, {
+      livenessProbe,
+      expectedLiveness,
+      heartbeatMs: options.heartbeatMs || 30_000,
+      onHeartbeat: async (state) => writeJson(path.join(runDirectory, "heartbeat-state.json"), {
+        run_id: runId,
+        browser,
+        flow,
+        expected: expectedLiveness,
+        current: state,
+      }),
+    });
     result.operatorDecisionAt = operatorDecision.decidedAt;
+    result.finalLiveness = operatorDecision.latestLiveness;
     result.operatorChallenge = operatorDecision.operatorChallenge;
     result.decisionChallenge = operatorDecision.decisionChallenge;
     await page.waitForTimeout(2_000);
@@ -532,11 +777,24 @@ export async function runBrowserFlow(options) {
     await writeJson(path.join(runDirectory, "final-result.json"), result);
     return result;
   } catch (error) {
-    result.status = ["ABORTED_BY_OPERATOR", "ABORTED_OPERATOR_UNAVAILABLE"].includes(error.code) ? error.code : "FAILED";
+    const livenessFailure = BROWSER_LIVENESS_FAILURE_CODES.includes(error.code)
+      || error.code === "OPERATOR_CONTINUE_REJECTED_STALE_BROWSER_STATE";
+    result.status = livenessFailure ? "NOT_TESTED"
+      : ["ABORTED_BY_OPERATOR", "ABORTED_OPERATOR_UNAVAILABLE"].includes(error.code) ? error.code : "FAILED";
+    if (livenessFailure) {
+      result.failure_code = error.code;
+      result.native_lna_prompt = "NOT_OBSERVED";
+      result.operator_decision = "NOT_PROVIDED";
+      result.preview_ui_request_reached_bridge = "NOT_ESTABLISHED";
+      result.reusable_for_acceptance = false;
+      result.livenessState = error.livenessState || null;
+      result.livenessFailureCode = error.livenessFailureCode || error.code;
+    }
     if (error.securityAudit) result.securityAudit = error.securityAudit;
     if (error.operatorChallenges) result.operatorChallenges = error.operatorChallenges;
     result.error = { code: error.code || "BROWSER_FLOW_FAILED", type: error?.constructor?.name, message: error.message, stack: error.stack };
     result.completedAt = new Date().toISOString();
+    try { await launch?.context?.tracing.stop({ path: path.join(runDirectory, "browser-trace.zip") }); } catch { }
     await writeJson(path.join(runDirectory, "console.json"), { run_id: runId, rows: consoleRows });
     await writeJson(path.join(runDirectory, "network.json"), { run_id: runId, rows: networkRows });
     if (launch?.adapter === "local-cdp") {
@@ -553,7 +811,7 @@ export async function runBrowserFlow(options) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const required = ["browser", "flow", "target-url", "profile", "artifacts", "browser-version"];
+  const required = ["browser", "flow", "target-url", "profile", "artifacts", "browser-version", "harness-pid"];
   for (const key of required) if (!args[key]) throw new Error(`Missing --${key}`);
   const result = await runBrowserFlow({
     browser: args.browser,
@@ -562,6 +820,7 @@ async function main() {
     profilePath: args.profile,
     artifactDirectory: args.artifacts,
     browserVersion: args["browser-version"],
+    harnessPid: Number(args["harness-pid"]),
     runId: args["run-id"],
   });
   output.write(`${JSON.stringify(result, null, 2)}\n`);

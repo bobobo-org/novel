@@ -162,7 +162,7 @@ try {
     $beforeCount = if (Test-Path -LiteralPath $accessLog) { @(Get-Content -LiteralPath $accessLog).Count } else { 0 }
     & powershell -NoProfile -ExecutionPolicy Bypass -File $browserEntry `
       -Browser $run.browser -Flow $run.flow -TargetUrl $TargetUrl -ProfilePath $run.profile `
-      -ArtifactDirectory $artifactRoot -RunId $run.run_id -BrowserVersion $run.version -NodePath $NodePath
+      -ArtifactDirectory $artifactRoot -RunId $run.run_id -BrowserVersion $run.version -HarnessPid $PID -NodePath $NodePath
     $adapterExit = $LASTEXITCODE
     $bridgeRows = Read-BridgeRows $beforeCount
     $runDirectory = Join-Path $artifactRoot "runs\$($run.run_id)"
