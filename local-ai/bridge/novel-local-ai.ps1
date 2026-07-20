@@ -1,6 +1,8 @@
 param(
-  [ValidateSet('start','status','stop','restart','pair','revoke','diagnose')]
-  [string]$Command = 'status'
+  [ValidateSet('start','status','stop','restart','pair','revoke','diagnose','origin')]
+  [string]$Command = 'status',
+  [Parameter(ValueFromRemainingArguments = $true)]
+  [string[]]$RemainingArguments
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,7 +36,7 @@ try {
     Write-LauncherError 'LAUNCHER_NODE_UNSUPPORTED' "Node.js $version is unsupported." 'Install Node.js 22 LTS. You may set NOVEL_NODE_PATH without changing the system PATH.'
     exit 1
   }
-  & $nodePath $launcher $Command
+  & $nodePath $launcher $Command @RemainingArguments
   exit $LASTEXITCODE
 } catch {
   Write-LauncherError 'LAUNCHER_WRAPPER_FAILED' $_.Exception.Message 'Run diagnose again and verify that PowerShell can read the project and local runtime directory.'

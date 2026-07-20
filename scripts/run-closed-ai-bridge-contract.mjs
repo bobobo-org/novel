@@ -41,7 +41,7 @@ try {
   await test("IPv4 loopback allowed", async () => assert.equal(validateLoopbackHost("127.0.0.1"), "127.0.0.1"));
   await test("IPv6 loopback allowed", async () => assert.equal(validateLoopbackHost("::1"), "::1"));
   await test("non-loopback bind rejected", async () => assert.throws(() => validateLoopbackHost("0.0.0.0"), (error) => error.code === "LOCAL_SECURITY_POLICY_VIOLATION"));
-  await test("DNS rebinding host rejected", async () => assert.throws(() => validateHostHeader("evil.example:3217", 3217), (error) => error.code === "LOCAL_SECURITY_POLICY_VIOLATION"));
+  await test("DNS rebinding host rejected", async () => assert.throws(() => validateHostHeader("evil.example:3217", 3217), (error) => error.code === "HOST_VALIDATION_FAILED"));
   for (const target of ["file:///tmp/model", "http://169.254.169.254:11434", "http://192.168.1.2:11434", "https://127.0.0.1:11434", "http://example.com:11434", "http://127.0.0.1:9999"]) {
     await test(`unsafe Ollama target rejected:${target}`, async () => assert.throws(() => normalizeOllamaEndpoint(target), (error) => error.code === "LOCAL_SECURITY_POLICY_VIOLATION"));
   }

@@ -119,7 +119,7 @@ await test("invented evidence is rejected even when compact JSON is valid", asyn
 await test("launcher rejects wildcard preview origin", async () => {
   let caught;
   try {
-    await execFileAsync(process.execPath, [path.join(root, "local-ai", "bridge", "launcher.mjs"), "status", "--origin", "https://*.vercel.app"], { cwd: root, env: { ...process.env, NOVEL_BRIDGE_RUNTIME_DIR: path.join(root, ".tmp-r4-launcher") } });
+    await execFileAsync(process.execPath, [path.join(root, "local-ai", "bridge", "launcher.mjs"), "origin", "add", "https://*.vercel.app", "--confirm", "https://*.vercel.app"], { cwd: root, env: { ...process.env, NOVEL_BRIDGE_RUNTIME_DIR: path.join(root, ".tmp-r4-launcher") } });
   } catch (error) { caught = error; }
   const output = `${caught?.stdout || ""}${caught?.stderr || ""}`;
   assert.match(output, /LAUNCHER_ORIGIN_INVALID/);

@@ -29,8 +29,31 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher diagnose
 ```
 
 The launcher supports `diagnose`, `start`, `status`, `stop`, `restart`,
-`pair`, and `revoke`. It does not install software, edit `PATH`, modify the
+`pair`, `revoke`, and `origin`. It does not install software, edit `PATH`, modify the
 firewall, or stop Ollama.
+
+### Authorize an exact Preview origin
+
+A Vercel Preview is not trusted automatically. Enroll its exact HTTPS origin
+locally, then restart the Bridge so the new allowlist becomes active:
+
+```powershell
+$origin = "https://your-exact-preview.vercel.app"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher origin add $origin --confirm $origin
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher origin list
+```
+
+After testing, revoke that exact origin and restart again:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher origin revoke $origin --confirm $origin
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher restart
+```
+
+Enrollment is an explicit local action. Wildcards, paths, query strings,
+remote HTTP origins, and remote IP origins are rejected. The registry stores
+only the non-sensitive origin and audit event; it never stores a pairing token.
 
 After Studio requests pairing, read the one-time code locally:
 
@@ -47,7 +70,7 @@ Studio or restarting the Bridge requires a new pairing.
 - Bridge bind address: `127.0.0.1`
 - Ollama endpoint: `http://127.0.0.1:11434`
 - CORS: explicit Studio origins only
-- Preview startup: pass the exact origin with `node local-ai/bridge/launcher.mjs start --origin https://your-preview.example`; wildcard origins are rejected and the authorization ends when the Bridge stops.
+- Preview access: enroll the exact HTTPS origin with `origin add`, restart the Bridge, and revoke it after testing. `start --origin` only selects an origin that is already enrolled; it cannot create authorization.
 - Pairing: origin-bound, instance-bound, short-lived, revocable
 - Logging: request ID, task type, provider, model ID, timing, status, and
   sanitized error code only

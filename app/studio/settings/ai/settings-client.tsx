@@ -17,7 +17,7 @@ import {
 } from "@/lib/novel-ai/repository/story-bible-approval";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
-type Status = { browser: string; bridge: string; pairing: string; ollama: string; model: string; hub: string; privacy: string; external: boolean; error: string };
+type Status = { browser: string; bridge: string; origin: string; pairing: string; ollama: string; model: string; generation: string; hub: string; privacy: string; external: boolean; error: string; errorCode: string };
 type GenerationStatus = "idle" | "generating" | "cancelling" | "completed" | "cancelled" | "failed";
 
 const taskOptions = [
@@ -26,6 +26,12 @@ const taskOptions = [
 ] as const;
 
 const errorGuidance: Record<string, string> = {
+  BRIDGE_PROCESS_UNREACHABLE: "瀏覽器沒有連到本機橋接服務。請確認服務已啟動，並確認目前網站已完成本機授權。",
+  MIXED_CONTENT_BLOCKED: "瀏覽器阻擋了安全網站連往本機 HTTP 服務。請勿關閉瀏覽器安全功能，改用支援的本機連線方式。",
+  PRIVATE_NETWORK_ACCESS_BLOCKED: "瀏覽器的私人網路保護阻擋了這次連線。請確認 Bridge 已授權此網站並支援私人網路預檢。",
+  CORS_PREFLIGHT_REJECTED: "本機橋接服務拒絕了瀏覽器預檢。請重新確認網站授權與 Bridge 版本。",
+  HOST_VALIDATION_FAILED: "本機橋接服務拒絕了不安全的主機位址。請只使用 localhost 或 loopback 位址。",
+  REQUEST_TIMEOUT: "瀏覽器在期限內沒有收到本機橋接服務回應。",
   BRIDGE_NOT_PAIRED: "配對已失效，請重新進行安全配對。",
   BRIDGE_PAIRING_EXPIRED: "配對已過期，請重新發起配對。",
   BRIDGE_PAIRING_REVOKED: "配對已撤銷，請重新配對後再試。",
@@ -45,7 +51,7 @@ const errorGuidance: Record<string, string> = {
   [LOCAL_MODEL_INSUFFICIENT_FOR_TASK]: "目前選用的本機模型無法在有限重試內完成可靠抽取。請改用較強的本機模型；未來也可改用 Private Hub。",
 };
 
-const initial: Status = { browser: "檢查中", bridge: "檢查中", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", hub: "檢查中", privacy: "strict-local", external: false, error: "" };
+const initial: Status = { browser: "檢查中", bridge: "檢查中", origin: "尚未確認", pairing: "尚未配對", ollama: "檢查中", model: "尚未選用", generation: "尚未就緒", hub: "檢查中", privacy: "strict-local", external: false, error: "", errorCode: "" };
 
 export default function AISettingsClient() {
   const client = useMemo(() => new LocalBridgeClient({ origin: typeof window === "undefined" ? "http://localhost:3000" : window.location.origin }), []);
@@ -73,6 +79,10 @@ export default function AISettingsClient() {
   const [reviewCandidates, setReviewCandidates] = useState<LocalStoryBibleCandidate[]>([]);
   const [reviewStatus, setReviewStatus] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [connectionDiagnostics, setConnectionDiagnostics] = useState<Array<{ endpoint: string; reachable: boolean; status: number | null; errorCode: string | null; elapsedMs: number }>>([]);
+  const [originCommandCopied, setOriginCommandCopied] = useState(false);
+  const currentOrigin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
+  const originEnrollmentCommand = `node local-ai/bridge/launcher.mjs origin add ${currentOrigin} --confirm ${currentOrigin}`;
 
   const loadReviewState = useCallback(async (projectId: string) => {
     if (!projectId) { setReviewCandidates([]); return; }
@@ -112,6 +122,8 @@ export default function AISettingsClient() {
       fetch("/api/private-ai/health", { cache: "no-store" }).then((response) => response.json()).catch(() => ({ status: "unavailable" })),
     ]);
     const healthErrorCode = String((healthError as { code?: string })?.code || "");
+    const diagnostic = health ? null : await client.diagnoseConnectivity().catch(() => null);
+    setConnectionDiagnostics(diagnostic?.results || []);
     let refreshedModel = "";
     let modelError = "";
     if (health?.pairingState === "paired" && client.getSessionMetadata()) {
@@ -134,15 +146,18 @@ export default function AISettingsClient() {
       ...value,
       browser: browser.status === "runtime_not_installed" ? "裝置可支援，模型尚未安裝" : "目前裝置不支援",
       bridge: health?.bridgeProcessAlive ? "本機橋接服務已啟動" : "本機橋接服務尚未啟動",
+      origin: health?.configuredOrigins?.includes(currentOrigin) ? "目前網站已授權" : health ? "目前網站尚未授權" : "無法確認授權狀態",
       pairing: health?.pairingState === "paired" && client.getSessionMetadata() ? "已配對" : health?.pairingState === "paired" ? "頁面已重新載入，請重新配對" : "尚未配對",
       ollama: health?.ollamaReachable ? (health.modelAvailable ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型") : "Ollama 尚未啟動",
       model: refreshedModel || (health?.pairingState === "paired" ? value.model : "尚未選用"),
+      generation: health?.runtimeReady && refreshedModel ? "可以生成" : "尚未就緒",
       hub: hub.status === "ready" ? "已連線" : "尚未連接執行環境",
       privacy: saved.privacy || "strict-local",
       external: Boolean(saved.external),
       error: healthErrorCode ? (errorGuidance[healthErrorCode] || "本機橋接服務目前無法連線，請確認服務已啟動後再試一次。") : modelError,
+      errorCode: healthErrorCode,
     }));
-  }, [client]);
+  }, [client, currentOrigin]);
 
   useEffect(() => { void refresh(); return () => { configureLocalBridgeClient(null); configureLocalBridgeModel(null); }; }, [refresh]);
 
@@ -152,12 +167,12 @@ export default function AISettingsClient() {
   };
 
   const requestPairing = async () => {
-    setBusy(true); setStatus((value) => ({ ...value, error: "" }));
+    setBusy(true); setStatus((value) => ({ ...value, error: "", errorCode: "" }));
     try {
       const request = await client.requestPairing();
       setPairingId(String(request.pairingId));
       setStatus((value) => ({ ...value, pairing: "等待輸入本機配對碼" }));
-    } catch (error) { setStatus((value) => ({ ...value, error: error instanceof Error ? error.message : "無法要求配對。" })); }
+    } catch (error) { const code = String((error as { code?: string })?.code || ""); setStatus((value) => ({ ...value, error: errorGuidance[code] || (error instanceof Error ? error.message : "無法要求配對。"), errorCode: code })); }
     finally { setBusy(false); }
   };
 
@@ -173,7 +188,7 @@ export default function AISettingsClient() {
       const selected = selectAvailableTextModel(available, savedModel) || "";
       configureLocalBridgeModel(selected || null);
       if (selected) localStorage.setItem("novel_local_ai_model", selected);
-      setStatus((value) => ({ ...value, pairing: "已配對", bridge: "本機橋接服務已啟動", ollama: available.length ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型", model: selected || "尚未選用" }));
+      setStatus((value) => ({ ...value, pairing: "已配對", bridge: "本機橋接服務已啟動", origin: "目前網站已授權", ollama: available.length ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型", model: selected || "尚未選用", generation: selected ? "可以生成" : "尚未就緒" }));
       setPairingCode("");
     } catch (error) { setStatus((value) => ({ ...value, error: error instanceof Error ? error.message : "配對沒有成功。" })); }
     finally { setBusy(false); }
@@ -181,7 +196,7 @@ export default function AISettingsClient() {
 
   const revoke = async () => {
     setBusy(true);
-    try { await client.revoke(); configureLocalBridgeClient(null); configureLocalBridgeModel(null); setPairingId(""); setPairingCode(""); setModels([]); setStatus((value) => ({ ...value, pairing: "已撤銷", model: "尚未選用", error: "" })); }
+    try { await client.revoke(); configureLocalBridgeClient(null); configureLocalBridgeModel(null); setPairingId(""); setPairingCode(""); setModels([]); setStatus((value) => ({ ...value, pairing: "已撤銷", model: "尚未選用", generation: "尚未就緒", error: "", errorCode: "" })); }
     catch (error) { setStatus((value) => ({ ...value, error: error instanceof Error ? error.message : "撤銷配對失敗。" })); }
     finally { setBusy(false); }
   };
@@ -344,13 +359,15 @@ export default function AISettingsClient() {
   return <main className="p2Settings">
     <header><Link href="/studio">← 返回創作中心</Link><h1>AI 使用方式</h1><p>預設只使用本機能力；跨出裝置前一定需要你的同意。</p></header>
     <section data-testid="local-ai-status"><h2>目前可用狀態</h2><dl>
-      <div><dt>瀏覽器本機 AI</dt><dd>{status.browser}</dd></div><div><dt>本機橋接服務</dt><dd>{status.bridge}</dd></div><div><dt>安全配對</dt><dd>{status.pairing}</dd></div><div><dt>我的電腦 AI</dt><dd>{status.ollama}</dd></div><div><dt>目前模型</dt><dd>{status.model}</dd></div><div><dt>私有 AI 中樞</dt><dd>{status.hub}</dd></div>
-    </dl>{status.error && <p role="alert">{status.error}</p>}<button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button></section>
+      <div><dt>瀏覽器本機 AI</dt><dd>{status.browser}</dd></div><div><dt>Bridge process reachable</dt><dd>{status.bridge}</dd></div><div><dt>Origin authorized</dt><dd>{status.origin}</dd></div><div><dt>Bridge paired</dt><dd>{status.pairing}</dd></div><div><dt>Ollama reachable</dt><dd>{status.ollama}</dd></div><div><dt>Model available</dt><dd>{status.model}</dd></div><div><dt>Generation ready</dt><dd>{status.generation}</dd></div><div><dt>私有 AI 中樞</dt><dd>{status.hub}</dd></div>
+    </dl>{status.error && <><p role="alert">{status.error}</p>{status.errorCode && <details><summary>查看連線分類</summary><code>{status.errorCode}</code></details>}</>}<button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button></section>
     <section><h2>連接我的電腦 AI</h2><p>先在這台電腦啟動 Local Bridge。配對碼只會顯示在本機 Bridge 視窗，授權不會寫入網址或瀏覽器儲存空間。</p>
+      {status.origin !== "目前網站已授權" && <div data-testid="origin-enrollment-help"><ol><li>確認 Bridge 已啟動。</li><li>確認目前網站 origin 已獲授權。</li><li>複製下方安全授權指令。</li><li>在本機 Launcher 明確確認完整網址。</li><li>回到這裡重新檢查。</li></ol><code>{originEnrollmentCommand}</code><button type="button" onClick={() => void navigator.clipboard.writeText(originEnrollmentCommand).then(() => setOriginCommandCopied(true)).catch(() => setStatus((value) => ({ ...value, error: "無法自動複製，請手動選取指令。" })))}>{originCommandCopied ? "已複製" : "複製安全授權指令"}</button><p>系統不會自動授權 Preview、不會開放區域網路，也不會要求關閉瀏覽器安全功能。</p></div>}
+      {connectionDiagnostics.length > 0 && <details><summary>查看 loopback 偵測結果</summary><ul>{connectionDiagnostics.map((row) => <li key={row.endpoint}><code>{row.endpoint}</code>：{row.reachable ? `可連線（HTTP ${row.status}）` : `未連線（${row.errorCode || "未知原因"}）`}，{row.elapsedMs} ms</li>)}</ul></details>}
       {!pairingId && <button data-testid="pair-start" type="button" disabled={busy} onClick={() => void requestPairing()}>開始安全配對</button>}
       {pairingId && status.pairing !== "已配對" && <><label>本機配對碼<input data-testid="pair-code" value={pairingCode} inputMode="numeric" autoComplete="off" onChange={(event) => setPairingCode(event.target.value)} /></label><button data-testid="pair-confirm" type="button" disabled={busy || pairingCode.length !== 6} onClick={() => void confirmPairing()}>確認配對</button></>}
       {status.pairing === "已配對" && <button type="button" disabled={busy} onClick={() => void revoke()}>撤銷配對</button>}
-      {models.length > 0 && <label>本機模型<select data-testid="model-select" value={status.model} onChange={(event) => { configureLocalBridgeModel(event.target.value); localStorage.setItem("novel_local_ai_model", event.target.value); setStatus((value) => ({ ...value, model: event.target.value })); }}>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId} {model.parameterSize?.value || ""} {model.quantization?.value || ""}</option>)}</select></label>}
+      {models.length > 0 && <label>本機模型<select data-testid="model-select" value={status.model} onChange={(event) => { configureLocalBridgeModel(event.target.value); localStorage.setItem("novel_local_ai_model", event.target.value); setStatus((value) => ({ ...value, model: event.target.value, generation: event.target.value ? "可以生成" : "尚未就緒" })); }}>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId} {model.parameterSize?.value || ""} {model.quantization?.value || ""}</option>)}</select></label>}
     </section>
     <section data-testid="local-generation"><h2>測試本機 AI</h2><p>內容只會送到這台電腦的本機模型，結果是候選內容，不會直接寫入正式作品。</p>
       <label>工作類型<select data-testid="task-select" value={taskType} onChange={(event) => setTaskType(event.target.value)}>{taskOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

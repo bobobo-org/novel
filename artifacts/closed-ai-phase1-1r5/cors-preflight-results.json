@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "closed-ai-r5-cors-v1",
+  "generatedAt": "2026-07-20T06:47:34.981Z",
+  "results": [
+    {
+      "name": "origin enrollment requires explicit same-origin confirmation",
+      "status": "PASS",
+      "elapsedMs": 81,
+      "evidence": {
+        "errorCode": "LAUNCHER_ORIGIN_CONFIRMATION_REQUIRED",
+        "authorizationChanged": false
+      }
+    },
+    {
+      "name": "exact HTTPS Preview origin can be enrolled and listed",
+      "status": "PASS",
+      "elapsedMs": 142,
+      "evidence": {
+        "origin": "https://novel-r5-contract-preview.vercel.app",
+        "scope": "preview",
+        "pairingTokenStored": false,
+        "auditEvents": 1
+      }
+    },
+    {
+      "name": "start cannot authorize an origin that was not enrolled",
+      "status": "PASS",
+      "elapsedMs": 74,
+      "evidence": {
+        "origin": "https://not-enrolled-r5.vercel.app",
+        "errorCode": "LAUNCHER_ORIGIN_NOT_ENROLLED",
+        "bridgeStarted": false
+      }
+    },
+    {
+      "name": "PowerShell wrapper forwards origin list without exposing secrets",
+      "status": "PASS",
+      "elapsedMs": 1702,
+      "evidence": {
+        "command": "origin list",
+        "forwarded": true,
+        "pairingTokenExposed": false
+      }
+    },
+    {
+      "name": "wildcard origin is rejected",
+      "status": "PASS",
+      "elapsedMs": 87,
+      "evidence": {
+        "origin": "https://*.vercel.app",
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "path origin is rejected",
+      "status": "PASS",
+      "elapsedMs": 85,
+      "evidence": {
+        "origin": "https://preview.vercel.app/studio",
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "query origin is rejected",
+      "status": "PASS",
+      "elapsedMs": 92,
+      "evidence": {
+        "origin": "https://preview.vercel.app?unsafe=1",
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "remote HTTP origin is rejected",
+      "status": "PASS",
+      "elapsedMs": 84,
+      "evidence": {
+        "origin": "http://preview.vercel.app",
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "remote IP origin is rejected",
+      "status": "PASS",
+      "elapsedMs": 84,
+      "evidence": {
+        "origin": "https://203.0.113.7",
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "runtime allowlist independently rejects wildcard bypass",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "wildcardAccepted": false,
+        "boundary": "bridge-core"
+      }
+    },
+    {
+      "name": "PNA preflight returns exact origin without wildcard",
+      "status": "PASS",
+      "elapsedMs": 15,
+      "evidence": {
+        "status": 204,
+        "allowOrigin": "https://novel-r5-contract-preview.vercel.app",
+        "privateNetwork": "true",
+        "wildcard": false
+      }
+    },
+    {
+      "name": "invalid preflight is rejected with a specific error",
+      "status": "PASS",
+      "elapsedMs": 2,
+      "evidence": {
+        "status": 403,
+        "errorCode": "CORS_PREFLIGHT_REJECTED"
+      }
+    },
+    {
+      "name": "unauthorized origin cannot reach Bridge health",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "status": 403,
+        "errorCode": "BRIDGE_ORIGIN_NOT_ALLOWED"
+      }
+    },
+    {
+      "name": "Preview origin can be revoked without changing Production origin",
+      "status": "PASS",
+      "elapsedMs": 174,
+      "evidence": {
+        "previewOriginPresent": false,
+        "productionOriginUnchanged": true,
+        "pairingTokenStored": false
+      }
+    }
+  ]
+}

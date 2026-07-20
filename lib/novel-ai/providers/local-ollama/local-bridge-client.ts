@@ -3,6 +3,7 @@ import { AiProviderError } from "../provider-errors";
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
 const BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
@@ -31,6 +32,12 @@ function controlSignal(signal?: AbortSignal) {
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
+function connectivityError(error: unknown, signal: AbortSignal) {
+  if (signal.aborted) return new AiProviderError("REQUEST_TIMEOUT", "Local Bridge request timed out before a response was received.", { retryable: true, stage: "local-bridge-connect" });
+  if (error instanceof AiProviderError) return error;
+  return new AiProviderError("BRIDGE_PROCESS_UNREACHABLE", "The browser could not reach the Local Bridge loopback endpoint.", { retryable: true, stage: "local-bridge-connect" });
+}
+
 export class LocalBridgeClient {
   readonly endpoint: string;
   readonly origin: string;
@@ -46,13 +53,20 @@ export class LocalBridgeClient {
   getSessionMetadata() { return this.session ? { instanceId: this.session.instanceId, expiresAt: this.session.expiresAt } : null; }
 
   private headers(authenticated = false, write = false) {
-    const headers: Record<string, string> = { "X-Bridge-Protocol": LOCAL_BRIDGE_PROTOCOL, Origin: this.origin };
+    const headers: Record<string, string> = { "X-Bridge-Protocol": LOCAL_BRIDGE_PROTOCOL };
+    if (typeof window === "undefined") headers.Origin = this.origin;
     if (authenticated) {
       if (!this.session) throw new AiProviderError("BRIDGE_NOT_PAIRED", "Local Bridge is not paired.", { retryable: false });
       headers.Authorization = `Bearer ${this.session.token}`;
       if (write) headers["X-Bridge-CSRF"] = this.session.csrf;
     }
     return headers;
+  }
+
+  private async fetchBridge(url: string, init: RequestInit = {}, signal?: AbortSignal) {
+    const boundedSignal = controlSignal(signal);
+    try { return await fetch(url, { ...init, signal: boundedSignal }); }
+    catch (error) { throw connectivityError(error, boundedSignal); }
   }
 
   private async parse(response: Response) {
@@ -62,49 +76,67 @@ export class LocalBridgeClient {
   }
 
   async health(signal?: AbortSignal) {
-    const boundedSignal = controlSignal(signal);
     try {
-      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal: boundedSignal, cache: "no-store" }));
+      return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
     } catch (error) {
-      if (boundedSignal.aborted) throw error;
+      if (signal?.aborted || !(error instanceof AiProviderError) || !error.retryable) throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
-      return this.parse(await fetch(`${this.endpoint}/health`, { headers: this.headers(), signal: boundedSignal, cache: "no-store" }));
+      return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
     }
   }
 
+  async diagnoseConnectivity(signal?: AbortSignal) {
+    const results: Array<{ endpoint: string; reachable: boolean; status: number | null; errorCode: string | null; elapsedMs: number }> = [];
+    for (const endpoint of LOOPBACK_DIAGNOSTIC_ENDPOINTS) {
+      const startedAt = performance.now();
+      const probeTimeout = AbortSignal.timeout(1_500);
+      const probeSignal = signal ? AbortSignal.any([signal, probeTimeout]) : probeTimeout;
+      try {
+        const response = await this.fetchBridge(`${endpoint}/health`, { headers: this.headers(), cache: "no-store" }, probeSignal);
+        const body = await response.json().catch(() => ({}));
+        results.push({ endpoint, reachable: response.ok, status: response.status, errorCode: response.ok ? null : String(body.errorCode || "LOCAL_PROVIDER_NOT_READY"), elapsedMs: Math.round(performance.now() - startedAt) });
+      } catch (error) {
+        results.push({ endpoint, reachable: false, status: null, errorCode: String((error as { code?: string })?.code || "BRIDGE_PROCESS_UNREACHABLE"), elapsedMs: Math.round(performance.now() - startedAt) });
+      }
+    }
+    return { origin: this.origin, securePage: typeof window !== "undefined" ? window.isSecureContext : null, results };
+  }
+
   async requestPairing(signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}", signal: controlSignal(signal) }));
+    return this.parse(await this.fetchBridge(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}" }, signal));
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {
-    const session = await this.parse(await fetch(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }), signal: controlSignal(signal) })) as LocalBridgeSession;
+    const session = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }) }, signal)) as LocalBridgeSession;
     this.session = session;
     return session;
   }
 
   async revoke(signal?: AbortSignal) {
-    const result = await this.parse(await fetch(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }), signal: controlSignal(signal) }));
+    const result = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }, signal));
     this.session = null;
     return result;
   }
 
   async models(signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/models`, { headers: this.headers(true), signal: controlSignal(signal), cache: "no-store" }));
+    return this.parse(await this.fetchBridge(`${this.endpoint}/models`, { headers: this.headers(true), cache: "no-store" }, signal));
   }
 
   async inspectModel(modelId: string, signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/models/${encodeURIComponent(modelId)}`, { headers: this.headers(true), signal: controlSignal(signal), cache: "no-store" }));
+    return this.parse(await this.fetchBridge(`${this.endpoint}/models/${encodeURIComponent(modelId)}`, { headers: this.headers(true), cache: "no-store" }, signal));
   }
 
   async cancel(requestId: string, signal?: AbortSignal) {
-    return this.parse(await fetch(`${this.endpoint}/cancel`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ requestId }), signal: controlSignal(signal) }));
+    return this.parse(await this.fetchBridge(`${this.endpoint}/cancel`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ requestId }) }, signal));
   }
 
   async *generate(input: { requestId: string; model: string; prompt?: string; messages?: Array<{ role: string; content: string }>; systemInstruction?: string; taskType: string; timeoutMs?: number; options?: Record<string, unknown>; signal?: AbortSignal }): AsyncGenerator<LocalBridgeEvent> {
     const abort = () => { void this.cancel(input.requestId).catch(() => undefined); };
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
-      const response = await fetch(`${this.endpoint}/generate`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json", "Idempotency-Key": input.requestId }, body: JSON.stringify(input), signal: input.signal });
+      let response: Response;
+      try { response = await fetch(`${this.endpoint}/generate`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json", "Idempotency-Key": input.requestId }, body: JSON.stringify(input), signal: input.signal }); }
+      catch (error) { throw connectivityError(error, input.signal ?? new AbortController().signal); }
       if (!response.ok) { await this.parse(response); return; }
       const reader = response.body?.getReader();
       if (!reader) throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "Local Bridge returned no stream.", { retryable: true });

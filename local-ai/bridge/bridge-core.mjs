@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import { isIP } from "node:net";
 
 export const BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 export const BRIDGE_VERSION = "1.0.0-phase1";
 export const DEFAULT_LIMITS = Object.freeze({ maxPromptBytes: 65_536, maxOutputTokens: 2_048, maxConcurrent: 1, maxQueue: 2, maxTimeoutMs: 120_000, rateLimitPerMinute: 30 });
 export const ERROR_CODES = Object.freeze([
+  "BRIDGE_PROCESS_UNREACHABLE", "MIXED_CONTENT_BLOCKED", "PRIVATE_NETWORK_ACCESS_BLOCKED", "CORS_PREFLIGHT_REJECTED", "HOST_VALIDATION_FAILED", "PAIRING_STATE_INVALID", "PROTOCOL_MISMATCH", "REQUEST_TIMEOUT",
   "BRIDGE_NOT_RUNNING", "BRIDGE_NOT_PAIRED", "BRIDGE_PAIRING_EXPIRED", "BRIDGE_PAIRING_REVOKED", "BRIDGE_ORIGIN_NOT_ALLOWED", "BRIDGE_PROTOCOL_INCOMPATIBLE",
   "OLLAMA_NOT_RUNNING", "OLLAMA_UNREACHABLE", "OLLAMA_MODEL_NOT_FOUND", "OLLAMA_MODEL_LOAD_FAILED", "OLLAMA_REQUEST_REJECTED", "OLLAMA_TIMEOUT", "OLLAMA_STREAM_INTERRUPTED", "OLLAMA_CANCELLED", "OLLAMA_INVALID_RESPONSE", "OLLAMA_CONTEXT_LIMIT_EXCEEDED",
   "LOCAL_REQUEST_TOO_LARGE", "LOCAL_PROVIDER_NOT_READY", "LOCAL_SECURITY_POLICY_VIOLATION", "LOCAL_RATE_LIMITED", "LOCAL_CONCURRENCY_LIMIT", "LOCAL_DUPLICATE_REQUEST", "LOCAL_REQUEST_IDENTITY_MISMATCH",
@@ -28,7 +30,7 @@ export function validateLoopbackHost(host) {
 
 export function validateHostHeader(hostHeader, port) {
   const allowed = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
-  if (!allowed.has(String(hostHeader || "").toLowerCase())) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Host header is not a loopback bridge address.", 403);
+  if (!allowed.has(String(hostHeader || "").toLowerCase())) throw new BridgeError("HOST_VALIDATION_FAILED", "Host header is not a loopback bridge address.", 403);
 }
 
 export function normalizeOllamaEndpoint(value = "http://127.0.0.1:11434") {
@@ -44,9 +46,10 @@ export function buildOriginAllowlist(extra = "") {
   const defaults = ["https://novel-orcin.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"];
   const additions = String(extra).split(",").map((item) => item.trim()).filter(Boolean);
   for (const value of additions) {
+    if (value.includes("*")) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", `Unsafe configured origin: ${value}`, 500);
     const url = new URL(value);
     const local = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
-    if ((!local && url.protocol !== "https:") || (local && !["http:", "https:"].includes(url.protocol)) || url.pathname !== "/" || url.search || url.hash) {
+    if ((!local && url.protocol !== "https:") || (local && !["http:", "https:"].includes(url.protocol)) || (!local && isIP(url.hostname.replace(/^\[|\]$/g, ""))) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
       throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", `Unsafe configured origin: ${value}`, 500);
     }
   }

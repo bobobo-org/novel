@@ -1,6 +1,6 @@
 import http from "node:http";
 import os from "node:os";
-import { rm, writeFile } from "node:fs/promises";
+import { appendFile, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   BRIDGE_PROTOCOL, BRIDGE_VERSION, DEFAULT_LIMITS, BridgeError, PairingStore, RateLimiter, RequestLedger, WorkLimiter,
@@ -82,6 +82,8 @@ export function createBridgeServer(options = {}) {
   const logs = [];
   const testMode = options.testMode ?? process.env.BRIDGE_TEST_MODE === "1";
   const pairingFile = options.pairingFile ?? process.env.BRIDGE_PAIRING_FILE ?? "";
+  const accessLogPath = options.accessLogPath ?? process.env.BRIDGE_ACCESS_LOG ?? "";
+  const accessLogs = [];
 
   async function publishPairingCode(pending, origin) {
     if (!pairingFile) {
@@ -115,6 +117,25 @@ export function createBridgeServer(options = {}) {
 
   const server = http.createServer(async (request, response) => {
     let origin;
+    let requestErrorCode = null;
+    const accessRecord = {
+      timestamp: new Date().toISOString(),
+      method: request.method || null,
+      path: String(request.url || "/").split("?", 1)[0],
+      host: String(request.headers.host || ""),
+      origin: String(request.headers.origin || ""),
+      protocol: String(request.headers["x-bridge-protocol"] || ""),
+      secFetchSite: String(request.headers["sec-fetch-site"] || ""),
+      secFetchMode: String(request.headers["sec-fetch-mode"] || ""),
+      privateNetworkRequested: String(request.headers["access-control-request-private-network"] || "").toLowerCase() === "true",
+      remoteLoopback: ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(String(request.socket.remoteAddress || "")),
+    };
+    response.once("finish", () => {
+      const row = { ...accessRecord, status: response.statusCode, errorCode: requestErrorCode };
+      accessLogs.push(row);
+      if (accessLogs.length > 500) accessLogs.shift();
+      if (accessLogPath) void appendFile(accessLogPath, `${JSON.stringify(row)}\n`, { encoding: "utf8", mode: 0o600 }).catch(() => undefined);
+    });
     try {
       validateHostHeader(request.headers.host, port);
       origin = assertOrigin(request.headers.origin, allowlist);
@@ -122,7 +143,7 @@ export function createBridgeServer(options = {}) {
       if (request.method === "OPTIONS") {
         const requestedHeaders = String(request.headers["access-control-request-headers"] || "").toLowerCase();
         const requestedMethod = String(request.headers["access-control-request-method"] || "GET").toUpperCase();
-        if (!requestedHeaders.includes("x-bridge-protocol") || (requestedMethod === "POST" && !requestedHeaders.includes("content-type"))) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Preflight does not request required bridge headers.", 403);
+        if (!requestedHeaders.includes("x-bridge-protocol") || (requestedMethod === "POST" && !requestedHeaders.includes("content-type"))) throw new BridgeError("CORS_PREFLIGHT_REJECTED", "Preflight does not request required bridge headers.", 403);
         const privateNetworkRequested = String(request.headers["access-control-request-private-network"] || "").toLowerCase() === "true";
         response.writeHead(204, {
           "Access-Control-Allow-Origin": origin,
@@ -253,13 +274,14 @@ export function createBridgeServer(options = {}) {
       throw new BridgeError("OLLAMA_REQUEST_REJECTED", "Route not found.", 404);
     } catch (error) {
       const bridgeError = error instanceof BridgeError ? error : new BridgeError("OLLAMA_INVALID_RESPONSE", "Local bridge request failed.", 500);
+      requestErrorCode = bridgeError.code;
       if (!response.headersSent) sendJson(response, bridgeError.status, { errorCode: bridgeError.code, message: bridgeError.message, retryable: bridgeError.retryable, details: bridgeError.details }, origin);
       else response.end();
     }
   });
 
   server.on("clientError", (_error, socket) => socket.end("HTTP/1.1 400 Bad Request\r\n\r\n"));
-  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, logs, active, async start() { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); await clearPairingCode(); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); } };
+  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, logs, accessLogs, active, async start() { if (accessLogPath) await writeFile(accessLogPath, "", { mode: 0o600 }); await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); await clearPairingCode(); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); } };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
