@@ -1,0 +1,7 @@
+﻿{
+    "status":  "CONTRACT_VERIFIED",
+    "runtime":  "NOT_TESTED",
+    "ephemeralLoopbackReservationTest":  "PASS",
+    "cleanupImplementation":  "PASS",
+    "port3217CurrentlyReleased":  true
+}

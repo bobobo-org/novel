@@ -1,0 +1,69 @@
+﻿{
+    "suite":  "closed-ai-phase1-1r5-2r1-harness",
+    "executedAt":  "2026-07-20T21:12:06.6348016Z",
+    "pass":  12,
+    "fail":  0,
+    "results":  [
+                    {
+                        "name":  "interactive session detection",
+                        "passed":  true,
+                        "detail":  "Current process and Explorer share the interactive session."
+                    },
+                    {
+                        "name":  "browser binary discovery",
+                        "passed":  true,
+                        "detail":  "Installed Chrome and Edge were discovered."
+                    },
+                    {
+                        "name":  "Bridge startup ordering",
+                        "passed":  true,
+                        "detail":  "The harness started the formal Bridge before the browser gate."
+                    },
+                    {
+                        "name":  "Bridge not-running fail-closed",
+                        "passed":  true,
+                        "detail":  "Browser eligibility requires a passing Bridge preflight."
+                    },
+                    {
+                        "name":  "Bridge loopback binding",
+                        "passed":  true,
+                        "detail":  "Bridge listened only on IPv4 loopback."
+                    },
+                    {
+                        "name":  "exact origin enrollment",
+                        "passed":  true,
+                        "detail":  "Only the parsed Preview origin was enrolled."
+                    },
+                    {
+                        "name":  "fresh profile isolation contract",
+                        "passed":  true,
+                        "detail":  "Four distinct profile paths are reserved."
+                    },
+                    {
+                        "name":  "forbidden browser arguments",
+                        "passed":  true,
+                        "detail":  "No browser security or permission bypass was used."
+                    },
+                    {
+                        "name":  "manual LNA pause remains required",
+                        "passed":  true,
+                        "detail":  "No permission decision was injected or fabricated."
+                    },
+                    {
+                        "name":  "browser channel launch truth",
+                        "passed":  true,
+                        "detail":  "Unavailable browser control remains blocked, not passed."
+                    },
+                    {
+                        "name":  "browser Bridge correlation truth",
+                        "passed":  true,
+                        "detail":  "No preflight request was relabeled as Preview UI traffic."
+                    },
+                    {
+                        "name":  "cleanup",
+                        "passed":  true,
+                        "detail":  "Bridge stopped and Preview origin was revoked."
+                    }
+                ]
+}
+

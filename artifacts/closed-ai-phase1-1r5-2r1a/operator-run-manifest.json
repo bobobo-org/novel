@@ -1,0 +1,24 @@
+﻿{
+    "status":  "READY_FOR_LOCAL_OPERATOR_RUN",
+    "entry":  "scripts/run-r5-2r1a-real-browser.ps1",
+    "defaultFlow":  "chrome-grant-smoke",
+    "fullMatrixSwitch":  "-FullMatrix",
+    "runIds":  {
+                   "chromeGrant":  "ASSIGNED_AT_OPERATOR_RUN",
+                   "chromeDeny":  "ASSIGNED_AT_OPERATOR_RUN",
+                   "edgeGrant":  "ASSIGNED_AT_OPERATOR_RUN",
+                   "edgeDeny":  "ASSIGNED_AT_OPERATOR_RUN"
+               },
+    "profiles":  [
+                     "chrome-grant",
+                     "chrome-deny",
+                     "edge-grant",
+                     "edge-deny"
+                 ],
+    "allowedHumanActions":  [
+                                "native LNA prompt decision",
+                                "type CONTINUE in PowerShell"
+                            ],
+    "manualConfigurationAllowed":  false,
+    "sha256ManifestPerRun":  true
+}

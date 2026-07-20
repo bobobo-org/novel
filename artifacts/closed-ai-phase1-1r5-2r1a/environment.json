@@ -1,0 +1,23 @@
+﻿{
+    "capturedAt":  "2026-07-20T21:15:19.8492901Z",
+    "productPreview":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
+    "productCommit":  "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
+    "harnessBaseCommit":  "6e022676781e84816916fc785022f971cba3fd10",
+    "sessionId":  1,
+    "interactiveDesktop":  true,
+    "chrome":  {
+                   "path":  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                   "version":  "150.0.7871.124"
+               },
+    "edge":  {
+                 "path":  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                 "version":  "150.0.4078.65"
+             },
+    "playwright":  "1.61.1",
+    "bridge":  {
+                   "bind":  "127.0.0.1",
+                   "port":  3217,
+                   "currentlyListening":  false
+               },
+    "exactOrigin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+}

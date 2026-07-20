@@ -1,0 +1,13 @@
+﻿{
+    "status":  "READY_FOR_LOCAL_OPERATOR_RUN",
+    "order":  [
+                  "playwright-channel",
+                  "local-cdp"
+              ],
+    "stopAfterFirstSuccess":  true,
+    "bundledChromiumAllowed":  false,
+    "inAppBrowserAllowed":  false,
+    "cdpAddress":  "127.0.0.1",
+    "debugPort":  "ephemeral_per_run",
+    "runtimeExecution":  "NOT_TESTED"
+}

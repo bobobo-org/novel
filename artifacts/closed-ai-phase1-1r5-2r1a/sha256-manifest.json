@@ -1,0 +1,162 @@
+﻿{
+    "createdAt":  "2026-07-20T21:16:11.7674353Z",
+    "scope":  "pre-operator package evidence",
+    "files":  [
+                  {
+                      "file":  "adapter_contract.log.txt",
+                      "sha256":  "880e8ea3cee04ce0c246093d3c0ade2b3870f4369cb2ea24745f8e484fde6b93"
+                  },
+                  {
+                      "file":  "adapter-eslint.log.txt",
+                      "sha256":  "f01a374e9c81e3db89b3a42940c4d6a5447684986a1296e42bf13f196eed6295"
+                  },
+                  {
+                      "file":  "adapter-selection.json",
+                      "sha256":  "cdb2afa40223c3022b5e4dec44a5e261c89b2bc15e459b332c3a829506b7f525"
+                  },
+                  {
+                      "file":  "adapter-syntax.log.txt",
+                      "sha256":  "f01a374e9c81e3db89b3a42940c4d6a5447684986a1296e42bf13f196eed6295"
+                  },
+                  {
+                      "file":  "bridge-cleanup.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "browser-bridge-correlation.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "change-manifest.json",
+                      "sha256":  "3f9952b179b8ff3e3f5d24bce3888d69a10784e008016eabc13d44156068ea7c"
+                  },
+                  {
+                      "file":  "chrome-browser-identity.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-cdp-launch.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-cdp-version.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-channel-result.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-command-line.txt",
+                      "sha256":  "99d0177e1898ef2c3d2cd282756718650c24e693a622e7efe1c237beec6e84f9"
+                  },
+                  {
+                      "file":  "chrome-deny.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-grant-smoke.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "chrome-visible-window.status.json",
+                      "sha256":  "c91b3b7660941ba37e65b6327639d4b1edc09409e1ad4c81343ad088d6473dd9"
+                  },
+                  {
+                      "file":  "debug-port-cleanup.json",
+                      "sha256":  "af27b019033309f04b6af91e424262abb44e922d1aaeb9b7c0c45bf1161f1e9f"
+                  },
+                  {
+                      "file":  "edge-browser-identity.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-cdp-launch.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-cdp-version.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-channel-result.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-command-line.txt",
+                      "sha256":  "99d0177e1898ef2c3d2cd282756718650c24e693a622e7efe1c237beec6e84f9"
+                  },
+                  {
+                      "file":  "edge-deny.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-grant.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "edge-visible-window.status.json",
+                      "sha256":  "c91b3b7660941ba37e65b6327639d4b1edc09409e1ad4c81343ad088d6473dd9"
+                  },
+                  {
+                      "file":  "environment.json",
+                      "sha256":  "35c0b26682c7753f1cde7c736d90d57fc81b156aa0e66b13df35449e0ac452f1"
+                  },
+                  {
+                      "file":  "eslint.log.txt",
+                      "sha256":  "9bbc986b6fd15b7e84059617ddfcd81e95d11e3e0fd8c790ab08d7338bcbcf7e"
+                  },
+                  {
+                      "file":  "final-summary.md",
+                      "sha256":  "9265746d89720b093760d3d309645f06565127a1a48aac57e201cd9a75a27e37"
+                  },
+                  {
+                      "file":  "forbidden-arguments-audit.json",
+                      "sha256":  "8995c7e921169c0164c3f026f157c9001eb7ba739712b962b3c8d7075f6018b7"
+                  },
+                  {
+                      "file":  "full-regression-results.json",
+                      "sha256":  "8becb416a68e5fbf8e7dd93df4c6c6a653fcecf885edeb2accf6553af9280d55"
+                  },
+                  {
+                      "file":  "launcher.log.txt",
+                      "sha256":  "39e1c1dbedcccddb8b021b713784115a8ad9160df543765ac99d744b3534e3dc"
+                  },
+                  {
+                      "file":  "operator-run-manifest.json",
+                      "sha256":  "f62fe86fc6bccda3ade59bebea77e2a5c3310f2160b38fc48f72422251840a1d"
+                  },
+                  {
+                      "file":  "origin-revoke.json",
+                      "sha256":  "97c9c41bee1510fd85bcdd07bc1dcc5c911e6f3c65b18f2e2aa42f51b3c350a2"
+                  },
+                  {
+                      "file":  "production_build.log.txt",
+                      "sha256":  "c3f3293b41e0136449625fbe12c63943d080cdb87d05d16abc1e5c57ea460115"
+                  },
+                  {
+                      "file":  "r4_regression.log.txt",
+                      "sha256":  "01f0243eb3062b6f6d9af7e051e41121124c0a99cb967f8669412092b76db4a8"
+                  },
+                  {
+                      "file":  "r5_1_dynamic_origin.log.txt",
+                      "sha256":  "d976d346802111d7eb8f79cbe3ea69ea40765b2dfedfdce31a77bbc310675826"
+                  },
+                  {
+                      "file":  "r5_2r1_harness.log.txt",
+                      "sha256":  "37a108fa4b16a8cffbd555258b89eb855140c91a0a19f3d72b91445bf15a9c95"
+                  },
+                  {
+                      "file":  "r5_origin_pna_host.log.txt",
+                      "sha256":  "86e6fe63fca1f42ab20f4b0c0f885ba0334a90f2e4dc3ce4ceb2e65b7c693d66"
+                  },
+                  {
+                      "file":  "regression-command-results.json",
+                      "sha256":  "18b4e27202efb8c8d74200733c06db998609592eadf74deb8e09b41258f25151"
+                  },
+                  {
+                      "file":  "typescript.log.txt",
+                      "sha256":  "f01a374e9c81e3db89b3a42940c4d6a5447684986a1296e42bf13f196eed6295"
+                  }
+              ]
+}
