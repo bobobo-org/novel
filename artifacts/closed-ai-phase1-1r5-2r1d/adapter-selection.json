@@ -1,0 +1,25 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-adapter-selection-v1",
+    "chrome":  {
+                   "adapter_attempted":  [
+                                             "playwright-channel"
+                                         ],
+                   "adapter_selected":  "playwright-channel",
+                   "cdp_fallback_used":  false,
+                   "sandbox_enabled":  true,
+                   "actual_command_line_verified":  true,
+                   "forbidden_argument_count":  0,
+                   "final_status":  "PASS"
+               },
+    "edge":  {
+                 "adapter_attempted":  [
+                                           "playwright-channel"
+                                       ],
+                 "adapter_selected":  "playwright-channel",
+                 "cdp_fallback_used":  false,
+                 "sandbox_enabled":  true,
+                 "actual_command_line_verified":  true,
+                 "forbidden_argument_count":  0,
+                 "final_status":  "PASS"
+             }
+}

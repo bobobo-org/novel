@@ -1,0 +1,18 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-sensitive-scan-v1",
+    "status":  "PASS",
+    "scannedFiles":  [
+                         "artifacts/closed-ai-phase1-1r5-2r1c/invalidation.json",
+                         "docs/r5-2r1a-human-runbook.md",
+                         "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                         "tests/browser-harness/run-r5-2r1a-adapter-tests.mjs",
+                         "tests/browser-harness/run-r5-2r1d-sandbox-smoke.mjs",
+                         "tests/browser-harness/run-r5-2r1d-sandbox-tests.mjs"
+                     ],
+    "matchCount":  0,
+    "matches":  [
+
+                ],
+    "completePromptStored":  false,
+    "completeOutputStored":  false
+}

@@ -1,0 +1,22 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-operator-challenge-v1",
+    "status":  "PASS",
+    "results":  [
+                    {
+                        "name":  "operator challenges are unique",
+                        "status":  "PASS"
+                    },
+                    {
+                        "name":  "operator continue requires the decision challenge",
+                        "status":  "PASS"
+                    },
+                    {
+                        "name":  "operator abort requires the operator challenge",
+                        "status":  "PASS"
+                    },
+                    {
+                        "name":  "operator heartbeat continues until challenged abort",
+                        "status":  "PASS"
+                    }
+                ]
+}

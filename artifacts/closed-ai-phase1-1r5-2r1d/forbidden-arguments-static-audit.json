@@ -1,0 +1,8 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-forbidden-static-v1",
+    "status":  "PASS",
+    "chromiumSandboxFalseCount":  0,
+    "ignoreDefaultArgsTrueCount":  0,
+    "launchArgsContainForbidden":  0,
+    "policyDefinitionsExcludedFromLaunchCount":  true
+}
