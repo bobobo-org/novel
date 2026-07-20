@@ -1,0 +1,32 @@
+﻿{
+    "status":  "BLOCKED",
+    "blocker":  "FORMAL_CHROME_EDGE_CONTROL_ADAPTER_NOT_AVAILABLE_IN_CURRENT_EXECUTION_SURFACE",
+    "browserLaunchBlockedByPolicy":  "NOT_DEMONSTRATED",
+    "remoteDebuggingBlockedByPolicy":  "NOT_DEMONSTRATED",
+    "profileDirectoryLocked":  "NOT_TESTED",
+    "browserOwnedByAnotherSession":  false,
+    "visibleDesktopAvailable":  true,
+    "playwrightAttachedToCorrectSession":  "NOT_TESTED",
+    "policies":  [
+                     {
+                         "path":  "HKLM:\\SOFTWARE\\Policies\\Google\\Chrome",
+                         "exists":  false,
+                         "values":  null
+                     },
+                     {
+                         "path":  "HKCU:\\SOFTWARE\\Policies\\Google\\Chrome",
+                         "exists":  false,
+                         "values":  null
+                     },
+                     {
+                         "path":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge",
+                         "exists":  false,
+                         "values":  null
+                     },
+                     {
+                         "path":  "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge",
+                         "exists":  false,
+                         "values":  null
+                     }
+                 ]
+}

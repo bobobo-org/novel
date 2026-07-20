@@ -1,0 +1,5 @@
+﻿{
+    "status":  "NOT_TESTED",
+    "blocker":  "FORMAL_CHROME_EDGE_CONTROL_ADAPTER_NOT_AVAILABLE_IN_CURRENT_EXECUTION_SURFACE",
+    "reason":  "The formal installed-Chrome and installed-Edge control adapter is unavailable. The in-app browser, bundled Chromium, direct API substitution, permission injection, and browser security bypasses were not used."
+}

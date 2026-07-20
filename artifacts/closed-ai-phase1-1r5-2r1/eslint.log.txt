@@ -1,0 +1,177 @@
+﻿pnpm.cmd : $ eslint
+At line:2 char:770
++ ... cs.Stopwatch]::StartNew(); $output=& $pnpm @($item.args) 2>&1 | Out-S ...
++                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ eslint:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+C:\dev\novel-closed-ai-r5-2\app\api\admin\story-bible\conflict-test\route.ts
+  5:3  warning  'conflictFixtureSnapshot' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\adult\scenes\intimacy-scene-service.ts
+  1:8  warning  'crypto' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\context\context-composer-service.ts
+  119:17  warning  'index' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\corpus\import\corpus-import-service.ts
+   6:8   warning  'CorpusImportFormat' is defined but never used  @typescript-eslint/no-unused-vars
+  12:10  warning  'CorpusImportError' is defined but never used   @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\provider.ts
+  22:3  warning  'STORY_ANALYZER_SYSTEM_PROMPT' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\providers\browser-ai\browser-ai-provider.ts
+  15:18  warning  '_request' is defined but never used   @typescript-eslint/no-unused-vars
+  15:47  warning  '_decision' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\providers\private-ai-hub\job-store.ts
+  8:65  warning  '_ownerId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\retrieval\hybrid\hybrid-retrieval-service.ts
+  3:10  warning  'embeddingContentHash' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\router\ai-router.ts
+  1:48  warning  'AiProviderCapabilities' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\storage\authority.ts
+  10:31  warning  '_ignoredAuthority' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\storage\sqlite\sqlite-backup.ts
+  4:37  warning  'sha256File' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\storage\supabase\supabase-export-storage.ts
+  21:3  warning  'STORY_BIBLE_C2A_MIGRATION_VERSION' is defined but never used    @typescript-eslint/no-unused-vars
+  22:3  warning  'STORY_BIBLE_C2B1_MIGRATION_VERSION' is defined but never used   @typescript-eslint/no-unused-vars
+  23:3  warning  'STORY_BIBLE_C2B2_MIGRATION_VERSION' is defined but never used   @typescript-eslint/no-unused-vars
+  24:3  warning  'STORY_BIBLE_C2C1_MIGRATION_VERSION' is defined but never used   @typescript-eslint/no-unused-vars
+  25:3  warning  'STORY_BIBLE_C2C2A_MIGRATION_VERSION' is defined but never used  @typescript-eslint/no-unused-vars
+  26:3  warning  'STORY_BIBLE_C2C2B_MIGRATION_VERSION' is defined but never used  @typescript-eslint/no-unused-vars
+  27:3  warning  'STORY_BIBLE_MIGRATION_VERSION' is defined but never used        @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\storage\supabase\supabase-mutation-storage.ts
+  12:6  warning  'CandidateStatus' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\story-bible.ts
+  1444:6  warning  'RejectRequest' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\story\viral\viral-story-service.ts
+  5:19  warning  'ViralTopicProfile' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\lib\novel-ai\web\segmented-workspace-client.ts
+  4:57  warning  'WebStageRecord' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\ai-service.js
+   85:18  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+   93:18  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  149:22  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  164:18  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  189:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  193:52  warning  'e' is defined but never used      @typescript-eslint/no-unused-vars
+  206:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  226:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  248:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  264:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  274:16  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\db-v2.js
+  35:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\db.js
+  24:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\local-training-service.js
+  33:50  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\migration.js
+   16:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  108:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\novel-local-runtime-client.js
+    6:9   warning  'DEFAULT_RUNTIME_URL' is assigned a value but never used          @typescript-eslint/no-unused-vars
+    9:9   warning  'TASK_STATUSES' is assigned a value but never used                @typescript-eslint/no-unused-vars
+   12:9   warning  'TASK_CENTER_LABELS' is assigned a value but never used           @typescript-eslint/no-unused-vars
+   47:9   warning  'ADULT_SCENARIO_PACKS' is assigned a value but never used         @typescript-eslint/no-unused-vars
+   48:9   warning  'SCENARIO_DISCOVERY_CONTRACT' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  308:12  warning  'updateWorkflow' is defined but never used                        @typescript-eslint/no-unused-vars
+  312:12  warning  'renderTaskLog' is defined but never used                         @typescript-eslint/no-unused-vars
+  499:12  warning  'renderScenarioDiscovery' is defined but never used               @typescript-eslint/no-unused-vars
+  503:9   warning  'variationScenario' is assigned a value but never used            @typescript-eslint/no-unused-vars
+  539:12  warning  'redactDiagnostics' is defined but never used                     @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\novel-system.js
+  564:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\offline-engine.js
+  46:20  warning  'chapterNumber' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  52:11  warning  'premise' is assigned a value but never used        @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\public\legacy\phase1-manager.js
+    40:9   warning  'pct' is assigned a value but never used             @typescript-eslint/no-unused-vars
+   168:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+   351:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  1724:11  warning  'plan' is assigned a value but never used            @typescript-eslint/no-unused-vars
+  1981:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  2108:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  2122:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  2135:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  3093:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  3105:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  3267:12  warning  'buildLocalChapterPrompt' is defined but never used  @typescript-eslint/no-unused-vars
+  3614:12  warning  'showLocalAiCenter' is defined but never used        @typescript-eslint/no-unused-vars
+  3621:12  warning  'showTrainingCenter' is defined but never used       @typescript-eslint/no-unused-vars
+  3676:12  warning  'saveDefaultLocalModel' is defined but never used    @typescript-eslint/no-unused-vars
+  3707:12  warning  'abortLocalAiGeneration' is defined but never used   @typescript-eslint/no-unused-vars
+  3750:18  warning  'addTrainingSample' is defined but never used        @typescript-eslint/no-unused-vars
+  3802:18  warning  'exportTrainingJsonl' is defined but never used      @typescript-eslint/no-unused-vars
+  3809:18  warning  'importTrainingJsonl' is defined but never used      @typescript-eslint/no-unused-vars
+  3836:18  warning  'validateTrainingDataset' is defined but never used  @typescript-eslint/no-unused-vars
+  3847:18  warning  'buildTrainingDataset' is defined but never used     @typescript-eslint/no-unused-vars
+  3859:18  warning  'checkTrainingHardware' is defined but never used    @typescript-eslint/no-unused-vars
+  3871:18  warning  'startLoraTraining' is defined but never used        @typescript-eslint/no-unused-vars
+  3888:18  warning  'stopLoraTraining' is defined but never used         @typescript-eslint/no-unused-vars
+  3923:18  warning  'runLocalAiAcceptance' is defined but never used     @typescript-eslint/no-unused-vars
+  3991:13  warning  'stateReference' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  4181:78  warning  'index' is defined but never used                    @typescript-eslint/no-unused-vars
+  4508:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4544:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4661:95  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4663:93  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4821:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4836:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4970:49  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  4988:18  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  5025:18  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  5042:18  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\h2-full-closure-utils.mjs
+  240:7  warning  Expected an assignment or function call and instead saw an expression  @typescript-eslint/no-unused-expressions
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-ai-h2w2-segmented-workspace.mjs
+  2:10  warning  'createHarness' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-ai-h2w3-whole-novel-workspace.mjs
+  6:50  warning  'WEB_WHOLE_NOVEL_WORKSPACE_VERSION' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-c2c2b1-matrix.mjs
+  109:10  warning  'buildPayload' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-c2c3-tests.mjs
+  338:9  warning  'cleanupBefore' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-l0a2e2-contracts.mjs
+  33:10  warning  'rows' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-l0b-full-contract.mjs
+  13:9  warning  'inspectSQLiteDatabaseFile' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-l0b1-sqlite-foundation.mjs
+  3:8  warning  'os' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\dev\novel-closed-ai-r5-2\scripts\run-story-bible-l0b2-sqlite-core.mjs
+  3:10  warning  'fileURLToPath' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 98 problems (0 errors, 98 warnings)
+
+

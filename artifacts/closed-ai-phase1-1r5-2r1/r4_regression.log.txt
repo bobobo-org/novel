@@ -1,0 +1,137 @@
+﻿pnpm.cmd : $ node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-
+phase1-1r4.mjs
+At line:2 char:770
++ ... cs.Stopwatch]::StartNew(); $output=& $pnpm @($item.args) 2>&1 | Out-S ...
++                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ node --experi...-phase1-1r4.mjs:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:13124) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/dev/novel-closed-ai-r5-2/lib/novel-ai/pr
+oviders/local-ollama/local-extraction-runtime.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\dev\novel-closed-ai-r5-2\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "schemaVersion": "closed-ai-phase1-1r4-results-v1",
+  "generatedAt": "2026-07-20T16:08:56.845Z",
+  "pass": 7,
+  "fail": 0,
+  "results": [
+    {
+      "name": "R4 attempt budgets are bounded and reserve validation time",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "normal": {
+          "attemptTimeoutMs": [
+            35000,
+            25000,
+            25000
+          ],
+          "validationReserveMs": 15000
+        },
+        "short": {
+          "attemptTimeoutMs": [
+            250,
+            150,
+            100
+          ],
+          "validationReserveMs": 500
+        },
+        "maximumAttempts": 3
+      }
+    },
+    {
+      "name": "compact model output is repaired into evidence-backed schema",
+      "status": "PASS",
+      "elapsedMs": 8,
+      "evidence": {
+        "schemaValid": true,
+        "evidenceValid": true,
+        "factCount": 1
+      }
+    },
+    {
+      "name": "an attempt timeout advances to a distinct repair strategy",
+      "status": "PASS",
+      "elapsedMs": 258,
+      "evidence": {
+        "attempts": [
+          {
+            "attempt": 1,
+            "attemptId": "req-r4-timeout-retry:attempt-1",
+            "strategy": "normal_structured_extraction",
+            "elapsedMs": 255,
+            "status": "timeout",
+            "errorCode": "LOCAL_EXTRACTION_ATTEMPT_TIMEOUT",
+            "schemaValid": false
+          },
+          {
+            "attempt": 2,
+            "attemptId": "req-r4-timeout-retry:attempt-2",
+            "strategy": "evidence_only_extraction",
+            "elapsedMs": 2,
+            "status": "accepted",
+            "errorCode": null,
+            "schemaValid": true
+          }
+        ],
+        "finalFactCount": 1
+      }
+    },
+    {
+      "name": "three rejected attempts return honest local-model insufficiency",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "errorCode": "LOCAL_MODEL_INSUFFICIENT_FOR_TASK",
+        "attempts": 3,
+        "suggestedAction": "Use a stronger local model or a future Private Hub runtime."
+      }
+    },
+    {
+      "name": "invented evidence is rejected even when compact JSON is valid",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "rejected": true,
+        "errorCode": "LOCAL_MODEL_OUTPUT_UNRELIABLE",
+        "repairRefusedUnsupportedFact": true
+      }
+    },
+    {
+      "name": "launcher rejects wildcard preview origin",
+      "status": "PASS",
+      "elapsedMs": 167,
+      "evidence": {
+        "wildcardAllowed": false,
+        "errorCode": "LAUNCHER_ORIGIN_INVALID"
+      }
+    },
+    {
+      "name": "legacy build source and generated manifest have identical hashes",
+      "status": "PASS",
+      "elapsedMs": 168,
+      "evidence": {
+        "schemaVersion": "legacy-build-truth-v1",
+        "sourcePath": "public/legacy/novel-system.html",
+        "deployedRoute": "/legacy/novel-system.html",
+        "hashMode": "sha256-normalized-release-fields-v1",
+        "sourceSha256": "95947d3425627bc4dcd4be6c1295a94c5b238e5a8f5743401f19697217795307",
+        "buildArtifactSha256": "95947d3425627bc4dcd4be6c1295a94c5b238e5a8f5743401f19697217795307",
+        "buildArtifactRawSha256": "b85f8065455891da46f73a5e1aad22d269161e7e77307ceba39769554862907e",
+        "commit": "7d821fb9fcbd95caa72a637930d84fd458056b0d",
+        "assertions": {
+          "prohibitedStringsAbsent": true,
+          "unsafeScriptsNotLoaded": true,
+          "directProviderHandlersRejected": true,
+          "unsafeServiceWorkerCacheEntriesAbsent": true,
+          "boundaryLoadedLast": true
+        }
+      }
+    }
+  ],
+  "realModelCalls": 0,
+  "formalStoryBibleWrites": 0
+}
+

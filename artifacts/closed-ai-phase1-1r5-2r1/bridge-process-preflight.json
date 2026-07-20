@@ -1,0 +1,44 @@
+﻿{
+    "purpose":  "Bridge process preflight only",
+    "acceptedAsUiEvidence":  false,
+    "status":  "PASS",
+    "launcherStatus":  {
+                           "startedAt":  "2026-07-20T16:11:59.3807980Z",
+                           "completedAt":  "2026-07-20T16:11:59.5701718Z",
+                           "arguments":  [
+                                             "status"
+                                         ],
+                           "exitCode":  0,
+                           "output":  {
+                                          "ok":  true,
+                                          "command":  "status",
+                                          "status":  "Bridge已啟動但未配對",
+                                          "bridge":  {
+                                                         "alive":  true,
+                                                         "instanceId":  "037ccb46-34d3-4c75-86ea-91124a4c954a",
+                                                         "protocolVersion":  "novel-local-bridge/v1",
+                                                         "pairingState":  "unpaired"
+                                                     },
+                                          "ollama":  {
+                                                         "status":  "模型可用",
+                                                         "version":  "0.32.0",
+                                                         "models":  [
+                                                                        "nomic-embed-text:latest",
+                                                                        "qwen2.5:3b"
+                                                                    ]
+                                                     },
+                                          "process":  {
+                                                          "pid":  23240,
+                                                          "configuredOrigins":  [
+                                                                                    "https://novel-orcin.vercel.app",
+                                                                                    "http://localhost:3000",
+                                                                                    "http://127.0.0.1:3000",
+                                                                                    "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                                                                                ],
+                                                          "startedAt":  "2026-07-20T16:11:57.106Z"
+                                                      },
+                                          "nextStep":  "在 Studio 發起配對，再執行 pair 取得配對碼。"
+                                      },
+                           "parseError":  null
+                       }
+}
