@@ -1,0 +1,51 @@
+﻿{
+    "capturedAt":  "2026-07-20T15:49:24.9531257Z",
+    "previewUrl":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
+    "expectedCommit":  "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
+    "reportedCommit":  "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
+    "commitMatches":  true,
+    "previewHealth":  {
+                          "ok":  true,
+                          "status":  200,
+                          "elapsedMs":  547,
+                          "error":  null,
+                          "deploymentId":  "dpl_wCHiGEHMT1ApKR2kefRLfXitSyGw",
+                          "parserNote":  "Raw field extraction avoids Windows PowerShell case-insensitive duplicate-key rejection."
+                      },
+    "windows":  {
+                    "caption":  "Microsoft Windows 11 Pro",
+                    "version":  "10.0.26200",
+                    "build":  "26200"
+                },
+    "session":  {
+                    "id":  1,
+                    "interactive":  true,
+                    "explorerPid":  8396
+                },
+    "bridge":  {
+                   "listening":  false,
+                   "address":  null,
+                   "port":  3217,
+                   "pid":  null
+               },
+    "ollama":  {
+                   "listener":  {
+                                    "listening":  true,
+                                    "address":  "127.0.0.1",
+                                    "port":  11434,
+                                    "pid":  23868
+                                },
+                   "version":  "0.32.0",
+                   "models":  [
+                                  "nomic-embed-text:latest",
+                                  "qwen2.5:3b"
+                              ]
+               },
+    "constraints":  {
+                        "inAppBrowserUsed":  false,
+                        "browserSecurityFlagsUsed":  false,
+                        "permissionInjected":  false,
+                        "directBridgeApiUsedForUiAcceptance":  false,
+                        "externalAiCalled":  false
+                    }
+}
