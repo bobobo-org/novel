@@ -202,6 +202,68 @@ async function queryLocalNetworkPermissionStates(page) {
   });
 }
 
+async function collectStorageAudit(page) {
+  return page.evaluate(async () => {
+    const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+    const indexedDatabases = [];
+    for (const database of databases) {
+      if (!database.name) continue;
+      const detail = await new Promise((resolve) => {
+        const request = indexedDB.open(database.name);
+        request.onerror = () => resolve({ name: database.name, version: database.version || null, error: request.error?.name || "OPEN_FAILED", stores: [] });
+        request.onsuccess = async () => {
+          const db = request.result;
+          const stores = [];
+          for (const storeName of Array.from(db.objectStoreNames)) {
+            const row = await new Promise((storeResolve) => {
+              try {
+                const transaction = db.transaction(storeName, "readonly");
+                const store = transaction.objectStore(storeName);
+                const countRequest = store.count();
+                countRequest.onsuccess = () => storeResolve({ name: storeName, count: countRequest.result });
+                countRequest.onerror = () => storeResolve({ name: storeName, count: null, error: countRequest.error?.name || "COUNT_FAILED" });
+              } catch (error) {
+                storeResolve({ name: storeName, count: null, error: error.name || "STORE_FAILED" });
+              }
+            });
+            stores.push(row);
+          }
+          db.close();
+          resolve({ name: database.name, version: db.version, stores });
+        };
+      });
+      indexedDatabases.push(detail);
+    }
+    return {
+      capturedAt: new Date().toISOString(),
+      localStorageKeys: Object.keys(localStorage).sort(),
+      sessionStorageKeys: Object.keys(sessionStorage).sort(),
+      indexedDatabases,
+    };
+  });
+}
+
+function compareMutationSensitiveStorage(before, after) {
+  const sensitive = /(accepted.?choices?|story.?branches?|story.?bible|candidate|canonical|approval|fact|evidence|revision)/i;
+  const flatten = (audit) => Object.fromEntries(audit.indexedDatabases.flatMap((database) =>
+    database.stores.filter((store) => sensitive.test(store.name)).map((store) => [`${database.name}/${store.name}`, store.count])));
+  const beforeCounts = flatten(before);
+  const afterCounts = flatten(after);
+  const keys = [...new Set([...Object.keys(beforeCounts), ...Object.keys(afterCounts)])].sort();
+  const changes = keys.filter((key) => beforeCounts[key] !== afterCounts[key]).map((key) => ({ key, before: beforeCounts[key] ?? null, after: afterCounts[key] ?? null }));
+  const storageKeyChanges = {
+    localStorageAdded: after.localStorageKeys.filter((key) => !before.localStorageKeys.includes(key) && sensitive.test(key)),
+    localStorageRemoved: before.localStorageKeys.filter((key) => !after.localStorageKeys.includes(key) && sensitive.test(key)),
+    sessionStorageAdded: after.sessionStorageKeys.filter((key) => !before.sessionStorageKeys.includes(key) && sensitive.test(key)),
+    sessionStorageRemoved: before.sessionStorageKeys.filter((key) => !after.sessionStorageKeys.includes(key) && sensitive.test(key)),
+  };
+  return {
+    status: changes.length === 0 && Object.values(storageKeyChanges).every((rows) => rows.length === 0) ? "PASS" : "FAIL",
+    sensitiveStoreCountChanges: changes,
+    ...storageKeyChanges,
+  };
+}
+
 export function readBrowserProcesses(profilePath) {
   const escaped = profilePath.replaceAll("'", "''");
   const command = `$p='${escaped}'; @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('chrome.exe','msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($p,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $process=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $owner=Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue; [pscustomobject]@{ pid=$_.ProcessId; parentPid=$_.ParentProcessId; executablePath=$_.ExecutablePath; commandLine=$_.CommandLine; sessionId=$process.SessionId; mainWindowHandle=[int64]$process.MainWindowHandle; userName=if($owner -and $owner.User){\"$($owner.Domain)\\$($owner.User)\"}else{$null} } }) | ConvertTo-Json -Depth 4`;
@@ -711,6 +773,8 @@ export async function runBrowserFlow(options) {
     validateIdentity(browser, identity);
     result.identity = identity;
     result.preview = { title, url: page.url(), runtimeOrigin, renderedOriginPresent: bodyText.includes(origin) };
+    const storageBefore = await collectStorageAudit(page);
+    await writeJson(path.join(runDirectory, "storage-before.json"), storageBefore);
     await page.screenshot({ path: path.join(runDirectory, "visible-window.png"), fullPage: true });
     await page.screenshot({ path: path.join(runDirectory, "preview-before.png"), fullPage: true });
 
@@ -800,6 +864,14 @@ export async function runBrowserFlow(options) {
     await page.waitForTimeout(2_000);
     result.permissionStates = await queryLocalNetworkPermissionStates(page);
     result.uiTextAfterDecision = (await page.locator("body").innerText()).slice(0, 4_000);
+    const storageAfter = await collectStorageAudit(page);
+    const repositoryMutationAudit = compareMutationSensitiveStorage(storageBefore, storageAfter);
+    await writeJson(path.join(runDirectory, "storage-after.json"), storageAfter);
+    await writeJson(path.join(runDirectory, "repository-mutation-audit.json"), repositoryMutationAudit);
+    result.repositoryMutationAudit = repositoryMutationAudit;
+    if (repositoryMutationAudit.status !== "PASS") {
+      throw Object.assign(new Error("Deny flow changed mutation-sensitive browser storage."), { code: "DENY_FLOW_FORMAL_REPOSITORY_MUTATION" });
+    }
     result.expectedHumanDecision = flow === "grant" ? "ALLOW" : "DENY";
     captureDesktop(path.join(runDirectory, "permission-state.png"));
     await page.screenshot({ path: path.join(runDirectory, "preview-after.png"), fullPage: true });

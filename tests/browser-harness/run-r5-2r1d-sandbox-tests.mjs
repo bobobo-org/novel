@@ -136,6 +136,10 @@ await test("automated Deny harness launches the formal adapter and owns Bridge c
 await test("adapter main forwards the explicit native UI automation mode", () => {
   assert.match(adapter, /automationMode:\s*args\["automated-native-ui"\]\s*\|\|\s*null/);
   assert.match(adapter, /automationMode:\s*options\.automationMode\s*\|\|\s*null/);
+  assert.match(adapter, /collectStorageAudit\(page\)/);
+  assert.match(adapter, /DENY_FLOW_FORMAL_REPOSITORY_MUTATION/);
+  assert.match(automatedDenyHarness, /processMatchedProfile/);
+  assert.match(automatedDenyHarness, /Capture-Rectangle/);
 });
 
 await test("Playwright channel explicitly enables Chromium sandbox", () => {

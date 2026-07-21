@@ -24,14 +24,16 @@ function Write-Utf8Json([string]$Path, $Value) {
   [IO.File]::WriteAllText($Path, $json, [Text.UTF8Encoding]::new($false))
 }
 
-function Capture-Screen([string]$Path) {
+function Capture-Rectangle([string]$Path, $Rectangle) {
   Add-Type -AssemblyName System.Drawing
-  Add-Type -AssemblyName System.Windows.Forms
-  $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
-  $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+  $width = [Math]::Max(1, [int][Math]::Ceiling($Rectangle.Width))
+  $height = [Math]::Max(1, [int][Math]::Ceiling($Rectangle.Height))
+  $left = [int][Math]::Floor($Rectangle.Left)
+  $top = [int][Math]::Floor($Rectangle.Top)
+  $bitmap = [Drawing.Bitmap]::new($width, $height)
   $graphics = [Drawing.Graphics]::FromImage($bitmap)
   try {
-    $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bitmap.Size)
+    $graphics.CopyFromScreen($left, $top, 0, 0, $bitmap.Size)
     $bitmap.Save($Path, [Drawing.Imaging.ImageFormat]::Png)
   } finally {
     $graphics.Dispose()
@@ -77,16 +79,31 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
           if ($denyNames -notcontains $element.Current.Name) { continue }
-          Capture-Screen (Join-Path $RunDirectory "native-lna-before-deny.png")
+          $elementName = $element.Current.Name
+          $elementProcessId = $element.Current.ProcessId
+          $elementBounds = $element.Current.BoundingRectangle
+          $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
+          $windowElement = $element
+          while ($windowElement -and $windowElement.Current.ControlType -ne [Windows.Automation.ControlType]::Window) {
+            $windowElement = $walker.GetParent($windowElement)
+          }
+          if (-not $windowElement) { continue }
+          $windowBounds = $windowElement.Current.BoundingRectangle
+          if ($windowElement.Current.ProcessId -ne $elementProcessId -or
+              $windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
+          Capture-Rectangle (Join-Path $RunDirectory "native-lna-before-deny.png") $windowBounds
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
           Start-Sleep -Milliseconds 700
-          Capture-Screen (Join-Path $RunDirectory "native-lna-after-deny.png")
+          Capture-Rectangle (Join-Path $RunDirectory "native-lna-after-deny.png") $windowBounds
           return [ordered]@{
             status = "INVOKED"
             automation = "Windows UI Automation"
-            elementName = $element.Current.Name
-            processId = $element.Current.ProcessId
+            elementName = $elementName
+            processId = $elementProcessId
+            processMatchedProfile = $chromePids -contains $elementProcessId
+            elementBounds = [ordered]@{ left = $elementBounds.Left; top = $elementBounds.Top; width = $elementBounds.Width; height = $elementBounds.Height }
+            windowBounds = [ordered]@{ left = $windowBounds.Left; top = $windowBounds.Top; width = $windowBounds.Width; height = $windowBounds.Height }
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
           }
         } catch { }
