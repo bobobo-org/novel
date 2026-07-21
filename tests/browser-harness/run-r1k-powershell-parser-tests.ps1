@@ -5,9 +5,11 @@ $scripts = @(
   "scripts\run-r5-2-desktop-e2e.ps1",
   "scripts\run-r5-2r1a-real-browser.ps1",
   "scripts\r5-2-desktop\collect-browser-evidence.ps1",
+  "scripts\r5-2-desktop\assert-browser-harness-dependencies.ps1",
   "scripts\r5-2-desktop\evidence-json.ps1",
   "scripts\r5-2-desktop\start-real-browser.ps1",
   "scripts\r5-2-desktop\stop-real-browser.ps1"
+  "tests\browser-harness\run-r1k-dependency-preflight-tests.ps1"
 )
 
 $results = foreach ($relativePath in $scripts) {

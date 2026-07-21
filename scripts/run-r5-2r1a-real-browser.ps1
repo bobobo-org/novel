@@ -27,6 +27,10 @@ $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 $edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 $chromeVersion = (Get-Item $chromePath).VersionInfo.ProductVersion
 $edgeVersion = (Get-Item $edgePath).VersionInfo.ProductVersion
+$dependencyPreflight = Join-Path $repositoryRoot "scripts\r5-2-desktop\assert-browser-harness-dependencies.ps1"
+
+& $dependencyPreflight -RepositoryRoot $repositoryRoot -NodePath $NodePath `
+  -ChromePath $chromePath -EdgePath $edgePath | Out-Null
 
 function Write-Json {
   param([string]$Name, [object]$Value)
