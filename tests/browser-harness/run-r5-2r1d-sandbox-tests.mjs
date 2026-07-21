@@ -120,6 +120,7 @@ await test("automated native UI mode is explicitly forwarded through both PowerS
   assert.match(operatorHarness, /\[switch\]\$AutomatedNativeUi/);
   assert.match(operatorHarness, /if \(\$AutomatedNativeUi\) \{ \$browserArgs \+= "-AutomatedNativeUi" \}/);
   assert.match(browserStarter, /\[switch\]\$AutomatedNativeUi/);
+  assert.match(browserStarter, /\$AutomatedNativeUi -or \$env:R1K_AUTOMATED_NATIVE_UI -eq "1"/);
   assert.match(browserStarter, /--automated-native-ui", "windows-ui-automation"/);
 });
 

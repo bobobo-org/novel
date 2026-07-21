@@ -644,7 +644,16 @@ export async function runBrowserFlow(options) {
 
   const consoleRows = [];
   const networkRows = [];
-  const result = { run_id: runId, browser, flow, origin, profilePath, status: "RUNNING", startedAt: new Date().toISOString() };
+  const result = {
+    run_id: runId,
+    browser,
+    flow,
+    origin,
+    profilePath,
+    status: "RUNNING",
+    startedAt: new Date().toISOString(),
+    automationMode: options["automated-native-ui"] || null,
+  };
   let launch = null;
   try {
     const channelResult = await launchChannel(browser, profilePath, path.join(runDirectory, "network.har"));

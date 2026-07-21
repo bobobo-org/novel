@@ -151,6 +151,7 @@ $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
 $startInfo.CreateNoWindow = $true
 $startInfo.EnvironmentVariables["R1K_AUTOMATED_NATIVE_UI"] = "1"
+$startInfo.EnvironmentVariables["R1K_AUTOMATED_NATIVE_UI"] = "1"
 $process = [Diagnostics.Process]::new()
 $process.StartInfo = $startInfo
 if (-not $process.Start()) { throw "HARNESS_START_FAILED" }

@@ -29,7 +29,7 @@ $adapterArgs = @(
   "--browser-version", $BrowserVersion,
   "--harness-pid", $HarnessPid
 )
-if ($AutomatedNativeUi) {
+if ($AutomatedNativeUi -or $env:R1K_AUTOMATED_NATIVE_UI -eq "1") {
   $adapterArgs += @("--automated-native-ui", "windows-ui-automation")
 }
 & $NodePath @adapterArgs
