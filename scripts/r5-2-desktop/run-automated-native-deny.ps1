@@ -65,11 +65,17 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
     "Block"
   )
   while ((Get-Date) -lt $deadline) {
-    $chromePids = @(Get-CimInstance Win32_Process | Where-Object {
+    $chromeProcesses = @(Get-CimInstance Win32_Process | Where-Object {
       $_.Name -eq "chrome.exe" -and $_.CommandLine -and
       $_.CommandLine.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
-    } | Select-Object -ExpandProperty ProcessId)
+    })
+    $chromePids = @($chromeProcesses | Select-Object -ExpandProperty ProcessId)
     if ($chromePids.Count) {
+      $mainChrome = $chromeProcesses | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } |
+        Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+      if (-not $mainChrome) { Start-Sleep -Milliseconds 250; continue }
+      $windowElement = [Windows.Automation.AutomationElement]::FromHandle($mainChrome.MainWindowHandle)
+      $windowBounds = $windowElement.Current.BoundingRectangle
       $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
         [Windows.Automation.TreeScope]::Descendants,
         [Windows.Automation.Condition]::TrueCondition
@@ -82,15 +88,7 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           $elementName = $element.Current.Name
           $elementProcessId = $element.Current.ProcessId
           $elementBounds = $element.Current.BoundingRectangle
-          $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
-          $windowElement = $element
-          while ($windowElement -and $windowElement.Current.ControlType -ne [Windows.Automation.ControlType]::Window) {
-            $windowElement = $walker.GetParent($windowElement)
-          }
-          if (-not $windowElement) { continue }
-          $windowBounds = $windowElement.Current.BoundingRectangle
-          if ($windowElement.Current.ProcessId -ne $elementProcessId -or
-              $windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
+          if ($windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
           Capture-Rectangle (Join-Path $RunDirectory "native-lna-before-deny.png") $windowBounds
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
@@ -102,6 +100,8 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
             elementName = $elementName
             processId = $elementProcessId
             processMatchedProfile = $chromePids -contains $elementProcessId
+            mainBrowserProcessId = $mainChrome.Id
+            mainWindowHandle = $mainChrome.MainWindowHandle
             elementBounds = [ordered]@{ left = $elementBounds.Left; top = $elementBounds.Top; width = $elementBounds.Width; height = $elementBounds.Height }
             windowBounds = [ordered]@{ left = $windowBounds.Left; top = $windowBounds.Top; width = $windowBounds.Width; height = $windowBounds.Height }
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
