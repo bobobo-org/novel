@@ -156,6 +156,9 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           return [ordered]@{
             status = "INVOKED"
             automation = "Windows UI Automation"
+            decisionMethod = "WINDOWS_UI_AUTOMATION"
+            humanOperatorClicked = $false
+            automationRole = "Button"
             elementName = $elementName
             processId = $elementProcessId
             processMatchedProfile = $chromePids -contains $elementProcessId
@@ -163,6 +166,7 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
             mainWindowHandle = $mainChrome.MainWindowHandle
             mainWindowTitle = $windowTitle
             screenshotMethod = "verified-window-topmost-screen-rectangle"
+            fixedScreenCoordinatesUsed = $false
             elementBounds = [ordered]@{ left = $elementBounds.Left; top = $elementBounds.Top; width = $elementBounds.Width; height = $elementBounds.Height }
             windowBounds = [ordered]@{ left = $windowBounds.Left; top = $windowBounds.Top; width = $windowBounds.Width; height = $windowBounds.Height }
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -302,6 +306,10 @@ $stderr = $process.StandardError.ReadToEnd()
 
 $summary = [ordered]@{
   schemaVersion = "r1k-automated-deny-summary-v1"
+  technical_status = if ($process.ExitCode -eq 0 -and (Get-LoopbackPermission -ProfilePath $profilePath) -eq 2) { "AUTOMATED_PASS" } else { "NOT_READY" }
+  human_validation_status = "HUMAN_NOT_RUN"
+  decision_method = "WINDOWS_UI_AUTOMATION"
+  human_operator_clicked = $false
   completedAt = (Get-Date).ToUniversalTime().ToString("o")
   run_id = $runId
   profilePath = $profilePath
