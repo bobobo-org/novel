@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$TargetUrl = "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
   [string]$ProductCommit = "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
@@ -157,6 +157,16 @@ if ($RequireOperatorReady) {
   Write-Host "`n這是正確的 R1K Harness 視窗。請勿在其他 PowerShell 輸入。" -ForegroundColor Cyan
   Write-Host "請使用者本人在本視窗輸入：" -ForegroundColor Yellow
   Write-Host "OPERATOR_READY $readyChallenge" -ForegroundColor White -BackgroundColor DarkBlue
+  Write-Json "operator-ready-pending.json" ([ordered]@{
+    status = "WAITING_FOR_LOCAL_OPERATOR"
+    createdAt = (Get-Date).ToUniversalTime().ToString("o")
+    browser = $runPlan[0].browser
+    flow = $runPlan[0].flow
+    run_id = $runPlan[0].run_id
+    command = "OPERATOR_READY $readyChallenge"
+    bridgeStarted = $false
+    browserStarted = $false
+  })
   while ($true) {
     $answer = Read-Host
     if ($answer -ceq "OPERATOR_READY $readyChallenge") { break }
