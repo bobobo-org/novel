@@ -652,7 +652,7 @@ export async function runBrowserFlow(options) {
     profilePath,
     status: "RUNNING",
     startedAt: new Date().toISOString(),
-    automationMode: options["automated-native-ui"] || null,
+    automationMode: options.automationMode || null,
   };
   let launch = null;
   try {
@@ -777,7 +777,7 @@ export async function runBrowserFlow(options) {
     result.uiClickAt = new Date().toISOString();
     await detectButton.click();
     const operatorDecision = await waitForOperator(browser, flow, origin, runId, {
-      automationMode: options["automated-native-ui"] || null,
+      automationMode: options.automationMode || null,
       livenessProbe,
       expectedLiveness,
       heartbeatMs: options.heartbeatMs || 30_000,
@@ -859,6 +859,7 @@ async function main() {
     browserVersion: args["browser-version"],
     harnessPid: Number(args["harness-pid"]),
     runId: args["run-id"],
+    automationMode: args["automated-native-ui"] || null,
   });
   output.write(`${JSON.stringify(result, null, 2)}\n`);
 }

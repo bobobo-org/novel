@@ -133,6 +133,11 @@ await test("automated Deny harness launches the formal adapter and owns Bridge c
   assert.match(automatedDenyHarness, /origin revoke \$origin --confirm \$origin/);
 });
 
+await test("adapter main forwards the explicit native UI automation mode", () => {
+  assert.match(adapter, /automationMode:\s*args\["automated-native-ui"\]\s*\|\|\s*null/);
+  assert.match(adapter, /automationMode:\s*options\.automationMode\s*\|\|\s*null/);
+});
+
 await test("Playwright channel explicitly enables Chromium sandbox", () => {
   assert.match(adapter, /chromiumSandbox:\s*true/);
   assert.doesNotMatch(adapter, /chromiumSandbox:\s*false/);
