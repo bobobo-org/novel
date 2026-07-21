@@ -102,14 +102,14 @@ $flows = if ($Browser -or $Flow) {
   @(@{ browser = "chrome"; flow = "grant"; version = $chromeVersion })
 }
 
-$runPlan = foreach ($flow in $flows) {
-  $runId = New-RunId $flow.browser $flow.flow
+$runPlan = foreach ($flowSpec in $flows) {
+  $runId = New-RunId $flowSpec.browser $flowSpec.flow
   [ordered]@{
-    browser = $flow.browser
-    flow = $flow.flow
-    version = $flow.version
+    browser = $flowSpec.browser
+    flow = $flowSpec.flow
+    version = $flowSpec.version
     run_id = $runId
-    profile = Join-Path $profileRoot "$($flow.browser)-$($flow.flow)"
+    profile = Join-Path $profileRoot "$($flowSpec.browser)-$($flowSpec.flow)"
   }
 }
 

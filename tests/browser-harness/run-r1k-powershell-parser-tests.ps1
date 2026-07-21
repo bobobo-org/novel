@@ -15,15 +15,32 @@ $results = foreach ($relativePath in $scripts) {
   $tokens = $null
   $errors = $null
 
-  [System.Management.Automation.Language.Parser]::ParseFile(
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $scriptPath,
     [ref]$tokens,
     [ref]$errors
-  ) | Out-Null
+  )
+
+  $parameterNames = @()
+  if ($ast.ParamBlock) {
+    $parameterNames = @($ast.ParamBlock.Parameters | ForEach-Object {
+      $_.Name.VariablePath.UserPath.ToLowerInvariant()
+    })
+  }
+  $loopNames = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.ForEachStatementAst]
+  }, $true) | ForEach-Object {
+    $_.Variable.VariablePath.UserPath.ToLowerInvariant()
+  })
+  $variableCollisions = @($parameterNames | Where-Object {
+    $loopNames -contains $_
+  } | Sort-Object -Unique)
 
   [pscustomobject]@{
     path = $relativePath.Replace("\", "/")
     parserErrors = @($errors).Count
+    parameterLoopVariableCollisions = @($variableCollisions)
     errors = @($errors | ForEach-Object {
       [pscustomobject]@{
         message = $_.Message
@@ -35,8 +52,10 @@ $results = foreach ($relativePath in $scripts) {
   }
 }
 
-$results | Format-Table path, parserErrors -AutoSize
-$failures = @($results | Where-Object { $_.parserErrors -gt 0 })
+$results | Format-Table path, parserErrors, @{ Label = "variableCollisions"; Expression = { $_.parameterLoopVariableCollisions.Count } } -AutoSize
+$failures = @($results | Where-Object {
+  $_.parserErrors -gt 0 -or $_.parameterLoopVariableCollisions.Count -gt 0
+})
 if ($failures.Count -gt 0) {
   $failures | ConvertTo-Json -Depth 8
   throw "PowerShell parser validation failed."
