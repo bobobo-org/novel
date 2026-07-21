@@ -61,6 +61,36 @@ namespace R1K {
   Start-Sleep -Milliseconds 500
 }
 
+function Capture-Window([string]$Path, [IntPtr]$WindowHandle, $Rectangle) {
+  Add-Type -AssemblyName System.Drawing
+  if (-not ("R1K.WindowCapture" -as [type])) {
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+namespace R1K {
+  public static class WindowCapture {
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+  }
+}
+"@
+  }
+  $width = [Math]::Max(1, [int][Math]::Ceiling($Rectangle.Width))
+  $height = [Math]::Max(1, [int][Math]::Ceiling($Rectangle.Height))
+  $bitmap = [Drawing.Bitmap]::new($width, $height)
+  $graphics = [Drawing.Graphics]::FromImage($bitmap)
+  $hdc = $graphics.GetHdc()
+  try {
+    if (-not [R1K.WindowCapture]::PrintWindow($WindowHandle, $hdc, 2)) {
+      throw "PrintWindow failed for the verified test browser window."
+    }
+  } finally {
+    $graphics.ReleaseHdc($hdc)
+    $graphics.Dispose()
+  }
+  try { $bitmap.Save($Path, [Drawing.Imaging.ImageFormat]::Png) }
+  finally { $bitmap.Dispose() }
+}
+
 function Get-LoopbackPermission([string]$ProfilePath) {
   $preferencesPath = Join-Path $ProfilePath "Default\Preferences"
   if (-not (Test-Path -LiteralPath $preferencesPath)) { return $null }
@@ -111,11 +141,11 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           if ($windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
           $windowTitle = $windowElement.Current.Name
           Show-TestWindow $mainChrome.MainWindowHandle
-          Capture-Rectangle (Join-Path $RunDirectory "native-lna-before-deny.png") $windowBounds
+          Capture-Window (Join-Path $RunDirectory "native-lna-before-deny.png") $mainChrome.MainWindowHandle $windowBounds
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
           Start-Sleep -Milliseconds 700
-          Capture-Rectangle (Join-Path $RunDirectory "native-lna-after-deny.png") $windowBounds
+          Capture-Window (Join-Path $RunDirectory "native-lna-after-deny.png") $mainChrome.MainWindowHandle $windowBounds
           return [ordered]@{
             status = "INVOKED"
             automation = "Windows UI Automation"
