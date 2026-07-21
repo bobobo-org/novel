@@ -32,7 +32,30 @@ function controlSignal(signal?: AbortSignal) {
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
-function connectivityError(error: unknown, signal: AbortSignal) {
+type LocalNetworkPermissionState = PermissionState | "unsupported";
+type PermissionStateReader = () => Promise<LocalNetworkPermissionState>;
+
+async function readLocalNetworkPermissionState(): Promise<LocalNetworkPermissionState> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return "unsupported";
+  for (const name of ["loopback-network", "local-network-access"]) {
+    try {
+      const status = await navigator.permissions.query({ name } as PermissionDescriptor);
+      if (status.state === "denied" || status.state === "granted") return status.state;
+    } catch {
+      // Chromium versions expose either the split permission or its legacy alias.
+    }
+  }
+  return "prompt";
+}
+
+export async function classifyBridgeConnectivityError(
+  error: unknown,
+  signal: AbortSignal,
+  readPermissionState: PermissionStateReader = readLocalNetworkPermissionState,
+) {
+  if (await readPermissionState() === "denied") {
+    return new AiProviderError("LOCAL_NETWORK_PERMISSION_DENIED", "The user denied Local Network Access for this site.", { retryable: false, stage: "local-network-permission" });
+  }
   if (signal.aborted) return new AiProviderError("REQUEST_TIMEOUT", "Local Bridge request timed out before a response was received.", { retryable: true, stage: "local-bridge-connect" });
   if (error instanceof AiProviderError) return error;
   return new AiProviderError("BRIDGE_PROCESS_UNREACHABLE", "The browser could not reach the Local Bridge loopback endpoint.", { retryable: true, stage: "local-bridge-connect" });
@@ -66,7 +89,7 @@ export class LocalBridgeClient {
   private async fetchBridge(url: string, init: RequestInit = {}, signal?: AbortSignal) {
     const boundedSignal = controlSignal(signal);
     try { return await fetch(url, { ...init, signal: boundedSignal }); }
-    catch (error) { throw connectivityError(error, boundedSignal); }
+    catch (error) { throw await classifyBridgeConnectivityError(error, boundedSignal); }
   }
 
   private async parse(response: Response) {
@@ -136,7 +159,7 @@ export class LocalBridgeClient {
     try {
       let response: Response;
       try { response = await fetch(`${this.endpoint}/generate`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json", "Idempotency-Key": input.requestId }, body: JSON.stringify(input), signal: input.signal }); }
-      catch (error) { throw connectivityError(error, input.signal ?? new AbortController().signal); }
+      catch (error) { throw await classifyBridgeConnectivityError(error, input.signal ?? new AbortController().signal); }
       if (!response.ok) { await this.parse(response); return; }
       const reader = response.body?.getReader();
       if (!reader) throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "Local Bridge returned no stream.", { retryable: true });

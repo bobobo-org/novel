@@ -30,6 +30,7 @@ const errorGuidance: Record<string, string> = {
   BRIDGE_PROCESS_UNREACHABLE: "瀏覽器沒有連到本機橋接服務。請確認服務已啟動，並確認目前網站已完成本機授權。",
   MIXED_CONTENT_BLOCKED: "瀏覽器阻擋了安全網站連往本機 HTTP 服務。請勿關閉瀏覽器安全功能，改用支援的本機連線方式。",
   PRIVATE_NETWORK_ACCESS_BLOCKED: "瀏覽器的私人網路保護阻擋了這次連線。請確認 Bridge 已授權此網站並支援私人網路預檢。",
+  LOCAL_NETWORK_PERMISSION_DENIED: "你已拒絕這個網站存取本機網路。本機 AI 沒有連線，也不會改用外部 AI；請在瀏覽器網站權限中允許本機網路後再試。",
   CORS_PREFLIGHT_REJECTED: "本機橋接服務拒絕了瀏覽器預檢。請重新確認網站授權與 Bridge 版本。",
   HOST_VALIDATION_FAILED: "本機橋接服務拒絕了不安全的主機位址。請只使用 localhost 或 loopback 位址。",
   REQUEST_TIMEOUT: "瀏覽器在期限內沒有收到本機橋接服務回應。",

@@ -14,6 +14,7 @@
     "test:r5-2r1d:smoke": "node tests/browser-harness/run-r5-2r1d-sandbox-smoke.mjs",
     "test:r5-2r1h:liveness": "node tests/browser-harness/run-r5-2r1h-liveness-tests.mjs",
     "test:r5-2r1j:evidence-utf8": "node tests/browser-harness/run-r5-2r1j-evidence-utf8-tests.mjs",
+    "test:r1k:denial": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs tests/browser-harness/r1k-local-network-denial.test.mjs",
     "build:story-library": "node scripts/build-story-library.mjs",
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",
