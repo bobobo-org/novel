@@ -9,6 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $repositoryRoot "scripts\r5-2-desktop\evidence-json.ps1")
 $artifactRoot = Join-Path $repositoryRoot $ArtifactDirectory
 $profileRoot = Join-Path $artifactRoot "browser-profiles"
 $launcher = Join-Path $repositoryRoot "local-ai\bridge\launcher.mjs"
@@ -25,8 +26,7 @@ $edgeVersion = (Get-Item $edgePath).VersionInfo.ProductVersion
 function Write-Json {
   param([string]$Name, [object]$Value)
   $path = Join-Path $artifactRoot $Name
-  New-Item -ItemType Directory -Force -Path (Split-Path $path -Parent) | Out-Null
-  $Value | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $path -Encoding utf8
+  Write-EvidenceJson -Path $path -Value $Value -Depth 16
 }
 
 function Invoke-Launcher {
@@ -79,7 +79,7 @@ function Write-RunHashManifest {
     }
   }
   $value = [ordered]@{ run_id = $RunId; createdAt = (Get-Date).ToUniversalTime().ToString("o"); files = @($rows) }
-  $value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+  Write-EvidenceJson -Path $manifestPath -Value $value -Depth 8
 }
 
 $flows = if ($FullMatrix) {
@@ -168,7 +168,7 @@ try {
     $runDirectory = Join-Path $artifactRoot "runs\$($run.run_id)"
     Write-Json "runs/$($run.run_id)/bridge-access.json" ([ordered]@{ run_id = $run.run_id; rows = @($bridgeRows) })
     $finalPath = Join-Path $runDirectory "final-result.json"
-    $final = if (Test-Path $finalPath) { Get-Content $finalPath -Raw | ConvertFrom-Json } else { [ordered]@{ status = "FAILED"; error = "FINAL_RESULT_MISSING" } }
+    $final = if (Test-Path $finalPath) { Read-EvidenceJson -Path $finalPath } else { [ordered]@{ status = "FAILED"; error = "FINAL_RESULT_MISSING" } }
     $runResults += [ordered]@{ run_id = $run.run_id; browser = $run.browser; flow = $run.flow; adapterExit = $adapterExit; finalStatus = $final.status }
     Write-RunHashManifest $runDirectory $run.run_id
     if ($adapterExit -ne 0 -or $final.status -ne "COMPLETED_FOR_REVIEW") { break }
