@@ -132,17 +132,25 @@ $preflight.result = if (
 Write-Utf8Json (Join-Path $artifactRoot "automated-deny-preflight.json") $preflight
 if ($preflight.result -ne "PASS") { throw "AUTOMATED_DENY_PREFLIGHT_FAILED" }
 
+$adapterPath = Join-Path $repositoryRoot "scripts\r5-2-desktop\local-cdp-adapter.mjs"
+$runId = "chrome-deny-" + [guid]::NewGuid().ToString("N")
+$profilePath = $expectedProfilePath
+$runDirectory = Join-Path $artifactRoot "runs\$runId"
+$chromeVersion = (Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.ProductVersion
 $arguments = @(
-  "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $harnessPath,
-  "-TargetUrl", $TargetUrl,
-  "-ProductCommit", $ProductCommit,
-  "-Browser", "chrome",
-  "-Flow", "deny",
-  "-ArtifactDirectory", $ArtifactDirectory,
-  "-NodePath", $NodePath
+  $adapterPath,
+  "--browser", "chrome",
+  "--flow", "deny",
+  "--target-url", $TargetUrl,
+  "--profile", $profilePath,
+  "--artifacts", $artifactRoot,
+  "--run-id", $runId,
+  "--browser-version", $chromeVersion,
+  "--harness-pid", $PID,
+  "--automated-native-ui", "windows-ui-automation"
 )
 $startInfo = [Diagnostics.ProcessStartInfo]::new()
-$startInfo.FileName = "powershell.exe"
+$startInfo.FileName = $NodePath
 $startInfo.Arguments = ($arguments | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " "
 $startInfo.WorkingDirectory = $repositoryRoot
 $startInfo.UseShellExecute = $false
@@ -150,60 +158,62 @@ $startInfo.RedirectStandardInput = $true
 $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
 $startInfo.CreateNoWindow = $true
-$startInfo.EnvironmentVariables["R1K_AUTOMATED_NATIVE_UI"] = "1"
-$startInfo.EnvironmentVariables["R1K_AUTOMATED_NATIVE_UI"] = "1"
 $process = [Diagnostics.Process]::new()
 $process.StartInfo = $startInfo
-if (-not $process.Start()) { throw "HARNESS_START_FAILED" }
 
 $lines = [Collections.Generic.List[string]]::new()
 $decisionChallenge = $null
 $operatorChallenge = $null
-$runId = $null
-$profilePath = $null
 $nativeDecision = $null
-while (-not $process.HasExited) {
-  $line = $process.StandardOutput.ReadLine()
-  if ($null -eq $line) { Start-Sleep -Milliseconds 50; continue }
-  $lines.Add($line)
-  if ($line -match "run_id:\s*(\S+)") { $runId = $Matches[1] }
-  if ($line -match "chrome deny profile:\s*(.+?)\s*\|\s*run_id:\s*(\S+)") {
-    $profilePath = $Matches[1].Trim()
-    $runId = $Matches[2]
-  }
-  if ($line -match "Decision challenge:\s*([A-Fa-f0-9]+)") {
-    $decisionChallenge = $Matches[1]
-    $runDirectory = Join-Path $artifactRoot "runs\$runId"
-    $nativeDecision = Invoke-NativeDeny -ProfilePath $profilePath -RunDirectory $runDirectory
-    Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
-    if ($nativeDecision.status -eq "INVOKED") {
-      $permissionDeadline = (Get-Date).AddSeconds(10)
-      do {
-        $permission = Get-LoopbackPermission -ProfilePath $profilePath
-        if ($permission -eq 2) { break }
-        Start-Sleep -Milliseconds 250
-      } while ((Get-Date) -lt $permissionDeadline)
-      if ($permission -eq 2) {
-        $process.StandardInput.WriteLine("CONTINUE $decisionChallenge")
-        $process.StandardInput.Flush()
-      } else {
-        $nativeDecision.status = "DENY_NOT_PERSISTED"
-        Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
-        if ($operatorChallenge) {
+$originAdded = $false
+$bridgeStarted = $false
+$processStarted = $false
+try {
+  $originAdd = & $NodePath $launcherPath origin add $origin --confirm $origin | Out-String | ConvertFrom-Json
+  if (-not $originAdd.ok) { throw "ORIGIN_ENROLLMENT_FAILED" }
+  $originAdded = $true
+  $bridgeStart = & $NodePath $launcherPath start --origin $origin | Out-String | ConvertFrom-Json
+  if (-not $bridgeStart.ok) { throw "BRIDGE_START_FAILED" }
+  $bridgeStarted = $true
+  if (-not $process.Start()) { throw "HARNESS_START_FAILED" }
+  $processStarted = $true
+  while (-not $process.HasExited) {
+    $line = $process.StandardOutput.ReadLine()
+    if ($null -eq $line) { Start-Sleep -Milliseconds 50; continue }
+    $lines.Add($line)
+    if ($line -match "Operator challenge:\s*([A-Fa-f0-9]+)") { $operatorChallenge = $Matches[1] }
+    if ($line -match "Decision challenge:\s*([A-Fa-f0-9]+)") {
+      $decisionChallenge = $Matches[1]
+      $nativeDecision = Invoke-NativeDeny -ProfilePath $profilePath -RunDirectory $runDirectory
+      Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
+      if ($nativeDecision.status -eq "INVOKED") {
+        $permissionDeadline = (Get-Date).AddSeconds(10)
+        do {
+          $permission = Get-LoopbackPermission -ProfilePath $profilePath
+          if ($permission -eq 2) { break }
+          Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $permissionDeadline)
+        if ($permission -eq 2) {
+          $process.StandardInput.WriteLine("CONTINUE $decisionChallenge")
+          $process.StandardInput.Flush()
+        } else {
+          $nativeDecision.status = "DENY_NOT_PERSISTED"
+          Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
           $process.StandardInput.WriteLine("ABORT $operatorChallenge")
           $process.StandardInput.Flush()
-        } else { $process.Kill() }
-      }
-    } else {
-      if ($operatorChallenge) {
+        }
+      } else {
         $process.StandardInput.WriteLine("ABORT $operatorChallenge")
         $process.StandardInput.Flush()
-      } else { $process.Kill() }
+      }
     }
   }
-  if ($line -match "Operator challenge:\s*([A-Fa-f0-9]+)") { $operatorChallenge = $Matches[1] }
+  $process.WaitForExit()
+} finally {
+  if ($processStarted -and -not $process.HasExited) { $process.Kill() }
+  if ($bridgeStarted) { & $NodePath $launcherPath stop | Out-Null }
+  if ($originAdded) { & $NodePath $launcherPath origin revoke $origin --confirm $origin | Out-Null }
 }
-$process.WaitForExit()
 $stderr = $process.StandardError.ReadToEnd()
 [IO.File]::WriteAllLines((Join-Path $artifactRoot "automated-harness.stdout.log"), $lines, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $artifactRoot "automated-harness.stderr.log"), $stderr, [Text.UTF8Encoding]::new($false))

@@ -115,6 +115,7 @@ await test("explicit native UI automation mode accepts redirected challenge inpu
 const adapter = await readFile(new URL("../../scripts/r5-2-desktop/local-cdp-adapter.mjs", import.meta.url), "utf8");
 const browserStarter = await readFile(new URL("../../scripts/r5-2-desktop/start-real-browser.ps1", import.meta.url), "utf8");
 const operatorHarness = await readFile(new URL("../../scripts/run-r5-2r1a-real-browser.ps1", import.meta.url), "utf8");
+const automatedDenyHarness = await readFile(new URL("../../scripts/r5-2-desktop/run-automated-native-deny.ps1", import.meta.url), "utf8");
 
 await test("automated native UI mode is explicitly forwarded through both PowerShell layers", () => {
   assert.match(operatorHarness, /\[switch\]\$AutomatedNativeUi/);
@@ -122,6 +123,14 @@ await test("automated native UI mode is explicitly forwarded through both PowerS
   assert.match(browserStarter, /\[switch\]\$AutomatedNativeUi/);
   assert.match(browserStarter, /\$AutomatedNativeUi -or \$env:R1K_AUTOMATED_NATIVE_UI -eq "1"/);
   assert.match(browserStarter, /--automated-native-ui", "windows-ui-automation"/);
+});
+
+await test("automated Deny harness launches the formal adapter and owns Bridge cleanup", () => {
+  assert.match(automatedDenyHarness, /local-cdp-adapter\.mjs/);
+  assert.match(automatedDenyHarness, /--automated-native-ui", "windows-ui-automation"/);
+  assert.match(automatedDenyHarness, /origin add \$origin --confirm \$origin/);
+  assert.match(automatedDenyHarness, /launcherPath stop/);
+  assert.match(automatedDenyHarness, /origin revoke \$origin --confirm \$origin/);
 });
 
 await test("Playwright channel explicitly enables Chromium sandbox", () => {
