@@ -191,6 +191,15 @@ function captureDesktop(filePath) {
   execFileSync("powershell.exe", ["-NoProfile", "-Command", command], { encoding: "utf8" });
 }
 
+function setProfileBrowserTopmost(profilePath, enabled) {
+  const escaped = profilePath.replaceAll("'", "''");
+  const insertAfter = enabled ? "-1" : "-2";
+  const topmost = enabled ? "$true" : "$false";
+  const script = `Add-Type @'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class R1KTopmost { [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags); }\n'@; $p='${escaped}'; $row=Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('chrome.exe','msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($p,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1; if(-not $row){throw 'TEST_BROWSER_WINDOW_NOT_FOUND'}; [R1KTopmost]::SetWindowPos($row.MainWindowHandle,[IntPtr](${insertAfter}),0,0,0,0,0x43) | Out-Null; [pscustomobject]@{pid=$row.Id;windowHandle=[int64]$row.MainWindowHandle;topmost=${topmost}} | ConvertTo-Json`;
+  const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" }).trim();
+  return JSON.parse(raw);
+}
+
 async function queryLocalNetworkPermissionStates(page) {
   return page.evaluate(async () => {
     const states = {};
@@ -836,6 +845,9 @@ export async function runBrowserFlow(options) {
       };
     };
 
+    if (options.automationMode === "windows-ui-automation") {
+      result.prePromptTopmost = setProfileBrowserTopmost(profilePath, true);
+    }
     const detectButton = page.getByRole("button", { name: /重新檢查|檢查本機|偵測|連線/ }).first();
     if (await detectButton.count() === 0) throw Object.assign(new Error("Bridge detection button not found."), { code: "PREVIEW_BRIDGE_BUTTON_NOT_FOUND" });
     result.uiClickAt = new Date().toISOString();
@@ -912,6 +924,9 @@ export async function runBrowserFlow(options) {
     await writeJson(path.join(runDirectory, "final-result.json"), result);
     throw error;
   } finally {
+    if (options.automationMode === "windows-ui-automation") {
+      try { setProfileBrowserTopmost(profilePath, false); } catch { }
+    }
     const debugPortReleased = launch ? await closeLaunch(launch) : true;
     await writeJson(path.join(runDirectory, "cleanup.json"), { run_id: runId, debugPort: launch?.debugPort || null, debugPortReleased, completedAt: new Date().toISOString() });
     await createManifest(runDirectory, runId);

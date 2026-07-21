@@ -138,6 +138,8 @@ await test("adapter main forwards the explicit native UI automation mode", () =>
   assert.match(adapter, /automationMode:\s*options\.automationMode\s*\|\|\s*null/);
   assert.match(adapter, /collectStorageAudit\(page\)/);
   assert.match(adapter, /DENY_FLOW_FORMAL_REPOSITORY_MUTATION/);
+  assert.match(adapter, /setProfileBrowserTopmost\(profilePath, true\)/);
+  assert.match(adapter, /setProfileBrowserTopmost\(profilePath, false\)/);
   assert.match(automatedDenyHarness, /processMatchedProfile/);
   assert.match(automatedDenyHarness, /Capture-Rectangle/);
   assert.match(automatedDenyHarness, /Show-TestWindow/);
