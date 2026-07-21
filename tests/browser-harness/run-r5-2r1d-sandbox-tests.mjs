@@ -144,6 +144,8 @@ await test("adapter main forwards the explicit native UI automation mode", () =>
   assert.match(automatedDenyHarness, /mainWindowTitle/);
   assert.match(automatedDenyHarness, /PrintWindow/);
   assert.match(automatedDenyHarness, /Capture-Window/);
+  assert.match(automatedDenyHarness, /SetWindowPos/);
+  assert.match(automatedDenyHarness, /Clear-TestWindowTopmost/);
 });
 
 await test("Playwright channel explicitly enables Chromium sandbox", () => {

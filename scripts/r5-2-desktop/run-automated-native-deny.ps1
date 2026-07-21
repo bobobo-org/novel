@@ -51,6 +51,7 @@ namespace R1K {
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
   }
 }
 "@
@@ -58,7 +59,12 @@ namespace R1K {
   [R1K.NativeWindow]::ShowWindowAsync($WindowHandle, 9) | Out-Null
   [R1K.NativeWindow]::BringWindowToTop($WindowHandle) | Out-Null
   [R1K.NativeWindow]::SetForegroundWindow($WindowHandle) | Out-Null
+  [R1K.NativeWindow]::SetWindowPos($WindowHandle, [IntPtr](-1), 0, 0, 0, 0, 0x43) | Out-Null
   Start-Sleep -Milliseconds 500
+}
+
+function Clear-TestWindowTopmost([IntPtr]$WindowHandle) {
+  [R1K.NativeWindow]::SetWindowPos($WindowHandle, [IntPtr](-2), 0, 0, 0, 0, 0x43) | Out-Null
 }
 
 function Capture-Window([string]$Path, [IntPtr]$WindowHandle, $Rectangle) {
@@ -141,11 +147,12 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           if ($windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
           $windowTitle = $windowElement.Current.Name
           Show-TestWindow $mainChrome.MainWindowHandle
-          Capture-Window (Join-Path $RunDirectory "native-lna-before-deny.png") $mainChrome.MainWindowHandle $windowBounds
+          Capture-Rectangle (Join-Path $RunDirectory "native-lna-before-deny.png") $windowBounds
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
           Start-Sleep -Milliseconds 700
-          Capture-Window (Join-Path $RunDirectory "native-lna-after-deny.png") $mainChrome.MainWindowHandle $windowBounds
+          Capture-Rectangle (Join-Path $RunDirectory "native-lna-after-deny.png") $windowBounds
+          Clear-TestWindowTopmost $mainChrome.MainWindowHandle
           return [ordered]@{
             status = "INVOKED"
             automation = "Windows UI Automation"
@@ -155,11 +162,16 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
             mainBrowserProcessId = $mainChrome.Id
             mainWindowHandle = $mainChrome.MainWindowHandle
             mainWindowTitle = $windowTitle
+            screenshotMethod = "verified-window-topmost-screen-rectangle"
             elementBounds = [ordered]@{ left = $elementBounds.Left; top = $elementBounds.Top; width = $elementBounds.Width; height = $elementBounds.Height }
             windowBounds = [ordered]@{ left = $windowBounds.Left; top = $windowBounds.Top; width = $windowBounds.Width; height = $windowBounds.Height }
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
           }
-        } catch { }
+        } catch {
+          if ($mainChrome -and $mainChrome.MainWindowHandle) {
+            try { Clear-TestWindowTopmost $mainChrome.MainWindowHandle } catch { }
+          }
+        }
       }
     }
     Start-Sleep -Milliseconds 250
