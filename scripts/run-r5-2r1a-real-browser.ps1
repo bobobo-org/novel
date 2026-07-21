@@ -102,7 +102,7 @@ $flows = if ($Browser -or $Flow) {
   @(@{ browser = "chrome"; flow = "grant"; version = $chromeVersion })
 }
 
-$runPlan = foreach ($flowSpec in $flows) {
+$runPlan = @(foreach ($flowSpec in $flows) {
   $runId = New-RunId $flowSpec.browser $flowSpec.flow
   [ordered]@{
     browser = $flowSpec.browser
@@ -111,7 +111,7 @@ $runPlan = foreach ($flowSpec in $flows) {
     run_id = $runId
     profile = Join-Path $profileRoot "$($flowSpec.browser)-$($flowSpec.flow)"
   }
-}
+})
 
 Write-Host "Closed AI R5.2R1A local operator run" -ForegroundColor Cyan
 Write-Host "Product Preview URL: $TargetUrl"
@@ -146,6 +146,7 @@ Write-Json "environment.json" ([ordered]@{
 Write-Json "operator-run-manifest.json" ([ordered]@{
   status = "PLANNED"
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
+  harnessPid = $PID
   runPlan = @($runPlan)
   allowedHumanActions = @("native LNA prompt decision", "type CONTINUE in PowerShell")
   manualConfigurationChangesAllowed = $false
@@ -160,6 +161,7 @@ if ($RequireOperatorReady) {
   Write-Json "operator-ready-pending.json" ([ordered]@{
     status = "WAITING_FOR_LOCAL_OPERATOR"
     createdAt = (Get-Date).ToUniversalTime().ToString("o")
+    harnessPid = $PID
     browser = $runPlan[0].browser
     flow = $runPlan[0].flow
     run_id = $runPlan[0].run_id
