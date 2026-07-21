@@ -3,6 +3,11 @@ param(
   [string]$TargetUrl = "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
   [string]$ProductCommit = "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
   [switch]$FullMatrix,
+  [ValidateSet("chrome", "edge")]
+  [string]$Browser,
+  [ValidateSet("grant", "deny")]
+  [string]$Flow,
+  [switch]$RequireOperatorReady,
   [string]$ArtifactDirectory = "artifacts/closed-ai-phase1-1r5-2r1a",
   [string]$NodePath = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 )
@@ -82,7 +87,11 @@ function Write-RunHashManifest {
   Write-EvidenceJson -Path $manifestPath -Value $value -Depth 8
 }
 
-$flows = if ($FullMatrix) {
+$flows = if ($Browser -or $Flow) {
+  if (-not $Browser -or -not $Flow) { throw "BROWSER_AND_FLOW_REQUIRED_TOGETHER" }
+  $selectedVersion = if ($Browser -eq "chrome") { $chromeVersion } else { $edgeVersion }
+  @(@{ browser = $Browser; flow = $Flow; version = $selectedVersion })
+} elseif ($FullMatrix) {
   @(
     @{ browser = "chrome"; flow = "grant"; version = $chromeVersion },
     @{ browser = "chrome"; flow = "deny"; version = $chromeVersion },
@@ -141,6 +150,26 @@ Write-Json "operator-run-manifest.json" ([ordered]@{
   allowedHumanActions = @("native LNA prompt decision", "type CONTINUE in PowerShell")
   manualConfigurationChangesAllowed = $false
 })
+
+if ($RequireOperatorReady) {
+  $readyChallenge = [guid]::NewGuid().ToString("N")
+  try { $Host.UI.RawUI.WindowTitle = "R1K $($runPlan[0].browser.ToUpperInvariant())-$($runPlan[0].flow.ToUpperInvariant()) - 在此輸入" } catch { }
+  Write-Host "`n這是正確的 R1K Harness 視窗。請勿在其他 PowerShell 輸入。" -ForegroundColor Cyan
+  Write-Host "請使用者本人在本視窗輸入：" -ForegroundColor Yellow
+  Write-Host "OPERATOR_READY $readyChallenge" -ForegroundColor White -BackgroundColor DarkBlue
+  while ($true) {
+    $answer = Read-Host
+    if ($answer -ceq "OPERATOR_READY $readyChallenge") { break }
+    Write-Host "輸入不符。本機 Bridge 與瀏覽器尚未啟動。" -ForegroundColor Red
+  }
+  Write-Json "operator-ready.json" ([ordered]@{
+    status = "CONFIRMED"
+    confirmedAt = (Get-Date).ToUniversalTime().ToString("o")
+    browser = $runPlan[0].browser
+    flow = $runPlan[0].flow
+    run_id = $runPlan[0].run_id
+  })
+}
 
 $bridgeStarted = $false
 $originEnrolled = $false

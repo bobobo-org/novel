@@ -5,7 +5,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { PassThrough } from "node:stream";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -183,6 +183,23 @@ async function listFiles(root, prefix = "") {
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function captureDesktop(filePath) {
+  const escaped = filePath.replaceAll("'", "''");
+  const command = `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $bounds=[System.Windows.Forms.SystemInformation]::VirtualScreen; $bitmap=New-Object System.Drawing.Bitmap $bounds.Width,$bounds.Height; $graphics=[System.Drawing.Graphics]::FromImage($bitmap); try { $graphics.CopyFromScreen($bounds.Left,$bounds.Top,0,0,$bounds.Size); $bitmap.Save('${escaped}',[System.Drawing.Imaging.ImageFormat]::Png) } finally { $graphics.Dispose(); $bitmap.Dispose() }`;
+  execFileSync("powershell.exe", ["-NoProfile", "-Command", command], { encoding: "utf8" });
+}
+
+async function queryLocalNetworkPermissionStates(page) {
+  return page.evaluate(async () => {
+    const states = {};
+    for (const name of ["loopback-network", "local-network", "local-network-access"]) {
+      try { states[name] = (await navigator.permissions.query({ name })).state; }
+      catch { states[name] = "unsupported"; }
+    }
+    return states;
+  });
 }
 
 export function readBrowserProcesses(profilePath) {
@@ -685,6 +702,7 @@ export async function runBrowserFlow(options) {
     result.identity = identity;
     result.preview = { title, url: page.url(), runtimeOrigin, renderedOriginPresent: bodyText.includes(origin) };
     await page.screenshot({ path: path.join(runDirectory, "visible-window.png"), fullPage: true });
+    await page.screenshot({ path: path.join(runDirectory, "preview-before.png"), fullPage: true });
 
     const expectedLiveness = {
       browserPid: primaryProcess.pid,
@@ -752,20 +770,28 @@ export async function runBrowserFlow(options) {
       livenessProbe,
       expectedLiveness,
       heartbeatMs: options.heartbeatMs || 30_000,
-      onHeartbeat: async (state) => writeJson(path.join(runDirectory, "heartbeat-state.json"), {
-        run_id: runId,
-        browser,
-        flow,
-        expected: expectedLiveness,
-        current: state,
-      }),
+      onHeartbeat: async (state) => {
+        await writeJson(path.join(runDirectory, "heartbeat-state.json"), {
+          run_id: runId,
+          browser,
+          flow,
+          expected: expectedLiveness,
+          current: state,
+        });
+        const promptPath = path.join(runDirectory, "lna-prompt.png");
+        try { await access(promptPath); } catch { captureDesktop(promptPath); }
+      },
     });
     result.operatorDecisionAt = operatorDecision.decidedAt;
     result.finalLiveness = operatorDecision.latestLiveness;
     result.operatorChallenge = operatorDecision.operatorChallenge;
     result.decisionChallenge = operatorDecision.decisionChallenge;
     await page.waitForTimeout(2_000);
+    result.permissionStates = await queryLocalNetworkPermissionStates(page);
     result.uiTextAfterDecision = (await page.locator("body").innerText()).slice(0, 4_000);
+    result.expectedHumanDecision = flow === "grant" ? "ALLOW" : "DENY";
+    captureDesktop(path.join(runDirectory, "permission-state.png"));
+    await page.screenshot({ path: path.join(runDirectory, "preview-after.png"), fullPage: true });
     result.status = "COMPLETED_FOR_REVIEW";
     result.completedAt = new Date().toISOString();
     await launch.context.tracing.stop({ path: path.join(runDirectory, "browser-trace.zip") });
