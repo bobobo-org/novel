@@ -8,6 +8,7 @@ param(
   [ValidateSet("grant", "deny")]
   [string]$Flow,
   [switch]$RequireOperatorReady,
+  [switch]$AutomatedNativeUi,
   [string]$ArtifactDirectory = "artifacts/closed-ai-phase1-1r5-2r1a",
   [string]$NodePath = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 )
@@ -205,9 +206,15 @@ try {
   foreach ($run in $runPlan) {
     Write-Host "`nrun_id: $($run.run_id) | $($run.browser) $($run.flow)" -ForegroundColor Cyan
     $beforeCount = if (Test-Path -LiteralPath $accessLog) { @(Get-Content -LiteralPath $accessLog).Count } else { 0 }
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $browserEntry `
-      -Browser $run.browser -Flow $run.flow -TargetUrl $TargetUrl -ProfilePath $run.profile `
-      -ArtifactDirectory $artifactRoot -RunId $run.run_id -BrowserVersion $run.version -HarnessPid $PID -NodePath $NodePath
+    $browserArgs = @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $browserEntry,
+      "-Browser", $run.browser, "-Flow", $run.flow, "-TargetUrl", $TargetUrl,
+      "-ProfilePath", $run.profile, "-ArtifactDirectory", $artifactRoot,
+      "-RunId", $run.run_id, "-BrowserVersion", $run.version,
+      "-HarnessPid", $PID, "-NodePath", $NodePath
+    )
+    if ($AutomatedNativeUi) { $browserArgs += "-AutomatedNativeUi" }
+    & powershell @browserArgs
     $adapterExit = $LASTEXITCODE
     $bridgeRows = Read-BridgeRows $beforeCount
     $runDirectory = Join-Path $artifactRoot "runs\$($run.run_id)"

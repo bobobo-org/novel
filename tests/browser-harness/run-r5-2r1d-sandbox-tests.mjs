@@ -113,6 +113,15 @@ await test("explicit native UI automation mode accepts redirected challenge inpu
 });
 
 const adapter = await readFile(new URL("../../scripts/r5-2-desktop/local-cdp-adapter.mjs", import.meta.url), "utf8");
+const browserStarter = await readFile(new URL("../../scripts/r5-2-desktop/start-real-browser.ps1", import.meta.url), "utf8");
+const operatorHarness = await readFile(new URL("../../scripts/run-r5-2r1a-real-browser.ps1", import.meta.url), "utf8");
+
+await test("automated native UI mode is explicitly forwarded through both PowerShell layers", () => {
+  assert.match(operatorHarness, /\[switch\]\$AutomatedNativeUi/);
+  assert.match(operatorHarness, /if \(\$AutomatedNativeUi\) \{ \$browserArgs \+= "-AutomatedNativeUi" \}/);
+  assert.match(browserStarter, /\[switch\]\$AutomatedNativeUi/);
+  assert.match(browserStarter, /--automated-native-ui", "windows-ui-automation"/);
+});
 
 await test("Playwright channel explicitly enables Chromium sandbox", () => {
   assert.match(adapter, /chromiumSandbox:\s*true/);

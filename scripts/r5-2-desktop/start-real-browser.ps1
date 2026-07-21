@@ -8,6 +8,7 @@ param(
   [Parameter(Mandatory)][string]$RunId,
   [Parameter(Mandatory)][string]$BrowserVersion,
   [Parameter(Mandatory)][int]$HarnessPid,
+  [switch]$AutomatedNativeUi,
   [string]$NodePath = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 )
 
@@ -28,7 +29,7 @@ $adapterArgs = @(
   "--browser-version", $BrowserVersion,
   "--harness-pid", $HarnessPid
 )
-if ($env:R1K_AUTOMATED_NATIVE_UI -eq "1") {
+if ($AutomatedNativeUi) {
   $adapterArgs += @("--automated-native-ui", "windows-ui-automation")
 }
 & $NodePath @adapterArgs
