@@ -41,6 +41,26 @@ function Capture-Rectangle([string]$Path, $Rectangle) {
   }
 }
 
+function Show-TestWindow([IntPtr]$WindowHandle) {
+  if (-not ("R1K.NativeWindow" -as [type])) {
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+namespace R1K {
+  public static class NativeWindow {
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  }
+}
+"@
+  }
+  [R1K.NativeWindow]::ShowWindowAsync($WindowHandle, 9) | Out-Null
+  [R1K.NativeWindow]::BringWindowToTop($WindowHandle) | Out-Null
+  [R1K.NativeWindow]::SetForegroundWindow($WindowHandle) | Out-Null
+  Start-Sleep -Milliseconds 500
+}
+
 function Get-LoopbackPermission([string]$ProfilePath) {
   $preferencesPath = Join-Path $ProfilePath "Default\Preferences"
   if (-not (Test-Path -LiteralPath $preferencesPath)) { return $null }
@@ -89,6 +109,8 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
           $elementProcessId = $element.Current.ProcessId
           $elementBounds = $element.Current.BoundingRectangle
           if ($windowBounds.Width -lt 300 -or $windowBounds.Height -lt 200) { continue }
+          $windowTitle = $windowElement.Current.Name
+          Show-TestWindow $mainChrome.MainWindowHandle
           Capture-Rectangle (Join-Path $RunDirectory "native-lna-before-deny.png") $windowBounds
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
@@ -102,6 +124,7 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
             processMatchedProfile = $chromePids -contains $elementProcessId
             mainBrowserProcessId = $mainChrome.Id
             mainWindowHandle = $mainChrome.MainWindowHandle
+            mainWindowTitle = $windowTitle
             elementBounds = [ordered]@{ left = $elementBounds.Left; top = $elementBounds.Top; width = $elementBounds.Width; height = $elementBounds.Height }
             windowBounds = [ordered]@{ left = $windowBounds.Left; top = $windowBounds.Top; width = $windowBounds.Width; height = $windowBounds.Height }
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
