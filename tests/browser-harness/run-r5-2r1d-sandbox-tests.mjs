@@ -99,6 +99,19 @@ await test("operator terminal absence fails closed", async () => {
   );
 });
 
+await test("explicit native UI automation mode accepts redirected challenge input", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const waiting = waitForOperator("chrome", "deny", "https://preview.example", "run-automated-deny", {
+    inputStream: input,
+    outputStream: output,
+    automationMode: "windows-ui-automation",
+    challenges: { operatorChallenge: "ABORT123", decisionChallenge: "GO123" },
+  });
+  input.write("ABORT ABORT123\n");
+  await assert.rejects(waiting, { code: "ABORTED_BY_OPERATOR" });
+});
+
 const adapter = await readFile(new URL("../../scripts/r5-2-desktop/local-cdp-adapter.mjs", import.meta.url), "utf8");
 
 await test("Playwright channel explicitly enables Chromium sandbox", () => {

@@ -278,7 +278,8 @@ export function parseOperatorCommand(answer, challenges) {
 export async function waitForOperator(browser, flow, origin, runId, options = {}) {
   const inputStream = options.inputStream || input;
   const outputStream = options.outputStream || output;
-  if (!options.testMode && (!inputStream.isTTY || !outputStream.isTTY)) {
+  const automatedNativeUi = options.automationMode === "windows-ui-automation";
+  if (!options.testMode && !automatedNativeUi && (!inputStream.isTTY || !outputStream.isTTY)) {
     const error = new Error("An interactive operator terminal is required.");
     error.code = "ABORTED_OPERATOR_UNAVAILABLE";
     throw error;
@@ -767,6 +768,7 @@ export async function runBrowserFlow(options) {
     result.uiClickAt = new Date().toISOString();
     await detectButton.click();
     const operatorDecision = await waitForOperator(browser, flow, origin, runId, {
+      automationMode: options["automated-native-ui"] || null,
       livenessProbe,
       expectedLiveness,
       heartbeatMs: options.heartbeatMs || 30_000,
