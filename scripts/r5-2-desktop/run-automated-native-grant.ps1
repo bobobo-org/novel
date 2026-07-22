@@ -122,10 +122,15 @@ function Find-ProfileUiElement(
       $_.CommandLine.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     } | Select-Object -ExpandProperty ProcessId)
     if ($chromePids.Count) {
-      $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [Windows.Automation.TreeScope]::Descendants,
-        [Windows.Automation.Condition]::TrueCondition
-      )
+      try {
+        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+          [Windows.Automation.TreeScope]::Descendants,
+          [Windows.Automation.Condition]::TrueCondition
+        )
+      } catch {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       foreach ($element in $elements) {
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
@@ -204,10 +209,15 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
       if (-not $mainChrome) { Start-Sleep -Milliseconds 250; continue }
       $windowElement = [Windows.Automation.AutomationElement]::FromHandle($mainChrome.MainWindowHandle)
       $windowBounds = $windowElement.Current.BoundingRectangle
-      $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [Windows.Automation.TreeScope]::Descendants,
-        [Windows.Automation.Condition]::TrueCondition
-      )
+      try {
+        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+          [Windows.Automation.TreeScope]::Descendants,
+          [Windows.Automation.Condition]::TrueCondition
+        )
+      } catch {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       foreach ($element in $elements) {
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
@@ -339,6 +349,8 @@ try {
   $bridgeStarted = $true
   if (-not $process.Start()) { throw "HARNESS_START_FAILED" }
   $processStarted = $true
+  $nativeDecision = Invoke-NativeGrant -ProfilePath $profilePath -RunDirectory $runDirectory
+  Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
   $readTask = $process.StandardOutput.ReadLineAsync()
   while (-not $process.HasExited -or -not $readTask.IsCompleted) {
     if (-not $readTask.Wait(100)) { continue }
@@ -349,8 +361,6 @@ try {
     if ($line -match "Operator challenge:\s*([A-Fa-f0-9]+)") { $operatorChallenge = $Matches[1] }
     if ($line -match "Decision challenge:\s*([A-Fa-f0-9]+)") {
       $decisionChallenge = $Matches[1]
-      $nativeDecision = Invoke-NativeGrant -ProfilePath $profilePath -RunDirectory $runDirectory
-      Write-Utf8Json (Join-Path $runDirectory "automated-native-decision.json") $nativeDecision
       if ($nativeDecision.status -eq "INVOKED") {
         $permissionDeadline = (Get-Date).AddSeconds(10)
         do {
