@@ -2,9 +2,9 @@
   "evidenceSchemaVersion": "p21-three-high-evidence-v1",
   "generatedAt": "2026-07-22T21:13:33.926Z",
   "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
-  "status": "PREVIEW_DEPLOYMENT_PENDING",
+  "status": "RELEASE_CANDIDATE_EVIDENCE_COMPLETE",
   "automatedVerdict": "P2.1_THREE_HIGH_AUTOMATED_PASS",
-  "releaseCandidateVerdict": "P2.1_RELEASE_CANDIDATE_READY_FOR_TERRA_PENDING_PREVIEW",
+  "releaseCandidateVerdict": "P2.1_RELEASE_CANDIDATE_READY_FOR_TERRA",
   "humanPass": false,
   "productionReady": false,
   "totals": {
@@ -24,5 +24,9 @@
     "pass": 3,
     "fail": 0,
     "mode": "targeted-regression"
-  }
+  },
+  "productCommit": "05ba8f47af8b7bc5a0c5a19a59bd24c87864128e",
+  "deploymentId": "dpl_GfXZ6tgAYwJW5VLqN2B1mMnnn5NB",
+  "previewUrl": "https://novel-70fbd4dfv-lqtechs-projects.vercel.app",
+  "productionPromoted": false
 }

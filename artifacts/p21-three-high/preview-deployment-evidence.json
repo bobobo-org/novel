@@ -1,0 +1,73 @@
+{
+  "evidenceSchemaVersion": "p21-preview-deployment-v1",
+  "generatedAt": "2026-07-22T21:18:37.747Z",
+  "previewUrl": "https://novel-70fbd4dfv-lqtechs-projects.vercel.app",
+  "deploymentId": "dpl_GfXZ6tgAYwJW5VLqN2B1mMnnn5NB",
+  "productCommit": "05ba8f47af8b7bc5a0c5a19a59bd24c87864128e",
+  "releaseTag": "novel-ai-p21-three-high-rc",
+  "productionPromoted": false,
+  "routeResults": [
+    {
+      "route": "/",
+      "status": 200,
+      "elapsedMs": 180,
+      "cacheControl": "public, max-age=0, must-revalidate"
+    },
+    {
+      "route": "/studio?screen=home",
+      "status": 200,
+      "elapsedMs": 317,
+      "cacheControl": "private, no-cache, no-store, max-age=0, must-revalidate"
+    },
+    {
+      "route": "/studio/settings/storage",
+      "status": 200,
+      "elapsedMs": 25,
+      "cacheControl": "public, max-age=0, must-revalidate"
+    },
+    {
+      "route": "/professional",
+      "status": 200,
+      "elapsedMs": 28,
+      "cacheControl": "public, max-age=0, must-revalidate"
+    },
+    {
+      "route": "/legacy/novel-system.html",
+      "status": 200,
+      "elapsedMs": 25,
+      "cacheControl": "no-store, max-age=0"
+    },
+    {
+      "route": "/api/ai/health",
+      "status": 200,
+      "elapsedMs": 297,
+      "cacheControl": "no-store, max-age=0"
+    }
+  ],
+  "health": {
+    "cacheControl": "no-store, max-age=0",
+    "approvalTransaction": "client_dependent",
+    "revisionGuard": "client_dependent",
+    "idempotency": "client_dependent",
+    "browserPermissionGateway": "client_dependent",
+    "browserAiRuntime": "not_implemented",
+    "databaseStatus": "missing_env"
+  },
+  "assertions": {
+    "allRoutesReachable": true,
+    "appCommitExact": true,
+    "deploymentIdExact": true,
+    "releaseTagExact": true,
+    "noStore": true,
+    "approvalTruthful": true,
+    "revisionTruthful": true,
+    "idempotencyTruthful": true,
+    "browserPermissionDoesNotImplyAi": true,
+    "previewDatabaseTruthful": true
+  },
+  "browser": {
+    "desktopScreenshot": "artifacts/p21-three-high/browser/preview-desktop.jpg",
+    "studioHomeDomVerified": true,
+    "consoleErrors": "covered_by_local_full_flow; preview_route_smoke_only"
+  }
+}

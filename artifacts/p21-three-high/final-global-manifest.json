@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "p21-three-high-global-manifest-v1",
+  "generatedAt": "2026-07-22T21:18:37.763Z",
+  "productCommit": "05ba8f47af8b7bc5a0c5a19a59bd24c87864128e",
+  "deploymentId": "dpl_GfXZ6tgAYwJW5VLqN2B1mMnnn5NB",
+  "previewUrl": "https://novel-70fbd4dfv-lqtechs-projects.vercel.app",
+  "mismatch": 0,
+  "entries": [
+    {
+      "path": "artifacts/p21-three-high/approval-transaction-evidence.json",
+      "bytes": 1058,
+      "sha256": "1a380492ef183000991be07686d80d0f4e6c449427f8aa400df4968acd1c4287"
+    },
+    {
+      "path": "artifacts/p21-three-high/backup-restore-roundtrip-evidence.json",
+      "bytes": 1148,
+      "sha256": "e532a5073d30c680cee1e212be3844310e04f6fbcfd7aa157cd517b6aa6ae079"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/desktop-backup.png",
+      "bytes": 85619,
+      "sha256": "c8547b88e4de4c010aab47d54665de208a063d05efcb9f32d3096f5bc776ef25"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/mobile-backup.png",
+      "bytes": 48674,
+      "sha256": "80e45d55ea9a2ff314d854919bd6b591c8ec829a436935afb153173b892fc4bc"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/preview-desktop.jpg",
+      "bytes": 62178,
+      "sha256": "045e3444e71a3914a96233aa7e2f8aea40c1f7599196fd3be9a1386618dd3309"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/server.err.log",
+      "bytes": 29,
+      "sha256": "60541065b801bd740e5ae32d21b81fbd8e17f3b9b89d93d481bcabff02344453"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/server.out.log",
+      "bytes": 176,
+      "sha256": "9a018d435d8dafa7e8dbac881712a5258f690d5fca7e9ce53deb597af334cb28"
+    },
+    {
+      "path": "artifacts/p21-three-high/browser/studio-e2e.json",
+      "bytes": 854,
+      "sha256": "c600e97abfccca636dac07ce71ebb0a8d5b07b905cf9b4b8b4fc7b3fc4729869"
+    },
+    {
+      "path": "artifacts/p21-three-high/health-consistency-evidence.json",
+      "bytes": 847,
+      "sha256": "adc0febae570d9710cc524f60676a4de49b302e69a0427db6ee85dd7b17de0a5"
+    },
+    {
+      "path": "artifacts/p21-three-high/idempotency-evidence.json",
+      "bytes": 758,
+      "sha256": "6ae77e56dff4b46ac0777b3f708ccdf5fe4402713967ccd4df9df26bfb0bcb4c"
+    },
+    {
+      "path": "artifacts/p21-three-high/p21-three-high-final-evidence.json",
+      "bytes": 1035,
+      "sha256": "265b4cefff0b5b731a27ebcabbe8a3ced2e5efcb8cc4821df48ff5422a734ac1"
+    },
+    {
+      "path": "artifacts/p21-three-high/preview-deployment-evidence.json",
+      "bytes": 2163,
+      "sha256": "76efdff2737b8ce4a5a2d0ea208a1d50898624cc4f3433d4def17de6d3fbbd6b"
+    },
+    {
+      "path": "artifacts/p21-three-high/r1k-product-integration-evidence.json",
+      "bytes": 922,
+      "sha256": "149b470363aeaf966773c061c68a73d3e7c9a9081a7bce5c9232e19ae8812412"
+    },
+    {
+      "path": "artifacts/p21-three-high/repository-schema-evidence.json",
+      "bytes": 1045,
+      "sha256": "d5de7202dcdb465160cf5c87b1393a93108fe13f0c0d4eb4e9d8f1f21f52115e"
+    },
+    {
+      "path": "artifacts/p21-three-high/revision-guard-evidence.json",
+      "bytes": 450,
+      "sha256": "869c44e340e2209edc360b56b155bad95b3b86e04e5f6d64a72312beec91faf9"
+    },
+    {
+      "path": "artifacts/p21-three-high/studio-consumer-flow-evidence.json",
+      "bytes": 1911,
+      "sha256": "3c0ce1b3c966ae9ed519fdf27e4f11d279073918dc0045abcefb60c6f791259c"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/latest.json",
+      "bytes": 4745,
+      "sha256": "5195830fc17ddc1e620a1f78a78bc48993a057acdcb63924b9db8da77b6e024a"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/pre-parse-report.json",
+      "bytes": 4377,
+      "sha256": "b4fe526b4870bb750d90160f6ad58d3ce449e91f82d611550442b9743fcd187a"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/pre-parse-report.sha256",
+      "bytes": 88,
+      "sha256": "54b57b828d698f128f9f16037eb8a959c750b2cad209f1b84cb112c557541616"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/r1k-targeted-regression.json",
+      "bytes": 627,
+      "sha256": "e51e092d7e2d23e64bcbe3d939071cbf78097c8bdc15a473965e97ad59014478"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/test-r1k-bridge-failure-matrix.log",
+      "bytes": 26230,
+      "sha256": "020d0a76f02aa252d65368f41ad535af1e18cc4f10ab423b3526f565e5c8ae9d"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/test-r1k-bridge-response.log",
+      "bytes": 2142,
+      "sha256": "5c89bb6eb5b0216d1cdaaad5d5cf55dcd14ef954939118bcdeaeecb2d75cc52a"
+    },
+    {
+      "path": "artifacts/p21-three-high/tests/test-r1k-origin-isolation.log",
+      "bytes": 10994,
+      "sha256": "5ab634d2bd24f5ef18902909a8d0e9e99e21e29782314d47424dadbd8de535b5"
+    },
+    {
+      "path": "artifacts/p21-three-high/three-high-findings-closure.json",
+      "bytes": 1897,
+      "sha256": "466bc2f1709e2cd6e2442b6b893ef5098f3a769ef21483fe9792fe097bb7d469"
+    }
+  ]
+}
