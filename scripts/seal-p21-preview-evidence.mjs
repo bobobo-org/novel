@@ -38,7 +38,7 @@ const assertions = {
   allRoutesReachable: routeResults.every((entry) => entry.status === 200),
   appCommitExact: health.appCommit === expectedCommit,
   deploymentIdExact: health.deploymentId === expectedDeploymentId,
-  releaseTagExact: health.releaseTag === "novel-ai-p21-three-high-rc",
+  releaseTagExact: health.releaseTag === "novel-ai-p21-release-metadata-rc2",
   noStore: healthResponse.headers.get("cache-control")?.includes("no-store") === true,
   approvalTruthful: health.indexedDbApprovalTransaction === "client_dependent",
   revisionTruthful: health.indexedDbRevisionGuard === "client_dependent",
