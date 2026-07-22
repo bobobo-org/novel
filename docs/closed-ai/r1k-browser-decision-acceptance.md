@@ -20,12 +20,13 @@ An automated run is acceptable only when all of the following are evidenced:
 
 1. A fresh, isolated browser profile had no existing permission before launch.
 2. The UI Automation element belongs to the verified test-browser PID and window.
-3. The element has button semantics and an accepted localized deny name.
+3. The element has button semantics and an accepted localized name for the declared Grant or Deny decision.
 4. Selection uses semantic UI Automation lookup, never fixed screen coordinates.
-5. Browser permission changes from `ASK_OR_UNSET` to `DENIED`.
-6. The consumer error is produced by product code from the browser denial, not injected by the harness.
-7. No browser request reaches Bridge, no external AI fallback occurs, and no formal repository mutation occurs.
-8. Reload remains denied and cleanup revokes the Preview origin and releases all test processes and ports.
+5. Deny changes permission from `ASK_OR_UNSET` to `DENIED`; Grant changes it to `GRANTED`.
+6. Deny errors and Grant success state are produced by product behavior, not injected by the harness.
+7. Deny sends no browser request to Bridge. Grant sends non-zero browser requests and completes product-UI pairing without external AI fallback.
+8. Neither decision writes accepted choices, story branches, Story Bible facts, or other formal repository data before an explicit product transaction.
+9. Reload and Chrome restart preserve the permission according to browser design; cleanup revokes the Preview origin and releases all test processes and ports.
 
 If a release gate explicitly requires human operation, `AUTOMATED_PASS / HUMAN_NOT_RUN` does not satisfy that separate gate. It must not be renamed to or summarized as human verification.
 
