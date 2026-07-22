@@ -7,7 +7,23 @@ const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhos
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
-export type LocalTextModel = { modelId: string; capabilities?: { textGeneration?: { value?: boolean } } };
+export type LocalTextModel = { modelId: string; contextLength?: { value?: number | null }; capabilities?: { textGeneration?: { value?: boolean }; embeddings?: { value?: boolean } } };
+type LocalBridgeBody = Record<string, unknown> & {
+  errorCode?: string;
+  message?: string;
+  retryable?: boolean;
+  models: LocalTextModel[];
+  configuredOrigins: string[];
+  bridgeProcessAlive?: boolean;
+  pairingState?: string;
+  ollamaReachable?: boolean;
+  modelAvailable?: boolean;
+  runtimeReady?: boolean;
+  token?: string;
+  csrf?: string;
+  instanceId?: string;
+  expiresAt?: string;
+};
 
 export function selectAvailableTextModel(models: LocalTextModel[], preferredModelId: string) {
   const available = models.filter((model) => model.capabilities?.textGeneration?.value === true);
@@ -34,6 +50,52 @@ function controlSignal(signal?: AbortSignal) {
 
 type LocalNetworkPermissionState = PermissionState | "unsupported";
 type PermissionStateReader = () => Promise<LocalNetworkPermissionState>;
+
+const BRIDGE_EVENT_TYPES = new Set(["started", "token", "metadata", "completed", "cancelled", "failed"]);
+
+export function parseLocalBridgeJson(text: string): Record<string, unknown> {
+  let value: unknown;
+  try { value = JSON.parse(text); }
+  catch { throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機創作助手傳回的資料格式不正確，請重新啟動後再試。", { retryable: true, stage: "local-bridge-response" }); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機創作助手傳回的資料不完整，請重新嘗試。", { retryable: true, stage: "local-bridge-response" });
+  }
+  return value as Record<string, unknown>;
+}
+
+export function validateLocalBridgeEvent(
+  value: unknown,
+  expectedRequestId: string,
+  state: { started: boolean; completed: boolean },
+): LocalBridgeEvent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機 AI 回應格式不正確，請重新嘗試。", { retryable: true, stage: "local-bridge-stream" });
+  }
+  const event = value as LocalBridgeEvent;
+  if (!BRIDGE_EVENT_TYPES.has(String(event.type || ""))) {
+    throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機 AI 回應包含無法辨識的資料。", { retryable: true, stage: "local-bridge-stream" });
+  }
+  if (event.requestId && event.requestId !== expectedRequestId) {
+    throw new AiProviderError("LOCAL_REQUEST_IDENTITY_MISMATCH", "本機 AI 回應與這次請求不一致，已停止套用結果。", { retryable: true, stage: "local-bridge-stream" });
+  }
+  if (state.completed) {
+    throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機 AI 傳回重複或過期的完成結果，已停止套用。", { retryable: true, stage: "local-bridge-stream" });
+  }
+  if (event.type === "started") {
+    if (state.started) throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機 AI 重複啟動同一項工作，已停止套用。", { retryable: true, stage: "local-bridge-stream" });
+    state.started = true;
+  } else if (!state.started) {
+    throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機 AI 回應順序不正確，已停止套用。", { retryable: true, stage: "local-bridge-stream" });
+  }
+  if (event.type === "completed" || event.type === "cancelled" || event.type === "failed") state.completed = true;
+  return event;
+}
+
+export function assertLocalBridgeStreamCompleted(state: { started: boolean; completed: boolean }) {
+  if (!state.started || !state.completed) {
+    throw new AiProviderError("OLLAMA_STREAM_INTERRUPTED", "本機 AI 連線在完成前中斷，請重新嘗試。", { retryable: true, stage: "local-bridge-stream" });
+  }
+}
 
 async function readLocalNetworkPermissionState(): Promise<LocalNetworkPermissionState> {
   if (typeof navigator === "undefined" || !navigator.permissions?.query) return "unsupported";
@@ -92,9 +154,9 @@ export class LocalBridgeClient {
     catch (error) { throw await classifyBridgeConnectivityError(error, boundedSignal); }
   }
 
-  private async parse(response: Response) {
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new AiProviderError(body.errorCode || "LOCAL_PROVIDER_NOT_READY", body.message || `Local Bridge HTTP ${response.status}`, { retryable: Boolean(body.retryable), stage: "local-bridge" });
+  private async parse(response: Response): Promise<LocalBridgeBody> {
+    const body = parseLocalBridgeJson(await response.text()) as LocalBridgeBody;
+    if (!response.ok) throw new AiProviderError((body.errorCode || "LOCAL_PROVIDER_NOT_READY") as AiProviderError["code"], String(body.message || `Local Bridge HTTP ${response.status}`), { retryable: Boolean(body.retryable), stage: "local-bridge" });
     return body;
   }
 
@@ -165,14 +227,16 @@ export class LocalBridgeClient {
       if (!reader) throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "Local Bridge returned no stream.", { retryable: true });
       const decoder = new TextDecoder();
       let buffer = "";
+      const streamState = { started: false, completed: false };
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n"); buffer = lines.pop() || "";
-        for (const line of lines) if (line.trim()) yield JSON.parse(line) as LocalBridgeEvent;
+        for (const line of lines) if (line.trim()) yield validateLocalBridgeEvent(parseLocalBridgeJson(line), input.requestId, streamState);
       }
-      if (buffer.trim()) yield JSON.parse(buffer) as LocalBridgeEvent;
+      if (buffer.trim()) yield validateLocalBridgeEvent(parseLocalBridgeJson(buffer), input.requestId, streamState);
+      assertLocalBridgeStreamCompleted(streamState);
     } finally { input.signal?.removeEventListener("abort", abort); }
   }
 }

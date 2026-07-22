@@ -266,7 +266,10 @@
     "test:ai:h2d1:visibility": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs visibility",
     "test:ai:h2d1:persistence": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs persistence",
     "test:ai:h2d1:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-ai-h2d1-public-corpus.mjs all",
-    "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs"
+    "check:storage-boundaries": "node scripts/check-storage-boundaries.mjs",
+    "test:r1k:origin-isolation": "node scripts/run-r1k-origin-isolation-matrix.mjs",
+    "test:r1k:bridge-response": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs tests/browser-harness/r1k-local-bridge-response-validation.test.mjs",
+    "test:r1k:bridge-failure-matrix": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-r1k-bridge-failure-matrix.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.12",

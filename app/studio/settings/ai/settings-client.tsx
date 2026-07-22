@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { getLocalBridgeConsumerMessage } from "@/lib/novel-ai/providers/local-ollama/local-bridge-consumer-errors";
 import { assertEnrollmentCommandMatchesPage, buildOriginEnrollmentCommand, resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
 import { LOCAL_MODEL_INSUFFICIENT_FOR_TASK, runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
@@ -162,7 +163,7 @@ export default function AISettingsClient() {
       hub: hub.status === "ready" ? "已連線" : "尚未連接執行環境",
       privacy: saved.privacy || "strict-local",
       external: Boolean(saved.external),
-      error: healthErrorCode ? (errorGuidance[healthErrorCode] || "本機橋接服務目前無法連線，請確認服務已啟動後再試一次。") : modelError,
+      error: healthErrorCode ? (errorGuidance[healthErrorCode] || getLocalBridgeConsumerMessage(healthErrorCode)) : modelError,
       errorCode: healthErrorCode,
     }));
   }, [client, currentOrigin]);
