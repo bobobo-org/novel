@@ -8,7 +8,9 @@ $scripts = @(
   "scripts\r5-2-desktop\assert-browser-harness-dependencies.ps1",
   "scripts\r5-2-desktop\evidence-json.ps1",
   "scripts\r5-2-desktop\start-real-browser.ps1",
-  "scripts\r5-2-desktop\stop-real-browser.ps1"
+  "scripts\r5-2-desktop\stop-real-browser.ps1",
+  "scripts\r5-2-desktop\run-automated-native-grant.ps1",
+  "scripts\r5-2-desktop\run-automated-native-deny.ps1",
   "tests\browser-harness\run-r1k-dependency-preflight-tests.ps1"
 )
 

@@ -19,6 +19,7 @@
     "test:r1k:denial": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs tests/browser-harness/r1k-local-network-denial.test.mjs",
     "test:r1k:automated-evidence": "node tests/browser-harness/r1k-automated-evidence-contract.test.mjs",
     "test:r1k:automated-grant-evidence": "node tests/browser-harness/r1k-automated-grant-evidence-contract.test.mjs",
+    "test:r1k:browser-parameterization": "node tests/browser-harness/r1k-browser-parameterization.test.mjs",
     "build:story-library": "node scripts/build-story-library.mjs",
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",

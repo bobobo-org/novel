@@ -3,6 +3,7 @@ param(
   [Parameter(Mandatory)][string]$TargetUrl,
   [Parameter(Mandatory)][string]$ProductCommit,
   [Parameter(Mandatory)][string]$ArtifactDirectory,
+  [ValidateSet("chrome", "edge")][string]$Browser = "chrome",
   [string]$NodePath = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe",
   [int]$PromptTimeoutSeconds = 60
 )
@@ -14,8 +15,12 @@ $artifactRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $ArtifactDirec
 $origin = ([Uri]$TargetUrl).GetLeftPart([UriPartial]::Authority)
 $runtimeRoot = Join-Path $env:LOCALAPPDATA "NovelLocalBridge"
 $launcherPath = Join-Path $repositoryRoot "local-ai\bridge\launcher.mjs"
-$expectedProfilePath = Join-Path $artifactRoot "browser-profiles\chrome-deny"
-$defaultChromeProfile = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+$browserKey = $Browser.ToLowerInvariant()
+$browserProcessName = if ($browserKey -eq "edge") { "msedge.exe" } else { "chrome.exe" }
+$browserExecutable = if ($browserKey -eq "edge") { "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" } else { "C:\Program Files\Google\Chrome\Application\chrome.exe" }
+$defaultBrowserProfile = if ($browserKey -eq "edge") { Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data" } else { Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data" }
+$expectedProfilePath = Join-Path $artifactRoot "browser-profiles\$browserKey-deny"
+if (-not (Test-Path -LiteralPath $browserExecutable)) { throw "BROWSER_EXECUTABLE_NOT_FOUND: $browserExecutable" }
 
 New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
 
@@ -122,7 +127,7 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
   )
   while ((Get-Date) -lt $deadline) {
     $chromeProcesses = @(Get-CimInstance Win32_Process | Where-Object {
-      $_.Name -eq "chrome.exe" -and $_.CommandLine -and
+      $_.Name -eq $browserProcessName -and $_.CommandLine -and
       $_.CommandLine.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     })
     $chromePids = @($chromeProcesses | Select-Object -ExpandProperty ProcessId)
@@ -200,7 +205,10 @@ $preflight = [ordered]@{
   }).Count
   existingPairingFile = Test-Path -LiteralPath (Join-Path $runtimeRoot "pairing.json")
   existingRuntimeFile = Test-Path -LiteralPath (Join-Path $runtimeRoot "runtime.json")
-  defaultChromeProfileUsed = $expectedProfilePath.StartsWith($defaultChromeProfile, [StringComparison]::OrdinalIgnoreCase)
+  browser = $browserKey
+  browserExecutable = $browserExecutable
+  defaultBrowserProfileUsed = $expectedProfilePath.StartsWith($defaultBrowserProfile, [StringComparison]::OrdinalIgnoreCase)
+  defaultChromeProfileUsed = $expectedProfilePath.StartsWith($defaultBrowserProfile, [StringComparison]::OrdinalIgnoreCase)
   existingLnaPermission = $false
 }
 $originList = & $NodePath $launcherPath origin list | Out-String | ConvertFrom-Json
@@ -219,19 +227,19 @@ Write-Utf8Json (Join-Path $artifactRoot "automated-deny-preflight.json") $prefli
 if ($preflight.result -ne "PASS") { throw "AUTOMATED_DENY_PREFLIGHT_FAILED" }
 
 $adapterPath = Join-Path $repositoryRoot "scripts\r5-2-desktop\local-cdp-adapter.mjs"
-$runId = "chrome-deny-" + [guid]::NewGuid().ToString("N")
+$runId = "$browserKey-deny-" + [guid]::NewGuid().ToString("N")
 $profilePath = $expectedProfilePath
 $runDirectory = Join-Path $artifactRoot "runs\$runId"
-$chromeVersion = (Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.ProductVersion
+$browserVersion = (Get-Item $browserExecutable).VersionInfo.ProductVersion
 $arguments = @(
   $adapterPath,
-  "--browser", "chrome",
+  "--browser", $browserKey,
   "--flow", "deny",
   "--target-url", $TargetUrl,
   "--profile", $profilePath,
   "--artifacts", $artifactRoot,
   "--run-id", $runId,
-  "--browser-version", $chromeVersion,
+  "--browser-version", $browserVersion,
   "--harness-pid", $PID,
   "--automated-native-ui", "windows-ui-automation"
 )
@@ -306,6 +314,7 @@ $stderr = $process.StandardError.ReadToEnd()
 
 $summary = [ordered]@{
   schemaVersion = "r1k-automated-deny-summary-v1"
+  browser = $browserKey
   technical_status = if ($process.ExitCode -eq 0 -and (Get-LoopbackPermission -ProfilePath $profilePath) -eq 2) { "AUTOMATED_PASS" } else { "NOT_READY" }
   human_validation_status = "HUMAN_NOT_RUN"
   decision_method = "WINDOWS_UI_AUTOMATION"
