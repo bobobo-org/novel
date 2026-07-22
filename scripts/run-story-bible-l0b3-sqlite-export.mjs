@@ -69,7 +69,7 @@ await adapter.createCandidate({
   status: "pending",
   candidate_trust: "cloud-validated",
   sourceValid: true,
-  secret: "vcp_thisSecretMustBeRemoved1234567890",
+  secret: "syntheticSecretMustBeRemoved1234567890",
 });
 await adapter.createConflict({
   projectId,
@@ -215,7 +215,7 @@ await check("integrity and provenance included", async () => {
 await check("secret sanitizer", async () => {
   const text = JSON.stringify(fullPackage);
   assert(!text.includes("sk-this-secret"), "api key leaked");
-  assert(!text.includes("vcp_thisSecret"), "vercel token leaked");
+  assert(!text.includes("syntheticSecretMustBeRemoved"), "synthetic secret leaked");
   assert(!text.includes("Bearer SHOULD"), "bearer token leaked");
   assert(!text.includes("C:\\Users"), "local path leaked");
 });
