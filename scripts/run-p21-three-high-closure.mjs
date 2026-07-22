@@ -75,7 +75,7 @@ await test("33 Studio abandon candidate", async () => { assert.match(studioSourc
 await test("34 Main-character card", async () => { assert.match(studioSource, /function WorldScreen/); assert.match(studioSource, /查看主角|編輯角色/); });
 await test("35 Tasks and achievements", async () => { assert.match(studioSource, /任務與成就/); assert.match(studioSource, /achievements/); });
 await test("36 Save and backup", async () => { assert.match(studioSource, /立即快速備份/); assert.match(studioSource, /安全還原/); });
-await test("37 Professional tools health", async () => { const source = await readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"); assert.match(source, /系統狀態|本機 AI|本機AI/); });
+await test("37 Professional tools health", async () => { const source = await readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"); assert.match(source, /系統狀態|本機 AI|本機AI/); assert.doesNotMatch(source, /<Link href="\/legacy\/novel-system\.html/); assert.match(source, /<a href="\/legacy\/novel-system\.html/); });
 await test("38 Mobile core flow", async () => { const css = await readFile(new URL("../app/studio/studio.css", import.meta.url), "utf8").catch(() => readFile(new URL("../app/globals.css", import.meta.url), "utf8")); assert.match(css, /390|max-width:\s*600|max-width:\s*720|max-width:\s*768/); });
 const run = (args) => execFileSync(process.env.ComSpec || "cmd.exe", ["/d","/s","/c",`pnpm ${args.join(" ")}`], { cwd: process.cwd(), stdio:"pipe", encoding:"utf8", env:process.env });
 await test("39 Production build", async () => { run(["build"]); });

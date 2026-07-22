@@ -1,26 +1,26 @@
 {
   "suite": "p21-three-high-45",
-  "generatedAt": "2026-07-22T21:41:04.091Z",
+  "generatedAt": "2026-07-22T21:53:05.939Z",
   "results": [
     {
       "name": "01 First approval",
       "status": "PASS",
-      "elapsedMs": 14
+      "elapsedMs": 15
     },
     {
       "name": "02 Duplicate approval",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "03 Ten-times duplicate approval",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "04 Concurrent duplicate approval",
       "status": "PASS",
-      "elapsedMs": 18
+      "elapsedMs": 20
     },
     {
       "name": "05 Same key different payload",
@@ -40,7 +40,7 @@
     {
       "name": "08 AcceptedChoice write failure",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "09 StoryBranch write failure",
@@ -65,7 +65,7 @@
     {
       "name": "13 Full rollback",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "14 Reload persistence",
@@ -75,7 +75,7 @@
     {
       "name": "15 Browser restart persistence",
       "status": "PASS",
-      "elapsedMs": 8
+      "elapsedMs": 10
     },
     {
       "name": "16 App restart persistence",
@@ -100,7 +100,7 @@
     {
       "name": "20 Backup completeness",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 2
     },
     {
       "name": "21 Restore completeness",
@@ -130,12 +130,12 @@
     {
       "name": "26 Schema mismatch and partial replace rejection",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 4
     },
     {
       "name": "27 Restore rollback",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 4
     },
     {
       "name": "28 Health/capability consistency",
@@ -185,7 +185,7 @@
     {
       "name": "37 Professional tools health",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "38 Mobile core flow",
@@ -195,22 +195,22 @@
     {
       "name": "39 Production build",
       "status": "PASS",
-      "elapsedMs": 20362
+      "elapsedMs": 17973
     },
     {
       "name": "40 TypeScript",
       "status": "PASS",
-      "elapsedMs": 3835
+      "elapsedMs": 2744
     },
     {
       "name": "41 ESLint",
       "status": "PASS",
-      "elapsedMs": 15888
+      "elapsedMs": 12675
     },
     {
       "name": "42 Sensitive-information scan",
       "status": "PASS",
-      "elapsedMs": 7
+      "elapsedMs": 2
     }
   ]
 }
