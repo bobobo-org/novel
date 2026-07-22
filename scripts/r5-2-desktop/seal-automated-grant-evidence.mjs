@@ -18,6 +18,7 @@ const mutation = await readJson(path.join(runRoot, "repository-mutation-audit.js
 const network = await readJson(path.join(runRoot, "network.json"));
 const restart = await readJson(path.join(sourceRoot, "chrome-restart-reload-verification.json"));
 const preflight = await readJson(path.join(sourceRoot, "automated-grant-preflight.json"));
+const cleanup = await readJson(path.join(sourceRoot, "cleanup-verification.json"));
 
 const loopbackRequests = network.rows.filter((row) => row.phase === "request" && /(?:127\.0\.0\.1|localhost):3217/.test(row.url));
 const loopbackResponses = network.rows.filter((row) => row.phase === "response" && /(?:127\.0\.0\.1|localhost):3217/.test(row.url));
@@ -46,6 +47,7 @@ const checks = [
   ["chromeRestartPermissionPersisted", restart.permissionPersisted === true],
   ["stalePairingNotReused", restart.stalePairingReused === false && restart.stalePairingReusedAfterReload === false],
   ["restartBridgeRequestNonZero", restart.loopbackRequestCount > 0 && restart.loopbackResponseCount > 0],
+  ["cleanupPass", cleanup.status === "PASS"],
 ];
 const failed = checks.filter(([, pass]) => !pass);
 if (failed.length) throw new Error(`Grant evidence checks failed: ${failed.map(([name]) => name).join(", ")}`);
@@ -105,6 +107,7 @@ const evidence = {
     hosts_modified: false,
     browser_policy_modified: false,
   },
+  cleanup,
   checks: checks.map(([name]) => ({ name, status: "PASS" })),
   counts: { PASS: checks.length, FAIL: 0, SKIP: 0 },
 };
@@ -117,6 +120,7 @@ const copies = [
   [path.join(sourceRoot, "automated-grant-summary.json"), "automated-grant-summary.json"],
   [path.join(sourceRoot, "chrome-restart-reload-verification.json"), "chrome-restart-reload-verification.json"],
   [path.join(sourceRoot, "chrome-restart-reload-verification.png"), "chrome-restart-reload-verification.png"],
+  [path.join(sourceRoot, "cleanup-verification.json"), "cleanup-verification.json"],
   [path.join(runRoot, "automated-native-decision.json"), "automated-native-decision.json"],
   [path.join(runRoot, "automated-ui-pairing.json"), "automated-ui-pairing.json"],
   [path.join(runRoot, "native-lna-before-grant.png"), "native-lna-before-grant.png"],
