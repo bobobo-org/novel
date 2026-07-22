@@ -189,6 +189,7 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
   $deadline = (Get-Date).AddSeconds($PromptTimeoutSeconds)
   $grantNames = @(
     (([char]0x5141) + ([char]0x8A31)),
+    (([char]0x5141) + ([char]0x8A31) + ([char]0x5B58) + ([char]0x53D6)),
     "Allow"
   )
   while ((Get-Date) -lt $deadline) {
@@ -211,7 +212,11 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
-          if ($grantNames -notcontains $element.Current.Name) { continue }
+          $candidateName = [string]$element.Current.Name
+          $matchesGrantName = $grantNames -contains $candidateName -or
+            $candidateName.StartsWith(([char]0x5141)+([char]0x8A31), [StringComparison]::Ordinal) -or
+            $candidateName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
+          if (-not $matchesGrantName) { continue }
           $elementName = $element.Current.Name
           $elementProcessId = $element.Current.ProcessId
           $elementBounds = $element.Current.BoundingRectangle
@@ -334,9 +339,12 @@ try {
   $bridgeStarted = $true
   if (-not $process.Start()) { throw "HARNESS_START_FAILED" }
   $processStarted = $true
-  while (-not $process.HasExited) {
-    $line = $process.StandardOutput.ReadLine()
-    if ($null -eq $line) { Start-Sleep -Milliseconds 50; continue }
+  $readTask = $process.StandardOutput.ReadLineAsync()
+  while (-not $process.HasExited -or -not $readTask.IsCompleted) {
+    if (-not $readTask.Wait(100)) { continue }
+    $line = $readTask.Result
+    if ($null -eq $line) { break }
+    $readTask = $process.StandardOutput.ReadLineAsync()
     $lines.Add($line)
     if ($line -match "Operator challenge:\s*([A-Fa-f0-9]+)") { $operatorChallenge = $Matches[1] }
     if ($line -match "Decision challenge:\s*([A-Fa-f0-9]+)") {
