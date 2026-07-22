@@ -1,5 +1,10 @@
 import type { DomainRecord } from "../domain";
-import { NOVEL_STORES, type NovelStoreName } from "./contracts";
+import { NOVEL_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
+
+export function assertCompleteReplacePayload(payload: Record<string, unknown[]>) {
+  const missing = REQUIRED_RESTORE_STORES.filter((store) => !Array.isArray(payload[store]));
+  if (missing.length) throw new Error(`BACKUP_REQUIRED_STORE_MISSING:${missing.join(",")}`);
+}
 
 export function validateImportRecords(payload: Record<string, unknown[]>) {
   for (const [store, rows] of Object.entries(payload)) {

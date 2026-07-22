@@ -24,7 +24,7 @@ export function acceptChoicePayloadFingerprint(input: AcceptChoiceTransactionInp
     choiceLabel: input.choiceLabel ?? null, expectedProjectRevision: input.expectedProjectRevision,
     expectedChapterRevision: input.expectedChapterRevision, expectedCandidateRevision: input.expectedCandidateRevision,
     expectedStoryStateRevision: input.expectedStoryStateRevision,
-    expectedStoryBibleRevision: input.expectedStoryBibleRevision ?? null,
+    expectedStoryBibleRevision: input.expectedStoryBibleRevision,
   });
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(serialized)) { hash ^= byte; hash = Math.imul(hash, 0x01000193) >>> 0; }
@@ -42,7 +42,7 @@ export function assertAcceptChoiceInput(input: AcceptChoiceTransactionInput, cur
   if (storyState.revision !== input.expectedStoryStateRevision || candidate.storyStateRevision !== input.expectedStoryStateRevision) throw new RepositoryOperationError("STORY_STATE_REVISION_CONFLICT");
   if (candidate.chapterRevision !== input.expectedChapterRevision) throw new RepositoryOperationError("CANDIDATE_STALE");
   if (storyBible.projectId !== input.projectId) throw new RepositoryOperationError("PROJECT_SCOPE_MISMATCH");
-  if (input.expectedStoryBibleRevision !== undefined && (storyBible.revision !== input.expectedStoryBibleRevision || candidate.storyBibleRevision !== input.expectedStoryBibleRevision)) throw new RepositoryOperationError("STORY_BIBLE_REVISION_CONFLICT");
+  if (storyBible.revision !== input.expectedStoryBibleRevision || candidate.storyBibleRevision !== input.expectedStoryBibleRevision) throw new RepositoryOperationError("STORY_BIBLE_REVISION_CONFLICT");
   if (input.parentBranchId && (!parentBranch || parentBranch.projectId !== input.projectId || parentBranch.chapterId !== input.chapterId)) throw new RepositoryOperationError("PARENT_BRANCH_INVALID");
   const validation = validateStoryChoiceEffect(candidate.effect);
   if (!validation.valid) throw new RepositoryOperationError("INVALID_STORY_EFFECT", validation.errors.join("; "));

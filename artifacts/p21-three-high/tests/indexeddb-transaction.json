@@ -1,0 +1,28 @@
+{
+  "suite": "p21-indexeddb-transaction",
+  "generatedAt": "2026-07-22T21:41:43.755Z",
+  "pass": 4,
+  "fail": 0,
+  "results": [
+    {
+      "name": "actual IndexedDB accepts one guarded choice",
+      "status": "PASS",
+      "elapsedMs": 14
+    },
+    {
+      "name": "actual IndexedDB copy import preserves idempotency references",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "name": "partial v4 payload is rejected before destructive replace",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "name": "missing Story Bible revision is rejected before formal mutation",
+      "status": "PASS",
+      "elapsedMs": 3
+    }
+  ]
+}

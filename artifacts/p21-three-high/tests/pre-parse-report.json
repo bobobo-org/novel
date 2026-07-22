@@ -1,11 +1,11 @@
 {
   "suite": "p21-three-high-45",
-  "generatedAt": "2026-07-22T21:13:13.810Z",
+  "generatedAt": "2026-07-22T21:41:04.091Z",
   "results": [
     {
       "name": "01 First approval",
       "status": "PASS",
-      "elapsedMs": 15
+      "elapsedMs": 14
     },
     {
       "name": "02 Duplicate approval",
@@ -15,7 +15,7 @@
     {
       "name": "03 Ten-times duplicate approval",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 2
     },
     {
       "name": "04 Concurrent duplicate approval",
@@ -25,7 +25,7 @@
     {
       "name": "05 Same key different payload",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "06 Stale revision",
@@ -35,7 +35,7 @@
     {
       "name": "07 Concurrent revision conflict",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "08 AcceptedChoice write failure",
@@ -50,17 +50,17 @@
     {
       "name": "10 Story Bible write failure",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "11 Revision update failure",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "12 Idempotency record failure",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "13 Full rollback",
@@ -75,7 +75,7 @@
     {
       "name": "15 Browser restart persistence",
       "status": "PASS",
-      "elapsedMs": 7
+      "elapsedMs": 8
     },
     {
       "name": "16 App restart persistence",
@@ -118,9 +118,9 @@
       "elapsedMs": 3
     },
     {
-      "name": "24 Corrupt backup rejection",
+      "name": "24 Corrupt and incomplete backup rejection",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "25 Hash mismatch rejection",
@@ -128,9 +128,9 @@
       "elapsedMs": 2
     },
     {
-      "name": "26 Schema mismatch rejection",
+      "name": "26 Schema mismatch and partial replace rejection",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "27 Restore rollback",
@@ -185,7 +185,7 @@
     {
       "name": "37 Professional tools health",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "38 Mobile core flow",
@@ -195,22 +195,22 @@
     {
       "name": "39 Production build",
       "status": "PASS",
-      "elapsedMs": 22239
+      "elapsedMs": 20362
     },
     {
       "name": "40 TypeScript",
       "status": "PASS",
-      "elapsedMs": 4132
+      "elapsedMs": 3835
     },
     {
       "name": "41 ESLint",
       "status": "PASS",
-      "elapsedMs": 18736
+      "elapsedMs": 15888
     },
     {
       "name": "42 Sensitive-information scan",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 7
     }
   ]
 }

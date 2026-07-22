@@ -2,6 +2,7 @@ import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, Dom
 
 export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
+export const REQUIRED_RESTORE_STORES = NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 
 export class RevisionConflictError extends Error {
   readonly expected: number;
@@ -27,7 +28,7 @@ export type AcceptChoiceTransactionInput = {
   expectedChapterRevision: number;
   expectedCandidateRevision: number;
   expectedStoryStateRevision: number;
-  expectedStoryBibleRevision?: number;
+  expectedStoryBibleRevision: number;
   actor?: "user";
   origin?: "studio" | "repository";
 };

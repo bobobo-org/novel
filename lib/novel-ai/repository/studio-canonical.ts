@@ -1,6 +1,6 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
 import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
-import type { AcceptChoiceTransactionResult, NovelRepository } from "./contracts";
+import { RepositoryOperationError, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 
 export type StudioProjectSeed = {
   id: string;
@@ -107,6 +107,7 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
 export async function acceptStudioChoice(repository: NovelRepository, candidateId: string, acceptedText: string, choiceLabel?: string | null): Promise<AcceptChoiceTransactionResult> {
   const candidate = await repository.get<ChoiceCandidate>("candidates", candidateId);
   if (!candidate) throw new Error("CANDIDATE_NOT_FOUND");
+  if (candidate.storyBibleRevision == null) throw new RepositoryOperationError("CANDIDATE_STORY_BIBLE_REVISION_MISSING");
   const project = await repository.get<NovelProject>("projects", candidate.projectId), chapter = await repository.get<Chapter>("chapters", candidate.chapterId), storyState = (await repository.list<StoryState>("storyStates", candidate.projectId))[0];
   if (!project || !chapter || !storyState) throw new Error("ACCEPT_CHOICE_RECORD_MISSING");
   const operationId = `accept:${candidate.id}`;

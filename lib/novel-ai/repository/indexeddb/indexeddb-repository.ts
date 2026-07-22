@@ -1,7 +1,7 @@
 import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, OperationJournal, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
-import { buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
+import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 const DB_NAME = "novel-intelligence-platform";
 const DB_VERSION = 4;
@@ -112,6 +112,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
   }
   async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
     const { sourceProjectId: sourceId } = validateImportRecords(payload);
+    if (mode === "replace") assertCompleteReplacePayload(payload);
     const nextProjectId = mode === "replace" ? (targetProjectId || sourceId) : crypto.randomUUID();
     const idMap = buildImportIdMap(payload, sourceId, nextProjectId);
     const db = await this.open();

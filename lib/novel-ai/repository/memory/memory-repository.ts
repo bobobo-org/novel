@@ -1,7 +1,7 @@
 import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
-import { buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
+import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 export class MemoryNovelRepository implements NovelRepository {
   readonly kind = "memory" as const;
@@ -59,6 +59,7 @@ export class MemoryNovelRepository implements NovelRepository {
   async exportProject(projectId: string) { const output: Record<string, unknown[]> = {}; for (const store of NOVEL_STORES) output[store] = await this.list(store, projectId); return output; }
   async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
     const { sourceProjectId: sourceId } = validateImportRecords(payload);
+    if (mode === "replace") assertCompleteReplacePayload(payload);
     const nextProjectId = mode === "replace" ? (targetProjectId || sourceId) : crypto.randomUUID();
     const idMap = buildImportIdMap(payload, sourceId, nextProjectId);
     const previous = mode === "replace" ? await this.exportProject(nextProjectId) : null;
