@@ -1,6 +1,6 @@
 {
   "evidenceSchemaVersion": "p21-three-high-evidence-v1",
-  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "generatedAt": "2026-07-22T21:13:33.926Z",
   "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
   "browserEvidence": {
     "suite": "p21-three-high-studio-browser",
@@ -61,7 +61,7 @@
     {
       "name": "38 Mobile core flow",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     }
   ],
   "limitation": "Browser sandbox did not expose direct IndexedDB inspection; reload persistence and backup UI counts are browser evidence, while store atomicity is verified by repository tests."

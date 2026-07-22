@@ -1,6 +1,6 @@
 {
   "evidenceSchemaVersion": "p21-three-high-evidence-v1",
-  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "generatedAt": "2026-07-22T21:13:33.926Z",
   "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
   "status": "CLOSED_BY_AUTOMATED_EVIDENCE",
   "findings": [
@@ -11,7 +11,7 @@
         {
           "name": "01 First approval",
           "status": "PASS",
-          "elapsedMs": 9
+          "elapsedMs": 15
         },
         {
           "name": "08 AcceptedChoice write failure",
@@ -26,7 +26,7 @@
         {
           "name": "10 Story Bible write failure",
           "status": "PASS",
-          "elapsedMs": 1
+          "elapsedMs": 2
         },
         {
           "name": "13 Full rollback",
@@ -47,7 +47,7 @@
         {
           "name": "07 Concurrent revision conflict",
           "status": "PASS",
-          "elapsedMs": 2
+          "elapsedMs": 1
         }
       ]
     },

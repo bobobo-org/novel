@@ -1,17 +1,17 @@
 {
   "schemaVersion": "p21-three-high-manifest-v1",
-  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "generatedAt": "2026-07-22T21:13:33.926Z",
   "mismatch": 0,
   "entries": [
     {
       "path": "artifacts/p21-three-high/approval-transaction-evidence.json",
-      "bytes": 1057,
-      "sha256": "28466e4b6bd8270c0c81c14dbeed996155fc5a771f66f675fede7fc7676ee86e"
+      "bytes": 1058,
+      "sha256": "1a380492ef183000991be07686d80d0f4e6c449427f8aa400df4968acd1c4287"
     },
     {
       "path": "artifacts/p21-three-high/backup-restore-roundtrip-evidence.json",
       "bytes": 1148,
-      "sha256": "08af0592aec123f89fa7f8aab89ed243371a21e906d58cc4d4d6256fef5cc3ac"
+      "sha256": "e532a5073d30c680cee1e212be3844310e04f6fbcfd7aa157cd517b6aa6ae079"
     },
     {
       "path": "artifacts/p21-three-high/browser/studio-e2e.json",
@@ -21,42 +21,42 @@
     {
       "path": "artifacts/p21-three-high/health-consistency-evidence.json",
       "bytes": 847,
-      "sha256": "0f49b41ab0a19bbb0f6f96e5075db1beeacd995bee21b39b46034e2d9e52e4bd"
+      "sha256": "adc0febae570d9710cc524f60676a4de49b302e69a0427db6ee85dd7b17de0a5"
     },
     {
       "path": "artifacts/p21-three-high/idempotency-evidence.json",
       "bytes": 758,
-      "sha256": "ccc9daf743677da6b11f3c9961139a6b456c31bb77a43fc4db8fa1bf50ce6f9e"
+      "sha256": "6ae77e56dff4b46ac0777b3f708ccdf5fe4402713967ccd4df9df26bfb0bcb4c"
     },
     {
       "path": "artifacts/p21-three-high/p21-three-high-final-evidence.json",
       "bytes": 823,
-      "sha256": "a2aa4ef476ac9f3a375175dbc5a3bcb7e65fd305a049f9b0324646af6410a6c6"
+      "sha256": "27ec82e88522d0a514fda3e0ab216089c06ebf0de7aa2838669f931306bebd20"
     },
     {
       "path": "artifacts/p21-three-high/r1k-product-integration-evidence.json",
       "bytes": 922,
-      "sha256": "73f9f177aadf3d647a25f79f767d532c7c1e7cd806679c96b03089cb1b130bb5"
+      "sha256": "149b470363aeaf966773c061c68a73d3e7c9a9081a7bce5c9232e19ae8812412"
     },
     {
       "path": "artifacts/p21-three-high/repository-schema-evidence.json",
-      "bytes": 1046,
-      "sha256": "40c4a2850f38f1690d9a50f75b9e7afc6a3576735d6fec06cfe59352cbd9e3bc"
+      "bytes": 1045,
+      "sha256": "d5de7202dcdb465160cf5c87b1393a93108fe13f0c0d4eb4e9d8f1f21f52115e"
     },
     {
       "path": "artifacts/p21-three-high/revision-guard-evidence.json",
       "bytes": 450,
-      "sha256": "34d50fe7ac3de67348674403c081bf5cb51afeb0f8ef37e85f63ad61228d0faf"
+      "sha256": "869c44e340e2209edc360b56b155bad95b3b86e04e5f6d64a72312beec91faf9"
     },
     {
       "path": "artifacts/p21-three-high/studio-consumer-flow-evidence.json",
       "bytes": 1911,
-      "sha256": "c66d2fbe061de6734736eb1596df1a7301a7f45781f6625edc75e810caaabcae"
+      "sha256": "3c0ce1b3c966ae9ed519fdf27e4f11d279073918dc0045abcefb60c6f791259c"
     },
     {
       "path": "artifacts/p21-three-high/tests/latest.json",
       "bytes": 4745,
-      "sha256": "5c618d8edef6a8b49be54d33568969d2157d0283c5877c69e74dde358d1f4f80"
+      "sha256": "5195830fc17ddc1e620a1f78a78bc48993a057acdcb63924b9db8da77b6e024a"
     },
     {
       "path": "artifacts/p21-three-high/tests/r1k-targeted-regression.json",
@@ -65,8 +65,8 @@
     },
     {
       "path": "artifacts/p21-three-high/three-high-findings-closure.json",
-      "bytes": 1896,
-      "sha256": "e7b0757ec08b797042ce00d00099c4e5ff21c484101542b3c6325f4ccd1ce944"
+      "bytes": 1897,
+      "sha256": "466bc2f1709e2cd6e2442b6b893ef5098f3a769ef21483fe9792fe097bb7d469"
     }
   ]
 }

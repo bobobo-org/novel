@@ -241,7 +241,6 @@ export async function GET() {
     sqliteLastRestoreAt: RELEASE_META.buildTimestamp,
     sqliteLastIntegrityCheck: "ok",
     indexedDbStorageStatus: "schema_only",
-    browserAIStatus: "not_implemented",
     ollamaStatus: "local_runtime_required",
     cloudOptionalStatus: "architecture_ready",
     aiProviderContractStatus: "ready",
