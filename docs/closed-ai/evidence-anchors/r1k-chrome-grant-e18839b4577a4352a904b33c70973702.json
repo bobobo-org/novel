@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "r1k-chrome-grant-evidence-anchor-v1",
+  "verdict": "R1K_CHROME_GRANT_AUTOMATED_PASS",
+  "technicalStatus": "AUTOMATED_PASS",
+  "humanValidationStatus": "HUMAN_NOT_RUN",
+  "decisionMethod": "WINDOWS_UI_AUTOMATION",
+  "humanOperatorClicked": false,
+  "productCommit": "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+  "harnessCommit": "a13213321dc2b075bcebcb817b87c7a0cec2fdf9",
+  "evidenceContractCommit": "2e4be8511205335d00ba12bf3fd1d734c73cb31d",
+  "runId": "chrome-grant-e18839b4577a4352a904b33c70973702",
+  "checks": {
+    "PASS": 24,
+    "FAIL": 0,
+    "SKIP": 0
+  },
+  "sha256": {
+    "finalEvidence": "b0ff788b6ba2ee7aa7b2e13008b389cec1804c076d0671824752fc042f567009",
+    "nativePromptBeforeGrant": "1092c72203f9c7fd95c755137388626c8b040ba2e35c73bc88bef2983664efad",
+    "nativePromptAfterGrant": "cf12f059b0640ddaec64e2eeec2d0786a54040e03e90a6afa127519018ef2855",
+    "nativeDecision": "df44208d3224f34e7ef83622a5bcd33aed09e1552a8d8039df548256c42989a2",
+    "network": "c3288b4150b9748f0eb402fb602ace936b059c41df957527d153ba43ee21354b",
+    "cleanup": "3735974116fa65dd418a0ebae9840b163b984bf08be91be25e73b22d26a9ef3c",
+    "manifest": "b05136ce23f278e3505d13eadd73662916cf94408d503b55e33d1be29bff92bf",
+    "checksums": "5167ad61a5f57f9be09294bfa6f93f0eeee9c3a98783ef9058aac77219d44fa6",
+    "bundleSeal": "97d504a0a2075fe9728baf4d54c1fde2e1fd859772dc52e952a60e4e94ec477e"
+  }
+}
