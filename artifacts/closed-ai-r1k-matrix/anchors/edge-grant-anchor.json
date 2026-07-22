@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "r1k-browser-evidence-anchor-v1",
+  "case": "edge-grant",
+  "verdict": "R1K_EDGE_GRANT_AUTOMATED_PASS",
+  "technicalStatus": "AUTOMATED_PASS",
+  "humanValidationStatus": "HUMAN_NOT_RUN",
+  "runId": "edge-grant-81f7871c057a4429b617524008c0479a",
+  "productCommit": "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+  "harnessCommit": "fc28d01eda3a911de3f064a65e478df9f73c6e0f",
+  "evidenceContractCommit": "f48cd54c3bb3833afa9be49796f6ea7170f67475",
+  "evidenceSha256": "3ceb55327ea89e63b93488462d5978fbc648eaa2923b1ba9b549f0b37a435a76",
+  "manifestSha256": "6e312591d4442df0afc127233586aa10086262d03c53f00324722fb0c2ecc750",
+  "counts": { "PASS": 24, "FAIL": 0, "SKIP": 0 },
+  "manifestMismatch": 0
+}
