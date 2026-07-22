@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "p21-release-metadata-contract-v1",
+  "allowedArchitectureStages": [
+    "P1.5",
+    "P2",
+    "P2.1",
+    "P2.1 RC"
+  ],
+  "releaseTagPattern": "^novel-ai-p21-[a-z0-9-]+$"
+}

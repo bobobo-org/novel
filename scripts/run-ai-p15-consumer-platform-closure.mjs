@@ -9,6 +9,7 @@ const professional = read("app/professional/professional-client.tsx");
 const health = read("app/api/ai/health/route.ts");
 const library = JSON.parse(read("data/story-library.json"));
 const manifest = JSON.parse(read("release-manifest.json"));
+const releaseMetadataContract = JSON.parse(read("release-metadata-contract.json"));
 const results = [];
 const productionVerifiedComponents = new Set([
   "HomeScreen",
@@ -33,7 +34,7 @@ function test(name, fn) {
   }
 }
 
-test("P1.5 release manifest remains forward compatible", () => ["P1.5", "P2", "P2.1"].includes(manifest.architectureStage));
+test("P1.5 release manifest remains forward compatible", () => releaseMetadataContract.allowedArchitectureStages.includes(manifest.architectureStage));
 test("11個分類包仍存在", () => library.packs.length === 11);
 test("218個經典題材仍存在", () => library.topics.filter((topic) => topic.classic).length === 218);
 test("題材ID仍唯一", () => new Set(library.topics.map((topic) => topic.topicId)).size === library.topics.length);
