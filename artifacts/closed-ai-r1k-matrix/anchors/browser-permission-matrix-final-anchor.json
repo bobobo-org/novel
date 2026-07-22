@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "r1k-browser-permission-matrix-anchor-v1",
+  "verdict": "R1K_BROWSER_PERMISSION_MATRIX_AUTOMATED_PASS",
+  "technicalStatus": "AUTOMATED_PASS",
+  "humanValidationStatus": "HUMAN_NOT_RUN",
+  "productCommit": "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+  "harnessCommit": "5d4aeb421a20689b354c88dc1828bd163297e341",
+  "counts": {
+    "PASS": 27,
+    "FAIL": 0,
+    "SKIP": 0
+  },
+  "manifestMismatch": 0,
+  "externalAiCalls": 0,
+  "formalMutations": 0,
+  "summarySha256": "5859d8c5f712a38c984fd45e063f7caf1dfd30f2c6cbf524b13628fc9b17e6b8",
+  "globalManifestSha256": "2817f0de925521fdab45b9f04daa7b3758e599afafc20f9c8397c0402de5517c",
+  "originIsolationEvidenceSha256": "c228203dc56af467bbc22e41348bad5250f809a3a35ba6bdf25379791a63f5af",
+  "bridgeFailureEvidenceSha256": "0444cdf21878646dff375884c54c22b4ecddd15cd68e169a4464fa1021a08aa4",
+  "eligibleForP21ThreeHighClosure": true
+}
