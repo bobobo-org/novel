@@ -30,6 +30,12 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     const seen = new Set<string>([row.id]); let parent = row.parentBranchId ?? null;
     while (parent) { if (seen.has(parent)) throw new Error("BACKUP_BRANCH_CYCLE"); seen.add(parent); parent = branchMap.get(parent)?.parentBranchId ?? null; }
   }
+  const deltas = (payload.storyBibleDeltas ?? []) as Array<DomainRecord & { transactionId?: string; candidateId?: string; acceptedChoiceId?: string; chapterId?: string }>;
+  const approvals = (payload.approvalTransactions ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string }>;
+  const idempotency = (payload.idempotencyRecords ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string }>;
+  for (const row of deltas) if (!row.transactionId || !row.candidateId || !row.acceptedChoiceId || !row.chapterId || !ids.has(row.transactionId) || !ids.has(row.candidateId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.chapterId)) throw new Error("BACKUP_STORY_BIBLE_DELTA_REFERENCE_INVALID");
+  for (const row of approvals) if (!row.transactionId || row.transactionId !== row.id || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_APPROVAL_TRANSACTION_REFERENCE_INVALID");
+  for (const row of idempotency) if (!row.transactionId || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.transactionId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_IDEMPOTENCY_REFERENCE_INVALID");
   return { project, sourceProjectId };
 }
 
@@ -51,10 +57,11 @@ function remapValue(value: unknown, idMap: Map<string, string>): unknown {
 }
 
 export function remapImportedRecord(raw: DomainRecord, targetProjectId: string, idMap: Map<string, string>, copy: boolean) {
-  const mapped = remapValue(raw, copy ? idMap : new Map<string, string>()) as Record<string, unknown>;
+  if (!copy) return structuredClone({ ...raw, projectId: targetProjectId }) as DomainRecord;
+  const mapped = remapValue(raw, idMap) as Record<string, unknown>;
   return {
     ...mapped,
-    id: copy ? idMap.get(raw.id)! : raw.id,
+    id: idMap.get(raw.id)!,
     projectId: targetProjectId,
     revision: 1,
     parentRevision: null,

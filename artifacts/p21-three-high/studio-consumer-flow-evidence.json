@@ -1,0 +1,68 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "browserEvidence": {
+    "suite": "p21-three-high-studio-browser",
+    "generatedAt": "2026-07-22T20:59:48.879Z",
+    "url": "http://localhost:3219/studio?screen=backup",
+    "projectId": "368c4ec1-f5e2-40eb-af0f-d8ba4e122b7c",
+    "desktop": {
+      "created": true,
+      "draftSaved": true,
+      "candidateGenerated": true,
+      "accepted": true,
+      "reloadPersisted": true,
+      "backupCreated": true,
+      "acceptedChoiceCountShown": 1,
+      "storyBranchCountShown": 1
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "horizontalOverflow": false
+    },
+    "consoleErrors": 0,
+    "canonicalSourceEvidence": {
+      "source": "IndexedDbNovelRepository",
+      "reloadPersistence": "VERIFIED",
+      "localStorageCanonical": "PROHIBITED_BY_SERIALIZER_CONTRACT",
+      "directStoreInspection": "NOT_ACCESSIBLE_IN_BROWSER_CONTROL_SANDBOX"
+    }
+  },
+  "results": [
+    {
+      "name": "32 Studio A/B/C acceptance",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "33 Studio abandon candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "34 Main-character card",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "35 Tasks and achievements",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "36 Save and backup",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "38 Mobile core flow",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ],
+  "limitation": "Browser sandbox did not expose direct IndexedDB inspection; reload persistence and backup UI counts are browser evidence, while store atomicity is verified by repository tests."
+}

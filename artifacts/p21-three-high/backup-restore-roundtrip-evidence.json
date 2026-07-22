@@ -1,0 +1,54 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "includedFormalStores": [
+    "acceptedChoices",
+    "storyBranches",
+    "storyBibleDeltas",
+    "approvalTransactions",
+    "idempotencyRecords"
+  ],
+  "results": [
+    {
+      "name": "20 Backup completeness",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "21 Restore completeness",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "22 Restore idempotency",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "23 Backup round-trip equivalence",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "24 Corrupt backup rejection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "25 Hash mismatch rejection",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "26 Schema mismatch rejection",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "27 Restore rollback",
+      "status": "PASS",
+      "elapsedMs": 4
+    }
+  ]
+}

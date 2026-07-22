@@ -82,6 +82,7 @@ export type ChoiceCandidate = Omit<DomainRecord, "provenance"> & {
   inputRevision: number;
   chapterRevision: number;
   storyStateRevision: number;
+  storyBibleRevision?: number;
 };
 export type AcceptedChoice = Omit<DomainRecord, "provenance"> & {
   provenance: AIProvenance;
@@ -120,9 +121,61 @@ export type OperationJournal = DomainRecord & {
   acceptedChoiceId: string;
   branchId: string;
   resultRevision: number;
+  payloadFingerprint: string;
   completedAt: string;
 };
-export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[] };
+export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[]; interactionDeltaIds?: string[] };
+export type StoryBibleDelta = DomainRecord & {
+  deltaId: string;
+  transactionId: string;
+  chapterId: string;
+  sceneId: string | null;
+  candidateId: string;
+  acceptedChoiceId: string;
+  baseRevision: number;
+  resultingRevision: number;
+  kind: "accepted_choice";
+  acceptedText: string;
+  appliedEffect: StoryChoiceEffect;
+  status: "committed";
+  deltaSchemaVersion: "story-bible-delta-v1";
+};
+export type ApprovalTransaction = DomainRecord & {
+  transactionId: string;
+  operationId: string;
+  idempotencyKey: string;
+  payloadFingerprint: string;
+  expectedRevision: number;
+  baseRevision: number;
+  resultingRevision: number;
+  actor: "user";
+  origin: "studio" | "repository";
+  workId: string;
+  chapterId: string;
+  sceneId: string | null;
+  candidateId: string;
+  selectedChoiceId: string;
+  timestamp: string;
+  transactionSchemaVersion: "approval-transaction-v1";
+  transactionStatus: "committed";
+  acceptedChoiceId: string;
+  branchId: string;
+  storyBibleDeltaId: string;
+};
+export type IdempotencyRecord = DomainRecord & {
+  idempotencyKey: string;
+  operationType: "accept_choice";
+  payloadFingerprint: string;
+  transactionId: string;
+  operationId: string;
+  candidateId: string;
+  acceptedChoiceId: string;
+  branchId: string;
+  storyBibleDeltaId: string;
+  resultRevision: number;
+  status: "committed";
+  idempotencySchemaVersion: "idempotency-record-v1";
+};
 export type WritingTask = DomainRecord & { title: string; kind: "main" | "side" | "character" | "world" | "writing" | "exploration" | "relationship"; status: "not_started" | "active" | "completed" | "paused"; progress: number; target: number };
 export type Achievement = DomainRecord & { title: string; progress: number; target: number; unlockedAt: string | null };
 export type ReaderState = DomainRecord & {

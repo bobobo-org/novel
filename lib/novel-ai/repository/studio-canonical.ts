@@ -1,5 +1,5 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
-import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
+import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
 import type { AcceptChoiceTransactionResult, NovelRepository } from "./contracts";
 
 export type StudioProjectSeed = {
@@ -24,6 +24,7 @@ export type StudioCanonicalSnapshot = {
   project: NovelProject;
   chapter: Chapter;
   storyState: StoryState;
+  storyBible: StoryBible;
   acceptedChoices: AcceptedChoice[];
   branches: StoryBranch[];
 };
@@ -57,13 +58,14 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     project = await repository.put("projects", { ...project, activeChapterId: chapter.id }, project.revision);
   }
   const storyState = (await repository.list<StoryState>("storyStates", input.id))[0];
-  if (!storyState) throw new Error("STORY_STATE_MISSING");
+  const storyBible = (await repository.list<StoryBible>("storyBibles", input.id))[0];
+  if (!storyState || !storyBible) throw new Error("CANONICAL_PROJECT_STATE_MISSING");
   if (input.enabledStats?.length && Object.keys(storyState.protagonistStats).length === 0) {
     const protagonistStats = Object.fromEntries(input.enabledStats.map((stat) => [stat, stat === "stamina" ? 100 : stat === "level" ? 1 : 0]));
     const updated = await repository.put("storyStates", { ...storyState, protagonistStats }, storyState.revision);
-    return { project, chapter, storyState: updated, acceptedChoices: await repository.listAcceptedChoices(input.id), branches: await repository.listStoryBranches(input.id) };
+    return { project, chapter, storyState: updated, storyBible, acceptedChoices: await repository.listAcceptedChoices(input.id), branches: await repository.listStoryBranches(input.id) };
   }
-  return { project, chapter, storyState, acceptedChoices: await repository.listAcceptedChoices(input.id), branches: await repository.listStoryBranches(input.id) };
+  return { project, chapter, storyState, storyBible, acceptedChoices: await repository.listAcceptedChoices(input.id), branches: await repository.listStoryBranches(input.id) };
 }
 
 export async function saveStudioChapter(repository: NovelRepository, input: StudioProjectSeed) {
@@ -95,6 +97,7 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
     inputRevision: current.project.revision,
     chapterRevision: current.chapter.revision,
     storyStateRevision: current.storyState.revision,
+    storyBibleRevision: current.storyBible.revision,
     provenance: { ...base.provenance, actor: candidate.providerId === "ollama" ? "local-ollama" : "local-rule", requestId: base.id, providerId: candidate.providerId, modelId: candidate.modelId, taskType: "interactive_choice", externalRequest: false, dataLeftDevice: false, contextSources: ["project", "chapter", "story_state"], elapsedMs: null },
   };
   const saved = await repository.put("candidates", record);
@@ -119,6 +122,7 @@ export async function acceptStudioChoice(repository: NovelRepository, candidateI
     expectedChapterRevision: candidate.chapterRevision,
     expectedCandidateRevision: candidate.revision,
     expectedStoryStateRevision: candidate.storyStateRevision,
+    expectedStoryBibleRevision: candidate.storyBibleRevision,
   });
 }
 

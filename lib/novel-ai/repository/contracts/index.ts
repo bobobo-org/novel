@@ -1,6 +1,6 @@
-import type { AcceptedChoice, Chapter, ChoiceCandidate, DomainRecord, NovelProject, ProjectBundle, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 
-export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
+export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
 
 export class RevisionConflictError extends Error {
@@ -27,6 +27,9 @@ export type AcceptChoiceTransactionInput = {
   expectedChapterRevision: number;
   expectedCandidateRevision: number;
   expectedStoryStateRevision: number;
+  expectedStoryBibleRevision?: number;
+  actor?: "user";
+  origin?: "studio" | "repository";
 };
 
 export type AcceptChoiceTransactionResult = {
@@ -37,6 +40,10 @@ export type AcceptChoiceTransactionResult = {
   storyState: StoryState;
   acceptedChoice: AcceptedChoice;
   branch: StoryBranch;
+  storyBible: StoryBible;
+  storyBibleDelta: StoryBibleDelta;
+  approvalTransaction: ApprovalTransaction;
+  idempotencyRecord: IdempotencyRecord;
 };
 
 export interface NovelRepository {

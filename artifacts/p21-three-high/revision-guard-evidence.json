@@ -1,0 +1,19 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "errorCode": "REVISION_CONFLICT",
+  "mutationOnConflict": 0,
+  "results": [
+    {
+      "name": "06 Stale revision",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "07 Concurrent revision conflict",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ]
+}

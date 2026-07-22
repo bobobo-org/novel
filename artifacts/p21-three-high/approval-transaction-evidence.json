@@ -1,0 +1,50 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "atomicStores": [
+    "acceptedChoices",
+    "storyBranches",
+    "storyBibleDeltas",
+    "approvalTransactions",
+    "idempotencyRecords",
+    "auditLogs"
+  ],
+  "results": [
+    {
+      "name": "01 First approval",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "name": "08 AcceptedChoice write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "09 StoryBranch write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "10 Story Bible write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "11 Revision update failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "12 Idempotency record failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "13 Full rollback",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ]
+}

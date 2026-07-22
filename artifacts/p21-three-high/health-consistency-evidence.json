@@ -1,0 +1,34 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "capabilitySource": "lib/novel-ai/capabilities/capability-registry.ts",
+  "browserPermissionImpliesBrowserAiReady": false,
+  "results": [
+    {
+      "name": "28 Health/capability consistency",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "29 Unsupported cannot be ready",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "30 Partial cannot be full",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "31 Test-ready cannot be production-ready",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "37 Professional tools health",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "suite": "p21-three-high-studio-browser",
+  "generatedAt": "2026-07-22T20:59:48.879Z",
+  "url": "http://localhost:3219/studio?screen=backup",
+  "projectId": "368c4ec1-f5e2-40eb-af0f-d8ba4e122b7c",
+  "desktop": {
+    "created": true,
+    "draftSaved": true,
+    "candidateGenerated": true,
+    "accepted": true,
+    "reloadPersisted": true,
+    "backupCreated": true,
+    "acceptedChoiceCountShown": 1,
+    "storyBranchCountShown": 1
+  },
+  "mobile": {
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false
+  },
+  "consoleErrors": 0,
+  "canonicalSourceEvidence": {
+    "source": "IndexedDbNovelRepository",
+    "reloadPersistence": "VERIFIED",
+    "localStorageCanonical": "PROHIBITED_BY_SERIALIZER_CONTRACT",
+    "directStoreInspection": "NOT_ACCESSIBLE_IN_BROWSER_CONTROL_SANDBOX"
+  }
+}

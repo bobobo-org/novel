@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p21-production-hardening",
-  "releaseName": "P2.1 Production Hardening and Consumer Closure",
-  "consumerRelease": "p2.1-production-closure-v1",
-  "architectureStage": "P2.1",
-  "buildTime": "2026-07-19T18:00:00+08:00"
+  "releaseTag": "novel-ai-p21-three-high-rc",
+  "releaseName": "P2.1 Three High Release Candidate",
+  "consumerRelease": "p2.1-three-high-rc-v1",
+  "architectureStage": "P2.1 RC",
+  "buildTime": "2026-07-23T05:15:00+08:00"
 }

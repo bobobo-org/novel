@@ -44,7 +44,7 @@ export async function createProjectBackup(repository: NovelRepository, projectId
   const now = new Date().toISOString();
   const manifest: BackupManifest = {
     format: "novel-project-backup", formatVersion: "novel-backup-v3", backupId: crypto.randomUUID(), projectId,
-    projectSchemaVersion: "novel-domain-v1", createdAt: now, appCommit: release.appCommit ?? null, releaseTag: release.releaseTag ?? null,
+    projectSchemaVersion: "novel-repository-v4", createdAt: now, appCommit: release.appCommit ?? null, releaseTag: release.releaseTag ?? null,
     sourceDevice: "browser", contentHash: await digest(body), recordCounts: Object.fromEntries(Object.entries(records).map(([store, rows]) => [store, rows.length])),
     includedStores: Object.keys(records), compression: "none", encryption: "none",
   };
@@ -57,6 +57,7 @@ export async function validateBackupPayload(input: unknown): Promise<{ valid: tr
   if (!input || typeof input !== "object") return { valid: false, reason: "BACKUP_INVALID_FORMAT" };
   const payload = input as BackupPayload;
   if (payload.manifest?.format !== "novel-project-backup" || payload.manifest.formatVersion !== "novel-backup-v3") return { valid: false, reason: "BACKUP_UNSUPPORTED_FORMAT" };
+  if (!["novel-domain-v1", "novel-repository-v4"].includes(payload.manifest.projectSchemaVersion)) return { valid: false, reason: "BACKUP_SCHEMA_UNSUPPORTED" };
   if (!payload.records || !Array.isArray(payload.records.projects) || payload.records.projects.length !== 1) return { valid: false, reason: "BACKUP_PROJECT_MISSING" };
   const project = payload.records.projects[0] as DomainRecord;
   if ((project.projectId || project.id) !== payload.manifest.projectId) return { valid: false, reason: "BACKUP_PROJECT_SCOPE_MISMATCH" };

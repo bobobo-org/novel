@@ -28,6 +28,7 @@
     "test:ai:p2:grand-integration": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p2-grand-integration.mjs",
     "test:ai:p21:data-closure": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p21-data-closure.mjs",
     "test:ai:p21r1:high-risk": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p21r1-high-risk-closure.mjs",
+    "test:ai:p21:three-high": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p21-three-high-closure.mjs",
     "test:ai:closed:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase0.mjs",
     "test:ai:closed:training:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-training-phase0.mjs",
     "test:ai:closed:bridge:contract": "node scripts/run-closed-ai-bridge-contract.mjs",

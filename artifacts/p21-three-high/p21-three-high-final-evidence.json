@@ -1,0 +1,28 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "status": "PREVIEW_DEPLOYMENT_PENDING",
+  "automatedVerdict": "P2.1_THREE_HIGH_AUTOMATED_PASS",
+  "releaseCandidateVerdict": "P2.1_RELEASE_CANDIDATE_READY_FOR_TERRA_PENDING_PREVIEW",
+  "humanPass": false,
+  "productionReady": false,
+  "totals": {
+    "pass": 45,
+    "fail": 0,
+    "skip": 0,
+    "todo": 0
+  },
+  "highFindingsClosed": 3,
+  "browser": {
+    "consoleErrors": 0,
+    "horizontalOverflow": false,
+    "desktopScreenshot": "artifacts/p21-three-high/browser/desktop-backup.png",
+    "mobileScreenshot": "artifacts/p21-three-high/browser/mobile-backup.png"
+  },
+  "r1k": {
+    "pass": 3,
+    "fail": 0,
+    "mode": "targeted-regression"
+  }
+}

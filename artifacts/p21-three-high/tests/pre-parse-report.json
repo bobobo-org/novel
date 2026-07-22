@@ -1,0 +1,216 @@
+{
+  "suite": "p21-three-high-45",
+  "generatedAt": "2026-07-22T21:02:08.199Z",
+  "results": [
+    {
+      "name": "01 First approval",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "name": "02 Duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "03 Ten-times duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "04 Concurrent duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 20
+    },
+    {
+      "name": "05 Same key different payload",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "06 Stale revision",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "07 Concurrent revision conflict",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "08 AcceptedChoice write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "09 StoryBranch write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "10 Story Bible write failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "11 Revision update failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "12 Idempotency record failure",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "13 Full rollback",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "14 Reload persistence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "15 Browser restart persistence",
+      "status": "PASS",
+      "elapsedMs": 11
+    },
+    {
+      "name": "16 App restart persistence",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "17 Legacy localStorage cannot become canonical",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "18 Legacy migration first run",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "19 Legacy migration rerun",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "20 Backup completeness",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "21 Restore completeness",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "22 Restore idempotency",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "23 Backup round-trip equivalence",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "24 Corrupt backup rejection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "25 Hash mismatch rejection",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "26 Schema mismatch rejection",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "27 Restore rollback",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "28 Health/capability consistency",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "29 Unsupported cannot be ready",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "30 Partial cannot be full",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "31 Test-ready cannot be production-ready",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "32 Studio A/B/C acceptance",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "33 Studio abandon candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "34 Main-character card",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "35 Tasks and achievements",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "36 Save and backup",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "37 Professional tools health",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "38 Mobile core flow",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "39 Production build",
+      "status": "PASS",
+      "elapsedMs": 24139
+    },
+    {
+      "name": "40 TypeScript",
+      "status": "PASS",
+      "elapsedMs": 6291
+    },
+    {
+      "name": "41 ESLint",
+      "status": "PASS",
+      "elapsedMs": 19169
+    },
+    {
+      "name": "42 Sensitive-information scan",
+      "status": "PASS",
+      "elapsedMs": 7
+    }
+  ]
+}

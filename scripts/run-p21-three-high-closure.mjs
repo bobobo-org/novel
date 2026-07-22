@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
+import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
+import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
+import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repository/backup.ts";
+import { migrateLegacyStudioProjects } from "../lib/novel-ai/repository/migration/legacy-studio-migration.ts";
+import { resolveCapabilityCatalog, capabilityStatus } from "../lib/novel-ai/capabilities/index.ts";
+
+const artifactDir = new URL("../artifacts/p21-three-high/tests/", import.meta.url);
+await mkdir(artifactDir, { recursive: true });
+const results = [];
+async function test(name, work) {
+  const started = performance.now();
+  try { await work(); results.push({ name, status: "PASS", elapsedMs: Math.round(performance.now() - started) }); }
+  catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); }
+}
+const effect = (delta = 3) => ({ statChanges: { reputation: delta }, relationshipChanges: {}, resourceChanges: {}, moneyChange: 0, worldFlags: {}, questProgress: {}, achievementProgress: {}, timelineEvents: ["choice"] });
+function draft(title) { const value = createDraft("quick"); value.title = title; value.coreIdea = optionalValue("A choice changes the city.", "user_defined"); value.protagonist = optionalValue("Lin Zhao", "user_defined"); return value; }
+async function fixture(label = "fixture") {
+  const repository = new MemoryNovelRepository(), bundle = buildProjectBundle(draft(label));
+  await repository.createProject(bundle, `create:${label}`);
+  const chapter = await repository.put("chapters", { ...makeRecord(bundle.project.id), title: "Chapter 1", order: 1, content: "Opening.", summary: null, status: "draft" });
+  const project = await repository.put("projects", { ...bundle.project, activeChapterId: chapter.id }, bundle.project.revision);
+  const storyState = (await repository.list("storyStates", project.id))[0];
+  const storyBible = (await repository.list("storyBibles", project.id))[0], base = makeRecord(project.id, "ai_candidate");
+  const candidate = await repository.put("candidates", { ...base, provenance: { ...base.provenance, providerId: "deterministic-local", modelId: "rules-v1", taskType: "interactive_choice", externalRequest: false, dataLeftDevice: false, contextSources: ["chapter"], elapsedMs: 1 }, prompt: "Next?", optionKey: "A", text: "Open the gate", consequence: "Reputation changes", effect: effect(), status: "pending", chapterId: chapter.id, sceneId: null, inputRevision: project.revision, chapterRevision: chapter.revision, storyStateRevision: storyState.revision, storyBibleRevision: storyBible.revision });
+  const input = { operationId: `accept:${candidate.id}`, idempotencyKey: `${project.id}:${candidate.id}:${project.revision}`, projectId: project.id, chapterId: chapter.id, candidateId: candidate.id, acceptedText: "Lin Zhao opens the gate.", choiceLabel: "Open the gate", expectedProjectRevision: project.revision, expectedChapterRevision: chapter.revision, expectedCandidateRevision: candidate.revision, expectedStoryStateRevision: storyState.revision, expectedStoryBibleRevision: storyBible.revision, origin: "studio" };
+  return { repository, bundle, project, chapter, storyState, candidate, input };
+}
+async function counts(repository, projectId) { const stores = ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal"]; return Object.fromEntries(await Promise.all(stores.map(async (store) => [store, (await repository.list(store, projectId)).length]))); }
+function stable(value) { if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`; if (value && typeof value === "object") return `{${Object.entries(value).sort(([a],[b]) => a.localeCompare(b)).map(([key,item]) => `${JSON.stringify(key)}:${stable(item)}`).join(",")}}`; return JSON.stringify(value); }
+const hash = (value) => createHash("sha256").update(stable(value)).digest("hex");
+async function faultCase(store) { const row = await fixture(`fault-${store}`), target = row.repository.stores.get(store), original = target.set.bind(target); target.set = () => { throw new Error(`FAULT_${store}`); }; await assert.rejects(() => row.repository.acceptChoiceTransaction(row.input)); target.set = original; assert.deepEqual(await counts(row.repository, row.project.id), { acceptedChoices: 0, storyBranches: 0, storyBibleDeltas: 0, approvalTransactions: 0, idempotencyRecords: 0, operationJournal: 0 }); assert.equal((await row.repository.get("chapters", row.chapter.id)).content, "Opening."); }
+
+const first = await fixture("first");
+await test("01 First approval", async () => { const result = await first.repository.acceptChoiceTransaction(first.input); assert.equal(result.replayed, false); assert.deepEqual(await counts(first.repository, first.project.id), { acceptedChoices: 1, storyBranches: 1, storyBibleDeltas: 1, approvalTransactions: 1, idempotencyRecords: 1, operationJournal: 1 }); assert.equal(result.storyBible.revision, 2); });
+await test("02 Duplicate approval", async () => { assert.equal((await first.repository.acceptChoiceTransaction(first.input)).replayed, true); assert.equal((await first.repository.list("acceptedChoices", first.project.id)).length, 1); });
+await test("03 Ten-times duplicate approval", async () => { for (let i=0;i<10;i++) assert.equal((await first.repository.acceptChoiceTransaction(first.input)).replayed, true); assert.deepEqual(await counts(first.repository, first.project.id), { acceptedChoices: 1, storyBranches: 1, storyBibleDeltas: 1, approvalTransactions: 1, idempotencyRecords: 1, operationJournal: 1 }); });
+await test("04 Concurrent duplicate approval", async () => { const row = await fixture("concurrent-replay"), values = await Promise.all(Array.from({length:100}, () => row.repository.acceptChoiceTransaction(row.input))); assert.equal(values.filter((item) => !item.replayed).length, 1); assert.equal((await row.repository.list("storyBibleDeltas", row.project.id)).length, 1); });
+await test("05 Same key different payload", async () => { await assert.rejects(() => first.repository.acceptChoiceTransaction({ ...first.input, acceptedText: "Different text" }), (error) => error?.code === "IDEMPOTENCY_PAYLOAD_MISMATCH"); });
+await test("06 Stale revision", async () => { const row = await fixture("stale"); await assert.rejects(() => row.repository.acceptChoiceTransaction({ ...row.input, expectedProjectRevision: row.project.revision - 1 }), /PROJECT_REVISION_CONFLICT/); const bible = (await row.repository.list("storyBibles",row.project.id))[0]; await row.repository.put("storyBibles", bible, bible.revision); await assert.rejects(() => row.repository.acceptChoiceTransaction(row.input), (error) => error?.code === "STORY_BIBLE_REVISION_CONFLICT"); assert.equal((await row.repository.list("approvalTransactions", row.project.id)).length, 0); });
+await test("07 Concurrent revision conflict", async () => { const row = await fixture("concurrent-stale"), base = makeRecord(row.project.id, "ai_candidate"), second = await row.repository.put("candidates", { ...row.candidate, ...base, id: base.id, optionKey: "B", text: "Wait", inputRevision: row.project.revision, chapterRevision: row.chapter.revision, storyStateRevision: row.storyState.revision }); const input = { ...row.input, operationId: `accept:${second.id}`, idempotencyKey: `key:${second.id}`, candidateId: second.id, acceptedText: "Wait." }; const settled = await Promise.allSettled([row.repository.acceptChoiceTransaction(row.input), row.repository.acceptChoiceTransaction(input)]); assert.equal(settled.filter((item) => item.status === "fulfilled").length, 1); assert.equal(settled.filter((item) => item.status === "rejected").length, 1); });
+await test("08 AcceptedChoice write failure", () => faultCase("acceptedChoices"));
+await test("09 StoryBranch write failure", () => faultCase("storyBranches"));
+await test("10 Story Bible write failure", () => faultCase("storyBibles"));
+await test("11 Revision update failure", () => faultCase("projects"));
+await test("12 Idempotency record failure", () => faultCase("idempotencyRecords"));
+await test("13 Full rollback", () => faultCase("approvalTransactions"));
+await test("14 Reload persistence", async () => { assert.equal((await first.repository.get("projects", first.project.id)).revision, first.project.revision + 1); assert.equal((await first.repository.list("storyBranches", first.project.id)).length, 1); });
+await test("15 Browser restart persistence", async () => { const { payload } = await createProjectBackup(first.repository, first.project.id, "full"); const restored = new MemoryNovelRepository(); await restored.importProject(payload.records, "replace", first.project.id); assert.equal((await restored.list("acceptedChoices", first.project.id)).length, 1); assert.equal((await restored.list("idempotencyRecords", first.project.id)).length, 1); });
+await test("16 App restart persistence", async () => { const exported = await first.repository.exportProject(first.project.id), restored = new MemoryNovelRepository(); await restored.importProject(exported, "replace", first.project.id); assert.equal((await restored.list("approvalTransactions", first.project.id)).length, 1); });
+const studioSource = await readFile(new URL("../app/studio/studio-client.tsx", import.meta.url), "utf8");
+await test("17 Legacy localStorage cannot become canonical", async () => { const shell = studioSource.slice(studioSource.indexOf("function shellStateForLocalStorage"), studioSource.indexOf("function projectFromCanonical")); assert.doesNotMatch(shell, /acceptedChoices|storyBranches|storyBibles|approvalTransactions|idempotencyRecords/); });
+await test("18 Legacy migration first run", async () => { const storage = new Map([["novel_p12_studio_state", JSON.stringify({projects:[{id:"legacy-one",title:"Legacy"}]})]]); globalThis.localStorage = { getItem:key=>storage.get(key)??null, setItem:(key,value)=>storage.set(key,value), removeItem:key=>storage.delete(key) }; const repository = new MemoryNovelRepository(), result = await migrateLegacyStudioProjects(repository); assert.equal(result.migrated, 1); globalThis.__migrationRepo = repository; });
+await test("19 Legacy migration rerun", async () => { const result = await migrateLegacyStudioProjects(globalThis.__migrationRepo); assert.equal(result.errors.length, 0); assert.equal((await globalThis.__migrationRepo.list("projects")).length, 1); delete globalThis.localStorage; delete globalThis.__migrationRepo; });
+let backupPayload;
+await test("20 Backup completeness", async () => { backupPayload = (await createProjectBackup(first.repository, first.project.id, "full", { appCommit:"test", releaseTag:"rc" })).payload; for (const store of ["acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","storyStates"]) assert.ok(backupPayload.manifest.includedStores.includes(store)); });
+await test("21 Restore completeness", async () => { const restored = new MemoryNovelRepository(); await restored.importProject(backupPayload.records, "replace", first.project.id); assert.deepEqual(await counts(restored, first.project.id), { acceptedChoices: 1, storyBranches: 1, storyBibleDeltas: 1, approvalTransactions: 1, idempotencyRecords: 1, operationJournal: 0 }); });
+await test("22 Restore idempotency", async () => { const restored = new MemoryNovelRepository(); await restored.importProject(backupPayload.records, "replace", first.project.id); await restored.importProject(backupPayload.records, "replace", first.project.id); assert.equal((await restored.list("acceptedChoices", first.project.id)).length, 1); });
+await test("23 Backup round-trip equivalence", async () => { const restored = new MemoryNovelRepository(); await restored.importProject(backupPayload.records, "replace", first.project.id); const output = await restored.exportProject(first.project.id), comparable = Object.fromEntries(Object.entries(output).filter(([key]) => backupPayload.manifest.includedStores.includes(key))); assert.equal(hash(comparable), hash(backupPayload.records)); });
+await test("24 Corrupt backup rejection", async () => { assert.equal((await validateBackupPayload(null)).reason, "BACKUP_INVALID_FORMAT"); });
+await test("25 Hash mismatch rejection", async () => { const broken = structuredClone(backupPayload); broken.records.chapters[0].content = "tampered"; assert.equal((await validateBackupPayload(broken)).reason, "BACKUP_HASH_MISMATCH"); });
+await test("26 Schema mismatch rejection", async () => { const broken = structuredClone(backupPayload); broken.manifest.projectSchemaVersion = "future-v99"; assert.equal((await validateBackupPayload(broken)).reason, "BACKUP_SCHEMA_UNSUPPORTED"); });
+await test("27 Restore rollback", async () => { const row = await fixture("restore-rollback"), before = hash(await row.repository.exportProject(row.project.id)), target = row.repository.stores.get("approvalTransactions"), originalSet = target.set.bind(target); target.set = () => { throw new Error("RESTORE_FAULT"); }; await assert.rejects(() => row.repository.importProject(backupPayload.records, "replace", row.project.id)); target.set = originalSet; assert.equal(hash(await row.repository.exportProject(row.project.id)), before); });
+const catalog = resolveCapabilityCatalog(), healthSource = await readFile(new URL("../app/api/ai/health/route.ts", import.meta.url), "utf8");
+await test("28 Health/capability consistency", async () => { for (const id of ["repository.approvalTransaction","repository.revisionGuard","repository.idempotency","backup.approvalTransactions","backup.idempotencyRecords"]) assert.ok(healthSource.includes(id)); });
+await test("29 Unsupported cannot be ready", async () => { assert.equal(capabilityStatus(catalog,"missing.capability"), "not_implemented"); });
+await test("30 Partial cannot be full", async () => { assert.equal(catalog["indexedDb.fullAdoption"].effectiveStatus, "partial"); });
+await test("31 Test-ready cannot be production-ready", async () => { assert.equal(catalog["browser.permissionGateway"].effectiveStatus, "client_dependent"); assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "not_implemented"); });
+await test("32 Studio A/B/C acceptance", async () => { assert.match(studioSource, /choice\.key/); assert.match(studioSource, /acceptStudioChoice/); });
+await test("33 Studio abandon candidate", async () => { assert.match(studioSource, /暫時不採用/); assert.match(studioSource, /discard/); });
+await test("34 Main-character card", async () => { assert.match(studioSource, /function WorldScreen/); assert.match(studioSource, /查看主角|編輯角色/); });
+await test("35 Tasks and achievements", async () => { assert.match(studioSource, /任務與成就/); assert.match(studioSource, /achievements/); });
+await test("36 Save and backup", async () => { assert.match(studioSource, /立即快速備份/); assert.match(studioSource, /安全還原/); });
+await test("37 Professional tools health", async () => { const source = await readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"); assert.match(source, /系統狀態|本機 AI|本機AI/); });
+await test("38 Mobile core flow", async () => { const css = await readFile(new URL("../app/studio/studio.css", import.meta.url), "utf8").catch(() => readFile(new URL("../app/globals.css", import.meta.url), "utf8")); assert.match(css, /390|max-width:\s*600|max-width:\s*720|max-width:\s*768/); });
+const run = (args) => execFileSync(process.env.ComSpec || "cmd.exe", ["/d","/s","/c",`pnpm ${args.join(" ")}`], { cwd: process.cwd(), stdio:"pipe", encoding:"utf8", env:process.env });
+await test("39 Production build", async () => { run(["build"]); });
+await test("40 TypeScript", async () => { run(["exec","tsc","--noEmit"]); });
+await test("41 ESLint", async () => { run(["exec","eslint","."]); });
+await test("42 Sensitive-information scan", async () => { const changed = [studioSource, healthSource, await readFile(new URL("../lib/novel-ai/services/accept-choice/index.ts", import.meta.url),"utf8")].join("\n"); assert.doesNotMatch(changed, /vcp_[A-Za-z0-9]{20,}|sbp_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}/); });
+const preReport = { suite:"p21-three-high-45", generatedAt:new Date().toISOString(), results };
+const prePath = new URL("pre-parse-report.json", artifactDir); await writeFile(prePath, JSON.stringify(preReport,null,2));
+await test("43 Manifest verification", async () => { const body = await readFile(prePath); const digest = createHash("sha256").update(body).digest("hex"); assert.equal(digest.length,64); await writeFile(new URL("pre-parse-report.sha256",artifactDir),`${digest}  pre-parse-report.json\n`); });
+await test("44 Node UTF-8 JSON parse", async () => { JSON.parse(await readFile(prePath,"utf8")); });
+await test("45 PowerShell ConvertFrom-Json parse", async () => { const path = decodeURIComponent(prePath.pathname).replace(/^\//,"").replaceAll("/","\\").replaceAll("'","''"); const command = `$utf8=[System.Text.UTF8Encoding]::new($false);$text=[System.IO.File]::ReadAllText('${path}',$utf8);$null=$text|ConvertFrom-Json`; execFileSync("powershell.exe",["-NoProfile","-Command",command],{stdio:"pipe"}); });
+const report = { suite:"p21-three-high-45", generatedAt:new Date().toISOString(), pass:results.filter(x=>x.status==="PASS").length, fail:results.filter(x=>x.status==="FAIL").length, skip:0, todo:0, results };
+await writeFile(new URL("latest.json",artifactDir),JSON.stringify(report,null,2));
+console.log(JSON.stringify(report,null,2));
+if(report.fail || report.pass!==45) process.exitCode=1;

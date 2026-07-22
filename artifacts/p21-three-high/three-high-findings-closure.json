@@ -1,0 +1,81 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "status": "CLOSED_BY_AUTOMATED_EVIDENCE",
+  "findings": [
+    {
+      "id": "HIGH_APPROVAL_TRANSACTION",
+      "status": "CLOSED",
+      "evidence": [
+        {
+          "name": "01 First approval",
+          "status": "PASS",
+          "elapsedMs": 9
+        },
+        {
+          "name": "08 AcceptedChoice write failure",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "09 StoryBranch write failure",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "10 Story Bible write failure",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "13 Full rollback",
+          "status": "PASS",
+          "elapsedMs": 1
+        }
+      ]
+    },
+    {
+      "id": "HIGH_REVISION_GUARD",
+      "status": "CLOSED",
+      "evidence": [
+        {
+          "name": "06 Stale revision",
+          "status": "PASS",
+          "elapsedMs": 1
+        },
+        {
+          "name": "07 Concurrent revision conflict",
+          "status": "PASS",
+          "elapsedMs": 2
+        }
+      ]
+    },
+    {
+      "id": "HIGH_HEALTH_CONSISTENCY",
+      "status": "CLOSED",
+      "evidence": [
+        {
+          "name": "28 Health/capability consistency",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "29 Unsupported cannot be ready",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "30 Partial cannot be full",
+          "status": "PASS",
+          "elapsedMs": 0
+        },
+        {
+          "name": "31 Test-ready cannot be production-ready",
+          "status": "PASS",
+          "elapsedMs": 0
+        }
+      ]
+    }
+  ]
+}

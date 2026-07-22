@@ -1,0 +1,20 @@
+﻿[
+    {
+        "command":  "pnpm test:r1k:origin-isolation",
+        "exitCode":  0,
+        "elapsedMs":  1437,
+        "log":  "artifacts/p21-three-high/tests/test-r1k-origin-isolation.log"
+    },
+    {
+        "command":  "pnpm test:r1k:bridge-response",
+        "exitCode":  0,
+        "elapsedMs":  926,
+        "log":  "artifacts/p21-three-high/tests/test-r1k-bridge-response.log"
+    },
+    {
+        "command":  "pnpm test:r1k:bridge-failure-matrix",
+        "exitCode":  0,
+        "elapsedMs":  1115,
+        "log":  "artifacts/p21-three-high/tests/test-r1k-bridge-failure-matrix.log"
+    }
+]

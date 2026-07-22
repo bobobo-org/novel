@@ -1,0 +1,33 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "mismatchErrorCode": "IDEMPOTENCY_PAYLOAD_MISMATCH",
+  "results": [
+    {
+      "name": "02 Duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "03 Ten-times duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "04 Concurrent duplicate approval",
+      "status": "PASS",
+      "elapsedMs": 20
+    },
+    {
+      "name": "05 Same key different payload",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "22 Restore idempotency",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ]
+}

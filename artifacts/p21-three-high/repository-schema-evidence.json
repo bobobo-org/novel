@@ -1,0 +1,46 @@
+{
+  "evidenceSchemaVersion": "p21-three-high-evidence-v1",
+  "generatedAt": "2026-07-22T21:05:55.222Z",
+  "sourceSuite": "artifacts/p21-three-high/tests/latest.json",
+  "schemaVersion": "novel-repository-v4",
+  "canonicalStores": [
+    "acceptedChoices",
+    "storyBranches",
+    "storyBibleDeltas",
+    "approvalTransactions",
+    "idempotencyRecords"
+  ],
+  "localStorageCanonical": false,
+  "results": [
+    {
+      "name": "14 Reload persistence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "15 Browser restart persistence",
+      "status": "PASS",
+      "elapsedMs": 11
+    },
+    {
+      "name": "16 App restart persistence",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "17 Legacy localStorage cannot become canonical",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "18 Legacy migration first run",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "19 Legacy migration rerun",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}
