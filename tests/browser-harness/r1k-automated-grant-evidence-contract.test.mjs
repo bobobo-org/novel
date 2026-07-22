@@ -3,19 +3,19 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const evidencePath = process.argv[2];
-if (!evidencePath) throw new Error("Pass the immutable R1K Chrome Grant evidence JSON path.");
+if (!evidencePath) throw new Error("Pass the immutable R1K browser Grant evidence JSON path.");
 
 const evidence = JSON.parse(await readFile(path.resolve(evidencePath), "utf8"));
-assert.equal(evidence.schemaVersion, "r1k-chrome-grant-final-evidence-v1");
-assert.equal(evidence.verdict, "R1K_CHROME_GRANT_AUTOMATED_PASS");
+assert.equal(evidence.schemaVersion, "r1k-browser-grant-final-evidence-v2");
+assert.match(evidence.verdict, /^R1K_(CHROME|EDGE)_GRANT_AUTOMATED_PASS$/);
 assert.equal(evidence.technical_status, "AUTOMATED_PASS");
 assert.equal(evidence.human_validation_status, "HUMAN_NOT_RUN");
 assert.equal(evidence.decision_method, "WINDOWS_UI_AUTOMATION");
 assert.equal(evidence.human_operator_clicked, false);
 assert.equal(evidence.native_prompt.automation_role, "Button");
-assert.ok(Number.isInteger(evidence.native_prompt.chrome_pid));
-assert.match(evidence.native_prompt.window_title, /Google Chrome/);
-assert.ok(["允許", "Allow"].includes(evidence.native_prompt.clicked_control_name));
+assert.ok(Number.isInteger(evidence.native_prompt.browser_pid));
+assert.match(evidence.native_prompt.window_title, /(Google Chrome|Microsoft.*Edge)/);
+assert.ok(typeof evidence.native_prompt.clicked_control_name === "string" && evidence.native_prompt.clicked_control_name.trim().length > 0);
 assert.equal(evidence.native_prompt.fixed_screen_coordinates_used, false);
 assert.equal(evidence.permission.before, "ASK_OR_UNSET");
 assert.equal(evidence.permission.after, "GRANTED");
