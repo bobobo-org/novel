@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "r1k-browser-evidence-anchor-v1",
+  "case": "edge-deny",
+  "verdict": "R1K_EDGE_DENY_AUTOMATED_PASS",
+  "technicalStatus": "AUTOMATED_PASS",
+  "humanValidationStatus": "HUMAN_NOT_RUN",
+  "runId": "edge-deny-e1ac956d14c3417089b6540cfba87a02",
+  "productCommit": "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+  "harnessCommit": "72b85f61b559bbab59f19967a547d7b2b9b1ca97",
+  "evidenceContractCommit": "aba2dfbbbc0bcf338fea7f2e92ebd400fd4b1367",
+  "evidenceSha256": "3aeabb462bda98e8f0fbc23626bbb86e9ff5a20b955923e1f5afc3a81bad5d43",
+  "manifestSha256": "66ea3565c5ee0b85e919cbd41f7afc200e439bf0526e2fba71fa04a40d61712c",
+  "counts": { "PASS": 15, "FAIL": 0, "SKIP": 0 },
+  "manifestMismatch": 0
+}
