@@ -33,6 +33,13 @@ try {
     return result;
   });
   const bodyText = await page.locator("body").innerText();
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.waitForTimeout(3_000);
+  const permissionAfterReload = await page.evaluate(async () => ({
+    "loopback-network": (await navigator.permissions.query({ name: "loopback-network" })).state,
+    "local-network-access": (await navigator.permissions.query({ name: "local-network-access" })).state,
+  }));
+  const bodyTextAfterReload = await page.locator("body").innerText();
   await page.screenshot({ path: output.replace(/\.json$/i, ".png"), fullPage: true });
   const loopbackRows = network.filter((row) => /(?:127\.0\.0\.1|localhost):3217/.test(row.url));
   const result = {
@@ -42,13 +49,18 @@ try {
     targetUrl,
     permission,
     permissionPersisted: permission["loopback-network"] === "granted" || permission["local-network-access"] === "granted",
+    permissionAfterReload,
+    reloadPermissionPersisted: permissionAfterReload["loopback-network"] === "granted" && permissionAfterReload["local-network-access"] === "granted",
     bridgeReachableVisible: bodyText.includes("本機橋接服務已啟動"),
     originAuthorizedVisible: bodyText.includes("目前網站已授權"),
     stalePairingReused: bodyText.includes("已配對"),
+    stalePairingReusedAfterReload: bodyTextAfterReload.includes("已配對"),
     pairingContract: "BRIDGE_RESTART_REQUIRES_NEW_PRODUCT_UI_PAIRING",
     loopbackRequestCount: loopbackRows.filter((row) => row.phase === "request").length,
     loopbackResponseCount: loopbackRows.filter((row) => row.phase === "response").length,
-    status: permission["loopback-network"] === "granted" && loopbackRows.some((row) => row.phase === "response") ? "PASS" : "FAIL",
+    status: permission["loopback-network"] === "granted"
+      && permissionAfterReload["loopback-network"] === "granted"
+      && loopbackRows.some((row) => row.phase === "response") ? "PASS" : "FAIL",
   };
   await writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(result));
