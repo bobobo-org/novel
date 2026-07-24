@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "node scripts/generate-release-provenance.mjs && node scripts/build-story-library.mjs && node scripts/stamp-static-release.mjs && node scripts/check-legacy-build-truth.mjs --write-manifest && next build",
     "check:legacy-build-truth": "node scripts/check-legacy-build-truth.mjs",
+    "test:ai:p21r4:legacy-provenance": "node scripts/generate-release-provenance.mjs && node scripts/run-p21-legacy-build-provenance-regression.mjs",
     "test:ai:closed:phase1-1r4": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r4.mjs",
     "test:ai:closed:phase1-1r4:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r4-real.mjs",
     "test:ai:closed:phase1-1r5": "node scripts/run-closed-ai-phase1-1r5.mjs",

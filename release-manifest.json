@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p21-build-sealed-provenance-rc3",
-  "releaseName": "P2.1 Build-Sealed Provenance Candidate",
-  "consumerRelease": "p2.1-build-sealed-provenance-rc3-v1",
+  "releaseTag": "novel-ai-p21-legacy-build-provenance-rc4",
+  "releaseName": "P2.1 Legacy Build Provenance Candidate",
+  "consumerRelease": "p2.1-legacy-build-provenance-rc4-v1",
   "architectureStage": "P2.1 RC",
-  "buildTime": "2026-07-24T08:00:00+08:00"
+  "buildTime": "2026-07-25T08:00:00+08:00"
 }

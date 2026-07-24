@@ -62,7 +62,9 @@ export function provenancePayload(provenance) {
 }
 
 export function verifyReleaseProvenance(provenance) {
-  if (provenance.schemaVersion !== releaseContract.provenanceSchemaVersion) return false;
+  const allowedSchemas = releaseContract.allowedProvenanceSchemaVersions
+    ?? [releaseContract.provenanceSchemaVersion];
+  if (!allowedSchemas.includes(provenance.schemaVersion)) return false;
   if (!releaseContract.allowedProvenanceSources.includes(provenance.source)) return false;
   if (!FULL_COMMIT.test(provenance.appCommit)) return false;
   if (provenance.releaseTag !== releaseManifest.releaseTag) return false;
