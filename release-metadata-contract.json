@@ -1,5 +1,12 @@
 {
   "schemaVersion": "p21-release-metadata-contract-v1",
+  "provenanceSchemaVersion": "p21-build-provenance-v1",
+  "provenanceHashAlgorithm": "sha256",
+  "allowedProvenanceSources": [
+    "vercel_git_commit_sha",
+    "explicit_build_commit",
+    "git_head"
+  ],
   "allowedArchitectureStages": [
     "P1.5",
     "P2",

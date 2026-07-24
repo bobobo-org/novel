@@ -1,7 +1,8 @@
 import fs from "node:fs";
-import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import releaseManifest from "../release-manifest.json" with { type: "json" };
+import releaseProvenance from "../generated/release-provenance.json" with { type: "json" };
+import { verifyReleaseProvenance } from "./generate-release-provenance.mjs";
 
 const releaseTag = releaseManifest.releaseTag;
 const visibleUiSemanticVersion = "h2w3-visible-ui-semantic-closure-v1";
@@ -29,17 +30,11 @@ if (process.env.VERCEL !== "1" && process.env.NOVEL_STATIC_STAMP !== "1") {
   process.exit(0);
 }
 
-function resolveCommit() {
-  if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA;
-  if (process.env.NOVEL_STATIC_APP_COMMIT) return process.env.NOVEL_STATIC_APP_COMMIT;
-  try {
-    return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
-  } catch {
-    return "local";
-  }
+if (!verifyReleaseProvenance(releaseProvenance)) {
+  throw new Error("BUILD_PROVENANCE_VALIDATION_FAILED");
 }
 
-const appCommit = resolveCommit();
+const appCommit = releaseProvenance.appCommit;
 
 const replacements = new Map([
   ["__NOVEL_STATIC_APP_COMMIT__", appCommit],
