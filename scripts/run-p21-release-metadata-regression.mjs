@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 
 const read = async (file) => readFile(file, "utf8");
@@ -8,7 +9,7 @@ const healthSource = await read("app/api/ai/health/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p21-release-metadata-rc2";
+const expectedTag = "novel-ai-p21-legacy-build-provenance-rc4";
 const expectedStage = "P2.1 RC";
 const results = [];
 
@@ -33,7 +34,14 @@ test("unknown architectureStage fails", () => mustReject({ ...manifest, architec
 test("runtime validates authoritative contract", () => { assert.match(runtimeSource, /allowedArchitectureStages/); assert.match(runtimeSource, /releaseTagPattern/); });
 test("public health reads shared manifest", () => { assert.match(healthSource, /RELEASE_MANIFEST\.releaseTag/); assert.match(healthSource, /RELEASE_MANIFEST\.architectureStage/); });
 test("build stamp reads shared manifest", () => assert.match(stampSource, /releaseManifest\.releaseTag/));
-test("preview gate expects RC2 tag", () => { assert.match(sealSource, /novel-ai-p21-release-metadata-rc2/); assert.doesNotMatch(sealSource, /novel-ai-p21-three-high-rc/); });
+test("legacy RC2 evidence and RC3 tag remain immutable", () => {
+  assert.match(sealSource, /novel-ai-p21-release-metadata-rc2/);
+  assert.doesNotMatch(sealSource, /novel-ai-p21-legacy-build-provenance-rc4/);
+  assert.equal(
+    execFileSync("git", ["rev-list", "-n", "1", "novel-ai-p21-build-sealed-provenance-rc3"], { encoding: "utf8" }).trim(),
+    "44323cb00a08e024a8f87375b4b48f2cb44b06bb",
+  );
+});
 
 const summary = { suite: "P2.1 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
 await mkdir("artifacts/p21-release-metadata-repair", { recursive: true });

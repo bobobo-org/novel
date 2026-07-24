@@ -1,0 +1,222 @@
+
+>>> pnpm test:ai:p21r3:release-provenance
+{
+  "suite": "P2.1R3 build-sealed provenance",
+  "schemaVersion": "p21-build-provenance-regression-v1",
+  "pass": 15,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "VERCEL_GIT_COMMIT_SHA is authoritative at build time",
+      "status": "PASS"
+    },
+    {
+      "name": "explicit build commit is the supported non-Vercel fallback",
+      "status": "PASS"
+    },
+    {
+      "name": "Git HEAD is used when build variables are absent",
+      "status": "PASS"
+    },
+    {
+      "name": "APP_COMMIT cannot contaminate authoritative provenance",
+      "status": "PASS"
+    },
+    {
+      "name": "invalid explicit commit fails closed",
+      "status": "PASS"
+    },
+    {
+      "name": "missing commit fails closed",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed provenance validates",
+      "status": "PASS"
+    },
+    {
+      "name": "payload tampering invalidates the seal",
+      "status": "PASS"
+    },
+    {
+      "name": "release metadata tampering invalidates the seal",
+      "status": "PASS"
+    },
+    {
+      "name": "same inputs produce the same provenance hash",
+      "status": "PASS"
+    },
+    {
+      "name": "runtime source no longer reads APP_COMMIT",
+      "status": "PASS"
+    },
+    {
+      "name": "health exposes verified provenance fields",
+      "status": "PASS"
+    },
+    {
+      "name": "deployment identity remains runtime-scoped",
+      "status": "PASS"
+    },
+    {
+      "name": "static release stamping rejects an invalid provenance seal",
+      "status": "PASS"
+    },
+    {
+      "name": "generated artifact contains no credential-shaped fields",
+      "status": "PASS"
+    }
+  ]
+}
+
+>>> pnpm test:ai:p21:release-metadata
+{
+  "suite": "P2.1 release metadata regression",
+  "pass": 8,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "manifest uses authoritative RC metadata",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest-health releaseTag mismatch fails",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest-health architectureStage mismatch fails",
+      "status": "PASS"
+    },
+    {
+      "name": "unknown architectureStage fails",
+      "status": "PASS"
+    },
+    {
+      "name": "runtime validates authoritative contract",
+      "status": "PASS"
+    },
+    {
+      "name": "public health reads shared manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "build stamp reads shared manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "legacy RC2 preview evidence remains immutable",
+      "status": "PASS"
+    }
+  ]
+}
+
+>>> pnpm exec tsc --noEmit
+
+>>> pnpm build
+{"status":"PASS","schemaVersion":"p21-build-provenance-v1","appCommit":"ef11024c5fde555d536f43bb470e42c306251b20","source":"git_head","payloadHash":"d132de8a7b146108905479c9a3902b3a65adde29a149c8686f1a74bc30beb86e"}
+{"schemaVersion":"story-library-v1","classicTopics":218,"adultTopics":7,"packs":11,"snapshot":"public\\generated\\story-library.json"}
+Skipping static release stamping outside deployment.
+{
+  "schemaVersion": "legacy-build-truth-v1",
+  "sourcePath": "public/legacy/novel-system.html",
+  "deployedRoute": "/legacy/novel-system.html",
+  "hashMode": "sha256-normalized-release-fields-v1",
+  "sourceSha256": "95947d3425627bc4dcd4be6c1295a94c5b238e5a8f5743401f19697217795307",
+  "buildArtifactSha256": "95947d3425627bc4dcd4be6c1295a94c5b238e5a8f5743401f19697217795307",
+  "buildArtifactRawSha256": "b85f8065455891da46f73a5e1aad22d269161e7e77307ceba39769554862907e",
+  "commit": "ef11024c5fde555d536f43bb470e42c306251b20",
+  "assertions": {
+    "prohibitedStringsAbsent": true,
+    "unsafeScriptsNotLoaded": true,
+    "directProviderHandlersRejected": true,
+    "unsafeServiceWorkerCacheEntriesAbsent": true,
+    "boundaryLoadedLast": true
+  }
+}
+▲ Next.js 16.2.10 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 4.0s
+  Running TypeScript ...
+  Finished TypeScript in 5.2s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/41) ...
+  Generating static pages using 7 workers (10/41)
+  Generating static pages using 7 workers (20/41)
+  Generating static pages using 7 workers (30/41)
+✓ Generating static pages using 7 workers (41/41) in 291ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/admin/persistence
+├ ƒ /api/admin/storage/diagnostics
+├ ƒ /api/admin/story-bible/conflict-test
+├ ƒ /api/admin/story-bible/integrity-backfill
+├ ƒ /api/admin/training-dataset/audit
+├ ƒ /api/admin/training-dataset/cases
+├ ƒ /api/admin/training-dataset/cases/[id]
+├ ƒ /api/admin/training-dataset/compare
+├ ƒ /api/admin/training-dataset/evals
+├ ƒ /api/admin/training-dataset/export
+├ ƒ /api/admin/training-dataset/stats
+├ ƒ /api/ai/analyze
+├ ƒ /api/ai/chapter-plan
+├ ƒ /api/ai/continuity-review
+├ ƒ /api/ai/feedback
+├ ƒ /api/ai/feedback/[id]
+├ ƒ /api/ai/health
+├ ƒ /api/ai/memory
+├ ƒ /api/ai/ollama/health
+├ ƒ /api/ai/ollama/models
+├ ƒ /api/ai/platform/status
+├ ƒ /api/ai/providers
+├ ƒ /api/ai/router/decision
+├ ƒ /api/ai/story-bible/extract
+├ ƒ /api/generate
+├ ƒ /api/private-ai/capabilities
+├ ƒ /api/private-ai/health
+├ ƒ /api/private-ai/jobs
+├ ƒ /api/private-ai/jobs/[jobId]
+├ ƒ /api/private-ai/jobs/[jobId]/cancel
+├ ƒ /api/private-ai/usage
+├ ƒ /api/story-bible/candidates
+├ ƒ /api/story-bible/candidates/[id]
+├ ƒ /api/story-bible/candidates/[id]/approve
+├ ƒ /api/story-bible/candidates/[id]/edit-and-approve
+├ ƒ /api/story-bible/candidates/[id]/reject
+├ ƒ /api/story-bible/conflicts
+├ ƒ /api/story-bible/conflicts/[id]
+├ ƒ /api/story-bible/entities/[entityType]/[entityId]/fields/history
+├ ƒ /api/story-bible/entities/[entityType]/[entityId]/history
+├ ƒ /api/story-bible/versions
+├ ƒ /api/story-bible/versions/[id]
+├ ƒ /api/story-bible/versions/[id]/diff-current
+├ ƒ /api/story-bible/versions/[id]/revert
+├ ƒ /api/story-bible/versions/diff
+├ ƒ /api/story-bible/versions/export
+├ ƒ /api/story-bible/versions/export/preview
+├ ƒ /api/story-bible/versions/integrity
+├ ƒ /api/story-library
+├ ○ /professional
+├ ƒ /studio
+├ ○ /studio/create
+├ ƒ /studio/project/[projectId]
+├ ƒ /studio/project/[projectId]/achievements
+├ ƒ /studio/project/[projectId]/backups
+├ ƒ /studio/project/[projectId]/characters
+├ ƒ /studio/project/[projectId]/story-bible
+├ ƒ /studio/project/[projectId]/tasks
+├ ƒ /studio/project/[projectId]/timeline
+├ ƒ /studio/project/[projectId]/world
+├ ƒ /studio/project/[projectId]/write
+├ ƒ /studio/read/[projectId]
+├ ○ /studio/settings/ai
+└ ○ /studio/settings/storage
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand

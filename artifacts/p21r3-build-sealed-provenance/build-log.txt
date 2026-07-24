@@ -1,0 +1,11 @@
+Command: pnpm build
+Result: PASS
+Exit code: 0
+Release provenance generated before static stamping and Next.js compilation.
+Next.js production build completed and all application routes compiled.
+Generated release provenance schema: p21-build-provenance-v1
+Generated release provenance source: git_head
+Contaminating APP_COMMIT supplied during validation: ignored
+TypeScript: PASS
+Node JSON parse: PASS
+PowerShell UTF-8 ConvertFrom-Json: PASS

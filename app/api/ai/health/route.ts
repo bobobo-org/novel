@@ -11,20 +11,47 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
-import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { createHash } from "node:crypto";
+import {
+  RELEASE_MANIFEST,
+  RELEASE_METADATA_CONTRACT,
+  RELEASE_PROVENANCE,
+} from "@/lib/release-manifest";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
 import { capabilityStatus, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 
 export const runtime = "nodejs";
 
+function verifyReleaseProvenance() {
+  const payload = {
+    schemaVersion: RELEASE_PROVENANCE.schemaVersion,
+    appCommit: RELEASE_PROVENANCE.appCommit,
+    releaseTag: RELEASE_PROVENANCE.releaseTag,
+    architectureStage: RELEASE_PROVENANCE.architectureStage,
+    sealedAt: RELEASE_PROVENANCE.sealedAt,
+    source: RELEASE_PROVENANCE.source,
+  };
+  const actualHash = createHash("sha256")
+    .update(JSON.stringify(payload), "utf8")
+    .digest("hex");
+  return actualHash === RELEASE_PROVENANCE.integrity.payloadHash
+    && RELEASE_PROVENANCE.integrity.algorithm === RELEASE_METADATA_CONTRACT.provenanceHashAlgorithm;
+}
+
+const releaseProvenanceVerified = verifyReleaseProvenance();
+
 const RELEASE_META = {
-  appCommit: RELEASE_MANIFEST.appCommit,
+  appCommit: releaseProvenanceVerified ? RELEASE_MANIFEST.appCommit : "provenance-unavailable",
   buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
   releaseTag: RELEASE_MANIFEST.releaseTag,
   releaseName: RELEASE_MANIFEST.releaseName,
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
+  commitProvenanceSource: RELEASE_MANIFEST.commitProvenanceSource,
+  commitProvenanceStatus: releaseProvenanceVerified ? "verified" : "unavailable",
+  commitProvenanceSchemaVersion: RELEASE_MANIFEST.commitProvenanceSchemaVersion,
+  commitProvenanceHash: releaseProvenanceVerified ? RELEASE_MANIFEST.commitProvenanceHash : null,
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
 };
