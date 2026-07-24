@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/generate-release-provenance.mjs",
     "dev": "next dev",
     "build": "node scripts/generate-release-provenance.mjs && node scripts/build-story-library.mjs && node scripts/stamp-static-release.mjs && node scripts/check-legacy-build-truth.mjs --write-manifest && next build",
     "check:legacy-build-truth": "node scripts/check-legacy-build-truth.mjs",

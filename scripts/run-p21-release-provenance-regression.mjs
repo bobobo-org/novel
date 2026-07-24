@@ -97,6 +97,13 @@ await test("runtime source no longer reads APP_COMMIT", async () => {
   assert.doesNotMatch(source, /process\.env\.APP_COMMIT/);
   assert.match(source, /provenance\.appCommit/);
 });
+await test("fresh-clone development generates provenance before startup", async () => {
+  const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+  assert.equal(
+    packageJson.scripts.predev,
+    "node scripts/generate-release-provenance.mjs",
+  );
+});
 await test("health exposes verified provenance fields", async () => {
   const source = await readFile("app/api/ai/health/route.ts", "utf8");
   for (const field of [
