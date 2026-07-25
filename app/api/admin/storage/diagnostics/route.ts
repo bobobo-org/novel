@@ -128,6 +128,8 @@ export async function GET(req: Request) {
       INDEXEDDB_BROWSER: getStorageCapabilities("INDEXEDDB_BROWSER"),
     },
     novelCapabilityCatalog: resolveCapabilityCatalog(),
+    modelTraining: resolveCapabilityCatalog().modelTraining.effectiveStatus,
+    distillation: resolveCapabilityCatalog().distillation.effectiveStatus,
     transactionSupport: {
       SUPABASE_CLOUD: "partial",
       MEMORY_TEST: "supported",

@@ -149,6 +149,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
 
   const evaluation = candidate?.evaluations[0];
   const profile = useMemo(() => getDramaFormatProfile(format), [format]);
+  const candidateProfile = useMemo(
+    () => candidate ? getDramaFormatProfile(candidate.project.formatProfile) : null,
+    [candidate],
+  );
 
   if (!data) return <main className="p2ProjectShell"><p role="status">{message}</p></main>;
   return (
@@ -164,7 +168,23 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
         <p className="dramaStatus" role="status">{message}</p>
         {!candidate ? <div className="p2DataEmpty"><p>{data.chapters.length ? `將使用 ${data.chapters.length} 章正式內容，預計每集約 ${profile.targetDurationSeconds} 秒。` : "目前沒有可用章節，請先寫一段故事。"}</p></div> : (
           <>
-            <section className="dramaSummary">
+            <section
+              className="dramaSummary"
+              data-testid="drama-candidate"
+              data-candidate-id={candidate.project.dramaProjectId}
+              data-provider-run-id={candidate.project.projectionTrace.providerRunId}
+              data-output-hash={candidate.project.projectionTrace.outputHash}
+              data-created-at={candidate.project.createdAt}
+              data-format-profile={candidate.project.formatProfile}
+              data-target-duration={candidateProfile?.targetDurationSeconds}
+              data-scene-count={candidate.scenes.length}
+              data-beat-count={candidate.beats.length}
+              data-hook-deadline={candidateProfile?.openingHookDeadlineSeconds}
+              data-conflict-interval={candidateProfile?.conflictIntervalSeconds}
+              data-reversal-interval={candidateProfile?.reversalIntervalSeconds}
+              data-minimum-payoff-count={candidateProfile?.minimumPayoffCount}
+              data-cliffhanger-type={candidate.episodes[0]?.cliffhanger.type}
+            >
               <article><small>來源章節</small><strong>{candidate.project.projectionTrace.sourceChapterIds.length}</strong><span>版本 {candidate.project.sourceStoryRevision}</span></article>
               <article><small>單集規劃</small><strong>{candidate.episodes.length}</strong><span>{FORMAT_LABELS[candidate.project.formatProfile]}</span></article>
               <article><small>候選場景</small><strong>{candidate.scenes.length}</strong><span>{candidate.beats.length} 個戲劇節拍</span></article>
@@ -191,7 +211,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
               <button disabled={busy} onClick={() => void generate()}>再產生一份</button>
               <button disabled={busy} onClick={() => { setCandidate(null); setMessage("已放棄畫面上的候選；正式作品沒有變更。"); }}>放棄</button>
             </footer>
-            <details className="dramaTechnical"><summary>查看技術資訊</summary><dl><div><dt>執行方式</dt><dd>本機規則式戲劇規劃</dd></div><div><dt>正式小說寫入</dt><dd>{candidate.canonicalMutation}</dd></div><div><dt>來源版本</dt><dd>{candidate.project.sourceStoryRevision}</dd></div><div><dt>搜尋前文紀錄</dt><dd>{candidate.project.projectionTrace.retrievalTraceId}</dd></div><div><dt>內容指紋</dt><dd>{candidate.project.projectionTrace.outputHash}</dd></div></dl></details>
+            <details className="dramaTechnical"><summary>查看技術資訊</summary><dl><div><dt>執行方式</dt><dd>本機規則式戲劇規劃</dd></div><div><dt>正式小說寫入</dt><dd>{candidate.canonicalMutation}</dd></div><div><dt>來源版本</dt><dd>{candidate.project.sourceStoryRevision}</dd></div><div><dt>目標秒數</dt><dd>{candidateProfile?.targetDurationSeconds}</dd></div><div><dt>Hook 時限</dt><dd>{candidateProfile?.openingHookDeadlineSeconds}</dd></div><div><dt>衝突間隔</dt><dd>{candidateProfile?.conflictIntervalSeconds}</dd></div><div><dt>轉折間隔</dt><dd>{candidateProfile?.reversalIntervalSeconds}</dd></div><div><dt>最低 Payoff</dt><dd>{candidateProfile?.minimumPayoffCount}</dd></div><div><dt>搜尋前文紀錄</dt><dd>{candidate.project.projectionTrace.retrievalTraceId}</dd></div><div><dt>內容指紋</dt><dd>{candidate.project.projectionTrace.outputHash}</dd></div></dl></details>
           </>
         )}
       </section>

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "p24a-rc2-character-ui-flow-v1",
+  "creationMethod": "consumer UI",
+  "route": "/studio/project/4978359a-b570-4f02-9f74-85cd6f14ad48/characters",
+  "uiControl": "button:儲存角色",
+  "recordId": "f1032e40-ca66-431b-8bbb-f0f000484b8e",
+  "revision": 1,
+  "reloadPersistence": true,
+  "backupPresence": true,
+  "restorePresence": true,
+  "fictionalTestData": true,
+  "pass": true,
+  "generatedAt": "2026-07-25T22:33:22.848Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

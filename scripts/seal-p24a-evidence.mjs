@@ -112,8 +112,8 @@ const capabilityTruth = {
     ["storyboard", "not_implemented", "not_implemented"],
     ["realVideoGeneration", "contract_only", "not_connected"],
     ["privateAiHub", "contract_only", "not_connected"],
-    ["modelTraining", "contract_only", "not_implemented"],
-    ["distillation", "contract_only", "not_implemented"],
+    ["modelTraining", "not_started", "not_started"],
+    ["distillation", "not_started", "not_started"],
   ].map(([id, contractStatus, runtimeStatus]) => ({ id, contractStatus, runtimeStatus })),
   falseReadyClaims: 0,
 };
