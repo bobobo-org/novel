@@ -1,4 +1,4 @@
-export type CapabilityStatus = "ready" | "partial" | "contract_ready" | "client_dependent" | "runtime_unavailable" | "not_connected" | "unsupported" | "not_implemented" | "degraded" | "failed";
+export type CapabilityStatus = "ready" | "partial" | "contract_only" | "contract_ready" | "client_dependent" | "runtime_unavailable" | "not_connected" | "unsupported" | "not_implemented" | "degraded" | "failed";
 
 export type CapabilityReport = {
   id: string;

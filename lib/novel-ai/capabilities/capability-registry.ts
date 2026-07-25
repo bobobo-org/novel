@@ -32,5 +32,8 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { id: "backup.idempotencyRecords", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["idempotencyRecords included in backup manifest"] },
   { id: "browser.permissionGateway", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["R1K automated browser permission matrix"], limitations: ["Permission verification does not imply Browser AI runtime availability"] },
   { id: "browser.aiRuntime", contractStatus: "ready", runtimeStatus: "not_implemented", evidence: ["Provider contract only"], limitations: ["No installed browser model runtime"] },
+  { id: "media.storyboard", contractStatus: "contract_only", runtimeStatus: "not_connected", evidence: ["story-media-extension-v1 source-bound candidate contract"], limitations: ["No media generation runtime is connected"] },
+  { id: "media.videoPrompt", contractStatus: "contract_only", runtimeStatus: "not_connected", evidence: ["story-media-extension-v1 prompt package"], limitations: ["Output remains an approval candidate"] },
+  { id: "media.videoGeneration", contractStatus: "contract_only", runtimeStatus: "not_connected", evidence: ["generic video provider adapter contract"], limitations: ["No Seedance or other video provider is installed or authorized"] },
   { id: "backup.legacyFormatImport", contractStatus: "partial", runtimeStatus: "partial", evidence: ["Legacy project migration preview"], limitations: ["Ambiguous legacy interactions require manual review"] },
 ];
