@@ -168,7 +168,7 @@ export default function AISettingsClient() {
     }));
   }, [client, currentOrigin]);
 
-  useEffect(() => { void refresh(); return () => { configureLocalBridgeClient(null); configureLocalBridgeModel(null); }; }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const savePrivacy = (next: Status) => {
     setStatus(next);

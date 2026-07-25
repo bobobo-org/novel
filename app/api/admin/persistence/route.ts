@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/novel-ai/admin";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import {
   AiRunRepository,
   EvaluationRepository,
@@ -12,6 +13,13 @@ import {
 } from "@/lib/novel-ai/persistence";
 
 export const runtime = "nodejs";
+
+const releaseIdentity = {
+  appCommit: RELEASE_MANIFEST.appCommit,
+  releaseTag: RELEASE_MANIFEST.releaseTag,
+  architectureStage: RELEASE_MANIFEST.architectureStage,
+  commitProvenanceStatus: RELEASE_MANIFEST.commitProvenanceStatus,
+};
 
 function elapsed(started: number) {
   return Date.now() - started;
@@ -52,7 +60,7 @@ export async function GET(req: Request) {
       listTrainingExamplesFromDb(undefined, limit),
     ]);
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       health,
       aiRuns,
       modelErrors,
@@ -64,14 +72,14 @@ export async function GET(req: Request) {
 
   if (action === "audit") {
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, projectId },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, projectId, releaseIdentity },
       audit: await dualWriteAudit(projectId),
     });
   }
 
   if (action === "write-test") {
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       writeTest: await runWriteProbe(),
     });
   }
@@ -85,7 +93,7 @@ export async function GET(req: Request) {
     ]);
     return Response.json({
       projectId,
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       recovered: {
         aiRuns: aiRuns.length,
         feedback: feedback.rows.length,

@@ -57,6 +57,10 @@ export function resolvePlatformProvider(request: PlatformAIRequest, providers: P
       rejectedCandidates.push({ providerId: id, reason: "offline_required" });
       return false;
     }
+    if (provider.taskTypes?.length && !provider.taskTypes.includes(request.taskType)) {
+      rejectedCandidates.push({ providerId: id, reason: "unsupported_task" });
+      return false;
+    }
     if ((request.estimatedContextSize ?? request.input.length) > provider.maxContext) {
       rejectedCandidates.push({ providerId: id, reason: "context_too_large" });
       return false;
@@ -79,6 +83,7 @@ export function resolvePlatformProvider(request: PlatformAIRequest, providers: P
   return {
     providerId,
     modelId: provider.modelId,
+    modelDigest: provider.modelDigest ?? null,
     privacyMode: request.privacyMode,
     reason: `${providerId} is the first ready provider allowed by ${request.privacyLevel ?? request.privacyMode}`,
     contextSources: request.context.map((_, index) => `context-${index + 1}`),

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "p23-capability-truth-v1",
+  "capabilities": {
+    "knowledge.promptInjectionProtection": {
+      "id": "knowledge.promptInjectionProtection",
+      "status": "verified",
+      "evidence": [
+        "p23 security matrix"
+      ],
+      "limitations": []
+    },
+    "knowledge.taintTracking": {
+      "id": "knowledge.taintTracking",
+      "status": "verified",
+      "evidence": [
+        "p23 taint propagation matrix"
+      ],
+      "limitations": []
+    },
+    "knowledge.poisoningProtection": {
+      "id": "knowledge.poisoningProtection",
+      "status": "verified",
+      "evidence": [
+        "p23 poisoning matrix"
+      ],
+      "limitations": []
+    },
+    "knowledge.parserSandbox": {
+      "id": "knowledge.parserSandbox",
+      "status": "verified",
+      "evidence": [
+        "p23 parser policy matrix"
+      ],
+      "limitations": [
+        "PDF and archive parsing remain isolated adapters"
+      ]
+    },
+    "model.supplyChain": {
+      "id": "model.supplyChain",
+      "status": "contract_only",
+      "evidence": [
+        "p23 model supply-chain contract"
+      ],
+      "limitations": [
+        "No model download or activation performed"
+      ]
+    },
+    "evaluation.layered": {
+      "id": "evaluation.layered",
+      "status": "verified",
+      "evidence": [
+        "p23 layered evaluator matrix"
+      ],
+      "limitations": []
+    },
+    "browser.aiRuntime": {
+      "id": "browser.aiRuntime",
+      "status": "not_configured",
+      "evidence": [
+        "browser provider contract"
+      ],
+      "limitations": [
+        "Requires an installed browser model runtime"
+      ]
+    },
+    "ollama.localRuntime": {
+      "id": "ollama.localRuntime",
+      "status": "implemented",
+      "evidence": [
+        "loopback bridge and provider adapter"
+      ],
+      "limitations": [
+        "Availability depends on the client device"
+      ]
+    },
+    "privateHub.runtime": {
+      "id": "privateHub.runtime",
+      "status": "contract_only",
+      "evidence": [
+        "private hub request contract"
+      ],
+      "limitations": [
+        "No runtime is connected"
+      ]
+    },
+    "learning.data": {
+      "id": "learning.data",
+      "status": "implemented",
+      "evidence": [
+        "controlled private learning records"
+      ],
+      "limitations": [
+        "No shared training without explicit consent"
+      ]
+    },
+    "training.model": {
+      "id": "training.model",
+      "status": "not_implemented",
+      "evidence": [
+        "training contracts only"
+      ],
+      "limitations": [
+        "No weight update has run"
+      ]
+    },
+    "distillation": {
+      "id": "distillation",
+      "status": "contract_only",
+      "evidence": [
+        "distillation job contract"
+      ],
+      "limitations": [
+        "No distillation has run"
+      ]
+    },
+    "media.storyboard": {
+      "id": "media.storyboard",
+      "status": "implemented",
+      "evidence": [
+        "story media candidate package"
+      ],
+      "limitations": [
+        "Candidate only"
+      ]
+    },
+    "media.videoPrompt": {
+      "id": "media.videoPrompt",
+      "status": "implemented",
+      "evidence": [
+        "video prompt package"
+      ],
+      "limitations": [
+        "Candidate only"
+      ]
+    },
+    "media.videoGeneration": {
+      "id": "media.videoGeneration",
+      "status": "contract_only",
+      "evidence": [
+        "generic video adapter contract"
+      ],
+      "limitations": [
+        "No video runtime connected"
+      ]
+    },
+    "externalAI": {
+      "id": "externalAI",
+      "status": "not_configured",
+      "evidence": [
+        "external provider requires explicit consent"
+      ],
+      "limitations": [
+        "Never selected in closed-only mode"
+      ]
+    }
+  }
+}

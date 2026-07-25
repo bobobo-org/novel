@@ -7,7 +7,7 @@ const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhos
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
-export type LocalTextModel = { modelId: string; contextLength?: { value?: number | null }; capabilities?: { textGeneration?: { value?: boolean }; embeddings?: { value?: boolean } } };
+export type LocalTextModel = { modelId: string; modelDigest?: string | null; contextLength?: { value?: number | null }; capabilities?: { textGeneration?: { value?: boolean }; embeddings?: { value?: boolean } } };
 type LocalBridgeBody = Record<string, unknown> & {
   errorCode?: string;
   message?: string;

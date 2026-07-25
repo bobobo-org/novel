@@ -1,0 +1,8 @@
+{
+    "schemaVersion":  "p23-github-ci-definition-v1",
+    "status":  "pending_automation_commit",
+    "permissions":  "contents_read_only",
+    "deploys":  false,
+    "secretsRequired":  false,
+    "productCommit":  "1490d732ce61c8ce60fc41da24e87c5f12009821"
+}
