@@ -7,10 +7,22 @@ function bridgeClient(base?: string) {
 
 export async function probeLocalOllama(base?: string, signal?: AbortSignal): Promise<PlatformProviderSnapshot> {
   const started = performance.now();
+  if (!base && !getConfiguredLocalBridgeClient()) {
+    return {
+      id: "local-ollama",
+      status: "runtime_unavailable",
+      capabilities: ["text", "structured", "streaming", "offline"],
+      modelId: null,
+      maxContext: 0,
+      local: true,
+      requiresInternet: false,
+      latencyMs: Math.round(performance.now() - started),
+    };
+  }
   try {
     const client = bridgeClient(base);
     const health = await client.health(signal);
-    let capabilities: PlatformProviderCapability[] = ["text", "streaming", "offline"];
+    let capabilities: PlatformProviderCapability[] = ["text", "structured", "streaming", "offline"];
     let modelId: string | null = null;
     if (health.runtimeReady && client.getSessionMetadata()) {
       const models = await client.models(signal);
@@ -23,7 +35,7 @@ export async function probeLocalOllama(base?: string, signal?: AbortSignal): Pro
     }
     return { id: "local-ollama", status: health.runtimeReady && modelId ? "ready" : health.bridgeProcessAlive ? "runtime_not_installed" : "runtime_unavailable", capabilities, modelId, maxContext: modelId ? 32_768 : 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
   } catch {
-    return { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text", "streaming", "offline"], modelId: null, maxContext: 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
+    return { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text", "structured", "streaming", "offline"], modelId: null, maxContext: 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
   }
 }
 
