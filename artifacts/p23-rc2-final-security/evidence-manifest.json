@@ -1,0 +1,98 @@
+{
+    "schemaVersion":  "p23-evidence-manifest-v1",
+    "generatedAt":  "2026-07-25T03:46:25.2693441+00:00",
+    "productCommit":  "1490d732ce61c8ce60fc41da24e87c5f12009821",
+    "releaseTag":  "novel-ai-p23-sovereign-foundation-rc2",
+    "architectureStage":  "P2.3 RC",
+    "entries":  [
+                    {
+                        "path":  "capability-truth-matrix.json",
+                        "bytes":  3762,
+                        "sha256":  "94c4816396ee5b98c8a072f819e20544695e4a82ae60990c49ca788bbfa1ccfa"
+                    },
+                    {
+                        "path":  "credential-rotation-status.json",
+                        "bytes":  781,
+                        "sha256":  "e8f5294ee81556e591f001c630e00af6272be34d9ea95605e77aa37233d94d8c"
+                    },
+                    {
+                        "path":  "evaluator-disagreement-results.json",
+                        "bytes":  1035,
+                        "sha256":  "f7121677d5f9fbe892132998ff8c5c8c6b24b81c3d8a9ea62f0e8659aecaaf25"
+                    },
+                    {
+                        "path":  "executive-summary.md",
+                        "bytes":  587,
+                        "sha256":  "b0b718411f5210da522876f8a2013246aa1239ecc0b5175faa833abac175bb97"
+                    },
+                    {
+                        "path":  "findings.json",
+                        "bytes":  676,
+                        "sha256":  "80edde526c06ab9cd94084312430318a5a0d282a4b812616a65cb71d47af0c49"
+                    },
+                    {
+                        "path":  "github-ci-definition.json",
+                        "bytes":  269,
+                        "sha256":  "a361fe6db8ab85ba11400863d0f8c6cff50c93cb803c8e2043374e4ca5dbcf5a"
+                    },
+                    {
+                        "path":  "github-ci-runs.json",
+                        "bytes":  126,
+                        "sha256":  "2707f509a1ed382d74bdddc6b492b4e349e9105a0a603059180e9146cbd03a7d"
+                    },
+                    {
+                        "path":  "knowledge-poisoning-results.json",
+                        "bytes":  4687,
+                        "sha256":  "194f26057066ce44bf28b976158a28febe01e41b100fd59246c23df7e8135c42"
+                    },
+                    {
+                        "path":  "layered-evaluator-results.json",
+                        "bytes":  1035,
+                        "sha256":  "f7121677d5f9fbe892132998ff8c5c8c6b24b81c3d8a9ea62f0e8659aecaaf25"
+                    },
+                    {
+                        "path":  "mirror-security-gate.json",
+                        "bytes":  152,
+                        "sha256":  "1e3517c2622df3d480273360932f2fdc842752b0e73d4644815ee47450ae3102"
+                    },
+                    {
+                        "path":  "model-supply-chain-results.json",
+                        "bytes":  4737,
+                        "sha256":  "4c62b0e05bcf1b60b635436f61943487d5d1446618cf98f215a10d2c7307c489"
+                    },
+                    {
+                        "path":  "parser-sandbox-results.json",
+                        "bytes":  4712,
+                        "sha256":  "799960e0ca1c17684daeb80536d325cf2476fd133750372fd7e1310a55568b5d"
+                    },
+                    {
+                        "path":  "production-non-mutation.json",
+                        "bytes":  477,
+                        "sha256":  "0e0680274c1e41e702ba15d7f9106dea0b366db1a3e18613266b7eaba1bc8c13"
+                    },
+                    {
+                        "path":  "prompt-injection-matrix.json",
+                        "bytes":  8061,
+                        "sha256":  "3af199f1299cd7b926fabc6b3aa2d48b23847a62838bbf4d3974f8da85271b9a"
+                    },
+                    {
+                        "path":  "secret-scan-results.json",
+                        "bytes":  330,
+                        "sha256":  "efa0837cc90756eb155a4af6a96ac98240126631ed4e72325af18861e2c386a8"
+                    },
+                    {
+                        "path":  "security-test-results.json",
+                        "bytes":  7674,
+                        "sha256":  "32a95bd253e858b3c80c8a58a497cf80f157743c8e63211f0e561fa92edb8e21"
+                    },
+                    {
+                        "path":  "taint-tracking-results.json",
+                        "bytes":  5771,
+                        "sha256":  "1718a1723438e9ba700b74371bb6f40c8a947e99190bfd26a5c4188c2a509b39"
+                    }
+                ],
+    "mismatch":  0,
+    "missing":  0,
+    "unexpected":  0,
+    "selfHashStatus":  "MATCH"
+}

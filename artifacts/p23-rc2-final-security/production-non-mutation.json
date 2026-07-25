@@ -1,0 +1,11 @@
+{
+    "schemaVersion":  "p23-production-non-mutation-v1",
+    "checkedAt":  "2026-07-25T03:43:06.7522968+00:00",
+    "productionUrl":  "https://novel-orcin.vercel.app",
+    "observedCommit":  "c784cde87cd0a6b35ef251720ca1dadf898546c3",
+    "observedReleaseTag":  "novel-ai-p21-production-hardening",
+    "observedDeploymentId":  "dpl_FWDF5ubiZAVRfwCqSSAotQzXphPq",
+    "cacheControl":  "no-store, max-age=0",
+    "rc2Promoted":  false,
+    "productionMutation":  0
+}

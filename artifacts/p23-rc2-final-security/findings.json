@@ -1,0 +1,18 @@
+{
+    "schemaVersion":  "p23-security-findings-v1",
+    "generatedAt":  "2026-07-25T03:43:06.7522968+00:00",
+    "productCommit":  "1490d732ce61c8ce60fc41da24e87c5f12009821",
+    "releaseTag":  "novel-ai-p23-sovereign-foundation-rc2",
+    "critical":  0,
+    "high":  0,
+    "medium":  0,
+    "low":  1,
+    "findings":  [
+                     {
+                         "severity":  "low",
+                         "code":  "LEGACY_ESLINT_WARNINGS",
+                         "status":  "accepted_existing_baseline",
+                         "detail":  "98 pre-existing warnings; zero new warnings and zero errors"
+                     }
+                 ]
+}
