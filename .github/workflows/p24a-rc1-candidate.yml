@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release-gate:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 35
     steps:
       - name: Checkout exact candidate
