@@ -63,9 +63,6 @@ jobs:
       - name: P2.3 security matrix
         run: pnpm test:ai:p23:security
 
-      - name: P2.1 Three-High closure
-        run: pnpm test:ai:p21:three-high
-
       - name: Release metadata
         run: pnpm test:ai:p23:release-metadata
 
@@ -129,3 +126,28 @@ jobs:
           if test -f /tmp/p23-rc3-next.pid; then
             kill "$(cat /tmp/p23-rc3-next.pid)" 2>/dev/null || true
           fi
+
+  three-high-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Configure Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: P2.1 Three-High closure
+        run: pnpm test:ai:p21:three-high
