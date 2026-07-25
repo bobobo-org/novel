@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "p24a-rc2-capability-source-consistency-v1",
+  "generatedAt": "2026-07-25T21:30:58.901Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9",
+  "sources": {
+    "registry": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "resolver": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "matrix": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "publicHealth": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "adminHealth": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "legacyMetadata": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "studioDiagnostics": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    }
+  },
+  "mismatch": 0,
+  "missing": 0,
+  "unexpected": 0,
+  "falseReadyClaims": 0,
+  "pass": true
+}

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "p24a-rc2-capability-truth-v1",
+  "generatedAt": "2026-07-25T21:29:32.429Z",
+  "status": "PASS",
+  "pass": 20,
+  "fail": 0,
+  "skip": 0,
+  "falseReadyClaims": 0,
+  "mismatch": 0,
+  "mismatches": [],
+  "sources": {
+    "registry": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "resolver": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "matrix": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "publicHealth": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "adminHealth": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "legacyMetadata": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    },
+    "studioDiagnostics": {
+      "modelTraining": "not_started",
+      "distillation": "not_started"
+    }
+  },
+  "results": [
+    {
+      "name": "CapabilityStatus accepts not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "modelTraining contractStatus is not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "modelTraining runtimeStatus is not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "distillation contractStatus is not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "distillation runtimeStatus is not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "modelTraining effectiveStatus remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "distillation effectiveStatus remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Public Health emits modelTraining from the shared resolver",
+      "status": "PASS"
+    },
+    {
+      "name": "Public Health emits distillation from the shared resolver",
+      "status": "PASS"
+    },
+    {
+      "name": "Admin Health emits modelTraining not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Admin Health emits distillation not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy metadata emits both not_started statuses",
+      "status": "PASS"
+    },
+    {
+      "name": "Studio diagnostics emit both not_started statuses",
+      "status": "PASS"
+    },
+    {
+      "name": "Capability Truth Matrix emits model training not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Capability Truth Matrix emits distillation not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "realVideoGeneration remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "privateAiHub remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "future capabilities are not promoted",
+      "status": "PASS"
+    },
+    {
+      "name": "capability truth mismatch equals zero",
+      "status": "PASS"
+    },
+    {
+      "name": "falseReadyClaims equals zero",
+      "status": "PASS"
+    }
+  ],
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

@@ -1,0 +1,180 @@
+{
+  "suite": "P2.2 Story Intelligence and Generation Loop",
+  "runAt": "2026-07-25T21:29:41.273Z",
+  "pass": 34,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "extracts explicit character age with traceable evidence",
+      "status": "PASS",
+      "elapsedMs": 13
+    },
+    {
+      "name": "extracts world rules and open threads",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "relative ambiguous timeline remains inferred",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "story bible preserves conflicting facts",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "dead character resurrection is blocking",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "same revision location conflict is detected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "repeated long paragraph is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "memory ranking favors task-relevant canonical context",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "context builder keeps source references",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "hybrid retrieval result retains document revision and evidence position",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "hybrid retrieval rejects an excerpt missing from the source document",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "token budget never overflows",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "name": "generation loop produces three approval-only candidates",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "generation loop blocks external data transfer",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation cancellation stops before provider work",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "generation context always includes the current source revision",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation reports the real multi-stage workflow",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation rejects a candidate when the source revision changes in flight",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "deterministic continuity evidence overrides an optimistic model score",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "all six sovereign persona profiles are versioned and valid",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "open expression detects empty refusal without penalizing direct fiction",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "rigorous language evaluator is evidence-bearing and fiction-aware",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "adult fiction persona requires explicit adult and isolation gates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "combined persona candidate exposes only a concise reasoning summary",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "adult learning records remain independently excluded from shared export",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "platform router limits Browser AI to summary",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Browser AI executes a real injected browser summary runtime contract",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "closed-only router never selects external provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "private hub contract validates scope, hash, and expiry",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "private learning does not persist novel text",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "shared opt-in learning redacts credentials",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Ollama task prompts are valid Traditional Chinese and include context",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation candidate enters existing atomic approval transaction",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "backup round-trip retains Story Bible and accepted interaction",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ],
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

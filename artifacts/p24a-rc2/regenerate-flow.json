@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "p24a-rc2-regenerate-flow-v1",
+  "uiControl": "button:再產生一份",
+  "before": {
+    "proposalId": null,
+    "dramaProjectId": "bd50e786-c268-4afa-90ad-90ddc4b12d07",
+    "providerRunId": "deterministic:c9b32a59-2e98-4d3a-89dd-f17b90644b24",
+    "outputHash": "e60515d66738cc1b1fbae1eef51d0dba3ceb0f2c8b4129ac84803315c02544d6",
+    "createdAt": "2026-07-25T21:30:50.319Z"
+  },
+  "after": {
+    "proposalId": null,
+    "dramaProjectId": "4be238b7-2f4c-4380-8629-a39ba5249e0d",
+    "providerRunId": "deterministic:750ec278-4176-4ca5-9042-7ebb7e0c4784",
+    "outputHash": "b0c15119acc2ab6290089a079f7c8a09da0f34951d6537edeb36076023371966",
+    "createdAt": "2026-07-25T21:30:50.420Z"
+  },
+  "candidateIdentityChanged": true,
+  "approvalDelta": 0,
+  "canonicalMutation": 0,
+  "pass": true,
+  "generatedAt": "2026-07-25T21:30:51.922Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

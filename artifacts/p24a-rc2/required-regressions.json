@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "p24a-rc2-regression-runner-v1",
+  "generatedAt": "2026-07-25T21:30:17.958Z",
+  "suites": {
+    "p22Core": {
+      "pass": 34,
+      "fail": 0,
+      "skip": 0
+    },
+    "p23Foundation": {
+      "pass": 17,
+      "fail": 0,
+      "skip": 0
+    },
+    "p23Security": {
+      "pass": 59,
+      "fail": 0,
+      "skip": 0
+    },
+    "threeHigh": {
+      "pass": 45,
+      "fail": 0,
+      "skip": 0
+    },
+    "indexedDb": {
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    "backupDataClosure": {
+      "pass": 7,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "totalPass": 166,
+  "totalFail": 0,
+  "totalSkip": 0,
+  "status": "PASS",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

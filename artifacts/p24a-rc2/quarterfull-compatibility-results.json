@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "compatibility",
+  "generatedAt": "2026-07-25T21:29:28.189Z",
+  "pass": 16,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "Drama Project works without Story Blueprint",
+      "status": "PASS",
+      "elapsedMs": 21
+    },
+    {
+      "name": "upstream references contain only the shared reference fields",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "Drama Project stores only the Story Blueprint reference",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "stale Blueprint revision expires every Drama candidate",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "stale Blueprint proposals are EXPIRED",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "episode scene beat branch and dialogue map to shared proposals",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "Drama proposals never declare Novel Canon impact",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "unapproved Drama impact cannot cross the approval boundary",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Creation DNA reference does not mutate Story Bible",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "Drama approval with upstream references does not modify Novel Canon",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "Private Simulation cannot write any canonical layer",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Knowledge Scope blocks unauthorized character secrets",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Future reveal remains hidden until explicitly revealed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "future workbench capabilities remain not implemented",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "existing game modes remain partial rather than falsely ready",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "RC3-style backup without future references restores",
+      "status": "PASS",
+      "elapsedMs": 5
+    }
+  ],
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}
