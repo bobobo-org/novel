@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "p24a-mobile-gate-v1",
+  "generatedAt": "2026-07-25T13:49:47.712Z",
+  "results": [
+    {
+      "viewport": "360x800",
+      "reportedClientWidth": 360,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-360x800.png"
+    },
+    {
+      "viewport": "375x812",
+      "reportedClientWidth": 375,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-375x812.png"
+    },
+    {
+      "viewport": "390x844",
+      "reportedClientWidth": 390,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-390x844.png"
+    },
+    {
+      "viewport": "412x915",
+      "reportedClientWidth": 412,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-412x915.png"
+    }
+  ],
+  "pass": 8,
+  "fail": 0,
+  "skip": 0,
+  "requiredViewports": [
+    "360x800",
+    "375x812",
+    "390x844",
+    "412x915"
+  ]
+}

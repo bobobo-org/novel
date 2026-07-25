@@ -1,10 +1,12 @@
 import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, OperationJournal, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import { buildDramaApprovalRecords } from "../../drama-os/approval";
+import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 const DB_NAME = "novel-intelligence-platform";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const REQUEST_STORE = "requestLedger";
 
 function request<T>(value: IDBRequest<T>): Promise<T> { return new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error ?? new Error("INDEXEDDB_REQUEST_FAILED")); }); }
@@ -28,6 +30,8 @@ export class IndexedDbNovelRepository implements NovelRepository {
           if (name === "operationJournal" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "idempotencyRecords" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "approvalTransactions" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+          if (name === "dramaApprovals" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+          if (name === "narrativeCanonLinks" && !store.indexNames.contains("dramaProjectId")) store.createIndex("dramaProjectId", "dramaProjectId", { unique: true });
         }
       };
       open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error ?? new Error("INDEXEDDB_OPEN_FAILED")); open.onblocked = () => reject(new Error("INDEXEDDB_UPGRADE_BLOCKED"));
@@ -93,6 +97,121 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore("operationJournal").put(records.journal);
       await complete(tx);
       return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch, storyBible: records.storyBible, storyBibleDelta: records.storyBibleDelta, approvalTransaction: records.approvalTransaction, idempotencyRecord: records.idempotencyRecord };
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  async saveDramaProjectionTransaction(input: DramaProjectionPackage): Promise<void> {
+    const rows: Array<[NovelStoreName, DomainRecord[]]> = [
+      ["dramaProjects", [input.project]],
+      ["dramaSeasons", input.seasons],
+      ["dramaEpisodes", input.episodes],
+      ["dramaScenes", input.scenes],
+      ["dramaBeats", input.beats],
+      ["dramaBranchCandidates", input.branchCandidates],
+      ["dramaEvaluations", input.evaluations],
+      ["narrativeCanonLinks", input.canonLinks],
+    ];
+    if (rows.some(([, records]) => records.some((record) => record.projectId !== input.project.projectId))) {
+      throw new RepositoryOperationError("DRAMA_PROJECT_SCOPE_MISMATCH");
+    }
+    const db = await this.open();
+    const stores = rows.map(([store]) => store);
+    const tx = db.transaction(stores, "readwrite");
+    try {
+      for (const [store, records] of rows) for (const record of records) tx.objectStore(store).put(record);
+      await complete(tx);
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  async approveDramaProjectionTransaction(input: ApproveDramaProjectionInput): Promise<ApproveDramaProjectionResult> {
+    const db = await this.open();
+    const tx = db.transaction(["projects", "storyBibles", "dramaProjects", "dramaApprovals", "narrativeCanonLinks", "dramaEvaluations"], "readwrite");
+    try {
+      const approvalStore = tx.objectStore("dramaApprovals");
+      const replay = await request(approvalStore.index("idempotencyKey").get(input.idempotencyKey)) as DramaApprovalRecord | undefined;
+      if (replay) {
+        if (replay.projectId !== input.projectId || replay.dramaProjectId !== input.dramaProjectId || replay.payloadFingerprint !== input.payloadFingerprint) {
+          throw new RepositoryOperationError("DRAMA_IDEMPOTENCY_PAYLOAD_MISMATCH");
+        }
+        const project = await request(tx.objectStore("dramaProjects").get(replay.dramaProjectId)) as DramaProject | undefined;
+        const canonLink = await request(tx.objectStore("narrativeCanonLinks").index("dramaProjectId").get(replay.dramaProjectId)) as NarrativeCanonLink | undefined;
+        if (!project || !canonLink || canonLink.dramaAdaptationRevision !== replay.resultingAdaptationRevision) {
+          throw new RepositoryOperationError("DRAMA_IDEMPOTENCY_REPLAY_INCOMPLETE");
+        }
+        await complete(tx);
+        return { replayed: true, project, approval: replay, canonLink };
+      }
+      const currentProject = await request(tx.objectStore("dramaProjects").get(input.dramaProjectId)) as DramaProject | undefined;
+      const currentCanonLink = await request(tx.objectStore("narrativeCanonLinks").index("dramaProjectId").get(input.dramaProjectId)) as NarrativeCanonLink | undefined;
+      if (!currentProject || !currentCanonLink) throw new RepositoryOperationError("DRAMA_PROJECTION_NOT_FOUND");
+      const sourceProject = await request(tx.objectStore("projects").get(input.projectId)) as NovelProject | undefined;
+      const sourceStoryBibles = await request(tx.objectStore("storyBibles").index("projectId").getAll(input.projectId)) as StoryBible[];
+      const sourceStoryBible = sourceStoryBibles[0];
+      if (!sourceProject || sourceProject.revision !== input.expectedSourceStoryRevision) {
+        throw new RepositoryOperationError("DRAMA_SOURCE_REVISION_STALE", "小說內容已更新，請重新建立改編候選。");
+      }
+      if (!sourceStoryBible || sourceStoryBible.revision !== input.expectedStoryBibleVersion) {
+        throw new RepositoryOperationError("DRAMA_STORY_BIBLE_STALE", "角色與世界設定已更新，請重新建立改編候選。");
+      }
+      const evaluations = await request(tx.objectStore("dramaEvaluations").index("projectId").getAll(input.projectId)) as DramaEvaluation[];
+      if (evaluations.some((record) => record.dramaProjectId === input.dramaProjectId && record.blockingIssueCount > 0)) {
+        throw new RepositoryOperationError("DRAMA_APPROVAL_BLOCKED");
+      }
+      const records = buildDramaApprovalRecords(input, currentProject, currentCanonLink);
+      tx.objectStore("dramaProjects").put(records.project);
+      approvalStore.put(records.approval);
+      tx.objectStore("narrativeCanonLinks").put(records.canonLink);
+      await complete(tx);
+      return { replayed: false, ...records };
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  async markDramaProjectionsStaleTransaction(input: MarkDramaProjectionsStaleInput): Promise<MarkDramaProjectionsStaleResult> {
+    const db = await this.open();
+    const tx = db.transaction(["dramaProjects", "narrativeCanonLinks"], "readwrite");
+    try {
+      const projectStore = tx.objectStore("dramaProjects");
+      const linkStore = tx.objectStore("narrativeCanonLinks");
+      const projects = await request(projectStore.index("projectId").getAll(input.projectId)) as DramaProject[];
+      const links = await request(linkStore.index("projectId").getAll(input.projectId)) as NarrativeCanonLink[];
+      const staleProjects = projects.filter((row) =>
+        row.status !== "approved"
+        && row.status !== "rejected"
+        && row.status !== "private_simulation"
+        && (row.sourceStoryRevision !== input.currentStoryRevision || row.sourceStoryBibleVersion !== input.currentStoryBibleVersion));
+      const staleProjectIds = new Set(projects.filter((row) =>
+        row.sourceStoryRevision !== input.currentStoryRevision || row.sourceStoryBibleVersion !== input.currentStoryBibleVersion)
+        .map((row) => row.dramaProjectId));
+      const staleLinks = links.filter((row) => staleProjectIds.has(row.dramaProjectId) && row.projectionStatus !== "stale");
+      const now = new Date().toISOString();
+      for (const row of staleProjects) projectStore.put({
+        ...row,
+        status: "stale",
+        parentRevision: row.revision,
+        revision: row.revision + 1,
+        updatedAt: now,
+      });
+      for (const row of staleLinks) linkStore.put({
+        ...row,
+        projectionStatus: "stale",
+        staleReason: row.sourceStoryRevision !== input.currentStoryRevision
+          ? "SOURCE_STORY_REVISION_CHANGED"
+          : "SOURCE_STORY_BIBLE_VERSION_CHANGED",
+        parentRevision: row.revision,
+        revision: row.revision + 1,
+        updatedAt: now,
+      });
+      await complete(tx);
+      return {
+        staleDramaProjectIds: staleProjects.map((row) => row.dramaProjectId),
+        staleCanonLinkIds: staleLinks.map((row) => row.canonLinkId),
+      };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
       throw error;

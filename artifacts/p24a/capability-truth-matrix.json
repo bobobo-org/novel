@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "p24a-capability-truth-v1",
+  "generatedAt": "2026-07-25T13:49:47.712Z",
+  "productCommit": "d8933bda3f495001f09893f83ba34d628f2abe58",
+  "capabilities": [
+    {
+      "id": "dramaOsCore",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "novelToDramaProjection",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "episodePlanner",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "scenePlanner",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "beatSheet",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "hookEngine",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "emotionCurve",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "interactiveDramaCandidates",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "dramaApproval",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "dramaBackup",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "creationDna",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "storyBlueprintWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "worldWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "characterWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "aiBookDiscovery",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "authorAnalytics",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "translationWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "coverDirection",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "rpgMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "cultivationMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "managementMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "characterAgent",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "audienceVoting",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "audienceLearning",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "visualCharacterBible",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "storyboard",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "realVideoGeneration",
+      "contractStatus": "contract_only",
+      "runtimeStatus": "not_connected"
+    },
+    {
+      "id": "privateAiHub",
+      "contractStatus": "contract_only",
+      "runtimeStatus": "not_connected"
+    },
+    {
+      "id": "modelTraining",
+      "contractStatus": "contract_only",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "distillation",
+      "contractStatus": "contract_only",
+      "runtimeStatus": "not_implemented"
+    }
+  ],
+  "falseReadyClaims": 0
+}

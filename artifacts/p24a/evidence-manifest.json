@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "p24a-evidence-manifest-v1",
+  "generatedAt": "2026-07-25T13:49:47.712Z",
+  "productCommit": "d8933bda3f495001f09893f83ba34d628f2abe58",
+  "recordCount": 33,
+  "mismatch": 0,
+  "missing": 0,
+  "unexpected": 0,
+  "records": [
+    {
+      "path": "approval-results.json",
+      "bytes": 2465,
+      "sha256": "ff8891f27240367b40dd962220d52fa202c510ec97ec908a14ca08d0b165d241"
+    },
+    {
+      "path": "backup-restore-results.json",
+      "bytes": 3771,
+      "sha256": "17470c3ab3972d6cee2ade07d49dd4807f54e6b7a74a60b32b7972ae15fc02a9"
+    },
+    {
+      "path": "beat-sheet-results.json",
+      "bytes": 5168,
+      "sha256": "f13e925c23ecda8b79ba1298b576175e33506ba8af1d064b044f0eef3e2e0e6e"
+    },
+    {
+      "path": "branch-isolation-results.json",
+      "bytes": 4706,
+      "sha256": "6283d8e06cf8bcce9f0854b015acbdadc3036ccbd3ba38cbdd997c08cd8b3805"
+    },
+    {
+      "path": "browser-e2e-results.json",
+      "bytes": 6439,
+      "sha256": "de8689f9f006f591d7e9708487cebebda1bc4c1cc352c878f2152d9488309285"
+    },
+    {
+      "path": "capability-truth-matrix.json",
+      "bytes": 3910,
+      "sha256": "2c1df6280ea679145ab101f5b09420172f843bddd45fb174afb82d8a9a85fb3b"
+    },
+    {
+      "path": "data-model.json",
+      "bytes": 5226,
+      "sha256": "b0bd480339cdd794d348a46197c3a84f9595f0f3b78c750e854c3a391d716a2d"
+    },
+    {
+      "path": "desktop-ui-results.json",
+      "bytes": 3324,
+      "sha256": "40a34541d13c71a23f39027483b2f16f6e7ab66ca2fcc4e4441d20426ca33783"
+    },
+    {
+      "path": "emotion-curve-results.json",
+      "bytes": 920,
+      "sha256": "6933789eeb4af3b3c5a5a82d5008431186cb50dd53b0a034d935fafdc1cf5dc5"
+    },
+    {
+      "path": "episode-planner-results.json",
+      "bytes": 1697,
+      "sha256": "614427fca3b9a1b2d95c80236569128b2af87b33f976e8765502df39ce9d4604"
+    },
+    {
+      "path": "executive-summary.md",
+      "bytes": 569,
+      "sha256": "cebe8911eff752da6b56a78f62c1e68d9cd70ea7e633c74afa55fc72fa86a032"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 617,
+      "sha256": "08dd7eda601957f299cce51a9a16e887db23804e0e48dfeed6d5f12f672227a2"
+    },
+    {
+      "path": "format-profiles.json",
+      "bytes": 1612,
+      "sha256": "2423e75bb3aeb06cf2b352079ac12cbbc1214911dff3df629275aed4585410a2"
+    },
+    {
+      "path": "hook-results.json",
+      "bytes": 1620,
+      "sha256": "49e52c05affe0f2cde9d2324bc8d83253f919499f8ea32ad4d0b411d8210b8c2"
+    },
+    {
+      "path": "local-server-final.pid",
+      "bytes": 5,
+      "sha256": "50c32ba912cb3b31d294b8353f2fe3a10747eee0df3da9851273e91d371df9e5"
+    },
+    {
+      "path": "local-server-final.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local-server-final.stdout.log",
+      "bytes": 117,
+      "sha256": "ec2b640535f10902a2c1b060bdcf9e408d42e95ed42fcfe852f80ba5d6a76f81"
+    },
+    {
+      "path": "local-server.pid",
+      "bytes": 7,
+      "sha256": "d1d787f4708ebf17e6622916dda907ec9bbfa7d1ac68aaa216391e5deeb3f805"
+    },
+    {
+      "path": "local-server.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local-server.stdout.log",
+      "bytes": 117,
+      "sha256": "89703f159ac4a419abf0123c56b41ce1301067c6655e6560e83912aecd7ac397"
+    },
+    {
+      "path": "migration-results.json",
+      "bytes": 3885,
+      "sha256": "304e74fa42fedab389189931619a5e476ae45f3715cab6d06c4ee8b82463b65e"
+    },
+    {
+      "path": "mobile-ui-results.json",
+      "bytes": 1137,
+      "sha256": "2bf3638013db00cc8453f3b712046d3d976f4b1bf37bc6651073addae6455d63"
+    },
+    {
+      "path": "novel-to-drama-results.json",
+      "bytes": 4602,
+      "sha256": "ba4bc7198aa20caa7fa467483714a5c2393b079973136409f8d5f7ff8df98a73"
+    },
+    {
+      "path": "p24a-rc1-drama-approved-desktop.png",
+      "bytes": 329156,
+      "sha256": "d9bc132bff1bb022f96afb144787d4f9cc11073b46916f8191c96c64fa631dde"
+    },
+    {
+      "path": "p24a-rc1-drama-candidate-desktop.png",
+      "bytes": 329663,
+      "sha256": "37d123e6720453f69abdf743029132386a030bdb0b6a4cbd85b498f5bb9a6971"
+    },
+    {
+      "path": "p24a-rc1-drama-mobile-360x800.png",
+      "bytes": 178228,
+      "sha256": "571d987ec1d76b637e43404e8f5b8f18941a7824638cf1222ed001001e722753"
+    },
+    {
+      "path": "p24a-rc1-drama-mobile-375x812.png",
+      "bytes": 178343,
+      "sha256": "fa794d7db5248217601201e03eaa48eef6ff6a55aed718746888776347de5fb5"
+    },
+    {
+      "path": "p24a-rc1-drama-mobile-390x844.png",
+      "bytes": 180919,
+      "sha256": "dcf482e75622611119e6669e46b54b229a46a16576bf54ed39ea2c34fcafb36b"
+    },
+    {
+      "path": "p24a-rc1-drama-mobile-412x915.png",
+      "bytes": 183806,
+      "sha256": "efebe959f6d6bfcc915b1bda7cb058051df0bc8c2180e26d94096575bc79496a"
+    },
+    {
+      "path": "quarterfull-compatibility-results.json",
+      "bytes": 2250,
+      "sha256": "a1641a57b621525c672ac22540f80a2321d6ade52f0f55777e381489a79bf2e6"
+    },
+    {
+      "path": "regression-summary.json",
+      "bytes": 31123,
+      "sha256": "235176d9ba823ed4cf367dc4f53cdab5a3f9d1e10e93c3c407ffadafefca67b2"
+    },
+    {
+      "path": "secret-scan-results.json",
+      "bytes": 296,
+      "sha256": "0f6aaa3e18acc1e1d6da73463651e739cc5d49fdb75c30a54fce074193288537"
+    },
+    {
+      "path": "security-results.json",
+      "bytes": 3148,
+      "sha256": "eddfa4de66aa426362fb8d85ca7dbcfa5b993629d6d2b0664f61ffcd16028266"
+    }
+  ],
+  "selfHash": "e621cabc9eb091d18b7bd922f42dc208f79b055eef31c5904d6c7e2e68e999ed",
+  "selfHashStatus": "MATCH"
+}

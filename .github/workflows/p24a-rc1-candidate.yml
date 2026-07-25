@@ -1,0 +1,60 @@
+name: P2.4A RC1 Candidate
+
+on:
+  push:
+    branches:
+      - agent/p24a-drama-os-core-rc1
+  pull_request:
+    branches:
+      - release/p23-rc3-approved-product
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.27.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release identity
+        run: pnpm test:ai:p23:release-metadata
+
+      - name: Verify P2.4A Drama OS and QuarterFull boundary
+        run: pnpm test:ai:p24a:all
+
+      - name: Verify P2.2 and P2.3 regressions
+        run: |
+          pnpm test:ai:p22:core
+          pnpm test:ai:p23:foundation
+          pnpm test:ai:p23:security
+
+      - name: Verify approval, IndexedDB, backup and restore
+        run: |
+          pnpm test:ai:p21:three-high
+          pnpm test:ai:p21:indexeddb
+          pnpm test:ai:p21:data-closure
+
+      - name: Verify sealed evidence
+        run: |
+          pnpm test:ai:p24a:evidence
+          pnpm test:ai:p24a:secret-scan
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: ESLint
+        run: pnpm exec eslint . --max-warnings 999
+
+      - name: Production build
+        run: pnpm build

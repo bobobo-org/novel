@@ -1,0 +1,258 @@
+{
+  "schemaVersion": "p24a-browser-gate-v1",
+  "generatedAt": "2026-07-25T13:49:47.712Z",
+  "server": "http://127.0.0.1:3124",
+  "projectId": "4d0f34aa-ef5f-4d92-a8f5-25df22be7960",
+  "status": "PASS",
+  "pass": 25,
+  "fail": 0,
+  "skip": 0,
+  "checks": [
+    {
+      "name": "project-created-through-consumer-ui",
+      "status": "PASS",
+      "details": {
+        "href": "/studio/project/4d0f34aa-ef5f-4d92-a8f5-25df22be7960/write"
+      }
+    },
+    {
+      "name": "candidate-generated",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "accepted-choice-zero-before-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-branch-zero-before-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "drama-approval-zero-before-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "projection-not-approved-before-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "candidate-not-approved-before-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "drama-approval-created",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adaptation-canon-approved-after-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "drama-project-approved-after-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "accepted-choice-remains-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-branch-remains-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "novel-canonical-unchanged-by-drama-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adaptation-canon-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "mobile-360x800-no-horizontal-overflow",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360
+      }
+    },
+    {
+      "name": "mobile-360x800-controls-operable",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "mobile-375x812-no-horizontal-overflow",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375
+      }
+    },
+    {
+      "name": "mobile-375x812-controls-operable",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "mobile-390x844-no-horizontal-overflow",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390
+      }
+    },
+    {
+      "name": "mobile-390x844-controls-operable",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "mobile-412x915-no-horizontal-overflow",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412
+      }
+    },
+    {
+      "name": "mobile-412x915-controls-operable",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "console-errors-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "unexpected-http-errors-zero",
+      "status": "PASS",
+      "details": []
+    }
+  ],
+  "desktop": {
+    "viewport": "1440x900",
+    "flow": [
+      "create project",
+      "save chapter",
+      "generate Drama candidate",
+      "approve adaptation",
+      "reload"
+    ],
+    "approvalVisible": true,
+    "reloadPersistence": true,
+    "horizontalOverflow": false,
+    "consoleErrors": 0,
+    "screenshot": "p24a-rc1-drama-approved-desktop.png"
+  },
+  "mobile": [
+    {
+      "viewport": "360x800",
+      "reportedClientWidth": 360,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-360x800.png"
+    },
+    {
+      "viewport": "375x812",
+      "reportedClientWidth": 375,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-375x812.png"
+    },
+    {
+      "viewport": "390x844",
+      "reportedClientWidth": 390,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-390x844.png"
+    },
+    {
+      "viewport": "412x915",
+      "reportedClientWidth": 412,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "p24a-rc1-drama-mobile-412x915.png"
+    }
+  ],
+  "canonicalIsolation": {
+    "canonicalBeforeHash": "eb5cc8757b41c1fdeed36cb5e56cacd0638dc20b4caacc3761a6c6e5c52d1cd9",
+    "canonicalAfterHash": "eb5cc8757b41c1fdeed36cb5e56cacd0638dc20b4caacc3761a6c6e5c52d1cd9",
+    "novelCanonUnchanged": true,
+    "acceptedChoicesCreated": 0,
+    "storyBranchesCreated": 0
+  },
+  "storageEvidence": {
+    "beforeApprovalCounts": {
+      "projects": 1,
+      "chapters": 1,
+      "storyBibles": 1,
+      "storyStates": 1,
+      "acceptedChoices": 0,
+      "storyBranches": 0,
+      "dramaProjects": 1,
+      "dramaApprovals": 0,
+      "narrativeCanonLinks": 1,
+      "dramaEvaluations": 1
+    },
+    "afterApprovalCounts": {
+      "projects": 1,
+      "chapters": 1,
+      "storyBibles": 1,
+      "storyStates": 1,
+      "acceptedChoices": 0,
+      "storyBranches": 0,
+      "dramaProjects": 1,
+      "dramaApprovals": 1,
+      "narrativeCanonLinks": 1,
+      "dramaEvaluations": 1
+    },
+    "afterReloadCounts": {
+      "projects": 1,
+      "chapters": 1,
+      "storyBibles": 1,
+      "storyStates": 1,
+      "acceptedChoices": 0,
+      "storyBranches": 0,
+      "dramaProjects": 1,
+      "dramaApprovals": 1,
+      "narrativeCanonLinks": 1,
+      "dramaEvaluations": 1
+    },
+    "projectionStatusBeforeApproval": "current",
+    "projectionStatusAfterApproval": "approved",
+    "dramaProjectStatusBeforeApproval": "awaiting_approval",
+    "dramaProjectStatusAfterApproval": "approved",
+    "dramaApprovalHash": "dfa1eb5f2a9eabbd99eb8604aec6736382e707bbe9de4d7e184c1d218fd39cd1",
+    "adaptationCanonHash": "bf79e893d6a7dc68574abcb277f41163fce4c7f21aa2767c3f52081bc48bc4b3"
+  },
+  "consoleErrors": [],
+  "networkErrors": [],
+  "productionMutation": 0
+}

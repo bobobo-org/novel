@@ -197,7 +197,7 @@ export type ReaderNote = DomainRecord & { chapterId: string; anchor: string; exc
 export type ReaderBookmark = DomainRecord & { chapterId: string; anchor: string; excerpt: string; label: string | null; needsRelocation: boolean };
 export type BackupManifest = {
   format: "novel-project-backup";
-  formatVersion: "novel-backup-v3";
+  formatVersion: "novel-backup-v3" | "novel-backup-v4";
   backupId: string;
   projectId: string;
   projectSchemaVersion: string;
@@ -212,7 +212,7 @@ export type BackupManifest = {
   encryption: "none";
 };
 export type ProjectBackup = DomainRecord & {
-  formatVersion: "novel-backup-v2" | "novel-backup-v3";
+  formatVersion: "novel-backup-v2" | "novel-backup-v3" | "novel-backup-v4";
   kind: "initial" | "quick" | "full" | "safety";
   byteSize: number;
   snapshot: Record<string, unknown>;

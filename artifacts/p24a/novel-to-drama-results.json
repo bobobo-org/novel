@@ -1,0 +1,215 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "projection",
+  "generatedAt": "2026-07-25T13:33:27.218Z",
+  "pass": 41,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "projects a 60 second candidate",
+      "status": "PASS",
+      "elapsedMs": 20
+    },
+    {
+      "name": "projects a 10 minute candidate",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "projection includes seasons",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "projection includes episodes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "projection includes scenes",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection includes beats",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection includes branchCandidates",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection includes evaluations",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection includes canonLinks",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection never mutates canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "project awaits approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "episodes await approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "scenes await approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "branch candidates await approval",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "source story revision is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "Story Bible revision is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "source chapter IDs are complete",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "source chunks are complete",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "retrieval trace is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "context trace is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "provider trace is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "prompt hash is preserved",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "output hash is SHA-256",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "taint trace exists",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "60 and 10 minute episode counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute beat counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute scene counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "episode references a source chapter",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "beats link to scenes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "scenes contain visible action",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "scenes contain distinct speakers",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "analysis identifies protagonist",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "analysis extracts events",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "analysis carries world constraints",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "analysis marks located protagonist supported",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Drama OS capability is truthfully client dependent",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Private Hub remains not connected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "Browser AI may handle lightweight Drama classification",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "full episode planning routes away from lightweight Browser AI",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "closed-only never falls back to external providers",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "external provider requires explicit consent",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

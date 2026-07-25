@@ -13,6 +13,16 @@ type BrowserSummarizerFactory = {
   create(options?: Record<string, unknown>): Promise<BrowserSummarizer>;
 };
 
+const BROWSER_SUMMARY_TASKS: PlatformAIRequest["taskType"][] = [
+  "story.summary",
+  "drama.chapterClassify",
+  "drama.sceneClassify",
+  "drama.characterPresence",
+  "drama.emotionCurve",
+  "drama.shortSummary",
+  "drama.beatSuggestion",
+];
+
 function summarizerFactory(): BrowserSummarizerFactory | null {
   const value = (globalThis as unknown as { Summarizer?: BrowserSummarizerFactory }).Summarizer;
   return value && typeof value.availability === "function" && typeof value.create === "function" ? value : null;
@@ -54,13 +64,13 @@ export async function browserProviderSnapshot(): Promise<PlatformProviderSnapsho
     maxContext: capability.status === "ready" ? 16_384 : 0,
     local: true,
     requiresInternet: false,
-    taskTypes: ["story.summary"],
+    taskTypes: BROWSER_SUMMARY_TASKS,
     detail: capability.reason,
   };
 }
 
 export async function runBrowserAI(request: PlatformAIRequest, decision: PlatformRouterDecision): Promise<PlatformAIResult> {
-  if (request.taskType !== "story.summary") {
+  if (!BROWSER_SUMMARY_TASKS.includes(request.taskType)) {
     throw Object.assign(new Error("瀏覽器 AI 目前只支援章節摘要。"), { code: "BROWSER_AI_TASK_NOT_SUPPORTED", retryable: false });
   }
   const factory = summarizerFactory();
