@@ -1,0 +1,183 @@
+name: P2.4A RC2R1 Candidate
+
+on:
+  push:
+    branches:
+      - agent/p24a-drama-os-core-rc2r1
+  pull_request:
+    branches:
+      - release/p24a-rc1-approved-product
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p24a-rc2r1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Preserve LF repository bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "core.autocrlf must be false before checkout; actual=$autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "core.eol must be lf before checkout; actual=$eol"
+          }
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify checkout policy
+        shell: pwsh
+        run: |
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "Unexpected core.autocrlf after checkout: $autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "Unexpected core.eol after checkout: $eol"
+          }
+
+          $status = git status --porcelain=v1
+          if ($status) {
+            Write-Host $status
+            throw "Checkout produced tracked working-tree changes."
+          }
+
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $actual = git rev-parse HEAD
+          if ($actual -ne "${{ github.sha }}") {
+            throw "Candidate checkout mismatch: expected ${{ github.sha }}, received $actual"
+          }
+
+      - name: Configure pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.27.0
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium runtime
+        run: pnpm exec playwright install chromium
+
+      - name: Verify release identity
+        run: pnpm test:ai:p23:release-metadata
+
+      - name: Verify Capability Truth
+        run: pnpm test:ai:p24a:rc2-capability
+
+      - name: Verify sealed Evidence filesystem bytes
+        env:
+          P24A_EVIDENCE_DIR: artifacts/p24a-rc2
+        run: pnpm test:ai:p24a:evidence
+
+      - name: Verify sealed Evidence Git blob bytes
+        shell: pwsh
+        run: |
+          @'
+          const crypto = require("node:crypto");
+          const { execFileSync } = require("node:child_process");
+
+          const root = "artifacts/p24a-rc2";
+          const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
+          const gitBlob = (relativePath) => execFileSync("git", ["show", `HEAD:${root}/${relativePath}`]);
+          const manifest = JSON.parse(gitBlob("evidence-manifest.json").toString("utf8"));
+          const mismatches = [];
+          const missing = [];
+
+          for (const record of manifest.records) {
+            let bytes;
+            try {
+              bytes = gitBlob(record.path);
+            } catch {
+              missing.push(record.path);
+              continue;
+            }
+            const actual = { bytes: bytes.length, sha256: sha256(bytes) };
+            if (actual.bytes !== record.bytes || actual.sha256 !== record.sha256) {
+              mismatches.push({
+                path: record.path,
+                expected: { bytes: record.bytes, sha256: record.sha256 },
+                actual,
+              });
+            }
+          }
+
+          const expected = new Set([
+            ...manifest.records.map((record) => `${root}/${record.path}`),
+            `${root}/evidence-manifest.json`,
+            `${root}/evidence-manifest.sha256`,
+          ]);
+          const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD", "--", root], { encoding: "utf8" })
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const unexpected = tracked.filter((file) => !expected.has(file.replaceAll("\\", "/")));
+          const result = {
+            schemaVersion: "p24a-rc2r1-git-head-blob-verification-v1",
+            recordCount: manifest.records.length,
+            mismatch: mismatches.length,
+            missing: missing.length,
+            unexpected: unexpected.length,
+            mismatches,
+            missingFiles: missing,
+            unexpectedFiles: unexpected,
+          };
+          console.log(JSON.stringify(result));
+          if (mismatches.length || missing.length || unexpected.length) process.exit(1);
+          '@ | node
+
+      - name: Verify P2.4A tests and QuarterFull compatibility
+        run: pnpm test:ai:p24a:all
+
+      - name: Verify required P2.2, P2.3 and storage regressions
+        env:
+          P24A_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2r1-regressions
+        run: pnpm test:ai:p24a:rc2-regressions
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: ESLint
+        run: pnpm exec eslint . --max-warnings 999
+
+      - name: Secret scan
+        env:
+          P24A_CI_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2r1-secret-scan
+        run: pnpm test:ai:p24a:secret-scan
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Full Browser Harness
+        env:
+          P24A_BASE_URL: http://127.0.0.1:3316
+          P24A_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2r1-browser
+          P24A_START_SERVER: "1"
+          P24A_SERVER_MODE: production
+        run: pnpm test:ai:p24a:rc2-browser
