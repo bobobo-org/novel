@@ -42,6 +42,9 @@ jobs:
       - name: Install Chromium runtime
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Generate build-sealed provenance
+        run: node scripts/generate-release-provenance.mjs
+
       - name: TypeScript
         run: pnpm exec tsc --noEmit
 
