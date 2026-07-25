@@ -22,7 +22,10 @@ if (!allowedArchitectureStages.has(manifest.architectureStage)) {
 if (!(new RegExp(contract.releaseTagPattern)).test(manifest.releaseTag)) {
   throw new Error(`Invalid release tag: ${manifest.releaseTag}`);
 }
-if (provenance.schemaVersion !== contract.provenanceSchemaVersion) {
+const allowedProvenanceSchemas = new Set<string>(
+  contract.allowedProvenanceSchemaVersions ?? [contract.provenanceSchemaVersion],
+);
+if (!allowedProvenanceSchemas.has(provenance.schemaVersion)) {
   throw new Error(`Unsupported release provenance schema: ${provenance.schemaVersion}`);
 }
 if (!contract.allowedProvenanceSources.includes(provenance.source)) {

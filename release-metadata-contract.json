@@ -15,7 +15,7 @@
     "P2",
     "P2.1",
     "P2.1 RC",
-    "P2.3 RC2"
+    "P2.3 RC"
   ],
   "releaseTagPattern": "^novel-ai-(?:p21|p23)-[a-z0-9-]+$"
 }

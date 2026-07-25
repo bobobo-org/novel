@@ -6,11 +6,12 @@ const read = async (file) => readFile(file, "utf8");
 const manifest = JSON.parse(await read("release-manifest.json"));
 const contract = JSON.parse(await read("release-metadata-contract.json"));
 const healthSource = await read("app/api/ai/health/route.ts");
+const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
 const expectedTag = "novel-ai-p23-sovereign-foundation-rc2";
-const expectedStage = "P2.3 RC2";
+const expectedStage = "P2.3 RC";
 const results = [];
 
 function test(name, work) {
@@ -31,8 +32,17 @@ test("manifest uses authoritative RC metadata", () => validate(manifest, { relea
 test("manifest-health releaseTag mismatch fails", () => mustReject({ ...manifest, releaseTag: "novel-ai-p23-wrong" }, manifest));
 test("manifest-health architectureStage mismatch fails", () => mustReject({ ...manifest, architectureStage: "P2.1" }, manifest));
 test("unknown architectureStage fails", () => mustReject({ ...manifest, architectureStage: "P9 UNKNOWN" }, manifest));
-test("runtime validates authoritative contract", () => { assert.match(runtimeSource, /allowedArchitectureStages/); assert.match(runtimeSource, /releaseTagPattern/); });
+test("runtime validates authoritative contract and old provenance schemas", () => {
+  assert.match(runtimeSource, /allowedArchitectureStages/);
+  assert.match(runtimeSource, /releaseTagPattern/);
+  assert.match(runtimeSource, /allowedProvenanceSchemaVersions/);
+  assert.ok(contract.allowedProvenanceSchemaVersions.includes("p21-build-provenance-v1"));
+});
 test("public health reads shared manifest", () => { assert.match(healthSource, /RELEASE_MANIFEST\.releaseTag/); assert.match(healthSource, /RELEASE_MANIFEST\.architectureStage/); });
+test("admin diagnostics reads the same shared release identity", () => {
+  assert.match(adminHealthSource, /RELEASE_MANIFEST\.appCommit/);
+  assert.match(adminHealthSource, /releaseIdentity/);
+});
 test("build stamp reads shared manifest", () => assert.match(stampSource, /releaseManifest\.releaseTag/));
 test("legacy RC2 evidence and RC3 tag remain immutable", () => {
   assert.match(sealSource, /novel-ai-p21-release-metadata-rc2/);
