@@ -41,6 +41,7 @@
     "test:ai:p23:studio-ui": "node scripts/run-p23-studio-ui.mjs",
     "test:ai:p23:mobile-layout": "node scripts/run-p23-rc3-mobile-layout.mjs",
     "test:ai:p23:dynamic-assets": "node scripts/run-p23-rc3-dynamic-assets.mjs",
+    "test:ai:p23:secret-scan": "node scripts/run-p23-rc3-secret-scan.mjs",
     "test:ai:closed:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase0.mjs",
     "test:ai:closed:training:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-training-phase0.mjs",
     "test:ai:closed:bridge:contract": "node scripts/run-closed-ai-bridge-contract.mjs",

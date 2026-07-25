@@ -66,6 +66,9 @@ jobs:
       - name: P2.3 security matrix
         run: pnpm test:ai:p23:security
 
+      - name: Secret scan
+        run: pnpm test:ai:p23:secret-scan
+
       - name: Release metadata
         run: pnpm test:ai:p23:release-metadata
 
