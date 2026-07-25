@@ -1,0 +1,96 @@
+import type { DramaFormatProfile, DramaFormatProfileId } from "./types";
+
+export const DRAMA_FORMAT_PROFILES: Record<DramaFormatProfileId, DramaFormatProfile> = {
+  DRAMA_60_SECONDS: {
+    id: "DRAMA_60_SECONDS",
+    targetDurationSeconds: 60,
+    openingHookDeadlineSeconds: 3,
+    conflictIntervalSeconds: 20,
+    reversalIntervalSeconds: 45,
+    minimumPayoffCount: 1,
+    maximumSceneCount: 2,
+    dialogueDensity: 0.28,
+    visualActionDensity: 0.72,
+    cliffhangerRequired: true,
+    recommendedBeatRange: [4, 6],
+    structure: "single_turn",
+  },
+  DRAMA_90_SECONDS: {
+    id: "DRAMA_90_SECONDS",
+    targetDurationSeconds: 90,
+    openingHookDeadlineSeconds: 5,
+    conflictIntervalSeconds: 25,
+    reversalIntervalSeconds: 60,
+    minimumPayoffCount: 1,
+    maximumSceneCount: 3,
+    dialogueDensity: 0.36,
+    visualActionDensity: 0.64,
+    cliffhangerRequired: true,
+    recommendedBeatRange: [5, 8],
+    structure: "micro_arc",
+  },
+  DRAMA_3_MINUTES: {
+    id: "DRAMA_3_MINUTES",
+    targetDurationSeconds: 180,
+    openingHookDeadlineSeconds: 8,
+    conflictIntervalSeconds: 45,
+    reversalIntervalSeconds: 110,
+    minimumPayoffCount: 1,
+    maximumSceneCount: 5,
+    dialogueDensity: 0.45,
+    visualActionDensity: 0.55,
+    cliffhangerRequired: true,
+    recommendedBeatRange: [7, 10],
+    structure: "micro_arc",
+  },
+  DRAMA_10_MINUTES: {
+    id: "DRAMA_10_MINUTES",
+    targetDurationSeconds: 600,
+    openingHookDeadlineSeconds: 20,
+    conflictIntervalSeconds: 120,
+    reversalIntervalSeconds: 300,
+    minimumPayoffCount: 2,
+    maximumSceneCount: 10,
+    dialogueDensity: 0.52,
+    visualActionDensity: 0.48,
+    cliffhangerRequired: true,
+    recommendedBeatRange: [10, 16],
+    structure: "multi_scene",
+  },
+  DRAMA_30_MINUTES: {
+    id: "DRAMA_30_MINUTES",
+    targetDurationSeconds: 1800,
+    openingHookDeadlineSeconds: 45,
+    conflictIntervalSeconds: 300,
+    reversalIntervalSeconds: 720,
+    minimumPayoffCount: 3,
+    maximumSceneCount: 24,
+    dialogueDensity: 0.56,
+    visualActionDensity: 0.44,
+    cliffhangerRequired: true,
+    recommendedBeatRange: [18, 28],
+    structure: "chapter_arc",
+  },
+  DRAMA_90_TO_120_MINUTES: {
+    id: "DRAMA_90_TO_120_MINUTES",
+    targetDurationSeconds: 6300,
+    openingHookDeadlineSeconds: 120,
+    conflictIntervalSeconds: 720,
+    reversalIntervalSeconds: 1800,
+    minimumPayoffCount: 5,
+    maximumSceneCount: 72,
+    dialogueDensity: 0.54,
+    visualActionDensity: 0.46,
+    cliffhangerRequired: false,
+    recommendedBeatRange: [32, 52],
+    structure: "feature_arc",
+  },
+};
+
+export function getDramaFormatProfile(id: DramaFormatProfileId) {
+  return DRAMA_FORMAT_PROFILES[id];
+}
+
+export function listDramaFormatProfiles() {
+  return Object.values(DRAMA_FORMAT_PROFILES);
+}

@@ -1,8 +1,12 @@
 import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult } from "../../drama-os/types";
 
-export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
+export const LEGACY_NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
+export const DRAMA_STORES = ["dramaProjects","dramaSeasons","dramaEpisodes","dramaScenes","dramaBeats","dramaBranchCandidates","dramaEvaluations","dramaApprovals","narrativeCanonLinks"] as const;
+export const NOVEL_STORES = [...LEGACY_NOVEL_STORES, ...DRAMA_STORES] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
 export const REQUIRED_RESTORE_STORES = NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
+export const LEGACY_REQUIRED_RESTORE_STORES = LEGACY_NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 
 export class RevisionConflictError extends Error {
   readonly expected: number;
@@ -56,6 +60,9 @@ export interface NovelRepository {
   remove(store: NovelStoreName, id: string): Promise<void>;
   createProject(bundle: ProjectBundle, requestId: string): Promise<ProjectBundle>;
   acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult>;
+  saveDramaProjectionTransaction(input: DramaProjectionPackage): Promise<void>;
+  approveDramaProjectionTransaction(input: ApproveDramaProjectionInput): Promise<ApproveDramaProjectionResult>;
+  markDramaProjectionsStaleTransaction(input: MarkDramaProjectionsStaleInput): Promise<MarkDramaProjectionsStaleResult>;
   listAcceptedChoices(projectId: string, chapterId?: string): Promise<AcceptedChoice[]>;
   listStoryBranches(projectId: string, chapterId?: string): Promise<StoryBranch[]>;
   deleteInteractionsByProject(projectId: string): Promise<void>;
