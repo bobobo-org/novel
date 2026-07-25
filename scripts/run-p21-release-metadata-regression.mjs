@@ -10,8 +10,8 @@ const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-  const expectedTag = "novel-ai-p24a-drama-os-core-rc1";
-  const expectedStage = "P2.4A RC";
+const expectedTag = "novel-ai-p24a-drama-os-core-rc2";
+const expectedStage = "P2.4A RC";
 const results = [];
 
 function test(name, work) {
@@ -53,7 +53,7 @@ test("legacy P2.1 RC2 evidence and RC3 tag remain immutable", () => {
   );
 });
 
-const summary = { suite: "P2.3 RC3 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
+const summary = { suite: "P2.4A RC2 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
 await mkdir("artifacts/p23-rc3-release-metadata", { recursive: true });
 await writeFile("artifacts/p23-rc3-release-metadata/release-metadata-regression.json", `${JSON.stringify(summary, null, 2)}\n`, "utf8");
 console.log(JSON.stringify(summary, null, 2));

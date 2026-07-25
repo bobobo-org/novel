@@ -465,7 +465,7 @@ test("capability truth matrix never marks contract-only runtimes available", () 
   const matrix = capabilityTruthMatrix();
   assert.equal(matrix.capabilities["model.supplyChain"].status, "contract_only");
   assert.equal(matrix.capabilities["privateHub.runtime"].status, "contract_only");
-  assert.equal(matrix.capabilities["training.model"].status, "not_implemented");
+  assert.equal(matrix.capabilities["training.model"].status, "not_started");
 });
 
 for (const entry of tests) {

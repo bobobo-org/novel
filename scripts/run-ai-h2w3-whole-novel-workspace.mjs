@@ -445,7 +445,7 @@ async function testTrainingCandidateFoundation() {
   }
   t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "health training candidate foundation ready");
   t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "health training consent foundation ready");
-  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_implemented", "model training not implemented");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_started", "model training not started");
   t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
   t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "auto promotion not implemented");
   return t.finish();
@@ -540,7 +540,7 @@ async function testVisibleUiSemantics() {
   t.includes(html, "尚未讀取回饋與未來學習資料", "learning empty state renamed");
   t.notIncludes(html, "尚未讀取學習資料", "legacy learning empty state absent");
   t.includes(js, "Continual Learning Status: not_implemented", "continual learning not implemented visible");
-  t.includes(js, "Model Training Status: not_implemented", "model training not implemented visible");
+  t.includes(js, "Model Training Status: not_started", "model training not started visible");
   t.notIncludes(js, "Continual Learning Status: foundation_ready", "active continual learning not claimed");
   t.notIncludes(html, "AI學習資料", "legacy AI learning title absent");
   t.includes(html, "AI能力狀態面板", "AI capability panel wording softened");
@@ -558,7 +558,7 @@ async function testLearningStatusSemantics() {
   t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "training consent foundation ready");
   t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "foundation_ready", "future contract foundation ready");
   t.equal(H2W3_HEALTH.continualLearningStatus, "not_implemented", "continual learning not implemented");
-  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_implemented", "model training not implemented");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_started", "model training not started");
   t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
   t.equal(H2W3_HEALTH.qloraTrainingStatus, "not_implemented", "qlora not implemented");
   t.equal(H2W3_HEALTH.adapterTrainingStatus, "not_implemented", "adapter training not implemented");
@@ -568,7 +568,7 @@ async function testLearningStatusSemantics() {
     "Training Candidate Foundation Status: foundation_ready",
     "Future Continual Learning Contract Status: foundation_ready",
     "Continual Learning Status: not_implemented",
-    "Model Training Status: not_implemented",
+    "Model Training Status: not_started",
     "LoRA Training Status: not_implemented",
     "QLoRA Training Status: not_implemented",
     "active continual learning not_implemented",

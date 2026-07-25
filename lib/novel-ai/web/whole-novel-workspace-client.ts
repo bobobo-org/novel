@@ -36,7 +36,7 @@ export const H2W3_HEALTH = {
   trainingConsentStatus: "foundation_ready",
   futureContinualLearningContractStatus: "foundation_ready",
   continualLearningStatus: "not_implemented",
-  modelTrainingStatus: "not_implemented",
+  modelTrainingStatus: "not_started",
   loraTrainingStatus: "not_implemented",
   qloraTrainingStatus: "not_implemented",
   adapterTrainingStatus: "not_implemented",

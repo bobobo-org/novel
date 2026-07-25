@@ -21,7 +21,7 @@ export function buildContinuityConstraints(input: DramaProjectionInput, analysis
     });
   }
   for (const issue of input.storyBible.forbiddenContradictions) {
-    constraints.push({ kind: "source", description: issue, sourceReferenceIds: [], severity: "blocking" });
+    constraints.push({ kind: "source", description: issue, sourceReferenceIds: [], severity: "info" });
   }
   return constraints;
 }

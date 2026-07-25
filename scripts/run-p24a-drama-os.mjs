@@ -234,6 +234,14 @@ function registerPacingTests() {
 
 function registerBranchTests() {
   let input, repo, service, projected, novelBefore, approved;
+  test("forbidden contradiction remains a canon constraint without becoming a false blocking violation", async () => {
+    const constraint = "林昭在午夜前從未離開舊劇院";
+    const constrainedInput = fixture("DRAMA_10_MINUTES");
+    constrainedInput.storyBible.forbiddenContradictions = [constraint];
+    const result = await projectNovelToDrama(constrainedInput);
+    assert(result.episodes.every((episode) => episode.continuityConstraints.some((row) => row.description === constraint && row.severity === "info")));
+    assert.equal(result.evaluations[0].blockingIssueCount, 0);
+  });
   test("seeds canonical repository", async () => { input = fixture(); repo = new MemoryNovelRepository(); await seedRepository(repo, input); service = new DramaOsService(repo); assert(await repo.get("projects", input.storyId)); });
   test("stores projection atomically", async () => { projected = await service.project(input); assert.equal((await repo.list("dramaProjects", input.storyId)).length, 1); });
   for (const store of DRAMA_STORE_NAMES.filter((store) => store !== "dramaApprovals")) test(`${store} persists candidate rows`, async () => assert((await repo.list(store, input.storyId)).length > 0));

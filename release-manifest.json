@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p24a-drama-os-core-rc1",
-  "releaseName": "P2.4A Closed Drama OS Core RC1",
-  "consumerRelease": "p2.4a-drama-os-core-rc1",
+  "releaseTag": "novel-ai-p24a-drama-os-core-rc2",
+  "releaseName": "P2.4A Closed Drama OS Core RC2",
+  "consumerRelease": "p2.4a-drama-os-core-rc2",
   "architectureStage": "P2.4A RC",
   "buildTime": "2026-07-25T20:00:00+08:00"
 }
