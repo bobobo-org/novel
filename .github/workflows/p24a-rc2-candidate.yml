@@ -21,11 +21,48 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
+      - name: Preserve LF repository bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "core.autocrlf must be false before checkout; actual=$autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "core.eol must be lf before checkout; actual=$eol"
+          }
+
       - name: Checkout exact candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Verify checkout byte-preservation policy
+        shell: pwsh
+        run: |
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "Unexpected core.autocrlf after checkout: $autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "Unexpected core.eol after checkout: $eol"
+          }
+
+          $status = git status --porcelain=v1
+          if ($status) {
+            Write-Host $status
+            throw "Checkout produced tracked working-tree changes."
+          }
 
       - name: Verify exact candidate checkout
         shell: pwsh
