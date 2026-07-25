@@ -8,7 +8,9 @@ export type PlatformTaskType =
   | "story.summary" | "story.consistencyCheck" | "story.timelineCheck" | "story.characterCheck" | "story.worldRuleCheck" | "story.foreshadowingCheck" | "story.retrieval" | "story.storyBibleCandidate"
   | "character.create" | "character.dialogue" | "character.relationshipAnalysis" | "character.arcCandidate"
   | "world.create" | "world.ruleCandidate" | "world.locationCandidate" | "world.factionCandidate"
-  | "game.stateEvaluation" | "game.rewardCandidate" | "game.questCandidate" | "game.achievementCandidate";
+  | "game.stateEvaluation" | "game.rewardCandidate" | "game.questCandidate" | "game.achievementCandidate"
+  | "drama.chapterClassify" | "drama.sceneClassify" | "drama.characterPresence" | "drama.emotionCurve" | "drama.shortSummary" | "drama.beatSuggestion"
+  | "drama.episodePlan" | "drama.scenePlan" | "drama.dialogue" | "drama.branchCandidate" | "drama.ending" | "drama.continuity";
 
 export type PlatformProviderStatus = "ready" | "contract_ready" | "runtime_not_installed" | "runtime_unavailable" | "auth_required" | "disabled" | "degraded";
 export type PlatformProviderCapability = "text" | "structured" | "streaming" | "embedding" | "long-context" | "offline";

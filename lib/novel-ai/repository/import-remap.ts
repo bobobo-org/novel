@@ -1,8 +1,10 @@
 import type { DomainRecord } from "../domain";
-import { NOVEL_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
+import { DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
 
 export function assertCompleteReplacePayload(payload: Record<string, unknown[]>) {
-  const missing = REQUIRED_RESTORE_STORES.filter((store) => !Array.isArray(payload[store]));
+  const containsDramaData = DRAMA_STORES.some((store) => Object.hasOwn(payload, store));
+  const requiredStores = containsDramaData ? REQUIRED_RESTORE_STORES : LEGACY_REQUIRED_RESTORE_STORES;
+  const missing = requiredStores.filter((store) => !Array.isArray(payload[store]));
   if (missing.length) throw new Error(`BACKUP_REQUIRED_STORE_MISSING:${missing.join(",")}`);
 }
 
@@ -41,6 +43,18 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
   for (const row of deltas) if (!row.transactionId || !row.candidateId || !row.acceptedChoiceId || !row.chapterId || !ids.has(row.transactionId) || !ids.has(row.candidateId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.chapterId)) throw new Error("BACKUP_STORY_BIBLE_DELTA_REFERENCE_INVALID");
   for (const row of approvals) if (!row.transactionId || row.transactionId !== row.id || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_APPROVAL_TRANSACTION_REFERENCE_INVALID");
   for (const row of idempotency) if (!row.transactionId || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.transactionId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_IDEMPOTENCY_REFERENCE_INVALID");
+  const dramaProjects = (payload.dramaProjects ?? []) as Array<DomainRecord & { dramaProjectId?: string; seasonIds?: string[] }>;
+  const canonLinks = (payload.narrativeCanonLinks ?? []) as Array<DomainRecord & { dramaProjectId?: string; episodeIds?: string[] }>;
+  const dramaApprovals = (payload.dramaApprovals ?? []) as Array<DomainRecord & { dramaProjectId?: string; approvedEntityIds?: string[] }>;
+  for (const row of dramaProjects) {
+    if (row.dramaProjectId !== row.id || !row.seasonIds?.every((id) => ids.has(id))) throw new Error("BACKUP_DRAMA_PROJECT_REFERENCE_INVALID");
+  }
+  for (const row of canonLinks) {
+    if (!row.dramaProjectId || !ids.has(row.dramaProjectId) || !row.episodeIds?.every((id) => ids.has(id))) throw new Error("BACKUP_DRAMA_CANON_LINK_REFERENCE_INVALID");
+  }
+  for (const row of dramaApprovals) {
+    if (!row.dramaProjectId || !ids.has(row.dramaProjectId) || !row.approvedEntityIds?.every((id) => ids.has(id))) throw new Error("BACKUP_DRAMA_APPROVAL_REFERENCE_INVALID");
+  }
   return { project, sourceProjectId };
 }
 

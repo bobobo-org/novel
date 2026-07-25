@@ -10,8 +10,8 @@ const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p23-sovereign-foundation-rc3";
-const expectedStage = "P2.3 RC";
+const expectedTag = "novel-ai-p24a-drama-os-core-dev";
+const expectedStage = "P2.4A DEV";
 const results = [];
 
 function test(name, work) {
