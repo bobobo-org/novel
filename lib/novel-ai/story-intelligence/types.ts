@@ -94,15 +94,40 @@ export type TraceableMemory = {
   source: StorySource;
   metadata: {
     projectId: string;
+    userId?: string;
+    workspaceId?: string;
+    storyId?: string;
+    storyRevision?: string;
+    adultNamespace?: "general" | "adult";
     branchId?: string;
     entityIds?: string[];
     chapterOrder?: number;
     canonical?: boolean;
     visibility?: "private" | "project";
+    deleted?: boolean;
+    securityLabels?: string[];
+    trustedLevel?: "system_defined" | "user_approved" | "story_canonical" | "story_candidate" | "untrusted";
+    sourceType?: "system" | "user_task" | "story_bible" | "story_content" | "retrieved_knowledge";
+    sourceId?: string;
+    sourceRevision?: string;
+    sanitizationStatus?: "unchanged" | "sanitized" | "quarantined";
+    detectedInjectionSignals?: string[];
+    allowedUsage?: Array<"citation" | "retrieval_context" | "semantic_reference" | "constraint">;
+    blockedUsage?: string[];
   };
   keywordScore?: number;
   vectorScore?: number;
   recencyScore?: number;
+};
+
+export type StoryAccessScope = {
+  projectId: string;
+  userId: string;
+  workspaceId: string;
+  storyId: string;
+  storyRevision: string;
+  adultNamespace: "general" | "adult";
+  approvedBranchIds: string[];
 };
 
 export type RankedMemory = TraceableMemory & {
@@ -130,6 +155,12 @@ export type StoryContext = {
     omittedMemoryIds: string[];
   };
   sourceReferences: StorySource[];
+  trustBoundary: {
+    authorityOrder: readonly string[];
+    quarantinedMemoryIds: string[];
+    sanitizedMemoryIds: string[];
+    untrustedMemoryIds: string[];
+  };
 };
 
 export type ContinuityIssueType =
