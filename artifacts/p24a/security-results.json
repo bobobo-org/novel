@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "security",
+  "generatedAt": "2026-07-25T10:49:56.960Z",
+  "pass": 28,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "attack 1 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 19
+    },
+    {
+      "name": "attack 1 remains source content",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "attack 2 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "attack 2 remains source content",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "attack 3 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "attack 3 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 4 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 4 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 5 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 5 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 6 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 6 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 7 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 7 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 8 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 8 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 9 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 9 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 10 cannot mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "attack 10 remains source content",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "empty source is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "resource exhaustion is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "cancelled request is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "adult mode requires consent",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "adult mode requires confirmed adults",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "consensual adult prose is not prompt injection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "stale story revision is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "stale Story Bible is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

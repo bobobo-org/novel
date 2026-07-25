@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "p24a-hook-evidence-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "sourceSuite": "pacing",
+  "pass": 12,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "DRAMA_60_SECONDS hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_60_SECONDS has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_10_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_10_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_30_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "name": "DRAMA_30_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 14
+    }
+  ]
+}

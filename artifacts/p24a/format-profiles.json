@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "p24a-format-profile-evidence-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "sourceSuite": "all",
+  "pass": 12,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "defines all six format profiles",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 second profile is single turn",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "feature profile is feature arc",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute episode counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute beat counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute scene counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_90_SECONDS generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_3_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_10_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "name": "DRAMA_30_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 21
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 18
+    }
+  ]
+}

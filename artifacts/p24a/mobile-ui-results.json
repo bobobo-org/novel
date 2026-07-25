@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "p24a-mobile-ui-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "results": [
+    {
+      "viewport": "360x800",
+      "reportedClientWidth": 345,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-360x800.png"
+    },
+    {
+      "viewport": "375x812",
+      "reportedClientWidth": 360,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-375x812.png"
+    },
+    {
+      "viewport": "390x844",
+      "reportedClientWidth": 375,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-390x844.png"
+    },
+    {
+      "viewport": "412x915",
+      "reportedClientWidth": 397,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-412x915.png"
+    }
+  ],
+  "pass": 4,
+  "fail": 0,
+  "skip": 0,
+  "requiredViewports": [
+    "360x800",
+    "375x812",
+    "390x844",
+    "412x915"
+  ]
+}

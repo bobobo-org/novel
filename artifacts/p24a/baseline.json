@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "p24a-baseline-v1",
+  "recordedAt": "2026-07-25T10:27:54.067Z",
+  "repository": "https://github.com/bobobo-org/novel",
+  "worktree": "C:/dev/novel-p24a-drama-os-core",
+  "branch": "agent/p24a-drama-os-core",
+  "head": "cd7bf18b4763f7d4df3506623e1292b654e2d040",
+  "baseTag": "novel-ai-p23-sovereign-foundation-rc3",
+  "workingTreeClean": true,
+  "architectureStage": "P2.4A DEV",
+  "reusedBoundaries": [
+    "Story Bible",
+    "Story Intelligence",
+    "Retrieval",
+    "Context Composer",
+    "Persona",
+    "Platform Provider Router",
+    "Approval Transaction",
+    "Revision Guard",
+    "Idempotency",
+    "IndexedDB repository",
+    "Backup/Restore",
+    "Capability Truth Matrix"
+  ],
+  "forbiddenMutations": {
+    "rc3Branch": false,
+    "rc3Tag": false,
+    "pr4": false,
+    "production": false,
+    "mirrorProduction": false,
+    "productionAlias": false
+  },
+  "p24bThroughP24eStarted": false
+}

@@ -1,0 +1,198 @@
+{
+  "schemaVersion": "p24a-evidence-manifest-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "productCommit": "5d887bf84cafdbc88b8fffd9d3d1ee48b3c64c6d",
+  "recordCount": 37,
+  "mismatch": 0,
+  "missing": 0,
+  "unexpected": 0,
+  "records": [
+    {
+      "path": "approval-results.json",
+      "bytes": 2466,
+      "sha256": "b26d8f96e0048cf65250612e98c5ffc6d09ffa991c65e7a98ea19a657e10b0c2"
+    },
+    {
+      "path": "architecture.md",
+      "bytes": 1642,
+      "sha256": "dc6bb7eb11f7e8287c8a0861a48d75ee21d0f2575918d3ed425518a724d9515a"
+    },
+    {
+      "path": "backup-restore-results.json",
+      "bytes": 3771,
+      "sha256": "800a75f41fa0fc51c85a0d500b2a28104ac77eee14a0d1f2ea70de05d504fcbc"
+    },
+    {
+      "path": "baseline.json",
+      "bytes": 926,
+      "sha256": "43396fe9c832d5517392113c9fe87738e293eb49bb5956d17506e8d42206ad18"
+    },
+    {
+      "path": "beat-sheet-results.json",
+      "bytes": 5169,
+      "sha256": "150563512b48c9a803c8463362733e0a7aca884d1dcd1be49a4495220750454b"
+    },
+    {
+      "path": "branch-isolation-results.json",
+      "bytes": 4707,
+      "sha256": "bc63148ae43784844300c88ffc4032641531f8911fbdd2b7156e85edca1cb6b2"
+    },
+    {
+      "path": "browser-e2e-results.json",
+      "bytes": 1561,
+      "sha256": "030ac7defab9bb2607a18d03aca98ff723af99ee7bb6cb5b895e7d08018edf5b"
+    },
+    {
+      "path": "capability-truth-matrix.json",
+      "bytes": 2522,
+      "sha256": "86090c86d1a026130dc145abe56c40fbc3a26ae6a4cd1d8e0741576410c3594f"
+    },
+    {
+      "path": "data-model.json",
+      "bytes": 5226,
+      "sha256": "d27d8bf6ceccbc6fcfc8f6f8a704388de0d830fb90b08d52541b6c20a18180b7"
+    },
+    {
+      "path": "desktop-ui-results.json",
+      "bytes": 4119,
+      "sha256": "2d5b820cfb25fa165b84dfbf034f906a134bce92fbf29510832e8dd1f7eefbbc"
+    },
+    {
+      "path": "drama-360x800.png",
+      "bytes": 33075,
+      "sha256": "d56a798ca45bcb6b117482ac87982ba08d6c49bf6e51e33434d77904a417e35b"
+    },
+    {
+      "path": "drama-375x812.png",
+      "bytes": 33310,
+      "sha256": "c5110ecbff7ace91d6126021a9088c7cfb8670f9380483eaeca57739c2cc7c05"
+    },
+    {
+      "path": "drama-390x844.png",
+      "bytes": 34199,
+      "sha256": "47e14833e3b3064fefa9a10a2af28fc0809cbf96b80359439d97079c7fd8d2ba"
+    },
+    {
+      "path": "drama-412x915.png",
+      "bytes": 36495,
+      "sha256": "b54d04f6cf387ac78e15a3e383ccee924aaae85cdecf09954b31c1f0c5b968b5"
+    },
+    {
+      "path": "drama-desktop.png",
+      "bytes": 101502,
+      "sha256": "e2941a15b5ea97e2e803d7736646569f98f5c9e9fcd70bd788f398c41117f5c8"
+    },
+    {
+      "path": "drama-final-desktop.png",
+      "bytes": 75752,
+      "sha256": "74185b72ab8fe11b8ba4e5e1af139df63dcc87b21e2d26775cbb3d6e24a379ad"
+    },
+    {
+      "path": "drama-final-mobile.png",
+      "bytes": 34199,
+      "sha256": "47e14833e3b3064fefa9a10a2af28fc0809cbf96b80359439d97079c7fd8d2ba"
+    },
+    {
+      "path": "drama-mobile-viewport.png",
+      "bytes": 33819,
+      "sha256": "df5945d177c309fc48061c8c4050125b7acf0cd19f8de02809be948478835c65"
+    },
+    {
+      "path": "drama-mobile.png",
+      "bytes": 68878,
+      "sha256": "aa133d4b57cf5f539bd31f26eef903219b34116c78c5874880bbb8b1abfdbf45"
+    },
+    {
+      "path": "emotion-curve-results.json",
+      "bytes": 919,
+      "sha256": "ce6e14f4dbe4a4116494d5c751170e56dc1ce1a4e1f9291be845825131125699"
+    },
+    {
+      "path": "episode-planner-results.json",
+      "bytes": 1560,
+      "sha256": "66095c0817a8d878e066135a871899e219388d7bf31070f67138b39295ea7ca9"
+    },
+    {
+      "path": "executive-summary.md",
+      "bytes": 570,
+      "sha256": "1293e17490d080177121d7951be5880bbb8568ee7ae295b970672b5b33b8dad2"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 617,
+      "sha256": "bacbd58b87128fd19ad25f3ae5193d5c0af44d6574a9697b947aaf021afcb36c"
+    },
+    {
+      "path": "format-profiles.json",
+      "bytes": 1613,
+      "sha256": "2d85ec623a3d29fb3d36b9c70a7115e42bb04f0aa3d81f249f6bc130a4f54a23"
+    },
+    {
+      "path": "hook-results.json",
+      "bytes": 1621,
+      "sha256": "8963dcee701a09f925d33fe78c9ad8385180f97187694f3082ba83ab97d0a302"
+    },
+    {
+      "path": "local-server-final.err.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local-server-final.out.log",
+      "bytes": 121,
+      "sha256": "a821fe67dd7fb3bd70853ab55ca2909b774be2b8f02c1871d4fcbc2292d16333"
+    },
+    {
+      "path": "local-server-final2.err.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local-server-final2.out.log",
+      "bytes": 121,
+      "sha256": "5b32354fcdb9b5adc7f3a641a5c40a3bf0a276230ba46ec338464baaf1934605"
+    },
+    {
+      "path": "local-server.err.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local-server.out.log",
+      "bytes": 121,
+      "sha256": "b0a3f39897d44fab81cbdd8c2b9f72daaa10dd74d4c81a20df6dca1829e5cfda"
+    },
+    {
+      "path": "migration-results.json",
+      "bytes": 3885,
+      "sha256": "94fdaa34dc2114078790370ddac490ebe1c5698eddc1627bf9e3e0d2a3276434"
+    },
+    {
+      "path": "mobile-ui-results.json",
+      "bytes": 1071,
+      "sha256": "e93a30118c28701d3305a3921cefd56edf48124423b14b7842349a508ce63989"
+    },
+    {
+      "path": "novel-to-drama-results.json",
+      "bytes": 3855,
+      "sha256": "f9c567db266b49789e36c83a360e96c6f4b9b8ee33322b32a3a87b99424f48a6"
+    },
+    {
+      "path": "regression-summary.json",
+      "bytes": 29063,
+      "sha256": "4cc5ab32af0a513dbb2ba03c0d77dc6d47e14cfe73c619fe334e08b96a0691c1"
+    },
+    {
+      "path": "secret-scan-results.json",
+      "bytes": 296,
+      "sha256": "c371ed5080abca9a098987d6ef9ed42848d91020655c32fea2bd1c034c855aed"
+    },
+    {
+      "path": "security-results.json",
+      "bytes": 3148,
+      "sha256": "8ae02623df206de101fa7809f8d43844ed359fff1c13164715d87f61083d5565"
+    }
+  ],
+  "selfHash": "4ef59ecdd165060013cd8e4ec708255b1fdc73cb265b9d14a98b7e7b120b491d",
+  "selfHashStatus": "MATCH"
+}

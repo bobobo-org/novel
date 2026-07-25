@@ -1,0 +1,170 @@
+{
+  "schemaVersion": "p24a-backup-evidence-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "sourceSuite": "migration",
+  "pass": 32,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "creates an RC3-compatible IndexedDB v4 baseline",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "IndexedDB schema reports version 5",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "repository schema contains legacy and Drama stores",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaProjects",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaSeasons",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaEpisodes",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaScenes",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaBeats",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaBranchCandidates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaEvaluations",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains dramaApprovals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "IndexedDB capability contains narrativeCanonLinks",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "RC3 v4 database upgrades and persists a Drama projection",
+      "status": "PASS",
+      "elapsedMs": 25
+    },
+    {
+      "name": "migration creates every Drama store",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "new backup uses v4 format",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "new backup uses repository v5",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaProjects",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaSeasons",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaEpisodes",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaScenes",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaBeats",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaBranchCandidates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaEvaluations",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes dramaApprovals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup includes narrativeCanonLinks",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "backup validates",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "backup restores as copy",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "restored Drama project count matches",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "restored episode count matches",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "restored beat count matches",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "restored canon link count matches",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "old v4-style payload may omit Drama stores",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

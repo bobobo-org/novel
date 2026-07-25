@@ -1,0 +1,215 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "branch",
+  "generatedAt": "2026-07-25T11:00:29.320Z",
+  "pass": 41,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "seeds canonical repository",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "stores projection atomically",
+      "status": "PASS",
+      "elapsedMs": 41
+    },
+    {
+      "name": "dramaProjects persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaSeasons persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaEpisodes persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaScenes persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaBeats persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaBranchCandidates persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dramaEvaluations persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "narrativeCanonLinks persists candidate rows",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "three choices exist",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice A has action",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice A has consequence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice A changes at least one effect",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice B has action",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice B has consequence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice B changes at least one effect",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice C has action",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice C has consequence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice C changes at least one effect",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "choice effects are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "projects can be snapshotted before approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "chapters can be snapshotted before approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "storyBibles can be snapshotted before approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "acceptedChoices can be snapshotted before approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "storyBranches can be snapshotted before approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval creates Drama adaptation revision",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "approval is committed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "canon link is approved",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval does not alter novel project",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval does not alter chapters",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval does not alter Story Bible",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval creates no accepted choice",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approval creates no story branch",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "idempotent replay creates no duplicate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "payload mismatch is rejected",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "stale source revision is rejected",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "name": "stale Story Bible revision is rejected during approval",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "story revision marks related candidate stale",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "Story Bible revision marks canon link stale",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "private simulation cannot be approved",
+      "status": "PASS",
+      "elapsedMs": 6
+    }
+  ]
+}

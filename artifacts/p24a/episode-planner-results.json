@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "p24a-episode-planner-evidence-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "sourceSuite": "projection",
+  "pass": 13,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "projection includes episodes",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "name": "projection includes scenes",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "projection includes beats",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "episodes await approval",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "scenes await approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "source chapter IDs are complete",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "60 and 10 minute episode counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute beat counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 and 10 minute scene counts differ",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "episode references a source chapter",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "beats link to scenes",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "scenes contain visible action",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "scenes contain distinct speakers",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ]
+}

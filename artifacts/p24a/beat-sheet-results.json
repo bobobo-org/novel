@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "pacing",
+  "generatedAt": "2026-07-25T10:49:15.569Z",
+  "pass": 42,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "DRAMA_60_SECONDS generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 19
+    },
+    {
+      "name": "DRAMA_60_SECONDS hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_60_SECONDS beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_60_SECONDS beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_60_SECONDS scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_60_SECONDS emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_60_SECONDS has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_90_SECONDS emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_90_SECONDS has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_3_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_10_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_10_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_10_MINUTES beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_10_MINUTES beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_10_MINUTES scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_10_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_10_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "DRAMA_30_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "name": "DRAMA_30_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "name": "DRAMA_30_MINUTES beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 11
+    },
+    {
+      "name": "DRAMA_30_MINUTES beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "DRAMA_30_MINUTES scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 11
+    },
+    {
+      "name": "DRAMA_30_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "DRAMA_30_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES generated duration matches profile",
+      "status": "PASS",
+      "elapsedMs": 13
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES hook meets deadline",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES beat floor honored",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES beat ceiling honored",
+      "status": "PASS",
+      "elapsedMs": 16
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES scene budget honored",
+      "status": "PASS",
+      "elapsedMs": 14
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 17
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES has required cliffhanger behavior",
+      "status": "PASS",
+      "elapsedMs": 14
+    }
+  ]
+}

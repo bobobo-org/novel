@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "p24a-browser-ui-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "server": "local production build",
+  "projectId": "ee87c469-1dd8-4aaa-b264-d3620daa8450",
+  "desktop": {
+    "viewport": "1440x900",
+    "flow": [
+      "create project",
+      "save chapter",
+      "generate Drama candidate",
+      "approve adaptation",
+      "reload"
+    ],
+    "approvalVisible": true,
+    "reloadPersistence": true,
+    "horizontalOverflow": false,
+    "consoleErrors": 0,
+    "screenshot": "drama-final-desktop.png"
+  },
+  "mobile": [
+    {
+      "viewport": "360x800",
+      "reportedClientWidth": 345,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-360x800.png"
+    },
+    {
+      "viewport": "375x812",
+      "reportedClientWidth": 360,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-375x812.png"
+    },
+    {
+      "viewport": "390x844",
+      "reportedClientWidth": 375,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-390x844.png"
+    },
+    {
+      "viewport": "412x915",
+      "reportedClientWidth": 397,
+      "horizontalOverflow": false,
+      "controlsOperable": true,
+      "consoleErrors": 0,
+      "screenshot": "drama-412x915.png"
+    }
+  ],
+  "canonicalIsolation": {
+    "novelMessage": "小說原文沒有被修改",
+    "acceptedChoicesCreated": 0,
+    "storyBranchesCreated": 0
+  },
+  "productionMutation": 0
+}

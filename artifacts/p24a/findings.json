@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "p24a-findings-v1",
+  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "productCommit": "5d887bf84cafdbc88b8fffd9d3d1ee48b3c64c6d",
+  "critical": [],
+  "high": [],
+  "medium": [
+    "Private AI Hub remains contract_only and not connected.",
+    "Browser AI remains client dependent and is limited to lightweight Drama tasks."
+  ],
+  "low": [
+    "The first production-facing Drama planner is deterministic-local; model-backed quality evaluation remains provider dependent.",
+    "Existing repository lint baseline contains warnings outside P2.4A; P2.4A adds zero lint errors."
+  ],
+  "blockers": 0
+}
