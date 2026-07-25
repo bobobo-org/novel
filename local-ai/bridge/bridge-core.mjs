@@ -176,6 +176,7 @@ export function modelProfileFromTag(tag) {
   const isEmbedding = family.includes("bert") || String(tag.name || "").includes("embed");
   return {
     modelId: tag.model || tag.name,
+    modelDigest: tag.digest ?? null,
     family: { value: family, source: details.family ? "reported" : "unknown" },
     parameterSize: { value: details.parameter_size || null, source: details.parameter_size ? "reported" : "unknown" },
     quantization: { value: details.quantization_level || null, source: details.quantization_level ? "reported" : "unknown" },

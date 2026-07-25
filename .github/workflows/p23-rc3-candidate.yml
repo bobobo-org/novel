@@ -1,0 +1,162 @@
+name: P2.3 RC3 Candidate
+
+on:
+  push:
+    branches:
+      - agent/p23-sovereign-foundation-rc3
+  pull_request:
+    branches:
+      - agent/p21r3-build-sealed-provenance
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p23-rc3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Configure Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium runtime
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Generate build-sealed provenance
+        run: node scripts/generate-release-provenance.mjs
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Production build
+        run: pnpm build
+
+      - name: P2.2 core
+        run: pnpm test:ai:p22:core
+
+      - name: P2.3 foundation
+        run: pnpm test:ai:p23:foundation
+
+      - name: P2.3 security matrix
+        run: pnpm test:ai:p23:security
+
+      - name: Secret scan
+        run: pnpm test:ai:p23:secret-scan
+
+      - name: Release metadata
+        run: pnpm test:ai:p23:release-metadata
+
+      - name: Validate sealed evidence manifest
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+          const manifestPath = "artifacts/p23-rc3/evidence-manifest.json";
+          const checksumPath = "artifacts/p23-rc3/evidence-manifest.sha256";
+          const manifestBytes = fs.readFileSync(manifestPath);
+          const manifest = JSON.parse(manifestBytes.toString("utf8"));
+          let mismatchCount = 0;
+          for (const record of manifest.records) {
+            if (!fs.existsSync(record.path)) {
+              mismatchCount += 1;
+              continue;
+            }
+            const bytes = fs.readFileSync(record.path);
+            const hash = crypto.createHash("sha256").update(bytes).digest("hex");
+            if (bytes.length !== record.bytes || hash !== record.sha256) mismatchCount += 1;
+          }
+          const expectedSelfHash = fs.readFileSync(checksumPath, "utf8").trim().split(/\s+/)[0];
+          const actualSelfHash = crypto.createHash("sha256").update(manifestBytes).digest("hex");
+          if (actualSelfHash !== expectedSelfHash) mismatchCount += 1;
+          console.log(JSON.stringify({ records: manifest.records.length, mismatchCount }));
+          if (mismatchCount !== 0) process.exit(1);
+          NODE
+
+      - name: Start production server
+        shell: bash
+        run: |
+          pnpm exec next start -p 3113 > /tmp/p23-rc3-next.log 2>&1 &
+          echo $! > /tmp/p23-rc3-next.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3113/api/ai/health > /tmp/p23-rc3-health.json; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/p23-rc3-next.log
+          exit 1
+
+      - name: Mobile overflow matrix
+        env:
+          P23_RC3_BASE_URL: http://127.0.0.1:3113
+          P23_RC3_OUTPUT_DIR: artifacts/p23-rc3-ci/mobile
+        run: pnpm test:ai:p23:mobile-layout
+
+      - name: Dynamic asset gate
+        env:
+          P23_RC3_BASE_URL: http://127.0.0.1:3113
+          P23_RC3_OUTPUT_DIR: artifacts/p23-rc3-ci/assets
+        run: pnpm test:ai:p23:dynamic-assets
+
+      - name: Stop production server
+        if: always()
+        shell: bash
+        run: |
+          if test -f /tmp/p23-rc3-next.pid; then
+            kill "$(cat /tmp/p23-rc3-next.pid)" 2>/dev/null || true
+          fi
+
+  three-high-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Configure Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: P2.1 Three-High closure
+        run: pnpm test:ai:p21:three-high

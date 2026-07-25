@@ -1,0 +1,505 @@
+{
+  "schemaVersion": "p23-rc3-dynamic-asset-gate-v1",
+  "runAt": "2026-07-25T06:08:28.897Z",
+  "pageUrl": "http://127.0.0.1:3113/legacy/novel-system.html?screen=home",
+  "pageStatus": 200,
+  "discoveryMethod": "runtime_dom_same_origin",
+  "expectedAssetCountSource": "discovered_from_reviewed_html",
+  "totalCanonicalLocalAssets": 24,
+  "passedCanonicalLocalAssets": 24,
+  "summary": "24/24 canonical local assets PASS",
+  "status": "PASS",
+  "assertions": {
+    "P2.3_RC3_DYNAMIC_STATIC_ASSET_DISCOVERY_PASS": true,
+    "P2.3_RC3_STATIC_ASSET_CLOSURE_PASS": true
+  },
+  "failures": {
+    "missing": 0,
+    "unexpectedHtmlFallback": 0,
+    "unexpectedRedirects": 0,
+    "contentTypeMismatch": 0,
+    "hashFailure": 0
+  },
+  "assets": [
+    {
+      "originalReference": "/generated/story-library.js",
+      "normalizedPath": "/generated/story-library.js",
+      "resolvedUrl": "http://127.0.0.1:3113/generated/story-library.js",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "/generated/story-library.js"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 191551,
+      "sha256": "2fcbce07ae3fb3c154faec8d7ed1701fd4602ff60476c349838ac6a109d35840",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./adult-entry-guard.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/adult-entry-guard.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/adult-entry-guard.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./adult-entry-guard.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 666,
+      "sha256": "e5a5aaa12f38180f34adefd8575ca9d5384b2fd7c531963708e442ddcd312749",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./backup-service.js?v=phase1-home-7",
+      "normalizedPath": "/legacy/backup-service.js?v=phase1-home-7",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/backup-service.js?v=phase1-home-7",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./backup-service.js?v=phase1-home-7"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 7951,
+      "sha256": "a5701e96212e049355b4e779198042d29c02527e4e3464c0727caa8a35c80da4",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./choice-story.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/choice-story.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/choice-story.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./choice-story.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 4913,
+      "sha256": "b88a733f46de5d6193aac9ad65ec1c186fc4521181a65641ca262193ffdd24f8",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-ai-actions.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/consumer-ai-actions.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-ai-actions.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-ai-actions.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 3525,
+      "sha256": "06d9f4541abd46994fbd8fb9a9b2c8abeedb8eaa7ea823d237f1a139a39f181d",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-app.css?v=p11-consumer-convergence-r4",
+      "normalizedPath": "/legacy/consumer-app.css?v=p11-consumer-convergence-r4",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-app.css?v=p11-consumer-convergence-r4",
+      "sourceElements": [
+        {
+          "element": "link",
+          "attribute": "href",
+          "reference": "./consumer-app.css?v=p11-consumer-convergence-r4"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "text/css; charset=UTF-8",
+      "contentLength": 12447,
+      "sha256": "cd71f36f6b9f99396642196b755ffa1fcbf22c5df4087c8640d9702911a16b90",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-app.js?v=p11-consumer-convergence-r4",
+      "normalizedPath": "/legacy/consumer-app.js?v=p11-consumer-convergence-r4",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-app.js?v=p11-consumer-convergence-r4",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-app.js?v=p11-consumer-convergence-r4"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 6690,
+      "sha256": "61f4cd5e2570ad0772015376126c2491a1453051ac633c809c5df1ba813ae9d6",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-core.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/consumer-core.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-core.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-core.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 5758,
+      "sha256": "48dd40d6888a535810dd74fcfb6adf61262fb2e99c09c40aa14017a7beb183e9",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-creation-center.js?v=p1-consumer-real-ai-execution",
+      "normalizedPath": "/legacy/consumer-creation-center.js?v=p1-consumer-real-ai-execution",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-creation-center.js?v=p1-consumer-real-ai-execution",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-creation-center.js?v=p1-consumer-real-ai-execution"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 24307,
+      "sha256": "ce7d963237dcc180425ea05c7567ba8091fe29e0f5a9324c1cc64d763e85712f",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-home.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/consumer-home.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-home.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-home.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 2952,
+      "sha256": "985a573d4f7b63fd7d4d1afcd4ea7a456a5d0424726cfd0a9986491a92eaca41",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./consumer-navigation.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/consumer-navigation.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/consumer-navigation.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./consumer-navigation.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 1123,
+      "sha256": "778d97e72399a0b78d1012a1f1550d98aabfe7ace7763886530fdc0ae14c5956",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./creation-wizard.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/creation-wizard.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/creation-wizard.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./creation-wizard.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 7726,
+      "sha256": "940e7fca09c4bf0d415339a7b8c5bba1e6e0191a81b3bd26b074b29fe65d711e",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./db-v2.js?v=phase1-home-7",
+      "normalizedPath": "/legacy/db-v2.js?v=phase1-home-7",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/db-v2.js?v=phase1-home-7",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./db-v2.js?v=phase1-home-7"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 14510,
+      "sha256": "507e762176f711f9addb513184996566ef160775ab2717b9bac7ee58df2838ab",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./db.js",
+      "normalizedPath": "/legacy/db.js",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/db.js",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./db.js"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 11393,
+      "sha256": "66e832e9f44c280a0b31175db74055a73feec8ef45f20779d109a11b62d72dfc",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./legacy-security-boundary.js?v=closed-ai-phase1-1r4",
+      "normalizedPath": "/legacy/legacy-security-boundary.js?v=closed-ai-phase1-1r4",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/legacy-security-boundary.js?v=closed-ai-phase1-1r4",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./legacy-security-boundary.js?v=closed-ai-phase1-1r4"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 10762,
+      "sha256": "490759eb579b752b8f81c896e186ce21cd6a7d88be40e43b62cea133385678a3",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./manifest.json",
+      "normalizedPath": "/legacy/manifest.json",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/manifest.json",
+      "sourceElements": [
+        {
+          "element": "link",
+          "attribute": "href",
+          "reference": "./manifest.json"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "contentLength": 536,
+      "sha256": "5888098f1e62bb2a653b8fad0e166e61493892ee38ebd4dd63b3ae0c3826ab19",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./migration.js?v=phase1-home-7",
+      "normalizedPath": "/legacy/migration.js?v=phase1-home-7",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/migration.js?v=phase1-home-7",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./migration.js?v=phase1-home-7"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 4279,
+      "sha256": "4085178a0ac87c23a8cc7adc42285a4d94b2934c855fd034083bcba853e9bd3f",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./novel-system.css?v=guided-writing-2",
+      "normalizedPath": "/legacy/novel-system.css?v=guided-writing-2",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/novel-system.css?v=guided-writing-2",
+      "sourceElements": [
+        {
+          "element": "link",
+          "attribute": "href",
+          "reference": "./novel-system.css?v=guided-writing-2"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "text/css; charset=UTF-8",
+      "contentLength": 10962,
+      "sha256": "f08653e0a77a5d50435a34c6f015a56270d3060abaaed94f144a689d94bab3da",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./novel-system.js?v=phase1-home-8",
+      "normalizedPath": "/legacy/novel-system.js?v=phase1-home-8",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/novel-system.js?v=phase1-home-8",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./novel-system.js?v=phase1-home-8"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 26636,
+      "sha256": "c5b4a940beced37f8ba8b4b91747830c1edb4ba573139db2faf218cee441fb47",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./offline-engine.js",
+      "normalizedPath": "/legacy/offline-engine.js",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/offline-engine.js",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./offline-engine.js"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 7987,
+      "sha256": "ea53129c8148e0c44a7908f43be82d20e7f9360a750829dbd403713654ee98eb",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./professional-tools.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/professional-tools.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/professional-tools.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./professional-tools.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 1155,
+      "sha256": "a01f20655f3dbf01a0ea5a4176cf2079dd895e6d5a54d4987ad5e19408ace2e9",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./story-dashboard.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/story-dashboard.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/story-dashboard.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./story-dashboard.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 1661,
+      "sha256": "d4e10d18daaa6a09a1d2966d07a591ae12004646cceec8d989ee135096692baf",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./theme-system.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/theme-system.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/theme-system.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./theme-system.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 774,
+      "sha256": "ccd8d6f47c6a43333f897b2ccc7b5b02d695a93ec5a53b53bec01e9a3a41fdcb",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    },
+    {
+      "originalReference": "./writing-studio.js?v=p11-consumer-convergence-r3",
+      "normalizedPath": "/legacy/writing-studio.js?v=p11-consumer-convergence-r3",
+      "resolvedUrl": "http://127.0.0.1:3113/legacy/writing-studio.js?v=p11-consumer-convergence-r3",
+      "sourceElements": [
+        {
+          "element": "script",
+          "attribute": "src",
+          "reference": "./writing-studio.js?v=p11-consumer-convergence-r3"
+        }
+      ],
+      "referenceCount": 1,
+      "httpStatus": 200,
+      "contentType": "application/javascript; charset=UTF-8",
+      "contentLength": 3317,
+      "sha256": "dd85ab7ba2069ca7ce51dec226f9405c0bb6ea0f53045ae5e977a18c9f3b1c37",
+      "redirectChain": [],
+      "htmlFallback": false,
+      "contentTypeMatches": true
+    }
+  ]
+}

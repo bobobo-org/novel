@@ -7,23 +7,37 @@ function bridgeClient(base?: string) {
 
 export async function probeLocalOllama(base?: string, signal?: AbortSignal): Promise<PlatformProviderSnapshot> {
   const started = performance.now();
+  if (!base && !getConfiguredLocalBridgeClient()) {
+    return {
+      id: "local-ollama",
+      status: "runtime_unavailable",
+      capabilities: ["text", "structured", "streaming", "offline"],
+      modelId: null,
+      maxContext: 0,
+      local: true,
+      requiresInternet: false,
+      latencyMs: Math.round(performance.now() - started),
+    };
+  }
   try {
     const client = bridgeClient(base);
     const health = await client.health(signal);
-    let capabilities: PlatformProviderCapability[] = ["text", "streaming", "offline"];
+    let capabilities: PlatformProviderCapability[] = ["text", "structured", "streaming", "offline"];
     let modelId: string | null = null;
+    let modelDigest: string | null = null;
     if (health.runtimeReady && client.getSessionMetadata()) {
       const models = await client.models(signal);
       const preferredModel = getConfiguredLocalBridgeModel();
       const textModel = models.models?.find((model: { modelId?: string; capabilities?: { textGeneration?: { value?: boolean } } }) => model.modelId === preferredModel && model.capabilities?.textGeneration?.value === true)
         ?? models.models?.find((model: { capabilities?: { textGeneration?: { value?: boolean } } }) => model.capabilities?.textGeneration?.value === true);
       modelId = textModel?.modelId ?? null;
+      modelDigest = textModel?.modelDigest ?? null;
       if (models.models?.some((model: { capabilities?: { embeddings?: { value?: boolean } } }) => model.capabilities?.embeddings?.value === true)) capabilities = [...capabilities, "embedding"];
       if ((textModel?.contextLength?.value ?? 0) >= 16_384) capabilities = [...capabilities, "long-context"];
     }
-    return { id: "local-ollama", status: health.runtimeReady && modelId ? "ready" : health.bridgeProcessAlive ? "runtime_not_installed" : "runtime_unavailable", capabilities, modelId, maxContext: modelId ? 32_768 : 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
+    return { id: "local-ollama", status: health.runtimeReady && modelId ? "ready" : health.bridgeProcessAlive ? "runtime_not_installed" : "runtime_unavailable", capabilities, modelId, modelDigest, maxContext: modelId ? 32_768 : 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
   } catch {
-    return { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text", "streaming", "offline"], modelId: null, maxContext: 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
+    return { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text", "structured", "streaming", "offline"], modelId: null, maxContext: 0, local: true, requiresInternet: false, latencyMs: Math.round(performance.now() - started) };
   }
 }
 
@@ -38,5 +52,5 @@ export async function runLocalOllama(request: PlatformAIRequest, decision: Platf
     if (event.type === "failed" || event.type === "cancelled") throw Object.assign(new Error(String(event.errorCode || event.type)), { code: event.errorCode || (event.type === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_STREAM_INTERRUPTED") });
   }
   if (!completed) throw Object.assign(new Error("Local Ollama stream did not complete."), { code: "OLLAMA_STREAM_INTERRUPTED" });
-  return { requestId: request.requestId, providerId: "local-ollama", modelId: decision.modelId, content, candidateOnly: true, externalRequest: false, dataLeavesDevice: false, elapsedMs: Math.round(performance.now() - started), provenance: decision };
+  return { requestId: request.requestId, providerId: "local-ollama", modelId: decision.modelId, modelDigest: decision.modelDigest ?? null, content, candidateOnly: true, externalRequest: false, dataLeavesDevice: false, elapsedMs: Math.round(performance.now() - started), provenance: decision };
 }

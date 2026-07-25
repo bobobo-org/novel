@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "p23-rc3-evidence-summary-v1",
+  "sealedAt": "2026-07-25T06:09:12.151Z",
+  "productCommit": "cd7bf18b4763f7d4df3506623e1292b654e2d040",
+  "releaseTag": "novel-ai-p23-sovereign-foundation-rc3",
+  "architectureStage": "P2.3 RC",
+  "scopeFrozen": true,
+  "p24Started": false,
+  "mobile": {
+    "pass": 17,
+    "fail": 0,
+    "skip": 0,
+    "assertions": {
+      "P2.3_RC3_LEGACY_MOBILE_OVERFLOW_REPAIR_PASS": true,
+      "P2.3_RC3_MULTI_VIEWPORT_LAYOUT_REGRESSION_PASS": true
+    }
+  },
+  "dynamicAssets": {
+    "status": "PASS",
+    "passed": 24,
+    "total": 24,
+    "failures": {
+      "missing": 0,
+      "unexpectedHtmlFallback": 0,
+      "unexpectedRedirects": 0,
+      "contentTypeMismatch": 0,
+      "hashFailure": 0
+    },
+    "assertions": {
+      "P2.3_RC3_DYNAMIC_STATIC_ASSET_DISCOVERY_PASS": true,
+      "P2.3_RC3_STATIC_ASSET_CLOSURE_PASS": true
+    }
+  },
+  "releaseMetadata": {
+    "pass": 9,
+    "fail": 0,
+    "skip": 0
+  },
+  "productionMutationCount": 0,
+  "mirrorProductionCreated": false,
+  "originalProductionChanged": false
+}

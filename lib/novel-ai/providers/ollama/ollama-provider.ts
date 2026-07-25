@@ -9,6 +9,37 @@ function traceId() {
   return `ollama_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function contextText(request: AiProviderRequest) {
+  return [
+    request.recentContext ? `【最近正文與摘要】\n${request.recentContext}` : "",
+    request.storyBibleContext ? `【Story Bible 與相關記憶】\n${JSON.stringify(request.storyBibleContext)}` : "",
+    request.constraints ? `【限制】\n${JSON.stringify(request.constraints)}` : "",
+    `【作者要求或正文】\n${request.input}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+function taskPrompt(instruction: string, request: AiProviderRequest) {
+  return [
+    "你是完全在使用者裝置上執行的繁體中文小說助手。",
+    "不得新增來源中不存在的硬事實；不確定時明確標示不確定。",
+    instruction,
+    contextText(request),
+  ].join("\n\n");
+}
+
+function tryJson(content: string) {
+  try {
+    const normalized = content
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(normalized);
+  } catch {
+    return undefined;
+  }
+}
+
 export class OllamaProvider implements NovelAiProvider {
   readonly id = "ollama-local" as const;
   private client: OllamaClient;
@@ -41,6 +72,7 @@ export class OllamaProvider implements NovelAiProvider {
       model,
       prompt,
       stream: Boolean(request.constraints?.stream),
+      format: request.outputSchema ? "json" : undefined,
       signal: request.abortSignal,
       options: {
         temperature: request.temperature ?? 0.2,
@@ -67,35 +99,35 @@ export class OllamaProvider implements NovelAiProvider {
   }
 
   analyzeStory(request: AiProviderRequest) {
-    return this.run(request, `請分析目前故事狀態，指出主要衝突、角色風險、連續性風險與下一章可行方向。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("分析故事目前階段、主要衝突、人物風險與未解情節。每個判斷都要指出參考的章節或記憶。", request));
   }
 
   extractStoryBible(request: AiProviderRequest) {
-    return this.run(request, `請從章節文字抽取 Story Bible 候選資料。只輸出可由文字證明的候選，不要寫入正式 canonical，不要自行補設定。請優先使用 JSON。\n\n${request.input}`);
+    return this.run(request, taskPrompt("只抽取原文明確支持的 Story Bible 候選。每筆必須包含 entityId、field、value、factType、evidenceSpans、confidence；禁止直接宣稱已寫入正式資料。", request));
   }
 
   summarizeChapter(request: AiProviderRequest) {
-    return this.run(request, `請摘要本章，包含短摘要、重要事件、角色變化、新事實與未解問題。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("摘要本章人物、事件、地點、因果、狀態變化、伏筆與未解問題。使用繁體中文，不加入原文沒有的內容。", request));
   }
 
   checkConsistency(request: AiProviderRequest) {
-    return this.run(request, `請檢查下列內容的一致性問題，包含人物、時間線、世界規則、道具、伏筆與視角。只提出有依據的問題。\n\n${request.input}`);
+    return this.run(request, taskPrompt("檢查人物、地點、時間線、世界規則、物品、生死狀態、敘事視角與重複內容。輸出分數、理由與來源；不得覆蓋 deterministic rule 已確認的衝突。", request));
   }
 
   continueWriting(request: AiProviderRequest) {
-    return this.run(request, `請依照既有設定續寫下一段小說正文。不得覆蓋原文，不得改變已確定的角色姓名與世界規則。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("續寫下一段小說正文。承接現有因果與人物目標，遵守世界規則，避免 AI 套話與重複摘要，結尾留下新的後果或推進。只輸出候選正文。", request));
   }
 
   rewriteText(request: AiProviderRequest) {
-    return this.run(request, `請依照作者要求改寫選定文字，保留原意與連續性，並避免新增未鋪陳設定。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("依作者要求局部修稿，保留原事件與已確認事實，修正因果、節奏、人物語氣、重複與一致性問題。只輸出修訂後正文。", request));
   }
 
   brainstormPlot(request: AiProviderRequest) {
-    return this.run(request, `請提出劇情發展方案，包含優點、風險、連續性影響、需要鋪陳與可能回收。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("提出可執行的情節規劃，說明行動、阻力、後果、伏筆與章尾鉤子。所有建議必須能追溯至目前故事資料。", request));
   }
 
   classifyTask(request: AiProviderRequest) {
-    return this.run(request, `請判斷作者任務類型，並說明需要讀取哪些作品資料。請使用繁體中文。\n\n${request.input}`);
+    return this.run(request, taskPrompt("判斷作者要求屬於摘要、抽取、一致性檢查、續寫、改寫、對話、場景擴寫、大綱或情節建議。", request));
   }
 
   async ping() {
@@ -113,7 +145,7 @@ export class OllamaProvider implements NovelAiProvider {
     return {
       provider: this.id,
       status: health.status === "runtime_not_installed" ? "unavailable" : health.status,
-      models: health.profiles.map((p) => p.modelId),
+      models: health.profiles.map((profile) => profile.modelId),
       capabilities: ["text", "structured_json", "streaming", "local_only", "story_bible", "generative_writing", "consistency_check"],
       maxContextTokens: health.profiles[0]?.contextWindow ?? 8192,
       supportsAbort: true,
@@ -124,19 +156,11 @@ export class OllamaProvider implements NovelAiProvider {
 
   async estimateContext(request: AiProviderRequest) {
     const capabilities = await this.getCapabilities();
-    const estimatedTokens = Math.ceil([request.input, request.recentContext ?? ""].join("\n").length / 3.2);
+    const estimatedTokens = Math.ceil([request.input, request.recentContext ?? "", JSON.stringify(request.storyBibleContext ?? null)].join("\n").length / 3.2);
     return { estimatedTokens, maxContextTokens: capabilities.maxContextTokens, fits: estimatedTokens <= capabilities.maxContextTokens };
   }
 
   async cancel() {
     return true;
-  }
-}
-
-function tryJson(content: string) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    return undefined;
   }
 }
