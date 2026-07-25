@@ -1,0 +1,109 @@
+name: P2.3 Candidate Gate
+
+on:
+  pull_request:
+    branches:
+      - agent/p21r3-build-sealed-provenance
+  push:
+    branches:
+      - agent/p23-sovereign-foundation-rc2
+    tags:
+      - novel-ai-p23-sovereign-foundation-rc2
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p23-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate build-sealed provenance
+        run: node scripts/generate-release-provenance.mjs
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Production build
+        run: pnpm build
+
+      - name: P2.2 core
+        run: pnpm test:ai:p22:core
+
+      - name: P2.3 foundation
+        run: pnpm test:ai:p23:foundation
+
+      - name: P2.3 security matrix
+        run: pnpm test:ai:p23:security
+
+      - name: Release metadata
+        run: pnpm test:ai:p23:release-metadata
+
+      - name: Secret scan
+        shell: bash
+        run: |
+          if rg -n --hidden \
+            --glob '!node_modules/**' \
+            --glob '!.git/**' \
+            --glob '!artifacts/**' \
+            '(vcp_[A-Za-z0-9]{20,}|sbp_[A-Za-z0-9]{20,}|VERCEL_TOKEN[[:space:]]*=[[:space:]]*[^$[:space:]]|SUPABASE_(SERVICE_ROLE_KEY|ANON_KEY)[[:space:]]*=[[:space:]]*[^$[:space:]])' .; then
+            echo "Credential-like material found."
+            exit 1
+          fi
+
+      - name: Evidence manifest validation
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+          const path = require("node:path");
+          const root = "artifacts/p23-rc2-final-security";
+          const manifest = JSON.parse(fs.readFileSync(path.join(root, "evidence-manifest.json"), "utf8"));
+          const failures = [];
+          for (const entry of manifest.entries) {
+            const file = path.join(root, entry.path);
+            if (!fs.existsSync(file)) {
+              failures.push(`missing:${entry.path}`);
+              continue;
+            }
+            const bytes = fs.readFileSync(file);
+            const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+            if (digest !== entry.sha256) failures.push(`hash:${entry.path}`);
+            if (bytes.length !== entry.bytes) failures.push(`size:${entry.path}`);
+          }
+          if (manifest.mismatch !== 0 || manifest.missing !== 0 || manifest.unexpected !== 0) {
+            failures.push("manifest counters are not zero");
+          }
+          if (failures.length) {
+            console.error(failures.join("\n"));
+            process.exit(1);
+          }
+          console.log(`Validated ${manifest.entries.length} evidence files.`);
+          NODE
