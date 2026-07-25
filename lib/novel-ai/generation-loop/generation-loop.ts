@@ -1,6 +1,5 @@
 import {
   buildStoryContext,
-  estimateTokens,
   stableId,
   type StorySource,
 } from "../story-intelligence";
@@ -20,6 +19,9 @@ import {
   validateAdultFictionContext,
 } from "../persona";
 import { deterministicEvaluation, mergeModelEvaluation } from "./evaluators";
+import { runLayeredEvaluator } from "./layered-evaluator";
+import { buildGenerationReplayManifest } from "./replay-manifest";
+import { acquireGenerationSlot, assertGenerationResourceBudget } from "./resource-budget";
 import {
   P22_GENERATION_LOOP_VERSION,
   type CandidateIntent,
@@ -68,6 +70,17 @@ function qualityAverage(evaluation: GenerationEvaluation) {
   return scores.reduce((sum, value) => sum + value, 0) / scores.length;
 }
 
+function contextMemories(context: GenerationCandidate["retrievedMemory"]) {
+  return [
+    ...context.currentScene,
+    ...context.recentContext,
+    ...context.characterContext,
+    ...context.worldContext,
+    ...context.plotContext,
+    ...context.foreshadowingContext,
+  ];
+}
+
 export class ClosedStoryGenerationLoop {
   readonly provider: ClosedGenerationProvider;
 
@@ -76,6 +89,16 @@ export class ClosedStoryGenerationLoop {
   }
 
   async run(input: GenerationLoopInput): Promise<GenerationLoopResult> {
+    assertGenerationResourceBudget(input, input.resourceBudget);
+    const release = acquireGenerationSlot(input.projectId, input.resourceBudget);
+    try {
+      return await this.runInternal(input);
+    } finally {
+      release();
+    }
+  }
+
+  private async runInternal(input: GenerationLoopInput): Promise<GenerationLoopResult> {
     const progress = (stage: Parameters<NonNullable<GenerationLoopInput["onProgress"]>>[0]["stage"], status: Parameters<NonNullable<GenerationLoopInput["onProgress"]>>[0]["status"], message: string, candidateIntent?: CandidateIntent) => {
       input.onProgress?.({ stage, status, message, candidateIntent, at: new Date().toISOString() });
     };
@@ -339,10 +362,17 @@ export class ClosedStoryGenerationLoop {
         evaluatorDisagreements: evaluation.disagreements.length,
         languageScore: languageEvaluation.score,
       });
+      const layeredEvaluation = runLayeredEvaluator({
+        evaluation,
+        context,
+        externalRequestCount,
+        canonicalMutationCount: 0,
+      });
       const status = evaluation.passed
         && qualityAverage(evaluation) >= threshold
         && languageEvaluation.score >= threshold
         && !openExpression.overRefusal
+        && layeredEvaluation.disposition === "eligible_for_approval"
         ? "awaiting_approval"
         : "quality_rejected";
       progress("candidate_packaging", "running", "正在封裝候選與來源證據。", intent);
@@ -353,6 +383,29 @@ export class ClosedStoryGenerationLoop {
         risks: critique.risks,
         confidence,
       }));
+      const taints = contextMemories(context)
+        .map((memory) => memory.metadata.taint)
+        .filter((taint): taint is NonNullable<typeof taint> => Boolean(taint));
+      const replayManifest = buildGenerationReplayManifest({
+        taskId: input.requestId,
+        storyRevision: input.storyRevision,
+        provider: generated.provider,
+        modelName: generated.model,
+        modelDigest: generated.modelDigest,
+        promptProfileVersion: input.promptProfileVersion ?? "p23-generation-prompt-v1",
+        personaProfileVersion: persona.schemaVersion,
+        storyBibleVersion: input.storyBibleVersion ?? P22_GENERATION_LOOP_VERSION,
+        retrievalQuery: `${input.taskType}\n${input.authorInstruction}`,
+        context,
+        generationParameters: {
+          maxOutputTokens: 2200,
+          qualityThreshold: threshold,
+          ...(generated.generationParameters ?? {}),
+        },
+        seed: input.seed,
+        revisionRound: revisionNotes.length ? 1 : 0,
+        candidate: draft,
+      });
       candidates.push({
         schemaVersion: P22_GENERATION_LOOP_VERSION,
         candidateId: stableId("candidate", { requestId: input.requestId, intent, sourceRevision: input.sourceRevision, draft }),
@@ -365,6 +418,7 @@ export class ClosedStoryGenerationLoop {
         draft: generated.text,
         retrievedMemory: context,
         evaluation,
+        layeredEvaluation,
         personaProfile: persona,
         reasoningSummary,
         languageEvaluation,
@@ -375,6 +429,7 @@ export class ClosedStoryGenerationLoop {
         finalCandidate: draft,
         provider: generated.provider,
         model: generated.model,
+        modelDigest: generated.modelDigest ?? null,
         latency: Date.now() - started,
         tokenEstimate: {
           input: planning.estimatedInputTokens + generated.estimatedInputTokens + modelEvaluation.estimatedInputTokens + revisionEvaluationTokens.input,
@@ -384,6 +439,12 @@ export class ClosedStoryGenerationLoop {
         storyRevision: input.storyRevision,
         status,
         canonicalMutationCount: 0,
+        taintSummary: {
+          labels: [...new Set(taints.flatMap((taint) => taint.taintLabels))],
+          quarantinedMemoryIds: context.trustBoundary.quarantinedMemoryIds,
+          privilegedUsageBlocked: true,
+        },
+        replayManifest,
         createdAt: new Date().toISOString(),
       });
       progress("candidate_packaging", "success", status === "awaiting_approval" ? "候選已送入作者核准層。" : "候選未達品質門檻，未送入核准層。", intent);

@@ -1,5 +1,6 @@
 import type { ParsedKnowledgeDocument } from "./types";
-import { sanitizeRetrievedKnowledge } from "../security";
+import { createTaintEnvelope, sanitizeRetrievedKnowledge } from "../security";
+import { enforceParserPolicy } from "./parser-policy";
 
 function stripHtml(value: string) {
   return value
@@ -17,6 +18,7 @@ export function parseKnowledgeDocument(input: {
   mimeType?: string;
   content: string;
 }): ParsedKnowledgeDocument {
+  const policy = enforceParserPolicy(input);
   const extension = input.name.split(".").pop()?.toLowerCase();
   if (extension === "pdf" || input.mimeType === "application/pdf") {
     throw Object.assign(new Error("PDF 必須先由受控文件解析器轉為文字。"), { code: "KNOWLEDGE_PDF_PARSER_REQUIRED" });
@@ -38,6 +40,20 @@ export function parseKnowledgeDocument(input: {
         [...rawBoundary.findings, ...textBoundary.findings]
           .map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
       )],
+      taint: createTaintEnvelope({
+        sourceId: input.name,
+        sourceType: "user_document",
+        content: textBoundary.sanitizedText,
+        trustLevel: "untrusted",
+        taintLabels: [
+          "UNTRUSTED_DOCUMENT",
+          "EXTERNAL_TRANSFER_RESTRICTED",
+          "TRAINING_EXCLUDED",
+          ...(rawBoundary.findings.length ? ["PROMPT_INJECTION_SUSPECTED" as const] : []),
+        ],
+        sanitizationStatus: rawBoundary.sanitizationStatus,
+        detectedSignals: rawBoundary.detectedInjectionSignals,
+      }),
     };
   }
   if (extension === "json" || input.mimeType === "application/json") {
@@ -53,6 +69,15 @@ export function parseKnowledgeDocument(input: {
       text: boundary.sanitizedText,
       format: "json",
       warnings: boundary.findings.map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
+      taint: createTaintEnvelope({
+        sourceId: input.name,
+        sourceType: "user_document",
+        content: boundary.sanitizedText,
+        trustLevel: "untrusted",
+        taintLabels: ["UNTRUSTED_DOCUMENT", "EXTERNAL_TRANSFER_RESTRICTED", "TRAINING_EXCLUDED", ...(boundary.findings.length ? ["PROMPT_INJECTION_SUSPECTED" as const] : [])],
+        sanitizationStatus: boundary.sanitizationStatus,
+        detectedSignals: boundary.detectedInjectionSignals,
+      }),
     };
   }
   const boundary = sanitizeRetrievedKnowledge(input.content, {
@@ -63,6 +88,18 @@ export function parseKnowledgeDocument(input: {
     title: input.name,
     text: boundary.sanitizedText,
     format: extension === "md" || input.mimeType === "text/markdown" ? "markdown" : "text",
-    warnings: boundary.findings.map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
+    warnings: [
+      ...boundary.findings.map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
+      ...(policy.externalResourcesBlocked ? ["DOCUMENT_EXTERNAL_RESOURCE_BLOCKED"] : []),
+    ],
+    taint: createTaintEnvelope({
+      sourceId: input.name,
+      sourceType: "user_document",
+      content: boundary.sanitizedText,
+      trustLevel: "untrusted",
+      taintLabels: ["UNTRUSTED_DOCUMENT", "EXTERNAL_TRANSFER_RESTRICTED", "TRAINING_EXCLUDED", ...(boundary.findings.length ? ["PROMPT_INJECTION_SUSPECTED" as const] : [])],
+      sanitizationStatus: boundary.sanitizationStatus,
+      detectedSignals: boundary.detectedInjectionSignals,
+    }),
   };
 }

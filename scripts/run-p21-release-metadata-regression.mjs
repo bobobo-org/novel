@@ -9,8 +9,8 @@ const healthSource = await read("app/api/ai/health/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p21-legacy-build-provenance-rc4";
-const expectedStage = "P2.1 RC";
+const expectedTag = "novel-ai-p23-sovereign-foundation-rc2";
+const expectedStage = "P2.3 RC2";
 const results = [];
 
 function test(name, work) {
@@ -28,7 +28,7 @@ function mustReject(actual, expected) {
 }
 
 test("manifest uses authoritative RC metadata", () => validate(manifest, { releaseTag: expectedTag, architectureStage: expectedStage }));
-test("manifest-health releaseTag mismatch fails", () => mustReject({ ...manifest, releaseTag: "novel-ai-p21-wrong" }, manifest));
+test("manifest-health releaseTag mismatch fails", () => mustReject({ ...manifest, releaseTag: "novel-ai-p23-wrong" }, manifest));
 test("manifest-health architectureStage mismatch fails", () => mustReject({ ...manifest, architectureStage: "P2.1" }, manifest));
 test("unknown architectureStage fails", () => mustReject({ ...manifest, architectureStage: "P9 UNKNOWN" }, manifest));
 test("runtime validates authoritative contract", () => { assert.match(runtimeSource, /allowedArchitectureStages/); assert.match(runtimeSource, /releaseTagPattern/); });
@@ -43,8 +43,8 @@ test("legacy RC2 evidence and RC3 tag remain immutable", () => {
   );
 });
 
-const summary = { suite: "P2.1 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
-await mkdir("artifacts/p21-release-metadata-repair", { recursive: true });
-await writeFile("artifacts/p21-release-metadata-repair/release-metadata-regression.json", `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+const summary = { suite: "P2.3 RC2 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
+await mkdir("artifacts/p23-rc2-release-metadata", { recursive: true });
+await writeFile("artifacts/p23-rc2-release-metadata/release-metadata-regression.json", `${JSON.stringify(summary, null, 2)}\n`, "utf8");
 console.log(JSON.stringify(summary, null, 2));
 if (summary.fail) process.exitCode = 1;

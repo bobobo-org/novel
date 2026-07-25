@@ -1,3 +1,5 @@
+import type { TaintEnvelope } from "../security/taint-tracking";
+
 export const KNOWLEDGE_INGESTION_SCHEMA_VERSION = "p23-knowledge-ingestion-v1" as const;
 
 export type KnowledgeLicense =
@@ -25,6 +27,7 @@ export type KnowledgeSource = {
   retrievalEligible: boolean;
   trainingEligible: boolean;
   retention: "temporary" | "project_lifetime" | "until_revoked";
+  taint: TaintEnvelope;
 };
 
 export type KnowledgeChunk = {
@@ -37,6 +40,7 @@ export type KnowledgeChunk = {
   end: number;
   language: string;
   metadata: Record<string, string | number | boolean | null>;
+  taint: TaintEnvelope;
 };
 
 export type ParsedKnowledgeDocument = {
@@ -44,6 +48,7 @@ export type ParsedKnowledgeDocument = {
   text: string;
   format: "text" | "markdown" | "html" | "json";
   warnings: string[];
+  taint: TaintEnvelope;
 };
 
 export type KnowledgeVersion = {

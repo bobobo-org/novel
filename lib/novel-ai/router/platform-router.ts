@@ -83,6 +83,7 @@ export function resolvePlatformProvider(request: PlatformAIRequest, providers: P
   return {
     providerId,
     modelId: provider.modelId,
+    modelDigest: provider.modelDigest ?? null,
     privacyMode: request.privacyMode,
     reason: `${providerId} is the first ready provider allowed by ${request.privacyLevel ?? request.privacyMode}`,
     contextSources: request.context.map((_, index) => `context-${index + 1}`),

@@ -12,6 +12,10 @@ import type {
   PublicReasoningSummary,
   ReturnTypeOfRigorousLanguage,
 } from "../persona";
+import type { TaintLabel } from "../security";
+import type { LayeredEvaluatorResult } from "./layered-evaluator";
+import type { GenerationReplayManifest } from "./replay-manifest";
+import type { GenerationResourceBudget } from "./resource-budget";
 
 export const P22_GENERATION_LOOP_VERSION = "p22-generation-loop-v1" as const;
 
@@ -47,6 +51,8 @@ export type GenerationProviderResponse = {
   estimatedOutputTokens: number;
   externalRequest: boolean;
   warnings: string[];
+  modelDigest?: string | null;
+  generationParameters?: Record<string, string | number | boolean | null>;
 };
 
 export interface ClosedGenerationProvider {
@@ -135,6 +141,10 @@ export type GenerationLoopInput = {
   personaProfile?: PersonaProfile | PersonaProfileId;
   adultFictionContext?: AdultFictionContext;
   maxCritiqueRounds?: 0 | 1;
+  promptProfileVersion?: string;
+  storyBibleVersion?: string;
+  seed?: number | null;
+  resourceBudget?: GenerationResourceBudget;
 };
 
 export type GenerationCandidate = {
@@ -149,6 +159,7 @@ export type GenerationCandidate = {
   draft: string;
   retrievedMemory: StoryContext;
   evaluation: GenerationEvaluation;
+  layeredEvaluation: LayeredEvaluatorResult;
   personaProfile: PersonaProfile;
   reasoningSummary: PublicReasoningSummary;
   languageEvaluation: ReturnTypeOfRigorousLanguage;
@@ -159,12 +170,19 @@ export type GenerationCandidate = {
   finalCandidate: string;
   provider: string;
   model: string;
+  modelDigest: string | null;
   latency: number;
   tokenEstimate: { input: number; output: number };
   sourceRevision: string;
   storyRevision: number;
   status: "awaiting_approval" | "quality_rejected" | "cancelled";
   canonicalMutationCount: 0;
+  taintSummary: {
+    labels: TaintLabel[];
+    quarantinedMemoryIds: string[];
+    privilegedUsageBlocked: true;
+  };
+  replayManifest: GenerationReplayManifest;
   createdAt: string;
 };
 

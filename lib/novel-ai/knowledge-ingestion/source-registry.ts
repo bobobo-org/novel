@@ -3,8 +3,9 @@ import { detectKnowledgeLanguage } from "./language-detector";
 import { evaluateKnowledgeLicense } from "./license-registry";
 import { normalizeKnowledgeText } from "./text-normalizer";
 import { KNOWLEDGE_INGESTION_SCHEMA_VERSION, type KnowledgeSource } from "./types";
+import { createTaintEnvelope } from "../security";
 
-export function registerKnowledgeSource(input: Omit<KnowledgeSource, "schemaVersion" | "sourceId" | "ingestedAt" | "contentHash" | "language" | "retrievalEligible" | "trainingEligible" | "retention"> & {
+export function registerKnowledgeSource(input: Omit<KnowledgeSource, "schemaVersion" | "sourceId" | "ingestedAt" | "contentHash" | "language" | "retrievalEligible" | "trainingEligible" | "retention" | "taint"> & {
   content: string;
   retention?: KnowledgeSource["retention"];
 }) {
@@ -29,6 +30,17 @@ export function registerKnowledgeSource(input: Omit<KnowledgeSource, "schemaVers
     retrievalEligible: eligibility.retrievalEligible,
     trainingEligible: eligibility.trainingEligible,
     retention: input.retention ?? (eligibility.trainingEligible ? "until_revoked" : "temporary"),
+    taint: createTaintEnvelope({
+      sourceId: `knowledge_${contentHash.slice(0, 24)}`,
+      sourceType: input.sourceType,
+      content,
+      trustLevel: input.userApproved ? "user_approved" : "untrusted",
+      taintLabels: [
+        input.sourceType === "web_import" ? "UNTRUSTED_WEB_CONTENT" : "UNTRUSTED_DOCUMENT",
+        "EXTERNAL_TRANSFER_RESTRICTED",
+        ...(eligibility.trainingEligible ? [] : ["TRAINING_EXCLUDED" as const]),
+      ],
+    }),
   };
   return { source, normalizedContent: content, eligibility };
 }

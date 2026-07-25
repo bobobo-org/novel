@@ -1,6 +1,11 @@
 import { rankMemories } from "./memory-ranker";
 import { applyTokenBudget, estimateTokens } from "./token-budgeter";
-import { KNOWLEDGE_AUTHORITY_ORDER, sanitizeRetrievedKnowledge } from "../security";
+import {
+  KNOWLEDGE_AUTHORITY_ORDER,
+  createTaintEnvelope,
+  propagateTaint,
+  sanitizeRetrievedKnowledge,
+} from "../security";
 import {
   P22_STORY_INTELLIGENCE_VERSION,
   type RankedMemory,
@@ -53,6 +58,18 @@ function sanitizeMemories(memories: TraceableMemory[]) {
     });
     const detectedSignals = isTrusted ? [] : boundary.detectedInjectionSignals;
     const text = isTrusted ? memory.text : boundary.sanitizedText;
+    const parentTaint = memory.metadata.taint ?? createTaintEnvelope({
+      sourceId: memory.metadata.sourceId ?? memory.memoryId,
+      sourceType,
+      sourceRevision: memory.metadata.sourceRevision ?? memory.source.sourceRevision,
+      content: memory.text,
+      trustLevel: isTrusted ? (memory.metadata.canonical ? "canonical" : "user_approved") : "untrusted",
+      taintLabels: isTrusted
+        ? [memory.metadata.canonical ? "STORY_CANONICAL" : "USER_AUTHORED_CONTENT"]
+        : ["UNTRUSTED_DOCUMENT", "EXTERNAL_TRANSFER_RESTRICTED", "TRAINING_EXCLUDED"],
+      sanitizationStatus: isTrusted ? "unchanged" : boundary.sanitizationStatus,
+      detectedSignals,
+    });
     return {
       ...memory,
       text,
@@ -80,6 +97,13 @@ function sanitizeMemories(memories: TraceableMemory[]) {
           ...detectedSignals,
           ...(isTrusted ? [] : ["UNTRUSTED_DOCUMENT"]),
         ])],
+        taint: propagateTaint({
+          stage: "story_context",
+          content: text,
+          parents: [parentTaint],
+          additionalLabels: detectedSignals.length ? ["PROMPT_INJECTION_SUSPECTED"] : [],
+          detectedSignals,
+        }),
       },
     };
   });

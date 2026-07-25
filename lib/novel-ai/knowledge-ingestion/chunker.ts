@@ -1,5 +1,6 @@
 import { knowledgeHash } from "./deduplicator";
 import type { KnowledgeChunk } from "./types";
+import { createTaintEnvelope, propagateTaint, type TaintEnvelope } from "../security";
 
 export function chunkKnowledgeText(input: {
   sourceId: string;
@@ -8,6 +9,7 @@ export function chunkKnowledgeText(input: {
   maxChars?: number;
   overlapChars?: number;
   metadata?: KnowledgeChunk["metadata"];
+  taint?: TaintEnvelope;
 }) {
   const maxChars = Math.max(300, input.maxChars ?? 1200);
   const overlap = Math.max(0, Math.min(maxChars / 3, input.overlapChars ?? 120));
@@ -22,8 +24,16 @@ export function chunkKnowledgeText(input: {
     const text = input.text.slice(start, end).trim();
     if (text) {
       const chunkHash = knowledgeHash(text);
+      const chunkId = `${input.sourceId}:chunk:${chunks.length + 1}:${chunkHash.slice(0, 12)}`;
+      const parentTaint = input.taint ?? createTaintEnvelope({
+        sourceId: input.sourceId,
+        sourceType: "knowledge_source",
+        content: input.text,
+        trustLevel: "untrusted",
+        taintLabels: ["UNTRUSTED_DOCUMENT", "EXTERNAL_TRANSFER_RESTRICTED", "TRAINING_EXCLUDED"],
+      });
       chunks.push({
-        chunkId: `${input.sourceId}:chunk:${chunks.length + 1}:${chunkHash.slice(0, 12)}`,
+        chunkId,
         sourceId: input.sourceId,
         chunkHash,
         text,
@@ -32,6 +42,7 @@ export function chunkKnowledgeText(input: {
         end,
         language: input.language,
         metadata: input.metadata ?? {},
+        taint: propagateTaint({ stage: "knowledge_chunk", content: text, parents: [parentTaint] }),
       });
     }
     if (end >= input.text.length) break;

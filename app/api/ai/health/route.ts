@@ -19,7 +19,7 @@ import {
 } from "@/lib/release-manifest";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
-import { capabilityStatus, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
+import { capabilityStatus, capabilityTruthMatrix, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 
 export const runtime = "nodejs";
 
@@ -597,6 +597,7 @@ export async function GET() {
       MEMORY_TEST: getStorageCapabilities("MEMORY_TEST"),
     },
     capabilityCatalog,
+    capabilityTruthMatrix: capabilityTruthMatrix(),
     cloudOptional: true,
     offlineCapable: false,
     offlineDataLayerStatus: "ready",

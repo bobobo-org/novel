@@ -45,6 +45,7 @@ export class NovelProviderGenerationAdapter implements ClosedGenerationProvider 
     return {
       provider: result.provider === "ollama-local" ? "local-ollama" : result.provider === "local-rule" ? "local-rule" : "private-ai-hub",
       model: result.model,
+      modelDigest: null,
       text: result.content,
       structuredOutput: result.structuredOutput,
       latencyMs: result.latencyMs,
@@ -52,6 +53,7 @@ export class NovelProviderGenerationAdapter implements ClosedGenerationProvider 
       estimatedOutputTokens: result.estimatedOutputTokens ?? result.outputTokens ?? 0,
       externalRequest: result.dataLeftDevice,
       warnings: result.warnings,
+      generationParameters: { structured: request.structured, maxOutputTokens: request.maxOutputTokens },
     };
   }
 }

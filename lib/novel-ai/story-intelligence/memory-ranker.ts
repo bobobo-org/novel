@@ -1,5 +1,6 @@
 import { estimateTokens } from "./token-budgeter";
 import type { RankedMemory, TraceableMemory } from "./types";
+import { scorePoisoningAwareRetrieval } from "../security";
 
 function terms(value: string) {
   return new Set(
@@ -39,12 +40,24 @@ export function rankMemories(query: string, memories: TraceableMemory[]): Ranked
       const vector = memory.vectorScore ?? 0;
       const recency = memory.recencyScore ?? 0;
       const canonical = memory.metadata.canonical ? 0.08 : 0;
-      const score = Math.min(1, KIND_WEIGHT[memory.kind] * 0.3 + keyword * 0.35 + vector * 0.25 + recency * 0.1 + canonical);
+      const security = scorePoisoningAwareRetrieval({
+        semanticSimilarity: Math.max(keyword, vector),
+        sourceTrust: memory.metadata.canonical ? 1 : Number(memory.metadata.sourceTrustScore ?? 0.5),
+        revisionFreshness: Number(memory.metadata.revisionFreshness ?? 1),
+        citationIntegrity: Number(memory.metadata.citationIntegrity ?? 1),
+        duplicatePenalty: Number(memory.metadata.duplicatePenalty ?? 0),
+        poisoningRisk: Number(memory.metadata.poisoningRisk ?? (memory.metadata.detectedInjectionSignals?.length ? 1 : 0)),
+        storyScopeMatch: Number(memory.metadata.storyScopeMatch ?? 1),
+      });
+      const score = security.blocked
+        ? 0
+        : Math.min(1, KIND_WEIGHT[memory.kind] * 0.2 + security.score * 0.7 + recency * 0.05 + canonical);
       const reasons = [
         keyword > 0 ? "符合目前任務關鍵詞" : "",
         vector > 0 ? "語意相近" : "",
         recency > 0.6 ? "近期內容" : "",
         memory.metadata.canonical ? "正式作品資料" : "",
+        ...security.warnings,
       ].filter(Boolean);
       return {
         ...memory,

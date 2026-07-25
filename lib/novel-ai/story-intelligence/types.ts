@@ -1,3 +1,5 @@
+import type { TaintEnvelope } from "../security/taint-tracking";
+
 export const P22_STORY_INTELLIGENCE_VERSION = "p22-story-intelligence-v1" as const;
 
 export type StorySource = {
@@ -114,6 +116,13 @@ export type TraceableMemory = {
     detectedInjectionSignals?: string[];
     allowedUsage?: Array<"citation" | "retrieval_context" | "semantic_reference" | "constraint">;
     blockedUsage?: string[];
+    taint?: TaintEnvelope;
+    sourceTrustScore?: number;
+    revisionFreshness?: number;
+    citationIntegrity?: number;
+    duplicatePenalty?: number;
+    poisoningRisk?: number;
+    storyScopeMatch?: number;
   };
   keywordScore?: number;
   vectorScore?: number;

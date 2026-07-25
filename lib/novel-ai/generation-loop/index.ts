@@ -4,3 +4,6 @@ export * from "./provider-adapter";
 export * from "./generation-loop";
 export * from "./approval-candidate";
 export * from "./platform-provider-adapter";
+export * from "./layered-evaluator";
+export * from "./replay-manifest";
+export * from "./resource-budget";

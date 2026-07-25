@@ -11,3 +11,4 @@ export * from "./source-registry";
 export * from "./license-registry";
 export * from "./citation-resolver";
 export * from "./knowledge-version-manager";
+export * from "./parser-policy";

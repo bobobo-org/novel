@@ -61,6 +61,7 @@ export class PlatformGenerationProviderAdapter implements ClosedGenerationProvid
     return {
       provider: result.providerId === "local-ollama" ? "local-ollama" : result.providerId === "browser-ai" ? "browser-ai" : result.providerId === "private-ai-hub" ? "private-ai-hub" : "local-rule",
       model: result.modelId ?? "unknown",
+      modelDigest: result.modelDigest ?? null,
       text: result.content,
       structuredOutput: request.structured ? localJson(result.content) : undefined,
       latencyMs: result.elapsedMs,
@@ -68,6 +69,7 @@ export class PlatformGenerationProviderAdapter implements ClosedGenerationProvid
       estimatedOutputTokens: Math.ceil(result.content.length / 2.5),
       externalRequest: result.externalRequest,
       warnings: result.provenance.warnings,
+      generationParameters: { structured: request.structured, maxOutputTokens: request.maxOutputTokens },
     };
   }
 }

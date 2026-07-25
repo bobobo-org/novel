@@ -21,5 +21,6 @@ export async function indexKnowledgeEmbeddings(input: {
     sourceId: chunk.sourceId,
     vector: vectors[index],
     providerId: input.provider.providerId,
+    taint: chunk.taint,
   }));
 }
