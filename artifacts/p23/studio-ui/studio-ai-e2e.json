@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "p23-studio-ui-e2e-v1",
+  "runAt": "2026-07-25T00:54:43.999Z",
+  "baseUrl": "http://127.0.0.1:3107",
+  "pass": 7,
+  "fail": 0,
+  "skip": 0,
+  "consoleErrors": [],
+  "externalRequests": [],
+  "assertions": [
+    {
+      "name": "desktop AI workspace is visible",
+      "status": "PASS"
+    },
+    {
+      "name": "unpaired generation fails closed",
+      "status": "PASS"
+    },
+    {
+      "name": "desktop has no horizontal overflow",
+      "status": "PASS"
+    },
+    {
+      "name": "mobile controls remain operable",
+      "status": "PASS"
+    },
+    {
+      "name": "mobile has no horizontal overflow",
+      "status": "PASS"
+    },
+    {
+      "name": "console errors are zero",
+      "status": "PASS"
+    },
+    {
+      "name": "external requests are zero",
+      "status": "PASS"
+    }
+  ]
+}

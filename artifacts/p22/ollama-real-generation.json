@@ -1,0 +1,328 @@
+{
+  "suite": "P2.2 Real Ollama Generation Loop",
+  "runAt": "2026-07-25T00:46:52.008Z",
+  "elapsedMs": 123398,
+  "model": "qwen2.5:3b",
+  "healthStatus": "configured",
+  "pass": 10,
+  "fail": 0,
+  "skip": 0,
+  "assertions": {
+    "ollamaReady": true,
+    "selectedModel": true,
+    "resultCreated": true,
+    "providerLocal": true,
+    "externalRequestCountZero": true,
+    "canonicalMutationCountZero": true,
+    "finalCandidateNonEmpty": true,
+    "evaluationPresent": true,
+    "sourceReferencesPresent": true,
+    "candidateAwaitingApproval": true
+  },
+  "error": null,
+  "result": {
+    "schemaVersion": "p22-generation-loop-v1",
+    "requestId": "p22-real-13c9c4d7-b70f-4c60-94cc-2ea4d7e558b7",
+    "taskUnderstanding": {
+      "taskType": "continue_writing",
+      "objective": "林昭必須在午夜前取得監視器備份，但不能單獨違反對警方的承諾。續寫一個有因果與章尾線索的場景。",
+      "constraints": [
+        "不得違反監視器保留七天的規則",
+        "不得讓林昭無視已答應警方的承諾"
+      ]
+    },
+    "candidates": [
+      {
+        "schemaVersion": "p22-generation-loop-v1",
+        "candidateId": "candidate_0f83c388a907b9600d2d",
+        "requestId": "p22-real-13c9c4d7-b70f-4c60-94cc-2ea4d7e558b7",
+        "projectId": "p22-real-ollama",
+        "branchId": "main",
+        "taskType": "continue_writing",
+        "intent": "steady_continuation",
+        "plan": [
+          "承接第 urban-2 的最後狀態",
+          "讓主角依既有目標採取下一個可驗證行動",
+          "遵守正式世界規則與角色已知資訊",
+          "以新的後果或未解問題結束"
+        ],
+        "draft": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+        "retrievedMemory": {
+          "schemaVersion": "p22-story-intelligence-v1",
+          "task": "continue_writing\n林昭必須在午夜前取得監視器備份，但不能單獨違反對警方的承諾。續寫一個有因果與章尾線索的場景。",
+          "currentScene": [
+            {
+              "memoryId": "current-scene_db272347b596d3f670bd",
+              "kind": "current_scene",
+              "text": "隔天，林昭來到舊醫院。林昭目前身在舊醫院，並答應警方不會單獨行動。",
+              "source": {
+                "sourceChapterId": "urban-2",
+                "sourceRevision": "urban-2-r1",
+                "evidenceExcerpt": "隔天，林昭來到舊醫院。林昭目前身在舊醫院，並答應警方不會單獨行動。",
+                "start": 0,
+                "end": 33
+              },
+              "metadata": {
+                "projectId": "p22-real-ollama",
+                "branchId": "main",
+                "entityIds": [],
+                "canonical": true,
+                "visibility": "private"
+              },
+              "keywordScore": 1,
+              "vectorScore": 1,
+              "recencyScore": 1,
+              "score": 1,
+              "selectedReason": [
+                "符合目前任務關鍵詞",
+                "語意相近",
+                "近期內容",
+                "正式作品資料"
+              ],
+              "estimatedTokens": 20
+            },
+            {
+              "memoryId": "p22-real-memory-1",
+              "kind": "current_scene",
+              "text": "隔天，林昭來到舊醫院。林昭目前身在舊醫院，並答應警方不會單獨行動。",
+              "source": {
+                "sourceChapterId": "urban-2",
+                "sourceRevision": "urban-2-r1",
+                "evidenceExcerpt": "隔天，林昭來到舊醫院。林昭目前身在舊醫院，並答應警方不會單獨行動。",
+                "start": 0,
+                "end": 33
+              },
+              "metadata": {
+                "projectId": "p22-real-ollama",
+                "canonical": true,
+                "visibility": "project"
+              },
+              "vectorScore": 0.8,
+              "recencyScore": 1,
+              "score": 0.6799999999999999,
+              "selectedReason": [
+                "語意相近",
+                "近期內容",
+                "正式作品資料"
+              ],
+              "estimatedTokens": 20
+            }
+          ],
+          "recentContext": [
+            {
+              "memoryId": "p22-real-memory-0",
+              "kind": "recent_chapter",
+              "text": "林昭今年二十八歲，目前身在臺北車站。世界規則：任何監視器影像都會保留七天。林昭必須在午夜前找到失蹤的妹妹。他看見置物櫃上有一道異樣的紅色刮痕。",
+              "source": {
+                "sourceChapterId": "urban-1",
+                "sourceRevision": "urban-1-r1",
+                "evidenceExcerpt": "林昭今年二十八歲，目前身在臺北車站。世界規則：任何監視器影像都會保留七天。林昭必須在午夜前找到失蹤的妹妹。他看見置物櫃上有一道異樣的紅色刮痕。",
+                "start": 0,
+                "end": 71
+              },
+              "metadata": {
+                "projectId": "p22-real-ollama",
+                "canonical": true,
+                "visibility": "project"
+              },
+              "vectorScore": 0.8,
+              "recencyScore": 0.7,
+              "score": 0.608,
+              "selectedReason": [
+                "語意相近",
+                "近期內容",
+                "正式作品資料"
+              ],
+              "estimatedTokens": 43
+            }
+          ],
+          "characterContext": [],
+          "worldContext": [],
+          "plotContext": [],
+          "foreshadowingContext": [],
+          "constraints": [
+            "不得違反監視器保留七天的規則",
+            "不得讓林昭無視已答應警方的承諾"
+          ],
+          "styleProfile": [
+            "繁體中文",
+            "第三人稱限知",
+            "都市懸疑"
+          ],
+          "tokenBudget": {
+            "limit": 8192,
+            "reservedOutput": 1800,
+            "used": 143,
+            "remaining": 6249,
+            "omittedMemoryIds": []
+          },
+          "sourceReferences": [
+            {
+              "sourceChapterId": "urban-2",
+              "sourceRevision": "urban-2-r1",
+              "evidenceExcerpt": "隔天，林昭來到舊醫院。林昭目前身在舊醫院，並答應警方不會單獨行動。",
+              "start": 0,
+              "end": 33
+            },
+            {
+              "sourceChapterId": "urban-1",
+              "sourceRevision": "urban-1-r1",
+              "evidenceExcerpt": "林昭今年二十八歲，目前身在臺北車站。世界規則：任何監視器影像都會保留七天。林昭必須在午夜前找到失蹤的妹妹。他看見置物櫃上有一道異樣的紅色刮痕。",
+              "start": 0,
+              "end": 71
+            }
+          ]
+        },
+        "evaluation": {
+          "continuityReport": {
+            "score": 100,
+            "passed": true,
+            "issues": [],
+            "checkedRules": [
+              "dead_character_reappeared",
+              "name_mismatch",
+              "ability_limit",
+              "location_conflict",
+              "timeline_conflict",
+              "world_rule_violation",
+              "consumed_item_reappeared",
+              "viewpoint_drift",
+              "repeated_content",
+              "canonical_mutation"
+            ]
+          },
+          "characterReport": {
+            "dimension": "character_consistency",
+            "score": 75,
+            "reasons": [
+              "依正式人物資料檢查角色引用"
+            ],
+            "sources": [
+              {
+                "sourceChapterId": "urban-2",
+                "sourceRevision": "urban-2-r1",
+                "evidenceExcerpt": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+                "start": 0,
+                "end": 402
+              }
+            ],
+            "evaluator": "deterministic"
+          },
+          "plotReport": {
+            "dimension": "plot_coherence",
+            "score": 66,
+            "reasons": [
+              "候選稿包含可辨識的因果或行動推進"
+            ],
+            "sources": [
+              {
+                "sourceChapterId": "urban-2",
+                "sourceRevision": "urban-2-r1",
+                "evidenceExcerpt": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+                "start": 0,
+                "end": 402
+              }
+            ],
+            "evaluator": "deterministic"
+          },
+          "styleReport": {
+            "dimension": "style_consistency",
+            "score": 83,
+            "reasons": [
+              "未偵測到完全重複段落"
+            ],
+            "sources": [
+              {
+                "sourceChapterId": "urban-2",
+                "sourceRevision": "urban-2-r1",
+                "evidenceExcerpt": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+                "start": 0,
+                "end": 402
+              }
+            ],
+            "evaluator": "deterministic"
+          },
+          "modelScores": [],
+          "disagreements": [],
+          "passed": true
+        },
+        "personaProfile": {
+          "schemaVersion": "p22a-persona-profile-v1",
+          "id": "fiction_writer",
+          "label": "小說創作",
+          "directness": 65,
+          "formality": 30,
+          "creativity": 100,
+          "humor": 20,
+          "sarcasm": 10,
+          "emotionalWarmth": 80,
+          "criticality": 75,
+          "evidenceStrictness": 85,
+          "languagePrecision": 90,
+          "narrativeFreedom": 100,
+          "adultFictionLevel": 0,
+          "responseDepth": 75,
+          "uncertaintyDisclosure": 90
+        },
+        "reasoningSummary": {
+          "aiUnderstanding": "林昭必須在午夜前取得監視器備份，但不能單獨違反對警方的承諾。續寫一個有因果與章尾線索的場景。",
+          "mainPlan": [
+            "承接第 urban-2 的最後狀態",
+            "讓主角依既有目標採取下一個可驗證行動",
+            "遵守正式世界規則與角色已知資訊",
+            "以新的後果或未解問題結束"
+          ],
+          "usedStorySettings": [],
+          "keyRisks": [],
+          "recommendationReason": "候選依目前章節、可追溯作品設定與一致性檢查結果排序。",
+          "uncertainties": [
+            "目前信心等級：medium_confidence"
+          ]
+        },
+        "languageEvaluation": {
+          "checkerVersion": "p22a-rigorous-language-v1",
+          "score": 100,
+          "issues": [],
+          "evidence": [
+            {
+              "sourceChapterId": "urban-2",
+              "sourceRevision": "urban-2-r1",
+              "evidenceExcerpt": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+              "start": 0,
+              "end": 402
+            }
+          ],
+          "suggestedRevision": [],
+          "revisedCandidate": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+          "answeredTask": true,
+          "fictionAware": true
+        },
+        "differenceSummary": "穩健延續既有因果與人物目標",
+        "riskHints": [],
+        "confidence": 76,
+        "revisionNotes": [],
+        "finalCandidate": "隔天，林昭來到舊醫院。他找到了一位年長的護士，向她表明了自己的目的——需要查看監視器備份，以便找到失蹤的妹妹。林昭解釋了自己與警方之間的承諾，並表示愿意在不違反承诺的前提下寻求帮助。\n\n护土被林昭的诚意所打动，同意协助他。她带林昭来到了医院监控室，并向他展示了如何查看特定时间段内的录像资料。林昭仔细观察了过去几天的视频记录，希望能发现妹妹的行踪线索。\n\n然而，在查看了几段视频后，林昭发现自己陷入了困境。在其中一段视频中，他看到了一个熟悉的身影出现在医院附近，但这个身影并不是他的妹妹。视频中的那个人似乎与失蹤事件有关联，但又无法确定是否就是那个关键人物。\n\n林昭心中充满了疑惑和不安。他意识到自己必须找到更多线索来确认这个人的身份，才能继续下一步的行动。在护土的帮助下，林昭决定联系警方，希望能得到更多的帮助和指导。\n\n林昭回到旧医院时，已经晚上八点多了。他带着新的问题和决心，准备迎接接下来的挑战。",
+        "provider": "local-ollama",
+        "model": "qwen2.5:3b",
+        "latency": 123397,
+        "tokenEstimate": {
+          "input": 2537,
+          "output": 250
+        },
+        "sourceRevision": "urban-2-r1",
+        "storyRevision": 2,
+        "status": "awaiting_approval",
+        "canonicalMutationCount": 0,
+        "createdAt": "2026-07-25T00:46:52.008Z"
+      }
+    ],
+    "rankedCandidateIds": [
+      "candidate_0f83c388a907b9600d2d"
+    ],
+    "recommendedCandidateId": "candidate_0f83c388a907b9600d2d",
+    "selectedProvider": "local-ollama",
+    "fallbackUsed": false,
+    "externalRequestCount": 0,
+    "canonicalMutationCount": 0
+  }
+}

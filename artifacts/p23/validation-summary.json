@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "p23-validation-summary-v1",
+  "sourceCommit": "bb89b9a5afd39e431641a5278c115829b0a2afc8",
+  "branch": "feature/p22-closed-ai-story-intelligence",
+  "status": "foundation_verified",
+  "tests": {
+    "p22Core": { "pass": 34, "fail": 0, "skip": 0 },
+    "p23Foundation": { "pass": 17, "fail": 0, "skip": 0 },
+    "realOllamaGeneration": {
+      "pass": 10,
+      "fail": 0,
+      "skip": 0,
+      "model": "qwen2.5:3b",
+      "elapsedMs": 123398,
+      "candidateStatus": "awaiting_approval",
+      "canonicalMutationCount": 0
+    },
+    "hybridRetrieval": { "pass": 505, "fail": 0, "skip": 0 },
+    "wholeNovelContext": { "pass": 695, "fail": 0, "skip": 0 },
+    "indexedDbTransaction": { "pass": 4, "fail": 0, "skip": 0 },
+    "studioDesktopMobile": {
+      "pass": 7,
+      "fail": 0,
+      "skip": 0,
+      "consoleErrors": 0,
+      "externalRequests": 0
+    },
+    "typeScript": "pass",
+    "productionBuild": "pass",
+    "lint": { "errors": 0, "existingWarnings": 99 }
+  },
+  "runtimeTruth": {
+    "realLocalGeneration": true,
+    "realTrainingStarted": false,
+    "externalTeacherCalled": false,
+    "newModelDownloaded": false,
+    "sharedDatasetCreated": false,
+    "privateNovelUsedForSharedTraining": false,
+    "videoRuntimeConnected": false
+  },
+  "futureMediaExtension": {
+    "schemaVersion": "story-media-extension-v1",
+    "status": "contract_only",
+    "tasks": [
+      "story_to_storyboard",
+      "scene_to_video_prompt",
+      "character_visual_bible",
+      "shot_continuity_check",
+      "video_generation"
+    ],
+    "sourceRevisionRequired": true,
+    "approvalRequired": true,
+    "canonicalWriteAllowed": false,
+    "externalConsentRequired": true,
+    "seedanceConnected": false
+  }
+}
