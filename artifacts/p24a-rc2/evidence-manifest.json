@@ -1,0 +1,218 @@
+{
+  "schemaVersion": "p24a-rc2-evidence-manifest-v1",
+  "generatedAt": "2026-07-25T22:33:42.288Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9",
+  "recordCount": 41,
+  "mismatch": 0,
+  "missing": 0,
+  "unexpected": 0,
+  "records": [
+    {
+      "path": "approval-flow.json",
+      "bytes": 525,
+      "sha256": "216949da4745d890e166d83ef6c3a8e047622126666c65e2c254d2dd2808bb27"
+    },
+    {
+      "path": "backup-data-closure-results.json",
+      "bytes": 834,
+      "sha256": "33e4fedbb30d933c627cf0d84b282fac52c5625f1e4f7a0efa8293d1326f20d7"
+    },
+    {
+      "path": "backup-restore-results.json",
+      "bytes": 534,
+      "sha256": "d42bedb322484dac27ace42357b459cadf5a86893faffb971bd06b291ddff99c"
+    },
+    {
+      "path": "beat-sheet-results.json",
+      "bytes": 5229,
+      "sha256": "1d7f662c15d68a76b76b61bf778a73c4f127742e0c70e34de3c9e5b419f66369"
+    },
+    {
+      "path": "branch-isolation-results.json",
+      "bytes": 4939,
+      "sha256": "3e1146fb823e5a66ace8eddf1cb53ffa06f64b072dc948a74e9555920ef8a8ec"
+    },
+    {
+      "path": "browser-full-flow.json",
+      "bytes": 14411,
+      "sha256": "8e8423d5eb0e4fe40f48a542d2ccaa6a17c2314fe7323b94738d28f6da7e089c"
+    },
+    {
+      "path": "canonical-isolation.json",
+      "bytes": 4576,
+      "sha256": "4901c88172e9b698aa16cb784925efc89db048f46149507f5058acbfc38eeda5"
+    },
+    {
+      "path": "capability-source-consistency.json",
+      "bytes": 1000,
+      "sha256": "af8b9c416c35d05633fb01c54b20c10b1674a351f8cbb0626b516df081e8051e"
+    },
+    {
+      "path": "capability-truth-results.json",
+      "bytes": 3036,
+      "sha256": "21c98b77406e3a99a2fa81a3ad4fe29594901fb99f8c3eda61c7692b1f3ca6cc"
+    },
+    {
+      "path": "character-ui-flow.json",
+      "bytes": 512,
+      "sha256": "c9a21809e72fccb0300011a2f6cedc3e886905c6eea97c11249af66ee1234b67"
+    },
+    {
+      "path": "console-results.json",
+      "bytes": 212,
+      "sha256": "b67bba1da629ec4909db8773b08589be35874d502166b58234dd810ae50bc0c9"
+    },
+    {
+      "path": "data-model.json",
+      "bytes": 5289,
+      "sha256": "7d1947cefeea0fca836c51218e307169937051f020478a610e42b53bfee8bd30"
+    },
+    {
+      "path": "desktop-results.json",
+      "bytes": 431,
+      "sha256": "ac7512cd90eafa25ad1827b46c57ba90b9cab89b316b1d583da86c44eb73bb13"
+    },
+    {
+      "path": "desktop-ui-results.json",
+      "bytes": 2612,
+      "sha256": "28970aa0804a8f7c82e5111286ee5b6f5305f2712ee7fbe961c46cdf7d5d23ba"
+    },
+    {
+      "path": "discard-flow.json",
+      "bytes": 1518,
+      "sha256": "ff60a8da7751fa5669b2a4ed6576967238e67065c02188a884b5db90713f49c9"
+    },
+    {
+      "path": "eslint-output.txt",
+      "bytes": 13005,
+      "sha256": "2ff3f33798d4782c2cfd9db375b95806638fc920539e177545c4733c78f7fde0"
+    },
+    {
+      "path": "executive-summary.md",
+      "bytes": 507,
+      "sha256": "6e5cd686531573e3d687917e9091c41f20fec1477bb91eb5c9e734be6a4cb7cd"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 235,
+      "sha256": "dbfd7bdad1d4ff5effb1fb3032730c771d8c676f2bc0b147b7038b9e371867a4"
+    },
+    {
+      "path": "format-profile-ui-comparison.json",
+      "bytes": 2466,
+      "sha256": "3a49872ca0d8b3484437c518ed20513343df85e5e019925ecaeb914e7fcebba0"
+    },
+    {
+      "path": "indexeddb-results.json",
+      "bytes": 726,
+      "sha256": "619a953a6447b473162c8a809cf8a7e71479edcc74cb1d1cb9f52f251143d0ed"
+    },
+    {
+      "path": "migration-results.json",
+      "bytes": 3948,
+      "sha256": "70c128a1663e8263450e1d86a97e1478bf45f64a9cd27411da33d6bb5be2e0ce"
+    },
+    {
+      "path": "mobile-results.json",
+      "bytes": 2365,
+      "sha256": "35e9f9cf971e0ef2b754895119c0bd8bcd53db71474b50b1fce0724a6d21bd26"
+    },
+    {
+      "path": "network-results.json",
+      "bytes": 258,
+      "sha256": "61571720b20f51340b4d2259fe82d1fcdf41396fa2fc0ad0582709597640a276"
+    },
+    {
+      "path": "novel-to-drama-results.json",
+      "bytes": 4665,
+      "sha256": "aa7d1078077ce29d2ab0273caad9fb34fee1d18cc0bff49ed7d599fef0e894fd"
+    },
+    {
+      "path": "p22-core-results.json",
+      "bytes": 4654,
+      "sha256": "b3b0c0e4b355de24060ce15b15d5e3467e8dc22f41ea394304ed4b2ae57c2546"
+    },
+    {
+      "path": "p23-foundation-results.json",
+      "bytes": 2666,
+      "sha256": "ff808aedee789d9c4274acbb802a2dcfeb911d5b79b2d3e7651adaea12097c66"
+    },
+    {
+      "path": "p23-security-results.json",
+      "bytes": 7737,
+      "sha256": "946be0311299091083533efc9da5b75da2f5f6713c8b1730f39a3d23588fd132"
+    },
+    {
+      "path": "p24a-rc2-drama-candidate-desktop.png",
+      "bytes": 291060,
+      "sha256": "53128a0cde099ddcbdf308ab26fae908ac3f52a9a7d3a943e58e4a3d05d19072"
+    },
+    {
+      "path": "p24a-rc2-drama-mobile-360x800.png",
+      "bytes": 203907,
+      "sha256": "28f7b60c7edc37e9381d30eb31fa789d6d5aecf668f16b86c4a9fdd835a4f5ef"
+    },
+    {
+      "path": "p24a-rc2-drama-mobile-375x812.png",
+      "bytes": 203817,
+      "sha256": "498bffa8a6c3736beae84376c3e0ec4b9b404ca456ba9d6ef0fc345f2f951788"
+    },
+    {
+      "path": "p24a-rc2-drama-mobile-390x844.png",
+      "bytes": 206496,
+      "sha256": "a76abcc93544afedcf7442a02f58c7db1f31fd5b73be382084d90965ba4601b4"
+    },
+    {
+      "path": "p24a-rc2-drama-mobile-412x915.png",
+      "bytes": 208761,
+      "sha256": "a7532e4c1a7a038c6c664c43baedbe331853a560a9e8e6fe893e7b6cd95cabff"
+    },
+    {
+      "path": "quarterfull-compatibility-results.json",
+      "bytes": 2313,
+      "sha256": "a36146dda064ab2080a46ca71079ef909389862f8efd3c3dbf6b70d9e8ccccb9"
+    },
+    {
+      "path": "regenerate-flow.json",
+      "bytes": 921,
+      "sha256": "b275115a7d7b63147feb59fd47a1da0d03786dd5ec97d6c513f76245a9b010a6"
+    },
+    {
+      "path": "regression-summary.json",
+      "bytes": 31551,
+      "sha256": "ded2f51e94005dbcc11bffedc26b67355fb5946ab45fbaa0096cf4f7ed53646d"
+    },
+    {
+      "path": "required-regressions.json",
+      "bytes": 729,
+      "sha256": "828c8b7fe5064cb365faeaece8782b4356477165d23b444f67a07390887bdcb6"
+    },
+    {
+      "path": "secret-scan-results.json",
+      "bytes": 222,
+      "sha256": "74a09744c8dcaab918d5713af9362e1fad430da163e6032877f1cfcfd96dd985"
+    },
+    {
+      "path": "security-results.json",
+      "bytes": 3211,
+      "sha256": "7c77f5a3eded114b18841d5b2808d38ed643b35582107f6e8f8caa4adfe83ff5"
+    },
+    {
+      "path": "story-bible-ui-flow.json",
+      "bytes": 521,
+      "sha256": "7b2ad8de9caec62becc96da44cee640ae844f16996f0e3787000bc1f917c0468"
+    },
+    {
+      "path": "three-high-results.json",
+      "bytes": 4843,
+      "sha256": "669f0125c0fb13937f80548cad3ebee99041555671e4341635ad204ceb471ed2"
+    },
+    {
+      "path": "world-rule-ui-flow.json",
+      "bytes": 514,
+      "sha256": "1a81c5f8ee2cd0fe9e46ddcf9c673cb6decf6424408599437b08a996b4921346"
+    }
+  ],
+  "selfHash": "4bbc7006811c6d369bb4892bcfd91ff8bb2a60be7075c2afb7c5eb0f47d2877c",
+  "selfHashStatus": "MATCH"
+}

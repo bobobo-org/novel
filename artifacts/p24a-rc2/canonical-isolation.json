@@ -1,0 +1,153 @@
+{
+  "schemaVersion": "p24a-rc2-canonical-isolation-v1",
+  "snapshots": {
+    "candidateGenerationBeforeDiscard": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 1,
+        "dramaSeasons": 1,
+        "dramaEpisodes": 1,
+        "dramaScenes": 2,
+        "dramaBeats": 6,
+        "dramaApprovals": 0,
+        "narrativeCanonLinks": 1,
+        "dramaEvaluations": 1
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "3ef75090fe85f6c5cd6992e87cbaf5393cd69300a25c994b95e2864e042c41e3"
+    },
+    "afterDiscard": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 1,
+        "dramaSeasons": 1,
+        "dramaEpisodes": 1,
+        "dramaScenes": 2,
+        "dramaBeats": 6,
+        "dramaApprovals": 0,
+        "narrativeCanonLinks": 1,
+        "dramaEvaluations": 1
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "3ef75090fe85f6c5cd6992e87cbaf5393cd69300a25c994b95e2864e042c41e3"
+    },
+    "afterRegenerate": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 3,
+        "dramaSeasons": 3,
+        "dramaEpisodes": 5,
+        "dramaScenes": 42,
+        "dramaBeats": 46,
+        "dramaApprovals": 0,
+        "narrativeCanonLinks": 3,
+        "dramaEvaluations": 3
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "64e3d106d1ae5136162084cbca27b4bb75919eda52c9652bc2f45990b54e50e4"
+    },
+    "beforeApproval": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 3,
+        "dramaSeasons": 3,
+        "dramaEpisodes": 5,
+        "dramaScenes": 42,
+        "dramaBeats": 46,
+        "dramaApprovals": 0,
+        "narrativeCanonLinks": 3,
+        "dramaEvaluations": 3
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "64e3d106d1ae5136162084cbca27b4bb75919eda52c9652bc2f45990b54e50e4"
+    },
+    "afterApproval": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 3,
+        "dramaSeasons": 3,
+        "dramaEpisodes": 5,
+        "dramaScenes": 42,
+        "dramaBeats": 46,
+        "dramaApprovals": 1,
+        "narrativeCanonLinks": 3,
+        "dramaEvaluations": 3
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "0612f315985bbe473c45670f43545ca9020b87095d21d81ad2231851a7abb4b0"
+    },
+    "afterReload": {
+      "counts": {
+        "projects": 1,
+        "chapters": 1,
+        "characters": 1,
+        "worldRules": 1,
+        "storyBibles": 1,
+        "storyStates": 1,
+        "acceptedChoices": 0,
+        "storyBranches": 0,
+        "backups": 3,
+        "dramaProjects": 3,
+        "dramaSeasons": 3,
+        "dramaEpisodes": 5,
+        "dramaScenes": 42,
+        "dramaBeats": 46,
+        "dramaApprovals": 1,
+        "narrativeCanonLinks": 3,
+        "dramaEvaluations": 3
+      },
+      "novelHash": "853293f22b14d4bd1d024760a5dc39ac06a2c6ea703ca691077651944bf6e890",
+      "approvalHash": "0612f315985bbe473c45670f43545ca9020b87095d21d81ad2231851a7abb4b0"
+    }
+  },
+  "canonicalMutationBeforeApproval": 0,
+  "discardApprovalDelta": 0,
+  "regenerateApprovalDelta": 0,
+  "acceptedChoicesDelta": 0,
+  "storyBranchesDelta": 0,
+  "novelCanonUnchanged": true,
+  "storyBibleUnchanged": true,
+  "pass": true,
+  "generatedAt": "2026-07-25T22:33:22.848Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}
