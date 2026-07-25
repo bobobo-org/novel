@@ -94,6 +94,17 @@ const capabilityTruth = {
     ["interactiveDramaCandidates", "ready", "client_dependent"],
     ["dramaApproval", "ready", "client_dependent"],
     ["dramaBackup", "ready", "client_dependent"],
+    ["creationDna", "not_implemented", "not_implemented"],
+    ["storyBlueprintWorkbench", "not_implemented", "not_implemented"],
+    ["worldWorkbench", "not_implemented", "not_implemented"],
+    ["characterWorkbench", "not_implemented", "not_implemented"],
+    ["aiBookDiscovery", "not_implemented", "not_implemented"],
+    ["authorAnalytics", "not_implemented", "not_implemented"],
+    ["translationWorkbench", "not_implemented", "not_implemented"],
+    ["coverDirection", "not_implemented", "not_implemented"],
+    ["rpgMode", "partial", "client_dependent"],
+    ["cultivationMode", "partial", "client_dependent"],
+    ["managementMode", "partial", "client_dependent"],
     ["characterAgent", "not_implemented", "not_implemented"],
     ["audienceVoting", "not_implemented", "not_implemented"],
     ["audienceLearning", "not_implemented", "not_implemented"],
@@ -191,7 +202,7 @@ writeJson("findings.json", {
 fs.writeFileSync(path.join(evidenceDir, "executive-summary.md"), `# P2.4A Drama OS Core Foundation
 
 - Product commit: \`${productCommit}\`
-- Architecture stage: \`P2.4A DEV\`
+- Architecture stage: \`P2.4A RC\`
 - P2.4A tests: ${aggregate.pass} PASS / ${aggregate.fail} FAIL / ${aggregate.skip} SKIP
 - Required regressions: P2.2 34/34, P2.3 17/17 and 59/59, Three-High 45/45, IndexedDB 4/4, Backup 7/7
 - Desktop and four mobile viewports: horizontal overflow 0, console errors 0

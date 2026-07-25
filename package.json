@@ -51,6 +51,7 @@
     "test:ai:p24a:ui": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24a-drama-os.mjs ui",
     "test:ai:p24a:all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24a-drama-os.mjs all",
     "test:ai:p24a:evidence": "node scripts/verify-p24a-evidence.mjs",
+    "test:ai:p24a:browser": "node scripts/run-p24a-rc1-browser-gate.mjs",
     "test:ai:p24a:secret-scan": "node scripts/run-p24a-secret-scan.mjs",
     "test:ai:closed:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase0.mjs",
     "test:ai:closed:training:phase0": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-training-phase0.mjs",
