@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "p23-rc3-evidence-manifest-v1",
+  "sealedAt": "2026-07-25T06:09:12.160Z",
+  "productCommit": "cd7bf18b4763f7d4df3506623e1292b654e2d040",
+  "releaseTag": "novel-ai-p23-sovereign-foundation-rc3",
+  "recordCount": 22,
+  "mismatchCount": 0,
+  "missingCount": 0,
+  "unexpectedCount": 0,
+  "records": [
+    {
+      "path": "artifacts/p23-rc3-release-metadata/release-metadata-regression.json",
+      "bytes": 1001,
+      "sha256": "4546c2788bd9bd1a0f3136064a24a05545059cabae3c4a68cad48db10bd24dc5"
+    },
+    {
+      "path": "artifacts/p23-rc3/dynamic-asset-results.json",
+      "bytes": 18766,
+      "sha256": "18c9603c79e351c481768996ac1376cb7375db8912f9f36c40ed8dfbe2587adc"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-home-360x800.png",
+      "bytes": 171689,
+      "sha256": "5d516a559c94068f16d90532ae365415df5e6dae40725c675ae1bd7a4b05fbc5"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-home-375x812.png",
+      "bytes": 170346,
+      "sha256": "f95ff97ad234b3d3ee9c68d66cbcc5eb5f6d0fc55922be6474f1acb88c5d65c0"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-home-390x844-zoom-200.png",
+      "bytes": 2018608,
+      "sha256": "bb8fa6d9df2c1cf59b85b87a3c1a7ec82920bb9f5b9f2ca878c1e26229228419"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-home-390x844.png",
+      "bytes": 173476,
+      "sha256": "3f0a8dd62a01c12f70d6d904796f78611cce1993083e2a72f3dce691bd30b30b"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-home-412x915.png",
+      "bytes": 177118,
+      "sha256": "220a17b274384a127fa6bf9fa211b3fca36565a3d1a4a9485ce322e4778d6708"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-workspace-360x800.png",
+      "bytes": 70630,
+      "sha256": "ff638dcca4be7129b1707d58f410f18ea6cccdf3956a6d1e39f55128b1aa1713"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-workspace-375x812.png",
+      "bytes": 72849,
+      "sha256": "7fb8712f5a4909acba1e15f948c65c5aee153cc4fa56717a9e988529b746316f"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-workspace-390x844.png",
+      "bytes": 75341,
+      "sha256": "e6d67a0dc9142a81f24c26073416c5f02305b3dd1df1348f80ae368e875fa5c2"
+    },
+    {
+      "path": "artifacts/p23-rc3/legacy-workspace-412x915.png",
+      "bytes": 81636,
+      "sha256": "56f1bc305ea99478d9e970f691c8dd8e2f89d7e2d1d97d7ff180065f99b4eacd"
+    },
+    {
+      "path": "artifacts/p23-rc3/mobile-overflow-results.json",
+      "bytes": 267047,
+      "sha256": "103b632111b6bafeebf03be43f06cb9445f36a31c76e3ea228fbfd41d576f257"
+    },
+    {
+      "path": "artifacts/p23-rc3/mobile-overflow-results.sha256",
+      "bytes": 95,
+      "sha256": "67d8cc783f7bb4445d34de7013c4dbc1d96f17ea936cabcf218e6104b93c860b"
+    },
+    {
+      "path": "artifacts/p23-rc3/regression-summary.json",
+      "bytes": 1069,
+      "sha256": "fa38243e779c72b4586dd5b83cf6a64aacf0bdf434d08c66e51da0fd7f8a0d5d"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-ai-360x800.png",
+      "bytes": 55452,
+      "sha256": "5ad9f53900c64a5d063ec84159407704e838d89eb90f5e80de306d52f2b1b09c"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-ai-375x812.png",
+      "bytes": 55934,
+      "sha256": "9f5a43d6de9bae5695a88dea204ae86784879ef9fbfde699a76d6ad2a55a9db1"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-ai-390x844.png",
+      "bytes": 56983,
+      "sha256": "a7b8dcce6a288ea39f46ecdcce9436c52cf80e568df99ec675935f667678c0eb"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-ai-412x915.png",
+      "bytes": 58204,
+      "sha256": "e8c89d3d2d7f7e104476cdc45d6899eaf5336145d6699388ddfa30a471c0cc27"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-home-360x800.png",
+      "bytes": 72618,
+      "sha256": "c5a285b02512e9bbb9418ee60c46eb5983b54a448534e0632a43c2ebd92648ff"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-home-375x812.png",
+      "bytes": 73844,
+      "sha256": "9d95b43bec349ba2948ce3a90368088f23290934dfd086f696ae9f08b0cddcfc"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-home-390x844.png",
+      "bytes": 75750,
+      "sha256": "f6bd853b8c9bf6dd3ab416ae0205da569d564136d970a87c4df844535d5621d0"
+    },
+    {
+      "path": "artifacts/p23-rc3/studio-home-412x915.png",
+      "bytes": 82417,
+      "sha256": "7c7ef33b7dde7ba428a359aa0a648ba264515830d642fe1d3610d8f4679e64bd"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "suite": "P2.3 RC3 release metadata regression",
+  "pass": 9,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "manifest uses authoritative RC metadata",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest-health releaseTag mismatch fails",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest-health architectureStage mismatch fails",
+      "status": "PASS"
+    },
+    {
+      "name": "unknown architectureStage fails",
+      "status": "PASS"
+    },
+    {
+      "name": "runtime validates authoritative contract and old provenance schemas",
+      "status": "PASS"
+    },
+    {
+      "name": "public health reads shared manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "admin diagnostics reads the same shared release identity",
+      "status": "PASS"
+    },
+    {
+      "name": "build stamp reads shared manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "legacy P2.1 RC2 evidence and RC3 tag remain immutable",
+      "status": "PASS"
+    }
+  ]
+}
