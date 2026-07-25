@@ -1,133 +1,155 @@
 {
   "schemaVersion": "p24a-desktop-ui-evidence-v1",
-  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "generatedAt": "2026-07-25T13:10:09.679Z",
   "staticContract": {
     "schemaVersion": "p24a-desktop-ui-evidence-v1",
-    "generatedAt": "2026-07-25T11:16:12.092Z",
+    "generatedAt": "2026-07-25T11:16:49.955Z",
     "staticContract": {
-      "schemaVersion": "p24a-test-results-v1",
-      "suite": "ui",
-      "generatedAt": "2026-07-25T10:49:45.864Z",
-      "pass": 23,
+      "schemaVersion": "p24a-desktop-ui-evidence-v1",
+      "generatedAt": "2026-07-25T11:16:12.092Z",
+      "staticContract": {
+        "schemaVersion": "p24a-test-results-v1",
+        "suite": "ui",
+        "generatedAt": "2026-07-25T10:49:45.864Z",
+        "pass": 23,
+        "fail": 0,
+        "skip": 0,
+        "results": [
+          {
+            "name": "UI contains 小說轉短劇",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 來源章節",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 目標長度",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 單集規劃",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 情緒曲線",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 主要衝突",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 開場 Hook",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 結尾懸念",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 互動選項",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 風險提示",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 接受並建立改編版本",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 再產生一份",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 放棄",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI contains 查看技術資訊",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "technical information is collapsed",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "UI displays canonical mutation count",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "mobile 520 breakpoint exists",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "tablet breakpoint exists",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "mobile action buttons use full width",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "long text wraps",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "emotion graph has stable height",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "grid tracks allow shrinking",
+            "status": "PASS",
+            "elapsedMs": 0
+          },
+          {
+            "name": "engineering provider IDs are not visible labels",
+            "status": "PASS",
+            "elapsedMs": 0
+          }
+        ]
+      },
+      "browserE2e": {
+        "viewport": "1440x900",
+        "flow": [
+          "create project",
+          "save chapter",
+          "generate Drama candidate",
+          "approve adaptation",
+          "reload"
+        ],
+        "approvalVisible": true,
+        "reloadPersistence": true,
+        "horizontalOverflow": false,
+        "consoleErrors": 0,
+        "screenshot": "drama-final-desktop.png"
+      },
+      "pass": 29,
       "fail": 0,
-      "skip": 0,
-      "results": [
-        {
-          "name": "UI contains 小說轉短劇",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 來源章節",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 目標長度",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 單集規劃",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 情緒曲線",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 主要衝突",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 開場 Hook",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 結尾懸念",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 互動選項",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 風險提示",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 接受並建立改編版本",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 再產生一份",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 放棄",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI contains 查看技術資訊",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "technical information is collapsed",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "UI displays canonical mutation count",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "mobile 520 breakpoint exists",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "tablet breakpoint exists",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "mobile action buttons use full width",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "long text wraps",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "emotion graph has stable height",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "grid tracks allow shrinking",
-          "status": "PASS",
-          "elapsedMs": 0
-        },
-        {
-          "name": "engineering provider IDs are not visible labels",
-          "status": "PASS",
-          "elapsedMs": 0
-        }
-      ]
+      "skip": 0
     },
     "browserE2e": {
       "viewport": "1440x900",
@@ -144,7 +166,7 @@
       "consoleErrors": 0,
       "screenshot": "drama-final-desktop.png"
     },
-    "pass": 29,
+    "pass": 35,
     "fail": 0,
     "skip": 0
   },
@@ -163,7 +185,7 @@
     "consoleErrors": 0,
     "screenshot": "drama-final-desktop.png"
   },
-  "pass": 35,
+  "pass": 41,
   "fail": 0,
   "skip": 0
 }

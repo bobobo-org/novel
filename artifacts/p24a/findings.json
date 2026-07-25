@@ -1,7 +1,7 @@
 {
   "schemaVersion": "p24a-findings-v1",
-  "generatedAt": "2026-07-25T11:16:49.955Z",
-  "productCommit": "5d887bf84cafdbc88b8fffd9d3d1ee48b3c64c6d",
+  "generatedAt": "2026-07-25T13:10:09.679Z",
+  "productCommit": "72d5734fe204f80333cca86943566235348c06b0",
   "critical": [],
   "high": [],
   "medium": [

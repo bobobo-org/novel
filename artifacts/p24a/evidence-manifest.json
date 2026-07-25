@@ -1,8 +1,8 @@
 {
   "schemaVersion": "p24a-evidence-manifest-v1",
-  "generatedAt": "2026-07-25T11:16:49.955Z",
-  "productCommit": "5d887bf84cafdbc88b8fffd9d3d1ee48b3c64c6d",
-  "recordCount": 37,
+  "generatedAt": "2026-07-25T13:10:09.679Z",
+  "productCommit": "72d5734fe204f80333cca86943566235348c06b0",
+  "recordCount": 38,
   "mismatch": 0,
   "missing": 0,
   "unexpected": 0,
@@ -10,7 +10,7 @@
     {
       "path": "approval-results.json",
       "bytes": 2466,
-      "sha256": "b26d8f96e0048cf65250612e98c5ffc6d09ffa991c65e7a98ea19a657e10b0c2"
+      "sha256": "6bc55024a158468be323e2e89ed6eaa69a2fac6a2d0af71667b330a05b8e9728"
     },
     {
       "path": "architecture.md",
@@ -20,7 +20,7 @@
     {
       "path": "backup-restore-results.json",
       "bytes": 3771,
-      "sha256": "800a75f41fa0fc51c85a0d500b2a28104ac77eee14a0d1f2ea70de05d504fcbc"
+      "sha256": "ca7718b3250c50d41995fd6de8caead492d3775963fd4c6fd0b4a54b01108a7e"
     },
     {
       "path": "baseline.json",
@@ -40,12 +40,12 @@
     {
       "path": "browser-e2e-results.json",
       "bytes": 1561,
-      "sha256": "030ac7defab9bb2607a18d03aca98ff723af99ee7bb6cb5b895e7d08018edf5b"
+      "sha256": "e339165c754501aad6973d808b78b74b7f296060ad2bb30446ba906f30257f86"
     },
     {
       "path": "capability-truth-matrix.json",
-      "bytes": 2522,
-      "sha256": "86090c86d1a026130dc145abe56c40fbc3a26ae6a4cd1d8e0741576410c3594f"
+      "bytes": 3883,
+      "sha256": "c6c0145a1fd1a03786def8602e7b75e23992cb4d6d4058910bfc2e05d61ed02e"
     },
     {
       "path": "data-model.json",
@@ -54,8 +54,8 @@
     },
     {
       "path": "desktop-ui-results.json",
-      "bytes": 4119,
-      "sha256": "2d5b820cfb25fa165b84dfbf034f906a134bce92fbf29510832e8dd1f7eefbbc"
+      "bytes": 4970,
+      "sha256": "6d3f4425837dc661fd9aadcb5d35b2cb26b3b30294a36b8d385e301d1a911d72"
     },
     {
       "path": "drama-360x800.png",
@@ -105,32 +105,32 @@
     {
       "path": "emotion-curve-results.json",
       "bytes": 919,
-      "sha256": "ce6e14f4dbe4a4116494d5c751170e56dc1ce1a4e1f9291be845825131125699"
+      "sha256": "226f92075b1ebaff116957a09c48ffd204f9f86c5572eb04c56580ab689ea5c9"
     },
     {
       "path": "episode-planner-results.json",
       "bytes": 1560,
-      "sha256": "66095c0817a8d878e066135a871899e219388d7bf31070f67138b39295ea7ca9"
+      "sha256": "18c06812f065a1dd6d853752ba307c2ec4a2ea310cd78f495b8fcf09adc7367c"
     },
     {
       "path": "executive-summary.md",
       "bytes": 570,
-      "sha256": "1293e17490d080177121d7951be5880bbb8568ee7ae295b970672b5b33b8dad2"
+      "sha256": "ab0a43619991e499982eb98112d0454d18045ab720f4d591bf3c4eb21c8550ba"
     },
     {
       "path": "findings.json",
       "bytes": 617,
-      "sha256": "bacbd58b87128fd19ad25f3ae5193d5c0af44d6574a9697b947aaf021afcb36c"
+      "sha256": "3ca7af8725dd0b29938c69b6572c6b6a43f144aef041b8a6ca3f9e76f66d70ae"
     },
     {
       "path": "format-profiles.json",
       "bytes": 1613,
-      "sha256": "2d85ec623a3d29fb3d36b9c70a7115e42bb04f0aa3d81f249f6bc130a4f54a23"
+      "sha256": "1d4016435e90e31c48e2f7f4aa2c1ee30a622b68a52a9f525b62d14219ca1aa1"
     },
     {
       "path": "hook-results.json",
       "bytes": 1621,
-      "sha256": "8963dcee701a09f925d33fe78c9ad8385180f97187694f3082ba83ab97d0a302"
+      "sha256": "eb15b6a7b3029f53bf5a110c735873c67ddad9e72eba2b3904e1be13e82296f2"
     },
     {
       "path": "local-server-final.err.log",
@@ -170,7 +170,7 @@
     {
       "path": "mobile-ui-results.json",
       "bytes": 1071,
-      "sha256": "e93a30118c28701d3305a3921cefd56edf48124423b14b7842349a508ce63989"
+      "sha256": "b44c60f9fc278a3efe934d074c0719587bd34d1d61e56f91e0298bc565669e00"
     },
     {
       "path": "novel-to-drama-results.json",
@@ -178,14 +178,19 @@
       "sha256": "f9c567db266b49789e36c83a360e96c6f4b9b8ee33322b32a3a87b99424f48a6"
     },
     {
+      "path": "quarterfull-compatibility-results.json",
+      "bytes": 2250,
+      "sha256": "02e136ba26fec8987338b3c47237ac0997e3a5fbb8facb60521a9edf81a6708a"
+    },
+    {
       "path": "regression-summary.json",
-      "bytes": 29063,
-      "sha256": "4cc5ab32af0a513dbb2ba03c0d77dc6d47e14cfe73c619fe334e08b96a0691c1"
+      "bytes": 31129,
+      "sha256": "ebacc1260f650f3f1c7b100a9d7ea1546810d7c9ff7fc24dfc2756f48cc754e9"
     },
     {
       "path": "secret-scan-results.json",
       "bytes": 296,
-      "sha256": "c371ed5080abca9a098987d6ef9ed42848d91020655c32fea2bd1c034c855aed"
+      "sha256": "35b9afef2af275dbdd57558d9d44107e45c315f5abc943fb6b6f1a54cf23d5db"
     },
     {
       "path": "security-results.json",
@@ -193,6 +198,6 @@
       "sha256": "8ae02623df206de101fa7809f8d43844ed359fff1c13164715d87f61083d5565"
     }
   ],
-  "selfHash": "4ef59ecdd165060013cd8e4ec708255b1fdc73cb265b9d14a98b7e7b120b491d",
+  "selfHash": "65325996a254b10b22ecb57c8e7a55dd90c39f75332fc15751ea28df84f13153",
   "selfHashStatus": "MATCH"
 }

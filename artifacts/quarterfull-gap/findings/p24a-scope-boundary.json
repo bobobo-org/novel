@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "p24a-quarterfull-scope-boundary-v1",
+  "phase": "P2.4A",
+  "allowed": [
+    "versioned upstream reference contracts",
+    "shared proposal envelope mapping",
+    "canonical-layer boundary definitions",
+    "knowledge-scope continuity adapter",
+    "optional DramaProject references",
+    "reference-stale candidate handling",
+    "backup and migration compatibility tests"
+  ],
+  "prohibited": [
+    "reading recommendation UI",
+    "AI book discovery",
+    "Creation DNA UI",
+    "Story Blueprint workbench",
+    "world workbench",
+    "character relationship graph",
+    "cover generation",
+    "translation workbench",
+    "author analytics",
+    "revenue features",
+    "audience voting",
+    "video generation"
+  ],
+  "invariants": [
+    "Drama OS is not authoritative for upstream references",
+    "missing future references do not block projection",
+    "stale references expire candidates",
+    "proposal mapping does not create a second approval transaction",
+    "Drama approval does not modify Novel Canon or Story Bible",
+    "Private Simulation cannot write a canonical layer",
+    "missing future modules are not materialized as fake empty records",
+    "RC3 backup remains restorable"
+  ],
+  "forbiddenDeclarations": [
+    "QUARTERFULL_CORE_FLOW_READY_FOR_TERRA",
+    "P2.5A_STARTED",
+    "P2.4B_STARTED"
+  ],
+  "critical": [],
+  "high": [],
+  "falseReadyClaims": 0
+}

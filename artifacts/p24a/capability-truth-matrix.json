@@ -1,7 +1,7 @@
 {
   "schemaVersion": "p24a-capability-truth-v1",
-  "generatedAt": "2026-07-25T11:16:49.955Z",
-  "productCommit": "5d887bf84cafdbc88b8fffd9d3d1ee48b3c64c6d",
+  "generatedAt": "2026-07-25T13:10:09.679Z",
+  "productCommit": "72d5734fe204f80333cca86943566235348c06b0",
   "capabilities": [
     {
       "id": "dramaOsCore",
@@ -52,6 +52,61 @@
       "id": "dramaBackup",
       "contractStatus": "ready",
       "runtimeStatus": "client_dependent"
+    },
+    {
+      "id": "creationDna",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "storyBlueprintWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "worldWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "characterWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "aiBookDiscovery",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "authorAnalytics",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "translationWorkbench",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "coverDirection",
+      "contractStatus": "not_implemented",
+      "runtimeStatus": "not_implemented"
+    },
+    {
+      "id": "rpgMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "partial"
+    },
+    {
+      "id": "cultivationMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "partial"
+    },
+    {
+      "id": "managementMode",
+      "contractStatus": "partial",
+      "runtimeStatus": "partial"
     },
     {
       "id": "characterAgent",

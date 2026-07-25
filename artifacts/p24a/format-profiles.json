@@ -1,6 +1,6 @@
 {
   "schemaVersion": "p24a-format-profile-evidence-v1",
-  "generatedAt": "2026-07-25T11:16:49.955Z",
+  "generatedAt": "2026-07-25T13:10:09.679Z",
   "sourceSuite": "all",
   "pass": 12,
   "fail": 0,
@@ -39,32 +39,32 @@
     {
       "name": "DRAMA_60_SECONDS generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "DRAMA_90_SECONDS generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "DRAMA_3_MINUTES generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 1
     },
     {
       "name": "DRAMA_10_MINUTES generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 7
+      "elapsedMs": 3
     },
     {
       "name": "DRAMA_30_MINUTES generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 21
+      "elapsedMs": 13
     },
     {
       "name": "DRAMA_90_TO_120_MINUTES generated duration matches profile",
       "status": "PASS",
-      "elapsedMs": 18
+      "elapsedMs": 15
     }
   ]
 }

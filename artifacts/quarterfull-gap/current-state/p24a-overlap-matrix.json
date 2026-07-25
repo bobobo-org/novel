@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "p24a-quarterfull-overlap-v1",
+  "sourceBasis": "user_supplied_capability_taxonomy_and_repository_evidence",
+  "independentQuarterFullAppInspection": false,
+  "capabilities": [
+    {
+      "id": "storyBible",
+      "providedBy": "P2.3",
+      "status": "ready",
+      "scope": "confirmed story and world facts"
+    },
+    {
+      "id": "revisionApprovalBackup",
+      "providedBy": "P2.3",
+      "status": "ready",
+      "scope": "revision guard, approval, idempotency and backup"
+    },
+    {
+      "id": "retrievalContextPersonaRouter",
+      "providedBy": "P2.3",
+      "status": "ready",
+      "scope": "shared AI context and provider routing"
+    },
+    {
+      "id": "dramaOsCore",
+      "providedBy": "P2.4A",
+      "status": "ready",
+      "scope": "novel-to-drama projection and Drama-only approval"
+    },
+    {
+      "id": "upstreamProductLoopReferences",
+      "providedBy": "P2.4A",
+      "status": "contract_only",
+      "scope": "non-authoritative versioned references"
+    },
+    {
+      "id": "sharedProposalEnvelope",
+      "providedBy": "P2.4A",
+      "status": "contract_only",
+      "scope": "candidate mapping into the existing approval boundary"
+    },
+    {
+      "id": "knowledgeScopeAdapter",
+      "providedBy": "P2.4A",
+      "status": "contract_only",
+      "scope": "Drama continuity access checks only"
+    },
+    {
+      "id": "characterAgent",
+      "providedBy": "P2.4B",
+      "status": "not_implemented"
+    },
+    {
+      "id": "visualCharacterBibleAndStoryboard",
+      "providedBy": "P2.4C",
+      "status": "not_implemented"
+    },
+    {
+      "id": "audienceVotingAndLearning",
+      "providedBy": "P2.4D",
+      "status": "not_implemented"
+    },
+    {
+      "id": "videoProviderAdapters",
+      "providedBy": "P2.4E",
+      "status": "contract_only"
+    },
+    {
+      "id": "creationDnaAndBlueprintWorkbench",
+      "providedBy": "P2.5A",
+      "status": "not_implemented"
+    },
+    {
+      "id": "worldAndCharacterWorkbenches",
+      "providedBy": "P2.5B",
+      "status": "not_implemented"
+    },
+    {
+      "id": "readingDiscoveryAndAiBookDiscovery",
+      "providedBy": "P2.5C",
+      "status": "not_implemented"
+    },
+    {
+      "id": "publicationTranslationAndCoverDirection",
+      "providedBy": "P2.5D",
+      "status": "not_implemented"
+    },
+    {
+      "id": "authorAnalyticsAndMonetization",
+      "providedBy": "P2.5E",
+      "status": "not_implemented"
+    }
+  ],
+  "falseReadyClaims": 0
+}
