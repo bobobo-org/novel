@@ -1,0 +1,230 @@
+{
+  "schemaVersion": "p24a-test-results-v1",
+  "suite": "core",
+  "generatedAt": "2026-07-25T13:33:26.661Z",
+  "pass": 44,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "defines all six format profiles",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "format identifiers are unique",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_60_SECONDS has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_SECONDS has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_SECONDS hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_SECONDS conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_SECONDS has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_SECONDS has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_3_MINUTES has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_3_MINUTES hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_3_MINUTES conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_3_MINUTES has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_3_MINUTES has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_10_MINUTES has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_10_MINUTES hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_10_MINUTES conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_10_MINUTES has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_10_MINUTES has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_30_MINUTES has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_30_MINUTES hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_30_MINUTES conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_30_MINUTES has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_30_MINUTES has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES has positive duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES hook precedes ending",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES conflict interval fits duration",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES has a scene budget",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES has a bounded beat range",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "durations increase monotonically",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "60 second profile is single turn",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "feature profile is feature arc",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "feature has more scenes than ten minute",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dialogue and visual densities are normalized",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "short formats require cliffhangers",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "schema version is stable",
+      "status": "PASS",
+      "elapsedMs": 19
+    },
+    {
+      "name": "project schema accepts generated project",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "name": "project schema rejects unknown fields",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "name": "branch schema accepts generated branch",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "name": "branch schema rejects extra choice field",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "all required Drama stores are declared",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

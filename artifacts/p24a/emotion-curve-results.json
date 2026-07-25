@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "p24a-emotion-evidence-v1",
+  "generatedAt": "2026-07-25T13:49:47.712Z",
+  "sourceSuite": "pacing",
+  "pass": 6,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "DRAMA_60_SECONDS emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_90_SECONDS emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_3_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "DRAMA_10_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "DRAMA_30_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "name": "DRAMA_90_TO_120_MINUTES emotion curve is event linked",
+      "status": "PASS",
+      "elapsedMs": 14
+    }
+  ]
+}
