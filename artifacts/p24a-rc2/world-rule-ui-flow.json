@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "p24a-rc2-world-rule-ui-flow-v1",
+  "creationMethod": "consumer UI",
+  "route": "/studio/project/8088ac42-d603-4ee4-abd7-fc8d754b2337/world",
+  "uiControl": "button:儲存世界規則",
+  "recordId": "0a2bc30c-5bb1-4f5e-81ab-c55467f4cdb7",
+  "revision": 1,
+  "reloadPersistence": true,
+  "backupPresence": true,
+  "restorePresence": true,
+  "fictionalTestData": true,
+  "pass": true,
+  "generatedAt": "2026-07-25T21:30:51.922Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

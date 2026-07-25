@@ -1,0 +1,553 @@
+{
+  "schemaVersion": "p24a-rc2-browser-full-flow-v1",
+  "generatedAt": "2026-07-25T21:30:51.922Z",
+  "server": "http://127.0.0.1:3313",
+  "projectId": "8088ac42-d603-4ee4-abd7-fc8d754b2337",
+  "browserProfile": "fresh isolated context",
+  "mutationMethod": "consumer UI only",
+  "indexedDbUse": "readonly snapshots and hashes only",
+  "flow": [
+    "create project",
+    "save chapter",
+    "create character",
+    "create world rule",
+    "update Story Bible",
+    "reload persistence",
+    "backup and restore",
+    "60-second candidate",
+    "discard",
+    "10-minute candidate",
+    "format comparison",
+    "regenerate",
+    "approve",
+    "reload approval",
+    "desktop gate",
+    "four mobile gates"
+  ],
+  "status": "PASS",
+  "pass": 61,
+  "fail": 0,
+  "skip": 0,
+  "checks": [
+    {
+      "name": "project-created-through-consumer-ui",
+      "status": "PASS",
+      "details": {
+        "href": "/studio/project/8088ac42-d603-4ee4-abd7-fc8d754b2337/write"
+      }
+    },
+    {
+      "name": "chapter-created-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "character-created-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "character-has-required-fields",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "world-rule-created-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-bible-updated-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-bible-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "character-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "world-rule-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "full-backup-created-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "character-present-in-backup",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "world-rule-present-in-backup",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-bible-present-in-backup",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "character-restored-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "world-rule-restored-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-bible-restored-through-consumer-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "sixty-second-candidate-created",
+      "status": "PASS",
+      "details": {
+        "candidateId": "ca77aec3-bce1-4ebd-a056-1915d6baf307",
+        "dramaProjectId": "ca77aec3-bce1-4ebd-a056-1915d6baf307",
+        "providerRunId": "deterministic:c08061f6-c2fa-4bab-a014-c7695d9e31d7",
+        "outputHash": "06baab7809aed3c6b20e30f8ac29b394ff55f5399af9aabc4e32946d61757c78",
+        "createdAt": "2026-07-25T21:30:50.155Z",
+        "formatProfile": "DRAMA_60_SECONDS",
+        "episodeCount": 1,
+        "sceneCount": 2,
+        "beatCount": 6,
+        "targetDurationSeconds": 60,
+        "hookDeadlineSeconds": 3,
+        "conflictIntervalSeconds": 20,
+        "reversalIntervalSeconds": 45,
+        "minimumPayoffCount": 1,
+        "cliffhangerType": "UNANSWERED_REVELATION"
+      }
+    },
+    {
+      "name": "sixty-second-approval-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "discard-removes-candidate-from-ui",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "discard-keeps-novel-canonical",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "discard-does-not-create-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "discard-does-not-create-adaptation-canon",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "ten-minute-candidate-created",
+      "status": "PASS",
+      "details": {
+        "candidateId": "bd50e786-c268-4afa-90ad-90ddc4b12d07",
+        "dramaProjectId": "bd50e786-c268-4afa-90ad-90ddc4b12d07",
+        "providerRunId": "deterministic:c9b32a59-2e98-4d3a-89dd-f17b90644b24",
+        "outputHash": "e60515d66738cc1b1fbae1eef51d0dba3ceb0f2c8b4129ac84803315c02544d6",
+        "createdAt": "2026-07-25T21:30:50.319Z",
+        "formatProfile": "DRAMA_10_MINUTES",
+        "episodeCount": 2,
+        "sceneCount": 20,
+        "beatCount": 20,
+        "targetDurationSeconds": 600,
+        "hookDeadlineSeconds": 20,
+        "conflictIntervalSeconds": 120,
+        "reversalIntervalSeconds": 300,
+        "minimumPayoffCount": 2,
+        "cliffhangerType": "UNANSWERED_REVELATION"
+      }
+    },
+    {
+      "name": "format-profile-has-four-or-more-structural-differences",
+      "status": "PASS",
+      "details": [
+        {
+          "metric": "targetDurationSeconds",
+          "sixtySeconds": 60,
+          "tenMinutes": 600
+        },
+        {
+          "metric": "sceneCount",
+          "sixtySeconds": 2,
+          "tenMinutes": 20
+        },
+        {
+          "metric": "beatCount",
+          "sixtySeconds": 6,
+          "tenMinutes": 20
+        },
+        {
+          "metric": "hookDeadlineSeconds",
+          "sixtySeconds": 3,
+          "tenMinutes": 20
+        },
+        {
+          "metric": "conflictIntervalSeconds",
+          "sixtySeconds": 20,
+          "tenMinutes": 120
+        },
+        {
+          "metric": "reversalIntervalSeconds",
+          "sixtySeconds": 45,
+          "tenMinutes": 300
+        },
+        {
+          "metric": "minimumPayoffCount",
+          "sixtySeconds": 1,
+          "tenMinutes": 2
+        }
+      ]
+    },
+    {
+      "name": "regenerate-creates-new-candidate-identity",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "regenerate-creates-new-provider-run",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "regenerate-creates-new-created-at",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "regenerate-does-not-create-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "regenerate-keeps-novel-canonical",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "mobile-360x800-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-360x800-all-controls-operable",
+      "status": "PASS",
+      "details": {
+        "formatSelector": true,
+        "createOrRegenerate": true,
+        "discard": true,
+        "regenerate": true,
+        "approve": true
+      }
+    },
+    {
+      "name": "mobile-360x800-emotion-curve-within-viewport",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-360x800-long-title-wraps",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-360x800-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-375x812-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-375x812-all-controls-operable",
+      "status": "PASS",
+      "details": {
+        "formatSelector": true,
+        "createOrRegenerate": true,
+        "discard": true,
+        "regenerate": true,
+        "approve": true
+      }
+    },
+    {
+      "name": "mobile-375x812-emotion-curve-within-viewport",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-375x812-long-title-wraps",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-375x812-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-390x844-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-390x844-all-controls-operable",
+      "status": "PASS",
+      "details": {
+        "formatSelector": true,
+        "createOrRegenerate": true,
+        "discard": true,
+        "regenerate": true,
+        "approve": true
+      }
+    },
+    {
+      "name": "mobile-390x844-emotion-curve-within-viewport",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-390x844-long-title-wraps",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-390x844-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-412x915-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-412x915-all-controls-operable",
+      "status": "PASS",
+      "details": {
+        "formatSelector": true,
+        "createOrRegenerate": true,
+        "discard": true,
+        "regenerate": true,
+        "approve": true
+      }
+    },
+    {
+      "name": "mobile-412x915-emotion-curve-within-viewport",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-412x915-long-title-wraps",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-412x915-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "emotionCurveOverflow": false,
+        "longTitleOverflow": false,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "approval-creates-one-drama-approval",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-creates-approved-adaptation-canon",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-keeps-novel-canonical",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-keeps-story-bible",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-does-not-create-accepted-choice",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "approval-does-not-create-story-branch",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "drama-approval-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adaptation-canon-persists-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "novel-canonical-remains-unchanged-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "story-bible-remains-unchanged-after-reload",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "console-error-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "unexpected-4xx-5xx-zero",
+      "status": "PASS",
+      "details": []
+    }
+  ],
+  "screenshots": [
+    "p24a-rc2-drama-candidate-desktop.png",
+    "p24a-rc2-drama-mobile-360x800.png",
+    "p24a-rc2-drama-mobile-375x812.png",
+    "p24a-rc2-drama-mobile-390x844.png",
+    "p24a-rc2-drama-mobile-412x915.png"
+  ],
+  "productionMutation": 0,
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

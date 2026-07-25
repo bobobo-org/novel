@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "p24a-rc2-discard-flow-v1",
+  "uiControl": "button:放棄",
+  "candidateId": "ca77aec3-bce1-4ebd-a056-1915d6baf307",
+  "before": {
+    "novelProjectHash": "faa2ef7bb388adead767b3df61b6f637df078802c60f8fa25d1f2f6fd116f578",
+    "chapterHash": "c9a6c05fae24f181161a68ca5bc18963733f7c40dc2f8860047c2b03a595232a",
+    "storyBibleHash": "224201669d70e53403636cceb9c3fe7822cb39c2698cdd6f2c1bd33cd23aa8c7",
+    "storyStateHash": "5764c643aef293aa9dc343a54211bfe7c677fa2820a98633510b0d285779f6f1",
+    "acceptedChoicesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "storyBranchesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "dramaAdaptationCanonHash": "490bdaf7156d11cd67f3332bc76b390e313130705f8c3b00e571646f97ab61ae",
+    "dramaApprovalCount": 0
+  },
+  "after": {
+    "novelProjectHash": "faa2ef7bb388adead767b3df61b6f637df078802c60f8fa25d1f2f6fd116f578",
+    "chapterHash": "c9a6c05fae24f181161a68ca5bc18963733f7c40dc2f8860047c2b03a595232a",
+    "storyBibleHash": "224201669d70e53403636cceb9c3fe7822cb39c2698cdd6f2c1bd33cd23aa8c7",
+    "storyStateHash": "5764c643aef293aa9dc343a54211bfe7c677fa2820a98633510b0d285779f6f1",
+    "acceptedChoicesDelta": 0,
+    "storyBranchesDelta": 0,
+    "dramaAdaptationCanonDelta": 0,
+    "dramaApprovalDelta": 0
+  },
+  "candidateRemovedFromUi": true,
+  "canonicalMutation": 0,
+  "pass": true,
+  "generatedAt": "2026-07-25T21:30:51.922Z",
+  "productCommit": "d74b97d026589f202cc6645a07770c30b586ebb9"
+}

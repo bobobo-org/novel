@@ -8,6 +8,7 @@ export type CapabilityTruthStatus =
   | "mock_only"
   | "unsupported"
   | "not_configured"
+  | "not_started"
   | "not_implemented"
   | "blocked";
 
@@ -29,8 +30,9 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "ollama.localRuntime", status: "implemented", evidence: ["loopback bridge and provider adapter"], limitations: ["Availability depends on the client device"] },
   { id: "privateHub.runtime", status: "contract_only", evidence: ["private hub request contract"], limitations: ["No runtime is connected"] },
   { id: "learning.data", status: "implemented", evidence: ["controlled private learning records"], limitations: ["No shared training without explicit consent"] },
-  { id: "training.model", status: "not_implemented", evidence: ["training contracts only"], limitations: ["No weight update has run"] },
-  { id: "distillation", status: "contract_only", evidence: ["distillation job contract"], limitations: ["No distillation has run"] },
+  { id: "training.model", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
+  { id: "modelTraining", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
+  { id: "distillation", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, distillation run, model artifact, or callable runtime exists"] },
   { id: "media.storyboard", status: "implemented", evidence: ["story media candidate package"], limitations: ["Candidate only"] },
   { id: "media.videoPrompt", status: "implemented", evidence: ["video prompt package"], limitations: ["Candidate only"] },
   { id: "media.videoGeneration", status: "contract_only", evidence: ["generic video adapter contract"], limitations: ["No video runtime connected"] },

@@ -18,7 +18,7 @@ const visibleUiRequiredStrings = [
   "匯出已核准樣本 JSONL",
   "執行品質基準測試",
   "Continual Learning Status: not_implemented",
-  "Model Training Status: not_implemented",
+  "Model Training Status: not_started",
   "H2 Local Story Intelligence",
 ];
 const visibleUiBodyHash = createHash("sha256")

@@ -1,0 +1,128 @@
+name: P2.4A RC2 Candidate
+
+on:
+  push:
+    branches:
+      - agent/p24a-drama-os-core-rc2
+  pull_request:
+    branches:
+      - release/p24a-rc1-approved-product
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p24a-rc2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Preserve LF repository bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "core.autocrlf must be false before checkout; actual=$autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "core.eol must be lf before checkout; actual=$eol"
+          }
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify checkout byte-preservation policy
+        shell: pwsh
+        run: |
+          $autocrlf = git config --global --get core.autocrlf
+          $eol = git config --global --get core.eol
+
+          if ($autocrlf -ne "false") {
+            throw "Unexpected core.autocrlf after checkout: $autocrlf"
+          }
+
+          if ($eol -ne "lf") {
+            throw "Unexpected core.eol after checkout: $eol"
+          }
+
+          $status = git status --porcelain=v1
+          if ($status) {
+            Write-Host $status
+            throw "Checkout produced tracked working-tree changes."
+          }
+
+      - name: Verify exact candidate checkout
+        shell: pwsh
+        run: |
+          $actual = git rev-parse HEAD
+          if ($actual -ne "${{ github.sha }}") {
+            throw "Candidate checkout mismatch: expected ${{ github.sha }}, received $actual"
+          }
+
+      - name: Configure pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.27.0
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium runtime
+        run: pnpm exec playwright install chromium
+
+      - name: Verify release identity
+        run: pnpm test:ai:p23:release-metadata
+
+      - name: Verify Capability Truth consistency
+        run: pnpm test:ai:p24a:rc2-capability
+
+      - name: Verify sealed Product evidence
+        env:
+          P24A_EVIDENCE_DIR: artifacts/p24a-rc2
+        run: pnpm test:ai:p24a:evidence
+
+      - name: Verify P2.4A Drama OS and QuarterFull boundary
+        run: pnpm test:ai:p24a:all
+
+      - name: Verify required P2.2, P2.3 and storage regressions
+        env:
+          P24A_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2-regressions
+        run: pnpm test:ai:p24a:rc2-regressions
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: ESLint
+        run: pnpm exec eslint . --max-warnings 999
+
+      - name: Secret scan
+        env:
+          P24A_CI_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2-secret-scan
+        run: pnpm test:ai:p24a:secret-scan
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Full consumer Browser Harness
+        env:
+          P24A_BASE_URL: http://127.0.0.1:3314
+          P24A_EVIDENCE_DIR: ${{ runner.temp }}\p24a-rc2-browser
+          P24A_START_SERVER: "1"
+          P24A_SERVER_MODE: production
+        run: pnpm test:ai:p24a:rc2-browser
