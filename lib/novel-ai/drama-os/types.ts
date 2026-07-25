@@ -1,5 +1,12 @@
 import type { DomainRecord } from "../domain";
 import type { PlatformProviderId } from "../router/platform-types";
+import type {
+  CharacterStateReference,
+  CreationPreferenceReference,
+  NarrativePlanReference,
+  StoryBlueprintReference,
+  WorldStateReference,
+} from "./upstream-references";
 
 export const DRAMA_OS_SCHEMA_VERSION = "drama-os-v1" as const;
 export const DRAMA_OS_MIGRATION_VERSION = "p24a-drama-os-core-v1" as const;
@@ -165,6 +172,11 @@ export type DramaProject = DomainRecord & {
   canonicalAdaptationRevision: number;
   status: DramaCandidateStatus;
   projectionTrace: DramaProjectionTrace;
+  creationPreferenceRef?: CreationPreferenceReference;
+  storyBlueprintRef?: StoryBlueprintReference;
+  worldStateRefs?: WorldStateReference[];
+  characterStateRefs?: CharacterStateReference[];
+  narrativePlanRef?: NarrativePlanReference;
 };
 
 export type DramaSeason = DomainRecord & {
@@ -344,6 +356,12 @@ export type DramaProjectionInput = {
   storyBibleVersion: number;
   currentStoryRevision?: number;
   currentStoryBibleVersion?: number;
+  creationPreferenceRef?: CreationPreferenceReference;
+  storyBlueprintRef?: StoryBlueprintReference;
+  worldStateRefs?: WorldStateReference[];
+  characterStateRefs?: CharacterStateReference[];
+  narrativePlanRef?: NarrativePlanReference;
+  currentReferenceRevisions?: Record<string, number>;
   formatProfile: DramaFormatProfileId;
   chapters: Array<{ id: string; title: string; content: string; revision: number }>;
   characters: Array<{ id: string; name: string; aliases?: string[]; goal?: string | null; lifeStatus?: "unknown" | "alive" | "dead"; locationId?: string | null }>;

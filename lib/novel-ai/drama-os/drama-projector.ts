@@ -7,7 +7,9 @@ import { sha256, stableStringify } from "./ids";
 import { planEpisodes } from "./episode-planner";
 import { makeDramaRecord } from "./record-factory";
 import { planScenes } from "./scene-planner";
+import { findStaleUpstreamReferenceIds } from "./upstream-references";
 import type {
+  DramaCandidateStatus,
   DramaProject,
   DramaProjectionInput,
   DramaProjectionPackage,
@@ -39,9 +41,18 @@ export async function projectNovelToDrama(input: DramaProjectionInput): Promise<
 
   const projectRecord = makeDramaRecord(input.storyId, input.providerId, input.requestId);
   const seasonRecord = makeDramaRecord(input.storyId, input.providerId, input.requestId);
-  const { episodes, beats } = planEpisodes(input, seasonRecord.id, analysis);
-  const scenes = planScenes(input, episodes, beats, analysis);
-  const branchCandidates = episodes.map((episode) => buildBranchCandidate(input, episode, analysis));
+  const { episodes: plannedEpisodes, beats } = planEpisodes(input, seasonRecord.id, analysis);
+  const plannedScenes = planScenes(input, plannedEpisodes, beats, analysis);
+  const plannedBranchCandidates = plannedEpisodes.map((episode) => buildBranchCandidate(input, episode, analysis));
+  const staleReferenceIds = findStaleUpstreamReferenceIds(input, input.currentReferenceRevisions);
+  const status: DramaCandidateStatus = input.mode === "private_simulation"
+    ? "private_simulation"
+    : staleReferenceIds.length
+      ? "stale"
+      : "awaiting_approval";
+  const episodes = plannedEpisodes.map((episode) => ({ ...episode, status }));
+  const scenes = plannedScenes.map((scene) => ({ ...scene, status }));
+  const branchCandidates = plannedBranchCandidates.map((branch) => ({ ...branch, status }));
   const outputHash = await sha256(stableStringify({
     profile,
     analysis,
@@ -64,7 +75,6 @@ export async function projectNovelToDrama(input: DramaProjectionInput): Promise<
     outputHash,
     taintTraceId: `taint:${input.requestId}`,
   };
-  const status = input.mode === "private_simulation" ? "private_simulation" : "awaiting_approval";
   const project: DramaProject = {
     ...projectRecord,
     id: projectRecord.id,
@@ -79,6 +89,11 @@ export async function projectNovelToDrama(input: DramaProjectionInput): Promise<
     canonicalAdaptationRevision: 0,
     status,
     projectionTrace: trace,
+    ...(input.creationPreferenceRef ? { creationPreferenceRef: input.creationPreferenceRef } : {}),
+    ...(input.storyBlueprintRef ? { storyBlueprintRef: input.storyBlueprintRef } : {}),
+    ...(input.worldStateRefs ? { worldStateRefs: input.worldStateRefs } : {}),
+    ...(input.characterStateRefs ? { characterStateRefs: input.characterStateRefs } : {}),
+    ...(input.narrativePlanRef ? { narrativePlanRef: input.narrativePlanRef } : {}),
   };
   const season: DramaSeason = {
     ...seasonRecord,
@@ -108,8 +123,10 @@ export async function projectNovelToDrama(input: DramaProjectionInput): Promise<
     dramaAdaptationRevision: 0,
     sourceChapterIds: input.chapters.map((chapter) => chapter.id),
     episodeIds: episodes.map((episode) => episode.episodeId),
-    projectionStatus: "current",
-    staleReason: null,
+    projectionStatus: staleReferenceIds.length ? "stale" : "current",
+    staleReason: staleReferenceIds.length
+      ? `UPSTREAM_REFERENCE_REVISION_STALE:${staleReferenceIds.join(",")}`
+      : null,
     approvedBy: null,
     approvedAt: null,
   };

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DRAMA_OS_SCHEMA_VERSION } from "./types";
+import { upstreamReferenceSchema } from "./upstream-references";
 
 const uuid = z.string().uuid();
 const support = z.enum(["SUPPORTED", "INFERRED", "UNKNOWN", "CONFLICTING"]);
@@ -59,6 +60,11 @@ export const dramaProjectSchema = domainRecord.extend({
     outputHash: z.string().regex(/^[a-f0-9]{64}$/),
     taintTraceId: z.string().min(1),
   }).strict(),
+  creationPreferenceRef: upstreamReferenceSchema.optional(),
+  storyBlueprintRef: upstreamReferenceSchema.optional(),
+  worldStateRefs: z.array(upstreamReferenceSchema).optional(),
+  characterStateRefs: z.array(upstreamReferenceSchema).optional(),
+  narrativePlanRef: upstreamReferenceSchema.optional(),
 }).strict().refine((value) => value.id === value.dramaProjectId, "Drama project IDs must match.");
 
 export const dramaBranchCandidateSchema = domainRecord.extend({
