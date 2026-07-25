@@ -1,0 +1,67 @@
+name: P2.4A Drama OS Candidate
+
+on:
+  push:
+    branches:
+      - agent/p24a-drama-os-core
+  pull_request:
+    branches:
+      - agent/p23-sovereign-foundation-rc3
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p24a-drama-os-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  technical-gate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      P24A_CI_EVIDENCE_DIR: artifacts/p24a-ci
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install pinned pnpm
+        shell: pwsh
+        run: npm install --global pnpm@10.27.0
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: P2.4A Drama OS
+        shell: pwsh
+        env:
+          P24A_EVIDENCE_DIR: artifacts/p24a-ci
+        run: pnpm test:ai:p24a:all
+
+      - name: P2.2 and P2.3 regressions
+        shell: pwsh
+        run: |
+          pnpm test:ai:p22:core
+          pnpm test:ai:p23:foundation
+          pnpm test:ai:p23:security
+
+      - name: P2.1 data and transaction regressions
+        shell: pwsh
+        run: |
+          pnpm test:ai:p21:three-high
+          pnpm test:ai:p21:indexeddb
+          pnpm test:ai:p21:data-closure
+
+      - name: Evidence and credential gates
+        shell: pwsh
+        run: |
+          node scripts/verify-p24a-evidence.mjs
+          node scripts/run-p24a-secret-scan.mjs
+
+      - name: Static checks
+        shell: pwsh
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm lint
+          pnpm build
