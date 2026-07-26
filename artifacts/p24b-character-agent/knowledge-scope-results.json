@@ -1,0 +1,295 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "title": "Knowledge Scope Gateway",
+  "pass": 47,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "knowledge",
+      "name": "PUBLIC actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "AUTHOR_ONLY actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "CHARACTER_KNOWN actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "CHARACTER_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "READER_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FUTURE_REVEAL actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FUTURE_REVEAL actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "A AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "B denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "C AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "C evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "C denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "C actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "C evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "actor output is noninterfering when evaluator secret is added",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "different canon context cannot retrieve novel knowledge",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "private simulation can read only its bound source canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "false belief does not mutate canonical truth",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "belief validates independently of truth",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "knowledge schemas enforce scope fields",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "unapproved generated memory is not reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved canonical memory is reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory is usable only inside same session",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory cannot promote to canon",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "agent memory requires user approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved agent memory becomes approved",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "self reinforcing memory loop is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "temporal query blocks future knowledge",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context blocks future knowledge directly",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context excludes future belief",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context excludes future relationship",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "temporal query blocks future memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory gate blocks a future event memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "state as-of preserves historical faction inventory location life and commitments",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "belief as-of excludes a future false belief",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "adult eligibility uses scene timeline age",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory selector ranks only approved memories",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ]
+}

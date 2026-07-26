@@ -1,12 +1,22 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, OperationJournal, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { buildDramaApprovalRecords } from "../../drama-os/approval";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
+import { buildCharacterApprovalRecords, buildCharacterRejectionRecords } from "../../character-agent/approval-service";
+import type {
+  ApproveCharacterProposalInput,
+  ApproveCharacterProposalResult,
+  CharacterAgentApprovalRecord,
+  CharacterAgentEvaluation,
+  CharacterProposalEnvelope,
+  RejectCharacterProposalInput,
+  RejectCharacterProposalResult,
+} from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 
 const DB_NAME = "novel-intelligence-platform";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const REQUEST_STORE = "requestLedger";
 
 function request<T>(value: IDBRequest<T>): Promise<T> { return new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error ?? new Error("INDEXEDDB_REQUEST_FAILED")); }); }
@@ -15,6 +25,12 @@ function complete(tx: IDBTransaction): Promise<void> { return new Promise((resol
 export class IndexedDbNovelRepository implements NovelRepository {
   readonly kind = "indexeddb" as const;
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private characterInteractionQueue: Promise<unknown> = Promise.resolve();
+  private readonly approvalFaultInjector: ((point: string) => void) | null;
+  constructor(options: { approvalFaultInjector?: (point: string) => void } = {}) {
+    this.approvalFaultInjector = options.approvalFaultInjector ?? null;
+  }
+  private inject(point: string) { this.approvalFaultInjector?.(point); }
   isAvailable() { return typeof indexedDB !== "undefined"; }
   private open() {
     if (!this.isAvailable()) return Promise.reject(new Error("INDEXEDDB_UNAVAILABLE"));
@@ -32,6 +48,17 @@ export class IndexedDbNovelRepository implements NovelRepository {
           if (name === "approvalTransactions" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "dramaApprovals" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "narrativeCanonLinks" && !store.indexNames.contains("dramaProjectId")) store.createIndex("dramaProjectId", "dramaProjectId", { unique: true });
+          if (name === "characterAgentApprovals" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
+          if (name === "characterRelationshipEvents") {
+            if (!store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
+            if (!store.indexNames.contains("sourceEventScope")) store.createIndex("sourceEventScope", "sourceEventScope", { unique: true });
+          }
+          if (name === "characterAgentProfiles" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
+          if (name === "characterMemories" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
+          if (name === "characterRelationships") {
+            if (!store.indexNames.contains("fromCharacterId")) store.createIndex("fromCharacterId", "fromCharacterId", { unique: false });
+            if (!store.indexNames.contains("toCharacterId")) store.createIndex("toCharacterId", "toCharacterId", { unique: false });
+          }
         }
       };
       open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error ?? new Error("INDEXEDDB_OPEN_FAILED")); open.onblocked = () => reject(new Error("INDEXEDDB_UPGRADE_BLOCKED"));
@@ -212,6 +239,156 @@ export class IndexedDbNovelRepository implements NovelRepository {
         staleDramaProjectIds: staleProjects.map((row) => row.dramaProjectId),
         staleCanonLinkIds: staleLinks.map((row) => row.canonLinkId),
       };
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  approveCharacterProposalTransaction(input: ApproveCharacterProposalInput): Promise<ApproveCharacterProposalResult> {
+    const run = this.characterInteractionQueue.then(() => this.approveCharacterProposalTransactionInternal(input));
+    this.characterInteractionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async approveCharacterProposalTransactionInternal(input: ApproveCharacterProposalInput): Promise<ApproveCharacterProposalResult> {
+    const idempotencyScope = `${input.projectId}:${input.idempotencyKey}`;
+    const existingApproval = (await this.list<CharacterAgentApprovalRecord>("characterAgentApprovals", input.projectId))
+      .find((record) => record.idempotencyScope === idempotencyScope);
+    if (existingApproval) {
+      if (existingApproval.proposalId !== input.proposalId || existingApproval.payloadFingerprint !== input.payloadFingerprint) {
+        throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_PAYLOAD_MISMATCH");
+      }
+      const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", existingApproval.proposalId);
+      if (!proposal) throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_REPLAY_INCOMPLETE");
+      const canonicalStore: NovelStoreName = proposal.canonicalPatch.entityType === "character"
+        ? "characters"
+        : proposal.canonicalPatch.entityType === "relationship"
+          ? "relationships"
+          : "dramaScenes";
+      const canonicalRecord = await this.get<DomainRecord>(canonicalStore, existingApproval.canonicalEntityId);
+      if (!canonicalRecord || canonicalRecord.revision !== existingApproval.resultingCanonicalRevision) throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_REPLAY_INCOMPLETE");
+      return { replayed: true, proposal, approval: existingApproval, canonicalRecord };
+    }
+    const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", input.proposalId);
+    if (!proposal) throw new RepositoryOperationError("CHARACTER_PROPOSAL_NOT_FOUND");
+    const canonicalStore: NovelStoreName = proposal.canonicalPatch.entityType === "character"
+      ? "characters"
+      : proposal.canonicalPatch.entityType === "relationship"
+        ? "relationships"
+        : "dramaScenes";
+    const [evaluation, canonicalRecord] = await Promise.all([
+      this.get<CharacterAgentEvaluation>("characterAgentEvaluations", proposal.evaluationId),
+      this.get<DomainRecord>(canonicalStore, proposal.canonicalPatch.entityId),
+    ]);
+    if (!evaluation || !canonicalRecord) throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_MISSING");
+    const records = await buildCharacterApprovalRecords({ request: input, proposal, evaluation, canonicalRecord });
+    const stores = [...new Set<NovelStoreName>([
+      "projects", "storyBibles", "characters", canonicalStore, "characterProposals",
+      "characterAgentEvaluations", "characterAgentApprovals", "characterAgentAudit",
+      "characterAgentStates", "characterMemories", "characterRelationships",
+      "characterRelationshipEvents", "characterKnowledge", "characterPrivateArcs",
+    ])];
+    const db = await this.open();
+    const tx = db.transaction(stores, "readwrite");
+    try {
+      const approvalStore = tx.objectStore("characterAgentApprovals");
+      const replay = await request(approvalStore.index("idempotencyScope").get(idempotencyScope)) as CharacterAgentApprovalRecord | undefined;
+      if (replay) {
+        if (replay.proposalId !== input.proposalId || replay.payloadFingerprint !== input.payloadFingerprint) {
+          throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_PAYLOAD_MISMATCH");
+        }
+        const replayProposal = await request(tx.objectStore("characterProposals").get(replay.proposalId)) as CharacterProposalEnvelope | undefined;
+        const replayCanonical = await request(tx.objectStore(canonicalStore).get(replay.canonicalEntityId)) as DomainRecord | undefined;
+        if (!replayProposal || !replayCanonical || replayCanonical.revision !== replay.resultingCanonicalRevision) {
+          throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_REPLAY_INCOMPLETE");
+        }
+        await complete(tx);
+        return { replayed: true, proposal: replayProposal, approval: replay, canonicalRecord: replayCanonical };
+      }
+      const [currentProposal, currentProject, storyBibles, currentCanonical, currentEvaluation] = await Promise.all([
+        request(tx.objectStore("characterProposals").get(input.proposalId)) as Promise<CharacterProposalEnvelope | undefined>,
+        request(tx.objectStore("projects").get(input.projectId)) as Promise<NovelProject | undefined>,
+        request(tx.objectStore("storyBibles").index("projectId").getAll(input.projectId)) as Promise<StoryBible[]>,
+        request(tx.objectStore(canonicalStore).get(proposal.canonicalPatch.entityId)) as Promise<DomainRecord | undefined>,
+        request(tx.objectStore("characterAgentEvaluations").get(proposal.evaluationId)) as Promise<CharacterAgentEvaluation | undefined>,
+      ]);
+      if (
+        !currentProposal
+        || currentProposal.status !== proposal.status
+        || currentProposal.revision !== proposal.revision
+        || !currentProject
+        || currentProject.revision !== input.expectedSourceRevision
+        || !storyBibles[0]
+        || storyBibles[0].revision !== input.expectedSourceStoryBibleVersion
+        || !currentCanonical
+        || currentCanonical.revision !== canonicalRecord.revision
+        || !currentEvaluation
+        || currentEvaluation.blockingIssueCount > 0
+      ) throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_STALE");
+      for (const [characterId, revision] of Object.entries(proposal.sourceCharacterRevisions)) {
+        const character = await request(tx.objectStore("characters").get(characterId)) as DomainRecord | undefined;
+        if (!character || character.projectId !== input.projectId || character.revision !== revision) {
+          throw new RepositoryOperationError("CHARACTER_APPROVAL_CHARACTER_STALE");
+        }
+      }
+      const relationshipEvent = records.effects.relationshipEvent;
+      if (relationshipEvent) {
+        const [duplicateByKey, duplicateBySource, currentEdge] = await Promise.all([
+          request(tx.objectStore("characterRelationshipEvents").index("idempotencyScope").get(relationshipEvent.idempotencyScope)),
+          request(tx.objectStore("characterRelationshipEvents").index("sourceEventScope").get(relationshipEvent.sourceEventScope)),
+          request(tx.objectStore("characterRelationships").get(relationshipEvent.relationshipId)) as Promise<DomainRecord | undefined>,
+        ]);
+        if (duplicateByKey || duplicateBySource) throw new RepositoryOperationError("DUPLICATE_RELATIONSHIP_EVENT");
+        if (!currentEdge || currentEdge.revision !== relationshipEvent.beforeRevision) throw new RepositoryOperationError("STALE_RELATIONSHIP_REVISION");
+      }
+      const writes: Array<[NovelStoreName, DomainRecord]> = [
+        ["characterProposals", records.proposal],
+        ["characterAgentApprovals", records.approval],
+        [canonicalStore, records.canonicalRecord],
+        ...(records.effects.stateUpdate ? [["characterAgentStates", records.effects.stateUpdate] as [NovelStoreName, DomainRecord]] : []),
+        ...records.effects.approvedMemories.map((row) => ["characterMemories", row] as [NovelStoreName, DomainRecord]),
+        ...(records.effects.relationshipEdge ? [["characterRelationships", records.effects.relationshipEdge] as [NovelStoreName, DomainRecord]] : []),
+        ...(records.effects.relationshipEvent ? [["characterRelationshipEvents", records.effects.relationshipEvent] as [NovelStoreName, DomainRecord]] : []),
+        ...(records.effects.knowledgeAcquisition ? [["characterKnowledge", records.effects.knowledgeAcquisition] as [NovelStoreName, DomainRecord]] : []),
+        ...(records.effects.privateArcPromotion ? [["characterPrivateArcs", records.effects.privateArcPromotion] as [NovelStoreName, DomainRecord]] : []),
+        ["characterAgentAudit", records.audit],
+      ];
+      for (const [store, row] of writes) {
+        if (row.projectId !== input.projectId) throw new RepositoryOperationError("CHARACTER_APPROVAL_PROJECT_SCOPE_MISMATCH");
+        this.inject(`before:${store}`);
+        tx.objectStore(store).put(row);
+        this.inject(`after:${store}`);
+      }
+      await complete(tx);
+      return { replayed: false, proposal: records.proposal, approval: records.approval, canonicalRecord: records.canonicalRecord };
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  rejectCharacterProposalTransaction(input: RejectCharacterProposalInput): Promise<RejectCharacterProposalResult> {
+    const run = this.characterInteractionQueue.then(() => this.rejectCharacterProposalTransactionInternal(input));
+    this.characterInteractionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async rejectCharacterProposalTransactionInternal(input: RejectCharacterProposalInput): Promise<RejectCharacterProposalResult> {
+    const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", input.proposalId);
+    if (!proposal) throw new RepositoryOperationError("CHARACTER_PROPOSAL_NOT_FOUND");
+    const records = buildCharacterRejectionRecords({ request: input, proposal });
+    const db = await this.open();
+    const tx = db.transaction(["characterProposals", "characterAgentAudit"], "readwrite");
+    try {
+      const current = await request(tx.objectStore("characterProposals").get(input.proposalId)) as CharacterProposalEnvelope | undefined;
+      if (!current || current.revision !== proposal.revision || current.status !== proposal.status) {
+        throw new RepositoryOperationError("CHARACTER_PROPOSAL_REJECTION_STALE");
+      }
+      this.inject("before:characterProposals");
+      tx.objectStore("characterProposals").put(records.proposal);
+      this.inject("after:characterProposals");
+      this.inject("before:characterAgentAudit");
+      tx.objectStore("characterAgentAudit").put(records.audit);
+      this.inject("after:characterAgentAudit");
+      await complete(tx);
+      return records;
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
       throw error;

@@ -21,6 +21,12 @@ const BROWSER_SUMMARY_TASKS: PlatformAIRequest["taskType"][] = [
   "drama.emotionCurve",
   "drama.shortSummary",
   "drama.beatSuggestion",
+  "character.nameExtract",
+  "character.traitClassify",
+  "character.voiceClassify",
+  "character.emotionClassify",
+  "character.relationshipEventClassify",
+  "character.dialogueConsistency",
 ];
 
 function summarizerFactory(): BrowserSummarizerFactory | null {

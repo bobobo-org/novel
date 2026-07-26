@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "p24b-data-model-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "indexedDbVersion": 6,
+  "repositorySchemaVersion": "novel-repository-v6",
+  "backupFormatVersion": "novel-backup-v5",
+  "stores": [
+    "characterAgentProfiles",
+    "characterAgentStates",
+    "characterKnowledge",
+    "characterBeliefs",
+    "characterMemories",
+    "characterRelationships",
+    "characterRelationshipEvents",
+    "characterPrivateArcs",
+    "characterSimulations",
+    "characterSimulationTurns",
+    "characterAgentEvaluations",
+    "characterProposals",
+    "characterAgentApprovals",
+    "characterAgentAudit"
+  ],
+  "directedRelationshipMetrics": [
+    "trust",
+    "affection",
+    "attraction",
+    "fear",
+    "respect",
+    "loyalty",
+    "rivalry",
+    "power"
+  ],
+  "knowledgeScopes": [
+    "PUBLIC",
+    "AUTHOR_ONLY",
+    "CHARACTER_KNOWN",
+    "FACTION_KNOWN",
+    "READER_KNOWN",
+    "FUTURE_REVEAL"
+  ],
+  "canonicalWritePolicy": "USER_APPROVAL_TRANSACTION_ONLY",
+  "status": "PASS"
+}

@@ -45,7 +45,30 @@ export type ProjectCreationDraft = DomainRecord & {
 
 export type Chapter = DomainRecord & { title: string; order: number; content: string; summary: string | null; status: "draft" | "completed" };
 export type Scene = DomainRecord & { chapterId: string; order: number; title: string; content: string; summary: string | null };
-export type Character = DomainRecord & { name: string; aliases: string[]; identity: OptionalValue<string>; personality: OptionalValue<string>; goal: OptionalValue<string>; lifeStatus: "unknown" | "alive" | "dead"; locationId: string | null };
+export type Character = DomainRecord & {
+  name: string;
+  aliases: string[];
+  identity: OptionalValue<string>;
+  personality: OptionalValue<string>;
+  goal: OptionalValue<string>;
+  lifeStatus: "unknown" | "alive" | "dead";
+  locationId: string | null;
+  age?: number | null;
+  ageVerified?: boolean;
+  fears?: string[];
+  privateSecrets?: string[];
+  factionIds?: string[];
+  values?: string[];
+  capabilities?: string[];
+  limitations?: string[];
+  voiceStyle?: {
+    formality: number;
+    directness: number;
+    emotionalExpressiveness: number;
+    sentenceLength: "short" | "mixed" | "long";
+    preferredAddressTerms: string[];
+  };
+};
 export type CharacterRelationship = DomainRecord & { fromCharacterId: string; toCharacterId: string; kind: string; summary: string; trust: number | null };
 export type World = DomainRecord & { name: OptionalValue<string>; era: OptionalValue<string>; summary: OptionalValue<string> };
 export type WorldRule = DomainRecord & { title: string; description: string; immutable: boolean };
@@ -197,7 +220,7 @@ export type ReaderNote = DomainRecord & { chapterId: string; anchor: string; exc
 export type ReaderBookmark = DomainRecord & { chapterId: string; anchor: string; excerpt: string; label: string | null; needsRelocation: boolean };
 export type BackupManifest = {
   format: "novel-project-backup";
-  formatVersion: "novel-backup-v3" | "novel-backup-v4";
+  formatVersion: "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5";
   backupId: string;
   projectId: string;
   projectSchemaVersion: string;
@@ -212,7 +235,7 @@ export type BackupManifest = {
   encryption: "none";
 };
 export type ProjectBackup = DomainRecord & {
-  formatVersion: "novel-backup-v2" | "novel-backup-v3" | "novel-backup-v4";
+  formatVersion: "novel-backup-v2" | "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5";
   kind: "initial" | "quick" | "full" | "safety";
   byteSize: number;
   snapshot: Record<string, unknown>;

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "p24b-baseline-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "expectedBaseline": "d74b97d026589f202cc6645a07770c30b586ebb9",
+  "productParent": "d74b97d026589f202cc6645a07770c30b586ebb9",
+  "baseBranch": "release/p24a-rc2-approved-product",
+  "remoteBaseCommit": "d74b97d026589f202cc6645a07770c30b586ebb9",
+  "candidatePublishedAtSealTime": false,
+  "status": "PASS"
+}
