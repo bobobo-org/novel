@@ -1,0 +1,293 @@
+name: P2.4B RC1 Character Agent Candidate
+
+on:
+  pull_request:
+    branches:
+      - release/p24a-rc2-approved-product
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p24b-rc1-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  P24A_APPROVED_BASELINE: d74b97d026589f202cc6645a07770c30b586ebb9
+  P24B_TECHNICAL_PRODUCT: e8250678bbc0513dde4a487f7a10145e42c95d46
+  P24B_PRODUCT_COMMIT: 71bea12da90def7646efe1189f059896d3582327
+  P24B_EVIDENCE_COMMIT: cd9bcbebc5db72c3585d9c458ea847ead55133c7
+  P24B_RELEASE_TAG: novel-ai-p24b-character-agent-rc1
+
+jobs:
+  verify:
+    name: Windows LF, identity, regression, browser, and evidence gate
+    runs-on: windows-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Configure canonical LF before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact checkout is clean
+        shell: pwsh
+        run: |
+          $expectedHead = '${{ github.event.pull_request.head.sha }}'
+          $actualHead = git rev-parse HEAD
+          if ($expectedHead -and $actualHead -ne $expectedHead) {
+            throw "EXACT_CHECKOUT_MISMATCH:$actualHead/$expectedHead"
+          }
+          $dirty = @(git status --porcelain=v1)
+          if ($dirty.Count) {
+            throw "CHECKOUT_NOT_CLEAN:$($dirty -join ',')"
+          }
+          if ((git config --get core.autocrlf) -ne 'false') {
+            throw 'CORE_AUTOCRLF_NOT_FALSE'
+          }
+          if ((git config --get core.eol) -ne 'lf') {
+            throw 'CORE_EOL_NOT_LF'
+          }
+
+      - name: Verify commit chain and Product, Evidence, and CI scopes
+        shell: pwsh
+        run: |
+          if ((git rev-parse "$env:P24B_PRODUCT_COMMIT^") -ne $env:P24B_TECHNICAL_PRODUCT) {
+            throw 'PRODUCT_PARENT_MISMATCH'
+          }
+          if ((git rev-parse "$env:P24B_EVIDENCE_COMMIT^") -ne $env:P24B_PRODUCT_COMMIT) {
+            throw 'EVIDENCE_PARENT_MISMATCH'
+          }
+          if ((git rev-parse 'HEAD^') -ne $env:P24B_EVIDENCE_COMMIT) {
+            throw 'CI_PARENT_MISMATCH'
+          }
+          if ((git rev-parse origin/release/p24a-rc2-approved-product) -ne $env:P24A_APPROVED_BASELINE) {
+            throw 'REMOTE_BASELINE_MISMATCH'
+          }
+          if ((git log -1 --format=%s $env:P24B_PRODUCT_COMMIT) -ne 'chore(release): prepare P2.4B Character Agent RC1') {
+            throw 'PRODUCT_MESSAGE_MISMATCH'
+          }
+          if ((git log -1 --format=%s $env:P24B_EVIDENCE_COMMIT) -ne 'test(release): seal P2.4B RC1 evidence') {
+            throw 'EVIDENCE_MESSAGE_MISMATCH'
+          }
+          if ((git log -1 --format=%s HEAD) -ne 'ci: verify P2.4B RC1 release candidate') {
+            throw 'CI_MESSAGE_MISMATCH'
+          }
+
+          $expectedProductFiles = @(
+            'app/api/admin/persistence/route.ts'
+            'app/api/ai/health/route.ts'
+            'lib/novel-ai/capabilities/capability-registry.ts'
+            'package.json'
+            'public/legacy/novel-system.html'
+            'public/legacy/novel-whole-novel-workspace.js'
+            'release-manifest.json'
+            'release-metadata-contract.json'
+            'scripts/check-legacy-build-truth.mjs'
+            'scripts/resolve-p24b-rc1-action-pins.mjs'
+            'scripts/run-p21-legacy-build-provenance-regression.mjs'
+            'scripts/run-p21-release-metadata-regression.mjs'
+            'scripts/run-p24b-ollama-real.mjs'
+            'scripts/run-p24b-rc1-build-provenance.mjs'
+            'scripts/run-p24b-rc1-build-reproducibility.mjs'
+            'scripts/run-p24b-rc1-release-identity.mjs'
+            'scripts/seal-p24b-evidence.mjs'
+            'scripts/stamp-static-release.mjs'
+            'scripts/verify-p24b-evidence.mjs'
+          )
+          $actualProductFiles = @(git diff --name-only $env:P24B_TECHNICAL_PRODUCT $env:P24B_PRODUCT_COMMIT)
+          $productDelta = @(Compare-Object ($expectedProductFiles | Sort-Object) ($actualProductFiles | Sort-Object))
+          if ($productDelta.Count) {
+            throw "PRODUCT_SCOPE_VIOLATION:$($productDelta | ConvertTo-Json -Compress)"
+          }
+
+          $evidenceFiles = @(git diff --name-only $env:P24B_PRODUCT_COMMIT $env:P24B_EVIDENCE_COMMIT)
+          $invalidEvidence = @($evidenceFiles | Where-Object {
+            $_ -notlike 'artifacts/p24b-character-agent/*'
+          })
+          if (-not $evidenceFiles.Count -or $invalidEvidence.Count) {
+            throw "EVIDENCE_SCOPE_VIOLATION:$($invalidEvidence -join ',')"
+          }
+
+          $ciFiles = @(git diff --name-only $env:P24B_EVIDENCE_COMMIT HEAD)
+          if ($ciFiles.Count -ne 1 -or $ciFiles[0] -ne '.github/workflows/p24b-rc1-candidate.yml') {
+            throw "CI_SCOPE_VIOLATION:$($ciFiles -join ',')"
+          }
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify RC1 release identity and build-sealed provenance contract
+        shell: pwsh
+        run: |
+          $releaseEvidence = Join-Path $env:RUNNER_TEMP 'p24b-rc1-release'
+          New-Item -ItemType Directory -Force -Path $releaseEvidence | Out-Null
+          $env:P24B_RC1_PRODUCT_COMMIT = $env:P24B_PRODUCT_COMMIT
+          $env:P24B_RC1_EVIDENCE_DIR = $releaseEvidence
+          pnpm test:ai:p24b:rc1-release
+          $env:NOVEL_BUILD_APP_COMMIT = $env:P24B_PRODUCT_COMMIT
+          pnpm test:ai:p21:release-metadata
+          pnpm test:ai:p21r4:legacy-provenance
+
+      - name: Verify official Action owners, peeled tags, and immutable workflow pins
+        shell: pwsh
+        run: |
+          $env:P24B_RC1_PRODUCT_COMMIT = $env:P24B_PRODUCT_COMMIT
+          $env:P24B_RC1_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-rc1-action-pins'
+          $env:P24B_RC1_WORKFLOW_PATH = '.github/workflows/p24b-rc1-candidate.yml'
+          pnpm test:ai:p24b:rc1-action-pins
+
+      - name: Verify immutable Evidence filesystem and Git HEAD blobs
+        shell: pwsh
+        run: |
+          $env:P24B_REPO_EVIDENCE_DIR = 'artifacts/p24b-character-agent'
+          $env:P24B_EVIDENCE_GIT_SOURCE = 'HEAD'
+          $env:P24B_RC1_RELEASE = '1'
+          pnpm test:ai:p24b:rc1-evidence
+
+      - name: Verify sealed real Ollama evidence without requiring runner Ollama
+        shell: pwsh
+        run: |
+          node -e 'const a=require("node:assert/strict");const fs=require("node:fs");const v=JSON.parse(fs.readFileSync("artifacts/p24b-character-agent/ollama-real-smoke.json","utf8"));a.equal(v.productCommit,process.env.P24B_PRODUCT_COMMIT);a.equal(v.status,"P2.4B_REAL_OLLAMA_SMOKE_PASS");a.deepEqual([v.pass,v.fail,v.skip],[8,0,0]);a.equal(v.model.id,"qwen2.5:3b");a.match(v.modelDigest,/^[0-9a-f]{64}$/);a.equal(v.externalRequests,0);a.equal(v.dataLeftDevice,false);a.equal(v.rawChainOfThoughtStored,false);a.equal(v.structuredOutputValidation.passedCaseCount,8);console.log(JSON.stringify({status:"PASS",pass:v.pass,model:v.model.id}))'
+
+      - name: Run P2.4A exact non-browser regression gates
+        shell: pwsh
+        run: |
+          $p24a = Join-Path $env:RUNNER_TEMP 'p24a'
+          $p24aRegressions = Join-Path $env:RUNNER_TEMP 'p24a-regressions'
+          New-Item -ItemType Directory -Force -Path $p24a, $p24aRegressions | Out-Null
+          $env:P24A_EVIDENCE_DIR = $p24a
+          pnpm test:ai:p24a:all
+          $env:P24A_EVIDENCE_DIR = $p24aRegressions
+          pnpm test:ai:p24a:rc2-regressions
+          $env:P24A_CAPABILITY_EVIDENCE = Join-Path $env:RUNNER_TEMP 'p24a-capability-truth.json'
+          pnpm test:ai:p24a:rc2-capability
+          $all = Get-Content -Raw -Encoding utf8 (Join-Path $p24a 'regression-summary.json') | ConvertFrom-Json
+          $required = Get-Content -Raw -Encoding utf8 (Join-Path $p24aRegressions 'required-regressions.json') | ConvertFrom-Json
+          $capability = Get-Content -Raw -Encoding utf8 $env:P24A_CAPABILITY_EVIDENCE | ConvertFrom-Json
+          $pass = $all.pass + $required.totalPass + $capability.pass
+          $fail = $all.fail + $required.totalFail + $capability.fail
+          $skip = $all.skip + $required.totalSkip + $capability.skip
+          if ($pass -ne 455 -or $fail -ne 0 -or $skip -ne 0) {
+            throw "P24A_NON_BROWSER_EXACT_COUNT_MISMATCH:$pass/$fail/$skip"
+          }
+
+      - name: Run P2.4B formal matrix
+        shell: pwsh
+        run: |
+          $env:P24B_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-all'
+          pnpm test:ai:p24b:all
+
+      - name: Run Knowledge Scope, noninterference, memory, relationship, and simulation gates
+        shell: pwsh
+        run: |
+          $env:P24B_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-boundary-categories'
+          pnpm test:ai:p24b:knowledge
+          pnpm test:ai:p24b:relationship
+          pnpm test:ai:p24b:simulation
+          pnpm test:ai:p24b:proposal
+
+      - name: Run atomic rollback, concurrency, privacy, migration, and backup gates
+        shell: pwsh
+        run: |
+          $env:P24B_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-security-migration'
+          pnpm test:ai:p24b:security
+          pnpm test:ai:p24b:migration
+          node -e 'const a=require("node:assert/strict");const fs=require("node:fs");const dir="artifacts/p24b-character-agent/";for(const name of ["actor-evaluator-noninterference.json","memory-promotion-gate.json","relationship-idempotency.json","simulation-termination.json","transaction-fault-injection.json","concurrency-results.json","controlled-learning-privacy.json","migration-results.json"]){const v=JSON.parse(fs.readFileSync(dir+name,"utf8"));a.equal(v.status,"PASS",name)}const b=JSON.parse(fs.readFileSync(dir+"backup-restore-results.json","utf8"));a.equal(b.status,"PASS");a.equal(b.semanticHashMatch,true);console.log(JSON.stringify({status:"PASS",boundaryReports:9}))'
+
+      - name: Run TypeScript
+        shell: pwsh
+        run: pnpm exec tsc --noEmit
+
+      - name: Run ESLint with zero errors
+        shell: pwsh
+        run: pnpm lint
+
+      - name: Scan tracked and candidate text for credentials
+        shell: pwsh
+        run: |
+          $env:P24B_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-secret-scan'
+          pnpm test:ai:p24b:secret-scan
+
+      - name: Build production application and verify Product-sealed provenance
+        shell: pwsh
+        run: |
+          $env:NOVEL_BUILD_APP_COMMIT = $env:P24B_PRODUCT_COMMIT
+          $env:NOVEL_STATIC_STAMP = '1'
+          pnpm build
+          $env:P24B_RC1_PRODUCT_COMMIT = $env:P24B_PRODUCT_COMMIT
+          $env:P24B_RC1_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-build-provenance'
+          pnpm test:ai:p24b:rc1-build-provenance
+
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: pnpm exec playwright install chromium
+
+      - name: Run P2.4A and P2.4B exact Browser contracts
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'next-start.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'next-start.stderr.log'
+          $server = Start-Process `
+            -FilePath node `
+            -ArgumentList @('node_modules/next/dist/bin/next', 'start', '-p', '3125') `
+            -PassThru `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
+              try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3125/studio/create' -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ready) {
+              Get-Content -ErrorAction SilentlyContinue $stdout
+              Get-Content -ErrorAction SilentlyContinue $stderr
+              throw 'NEXT_SERVER_NOT_READY'
+            }
+            $env:P24A_BASE_URL = 'http://127.0.0.1:3125'
+            $env:P24A_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24a-browser'
+            pnpm test:ai:p24a:rc2-browser
+            $env:P24B_BASE_URL = 'http://127.0.0.1:3125'
+            $env:P24B_EVIDENCE_DIR = Join-Path $env:RUNNER_TEMP 'p24b-browser'
+            pnpm test:ai:p24b:browser
+            node -e 'const a=require("node:assert/strict");const fs=require("node:fs");const p24a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/p24a-browser/browser-full-flow.json","utf8"));const p24b=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/p24b-browser/browser-full-flow.json","utf8"));a.deepEqual([p24a.pass,p24a.fail,p24a.skip],[61,0,0]);a.deepEqual([p24b.pass,p24b.fail,p24b.skip],[61,0,0]);a.equal(p24b.flowSteps.length,30);console.log(JSON.stringify({status:"PASS",p24a:p24a.pass,p24b:p24b.pass,flowSteps:p24b.flowSteps.length}))'
+          } finally {
+            if ($server -and -not $server.HasExited) {
+              Stop-Process -Id $server.Id -Force
+            }
+          }
