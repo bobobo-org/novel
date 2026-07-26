@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Relationship event idempotency",
+  "pass": 3,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "duplicateRelationshipEvents": 0
+  },
+  "results": [
+    {
+      "category": "relationship",
+      "name": "duplicate idempotency event returns existing event",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "relationship idempotency and source scopes are independent namespaces",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "migration",
+      "name": "duplicate relationship source scope is rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ]
+}

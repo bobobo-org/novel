@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Character action candidates",
+  "pass": 16,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "core",
+      "name": "A action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "core",
+      "name": "A action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "core",
+      "name": "B action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "dead character cannot plan present action",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "state as-of preserves historical faction inventory location life and commitments",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ATTRACTION_GAIN creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "no progress detector spots duplicate action",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_ACTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.actionPlan",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.actionPlan",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB injected Character write fault rolls back transaction",
+      "status": "PASS",
+      "elapsedMs": 9
+    }
+  ]
+}

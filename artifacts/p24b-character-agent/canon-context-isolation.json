@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Canon Context isolation",
+  "pass": 11,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "crossCanonRetrieval": 0,
+    "canonicalMutationBeforeApproval": 0
+  },
+  "results": [
+    {
+      "category": "core",
+      "name": "current Canon Context does not mark candidates stale",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "different canon context cannot retrieve novel knowledge",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "private simulation can read only its bound source canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "relationship",
+      "name": "stale canon context is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "A canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "B canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "completed private result can be discarded without Canonical mutation",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale Canon Context blocks approval",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "cross-canon data is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps Canon Context identity",
+      "status": "PASS",
+      "elapsedMs": 5
+    }
+  ]
+}

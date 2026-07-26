@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "p24b-desktop-gate-v1",
+  "generatedAt": "2026-07-26T03:12:29.783Z",
+  "viewport": "1440x900",
+  "metrics": {
+    "innerWidth": 1440,
+    "bodyScrollWidth": 1440,
+    "rootScrollWidth": 1440,
+    "relationshipGraphVisible": true,
+    "relationshipCardCount": 2,
+    "technicalInformationExpanded": false
+  },
+  "screenshot": "p24b-character-agent-desktop-1440x900.png",
+  "consoleErrorCount": 0,
+  "unexpectedHttpErrorCount": 0,
+  "status": "PASS",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327"
+}

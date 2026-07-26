@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "p24b-rc1-release-metadata-results-v1",
+  "generatedAt": "2026-07-26T03:08:59.329Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "technicalProduct": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "pass": 33,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "results": [
+    {
+      "name": "RC1 Product is a direct child of Technical Product",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest contains exact P2.4B RC1 identity",
+      "status": "PASS"
+    },
+    {
+      "name": "release contract allows P2.4B RC",
+      "status": "PASS"
+    },
+    {
+      "name": "release contract preserves prior approved identities",
+      "status": "PASS"
+    },
+    {
+      "name": "build commit source priority is Vercel then explicit then Git HEAD",
+      "status": "PASS"
+    },
+    {
+      "name": "RC1 provenance seals only the RC1 Product commit",
+      "status": "PASS"
+    },
+    {
+      "name": "Product commit scope contains release metadata tests and provenance only",
+      "status": "PASS"
+    },
+    {
+      "name": "characterAgentCore remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterPerspectiveContext remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "knowledgeScopedCharacterContext remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterBeliefEngine remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterMemory remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "relationshipGraph remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "relationshipHistory remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "privateCharacterSimulation remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "multiCharacterSimulation remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterProposalApproval remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "visualCharacterBible remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "storyboard remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "audienceVoting remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "audienceLearning remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "creationDna remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "storyBlueprintWorkbench remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "realVideoGeneration remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "privateAiHub remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "modelTraining remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "distillation remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Browser AI heavy runtime remains not implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "Local Ollama remains client dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "Public Health exposes all precise Character Agent capability records",
+      "status": "PASS"
+    },
+    {
+      "name": "Admin Health exposes the same release and capability identity",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy templates contain complete release identity placeholders",
+      "status": "PASS"
+    },
+    {
+      "name": "Character Agent release surface has no remote cross-user retrieval path",
+      "status": "PASS"
+    }
+  ]
+}

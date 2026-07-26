@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Character proposal envelope",
+  "pass": 10,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "proposal",
+      "name": "CHARACTER_ACTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_DIALOGUE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_STATE_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "RELATIONSHIP_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_ACQUISITION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_REVEAL maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "PRIVATE_ARC_PROMOTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "MULTI_CHARACTER_SCENE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "proposal contains no raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "non-whitelisted canonical patch field is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "p24b-rc1-action-pin-verification-v1",
+  "generatedAt": "2026-07-26T03:09:01.790Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "resolutionMethod": "git-ls-remote-official-github-repository",
+  "workflowPath": null,
+  "workflowValidated": false,
+  "workflowUses": [],
+  "actions": [
+    {
+      "action": "actions/checkout",
+      "owner": "actions",
+      "repository": "checkout",
+      "repositoryUrl": "https://github.com/actions/checkout.git",
+      "tag": "v4",
+      "tagKind": "lightweight",
+      "resolvedCommit": "11d5960a326750d5838078e36cf38b85af677262",
+      "expectedCommit": "11d5960a326750d5838078e36cf38b85af677262",
+      "ownerVerified": true,
+      "status": "PASS"
+    },
+    {
+      "action": "actions/setup-node",
+      "owner": "actions",
+      "repository": "setup-node",
+      "repositoryUrl": "https://github.com/actions/setup-node.git",
+      "tag": "v4",
+      "tagKind": "lightweight",
+      "resolvedCommit": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+      "expectedCommit": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+      "ownerVerified": true,
+      "status": "PASS"
+    },
+    {
+      "action": "pnpm/action-setup",
+      "owner": "pnpm",
+      "repository": "action-setup",
+      "repositoryUrl": "https://github.com/pnpm/action-setup.git",
+      "tag": "v4",
+      "tagKind": "annotated",
+      "resolvedCommit": "b906affcce14559ad1aafd4ab0e942779e9f58b1",
+      "expectedCommit": "b906affcce14559ad1aafd4ab0e942779e9f58b1",
+      "ownerVerified": true,
+      "status": "PASS"
+    }
+  ],
+  "pass": 3,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS"
+}

@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "p24b-navigation-ownership-v1",
+  "generatedAt": "2026-07-26T03:12:29.783Z",
+  "normalFlow": [
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-create-project",
+      "navigationStartedAt": "2026-07-26T03:12:19.306Z",
+      "navigationCompletedAt": "2026-07-26T03:12:20.016Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-character-editor",
+      "navigationStartedAt": "2026-07-26T03:12:20.164Z",
+      "navigationCompletedAt": "2026-07-26T03:12:20.798Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-world-rule-editor",
+      "navigationStartedAt": "2026-07-26T03:12:21.307Z",
+      "navigationCompletedAt": "2026-07-26T03:12:21.926Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-story-bible-editor",
+      "navigationStartedAt": "2026-07-26T03:12:22.076Z",
+      "navigationCompletedAt": "2026-07-26T03:12:22.693Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "PRODUCT",
+      "navigationReason": "open-character-ai-from-project-navigation",
+      "navigationStartedAt": "2026-07-26T03:12:22.829Z",
+      "navigationCompletedAt": "2026-07-26T03:12:22.941Z",
+      "productInitiated": true,
+      "harnessInitiated": false,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "normal-persistence-reload",
+      "navigationStartedAt": "2026-07-26T03:12:23.514Z",
+      "navigationCompletedAt": "2026-07-26T03:12:24.133Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "approved-proposal-persistence-reload",
+      "navigationStartedAt": "2026-07-26T03:12:24.965Z",
+      "navigationCompletedAt": "2026-07-26T03:12:25.584Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-backup-center",
+      "navigationStartedAt": "2026-07-26T03:12:25.626Z",
+      "navigationCompletedAt": "2026-07-26T03:12:26.246Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "PRODUCT",
+      "navigationReason": "restore-product-owned-reload",
+      "navigationStartedAt": "2026-07-26T03:12:26.401Z",
+      "navigationCompletedAt": "2026-07-26T03:12:27.382Z",
+      "productInitiated": true,
+      "harnessInitiated": false,
+      "adversarial": false,
+      "status": "COMPLETED"
+    },
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "open-character-ai-for-layout-gates",
+      "navigationStartedAt": "2026-07-26T03:12:27.461Z",
+      "navigationCompletedAt": "2026-07-26T03:12:28.071Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": false,
+      "status": "COMPLETED"
+    }
+  ],
+  "adversarialFlow": [
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "adversarial-primary-reload",
+      "navigationStartedAt": "2026-07-26T03:12:29.062Z",
+      "navigationCompletedAt": "2026-07-26T03:12:29.682Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": true,
+      "status": "COMPLETED"
+    }
+  ],
+  "controllerConflicts": [
+    {
+      "navigationOwner": "HARNESS",
+      "navigationReason": "adversarial-duplicate-reload",
+      "navigationStartedAt": "2026-07-26T03:12:29.062Z",
+      "navigationCompletedAt": "2026-07-26T03:12:29.062Z",
+      "productInitiated": false,
+      "harnessInitiated": true,
+      "adversarial": true,
+      "status": "CONTROLLER_CONFLICT",
+      "blockedBy": {
+        "navigationOwner": "HARNESS",
+        "navigationReason": "adversarial-primary-reload"
+      }
+    }
+  ],
+  "navigationRaceInNormalFlow": 0,
+  "adversarialControllerConflictCount": 1,
+  "productOwnedRestoreReload": true,
+  "extraHarnessReloadAfterRestore": false,
+  "forbiddenNavigationErrorCount": 0,
+  "dataLoss": 0,
+  "duplicateApproval": 0,
+  "duplicateSimulationTurn": 0,
+  "canonicalDamage": 0,
+  "duplicateRelationshipEvent": 0,
+  "status": "P2.4B_BROWSER_NAVIGATION_OWNERSHIP_PASS",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327"
+}

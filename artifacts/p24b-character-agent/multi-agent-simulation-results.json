@@ -1,0 +1,317 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Bounded multi-character private simulation",
+  "pass": 50,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "canonicalMutationBeforeApproval": 0,
+    "defaultTurnBudget": 12,
+    "hardTurnBudget": 30
+  },
+  "results": [
+    {
+      "category": "simulation",
+      "name": "A runs five turns",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "simulation",
+      "name": "A canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "A each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "A actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "A voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B runs five turns",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C runs five turns",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "default turn budget is 12",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "hard turn budget is 30",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "nested private simulation is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "pause transition is supported",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "resume transition is supported",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "cancel transition is supported",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "completed private result can be discarded without Canonical mutation",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "discarded private result cannot resume",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "completed session cannot resume",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "scheduler is fair across three actors",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic input reproduces turn order",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic fixture structure is reproducible within one canon",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "true model replay contract is structure only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic provider replay contract is full",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "no progress detector spots duplicate action",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "semantic repetition detector normalizes punctuation",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "semantic repetition is reported as livelock",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "three no-change turns are reported as deadlock",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic replay preserves decision hashes and relationship structure",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "concurrency guard shares one resume promise",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}
