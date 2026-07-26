@@ -1,0 +1,148 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "title": "Atomic approval transaction rollback",
+  "pass": 22,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "testedFaultPoints": 21,
+    "partialTransactions": 0
+  },
+  "results": [
+    {
+      "category": "migration",
+      "name": "IndexedDB Character approval commits atomically",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB injected Character write fault rolls back transaction",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "title": "Repository v6 migration",
+  "pass": 45,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "migration",
+      "name": "all fourteen required Character Agent stores exist",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "repository includes all Character Agent stores",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB schema is v6",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB v5 upgrades to v6 without losing P2.4A project data",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB opens every Character Agent store",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB Character approval commits atomically",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB Character approval idempotently replays",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB concurrent approval has no duplicate",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB stale relationship revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB injected Character write fault rolls back transaction",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "category": "migration",
+      "name": "new backup uses v5 format",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "new backup includes every Character Agent store",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "new backup validates checksum",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "corrupt backup is rejected",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "backup roundtrip preserves semantic data",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "old P2.4A-style backup without P2.4B stores imports",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "duplicate record IDs are rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "migration",
+      "name": "cross-project ownership is rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps Canon Context identity",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps sourceCharacterRevisions keys",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "copy normalizes source revisions to one",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps compound idempotency scopes",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "copy leaves source repository unchanged",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "category": "migration",
+      "name": "relationship idempotency and source scopes are independent namespaces",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "migration",
+      "name": "duplicate relationship source scope is rejected",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 8
+    }
+  ]
+}

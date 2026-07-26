@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "title": "Simulation termination and lifecycle",
+  "pass": 13,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "simulation",
+      "name": "default turn budget is 12",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "simulation",
+      "name": "hard turn budget is 30",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "simulation",
+      "name": "nested private simulation is blocked",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "simulation",
+      "name": "pause transition is supported",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "resume transition is supported",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "cancel transition is supported",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "simulation",
+      "name": "completed private result can be discarded without Canonical mutation",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "discarded private result cannot resume",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "completed session cannot resume",
+      "status": "PASS",
+      "elapsedMs": 16
+    },
+    {
+      "category": "simulation",
+      "name": "no progress detector spots duplicate action",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "simulation",
+      "name": "semantic repetition is reported as livelock",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "three no-change turns are reported as deadlock",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "concurrency guard shares one resume promise",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

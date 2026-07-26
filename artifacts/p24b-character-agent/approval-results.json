@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T01:55:42.828Z",
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46",
+  "title": "Atomic proposal approval",
+  "pass": 34,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "proposal",
+      "name": "CHARACTER_ACTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_DIALOGUE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_STATE_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "RELATIONSHIP_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_ACQUISITION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_REVEAL maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "PRIVATE_ARC_PROMOTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "MULTI_CHARACTER_SCENE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "proposal contains no raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval atomically updates canonical character",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "approval writes approved proposal and record",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes generated memory only after approval",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "approval commits relationship event once",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "proposal",
+      "name": "same idempotency key replays",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "same idempotency key replayed 100 times creates one approval",
+      "status": "PASS",
+      "elapsedMs": 21
+    },
+    {
+      "category": "proposal",
+      "name": "same key with payload mismatch is rejected",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "proposal",
+      "name": "two different approvals for same proposal do not duplicate",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "proposal",
+      "name": "approve and reject race has one winner",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "proposal",
+      "name": "stale source revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale Story Bible blocks approval",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "stale character revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "blocking evaluation prevents approval",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "reject leaves canonical character unchanged",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "private memory effect is blocked",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "audit stores decision summary not raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes projected state",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval persists acquired scoped knowledge",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes private arc explicitly",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval applies directed relationship edge only",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval increments canonical revision exactly once",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "rejection writes a zero-mutation audit event",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale Canon Context blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "non-whitelisted canonical patch field is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "accepted proposal cannot later be rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    }
+  ]
+}

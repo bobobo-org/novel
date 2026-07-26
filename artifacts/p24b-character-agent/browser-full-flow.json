@@ -1,0 +1,2861 @@
+{
+  "schemaVersion": "p24b-browser-full-flow-v1",
+  "generatedAt": "2026-07-26T01:37:20.513Z",
+  "server": "http://127.0.0.1:3125",
+  "projectId": "336fcd19-1f73-49b0-b1c6-059b0ad55eb4",
+  "browserProfile": "fresh isolated Playwright Chromium context",
+  "mutationMethod": "consumer UI only",
+  "indexedDbUse": "readonly transaction completion, snapshots, counts, and semantic hashes only",
+  "flowSteps": [
+    {
+      "number": 1,
+      "name": "consumer-flow-01-建立作品",
+      "status": "PASS",
+      "details": {
+        "route": "/studio/project/336fcd19-1f73-49b0-b1c6-059b0ad55eb4/write",
+        "mutationMethod": "consumer UI"
+      }
+    },
+    {
+      "number": 2,
+      "name": "consumer-flow-02-建立三位角色",
+      "status": "PASS",
+      "details": {
+        "names": [
+          "蘇晴",
+          "周野",
+          "林昭"
+        ]
+      }
+    },
+    {
+      "number": 3,
+      "name": "consumer-flow-03-建立角色性格目標恐懼與秘密",
+      "status": "PASS",
+      "details": {
+        "completeCharacterCount": 3
+      }
+    },
+    {
+      "number": 4,
+      "name": "consumer-flow-04-建立兩條世界規則",
+      "status": "PASS",
+      "details": {
+        "titles": [
+          "午夜真相規則",
+          "紅鐘密室規則"
+        ]
+      }
+    },
+    {
+      "number": 5,
+      "name": "consumer-flow-05-建立Story Bible秘密",
+      "status": "PASS",
+      "details": {
+        "storyBibleRevision": 2
+      }
+    },
+    {
+      "number": 6,
+      "name": "consumer-flow-06-設定不同Knowledge Scope",
+      "status": "PASS",
+      "details": {
+        "scopes": [
+          "CHARACTER_KNOWN",
+          "CHARACTER_KNOWN",
+          "AUTHOR_ONLY"
+        ]
+      }
+    },
+    {
+      "number": 7,
+      "name": "consumer-flow-07-建立兩條有方向性的關係",
+      "status": "PASS",
+      "details": {
+        "edgeCount": 2,
+        "aToBTrust": 24,
+        "bToATrust": -8
+      }
+    },
+    {
+      "number": 8,
+      "name": "consumer-flow-08-Reload",
+      "status": "PASS",
+      "details": {
+        "navigationOwner": "HARNESS"
+      }
+    },
+    {
+      "number": 9,
+      "name": "consumer-flow-09-確認資料存在",
+      "status": "PASS",
+      "details": {
+        "characters": 3,
+        "worldRules": 2,
+        "knowledge": 3,
+        "relationships": 2
+      }
+    },
+    {
+      "number": 10,
+      "name": "consumer-flow-10-開啟角色AI",
+      "status": "PASS",
+      "details": {
+        "route": "http://127.0.0.1:3125/studio/project/336fcd19-1f73-49b0-b1c6-059b0ad55eb4/character-ai"
+      }
+    },
+    {
+      "number": 11,
+      "name": "consumer-flow-11-選擇角色A",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "number": 12,
+      "name": "consumer-flow-12-角色A看不到AUTHOR_ONLY秘密",
+      "status": "PASS",
+      "details": {
+        "rawSecretVisible": false
+      }
+    },
+    {
+      "number": 13,
+      "name": "consumer-flow-13-角色A只能看到自己的CHARACTER_KN資訊",
+      "status": "PASS",
+      "details": {
+        "ownKnowledgeVisible": true,
+        "otherKnowledgeVisible": false
+      }
+    },
+    {
+      "number": 14,
+      "name": "consumer-flow-14-建立私人模擬",
+      "status": "PASS",
+      "details": {
+        "sessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "currentTurn": 1
+      }
+    },
+    {
+      "number": 15,
+      "name": "consumer-flow-15-執行三角色至少5回合",
+      "status": "PASS",
+      "details": {
+        "turnCount": 5,
+        "speakerCount": 3
+      }
+    },
+    {
+      "number": 16,
+      "name": "consumer-flow-16-檢查不同Voice",
+      "status": "PASS",
+      "details": {
+        "distinctLines": 5,
+        "voiceLengthsBySpeaker": {
+          "23b6705e-a1e4-4e67-83cb-7a747c697cf7": 12,
+          "b41094d2-b2a2-4e60-bec9-f2ff4746ed38": 3,
+          "19622bf9-0a94-4f02-94e4-949febb92cd9": 36
+        }
+      }
+    },
+    {
+      "number": 17,
+      "name": "consumer-flow-17-檢查關係變化候選",
+      "status": "PASS",
+      "details": {
+        "candidateCount": 5
+      }
+    },
+    {
+      "number": 18,
+      "name": "consumer-flow-18-放棄模擬",
+      "status": "PASS",
+      "details": {
+        "sessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "status": "DISCARDED"
+      }
+    },
+    {
+      "number": 19,
+      "name": "consumer-flow-19-確認Canonical不變",
+      "status": "PASS",
+      "details": {
+        "novelCanonicalMutation": 0,
+        "dramaCanonicalMutation": 0,
+        "relationshipMutation": 0
+      }
+    },
+    {
+      "number": 20,
+      "name": "consumer-flow-20-重新產生",
+      "status": "PASS",
+      "details": {
+        "previousSessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "sessionId": "simulation:7807cbcfa8eb1dff1e5ec01ed55a18a87f05140a"
+      }
+    },
+    {
+      "number": 21,
+      "name": "consumer-flow-21-確認新Session ID",
+      "status": "PASS",
+      "details": {
+        "previousSessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "sessionId": "simulation:7807cbcfa8eb1dff1e5ec01ed55a18a87f05140a"
+      }
+    },
+    {
+      "number": 22,
+      "name": "consumer-flow-22-將私人結果轉成Proposal",
+      "status": "PASS",
+      "details": {
+        "proposalId": "8aaf64b1-80dd-41b8-8f2b-0a2de1589887",
+        "status": "GENERATED"
+      }
+    },
+    {
+      "number": 23,
+      "name": "consumer-flow-23-核准一個Character Proposal",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1,
+        "proposalId": "8aaf64b1-80dd-41b8-8f2b-0a2de1589887"
+      }
+    },
+    {
+      "number": 24,
+      "name": "consumer-flow-24-Reload",
+      "status": "PASS",
+      "details": {
+        "navigationOwner": "HARNESS"
+      }
+    },
+    {
+      "number": 25,
+      "name": "consumer-flow-25-確認核准結果存在",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1
+      }
+    },
+    {
+      "number": 26,
+      "name": "consumer-flow-26-Novel Canon未被錯誤修改",
+      "status": "PASS",
+      "details": {
+        "novelCanonicalHash": "80d3d25e6ac94618f2226ef483060a541c368eaf96a4f82cd5a8e4c4f495b212"
+      }
+    },
+    {
+      "number": 27,
+      "name": "consumer-flow-27-Drama Canon未被錯誤修改",
+      "status": "PASS",
+      "details": {
+        "dramaCanonicalHash": "3c96fb0e44c2a2886094cfc38f2615977eeb84d35dd74611d92f981bbd06092d"
+      }
+    },
+    {
+      "number": 28,
+      "name": "consumer-flow-28-Backup",
+      "status": "PASS",
+      "details": {
+        "backupId": "e2404321-36c9-4409-8366-5b060a52bcec",
+        "characterStoreCount": 14
+      }
+    },
+    {
+      "number": 29,
+      "name": "consumer-flow-29-Restore",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1,
+        "turnCount": 10,
+        "relationshipCount": 2,
+        "productOwnedReload": true,
+        "extraHarnessReload": false
+      }
+    },
+    {
+      "number": 30,
+      "name": "consumer-flow-30-Semantic hash一致",
+      "status": "PASS",
+      "details": {
+        "before": "bed7b8b9f286ab50f08290605e2265d2c705f1e53b8b1c7b9779318f64d5b058",
+        "after": "bed7b8b9f286ab50f08290605e2265d2c705f1e53b8b1c7b9779318f64d5b058"
+      }
+    }
+  ],
+  "status": "PASS",
+  "pass": 61,
+  "fail": 0,
+  "skip": 0,
+  "checks": [
+    {
+      "name": "consumer-flow-01-建立作品",
+      "status": "PASS",
+      "details": {
+        "route": "/studio/project/336fcd19-1f73-49b0-b1c6-059b0ad55eb4/write",
+        "mutationMethod": "consumer UI"
+      }
+    },
+    {
+      "name": "consumer-flow-02-建立三位角色",
+      "status": "PASS",
+      "details": {
+        "names": [
+          "蘇晴",
+          "周野",
+          "林昭"
+        ]
+      }
+    },
+    {
+      "name": "consumer-flow-03-建立角色性格目標恐懼與秘密",
+      "status": "PASS",
+      "details": {
+        "completeCharacterCount": 3
+      }
+    },
+    {
+      "name": "consumer-flow-04-建立兩條世界規則",
+      "status": "PASS",
+      "details": {
+        "titles": [
+          "午夜真相規則",
+          "紅鐘密室規則"
+        ]
+      }
+    },
+    {
+      "name": "consumer-flow-05-建立Story Bible秘密",
+      "status": "PASS",
+      "details": {
+        "storyBibleRevision": 2
+      }
+    },
+    {
+      "name": "consumer-flow-06-設定不同Knowledge Scope",
+      "status": "PASS",
+      "details": {
+        "scopes": [
+          "CHARACTER_KNOWN",
+          "CHARACTER_KNOWN",
+          "AUTHOR_ONLY"
+        ]
+      }
+    },
+    {
+      "name": "consumer-flow-07-建立兩條有方向性的關係",
+      "status": "PASS",
+      "details": {
+        "edgeCount": 2,
+        "aToBTrust": 24,
+        "bToATrust": -8
+      }
+    },
+    {
+      "name": "consumer-flow-08-Reload",
+      "status": "PASS",
+      "details": {
+        "navigationOwner": "HARNESS"
+      }
+    },
+    {
+      "name": "consumer-flow-09-確認資料存在",
+      "status": "PASS",
+      "details": {
+        "characters": 3,
+        "worldRules": 2,
+        "knowledge": 3,
+        "relationships": 2
+      }
+    },
+    {
+      "name": "consumer-flow-10-開啟角色AI",
+      "status": "PASS",
+      "details": {
+        "route": "http://127.0.0.1:3125/studio/project/336fcd19-1f73-49b0-b1c6-059b0ad55eb4/character-ai"
+      }
+    },
+    {
+      "name": "consumer-flow-11-選擇角色A",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "consumer-flow-12-角色A看不到AUTHOR_ONLY秘密",
+      "status": "PASS",
+      "details": {
+        "rawSecretVisible": false
+      }
+    },
+    {
+      "name": "consumer-flow-13-角色A只能看到自己的CHARACTER_KN資訊",
+      "status": "PASS",
+      "details": {
+        "ownKnowledgeVisible": true,
+        "otherKnowledgeVisible": false
+      }
+    },
+    {
+      "name": "consumer-flow-14-建立私人模擬",
+      "status": "PASS",
+      "details": {
+        "sessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "currentTurn": 1
+      }
+    },
+    {
+      "name": "consumer-flow-15-執行三角色至少5回合",
+      "status": "PASS",
+      "details": {
+        "turnCount": 5,
+        "speakerCount": 3
+      }
+    },
+    {
+      "name": "consumer-flow-16-檢查不同Voice",
+      "status": "PASS",
+      "details": {
+        "distinctLines": 5,
+        "voiceLengthsBySpeaker": {
+          "23b6705e-a1e4-4e67-83cb-7a747c697cf7": 12,
+          "b41094d2-b2a2-4e60-bec9-f2ff4746ed38": 3,
+          "19622bf9-0a94-4f02-94e4-949febb92cd9": 36
+        }
+      }
+    },
+    {
+      "name": "consumer-flow-17-檢查關係變化候選",
+      "status": "PASS",
+      "details": {
+        "candidateCount": 5
+      }
+    },
+    {
+      "name": "consumer-flow-18-放棄模擬",
+      "status": "PASS",
+      "details": {
+        "sessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "status": "DISCARDED"
+      }
+    },
+    {
+      "name": "consumer-flow-19-確認Canonical不變",
+      "status": "PASS",
+      "details": {
+        "novelCanonicalMutation": 0,
+        "dramaCanonicalMutation": 0,
+        "relationshipMutation": 0
+      }
+    },
+    {
+      "name": "consumer-flow-20-重新產生",
+      "status": "PASS",
+      "details": {
+        "previousSessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "sessionId": "simulation:7807cbcfa8eb1dff1e5ec01ed55a18a87f05140a"
+      }
+    },
+    {
+      "name": "consumer-flow-21-確認新Session ID",
+      "status": "PASS",
+      "details": {
+        "previousSessionId": "simulation:a012e49eaff01905e4a3ce3ecdc2a6412350cd0c",
+        "sessionId": "simulation:7807cbcfa8eb1dff1e5ec01ed55a18a87f05140a"
+      }
+    },
+    {
+      "name": "consumer-flow-22-將私人結果轉成Proposal",
+      "status": "PASS",
+      "details": {
+        "proposalId": "8aaf64b1-80dd-41b8-8f2b-0a2de1589887",
+        "status": "GENERATED"
+      }
+    },
+    {
+      "name": "consumer-flow-23-核准一個Character Proposal",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1,
+        "proposalId": "8aaf64b1-80dd-41b8-8f2b-0a2de1589887"
+      }
+    },
+    {
+      "name": "consumer-flow-24-Reload",
+      "status": "PASS",
+      "details": {
+        "navigationOwner": "HARNESS"
+      }
+    },
+    {
+      "name": "consumer-flow-25-確認核准結果存在",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1
+      }
+    },
+    {
+      "name": "consumer-flow-26-Novel Canon未被錯誤修改",
+      "status": "PASS",
+      "details": {
+        "novelCanonicalHash": "80d3d25e6ac94618f2226ef483060a541c368eaf96a4f82cd5a8e4c4f495b212"
+      }
+    },
+    {
+      "name": "consumer-flow-27-Drama Canon未被錯誤修改",
+      "status": "PASS",
+      "details": {
+        "dramaCanonicalHash": "3c96fb0e44c2a2886094cfc38f2615977eeb84d35dd74611d92f981bbd06092d"
+      }
+    },
+    {
+      "name": "consumer-flow-28-Backup",
+      "status": "PASS",
+      "details": {
+        "backupId": "e2404321-36c9-4409-8366-5b060a52bcec",
+        "characterStoreCount": 14
+      }
+    },
+    {
+      "name": "consumer-flow-29-Restore",
+      "status": "PASS",
+      "details": {
+        "approvalCount": 1,
+        "turnCount": 10,
+        "relationshipCount": 2,
+        "productOwnedReload": true,
+        "extraHarnessReload": false
+      }
+    },
+    {
+      "name": "consumer-flow-30-Semantic hash一致",
+      "status": "PASS",
+      "details": {
+        "before": "bed7b8b9f286ab50f08290605e2265d2c705f1e53b8b1c7b9779318f64d5b058",
+        "after": "bed7b8b9f286ab50f08290605e2265d2c705f1e53b8b1c7b9779318f64d5b058"
+      }
+    },
+    {
+      "name": "desktop-1440x900-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "relationshipGraphVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "desktop-relationship-ui-operable",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "relationshipGraphVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "desktop-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "relationshipGraphVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false
+      }
+    },
+    {
+      "name": "mobile-360x800-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "0px",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 327,
+            "width": 294,
+            "minWidth": "0px",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-360x800-main-controls-operable",
+      "status": "PASS",
+      "details": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      }
+    },
+    {
+      "name": "mobile-360x800-relationship-ui-operable",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "0px",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 327,
+            "width": 294,
+            "minWidth": "0px",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-360x800-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 360,
+        "bodyScrollWidth": 360,
+        "rootScrollWidth": 360,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "0px",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "336px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 327,
+            "width": 294,
+            "minWidth": "0px",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 348,
+            "width": 336,
+            "minWidth": "auto",
+            "gridTemplateColumns": "294px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-375x812-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "0px",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 342,
+            "width": 309,
+            "minWidth": "0px",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-375x812-main-controls-operable",
+      "status": "PASS",
+      "details": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      }
+    },
+    {
+      "name": "mobile-375x812-relationship-ui-operable",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "0px",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 342,
+            "width": 309,
+            "minWidth": "0px",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-375x812-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 375,
+        "bodyScrollWidth": 375,
+        "rootScrollWidth": 375,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "0px",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "351px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 342,
+            "width": 309,
+            "minWidth": "0px",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 363,
+            "width": 351,
+            "minWidth": "auto",
+            "gridTemplateColumns": "309px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "周野",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "在午夜前打開暗門救出失蹤演員",
+            "left": 224,
+            "right": 386,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-390x844-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "0px",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 357,
+            "width": 324,
+            "minWidth": "0px",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-390x844-main-controls-operable",
+      "status": "PASS",
+      "details": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      }
+    },
+    {
+      "name": "mobile-390x844-relationship-ui-operable",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "0px",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 357,
+            "width": 324,
+            "minWidth": "0px",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-390x844-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "0px",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "366px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 357,
+            "width": 324,
+            "minWidth": "0px",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 378,
+            "width": 366,
+            "minWidth": "auto",
+            "gridTemplateColumns": "324px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "角色",
+            "left": 351,
+            "right": 409,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "周野在午夜前打開暗門救出失蹤演員",
+            "left": 210,
+            "right": 400,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-412x915-horizontal-overflow-zero",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "0px",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 379,
+            "width": 346,
+            "minWidth": "0px",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-412x915-main-controls-operable",
+      "status": "PASS",
+      "details": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      }
+    },
+    {
+      "name": "mobile-412x915-relationship-ui-operable",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "0px",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 379,
+            "width": 346,
+            "minWidth": "0px",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          }
+        ]
+      }
+    },
+    {
+      "name": "mobile-412x915-technical-information-collapsed",
+      "status": "PASS",
+      "details": {
+        "innerWidth": 412,
+        "bodyScrollWidth": 412,
+        "rootScrollWidth": 412,
+        "relationshipGraphHidden": true,
+        "relationshipListVisible": true,
+        "relationshipCardCount": 2,
+        "technicalInformationExpanded": false,
+        "layoutDiagnostics": {
+          ".characterAgentWorkspace": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "0px",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".characterOverview": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".knowledgeColumns": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".setupGrid": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "388px",
+            "overflowX": "visible"
+          },
+          ".simulationSetup": {
+            "left": 33,
+            "right": 379,
+            "width": 346,
+            "minWidth": "0px",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          },
+          ".proposalSection": {
+            "left": 12,
+            "right": 400,
+            "width": 388,
+            "minWidth": "auto",
+            "gridTemplateColumns": "346px",
+            "overflowX": "visible"
+          }
+        },
+        "overflowingElements": [
+          {
+            "tag": "A",
+            "className": "",
+            "text": "備份",
+            "left": 777,
+            "right": 835,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "成就",
+            "left": 714,
+            "right": 772,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "任務",
+            "left": 651,
+            "right": 709,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "故事記憶",
+            "left": 556,
+            "right": 646,
+            "width": 90,
+            "scrollWidth": 90,
+            "clientWidth": 90
+          },
+          {
+            "tag": "BUTTON",
+            "className": "",
+            "text": "林昭找出舊劇院邀請者並保護同伴",
+            "left": 408,
+            "right": 598,
+            "width": 190,
+            "scrollWidth": 188,
+            "clientWidth": 188
+          },
+          {
+            "tag": "B",
+            "className": "",
+            "text": "林昭",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "SMALL",
+            "className": "",
+            "text": "找出舊劇院邀請者並保護同伴",
+            "left": 422,
+            "right": 584,
+            "width": 162,
+            "scrollWidth": 162,
+            "clientWidth": 162
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "時間線",
+            "left": 477,
+            "right": 551,
+            "width": 74,
+            "scrollWidth": 74,
+            "clientWidth": 74
+          },
+          {
+            "tag": "A",
+            "className": "",
+            "text": "世界",
+            "left": 414,
+            "right": 472,
+            "width": 58,
+            "scrollWidth": 58,
+            "clientWidth": 58
+          }
+        ]
+      }
+    },
+    {
+      "name": "adversarial-duplicate-reload-controller-race-isolated",
+      "status": "PASS",
+      "details": {
+        "fulfilled": 1,
+        "controllerRejected": 1
+      }
+    },
+    {
+      "name": "adversarial-reload-data-loss-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adversarial-reload-duplicate-approval-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adversarial-reload-duplicate-simulation-turn-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adversarial-reload-canonical-damage-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "adversarial-reload-duplicate-relationship-event-zero",
+      "status": "PASS",
+      "details": null
+    },
+    {
+      "name": "normal-navigation-race-zero",
+      "status": "PASS",
+      "details": {
+        "normalNavigationFailures": []
+      }
+    },
+    {
+      "name": "console-error-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "page-error-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "unexpected-4xx-5xx-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "unexpected-external-request-zero",
+      "status": "PASS",
+      "details": []
+    },
+    {
+      "name": "consumer-flow-has-exactly-30-steps",
+      "status": "PASS",
+      "details": {
+        "stepCount": 30
+      }
+    }
+  ],
+  "screenshots": [
+    "p24b-character-agent-desktop-1440x900.png",
+    "p24b-character-agent-mobile-360x800.png",
+    "p24b-character-agent-mobile-375x812.png",
+    "p24b-character-agent-mobile-390x844.png",
+    "p24b-character-agent-mobile-412x915.png"
+  ],
+  "consoleErrorCount": 0,
+  "pageErrorCount": 0,
+  "unexpectedHttpErrorCount": 0,
+  "unexpectedExternalRequestCount": 0,
+  "unauthorizedKnowledgeLeak": 0,
+  "canonicalMutationBeforeApproval": 0,
+  "productionMutation": 0,
+  "productCommit": "e8250678bbc0513dde4a487f7a10145e42c95d46"
+}
