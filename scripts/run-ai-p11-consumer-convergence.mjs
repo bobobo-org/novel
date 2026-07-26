@@ -8,6 +8,7 @@ check("首頁正式主標題",home.includes("諸天萬界小說生成系統")&&h
 check("首頁六個消費者入口",["開始新故事","繼續我的故事","玩互動故事","修改目前作品","檢查整本作品","我的作品"].every(x=>home.includes(x)));
 check("正式 studio consumer shell",!config.includes('source: "/studio"')&&studioRoute.includes("studioShell")&&studioRoute.includes("建立新作品"));
 check("legacy 只作相容 shell",html.includes('<base href="/legacy/">')&&html.includes("consumer-app.js"));
+check("專業模式首屏隱藏 consumer shell",html.includes("#consumerAppShell[hidden]")&&html.includes("body.p11-professional #consumerAppShell{display:none!important}"));
 check("十個消費者模組載入",["consumer-home","consumer-navigation","creation-wizard","writing-studio","consumer-ai-actions","choice-story","story-dashboard","theme-system","adult-entry-guard","professional-tools"].every(x=>html.includes(x)));
 check("五步驟建立流程",wizard.includes("第 ${step} 步，共 5 步")&&["你想寫什麼故事","建立主角","建立故事世界","選擇故事玩法","預覽並建立"].every(x=>wizard.includes(x)));
 check("進階欄位保留",["分類包","故事引擎","主角原型","世界核心","能力核心","反派核心","十章大綱"].every(x=>wizard.includes(x)));
