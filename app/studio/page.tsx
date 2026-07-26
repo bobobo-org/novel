@@ -1,16 +1,13 @@
-import { RELEASE_MANIFEST } from "@/lib/release-manifest";
-import StudioClient from "./studio-client";
+import {
+  buildProfessionalFrontdoorUrl,
+  type ProfessionalFrontdoorSearchParams,
+} from "@/lib/professional-frontdoor";
+import { redirect } from "next/navigation";
 
-const screens = new Set(["home", "create", "write", "choice", "inspect", "library", "world", "dashboard", "backup"]);
-
-function resolveStudioScreen(requested: string) {
-  return requested === "interactive" ? "choice" : screens.has(requested) ? requested : "home";
-}
-
-export default async function StudioPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const params = await searchParams;
-  const requested = typeof params.screen === "string" ? params.screen : "home";
-  const initialScreen = resolveStudioScreen(requested);
-  const initialTask = typeof params.task === "string" ? params.task : "";
-  return <StudioClient initialScreen={initialScreen} initialTask={initialTask} release={RELEASE_MANIFEST} />;
+export default async function StudioPage({
+  searchParams,
+}: {
+  searchParams: Promise<ProfessionalFrontdoorSearchParams>;
+}) {
+  redirect(buildProfessionalFrontdoorUrl(await searchParams));
 }

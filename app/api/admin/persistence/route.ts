@@ -29,6 +29,13 @@ const releaseIdentity = {
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
   commitProvenanceStatus: RELEASE_MANIFEST.commitProvenanceStatus,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
   characterCapabilities: Object.fromEntries([
     "characterAgentCore",
     "characterPerspectiveContext",

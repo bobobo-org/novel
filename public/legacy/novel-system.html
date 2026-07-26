@@ -9,6 +9,178 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./novel-system.css?v=guided-writing-2">
 <link id="p11Styles" rel="stylesheet" href="./consumer-app.css?v=p11-consumer-convergence-r4">
+<script>
+if(new URLSearchParams(location.search).get("mode")==="professional"){
+  document.documentElement.classList.add("p11-professional-entry");
+  document.documentElement.dataset.publicWorkspace="professional";
+}
+</script>
+<style id="p24b-rc2-unified-professional-layout">
+#consumerAppShell[hidden],
+:is(body.p11-professional,html.p11-professional-entry body) #consumerAppShell,
+:is(body.p11-professional,html.p11-professional-entry body) #legacyCompatibilityBanner,
+:is(body.p11-professional,html.p11-professional-entry body) #p11ReturnConsumer,
+:is(body.p11-professional,html.p11-professional-entry body) .appDock{
+  display:none!important
+}
+html.p11-professional-entry,
+html.p11-professional-entry body,
+body.p11-professional{
+  width:100%;
+  height:100%;
+  margin:0;
+  overflow:hidden!important
+}
+:is(body.p11-professional,html.p11-professional-entry body) #offlineStatusBar{
+  box-sizing:border-box;
+  width:100%;
+  min-height:42px;
+  height:42px;
+  padding:6px 14px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  white-space:nowrap;
+  scrollbar-width:none
+}
+:is(body.p11-professional,html.p11-professional-entry body) #offlineStatusBar::-webkit-scrollbar{
+  display:none
+}
+:is(body.p11-professional,html.p11-professional-entry body) .app{
+  display:grid!important;
+  grid-template-columns:380px minmax(0,1fr)!important;
+  width:100%;
+  max-width:none;
+  height:calc(100vh - 42px)!important;
+  height:calc(100dvh - 42px)!important;
+  min-height:0!important;
+  overflow:hidden!important
+}
+:is(body.p11-professional,html.p11-professional-entry body) .side{
+  position:relative!important;
+  width:100%;
+  height:100%!important;
+  min-height:0;
+  padding:10px 12px!important;
+  overflow-x:hidden!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable
+}
+:is(body.p11-professional,html.p11-professional-entry body) .brand{
+  margin:0 0 8px;
+  font-size:18px
+}
+:is(body.p11-professional,html.p11-professional-entry body) .navTitle{
+  display:none!important
+}
+:is(body.p11-professional,html.p11-professional-entry body) .nav{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:4px 6px!important;
+  align-content:start
+}
+:is(body.p11-professional,html.p11-professional-entry body) .nav button{
+  width:100%!important;
+  min-width:0;
+  min-height:34px;
+  margin:0!important;
+  padding:6px 9px!important;
+  overflow:hidden;
+  color:#c8d6ed;
+  font-size:14px!important;
+  line-height:1.25!important;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+:is(body.p11-professional,html.p11-professional-entry body) .main{
+  position:relative;
+  width:100%;
+  max-width:none!important;
+  height:100%!important;
+  min-width:0;
+  min-height:0;
+  padding:14px 18px 28px!important;
+  overflow-x:hidden!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable
+}
+:is(body.p11-professional,html.p11-professional-entry body) .main>*{
+  max-width:100%
+}
+:is(body.p11-professional,html.p11-professional-entry body) .top{
+  margin:-14px -18px 14px!important;
+  padding:10px 18px!important
+}
+.p24b-route-hub .hero{min-height:0}
+.p24b-route-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-top:16px
+}
+.p24b-route-card{
+  display:flex;
+  min-width:0;
+  min-height:112px;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:10px;
+  padding:14px;
+  border:1px solid #3a5276;
+  border-radius:10px;
+  background:linear-gradient(145deg,#14233b,#0b1527);
+  color:#eef5ff;
+  text-decoration:none
+}
+.p24b-route-card:hover,.p24b-route-card:focus-visible{
+  border-color:#f2c86b;
+  outline:none;
+  transform:translateY(-1px)
+}
+.p24b-route-card b{color:#ffe1a0;font-size:16px}
+.p24b-route-card span{color:#aebed8;line-height:1.45}
+.p24b-route-status{margin-top:14px}
+@media(max-width:1100px){
+  :is(body.p11-professional,html.p11-professional-entry body) .app{
+    grid-template-columns:340px minmax(0,1fr)!important
+  }
+  .p24b-route-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:920px){
+  :is(body.p11-professional,html.p11-professional-entry body) .app{
+    grid-template-columns:1fr!important;
+    grid-template-rows:minmax(190px,36dvh) minmax(0,1fr)!important
+  }
+  :is(body.p11-professional,html.p11-professional-entry body) .side{
+    position:relative!important;
+    max-height:none!important;
+    padding:9px 10px!important;
+    border-right:0;
+    border-bottom:1px solid var(--line)
+  }
+  :is(body.p11-professional,html.p11-professional-entry body) .nav{
+    grid-template-columns:1fr!important;
+    gap:4px!important
+  }
+  :is(body.p11-professional,html.p11-professional-entry body) .nav button{
+    min-height:38px;
+    font-size:14px!important
+  }
+  :is(body.p11-professional,html.p11-professional-entry body) .main{
+    padding:12px 11px 22px!important
+  }
+  :is(body.p11-professional,html.p11-professional-entry body) .top{
+    position:relative!important;
+    margin:-12px -11px 12px!important;
+    padding:9px 11px!important
+  }
+}
+@media(max-width:520px){
+  .p24b-route-grid{grid-template-columns:1fr}
+  .p24b-route-card{min-height:92px}
+}
+</style>
 <script src="./db.js" defer></script>
 <script src="./db-v2.js?v=phase1-home-7" defer></script>
 <script src="./migration.js?v=phase1-home-7" defer></script>
@@ -113,9 +285,10 @@ body{font-size:16px}
 @media(max-width:620px){.simple-writing-tabs button{flex:1 1 100%}}
 </style>
 </head>
-<body><div id="novelStaticRelease" data-app-commit="__NOVEL_STATIC_APP_COMMIT__" data-release-tag="__NOVEL_STATIC_RELEASE_TAG__" data-release-name="__NOVEL_STATIC_RELEASE_NAME__" data-consumer-release="__NOVEL_STATIC_CONSUMER_RELEASE__" data-architecture-stage="__NOVEL_STATIC_ARCHITECTURE_STAGE__" data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__" data-visible-ui-body-hash="__NOVEL_VISIBLE_UI_BODY_HASH__" hidden></div>
+<body><div id="novelStaticRelease" data-app-commit="__NOVEL_STATIC_APP_COMMIT__" data-release-tag="__NOVEL_STATIC_RELEASE_TAG__" data-release-name="__NOVEL_STATIC_RELEASE_NAME__" data-consumer-release="__NOVEL_STATIC_CONSUMER_RELEASE__" data-architecture-stage="__NOVEL_STATIC_ARCHITECTURE_STAGE__" data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__" data-visible-ui-body-hash="__NOVEL_VISIBLE_UI_BODY_HASH__" data-professional-ui-version="p24b-rc2-unified-ui" data-professional-menu-count="27" data-deep-studio-routes="preserved" hidden></div>
 <aside id="legacyCompatibilityBanner" style="position:relative;z-index:10002;display:flex;align-items:center;justify-content:center;gap:12px;padding:9px 16px;border-bottom:1px solid #735b2d;background:#221b11;color:#f1d596;font:700 14px Arial,'Microsoft JhengHei',sans-serif">相容／專業工具入口 <a href="/studio" style="padding:5px 10px;border:1px solid #5d8cca;background:#102a49;color:#e8f4ff;text-decoration:none">前往正式創作中心</a></aside>
-<div class="app"><aside class="side"><div class="brand">諸天創作中心<small>Legacy 相容工具</small></div><div class="nav"><div class="navTitle">創作工具</div><button data-view="creation" class="active">快速創作</button><button data-view="breakdown">書籍拆解</button><button data-view="chatnovel">接力提示</button><button data-view="tastecoach">聊天閱讀創作助理</button><button data-view="bookcast">每日書摘播報</button><button data-view="miniai">本機規則建議</button><button data-view="batchlab">多章批量操作</button><div class="navTitle">探索</div><button data-view="home">首頁探索</button><button data-view="library">分類書庫</button><button data-view="cloudlib">雲端借閱書庫</button><button data-view="characters">角色廣場</button><button data-view="styles">文風廣場</button><button data-view="interactive">互動故事</button><button data-view="tasks">任務中心</button><button data-view="events">活動中心</button><button data-view="rankings">排行榜</button><button data-view="tags">全部標籤</button><div class="navTitle">作者</div><button data-view="writer">作家中心</button><button data-view="seriallab">連載儀表板</button><button data-view="readerlab">讀者互動</button><button data-view="taglab">標籤工坊</button><button data-view="ipcenter">IP 改編庫</button><button data-view="platforms">平台比較</button><div class="navTitle">個人</div><button data-view="bookshelf">我的書架</button><button data-view="export">存檔 / 匯出</button></div></aside><main class="main"><div class="top"><div class="search"><span>搜尋</span><input id="searchBox" placeholder="輸入題材、角色、風格，按 Enter 搜尋" oninput="handleSearchInput()" onkeydown="if(event.key==='Enter') handleSearchEnter()"></div><span class="pill">Legacy 相容模式</span><span class="pill">模型執行已停用</span></div><div id="visibleVersionMarker" class="notice" style="margin-bottom:14px;border-left-color:#f2c86b;background:rgba(242,200,107,.1);color:#ffe4a1;font-weight:900">Legacy 僅保留離線編輯、備份與人工匯入。正式作品與本機模型請使用 Studio；此頁不會直接執行模型或寫入正式 Story Bible。</div>
+<div class="app" data-testid="professional-workspace" data-workspace-version="p24b-rc2-unified-ui"><aside class="side"><div class="brand">諸天創作中心<small>Professional 統一工作台</small></div><div class="nav" data-testid="professional-menu"><div class="navTitle">創作工具</div><button data-view="creation" class="active">快速創作</button><button id="phase1NewWorkNavButton" type="button">建立新作品</button><button data-view="studio">正式功能入口</button><button data-view="breakdown">書籍拆解</button><button data-view="chatnovel">接力提示</button><button data-view="tastecoach">聊天閱讀創作助理</button><button data-view="bookcast">每日書摘播報</button><button data-view="miniai">本機規則建議</button><button data-view="batchlab">多章批量操作</button><div class="navTitle">探索</div><button data-view="home">首頁探索</button><button data-view="library">分類書庫</button><button data-view="cloudlib">雲端借閱書庫</button><button data-view="characters">角色廣場</button><button data-view="styles">文風廣場</button><button data-view="interactive">互動故事</button><button data-view="tasks">任務中心</button><button data-view="events">活動中心</button><button data-view="rankings">排行榜</button><button data-view="tags">全部標籤</button><div class="navTitle">作者</div><button data-view="writer">作家中心</button><button data-view="seriallab">連載儀表板</button><button data-view="readerlab">讀者互動</button><button data-view="taglab">標籤工坊</button><button data-view="ipcenter">IP 改編庫</button><button data-view="platforms">平台比較</button><div class="navTitle">個人</div><button data-view="bookshelf">我的書架</button><button data-view="export">存檔 / 匯出</button></div></aside><main class="main" data-testid="professional-main"><div class="top"><div class="search"><span>搜尋</span><input id="searchBox" placeholder="輸入題材、角色、風格，按 Enter 搜尋" oninput="handleSearchInput()" onkeydown="if(event.key==='Enter') handleSearchEnter()"></div><span class="pill">Professional 工作台</span><span class="pill">本機優先</span></div><div id="visibleVersionMarker" class="notice" style="margin-bottom:14px;border-left-color:#f2c86b;background:rgba(242,200,107,.1);color:#ffe4a1;font-weight:900">P2.4B RC2 統一工作台保留完整 Legacy 工具與正式 Next.js 功能頁；角色 AI 候選仍須由作者核准才會寫入。</div>
+<section id="view-studio" class="view p24b-route-hub" data-testid="professional-route-hub"><div class="hero"><h1>正式創作功能</h1><p class="muted">從同一個 Professional 工作台進入建立、寫作、角色、世界、Story Bible、角色 AI、閱讀與備份；深層頁面仍由 Next.js 提供。</p></div><p id="p24bRouteStatus" class="notice p24b-route-status">正在確認目前作品。</p><div class="p24b-route-grid"><a class="p24b-route-card" data-next-route="create" href="/studio/create"><b>建立作品</b><span>開啟正式建立流程</span></a><a class="p24b-route-card" data-project-route="write" href="/studio/create"><b>寫作</b><span>進入目前作品寫作區</span></a><a class="p24b-route-card" data-project-route="characters" href="/studio/create"><b>角色管理</b><span>編輯角色資料與狀態</span></a><a class="p24b-route-card" data-project-route="world" href="/studio/create"><b>世界設定</b><span>管理世界規則</span></a><a class="p24b-route-card" data-project-route="story-bible" href="/studio/create"><b>Story Bible</b><span>檢視正式故事記憶</span></a><a class="p24b-route-card" data-project-route="character-ai" href="/studio/create"><b>角色 AI</b><span>P2.4B 私人角色模擬與核准</span></a><a class="p24b-route-card" data-project-route="reader" href="/studio/create"><b>閱讀器</b><span>閱讀目前作品</span></a><a class="p24b-route-card" data-project-route="backups" href="/studio/create"><b>備份／還原</b><span>建立與驗證作品備份</span></a></div></section>
 <section id="view-home" class="view"><div class="hero"><h1>像小說平台一樣探索，像遊戲一樣創作</h1><p class="muted">保留你的諸天萬界系統內容，加入讀者平台式的發現機制：熱門搜尋、換一換推薦、近期賽事、讀券推薦、熱門排行、潛力新作與最新連載，全部離線生成。</p></div><div class="sectionHead"><h2>熱門搜尋</h2><button class="btn" onclick="shuffleHotSearches()">換一批</button></div><div id="hotSearchChips" class="miniRow"></div><div class="sectionHead"><h2>不可錯過的推薦作品</h2><button class="btn" onclick="renderExplore(true)">換一換</button></div><div class="bar"><button class="active" onclick="setOrder('popular')">Popular</button><button onclick="setOrder('new')">New</button><button onclick="setRange('weekly')">Weekly</button><button onclick="setRange('month')">Month</button><button onclick="setRange('all')">All</button></div><p id="searchStatus" class="notice">輸入關鍵字後按 Enter，可搜尋題材、細分類、標籤與作品名。</p><div id="exploreGrid" class="grid"></div><div class="sectionHead"><h2>近期賽事</h2><button class="btn" onclick="showView('events')">更多</button></div><div id="homeContestRow" class="miniRow"></div><div class="sectionHead"><h2>讀券推薦作品</h2><button class="btn" onclick="renderCouponPicks()">換一換</button></div><div id="couponPicks" class="miniRow"></div><div class="sectionHead"><h2>潛力新作</h2><button class="btn" onclick="renderPotentialPicks()">更多新作</button></div><div id="potentialPicks" class="miniRow"></div><div class="sectionHead"><h2>最新連載</h2><button class="btn" onclick="renderLatestSerials()">更新</button></div><div id="latestSerials" class="miniRow"></div><div class="sectionHead"><h2>連載成長工具</h2><button class="btn" onclick="showView('seriallab')">查看</button></div><div id="serialToolRow" class="miniRow"></div><div class="sectionHead"><h2>讀者互動工具</h2><button class="btn" onclick="showView('readerlab')">查看</button></div><div id="readerToolRow" class="miniRow"></div><div class="sectionHead"><h2>雲端借閱推薦</h2><button class="btn" onclick="renderCloudBorrowPicks()">換一批</button></div><div id="cloudBorrowPicks" class="miniRow"></div><div class="sectionHead"><h2>平台創作觀察</h2><button class="btn" onclick="showView('platforms')">查看</button></div><div id="platformInsightRow" class="miniRow"></div><div class="sectionHead"><h2>經典全本書庫</h2><button class="btn" onclick="renderClassicPicks()">換一批</button></div><div id="classicPicks" class="miniRow"></div><div class="sectionHead"><h2>最新章節快訊</h2><button class="btn" onclick="renderLatestChapterFeed()">刷新</button></div><div id="latestChapterFeed" class="card"></div><div class="sectionHead"><h2>閱讀底色</h2></div><div id="readingSkins" class="skinRow"></div></section>
 <section id="view-library" class="view"><h2>分類書庫</h2><p class="muted">用頻道、分類、字數、更新與完結狀態篩選題材，避免現代、仙俠、年代、科幻背景亂配。</p><div class="filterBar"><select id="libChannel" onchange="renderLibrary()"></select><select id="libCategory" onchange="renderLibrary()"></select><select id="libLength" onchange="renderLibrary()"></select><select id="libUpdate" onchange="renderLibrary()"></select><select id="libStatus" onchange="renderLibrary()"></select></div><div class="bar"><button onclick="setLibrarySort('hot')">按熱度</button><button onclick="setLibrarySort('words')">按字數</button><button onclick="setLibrarySort('update')">最近更新</button><button onclick="setLibrarySort('collect')">按收藏</button></div><div id="libraryGrid" class="grid"></div></section>
 <section id="view-cloudlib" class="view"><h2>雲端借閱書庫</h2><p class="muted">模擬公共電子書庫的「館藏、借閱、預約、到期、分類索引」體驗，用在你的離線題材庫上。</p><div id="cloudLibGrid" class="grid"></div></section>
@@ -847,6 +1020,41 @@ async function cloudNovelAiConfirmMemory(){try{if(!cloudNovelAiLastMemoryCandida
 async function cloudNovelAiAudit(){try{cloudNovelAiStatus('正在執行 v9 真實接通稽核。');const data=await cloudNovelAiFetch('/api/admin/training-dataset/audit',{});const lines=(data.results||[]).map(x=>`${x.status}｜${x.item}｜${x.detail}`);cloudNovelAiLearningOut(`【v9真實接通稽核】\n結果：${data.passed?'全部通過':'仍有失敗項'}\nPASS：${data.passCount}｜FAIL：${data.failCount}\nCore：${data.versions?.coreSystemVersion||'unknown'}\nPrompt：${data.versions?.promptVersion||'unknown'}\nMemory：${data.versions?.memoryVersion||'unknown'}\nPreference：${data.versions?.preferenceVersion||'unknown'}\nQuality：${data.versions?.qualityGateVersion||'unknown'}\n\n${lines.join('\n')}`);cloudNovelAiStatus(`v9稽核完成：PASS ${data.passCount}，FAIL ${data.failCount}`)}catch(e){cloudNovelAiLearningOut(`v9稽核失敗：${e.message}`);cloudNovelAiStatus(`v9稽核失敗：${e.message}`)}}
 loadNovel();loadAiSettings();miniAiV5InstallButtons();miniAiV56InstallButtons();miniAiV57InstallButtons();miniAiV58InstallButtons();miniAiV59InstallButtons();simpleInitWritingMode();cloudNovelAiInstallMemoryButtons();showView('creation');
 </script>
+<script>
+(function initializeUnifiedProfessionalWorkspace(){
+  if(!document.documentElement.classList.contains("p11-professional-entry"))return;
+  const params=new URLSearchParams(location.search);
+  const queryProjectId=params.get("projectId")||"";
+  let storedProjectId="";
+  try{storedProjectId=localStorage.getItem("novel_p2_active_project_id")||""}catch{}
+  const projectId=/^[A-Za-z0-9_-]{1,128}$/.test(queryProjectId)?queryProjectId:/^[A-Za-z0-9_-]{1,128}$/.test(storedProjectId)?storedProjectId:"";
+  const routes={
+    write:`/studio/project/${encodeURIComponent(projectId)}/write`,
+    characters:`/studio/project/${encodeURIComponent(projectId)}/characters`,
+    world:`/studio/project/${encodeURIComponent(projectId)}/world`,
+    "story-bible":`/studio/project/${encodeURIComponent(projectId)}/story-bible`,
+    "character-ai":`/studio/project/${encodeURIComponent(projectId)}/character-ai`,
+    reader:`/studio/read/${encodeURIComponent(projectId)}`,
+    backups:`/studio/project/${encodeURIComponent(projectId)}/backups`
+  };
+  document.querySelectorAll("[data-project-route]").forEach(link=>{
+    const route=link.dataset.projectRoute;
+    link.href=projectId&&routes[route]?routes[route]:`/studio/create?from=professional&target=${encodeURIComponent(route||"write")}`;
+    link.dataset.projectReady=projectId?"true":"false";
+  });
+  const status=document.getElementById("p24bRouteStatus");
+  if(status)status.textContent=projectId?`目前作品：${projectId}。可直接進入所有正式功能。`:"尚未選擇作品；請先建立作品，完成後即可使用全部正式功能。";
+  const screen=params.get("screen")||"home";
+  const screenViews={home:"creation",create:"studio",write:"studio",choice:"interactive",interactive:"interactive",inspect:"miniai",library:"export",backup:"studio",world:"studio",dashboard:"studio"};
+  const allowedViews=new Set(["creation","studio","interactive","miniai","export"]);
+  const requestedView=params.get("view");
+  const targetView=allowedViews.has(requestedView)?requestedView:(screenViews[screen]||"creation");
+  document.body.dataset.frontdoorScreen=screen;
+  document.body.dataset.frontdoorTask=params.get("task")||"";
+  document.body.dataset.frontdoorProjectId=projectId;
+  showView(targetView);
+})();
+</script>
 <script src="/generated/story-library.js"></script>
 <script>
 if(window.NOVEL_STORY_LIBRARY){
@@ -857,10 +1065,6 @@ if(window.NOVEL_STORY_LIBRARY){
 <script src="./legacy-security-boundary.js?v=closed-ai-phase1-1r4" data-legacy-security-boundary="closed-ai-phase1-1r4"></script>
 </body>
 </html>
-
-
-
-
 
 
 

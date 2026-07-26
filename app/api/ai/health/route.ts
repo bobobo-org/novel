@@ -63,6 +63,13 @@ const RELEASE_META = {
   commitProvenanceHash: releaseProvenanceVerified ? RELEASE_MANIFEST.commitProvenanceHash : null,
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
 };
 
 const L0A2E2D_TEST_META = {
