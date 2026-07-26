@@ -36,4 +36,16 @@ export type ControlledLearningRecord = {
   exportEligible: boolean;
   retention: "project_lifetime" | "until_revoked";
   createdAt: string;
+  agentRunId?: string | null;
+  characterId?: string | null;
+  canonContextId?: string | null;
+  proposalId?: string | null;
+  proposalType?: string | null;
+  selectedCandidate?: string | null;
+  knowledgeScopeDecisionHash?: string | null;
+  relationshipDeltaCandidate?: Record<string, unknown> | null;
+  storyBibleVersion?: number | null;
+  authorOnlyReferences?: Array<{ knowledgeId: string; scope: "AUTHOR_ONLY"; redactedFingerprint: string }>;
+  modelTrainingAllowed?: false;
+  distillationAllowed?: false;
 };

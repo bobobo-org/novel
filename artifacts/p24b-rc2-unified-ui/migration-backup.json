@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "p24b-rc2-migration-backup-v1",
+  "generatedAt": "2026-07-26T16:07:16.343Z",
+  "migration": {
+    "pass": 45,
+    "fail": 0,
+    "skip": 0
+  },
+  "backupFormatVersion": "novel-backup-v5",
+  "projectSchemaVersion": "novel-repository-v6",
+  "semanticHashBeforeBackup": "07ec03116c624aa89352166d5ca7b8b5ca974d988a1b278a7265d2a6693f73d5",
+  "semanticHashAfterRestore": "07ec03116c624aa89352166d5ca7b8b5ca974d988a1b278a7265d2a6693f73d5",
+  "semanticHashMatch": true,
+  "status": "PASS",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

@@ -1,0 +1,216 @@
+{
+  "schemaVersion": "p24b-rc2-scroll-isolation-results-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "desktopViewport": "1440x900",
+  "metrics": {
+    "html": {
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "clientHeight": 900,
+      "scrollHeight": 900,
+      "overflowX": "hidden",
+      "overflowY": "hidden"
+    },
+    "body": {
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "clientHeight": 900,
+      "scrollHeight": 900,
+      "overflowX": "hidden",
+      "overflowY": "hidden"
+    },
+    "side": {
+      "clientHeight": 858,
+      "scrollHeight": 858,
+      "overflowY": "auto"
+    },
+    "main": {
+      "clientHeight": 858,
+      "scrollHeight": 1949,
+      "overflowY": "auto"
+    },
+    "before": {
+      "windowScrollY": 0,
+      "sideScrollTop": 0,
+      "mainScrollTop": 0
+    },
+    "afterMain": {
+      "windowScrollY": 0,
+      "sideScrollTop": 0,
+      "mainScrollTop": 240
+    },
+    "afterSide": {
+      "windowScrollY": 0,
+      "sideScrollTop": 0,
+      "mainScrollTop": 240
+    }
+  },
+  "checks": [
+    {
+      "group": "scroll",
+      "name": "html has no horizontal scroll",
+      "status": "PASS",
+      "details": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "clientHeight": 900,
+        "scrollHeight": 900,
+        "overflowX": "hidden",
+        "overflowY": "hidden"
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "html has no vertical scroll",
+      "status": "PASS",
+      "details": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "clientHeight": 900,
+        "scrollHeight": 900,
+        "overflowX": "hidden",
+        "overflowY": "hidden"
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "body has no horizontal scroll",
+      "status": "PASS",
+      "details": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "clientHeight": 900,
+        "scrollHeight": 900,
+        "overflowX": "hidden",
+        "overflowY": "hidden"
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "body has no vertical scroll",
+      "status": "PASS",
+      "details": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "clientHeight": 900,
+        "scrollHeight": 900,
+        "overflowX": "hidden",
+        "overflowY": "hidden"
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "main is independently scrollable",
+      "status": "PASS",
+      "details": {
+        "clientHeight": 858,
+        "scrollHeight": 1949,
+        "overflowY": "auto"
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "main scroll leaves window position fixed",
+      "status": "PASS",
+      "details": {
+        "html": {
+          "clientWidth": 1440,
+          "scrollWidth": 1440,
+          "clientHeight": 900,
+          "scrollHeight": 900,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 1440,
+          "scrollWidth": 1440,
+          "clientHeight": 900,
+          "scrollHeight": 900,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "side": {
+          "clientHeight": 858,
+          "scrollHeight": 858,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientHeight": 858,
+          "scrollHeight": 1949,
+          "overflowY": "auto"
+        },
+        "before": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 0
+        },
+        "afterMain": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 240
+        },
+        "afterSide": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 240
+        }
+      }
+    },
+    {
+      "group": "scroll",
+      "name": "side activity leaves main position unchanged",
+      "status": "PASS",
+      "details": {
+        "html": {
+          "clientWidth": 1440,
+          "scrollWidth": 1440,
+          "clientHeight": 900,
+          "scrollHeight": 900,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 1440,
+          "scrollWidth": 1440,
+          "clientHeight": 900,
+          "scrollHeight": 900,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "side": {
+          "clientHeight": 858,
+          "scrollHeight": 858,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientHeight": 858,
+          "scrollHeight": 1949,
+          "overflowY": "auto"
+        },
+        "before": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 0
+        },
+        "afterMain": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 240
+        },
+        "afterSide": {
+          "windowScrollY": 0,
+          "sideScrollTop": 0,
+          "mainScrollTop": 240
+        }
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

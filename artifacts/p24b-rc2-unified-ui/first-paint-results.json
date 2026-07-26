@@ -1,0 +1,1126 @@
+{
+  "schemaVersion": "p24b-rc2-first-paint-results-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "entries": [
+    {
+      "label": "root",
+      "source": "/",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "responseStatus": 200,
+      "firstPaint": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "mainTextLength": 45223,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+    },
+    {
+      "label": "studio",
+      "source": "/studio",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "responseStatus": 200,
+      "firstPaint": {
+        "frames": 43,
+        "workspaceVisibleFrames": 43,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "mainTextLength": 45141,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+    },
+    {
+      "label": "studio-home",
+      "source": "/studio?screen=home",
+      "finalPath": "/legacy/novel-system.html?mode=professional&screen=home",
+      "responseStatus": 200,
+      "firstPaint": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "mainTextLength": 45119,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+    },
+    {
+      "label": "professional",
+      "source": "/professional",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "responseStatus": 200,
+      "firstPaint": {
+        "frames": 44,
+        "workspaceVisibleFrames": 44,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "mainTextLength": 45114,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+    }
+  ],
+  "consumerVisibleFrames": 0,
+  "blackShellFrames": 0,
+  "checks": [
+    {
+      "group": "first-paint",
+      "name": "root final response is Professional content",
+      "status": "PASS",
+      "details": {
+        "label": "root",
+        "source": "/",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 45,
+          "workspaceVisibleFrames": 45,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45223,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@99598da4ecda33e7d369d5bfa6c4bc87"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "root has visible content on first document",
+      "status": "PASS",
+      "details": {
+        "label": "root",
+        "source": "/",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 45,
+          "workspaceVisibleFrames": 45,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45223,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@99598da4ecda33e7d369d5bfa6c4bc87"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "root has no black shell frame",
+      "status": "PASS",
+      "details": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "root has no Consumer shell flash",
+      "status": "PASS",
+      "details": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "root hides all competing shell controls",
+      "status": "PASS",
+      "details": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio final response is Professional content",
+      "status": "PASS",
+      "details": {
+        "label": "studio",
+        "source": "/studio",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 43,
+          "workspaceVisibleFrames": 43,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45141,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@25c10ba399755caf6969305394e88894"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio has visible content on first document",
+      "status": "PASS",
+      "details": {
+        "label": "studio",
+        "source": "/studio",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 43,
+          "workspaceVisibleFrames": 43,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45141,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@25c10ba399755caf6969305394e88894"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio has no black shell frame",
+      "status": "PASS",
+      "details": {
+        "frames": 43,
+        "workspaceVisibleFrames": 43,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio has no Consumer shell flash",
+      "status": "PASS",
+      "details": {
+        "frames": 43,
+        "workspaceVisibleFrames": 43,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio hides all competing shell controls",
+      "status": "PASS",
+      "details": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio-home final response is Professional content",
+      "status": "PASS",
+      "details": {
+        "label": "studio-home",
+        "source": "/studio?screen=home",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional&screen=home",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 45,
+          "workspaceVisibleFrames": 45,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45119,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@b35b22015c2e8633d0ca61046298fc06"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio-home has visible content on first document",
+      "status": "PASS",
+      "details": {
+        "label": "studio-home",
+        "source": "/studio?screen=home",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional&screen=home",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 45,
+          "workspaceVisibleFrames": 45,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45119,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@b35b22015c2e8633d0ca61046298fc06"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio-home has no black shell frame",
+      "status": "PASS",
+      "details": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio-home has no Consumer shell flash",
+      "status": "PASS",
+      "details": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "studio-home hides all competing shell controls",
+      "status": "PASS",
+      "details": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "professional final response is Professional content",
+      "status": "PASS",
+      "details": {
+        "label": "professional",
+        "source": "/professional",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 44,
+          "workspaceVisibleFrames": 44,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45114,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@24c78182c5db8047ecc8f0e976447204"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "professional has visible content on first document",
+      "status": "PASS",
+      "details": {
+        "label": "professional",
+        "source": "/professional",
+        "responseStatus": 200,
+        "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+        "finalPath": "/legacy/novel-system.html?mode=professional",
+        "redirectCount": 1,
+        "semantic": {
+          "workspaceVersion": "p24b-rc2-unified-ui",
+          "menu": [
+            "快速創作",
+            "建立新作品",
+            "正式功能入口",
+            "書籍拆解",
+            "接力提示",
+            "聊天閱讀創作助理",
+            "每日書摘播報",
+            "本機規則建議",
+            "多章批量操作",
+            "首頁探索",
+            "分類書庫",
+            "故事靈感書庫",
+            "角色廣場",
+            "文風廣場",
+            "互動故事",
+            "任務中心",
+            "活動中心",
+            "排行榜",
+            "全部標籤",
+            "作家中心",
+            "連載儀表板",
+            "讀者互動",
+            "標籤工坊",
+            "IP 改編庫",
+            "平台比較",
+            "我的書架",
+            "存檔 / 匯出"
+          ],
+          "routeCards": [
+            "建立作品",
+            "寫作",
+            "角色管理",
+            "世界設定",
+            "Story Bible",
+            "角色 AI",
+            "閱讀器",
+            "備份／還原"
+          ],
+          "views": [
+            "view-batchlab",
+            "view-bookcast",
+            "view-bookshelf",
+            "view-breakdown",
+            "view-characters",
+            "view-chatnovel",
+            "view-cloudlib",
+            "view-creation",
+            "view-events",
+            "view-export",
+            "view-home",
+            "view-interactive",
+            "view-ipcenter",
+            "view-library",
+            "view-miniai",
+            "view-platforms",
+            "view-rankings",
+            "view-readerlab",
+            "view-seriallab",
+            "view-studio",
+            "view-styles",
+            "view-taglab",
+            "view-tags",
+            "view-tasks",
+            "view-tastecoach",
+            "view-writer"
+          ],
+          "activeView": "view-creation",
+          "professionalUiVersion": "p24b-rc2-unified-ui"
+        },
+        "hidden": {
+          "consumerShell": true,
+          "compatibilityBanner": true,
+          "returnConsumer": true,
+          "appDock": true
+        },
+        "firstPaint": {
+          "frames": 44,
+          "workspaceVisibleFrames": 44,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        },
+        "bodyDataset": {
+          "screen": "home",
+          "task": "",
+          "projectId": ""
+        },
+        "mainTextLength": 45114,
+        "page": {
+          "_type": "Page",
+          "_guid": "page@24c78182c5db8047ecc8f0e976447204"
+        }
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "professional has no black shell frame",
+      "status": "PASS",
+      "details": {
+        "frames": 44,
+        "workspaceVisibleFrames": 44,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "professional has no Consumer shell flash",
+      "status": "PASS",
+      "details": {
+        "frames": 44,
+        "workspaceVisibleFrames": 44,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      }
+    },
+    {
+      "group": "first-paint",
+      "name": "professional hides all competing shell controls",
+      "status": "PASS",
+      "details": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

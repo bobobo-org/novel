@@ -5,7 +5,10 @@
   window.NOVEL_STATIC_RELEASE = {
     appCommit: "__NOVEL_STATIC_APP_COMMIT__",
     releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
-    expectedReleaseTag: "novel-ai-p11r2-production-frontdoor-truth",
+    expectedReleaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
+    releaseName: "__NOVEL_STATIC_RELEASE_NAME__",
+    consumerRelease: "__NOVEL_STATIC_CONSUMER_RELEASE__",
+    architectureStage: "__NOVEL_STATIC_ARCHITECTURE_STAGE__",
     visibleUiSemanticVersion: "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__",
     visibleUiBodyHash: "__NOVEL_VISIBLE_UI_BODY_HASH__",
   };

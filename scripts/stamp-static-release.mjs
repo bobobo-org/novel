@@ -5,6 +5,9 @@ import releaseProvenance from "../generated/release-provenance.json" with { type
 import { verifyReleaseProvenance } from "./generate-release-provenance.mjs";
 
 const releaseTag = releaseManifest.releaseTag;
+const releaseName = releaseManifest.releaseName;
+const consumerRelease = releaseManifest.consumerRelease;
+const architectureStage = releaseManifest.architectureStage;
 const visibleUiSemanticVersion = "h2w3-visible-ui-semantic-closure-v1";
 const visibleUiRequiredStrings = [
   "三路閉端 AI 工作區",
@@ -39,6 +42,9 @@ const appCommit = releaseProvenance.appCommit;
 const replacements = new Map([
   ["__NOVEL_STATIC_APP_COMMIT__", appCommit],
   ["__NOVEL_STATIC_RELEASE_TAG__", releaseTag],
+  ["__NOVEL_STATIC_RELEASE_NAME__", releaseName],
+  ["__NOVEL_STATIC_CONSUMER_RELEASE__", consumerRelease],
+  ["__NOVEL_STATIC_ARCHITECTURE_STAGE__", architectureStage],
   ["__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__", visibleUiSemanticVersion],
   ["__NOVEL_VISIBLE_UI_BODY_HASH__", visibleUiBodyHash],
 ]);

@@ -40,6 +40,9 @@ async function startLocalServerIfRequested() {
 
 const checks = [];
 const consoleErrors = [];
+const pageErrors = [];
+const requestFailures = [];
+const externalRequestObservations = [];
 const networkResults = [];
 const screenshots = [];
 const write = (name, value) => fs.writeFileSync(
@@ -56,26 +59,38 @@ const stable = (value) => Array.isArray(value)
   : value && typeof value === "object"
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]))
     : value;
+const baseOrigin = new URL(baseUrl).origin;
+const isExternalNetworkUrl = (value) => {
+  const url = new URL(value);
+  return (url.protocol === "http:" || url.protocol === "https:") && url.origin !== baseOrigin;
+};
 const hash = (value) => crypto.createHash("sha256")
   .update(JSON.stringify(stable(value)))
   .digest("hex");
+const countTextMatches = (value, pattern) => (String(value).match(pattern) || []).length;
 const countByStore = (snapshot) => Object.fromEntries(
   Object.entries(snapshot).map(([store, records]) => [store, records.length]),
 );
+const duplicateRecordCount = (snapshot) => Object.values(snapshot)
+  .reduce((total, records) => {
+    const ids = records.map((record) => record.id);
+    return total + (ids.length - new Set(ids).size);
+  }, 0);
 
-async function storageSnapshot(page, projectId) {
-  return page.evaluate(async ({ projectId }) => {
+const DEFAULT_SNAPSHOT_STORES = [
+  "projects", "chapters", "characters", "worldRules", "storyBibles", "storyStates",
+  "acceptedChoices", "storyBranches", "backups", "dramaProjects", "dramaSeasons",
+  "dramaEpisodes", "dramaScenes", "dramaBeats", "dramaApprovals",
+  "narrativeCanonLinks", "dramaEvaluations",
+];
+
+async function storageSnapshot(page, projectId, storeNames = DEFAULT_SNAPSHOT_STORES) {
+  return page.evaluate(async ({ projectId, storeNames }) => {
     const db = await new Promise((resolve, reject) => {
       const request = indexedDB.open("novel-intelligence-platform");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const storeNames = [
-      "projects", "chapters", "characters", "worldRules", "storyBibles", "storyStates",
-      "acceptedChoices", "storyBranches", "backups", "dramaProjects", "dramaSeasons",
-      "dramaEpisodes", "dramaScenes", "dramaBeats", "dramaApprovals",
-      "narrativeCanonLinks", "dramaEvaluations",
-    ];
     const result = {};
     for (const storeName of storeNames) {
       result[storeName] = await new Promise((resolve, reject) => {
@@ -87,7 +102,7 @@ async function storageSnapshot(page, projectId) {
     }
     db.close();
     return result;
-  }, { projectId });
+  }, { projectId, storeNames });
 }
 
 function novelCanonical(snapshot) {
@@ -139,12 +154,42 @@ const context = await browser.newContext({
   locale: "zh-TW",
   serviceWorkers: "block",
   acceptDownloads: true,
+  extraHTTPHeaders: {
+    "x-vercel-skip-toolbar": "1",
+  },
 });
 const page = await context.newPage();
 page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push({
     text: message.text(),
     url: page.url(),
+  });
+});
+page.on("pageerror", (error) => {
+  pageErrors.push({
+    message: error.message,
+    stack: error.stack || null,
+    url: page.url(),
+  });
+});
+page.on("request", (request) => {
+  if (isExternalNetworkUrl(request.url())) {
+    externalRequestObservations.push({
+      method: request.method(),
+      url: request.url(),
+      resourceType: request.resourceType(),
+      isNavigationRequest: request.isNavigationRequest(),
+    });
+  }
+});
+page.on("requestfailed", (request) => {
+  if (!request.isNavigationRequest()) return;
+  requestFailures.push({
+    method: request.method(),
+    url: request.url(),
+    resourceType: request.resourceType(),
+    mainFrame: request.frame() === page.mainFrame(),
+    errorText: request.failure()?.errorText || "UNKNOWN_REQUEST_FAILURE",
   });
 });
 page.on("response", (response) => {
@@ -164,6 +209,8 @@ let discardEvidence = null;
 let regenerateEvidence = null;
 let approvalEvidence = null;
 let canonicalEvidence = null;
+let restoreNavigationOwnership = null;
+let restoreIntegrity = null;
 const mobile = [];
 
 try {
@@ -248,14 +295,147 @@ try {
   page.once("dialog", (dialog) => void dialog.accept());
   const fullBackupArticle = page.getByText("完整備份", { exact: true }).locator("..");
   const restoreButton = fullBackupArticle.getByRole("button", { name: "還原", exact: true });
+  const restoreUrlBefore = page.url();
+  const restoreMainFrame = page.mainFrame();
+  const restoreDiagnosticStart = {
+    consoleErrors: consoleErrors.length,
+    pageErrors: pageErrors.length,
+    requestFailures: requestFailures.length,
+  };
+  let restoreMainFrameNavigationCount = 0;
+
+  const restoreNavigationObserver = (request) => {
+    if (
+      request.isNavigationRequest()
+      && request.resourceType() === "document"
+      && request.frame() === restoreMainFrame
+    ) {
+      restoreMainFrameNavigationCount += 1;
+    }
+  };
+
+  page.on("request", restoreNavigationObserver);
+
+  const productNavigationPromise = page.waitForEvent(
+    "framenavigated",
+    {
+      predicate: (frame) => frame === restoreMainFrame,
+      timeout: 15_000,
+    },
+  );
+  const productDocumentRequestPromise = page.waitForRequest(
+    (request) => (
+      request.isNavigationRequest()
+      && request.resourceType() === "document"
+      && request.frame() === restoreMainFrame
+    ),
+    { timeout: 15_000 },
+  );
+  const productLoadPromise = page.waitForEvent("load", { timeout: 15_000 });
+
   await restoreButton.click();
-  await page.getByText(/已完成還原/).waitFor();
-  await page.waitForTimeout(500);
-  await page.reload({ waitUntil: "networkidle" });
+  await Promise.all([
+    productNavigationPromise,
+    productDocumentRequestPromise,
+    productLoadPromise,
+  ]);
+  await page.waitForLoadState("domcontentloaded");
+
+  await page.getByRole(
+    "heading",
+    {
+      name: "備份與還原",
+      level: 1,
+      exact: true,
+    },
+  ).waitFor({ timeout: 15_000 });
+
+  await page.waitForTimeout(750);
+  page.off("request", restoreNavigationObserver);
+
+  const restoreUrlAfter = page.url();
+  const restoreNavigationType = await page.evaluate(() => {
+    const entry = performance.getEntriesByType("navigation")[0];
+    return entry && "type" in entry ? entry.type : null;
+  });
+  const restoreUrlBeforeParsed = new URL(restoreUrlBefore);
+  const restoreUrlAfterParsed = new URL(restoreUrlAfter);
+  const restoreDiagnosticText = JSON.stringify({
+    consoleErrors: consoleErrors.slice(restoreDiagnosticStart.consoleErrors),
+    pageErrors: pageErrors.slice(restoreDiagnosticStart.pageErrors),
+    requestFailures: requestFailures.slice(restoreDiagnosticStart.requestFailures),
+  });
+  const restoreErrAborted = countTextMatches(restoreDiagnosticText, /ERR_ABORTED/gi);
+  const restoreFrameDetached = countTextMatches(restoreDiagnosticText, /frame detached/gi);
+  const restoreExecutionContextDestroyed = countTextMatches(
+    restoreDiagnosticText,
+    /execution context destroyed/gi,
+  );
+  const restoreNormalFlowRace = restoreErrAborted
+    + restoreFrameDetached
+    + restoreExecutionContextDestroyed;
+  const restoreUrlIsCanonical = restoreUrlAfter === restoreUrlBefore
+    || (
+      restoreUrlBeforeParsed.origin === restoreUrlAfterParsed.origin
+      && restoreUrlBeforeParsed.pathname === `/studio/project/${projectId}/backups`
+      && restoreUrlAfterParsed.pathname === `/studio/project/${projectId}/backups`
+    );
+  restoreNavigationOwnership = {
+    owner: "PRODUCT",
+    productReloadObserved: true,
+    productReloadType: restoreNavigationType,
+    mainFrameNavigationCount: restoreMainFrameNavigationCount,
+    harnessReloadIssued: false,
+    harnessGotoIssued: false,
+    urlBefore: restoreUrlBefore,
+    urlAfter: restoreUrlAfter,
+    normalFlowRace: restoreNormalFlowRace,
+    errAborted: restoreErrAborted,
+    frameDetached: restoreFrameDetached,
+    executionContextDestroyed: restoreExecutionContextDestroyed,
+  };
+  if (
+    !restoreUrlIsCanonical
+    || restoreMainFrameNavigationCount !== 1
+    || restoreNavigationType !== "reload"
+    || restoreNormalFlowRace !== 0
+  ) {
+    throw new Error(`RESTORE_NAVIGATION_OWNERSHIP_MISMATCH:${JSON.stringify({
+      restoreUrlIsCanonical,
+      ...restoreNavigationOwnership,
+    })}`);
+  }
+
   const restoredSnapshot = await storageSnapshot(page, projectId);
+  const restoredBackupRecords = await storageSnapshot(page, projectId, Object.keys(backupRecords));
   const characterRestorePresence = restoredSnapshot.characters.some((item) => item.id === characterId);
   const worldRuleRestorePresence = restoredSnapshot.worldRules.some((item) => item.id === worldRuleId);
   const storyBibleRestorePresence = restoredSnapshot.storyBibles.some((item) => item.id === storyBibleId);
+  const projectRestorePresence = restoredBackupRecords.projects.length === 1
+    && restoredBackupRecords.projects.some((item) => item.id === projectId || item.projectId === projectId);
+  const backupSemanticHashMatch = hash(restoredBackupRecords) === hash(backupRecords);
+  restoreIntegrity = {
+    characterRestored: characterRestorePresence,
+    worldRuleRestored: worldRuleRestorePresence,
+    storyBibleRestored: storyBibleRestorePresence,
+    projectRestored: projectRestorePresence,
+    backupSemanticHashMatch,
+    canonicalCorruption: backupSemanticHashMatch ? 0 : 1,
+    duplicateRestore: duplicateRecordCount(restoredBackupRecords),
+    duplicateBackup: duplicateRecordCount({ backups: restoredSnapshot.backups }),
+  };
+  if (
+    !restoreIntegrity.characterRestored
+    || !restoreIntegrity.worldRuleRestored
+    || !restoreIntegrity.storyBibleRestored
+    || !restoreIntegrity.projectRestored
+    || !restoreIntegrity.backupSemanticHashMatch
+    || restoreIntegrity.canonicalCorruption !== 0
+    || restoreIntegrity.duplicateRestore !== 0
+    || restoreIntegrity.duplicateBackup !== 0
+  ) {
+    throw new Error(`RESTORE_INTEGRITY_MISMATCH:${JSON.stringify(restoreIntegrity)}`);
+  }
   check("character-restored-through-consumer-ui", characterRestorePresence);
   check("world-rule-restored-through-consumer-ui", worldRuleRestorePresence);
   check("story-bible-restored-through-consumer-ui", storyBibleRestorePresence);
@@ -531,8 +711,15 @@ try {
   };
 
   const unexpectedNetworkErrors = networkResults.filter(({ status, url }) => status >= 400 && !url.includes("favicon"));
+  const externalRequests = externalRequestObservations;
   check("console-error-zero", consoleErrors.length === 0, consoleErrors);
   check("unexpected-4xx-5xx-zero", unexpectedNetworkErrors.length === 0, unexpectedNetworkErrors);
+  if (pageErrors.length || externalRequests.length) {
+    throw new Error(`P24A_BROWSER_ISOLATION_FAILED:${JSON.stringify({
+      pageErrors,
+      externalRequests,
+    })}`);
+  }
 
   const generatedAt = new Date().toISOString();
   write("character-ui-flow.json", { ...characterEvidence, generatedAt });
@@ -559,15 +746,20 @@ try {
     generatedAt,
     errors: consoleErrors,
     errorCount: consoleErrors.length,
-    pass: consoleErrors.length === 0,
+    pageErrors,
+    pageErrorCount: pageErrors.length,
+    pass: consoleErrors.length === 0 && pageErrors.length === 0,
   });
   write("network-results.json", {
     schemaVersion: "p24a-rc2-network-results-v1",
     generatedAt,
     unexpectedErrors: unexpectedNetworkErrors,
     unexpectedErrorCount: unexpectedNetworkErrors.length,
-    externalRequests: networkResults.filter(({ url }) => !url.startsWith(baseUrl)),
-    pass: unexpectedNetworkErrors.length === 0,
+    requestFailures,
+    requestFailureCount: requestFailures.length,
+    externalRequests,
+    externalRequestCount: externalRequests.length,
+    pass: unexpectedNetworkErrors.length === 0 && externalRequests.length === 0,
   });
   write("browser-full-flow.json", {
     schemaVersion: "p24a-rc2-browser-full-flow-v1",
@@ -590,6 +782,17 @@ try {
     checks,
     screenshots,
     productionMutation: 0,
+    navigationOwnership: {
+      restore: restoreNavigationOwnership,
+    },
+    restoreIntegrity,
+    diagnostics: {
+      consoleErrorCount: consoleErrors.length,
+      pageErrorCount: pageErrors.length,
+      requestFailureCount: requestFailures.length,
+      externalRequestCount: externalRequests.length,
+      unexpectedHttpErrorCount: unexpectedNetworkErrors.length,
+    },
   });
   write("findings.json", {
     schemaVersion: "p24a-rc2-browser-findings-v1",
@@ -611,6 +814,9 @@ try {
     }],
     checks,
     consoleErrors,
+    pageErrors,
+    requestFailures,
+    externalRequests: externalRequestObservations,
     networkErrors: networkResults.filter(({ status }) => status >= 400),
   };
   write("findings.json", failure);
@@ -625,6 +831,10 @@ try {
     skip: 0,
     checks,
     error: failure.blocking[0],
+    navigationOwnership: {
+      restore: restoreNavigationOwnership,
+    },
+    restoreIntegrity,
   });
   throw error;
 } finally {

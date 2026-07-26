@@ -1,0 +1,2299 @@
+{
+  "schemaVersion": "p24b-character-agent-test-results-v1",
+  "suite": "all",
+  "generatedAt": "2026-07-26T15:59:48.543Z",
+  "pass": 372,
+  "fail": 0,
+  "skip": 0,
+  "categories": {
+    "core": {
+      "pass": 50,
+      "fail": 0,
+      "skip": 0
+    },
+    "knowledge": {
+      "pass": 47,
+      "fail": 0,
+      "skip": 0
+    },
+    "relationship": {
+      "pass": 35,
+      "fail": 0,
+      "skip": 0
+    },
+    "simulation": {
+      "pass": 50,
+      "fail": 0,
+      "skip": 0
+    },
+    "proposal": {
+      "pass": 34,
+      "fail": 0,
+      "skip": 0
+    },
+    "provider": {
+      "pass": 25,
+      "fail": 0,
+      "skip": 0
+    },
+    "security": {
+      "pass": 50,
+      "fail": 0,
+      "skip": 0
+    },
+    "migration": {
+      "pass": 45,
+      "fail": 0,
+      "skip": 0
+    },
+    "ui": {
+      "pass": 36,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "invariants": {
+    "unauthorizedKnowledgeLeak": 0,
+    "crossCanonRetrieval": 0,
+    "unapprovedMemoryReuse": 0,
+    "partialTransaction": 0,
+    "duplicateApproval": 0,
+    "unexpectedExternalRequests": 0,
+    "canonicalMutationBeforeApproval": 0
+  },
+  "results": [
+    {
+      "category": "core",
+      "name": "A builds three character profiles",
+      "status": "PASS",
+      "elapsedMs": 12
+    },
+    {
+      "category": "core",
+      "name": "A profiles validate",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "core",
+      "name": "A states are derived",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "core",
+      "name": "A profiles bind source revisions",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "A profile names match canonical characters",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "A supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "A private boundaries remain private profile data",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "A source facts retain references",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "A action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "core",
+      "name": "A action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "A dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "A private arc stays private simulation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B builds three character profiles",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B profiles validate",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B states are derived",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B profiles bind source revisions",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B profile names match canonical characters",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B private boundaries remain private profile data",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B source facts retain references",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B private arc stays private simulation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C builds three character profiles",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C profiles validate",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C states are derived",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C profiles bind source revisions",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C profile names match canonical characters",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C private boundaries remain private profile data",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C source facts retain references",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C action candidates are materially distinct",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C action candidates never mutate canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C private arc stays private simulation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "UNKNOWN profile fact stays null",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "INFERRED fact carries risk and is not a hard capability",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "CONFLICTING identity is retained as conflict",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "adult story profiles require all gates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "normal story profiles remain general namespace",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "different character voices are not identical",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "dead character cannot plan present action",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "dead character may appear in flashback",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "agent records contain no raw chain of thought",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "revision-bound candidates are marked STALE together",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "current Canon Context does not mark candidates stale",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "same character Agent Run shares one in-flight operation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "Evaluator blocks attempted unapproved Canonical write",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "Evaluator blocks private message broadcast",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "PUBLIC actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "AUTHOR_ONLY actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "CHARACTER_KNOWN actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "CHARACTER_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FACTION_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "READER_KNOWN actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FUTURE_REVEAL actor access false",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "FUTURE_REVEAL actor access true",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "A AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "A denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "B denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "B actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "B evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "C AUTHOR_ONLY is denied to actor",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "C evaluator can read AUTHOR_ONLY",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "C denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "C actor context contains no evaluator private data field",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "C evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "actor output is noninterfering when evaluator secret is added",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "different canon context cannot retrieve novel knowledge",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "private simulation can read only its bound source canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "false belief does not mutate canonical truth",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "belief validates independently of truth",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "knowledge schemas enforce scope fields",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "unapproved generated memory is not reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved canonical memory is reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory is usable only inside same session",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory cannot promote to canon",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "agent memory requires user approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved agent memory becomes approved",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "self reinforcing memory loop is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "temporal query blocks future knowledge",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context blocks future knowledge directly",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context excludes future belief",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "Actor Context excludes future relationship",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "temporal query blocks future memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory gate blocks a future event memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "state as-of preserves historical faction inventory location life and commitments",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "belief as-of excludes a future false belief",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "adult eligibility uses scene timeline age",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory selector ranks only approved memories",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "FIRST_MEETING creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "TRUST_GAIN creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "TRUST_LOSS creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "BETRAYAL creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RESCUE creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "CONFLICT creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ALLIANCE creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "DEBT_CREATED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "DEBT_REPAID creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ATTRACTION_GAIN creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RELATIONSHIP_BREAK creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "POWER_SHIFT creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "SECRET_SHARED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "SECRET_DISCOVERED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RECONCILIATION creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "A stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "A relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "relationship",
+      "name": "A metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ordinary event delta is saturated at 12",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "major event delta is saturated at 35",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "major event requires evaluator reason",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "evidence-free change is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "stale canon context is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "duplicate idempotency event returns existing event",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "same key with changed delta is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "relationship after snapshot is clamped to 100",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "relationship after snapshot is clamped to -100",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "timeline query blocks future relationships",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "self edge is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "A runs five turns",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "A canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "A voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "A memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "A private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "A produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "A stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B runs five turns",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "B stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C runs five turns",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "C canonical mutation stays zero",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "C each turn has one speaker",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "C actor secrets stay denied",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "C voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "simulation",
+      "name": "C relationship impacts are candidates",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C memories stay private only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C stores only decision summaries",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "default turn budget is 12",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "hard turn budget is 30",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "nested private simulation is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "pause transition is supported",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "resume transition is supported",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "cancel transition is supported",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "completed private result can be discarded without Canonical mutation",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "discarded private result cannot resume",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "completed session cannot resume",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "scheduler is fair across three actors",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic input reproduces turn order",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic fixture structure is reproducible within one canon",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "simulation",
+      "name": "true model replay contract is structure only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic provider replay contract is full",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "no progress detector spots duplicate action",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "semantic repetition detector normalizes punctuation",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "semantic repetition is reported as livelock",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "three no-change turns are reported as deadlock",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic replay preserves decision hashes and relationship structure",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "simulation",
+      "name": "concurrency guard shares one resume promise",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_ACTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_DIALOGUE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "CHARACTER_STATE_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "RELATIONSHIP_CHANGE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_ACQUISITION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "KNOWLEDGE_REVEAL maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "PRIVATE_ARC_PROMOTION maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "MULTI_CHARACTER_SCENE maps to shared envelope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "proposal contains no raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval atomically updates canonical character",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval writes approved proposal and record",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes generated memory only after approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval commits relationship event once",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "same idempotency key replays",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "same idempotency key replayed 100 times creates one approval",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "proposal",
+      "name": "same key with payload mismatch is rejected",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "two different approvals for same proposal do not duplicate",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approve and reject race has one winner",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "stale source revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale Story Bible blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale character revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "proposal",
+      "name": "blocking evaluation prevents approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "reject leaves canonical character unchanged",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "proposal",
+      "name": "private memory effect is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "audit stores decision summary not raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes projected state",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval persists acquired scoped knowledge",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes private arc explicitly",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "approval applies directed relationship edge only",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "approval increments canonical revision exactly once",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "proposal",
+      "name": "rejection writes a zero-mutation audit event",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "stale Canon Context blocks approval",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "non-whitelisted canonical patch field is blocked",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "accepted proposal cannot later be rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.nameExtract",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.traitClassify",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.voiceClassify",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.emotionClassify",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.relationshipEventClassify",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.dialogueConsistency",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.actionPlan",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.dialogue",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.privateArc",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.multiAgentSimulation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.evaluate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "browser blocks heavy character.relationshipImpact",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.actionPlan",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.dialogue",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.privateArc",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.multiAgentSimulation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.evaluate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "ollama allows character.relationshipImpact",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "Private Hub remains contract only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "heavy character task routes to ready Ollama",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "external consent is single use",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "expired external consent is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "silent external fallback is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "consented external chain is explicit",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "provider",
+      "name": "Local Ollama capability remains client dependent",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 1 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "security",
+      "name": "attack 1 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "security",
+      "name": "attack 2 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 2 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 3 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 3 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 4 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 4 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 5 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 5 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 6 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 6 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 7 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 7 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 8 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 8 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 9 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 9 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 10 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 10 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 11 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "attack 11 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 12 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 12 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 13 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 13 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 14 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 14 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 15 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 15 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 16 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 16 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 17 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 17 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "normal adult fictional text is not injection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "adult gate accepts verified fictional adults",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "adult gate rejects unknown age",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "cross-project data is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "cross-canon data is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "raw reasoning storage is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "structured decision summary is allowed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning stores AUTHOR_ONLY as ID scope and fingerprint only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "security",
+      "name": "controlled learning rejects AUTHOR_ONLY text laundering",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning rejects raw chain of thought",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning redacts credential-shaped text",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning store supports collect list and delete",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "private learning record is not an export candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "shared opt-in export never starts training or distillation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "learning privacy validator rejects training flags",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "Capability Truth keeps training and distillation not started",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "all fourteen required Character Agent stores exist",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "repository includes all Character Agent stores",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB schema is v6",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB v5 upgrades to v6 without losing P2.4A project data",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB opens every Character Agent store",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB Character approval commits atomically",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB Character approval idempotently replays",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB concurrent approval has no duplicate",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB stale relationship revision blocks approval",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB injected Character write fault rolls back transaction",
+      "status": "PASS",
+      "elapsedMs": 11
+    },
+    {
+      "category": "migration",
+      "name": "new backup uses v5 format",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "new backup includes every Character Agent store",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "new backup validates checksum",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "corrupt backup is rejected",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "backup roundtrip preserves semantic data",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "old P2.4A-style backup without P2.4B stores imports",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "duplicate record IDs are rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "migration",
+      "name": "cross-project ownership is rejected",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps Canon Context identity",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps sourceCharacterRevisions keys",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "copy normalizes source revisions to one",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "copy remaps compound idempotency scopes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "copy leaves source repository unchanged",
+      "status": "PASS",
+      "elapsedMs": 8
+    },
+    {
+      "category": "migration",
+      "name": "relationship idempotency and source scopes are independent namespaces",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "duplicate relationship source scope is rejected",
+      "status": "PASS",
+      "elapsedMs": 4
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterProposals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 10
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentApprovals rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characters rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentStates rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterMemories rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationships rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterRelationshipEvents rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterKnowledge rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 7
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterPrivateArcs rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "migration",
+      "name": "fault injection before characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "category": "migration",
+      "name": "fault injection after characterAgentAudit rolls back all writes",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色 AI",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色正在思考",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色只能使用他知道的資訊",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色知道什麼",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色不知道什麼",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色信念",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色語氣",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 角色關係",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 私人故事線",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 私人模擬場景",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 選擇角色",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 參與角色",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 回合數",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 開始私人模擬",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 暫停",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 繼續",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 取消",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 重新產生",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 轉為候選",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 接受",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 拒絕",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 這段內容尚未套用",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 發現角色設定衝突",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 這個秘密角色目前不知道",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI contains 版本已更新，請重新產生",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "project navigation includes Character AI",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "technical details are collapsed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "relationship visual has accessible role",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "relationship text list is separately accessible",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "mobile breakpoint is 600",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "mobile hides large relationship graph",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "long content wraps",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "mobile buttons are full width",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI does not label raw prompt",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI does not display idempotency key",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "ui",
+      "name": "UI does not display raw JSON",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

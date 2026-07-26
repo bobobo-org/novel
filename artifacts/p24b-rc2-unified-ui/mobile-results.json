@@ -1,0 +1,4986 @@
+{
+  "schemaVersion": "p24b-rc2-mobile-results-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "requiredViewports": [
+    "360x800",
+    "375x812",
+    "390x844",
+    "412x915"
+  ],
+  "results": [
+    {
+      "viewport": "360x800",
+      "metrics": {
+        "viewport": {
+          "width": 360,
+          "height": 800
+        },
+        "html": {
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "clientHeight": 800,
+          "scrollHeight": 800,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "clientHeight": 800,
+          "scrollHeight": 800
+        },
+        "app": {
+          "clientHeight": 758,
+          "scrollHeight": 758
+        },
+        "side": {
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "clientHeight": 287,
+          "scrollHeight": 1203,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "clientHeight": 470,
+          "scrollHeight": 3252,
+          "overflowY": "auto"
+        },
+        "menuCount": 27,
+        "oneColumn": true,
+        "minFontSize": 14,
+        "allOneLine": true,
+        "firstPaint": {
+          "frames": 43,
+          "workspaceVisibleFrames": 43,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        }
+      },
+      "lastButtonHit": {
+        "label": "存檔 / 匯出",
+        "ownerIsButton": true,
+        "rect": {
+          "left": 10,
+          "top": 279,
+          "right": 335,
+          "bottom": 317
+        }
+      },
+      "activeAfterLastClick": "view-export",
+      "scrollIsolation": {
+        "windowScrollY": 0,
+        "sideScrollTop": 916,
+        "mainScrollTop": 160
+      },
+      "checks": {
+        "outerHorizontalScrollZero": true,
+        "outerVerticalScrollZero": true,
+        "internalAppFitsViewport": true,
+        "menuCountExact": true,
+        "menuOneColumn": true,
+        "menuInternallyScrollable": true,
+        "menuNoHorizontalScroll": true,
+        "labelsOneLine": true,
+        "fontReadable": true,
+        "lastMenuOperable": true,
+        "windowScrollLocked": true,
+        "noConsumerFlash": true,
+        "noBlackShell": true
+      }
+    },
+    {
+      "viewport": "375x812",
+      "metrics": {
+        "viewport": {
+          "width": 375,
+          "height": 812
+        },
+        "html": {
+          "clientWidth": 375,
+          "scrollWidth": 375,
+          "clientHeight": 812,
+          "scrollHeight": 812,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 375,
+          "scrollWidth": 375,
+          "clientHeight": 812,
+          "scrollHeight": 812
+        },
+        "app": {
+          "clientHeight": 770,
+          "scrollHeight": 770
+        },
+        "side": {
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "clientHeight": 291,
+          "scrollHeight": 1203,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "clientHeight": 478,
+          "scrollHeight": 3206,
+          "overflowY": "auto"
+        },
+        "menuCount": 27,
+        "oneColumn": true,
+        "minFontSize": 14,
+        "allOneLine": true,
+        "firstPaint": {
+          "frames": 42,
+          "workspaceVisibleFrames": 42,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        }
+      },
+      "lastButtonHit": {
+        "label": "存檔 / 匯出",
+        "ownerIsButton": true,
+        "rect": {
+          "left": 10,
+          "top": 283,
+          "right": 350,
+          "bottom": 321
+        }
+      },
+      "activeAfterLastClick": "view-export",
+      "scrollIsolation": {
+        "windowScrollY": 0,
+        "sideScrollTop": 912,
+        "mainScrollTop": 160
+      },
+      "checks": {
+        "outerHorizontalScrollZero": true,
+        "outerVerticalScrollZero": true,
+        "internalAppFitsViewport": true,
+        "menuCountExact": true,
+        "menuOneColumn": true,
+        "menuInternallyScrollable": true,
+        "menuNoHorizontalScroll": true,
+        "labelsOneLine": true,
+        "fontReadable": true,
+        "lastMenuOperable": true,
+        "windowScrollLocked": true,
+        "noConsumerFlash": true,
+        "noBlackShell": true
+      }
+    },
+    {
+      "viewport": "390x844",
+      "metrics": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "html": {
+          "clientWidth": 390,
+          "scrollWidth": 390,
+          "clientHeight": 844,
+          "scrollHeight": 844,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 390,
+          "scrollWidth": 390,
+          "clientHeight": 844,
+          "scrollHeight": 844
+        },
+        "app": {
+          "clientHeight": 802,
+          "scrollHeight": 802
+        },
+        "side": {
+          "clientWidth": 375,
+          "scrollWidth": 375,
+          "clientHeight": 303,
+          "scrollHeight": 1203,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientWidth": 375,
+          "scrollWidth": 375,
+          "clientHeight": 498,
+          "scrollHeight": 3206,
+          "overflowY": "auto"
+        },
+        "menuCount": 27,
+        "oneColumn": true,
+        "minFontSize": 14,
+        "allOneLine": true,
+        "firstPaint": {
+          "frames": 42,
+          "workspaceVisibleFrames": 42,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        }
+      },
+      "lastButtonHit": {
+        "label": "存檔 / 匯出",
+        "ownerIsButton": true,
+        "rect": {
+          "left": 10,
+          "top": 295,
+          "right": 365,
+          "bottom": 333
+        }
+      },
+      "activeAfterLastClick": "view-export",
+      "scrollIsolation": {
+        "windowScrollY": 0,
+        "sideScrollTop": 900,
+        "mainScrollTop": 160
+      },
+      "checks": {
+        "outerHorizontalScrollZero": true,
+        "outerVerticalScrollZero": true,
+        "internalAppFitsViewport": true,
+        "menuCountExact": true,
+        "menuOneColumn": true,
+        "menuInternallyScrollable": true,
+        "menuNoHorizontalScroll": true,
+        "labelsOneLine": true,
+        "fontReadable": true,
+        "lastMenuOperable": true,
+        "windowScrollLocked": true,
+        "noConsumerFlash": true,
+        "noBlackShell": true
+      }
+    },
+    {
+      "viewport": "412x915",
+      "metrics": {
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "html": {
+          "clientWidth": 412,
+          "scrollWidth": 412,
+          "clientHeight": 915,
+          "scrollHeight": 915,
+          "overflowX": "hidden",
+          "overflowY": "hidden"
+        },
+        "body": {
+          "clientWidth": 412,
+          "scrollWidth": 412,
+          "clientHeight": 915,
+          "scrollHeight": 915
+        },
+        "app": {
+          "clientHeight": 873,
+          "scrollHeight": 873
+        },
+        "side": {
+          "clientWidth": 397,
+          "scrollWidth": 397,
+          "clientHeight": 328,
+          "scrollHeight": 1203,
+          "overflowY": "auto"
+        },
+        "main": {
+          "clientWidth": 397,
+          "scrollWidth": 397,
+          "clientHeight": 544,
+          "scrollHeight": 3187,
+          "overflowY": "auto"
+        },
+        "menuCount": 27,
+        "oneColumn": true,
+        "minFontSize": 14,
+        "allOneLine": true,
+        "firstPaint": {
+          "frames": 44,
+          "workspaceVisibleFrames": 44,
+          "consumerVisibleFrames": 0,
+          "blackShellFrames": 0,
+          "consumerEverVisible": false,
+          "firstWorkspaceFrame": 1
+        }
+      },
+      "lastButtonHit": {
+        "label": "存檔 / 匯出",
+        "ownerIsButton": true,
+        "rect": {
+          "left": 10,
+          "top": 320,
+          "right": 387,
+          "bottom": 358
+        }
+      },
+      "activeAfterLastClick": "view-export",
+      "scrollIsolation": {
+        "windowScrollY": 0,
+        "sideScrollTop": 875,
+        "mainScrollTop": 160
+      },
+      "checks": {
+        "outerHorizontalScrollZero": true,
+        "outerVerticalScrollZero": true,
+        "internalAppFitsViewport": true,
+        "menuCountExact": true,
+        "menuOneColumn": true,
+        "menuInternallyScrollable": true,
+        "menuNoHorizontalScroll": true,
+        "labelsOneLine": true,
+        "fontReadable": true,
+        "lastMenuOperable": true,
+        "windowScrollLocked": true,
+        "noConsumerFlash": true,
+        "noBlackShell": true
+      }
+    }
+  ],
+  "checks": [
+    {
+      "group": "mobile",
+      "name": "360x800 outerHorizontalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 outerVerticalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 internalAppFitsViewport",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 menuCountExact",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 menuOneColumn",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 menuInternallyScrollable",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 menuNoHorizontalScroll",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 labelsOneLine",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 fontReadable",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 lastMenuOperable",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 windowScrollLocked",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 noConsumerFlash",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "360x800 noBlackShell",
+      "status": "PASS",
+      "details": {
+        "viewport": "360x800",
+        "metrics": {
+          "viewport": {
+            "width": 360,
+            "height": 800
+          },
+          "html": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 800,
+            "scrollHeight": 800
+          },
+          "app": {
+            "clientHeight": 758,
+            "scrollHeight": 758
+          },
+          "side": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 287,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 345,
+            "scrollWidth": 345,
+            "clientHeight": 470,
+            "scrollHeight": 3252,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 43,
+            "workspaceVisibleFrames": 43,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 279,
+            "right": 335,
+            "bottom": 317
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 916,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 outerHorizontalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 outerVerticalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 internalAppFitsViewport",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 menuCountExact",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 menuOneColumn",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 menuInternallyScrollable",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 menuNoHorizontalScroll",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 labelsOneLine",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 fontReadable",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 lastMenuOperable",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 windowScrollLocked",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 noConsumerFlash",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "375x812 noBlackShell",
+      "status": "PASS",
+      "details": {
+        "viewport": "375x812",
+        "metrics": {
+          "viewport": {
+            "width": 375,
+            "height": 812
+          },
+          "html": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 812,
+            "scrollHeight": 812
+          },
+          "app": {
+            "clientHeight": 770,
+            "scrollHeight": 770
+          },
+          "side": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 291,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 360,
+            "scrollWidth": 360,
+            "clientHeight": 478,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 283,
+            "right": 350,
+            "bottom": 321
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 912,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 outerHorizontalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 outerVerticalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 internalAppFitsViewport",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 menuCountExact",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 menuOneColumn",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 menuInternallyScrollable",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 menuNoHorizontalScroll",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 labelsOneLine",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 fontReadable",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 lastMenuOperable",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 windowScrollLocked",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 noConsumerFlash",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "390x844 noBlackShell",
+      "status": "PASS",
+      "details": {
+        "viewport": "390x844",
+        "metrics": {
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "html": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 390,
+            "scrollWidth": 390,
+            "clientHeight": 844,
+            "scrollHeight": 844
+          },
+          "app": {
+            "clientHeight": 802,
+            "scrollHeight": 802
+          },
+          "side": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 303,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 375,
+            "scrollWidth": 375,
+            "clientHeight": 498,
+            "scrollHeight": 3206,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 42,
+            "workspaceVisibleFrames": 42,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 295,
+            "right": 365,
+            "bottom": 333
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 900,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 outerHorizontalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 outerVerticalScrollZero",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 internalAppFitsViewport",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 menuCountExact",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 menuOneColumn",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 menuInternallyScrollable",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 menuNoHorizontalScroll",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 labelsOneLine",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 fontReadable",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 lastMenuOperable",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 windowScrollLocked",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 noConsumerFlash",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    },
+    {
+      "group": "mobile",
+      "name": "412x915 noBlackShell",
+      "status": "PASS",
+      "details": {
+        "viewport": "412x915",
+        "metrics": {
+          "viewport": {
+            "width": 412,
+            "height": 915
+          },
+          "html": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915,
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          },
+          "body": {
+            "clientWidth": 412,
+            "scrollWidth": 412,
+            "clientHeight": 915,
+            "scrollHeight": 915
+          },
+          "app": {
+            "clientHeight": 873,
+            "scrollHeight": 873
+          },
+          "side": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 328,
+            "scrollHeight": 1203,
+            "overflowY": "auto"
+          },
+          "main": {
+            "clientWidth": 397,
+            "scrollWidth": 397,
+            "clientHeight": 544,
+            "scrollHeight": 3187,
+            "overflowY": "auto"
+          },
+          "menuCount": 27,
+          "oneColumn": true,
+          "minFontSize": 14,
+          "allOneLine": true,
+          "firstPaint": {
+            "frames": 44,
+            "workspaceVisibleFrames": 44,
+            "consumerVisibleFrames": 0,
+            "blackShellFrames": 0,
+            "consumerEverVisible": false,
+            "firstWorkspaceFrame": 1
+          }
+        },
+        "lastButtonHit": {
+          "label": "存檔 / 匯出",
+          "ownerIsButton": true,
+          "rect": {
+            "left": 10,
+            "top": 320,
+            "right": 387,
+            "bottom": 358
+          }
+        },
+        "activeAfterLastClick": "view-export",
+        "scrollIsolation": {
+          "windowScrollY": 0,
+          "sideScrollTop": 875,
+          "mainScrollTop": 160
+        },
+        "checks": {
+          "outerHorizontalScrollZero": true,
+          "outerVerticalScrollZero": true,
+          "internalAppFitsViewport": true,
+          "menuCountExact": true,
+          "menuOneColumn": true,
+          "menuInternallyScrollable": true,
+          "menuNoHorizontalScroll": true,
+          "labelsOneLine": true,
+          "fontReadable": true,
+          "lastMenuOperable": true,
+          "windowScrollLocked": true,
+          "noConsumerFlash": true,
+          "noBlackShell": true
+        }
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

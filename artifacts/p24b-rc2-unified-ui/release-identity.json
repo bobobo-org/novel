@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "p24b-rc2-release-identity-v1",
+  "generatedAt": "2026-07-26T15:59:31.626Z",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "rc1Product": "71bea12da90def7646efe1189f059896d3582327",
+  "releaseTag": "novel-ai-p24b-character-agent-rc2",
+  "releaseName": "P2.4B Closed Character Agent Core RC2",
+  "consumerRelease": "p2.4b-character-agent-rc2",
+  "architectureStage": "P2.4B RC",
+  "provenanceSourcePriority": [
+    "vercel_git_commit_sha",
+    "explicit_build_commit",
+    "git_head"
+  ],
+  "uiVersion": "p24b-rc2-unified-ui",
+  "professionalMenuItemCount": 27,
+  "deepStudioRoutesStatus": "preserved",
+  "status": "P2.4B_RC2_RELEASE_IDENTITY_PASS"
+}

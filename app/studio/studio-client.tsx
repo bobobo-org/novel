@@ -711,7 +711,7 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
     projects.push(item);
     gameStates[formal.id] = gameStateFromCanonical(snapshot.storyState);
     branches.push(...snapshot.branches.map((branch: CanonicalStoryBranch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: gameStateFromCanonical(snapshot.storyState), draft: snapshot.chapter.content, versionsLength: 0, at: branch.createdAt })));
-    for (const backup of await repository.list<ProjectBackup>("backups", formal.id)) if (["novel-backup-v3", "novel-backup-v4"].includes(backup.formatVersion) && backup.manifest) {
+    for (const backup of await repository.list<ProjectBackup>("backups", formal.id)) if (["novel-backup-v3", "novel-backup-v4", "novel-backup-v5"].includes(backup.formatVersion) && backup.manifest) {
       const records = backup.snapshot as Record<string, unknown[]>, savedChapter = (records.chapters?.[0] as { title?: string; content?: string } | undefined), savedState = (records.storyStates?.[0] as CanonicalStoryState | undefined) ?? snapshot.storyState;
       const backupProject = { ...item, chapterTitle: savedChapter?.title || item.chapterTitle, draft: savedChapter?.content || "" }, backupGame = gameStateFromCanonical(savedState);
       const backupBranches = ((records.storyBranches ?? []) as CanonicalStoryBranch[]).map((branch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: backupGame, draft: backupProject.draft, versionsLength: 0, at: branch.createdAt }));

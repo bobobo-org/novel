@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "p23-release-metadata-contract-v2",
+  "schemaVersion": "p24b-release-metadata-contract-v1",
   "provenanceSchemaVersion": "p21-build-provenance-v1",
   "allowedProvenanceSchemaVersions": [
     "p21-build-provenance-v1"
@@ -16,7 +16,8 @@
     "P2.1",
     "P2.1 RC",
     "P2.3 RC",
-    "P2.4A RC"
+    "P2.4A RC",
+    "P2.4B RC"
   ],
-  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a)-[a-z0-9-]+$"
+  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$"
 }

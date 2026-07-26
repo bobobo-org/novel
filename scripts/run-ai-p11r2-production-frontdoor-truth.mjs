@@ -1,91 +1,89 @@
 import fs from "node:fs";
-import path from "node:path";
 
-const root = process.cwd();
 const origin = (process.env.PRODUCTION_ORIGIN || "").replace(/\/$/, "");
 const expectedCommit = process.env.EXPECTED_COMMIT || "";
-const manifest = JSON.parse(fs.readFileSync(path.join(root, "release-manifest.json"), "utf8"));
+const manifest = JSON.parse(fs.readFileSync("release-manifest.json", "utf8"));
+const read = (file) => fs.readFileSync(file, "utf8");
 const checks = [];
-const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const check = (name, condition, evidence = null) => checks.push({ name, pass: Boolean(condition), evidence });
+const check = (name, condition, details = null) => {
+  checks.push({ name, status: condition ? "PASS" : "FAIL", details });
+};
 
-const home = read("app/page.tsx");
+const rootPage = read("app/page.tsx");
 const studioPage = read("app/studio/page.tsx");
-const studio = read("app/studio/studio-client.tsx");
+const professionalPage = read("app/professional/page.tsx");
+const adapter = read("lib/professional-frontdoor.ts");
 const config = read("next.config.ts");
-const health = read("app/api/ai/health/route.ts");
 const legacy = read("public/legacy/novel-system.html");
-const compactStudio = studio.replace(/\s+/g, "");
-const serviceWorker = read("public/legacy/service-worker.js");
-const css = read("app/globals.css");
-const stamp = read("scripts/stamp-static-release.mjs");
+const health = read("app/api/ai/health/route.ts");
 
-check(
-  "release manifest keeps the consumer frontdoor contract",
-  ["P1.1R2", "P1.2", "P1.3", "P1.4", "P1.5"].includes(
-    manifest.architectureStage,
-  ),
-  manifest,
-);
-check("home has direct consumer identity", home.includes("諸天萬界小說生成系統") && home.includes("data-consumer-release"));
-check("home has no v5.9.1 marker", !home.includes("v5.9.1"));
-check("studio route exists", studioPage.includes("StudioClient") && studioPage.includes("RELEASE_MANIFEST"));
-check("studio is not rewritten to legacy", !config.includes('source: "/studio"') && !config.includes('destination: "/legacy/novel-system.html"'));
-check("studio initial shell is server renderable", studio.includes("studioShell") && studio.includes("從一個想法開始，也可以先保持空白"));
-check("consumer navigation is visible", ["開始創作", "繼續寫作", "我的作品", "互動故事"].every((label) => studio.includes(label)));
-check("consumer default mode is general", studio.includes("一般小說適合直接寫作") && !compactStudio.includes("professionalMode:true"));
-check("professional route is separate", fs.existsSync(path.join(root, "app/professional/page.tsx")) && studio.includes('href="/professional"'));
-check("legacy is visibly compatibility-only", legacy.includes("相容／專業工具入口") && legacy.includes("前往正式創作中心"));
-check("five-step wizard exists", compactStudio.includes("第{step}步，共5步") && studio.includes("補充人物與世界"));
-check("creation data persists locally", studio.includes("novel_p11r2_studio_state") && studio.includes("localStorage.setItem"));
-check("legacy state migration is safe", studio.includes("novel_p11_consumer_state") && compactStudio.includes("schemaVersion:3"));
-check("eight consumer tasks exist", (studio.match(/\[\s*"[a-z_]+",\s*"/g) || []).length >= 8);
-check("candidate boundary is explicit", studio.includes("還沒有加入正式故事") && studio.includes("採用這份建議"));
-check("discard preserves formal draft", compactStudio.includes("discard={()=>update({candidate:null})}"));
-check("accept creates a version", compactStudio.includes("versions:[old,...item.versions]"));
-check("dynamic choices use project context", compactStudio.includes('constfields=project?.optionalFields??state.wizard.optionalFields') && compactStudio.includes('optionalValue(fields,"protagonist")') && compactStudio.includes('optionalValue(fields,"conflict")'));
-check("choice state can be undone", studio.includes("undoBranch") && compactStudio.includes("branches:value.branches.filter"));
-check("no external request in studio", !studio.includes('fetch("https://') && !studio.includes("fetch('https://"));
-check("responsive studio CSS exists", css.includes(".studioShell") && css.includes("@media(max-width:800px)"));
-check("mobile studio navigation exists", css.includes(".studioMenuButton") && css.includes(".studioRail.open"));
-check("shared release manifest drives health", health.includes("RELEASE_MANIFEST.releaseTag") && health.includes("consumerRelease"));
-check("health exposes truth statuses", ["productionVisualEvidenceStatus", "initialHtmlConsumerShellStatus", "legacyCompatibilityStatus"].every((key) => health.includes(key)));
-check("static stamping uses release manifest", stamp.includes("release-manifest.json") && stamp.includes("releaseManifest.releaseTag"));
-check("legacy cache version is migrated", serviceWorker.includes("novel-system-p11r2-20260718-1") && serviceWorker.includes("caches.delete"));
+check("manifest is P2.4B RC2", manifest.releaseTag === "novel-ai-p24b-character-agent-rc2");
+check("root is an exact route adapter", rootPage.includes("buildProfessionalFrontdoorUrl"));
+check("Studio index is an exact route adapter", studioPage.includes("buildProfessionalFrontdoorUrl"));
+check("Professional index is an exact route adapter", professionalPage.includes("buildProfessionalFrontdoorUrl"));
+check("adapter preserves query semantics", adapter.includes("Object.keys(searchParams).sort()"));
+check("adapter forces Professional mode exactly once", adapter.includes('query.set("mode", "professional")'));
+check("Studio child wildcard redirect is prohibited", !config.includes('source: "/studio/:path*"'));
+check("first-paint Professional class is installed in head", legacy.indexOf("p11-professional-entry") < legacy.indexOf("</head>"));
+check("first-paint layout marker exists", legacy.includes('id="p24b-rc2-unified-professional-layout"'));
+check("Professional body marker exists", legacy.includes('data-workspace-version="p24b-rc2-unified-ui"'));
+check("static release metadata exposes UI version", legacy.includes('data-professional-ui-version="p24b-rc2-unified-ui"'));
+check("health is release-manifest driven", health.includes("RELEASE_MANIFEST.releaseTag"));
+check("health exposes UI convergence truth", health.includes("uiConvergenceGateStatus"));
 
-async function get(url) {
-  const started = Date.now();
-  const response = await fetch(url, { headers: { "cache-control": "no-cache" }, redirect: "follow" });
-  return { status: response.status, headers: Object.fromEntries(response.headers), text: await response.text(), elapsedMs: Date.now() - started };
+async function request(pathname, redirect = "manual") {
+  const response = await fetch(`${origin}${pathname}`, {
+    headers: { "cache-control": "no-cache" },
+    redirect,
+  });
+  return {
+    status: response.status,
+    location: response.headers.get("location"),
+    text: await response.text(),
+  };
 }
 
 if (origin) {
-  const nonce = Date.now();
-  const [rootResponse, studioResponse, healthResponse, legacyResponse] = await Promise.all([
-    get(`${origin}/?verify=${nonce}`),
-    get(`${origin}/studio?verify=${nonce}`),
-    get(`${origin}/api/ai/health?verify=${nonce}`),
-    get(`${origin}/legacy/novel-system.html?verify=${nonce}`),
+  const frontdoors = [
+    ["/", "/legacy/novel-system.html?mode=professional"],
+    ["/studio", "/legacy/novel-system.html?mode=professional"],
+    ["/studio?screen=home&task=inspect&projectId=project-1", "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=home&task=inspect"],
+    ["/professional?screen=library", "/legacy/novel-system.html?mode=professional&screen=library"],
+  ];
+  for (const [source, expectedLocation] of frontdoors) {
+    const response = await request(source);
+    const location = response.location ? new URL(response.location, origin) : null;
+    check(`${source} returns a redirect`, response.status === 307, response);
+    check(`${source} targets the exact Professional document`, location && `${location.pathname}${location.search}` === expectedLocation, response);
+  }
+
+  const [legacyResponse, createResponse, healthResponse] = await Promise.all([
+    request("/legacy/novel-system.html?mode=professional", "follow"),
+    request("/studio/create", "manual"),
+    request("/api/ai/health", "follow"),
   ]);
   let healthBody = {};
-  try { healthBody = JSON.parse(healthResponse.text); } catch {}
-  check("production home returns 200", rootResponse.status === 200, rootResponse);
-  check("production home initial HTML is consumer", rootResponse.text.includes("諸天萬界小說生成系統") && !rootResponse.text.includes("v5.9.1"));
-  check("production studio returns 200", studioResponse.status === 200, studioResponse);
-  check("production studio initial HTML is consumer shell", studioResponse.text.includes("今天想創作什麼故事") && studioResponse.text.includes("建立新作品"));
-  check("production studio is not legacy body", !studioResponse.text.includes("novelStaticRelease") && !studioResponse.text.includes("小型閉端 AI"));
-  check("production legacy remains available", legacyResponse.status === 200 && legacyResponse.text.includes("相容／專業工具入口"));
-  check("production health release matches manifest", healthResponse.status === 200 && healthBody.releaseTag === manifest.releaseTag, healthBody);
-  check("production health consumer release matches", healthBody.consumerRelease === manifest.consumerRelease, healthBody);
-  check("production health truth statuses are ready", healthBody.productionVisualEvidenceStatus === "ready" && healthBody.initialHtmlConsumerShellStatus === "ready" && healthBody.legacyCompatibilityStatus === "ready", healthBody);
-  check("production commit matches expected", !expectedCommit || healthBody.appCommit === expectedCommit, { expectedCommit, actual: healthBody.appCommit });
+  try {
+    healthBody = JSON.parse(healthResponse.text);
+  } catch {}
+  check("Professional document returns 200", legacyResponse.status === 200, legacyResponse.status);
+  check("Professional document contains first-paint workspace", legacyResponse.text.includes('data-testid="professional-workspace"'));
+  check("Studio create remains a direct Next.js page", createResponse.status === 200 && !createResponse.location, createResponse);
+  check("public health returns 200", healthResponse.status === 200, healthResponse.status);
+  check("public health release tag matches", healthBody.releaseTag === manifest.releaseTag, healthBody);
+  check("public health architecture stage matches", healthBody.architectureStage === manifest.architectureStage, healthBody);
+  check("public health provenance is verified", healthBody.commitProvenanceStatus === "verified", healthBody);
+  check("public health Product commit matches", !expectedCommit || healthBody.appCommit === expectedCommit, {
+    expectedCommit,
+    actualCommit: healthBody.appCommit,
+  });
 }
 
-for (const item of checks) console.log(`${item.pass ? "PASS" : "FAIL"} ${item.name}`);
-const pass = checks.filter((item) => item.pass).length;
+const pass = checks.filter((item) => item.status === "PASS").length;
 const fail = checks.length - pass;
-console.log(`P1.1R2 frontdoor truth: ${pass} PASS / ${fail} FAIL / 0 SKIP`);
+for (const item of checks) console.log(`${item.status} ${item.name}`);
+console.log(`P1.1R2 Professional frontdoor truth: ${pass} PASS / ${fail} FAIL / 0 SKIP`);
 if (fail) {
-  console.error(JSON.stringify(checks.filter((item) => !item.pass), null, 2));
-  process.exit(1);
+  console.error(JSON.stringify(checks.filter((item) => item.status === "FAIL"), null, 2));
+  process.exitCode = 1;
 }

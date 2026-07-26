@@ -37,6 +37,16 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "media.videoPrompt", status: "implemented", evidence: ["video prompt package"], limitations: ["Candidate only"] },
   { id: "media.videoGeneration", status: "contract_only", evidence: ["generic video adapter contract"], limitations: ["No video runtime connected"] },
   { id: "externalAI", status: "not_configured", evidence: ["external provider requires explicit consent"], limitations: ["Never selected in closed-only mode"] },
+  { id: "characterAgentCore", status: "verified", evidence: ["P2.4B Character Agent core matrix"], limitations: ["Runtime depends on the client environment"] },
+  { id: "characterPerspectiveContext", status: "verified", evidence: ["P2.4B actor/evaluator noninterference matrix"], limitations: ["Runtime depends on client storage"] },
+  { id: "knowledgeScopedCharacterContext", status: "verified", evidence: ["P2.4B knowledge scope matrix"], limitations: [] },
+  { id: "characterBeliefEngine", status: "verified", evidence: ["P2.4B belief boundary matrix"], limitations: [] },
+  { id: "characterMemory", status: "verified", evidence: ["P2.4B memory promotion and temporal matrix"], limitations: ["Runtime depends on client storage"] },
+  { id: "relationshipGraph", status: "verified", evidence: ["P2.4B directed relationship matrix"], limitations: ["Runtime depends on client storage"] },
+  { id: "relationshipHistory", status: "verified", evidence: ["P2.4B relationship idempotency matrix"], limitations: ["Runtime depends on client storage"] },
+  { id: "privateCharacterSimulation", status: "verified", evidence: ["P2.4B private simulation isolation matrix"], limitations: ["Candidate only until approval"] },
+  { id: "multiCharacterSimulation", status: "verified", evidence: ["P2.4B simulation termination and replay matrix"], limitations: ["True model text is not claimed deterministic"] },
+  { id: "characterProposalApproval", status: "verified", evidence: ["P2.4B atomic approval and rollback matrix"], limitations: ["Runtime depends on IndexedDB"] },
 ];
 
 export function capabilityTruthMatrix() {

@@ -41,6 +41,15 @@ function verifyReleaseProvenance() {
 
 const releaseProvenanceVerified = verifyReleaseProvenance();
 
+function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>, id: string) {
+  const capability = catalog[id];
+  return {
+    contractStatus: capability?.contractStatus ?? "not_implemented",
+    runtimeStatus: capability?.runtimeStatus ?? "not_implemented",
+    effectiveStatus: capability?.effectiveStatus ?? "not_implemented",
+  };
+}
+
 const RELEASE_META = {
   appCommit: releaseProvenanceVerified ? RELEASE_MANIFEST.appCommit : "provenance-unavailable",
   buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
@@ -54,6 +63,13 @@ const RELEASE_META = {
   commitProvenanceHash: releaseProvenanceVerified ? RELEASE_MANIFEST.commitProvenanceHash : null,
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
 };
 
 const L0A2E2D_TEST_META = {
@@ -538,10 +554,28 @@ export async function GET() {
     browserPermissionGateway: capabilityStatus(capabilityCatalog, "browser.permissionGateway"),
     browserAIContract: capabilityCatalog["browser.aiRuntime"]?.contractStatus ?? "not_implemented",
     browserAIRuntime: capabilityStatus(capabilityCatalog, "browser.aiRuntime"),
-    localOllamaContract: "ready",
-    localOllamaRuntime: "client_dependent",
-    privateAIHubContract: "ready",
-    privateAIHubRuntime: "not_connected",
+    localOllamaContract: capabilityCatalog["ollama.localRuntime"]?.contractStatus ?? "not_implemented",
+    localOllamaRuntime: capabilityCatalog["ollama.localRuntime"]?.runtimeStatus ?? "not_implemented",
+    privateAIHubContract: capabilityCatalog.privateAiHub?.contractStatus ?? "not_implemented",
+    privateAIHubRuntime: capabilityCatalog.privateAiHub?.runtimeStatus ?? "not_implemented",
+    privateAiHub: releaseCapability(capabilityCatalog, "privateAiHub"),
+    characterAgentCore: releaseCapability(capabilityCatalog, "characterAgentCore"),
+    characterPerspectiveContext: releaseCapability(capabilityCatalog, "characterPerspectiveContext"),
+    knowledgeScopedCharacterContext: releaseCapability(capabilityCatalog, "knowledgeScopedCharacterContext"),
+    characterBeliefEngine: releaseCapability(capabilityCatalog, "characterBeliefEngine"),
+    characterMemory: releaseCapability(capabilityCatalog, "characterMemory"),
+    relationshipGraph: releaseCapability(capabilityCatalog, "relationshipGraph"),
+    relationshipHistory: releaseCapability(capabilityCatalog, "relationshipHistory"),
+    privateCharacterSimulation: releaseCapability(capabilityCatalog, "privateCharacterSimulation"),
+    multiCharacterSimulation: releaseCapability(capabilityCatalog, "multiCharacterSimulation"),
+    characterProposalApproval: releaseCapability(capabilityCatalog, "characterProposalApproval"),
+    visualCharacterBible: releaseCapability(capabilityCatalog, "visualCharacterBible"),
+    storyboard: releaseCapability(capabilityCatalog, "storyboard"),
+    audienceVoting: releaseCapability(capabilityCatalog, "audienceVoting"),
+    audienceLearning: releaseCapability(capabilityCatalog, "audienceLearning"),
+    realVideoGeneration: releaseCapability(capabilityCatalog, "realVideoGeneration"),
+    creationDna: releaseCapability(capabilityCatalog, "creationDna"),
+    storyBlueprintWorkbench: releaseCapability(capabilityCatalog, "storyBlueprintWorkbench"),
     p21FeatureFlags: featureFlags(),
     p21ErrorCatalogStatus: "ready",
     p21SchemaCompatibility: "forward_defaults_and_safe_refusal",

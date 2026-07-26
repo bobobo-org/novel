@@ -1,0 +1,160 @@
+{
+  "schemaVersion": "p24b-rc2-selective-port-map-v1",
+  "generatedAt": "2026-07-26T15:59:32.348Z",
+  "rc1Product": "71bea12da90def7646efe1189f059896d3582327",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "referenceBaseline": "c784cde87cd0a6b35ef251720ca1dadf898546c3",
+  "referenceFinal": "e1832437b31b9b53a3399f745d602813245f938f",
+  "referenceDecisions": [
+    {
+      "change": "M",
+      "file": ".github/workflows/deploy.yml",
+      "classification": "DEPLOYMENT_REFERENCE_EXCLUDED",
+      "decision": "EXCLUDED",
+      "reason": "Deployment workflow is outside RC2 Product and Production is immutable."
+    },
+    {
+      "change": "M",
+      "file": "README.md",
+      "classification": "DOCUMENTATION_REFERENCE_EXCLUDED",
+      "decision": "EXCLUDED",
+      "reason": "Documentation reference is outside the approved Product scope."
+    },
+    {
+      "change": "M",
+      "file": "app/page.tsx",
+      "classification": "UI_PRODUCT_REFERENCE",
+      "decision": "REIMPLEMENTED",
+      "reason": "Shared exact-route server adapter replaces the reference-only root redirect."
+    },
+    {
+      "change": "M",
+      "file": "next.config.ts",
+      "classification": "UI_PRODUCT_REFERENCE",
+      "decision": "REIMPLEMENTED_WITHOUT_IMPORT",
+      "reason": "Wildcard /studio/:path* redirect is prohibited; exact app routes preserve children."
+    },
+    {
+      "change": "M",
+      "file": "public/legacy/novel-system.html",
+      "classification": "UI_PRODUCT_REFERENCE",
+      "decision": "SELECTIVELY_REIMPLEMENTED",
+      "reason": "First-paint Professional layout was adapted onto RC1 Product without replacing P2.4B logic."
+    },
+    {
+      "change": "M",
+      "file": "scripts/run-ai-p11-consumer-convergence.mjs",
+      "classification": "UI_TEST_REFERENCE",
+      "decision": "REIMPLEMENTED",
+      "reason": "Static convergence gate now validates the RC2 Professional contract."
+    },
+    {
+      "change": "M",
+      "file": "scripts/run-ai-p11r2-production-frontdoor-truth.mjs",
+      "classification": "UI_TEST_REFERENCE",
+      "decision": "REIMPLEMENTED",
+      "reason": "Frontdoor truth now validates exact redirects and preserved Studio children."
+    }
+  ],
+  "productFiles": [
+    {
+      "file": "app/api/admin/persistence/route.ts",
+      "classification": "RELEASE_IDENTITY"
+    },
+    {
+      "file": "app/api/ai/health/route.ts",
+      "classification": "RELEASE_IDENTITY"
+    },
+    {
+      "file": "app/page.tsx",
+      "classification": "FRONTDOOR_ROUTE"
+    },
+    {
+      "file": "app/professional/page.tsx",
+      "classification": "FRONTDOOR_ROUTE"
+    },
+    {
+      "file": "app/studio/create/create-project-client.tsx",
+      "classification": "UI_CONVERGENCE"
+    },
+    {
+      "file": "app/studio/page.tsx",
+      "classification": "FRONTDOOR_ROUTE"
+    },
+    {
+      "file": "app/studio/project/[projectId]/project-navigation.tsx",
+      "classification": "UI_CONVERGENCE"
+    },
+    {
+      "file": "app/studio/read/[projectId]/reader-client.tsx",
+      "classification": "UI_CONVERGENCE"
+    },
+    {
+      "file": "lib/professional-frontdoor.ts",
+      "classification": "FRONTDOOR_ROUTE"
+    },
+    {
+      "file": "package.json",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "public/legacy/novel-system.html",
+      "classification": "UI_CONVERGENCE"
+    },
+    {
+      "file": "release-manifest.json",
+      "classification": "RELEASE_IDENTITY"
+    },
+    {
+      "file": "scripts/resolve-p24b-rc2-action-pins.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/run-ai-p11-consumer-convergence.mjs",
+      "classification": "UI_TEST"
+    },
+    {
+      "file": "scripts/run-ai-p11r2-production-frontdoor-truth.mjs",
+      "classification": "UI_TEST"
+    },
+    {
+      "file": "scripts/run-p24b-rc2-build-provenance.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/run-p24b-rc2-build-reproducibility.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/run-p24b-rc2-product-scope.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/run-p24b-rc2-release-identity.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/run-p24b-rc2-ui-convergence.mjs",
+      "classification": "UI_TEST"
+    },
+    {
+      "file": "scripts/seal-p24b-rc2-evidence.mjs",
+      "classification": "RELEASE_TEST"
+    },
+    {
+      "file": "scripts/verify-p24b-rc2-evidence.mjs",
+      "classification": "RELEASE_TEST"
+    }
+  ],
+  "categoryCounts": {
+    "UI_CONVERGENCE": 4,
+    "FRONTDOOR_ROUTE": 4,
+    "UI_TEST": 3,
+    "RELEASE_IDENTITY": 3,
+    "RELEASE_TEST": 8,
+    "UNEXPECTED": 0
+  },
+  "prohibitedImportedFiles": [],
+  "unexpected": 0,
+  "status": "P2.4B_RC2_SELECTIVE_UI_PORT_PASS"
+}

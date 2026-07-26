@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "p24b-real-ollama-smoke-v1",
+  "status": "P2.4B_REAL_OLLAMA_SMOKE_PASS",
+  "generatedAt": "2026-07-26T16:06:26.400Z",
+  "startedAt": "2026-07-26T16:05:28.752Z",
+  "elapsedMs": 57648,
+  "endpoint": "http://127.0.0.1:11434",
+  "ollamaVersion": "0.32.1",
+  "model": {
+    "id": "qwen2.5:3b",
+    "digest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "size": 1929912432
+  },
+  "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+  "contextWindow": 8192,
+  "temperature": 0.1,
+  "topP": 0.9,
+  "seed": 2404,
+  "promptProfileVersion": "p24b-character-agent-rc1-smoke-v1",
+  "providerRunId": "ac31d342-2b11-4815-ac56-e3c60f899316",
+  "provider": "local-ollama",
+  "modelOutputDeterminismClaim": "STRUCTURE_ONLY",
+  "pass": 8,
+  "fail": 0,
+  "skip": 0,
+  "externalRequests": 0,
+  "dataLeftDevice": false,
+  "rawChainOfThoughtStored": false,
+  "latency": {
+    "totalMs": 57648,
+    "cases": [
+      {
+        "name": "scoped single-character dialogue",
+        "elapsedMs": 16310
+      },
+      {
+        "name": "action under false belief",
+        "elapsedMs": 7179
+      },
+      {
+        "name": "AUTHOR_ONLY secret blocked",
+        "elapsedMs": 4467
+      },
+      {
+        "name": "two distinct character voices",
+        "elapsedMs": 7489
+      },
+      {
+        "name": "bounded relationship impact",
+        "elapsedMs": 7471
+      },
+      {
+        "name": "three-turn multi-character simulation",
+        "elapsedMs": 7646
+      },
+      {
+        "name": "real generation cancellation",
+        "elapsedMs": 36
+      },
+      {
+        "name": "structured JSON validation",
+        "elapsedMs": 7006
+      }
+    ]
+  },
+  "structuredOutputValidation": {
+    "requiredCaseCount": 8,
+    "passedCaseCount": 8,
+    "failedCaseCount": 0,
+    "rawOutputStored": false
+  },
+  "results": [
+    {
+      "name": "scoped single-character dialogue",
+      "status": "PASS",
+      "elapsedMs": 16310,
+      "responseHash": "837a14dcf2656d64a647bf837837f63964f1072825b0478ca7df6e8e48198789",
+      "validation": {
+        "usedKnowledgeIds": [
+          "K_PUBLIC",
+          "K_SELF"
+        ],
+        "lineLength": 33
+      }
+    },
+    {
+      "name": "action under false belief",
+      "status": "PASS",
+      "elapsedMs": 7179,
+      "responseHash": "de1e1e28a386ce534c74ce100a4f7503dacf8b86b0375f82c897844acbfdd748",
+      "validation": {
+        "beliefUsed": true,
+        "claimsCanonicalTruth": false
+      }
+    },
+    {
+      "name": "AUTHOR_ONLY secret blocked",
+      "status": "PASS",
+      "elapsedMs": 4467,
+      "responseHash": "3f39a3fba656793341bed0fef5c84bfcbeeae23481d710878c202007a4222ed3",
+      "validation": {
+        "blocked": true,
+        "secretRepeated": false
+      }
+    },
+    {
+      "name": "two distinct character voices",
+      "status": "PASS",
+      "elapsedMs": 7489,
+      "responseHash": "5e08769b1222311df94041a4d4e98d3f6b57ba80a8835f67c1ca9d7e18c4eea8",
+      "validation": {
+        "voiceALength": 20,
+        "voiceBLength": 20
+      }
+    },
+    {
+      "name": "bounded relationship impact",
+      "status": "PASS",
+      "elapsedMs": 7471,
+      "responseHash": "0c8468c12851c66fc71ba6e0e76b76bed960e466943e0c062a243beff43c2c96",
+      "validation": {
+        "keys": [
+          "eventType",
+          "delta",
+          "deltaReason",
+          "evidenceIds",
+          "requiresApproval",
+          "canonicalMutation"
+        ],
+        "eventType": "TRUST_GAIN",
+        "delta": {
+          "trust": 4,
+          "affection": 2
+        },
+        "deltaReasonType": "string",
+        "evidenceCount": 1,
+        "requiresApproval": true,
+        "canonicalMutation": 0
+      }
+    },
+    {
+      "name": "three-turn multi-character simulation",
+      "status": "PASS",
+      "elapsedMs": 7646,
+      "responseHash": "5c61a75887841c80f21fa65e8cf22b035ee05a058c8aa9d10734121c33247b24",
+      "validation": {
+        "keys": [
+          "turns",
+          "privateMode"
+        ],
+        "speakers": [
+          "A",
+          "B",
+          "C"
+        ],
+        "turnCount": 3,
+        "privateMode": true
+      }
+    },
+    {
+      "name": "real generation cancellation",
+      "status": "PASS",
+      "elapsedMs": 36,
+      "validation": {
+        "abortSignalObserved": true,
+        "providerErrorCode": "AI_PROVIDER_TIMEOUT"
+      }
+    },
+    {
+      "name": "structured JSON validation",
+      "status": "PASS",
+      "elapsedMs": 7006,
+      "responseHash": "2068f329b89c985fb3de0a805eba74bcad5bfbd2c731018e7fe8dd3e5b3ba285",
+      "validation": {
+        "keys": [
+          "canonicalMutation",
+          "constraintViolations",
+          "decisionSummary",
+          "knownEvidenceIds",
+          "schemaVersion",
+          "status",
+          "uncertainty"
+        ],
+        "schemaVersion": "character-agent-smoke-v1"
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

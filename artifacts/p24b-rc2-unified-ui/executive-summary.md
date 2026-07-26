@@ -1,0 +1,26 @@
+# P2.4B RC2 Unified Professional UI Evidence
+
+- Product commit: `b21db7fc97cbf11109876aea409b8fc6e8177c3b`
+- RC1 Product parent: `71bea12da90def7646efe1189f059896d3582327`
+- Release: `novel-ai-p24b-character-agent-rc2` / `P2.4B RC`
+- Selective UI reference port: PASS; unexpected Product files: 0
+- Unified Professional UI gate: 154 PASS / 0 FAIL / 0 SKIP
+- Four frontdoors semantic hash count: 1
+- First-paint Consumer flashes: 0
+- First-paint black shell frames: 0
+- Menu controls: 27; desktop two-column; mobile single-column with internal scroll
+- Preserved deep Studio routes: 8
+- P2.4A exact regression: 516 PASS / 0 FAIL / 0 SKIP
+- P2.4B formal: 372 PASS / 0 FAIL / 0 SKIP
+- P2.4A Browser: 61 PASS / 0 FAIL / 0 SKIP
+- P2.4B Browser: 61 PASS / 0 FAIL / 0 SKIP; 30 flow steps
+- Real Ollama qwen2.5:3b: 8 PASS / 0 FAIL / 0 SKIP
+- Build provenance: verified and sealed to Product commit
+- Build reproducibility: 255 records; mismatch 0; missing 0; unexpected 0
+- Backup semantic hash: MATCH
+- External AI requests: 0
+- Raw chain-of-thought stored: false
+- Canonical mutation before approval: 0
+- True credential hits: 0
+- Production: unchanged
+- P2.4C / H3C / H3L: not started

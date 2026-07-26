@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/novel-ai/admin";
+import { resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import {
   AiRunRepository,
@@ -14,11 +15,39 @@ import {
 
 export const runtime = "nodejs";
 
+const capabilityCatalog = resolveCapabilityCatalog();
+const releaseCapability = (id: string) => ({
+  contractStatus: capabilityCatalog[id]?.contractStatus ?? "not_implemented",
+  runtimeStatus: capabilityCatalog[id]?.runtimeStatus ?? "not_implemented",
+  effectiveStatus: capabilityCatalog[id]?.effectiveStatus ?? "not_implemented",
+});
+
 const releaseIdentity = {
   appCommit: RELEASE_MANIFEST.appCommit,
   releaseTag: RELEASE_MANIFEST.releaseTag,
+  releaseName: RELEASE_MANIFEST.releaseName,
+  consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
   commitProvenanceStatus: RELEASE_MANIFEST.commitProvenanceStatus,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
+  characterCapabilities: Object.fromEntries([
+    "characterAgentCore",
+    "characterPerspectiveContext",
+    "knowledgeScopedCharacterContext",
+    "characterBeliefEngine",
+    "characterMemory",
+    "relationshipGraph",
+    "relationshipHistory",
+    "privateCharacterSimulation",
+    "multiCharacterSimulation",
+    "characterProposalApproval",
+  ].map((id) => [id, releaseCapability(id)])),
 };
 
 function elapsed(started: number) {

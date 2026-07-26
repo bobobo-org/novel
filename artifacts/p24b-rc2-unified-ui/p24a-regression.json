@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "p24b-rc2-p24a-regression-v1",
+  "generatedAt": "2026-07-26T16:07:16.343Z",
+  "dramaOs": {
+    "pass": 269,
+    "fail": 0,
+    "skip": 0
+  },
+  "requiredRegressions": {
+    "pass": 166,
+    "fail": 0,
+    "skip": 0
+  },
+  "capabilityTruth": {
+    "pass": 20,
+    "fail": 0,
+    "skip": 0
+  },
+  "browser": {
+    "pass": 61,
+    "fail": 0,
+    "skip": 0
+  },
+  "exactTotal": {
+    "pass": 516,
+    "fail": 0,
+    "skip": 0
+  },
+  "status": "PASS",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}
