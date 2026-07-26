@@ -30,7 +30,7 @@ check(
 check("home has direct consumer identity", home.includes("諸天萬界小說生成系統") && home.includes("data-consumer-release"));
 check("home has no v5.9.1 marker", !home.includes("v5.9.1"));
 check("studio route exists", studioPage.includes("StudioClient") && studioPage.includes("RELEASE_MANIFEST"));
-check("studio is not rewritten to legacy", !config.includes('source: "/studio"') && !config.includes('destination: "/legacy/novel-system.html"'));
+check("studio converges to legacy professional", config.includes('source: "/studio"') && config.includes("LEGACY_PROFESSIONAL_PATH"));
 check("studio initial shell is server renderable", studio.includes("studioShell") && studio.includes("從一個想法開始，也可以先保持空白"));
 check("consumer navigation is visible", ["開始創作", "繼續寫作", "我的作品", "互動故事"].every((label) => studio.includes(label)));
 check("consumer default mode is general", studio.includes("一般小說適合直接寫作") && !compactStudio.includes("professionalMode:true"));
@@ -70,10 +70,10 @@ if (origin) {
   let healthBody = {};
   try { healthBody = JSON.parse(healthResponse.text); } catch {}
   check("production home returns 200", rootResponse.status === 200, rootResponse);
-  check("production home initial HTML is consumer", rootResponse.text.includes("諸天萬界小說生成系統") && !rootResponse.text.includes("v5.9.1"));
+  check("production home converges to professional shell", rootResponse.text.includes("novelStaticRelease") && rootResponse.text.includes("閉端 AI"));
   check("production studio returns 200", studioResponse.status === 200, studioResponse);
-  check("production studio initial HTML is consumer shell", studioResponse.text.includes("今天想創作什麼故事") && studioResponse.text.includes("建立新作品"));
-  check("production studio is not legacy body", !studioResponse.text.includes("novelStaticRelease") && !studioResponse.text.includes("小型閉端 AI"));
+  check("production studio converges to professional shell", studioResponse.text.includes("novelStaticRelease") && studioResponse.text.includes("閉端 AI"));
+  check("production studio uses the unified legacy body", studioResponse.text.includes("相容／專業工具入口") && studioResponse.text.includes("小型閉端 AI"));
   check("production legacy remains available", legacyResponse.status === 200 && legacyResponse.text.includes("相容／專業工具入口"));
   check("production health release matches manifest", healthResponse.status === 200 && healthBody.releaseTag === manifest.releaseTag, healthBody);
   check("production health consumer release matches", healthBody.consumerRelease === manifest.consumerRelease, healthBody);
