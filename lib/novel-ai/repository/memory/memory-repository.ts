@@ -1,6 +1,16 @@
 import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { buildDramaApprovalRecords } from "../../drama-os/approval";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
+import { buildCharacterApprovalRecords, buildCharacterRejectionRecords } from "../../character-agent/approval-service";
+import type {
+  ApproveCharacterProposalInput,
+  ApproveCharacterProposalResult,
+  CharacterAgentApprovalRecord,
+  CharacterAgentEvaluation,
+  CharacterProposalEnvelope,
+  RejectCharacterProposalInput,
+  RejectCharacterProposalResult,
+} from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
@@ -10,6 +20,11 @@ export class MemoryNovelRepository implements NovelRepository {
   private stores = new Map<NovelStoreName, Map<string, DomainRecord>>(NOVEL_STORES.map((name) => [name, new Map()]));
   private requests = new Map<string, ProjectBundle>();
   private interactionQueue: Promise<unknown> = Promise.resolve();
+  private readonly approvalFaultInjector: ((point: string) => void) | null;
+  constructor(options: { approvalFaultInjector?: (point: string) => void } = {}) {
+    this.approvalFaultInjector = options.approvalFaultInjector ?? null;
+  }
+  private inject(point: string) { this.approvalFaultInjector?.(point); }
   isAvailable() { return true; }
   async get<T extends DomainRecord>(store: NovelStoreName, id: string) { return (structuredClone(this.stores.get(store)?.get(id)) as T | undefined) ?? null; }
   async list<T extends DomainRecord>(store: NovelStoreName, projectId?: string) { return [...(this.stores.get(store)?.values() ?? [])].filter((item) => !projectId || item.projectId === projectId).map((item) => structuredClone(item) as T); }
@@ -162,6 +177,119 @@ export class MemoryNovelRepository implements NovelRepository {
     } catch (error) {
       this.stores.set("dramaProjects", beforeProjects);
       this.stores.set("narrativeCanonLinks", beforeLinks);
+      throw error;
+    }
+  }
+  approveCharacterProposalTransaction(input: ApproveCharacterProposalInput): Promise<ApproveCharacterProposalResult> {
+    const run = this.interactionQueue.then(() => this.approveCharacterProposalTransactionInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async approveCharacterProposalTransactionInternal(input: ApproveCharacterProposalInput): Promise<ApproveCharacterProposalResult> {
+    const idempotencyScope = `${input.projectId}:${input.idempotencyKey}`;
+    const replay = (await this.list<CharacterAgentApprovalRecord>("characterAgentApprovals", input.projectId))
+      .find((record) => record.idempotencyScope === idempotencyScope);
+    if (replay) {
+      if (replay.proposalId !== input.proposalId || replay.payloadFingerprint !== input.payloadFingerprint) {
+        throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_PAYLOAD_MISMATCH");
+      }
+      const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", replay.proposalId);
+      if (!proposal) throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_REPLAY_INCOMPLETE");
+      const canonicalStore: NovelStoreName = proposal.canonicalPatch.entityType === "character"
+        ? "characters"
+        : proposal.canonicalPatch.entityType === "relationship"
+          ? "relationships"
+          : "dramaScenes";
+      const canonicalRecord = await this.get<DomainRecord>(canonicalStore, replay.canonicalEntityId);
+      if (!canonicalRecord || canonicalRecord.revision !== replay.resultingCanonicalRevision) {
+        throw new RepositoryOperationError("CHARACTER_IDEMPOTENCY_REPLAY_INCOMPLETE");
+      }
+      return { replayed: true, proposal, approval: replay, canonicalRecord };
+    }
+    const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", input.proposalId);
+    if (!proposal) throw new RepositoryOperationError("CHARACTER_PROPOSAL_NOT_FOUND");
+    const [evaluation, project, storyBibles] = await Promise.all([
+      this.get<CharacterAgentEvaluation>("characterAgentEvaluations", proposal.evaluationId),
+      this.get<NovelProject>("projects", input.projectId),
+      this.list<StoryBible>("storyBibles", input.projectId),
+    ]);
+    const storyBible = storyBibles[0] ?? null;
+    if (!evaluation || !project || !storyBible) throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_MISSING");
+    if (project.revision !== input.expectedSourceRevision || storyBible.revision !== input.expectedSourceStoryBibleVersion) {
+      throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_STALE");
+    }
+    for (const [characterId, revision] of Object.entries(proposal.sourceCharacterRevisions)) {
+      const character = await this.get<DomainRecord>("characters", characterId);
+      if (!character || character.projectId !== input.projectId || character.revision !== revision) {
+        throw new RepositoryOperationError("CHARACTER_APPROVAL_CHARACTER_STALE");
+      }
+    }
+    const canonicalStore: NovelStoreName = proposal.canonicalPatch.entityType === "character"
+      ? "characters"
+      : proposal.canonicalPatch.entityType === "relationship"
+        ? "relationships"
+        : "dramaScenes";
+    const canonicalRecord = await this.get<DomainRecord>(canonicalStore, proposal.canonicalPatch.entityId);
+    if (!canonicalRecord) throw new RepositoryOperationError("CHARACTER_CANONICAL_TARGET_MISSING");
+    const records = await buildCharacterApprovalRecords({ request: input, proposal, evaluation, canonicalRecord });
+    const relationshipEvent = records.effects.relationshipEvent;
+    if (relationshipEvent) {
+      const duplicate = (await this.list("characterRelationshipEvents", input.projectId)).find((row) => {
+        const event = row as DomainRecord & { idempotencyScope?: string; sourceEventScope?: string };
+        return event.idempotencyScope === relationshipEvent.idempotencyScope || event.sourceEventScope === relationshipEvent.sourceEventScope;
+      });
+      if (duplicate) throw new RepositoryOperationError("DUPLICATE_RELATIONSHIP_EVENT");
+      const currentEdge = await this.get<DomainRecord>("characterRelationships", relationshipEvent.relationshipId);
+      if (!currentEdge || currentEdge.revision !== relationshipEvent.beforeRevision) throw new RepositoryOperationError("STALE_RELATIONSHIP_REVISION");
+    }
+    const before = new Map(NOVEL_STORES.map((name) => [name, new Map([...(this.stores.get(name)?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]))]));
+    const writes: Array<[NovelStoreName, DomainRecord]> = [
+      ["characterProposals", records.proposal],
+      ["characterAgentApprovals", records.approval],
+      [canonicalStore, records.canonicalRecord],
+      ...(records.effects.stateUpdate ? [["characterAgentStates", records.effects.stateUpdate] as [NovelStoreName, DomainRecord]] : []),
+      ...records.effects.approvedMemories.map((row) => ["characterMemories", row] as [NovelStoreName, DomainRecord]),
+      ...(records.effects.relationshipEdge ? [["characterRelationships", records.effects.relationshipEdge] as [NovelStoreName, DomainRecord]] : []),
+      ...(records.effects.relationshipEvent ? [["characterRelationshipEvents", records.effects.relationshipEvent] as [NovelStoreName, DomainRecord]] : []),
+      ...(records.effects.knowledgeAcquisition ? [["characterKnowledge", records.effects.knowledgeAcquisition] as [NovelStoreName, DomainRecord]] : []),
+      ...(records.effects.privateArcPromotion ? [["characterPrivateArcs", records.effects.privateArcPromotion] as [NovelStoreName, DomainRecord]] : []),
+      ["characterAgentAudit", records.audit],
+    ];
+    try {
+      for (const [store, row] of writes) {
+        if (row.projectId !== input.projectId) throw new RepositoryOperationError("CHARACTER_APPROVAL_PROJECT_SCOPE_MISMATCH");
+        this.inject(`before:${store}`);
+        this.stores.get(store)?.set(row.id, structuredClone(row));
+        this.inject(`after:${store}`);
+      }
+      return { replayed: false, proposal: records.proposal, approval: records.approval, canonicalRecord: records.canonicalRecord };
+    } catch (error) {
+      this.stores = before;
+      throw error;
+    }
+  }
+  rejectCharacterProposalTransaction(input: RejectCharacterProposalInput): Promise<RejectCharacterProposalResult> {
+    const run = this.interactionQueue.then(() => this.rejectCharacterProposalTransactionInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async rejectCharacterProposalTransactionInternal(input: RejectCharacterProposalInput): Promise<RejectCharacterProposalResult> {
+    const proposal = await this.get<CharacterProposalEnvelope>("characterProposals", input.proposalId);
+    if (!proposal) throw new RepositoryOperationError("CHARACTER_PROPOSAL_NOT_FOUND");
+    const records = buildCharacterRejectionRecords({ request: input, proposal });
+    const beforeProposals = new Map([...(this.stores.get("characterProposals")?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]));
+    const beforeAudit = new Map([...(this.stores.get("characterAgentAudit")?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]));
+    try {
+      this.inject("before:characterProposals");
+      this.stores.get("characterProposals")?.set(records.proposal.id, structuredClone(records.proposal));
+      this.inject("after:characterProposals");
+      this.inject("before:characterAgentAudit");
+      this.stores.get("characterAgentAudit")?.set(records.audit.id, structuredClone(records.audit));
+      this.inject("after:characterAgentAudit");
+      return records;
+    } catch (error) {
+      this.stores.set("characterProposals", beforeProposals);
+      this.stores.set("characterAgentAudit", beforeAudit);
       throw error;
     }
   }

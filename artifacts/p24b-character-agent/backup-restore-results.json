@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "p24b-browser-backup-restore-v1",
+  "generatedAt": "2026-07-26T03:12:29.783Z",
+  "backupId": "993d7f26-b828-41f1-b956-a8e3405c99e8",
+  "formatVersion": "novel-backup-v5",
+  "projectSchemaVersion": "novel-repository-v6",
+  "characterStoresIncluded": [
+    "characterAgentProfiles",
+    "characterAgentStates",
+    "characterKnowledge",
+    "characterBeliefs",
+    "characterMemories",
+    "characterRelationships",
+    "characterRelationshipEvents",
+    "characterPrivateArcs",
+    "characterSimulations",
+    "characterSimulationTurns",
+    "characterAgentEvaluations",
+    "characterProposals",
+    "characterAgentApprovals",
+    "characterAgentAudit"
+  ],
+  "semanticHashBeforeBackup": "5163a843f6129be35aa23b0311394a4e03d3a2efda4522e4c9a76222636cbd0e",
+  "semanticHashAfterRestore": "5163a843f6129be35aa23b0311394a4e03d3a2efda4522e4c9a76222636cbd0e",
+  "semanticHashMatch": true,
+  "productOwnedReload": true,
+  "extraHarnessReload": false,
+  "status": "PASS",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327"
+}

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "p24b-mobile-gate-v1",
+  "generatedAt": "2026-07-26T03:12:29.783Z",
+  "requiredViewports": [
+    "360x800",
+    "375x812",
+    "390x844",
+    "412x915"
+  ],
+  "results": [
+    {
+      "viewport": "360x800",
+      "horizontalOverflow": false,
+      "controls": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      },
+      "relationshipGraphHidden": true,
+      "relationshipListVisible": true,
+      "relationshipCardCount": 2,
+      "technicalInformationExpanded": false,
+      "screenshot": "p24b-character-agent-mobile-360x800.png",
+      "pass": true
+    },
+    {
+      "viewport": "375x812",
+      "horizontalOverflow": false,
+      "controls": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      },
+      "relationshipGraphHidden": true,
+      "relationshipListVisible": true,
+      "relationshipCardCount": 2,
+      "technicalInformationExpanded": false,
+      "screenshot": "p24b-character-agent-mobile-375x812.png",
+      "pass": true
+    },
+    {
+      "viewport": "390x844",
+      "horizontalOverflow": false,
+      "controls": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      },
+      "relationshipGraphHidden": true,
+      "relationshipListVisible": true,
+      "relationshipCardCount": 2,
+      "technicalInformationExpanded": false,
+      "screenshot": "p24b-character-agent-mobile-390x844.png",
+      "pass": true
+    },
+    {
+      "viewport": "412x915",
+      "horizontalOverflow": false,
+      "controls": {
+        "syncProfiles": true,
+        "characterSelector": true,
+        "relationshipTarget": true,
+        "relationshipSave": true,
+        "simulationStart": true
+      },
+      "relationshipGraphHidden": true,
+      "relationshipListVisible": true,
+      "relationshipCardCount": 2,
+      "technicalInformationExpanded": false,
+      "screenshot": "p24b-character-agent-mobile-412x915.png",
+      "pass": true
+    }
+  ],
+  "pass": 16,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327"
+}

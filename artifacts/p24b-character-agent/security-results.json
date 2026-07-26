@@ -1,0 +1,313 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Character Agent security boundary",
+  "pass": 50,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "security",
+      "name": "attack 1 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "security",
+      "name": "attack 1 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "attack 2 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 2 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 3 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 3 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 4 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 4 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 5 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 5 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 6 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 6 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 7 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 7 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 8 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 8 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 9 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 9 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 10 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 10 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 11 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "security",
+      "name": "attack 11 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 12 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 12 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 13 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 13 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 14 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 14 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 15 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 15 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 16 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 16 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 17 is quarantined",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "attack 17 cannot select provider",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "normal adult fictional text is not injection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "adult gate accepts verified fictional adults",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "adult gate rejects unknown age",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "cross-project data is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "cross-canon data is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "raw reasoning storage is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "structured decision summary is allowed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning stores AUTHOR_ONLY as ID scope and fingerprint only",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "controlled learning rejects AUTHOR_ONLY text laundering",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning rejects raw chain of thought",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning redacts credential-shaped text",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning store supports collect list and delete",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "private learning record is not an export candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "shared opt-in export never starts training or distillation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "learning privacy validator rejects training flags",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "security",
+      "name": "Capability Truth keeps training and distillation not started",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

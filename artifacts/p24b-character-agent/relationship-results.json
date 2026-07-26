@@ -1,0 +1,223 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Directed relationship graph",
+  "pass": 35,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "relationship",
+      "name": "FIRST_MEETING creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "TRUST_GAIN creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "TRUST_LOSS creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "BETRAYAL creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RESCUE creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "CONFLICT creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ALLIANCE creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "DEBT_CREATED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "DEBT_REPAID creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ATTRACTION_GAIN creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RELATIONSHIP_BREAK creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "POWER_SHIFT creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "SECRET_SHARED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "SECRET_DISCOVERED creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "RECONCILIATION creates source-bound candidate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "A stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "A relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "relationship",
+      "name": "A metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "B metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C stores opposite directions independently",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C relationship edges validate",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "C metrics remain within bounds",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "ordinary event delta is saturated at 12",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "major event delta is saturated at 35",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "major event requires evaluator reason",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "evidence-free change is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "stale canon context is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "duplicate idempotency event returns existing event",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "same key with changed delta is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "relationship after snapshot is clamped to 100",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "relationship after snapshot is clamped to -100",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "timeline query blocks future relationships",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "relationship",
+      "name": "self edge is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

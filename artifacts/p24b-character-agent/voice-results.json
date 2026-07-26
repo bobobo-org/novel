@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Distinct character voice",
+  "pass": 8,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "core",
+      "name": "A dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "B dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "C dialogue follows one actor knowledge set",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "different character voices are not identical",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "A voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C voices differ by profile",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "provider",
+      "name": "browser allows character.voiceClassify",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

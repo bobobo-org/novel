@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "p24b-browser-canonical-isolation-v1",
+  "generatedAt": "2026-07-26T03:12:29.783Z",
+  "novelHashBeforeSimulation": "884370d2e3bbc71a72bf7c58d9ad1cf119c0e10c8ff80cf529877bd5889d680a",
+  "novelHashBeforeApproval": "884370d2e3bbc71a72bf7c58d9ad1cf119c0e10c8ff80cf529877bd5889d680a",
+  "novelHashAfterApprovalReload": "884370d2e3bbc71a72bf7c58d9ad1cf119c0e10c8ff80cf529877bd5889d680a",
+  "dramaHashBeforeSimulation": "3c96fb0e44c2a2886094cfc38f2615977eeb84d35dd74611d92f981bbd06092d",
+  "dramaHashBeforeApproval": "3c96fb0e44c2a2886094cfc38f2615977eeb84d35dd74611d92f981bbd06092d",
+  "dramaHashAfterApprovalReload": "3c96fb0e44c2a2886094cfc38f2615977eeb84d35dd74611d92f981bbd06092d",
+  "relationshipHashBeforeSimulation": "41cf99f0b53d3160fa1ba2da328d8b455071e63310127fa1c7240ede96f7c02b",
+  "relationshipHashAfterDiscard": "41cf99f0b53d3160fa1ba2da328d8b455071e63310127fa1c7240ede96f7c02b",
+  "canonicalMutationBeforeApproval": 0,
+  "novelCanonicalMutation": 0,
+  "dramaCanonicalMutation": 0,
+  "status": "P2.4B_CANONICAL_ISOLATION_PASS",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327"
+}

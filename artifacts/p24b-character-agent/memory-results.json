@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Character memory selection and promotion",
+  "pass": 12,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "knowledge",
+      "name": "unapproved generated memory is not reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved canonical memory is reusable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory is usable only inside same session",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "private memory cannot promote to canon",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "agent memory requires user approval",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "approved agent memory becomes approved",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "self reinforcing memory loop is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "temporal query blocks future memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory gate blocks a future event memory",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "memory selector ranks only approved memories",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "proposal",
+      "name": "approval promotes generated memory only after approval",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "proposal",
+      "name": "private memory effect is blocked",
+      "status": "PASS",
+      "elapsedMs": 3
+    }
+  ]
+}

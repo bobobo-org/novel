@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Information-flow taint and reasoning boundary",
+  "pass": 15,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "deniedInputDisposition": "TAINTED_DENIED",
+    "rawChainOfThoughtStored": false,
+    "evaluatorSecretCopiedToActorOutput": false
+  },
+  "results": [
+    {
+      "category": "core",
+      "name": "agent records contain no raw chain of thought",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "Evaluator blocks private message broadcast",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "A evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "knowledge",
+      "name": "B denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "B evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "C denied information remains tainted",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "knowledge",
+      "name": "C evaluator suggestion does not copy secret text",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "A private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "C private messages are not broadcast",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "proposal contains no raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "proposal",
+      "name": "audit stores decision summary not raw reasoning",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "security",
+      "name": "raw reasoning storage is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "security",
+      "name": "controlled learning rejects raw chain of thought",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

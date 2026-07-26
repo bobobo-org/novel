@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Timeline life-state and age",
+  "pass": 4,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "core",
+      "name": "dead character cannot plan present action",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "category": "core",
+      "name": "dead character may appear in flashback",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "state as-of preserves historical faction inventory location life and commitments",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "knowledge",
+      "name": "adult eligibility uses scene timeline age",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

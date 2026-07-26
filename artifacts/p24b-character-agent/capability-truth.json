@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "p24b-capability-truth-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "preciseCapabilities": [
+    {
+      "id": "characterAgentCore",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "characterPerspectiveContext",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "knowledgeScopedCharacterContext",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "characterBeliefEngine",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "characterMemory",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "relationshipGraph",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "relationshipHistory",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "privateCharacterSimulation",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "multiCharacterSimulation",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    },
+    {
+      "id": "characterProposalApproval",
+      "contractStatus": "ready",
+      "runtimeStatus": "client_dependent",
+      "truthStatus": "verified",
+      "status": "PASS"
+    }
+  ],
+  "futureBoundaries": {
+    "P2_4C": true,
+    "P2_4D": true,
+    "P2_4E": true,
+    "P2_5": true
+  },
+  "p24aSourceConsistency": {
+    "pass": 20,
+    "fail": 0,
+    "skip": 0,
+    "mismatch": 0,
+    "falseReadyClaims": 0
+  },
+  "falseReadyClaims": 0,
+  "status": "PASS"
+}

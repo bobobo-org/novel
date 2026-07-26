@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Character goal planner",
+  "pass": 3,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {},
+  "results": [
+    {
+      "category": "core",
+      "name": "A supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "B supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "core",
+      "name": "C supported goals become hard goals",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

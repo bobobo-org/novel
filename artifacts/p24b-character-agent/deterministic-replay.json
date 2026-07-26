@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Deterministic replay contract",
+  "pass": 8,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "trueModelTextDeterminismClaim": "STRUCTURE_ONLY"
+  },
+  "results": [
+    {
+      "category": "simulation",
+      "name": "A produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "B produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "simulation",
+      "name": "C produces decision hashes",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic input reproduces turn order",
+      "status": "PASS",
+      "elapsedMs": 6
+    },
+    {
+      "category": "simulation",
+      "name": "same deterministic fixture structure is reproducible within one canon",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "true model replay contract is structure only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic provider replay contract is full",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "category": "simulation",
+      "name": "deterministic replay preserves decision hashes and relationship structure",
+      "status": "PASS",
+      "elapsedMs": 6
+    }
+  ]
+}

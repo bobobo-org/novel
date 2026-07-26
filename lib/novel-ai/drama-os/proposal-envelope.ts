@@ -16,7 +16,15 @@ export type ProposalType =
   | "DRAMA_SCENE"
   | "DRAMA_BEAT"
   | "DRAMA_BRANCH"
-  | "DRAMA_DIALOGUE";
+  | "DRAMA_DIALOGUE"
+  | "CHARACTER_ACTION"
+  | "CHARACTER_DIALOGUE"
+  | "CHARACTER_STATE_CHANGE"
+  | "RELATIONSHIP_CHANGE"
+  | "KNOWLEDGE_ACQUISITION"
+  | "KNOWLEDGE_REVEAL"
+  | "PRIVATE_ARC_PROMOTION"
+  | "MULTI_CHARACTER_SCENE";
 
 export type ProposalEnvelope = {
   proposalId: string;
@@ -24,8 +32,14 @@ export type ProposalEnvelope = {
   projectId: string;
   sourceRevision: number;
   sourceEntityIds: string[];
+  characterIds?: string[];
+  sourceCharacterRevisions?: Record<string, number>;
+  sourceStoryBibleVersion?: number;
   generatedPayload: unknown;
   detectedChanges: string[];
+  knowledgeScopeImpact?: string[];
+  relationshipImpact?: Record<string, unknown>;
+  storyBibleImpact?: "NONE" | "CANDIDATE";
   canonicalImpact: CanonicalLayer[];
   warnings: string[];
   status: ProposalStatus;

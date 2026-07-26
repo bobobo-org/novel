@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "p24b-derived-test-report-v1",
+  "generatedAt": "2026-07-26T03:15:05.536Z",
+  "productCommit": "71bea12da90def7646efe1189f059896d3582327",
+  "title": "Approval and simulation concurrency guards",
+  "pass": 5,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "assertions": {
+    "duplicateApprovals": 0,
+    "duplicateSimulationResumes": 0
+  },
+  "results": [
+    {
+      "category": "core",
+      "name": "same character Agent Run shares one in-flight operation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "simulation",
+      "name": "concurrency guard shares one resume promise",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "category": "proposal",
+      "name": "same idempotency key replayed 100 times creates one approval",
+      "status": "PASS",
+      "elapsedMs": 9
+    },
+    {
+      "category": "proposal",
+      "name": "approve and reject race has one winner",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "category": "migration",
+      "name": "IndexedDB concurrent approval has no duplicate",
+      "status": "PASS",
+      "elapsedMs": 6
+    }
+  ]
+}

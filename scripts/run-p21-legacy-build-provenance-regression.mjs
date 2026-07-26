@@ -30,10 +30,16 @@ const stamped = {
   ...source,
   html: source.html
     .replaceAll("__NOVEL_STATIC_APP_COMMIT__", provenance.appCommit)
-    .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag),
+    .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag)
+    .replaceAll("__NOVEL_STATIC_RELEASE_NAME__", releaseManifest.releaseName)
+    .replaceAll("__NOVEL_STATIC_CONSUMER_RELEASE__", releaseManifest.consumerRelease)
+    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage),
   workspace: source.workspace
     .replaceAll("__NOVEL_STATIC_APP_COMMIT__", provenance.appCommit)
-    .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag),
+    .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag)
+    .replaceAll("__NOVEL_STATIC_RELEASE_NAME__", releaseManifest.releaseName)
+    .replaceAll("__NOVEL_STATIC_CONSUMER_RELEASE__", releaseManifest.consumerRelease)
+    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage),
 };
 
 async function test(name, work) {
@@ -73,6 +79,11 @@ await test("Build JSON contains releaseTag", () => {
 });
 await test("Build JSON contains architectureStage", () => {
   assert.equal(build().architectureStage, releaseManifest.architectureStage);
+});
+await test("Build JSON contains complete RC release identity", () => {
+  const actual = build();
+  assert.equal(actual.releaseName, releaseManifest.releaseName);
+  assert.equal(actual.consumerRelease, releaseManifest.consumerRelease);
 });
 await test("Build JSON contains verified provenance fields", () => {
   const actual = build();
