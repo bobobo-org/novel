@@ -6,9 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+  TARGET_ALIAS: novel-lqtechs-projects.vercel.app
+  LEGACY_ALIAS: novel-orcin.vercel.app
 
 jobs:
   deploy:
@@ -17,29 +28,113 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deployment tooling
+        run: npm install --global pnpm@10 vercel@56.3.2
+
+      - name: Capture legacy deployment guard
+        if: github.ref == 'refs/heads/main'
+        id: legacy
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_url="https://${LEGACY_ALIAS}/api/ai/health?guard=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$health_url")"
+          deployment_id="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$body")"
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Pull Vercel environment (production)
         if: github.ref == 'refs/heads/main'
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Pull Vercel environment (preview)
         if: github.ref != 'refs/heads/main'
-        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
 
       - name: Build (production)
         if: github.ref == 'refs/heads/main'
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Build (preview)
         if: github.ref != 'refs/heads/main'
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --token="$VERCEL_TOKEN"
 
-      - name: Deploy (production)
+      - name: Deploy staged production
         if: github.ref == 'refs/heads/main'
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        id: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN")"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
+          test -n "$deployment_url"
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify staged production
+        if: github.ref == 'refs/heads/main'
+        id: staged
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_url="${{ steps.production.outputs.url }}/api/ai/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for attempt in {1..30}; do
+            if body="$(curl --fail --silent --show-error "$health_url" 2>/dev/null)"; then
+              app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
+              deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
+              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" ]]; then
+                echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo "Staged deployment health did not match commit $GITHUB_SHA." >&2
+          exit 1
+
+      - name: Update only the requested production alias
+        if: github.ref == 'refs/heads/main'
+        run: >-
+          vercel alias set
+          "${{ steps.production.outputs.url }}"
+          "$TARGET_ALIAS"
+          --scope=lqtechs-projects
+          --token="$VERCEL_TOKEN"
+
+      - name: Verify target alias and preserve legacy alias
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_url="https://${TARGET_ALIAS}/api/ai/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          target_ok=false
+          for attempt in {1..30}; do
+            if body="$(curl --fail --silent --show-error "$target_url" 2>/dev/null)"; then
+              app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
+              deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
+              if [[ "$app_commit" == "$GITHUB_SHA" && "$deployment_id" == "${{ steps.staged.outputs.deployment_id }}" ]]; then
+                target_ok=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [[ "$target_ok" != "true" ]]; then
+            echo "Target alias did not resolve to the staged deployment." >&2
+            exit 1
+          fi
+
+          legacy_url="https://${LEGACY_ALIAS}/api/ai/health?guard=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-after"
+          legacy_body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$legacy_url")"
+          legacy_after="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$legacy_body")"
+          if [[ "$legacy_after" != "${{ steps.legacy.outputs.deployment_id }}" ]]; then
+            echo "Legacy alias deployment changed unexpectedly." >&2
+            exit 1
+          fi
 
       - name: Deploy (preview)
         if: github.ref != 'refs/heads/main'
-        run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --yes --token="$VERCEL_TOKEN"
