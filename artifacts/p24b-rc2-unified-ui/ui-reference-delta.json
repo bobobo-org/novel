@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "p24b-rc2-ui-reference-delta-v1",
+  "generatedAt": "2026-07-26T15:59:32.348Z",
+  "referenceBaseline": "c784cde87cd0a6b35ef251720ca1dadf898546c3",
+  "referenceFinal": "e1832437b31b9b53a3399f745d602813245f938f",
+  "inventoryMethod": "git-diff-name-status",
+  "records": [
+    {
+      "change": "M",
+      "file": ".github/workflows/deploy.yml",
+      "classification": "DEPLOYMENT_REFERENCE_EXCLUDED"
+    },
+    {
+      "change": "M",
+      "file": "README.md",
+      "classification": "DOCUMENTATION_REFERENCE_EXCLUDED"
+    },
+    {
+      "change": "M",
+      "file": "app/page.tsx",
+      "classification": "UI_PRODUCT_REFERENCE"
+    },
+    {
+      "change": "M",
+      "file": "next.config.ts",
+      "classification": "UI_PRODUCT_REFERENCE"
+    },
+    {
+      "change": "M",
+      "file": "public/legacy/novel-system.html",
+      "classification": "UI_PRODUCT_REFERENCE"
+    },
+    {
+      "change": "M",
+      "file": "scripts/run-ai-p11-consumer-convergence.mjs",
+      "classification": "UI_TEST_REFERENCE"
+    },
+    {
+      "change": "M",
+      "file": "scripts/run-ai-p11r2-production-frontdoor-truth.mjs",
+      "classification": "UI_TEST_REFERENCE"
+    }
+  ],
+  "recordCount": 7,
+  "unexpected": 0,
+  "status": "PASS",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

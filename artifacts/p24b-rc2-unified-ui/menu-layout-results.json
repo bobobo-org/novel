@@ -1,0 +1,2425 @@
+{
+  "schemaVersion": "p24b-rc2-menu-layout-results-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "desktopViewport": "1440x900",
+  "metrics": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "html": {
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "clientHeight": 900,
+      "scrollHeight": 900,
+      "overflowX": "hidden",
+      "overflowY": "hidden"
+    },
+    "body": {
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "clientHeight": 900,
+      "scrollHeight": 900,
+      "overflowX": "hidden",
+      "overflowY": "hidden"
+    },
+    "app": {
+      "x": 0,
+      "y": 42,
+      "width": 1440,
+      "height": 858,
+      "right": 1440,
+      "bottom": 900
+    },
+    "side": {
+      "x": 0,
+      "y": 42,
+      "width": 380,
+      "height": 858,
+      "right": 380,
+      "bottom": 900,
+      "clientHeight": 858,
+      "scrollHeight": 858,
+      "overflowY": "auto"
+    },
+    "main": {
+      "x": 380,
+      "y": 42,
+      "width": 1060,
+      "height": 858,
+      "right": 1440,
+      "bottom": 900,
+      "clientHeight": 858,
+      "scrollHeight": 1949,
+      "overflowY": "auto"
+    },
+    "buttonMetrics": [
+      {
+        "label": "快速創作",
+        "rect": {
+          "x": 12,
+          "y": 104,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 138
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "建立新作品",
+        "rect": {
+          "x": 185,
+          "y": 104,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 138
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "正式功能入口",
+        "rect": {
+          "x": 12,
+          "y": 142,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 176
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "書籍拆解",
+        "rect": {
+          "x": 185,
+          "y": 142,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 176
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "接力提示",
+        "rect": {
+          "x": 12,
+          "y": 180,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 214
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "聊天閱讀創作助理",
+        "rect": {
+          "x": 185,
+          "y": 180,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 214
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "每日書摘播報",
+        "rect": {
+          "x": 12,
+          "y": 218,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 252
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "本機規則建議",
+        "rect": {
+          "x": 185,
+          "y": 218,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 252
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "多章批量操作",
+        "rect": {
+          "x": 12,
+          "y": 256,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 290
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "首頁探索",
+        "rect": {
+          "x": 185,
+          "y": 256,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 290
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "分類書庫",
+        "rect": {
+          "x": 12,
+          "y": 294,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 328
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "故事靈感書庫",
+        "rect": {
+          "x": 185,
+          "y": 294,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 328
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "角色廣場",
+        "rect": {
+          "x": 12,
+          "y": 332,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 366
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "文風廣場",
+        "rect": {
+          "x": 185,
+          "y": 332,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 366
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "互動故事",
+        "rect": {
+          "x": 12,
+          "y": 370,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 404
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "任務中心",
+        "rect": {
+          "x": 185,
+          "y": 370,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 404
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "活動中心",
+        "rect": {
+          "x": 12,
+          "y": 408,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 442
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "排行榜",
+        "rect": {
+          "x": 185,
+          "y": 408,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 442
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "全部標籤",
+        "rect": {
+          "x": 12,
+          "y": 446,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 480
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "作家中心",
+        "rect": {
+          "x": 185,
+          "y": 446,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 480
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "連載儀表板",
+        "rect": {
+          "x": 12,
+          "y": 484,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 518
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "讀者互動",
+        "rect": {
+          "x": 185,
+          "y": 484,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 518
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "標籤工坊",
+        "rect": {
+          "x": 12,
+          "y": 522,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 556
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "IP 改編庫",
+        "rect": {
+          "x": 185,
+          "y": 522,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 556
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "平台比較",
+        "rect": {
+          "x": 12,
+          "y": 560,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 594
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "我的書架",
+        "rect": {
+          "x": 185,
+          "y": 560,
+          "width": 167,
+          "height": 34,
+          "right": 352,
+          "bottom": 594
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      },
+      {
+        "label": "存檔 / 匯出",
+        "rect": {
+          "x": 12,
+          "y": 598,
+          "width": 167,
+          "height": 34,
+          "right": 179,
+          "bottom": 632
+        },
+        "fontSize": 14,
+        "whiteSpace": "nowrap",
+        "scrollWidth": 165,
+        "clientWidth": 165
+      }
+    ],
+    "menuCount": 27,
+    "firstRowY": 104,
+    "secondItemY": 104,
+    "thirdItemY": 142,
+    "menuOperations": [
+      {
+        "index": 0,
+        "label": "快速創作",
+        "view": "creation",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-creation",
+        "activeView": "view-creation",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 1,
+        "label": "建立新作品",
+        "view": null,
+        "id": "phase1NewWorkNavButton",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-creation",
+        "activeView": "view-creation",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 2,
+        "label": "正式功能入口",
+        "view": "studio",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-studio",
+        "activeView": "view-studio",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 3,
+        "label": "書籍拆解",
+        "view": "breakdown",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-breakdown",
+        "activeView": "view-breakdown",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 4,
+        "label": "接力提示",
+        "view": "chatnovel",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-chatnovel",
+        "activeView": "view-chatnovel",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 5,
+        "label": "聊天閱讀創作助理",
+        "view": "tastecoach",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-tastecoach",
+        "activeView": "view-tastecoach",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 6,
+        "label": "每日書摘播報",
+        "view": "bookcast",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-bookcast",
+        "activeView": "view-bookcast",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 7,
+        "label": "本機規則建議",
+        "view": "miniai",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-miniai",
+        "activeView": "view-miniai",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 8,
+        "label": "多章批量操作",
+        "view": "batchlab",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-batchlab",
+        "activeView": "view-batchlab",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 9,
+        "label": "首頁探索",
+        "view": "home",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-home",
+        "activeView": "view-home",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 10,
+        "label": "分類書庫",
+        "view": "library",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-library",
+        "activeView": "view-library",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 11,
+        "label": "故事靈感書庫",
+        "view": "cloudlib",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-cloudlib",
+        "activeView": "view-cloudlib",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 12,
+        "label": "角色廣場",
+        "view": "characters",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-characters",
+        "activeView": "view-characters",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 13,
+        "label": "文風廣場",
+        "view": "styles",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-styles",
+        "activeView": "view-styles",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 14,
+        "label": "互動故事",
+        "view": "interactive",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-interactive",
+        "activeView": "view-interactive",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 15,
+        "label": "任務中心",
+        "view": "tasks",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-tasks",
+        "activeView": "view-tasks",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 16,
+        "label": "活動中心",
+        "view": "events",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-events",
+        "activeView": "view-events",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 17,
+        "label": "排行榜",
+        "view": "rankings",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-rankings",
+        "activeView": "view-rankings",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 18,
+        "label": "全部標籤",
+        "view": "tags",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-tags",
+        "activeView": "view-tags",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 19,
+        "label": "作家中心",
+        "view": "writer",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-writer",
+        "activeView": "view-writer",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 20,
+        "label": "連載儀表板",
+        "view": "seriallab",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-seriallab",
+        "activeView": "view-seriallab",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 21,
+        "label": "讀者互動",
+        "view": "readerlab",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-readerlab",
+        "activeView": "view-readerlab",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 22,
+        "label": "標籤工坊",
+        "view": "taglab",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-taglab",
+        "activeView": "view-taglab",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 23,
+        "label": "IP 改編庫",
+        "view": "ipcenter",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-ipcenter",
+        "activeView": "view-ipcenter",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 24,
+        "label": "平台比較",
+        "view": "platforms",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-platforms",
+        "activeView": "view-platforms",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 25,
+        "label": "我的書架",
+        "view": "bookshelf",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-bookshelf",
+        "activeView": "view-bookshelf",
+        "clickError": null,
+        "operational": true
+      },
+      {
+        "index": 26,
+        "label": "存檔 / 匯出",
+        "view": "export",
+        "id": "",
+        "disabled": false,
+        "centerOwner": true,
+        "expectedView": "view-export",
+        "activeView": "view-export",
+        "clickError": null,
+        "operational": true
+      }
+    ]
+  },
+  "checks": [
+    {
+      "group": "menu",
+      "name": "desktop viewport is 1440x900",
+      "status": "PASS",
+      "details": {
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "group": "menu",
+      "name": "menu count is exactly 27",
+      "status": "PASS",
+      "details": 27
+    },
+    {
+      "group": "menu",
+      "name": "desktop menu uses two columns",
+      "status": "PASS",
+      "details": {
+        "firstRowY": 104,
+        "secondItemY": 104,
+        "thirdItemY": 142
+      }
+    },
+    {
+      "group": "menu",
+      "name": "desktop menu labels remain one line",
+      "status": "PASS",
+      "details": [
+        {
+          "label": "快速創作",
+          "rect": {
+            "x": 12,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "建立新作品",
+          "rect": {
+            "x": 185,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "正式功能入口",
+          "rect": {
+            "x": 12,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "書籍拆解",
+          "rect": {
+            "x": 185,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "接力提示",
+          "rect": {
+            "x": 12,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "聊天閱讀創作助理",
+          "rect": {
+            "x": 185,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "每日書摘播報",
+          "rect": {
+            "x": 12,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "本機規則建議",
+          "rect": {
+            "x": 185,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "多章批量操作",
+          "rect": {
+            "x": 12,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "首頁探索",
+          "rect": {
+            "x": 185,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "分類書庫",
+          "rect": {
+            "x": 12,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "故事靈感書庫",
+          "rect": {
+            "x": 185,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "角色廣場",
+          "rect": {
+            "x": 12,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "文風廣場",
+          "rect": {
+            "x": 185,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "互動故事",
+          "rect": {
+            "x": 12,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "任務中心",
+          "rect": {
+            "x": 185,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "活動中心",
+          "rect": {
+            "x": 12,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "排行榜",
+          "rect": {
+            "x": 185,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "全部標籤",
+          "rect": {
+            "x": 12,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "作家中心",
+          "rect": {
+            "x": 185,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "連載儀表板",
+          "rect": {
+            "x": 12,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "讀者互動",
+          "rect": {
+            "x": 185,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "標籤工坊",
+          "rect": {
+            "x": 12,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "IP 改編庫",
+          "rect": {
+            "x": 185,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "平台比較",
+          "rect": {
+            "x": 12,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "我的書架",
+          "rect": {
+            "x": 185,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "存檔 / 匯出",
+          "rect": {
+            "x": 12,
+            "y": 598,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 632
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        }
+      ]
+    },
+    {
+      "group": "menu",
+      "name": "desktop menu font remains readable",
+      "status": "PASS",
+      "details": [
+        {
+          "label": "快速創作",
+          "rect": {
+            "x": 12,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "建立新作品",
+          "rect": {
+            "x": 185,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "正式功能入口",
+          "rect": {
+            "x": 12,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "書籍拆解",
+          "rect": {
+            "x": 185,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "接力提示",
+          "rect": {
+            "x": 12,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "聊天閱讀創作助理",
+          "rect": {
+            "x": 185,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "每日書摘播報",
+          "rect": {
+            "x": 12,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "本機規則建議",
+          "rect": {
+            "x": 185,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "多章批量操作",
+          "rect": {
+            "x": 12,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "首頁探索",
+          "rect": {
+            "x": 185,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "分類書庫",
+          "rect": {
+            "x": 12,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "故事靈感書庫",
+          "rect": {
+            "x": 185,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "角色廣場",
+          "rect": {
+            "x": 12,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "文風廣場",
+          "rect": {
+            "x": 185,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "互動故事",
+          "rect": {
+            "x": 12,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "任務中心",
+          "rect": {
+            "x": 185,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "活動中心",
+          "rect": {
+            "x": 12,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "排行榜",
+          "rect": {
+            "x": 185,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "全部標籤",
+          "rect": {
+            "x": 12,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "作家中心",
+          "rect": {
+            "x": 185,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "連載儀表板",
+          "rect": {
+            "x": 12,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "讀者互動",
+          "rect": {
+            "x": 185,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "標籤工坊",
+          "rect": {
+            "x": 12,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "IP 改編庫",
+          "rect": {
+            "x": 185,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "平台比較",
+          "rect": {
+            "x": 12,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "我的書架",
+          "rect": {
+            "x": 185,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "存檔 / 匯出",
+          "rect": {
+            "x": 12,
+            "y": 598,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 632
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        }
+      ]
+    },
+    {
+      "group": "menu",
+      "name": "desktop menu controls have usable height",
+      "status": "PASS",
+      "details": [
+        {
+          "label": "快速創作",
+          "rect": {
+            "x": 12,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "建立新作品",
+          "rect": {
+            "x": 185,
+            "y": 104,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 138
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "正式功能入口",
+          "rect": {
+            "x": 12,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "書籍拆解",
+          "rect": {
+            "x": 185,
+            "y": 142,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 176
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "接力提示",
+          "rect": {
+            "x": 12,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "聊天閱讀創作助理",
+          "rect": {
+            "x": 185,
+            "y": 180,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 214
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "每日書摘播報",
+          "rect": {
+            "x": 12,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "本機規則建議",
+          "rect": {
+            "x": 185,
+            "y": 218,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 252
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "多章批量操作",
+          "rect": {
+            "x": 12,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "首頁探索",
+          "rect": {
+            "x": 185,
+            "y": 256,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 290
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "分類書庫",
+          "rect": {
+            "x": 12,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "故事靈感書庫",
+          "rect": {
+            "x": 185,
+            "y": 294,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 328
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "角色廣場",
+          "rect": {
+            "x": 12,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "文風廣場",
+          "rect": {
+            "x": 185,
+            "y": 332,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 366
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "互動故事",
+          "rect": {
+            "x": 12,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "任務中心",
+          "rect": {
+            "x": 185,
+            "y": 370,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 404
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "活動中心",
+          "rect": {
+            "x": 12,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "排行榜",
+          "rect": {
+            "x": 185,
+            "y": 408,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 442
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "全部標籤",
+          "rect": {
+            "x": 12,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "作家中心",
+          "rect": {
+            "x": 185,
+            "y": 446,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 480
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "連載儀表板",
+          "rect": {
+            "x": 12,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "讀者互動",
+          "rect": {
+            "x": 185,
+            "y": 484,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 518
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "標籤工坊",
+          "rect": {
+            "x": 12,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "IP 改編庫",
+          "rect": {
+            "x": 185,
+            "y": 522,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 556
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "平台比較",
+          "rect": {
+            "x": 12,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "我的書架",
+          "rect": {
+            "x": 185,
+            "y": 560,
+            "width": 167,
+            "height": 34,
+            "right": 352,
+            "bottom": 594
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        },
+        {
+          "label": "存檔 / 匯出",
+          "rect": {
+            "x": 12,
+            "y": 598,
+            "width": 167,
+            "height": 34,
+            "right": 179,
+            "bottom": 632
+          },
+          "fontSize": 14,
+          "whiteSpace": "nowrap",
+          "scrollWidth": 165,
+          "clientWidth": 165
+        }
+      ]
+    },
+    {
+      "group": "menu",
+      "name": "left rail and main are separate columns",
+      "status": "PASS",
+      "details": {
+        "side": {
+          "x": 0,
+          "y": 42,
+          "width": 380,
+          "height": 858,
+          "right": 380,
+          "bottom": 900,
+          "clientHeight": 858,
+          "scrollHeight": 858,
+          "overflowY": "auto"
+        },
+        "main": {
+          "x": 380,
+          "y": 42,
+          "width": 1060,
+          "height": 858,
+          "right": 1440,
+          "bottom": 900,
+          "clientHeight": 858,
+          "scrollHeight": 1949,
+          "overflowY": "auto"
+        }
+      }
+    },
+    {
+      "group": "menu",
+      "name": "all 27 menu controls are operational",
+      "status": "PASS",
+      "details": [
+        {
+          "index": 0,
+          "label": "快速創作",
+          "view": "creation",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-creation",
+          "activeView": "view-creation",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 1,
+          "label": "建立新作品",
+          "view": null,
+          "id": "phase1NewWorkNavButton",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-creation",
+          "activeView": "view-creation",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 2,
+          "label": "正式功能入口",
+          "view": "studio",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-studio",
+          "activeView": "view-studio",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 3,
+          "label": "書籍拆解",
+          "view": "breakdown",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-breakdown",
+          "activeView": "view-breakdown",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 4,
+          "label": "接力提示",
+          "view": "chatnovel",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-chatnovel",
+          "activeView": "view-chatnovel",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 5,
+          "label": "聊天閱讀創作助理",
+          "view": "tastecoach",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-tastecoach",
+          "activeView": "view-tastecoach",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 6,
+          "label": "每日書摘播報",
+          "view": "bookcast",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-bookcast",
+          "activeView": "view-bookcast",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 7,
+          "label": "本機規則建議",
+          "view": "miniai",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-miniai",
+          "activeView": "view-miniai",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 8,
+          "label": "多章批量操作",
+          "view": "batchlab",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-batchlab",
+          "activeView": "view-batchlab",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 9,
+          "label": "首頁探索",
+          "view": "home",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-home",
+          "activeView": "view-home",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 10,
+          "label": "分類書庫",
+          "view": "library",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-library",
+          "activeView": "view-library",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 11,
+          "label": "故事靈感書庫",
+          "view": "cloudlib",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-cloudlib",
+          "activeView": "view-cloudlib",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 12,
+          "label": "角色廣場",
+          "view": "characters",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-characters",
+          "activeView": "view-characters",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 13,
+          "label": "文風廣場",
+          "view": "styles",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-styles",
+          "activeView": "view-styles",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 14,
+          "label": "互動故事",
+          "view": "interactive",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-interactive",
+          "activeView": "view-interactive",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 15,
+          "label": "任務中心",
+          "view": "tasks",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-tasks",
+          "activeView": "view-tasks",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 16,
+          "label": "活動中心",
+          "view": "events",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-events",
+          "activeView": "view-events",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 17,
+          "label": "排行榜",
+          "view": "rankings",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-rankings",
+          "activeView": "view-rankings",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 18,
+          "label": "全部標籤",
+          "view": "tags",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-tags",
+          "activeView": "view-tags",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 19,
+          "label": "作家中心",
+          "view": "writer",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-writer",
+          "activeView": "view-writer",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 20,
+          "label": "連載儀表板",
+          "view": "seriallab",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-seriallab",
+          "activeView": "view-seriallab",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 21,
+          "label": "讀者互動",
+          "view": "readerlab",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-readerlab",
+          "activeView": "view-readerlab",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 22,
+          "label": "標籤工坊",
+          "view": "taglab",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-taglab",
+          "activeView": "view-taglab",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 23,
+          "label": "IP 改編庫",
+          "view": "ipcenter",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-ipcenter",
+          "activeView": "view-ipcenter",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 24,
+          "label": "平台比較",
+          "view": "platforms",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-platforms",
+          "activeView": "view-platforms",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 25,
+          "label": "我的書架",
+          "view": "bookshelf",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-bookshelf",
+          "activeView": "view-bookshelf",
+          "clickError": null,
+          "operational": true
+        },
+        {
+          "index": 26,
+          "label": "存檔 / 匯出",
+          "view": "export",
+          "id": "",
+          "disabled": false,
+          "centerOwner": true,
+          "expectedView": "view-export",
+          "activeView": "view-export",
+          "clickError": null,
+          "operational": true
+        }
+      ]
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

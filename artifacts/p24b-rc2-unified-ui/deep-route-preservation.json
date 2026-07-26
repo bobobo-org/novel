@@ -1,0 +1,784 @@
+{
+  "schemaVersion": "p24b-rc2-deep-route-preservation-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "requiredRouteCount": 8,
+  "results": [
+    {
+      "name": "create",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/create",
+      "finalPath": "/studio/create",
+      "marker": ".p2CreateShell",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional",
+      "bodyTextLength": 566
+    },
+    {
+      "name": "write",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+      "marker": ".p2WritingWorkspace",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 128
+    },
+    {
+      "name": "characters",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+      "marker": "#character-editor-heading",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 192
+    },
+    {
+      "name": "world",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+      "marker": "#world-rule-editor-heading",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 158
+    },
+    {
+      "name": "story-bible",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+      "marker": "#story-bible-editor-heading",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 163
+    },
+    {
+      "name": "character-ai",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+      "marker": "[data-testid=\"character-agent-workspace\"]",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 178
+    },
+    {
+      "name": "reader",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+      "finalPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+      "marker": ".readerShell",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 98
+    },
+    {
+      "name": "backups",
+      "status": 200,
+      "redirectedFrom": null,
+      "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+      "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+      "marker": ".p2BackupCenter",
+      "markerCount": 1,
+      "professionalWorkspaceCount": 0,
+      "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+      "bodyTextLength": 187
+    }
+  ],
+  "requiredResponses": [
+    {
+      "route": "/studio/create",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+      "status": 200,
+      "redirectedFrom": null
+    },
+    {
+      "route": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+      "status": 200,
+      "redirectedFrom": null
+    }
+  ],
+  "checks": [
+    {
+      "group": "deep-route",
+      "name": "project creation succeeds through UI",
+      "status": "PASS",
+      "details": {
+        "status": 200,
+        "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+        "writeHref": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "returnHref": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "create success has explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "status": 200,
+        "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+        "writeHref": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "returnHref": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to write",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to characters",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to world",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to story-bible",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to character-ai",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to reader",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "actualPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "Professional links directly to backups",
+      "status": "PASS",
+      "details": {
+        "expectedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "actualPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups"
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "create returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "create",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/create",
+        "finalPath": "/studio/create",
+        "marker": ".p2CreateShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional",
+        "bodyTextLength": 566
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "create is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "create",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/create",
+        "finalPath": "/studio/create",
+        "marker": ".p2CreateShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional",
+        "bodyTextLength": 566
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "create renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "create",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/create",
+        "finalPath": "/studio/create",
+        "marker": ".p2CreateShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional",
+        "bodyTextLength": 566
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "create has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "create",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/create",
+        "finalPath": "/studio/create",
+        "marker": ".p2CreateShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional",
+        "bodyTextLength": 566
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "write returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "write",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "marker": ".p2WritingWorkspace",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 128
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "write is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "write",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "marker": ".p2WritingWorkspace",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 128
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "write renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "write",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "marker": ".p2WritingWorkspace",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 128
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "write has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "write",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+        "marker": ".p2WritingWorkspace",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 128
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "characters returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "characters",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "marker": "#character-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 192
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "characters is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "characters",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "marker": "#character-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 192
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "characters renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "characters",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "marker": "#character-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 192
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "characters has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "characters",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+        "marker": "#character-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 192
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "world returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "world",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "marker": "#world-rule-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 158
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "world is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "world",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "marker": "#world-rule-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 158
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "world renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "world",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "marker": "#world-rule-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 158
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "world has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "world",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+        "marker": "#world-rule-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 158
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "story-bible returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "story-bible",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "marker": "#story-bible-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 163
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "story-bible is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "story-bible",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "marker": "#story-bible-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 163
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "story-bible renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "story-bible",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "marker": "#story-bible-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 163
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "story-bible has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "story-bible",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+        "marker": "#story-bible-editor-heading",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 163
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "character-ai returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "character-ai",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "marker": "[data-testid=\"character-agent-workspace\"]",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 178
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "character-ai is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "character-ai",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "marker": "[data-testid=\"character-agent-workspace\"]",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 178
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "character-ai renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "character-ai",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "marker": "[data-testid=\"character-agent-workspace\"]",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 178
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "character-ai has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "character-ai",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+        "marker": "[data-testid=\"character-agent-workspace\"]",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 178
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "reader returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "reader",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "finalPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "marker": ".readerShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 98
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "reader is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "reader",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "finalPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "marker": ".readerShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 98
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "reader renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "reader",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "finalPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "marker": ".readerShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 98
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "reader has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "reader",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "finalPath": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+        "marker": ".readerShell",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 98
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "backups returns HTTP 200",
+      "status": "PASS",
+      "details": {
+        "name": "backups",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "marker": ".p2BackupCenter",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 187
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "backups is not redirected to Legacy",
+      "status": "PASS",
+      "details": {
+        "name": "backups",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "marker": ".p2BackupCenter",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 187
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "backups renders its Next.js marker",
+      "status": "PASS",
+      "details": {
+        "name": "backups",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "marker": ".p2BackupCenter",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 187
+      }
+    },
+    {
+      "group": "deep-route",
+      "name": "backups has an explicit Professional return",
+      "status": "PASS",
+      "details": {
+        "name": "backups",
+        "status": 200,
+        "redirectedFrom": null,
+        "requestedPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "finalPath": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups",
+        "marker": ".p2BackupCenter",
+        "markerCount": 1,
+        "professionalWorkspaceCount": 0,
+        "returnLink": "/professional?projectId=8f880acd-5229-4839-9229-902deda9d55c",
+        "bodyTextLength": 187
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

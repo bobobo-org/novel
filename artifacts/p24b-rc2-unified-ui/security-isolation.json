@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "p24b-rc2-security-isolation-v1",
+  "generatedAt": "2026-07-26T16:07:16.343Z",
+  "security": {
+    "pass": 50,
+    "fail": 0,
+    "skip": 0
+  },
+  "canonicalMutationBeforeApproval": 0,
+  "duplicateApproval": 0,
+  "dataLoss": 0,
+  "navigationRaceInNormalFlow": 0,
+  "externalRequests": 0,
+  "consoleErrors": 0,
+  "pageErrors": 0,
+  "rawChainOfThoughtStored": false,
+  "status": "PASS",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

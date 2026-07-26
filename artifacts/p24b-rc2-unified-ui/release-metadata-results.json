@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "p24b-rc2-release-metadata-results-v1",
+  "generatedAt": "2026-07-26T15:59:31.626Z",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "rc1Product": "71bea12da90def7646efe1189f059896d3582327",
+  "pass": 39,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "results": [
+    {
+      "name": "RC2 Product is a direct child of RC1 Product",
+      "status": "PASS"
+    },
+    {
+      "name": "manifest contains exact P2.4B RC2 identity",
+      "status": "PASS"
+    },
+    {
+      "name": "release contract accepts RC2 identity",
+      "status": "PASS"
+    },
+    {
+      "name": "prior approved release identities remain accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "build commit source priority is Vercel, explicit, then Git HEAD",
+      "status": "PASS"
+    },
+    {
+      "name": "RC2 provenance seals only the Product commit",
+      "status": "PASS"
+    },
+    {
+      "name": "characterAgentCore remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterPerspectiveContext remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "knowledgeScopedCharacterContext remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterBeliefEngine remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterMemory remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "relationshipGraph remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "relationshipHistory remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "privateCharacterSimulation remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "multiCharacterSimulation remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "characterProposalApproval remains ready and client_dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "visualCharacterBible remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "storyboard remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "audienceVoting remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "audienceLearning remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "creationDna remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "storyBlueprintWorkbench remains not_implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "realVideoGeneration remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "privateAiHub remains contract_only and not_connected",
+      "status": "PASS"
+    },
+    {
+      "name": "modelTraining remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "distillation remains not_started",
+      "status": "PASS"
+    },
+    {
+      "name": "Browser AI heavy runtime remains not implemented",
+      "status": "PASS"
+    },
+    {
+      "name": "Local Ollama remains client dependent",
+      "status": "PASS"
+    },
+    {
+      "name": "/ uses the shared exact Professional adapter",
+      "status": "PASS"
+    },
+    {
+      "name": "/studio uses the shared exact Professional adapter",
+      "status": "PASS"
+    },
+    {
+      "name": "/professional uses the shared exact Professional adapter",
+      "status": "PASS"
+    },
+    {
+      "name": "Frontdoor adapter preserves safe query semantics",
+      "status": "PASS"
+    },
+    {
+      "name": "No wildcard Studio redirect exists",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy templates contain complete release identity placeholders",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy static metadata identifies the unified Professional UI",
+      "status": "PASS"
+    },
+    {
+      "name": "Public Health exposes exact RC2 UI truth",
+      "status": "PASS"
+    },
+    {
+      "name": "Admin Health exposes the same RC2 UI truth",
+      "status": "PASS"
+    },
+    {
+      "name": "Public Health exposes all precise Character Agent capabilities",
+      "status": "PASS"
+    },
+    {
+      "name": "Character Agent release surface has no cross-user network retrieval path",
+      "status": "PASS"
+    }
+  ]
+}

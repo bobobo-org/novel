@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "p24b-rc2-evidence-manifest-v1",
+  "generatedAt": "2026-07-26T16:07:16.343Z",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "recordCount": 24,
+  "mismatch": 0,
+  "missing": 0,
+  "unexpected": 0,
+  "records": [
+    {
+      "path": "build-provenance.json",
+      "bytes": 2008,
+      "sha256": "0cfe6542bfbe20a23749941473f2e09cfe15fb6ebe324a92d1f905be8feb1cf9"
+    },
+    {
+      "path": "build-reproducibility.json",
+      "bytes": 233417,
+      "sha256": "d0a5662d688e4ff83d8bcb8475e07322c73600222727b4b050f4a18b649cd893"
+    },
+    {
+      "path": "capability-truth.json",
+      "bytes": 2299,
+      "sha256": "677d1d50bf1e0928127d14920a095cebe3189bf5d4ac86e98a61650a19597b36"
+    },
+    {
+      "path": "deep-route-preservation.json",
+      "bytes": 27841,
+      "sha256": "e2e03fa943f14e85984b05a83bd2be14d3adbf129a4d479e7604fab025fea019"
+    },
+    {
+      "path": "dynamic-assets.json",
+      "bytes": 18829,
+      "sha256": "236558712e6e5a2cc67efd3711d81d4c645ada2418b922e6ca6ab257d6f2dcb6"
+    },
+    {
+      "path": "executive-summary.md",
+      "bytes": 1180,
+      "sha256": "50c6eee013146f0341e97d9a921712692ca34bc317466660f2302b317d516543"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 235,
+      "sha256": "f95973adf45bbbee2c3ea3c3cdb7dc97824e61d2eb99a1c9c5e01d8474e403a7"
+    },
+    {
+      "path": "first-paint-results.json",
+      "bytes": 32220,
+      "sha256": "dd1fdcbf25d1f8094130f1b78f5821cf42c757d41e7be622d35092e3e59cd4a3"
+    },
+    {
+      "path": "frontdoor-routes.json",
+      "bytes": 25559,
+      "sha256": "0fe84b3f7d6cac5a52648e48b166618526bf15c9f28036c67bd6635701776e54"
+    },
+    {
+      "path": "menu-layout-results.json",
+      "bytes": 58431,
+      "sha256": "c1b881ec68bef3c95203a2502a8b634b02bb537e5eb4a4921bacf43664a7dc8b"
+    },
+    {
+      "path": "migration-backup.json",
+      "bytes": 567,
+      "sha256": "e1891076daece34e9ba3731a477a9a41f90c29585d7b31ff2cf2397ca9ebe149"
+    },
+    {
+      "path": "mobile-results.json",
+      "bytes": 138357,
+      "sha256": "58124558a6ba5b9c76f6cff36104aed218c37067ab74a393b419302780af074b"
+    },
+    {
+      "path": "ollama-real-smoke.json",
+      "bytes": 4951,
+      "sha256": "cea95e20290e57723bf2432f93343e98abce303a9a42414af97e4bd0efadcfe7"
+    },
+    {
+      "path": "p24a-browser.json",
+      "bytes": 14411,
+      "sha256": "f5b0d625506899bbfc0434284de64fe2b270d043b082110d479091e953f4c4b7"
+    },
+    {
+      "path": "p24a-regression.json",
+      "bytes": 532,
+      "sha256": "f5a07ab4e47d23ca465345202014789556ac9afeb5a7ac903aee04d532f17bfc"
+    },
+    {
+      "path": "p24b-browser.json",
+      "bytes": 79661,
+      "sha256": "3952b0f5f64ba2c0f7de1be803b4e304d3bd31250345c1fd0f27466f08762ce0"
+    },
+    {
+      "path": "p24b-formal.json",
+      "bytes": 54937,
+      "sha256": "b748ed6df7be6272ea9f393898d9d4e9e5200b203d5f1cb090052cbf611660d6"
+    },
+    {
+      "path": "release-identity.json",
+      "bytes": 689,
+      "sha256": "a75ce2a8825f2b6e9c7ecab72e93979705d7bd504fe6ed4f2cd1c3f842e12e62"
+    },
+    {
+      "path": "release-metadata-results.json",
+      "bytes": 4338,
+      "sha256": "c6c9d0dc011e3d0adf20272cb0a3402c9268b76415fc9af44be606fbc5428212"
+    },
+    {
+      "path": "scroll-isolation-results.json",
+      "bytes": 5168,
+      "sha256": "afe7137978c20ec68fe9baf79681ea8f562eb53b92649ef074d14d136e518e89"
+    },
+    {
+      "path": "secret-scan.json",
+      "bytes": 292,
+      "sha256": "85c3d44c1dfc7b3d1a7e277760657ffd1fc7956d56200225e7d87d4c78ceaa90"
+    },
+    {
+      "path": "security-isolation.json",
+      "bytes": 470,
+      "sha256": "cf1c80bfce62c088762f8cf79cc9bf8b5d59cf8b7329d7e93ceea41ecf99ee2b"
+    },
+    {
+      "path": "selective-port-map.json",
+      "bytes": 4816,
+      "sha256": "b669517c7897e3edc903acf1a2931ee8da2aa5093529a781e9a0dae3440b8b34"
+    },
+    {
+      "path": "ui-reference-delta.json",
+      "bytes": 1314,
+      "sha256": "133770e19889792ecbdfefcbb0d42f4fe55ecd878c1f97db35dc217a5f902a6a"
+    }
+  ],
+  "selfHash": "bdfebc5ffd7c888fdd2f7e79442126f19afbc2b00a57c6114351d084f8023948",
+  "selfHashStatus": "MATCH"
+}

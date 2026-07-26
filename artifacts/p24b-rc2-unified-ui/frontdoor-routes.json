@@ -1,0 +1,839 @@
+{
+  "schemaVersion": "p24b-rc2-frontdoor-routes-v1",
+  "generatedAt": "2026-07-26T16:02:36.438Z",
+  "baseUrl": "http://127.0.0.1:3130",
+  "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+  "pass": 154,
+  "fail": 0,
+  "skip": 0,
+  "checkCount": 154,
+  "status": "PASS",
+  "redirects": [
+    {
+      "source": "/",
+      "status": 307,
+      "location": "/legacy/novel-system.html?mode=professional",
+      "pathname": "/legacy/novel-system.html",
+      "search": "?mode=professional",
+      "parameters": {
+        "mode": "professional"
+      },
+      "repeatedTag": []
+    },
+    {
+      "source": "/studio",
+      "status": 307,
+      "location": "/legacy/novel-system.html?mode=professional",
+      "pathname": "/legacy/novel-system.html",
+      "search": "?mode=professional",
+      "parameters": {
+        "mode": "professional"
+      },
+      "repeatedTag": []
+    },
+    {
+      "source": "/studio?screen=home",
+      "status": 307,
+      "location": "/legacy/novel-system.html?mode=professional&screen=home",
+      "pathname": "/legacy/novel-system.html",
+      "search": "?mode=professional&screen=home",
+      "parameters": {
+        "mode": "professional",
+        "screen": "home"
+      },
+      "repeatedTag": []
+    },
+    {
+      "source": "/professional",
+      "status": 307,
+      "location": "/legacy/novel-system.html?mode=professional",
+      "pathname": "/legacy/novel-system.html",
+      "search": "?mode=professional",
+      "parameters": {
+        "mode": "professional"
+      },
+      "repeatedTag": []
+    },
+    {
+      "source": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x",
+      "status": 307,
+      "location": "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+      "pathname": "/legacy/novel-system.html",
+      "search": "?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+      "parameters": {
+        "mode": "professional",
+        "projectId": "project-1",
+        "screen": "create",
+        "tag": "two",
+        "task": "rewrite_scene"
+      },
+      "repeatedTag": [
+        "one",
+        "two"
+      ]
+    }
+  ],
+  "semanticEntries": [
+    {
+      "label": "root",
+      "source": "/",
+      "responseStatus": 200,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "redirectCount": 1,
+      "semantic": {
+        "workspaceVersion": "p24b-rc2-unified-ui",
+        "menu": [
+          "快速創作",
+          "建立新作品",
+          "正式功能入口",
+          "書籍拆解",
+          "接力提示",
+          "聊天閱讀創作助理",
+          "每日書摘播報",
+          "本機規則建議",
+          "多章批量操作",
+          "首頁探索",
+          "分類書庫",
+          "故事靈感書庫",
+          "角色廣場",
+          "文風廣場",
+          "互動故事",
+          "任務中心",
+          "活動中心",
+          "排行榜",
+          "全部標籤",
+          "作家中心",
+          "連載儀表板",
+          "讀者互動",
+          "標籤工坊",
+          "IP 改編庫",
+          "平台比較",
+          "我的書架",
+          "存檔 / 匯出"
+        ],
+        "routeCards": [
+          "建立作品",
+          "寫作",
+          "角色管理",
+          "世界設定",
+          "Story Bible",
+          "角色 AI",
+          "閱讀器",
+          "備份／還原"
+        ],
+        "views": [
+          "view-batchlab",
+          "view-bookcast",
+          "view-bookshelf",
+          "view-breakdown",
+          "view-characters",
+          "view-chatnovel",
+          "view-cloudlib",
+          "view-creation",
+          "view-events",
+          "view-export",
+          "view-home",
+          "view-interactive",
+          "view-ipcenter",
+          "view-library",
+          "view-miniai",
+          "view-platforms",
+          "view-rankings",
+          "view-readerlab",
+          "view-seriallab",
+          "view-studio",
+          "view-styles",
+          "view-taglab",
+          "view-tags",
+          "view-tasks",
+          "view-tastecoach",
+          "view-writer"
+        ],
+        "activeView": "view-creation",
+        "professionalUiVersion": "p24b-rc2-unified-ui"
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "firstPaint": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "bodyDataset": {
+        "screen": "home",
+        "task": "",
+        "projectId": ""
+      },
+      "mainTextLength": 45223
+    },
+    {
+      "label": "studio",
+      "source": "/studio",
+      "responseStatus": 200,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "redirectCount": 1,
+      "semantic": {
+        "workspaceVersion": "p24b-rc2-unified-ui",
+        "menu": [
+          "快速創作",
+          "建立新作品",
+          "正式功能入口",
+          "書籍拆解",
+          "接力提示",
+          "聊天閱讀創作助理",
+          "每日書摘播報",
+          "本機規則建議",
+          "多章批量操作",
+          "首頁探索",
+          "分類書庫",
+          "故事靈感書庫",
+          "角色廣場",
+          "文風廣場",
+          "互動故事",
+          "任務中心",
+          "活動中心",
+          "排行榜",
+          "全部標籤",
+          "作家中心",
+          "連載儀表板",
+          "讀者互動",
+          "標籤工坊",
+          "IP 改編庫",
+          "平台比較",
+          "我的書架",
+          "存檔 / 匯出"
+        ],
+        "routeCards": [
+          "建立作品",
+          "寫作",
+          "角色管理",
+          "世界設定",
+          "Story Bible",
+          "角色 AI",
+          "閱讀器",
+          "備份／還原"
+        ],
+        "views": [
+          "view-batchlab",
+          "view-bookcast",
+          "view-bookshelf",
+          "view-breakdown",
+          "view-characters",
+          "view-chatnovel",
+          "view-cloudlib",
+          "view-creation",
+          "view-events",
+          "view-export",
+          "view-home",
+          "view-interactive",
+          "view-ipcenter",
+          "view-library",
+          "view-miniai",
+          "view-platforms",
+          "view-rankings",
+          "view-readerlab",
+          "view-seriallab",
+          "view-studio",
+          "view-styles",
+          "view-taglab",
+          "view-tags",
+          "view-tasks",
+          "view-tastecoach",
+          "view-writer"
+        ],
+        "activeView": "view-creation",
+        "professionalUiVersion": "p24b-rc2-unified-ui"
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "firstPaint": {
+        "frames": 43,
+        "workspaceVisibleFrames": 43,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "bodyDataset": {
+        "screen": "home",
+        "task": "",
+        "projectId": ""
+      },
+      "mainTextLength": 45141
+    },
+    {
+      "label": "studio-home",
+      "source": "/studio?screen=home",
+      "responseStatus": 200,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+      "finalPath": "/legacy/novel-system.html?mode=professional&screen=home",
+      "redirectCount": 1,
+      "semantic": {
+        "workspaceVersion": "p24b-rc2-unified-ui",
+        "menu": [
+          "快速創作",
+          "建立新作品",
+          "正式功能入口",
+          "書籍拆解",
+          "接力提示",
+          "聊天閱讀創作助理",
+          "每日書摘播報",
+          "本機規則建議",
+          "多章批量操作",
+          "首頁探索",
+          "分類書庫",
+          "故事靈感書庫",
+          "角色廣場",
+          "文風廣場",
+          "互動故事",
+          "任務中心",
+          "活動中心",
+          "排行榜",
+          "全部標籤",
+          "作家中心",
+          "連載儀表板",
+          "讀者互動",
+          "標籤工坊",
+          "IP 改編庫",
+          "平台比較",
+          "我的書架",
+          "存檔 / 匯出"
+        ],
+        "routeCards": [
+          "建立作品",
+          "寫作",
+          "角色管理",
+          "世界設定",
+          "Story Bible",
+          "角色 AI",
+          "閱讀器",
+          "備份／還原"
+        ],
+        "views": [
+          "view-batchlab",
+          "view-bookcast",
+          "view-bookshelf",
+          "view-breakdown",
+          "view-characters",
+          "view-chatnovel",
+          "view-cloudlib",
+          "view-creation",
+          "view-events",
+          "view-export",
+          "view-home",
+          "view-interactive",
+          "view-ipcenter",
+          "view-library",
+          "view-miniai",
+          "view-platforms",
+          "view-rankings",
+          "view-readerlab",
+          "view-seriallab",
+          "view-studio",
+          "view-styles",
+          "view-taglab",
+          "view-tags",
+          "view-tasks",
+          "view-tastecoach",
+          "view-writer"
+        ],
+        "activeView": "view-creation",
+        "professionalUiVersion": "p24b-rc2-unified-ui"
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "firstPaint": {
+        "frames": 45,
+        "workspaceVisibleFrames": 45,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "bodyDataset": {
+        "screen": "home",
+        "task": "",
+        "projectId": ""
+      },
+      "mainTextLength": 45119
+    },
+    {
+      "label": "professional",
+      "source": "/professional",
+      "responseStatus": 200,
+      "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795",
+      "finalPath": "/legacy/novel-system.html?mode=professional",
+      "redirectCount": 1,
+      "semantic": {
+        "workspaceVersion": "p24b-rc2-unified-ui",
+        "menu": [
+          "快速創作",
+          "建立新作品",
+          "正式功能入口",
+          "書籍拆解",
+          "接力提示",
+          "聊天閱讀創作助理",
+          "每日書摘播報",
+          "本機規則建議",
+          "多章批量操作",
+          "首頁探索",
+          "分類書庫",
+          "故事靈感書庫",
+          "角色廣場",
+          "文風廣場",
+          "互動故事",
+          "任務中心",
+          "活動中心",
+          "排行榜",
+          "全部標籤",
+          "作家中心",
+          "連載儀表板",
+          "讀者互動",
+          "標籤工坊",
+          "IP 改編庫",
+          "平台比較",
+          "我的書架",
+          "存檔 / 匯出"
+        ],
+        "routeCards": [
+          "建立作品",
+          "寫作",
+          "角色管理",
+          "世界設定",
+          "Story Bible",
+          "角色 AI",
+          "閱讀器",
+          "備份／還原"
+        ],
+        "views": [
+          "view-batchlab",
+          "view-bookcast",
+          "view-bookshelf",
+          "view-breakdown",
+          "view-characters",
+          "view-chatnovel",
+          "view-cloudlib",
+          "view-creation",
+          "view-events",
+          "view-export",
+          "view-home",
+          "view-interactive",
+          "view-ipcenter",
+          "view-library",
+          "view-miniai",
+          "view-platforms",
+          "view-rankings",
+          "view-readerlab",
+          "view-seriallab",
+          "view-studio",
+          "view-styles",
+          "view-taglab",
+          "view-tags",
+          "view-tasks",
+          "view-tastecoach",
+          "view-writer"
+        ],
+        "activeView": "view-creation",
+        "professionalUiVersion": "p24b-rc2-unified-ui"
+      },
+      "hidden": {
+        "consumerShell": true,
+        "compatibilityBanner": true,
+        "returnConsumer": true,
+        "appDock": true
+      },
+      "firstPaint": {
+        "frames": 44,
+        "workspaceVisibleFrames": 44,
+        "consumerVisibleFrames": 0,
+        "blackShellFrames": 0,
+        "consumerEverVisible": false,
+        "firstWorkspaceFrame": 1
+      },
+      "bodyDataset": {
+        "screen": "home",
+        "task": "",
+        "projectId": ""
+      },
+      "mainTextLength": 45114
+    }
+  ],
+  "semanticHashCount": 1,
+  "projectFrontdoor": {
+    "screen": "create",
+    "task": "verify-ui",
+    "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+    "activeView": "view-studio",
+    "links": {
+      "write": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+      "characters": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+      "world": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+      "story-bible": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+      "character-ai": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+      "reader": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+      "backups": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups"
+    }
+  },
+  "checks": [
+    {
+      "group": "frontdoor",
+      "name": "/ returns HTTP 307",
+      "status": "PASS",
+      "details": {
+        "source": "/",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/ targets exact Professional document",
+      "status": "PASS",
+      "details": {
+        "source": "/",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio returns HTTP 307",
+      "status": "PASS",
+      "details": {
+        "source": "/studio",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio targets exact Professional document",
+      "status": "PASS",
+      "details": {
+        "source": "/studio",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?screen=home returns HTTP 307",
+      "status": "PASS",
+      "details": {
+        "source": "/studio?screen=home",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional&screen=home",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional&screen=home",
+        "parameters": {
+          "mode": "professional",
+          "screen": "home"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?screen=home targets exact Professional document",
+      "status": "PASS",
+      "details": {
+        "source": "/studio?screen=home",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional&screen=home",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional&screen=home",
+        "parameters": {
+          "mode": "professional",
+          "screen": "home"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?screen=home preserves screen",
+      "status": "PASS",
+      "details": {
+        "expected": "home",
+        "actual": "home"
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/professional returns HTTP 307",
+      "status": "PASS",
+      "details": {
+        "source": "/professional",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/professional targets exact Professional document",
+      "status": "PASS",
+      "details": {
+        "source": "/professional",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional",
+        "parameters": {
+          "mode": "professional"
+        },
+        "repeatedTag": []
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x returns HTTP 307",
+      "status": "PASS",
+      "details": {
+        "source": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "parameters": {
+          "mode": "professional",
+          "projectId": "project-1",
+          "screen": "create",
+          "tag": "two",
+          "task": "rewrite_scene"
+        },
+        "repeatedTag": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x targets exact Professional document",
+      "status": "PASS",
+      "details": {
+        "source": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "parameters": {
+          "mode": "professional",
+          "projectId": "project-1",
+          "screen": "create",
+          "tag": "two",
+          "task": "rewrite_scene"
+        },
+        "repeatedTag": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x preserves screen",
+      "status": "PASS",
+      "details": {
+        "expected": "create",
+        "actual": "create"
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x preserves task",
+      "status": "PASS",
+      "details": {
+        "expected": "rewrite_scene",
+        "actual": "rewrite_scene"
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x preserves projectId",
+      "status": "PASS",
+      "details": {
+        "expected": "project-1",
+        "actual": "project-1"
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x preserves tag",
+      "status": "PASS",
+      "details": {
+        "expected": [
+          "one",
+          "two"
+        ],
+        "actual": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "unsafe query key is not forwarded",
+      "status": "PASS",
+      "details": {
+        "source": "/studio?mode=consumer&screen=create&task=rewrite_scene&projectId=project-1&tag=one&tag=two&unsafe%5Bkey%5D=x",
+        "status": 307,
+        "location": "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "pathname": "/legacy/novel-system.html",
+        "search": "?mode=professional&projectId=project-1&screen=create&tag=one&tag=two&task=rewrite_scene",
+        "parameters": {
+          "mode": "professional",
+          "projectId": "project-1",
+          "screen": "create",
+          "tag": "two",
+          "task": "rewrite_scene"
+        },
+        "repeatedTag": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "/studio/create remains a direct Next.js route",
+      "status": "PASS",
+      "details": {
+        "status": 200,
+        "location": null
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "four frontdoors have one semantic workspace hash",
+      "status": "PASS",
+      "details": [
+        {
+          "label": "root",
+          "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+        },
+        {
+          "label": "studio",
+          "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+        },
+        {
+          "label": "studio-home",
+          "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+        },
+        {
+          "label": "professional",
+          "semanticHash": "e724c231e213e1581e07a064741bdaff7b4d191651e30910bccb642b4dbde795"
+        }
+      ]
+    },
+    {
+      "group": "frontdoor",
+      "name": "screen=create selects the formal route hub",
+      "status": "PASS",
+      "details": {
+        "screen": "create",
+        "task": "verify-ui",
+        "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+        "activeView": "view-studio",
+        "links": {
+          "write": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+          "characters": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+          "world": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+          "story-bible": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+          "character-ai": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+          "reader": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+          "backups": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups"
+        }
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "task query is preserved",
+      "status": "PASS",
+      "details": {
+        "screen": "create",
+        "task": "verify-ui",
+        "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+        "activeView": "view-studio",
+        "links": {
+          "write": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+          "characters": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+          "world": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+          "story-bible": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+          "character-ai": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+          "reader": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+          "backups": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups"
+        }
+      }
+    },
+    {
+      "group": "frontdoor",
+      "name": "projectId query is preserved",
+      "status": "PASS",
+      "details": {
+        "screen": "create",
+        "task": "verify-ui",
+        "projectId": "8f880acd-5229-4839-9229-902deda9d55c",
+        "activeView": "view-studio",
+        "links": {
+          "write": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/write",
+          "characters": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/characters",
+          "world": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/world",
+          "story-bible": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/story-bible",
+          "character-ai": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/character-ai",
+          "reader": "/studio/read/8f880acd-5229-4839-9229-902deda9d55c",
+          "backups": "/studio/project/8f880acd-5229-4839-9229-902deda9d55c/backups"
+        }
+      }
+    }
+  ],
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b"
+}

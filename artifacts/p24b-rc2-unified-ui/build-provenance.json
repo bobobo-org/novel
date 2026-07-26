@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "p24b-rc2-build-provenance-v1",
+  "generatedAt": "2026-07-26T16:02:07.296Z",
+  "productCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "releaseTag": "novel-ai-p24b-character-agent-rc2",
+  "releaseName": "P2.4B Closed Character Agent Core RC2",
+  "consumerRelease": "p2.4b-character-agent-rc2",
+  "architectureStage": "P2.4B RC",
+  "appCommit": "b21db7fc97cbf11109876aea409b8fc6e8177c3b",
+  "commitProvenanceSource": "explicit_build_commit",
+  "commitProvenanceStatus": "verified",
+  "commitProvenanceSchemaVersion": "p21-build-provenance-v1",
+  "commitProvenanceHash": "4b4a251f94d669f898487c61beb856351c58267f26c237d51a262d2d8c4e6a58",
+  "legacyBuildSha256": "70eb20aecb38a1819183367b4bac8be1e2aafa7f89d9b69ec40db5a879b68060",
+  "pass": 12,
+  "fail": 0,
+  "skip": 0,
+  "status": "PASS",
+  "results": [
+    {
+      "name": "sealed provenance validates",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed appCommit is exactly RC2 Product",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed releaseTag is exact RC2 tag",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed architectureStage is P2.4B RC",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed provenance source is allowed",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy build appCommit is exactly RC2 Product",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy build identity matches complete RC2 manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy build provenance is verified",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy static HTML contains exact RC2 Product identity",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy static JavaScript contains exact RC2 Product identity",
+      "status": "PASS"
+    },
+    {
+      "name": "Legacy static HTML identifies unified Professional UI",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed outputs do not substitute Evidence or CI commits",
+      "status": "PASS"
+    }
+  ]
+}
