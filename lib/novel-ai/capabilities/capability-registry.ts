@@ -32,6 +32,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { id: "backup.idempotencyRecords", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["idempotencyRecords included in backup manifest"] },
   { id: "browser.permissionGateway", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["R1K automated browser permission matrix"], limitations: ["Permission verification does not imply Browser AI runtime availability"] },
   { id: "browser.aiRuntime", contractStatus: "ready", runtimeStatus: "not_implemented", evidence: ["Provider contract only"], limitations: ["No installed browser model runtime"] },
+  { id: "ollama.localRuntime", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["Loopback bridge and local provider adapter"], limitations: ["Availability and installed models depend on each client device"] },
   { id: "dramaOsCore", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["drama-os-v1 project, episode, scene and evaluation contracts"] },
   { id: "novelToDramaProjection", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["projectNovelToDrama source-grounded candidate pipeline"] },
   { id: "episodePlanner", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["Format-aware episode planner"] },

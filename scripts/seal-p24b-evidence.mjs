@@ -3,8 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-const EXPECTED_BASELINE = "d74b97d026589f202cc6645a07770c30b586ebb9";
+const APPROVED_BASELINE = "d74b97d026589f202cc6645a07770c30b586ebb9";
+const TECHNICAL_PRODUCT = "e8250678bbc0513dde4a487f7a10145e42c95d46";
 const BASE_BRANCH = "release/p24a-rc2-approved-product";
+const rc1Release = process.env.P24B_RC1_RELEASE === "1";
+const expectedProductParent = process.env.P24B_EXPECTED_PRODUCT_PARENT
+  || (rc1Release ? TECHNICAL_PRODUCT : APPROVED_BASELINE);
 const sourceDir = path.resolve(process.env.P24B_EVIDENCE_SOURCE_DIR || process.env.P24B_EVIDENCE_DIR || "");
 const outputDir = path.resolve(process.env.P24B_EVIDENCE_DIR || "");
 if (!process.env.P24B_EVIDENCE_DIR) throw new Error("P24B_EVIDENCE_DIR_REQUIRED");
@@ -226,6 +230,54 @@ const ollama = readJson(sourceFile("ollama-real-smoke.json"));
 writeJson("ollama-real-smoke.json", { ...ollama, productCommit });
 const secretScan = readJson(sourceFile("secret-scan-results.json"));
 writeJson("secret-scan-results.json", { ...secretScan, productCommit });
+const releaseReports = new Map();
+if (rc1Release) {
+  for (const name of [
+    "release-identity.json",
+    "release-metadata-results.json",
+    "build-provenance-results.json",
+    "action-pin-verification.json",
+  ]) {
+    const value = readJson(sourceFile(name));
+    if (value.productCommit !== productCommit) {
+      throw new Error(`P24B_RC1_RELEASE_REPORT_PRODUCT_MISMATCH:${name}:${value.productCommit}`);
+    }
+    releaseReports.set(name, value);
+    writeJson(name, value);
+  }
+  const releaseIdentity = releaseReports.get("release-identity.json");
+  const releaseMetadata = releaseReports.get("release-metadata-results.json");
+  const buildProvenance = releaseReports.get("build-provenance-results.json");
+  const actionPins = releaseReports.get("action-pin-verification.json");
+  if (
+    releaseIdentity.status !== "P2.4B_RC1_RELEASE_IDENTITY_PASS"
+    || releaseIdentity.releaseTag !== "novel-ai-p24b-character-agent-rc1"
+    || releaseIdentity.releaseName !== "P2.4B Closed Character Agent Core RC1"
+    || releaseIdentity.consumerRelease !== "p2.4b-character-agent-rc1"
+    || releaseIdentity.architectureStage !== "P2.4B RC"
+  ) throw new Error("P24B_RC1_RELEASE_IDENTITY_MISMATCH");
+  if (releaseMetadata.status !== "PASS" || releaseMetadata.fail !== 0 || releaseMetadata.skip !== 0) {
+    throw new Error("P24B_RC1_RELEASE_METADATA_GATE_FAILED");
+  }
+  if (
+    buildProvenance.status !== "PASS"
+    || buildProvenance.fail !== 0
+    || buildProvenance.skip !== 0
+    || buildProvenance.appCommit !== productCommit
+    || buildProvenance.releaseTag !== releaseIdentity.releaseTag
+    || buildProvenance.architectureStage !== releaseIdentity.architectureStage
+    || buildProvenance.commitProvenanceStatus !== "verified"
+  ) throw new Error("P24B_RC1_BUILD_PROVENANCE_GATE_FAILED");
+  if (
+    actionPins.status !== "PASS"
+    || actionPins.fail !== 0
+    || actionPins.actions?.length !== 3
+    || actionPins.actions.some((entry) =>
+      entry.status !== "PASS"
+      || entry.ownerVerified !== true
+      || !/^[0-9a-f]{40}$/.test(entry.resolvedCommit))
+  ) throw new Error("P24B_RC1_ACTION_PIN_GATE_FAILED");
+}
 
 const p24aAll = readJson(sourceFile("regression-summary.json", "p24a"));
 const p24aRegressions = readJson(sourceFile("required-regressions.json", "p24a-regressions"));
@@ -252,6 +304,26 @@ if (browser.pass !== 61 || browser.fail !== 0 || browser.skip !== 0 || browser.f
 if (ollama.pass !== 8 || ollama.fail !== 0 || ollama.skip !== 0 || ollama.dataLeftDevice !== false) {
   throw new Error(`P24B_OLLAMA_GATE_MISMATCH:${ollama.pass}/${ollama.fail}/${ollama.skip}`);
 }
+if (rc1Release && (
+  ollama.status !== "P2.4B_REAL_OLLAMA_SMOKE_PASS"
+  || ollama.model?.id !== "qwen2.5:3b"
+  || !/^[0-9a-f]{64}$/.test(ollama.modelDigest ?? "")
+  || ollama.contextWindow !== 8192
+  || ollama.temperature !== 0.1
+  || ollama.topP !== 0.9
+  || ollama.seed !== 2404
+  || ollama.promptProfileVersion !== "p24b-character-agent-rc1-smoke-v1"
+  || typeof ollama.providerRunId !== "string"
+  || ollama.providerRunId.length < 16
+  || ollama.externalRequests !== 0
+  || ollama.rawChainOfThoughtStored !== false
+  || ollama.structuredOutputValidation?.requiredCaseCount !== 8
+  || ollama.structuredOutputValidation?.passedCaseCount !== 8
+  || ollama.structuredOutputValidation?.failedCaseCount !== 0
+  || ollama.structuredOutputValidation?.rawOutputStored !== false
+  || !Array.isArray(ollama.latency?.cases)
+  || ollama.latency.cases.length !== 8
+)) throw new Error("P24B_RC1_OLLAMA_METADATA_MISMATCH");
 
 const productParent = execFileSync("git", ["rev-parse", `${productCommit}^`], { encoding: "utf8" }).trim();
 const remoteLine = execFileSync(
@@ -260,12 +332,15 @@ const remoteLine = execFileSync(
   { encoding: "utf8" },
 ).trim();
 const remoteBaseCommit = remoteLine.split(/\s+/)[0] || null;
-const baselineStatus = productParent === EXPECTED_BASELINE && remoteBaseCommit === EXPECTED_BASELINE;
+const baselineStatus = productParent === expectedProductParent && remoteBaseCommit === APPROVED_BASELINE;
 writeJson("baseline.json", {
   schemaVersion: "p24b-baseline-v1",
   generatedAt,
   productCommit,
-  expectedBaseline: EXPECTED_BASELINE,
+  approvedBaseline: APPROVED_BASELINE,
+  expectedBaseline: APPROVED_BASELINE,
+  expectedProductParent,
+  technicalProduct: TECHNICAL_PRODUCT,
   productParent,
   baseBranch: BASE_BRANCH,
   remoteBaseCommit,
@@ -427,6 +502,18 @@ if (navigation.status !== "P2.4B_BROWSER_NAVIGATION_OWNERSHIP_PASS") blockers.pu
 if (backupRestore.status !== "PASS" || !backupRestore.semanticHashMatch) blockers.push("Backup/restore failed");
 if (secretScan.trueCredentialHits !== 0) blockers.push("True credential detected");
 if (falseReadyClaims !== 0) blockers.push("Capability Truth mismatch");
+if (rc1Release && releaseReports.get("release-identity.json")?.status !== "P2.4B_RC1_RELEASE_IDENTITY_PASS") {
+  blockers.push("RC1 Release Identity failed");
+}
+if (rc1Release && releaseReports.get("release-metadata-results.json")?.status !== "PASS") {
+  blockers.push("RC1 release metadata failed");
+}
+if (rc1Release && releaseReports.get("build-provenance-results.json")?.status !== "PASS") {
+  blockers.push("RC1 build provenance failed");
+}
+if (rc1Release && releaseReports.get("action-pin-verification.json")?.status !== "PASS") {
+  blockers.push("RC1 Action pin verification failed");
+}
 writeJson("findings.json", {
   schemaVersion: "p24b-findings-v1",
   generatedAt,
@@ -437,11 +524,12 @@ writeJson("findings.json", {
   status: blockers.length ? "FAIL" : "PASS",
 });
 
-fs.writeFileSync(path.join(outputDir, "architecture.md"), `# P2.4B Character Agent architecture
+fs.writeFileSync(path.join(outputDir, "architecture.md"), `# P2.4B Character Agent${rc1Release ? " RC1" : ""} architecture
 
 - Product commit: \`${productCommit}\`
-- Baseline: \`${EXPECTED_BASELINE}\`
-- Runtime boundary: local/client dependent; no external fallback.
+- Approved P2.4A baseline: \`${APPROVED_BASELINE}\`
+- Product parent: \`${expectedProductParent}\`
+${rc1Release ? "- Release tag: `novel-ai-p24b-character-agent-rc1`\n- Architecture stage: `P2.4B RC`\n" : ""}- Runtime boundary: local/client dependent; no external fallback.
 - Canon boundary: every run binds one immutable Canon Context and source revisions.
 - Context boundary: Character Actor Context and Character Evaluator Context are physically separate values.
 - Information boundary: denied facts remain tainted; raw chain-of-thought is never persisted or emitted as evidence.
@@ -456,10 +544,10 @@ fs.writeFileSync(path.join(outputDir, "architecture.md"), `# P2.4B Character Age
 - Future scope: P2.4C, P2.4D, P2.4E, and P2.5 are not started.
 `, "utf8");
 
-fs.writeFileSync(path.join(outputDir, "executive-summary.md"), `# P2.4B Character Agent technical evidence
+fs.writeFileSync(path.join(outputDir, "executive-summary.md"), `# P2.4B Character Agent${rc1Release ? " RC1 release" : " technical"} evidence
 
 - Product commit: \`${productCommit}\`
-- P2.4A exact regression: ${p24aPass} PASS / ${p24aFail} FAIL / ${p24aSkip} SKIP
+${rc1Release ? "- Release identity: `P2.4B Closed Character Agent Core RC1` / `novel-ai-p24b-character-agent-rc1` / `P2.4B RC`\n" : ""}- P2.4A exact regression: ${p24aPass} PASS / ${p24aFail} FAIL / ${p24aSkip} SKIP
 - P2.4B formal matrix: ${p24b.pass} PASS / ${p24b.fail} FAIL / ${p24b.skip} SKIP
 - Core required total: ${regression.coreRequiredTotal.pass} PASS (minimum ${regression.coreRequiredTotal.minimumRequired})
 - Browser gate: ${browser.pass} PASS / ${browser.fail} FAIL / ${browser.skip} SKIP; ${browser.flowSteps.length} consumer-flow steps

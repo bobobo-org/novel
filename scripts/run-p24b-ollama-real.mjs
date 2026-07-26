@@ -10,6 +10,19 @@ const client = new OllamaClient({ timeoutMs: 180_000 });
 const results = [];
 const startedAt = new Date().toISOString();
 const started = Date.now();
+const providerRunId = crypto.randomUUID();
+const promptProfileVersion = "p24b-character-agent-rc1-smoke-v1";
+const contextWindow = 8192;
+const temperature = 0.1;
+const topP = 0.9;
+const seed = 2404;
+const generationOptions = {
+  temperature,
+  top_p: topP,
+  seed,
+  num_ctx: contextWindow,
+  num_predict: 220,
+};
 
 fs.mkdirSync(evidenceDir, { recursive: true });
 
@@ -29,7 +42,7 @@ async function runJsonCase(name, prompt, validate) {
       model,
       prompt,
       format: "json",
-      options: { temperature: 0.1, top_p: 0.9, seed: 2404, num_predict: 220 },
+      options: generationOptions,
     });
     const raw = response.response ?? "";
     const parsed = parseJson(raw);
@@ -66,40 +79,58 @@ try {
 } catch (error) {
   const report = {
     schemaVersion: "p24b-real-ollama-smoke-v1",
-    status: "P2.4B_REAL_OLLAMA_SMOKE_BLOCKED_BY_ENVIRONMENT",
+    status: "P2.4B_RC1_REAL_OLLAMA_GATE_BLOCKED",
     generatedAt: new Date().toISOString(),
     startedAt,
     endpoint: "http://127.0.0.1:11434",
     model,
+    modelDigest: null,
+    contextWindow,
+    temperature,
+    topP,
+    seed,
+    promptProfileVersion,
+    providerRunId,
     pass: 0,
     fail: 0,
     skip: 0,
     externalRequests: 0,
+    dataLeftDevice: false,
+    rawChainOfThoughtStored: false,
     error: error instanceof Error ? error.message : String(error),
   };
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(report));
-  process.exit(0);
+  process.exit(2);
 }
 
 if (!modelInfo) {
   const report = {
     schemaVersion: "p24b-real-ollama-smoke-v1",
-    status: "P2.4B_REAL_OLLAMA_SMOKE_BLOCKED_BY_ENVIRONMENT",
+    status: "P2.4B_RC1_REAL_OLLAMA_GATE_BLOCKED",
     generatedAt: new Date().toISOString(),
     startedAt,
     endpoint: "http://127.0.0.1:11434",
     ollamaVersion: version,
     model,
+    modelDigest: null,
+    contextWindow,
+    temperature,
+    topP,
+    seed,
+    promptProfileVersion,
+    providerRunId,
     pass: 0,
     fail: 0,
     skip: 0,
     externalRequests: 0,
+    dataLeftDevice: false,
+    rawChainOfThoughtStored: false,
     error: "REQUIRED_MODEL_NOT_INSTALLED",
   };
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(report));
-  process.exit(0);
+  process.exit(2);
 }
 
 const common = [
@@ -217,7 +248,7 @@ Do not omit any array item and do not add a character:
       prompt: `${common}\n請產生一個極長的多角色模擬 JSON，至少一萬字。`,
       format: "json",
       signal: controller.signal,
-      options: { temperature: 0, num_predict: 4_096 },
+      options: { ...generationOptions, temperature: 0, num_predict: 4_096 },
     });
     results.push({ name: "real generation cancellation", status: "FAIL", elapsedMs: Date.now() - caseStarted, error: "REQUEST_COMPLETED_BEFORE_CANCEL" });
   } catch (error) {
@@ -268,6 +299,13 @@ const report = {
     digest: modelInfo.digest ?? null,
     size: modelInfo.size ?? null,
   },
+  modelDigest: modelInfo.digest ?? null,
+  contextWindow,
+  temperature,
+  topP,
+  seed,
+  promptProfileVersion,
+  providerRunId,
   provider: "local-ollama",
   modelOutputDeterminismClaim: "STRUCTURE_ONLY",
   pass,
@@ -276,6 +314,16 @@ const report = {
   externalRequests: 0,
   dataLeftDevice: false,
   rawChainOfThoughtStored: false,
+  latency: {
+    totalMs: Date.now() - started,
+    cases: results.map(({ name, elapsedMs }) => ({ name, elapsedMs })),
+  },
+  structuredOutputValidation: {
+    requiredCaseCount: 8,
+    passedCaseCount: pass,
+    failedCaseCount: fail,
+    rawOutputStored: false,
+  },
   results,
 };
 fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");

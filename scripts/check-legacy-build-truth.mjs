@@ -17,8 +17,14 @@ const normalizeReleaseFields = (value) => value
   .replace(/\r\n/g, "\n")
   .replace(/(<meta name="novel-static-release" content=")[^"]*(">)/, '$1__NOVEL_STATIC_APP_COMMIT__$2')
   .replace(/(<meta name="novel-static-release-tag" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_TAG__$2')
+  .replace(/(<meta name="novel-static-release-name" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_NAME__$2')
+  .replace(/(<meta name="novel-static-consumer-release" content=")[^"]*(">)/, '$1__NOVEL_STATIC_CONSUMER_RELEASE__$2')
+  .replace(/(<meta name="novel-static-architecture-stage" content=")[^"]*(">)/, '$1__NOVEL_STATIC_ARCHITECTURE_STAGE__$2')
   .replace(/data-app-commit="[^"]*"/, 'data-app-commit="__NOVEL_STATIC_APP_COMMIT__"')
   .replace(/data-release-tag="[^"]*"/, 'data-release-tag="__NOVEL_STATIC_RELEASE_TAG__"')
+  .replace(/data-release-name="[^"]*"/, 'data-release-name="__NOVEL_STATIC_RELEASE_NAME__"')
+  .replace(/data-consumer-release="[^"]*"/, 'data-consumer-release="__NOVEL_STATIC_CONSUMER_RELEASE__"')
+  .replace(/data-architecture-stage="[^"]*"/, 'data-architecture-stage="__NOVEL_STATIC_ARCHITECTURE_STAGE__"')
   .replace(/data-visible-ui-semantic-version="[^"]*"/, 'data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__"')
   .replace(/data-visible-ui-body-hash="[^"]*"/, 'data-visible-ui-body-hash="__NOVEL_VISIBLE_UI_BODY_HASH__"');
 
@@ -105,27 +111,58 @@ export function createLegacyBuildTruth({
 
   const htmlCommit = matchValue(html, /<meta name="novel-static-release" content="([^"]*)">/, "HTML commit");
   const htmlTag = matchValue(html, /<meta name="novel-static-release-tag" content="([^"]*)">/, "HTML releaseTag");
+  const htmlName = matchValue(html, /<meta name="novel-static-release-name" content="([^"]*)">/, "HTML releaseName");
+  const htmlConsumer = matchValue(html, /<meta name="novel-static-consumer-release" content="([^"]*)">/, "HTML consumerRelease");
+  const htmlStage = matchValue(html, /<meta name="novel-static-architecture-stage" content="([^"]*)">/, "HTML architectureStage");
   const jsCommit = matchValue(workspace, /appCommit:\s*"([^"]*)"/, "JavaScript commit");
   const jsTag = matchValue(workspace, /releaseTag:\s*"([^"]*)"/, "JavaScript releaseTag");
+  const jsExpectedTag = matchValue(workspace, /expectedReleaseTag:\s*"([^"]*)"/, "JavaScript expectedReleaseTag");
+  const jsName = matchValue(workspace, /releaseName:\s*"([^"]*)"/, "JavaScript releaseName");
+  const jsConsumer = matchValue(workspace, /consumerRelease:\s*"([^"]*)"/, "JavaScript consumerRelease");
+  const jsStage = matchValue(workspace, /architectureStage:\s*"([^"]*)"/, "JavaScript architectureStage");
   const expectedCommit = provenance.appCommit;
   const expectedTag = provenance.releaseTag;
+  const expectedName = manifest.releaseName;
+  const expectedConsumer = manifest.consumerRelease;
+  const expectedStage = provenance.architectureStage;
   const templateAllowed = allowTemplatePlaceholders
     && htmlCommit === TEMPLATE_COMMIT
     && htmlTag === TEMPLATE_TAG
+    && htmlName === "__NOVEL_STATIC_RELEASE_NAME__"
+    && htmlConsumer === "__NOVEL_STATIC_CONSUMER_RELEASE__"
+    && htmlStage === "__NOVEL_STATIC_ARCHITECTURE_STAGE__"
     && jsCommit === TEMPLATE_COMMIT
-    && jsTag === TEMPLATE_TAG;
+    && jsTag === TEMPLATE_TAG
+    && jsExpectedTag === TEMPLATE_TAG
+    && jsName === "__NOVEL_STATIC_RELEASE_NAME__"
+    && jsConsumer === "__NOVEL_STATIC_CONSUMER_RELEASE__"
+    && jsStage === "__NOVEL_STATIC_ARCHITECTURE_STAGE__";
   const metadataMatches = templateAllowed || (
     htmlCommit === expectedCommit
     && jsCommit === expectedCommit
     && htmlTag === expectedTag
     && jsTag === expectedTag
+    && jsExpectedTag === expectedTag
+    && htmlName === expectedName
+    && jsName === expectedName
+    && htmlConsumer === expectedConsumer
+    && jsConsumer === expectedConsumer
+    && htmlStage === expectedStage
+    && jsStage === expectedStage
   );
   if (!metadataMatches) {
     fail("LEGACY_BUILD_RELEASE_METADATA_MISMATCH", [
       `HTML commit: ${htmlCommit}`,
       `HTML releaseTag: ${htmlTag}`,
+      `HTML releaseName: ${htmlName}`,
+      `HTML consumerRelease: ${htmlConsumer}`,
+      `HTML architectureStage: ${htmlStage}`,
       `JavaScript commit: ${jsCommit}`,
       `JavaScript releaseTag: ${jsTag}`,
+      `JavaScript expectedReleaseTag: ${jsExpectedTag}`,
+      `JavaScript releaseName: ${jsName}`,
+      `JavaScript consumerRelease: ${jsConsumer}`,
+      `JavaScript architectureStage: ${jsStage}`,
     ]);
   }
 
@@ -136,7 +173,9 @@ export function createLegacyBuildTruth({
     hashMode: "sha256-normalized-release-fields-v1",
     commit: expectedCommit,
     releaseTag: expectedTag,
-    architectureStage: provenance.architectureStage,
+    releaseName: expectedName,
+    consumerRelease: expectedConsumer,
+    architectureStage: expectedStage,
     commitProvenanceSource: "build_sealed",
     commitProvenanceStatus: "verified",
     commitProvenanceSchemaVersion: provenance.schemaVersion,

@@ -10,8 +10,10 @@ const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p24a-drama-os-core-rc2";
-const expectedStage = "P2.4A RC";
+const expectedTag = "novel-ai-p24b-character-agent-rc1";
+const expectedName = "P2.4B Closed Character Agent Core RC1";
+const expectedConsumerRelease = "p2.4b-character-agent-rc1";
+const expectedStage = "P2.4B RC";
 const results = [];
 
 function test(name, work) {
@@ -28,7 +30,11 @@ function mustReject(actual, expected) {
   assert.throws(() => validate(actual, expected));
 }
 
-test("manifest uses authoritative RC metadata", () => validate(manifest, { releaseTag: expectedTag, architectureStage: expectedStage }));
+test("manifest uses authoritative P2.4B RC1 metadata", () => {
+  validate(manifest, { releaseTag: expectedTag, architectureStage: expectedStage });
+  assert.equal(manifest.releaseName, expectedName);
+  assert.equal(manifest.consumerRelease, expectedConsumerRelease);
+});
 test("manifest-health releaseTag mismatch fails", () => mustReject({ ...manifest, releaseTag: "novel-ai-p23-wrong" }, manifest));
 test("manifest-health architectureStage mismatch fails", () => mustReject({ ...manifest, architectureStage: "P2.1" }, manifest));
 test("unknown architectureStage fails", () => mustReject({ ...manifest, architectureStage: "P9 UNKNOWN" }, manifest));
@@ -38,12 +44,43 @@ test("runtime validates authoritative contract and old provenance schemas", () =
   assert.match(runtimeSource, /allowedProvenanceSchemaVersions/);
   assert.ok(contract.allowedProvenanceSchemaVersions.includes("p21-build-provenance-v1"));
 });
+test("release contract preserves P2.1 P2.3 P2.4A and adds P2.4B", () => {
+  for (const stage of ["P2.1", "P2.1 RC", "P2.3 RC", "P2.4A RC", "P2.4B RC"]) {
+    assert.ok(contract.allowedArchitectureStages.includes(stage), `missing stage ${stage}`);
+  }
+  const pattern = new RegExp(contract.releaseTagPattern);
+  for (const tag of [
+    "novel-ai-p21-build-sealed-provenance-rc3",
+    "novel-ai-p23-sovereign-learning-rc3",
+    "novel-ai-p24a-drama-os-core-rc2",
+    expectedTag,
+  ]) assert.match(tag, pattern);
+});
 test("public health reads shared manifest", () => { assert.match(healthSource, /RELEASE_MANIFEST\.releaseTag/); assert.match(healthSource, /RELEASE_MANIFEST\.architectureStage/); });
+test("public health exposes precise Character Agent capability identity", () => {
+  for (const id of [
+    "characterAgentCore",
+    "characterPerspectiveContext",
+    "knowledgeScopedCharacterContext",
+    "characterBeliefEngine",
+    "characterMemory",
+    "relationshipGraph",
+    "relationshipHistory",
+    "privateCharacterSimulation",
+    "multiCharacterSimulation",
+    "characterProposalApproval",
+  ]) assert.match(healthSource, new RegExp(`releaseCapability\\(capabilityCatalog, "${id}"\\)`));
+});
 test("admin diagnostics reads the same shared release identity", () => {
   assert.match(adminHealthSource, /RELEASE_MANIFEST\.appCommit/);
   assert.match(adminHealthSource, /releaseIdentity/);
+  assert.match(adminHealthSource, /characterCapabilities/);
 });
-test("build stamp reads shared manifest", () => assert.match(stampSource, /releaseManifest\.releaseTag/));
+test("build stamp reads and stamps the complete shared manifest", () => {
+  for (const field of ["releaseTag", "releaseName", "consumerRelease", "architectureStage"]) {
+    assert.match(stampSource, new RegExp(`releaseManifest\\.${field}`));
+  }
+});
 test("legacy P2.1 RC2 evidence and RC3 tag remain immutable", () => {
   assert.match(sealSource, /novel-ai-p21-release-metadata-rc2/);
   assert.doesNotMatch(sealSource, /novel-ai-p21-legacy-build-provenance-rc4/);
@@ -53,7 +90,7 @@ test("legacy P2.1 RC2 evidence and RC3 tag remain immutable", () => {
   );
 });
 
-const summary = { suite: "P2.4A RC2 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
+const summary = { suite: "P2.4B RC1 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
 await mkdir("artifacts/p23-rc3-release-metadata", { recursive: true });
 await writeFile("artifacts/p23-rc3-release-metadata/release-metadata-regression.json", `${JSON.stringify(summary, null, 2)}\n`, "utf8");
 console.log(JSON.stringify(summary, null, 2));
