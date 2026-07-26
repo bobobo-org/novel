@@ -13,7 +13,7 @@ const entries = [
 ];
 
 export default function Home() {
-  redirect("/legacy/novel-system.html?mode=professional");
+  redirect("/legacy/novel-system.html?screen=home");
 
   const library = storyLibraryStats();
   return <main className="frontdoor" data-consumer-release={RELEASE_MANIFEST.consumerRelease} data-app-commit={RELEASE_MANIFEST.appCommit}>
