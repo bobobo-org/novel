@@ -23,6 +23,7 @@ env:
   P24B_RC1_PRODUCT: 71bea12da90def7646efe1189f059896d3582327
   P24B_RC2_PRODUCT_COMMIT: b21db7fc97cbf11109876aea409b8fc6e8177c3b
   P24B_RC2_EVIDENCE_COMMIT: 20432b10544ce69fa73fb9c84f1b85076fcfcb6d
+  P24B_RC2_R1_CI_HEAD: d10da438607e53ccc6838cd2a4602bc3e5ecd7b3
   P24B_RC2_RELEASE_TAG: novel-ai-p24b-character-agent-rc2
 
 jobs:
@@ -44,7 +45,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Verify exact checkout and three-commit chain
+      - name: Verify exact checkout and four-commit chain
         shell: pwsh
         run: |
           $expectedHead = '${{ github.event.pull_request.head.sha || github.sha }}'
@@ -67,8 +68,11 @@ jobs:
           if ((git rev-parse "$env:P24B_RC2_EVIDENCE_COMMIT^") -ne $env:P24B_RC2_PRODUCT_COMMIT) {
             throw 'EVIDENCE_PARENT_MISMATCH'
           }
-          if ((git rev-parse 'HEAD^') -ne $env:P24B_RC2_EVIDENCE_COMMIT) {
-            throw 'CI_PARENT_MISMATCH'
+          if ((git rev-parse "$env:P24B_RC2_R1_CI_HEAD^") -ne $env:P24B_RC2_EVIDENCE_COMMIT) {
+            throw 'R1_CI_PARENT_MISMATCH'
+          }
+          if ((git rev-parse 'HEAD^') -ne $env:P24B_RC2_R1_CI_HEAD) {
+            throw 'TEST_HARNESS_PARENT_MISMATCH'
           }
           $remoteBase = (git ls-remote origin refs/heads/release/p24a-rc2-approved-product).Split()[0]
           if ($remoteBase -ne $env:P24A_APPROVED_BASELINE) {
@@ -80,8 +84,11 @@ jobs:
           if ((git log -1 --format=%s $env:P24B_RC2_EVIDENCE_COMMIT) -ne 'test(release): seal P2.4B RC2 unified UI evidence') {
             throw 'EVIDENCE_MESSAGE_MISMATCH'
           }
-          if ((git log -1 --format=%s HEAD) -ne 'ci: verify P2.4B RC2 unified professional UI') {
-            throw 'CI_MESSAGE_MISMATCH'
+          if ((git log -1 --format=%s $env:P24B_RC2_R1_CI_HEAD) -ne 'ci: verify P2.4B RC2 unified professional UI') {
+            throw 'R1_CI_MESSAGE_MISMATCH'
+          }
+          if ((git log -1 --format=%s HEAD) -ne 'test: honor product-owned reload in P2.4A restore gate') {
+            throw 'TEST_HARNESS_MESSAGE_MISMATCH'
           }
 
           $evidenceFiles = @(git diff --name-only $env:P24B_RC2_PRODUCT_COMMIT $env:P24B_RC2_EVIDENCE_COMMIT)
@@ -92,9 +99,19 @@ jobs:
             throw "EVIDENCE_SCOPE_VIOLATION:$($invalidEvidence -join ',')"
           }
 
-          $ciFiles = @(git diff --name-only $env:P24B_RC2_EVIDENCE_COMMIT HEAD)
+          $ciFiles = @(git diff --name-only $env:P24B_RC2_EVIDENCE_COMMIT $env:P24B_RC2_R1_CI_HEAD)
           if ($ciFiles.Count -ne 1 -or $ciFiles[0] -ne '.github/workflows/p24b-rc2-candidate.yml') {
             throw "CI_SCOPE_VIOLATION:$($ciFiles -join ',')"
+          }
+
+          $testHarnessFiles = @(git diff --name-only $env:P24B_RC2_R1_CI_HEAD HEAD)
+          $expectedTestHarnessFiles = @(
+            '.github/workflows/p24b-rc2-candidate.yml'
+            'scripts/run-p24a-rc2-browser-gate.mjs'
+          )
+          $testHarnessScopeDiff = @(Compare-Object -ReferenceObject $expectedTestHarnessFiles -DifferenceObject $testHarnessFiles)
+          if ($testHarnessFiles.Count -ne 2 -or $testHarnessScopeDiff.Count) {
+            throw "TEST_HARNESS_SCOPE_VIOLATION:$($testHarnessFiles -join ',')"
           }
 
       - name: Install pnpm
@@ -348,7 +365,7 @@ jobs:
             $env:P23_RC3_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP 'p24b-dynamic-assets'
             pnpm test:ai:p23:dynamic-assets
 
-            node -e 'const a=require("node:assert/strict");const fs=require("node:fs");const t=process.env.RUNNER_TEMP.replaceAll("\\","/");const ui=JSON.parse(fs.readFileSync(t+"/p24b-rc2-ui/frontdoor-routes.json","utf8"));const p24a=JSON.parse(fs.readFileSync(t+"/p24a-browser/browser-full-flow.json","utf8"));const p24b=JSON.parse(fs.readFileSync(t+"/p24b-browser/browser-full-flow.json","utf8"));const dynamic=JSON.parse(fs.readFileSync(t+"/p24b-dynamic-assets/dynamic-asset-results.json","utf8"));a.deepEqual([ui.pass,ui.fail,ui.skip],[154,0,0]);a.deepEqual([p24a.pass,p24a.fail,p24a.skip],[61,0,0]);a.deepEqual([p24b.pass,p24b.fail,p24b.skip],[61,0,0]);a.equal(p24b.flowSteps.length,30);a.equal(dynamic.status,"PASS");a.equal(dynamic.totalCanonicalLocalAssets,dynamic.passedCanonicalLocalAssets);console.log(JSON.stringify({status:"PASS",ui:ui.pass,p24a:p24a.pass,p24b:p24b.pass,flowSteps:p24b.flowSteps.length,dynamic:dynamic.totalCanonicalLocalAssets}))'
+            node -e 'const a=require("node:assert/strict");const fs=require("node:fs");const t=process.env.RUNNER_TEMP.replaceAll("\\","/");const ui=JSON.parse(fs.readFileSync(t+"/p24b-rc2-ui/frontdoor-routes.json","utf8"));const p24a=JSON.parse(fs.readFileSync(t+"/p24a-browser/browser-full-flow.json","utf8"));const p24b=JSON.parse(fs.readFileSync(t+"/p24b-browser/browser-full-flow.json","utf8"));const dynamic=JSON.parse(fs.readFileSync(t+"/p24b-dynamic-assets/dynamic-asset-results.json","utf8"));const restoreNavigation=p24a.navigationOwnership?.restore;const restoreIntegrity=p24a.restoreIntegrity;const diagnostics=p24a.diagnostics;const serializedP24a=JSON.stringify(p24a);a.deepEqual([ui.pass,ui.fail,ui.skip],[154,0,0]);a.deepEqual([p24a.pass,p24a.fail,p24a.skip],[61,0,0]);a.equal(restoreNavigation?.owner,"PRODUCT");a.equal(restoreNavigation?.productReloadObserved,true);a.equal(restoreNavigation?.productReloadType,"reload");a.equal(restoreNavigation?.mainFrameNavigationCount,1);a.equal(restoreNavigation?.harnessReloadIssued,false);a.equal(restoreNavigation?.harnessGotoIssued,false);a.equal(restoreNavigation?.normalFlowRace,0);a.equal(restoreNavigation?.errAborted,0);a.equal(restoreNavigation?.frameDetached,0);a.equal(restoreNavigation?.executionContextDestroyed,0);a.equal(restoreIntegrity?.characterRestored,true);a.equal(restoreIntegrity?.worldRuleRestored,true);a.equal(restoreIntegrity?.storyBibleRestored,true);a.equal(restoreIntegrity?.projectRestored,true);a.equal(restoreIntegrity?.backupSemanticHashMatch,true);a.equal(restoreIntegrity?.canonicalCorruption,0);a.equal(restoreIntegrity?.duplicateRestore,0);a.equal(restoreIntegrity?.duplicateBackup,0);a.equal(diagnostics?.consoleErrorCount,0);a.equal(diagnostics?.pageErrorCount,0);a.equal(diagnostics?.requestFailureCount,0);a.equal(diagnostics?.externalRequestCount,0);a.equal(diagnostics?.unexpectedHttpErrorCount,0);a.doesNotMatch(serializedP24a,/ERR_ABORTED|frame detached|execution context destroyed/i);a.deepEqual([p24b.pass,p24b.fail,p24b.skip],[61,0,0]);a.equal(p24b.flowSteps.length,30);a.equal(dynamic.status,"PASS");a.equal(dynamic.totalCanonicalLocalAssets,dynamic.passedCanonicalLocalAssets);console.log(JSON.stringify({status:"PASS",ui:ui.pass,p24a:p24a.pass,p24b:p24b.pass,flowSteps:p24b.flowSteps.length,dynamic:dynamic.totalCanonicalLocalAssets}))'
           } finally {
             if ($server -and -not $server.HasExited) {
               Stop-Process -Id $server.Id -Force
