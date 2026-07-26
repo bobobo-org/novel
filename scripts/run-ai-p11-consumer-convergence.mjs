@@ -9,8 +9,9 @@ check("首頁六個消費者入口",["開始新故事","繼續我的故事","玩
 check("公開入口統一到 legacy professional",config.includes('source: "/studio"')&&config.includes('source: "/professional"')&&config.includes("LEGACY_PROFESSIONAL_PATH"));
 check("新版 studio 程式保留可回復",studioRoute.includes("studioShell")&&studioRoute.includes("建立新作品"));
 check("legacy 只作相容 shell",html.includes('<base href="/legacy/">')&&html.includes("consumer-app.js"));
-check("專業模式首屏隱藏 consumer shell",html.includes("#consumerAppShell[hidden]")&&html.includes("body.p11-professional #consumerAppShell{display:none!important}"));
-check("專業模式使用一頁式工作台",compactHtml.includes("body.p11-professional{height:100%;overflow:hidden}")&&compactHtml.includes("grid-template-columns:repeat(2,minmax(0,1fr))")&&compactHtml.includes("body.p11-professional.appDock{display:none!important}"));
+check("專業模式首幀隱藏 consumer shell",html.includes("p11-professional-entry")&&html.includes("#consumerAppShell[hidden]")&&html.includes("#consumerAppShell{"));
+check("專業模式使用一頁式工作台",compactHtml.includes("body.p11-professional{height:100%;overflow:hidden}")&&compactHtml.includes("grid-template-columns:repeat(2,minmax(0,1fr))")&&html.includes(".appDock{"));
+check("專業工作台不顯示頁面捲軸",compactHtml.includes("overflow-x:hidden")&&compactHtml.includes("scrollbar-width:none")&&html.includes(".main::-webkit-scrollbar"));
 check("十個消費者模組載入",["consumer-home","consumer-navigation","creation-wizard","writing-studio","consumer-ai-actions","choice-story","story-dashboard","theme-system","adult-entry-guard","professional-tools"].every(x=>html.includes(x)));
 check("五步驟建立流程",wizard.includes("第 ${step} 步，共 5 步")&&["你想寫什麼故事","建立主角","建立故事世界","選擇故事玩法","預覽並建立"].every(x=>wizard.includes(x)));
 check("進階欄位保留",["分類包","故事引擎","主角原型","世界核心","能力核心","反派核心","十章大綱"].every(x=>wizard.includes(x)));
