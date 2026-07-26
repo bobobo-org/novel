@@ -1,6 +1,7 @@
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 const entries = [
   ["開始新故事", "從五個簡單步驟建立人物、世界與玩法。", "/studio?screen=create"],
@@ -12,6 +13,8 @@ const entries = [
 ];
 
 export default function Home() {
+  redirect("/legacy/novel-system.html?mode=professional");
+
   const library = storyLibraryStats();
   return <main className="frontdoor" data-consumer-release={RELEASE_MANIFEST.consumerRelease} data-app-commit={RELEASE_MANIFEST.appCommit}>
     <header className="frontdoorNav">
