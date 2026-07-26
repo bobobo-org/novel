@@ -113,6 +113,13 @@ function CharacterEditor({ projectId, characters, onChanged }: { projectId: stri
   const [goal, setGoal] = useState("");
   const [lifeStatus, setLifeStatus] = useState<Character["lifeStatus"]>("alive");
   const [location, setLocation] = useState("");
+  const [age, setAge] = useState("");
+  const [ageVerified, setAgeVerified] = useState(false);
+  const [personality, setPersonality] = useState("");
+  const [fear, setFear] = useState("");
+  const [secret, setSecret] = useState("");
+  const [faction, setFaction] = useState("");
+  const [voiceStyle, setVoiceStyle] = useState<"short" | "mixed" | "long">("mixed");
   const [message, setMessage] = useState("");
 
   async function save(event: React.FormEvent) {
@@ -127,15 +134,37 @@ function CharacterEditor({ projectId, characters, onChanged }: { projectId: stri
       name: name.trim(),
       aliases: [],
       identity: optionalValue<string>(null, "deferred"),
-      personality: optionalValue<string>(null, "deferred"),
+      personality: optionalValue(personality.trim(), "user_defined"),
       goal: optionalValue(goal.trim(), "user_defined"),
       lifeStatus,
       locationId: location.trim(),
+      age: age.trim() ? Number(age) : null,
+      ageVerified: Boolean(age.trim() && ageVerified),
+      fears: fear.trim() ? [fear.trim()] : [],
+      privateSecrets: secret.trim() ? [secret.trim()] : [],
+      factionIds: faction.trim() ? [faction.trim()] : [],
+      values: [],
+      capabilities: [],
+      limitations: [],
+      voiceStyle: {
+        formality: voiceStyle === "long" ? 75 : voiceStyle === "short" ? 35 : 55,
+        directness: voiceStyle === "short" ? 75 : 55,
+        emotionalExpressiveness: 50,
+        sentenceLength: voiceStyle,
+        preferredAddressTerms: [],
+      },
     };
     await repo.put("characters", record);
     setName("");
     setGoal("");
     setLocation("");
+    setAge("");
+    setAgeVerified(false);
+    setPersonality("");
+    setFear("");
+    setSecret("");
+    setFaction("");
+    setVoiceStyle("mixed");
     setMessage("角色已保存。");
     await onChanged();
   }
@@ -148,12 +177,19 @@ function CharacterEditor({ projectId, characters, onChanged }: { projectId: stri
         <label>角色目標<input value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
         <label>生存狀態<select value={lifeStatus} onChange={(event) => setLifeStatus(event.target.value as Character["lifeStatus"])}><option value="alive">存活</option><option value="dead">死亡</option><option value="unknown">未知</option></select></label>
         <label>所在位置或現況<input value={location} onChange={(event) => setLocation(event.target.value)} /></label>
+        <label>年齡（可留白）<input type="number" min="0" max="300" value={age} onChange={(event) => setAge(event.target.value)} /></label>
+        <label className="p2Checkbox"><input type="checkbox" checked={ageVerified} onChange={(event) => setAgeVerified(event.target.checked)} />作者已確認角色年齡</label>
+        <label>角色性格<input value={personality} onChange={(event) => setPersonality(event.target.value)} placeholder="例如：謹慎、重視承諾" /></label>
+        <label>角色恐懼<input value={fear} onChange={(event) => setFear(event.target.value)} placeholder="例如：害怕失去同伴" /></label>
+        <label>角色秘密<input value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="只供角色私人設定，不會自動寫入正文" /></label>
+        <label>所屬勢力<input value={faction} onChange={(event) => setFaction(event.target.value)} placeholder="可留白" /></label>
+        <label>說話節奏<select value={voiceStyle} onChange={(event) => setVoiceStyle(event.target.value as "short" | "mixed" | "long")}><option value="short">簡短直接</option><option value="mixed">自然混合</option><option value="long">完整慎重</option></select></label>
         <button type="submit">儲存角色</button>
         {message && <p role="status">{message}</p>}
       </form>
       {characters.length ? (
         <div className="p2DataGrid" data-testid="character-records">
-          {characters.map((item) => <article key={item.id} data-record-id={item.id} data-revision={item.revision}><b>{item.name}</b><span>{item.lifeStatus}</span><p>{item.goal.value || "尚未設定目標"}</p><small>{item.locationId || "尚未設定位置"}</small></article>)}
+          {characters.map((item) => <article key={item.id} data-record-id={item.id} data-revision={item.revision}><b>{item.name}</b><span>{item.lifeStatus}</span><p>{item.goal.value || "尚未設定目標"}</p><small>{item.locationId || "尚未設定位置"}</small>{item.personality.value ? <small>{item.personality.value}</small> : null}{item.privateSecrets?.length ? <small>已保存私人設定</small> : null}</article>)}
         </div>
       ) : <Empty>目前還沒有角色資料。</Empty>}
     </>

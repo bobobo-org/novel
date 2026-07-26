@@ -61,11 +61,15 @@ test("privateAiHub remains contract_only and not_connected", () => {
   assert.equal(registry.privateAiHub.contractStatus, "contract_only");
   assert.equal(registry.privateAiHub.runtimeStatus, "not_connected");
 });
-test("future capabilities are not promoted", () => {
-  for (const id of ["characterAgent", "audienceVoting", "audienceLearning", "creationDna", "storyBlueprintWorkbench"]) {
+test("unrelated future capabilities remain unpromoted while P2.4B replaces the legacy Character Agent umbrella", () => {
+  for (const id of ["audienceVoting", "audienceLearning", "creationDna", "storyBlueprintWorkbench"]) {
     assert.equal(registry[id].contractStatus, "not_implemented");
     assert.notEqual(catalog[id].effectiveStatus, "ready");
   }
+  assert.equal(registry.characterAgent, undefined);
+  assert.equal(registry.characterAgentCore.contractStatus, "ready");
+  assert.equal(registry.characterAgentCore.runtimeStatus, "client_dependent");
+  assert.equal(catalog.characterAgentCore.effectiveStatus, "client_dependent");
 });
 
 const truthSources = {
