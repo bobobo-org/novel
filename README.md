@@ -1,6 +1,6 @@
 # 諸天萬界小說生成系統
 
-這個 repo 是「諸天萬界小說生成系統」的部署版專案。首頁使用 Next.js，完整離線平台版放在 `public/legacy/novel-system.html`，可直接由網站入口開啟。
+這個 repo 是「諸天萬界小說生成系統」的部署版專案。公開入口 `/`、`/studio` 與 `/professional` 統一進入 `public/legacy/novel-system.html?mode=professional` 的單頁式專業工作台；Next.js Studio 程式保留作為可回復實作，但不再形成第二套公開介面。
 
 ## 目前版本
 

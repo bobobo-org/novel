@@ -2719,6 +2719,7 @@
   }
 
   async function openLatestForWriting() {
+    if (typeof showView === "function") showView("creation");
     const rawProject = await findRecentProject();
     if (!rawProject) return showNewWork();
     const project = normalizeProject(rawProject);
@@ -4258,6 +4259,7 @@
 
   function showNewWork() {
     if (typeof showView === "function") showView("creation");
+    if (typeof activateProfessionalNavButton === "function") activateProfessionalNavButton("phase1NewWorkNavButton");
     showSection("phase1NewWorkIntro");
     showSection("phase1NewWorkArea");
     hideSection("phase1Manager");

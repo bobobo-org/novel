@@ -9,11 +9,33 @@
       || "";
   }
 
+  function closedAiRoute() {
+    const projectId = currentProjectId();
+    return projectId
+      ? `/studio/project/${encodeURIComponent(projectId)}/closed-ai`
+      : "/studio/create?from=professional&target=closed-ai";
+  }
+
   function learningRoute() {
     const projectId = currentProjectId();
     return projectId
       ? `/studio/project/${encodeURIComponent(projectId)}/learning`
       : "/studio/create?from=professional&target=learning";
+  }
+
+  function installClosedAiMenuEntry() {
+    const menu = document.querySelector('[data-testid="professional-menu"]');
+    if (!menu || document.getElementById("closedAiNavButton")) return;
+    const button = document.createElement("button");
+    button.id = "closedAiNavButton";
+    button.type = "button";
+    button.textContent = "閉端 AI 中心";
+    button.addEventListener("click", () => {
+      window.location.href = closedAiRoute();
+    });
+    const anchor = document.getElementById("phase1NewWorkNavButton");
+    if (anchor?.parentNode === menu) anchor.insertAdjacentElement("afterend", button);
+    else menu.prepend(button);
   }
 
   function installMenuEntry() {
@@ -26,9 +48,21 @@
     button.addEventListener("click", () => {
       window.location.href = learningRoute();
     });
-    const anchor = document.getElementById("phase1NewWorkNavButton");
+    const anchor = document.getElementById("closedAiNavButton")
+      || document.getElementById("phase1NewWorkNavButton");
     if (anchor?.parentNode === menu) anchor.insertAdjacentElement("afterend", button);
     else menu.prepend(button);
+  }
+
+  function installClosedAiRouteCard() {
+    const grid = document.querySelector(".p24b-route-grid");
+    if (!grid || document.getElementById("closedAiRouteCard")) return;
+    const link = document.createElement("a");
+    link.id = "closedAiRouteCard";
+    link.className = "p24b-route-card";
+    link.href = closedAiRoute();
+    link.innerHTML = "<b>閉端 AI 中心</b><span>三個閉端 AI、共用 Agent OS、六層快取與可驗證執行。</span>";
+    grid.appendChild(link);
   }
 
   function installRouteCard() {
@@ -43,7 +77,9 @@
   }
 
   function install() {
+    installClosedAiMenuEntry();
     installMenuEntry();
+    installClosedAiRouteCard();
     installRouteCard();
   }
 

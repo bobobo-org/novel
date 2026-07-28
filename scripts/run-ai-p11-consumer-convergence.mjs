@@ -16,7 +16,6 @@ const publicHealth = read("app/api/ai/health/route.ts");
 const adminHealth = read("app/api/admin/persistence/route.ts");
 
 for (const [route, source] of [
-  ["/", rootPage],
   ["/studio", studioPage],
   ["/professional", professionalPage],
 ]) {
@@ -24,6 +23,7 @@ for (const [route, source] of [
   check(`${route} redirects before rendering a competing shell`, source.includes("redirect(") && !source.includes("<main"));
 }
 
+check("root redirects to the Legacy consumer frontdoor", rootPage.includes('redirect("/legacy/novel-system.html?screen=home")'));
 check("adapter targets only the Legacy Professional document", adapter.includes('"/legacy/novel-system.html"'));
 check("adapter forces Professional mode", adapter.includes('query.set("mode", "professional")'));
 check("adapter preserves safe query values", adapter.includes("query.append(key, value)"));

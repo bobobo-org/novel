@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-system-closed-ai-r4-20260720-1";
+const CACHE_VERSION = "novel-system-unified-closed-ai-20260728-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "./offline.html";
 
@@ -12,6 +12,7 @@ const CORE_ASSETS = [
   "./offline-engine.js",
   "./backup-service.js",
   "./novel-system.js",
+  "./sovereign-learning-entry.js",
   "./legacy-security-boundary.js",
   "./manifest.json",
   "./offline.html",
@@ -48,18 +49,6 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-async function staleWhileRevalidate(request) {
-  const cache = await caches.open(STATIC_CACHE);
-  const cached = await cache.match(request);
-  const fetched = fetch(request)
-    .then((response) => {
-      if (response && response.ok) cache.put(request, response.clone());
-      return response;
-    })
-    .catch(() => null);
-  return cached || (await fetched) || cache.match(OFFLINE_URL);
-}
-
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -67,25 +56,39 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === "navigate") {
+  const isNavigation = request.mode === "navigate";
+
+  if (isNavigation) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(OFFLINE_URL, copy));
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
         .catch(async () => {
-          const cache = await caches.open(STATIC_CACHE);
-          return (await cache.match("./novel-system.html")) || (await cache.match(OFFLINE_URL)) || Response.error();
+          const cachedPage = await caches.match(request);
+          return cachedPage || caches.match(OFFLINE_URL);
         })
     );
     return;
   }
 
-  event.respondWith(staleWhileRevalidate(request));
-});
+  event.respondWith(
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => cached);
 
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+      return cached || network;
+    })
+  );
 });

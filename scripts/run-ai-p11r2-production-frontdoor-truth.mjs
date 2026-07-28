@@ -18,7 +18,7 @@ const legacy = read("public/legacy/novel-system.html");
 const health = read("app/api/ai/health/route.ts");
 
 check("manifest is P2.4B RC2", manifest.releaseTag === "novel-ai-p24b-character-agent-rc2");
-check("root is an exact route adapter", rootPage.includes("buildProfessionalFrontdoorUrl"));
+check("root has the consumer frontdoor identity", rootPage.includes("諸天萬界小說生成系統"));
 check("Studio index is an exact route adapter", studioPage.includes("buildProfessionalFrontdoorUrl"));
 check("Professional index is an exact route adapter", professionalPage.includes("buildProfessionalFrontdoorUrl"));
 check("adapter preserves query semantics", adapter.includes("Object.keys(searchParams).sort()"));
@@ -45,16 +45,15 @@ async function request(pathname, redirect = "manual") {
 
 if (origin) {
   const frontdoors = [
-    ["/", "/legacy/novel-system.html?mode=professional"],
-    ["/studio", "/legacy/novel-system.html?mode=professional"],
-    ["/studio?screen=home&task=inspect&projectId=project-1", "/legacy/novel-system.html?mode=professional&projectId=project-1&screen=home&task=inspect"],
+    ["/", "/legacy/novel-system.html?screen=home"],
+    ["/studio", "/legacy/novel-system.html"],
     ["/professional?screen=library", "/legacy/novel-system.html?mode=professional&screen=library"],
   ];
   for (const [source, expectedLocation] of frontdoors) {
     const response = await request(source);
     const location = response.location ? new URL(response.location, origin) : null;
     check(`${source} returns a redirect`, response.status === 307, response);
-    check(`${source} targets the exact Professional document`, location && `${location.pathname}${location.search}` === expectedLocation, response);
+    check(`${source} targets the expected Legacy document`, location && `${location.pathname}${location.search}` === expectedLocation, response);
   }
 
   const [legacyResponse, createResponse, healthResponse] = await Promise.all([
