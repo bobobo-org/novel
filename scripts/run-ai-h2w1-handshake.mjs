@@ -2,16 +2,23 @@ import { WEB_LOCAL_RUNTIME_CLIENT_VERSION, WEB_LOCAL_RUNTIME_PROTOCOL_VERSION } 
 import { validateHandshake, validateRuntimeUrl, createWebRuntimeSession } from "../lib/novel-ai/web/local-runtime-handshake.ts";
 import { createClientNonce, sessionExpired } from "../lib/novel-ai/web/local-runtime-session.ts";
 import { WebLocalRuntimeError } from "../lib/novel-ai/web/local-runtime-errors.ts";
-import { createHarness, goodHealth } from "./run-ai-h2w1-test-utils.mjs";
+import { createHarness, goodHealth, goodPublicHealth } from "./run-ai-h2w1-test-utils.mjs";
 
 const t = createHarness("H2W1 handshake");
 const handshake = validateHandshake(goodHealth);
 t.equal(WEB_LOCAL_RUNTIME_PROTOCOL_VERSION, "novel-local-runtime-v1", "protocol constant");
-t.equal(WEB_LOCAL_RUNTIME_CLIENT_VERSION, "h2w1-web-local-runtime-client", "client version constant");
+t.equal(WEB_LOCAL_RUNTIME_CLIENT_VERSION, "h2w1r1-resilient-web-local-runtime-client", "client version constant");
 t.equal(handshake.sessionId, "session-test", "server session accepted");
 t.equal(handshake.serverNonce, "server-nonce", "server nonce accepted");
 t.ok(handshake.capabilities.includes("streaming"), "streaming capability exchanged");
-t.ok(handshake.capabilities.includes("cancel"), "cancel capability exchanged");
+t.ok(handshake.capabilities.includes("cancellation"), "cancellation capability exchanged");
+t.equal(validateHandshake(goodPublicHealth).authenticated, false, "public handshake is explicitly unauthenticated");
+try {
+  validateHandshake(goodPublicHealth, { requireAuthenticated: true });
+  t.ok(false, "public handshake cannot create an authenticated session");
+} catch (error) {
+  t.ok(error instanceof WebLocalRuntimeError, "public handshake cannot create an authenticated session");
+}
 t.equal(validateRuntimeUrl("http://localhost:43117").hostname, "localhost", "localhost allowed");
 t.equal(validateRuntimeUrl("http://127.0.0.1:43117").hostname, "127.0.0.1", "127.0.0.1 allowed");
 
@@ -22,10 +29,11 @@ t.ok(session.clientNonce.length >= 24, "client nonce generated");
 t.equal(session.tokenPresent, true, "token presence tracked");
 t.equal(sessionExpired(session), false, "fresh session not expired");
 t.equal(sessionExpired({ ...session, expiresAt: new Date(Date.now() - 1000).toISOString() }), true, "expired session detected");
+t.equal(sessionExpired({ ...session, expiresAt: "invalid" }), true, "invalid session expiry treated expired");
 t.equal(sessionExpired(null), true, "missing session treated expired");
 t.ok(createClientNonce() !== createClientNonce(), "client nonce is unique");
 
-for (const url of ["http://evil.example:43117", "http://10.0.0.1:43117", "http://localhost:43117?auth=x", "http://localhost:43117?token=x"]) {
+for (const url of ["http://evil.example:43117", "http://10.0.0.1:43117", "http://localhost:43117?auth=x", "http://localhost:43117?token=x", "https://localhost:43117", "http://localhost:43117/path"]) {
   try {
     validateRuntimeUrl(url);
     t.ok(false, `unsafe runtime URL rejected ${url}`);

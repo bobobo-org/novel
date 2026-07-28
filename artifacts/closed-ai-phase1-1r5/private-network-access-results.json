@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "closed-ai-r5-pna-v1",
+  "generatedAt": "2026-07-20T06:47:34.981Z",
+  "results": [
+    {
+      "name": "PNA preflight returns exact origin without wildcard",
+      "status": "PASS",
+      "elapsedMs": 15,
+      "evidence": {
+        "status": 204,
+        "allowOrigin": "https://novel-r5-contract-preview.vercel.app",
+        "privateNetwork": "true",
+        "wildcard": false
+      }
+    },
+    {
+      "name": "127.0.0.1 and localhost names reach the IPv4 loopback Bridge",
+      "status": "PASS",
+      "elapsedMs": 41,
+      "evidence": {
+        "ipv4": 200,
+        "localhostHostHeader": 200,
+        "bindAddress": "127.0.0.1"
+      }
+    }
+  ]
+}

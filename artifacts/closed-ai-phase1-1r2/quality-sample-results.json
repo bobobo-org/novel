@@ -1,0 +1,174 @@
+{
+  "cases": [
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "normal",
+      "accepted": true
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "unknown",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "age_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "location_conflict",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "hallucinated_quote",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "same_name_distinct",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "stale_source",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "conflict_record",
+      "accepted": false
+    },
+    {
+      "type": "retry",
+      "accepted": false
+    },
+    {
+      "type": "cancel",
+      "accepted": false
+    },
+    {
+      "type": "timeout",
+      "accepted": false
+    }
+  ],
+  "metrics": {
+    "runtimeAttemptsBounded": true,
+    "revisionStaleWritesBlocked": 100,
+    "formalStoryBibleIncorrectWrites": 0,
+    "finalCommittedIncorrectFacts": 0,
+    "partialWrites": 0,
+    "validatorFalseNegative": 0,
+    "systemValidationFailures": 0,
+    "qualitySampleCount": 40
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "r5-1-origin-enrollment-v1",
+  "generatedAt": "2026-07-20T15:23:37.361Z",
+  "results": [
+    {
+      "name": "SSR returns a neutral origin state",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "copyableCommandRendered": false,
+        "localhostFallbackRendered": false
+      }
+    },
+    {
+      "name": "hydration resolves the exact Preview origin",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "ready": true,
+        "origin": "https://novel-r51-contract-preview.vercel.app"
+      }
+    },
+    {
+      "name": "enrollment command repeats the exact page origin",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "renderedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "copiedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "confirmedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "command": "node local-ai/bridge/launcher.mjs origin add https://novel-r51-contract-preview.vercel.app --confirm https://novel-r51-contract-preview.vercel.app"
+      }
+    },
+    {
+      "name": "unsafe enrollment origins are rejected",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "wildcard": false,
+        "remoteHttp": false,
+        "remoteIp": false,
+        "pathQueryFragment": false
+      }
+    },
+    {
+      "name": "NOVEL_STUDIO_ORIGIN cannot silently select a Preview origin",
+      "status": "PASS",
+      "elapsedMs": 368,
+      "evidence": {
+        "environmentOriginAuthoritative": false,
+        "explicitOriginRequired": true
+      }
+    },
+    {
+      "name": "Bridge records received GET and rejects bad origins",
+      "status": "PASS",
+      "elapsedMs": 89,
+      "evidence": {
+        "getReceived": true,
+        "success": true,
+        "rejectedOriginStatus": 403
+      }
+    }
+  ]
+}

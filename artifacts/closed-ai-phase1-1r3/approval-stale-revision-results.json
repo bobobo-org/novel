@@ -1,0 +1,7 @@
+{
+  "id": "APPROVAL_STALE",
+  "title": "來源 revision 過期時拒絕且零寫入",
+  "status": "PASS",
+  "elapsedMs": 1,
+  "detail": null
+}

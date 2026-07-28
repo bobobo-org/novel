@@ -1,0 +1,5 @@
+{
+  "productionLegacyPageLoad": {"origins":["https://novel-orcin.vercel.app"],"externalRequests":0},
+  "realLocalExtraction": {"destinations":["127.0.0.1:3217","127.0.0.1:11434"],"externalAiCalls":0},
+  "legacyConfiguredBypasses": ["direct localhost Ollama", "direct LM Studio", "arbitrary OpenAI-compatible endpoint"]
+}

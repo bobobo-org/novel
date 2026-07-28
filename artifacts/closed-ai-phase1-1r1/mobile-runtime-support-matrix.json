@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-mobile-support-v1",
+  "matrix": [
+    { "capability": "Mobile responsive UI", "status": "PASS" },
+    { "capability": "Mobile same-device Local Ollama runtime", "status": "NOT_SUPPORTED" },
+    { "capability": "Mobile remote desktop Bridge access", "status": "NOT_IMPLEMENTED" },
+    { "capability": "LAN Bridge exposure", "status": "PROHIBITED" }
+  ],
+  "securityNote": "The Bridge remains loopback-only and was not changed to 0.0.0.0 or a LAN address."
+}

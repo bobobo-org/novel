@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-pairing-e2e-v1",
+  "steps": [
+    { "step": 1, "action": "Open Studio AI settings", "result": "PASS" },
+    { "step": 2, "action": "Request pairing from UI", "result": "PASS" },
+    { "step": 3, "action": "Enter local one-time code in UI", "result": "PASS" },
+    { "step": 4, "action": "Wait beyond forced 1500 ms session TTL", "result": "PASS" },
+    { "step": 5, "action": "Generate from UI", "result": "BRIDGE_PAIRING_EXPIRED shown in 42 ms" },
+    { "step": 6, "action": "Restart Bridge with normal TTL", "result": "new instance ID and unpaired state" },
+    { "step": 7, "action": "Pair again through UI", "result": "PASS" },
+    { "step": 8, "action": "Start generation and cancel", "result": "cancelled; request c4c00d8c-066f-4da3-b845-532d6ec5cc2b; 6363 ms" },
+    { "step": 9, "action": "Generate again after repair", "result": "completed; request 8c393183-191a-4685-93e9-fe14d12a517b; first token 11633 ms; total 19335 ms" },
+    { "step": 10, "action": "Run guarded character extraction", "result": "MODEL_QUALITY_INSUFFICIENT; request ba8fe8bd-1d6f-434b-aaa1-11db09f41c8d; validator blocked formal use" }
+  ],
+  "pairingTokenStored": false,
+  "pairingCodeStoredInArtifact": false,
+  "fullPromptOrOutputStoredInJson": false,
+  "externalAiRequest": false
+}

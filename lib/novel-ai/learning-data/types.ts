@@ -1,0 +1,51 @@
+import type { PersonaProfile } from "../persona";
+
+export const P22_LEARNING_DATA_VERSION = "p22a-learning-data-v2" as const;
+
+export type LearningConsent = "private_inference_only" | "personal_learning" | "shared_opt_in";
+
+export type ControlledLearningRecord = {
+  schemaVersion: typeof P22_LEARNING_DATA_VERSION;
+  recordId: string;
+  projectIdHash: string;
+  candidateId: string;
+  taskType: string;
+  promptProfile: string;
+  retrievedContextRefs: string[];
+  candidateText: string | null;
+  accepted: boolean;
+  rejected: boolean;
+  userEdited: boolean;
+  editDiff: string | null;
+  rating: number | null;
+  reason: string | null;
+  provider: string;
+  model: string;
+  storyRevision: number;
+  personaProfile: PersonaProfile | null;
+  directnessPreference: number | null;
+  languagePrecisionScore: number | null;
+  reasoningDepth: number | null;
+  adultMode: boolean;
+  adultLearningExcluded: boolean;
+  userAcceptedTone: boolean | null;
+  userEditedTone: boolean;
+  overRefusalDetected: boolean;
+  underExplanationDetected: boolean;
+  consent: LearningConsent;
+  exportEligible: boolean;
+  retention: "project_lifetime" | "until_revoked";
+  createdAt: string;
+  agentRunId?: string | null;
+  characterId?: string | null;
+  canonContextId?: string | null;
+  proposalId?: string | null;
+  proposalType?: string | null;
+  selectedCandidate?: string | null;
+  knowledgeScopeDecisionHash?: string | null;
+  relationshipDeltaCandidate?: Record<string, unknown> | null;
+  storyBibleVersion?: number | null;
+  authorOnlyReferences?: Array<{ knowledgeId: string; scope: "AUTHOR_ONLY"; redactedFingerprint: string }>;
+  modelTrainingAllowed?: false;
+  distillationAllowed?: false;
+};

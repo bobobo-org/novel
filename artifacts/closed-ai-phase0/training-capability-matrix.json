@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "closed-ai-training-capability-matrix-v1",
+  "capabilities": [
+    {"name":"Training system","status":"contract_only"},
+    {"name":"Preference learning","status":"contract_only"},
+    {"name":"Personal/shared isolation","status":"contract_only"},
+    {"name":"Dataset registry","status":"contract_only"},
+    {"name":"Model registry","status":"contract_only"},
+    {"name":"Training run registry","status":"contract_only"},
+    {"name":"Evaluator","status":"test_only"},
+    {"name":"Promotion gate","status":"test_only"},
+    {"name":"Rollback contract","status":"test_only"},
+    {"name":"Training benchmark","status":"test_only"},
+    {"name":"LoRA pipeline","status":"contract_only"},
+    {"name":"Preference optimization","status":"contract_only"},
+    {"name":"Distillation pipeline","status":"contract_only"},
+    {"name":"Real training runtime","status":"not_implemented"},
+    {"name":"Shared training dataset","status":"not_implemented"},
+    {"name":"Continuous learning runtime","status":"not_implemented"}
+  ],
+  "forbiddenReadyClaims": ["training_ready","self_learning_ready","production_training_ready","continuous_learning_ready"]
+}

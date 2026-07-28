@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "closed-ai-phase1-regression-v1",
+  "generatedAt": "2026-07-20T02:20:00+08:00",
+  "results": [
+    { "command": "pnpm test:ai:closed:phase0", "status": "PASS", "pass": 54, "fail": 0, "skip": 0, "externalModelCalls": 0 },
+    { "command": "pnpm test:ai:closed:training:phase0", "status": "PASS", "pass": 25, "fail": 0, "skip": 0, "realTrainingRuns": 0, "externalModelCalls": 0 },
+    { "command": "pnpm test:ai:h1:all", "status": "PASS", "aggregateItems": 9, "includesProductionBuild": true },
+    { "command": "pnpm test:ai:p21r1:high-risk", "status": "PASS", "pass": 21, "fail": 0 },
+    { "command": "pnpm exec tsc --noEmit", "status": "PASS" },
+    { "command": "pnpm lint", "status": "PASS", "errors": 0, "warnings": 98, "newWarnings": 0 },
+    { "command": "pnpm build", "status": "PASS", "execution": "covered by H1 aggregate after Phase 1 Studio integration" }
+  ],
+  "notes": [
+    "No failed assertion was changed into a warning or skip.",
+    "Generated legacy catalog artifacts were restored after regression execution because they are outside the Phase 1 change boundary."
+  ]
+}

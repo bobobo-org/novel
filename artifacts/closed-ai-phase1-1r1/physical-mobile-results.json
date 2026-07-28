@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-physical-mobile-v1",
+  "physicalDevice": "NOT_TESTED",
+  "softKeyboard": "NOT_TESTED_ON_PHYSICAL_DEVICE",
+  "touchRapidTap": "NOT_TESTED_ON_PHYSICAL_DEVICE",
+  "responsive390x844": "PASS",
+  "horizontalOverflow": false,
+  "longInput": "PASS_IN_RESPONSIVE_BROWSER",
+  "timeoutMessage": "VISIBLE_IN_RESPONSIVE_BROWSER",
+  "modelSelector": "VISIBLE_AND_OPERABLE_IN_RESPONSIVE_BROWSER",
+  "readyImpact": "Blocks PHASE1_1R1_READY because physical-device evidence is required."
+}

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "closed-ai-capability-matrix-v1",
+  "baselineCommit": "c784cde87cd0a6b35ef251720ca1dadf898546c3",
+  "capabilities": [
+    {"name":"Provider registry","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","evidence":"lib/novel-ai/providers/provider-registry.ts"},
+    {"name":"Platform AI Router","classification":"existing_capability","phase0Change":"modified","status":"contract_only","evidence":"lib/novel-ai/router/platform-router.ts"},
+    {"name":"Browser AI","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","reason":"Detection and provider contract exist; a real installed browser model runtime was not demonstrated in Phase 0."},
+    {"name":"Local Ollama","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","reason":"Loopback client and runtime diagnostics exist; no real runtime call was made in Phase 0."},
+    {"name":"Private AI Hub","classification":"existing_capability","phase0Change":"inventoried_only","status":"contract_only","reason":"Gateway contract exists; no connected private runtime was demonstrated."},
+    {"name":"Closed provider contract","classification":"phase0_new","phase0Change":"new","status":"contract_only","evidence":"lib/novel-ai/providers/closed/closed-provider-contract.ts"},
+    {"name":"Deterministic closed providers","classification":"phase0_new","phase0Change":"new","status":"test_only","evidence":"lib/novel-ai/providers/closed/deterministic-closed-provider.ts"},
+    {"name":"Closed-only privacy routing","classification":"phase0_new","phase0Change":"modified_existing_router","status":"test_only","evidence":"50/50 Phase 0 contract and deterministic regression tests"},
+    {"name":"Router audit record","classification":"phase0_new","phase0Change":"new","status":"contract_only","evidence":"lib/novel-ai/router/closed-router-audit.ts"},
+    {"name":"Closed task catalog","classification":"phase0_new","phase0Change":"new","status":"contract_only","evidence":"lib/novel-ai/router/closed-ai-task-catalog.ts"},
+    {"name":"Teacher Pipeline","classification":"phase0_new","phase0Change":"new","status":"contract_only","reason":"Schema, validation, review states, consent and data boundaries only; no external teacher call or training run."},
+    {"name":"Closed AI Benchmark","classification":"phase0_new","phase0Change":"new","status":"test_only","reason":"Contract tests and deterministic regression only; model quality and human review are not executed."},
+    {"name":"Embedding","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","evidence":"lib/novel-ai/embedding"},
+    {"name":"Retrieval","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","evidence":"lib/novel-ai/retrieval"},
+    {"name":"Story Bible and memory","classification":"existing_capability","phase0Change":"inventoried_only","status":"partial","evidence":"lib/story-bible and lib/novel-ai/context"},
+    {"name":"Real model quality evaluation","classification":"phase0_gap","phase0Change":"not_modified","status":"not_implemented"},
+    {"name":"Training system governance","classification":"phase0_new","phase0Change":"new","status":"contract_only","evidence":"lib/novel-ai/training/training-system-contract.ts"},
+    {"name":"Preference learning","classification":"phase0_new","phase0Change":"new","status":"contract_only"},
+    {"name":"Dataset/model/run registries","classification":"phase0_new","phase0Change":"new","status":"contract_only"},
+    {"name":"Evaluator/promotion/rollback gates","classification":"phase0_new","phase0Change":"new","status":"test_only","evidence":"25/25 training governance tests"},
+    {"name":"External AI Teacher execution","classification":"phase0_gap","phase0Change":"not_modified","status":"not_implemented"},
+    {"name":"Production closed AI E2E","classification":"phase0_gap","phase0Change":"not_modified","status":"not_implemented"}
+  ]
+}

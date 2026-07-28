@@ -19,6 +19,7 @@
 
 # production
 /build
+/generated/release-provenance.json
 
 # misc
 .DS_Store

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "closed-ai-real-model-v1",
+  "modelId": "qwen2.5:3b",
+  "diskSize": 1929912432,
+  "family": {"value":"qwen2","source":"reported"},
+  "parameterSize": {"value":"3.1B","source":"reported"},
+  "quantization": {"value":"Q4_K_M","source":"reported"},
+  "contextLength": {"value":32768,"source":"reported"},
+  "installedBeforePhase1": true,
+  "downloadedByPhase1": false
+}

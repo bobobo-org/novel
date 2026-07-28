@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r2-legacy-storage-audit-v1",
+  "directBrowserStorageInspection": "NOT_PERMITTED_BY_BROWSER_CONTROL_POLICY",
+  "runtimeVisibleEvidence": {
+    "tokenFieldPresent": true,
+    "legacyProjectControlsPresent": true,
+    "indexedDbScriptsLoaded": ["db.js", "db-v2.js", "migration.js"]
+  },
+  "sourceEvidence": {
+    "localStorageCanonicalKeys": ["novel_platform_state", "novel_bookshelf", "novel_project_slots_v1"],
+    "indexedDbFallbackToLocalStorage": ["public/legacy/db.js:97", "public/legacy/db-v2.js:121"],
+    "sessionTokenPath": "public/legacy/ai-service.js:16",
+    "obsoleteInlinePersistentCredentialPath": "public/legacy/novel-system.html:224"
+  },
+  "cookies": "NOT_INSPECTED",
+  "cacheStorage": "NOT_INSPECTED",
+  "serviceWorkerStorage": "NOT_INSPECTED"
+}

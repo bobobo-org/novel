@@ -1,0 +1,31 @@
+﻿{
+    "status":  "PASS",
+    "revoke":  {
+                   "startedAt":  "2026-07-20T16:12:01.1115188Z",
+                   "completedAt":  "2026-07-20T16:12:01.2215194Z",
+                   "arguments":  [
+                                     "origin",
+                                     "revoke",
+                                     "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                     "--confirm",
+                                     "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                                 ],
+                   "exitCode":  0,
+                   "output":  {
+                                  "ok":  true,
+                                  "command":  "origin",
+                                  "status":  "origin_revoked",
+                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                  "scope":  "preview",
+                                  "restartRequired":  false,
+                                  "enrolledOrigins":  [
+
+                                                      ],
+                                  "pairingTokenStored":  false
+                              },
+                   "parseError":  null
+               },
+    "previewOriginRevoked":  true,
+    "productionOriginUnchanged":  true,
+    "wildcardPresent":  false
+}

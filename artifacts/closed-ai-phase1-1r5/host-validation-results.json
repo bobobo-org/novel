@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "closed-ai-r5-host-v1",
+  "generatedAt": "2026-07-20T06:47:34.981Z",
+  "results": [
+    {
+      "name": "host validation rejects evil.example:3328",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "host": "evil.example:3328",
+        "status": 403,
+        "errorCode": "HOST_VALIDATION_FAILED"
+      }
+    },
+    {
+      "name": "host validation rejects 127.0.0.1.evil.example:3328",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "host": "127.0.0.1.evil.example:3328",
+        "status": 403,
+        "errorCode": "HOST_VALIDATION_FAILED"
+      }
+    }
+  ]
+}

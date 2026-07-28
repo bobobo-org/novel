@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-phase0-deferred-v1",
+  "deferred_to_phase0_1": [
+    "persistent router decision audit storage",
+    "H1 and P2 router consolidation plan"
+  ],
+  "deferred_to_training_phase": [
+    "real dataset registry persistence",
+    "real model registry persistence",
+    "real training runtime",
+    "LoRA, DPO, preference optimization, and distillation execution",
+    "closed-book model quality evaluation",
+    "human review operation",
+    "staged model promotion and runtime rollback"
+  ]
+}

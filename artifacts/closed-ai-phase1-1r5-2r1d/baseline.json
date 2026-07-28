@@ -1,0 +1,10 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-baseline-v1",
+    "generatedAt":  "2026-07-20T21:56:40.8196025Z",
+    "productPreview":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
+    "productCommit":  "ddaa86e998c7492bf36f8b3ab51a360be6d8b3b7",
+    "harnessCommit":  "101345da46634d04d2967d8176d0f7a221f4fc43",
+    "branch":  "feature/closed-ai-phase1-1r5-2r1d-sandbox-hardening",
+    "previousHarnessCommit":  "a2db0695eb45f5e5128947a2c75a57a602691d83",
+    "previousVerdict":  "PHASE1_1R5_2R1C_ABORTED_BY_OPERATOR"
+}

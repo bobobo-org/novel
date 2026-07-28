@@ -1,0 +1,11 @@
+﻿{
+    "productFilesModified":  [
+
+                             ],
+    "harnessFilesModified":  [
+                                 "scripts/run-r5-2-desktop-e2e.ps1",
+                                 "tests/browser-harness/run-r5-2r1-harness-tests.ps1"
+                             ],
+    "productPreviewChanged":  false,
+    "productionDeployed":  false
+}

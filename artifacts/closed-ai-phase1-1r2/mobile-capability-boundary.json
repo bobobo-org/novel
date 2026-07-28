@@ -1,0 +1,7 @@
+{
+  "responsive390x844": "PASS_FROM_PHASE1_1R1",
+  "sameDeviceLocalOllama": "UNSUPPORTED",
+  "remoteBridge": "NOT_IMPLEMENTED",
+  "physicalMobileRuntime": "NOT_VERIFIED",
+  "desktopLocalReadinessBlocker": false
+}

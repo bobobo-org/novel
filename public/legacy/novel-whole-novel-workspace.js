@@ -5,7 +5,10 @@
   window.NOVEL_STATIC_RELEASE = {
     appCommit: "__NOVEL_STATIC_APP_COMMIT__",
     releaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
-    expectedReleaseTag: "novel-ai-p11r2-production-frontdoor-truth",
+    expectedReleaseTag: "__NOVEL_STATIC_RELEASE_TAG__",
+    releaseName: "__NOVEL_STATIC_RELEASE_NAME__",
+    consumerRelease: "__NOVEL_STATIC_CONSUMER_RELEASE__",
+    architectureStage: "__NOVEL_STATIC_ARCHITECTURE_STAGE__",
     visibleUiSemanticVersion: "__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__",
     visibleUiBodyHash: "__NOVEL_VISIBLE_UI_BODY_HASH__",
   };
@@ -198,7 +201,7 @@ Draft / Candidate only：不直接修改 Canonical。
       <div id="h2w3PanelStreaming" class="h2w3-panel"><div id="wholeNovelStreamingStatus" data-testid="wholeNovelStreamingStatus" class="h2w3-log" aria-live="polite"></div></div>
       <div id="wholeNovelErrorPanel" data-testid="wholeNovelErrorPanel" class="h2w3-log" hidden></div>
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
-      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture 瀏覽器閉端 AI Ollama 本機 AI 本機閉端 Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic 外部 AI 可選 future continual learning foundation continual learning not_implemented model training not_implemented</span>
+      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture 瀏覽器閉端 AI Ollama 本機 AI 本機閉端 Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic 外部 AI 可選 future continual learning foundation continual learning not_implemented model training not_started distillation not_started</span>
     `;
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
     diagnostics.workspaceInitialized = true;
@@ -514,7 +517,7 @@ Draft / Candidate only：不直接修改 Canonical。
       "Training Candidate Foundation Status: foundation_ready",
       "Future Continual Learning Contract Status: foundation_ready",
       "Continual Learning Status: not_implemented",
-      "Model Training Status: not_implemented",
+      "Model Training Status: not_started",
       "LoRA Training Status: not_implemented",
       "QLoRA Training Status: not_implemented",
       "Automatic Model Promotion Status: not_implemented",
@@ -650,7 +653,7 @@ Draft / Candidate only：不直接修改 Canonical。
     const stats = feedbackStats();
     setText("wholeNovelFeedbackPanel", [
       "採用 / 編輯採用",
-      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; model training not_implemented; training pipeline not_implemented",
+      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; model training not_started; distillation not_started; training pipeline not_started",
       "Privacy: prompts, raw private context, session tokens, and full author comments are not exposed.",
       `Feedback Records: ${stats.feedbackRecordCount}`,
       `Consented Candidates: ${stats.consentedCandidateCount}`,

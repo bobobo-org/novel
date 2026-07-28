@@ -1,0 +1,32 @@
+﻿{
+    "verdict":  "PHASE1_1R5_2_NOT_READY",
+    "blocker":  "COMPLIANT_CHROME_EDGE_CONTROL_CHANNEL_UNAVAILABLE",
+    "interactiveDesktop":  true,
+    "chromeInstalled":  true,
+    "edgeInstalled":  true,
+    "chromeControllerAvailable":  false,
+    "edgeControllerAvailable":  false,
+    "bridgeListening":  false,
+    "ollamaListening":  true,
+    "targetModelInstalled":  true,
+    "previewCommitVerified":  true,
+    "uiE2eExecuted":  false,
+    "screenshotsCaptured":  false,
+    "formalStoryBibleWrites":  0,
+    "incorrectCommittedFacts":  0,
+    "externalAiCalls":  0,
+    "chromeLnaGrantFlow":  "NOT_TESTED",
+    "chromeLnaDenyFlow":  "NOT_TESTED",
+    "edgeLnaGrantFlow":  "NOT_TESTED",
+    "edgeLnaDenyFlow":  "NOT_TESTED",
+    "previewRequestReachedBridge":  "NO",
+    "browserPolicyOverride":  "NO",
+    "firewallOrProxyModification":  "NO",
+    "directApiSubstitution":  "NO",
+    "evidenceFromOneExactCommitOnly":  "YES",
+    "isolatedProfiles":  {
+                             "chrome":  "C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2\\browser-profiles\\chrome",
+                             "edge":  "C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2\\browser-profiles\\edge",
+                             "shared":  false
+                         }
+}

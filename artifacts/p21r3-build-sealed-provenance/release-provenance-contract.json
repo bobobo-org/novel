@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "p21-build-provenance-v1",
+  "resolverOrder": [
+    "VERCEL_GIT_COMMIT_SHA",
+    "NOVEL_BUILD_APP_COMMIT",
+    "git rev-parse HEAD",
+    "fail"
+  ],
+  "forbiddenAuthoritativeSources": [
+    "APP_COMMIT"
+  ],
+  "requiredFields": [
+    "schemaVersion",
+    "appCommit",
+    "releaseTag",
+    "architectureStage",
+    "sealedAt",
+    "source",
+    "integrity.algorithm",
+    "integrity.payloadHash"
+  ],
+  "hashAlgorithm": "sha256",
+  "runtimeFailureMode": {
+    "appCommit": "provenance-unavailable",
+    "commitProvenanceStatus": "unavailable",
+    "commitProvenanceHash": null
+  },
+  "deploymentIdentityScope": "runtime_only"
+}

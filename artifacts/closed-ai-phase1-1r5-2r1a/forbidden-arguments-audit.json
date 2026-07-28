@@ -1,0 +1,9 @@
+﻿{
+    "status":  "PASS",
+    "contractTests":  17,
+    "forbiddenArgsAccepted":  0,
+    "permissionPregrantImplemented":  false,
+    "defaultProfileAllowed":  false,
+    "lanDebugBindAllowed":  false,
+    "securityBypassImplemented":  false
+}

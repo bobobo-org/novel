@@ -1,0 +1,7 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-debug-cleanup-v1",
+    "status":  "PASS",
+    "chromeReleased":  true,
+    "edgeReleased":  true,
+    "bridgePort3217Listening":  false
+}

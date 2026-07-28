@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "closed-ai-phase1-1-security-results-v1",
+  "status": "PASS_WITH_UNVERIFIED_BROWSER_EXPORT",
+  "checks": [
+    { "name": "closed-only external provider exclusion", "status": "PASS" },
+    { "name": "origin allowlist", "status": "PASS" },
+    { "name": "protocol mismatch rejection", "status": "PASS" },
+    { "name": "pairing expiry", "status": "PASS" },
+    { "name": "pairing revoke", "status": "PASS" },
+    { "name": "old instance token rejection", "status": "PASS" },
+    { "name": "token absent from logs", "status": "PASS" },
+    { "name": "prompt/output absent from Bridge logs", "status": "PASS" },
+    { "name": "browser storage export", "status": "UNVERIFIED" }
+  ],
+  "autoDownloadedModel": false,
+  "firewallModified": false,
+  "listenedOnNonLoopback": false,
+  "savedFullPromptOrOutput": false,
+  "tokenFoundInLogs": false,
+  "externalAiCalls": 0
+}

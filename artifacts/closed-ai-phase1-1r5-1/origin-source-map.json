@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "closed-ai-r5-1-origin-source-map-v1",
+  "authoritativeBrowserSource": "window.location.origin after hydration",
+  "sources": [
+    {
+      "location": "app/studio/settings/ai/settings-client.tsx",
+      "before": "SSR fallback http://localhost:3000 was copyable",
+      "after": "neutral SSR state; exact browser origin after hydration"
+    },
+    {
+      "location": "lib/novel-ai/providers/local-ollama/studio-origin.ts",
+      "role": "validation, resolution, command construction, copy-time equality guard"
+    },
+    {
+      "location": "local-ai/bridge/launcher.mjs",
+      "before": "NOVEL_STUDIO_ORIGIN could silently select an origin",
+      "after": "only explicit --origin can select the page origin"
+    },
+    {
+      "location": "local-ai/bridge/origin-registry.mjs",
+      "role": "exact persisted allowlist; wildcard and unsafe origins rejected"
+    }
+  ],
+  "whyPreviewRenderedLocalhost": "The client component was prerendered on the server, where window is unavailable. Its fallback literal was used to build visible enrollment UI instead of a neutral hydration state."
+}

@@ -1,0 +1,13 @@
+pnpm install --frozen-lockfile
+pnpm test:ai:p21r3:release-provenance
+pnpm test:ai:p21:release-metadata
+pnpm test:ai:p21:three-high
+pnpm test:ai:p21r1:high-risk
+pnpm test:ai:p15:consumer-platform
+pnpm test:ai:p2:grand-integration
+pnpm test:ai:p21:indexeddb
+pnpm test:story-bible:l0b3:sqlite-export
+pnpm test:ai:p11:consumer
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build

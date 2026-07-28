@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "r5-1-clipboard-contract-v1",
+  "generatedAt": "2026-07-20T15:23:37.361Z",
+  "executionMode": "contract_test",
+  "actualDesktopBrowserVerified": false,
+  "results": [
+    {
+      "name": "enrollment command repeats the exact page origin",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "renderedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "copiedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "confirmedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "command": "node local-ai/bridge/launcher.mjs origin add https://novel-r51-contract-preview.vercel.app --confirm https://novel-r51-contract-preview.vercel.app"
+      }
+    },
+    {
+      "name": "mismatched command is blocked",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "errorCode": "ORIGIN_COMMAND_MISMATCH",
+        "copied": false
+      }
+    }
+  ]
+}

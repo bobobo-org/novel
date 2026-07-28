@@ -1,0 +1,20 @@
+﻿{
+    "productFilesModified":  [
+
+                             ],
+    "new":  [
+                "scripts/run-r5-2r1a-real-browser.ps1",
+                "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                "scripts/r5-2-desktop/start-real-browser.ps1",
+                "scripts/r5-2-desktop/stop-real-browser.ps1",
+                "scripts/r5-2-desktop/collect-browser-evidence.ps1",
+                "tests/browser-harness/run-r5-2r1a-adapter-tests.mjs",
+                "docs/r5-2r1a-human-runbook.md"
+            ],
+    "modified":  [
+
+                 ],
+    "productionDeployed":  false,
+    "previewCreated":  false,
+    "storyBibleWritten":  false
+}

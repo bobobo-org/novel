@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "p21r3-findings-v1",
+  "critical": [],
+  "high": [],
+  "medium": [],
+  "low": [],
+  "knownLimitations": [
+    {
+      "id": "RC3_PREVIEW_NOT_RUN",
+      "severity": "gate",
+      "status": "expected",
+      "detail": "This task stops before RC3 Preview deployment and public health verification."
+    }
+  ],
+  "productionReleaseBlocked": true
+}

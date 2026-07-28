@@ -1,0 +1,20 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-operator-heartbeat-v1",
+    "status":  "PASS",
+    "timeoutRemoved":  true,
+    "heartbeatSeconds":  30,
+    "results":  [
+                    {
+                        "name":  "operator heartbeat continues until challenged abort",
+                        "status":  "PASS"
+                    },
+                    {
+                        "name":  "operator terminal absence fails closed",
+                        "status":  "PASS"
+                    },
+                    {
+                        "name":  "operator gate has heartbeat and no automatic timeout",
+                        "status":  "PASS"
+                    }
+                ]
+}

@@ -16,7 +16,7 @@ import {
   type OptionalFieldStatus,
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
-import { WebLocalRuntimeClient } from "@/lib/novel-ai/web/local-runtime-client";
+import { discoverStudioClosedAI, runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
 import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
@@ -711,7 +711,7 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
     projects.push(item);
     gameStates[formal.id] = gameStateFromCanonical(snapshot.storyState);
     branches.push(...snapshot.branches.map((branch: CanonicalStoryBranch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: gameStateFromCanonical(snapshot.storyState), draft: snapshot.chapter.content, versionsLength: 0, at: branch.createdAt })));
-    for (const backup of await repository.list<ProjectBackup>("backups", formal.id)) if (backup.formatVersion === "novel-backup-v3" && backup.manifest) {
+    for (const backup of await repository.list<ProjectBackup>("backups", formal.id)) if (["novel-backup-v3", "novel-backup-v4", "novel-backup-v5"].includes(backup.formatVersion) && backup.manifest) {
       const records = backup.snapshot as Record<string, unknown[]>, savedChapter = (records.chapters?.[0] as { title?: string; content?: string } | undefined), savedState = (records.storyStates?.[0] as CanonicalStoryState | undefined) ?? snapshot.storyState;
       const backupProject = { ...item, chapterTitle: savedChapter?.title || item.chapterTitle, draft: savedChapter?.content || "" }, backupGame = gameStateFromCanonical(savedState);
       const backupBranches = ((records.storyBranches ?? []) as CanonicalStoryBranch[]).map((branch) => ({ branchId: branch.id, acceptedChoiceId: branch.acceptedChoiceId, reversible: false, projectId: formal.id, choice: branch.name, gameState: backupGame, draft: backupProject.draft, versionsLength: 0, at: branch.createdAt }));
@@ -721,21 +721,6 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
   }
   return { ...shell, projects, activeProjectId: projects.some((item) => item.id === shell.activeProjectId) ? shell.activeProjectId : projects[0]?.id || "", candidate: null, gameStates, branches, backups };
 }
-function taskType(task: string) {
-  if (task === "continue_story" || task === "first_chapter")
-    return "continue_writing";
-  if (task === "improve_settings") return "rewrite";
-  if (
-    task === "plan_chapter" ||
-    task === "three_choices" ||
-    task.includes("recommend") ||
-    task === "idea_directions" ||
-    task === "story_seed"
-  )
-    return "plot_brainstorm";
-  return "simple_summary";
-}
-
 export default function StudioClient({
   initialScreen,
   initialTask,
@@ -812,21 +797,13 @@ export default function StudioClient({
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    const token =
-      sessionStorage.getItem("novel_local_runtime_token") || undefined;
-    new WebLocalRuntimeClient({ token, timeoutMs: 2500 })
-      .discover()
+    discoverStudioClosedAI()
       .then((snapshot) => {
         setAssistantStatus(
-          snapshot.status === "ready"
-            ? snapshot.ollamaStatus === "ready"
-              ? "ollama_ready"
-              : "runtime_ready"
-            : snapshot.status === "auth_required"
-              ? "auth_required"
-              : "runtime_required",
+          snapshot.status === "browser_ready" ? "runtime_ready" : snapshot.status,
         );
-      });
+      })
+      .catch(() => setAssistantStatus("runtime_required"));
   }, [loaded]);
   useEffect(() => {
     if (initialTask && loaded && project) void runTask(initialTask);
@@ -1197,18 +1174,9 @@ export default function StudioClient({
     const started = performance.now();
     let candidate: Candidate;
     try {
-      const token =
-          sessionStorage.getItem("novel_local_runtime_token") || undefined,
-        client = new WebLocalRuntimeClient({
-          token,
-          timeoutMs: 45000,
-          externalFallbackAllowed: false,
-        }),
-        snapshot = await client.discover();
-      if (snapshot.status !== "ready") throw new Error(snapshot.status);
-      const result = await client.runTask({
+      const result = await runStudioClosedAI({
         projectId: project?.id || "draft-project",
-        taskType: taskType(task),
+        task,
         input: contextFor(task),
         targetLength:
           task === "first_chapter"
@@ -1222,14 +1190,14 @@ export default function StudioClient({
         title:
           assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
         content: result.content,
-        source: result.provider === "ollama" ? "本機 AI" : "本機創作服務",
+        source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
         model: result.model,
         usedLocalMemory: Boolean(project),
         externalRequest: Boolean(result.dataLeftDevice),
         createdAt: new Date().toISOString(),
       };
       setAssistantStatus(
-        result.provider === "ollama" ? "ollama_ready" : "runtime_ready",
+        result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready",
       );
     } catch {
       candidate = ruleCandidate(task);
@@ -1369,41 +1337,34 @@ export default function StudioClient({
       activeConflict = conflict || "尚未解決的問題";
     let content = `${protagonist}依照「${choiceText}」採取行動。\n\n在${scene}裡，這個決定立刻改變了局勢：${activeConflict}不再只是等待處理的問題，而成為必須正面承擔的後果。${protagonist}從對方的反應中察覺一個新的細節，也因此確定下一步不能照原來的方式進行。`,
       source = "本機故事建議",
-      model = "local-rule";
+      model = "local-rule",
+      providerId = "local-rule";
     try {
-      const token =
-          sessionStorage.getItem("novel_local_runtime_token") || undefined,
-        client = new WebLocalRuntimeClient({
-          token,
-          timeoutMs: 45000,
-          externalFallbackAllowed: false,
+      const result = await runStudioClosedAI({
+        projectId: project.id,
+        task: "branch_choice",
+        input: JSON.stringify({
+          instruction:
+            "請使用繁體中文，根據作品資料與作者選擇產生兩到四段具體後續劇情。不得輸出工程說明或英文模板。",
+          selectedAction: choiceText,
+          protagonist,
+          conflict: activeConflict,
+          scene,
+          worldRule: optionalValue(fields, "worldRule") || null,
+          recentText: project.draft.slice(-1200),
+          branchNumber:
+            state.branches.filter((branch) => branch.projectId === project.id)
+              .length + 1,
         }),
-        snapshot = await client.discover();
-      if (snapshot.status === "ready") {
-        const result = await client.runTask({
-          projectId: project.id,
-          taskType: "continue_writing",
-          input: JSON.stringify({
-            instruction:
-              "請使用繁體中文，根據作品資料與作者選擇產生兩到四段具體後續劇情。不得輸出工程說明或英文模板。",
-            selectedAction: choiceText,
-            protagonist,
-            conflict: activeConflict,
-            scene,
-            worldRule: optionalValue(fields, "worldRule") || null,
-            recentText: project.draft.slice(-1200),
-            branchNumber:
-              state.branches.filter((branch) => branch.projectId === project.id)
-                .length + 1,
-          }),
-          targetLength: 650,
-        });
-        if (/[\u4e00-\u9fff]{20}/.test(result.content)) {
-          content = result.content;
-          source =
-            result.provider === "ollama" ? "本機 AI 劇情發展" : "本機創作服務";
-          model = result.model;
-        }
+        targetLength: 650,
+        signal,
+      });
+      if (/[\u4e00-\u9fff]{20}/.test(result.content)) {
+        content = result.content;
+        source =
+          result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
+        model = result.model;
+        providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
       }
     } catch {}
     if (signal?.aborted) return;
@@ -1451,7 +1412,7 @@ export default function StudioClient({
       };
     let canonicalCandidateId: string;
     try {
-      const saved = await persistStudioChoiceCandidate(repositoryRef.current!, projectSeed(project), { optionKey, text: choiceText, consequence: statChanges.map((change) => change.reason).join("；"), effect, providerId: model === "local-rule" ? "local-rule" : "ollama", modelId: model });
+      const saved = await persistStudioChoiceCandidate(repositoryRef.current!, projectSeed(project), { optionKey, text: choiceText, consequence: statChanges.map((change) => change.reason).join("；"), effect, providerId, modelId: model });
       canonicalCandidateId = saved.candidate.id;
     } catch (error) {
       console.error("CHOICE_CANDIDATE_PERSIST_FAILED", error);

@@ -1,0 +1,80 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-sandbox-source-map-v1",
+    "question":  "Where was --no-sandbox introduced?",
+    "rootCause":  "Playwright channel default arguments because chromiumSandbox was not explicitly enabled in the previous harness.",
+    "resolution":  "Set chromiumSandbox=true, remove sandbox-disabling default arguments, and audit actual process command lines before Preview navigation.",
+    "occurrences":  [
+                        {
+                            "pattern":  "--no-sandbox",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  22,
+                            "text":  "\"--no-sandbox\","
+                        },
+                        {
+                            "pattern":  "--no-sandbox",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  278,
+                            "text":  "\"--no-sandbox\","
+                        },
+                        {
+                            "pattern":  "--disable-setuid-sandbox",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  23,
+                            "text":  "\"--disable-setuid-sandbox\","
+                        },
+                        {
+                            "pattern":  "--disable-setuid-sandbox",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  279,
+                            "text":  "\"--disable-setuid-sandbox\","
+                        },
+                        {
+                            "pattern":  "chromiumSandbox",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  274,
+                            "text":  "chromiumSandbox: true,"
+                        },
+                        {
+                            "pattern":  "ignoreDefaultArgs",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  276,
+                            "text":  "ignoreDefaultArgs: ["
+                        },
+                        {
+                            "pattern":  "auditActualBrowserCommandLine",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  90,
+                            "text":  "export function auditActualBrowserCommandLine(processEvidence) {"
+                        },
+                        {
+                            "pattern":  "auditActualBrowserCommandLine",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  396,
+                            "text":  "const securityAudit = auditActualBrowserCommandLine(processEvidence);"
+                        },
+                        {
+                            "pattern":  "auditActualBrowserCommandLine",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  468,
+                            "text":  "const securityAudit = auditActualBrowserCommandLine(processEvidence);"
+                        },
+                        {
+                            "pattern":  "waitForOperator",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  222,
+                            "text":  "export async function waitForOperator(browser, flow, origin, runId, options = {}) {"
+                        },
+                        {
+                            "pattern":  "waitForOperator",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  518,
+                            "text":  "const operatorDecision = await waitForOperator(browser, flow, origin, runId);"
+                        },
+                        {
+                            "pattern":  "WAITING_FOR_OPERATOR",
+                            "file":  "scripts/r5-2-desktop/local-cdp-adapter.mjs",
+                            "line":  237,
+                            "text":  "outputStream.write(`\\nWAITING_FOR_OPERATOR\\nBrowser: ${browser}\\nFlow: ${flow}\\nRun ID: ${runId}\\nElapsed: ${hours}:${minutes}:${seconds}\\nOperator challenge: ${challenges.operatorChallenge}\\nDecision challenge: ${challenges.decisionChallenge}\\nEnter CONTINUE ${challenges.decisionChallenge} after the native decision, or ABORT ${challenges.operatorChallenge} to stop safely.\\n\u003e `);"
+                        }
+                    ]
+}

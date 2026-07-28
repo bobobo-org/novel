@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "r1k-browser-evidence-anchor-v1",
+  "case": "edge-revoke",
+  "verdict": "R1K_EDGE_REVOKE_AUTOMATED_PASS",
+  "technicalStatus": "AUTOMATED_PASS",
+  "humanValidationStatus": "HUMAN_NOT_RUN",
+  "runId": "edge-revoke-127ef0aa6e032cd78d9fab76d3340dcc",
+  "productCommit": "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+  "harnessCommit": "0523b732bf475c3c6b53318bba5843cf8c121f0f",
+  "evidenceContractCommit": "7e0cb3bbecbf80aa915c5b211f842824981c0ec9",
+  "evidenceSha256": "ce65470ca47bb9b923e32e9a0239144ee0ca4d7fdfd559958d05055720e77391",
+  "manifestSha256": "a40c52de120313ff8fd1c07a233dc92ffe10e0f6c989fe3f8f4a1e54b89e2fe0",
+  "counts": { "PASS": 10, "FAIL": 0, "SKIP": 0 },
+  "manifestMismatch": 0
+}

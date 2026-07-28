@@ -1,0 +1,38 @@
+.root{max-width:1240px;margin:auto}
+.root>header{display:grid;grid-template-columns:minmax(0,1fr) 250px auto;gap:16px;align-items:end;padding:24px;border:1px solid #43506c;background:linear-gradient(145deg,#111b31,#17152c)}
+.root>header span{color:#e5bd68;font-weight:900}
+.root>header h2{margin:6px 0;font-size:24px}
+.root>header p{max-width:720px;margin:0;color:#a8b7ca;line-height:1.65}
+.root label{display:grid;gap:7px;color:#d8c184}
+.root select,.root button{min-height:42px;padding:9px 13px;border:1px solid #405b7e;border-radius:4px;background:#0b1729;color:#eef4ff;font:inherit}
+.root button{cursor:pointer}
+.root button:global(.gold){border-color:#d0a552;background:#654719;color:#fff1c6;font-weight:900}
+.root button:disabled{cursor:not-allowed;opacity:.5}
+.root :global(.dramaStatus){padding:12px 14px;border-left:3px solid #6ec2a1;background:#10241f}
+.root :global(.dramaSummary){display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0}
+.root :global(.dramaSummary) article{display:grid;gap:6px;min-height:120px;padding:16px;border:1px solid #354e70;background:#0c192b}
+.root :global(.dramaSummary) small,.root :global(.dramaSummary) span{color:#9eb0c7}
+.root :global(.dramaSummary) strong{font-size:27px;color:#f1d696}
+.root :global(.dramaEpisodes){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.root :global(.dramaEpisodes)>article{min-width:0;padding:18px;border:1px solid #354e70;background:#0b1729}
+.root :global(.dramaEpisodes) header{display:flex;justify-content:space-between;gap:12px}
+.root :global(.dramaEpisodes) h3{margin:5px 0;color:#f0d99e;font-size:17px}
+.root :global(.dramaEpisodes) dl{display:grid;gap:6px}
+.root :global(.dramaEpisodes) dl>div{display:grid;grid-template-columns:105px minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px solid #263d5c}
+.root :global(.dramaEpisodes) dt{color:#8fa5c1}
+.root :global(.dramaEpisodes) dd{min-width:0;margin:0;overflow-wrap:anywhere}
+.root :global(.dramaEmotion){display:flex;align-items:end;gap:5px;height:90px;margin-top:16px;padding:10px;border:1px solid #263c5a;background:#07111f}
+.root :global(.dramaEmotion) i{flex:1;min-width:3px;max-width:18px;background:#bf82e8}
+.root :global(.dramaBranches),.root :global(.dramaRisks){margin-top:18px;padding:18px;border:1px solid #354e70;background:#0b1729}
+.root :global(.dramaBranches)>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.root :global(.dramaBranches) article{min-width:0;padding:15px;border-left:3px solid #d0a752;background:#111f35}
+.root :global(.dramaBranches) article b{display:grid;place-items:center;width:30px;height:30px;border:1px solid #d0a752;color:#f5dda5}
+.root :global(.dramaBranches) p,.root :global(.dramaBranches) small,.root :global(.dramaRisks) li{color:#acbbcf;line-height:1.6}
+.root :global(.dramaActions){display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.root :global(.dramaTechnical){margin-top:16px;padding:14px;border:1px solid #2d4565}
+.root :global(.dramaTechnical) dl{display:grid;gap:7px}
+.root :global(.dramaTechnical) dl>div{display:grid;grid-template-columns:160px minmax(0,1fr);gap:10px}
+.root :global(.dramaTechnical) dt{color:#93a5bd}
+.root :global(.dramaTechnical) dd{min-width:0;margin:0;overflow-wrap:anywhere}
+@media(max-width:900px){.root>header{grid-template-columns:1fr 1fr}.root>header>div{grid-column:1/-1}.root :global(.dramaSummary){grid-template-columns:1fr 1fr}.root :global(.dramaEpisodes){grid-template-columns:1fr}}
+@media(max-width:520px){.root>header,.root :global(.dramaSummary),.root :global(.dramaBranches)>div{grid-template-columns:1fr}.root>header>div{grid-column:auto}.root :global(.dramaEpisodes) dl>div,.root :global(.dramaTechnical) dl>div{grid-template-columns:1fr}.root :global(.dramaActions) button{width:100%}}

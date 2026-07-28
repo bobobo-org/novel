@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "r5-1-bridge-access-log-v1",
+  "generatedAt": "2026-07-20T15:23:37.361Z",
+  "results": [
+    {
+      "name": "Bridge records accepted PNA preflight decisions",
+      "status": "PASS",
+      "elapsedMs": 29,
+      "evidence": {
+        "optionsReceived": true,
+        "exactOrigin": true,
+        "privateNetworkAllowed": true
+      }
+    },
+    {
+      "name": "Bridge records received GET and rejects bad origins",
+      "status": "PASS",
+      "elapsedMs": 89,
+      "evidence": {
+        "getReceived": true,
+        "success": true,
+        "rejectedOriginStatus": 403
+      }
+    },
+    {
+      "name": "Access log contains auditable decisions without private content",
+      "status": "PASS",
+      "elapsedMs": 7,
+      "evidence": {
+        "records": 3,
+        "requiredFields": true,
+        "sensitiveContent": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r2-validation-injection-v1",
+  "classification": "SYSTEM_VALIDATION_FAILURE",
+  "injections": [
+    {"component":"schema validator","result":"PASS","classification":"SYSTEM_VALIDATION_FAILURE","retryAttempts":1},
+    {"component":"evidence resolver","result":"PASS","hallucinatedEvidenceBlocked":1,"formalWrites":0},
+    {"component":"rule and write gate","result":"PASS","unknownInferredLowConfidenceWrites":0},
+    {"component":"canonical repository","result":"PASS","partialWrites":0},
+    {"component":"source relation repository","result":"PASS","partialWrites":0},
+    {"component":"audit repository","result":"PASS","partialWrites":0},
+    {"component":"version repository","result":"PASS","partialWrites":0},
+    {"component":"revision guard before transaction","result":"PASS","staleWrites":0},
+    {"component":"revision guard during transaction","result":"PASS","staleWrites":0,"partialWrites":0}
+  ],
+  "privateContentStored": false
+}

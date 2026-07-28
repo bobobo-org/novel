@@ -1,0 +1,173 @@
+﻿{
+    "status":  "PASS",
+    "targetUrl":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app/studio/settings/ai",
+    "parsedOrigin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+    "pathExcluded":  true,
+    "queryExcluded":  true,
+    "fragmentExcluded":  true,
+    "wildcardAbsent":  true,
+    "add":  {
+                "startedAt":  "2026-07-20T16:11:56.6893085Z",
+                "completedAt":  "2026-07-20T16:11:56.8503106Z",
+                "arguments":  [
+                                  "origin",
+                                  "add",
+                                  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                  "--confirm",
+                                  "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                              ],
+                "exitCode":  0,
+                "output":  {
+                               "ok":  true,
+                               "command":  "origin",
+                               "status":  "origin_enrolled",
+                               "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                               "scope":  "preview",
+                               "restartRequired":  false,
+                               "enrolledOrigins":  [
+                                                       {
+                                                           "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                           "scope":  "preview",
+                                                           "enrolledAt":  "2026-07-20T16:11:56.812Z"
+                                                       }
+                                                   ],
+                               "pairingTokenStored":  false
+                           },
+                "parseError":  null
+            },
+    "list":  {
+                 "startedAt":  "2026-07-20T16:11:56.8523094Z",
+                 "completedAt":  "2026-07-20T16:11:56.9523088Z",
+                 "arguments":  [
+                                   "origin",
+                                   "list"
+                               ],
+                 "exitCode":  0,
+                 "output":  {
+                                "ok":  true,
+                                "command":  "origin",
+                                "status":  "origin_registry",
+                                "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                "builtInOrigins":  [
+                                                       {
+                                                           "origin":  "https://novel-orcin.vercel.app",
+                                                           "scope":  "production"
+                                                       },
+                                                       {
+                                                           "origin":  "http://localhost:3000",
+                                                           "scope":  "local"
+                                                       },
+                                                       {
+                                                           "origin":  "http://127.0.0.1:3000",
+                                                           "scope":  "local"
+                                                       }
+                                                   ],
+                                "enrolledOrigins":  [
+                                                        {
+                                                            "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                            "scope":  "preview",
+                                                            "enrolledAt":  "2026-07-20T16:11:56.812Z"
+                                                        }
+                                                    ],
+                                "audit":  [
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-jgt51w969-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T06:53:06.702Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "revoke",
+                                                  "origin":  "https://novel-jgt51w969-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T06:59:17.236Z",
+                                                  "result":  "revoked"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-dfb5ksxq3-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T06:59:18.346Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "revoke",
+                                                  "origin":  "https://novel-dfb5ksxq3-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T07:01:19.129Z",
+                                                  "result":  "revoked"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:03:00.641Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:06:18.285Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "revoke",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:06:21.094Z",
+                                                  "result":  "revoked"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:06:45.878Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "revoke",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:06:50.491Z",
+                                                  "result":  "revoked"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:11:15.497Z",
+                                                  "result":  "enrolled"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "revoke",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:11:19.811Z",
+                                                  "result":  "revoked"
+                                              },
+                                              {
+                                                  "schemaVersion":  "novel-bridge-origin-registry-v1",
+                                                  "action":  "add",
+                                                  "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                  "scope":  "preview",
+                                                  "occurredAt":  "2026-07-20T16:11:56.812Z",
+                                                  "result":  "enrolled"
+                                              }
+                                          ]
+                            },
+                 "parseError":  null
+             }
+}

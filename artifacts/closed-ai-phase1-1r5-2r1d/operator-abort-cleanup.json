@@ -1,0 +1,8 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-operator-abort-v1",
+    "status":  "PASS",
+    "challengedAbortValidated":  true,
+    "explicitDisposition":  "ABORTED_BY_OPERATOR",
+    "automaticRetry":  false,
+    "cleanupContract":  "runner finally block stops Bridge and revokes Preview origin"
+}

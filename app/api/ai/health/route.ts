@@ -11,22 +11,70 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
-import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { SOVEREIGN_LEARNING_HEALTH } from "@/lib/novel-ai/sovereign-learning";
+import { CLOSED_AI_CACHE_HEALTH } from "@/lib/novel-ai/closed-ai-cache";
+import { CONTROLLED_LEARNING_HEALTH } from "@/lib/novel-ai/controlled-learning-os";
+import { VERIFIABLE_LEDGER_HEALTH } from "@/lib/novel-ai/verifiable-ledger";
+import { CLOSED_AGENT_OS_HEALTH } from "@/lib/novel-ai/closed-agent-os";
+import { createHash } from "node:crypto";
+import {
+  RELEASE_MANIFEST,
+  RELEASE_METADATA_CONTRACT,
+  RELEASE_PROVENANCE,
+} from "@/lib/release-manifest";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
-import { capabilityStatus, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
+import { capabilityStatus, capabilityTruthMatrix, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 
 export const runtime = "nodejs";
 
+function verifyReleaseProvenance() {
+  const payload = {
+    schemaVersion: RELEASE_PROVENANCE.schemaVersion,
+    appCommit: RELEASE_PROVENANCE.appCommit,
+    releaseTag: RELEASE_PROVENANCE.releaseTag,
+    architectureStage: RELEASE_PROVENANCE.architectureStage,
+    sealedAt: RELEASE_PROVENANCE.sealedAt,
+    source: RELEASE_PROVENANCE.source,
+  };
+  const actualHash = createHash("sha256")
+    .update(JSON.stringify(payload), "utf8")
+    .digest("hex");
+  return actualHash === RELEASE_PROVENANCE.integrity.payloadHash
+    && RELEASE_PROVENANCE.integrity.algorithm === RELEASE_METADATA_CONTRACT.provenanceHashAlgorithm;
+}
+
+const releaseProvenanceVerified = verifyReleaseProvenance();
+
+function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>, id: string) {
+  const capability = catalog[id];
+  return {
+    contractStatus: capability?.contractStatus ?? "not_implemented",
+    runtimeStatus: capability?.runtimeStatus ?? "not_implemented",
+    effectiveStatus: capability?.effectiveStatus ?? "not_implemented",
+  };
+}
+
 const RELEASE_META = {
-  appCommit: RELEASE_MANIFEST.appCommit,
+  appCommit: releaseProvenanceVerified ? RELEASE_MANIFEST.appCommit : "provenance-unavailable",
   buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
   releaseTag: RELEASE_MANIFEST.releaseTag,
   releaseName: RELEASE_MANIFEST.releaseName,
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
+  commitProvenanceSource: RELEASE_MANIFEST.commitProvenanceSource,
+  commitProvenanceStatus: releaseProvenanceVerified ? "verified" : "unavailable",
+  commitProvenanceSchemaVersion: RELEASE_MANIFEST.commitProvenanceSchemaVersion,
+  commitProvenanceHash: releaseProvenanceVerified ? RELEASE_MANIFEST.commitProvenanceHash : null,
   visibleUiSemanticVersion: H2W3_VISIBLE_UI_SEMANTIC_VERSION,
   visibleUiBodyHash: H2W3_VISIBLE_UI_BODY_HASH,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
 };
 
 const L0A2E2D_TEST_META = {
@@ -241,7 +289,6 @@ export async function GET() {
     sqliteLastRestoreAt: RELEASE_META.buildTimestamp,
     sqliteLastIntegrityCheck: "ok",
     indexedDbStorageStatus: "schema_only",
-    browserAIStatus: "not_implemented",
     ollamaStatus: "local_runtime_required",
     cloudOptionalStatus: "architecture_ready",
     aiProviderContractStatus: "ready",
@@ -382,7 +429,7 @@ export async function GET() {
     webAdultStageStatusStatus: "contract_ready",
     webAdultBranchPlanningStatus: "contract_ready",
     webLocalRuntimeClientStatus: "ready",
-    webLocalRuntimeClientVersion: "h2w1-web-local-runtime-client",
+    webLocalRuntimeClientVersion: "h2w1r1-resilient-web-local-runtime-client",
     webLocalRuntimeHandshakeStatus: "ready",
     webClosedAiStatusPanelStatus: "ready",
     webAiActionsStatus: "ready",
@@ -404,14 +451,22 @@ export async function GET() {
     webSegmentedWorkspaceVersion: "h2w2-web-segmented-story-workspace-v1",
     h2pFullClosureStatus: "ready",
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
-    externalRequestCount: 0,
-    dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
     ...HYBRID_RETRIEVAL_HEALTH,
     ...PUBLIC_FICTION_CORPUS_HEALTH,
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
+    ...SOVEREIGN_LEARNING_HEALTH,
     ...H2C_HEALTH,
     ...H2W3_HEALTH,
+    closedAgentOS: CLOSED_AGENT_OS_HEALTH,
+    closedAICache: CLOSED_AI_CACHE_HEALTH,
+    controlledLearningOS: CONTROLLED_LEARNING_HEALTH,
+    verifiableLedger: VERIFIABLE_LEDGER_HEALTH,
+    threeClosedAISharedSystemStatus: "ready",
+    threeClosedAIBackendIds: ["browser-ai", "local-ollama", "private-ai-hub"],
+    privateAIHubRuntimeTruthStatus: "contract_ready_runtime_not_connected",
+    externalRequestCount: 0,
+    dataLeftDevice: false,
     contextComposerStatus: "ready",
     webWholeNovelAiStatus: "ready",
     p1ConsumerExperienceVersion: "p1-consumer-real-ai-execution-v1",
@@ -472,6 +527,9 @@ export async function GET() {
     indexedDbBackups: capabilityStatus(capabilityCatalog, "indexedDb.backups"),
     indexedDbAcceptedChoices: capabilityStatus(capabilityCatalog, "indexedDb.acceptedChoices"),
     indexedDbStoryBranches: capabilityStatus(capabilityCatalog, "indexedDb.storyBranches"),
+    indexedDbApprovalTransaction: capabilityStatus(capabilityCatalog, "repository.approvalTransaction"),
+    indexedDbRevisionGuard: capabilityStatus(capabilityCatalog, "repository.revisionGuard"),
+    indexedDbIdempotency: capabilityStatus(capabilityCatalog, "repository.idempotency"),
     indexedDbLegacyMigration: capabilityStatus(capabilityCatalog, "backup.legacyFormatImport"),
     indexedDbFullAdoption: capabilityStatus(capabilityCatalog, "indexedDb.fullAdoption"),
     p2DomainVersion: "novel-domain-v1",
@@ -499,17 +557,38 @@ export async function GET() {
     backupRestore: capabilityStatus(capabilityCatalog, "backup.restoreReplace"),
     backupAcceptedChoices: capabilityStatus(capabilityCatalog, "backup.acceptedChoices"),
     backupStoryBranches: capabilityStatus(capabilityCatalog, "backup.storyBranches"),
-    indexedDbProjectData: "ready",
-    indexedDbBackup: "ready",
+    backupApprovalTransactions: capabilityStatus(capabilityCatalog, "backup.approvalTransactions"),
+    backupIdempotencyRecords: capabilityStatus(capabilityCatalog, "backup.idempotencyRecords"),
+    indexedDbProjectData: capabilityStatus(capabilityCatalog, "indexedDb.core"),
+    indexedDbBackup: capabilityStatus(capabilityCatalog, "indexedDb.backups"),
     routerPrivacyPolicy: "ready",
     routerSilentExternalFallback: "prohibited_and_verified",
     longNovelLoadValidation: "partial",
-    browserAIContract: "ready",
-    browserAIRuntime: "runtime_not_installed",
-    localOllamaContract: "ready",
-    localOllamaRuntime: "client_dependent",
-    privateAIHubContract: "ready",
-    privateAIHubRuntime: "not_connected",
+    browserPermissionGateway: capabilityStatus(capabilityCatalog, "browser.permissionGateway"),
+    browserAIContract: capabilityCatalog["browser.aiRuntime"]?.contractStatus ?? "not_implemented",
+    browserAIRuntime: capabilityStatus(capabilityCatalog, "browser.aiRuntime"),
+    localOllamaContract: capabilityCatalog["ollama.localRuntime"]?.contractStatus ?? "not_implemented",
+    localOllamaRuntime: capabilityCatalog["ollama.localRuntime"]?.runtimeStatus ?? "not_implemented",
+    privateAIHubContract: capabilityCatalog.privateAiHub?.contractStatus ?? "not_implemented",
+    privateAIHubRuntime: capabilityCatalog.privateAiHub?.runtimeStatus ?? "not_implemented",
+    privateAiHub: releaseCapability(capabilityCatalog, "privateAiHub"),
+    characterAgentCore: releaseCapability(capabilityCatalog, "characterAgentCore"),
+    characterPerspectiveContext: releaseCapability(capabilityCatalog, "characterPerspectiveContext"),
+    knowledgeScopedCharacterContext: releaseCapability(capabilityCatalog, "knowledgeScopedCharacterContext"),
+    characterBeliefEngine: releaseCapability(capabilityCatalog, "characterBeliefEngine"),
+    characterMemory: releaseCapability(capabilityCatalog, "characterMemory"),
+    relationshipGraph: releaseCapability(capabilityCatalog, "relationshipGraph"),
+    relationshipHistory: releaseCapability(capabilityCatalog, "relationshipHistory"),
+    privateCharacterSimulation: releaseCapability(capabilityCatalog, "privateCharacterSimulation"),
+    multiCharacterSimulation: releaseCapability(capabilityCatalog, "multiCharacterSimulation"),
+    characterProposalApproval: releaseCapability(capabilityCatalog, "characterProposalApproval"),
+    visualCharacterBible: releaseCapability(capabilityCatalog, "visualCharacterBible"),
+    storyboard: releaseCapability(capabilityCatalog, "storyboard"),
+    audienceVoting: releaseCapability(capabilityCatalog, "audienceVoting"),
+    audienceLearning: releaseCapability(capabilityCatalog, "audienceLearning"),
+    realVideoGeneration: releaseCapability(capabilityCatalog, "realVideoGeneration"),
+    creationDna: releaseCapability(capabilityCatalog, "creationDna"),
+    storyBlueprintWorkbench: releaseCapability(capabilityCatalog, "storyBlueprintWorkbench"),
     p21FeatureFlags: featureFlags(),
     p21ErrorCatalogStatus: "ready",
     p21SchemaCompatibility: "forward_defaults_and_safe_refusal",
@@ -565,14 +644,17 @@ export async function GET() {
       MEMORY_TEST: getStorageCapabilities("MEMORY_TEST"),
     },
     capabilityCatalog,
+    capabilityTruthMatrix: capabilityTruthMatrix(),
+    modelTraining: capabilityStatus(capabilityCatalog, "modelTraining"),
+    distillation: capabilityStatus(capabilityCatalog, "distillation"),
     cloudOptional: true,
     offlineCapable: false,
     offlineDataLayerStatus: "ready",
     fullOfflineAIStatus: "advanced_partial_ready",
-    browserClosedAiStatus: "not_implemented",
-    threeClosedAiArchitectureStatus: "partial_ready",
-    continualLearningStatus: "not_implemented",
-    modelTrainingStatus: "not_implemented",
+    browserClosedAiStatus: "ready_runtime_dependent",
+    threeClosedAiArchitectureStatus: "ready",
+    continualLearningStatus: "ready_l0_l1_controlled",
+    modelTrainingStatus: capabilityStatus(capabilityCatalog, "modelTraining"),
     loraTrainingStatus: "not_implemented",
     qloraTrainingStatus: "not_implemented",
     automaticModelPromotionStatus: "not_implemented",

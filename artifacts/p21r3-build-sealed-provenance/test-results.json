@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "p21r3-test-results-v1",
+  "overall": "PASS",
+  "fail": 0,
+  "skip": 0,
+  "suites": [
+    { "name": "build-sealed provenance", "pass": 15, "fail": 0, "skip": 0 },
+    { "name": "release metadata", "pass": 8, "fail": 0, "skip": 0 },
+    { "name": "three-high closure", "pass": 45, "fail": 0, "skip": 0 },
+    { "name": "P2.1R1 high-risk closure", "pass": 21, "fail": 0, "skip": 0 },
+    { "name": "P1.3-P1.5 consumer platform", "pass": 30, "fail": 0, "skip": 0 },
+    { "name": "P2 grand integration", "pass": 18, "fail": 0, "skip": 0 },
+    { "name": "IndexedDB transaction", "pass": 4, "fail": 0, "skip": 0 },
+    { "name": "SQLite export", "pass": 13, "fail": 0, "skip": 0 },
+    { "name": "P1.1 consumer convergence", "pass": 20, "fail": 0, "skip": 0 },
+    { "name": "TypeScript", "pass": 1, "fail": 0, "skip": 0 },
+    { "name": "Production build", "pass": 1, "fail": 0, "skip": 0 },
+    { "name": "ESLint", "pass": 1, "fail": 0, "skip": 0, "existingWarnings": 99, "newWarnings": 0 }
+  ]
+}

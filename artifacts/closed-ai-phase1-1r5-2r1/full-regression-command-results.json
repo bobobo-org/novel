@@ -1,0 +1,51 @@
+﻿[
+    {
+        "name":  "r5_1_dynamic_origin",
+        "exitCode":  0,
+        "elapsedMs":  28649,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\r5_1_dynamic_origin.log.txt"
+    },
+    {
+        "name":  "r5_origin_pna_host",
+        "exitCode":  0,
+        "elapsedMs":  6314,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\r5_origin_pna_host.log.txt"
+    },
+    {
+        "name":  "launcher",
+        "exitCode":  0,
+        "elapsedMs":  11714,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\launcher.log.txt"
+    },
+    {
+        "name":  "r4_regression",
+        "exitCode":  0,
+        "elapsedMs":  2165,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\r4_regression.log.txt"
+    },
+    {
+        "name":  "typescript",
+        "exitCode":  0,
+        "elapsedMs":  9302,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\typescript.log.txt"
+    },
+    {
+        "name":  "eslint",
+        "exitCode":  0,
+        "elapsedMs":  21251,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\eslint.log.txt"
+    },
+    {
+        "name":  "production_build",
+        "exitCode":  0,
+        "elapsedMs":  22977,
+        "status":  "PASS",
+        "log":  ".\\artifacts\\closed-ai-phase1-1r5-2r1\\production_build.log.txt"
+    }
+]

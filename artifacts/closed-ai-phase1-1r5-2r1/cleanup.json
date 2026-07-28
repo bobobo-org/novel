@@ -1,0 +1,23 @@
+﻿{
+    "status":  "PASS",
+    "bridgeStop":  {
+                       "startedAt":  "2026-07-20T16:12:00.9071720Z",
+                       "completedAt":  "2026-07-20T16:12:01.1115188Z",
+                       "arguments":  [
+                                         "stop"
+                                     ],
+                       "exitCode":  0,
+                       "output":  {
+                                      "ok":  true,
+                                      "command":  "stop",
+                                      "status":  "stopped",
+                                      "portReleased":  true,
+                                      "ollamaStopped":  false
+                                  },
+                       "parseError":  null
+                   },
+    "portReleased":  true,
+    "previewOriginRevoked":  true,
+    "browserProfilesCreated":  false,
+    "browserProfilesRemoved":  true
+}

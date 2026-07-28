@@ -1,0 +1,242 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-clean-shell-v1",
+  "generatedAt": "2026-07-19T20:27:57.523Z",
+  "cleanShell": true,
+  "noProfile": true,
+  "inheritedPath": false,
+  "nodeMissingHandled": true,
+  "explicitNodePathSupported": true,
+  "windowsRelogin": "WINDOWS_RELOGIN_NOT_FULLY_VERIFIED",
+  "pass": 6,
+  "fail": 0,
+  "results": [
+    {
+      "name": "missing Node gives actionable JSON",
+      "status": "PASS",
+      "exitCode": 1,
+      "output": {
+        "ok": false,
+        "errorCode": "LAUNCHER_NODE_NOT_FOUND",
+        "message": "Node.js was not found.",
+        "nextStep": "Install Node.js 22 LTS or set NOVEL_NODE_PATH to node.exe, then run diagnose again."
+      },
+      "stderr": ""
+    },
+    {
+      "name": "explicit Node path works without PATH",
+      "status": "PASS",
+      "exitCode": 0,
+      "output": {
+        "ok": true,
+        "command": "diagnose",
+        "status": "Bridge未啟動",
+        "bridge": {
+          "alive": false
+        },
+        "ollama": {
+          "status": "模型可用",
+          "version": "0.32.0",
+          "models": [
+            "nomic-embed-text:latest",
+            "qwen2.5:3b"
+          ]
+        },
+        "process": null,
+        "nextStep": "執行 start。",
+        "diagnostics": {
+          "nodeDetected": true,
+          "nodePath": "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+          "nodeVersion": "24.14.0",
+          "platform": "win32 10.0.26200",
+          "bridgeEntryPoint": "C:\\dev\\novel-h2-closure-closed-ai\\local-ai\\bridge\\server.mjs",
+          "bridgeEndpoint": "http://127.0.0.1:3217",
+          "portAvailable": true,
+          "ollamaStatus": "模型可用",
+          "ollamaEndpoint": "http://127.0.0.1:11434",
+          "modelAvailability": true,
+          "loopbackOnly": true,
+          "securityMode": "loopback-paired",
+          "runtimeDirectoryWritable": true,
+          "firewallModified": false,
+          "nonLoopbackListening": false,
+          "autoDownload": false,
+          "telemetry": false
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "name": "start from clean shell",
+      "status": "PASS",
+      "exitCode": 0,
+      "output": {
+        "ok": true,
+        "command": "start",
+        "status": "started",
+        "pid": 9384,
+        "bridge": {
+          "bridgeProcessAlive": true,
+          "bridgeVersion": "1.0.0-phase1",
+          "protocolVersion": "novel-local-bridge/v1",
+          "instanceId": "fcf8c983-e37f-4298-95df-730863c3f7b7",
+          "providerKind": "local_ollama",
+          "operatingSystem": "win32 10.0.26200",
+          "supportedOperations": [
+            "health",
+            "pairing",
+            "models",
+            "generate",
+            "stream",
+            "cancel"
+          ],
+          "streamingSupport": true,
+          "cancellationSupport": true,
+          "maximumRequestSize": 65536,
+          "configuredOrigins": [
+            "https://novel-orcin.vercel.app",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000"
+          ],
+          "securityMode": "loopback-paired",
+          "bindAddress": "127.0.0.1",
+          "pairingState": "unpaired",
+          "ollamaReachable": true,
+          "ollamaVersion": "0.32.0",
+          "modelAvailable": true,
+          "runtimeReady": false,
+          "limits": {
+            "maxPromptBytes": 65536,
+            "maxOutputTokens": 2048,
+            "maxConcurrent": 1,
+            "maxQueue": 2,
+            "maxTimeoutMs": 120000,
+            "rateLimitPerMinute": 30
+          }
+        },
+        "ollama": {
+          "reachable": true,
+          "version": "0.32.0",
+          "models": [
+            "nomic-embed-text:latest",
+            "qwen2.5:3b"
+          ]
+        },
+        "modelAvailable": true,
+        "nextStep": "回到 Studio 開始安全配對。"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "status from clean shell",
+      "status": "PASS",
+      "exitCode": 0,
+      "output": {
+        "ok": true,
+        "command": "status",
+        "status": "Bridge已啟動但未配對",
+        "bridge": {
+          "alive": true,
+          "instanceId": "fcf8c983-e37f-4298-95df-730863c3f7b7",
+          "protocolVersion": "novel-local-bridge/v1",
+          "pairingState": "unpaired"
+        },
+        "ollama": {
+          "status": "模型可用",
+          "version": "0.32.0",
+          "models": [
+            "nomic-embed-text:latest",
+            "qwen2.5:3b"
+          ]
+        },
+        "process": {
+          "pid": 9384,
+          "startedAt": "2026-07-19T20:26:55.435Z"
+        },
+        "nextStep": "在 Studio 發起配對，再執行 pair 取得配對碼。"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "restart from clean shell",
+      "status": "PASS",
+      "exitCode": 0,
+      "output": {
+        "ok": true,
+        "command": "restart",
+        "status": "restarted",
+        "stopped": {
+          "status": "stopped",
+          "portReleased": true,
+          "ollamaStopped": false
+        },
+        "started": {
+          "status": "started",
+          "pid": 8624,
+          "bridge": {
+            "bridgeProcessAlive": true,
+            "bridgeVersion": "1.0.0-phase1",
+            "protocolVersion": "novel-local-bridge/v1",
+            "instanceId": "d638abb7-4753-4d92-ba6b-c66c71f309e9",
+            "providerKind": "local_ollama",
+            "operatingSystem": "win32 10.0.26200",
+            "supportedOperations": [
+              "health",
+              "pairing",
+              "models",
+              "generate",
+              "stream",
+              "cancel"
+            ],
+            "streamingSupport": true,
+            "cancellationSupport": true,
+            "maximumRequestSize": 65536,
+            "configuredOrigins": [
+              "https://novel-orcin.vercel.app",
+              "http://localhost:3000",
+              "http://127.0.0.1:3000"
+            ],
+            "securityMode": "loopback-paired",
+            "bindAddress": "127.0.0.1",
+            "pairingState": "unpaired",
+            "ollamaReachable": true,
+            "ollamaVersion": "0.32.0",
+            "modelAvailable": true,
+            "runtimeReady": false,
+            "limits": {
+              "maxPromptBytes": 65536,
+              "maxOutputTokens": 2048,
+              "maxConcurrent": 1,
+              "maxQueue": 2,
+              "maxTimeoutMs": 120000,
+              "rateLimitPerMinute": 30
+            }
+          },
+          "ollama": {
+            "reachable": true,
+            "version": "0.32.0",
+            "models": [
+              "nomic-embed-text:latest",
+              "qwen2.5:3b"
+            ]
+          },
+          "modelAvailable": true,
+          "nextStep": "回到 Studio 開始安全配對。"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "name": "stop from clean shell",
+      "status": "PASS",
+      "exitCode": 0,
+      "output": {
+        "ok": true,
+        "command": "stop",
+        "status": "stopped",
+        "portReleased": true,
+        "ollamaStopped": false
+      },
+      "stderr": ""
+    }
+  ]
+}

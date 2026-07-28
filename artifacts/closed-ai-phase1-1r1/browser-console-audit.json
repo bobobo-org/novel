@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-browser-console-audit-v1",
+  "status": "PASS",
+  "errorOrWarningEntries": 0,
+  "pairingTokenObserved": false,
+  "authorizationHeaderObserved": false,
+  "fullPromptObserved": false,
+  "fullOutputObserved": false,
+  "note": "Informational Next.js development messages were excluded; the error/warning query returned an empty list."
+}

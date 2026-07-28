@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-capability-matrix-v1",
+  "capabilities": [
+    { "name": "Windows launcher", "status": "ready", "evidence": "6 clean-shell and 13 launcher tests" },
+    { "name": "Loopback Ollama Bridge", "status": "ready", "evidence": "31 contract plus 15 real-runtime tests" },
+    { "name": "Studio pairing, streaming, cancellation", "status": "ready", "evidence": "real browser UI flow" },
+    { "name": "Forced pairing expiry and repair", "status": "ready", "evidence": "real browser UI flow" },
+    { "name": "3B structured extraction validation", "status": "partial", "evidence": "real invalid response blocked; complete three-attempt runtime retry is not wired" },
+    { "name": "Formal Story Bible guarded commit", "status": "contract_only", "evidence": "revision/version gate unit tests; no formal data layer integration" },
+    { "name": "Browser storage DevTools audit", "status": "partial", "evidence": "behavior and static contract only; direct storage inspection unavailable" },
+    { "name": "Real multi-model switch", "status": "not_available", "evidence": "only qwen2.5:3b is installed as a text model" },
+    { "name": "Physical mobile", "status": "not_tested", "evidence": "390x844 responsive browser only" },
+    { "name": "Windows sign-out first launch", "status": "not_tested", "evidence": "fresh-shell test only" },
+    { "name": "Mobile same-device Ollama", "status": "not_supported", "evidence": "loopback architecture" },
+    { "name": "Remote desktop Bridge", "status": "not_implemented", "evidence": "LAN exposure intentionally prohibited" }
+  ]
+}

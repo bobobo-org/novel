@@ -1,0 +1,140 @@
+﻿pnpm.cmd : $ node scripts/run-closed-ai-launcher-tests.mjs
+At line:2 char:770
++ ... cs.Stopwatch]::StartNew(); $output=& $pnpm @($item.args) 2>&1 | Out-S ...
++                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ node scripts/...ncher-tests.mjs:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+{
+  "schemaVersion": "closed-ai-phase1-1-launcher-tests-v1",
+  "generatedAt": "2026-07-20T16:08:54.704Z",
+  "isolatedProcessPerCommand": true,
+  "freshShellEvidence": "recorded separately",
+  "autoDownload": false,
+  "firewallModified": false,
+  "nonLoopbackListening": false,
+  "results": [
+    {
+      "name": "fresh shell lifecycle 1",
+      "status": "PASS",
+      "evidence": {
+        "start": "started",
+        "bridgeState": "alive",
+        "stop": "stopped",
+        "isolatedProcessPerCommand": true,
+        "portReleased": true
+      }
+    },
+    {
+      "name": "fresh shell lifecycle 2",
+      "status": "PASS",
+      "evidence": {
+        "start": "started",
+        "bridgeState": "alive",
+        "stop": "stopped",
+        "isolatedProcessPerCommand": true,
+        "portReleased": true
+      }
+    },
+    {
+      "name": "fresh shell lifecycle 3",
+      "status": "PASS",
+      "evidence": {
+        "start": "started",
+        "bridgeState": "alive",
+        "stop": "stopped",
+        "isolatedProcessPerCommand": true,
+        "portReleased": true
+      }
+    },
+    {
+      "name": "fresh shell lifecycle 4",
+      "status": "PASS",
+      "evidence": {
+        "start": "started",
+        "bridgeState": "alive",
+        "stop": "stopped",
+        "isolatedProcessPerCommand": true,
+        "portReleased": true
+      }
+    },
+    {
+      "name": "fresh shell lifecycle 5",
+      "status": "PASS",
+      "evidence": {
+        "start": "started",
+        "bridgeState": "alive",
+        "stop": "stopped",
+        "isolatedProcessPerCommand": true,
+        "portReleased": true
+      }
+    },
+    {
+      "name": "repeated start does not create another instance",
+      "status": "PASS",
+      "evidence": {
+        "first": "started",
+        "second": "already_running",
+        "stopped": "stopped"
+      }
+    },
+    {
+      "name": "restart changes bridge instance without stopping Ollama",
+      "status": "PASS",
+      "evidence": {
+        "oldInstance": "ecc03594-bbd3-4a45-a5a8-7001e345e15d",
+        "newInstance": "a134eb58-2217-44f2-b7d7-02991bfc746d",
+        "ollamaStopped": false
+      }
+    },
+    {
+      "name": "occupied port reports actionable error",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "LAUNCHER_PORT_IN_USE",
+        "hasNextStep": true
+      }
+    },
+    {
+      "name": "corrupt configuration is rejected",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "LAUNCHER_CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "unwritable runtime location fails safely",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "EEXIST",
+        "bridgeStarted": false
+      }
+    },
+    {
+      "name": "unsupported Node version is rejected",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "LAUNCHER_NODE_UNSUPPORTED"
+      }
+    },
+    {
+      "name": "missing selected model is rejected without download",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "OLLAMA_MODEL_NOT_FOUND",
+        "downloaded": false
+      }
+    },
+    {
+      "name": "crashed bridge can be recovered",
+      "status": "PASS",
+      "evidence": {
+        "recovered": "started",
+        "stalePidReplaced": true
+      }
+    }
+  ],
+  "pass": 13,
+  "fail": 0
+}
+

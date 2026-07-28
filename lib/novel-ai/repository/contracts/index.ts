@@ -1,7 +1,21 @@
-import type { AcceptedChoice, Chapter, ChoiceCandidate, DomainRecord, NovelProject, ProjectBundle, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult } from "../../drama-os/types";
+import { CHARACTER_AGENT_STORE_NAMES } from "../../character-agent/repository";
+import type {
+  ApproveCharacterProposalInput,
+  ApproveCharacterProposalResult,
+  RejectCharacterProposalInput,
+  RejectCharacterProposalResult,
+} from "../../character-agent/types";
 
-export const NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
+export const LEGACY_NOVEL_STORES = ["projects","creationDrafts","projectSeeds","chapters","scenes","characters","relationships","worlds","worldRules","lore","timeline","storyStates","candidates","acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","tasks","achievements","readerStates","readerNotes","readerBookmarks","backups","settings","aiJobs","migrationJournal","operationJournal"] as const;
+export const DRAMA_STORES = ["dramaProjects","dramaSeasons","dramaEpisodes","dramaScenes","dramaBeats","dramaBranchCandidates","dramaEvaluations","dramaApprovals","narrativeCanonLinks"] as const;
+export const CHARACTER_AGENT_STORES = CHARACTER_AGENT_STORE_NAMES;
+export const NOVEL_STORES = [...LEGACY_NOVEL_STORES, ...DRAMA_STORES, ...CHARACTER_AGENT_STORES] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
+export const REQUIRED_RESTORE_STORES = NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
+export const P24A_REQUIRED_RESTORE_STORES = [...LEGACY_NOVEL_STORES, ...DRAMA_STORES].filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
+export const LEGACY_REQUIRED_RESTORE_STORES = LEGACY_NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 
 export class RevisionConflictError extends Error {
   readonly expected: number;
@@ -27,6 +41,9 @@ export type AcceptChoiceTransactionInput = {
   expectedChapterRevision: number;
   expectedCandidateRevision: number;
   expectedStoryStateRevision: number;
+  expectedStoryBibleRevision: number;
+  actor?: "user";
+  origin?: "studio" | "repository";
 };
 
 export type AcceptChoiceTransactionResult = {
@@ -37,6 +54,10 @@ export type AcceptChoiceTransactionResult = {
   storyState: StoryState;
   acceptedChoice: AcceptedChoice;
   branch: StoryBranch;
+  storyBible: StoryBible;
+  storyBibleDelta: StoryBibleDelta;
+  approvalTransaction: ApprovalTransaction;
+  idempotencyRecord: IdempotencyRecord;
 };
 
 export interface NovelRepository {
@@ -48,6 +69,11 @@ export interface NovelRepository {
   remove(store: NovelStoreName, id: string): Promise<void>;
   createProject(bundle: ProjectBundle, requestId: string): Promise<ProjectBundle>;
   acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult>;
+  saveDramaProjectionTransaction(input: DramaProjectionPackage): Promise<void>;
+  approveDramaProjectionTransaction(input: ApproveDramaProjectionInput): Promise<ApproveDramaProjectionResult>;
+  markDramaProjectionsStaleTransaction(input: MarkDramaProjectionsStaleInput): Promise<MarkDramaProjectionsStaleResult>;
+  approveCharacterProposalTransaction(input: ApproveCharacterProposalInput): Promise<ApproveCharacterProposalResult>;
+  rejectCharacterProposalTransaction(input: RejectCharacterProposalInput): Promise<RejectCharacterProposalResult>;
   listAcceptedChoices(projectId: string, chapterId?: string): Promise<AcceptedChoice[]>;
   listStoryBranches(projectId: string, chapterId?: string): Promise<StoryBranch[]>;
   deleteInteractionsByProject(projectId: string): Promise<void>;

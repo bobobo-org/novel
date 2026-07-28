@@ -1,0 +1,115 @@
+﻿{
+    "status":  "PASS",
+    "existingKnownBridge":  false,
+    "originAdd":  {
+                      "startedAt":  "2026-07-20T16:11:56.6893085Z",
+                      "completedAt":  "2026-07-20T16:11:56.8503106Z",
+                      "arguments":  [
+                                        "origin",
+                                        "add",
+                                        "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                        "--confirm",
+                                        "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                                    ],
+                      "exitCode":  0,
+                      "output":  {
+                                     "ok":  true,
+                                     "command":  "origin",
+                                     "status":  "origin_enrolled",
+                                     "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                     "scope":  "preview",
+                                     "restartRequired":  false,
+                                     "enrolledOrigins":  [
+                                                             {
+                                                                 "origin":  "https://novel-gw062wjeh-lqtechs-projects.vercel.app",
+                                                                 "scope":  "preview",
+                                                                 "enrolledAt":  "2026-07-20T16:11:56.812Z"
+                                                             }
+                                                         ],
+                                     "pairingTokenStored":  false
+                                 },
+                      "parseError":  null
+                  },
+    "launcherStart":  {
+                          "startedAt":  "2026-07-20T16:11:56.9523088Z",
+                          "completedAt":  "2026-07-20T16:11:57.4467980Z",
+                          "arguments":  [
+                                            "start",
+                                            "--origin",
+                                            "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                                        ],
+                          "exitCode":  0,
+                          "output":  {
+                                         "ok":  true,
+                                         "command":  "start",
+                                         "status":  "started",
+                                         "pid":  23240,
+                                         "bridge":  {
+                                                        "bridgeProcessAlive":  true,
+                                                        "bridgeVersion":  "1.0.0-phase1",
+                                                        "protocolVersion":  "novel-local-bridge/v1",
+                                                        "instanceId":  "037ccb46-34d3-4c75-86ea-91124a4c954a",
+                                                        "providerKind":  "local_ollama",
+                                                        "operatingSystem":  "win32 10.0.26200",
+                                                        "supportedOperations":  [
+                                                                                    "health",
+                                                                                    "pairing",
+                                                                                    "models",
+                                                                                    "generate",
+                                                                                    "stream",
+                                                                                    "cancel"
+                                                                                ],
+                                                        "streamingSupport":  true,
+                                                        "cancellationSupport":  true,
+                                                        "maximumRequestSize":  65536,
+                                                        "configuredOrigins":  [
+                                                                                  "https://novel-orcin.vercel.app",
+                                                                                  "http://localhost:3000",
+                                                                                  "http://127.0.0.1:3000",
+                                                                                  "https://novel-gw062wjeh-lqtechs-projects.vercel.app"
+                                                                              ],
+                                                        "securityMode":  "loopback-paired",
+                                                        "bindAddress":  "127.0.0.1",
+                                                        "pairingState":  "unpaired",
+                                                        "ollamaReachable":  true,
+                                                        "ollamaVersion":  "0.32.0",
+                                                        "modelAvailable":  true,
+                                                        "runtimeReady":  false,
+                                                        "limits":  {
+                                                                       "maxPromptBytes":  65536,
+                                                                       "maxOutputTokens":  2048,
+                                                                       "maxConcurrent":  1,
+                                                                       "maxQueue":  2,
+                                                                       "maxTimeoutMs":  120000,
+                                                                       "rateLimitPerMinute":  30
+                                                                   }
+                                                    },
+                                         "ollama":  {
+                                                        "reachable":  true,
+                                                        "version":  "0.32.0",
+                                                        "models":  [
+                                                                       "nomic-embed-text:latest",
+                                                                       "qwen2.5:3b"
+                                                                   ]
+                                                    },
+                                         "modelAvailable":  true,
+                                         "nextStep":  "回到 Studio 開始安全配對。"
+                                     },
+                          "parseError":  null
+                      },
+    "listener":  {
+                     "listening":  true,
+                     "address":  "127.0.0.1",
+                     "port":  3217,
+                     "pid":  23240
+                 },
+    "process":  {
+                    "pid":  23240,
+                    "parentPid":  27492,
+                    "executablePath":  "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+                    "commandLine":  "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe C:\\dev\\novel-closed-ai-r5-2\\local-ai\\bridge\\server.mjs",
+                    "sessionId":  1
+                },
+    "loopbackOnly":  true,
+    "lanBind":  false
+}

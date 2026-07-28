@@ -1,0 +1,310 @@
+{
+  "suite": "P2.3 RC2 Knowledge Security and Supply Chain",
+  "runAt": "2026-07-27T23:51:25.915Z",
+  "pass": 59,
+  "fail": 0,
+  "skip": 0,
+  "blockingFalseNegatives": 0,
+  "blockingFalsePositives": 0,
+  "canonicalMutationBeforeApproval": 0,
+  "unexpectedExternalRequests": 0,
+  "crossStoryRetrieval": 0,
+  "unapprovedModelActivation": 0,
+  "results": [
+    {
+      "name": "PI-01 blocks INSTRUCTION_OVERRIDE",
+      "status": "PASS",
+      "elapsedMs": 3
+    },
+    {
+      "name": "PI-02 blocks ROLE_IMPERSONATION",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "PI-03 blocks CROSS_SCOPE_ACCESS",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-04 blocks CANONICAL_MUTATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-05 blocks TOOL_INVOCATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-06 blocks SECRET_EXFILTRATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-07 blocks EXTERNAL_TRANSFER",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "PI-08 blocks HIDDEN_INSTRUCTION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-09 blocks UNICODE_OBFUSCATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-10 blocks STRUCTURED_TOOL_PAYLOAD",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-11 blocks PRIVILEGE_ESCALATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-12 blocks SUSPICIOUS_BASE64",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-13 blocks INSTRUCTION_OVERRIDE",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-14 blocks ROLE_IMPERSONATION",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PI-15 blocks STRUCTURED_TOOL_PAYLOAD",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "adult fiction is not a prompt injection false positive",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "fictional dialogue about ignoring a king is not system injection",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "HTML hidden instructions are audited before markup removal",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "structured tool keys are removed recursively",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "closed-only router ignores an injected external preference",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "taint propagates through every declared processing stage",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "cross-story and adult namespace isolation are fail closed",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "registered source taint reaches chunks and embedding metadata",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "duplicate flood detection penalizes repeated false documents",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approved newest revision outranks stale unapproved data",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "forged citation is blocked",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "poisoning-aware ranking blocks cross-story and high-risk input",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "index deletion verifier covers every residue class",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "forged source identity cannot outrank canonical Story Bible",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "keyword stuffing receives duplicate and poisoning penalties",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "similar character names remain separate identities",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "adult source cannot enter a general story scope",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "colluding sources with the same claim are detected as a flood",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PARSER-01 fails closed with DOCUMENT_TOO_LARGE",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PARSER-02 fails closed with DOCUMENT_DEPTH_EXCEEDED",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PARSER-03 fails closed with DOCUMENT_PATH_TRAVERSAL_REJECTED",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "PARSER-04 fails closed with DOCUMENT_ARCHIVE_BOMB_REJECTED",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PARSER-05 fails closed with DOCUMENT_PARSE_TIMEOUT",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "HTML external resources are blocked without network access",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "malicious controls are normalized without external side effects",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "PDF fails closed before any partial indexing",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "malformed JSON fails closed",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "parser policy blocks child process, network and external loading by contract",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-01 rejects MODEL_DIGEST_MISMATCH",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-02 rejects MODEL_FILE_SIZE_MISMATCH",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-03 rejects MODEL_SOURCE_UNAPPROVED",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-04 rejects MODEL_LICENSE_MISSING",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-05 rejects MODEL_ADAPTER_BASE_INCOMPATIBLE",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-06 rejects MODEL_PACKAGE_EXECUTABLE_BLOCKED",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-08 rejects MODEL_FORMAT_UNSUPPORTED",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-09 rejects MODEL_COMMERCIAL_USE_FORBIDDEN",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "SUPPLY-10 rejects MODEL_MALWARE_SCAN_NOT_CLEAN",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "unknown model cannot transition directly to active",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "layered evaluator preserves deterministic authority",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "layered evaluator blocks silent external switch and mutation",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation replay manifest is content-hash based and contains no prompt",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "generation concurrency limiter fails closed and releases slots",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "benchmark contamination guard rejects cross-split duplicates and training leakage",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "capability truth matrix never marks contract-only runtimes available",
+      "status": "PASS",
+      "elapsedMs": 1
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "steps": [
+    { "step": "browser-reload", "status": "PASS", "result": "Studio required a new pairing; prior in-memory token was not reused" },
+    { "step": "pair-again", "status": "PASS", "result": "Normal Studio pairing flow succeeded after reload/restart" },
+    { "step": "protocol-mismatch", "status": "PASS", "result": "Studio displayed explicit upgrade guidance against an old test-only Bridge fixture" }
+  ],
+  "screenshot": "../browser-e2e/protocol-incompatible.png",
+  "tokenPersisted": false,
+  "externalAiCalls": 0
+}

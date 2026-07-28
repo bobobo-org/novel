@@ -2,7 +2,8 @@ import { CAPABILITY_REGISTRY } from "./capability-registry";
 import type { CapabilityReport, CapabilityStatus } from "./capability-status";
 
 const effective = (contract: CapabilityStatus, runtime: CapabilityStatus): CapabilityStatus => {
-  if (["failed", "degraded", "not_implemented", "unsupported"].includes(contract)) return contract;
+  if (["failed", "degraded", "not_started", "not_implemented", "unsupported"].includes(contract)) return contract;
+  if (contract === "contract_only") return "contract_only";
   if (runtime === "ready") return contract === "ready" ? "ready" : contract;
   if (runtime === "client_dependent" && contract === "ready") return "client_dependent";
   return runtime;

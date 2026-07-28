@@ -1,4 +1,10 @@
 export const ERROR_CATALOG = {
+  REVISION_CONFLICT: ["作品已在其他操作中更新，請重新載入後再試。", true, false, true, 409],
+  IDEMPOTENCY_PAYLOAD_MISMATCH: ["相同操作識別碼不能用於不同內容。", false, false, false, 409],
+  BACKUP_CORRUPTED: ["備份內容已損壞，未套用任何變更。", false, false, false, 400],
+  BACKUP_SCHEMA_UNSUPPORTED: ["此備份版本尚不支援，未套用任何變更。", false, false, false, 409],
+  RESTORE_TRANSACTION_FAILED: ["還原未完成，原作品保持不變。", true, true, true, 500],
+  RESTORE_ROLLED_BACK: ["還原失敗，已安全回復原作品。", true, true, true, 500],
   STORAGE_UNAVAILABLE: ["儲存空間目前無法使用。", true, false, false, 503],
   STORAGE_QUOTA_EXCEEDED: ["儲存空間不足。請先匯出備份或清理可安全移除的快取。", false, false, true, 507],
   STORAGE_TRANSACTION_FAILED: ["這次儲存沒有完成，原有資料仍然安全。", true, true, true, 500],

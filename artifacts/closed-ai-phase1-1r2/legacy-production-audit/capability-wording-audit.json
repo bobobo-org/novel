@@ -1,0 +1,8 @@
+{
+  "finding": "LEGACY_TERMINOLOGY_MISMATCH",
+  "engineeringDiagnosticsExposed": true,
+  "diagnosticFields": ["workspaceScriptLoaded", "workspaceInitialized", "workspaceMounted", "workspaceVisible", "workspaceVisibilityReason", "workspaceInitializationError"],
+  "runtimeClaim": "本機閉端 Runtime：ready",
+  "actualMeaning": "browser workspace retrieval pipeline ready; not a third inference provider",
+  "formalNames": ["Browser AI", "個人本機 Ollama", "私有 AI 中樞"]
+}

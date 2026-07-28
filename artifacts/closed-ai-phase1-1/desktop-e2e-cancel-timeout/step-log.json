@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "steps": [
+    { "step": "cancel", "status": "PASS", "result": "Long generation cancelled from Studio UI after 350 ms; UI ended as cancelled" },
+    { "step": "timeout", "status": "PASS", "requestId": "7783bde2-1af7-4af1-9a03-1e553790668b", "elapsedMs": 1052, "result": "One-second UI limit produced actionable timeout guidance" },
+    { "step": "retry", "status": "PASS", "result": "Changed limit to 60 seconds and retried from Studio UI; generation completed" }
+  ],
+  "externalAiCalls": 0
+}

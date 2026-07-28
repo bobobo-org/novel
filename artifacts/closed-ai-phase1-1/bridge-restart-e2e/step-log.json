@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "steps": [
+    { "step": "restart-bridge", "status": "PASS", "result": "Bridge instance ID changed" },
+    { "step": "old-pairing", "status": "PASS", "result": "Old pairing was not accepted by the new instance" },
+    { "step": "repair", "status": "PASS", "result": "Studio user flow paired again successfully" }
+  ]
+}

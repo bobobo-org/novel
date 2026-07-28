@@ -1,0 +1,120 @@
+﻿pnpm.cmd : $ node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-
+phase1-1r5-1.mjs
+At line:2 char:1306
++ ... topwatch]::StartNew(); $output=& $item.exe @($item.args) 2>&1|Out-Str ...
++                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ node --experi...hase1-1r5-1.mjs:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:4764) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/dev/novel-closed-ai-r5-2/lib/novel-ai/pro
+viders/local-ollama/studio-origin.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\dev\novel-closed-ai-r5-2\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "schemaVersion": "closed-ai-phase1-1r5-1-dynamic-origin-v1",
+  "generatedAt": "2026-07-20T21:12:08.293Z",
+  "previewOrigin": "https://novel-r51-contract-preview.vercel.app",
+  "pass": 10,
+  "fail": 0,
+  "results": [
+    {
+      "name": "SSR returns a neutral origin state",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "copyableCommandRendered": false,
+        "localhostFallbackRendered": false
+      }
+    },
+    {
+      "name": "hydration resolves the exact Preview origin",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "ready": true,
+        "origin": "https://novel-r51-contract-preview.vercel.app"
+      }
+    },
+    {
+      "name": "enrollment command repeats the exact page origin",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "renderedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "copiedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "confirmedOrigin": "https://novel-r51-contract-preview.vercel.app",
+        "command": "node local-ai/bridge/launcher.mjs origin add https://novel-r51-contract-preview.vercel.app --confirm https://novel-r51-contract-preview.vercel.app"
+      }
+    },
+    {
+      "name": "mismatched command is blocked",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "errorCode": "ORIGIN_COMMAND_MISMATCH",
+        "copied": false
+      }
+    },
+    {
+      "name": "unsafe enrollment origins are rejected",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "wildcard": false,
+        "remoteHttp": false,
+        "remoteIp": false,
+        "pathQueryFragment": false
+      }
+    },
+    {
+      "name": "Studio has no SSR localhost enrollment fallback",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "sourceUsesWindowLocationAfterHydration": true,
+        "ssrCopyCommand": false
+      }
+    },
+    {
+      "name": "NOVEL_STUDIO_ORIGIN cannot silently select a Preview origin",
+      "status": "PASS",
+      "elapsedMs": 88,
+      "evidence": {
+        "environmentOriginAuthoritative": false,
+        "explicitOriginRequired": true
+      }
+    },
+    {
+      "name": "Bridge records accepted PNA preflight decisions",
+      "status": "PASS",
+      "elapsedMs": 21,
+      "evidence": {
+        "optionsReceived": true,
+        "exactOrigin": true,
+        "privateNetworkAllowed": true
+      }
+    },
+    {
+      "name": "Bridge records received GET and rejects bad origins",
+      "status": "PASS",
+      "elapsedMs": 30,
+      "evidence": {
+        "getReceived": true,
+        "success": true,
+        "rejectedOriginStatus": 403
+      }
+    },
+    {
+      "name": "Access log contains auditable decisions without private content",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "records": 3,
+        "requiredFields": true,
+        "sensitiveContent": false
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,16 @@
+﻿{
+    "status":  "PASS",
+    "pass":  9,
+    "fail":  0,
+    "adapterContract":  {
+                            "pass":  17,
+                            "fail":  0
+                        },
+    "eslint":  {
+                   "errors":  0,
+                   "baselineWarnings":  98,
+                   "newWarnings":  0
+               },
+    "browserRuntime":  "NOT_TESTED",
+    "storyBible":  "NOT_TESTED"
+}

@@ -5,7 +5,7 @@ export type NetworkGuardDecision = {
 };
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-const LOCAL_PORTS = new Set(["", "11434", "3217", "3218", "3100"]);
+const LOCAL_PORTS = new Set(["", "11434", "3217", "3218", "3100", "43117"]);
 
 export function checkLocalOnlyUrl(input: string | URL): NetworkGuardDecision {
   let url: URL;

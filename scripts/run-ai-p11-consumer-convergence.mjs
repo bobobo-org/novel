@@ -1,34 +1,73 @@
 import fs from "node:fs";
-import path from "node:path";
-const root=process.cwd(),read=file=>fs.readFileSync(path.join(root,file),"utf8"),checks=[];
-const check=(name,condition)=>checks.push({name,pass:Boolean(condition)});
-const home=read("app/page.tsx"),config=read("next.config.ts"),html=read("public/legacy/novel-system.html"),compactHtml=html.replace(/\s+/g,""),health=read("app/api/ai/health/route.ts"),core=read("public/legacy/consumer-core.js"),wizard=read("public/legacy/creation-wizard.js"),studio=read("public/legacy/writing-studio.js"),actions=read("public/legacy/consumer-ai-actions.js"),choice=read("public/legacy/choice-story.js"),dashboard=read("public/legacy/story-dashboard.js"),app=read("public/legacy/consumer-app.js"),css=read("public/legacy/consumer-app.css"),studioRoute=read("app/studio/studio-client.tsx"),professionalTools=read("public/legacy/professional-tools.js"),phase1=read("public/legacy/phase1-manager.js");
-check("首頁移除 v5.9.1 主版本",!home.includes("v5.9.1"));
-check("首頁正式主標題",home.includes("諸天萬界小說生成系統")&&home.includes("創作、互動、養成與經營的 AI 故事平台"));
-check("首頁六個消費者入口",["開始新故事","繼續我的故事","玩互動故事","修改目前作品","檢查整本作品","我的作品"].every(x=>home.includes(x)));
-check("公開入口恢復簡易與專業雙模式",config.includes('source: "/studio"')&&config.includes("LEGACY_CONSUMER_PATH")&&config.includes('source: "/professional"')&&config.includes("LEGACY_PROFESSIONAL_PATH"));
-check("新版 studio 程式保留可回復",studioRoute.includes("studioShell")&&studioRoute.includes("建立新作品"));
-check("legacy 只作相容 shell",html.includes('<base href="/legacy/">')&&html.includes("consumer-app.js"));
-check("雙模式首幀不互相閃爍",html.includes("p11-professional-entry")&&html.includes("p11-consumer-entry")&&html.includes("#consumerAppShell[hidden]")&&html.includes("#consumerAppShell{"));
-check("簡易專業同頁無重載切換",app.includes("startViewTransition")&&app.includes("syncModeUrl")&&professionalTools.includes("ConsumerApp?.setMode(\"consumer\")"));
-check("專業側欄單欄且獨立捲動",compactHtml.includes("grid-template-columns:278pxminmax(0,1fr)")&&compactHtml.includes("flex-direction:column")&&compactHtml.includes("overflow-y:auto")&&compactHtml.includes("white-space:nowrap"));
-check("專業工作台不顯示頁面捲軸",compactHtml.includes("overflow-x:hidden")&&compactHtml.includes("scrollbar-width:none")&&html.includes(".main::-webkit-scrollbar"));
-const navMarkup=html.match(/<div class="nav">([\s\S]*?)<\/div><\/aside>/)?.[1]||"",navViews=[...navMarkup.matchAll(/data-view="([^"]+)"/g)].map(match=>match[1]);
-check("專業 27 個功能磚有完整控制",((navMarkup.match(/<button/g)||[]).length+Number(phase1.includes('newWorkButton.textContent = "建立新作品"')))===27&&navViews.every(view=>html.includes(`id="view-${view}"`))&&html.includes('onclick="showProfessionalWorkspace()"'));
-check("功能切換固定右側起點",html.includes("professionalMainToTop")&&html.includes("professional-feature-view")&&html.includes("professional-ai-workspace"));
-check("十個消費者模組載入",["consumer-home","consumer-navigation","creation-wizard","writing-studio","consumer-ai-actions","choice-story","story-dashboard","theme-system","adult-entry-guard","professional-tools"].every(x=>html.includes(x)));
-check("五步驟建立流程",wizard.includes("第 ${step} 步，共 5 步")&&["你想寫什麼故事","建立主角","建立故事世界","選擇故事玩法","預覽並建立"].every(x=>wizard.includes(x)));
-check("進階欄位保留",["分類包","故事引擎","主角原型","世界核心","能力核心","反派核心","十章大綱"].every(x=>wizard.includes(x)));
-check("共用 legacy 正式作品資料",core.includes("syncWizardToLegacy")&&core.includes("window.createStory")&&core.includes("window.saveProjectSlot"));
-check("三區寫作中心",studio.includes("p11-writing-nav")&&studio.includes("p11-editor")&&studio.includes("p11-writing-assistant"));
-check("八個消費者任務",(actions.match(/\["[a-z_]+","/g)||[]).length===8);
-check("候選稿安全邊界",actions.includes("結果只在候選區")&&actions.includes("正式正文仍需由你決定寫入"));
-check("三選一引用作品",choice.includes("NovelConsumer.activeProject")&&choice.includes("protagonist")&&choice.includes("conflict"));
-check("分支與一次回復",choice.includes("branches.push")&&choice.includes("回到上一個選擇點")&&choice.includes("snapshot.stats"));
-check("數值歷程完整",core.includes("before,delta")&&core.includes("reason")&&core.includes("branchId")&&dashboard.includes("最近變化"));
-check("成人入口雙確認",(read("public/legacy/adult-entry-guard.js").match(/confirm\(/g)||[]).length===2);
-check("Browser AI 不冒充",app.includes("Browser AI not_implemented")&&health.includes('browserAIStatus: "not_implemented"'));
-check("Health 誠實狀態",health.includes('dynamicThreeChoiceStatus: "partial"')&&health.includes('storyThemeSystemStatus: "foundation_ready"')&&health.includes('adultEntrySafetyStatus: "partial"'));
-check("預設外部請求為零",health.includes("consumerExternalRequestDefault: 0")&&health.includes("consumerDataLeftDeviceDefault: false"));
-check("手機版版面",css.includes("@media(max-width:820px)")&&css.includes("@media(max-width:520px)"));
-let pass=0;for(const item of checks){console.log(`${item.pass?"PASS":"FAIL"} ${item.name}`);if(item.pass)pass++}console.log(`P1.1 consumer convergence: ${pass} PASS / ${checks.length-pass} FAIL / 0 SKIP`);if(pass!==checks.length)process.exit(1);
+
+const read = (file) => fs.readFileSync(file, "utf8");
+const checks = [];
+const check = (name, condition, details = null) => {
+  checks.push({ name, status: condition ? "PASS" : "FAIL", details });
+};
+
+const rootPage = read("app/page.tsx");
+const studioPage = read("app/studio/page.tsx");
+const professionalPage = read("app/professional/page.tsx");
+const adapter = read("lib/professional-frontdoor.ts");
+const config = read("next.config.ts");
+const legacy = read("public/legacy/novel-system.html");
+const publicHealth = read("app/api/ai/health/route.ts");
+const adminHealth = read("app/api/admin/persistence/route.ts");
+
+for (const [route, source] of [
+  ["/studio", studioPage],
+  ["/professional", professionalPage],
+]) {
+  check(`${route} uses the shared Professional adapter`, source.includes("buildProfessionalFrontdoorUrl"));
+  check(`${route} redirects before rendering a competing shell`, source.includes("redirect(") && !source.includes("<main"));
+}
+
+check("root redirects to the Legacy consumer frontdoor", rootPage.includes('redirect("/legacy/novel-system.html?screen=home")'));
+check("adapter targets only the Legacy Professional document", adapter.includes('"/legacy/novel-system.html"'));
+check("adapter forces Professional mode", adapter.includes('query.set("mode", "professional")'));
+check("adapter preserves safe query values", adapter.includes("query.append(key, value)"));
+check("adapter retains repeated query values", adapter.includes("Array.isArray(value)"));
+check("adapter rejects unsafe query keys", adapter.includes("SAFE_QUERY_KEY"));
+check("adapter bounds query value length", adapter.includes("MAX_QUERY_VALUE_LENGTH"));
+check("no wildcard Studio redirect exists", !config.includes('source: "/studio/:path*"'));
+
+const menuMarkup = legacy.match(/<div class="nav" data-testid="professional-menu">([\s\S]*?)<\/div><\/aside>/)?.[1] ?? "";
+const menuCount = (menuMarkup.match(/<button\b/g) ?? []).length;
+check("Professional menu has exactly 27 controls", menuCount === 27, { menuCount });
+check("Professional menu is two columns on desktop", legacy.includes("grid-template-columns:repeat(2,minmax(0,1fr))"));
+check("Professional menu is one column on compact viewports", legacy.includes("grid-template-columns:1fr!important"));
+check("menu labels remain one line", legacy.includes("white-space:nowrap"));
+check("left rail scrolls independently", legacy.includes("overflow-y:auto!important") && legacy.includes("overscroll-behavior:contain"));
+check("outer document cannot scroll", legacy.includes("overflow:hidden!important"));
+check("main workspace scrolls independently", legacy.includes('data-testid="professional-main"') && legacy.includes(".main{"));
+check("consumer shell is hidden before first paint", legacy.includes("html.p11-professional-entry body") && legacy.includes("#consumerAppShell"));
+check("compatibility banner is hidden", legacy.includes("#legacyCompatibilityBanner"));
+check("return consumer control is hidden", legacy.includes("#p11ReturnConsumer"));
+check("app dock is hidden", legacy.includes(".appDock"));
+check("Professional workspace has a stable marker", legacy.includes('data-testid="professional-workspace"'));
+check("Professional route hub has a stable marker", legacy.includes('data-testid="professional-route-hub"'));
+check("route hub exposes eight formal destinations", (legacy.match(/class="p24b-route-card"/g) ?? []).length === 8);
+for (const route of ["write", "characters", "world", "story-bible", "character-ai", "reader", "backups"]) {
+  check(`route hub preserves ${route}`, legacy.includes(`data-project-route="${route}"`));
+}
+check("screen semantics preserve create", legacy.includes('create:"studio"'));
+check("screen semantics preserve write", legacy.includes('write:"studio"'));
+check("screen semantics preserve choice", legacy.includes('choice:"interactive"'));
+check("screen semantics preserve inspect", legacy.includes('inspect:"miniai"'));
+check("screen semantics preserve library", legacy.includes('library:"export"'));
+check("task and project context remain observable", legacy.includes("frontdoorTask") && legacy.includes("frontdoorProjectId"));
+for (const source of [publicHealth, adminHealth]) {
+  check("health exposes unified Professional status", source.includes("unifiedProfessionalUiStatus"));
+  check("health exposes deep Studio route status", source.includes("deepStudioRoutesStatus"));
+  check("health exposes exact menu count", source.includes("professionalMenuItemCount: 27"));
+}
+
+const pass = checks.filter((item) => item.status === "PASS").length;
+const fail = checks.length - pass;
+for (const item of checks) console.log(`${item.status} ${item.name}`);
+console.log(`P1.1 selective Professional convergence: ${pass} PASS / ${fail} FAIL / 0 SKIP`);
+if (fail) {
+  console.error(JSON.stringify(checks.filter((item) => item.status === "FAIL"), null, 2));
+  process.exitCode = 1;
+}

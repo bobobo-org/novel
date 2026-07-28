@@ -1,0 +1,69 @@
+{
+    "schemaVersion":  "p21r3-evidence-manifest-v1",
+    "generatedAt":  "2026-07-24T15:49:57.1194674Z",
+    "baseCommit":  "ef11024c5fde555d536f43bb470e42c306251b20",
+    "branch":  "agent/p21r3-build-sealed-provenance",
+    "entries":  [
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/build-log.txt",
+                        "bytes":  442,
+                        "sha256":  "7e84581b99f2efaf848779625da88f701134554bf787d22c51efb7a954452b29"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/changed-files.txt",
+                        "bytes":  1199,
+                        "sha256":  "caa8e629dd4761e06846bcc594f2f7ee6a4450f2543e69bc3148219478d0a07e"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/diff-scope-analysis.md",
+                        "bytes":  505,
+                        "sha256":  "f67d46a7243400725c93d1ab2a4cc78d217ec2382909094e33a46a1198c58cab"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/executive-summary.md",
+                        "bytes":  618,
+                        "sha256":  "7e55caced1edd4c33c6b1f852bde30fd327c657112194be7569e53b1077fd5cb"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/final-validation.log",
+                        "bytes":  6799,
+                        "sha256":  "1fb3d54e53d2e52c59ae0949e30231ebf0306c56cbd7dc3ee7c2360c93cd861b"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/findings.json",
+                        "bytes":  366,
+                        "sha256":  "e9c5f30b5e2b1a5ae47fa4602fa086cdb1645f6dc759b39d3a13ba72a28be4df"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/release-provenance-contract.json",
+                        "bytes":  649,
+                        "sha256":  "53f5b37a6fd9e08b94a9c1c44fb1ecc54fdef0fc6715d0191f25c78bc063a330"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/release-provenance-regression.json",
+                        "bytes":  1642,
+                        "sha256":  "e079db2243d18da248a2845c4d216d7abf8405cf6a0728441402218ab41d4a10"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/root-cause-analysis.md",
+                        "bytes":  906,
+                        "sha256":  "b2b25d51c8f0e5658cf1372541a721e4a77a23ad0c16d1b75b8b0aa79ddda40d"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/security-scan-results.json",
+                        "bytes":  175,
+                        "sha256":  "61df1effc636aef095f863e292b4cfa19fec502929a9d9a8d36c1a5aeb55e2d3"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/test-command-log.txt",
+                        "bytes":  367,
+                        "sha256":  "f8630d8f6ec0c06aa52e57652a0f83e38c9626087991a6b48ff41aca0293d554"
+                    },
+                    {
+                        "path":  "artifacts/p21r3-build-sealed-provenance/test-results.json",
+                        "bytes":  1016,
+                        "sha256":  "177ffef9eb176ecdb3405aa177b510c7d56018c9da2f26e3705358be4d6cbc06"
+                    }
+                ],
+    "mismatchCount":  0
+}

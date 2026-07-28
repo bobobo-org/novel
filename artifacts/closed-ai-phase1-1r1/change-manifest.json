@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-change-manifest-v1",
+  "new": [
+    "lib/novel-ai/providers/local-ollama/local-quality-guard.ts",
+    "local-ai/bridge/novel-local-ai.ps1",
+    "scripts/run-closed-ai-launcher-clean-shell.mjs",
+    "scripts/run-closed-ai-phase1-1r1-quality.mjs",
+    "artifacts/closed-ai-phase1-1r1/"
+  ],
+  "modified": [
+    "app/studio/settings/ai/settings-client.tsx",
+    "lib/novel-ai/providers/local-ollama/local-bridge-client.ts",
+    "local-ai/bridge/launcher.mjs",
+    "local-ai/bridge/README.md",
+    "package.json"
+  ],
+  "deleted": [],
+  "productionDataFilesModified": false,
+  "indexedDbSchemaModified": false,
+  "backupRestoreModified": false,
+  "studioCanonicalAcceptanceModified": false,
+  "productionDeployed": false
+}

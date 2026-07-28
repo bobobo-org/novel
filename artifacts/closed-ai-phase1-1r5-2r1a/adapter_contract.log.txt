@@ -1,0 +1,76 @@
+﻿{
+  "suite": "r5-2r1a-local-cdp-adapter",
+  "pass": 17,
+  "fail": 0,
+  "results": [
+    {
+      "name": "argument parser",
+      "status": "PASS"
+    },
+    {
+      "name": "forbidden browser arguments rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "safe CDP arguments accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "Chrome default profile rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "Edge default profile rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "dedicated profile accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "loopback ephemeral port reservation",
+      "status": "PASS"
+    },
+    {
+      "name": "Chrome identity validation",
+      "status": "PASS"
+    },
+    {
+      "name": "Edge identity validation",
+      "status": "PASS"
+    },
+    {
+      "name": "identity mismatch rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "channel errors classified",
+      "status": "PASS"
+    },
+    {
+      "name": "Bridge starts before browser adapter",
+      "status": "PASS"
+    },
+    {
+      "name": "origin enrollment precedes Bridge start",
+      "status": "PASS"
+    },
+    {
+      "name": "human LNA pause requires CONTINUE",
+      "status": "PASS"
+    },
+    {
+      "name": "channel attempted before CDP fallback",
+      "status": "PASS"
+    },
+    {
+      "name": "run evidence has SHA-256 manifest",
+      "status": "PASS"
+    },
+    {
+      "name": "four isolated flow profiles declared",
+      "status": "PASS"
+    }
+  ]
+}
+

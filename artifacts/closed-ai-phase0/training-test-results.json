@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "closed-ai-training-phase0-results-v1",
+  "suite": "closed-ai-training-phase0",
+  "generatedAt": "2026-07-19T17:42:48.648Z",
+  "pass": 25,
+  "fail": 0,
+  "skip": 0,
+  "realTrainingRuns": 0,
+  "externalModelCalls": 0,
+  "results": [
+    {
+      "name": "unreviewed data cannot train",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "private data without shared qualification cannot export",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "deleted data cannot reenter dataset",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "rollback is not positive preference",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "deterministic provider is training-ineligible",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "missing provenance cannot approve",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "dataset version cannot overwrite",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "model version cannot overwrite",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "production model is not directly replaced",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "benchmark regression blocks promotion",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "privacy failure blocks promotion",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "closed-only failure blocks promotion",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "personal dataset cannot cross user boundary",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "rejected sample cannot export",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "evaluator result is traceable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "training run binds dataset and base model",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "training run without dataset is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "model registry entry validates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "production model requires benchmark and safety evidence",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "rollback returns to approved version",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "lifecycle cannot skip collected to trained",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "lifecycle allows collected to validated",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "clean dataset validates",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "contaminated dataset is rejected",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "approved promotion requires every gate",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

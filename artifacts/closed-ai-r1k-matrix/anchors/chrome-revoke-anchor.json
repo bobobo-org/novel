@@ -1,0 +1,20 @@
+{
+    "schemaVersion":  "r1k-evidence-anchor-v1",
+    "case":  "Chrome Revoke",
+    "result":  "R1K_CHROME_REVOKE_AUTOMATED_PASS",
+    "technicalStatus":  "AUTOMATED_PASS",
+    "humanValidationStatus":  "HUMAN_NOT_RUN",
+    "productCommit":  "f841ae4cbd2b0b2cba7f42b6ef74726db5da2971",
+    "harnessCommit":  "9cd5c37db5d0678dba25e54cce7d71ac1893490d",
+    "evidenceContractCommit":  "8c1950a83668e863b0e9a18d29f683d59d86278b",
+    "runId":  "chrome-revoke-16d885f597e440519bbcf8876c644ccf",
+    "decisionMethod":  "WINDOWS_UI_AUTOMATION",
+    "humanOperatorClicked":  false,
+    "pass":  17,
+    "fail":  0,
+    "skip":  0,
+    "finalEvidenceSha256":  "074b435c15cfa2817b75e3014e6e0f7ed467d8a87effad17a12dd7d17c264a89",
+    "manifestSha256":  "7456f961254ef7f4e832a3a006cedbe5d3bc44d682efbeed240bcb68c2365f7b",
+    "bundlePath":  "artifacts/closed-ai-r1k-matrix/chrome-revoke-01/immutable/chrome-revoke-16d885f597e440519bbcf8876c644ccf",
+    "anchoredAt":  "2026-07-22T11:02:54.5082027Z"
+}

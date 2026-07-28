@@ -1,0 +1,9 @@
+[
+  {
+    "name": "stale source creates no formal rows",
+    "status": "PASS",
+    "evidence": {
+      "staleWrites": 0
+    }
+  }
+]

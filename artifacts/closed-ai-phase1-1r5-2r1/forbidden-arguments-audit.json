@@ -1,0 +1,15 @@
+﻿{
+    "status":  "PASS",
+    "argumentsUsed":  [
+
+                      ],
+    "forbiddenArgumentsUsed":  [
+
+                               ],
+    "grantPermissionsUsed":  false,
+    "cdpPermissionMutationUsed":  false,
+    "policyModified":  false,
+    "firewallModified":  false,
+    "proxyModified":  false,
+    "hostsModified":  false
+}

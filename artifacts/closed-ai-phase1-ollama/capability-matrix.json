@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "closed-ai-phase1-capability-matrix-v1",
+  "capabilities": [
+    {"name":"Bridge contract","status":"runtime_ready_local"},
+    {"name":"Bridge process","status":"runtime_ready_local"},
+    {"name":"Pairing","status":"runtime_ready_local"},
+    {"name":"Ollama connectivity","status":"runtime_ready_local"},
+    {"name":"Model discovery","status":"runtime_ready_local"},
+    {"name":"Generation","status":"runtime_ready_local"},
+    {"name":"Streaming","status":"runtime_ready_local"},
+    {"name":"Cancellation","status":"runtime_ready_local"},
+    {"name":"Offline test","status":"runtime_ready_local"},
+    {"name":"Studio integration","status":"partial","reason":"AI settings pairing is implemented on the branch but not Production deployed."},
+    {"name":"Production deployment","status":"not_implemented"},
+    {"name":"Browser AI runtime","status":"not_implemented"},
+    {"name":"Private Hub runtime","status":"not_implemented"}
+  ]
+}

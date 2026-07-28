@@ -42,8 +42,9 @@ export function mockFetch(routes, calls = []) {
   };
 }
 
-export const goodHealth = {
+export const goodPublicHealth = {
   localRuntimeVersion: "h2w1-test-runtime",
+  localRuntimeAuthStatus: "required",
   ollamaStatus: "ready",
   selectedModel: "qwen2.5:3b",
   selectedStorage: "sqlite-local",
@@ -51,13 +52,26 @@ export const goodHealth = {
   handshake: {
     protocolVersion: "novel-local-runtime-v1",
     runtimeVersion: "h2w1-test-runtime",
-    sessionId: "session-test",
-    serverNonce: "server-nonce",
-    expiresAt: new Date(Date.now() + 60000).toISOString(),
     allowedOrigins: ["https://novel-orcin.vercel.app"],
-    capabilities: ["generation", "embedding", "sqlite", "streaming", "cancel"],
+    capabilities: ["generation", "embedding", "sqlite", "streaming", "cancellation"],
     ollamaStatus: "ready",
     installedModels: ["qwen2.5:3b"],
     selectedStorage: "sqlite-local",
+    clientNonceRequired: false,
+    authenticated: false,
   },
 };
+
+export const goodSessionHealth = {
+  ...goodPublicHealth,
+  localRuntimeAuthStatus: "authenticated",
+  handshake: {
+    ...goodPublicHealth.handshake,
+    sessionId: "session-test",
+    serverNonce: "server-nonce",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    authenticated: true,
+  },
+};
+
+export const goodHealth = goodSessionHealth;

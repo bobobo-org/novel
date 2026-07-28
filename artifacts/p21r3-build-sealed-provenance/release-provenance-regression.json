@@ -1,0 +1,69 @@
+{
+  "suite": "P2.1R3 build-sealed provenance",
+  "schemaVersion": "p21-build-provenance-regression-v1",
+  "pass": 15,
+  "fail": 0,
+  "skip": 0,
+  "results": [
+    {
+      "name": "VERCEL_GIT_COMMIT_SHA is authoritative at build time",
+      "status": "PASS"
+    },
+    {
+      "name": "explicit build commit is the supported non-Vercel fallback",
+      "status": "PASS"
+    },
+    {
+      "name": "Git HEAD is used when build variables are absent",
+      "status": "PASS"
+    },
+    {
+      "name": "APP_COMMIT cannot contaminate authoritative provenance",
+      "status": "PASS"
+    },
+    {
+      "name": "invalid explicit commit fails closed",
+      "status": "PASS"
+    },
+    {
+      "name": "missing commit fails closed",
+      "status": "PASS"
+    },
+    {
+      "name": "sealed provenance validates",
+      "status": "PASS"
+    },
+    {
+      "name": "payload tampering invalidates the seal",
+      "status": "PASS"
+    },
+    {
+      "name": "release metadata tampering invalidates the seal",
+      "status": "PASS"
+    },
+    {
+      "name": "same inputs produce the same provenance hash",
+      "status": "PASS"
+    },
+    {
+      "name": "runtime source no longer reads APP_COMMIT",
+      "status": "PASS"
+    },
+    {
+      "name": "health exposes verified provenance fields",
+      "status": "PASS"
+    },
+    {
+      "name": "deployment identity remains runtime-scoped",
+      "status": "PASS"
+    },
+    {
+      "name": "static release stamping rejects an invalid provenance seal",
+      "status": "PASS"
+    },
+    {
+      "name": "generated artifact contains no credential-shaped fields",
+      "status": "PASS"
+    }
+  ]
+}

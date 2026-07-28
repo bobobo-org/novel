@@ -1,0 +1,10 @@
+{
+  "directPaths": [
+    {"provider":"Ollama","endpoint":"http://localhost:11434/api/generate","bridgeUsed":false},
+    {"provider":"LM Studio","endpoint":"http://localhost:1234/v1/chat/completions","bridgeUsed":false},
+    {"provider":"OpenAI-compatible","endpoint":"user supplied","routerUsed":false},
+    {"provider":"Gemini","endpoint":"site backend","routerBoundary":"legacy cloud path"}
+  ],
+  "evidence": ["public/legacy/novel-system.html:223-227", "public/legacy/novel-system.html:510", "public/legacy/phase1-manager.js:3131-3685"],
+  "finding": "LEGACY_PROVIDER_BYPASS"
+}

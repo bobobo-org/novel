@@ -1,0 +1,5 @@
+﻿{
+    "status":  "NOT_TESTED",
+    "blocker":  "COMPLIANT_CHROME_EDGE_CONTROL_CHANNEL_UNAVAILABLE",
+    "reason":  "A compliant headed Chrome and Edge UI control channel is required. No in-app browser, direct API substitute, permission injection, or browser security bypass is permitted."
+}

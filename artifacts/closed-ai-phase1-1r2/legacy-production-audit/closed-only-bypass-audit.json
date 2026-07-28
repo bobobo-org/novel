@@ -1,0 +1,6 @@
+{
+  "closedOnlyBypassPossible": true,
+  "reason": "Legacy askExternalAI accepts a user supplied endpoint and calls fetch directly without the formal Router decision contract.",
+  "severity": "High",
+  "blockingR2": true
+}

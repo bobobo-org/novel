@@ -4,8 +4,14 @@ import { createHarness } from "./run-ai-h2w1-test-utils.mjs";
 const t = createHarness("H2W1 actions-ui");
 const html = fs.readFileSync("public/legacy/novel-system.html", "utf8");
 const js = fs.readFileSync("public/legacy/novel-local-runtime-client.js", "utf8");
+const studio = fs.readFileSync("app/studio/studio-client.tsx", "utf8");
+const studioClosedAI = fs.readFileSync("lib/novel-ai/web/studio-closed-ai.ts", "utf8");
+const buildTruth = fs.readFileSync("scripts/check-legacy-build-truth.mjs", "utf8");
 
-t.includes(html, "novel-local-runtime-client.js?v=h2w1-web-local-ai", "legacy page loads H2W1 client");
+t.notIncludes(html, "src=\"./novel-local-runtime-client.js", "sealed legacy page does not load retired runtime client");
+t.includes(buildTruth, "\"./novel-local-runtime-client.js\"", "legacy build gate blocks retired runtime client");
+t.includes(studio, "runStudioClosedAI", "current Studio integrates the unified closed AI client");
+t.includes(studioClosedAI, "executePlatformAI", "unified client routes through the secure provider platform");
 t.includes(js, "h2wClosedAiCenter", "closed AI status center injected");
 t.includes(js, "閉端 AI 系統狀態", "status center title visible");
 t.includes(js, "AI Actions", "AI actions tab exists");

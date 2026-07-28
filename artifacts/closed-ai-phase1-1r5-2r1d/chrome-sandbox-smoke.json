@@ -1,0 +1,76 @@
+{
+  "browser": "chrome",
+  "profilePath": "C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome",
+  "targetUrl": "about:blank",
+  "status": "PASS",
+  "startedAt": "2026-07-20T21:51:25.974Z",
+  "adapter": "playwright-channel",
+  "sandboxEnabled": true,
+  "actualCommandLineVerified": true,
+  "securityAudit": {
+    "checkedAt": "2026-07-20T21:51:30.451Z",
+    "processCount": 7,
+    "forbiddenArgumentCount": 0,
+    "forbiddenArguments": [],
+    "rows": [
+      {
+        "pid": 29564,
+        "parentPid": 21368,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-first-run --no-default-browser-check --user-data-dir=C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome --remote-debugging-pipe about:blank",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 23144,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=crashpad-handler --user-data-dir=C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome /prefetch:4 --monitor-self-annotation=ptype=crashpad-handler --database=C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\\Crashpad --metrics-dir=C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome --url=https://clients2.google.com/cr/report --annotation=channel= --annotation=plat=Win64 --annotation=prod=Chrome --annotation=ver=150.0.7871.124 --initial-client-data=0x15c,0x160,0x164,0x54,0x168,0x7ff8d4a8ba50,0x7ff8d4a8ba5c,0x7ff8d4a8ba68",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 9440,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=gpu-process --disable-breakpad --enable-unsafe-swiftshader --user-data-dir=\"C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\" --no-pre-read-main-dll --gpu-preferences=UAAAAAAAAADgAAAEAAAAAAAAAAAAAGAAOAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAABgAAAAAAAAAGAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --metrics-shmem-handle=1792,i,7065870232775712699,15853857257240238830,262144 --field-trial-handle=2068,i,1937974612331704592,7953933555576780766,262144 --enable-features=CDPScreenshotNewSurface --disable-features=AutoDeElevate,AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,OptimizationHints,PaintHolding,RenderDocument,ThirdPartyStoragePartitioning,Translate,msEdgeUpdateLaunchServicesPreferredVersion,msForceBrowserSignIn --variations-seed-version --pseudonymization-salt-handle=2060,i,3439731097922818091,1680930525353140465,4 --trace-process-track-uuid=3190708988185955192 --mojo-platform-channel-handle=2028 /prefetch:2",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 20244,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=zh-TW --service-sandbox-type=none --user-data-dir=\"C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\" --no-pre-read-main-dll --metrics-shmem-handle=2128,i,3363488112634621809,11877131142673342937,524288 --field-trial-handle=2068,i,1937974612331704592,7953933555576780766,262144 --enable-features=CDPScreenshotNewSurface --disable-features=AutoDeElevate,AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,OptimizationHints,PaintHolding,RenderDocument,ThirdPartyStoragePartitioning,Translate,msEdgeUpdateLaunchServicesPreferredVersion,msForceBrowserSignIn --variations-seed-version --pseudonymization-salt-handle=2060,i,3439731097922818091,1680930525353140465,4 --trace-process-track-uuid=3190708989122997041 --mojo-platform-channel-handle=2132 /prefetch:11",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 25984,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=utility --utility-sub-type=storage.mojom.StorageService --lang=zh-TW --service-sandbox-type=service --user-data-dir=\"C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\" --no-pre-read-main-dll --metrics-shmem-handle=2496,i,11945056934998761595,16496128094898948020,524288 --field-trial-handle=2068,i,1937974612331704592,7953933555576780766,262144 --enable-features=CDPScreenshotNewSurface --disable-features=AutoDeElevate,AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,OptimizationHints,PaintHolding,RenderDocument,ThirdPartyStoragePartitioning,Translate,msEdgeUpdateLaunchServicesPreferredVersion,msForceBrowserSignIn --variations-seed-version --pseudonymization-salt-handle=2060,i,3439731097922818091,1680930525353140465,4 --trace-process-track-uuid=3190708990060038890 --mojo-platform-channel-handle=2100 /prefetch:13",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 24628,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=renderer --user-data-dir=\"C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\" --no-pre-read-main-dll --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --video-capture-use-gpu-memory-buffer --lang=zh-TW --device-scale-factor=1 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=6 --time-ticks-at-unix-epoch=-1784161988150130 --launch-time-ticks=422299032410 --metrics-shmem-handle=3412,i,362767912098270313,3083054384301460084,2097152 --field-trial-handle=2068,i,1937974612331704592,7953933555576780766,262144 --enable-features=CDPScreenshotNewSurface --disable-features=AutoDeElevate,AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,OptimizationHints,PaintHolding,RenderDocument,ThirdPartyStoragePartitioning,Translate,msEdgeUpdateLaunchServicesPreferredVersion,msForceBrowserSignIn --variations-seed-version --pseudonymization-salt-handle=2060,i,3439731097922818091,1680930525353140465,4 --trace-process-track-uuid=3190708991934122588 --mojo-platform-channel-handle=4152 /prefetch:1",
+        "forbiddenArguments": []
+      },
+      {
+        "pid": 15936,
+        "parentPid": 29564,
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "commandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=renderer --user-data-dir=\"C:\\dev\\novel-closed-ai-r5-2\\artifacts\\closed-ai-phase1-1r5-2r1d\\smoke-profiles\\chrome\" --no-pre-read-main-dll --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --video-capture-use-gpu-memory-buffer --lang=zh-TW --device-scale-factor=1 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=5 --time-ticks-at-unix-epoch=-1784161988150130 --launch-time-ticks=422299033232 --metrics-shmem-handle=3428,i,2499484707860642845,17725955499186581558,2097152 --field-trial-handle=2068,i,1937974612331704592,7953933555576780766,262144 --enable-features=CDPScreenshotNewSurface --disable-features=AutoDeElevate,AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,OptimizationHints,PaintHolding,RenderDocument,ThirdPartyStoragePartitioning,Translate,msEdgeUpdateLaunchServicesPreferredVersion,msForceBrowserSignIn --variations-seed-version --pseudonymization-salt-handle=2060,i,3439731097922818091,1680930525353140465,4 --trace-process-track-uuid=3190708990997080739 --mojo-platform-channel-handle=4180 /prefetch:1",
+        "forbiddenArguments": []
+      }
+    ],
+    "status": "PASS"
+  },
+  "identity": {
+    "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "cdpProduct": "Chrome/150.0.7871.124"
+  },
+  "visibleHeadedWindow": true,
+  "freshProfile": true,
+  "completedAt": "2026-07-20T21:51:30.486Z",
+  "debugPortReleased": true
+}

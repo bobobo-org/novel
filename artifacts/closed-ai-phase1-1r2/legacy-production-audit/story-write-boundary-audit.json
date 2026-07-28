@@ -1,0 +1,8 @@
+{
+  "legacyCanonicalStore": "localStorage and legacy IndexedDB/fallback stores",
+  "formalStudioStoryBibleWriteGateUsed": false,
+  "acceptedChoicesOrStoryBranchesDirectWriteObserved": false,
+  "formalStoryBibleDirectWriteObserved": false,
+  "contaminationRisk": "High until import/migration boundary is explicitly enforced",
+  "evidence": ["public/legacy/novel-system.html:523-526", "public/legacy/consumer-core.js:18", "public/legacy/db-v2.js:121-243"]
+}

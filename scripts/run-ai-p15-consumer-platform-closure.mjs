@@ -9,6 +9,7 @@ const professional = read("app/professional/professional-client.tsx");
 const health = read("app/api/ai/health/route.ts");
 const library = JSON.parse(read("data/story-library.json"));
 const manifest = JSON.parse(read("release-manifest.json"));
+const releaseMetadataContract = JSON.parse(read("release-metadata-contract.json"));
 const results = [];
 const productionVerifiedComponents = new Set([
   "HomeScreen",
@@ -33,7 +34,7 @@ function test(name, fn) {
   }
 }
 
-test("P1.5 release manifest remains forward compatible", () => ["P1.5", "P2", "P2.1"].includes(manifest.architectureStage));
+test("P1.5 release manifest remains forward compatible", () => releaseMetadataContract.allowedArchitectureStages.includes(manifest.architectureStage));
 test("11個分類包仍存在", () => library.packs.length === 11);
 test("218個經典題材仍存在", () => library.topics.filter((topic) => topic.classic).length === 218);
 test("題材ID仍唯一", () => new Set(library.topics.map((topic) => topic.topicId)).size === library.topics.length);
@@ -56,7 +57,7 @@ test("章節完成事件存在", () => studio.includes('task: "chapter_completed
 test("章節完成可觸發完整備份", () => compactStudio.includes('value.autoBackup==="chapter_complete"') && compactStudio.includes('makeBackupRecord(nextProject,"full",nextState)'));
 test("備份包含消費者故事資料快照", () => studio.includes('storyBibleStatus: "consumer_snapshot"') && studio.includes("unresolvedThreads"));
 test("備份包含閱讀進度", () => studio.includes("readingProgress") && studio.includes("novel_reader_progress_"));
-test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("WebLocalRuntimeClient"));
+test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("discoverStudioClosedAI"));
 test("Browser AI誠實標示未完成", () => health.includes('browserAiStatus: "not_implemented"'));
 test("Ollama消費者接線誠實標示需本機環境", () => health.includes('ollamaConsumerIntegrationStatus: "runtime_required"'));
 test("IndexedDB遷移誠實標示未完成", () => health.includes('indexedDbMigrationStatus: "not_implemented"'));

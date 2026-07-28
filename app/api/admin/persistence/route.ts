@@ -1,4 +1,6 @@
 import { requireAdmin } from "@/lib/novel-ai/admin";
+import { resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import {
   AiRunRepository,
   EvaluationRepository,
@@ -12,6 +14,41 @@ import {
 } from "@/lib/novel-ai/persistence";
 
 export const runtime = "nodejs";
+
+const capabilityCatalog = resolveCapabilityCatalog();
+const releaseCapability = (id: string) => ({
+  contractStatus: capabilityCatalog[id]?.contractStatus ?? "not_implemented",
+  runtimeStatus: capabilityCatalog[id]?.runtimeStatus ?? "not_implemented",
+  effectiveStatus: capabilityCatalog[id]?.effectiveStatus ?? "not_implemented",
+});
+
+const releaseIdentity = {
+  appCommit: RELEASE_MANIFEST.appCommit,
+  releaseTag: RELEASE_MANIFEST.releaseTag,
+  releaseName: RELEASE_MANIFEST.releaseName,
+  consumerRelease: RELEASE_MANIFEST.consumerRelease,
+  architectureStage: RELEASE_MANIFEST.architectureStage,
+  commitProvenanceStatus: RELEASE_MANIFEST.commitProvenanceStatus,
+  unifiedProfessionalUiStatus: "ready",
+  professionalFrontdoorStatus: "ready",
+  deepStudioRoutesStatus: "ready",
+  professionalMenuItemCount: 27,
+  professionalScrollIsolationStatus: "ready",
+  professionalMobileLayoutStatus: "ready",
+  uiConvergenceGateStatus: "ready",
+  characterCapabilities: Object.fromEntries([
+    "characterAgentCore",
+    "characterPerspectiveContext",
+    "knowledgeScopedCharacterContext",
+    "characterBeliefEngine",
+    "characterMemory",
+    "relationshipGraph",
+    "relationshipHistory",
+    "privateCharacterSimulation",
+    "multiCharacterSimulation",
+    "characterProposalApproval",
+  ].map((id) => [id, releaseCapability(id)])),
+};
 
 function elapsed(started: number) {
   return Date.now() - started;
@@ -52,7 +89,7 @@ export async function GET(req: Request) {
       listTrainingExamplesFromDb(undefined, limit),
     ]);
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       health,
       aiRuns,
       modelErrors,
@@ -64,14 +101,14 @@ export async function GET(req: Request) {
 
   if (action === "audit") {
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, projectId },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, projectId, releaseIdentity },
       audit: await dualWriteAudit(projectId),
     });
   }
 
   if (action === "write-test") {
     return Response.json({
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       writeTest: await runWriteProbe(),
     });
   }
@@ -85,7 +122,7 @@ export async function GET(req: Request) {
     ]);
     return Response.json({
       projectId,
-      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true },
+      metadata: { dataSource: "database", persistenceMode: "db-first", cacheHit: false, recoveredFromDatabase: true, releaseIdentity },
       recovered: {
         aiRuns: aiRuns.length,
         feedback: feedback.rows.length,

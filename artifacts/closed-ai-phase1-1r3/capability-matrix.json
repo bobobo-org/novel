@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r3-capability-matrix-v1",
+  "capabilities": [
+    {"id":"legacy-direct-provider","status":"blocked","evidence":"legacy-closed-only-tests.json"},
+    {"id":"legacy-sensitive-storage","status":"sanitized_and_blocked","evidence":"legacy-credential-migration.json"},
+    {"id":"legacy-formal-write","status":"blocked","evidence":"legacy-data-isolation-tests.json"},
+    {"id":"studio-local-ollama","status":"client_dependent","evidence":"preview pending"},
+    {"id":"studio-story-bible-approval","status":"implemented_pending_preview_e2e","evidence":"studio-approval-e2e.json"},
+    {"id":"browser-ai","status":"not_implemented","evidence":"code audit"},
+    {"id":"private-hub","status":"contract_only","evidence":"code audit"}
+  ]
+}

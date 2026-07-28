@@ -1,0 +1,12 @@
+{
+  "verifiedAtPageLoad": true,
+  "observedResourceOrigins": ["https://novel-orcin.vercel.app"],
+  "observedExternalRequests": [],
+  "configuredButNotInvoked": [
+    "http://localhost:11434",
+    "http://localhost:1234",
+    "http://localhost:8765",
+    "arbitrary OpenAI-compatible endpoint"
+  ],
+  "note": "No provider action was invoked because this was a read-only Production audit. Static and live DOM evidence proves the endpoint controls exist."
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "closed-ai-windows-runtime-v1",
+  "generatedAt": "2026-07-19T18:10:41.510Z",
+  "platform": "win32",
+  "firewallChanged": false,
+  "results": [
+    {
+      "name": "IPv6 loopback listener",
+      "status": "PASS",
+      "evidence": {
+        "bindAddress": "::1"
+      }
+    },
+    {
+      "name": "occupied port is rejected",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "EADDRINUSE"
+      }
+    },
+    {
+      "name": "bridge stop releases port",
+      "status": "PASS",
+      "evidence": {
+        "released": true
+      }
+    },
+    {
+      "name": "Windows Ollama process is user process",
+      "status": "PASS",
+      "evidence": {
+        "detected": true,
+        "executablePath": "C:\\Users\\user\\AppData\\Local\\Programs\\Ollama\\ollama.exe",
+        "serviceInstalledByBridge": false
+      }
+    }
+  ],
+  "pass": 4,
+  "fail": 0
+}

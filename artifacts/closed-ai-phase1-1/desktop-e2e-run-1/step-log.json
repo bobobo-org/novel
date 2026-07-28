@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "closed-ai-browser-e2e-v1",
+  "environment": { "viewport": "desktop", "studio": "http://localhost:3000/studio/settings/ai", "bridge": "127.0.0.1:3217", "ollama": "127.0.0.1:11434" },
+  "steps": [
+    { "step": "detect", "status": "PASS", "result": "Bridge and Ollama detected from Studio UI" },
+    { "step": "pair", "status": "PASS", "result": "Pair code entered through Studio UI" },
+    { "step": "select-model", "status": "PASS", "result": "qwen2.5:3b selected" },
+    { "step": "generate", "status": "PASS", "requestId": "ef319f79-8a51-4b6b-911a-094a71c5cb96", "provider": "local_ollama", "model": "qwen2.5:3b", "elapsedMs": 18160 },
+    { "step": "stream", "status": "PASS", "result": "Traditional Chinese tokens rendered incrementally" }
+  ],
+  "screenshot": "../browser-e2e/desktop-generation-complete.png",
+  "consoleErrors": 0,
+  "externalAiCalls": 0
+}

@@ -1,0 +1,255 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-quality-results-v1",
+  "generatedAt": "2026-07-19T20:34:47.330Z",
+  "pass": 26,
+  "fail": 0,
+  "results": [
+    {
+      "name": "explicit fact with exact evidence passes",
+      "status": "PASS",
+      "evidence": {
+        "schemaValid": true,
+        "evidenceValid": true
+      }
+    },
+    {
+      "name": "legal JSON without evidence is rejected",
+      "status": "PASS",
+      "evidence": {
+        "errorCode": "LOCAL_MODEL_OUTPUT_UNRELIABLE"
+      }
+    },
+    {
+      "name": "invented quotation is rejected",
+      "status": "PASS",
+      "evidence": {
+        "valid": false,
+        "errorCode": "EVIDENCE_TEXT_MISMATCH"
+      }
+    },
+    {
+      "name": "missing age remains unknown",
+      "status": "PASS",
+      "evidence": {
+        "inventedAge": false
+      }
+    },
+    {
+      "name": "years later does not become exact year",
+      "status": "PASS",
+      "evidence": {
+        "inventedYear": false
+      }
+    },
+    {
+      "name": "same name different IDs are not merged",
+      "status": "PASS",
+      "evidence": {
+        "conflicts": 0
+      }
+    },
+    {
+      "name": "alias using same entity ID is compared",
+      "status": "PASS",
+      "evidence": {
+        "conflictType": "age_mismatch"
+      }
+    },
+    {
+      "name": "similar locations are not collapsed",
+      "status": "PASS",
+      "evidence": {
+        "preservedDistinct": true
+      }
+    },
+    {
+      "name": "two chapters preserve age conflict",
+      "status": "PASS",
+      "evidence": {
+        "recall": 1,
+        "autoResolved": false
+      }
+    },
+    {
+      "name": "two chapters preserve location conflict",
+      "status": "PASS",
+      "evidence": {
+        "recall": 1,
+        "autoResolved": false
+      }
+    },
+    {
+      "name": "unknown requires null value",
+      "status": "PASS",
+      "evidence": {
+        "correct": true
+      }
+    },
+    {
+      "name": "inferred fact never becomes hard fact",
+      "status": "PASS",
+      "evidence": {
+        "confidence": "medium_confidence"
+      }
+    },
+    {
+      "name": "candidate cannot skip validation gate",
+      "status": "PASS",
+      "evidence": {
+        "incorrectWrites": 0
+      }
+    },
+    {
+      "name": "validated candidate still requires approval",
+      "status": "PASS",
+      "evidence": {
+        "directCommit": false
+      }
+    },
+    {
+      "name": "retry strategies are bounded and distinct",
+      "status": "PASS",
+      "evidence": {
+        "strategies": [
+          "normal_structured_extraction",
+          "evidence_only_extraction",
+          "constrained_field_by_field_extraction"
+        ]
+      }
+    },
+    {
+      "name": "3B guarded tasks require deterministic guard",
+      "status": "PASS",
+      "evidence": {
+        "guarded": [
+          "character.extract",
+          "timeline.review",
+          "continuity.review",
+          "story-bible.update",
+          "relationship.infer"
+        ]
+      }
+    },
+    {
+      "name": "3B cannot own whole-novel reasoning",
+      "status": "PASS",
+      "evidence": {
+        "action": "stronger_local_or_private_hub",
+        "allowed": false
+      }
+    },
+    {
+      "name": "removed model falls back only to installed text model",
+      "status": "PASS",
+      "evidence": {
+        "selected": "model-a"
+      }
+    },
+    {
+      "name": "no installed text model returns null",
+      "status": "PASS",
+      "evidence": {
+        "ready": false
+      }
+    },
+    {
+      "name": "in-flight request retains model snapshot",
+      "status": "PASS",
+      "evidence": {
+        "requestModel": "model-a",
+        "currentUiModel": "model-b"
+      }
+    },
+    {
+      "name": "model quality and system validation failures are distinct",
+      "status": "PASS",
+      "evidence": {
+        "quality": "MODEL_QUALITY_INSUFFICIENT",
+        "system": "SYSTEM_VALIDATION_FAILURE",
+        "privateContentStored": false
+      }
+    },
+    {
+      "name": "rejection audit contains minimum trace fields only",
+      "status": "PASS",
+      "evidence": {
+        "fields": [
+          "requestId",
+          "modelId",
+          "taskType",
+          "rejectionReason",
+          "failureClass",
+          "validatorVersion",
+          "ruleEngineVersion",
+          "evidenceResolverVersion",
+          "retryAttempt",
+          "finalDisposition"
+        ],
+        "rawContentStored": false,
+        "rejectionReasonSanitized": true
+      }
+    },
+    {
+      "name": "same extraction identity produces stable fingerprint",
+      "status": "PASS",
+      "evidence": {
+        "fingerprint": "fnv1a-231a82c8"
+      }
+    },
+    {
+      "name": "revision-stale write is blocked",
+      "status": "PASS",
+      "evidence": {
+        "blocked": true
+      }
+    },
+    {
+      "name": "version mismatch is a system validation failure",
+      "status": "PASS",
+      "evidence": {
+        "allowed": false,
+        "errorCode": "SYSTEM_VALIDATION_FAILURE"
+      }
+    },
+    {
+      "name": "matching approved revisions pass formal write gate",
+      "status": "PASS",
+      "evidence": {
+        "allowed": true,
+        "errorCode": null
+      }
+    }
+  ],
+  "metrics": {
+    "rawModelPerformance": {
+      "hallucinationRate": null,
+      "reason": "No real-model quality rerun in this deterministic suite."
+    },
+    "postValidationPerformance": {
+      "unsupportedFactRate": 0,
+      "evidenceValidationPassRate": 100,
+      "hallucinationBlockedCount": 2,
+      "validatorFalsePositive": 0,
+      "validatorFalseNegative": 0
+    },
+    "finalCommittedAccuracy": {
+      "incorrectFacts": 0,
+      "evaluatedWrites": 0
+    },
+    "unsupportedFactRate": 0,
+    "evidenceValidationPassRate": 100,
+    "hallucinationBlockedCount": 2,
+    "ageContradictionRecall": 100,
+    "locationContradictionRecall": 100,
+    "unknownHandlingAccuracy": 100,
+    "retrySuccessRate": null,
+    "retrySuccessRateReason": "No real-model retry run was executed by this deterministic guard suite.",
+    "finalRejectionCount": 2,
+    "formalStoryBibleIncorrectWrites": 0,
+    "revisionStaleWritesBlocked": 100,
+    "systemValidationFailures": 0,
+    "modelQualityFailures": 2
+  },
+  "realModelCalls": 0,
+  "formalWrites": 0
+}

@@ -1,0 +1,57 @@
+﻿{
+    "schemaVersion":  "r5-2r1d-regression-v1",
+    "generatedAt":  "2026-07-20T21:56:42.6255254Z",
+    "status":  "PASS",
+    "suites":  [
+                   {
+                       "name":  "R1D sandbox/operator contract",
+                       "pass":  14,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "R1A adapter",
+                       "pass":  17,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "Chrome/Edge real sandbox smoke",
+                       "pass":  2,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "R4 regression",
+                       "pass":  7,
+                       "fail":  0,
+                       "realModelCalls":  0,
+                       "formalStoryBibleWrites":  0
+                   },
+                   {
+                       "name":  "R5 origin/PNA/Host",
+                       "pass":  18,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "R5.1 dynamic origin",
+                       "pass":  10,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "TypeScript",
+                       "pass":  1,
+                       "fail":  0
+                   },
+                   {
+                       "name":  "ESLint",
+                       "errors":  0,
+                       "baselineWarnings":  98,
+                       "newWarnings":  0
+                   },
+                   {
+                       "name":  "Production build",
+                       "pass":  1,
+                       "fail":  0
+                   }
+               ],
+    "lnaMatrix":  "NOT_TESTED",
+    "storyBible":  "NOT_TESTED"
+}

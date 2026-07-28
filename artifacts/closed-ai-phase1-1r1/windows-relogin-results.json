@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "closed-ai-phase1-1r1-windows-relogin-v1",
+  "status": "WINDOWS_RELOGIN_NOT_FULLY_VERIFIED",
+  "freshShell": "PASS",
+  "noInheritedPath": "PASS",
+  "bridgeRestart": "PASS",
+  "browserReload": "PASS",
+  "ollamaRestart": "covered by existing runtime regression, not repeated through a Windows sign-out",
+  "windowsUserSignOutAndFirstLaunch": "NOT_EXECUTED",
+  "reason": "Signing out would terminate the active Codex workspace and cannot be completed as an unattended reproducible test in this run."
+}
