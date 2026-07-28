@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Character, Chapter, NovelProject, StoryBible, StoryBranch, StoryState, TimelineEvent, WorldRule } from "@/lib/novel-ai/domain";
 import { ClosedStoryGenerationLoop, PlatformGenerationProviderAdapter, packageGenerationCandidateForApproval, type GenerationCandidate, type GenerationProgressEvent, type GenerationTaskType } from "@/lib/novel-ai/generation-loop";
 import type { StoryIntelligenceFact, StorySource, TraceableMemory } from "@/lib/novel-ai/story-intelligence";
 import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
 import { acceptStudioChoice } from "@/lib/novel-ai/repository/studio-canonical";
 import type { PersonaProfileId } from "@/lib/novel-ai/persona";
+import {
+  buildApprovedLearningContext,
+  createSovereignLearningRepository,
+  evaluateLearningOriginality,
+  recordSovereignLearningFeedback,
+} from "@/lib/novel-ai/sovereign-learning";
 import ProjectNavigation from "../project-navigation";
 
 type WorkspaceData = {
@@ -99,6 +105,7 @@ function errorMessage(cause: unknown) {
 export default function AiWorkspace({ projectId }: { projectId: string }) {
   const repositoryRef = useRef<NovelRepository | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const learningRepository = useMemo(() => createSovereignLearningRepository(), []);
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [status, setStatus] = useState("正在讀取作品……");
   const [taskType, setTaskType] = useState<GenerationTaskType>("continue_writing");
@@ -106,6 +113,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
   const [instruction, setInstruction] = useState("延續目前衝突，讓角色的選擇帶來可追蹤的後果。");
   const [progress, setProgress] = useState<GenerationProgressEvent[]>([]);
   const [candidates, setCandidates] = useState<GenerationCandidate[]>([]);
+  const [activeLearningRuleIds, setActiveLearningRuleIds] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
@@ -140,6 +148,13 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
     setStatus("本機 AI 正在理解任務……");
     try {
       const context = buildContext(data);
+      const learned = await buildApprovedLearningContext({
+        repository: learningRepository,
+        projectId,
+        taskType,
+        maximumRules: 8,
+      });
+      setActiveLearningRuleIds(learned.selectedRuleIds);
       const activeBranch = data.branches.find((branch) => branch.status === "active");
       const result = await new ClosedStoryGenerationLoop(new PlatformGenerationProviderAdapter()).run({
         requestId: `studio-ai-${crypto.randomUUID()}`,
@@ -154,7 +169,12 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
         memories: context.memories,
         canonicalFacts: context.facts,
         constraints: data.storyBible.forbiddenContradictions,
-        styleProfile: [data.project.narrativeStyle.value, data.storyBible.style.value].filter((value): value is string => Boolean(value)),
+        styleProfile: [
+          data.project.narrativeStyle.value,
+          data.storyBible.style.value,
+          learned.promptBoundary,
+          ...learned.instructions,
+        ].filter((value): value is string => Boolean(value)),
         multiCandidate: true,
         qualityThreshold: 70,
         personaProfile: persona,
@@ -167,8 +187,34 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
           return items.map((item, itemIndex) => itemIndex === index ? event : item);
         }),
       });
-      setCandidates(result.candidates);
-      setStatus(result.recommendedCandidateId ? "候選已完成，等待你決定" : "候選未通過品質門檻，沒有寫入作品");
+      const guardedCandidates = await Promise.all(result.candidates.map(async (candidate) => {
+        const originality = await evaluateLearningOriginality({
+          repository: learningRepository,
+          projectId,
+          output: candidate.finalCandidate,
+        });
+        if (originality.passed) return candidate;
+        return {
+          ...candidate,
+          status: "quality_rejected" as const,
+          confidence: Math.min(candidate.confidence, 40),
+          riskHints: [
+            ...candidate.riskHints,
+            "與學習來源的文字指紋重疊過高，已阻止採用；請重新生成。",
+          ],
+        };
+      }));
+      const originalityBlocks = guardedCandidates.filter((candidate) =>
+        candidate.status === "quality_rejected"
+        && candidate.riskHints.includes("與學習來源的文字指紋重疊過高，已阻止採用；請重新生成。")).length;
+      setCandidates(guardedCandidates);
+      setStatus(
+        originalityBlocks
+          ? `${originalityBlocks} 個候選因來源文字重疊風險被阻止；其餘候選可人工確認。`
+          : result.recommendedCandidateId
+            ? `候選已完成，使用 ${learned.selectedRuleIds.length} 條已核准閉端學習規則。`
+            : "候選未通過品質門檻，沒有寫入作品",
+      );
     } catch (cause) {
       const message = errorMessage(cause);
       setStatus(message);
@@ -187,12 +233,37 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
       const packaged = packageGenerationCandidateForApproval({ candidate, chapterId: data.chapter.id, chapterRevision: data.chapter.revision, storyStateRevision: data.storyState.revision, storyBibleRevision: data.storyBible.revision });
       await repository.put("candidates", packaged);
       const result = await acceptStudioChoice(repository, packaged.id, candidate.finalCandidate, candidate.differenceSummary);
+      await recordSovereignLearningFeedback(learningRepository, {
+        projectId,
+        decision: "accepted",
+        taskType,
+        ruleIds: activeLearningRuleIds,
+        output: candidate.finalCandidate,
+        reasonTags: ["USER_APPROVED", "CANONICAL_ACCEPTED"],
+        provider: candidate.provider,
+        model: candidate.model,
+      }).catch(() => null);
       setStatus(result.replayed ? "這份候選先前已採用，沒有重複寫入" : "已採用並建立正式故事版本");
       setCandidates((items) => items.filter((item) => item.candidateId !== candidate.candidateId));
       await load();
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
+  }
+
+  async function discard(candidate: GenerationCandidate) {
+    setCandidates((items) => items.filter((item) => item.candidateId !== candidate.candidateId));
+    await recordSovereignLearningFeedback(learningRepository, {
+      projectId,
+      decision: "rejected",
+      taskType,
+      ruleIds: activeLearningRuleIds,
+      output: candidate.finalCandidate,
+      reasonTags: ["USER_REJECTED"],
+      provider: candidate.provider,
+      model: candidate.model,
+    }).catch(() => null);
+    setStatus("候選已捨棄；本機偏好權重已記錄這次拒絕。");
   }
 
   if (!data) return <main className="p2ProjectShell"><p>{status}</p></main>;
@@ -205,7 +276,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
         <label>回應方式<select value={persona} onChange={(event) => setPersona(event.target.value as PersonaProfileId)}>{personaOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>你的要求<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} /></label>
         <div className="p23AiActions"><button disabled={running} onClick={() => void generate()}>{running ? "正在生成……" : "產生三份候選"}</button>{running ? <button className="secondary" onClick={() => abortRef.current?.abort()}>取消</button> : null}</div>
-        <p>只使用已配對的閉端執行者。未配對時會明確失敗，不會改用外部 AI。</p><Link href="/studio/settings/ai">本機 AI 設定</Link>
+        <p>只使用已配對的閉端執行者。未配對時會明確失敗，不會改用外部 AI。</p><Link href="/studio/settings/ai">本機 AI 設定</Link> · <Link href={`/studio/project/${projectId}/learning`}>閉端 AI 學習中心</Link>
       </div>
       <div className="p23AiMain">
         <section className="p23AiProgress" aria-live="polite"><h2>工作流程</h2>{progress.length === 0 ? <p>尚未開始。本機 AI 會先讀取作品，再規劃、檢查及修訂。</p> : <ol>{progress.map((event, index) => <li key={`${event.at}-${index}`} data-status={event.status}><strong>{event.status === "running" ? "進行中" : event.status === "success" ? "完成" : event.status === "skipped" ? "略過" : "失敗"}</strong><span>{event.message}</span></li>)}</ol>}</section>
@@ -218,7 +289,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
             <section><h3>關鍵風險</h3>{candidate.riskHints.length ? <ul>{candidate.riskHints.map((item) => <li key={item}>{item}</li>)}</ul> : <p>未發現明顯風險。</p>}</section>
             <section><h3>使用的作品資料</h3><p>{candidate.retrievedMemory.sourceReferences.length} 筆可追蹤來源</p></section>
           </div>
-          <div className="p23AiActions"><button disabled={candidate.status !== "awaiting_approval"} onClick={() => void accept(candidate)}>採用並建立版本</button><button className="secondary" onClick={() => setCandidates((items) => items.filter((item) => item.candidateId !== candidate.candidateId))}>暫時不用</button></div>
+          <div className="p23AiActions"><button disabled={candidate.status !== "awaiting_approval"} onClick={() => void accept(candidate)}>採用並建立版本</button><button className="secondary" onClick={() => void discard(candidate)}>暫時不用</button></div>
           <details><summary>查看技術資訊</summary><p>執行來源：{candidate.provider}｜模型：{candidate.model}｜外部請求：否｜正式作品寫入：0｜來源版本：{candidate.sourceRevision}</p></details>
         </article>)}</section>
       </div>

@@ -7,6 +7,7 @@ const read = (file) => fs.readFileSync(file, "utf8"),
   page = read("app/page.tsx"),
   health = read("app/api/ai/health/route.ts"),
   professional = read("app/professional/professional-client.tsx"),
+  closedAI = read("lib/novel-ai/web/studio-closed-ai.ts"),
   legacy = read("public/legacy/novel-system.html"),
   compactStudio = studio.replace(/\s+/g, "");
 const results = [];
@@ -32,7 +33,10 @@ test("正式快照與來源一致", () =>
   JSON.stringify(library) === JSON.stringify(snapshot));
 test("舊頁面引用生成快照", () =>
   legacy.includes("/generated/story-library.js"));
-test("首頁使用動態故事庫統計", () => page.includes("storyLibraryStats"));
+test("首頁使用動態故事庫統計", () =>
+  page.includes("buildProfessionalFrontdoorUrl") &&
+  studio.includes("STORY_LIBRARY.packs.length") &&
+  studio.includes("STORY_LIBRARY.topics.filter"));
 test("成人題材與經典題材分離", () =>
   adult.length > 0 && adult.every((topic) => !topic.classic));
 test("成人模式預設關閉", () => compactStudio.includes("adultMode:false"));
@@ -55,10 +59,13 @@ test("玩法可保持未設定", () =>
   compactStudio.includes('playModeId:"",enabledStats:[]'));
 test("數值不預設啟用", () =>
   library.storyStats.every((stat) => stat.enabledByDefault === false));
-test("本機服務用sessionStorage權杖", () =>
-  studio.includes('sessionStorage.getItem("novel_local_runtime_token")'));
+test("本機服務使用安全配對執行器", () =>
+  studio.includes("runStudioClosedAI") &&
+  !studio.includes('sessionStorage.getItem("novel_local_runtime_token")'));
 test("外部服務預設關閉", () =>
-  compactStudio.includes("externalFallbackAllowed:false"));
+  closedAI.includes('privacyMode: "strict-local"') &&
+  closedAI.includes("externalConsent: false") &&
+  closedAI.includes("closedOnly: true"));
 test("本機規則誠實標示", () => studio.includes("本機故事建議"));
 test("Ollama白話標示", () => studio.includes("本機 AI 建議"));
 test("AI結果不直接寫正文", () =>
@@ -195,7 +202,7 @@ test("專業工具首頁不是空殼", () =>
   professional.includes("系統檢查"));
 test("專業工具串接健康與本機狀態", () =>
   professional.includes('/api/ai/health') &&
-  professional.includes("WebLocalRuntimeClient"));
+  professional.includes("discoverStudioClosedAI"));
 test("專業工具保留Legacy入口", () =>
   professional.includes("/legacy/novel-system.html?mode=professional"));
 test("健康狀態回報正式故事庫", () =>

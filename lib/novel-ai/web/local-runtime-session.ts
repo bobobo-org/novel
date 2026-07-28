@@ -14,5 +14,6 @@ export function createClientNonce() {
 
 export function sessionExpired(session: WebLocalRuntimeSession | null, now = Date.now()) {
   if (!session) return true;
-  return Date.parse(session.expiresAt) <= now;
+  const expiresAt = Date.parse(session.expiresAt);
+  return !Number.isFinite(expiresAt) || expiresAt <= now;
 }

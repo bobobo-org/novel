@@ -57,7 +57,7 @@ test("章節完成事件存在", () => studio.includes('task: "chapter_completed
 test("章節完成可觸發完整備份", () => compactStudio.includes('value.autoBackup==="chapter_complete"') && compactStudio.includes('makeBackupRecord(nextProject,"full",nextState)'));
 test("備份包含消費者故事資料快照", () => studio.includes('storyBibleStatus: "consumer_snapshot"') && studio.includes("unresolvedThreads"));
 test("備份包含閱讀進度", () => studio.includes("readingProgress") && studio.includes("novel_reader_progress_"));
-test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("WebLocalRuntimeClient"));
+test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("discoverStudioClosedAI"));
 test("Browser AI誠實標示未完成", () => health.includes('browserAiStatus: "not_implemented"'));
 test("Ollama消費者接線誠實標示需本機環境", () => health.includes('ollamaConsumerIntegrationStatus: "runtime_required"'));
 test("IndexedDB遷移誠實標示未完成", () => health.includes('indexedDbMigrationStatus: "not_implemented"'));

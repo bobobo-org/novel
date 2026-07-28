@@ -1,4 +1,4 @@
-export const CAPABILITY_TRUTH_MATRIX_VERSION = "p23-capability-truth-v1" as const;
+export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v1" as const;
 
 export type CapabilityTruthStatus =
   | "implemented"
@@ -29,7 +29,20 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "browser.aiRuntime", status: "not_configured", evidence: ["browser provider contract"], limitations: ["Requires an installed browser model runtime"] },
   { id: "ollama.localRuntime", status: "implemented", evidence: ["loopback bridge and provider adapter"], limitations: ["Availability depends on the client device"] },
   { id: "privateHub.runtime", status: "contract_only", evidence: ["private hub request contract"], limitations: ["No runtime is connected"] },
+  { id: "closedAgentOS.sharedKernel", status: "verified", evidence: ["three-backend unified OS matrix", "Studio closed AI command center"], limitations: ["Backend availability remains runtime-dependent"] },
+  { id: "closedAgentOS.noSilentFallback", status: "verified", evidence: ["backend lock and outage matrix"], limitations: ["A failed locked backend requires an explicit new request"] },
+  { id: "closedAgentOS.permissionGateway", status: "verified", evidence: ["role scope and forbidden tool matrix"], limitations: ["Agents receive registered project-bound tools only"] },
+  { id: "aiCache.sixLayer", status: "verified", evidence: ["exact, semantic, retrieval, plan, tool and model-session cache matrix"], limitations: ["Model KV reuse requires support from the selected runtime"] },
+  { id: "aiCache.namespaceIsolation", status: "verified", evidence: ["fourteen-field namespace and targeted invalidation matrix"], limitations: [] },
+  { id: "learning.controlledOS", status: "verified", evidence: ["consent, privacy filter, evaluator, approval, A/B, version and rollback matrix"], limitations: ["L0 and L1 only; no model-weight changes"] },
+  { id: "ledger.verifiable", status: "verified", evidence: ["append-only hash-chain, Merkle, ECDSA and content-address matrix"], limitations: ["Blockchain-inspired local evidence; not a public blockchain"] },
   { id: "learning.data", status: "implemented", evidence: ["controlled private learning records"], limitations: ["No shared training without explicit consent"] },
+  { id: "learning.narrativeRuleAbstraction", status: "implemented", evidence: ["closed-ai sovereign learning service", "deterministic narrative DNA extraction", "local closed-AI deep extraction adapter"], limitations: ["Deep extraction requires an available local closed-AI runtime"] },
+  { id: "learning.approvedRuleRag", status: "implemented", evidence: ["approved-rule context composer", "Studio closed generation integration"], limitations: ["Updates prompt/RAG behavior; it does not claim model-weight training"] },
+  { id: "learning.preferenceFeedback", status: "implemented", evidence: ["accepted/edited/rejected local feedback profile"], limitations: ["Raw generated output is not retained"] },
+  { id: "learning.sourceGovernance", status: "verified", evidence: ["rights gate", "prompt-injection quarantine", "credential block", "source revocation"], limitations: ["The user remains responsible for confirming source rights"] },
+  { id: "learning.originalityGuard", status: "implemented", evidence: ["non-reversible source fingerprint overlap gate"], limitations: ["Fingerprint comparison is a safety signal, not a legal originality determination"] },
+  { id: "learning.ruleCombinationEngine", status: "implemented", evidence: ["dimension-aware recipe generator and combination-space estimator"], limitations: ["Samples useful combinations instead of exhaustively enumerating an unbounded space"] },
   { id: "training.model", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
   { id: "modelTraining", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
   { id: "distillation", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, distillation run, model artifact, or callable runtime exists"] },

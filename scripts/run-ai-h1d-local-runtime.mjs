@@ -20,14 +20,41 @@ try {
   const health = await json("/health");
   h.assert("health ready", health.body.localRuntimeStatus === "ready");
   h.assert("protocol version", health.body.localRuntimeProtocolVersion === "novel-local-runtime-v1");
-  h.assert("handshake authenticated", health.body.handshake.authenticated === true);
+  h.assert("public handshake unauthenticated", health.body.handshake.authenticated === false);
+  h.assert("public handshake has no session", !health.body.handshake.sessionId && !health.body.handshake.serverNonce);
   h.assert("token not exposed", !JSON.stringify(health.body).includes("test-token"));
   h.assert("bind host config", runtime.config.host === "127.0.0.1");
 
   const unauth = await json("/providers");
   h.assert("unauth blocked", unauth.response.status === 401);
+  const unauthSession = await json("/session");
+  h.assert("session requires token", unauthSession.response.status === 401);
+  const session = await json("/session", { headers: { "x-novel-local-token": "test-token", Origin: "https://novel-orcin.vercel.app" } });
+  h.assert("session authenticated", session.response.status === 200 && session.body.handshake.authenticated === true);
+  h.assert("session identity issued", Boolean(session.body.handshake.sessionId && session.body.handshake.serverNonce));
+  h.assert("session expiry issued", Date.parse(session.body.handshake.expiresAt) > Date.now());
   const badOrigin = await json("/providers", { headers: { "x-novel-local-token": "test-token", Origin: "http://evil.test" } });
   h.assert("bad origin blocked", badOrigin.response.status === 403);
+  const prefixSpoof = await json("/health", { headers: { Origin: "https://novel-orcin.vercel.app.evil.test" } });
+  h.assert("origin prefix spoof blocked", prefixSpoof.response.status === 403);
+  const preflight = await fetch(`${base}/session`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://novel-orcin.vercel.app",
+      "Access-Control-Request-Method": "GET",
+      "Access-Control-Request-Headers": "x-novel-local-token",
+      "Access-Control-Request-Private-Network": "true",
+    },
+  });
+  h.assert("allowed preflight accepted", preflight.status === 204);
+  h.assert("preflight exact origin", preflight.headers.get("access-control-allow-origin") === "https://novel-orcin.vercel.app");
+  h.assert("private network access acknowledged", preflight.headers.get("access-control-allow-private-network") === "true");
+  const blockedPreflight = await fetch(`${base}/session`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://novel-orcin.vercel.app.evil.test", "Access-Control-Request-Method": "GET" },
+  });
+  h.assert("blocked preflight rejected", blockedPreflight.status === 403);
+  h.assert("blocked preflight has no CORS grant", !blockedPreflight.headers.get("access-control-allow-origin"));
   const providers = await json("/providers", { headers: { "x-novel-local-token": "test-token", Origin: "http://127.0.0.1" } });
   h.assert("providers listed", providers.body.providers.length >= 2);
   h.assert("provider data sanitized", !JSON.stringify(providers.body).includes("API_KEY"));
@@ -61,6 +88,7 @@ try {
   }
 } finally {
   await runtime.close();
+  fs.rmSync(storageDir, { recursive: true, force: true });
 }
 
-printAndExit(h.summary({ expectedPass: 30 }));
+printAndExit(h.summary({ expectedPass: 44 }));

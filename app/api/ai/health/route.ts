@@ -11,6 +11,11 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
+import { SOVEREIGN_LEARNING_HEALTH } from "@/lib/novel-ai/sovereign-learning";
+import { CLOSED_AI_CACHE_HEALTH } from "@/lib/novel-ai/closed-ai-cache";
+import { CONTROLLED_LEARNING_HEALTH } from "@/lib/novel-ai/controlled-learning-os";
+import { VERIFIABLE_LEDGER_HEALTH } from "@/lib/novel-ai/verifiable-ledger";
+import { CLOSED_AGENT_OS_HEALTH } from "@/lib/novel-ai/closed-agent-os";
 import { createHash } from "node:crypto";
 import {
   RELEASE_MANIFEST,
@@ -424,7 +429,7 @@ export async function GET() {
     webAdultStageStatusStatus: "contract_ready",
     webAdultBranchPlanningStatus: "contract_ready",
     webLocalRuntimeClientStatus: "ready",
-    webLocalRuntimeClientVersion: "h2w1-web-local-runtime-client",
+    webLocalRuntimeClientVersion: "h2w1r1-resilient-web-local-runtime-client",
     webLocalRuntimeHandshakeStatus: "ready",
     webClosedAiStatusPanelStatus: "ready",
     webAiActionsStatus: "ready",
@@ -446,14 +451,22 @@ export async function GET() {
     webSegmentedWorkspaceVersion: "h2w2-web-segmented-story-workspace-v1",
     h2pFullClosureStatus: "ready",
     h2pFullClosureTag: "novel-ai-h2p-universal-adult-story-engine",
-    externalRequestCount: 0,
-    dataLeftDevice: false,
     ...VIRAL_STORY_HEALTH,
     ...HYBRID_RETRIEVAL_HEALTH,
     ...PUBLIC_FICTION_CORPUS_HEALTH,
     ...PUBLIC_CORPUS_IMPORT_HEALTH,
+    ...SOVEREIGN_LEARNING_HEALTH,
     ...H2C_HEALTH,
     ...H2W3_HEALTH,
+    closedAgentOS: CLOSED_AGENT_OS_HEALTH,
+    closedAICache: CLOSED_AI_CACHE_HEALTH,
+    controlledLearningOS: CONTROLLED_LEARNING_HEALTH,
+    verifiableLedger: VERIFIABLE_LEDGER_HEALTH,
+    threeClosedAISharedSystemStatus: "ready",
+    threeClosedAIBackendIds: ["browser-ai", "local-ollama", "private-ai-hub"],
+    privateAIHubRuntimeTruthStatus: "contract_ready_runtime_not_connected",
+    externalRequestCount: 0,
+    dataLeftDevice: false,
     contextComposerStatus: "ready",
     webWholeNovelAiStatus: "ready",
     p1ConsumerExperienceVersion: "p1-consumer-real-ai-execution-v1",
@@ -638,9 +651,9 @@ export async function GET() {
     offlineCapable: false,
     offlineDataLayerStatus: "ready",
     fullOfflineAIStatus: "advanced_partial_ready",
-    browserClosedAiStatus: "not_implemented",
-    threeClosedAiArchitectureStatus: "partial_ready",
-    continualLearningStatus: "not_implemented",
+    browserClosedAiStatus: "ready_runtime_dependent",
+    threeClosedAiArchitectureStatus: "ready",
+    continualLearningStatus: "ready_l0_l1_controlled",
     modelTrainingStatus: capabilityStatus(capabilityCatalog, "modelTraining"),
     loraTrainingStatus: "not_implemented",
     qloraTrainingStatus: "not_implemented",

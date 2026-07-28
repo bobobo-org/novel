@@ -1,0 +1,97 @@
+{
+  "suite": "P2.3 Sovereign Learning, Reasoning and Distillation Foundation",
+  "runAt": "2026-07-27T23:51:15.901Z",
+  "pass": 17,
+  "fail": 0,
+  "skip": 0,
+  "realTrainingStarted": false,
+  "externalTeacherCalled": false,
+  "modelDownloaded": false,
+  "results": [
+    {
+      "name": "unknown-license knowledge remains retrieval-only",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "owned knowledge can be versioned, chunked and cited",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "knowledge deduplication and local embedding fail closed",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "cognitive principles require proposal evidence and user approval",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "learning events are private, excludable, exportable and deletable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "training factory blocks PII and mixed adult namespaces",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "agent OS exposes no raw reasoning and enforces tool scopes",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "distillation requires a permitted sovereign teacher",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "QLoRA never starts without a private training backend",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "preference learning enforces amount, balance and namespace",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "reward foundation is offline and detects reward hacking",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "model registry requires approval and supports namespace-safe rollback",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "persona preferences are viewable, editable, disableable, revertible and deletable",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "persona benchmark contract covers six categories and five variants",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "future story-to-media extension remains source-bound and candidate-only",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "future media provider routing fails closed without a connected runtime",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "future media extension preserves privacy and adult namespace isolation",
+      "status": "PASS",
+      "elapsedMs": 0
+    }
+  ]
+}

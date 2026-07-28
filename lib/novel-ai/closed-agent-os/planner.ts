@@ -1,0 +1,70 @@
+import { sha256Hex, stableStringify } from "../closed-ai-cache";
+import type {
+  ClosedAgentPlan,
+  ClosedAgentRole,
+  ClosedAgentTaskRequest,
+  ClosedAITaskComplexity,
+  ClosedAIBackendId,
+} from "./types";
+
+const rolesByComplexity: Record<ClosedAITaskComplexity, ClosedAgentRole[]> = {
+  light: ["planner", "actor", "evaluator"],
+  standard: ["planner", "story-architect", "actor", "continuity-agent", "evaluator"],
+  heavy: [
+    "planner",
+    "story-architect",
+    "character-agent",
+    "world-agent",
+    "actor",
+    "critic",
+    "evaluator",
+  ],
+};
+
+export async function createClosedAgentPlan(input: {
+  request: ClosedAgentTaskRequest;
+  backendId: ClosedAIBackendId;
+  complexity: ClosedAITaskComplexity;
+}): Promise<ClosedAgentPlan> {
+  const roles = rolesByComplexity[input.complexity];
+  const steps = roles.map((role, index) => ({
+    index,
+    role,
+    objective: roleObjective(role, input.request.objective),
+    allowedToolIds: role === "evaluator" ? [] : [...input.request.allowedToolIds],
+    inputVisibility: role === "evaluator"
+      ? ["evaluator", "both"] as const
+      : ["actor", "both"] as const,
+  }));
+  const body = {
+    schemaVersion: "closed-agent-os-v1" as const,
+    taskId: input.request.taskId,
+    complexity: input.complexity,
+    backendId: input.backendId,
+    roles,
+    steps,
+    candidateOnly: true as const,
+  };
+  return {
+    ...body,
+    steps: steps.map((step) => ({
+      ...step,
+      inputVisibility: [...step.inputVisibility],
+    })),
+    planDigest: await sha256Hex(stableStringify(body)),
+  };
+}
+
+function roleObjective(role: ClosedAgentRole, objective: string) {
+  const prefix: Record<ClosedAgentRole, string> = {
+    planner: "拆解任務並界定完成條件",
+    "story-architect": "檢查敘事結構與故事聖經",
+    actor: "產生候選內容",
+    "character-agent": "維持角色知識與動機邊界",
+    "world-agent": "維持世界規則一致",
+    "continuity-agent": "檢查時間線與前後連續性",
+    critic: "找出候選中的反例與風險",
+    evaluator: "依核准事實與驗收條件評估候選",
+  };
+  return `${prefix[role]}：${objective}`;
+}

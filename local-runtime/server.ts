@@ -2,7 +2,7 @@ import http, { type IncomingMessage, type ServerResponse } from "http";
 import { URL } from "url";
 import { defaultProviderCapabilities } from "../lib/novel-ai/providers/default-providers";
 import { checkOllamaHealth } from "../lib/novel-ai/providers/ollama/ollama-health";
-import { createHandshake, validateLocalRuntimeRequest } from "./runtime-auth";
+import { allowedLocalRuntimeOrigin, createHandshake, validateLocalRuntimeRequest } from "./runtime-auth";
 import { createLocalRuntimeConfig, type LocalRuntimeConfig } from "./runtime-config";
 import { publicRuntimeError, LocalRuntimeError } from "./runtime-errors";
 import { localRuntimeHealth } from "./runtime-health";
@@ -33,12 +33,14 @@ export function createLocalRuntimeServer(config: Partial<LocalRuntimeConfig> = {
   const runtimeConfig = createLocalRuntimeConfig(config);
   const server = http.createServer(async (req, res) => {
     try {
-      const origin = String(req.headers.origin || "");
-      if (origin && runtimeConfig.allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
+      const origin = allowedLocalRuntimeOrigin(req, runtimeConfig);
+      if (origin) {
         res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Vary", "Origin");
+        const privateNetworkRequested = String(req.headers["access-control-request-private-network"] || "").toLowerCase() === "true";
+        res.setHeader("Vary", privateNetworkRequested ? "Origin, Access-Control-Request-Private-Network" : "Origin");
         res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-novel-local-token");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        if (privateNetworkRequested) res.setHeader("Access-Control-Allow-Private-Network", "true");
       }
       if (req.method === "OPTIONS") {
         res.writeHead(204, { "Cache-Control": "no-store" });
@@ -50,6 +52,7 @@ export function createLocalRuntimeServer(config: Partial<LocalRuntimeConfig> = {
         const health = await localRuntimeHealth();
         send(res, 200, {
           ...health,
+          localRuntimeAuthStatus: "required",
           handshake: createHandshake(runtimeConfig, {
             ollamaStatus: health.ollamaStatus,
             installedModels: health.installedModels,
@@ -59,6 +62,19 @@ export function createLocalRuntimeServer(config: Partial<LocalRuntimeConfig> = {
         return;
       }
       validateLocalRuntimeRequest(req, runtimeConfig);
+      if (req.method === "GET" && url.pathname === "/session") {
+        const health = await localRuntimeHealth();
+        send(res, 200, {
+          ...health,
+          localRuntimeAuthStatus: "authenticated",
+          handshake: createHandshake(runtimeConfig, {
+            ollamaStatus: health.ollamaStatus,
+            installedModels: health.installedModels,
+            selectedStorage: health.selectedStorage,
+          }, { authenticated: true }),
+        });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/providers") {
         send(res, 200, { providers: await defaultProviderCapabilities() });
         return;

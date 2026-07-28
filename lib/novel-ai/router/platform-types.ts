@@ -6,6 +6,7 @@ export type PlatformTaskType =
   | "creation.genreSuggestions" | "creation.titleCandidates" | "creation.coreIdeaCandidates" | "creation.protagonistCandidates" | "creation.worldCandidates" | "creation.conflictCandidates" | "creation.storySeed" | "creation.guidedChoices"
   | "chapter.outline" | "chapter.continue" | "chapter.rewrite" | "chapter.expand" | "chapter.compress" | "chapter.abcChoices" | "chapter.endingCandidates"
   | "story.summary" | "story.consistencyCheck" | "story.timelineCheck" | "story.characterCheck" | "story.worldRuleCheck" | "story.foreshadowingCheck" | "story.retrieval" | "story.storyBibleCandidate"
+  | "knowledge.ruleExtraction" | "knowledge.ruleSynthesis" | "learning.preferenceReview"
   | "character.create" | "character.dialogue" | "character.relationshipAnalysis" | "character.arcCandidate"
   | "character.nameExtract" | "character.traitClassify" | "character.voiceClassify" | "character.emotionClassify" | "character.relationshipEventClassify" | "character.dialogueConsistency"
   | "character.actionPlan" | "character.privateArc" | "character.multiAgentSimulation" | "character.evaluate" | "character.relationshipImpact"

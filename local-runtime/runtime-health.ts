@@ -8,7 +8,7 @@ export async function localRuntimeHealth() {
     localRuntimeStatus: "ready",
     localRuntimeVersion: LOCAL_RUNTIME_VERSION,
     localRuntimeProtocolVersion: LOCAL_RUNTIME_PROTOCOL_VERSION,
-    localRuntimeAuthStatus: "ready",
+    localRuntimeAuthStatus: "required",
     localTaskQueueStatus: "ready",
     selectedStorage: "SQLITE_LOCAL",
     hardwareProfile: {
