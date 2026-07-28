@@ -781,9 +781,19 @@ test("product UI and health expose the unified system truth", () => {
   assert.match(ui, /模型運作中/);
   assert.match(navigation, /\["closed-ai","閉端 AI 中心"\]/);
   assert.match(health, /threeClosedAISharedSystemStatus: "ready"/);
+  assert.match(
+    health,
+    /privateAIHubRuntimeTruthStatus: "self_hosted_loopback_runtime_ready_pairing_required"/,
+  );
+  assert.match(health, /browserAiStatus: "runtime_ready_device_dependent"/);
   assert.match(health, /browserClosedAiStatus: "ready_runtime_dependent"/);
   assert.match(health, /threeClosedAiArchitectureStatus: "ready"/);
   assert.match(health, /continualLearningStatus: "ready_l0_l1_controlled"/);
+  assert.match(
+    health,
+    /offlinePreferenceTrainingStatus: capabilityStatus\(\s*capabilityCatalog,\s*"training\.offlinePreferenceModel",\s*\)/,
+  );
+  assert.match(health, /adapterTrainingStatus: "offline_preference_adapter_ready"/);
   assert.match(health, /modelTraining: capabilityStatus\(capabilityCatalog, "modelTraining"\)/);
   assert.match(health, /distillation: capabilityStatus\(capabilityCatalog, "distillation"\)/);
 });
