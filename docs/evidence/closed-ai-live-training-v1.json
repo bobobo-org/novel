@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "novel-closed-ai-live-training-evidence-v1",
+  "recordedAt": "2026-07-28T21:41:01Z",
+  "runtimeRunId": "closed-ai-20260728T214010Z-4b4cf91d",
+  "capabilityTruth": {
+    "modelTraining": "started",
+    "distillation": "started",
+    "fullWeightTraining": "verified_smoke",
+    "lora": "candidate_ready",
+    "qlora": "hardware_blocked_no_cuda",
+    "automaticActivation": false,
+    "automaticPromotion": false
+  },
+  "hardware": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "logicalCpuCount": 8,
+    "ramGiB": 15.77,
+    "cudaAvailable": false,
+    "trainingDevice": "cpu",
+    "qloraEligible": false
+  },
+  "teacher": {
+    "modelId": "qwen2.5:3b",
+    "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "licenseDigest": "b5c0e5cf74cf51af1ecbc4af597cfcd13fd9925611838884a681070838a14a50",
+    "licensePolicy": "noncommercial_research_candidate_only",
+    "localOrPrivate": true,
+    "distillationPermitted": true,
+    "commercialUsePermitted": false,
+    "distributionRequiresSeparateReview": true
+  },
+  "student": {
+    "modelId": "HuggingFaceTB/SmolLM2-135M-Instruct",
+    "modelType": "llama",
+    "modelCommit": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+    "parameterCount": 134515008
+  },
+  "fullWeightEvidence": {
+    "optimizerSteps": 1,
+    "initialWeightDigest": "d2ef8aee1be0e2be8484e438ed288ab625690867061b433e7ec6ef06e73cf68e",
+    "finalWeightDigest": "e18fc9f38dea61a8cc3a261c7b6b2437ed8934e447353158636ee9f975e7289c",
+    "weightsChanged": true,
+    "loss": 2.1871156692504883,
+    "checkpointPersisted": false,
+    "purpose": "hardware-and-pipeline-qualification-only"
+  },
+  "distillationEvidence": {
+    "method": "sequence_level_knowledge_distillation",
+    "sampleCount": 4,
+    "datasetDigest": "62cb65080f87b5de24145202bd6433f24816f2c26201e8c98bd85d694eea0b3a",
+    "syntheticDataOnly": true,
+    "rawUserContentIncluded": false,
+    "externalPromptRequest": false,
+    "dataLeftDevice": false
+  },
+  "loraEvidence": {
+    "optimizerSteps": 2,
+    "targetModules": [
+      "q_proj",
+      "v_proj"
+    ],
+    "trainableParameters": 230400,
+    "initialTrainableDigest": "d40657ee459bf1919cb7718a07f799a3b2c9e138b93ebfc5a9d9067360c3210a",
+    "finalTrainableDigest": "1c71a1b00616d1a8a7edfc36a45a83125a4cf4c6c1fa79d0dd4a7064195aec3b",
+    "weightsChanged": true,
+    "adapterDigest": "31d13501e0f0e28082060b196c313f1a205e08bbe63164068ab589b85b09835f",
+    "inferenceProof": {
+      "state": "inference_verified",
+      "outputDigest": "8777f308da51557ef0ccbf2619d16008b5733348facf73296aeba1aff5fc4eaa",
+      "outputBytes": 39,
+      "externalRequest": false,
+      "dataLeftDevice": false
+    },
+    "activationRequired": true
+  },
+  "browserAI": {
+    "modelId": "novel-browser-extractive-v1",
+    "modelDigest": "1bc3d5a334549555d44c451d1723e44735ac48424fe3595a08a86aed5e0609ba",
+    "trainingDatasetDigest": "307097630eb7a19160f4c9faa64a7976467e1f53ba5e756d156fb8473c6290bb",
+    "trainingObjective": "softmax_sentence_ranking",
+    "trainingExamples": 12,
+    "holdoutExamples": 4,
+    "trainingTop1Accuracy": 1,
+    "holdoutTop1Accuracy": 1,
+    "syntheticDataOnly": true,
+    "rawUserContentIncluded": false,
+    "runtimeFallbackFor": "chrome_summarizer_unavailable"
+  },
+  "localRuntimeEvidence": {
+    "reverifiedAt": "2026-07-28T22:04:04Z",
+    "localBridge": {
+      "pairingState": "paired",
+      "runtimeReady": true,
+      "proofVersion": "local-model-inference-proof-v1",
+      "proofState": "inference_verified",
+      "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+      "outputDigest": "f4c4f27d2d735a68b5f4d74eb1974269ed00033ff3af8373d782a844bbf2fbbe",
+      "outputBytes": 12,
+      "evalCount": 4,
+      "externalRequest": false,
+      "dataLeftDevice": false
+    },
+    "privateHub": {
+      "pairingState": "paired",
+      "runtimeReady": true,
+      "proofVersion": "private-hub-model-inference-proof-v1",
+      "proofState": "inference_verified",
+      "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+      "outputDigest": "6f452fe09c20bacdb56adb90670824e4912bc48956de8eacc4244bdcd794a77f",
+      "outputBytes": 12,
+      "evalCount": 7,
+      "externalRequest": false,
+      "dataLeftDevice": false
+    }
+  },
+  "runtimeEvidenceDigest": "582bd373c8883f34e0482fb78088d262445d2a30339ea68b55d608c31a74e2c0",
+  "privacy": {
+    "rawUserContentIncluded": false,
+    "credentialsIncluded": false,
+    "rawChainOfThoughtIncluded": false,
+    "crossUserDataIncluded": false
+  },
+  "sealedEvidenceDigest": "13627d03169c3ce8bd391020af7b5b63e6887ea92640e03c4d8a05aaba3835e1"
+}

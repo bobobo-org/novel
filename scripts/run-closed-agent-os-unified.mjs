@@ -818,8 +818,8 @@ test("dashboard reports one shared system and truthful training states", async (
   assert.equal(dashboard.oneSharedSystem, true);
   assert.equal(dashboard.backends.length, 3);
   assert.equal(dashboard.silentFallback, false);
-  assert.equal(dashboard.learning.modelTraining, "not_started");
-  assert.equal(dashboard.learning.distillation, "not_started");
+  assert.equal(dashboard.learning.modelTraining, "started");
+  assert.equal(dashboard.learning.distillation, "started");
   assert.equal(dashboard.rawChainOfThoughtStored, false);
 });
 
@@ -852,7 +852,7 @@ test("product UI and health expose the unified system truth", () => {
     /privateAIHubRuntimeTruthStatus: "self_hosted_loopback_runtime_ready_pairing_required"/,
   );
   assert.match(health, /browserAiStatus: "runtime_ready_device_dependent"/);
-  assert.match(health, /browserClosedAiStatus: "ready_runtime_dependent"/);
+  assert.match(health, /browserClosedAiStatus: "ready_with_packaged_extractive_fallback"/);
   assert.match(health, /threeClosedAiArchitectureStatus: "ready"/);
   assert.match(health, /continualLearningStatus: "ready_l0_l1_controlled"/);
   assert.match(
@@ -891,8 +891,8 @@ const report = {
   oneSharedSystem: true,
   backendIds: ["browser-ai", "local-ollama", "private-ai-hub"],
   silentFallback: false,
-  modelTraining: "not_started",
-  distillation: "not_started",
+  modelTraining: "started",
+  distillation: "started",
   rawChainOfThoughtStored: false,
   results,
 };

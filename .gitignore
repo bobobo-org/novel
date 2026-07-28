@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+/artifacts/p22/
+
+# python runtime caches
+__pycache__/
+*.py[cod]
 
 # next.js
 /.next/
@@ -20,6 +25,7 @@
 # production
 /build
 /generated/release-provenance.json
+/public/legacy/novel-system.build.json
 
 # misc
 .DS_Store

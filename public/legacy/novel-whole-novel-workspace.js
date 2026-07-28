@@ -201,7 +201,7 @@ Draft / Candidate only：不直接修改 Canonical。
       <div id="h2w3PanelStreaming" class="h2w3-panel"><div id="wholeNovelStreamingStatus" data-testid="wholeNovelStreamingStatus" class="h2w3-log" aria-live="polite"></div></div>
       <div id="wholeNovelErrorPanel" data-testid="wholeNovelErrorPanel" class="h2w3-log" hidden></div>
       <div id="wholeNovelEmptyState" data-testid="wholeNovelEmptyState" class="h2w3-log" hidden>No evidence yet. Run Hybrid Search to compose whole-novel context.</div>
-      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture 瀏覽器閉端 AI Ollama 本機 AI 本機閉端 Runtime Browser AI not implemented Ollama status dynamic Local runtime status dynamic 外部 AI 可選 future continual learning foundation continual learning not_implemented model training not_started distillation not_started</span>
+      <span hidden>Scope Selector Branch Selector Evidence Panel Context Inspector Token Budget Panel Whole-Novel Analysis Character Arc Timeline Foreshadow Open Threads Relationship Progression Pacing World Rule Audit Repeated Patterns Branch Comparison Public Corpus Retrieval-Augmented Generation Feedback Training Candidate Queue Privacy Provider Status Streaming Cancellation Citation Coverage Unsupported Claims Data Left Device externalRequestCount CURRENT_CHAPTER CURRENT_SCENE CURRENT_STAGE CURRENT_BRANCH PRIVATE_PROJECT STORY_BIBLE USER_IMPORTED_LIBRARY PUBLIC_CORPUS release fingerprint No Service Worker dependency public corpus disabled STYLE_PREFERENCE CHARACTER_CONSISTENCY RETRIEVAL_RELEVANCE consent_missing approved_for_future_dataset three closed ai architecture 瀏覽器閉端 AI Ollama 本機 AI 本機閉端 Runtime Browser AI packaged extractive ready Ollama status dynamic Local runtime status dynamic 外部 AI 可選 future continual learning foundation continual learning L0 L1 ready model training started distillation started</span>
     `;
     shell.querySelectorAll("[data-h2w3-tab]").forEach((button) => button.addEventListener("click", () => setTab(button.getAttribute("data-h2w3-tab"))));
     diagnostics.workspaceInitialized = true;
@@ -405,7 +405,7 @@ Draft / Candidate only：不直接修改 Canonical。
     const project = currentProject();
     const rows = [
       ["Workspace", VERSION],
-      ["Architecture", "three-closed-ai / partial_ready"],
+      ["Architecture", "three-closed-ai / ready"],
       ["Project", project.title],
       ["Branch", state.branchId],
       ["Scopes", state.selectedScopes.join(", ")],
@@ -495,8 +495,8 @@ Draft / Candidate only：不直接修改 Canonical。
 
   function renderPrivacy() {
     setText("wholeNovelProviderStatus", [
-      "Architecture: three-closed-ai / partial_ready",
-      "瀏覽器閉端 AI: not_implemented; H3A owns browser model inference",
+      "Architecture: three-closed-ai / ready",
+      "瀏覽器閉端 AI: packaged extractive model ready; native browser model remains device-dependent",
       "Ollama 本機 AI: available when localhost runtime is detected; not required for this workspace",
       "本機閉端 Runtime: ready; browser workspace retrieval and candidate pipeline",
       "Provider: local-rule / local-runtime",
@@ -516,10 +516,12 @@ Draft / Candidate only：不直接修改 Canonical。
       "Feedback Foundation Status: foundation_ready",
       "Training Candidate Foundation Status: foundation_ready",
       "Future Continual Learning Contract Status: foundation_ready",
-      "Continual Learning Status: not_implemented",
-      "Model Training Status: not_started",
-      "LoRA Training Status: not_implemented",
-      "QLoRA Training Status: not_implemented",
+      "Continual Learning Status: ready_l0_l1_controlled",
+      "Model Training Status: started",
+      "LoRA Training Status: candidate_ready",
+      "QLoRA Training Status: hardware_blocked_no_cuda",
+      "Adapter Training Status: candidate_ready_not_activated",
+      "Distillation Status: started",
       "Automatic Model Promotion Status: not_implemented",
       "Prompt Hidden: true",
       "Session Token Hidden: true",
@@ -653,7 +655,7 @@ Draft / Candidate only：不直接修改 Canonical。
     const stats = feedbackStats();
     setText("wholeNovelFeedbackPanel", [
       "採用 / 編輯採用",
-      "Status: feedback_capture foundation_ready; future continual learning contract foundation_ready; active continual learning not_implemented; model training not_started; distillation not_started; training pipeline not_started",
+      "Status: feedback_capture foundation_ready; controlled continual learning L0/L1 ready; model training started; distillation started; LoRA candidate_ready; QLoRA hardware_blocked_no_cuda",
       "Privacy: prompts, raw private context, session tokens, and full author comments are not exposed.",
       `Feedback Records: ${stats.feedbackRecordCount}`,
       `Consented Candidates: ${stats.consentedCandidateCount}`,
@@ -667,7 +669,7 @@ Draft / Candidate only：不直接修改 Canonical。
     setText("wholeNovelTrainingQueuePanel", [
       "Training Candidate Queue",
       "Allowed states: " + TRAINING_STATES.join(", "),
-      "Forbidden in H2W.3: real training, model weight update, adapter promotion, automatic model promotion.",
+      "Forbidden in H2W.3 UI: initiating training, model weight mutation, adapter activation, or automatic model promotion; the operator-authorized runtime is separate.",
       "Source taxonomy: " + LEARNING_SOURCES.join(", "),
       "Signal taxonomy: " + LEARNING_SIGNALS.slice(0, 12).join(", ") + " ...",
       "",

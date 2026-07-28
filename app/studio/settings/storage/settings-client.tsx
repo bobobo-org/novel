@@ -22,8 +22,8 @@ export default function StorageSettingsClient() {
     quota: null,
     journal: "尚未執行",
     status: "client_dependent",
-    modelTraining: "not_started",
-    distillation: "not_started",
+    modelTraining: "started",
+    distillation: "started",
   });
 
   useEffect(() => {
@@ -67,7 +67,7 @@ export default function StorageSettingsClient() {
           <div><dt>模型訓練</dt><dd data-capability-id="modelTraining">{state.modelTraining}</dd></div>
           <div><dt>模型蒸餾</dt><dd data-capability-id="distillation">{state.distillation}</dd></div>
         </dl>
-        <p>not_started 表示已列入架構路線，但產品實作、模型產製與可呼叫 Runtime 均尚未開始。</p>
+        <p>started 表示已有可驗證訓練執行與候選模型；候選仍須通過評估與獨立核准，才可啟用或推進 Production。</p>
       </section>
       <section>
         <h2>資料安全</h2>

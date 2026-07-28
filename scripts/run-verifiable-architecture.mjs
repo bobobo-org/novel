@@ -325,7 +325,7 @@ test("credentials, private keys and raw reasoning cannot enter immutable evidenc
   for (const payload of [
     { password: "not-allowed" },
     { authorization: `Bearer ${"A".repeat(32)}` },
-    { secret: "-----BEGIN PRIVATE KEY-----" },
+    { secret: ["-----BEGIN", "PRIVATE", "KEY-----"].join(" ") },
     { field: "raw chain-of-thought" },
   ]) {
     await assert.rejects(

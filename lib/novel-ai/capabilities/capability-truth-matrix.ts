@@ -1,4 +1,4 @@
-export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v3" as const;
+export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v4" as const;
 
 export type CapabilityTruthStatus =
   | "implemented"
@@ -8,6 +8,7 @@ export type CapabilityTruthStatus =
   | "mock_only"
   | "unsupported"
   | "not_configured"
+  | "started"
   | "not_started"
   | "not_implemented"
   | "blocked";
@@ -24,9 +25,9 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "knowledge.taintTracking", status: "verified", evidence: ["p23 taint propagation matrix"], limitations: [] },
   { id: "knowledge.poisoningProtection", status: "verified", evidence: ["p23 poisoning matrix"], limitations: [] },
   { id: "knowledge.parserSandbox", status: "verified", evidence: ["p23 parser policy matrix"], limitations: ["PDF and archive parsing remain isolated adapters"] },
-  { id: "model.supplyChain", status: "contract_only", evidence: ["p23 model supply-chain contract"], limitations: ["No model download or activation performed"] },
+  { id: "model.supplyChain", status: "verified", evidence: ["SmolLM2 immutable commit hash", "teacher model and license digests", "local-only candidate artifact"], limitations: ["The LoRA candidate is not activated, merged, promoted, or shared"] },
   { id: "evaluation.layered", status: "verified", evidence: ["p23 layered evaluator matrix"], limitations: [] },
-  { id: "browser.aiRuntime", status: "available", evidence: ["Chrome built-in Summarizer capability probe", "fixed-input inference proof"], limitations: ["Availability and model download state depend on the client device"] },
+  { id: "browser.aiRuntime", status: "available", evidence: ["Chrome built-in Summarizer capability probe", "packaged extractive model with immutable digest", "fixed-input inference proof"], limitations: ["Chrome Summarizer remains device-dependent; the packaged fallback is an extractive light-task model, not a generative LLM"] },
   { id: "ollama.localRuntime", status: "implemented", evidence: ["paired loopback bridge", "authenticated fixed-input model verification", "streaming generation and cancellation"], limitations: ["Availability depends on the client device, Ollama process, installed model and in-memory pairing"] },
   { id: "privateHub.runtime", status: "implemented", evidence: ["self-hosted loopback private node", "independent pairing and work queue", "real model verification and streaming transport"], limitations: ["The private node must be running and paired on the client device; no remote cloud hub is claimed"] },
   { id: "closedAgentOS.sharedKernel", status: "verified", evidence: ["three-backend unified OS matrix", "Studio closed AI command center"], limitations: ["Backend availability remains runtime-dependent"] },
@@ -40,7 +41,7 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "learning.signalPipeline", status: "verified", evidence: ["fourteen eligible outcome classes", "user edit and regenerated-choice tests", "negative-label-only abandoned content test"], limitations: ["Signals store digests and bounded metadata, never raw prompts, outputs, or chain-of-thought"] },
   { id: "learning.runtimePolicyApplication", status: "verified", evidence: ["router, planner, cache threshold/TTL, retrieval facet ranking, tool ordering and model-context policy tests"], limitations: ["An adopted policy guides the selected local/private model; it does not alter model weights"] },
   { id: "learning.signedApprovalTransaction", status: "verified", evidence: ["ECDSA approval block membership and full-ledger verification", "forged transaction rejection", "candidate/dataset/version integrity checks"], limitations: ["The verifiable ledger is local and blockchain-inspired, not a public consensus network"] },
-  { id: "learning.l2l3Gate", status: "verified", evidence: ["adapter-weight, private-model-training and distillation fail-closed tests"], limitations: ["L2 adapter training is contract-only; L3 model training and distillation are not started"] },
+  { id: "learning.l2l3Gate", status: "verified", evidence: ["automatic adapter-weight, private-model-training and distillation fail-closed tests", "separate operator-authorized training runtime"], limitations: ["A real LoRA candidate now exists, but activation and automatic adoption remain fail-closed"] },
   { id: "ledger.verifiable", status: "verified", evidence: ["verifiable architecture v2 matrix", "append-only hash chain, Merkle inclusion proof, ECDSA approval and scoped content-address verification"], limitations: ["Blockchain-inspired local/private evidence; not a blockchain or public consensus network"] },
   { id: "ledger.immutableEvidence", status: "verified", evidence: ["independently signed evidence bundle", "evidence digest, block hash, Merkle and signature tamper rejection"], limitations: ["Immutable means tampering is detectable; local storage is not claimed to be physically undeletable"] },
   { id: "ledger.dataLineage", status: "verified", evidence: ["same-ledger parent validation", "explicit rollback target", "queryable lineage trace and cross-ledger rejection"], limitations: ["Lineage records digests and identifiers, not raw private content"] },
@@ -54,9 +55,11 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "learning.originalityGuard", status: "implemented", evidence: ["non-reversible source fingerprint overlap gate"], limitations: ["Fingerprint comparison is a safety signal, not a legal originality determination"] },
   { id: "learning.ruleCombinationEngine", status: "implemented", evidence: ["dimension-aware recipe generator and combination-space estimator"], limitations: ["Samples useful combinations instead of exhaustively enumerating an unbounded space"] },
   { id: "training.offlinePreferenceModel", status: "implemented", evidence: ["pairwise logistic gradient-descent trainer", "immutable artifact digest", "activation and rollback pointer", "Private Hub prompt adapter"], limitations: ["This trains an interpretable style preference adapter; it is not LoRA/QLoRA or an LLM weight update"] },
-  { id: "training.model", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
-  { id: "modelTraining", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, training run, model artifact, or callable runtime exists"] },
-  { id: "distillation", status: "not_started", evidence: ["P2.4A architecture roadmap entry"], limitations: ["No product implementation, distillation run, model artifact, or callable runtime exists"] },
+  { id: "training.model", status: "started", evidence: ["closed-ai-20260728T214010Z-4b4cf91d", "full-weight digest changed after one optimizer step", "LoRA checkpoint and inference proof"], limitations: ["Full-weight work is a pipeline qualification smoke; only the LoRA candidate checkpoint is persisted"] },
+  { id: "training.lora", status: "verified", evidence: ["230400 trainable parameters updated", "two optimizer steps", "adapter digest 31d13501e0f0e28082060b196c313f1a205e08bbe63164068ab589b85b09835f", "post-training inference proof"], limitations: ["Candidate only; activation, merge, promotion and sharing require separate approval"] },
+  { id: "training.qlora", status: "blocked", evidence: ["hardware probe: CUDA unavailable, Intel UHD 730"], limitations: ["QLoRA is not started on this device and cannot be relabeled as CPU LoRA"] },
+  { id: "modelTraining", status: "started", evidence: ["verifiable full-weight smoke", "real PEFT LoRA candidate", "append-only training hash chain"], limitations: ["Program started; no model is automatically activated or promoted"] },
+  { id: "distillation", status: "started", evidence: ["local qwen2.5:3b teacher", "four verified synthetic demonstrations", "sequence-level distillation dataset digest", "student LoRA candidate"], limitations: ["Synthetic dataset only; no private user content or cross-user data was used"] },
   { id: "media.storyboard", status: "implemented", evidence: ["story media candidate package"], limitations: ["Candidate only"] },
   { id: "media.videoPrompt", status: "implemented", evidence: ["video prompt package"], limitations: ["Candidate only"] },
   { id: "media.videoGeneration", status: "contract_only", evidence: ["generic video adapter contract"], limitations: ["No video runtime connected"] },
