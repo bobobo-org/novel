@@ -656,7 +656,7 @@ export async function GET() {
     continualLearningStatus: "ready_l0_l1_controlled",
     offlinePreferenceTrainingStatus: capabilityStatus(
       capabilityCatalog,
-      "training.offlinePreferenceModel",
+      "offlinePreferenceTraining",
     ),
     adapterTrainingStatus: "offline_preference_adapter_ready",
     modelTrainingStatus: capabilityStatus(capabilityCatalog, "modelTraining"),
