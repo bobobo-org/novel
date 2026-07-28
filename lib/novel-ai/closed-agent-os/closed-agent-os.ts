@@ -4,6 +4,7 @@ import {
   createClosedAICacheRepository,
   sha256Hex,
   stableStringify,
+  type ClosedAICacheInvalidation,
 } from "../closed-ai-cache";
 import {
   ControlledLearningOS,
@@ -38,6 +39,7 @@ import {
   type ClosedAgentPlan,
   type ClosedAgentTaskRecord,
   type ClosedAgentTaskRequest,
+  type ClosedBackendExecutionResult,
 } from "./types";
 
 type ClosedAgentOSOptions = {
@@ -228,16 +230,37 @@ export class ClosedAgentOS {
       const plan = planResult.value;
       for (const role of plan.roles) assertClosedAgentPermission({ request, role });
       const toolResults = await this.executeTools(request, plan);
-      const actorContext = request.context.filter((item) =>
-        item.approved
-        && item.visibility !== "author-only"
-        && item.visibility !== "evaluator"
-        && item.privacyLevel === request.namespace.privacyLevel);
       if (request.context.some((item) =>
         item.kind === "author-note"
         && item.visibility !== "author-only")) {
         throw osError("CLOSED_AGENT_AUTHOR_ONLY_LABEL_REQUIRED");
       }
+      const actorNamespace = {
+        ...request.namespace,
+        agentRole: "actor",
+      };
+      const actorContextResult = await this.cache.compute(
+        "retrieval",
+        actorNamespace,
+        {
+          taskType: request.taskType,
+          context: await Promise.all(request.context.map(async (item) => ({
+            id: item.id,
+            kind: item.kind,
+            visibility: item.visibility,
+            privacyLevel: item.privacyLevel,
+            approved: item.approved,
+            textDigest: await sha256Hex(item.text),
+          }))),
+        },
+        async () => request.context.filter((item) =>
+          item.approved
+          && item.visibility !== "author-only"
+          && item.visibility !== "evaluator"
+          && item.privacyLevel === request.namespace.privacyLevel),
+        { tags: ["actor-context", `task:${request.taskType}`] },
+      );
+      const actorContext = actorContextResult.value;
       const candidateInput = {
         taskType: request.taskType,
         objectiveDigest: await sha256Hex(request.objective),
@@ -249,14 +272,45 @@ export class ClosedAgentOS {
           toolResults.map((item) => sha256Hex(stableStringify(item.value))),
         ),
       };
-      const executionResult = await this.cache.compute(
-        "exact",
-        request.namespace,
-        candidateInput,
-        () => backend.execute({ request, plan, actorContext, toolResults }),
-        { tags: ["closed-agent-candidate", `task:${request.taskType}`] },
-      );
-      const execution = executionResult.value;
+      const semanticText = `${request.taskType}\n${request.objective}`;
+      const semanticLookup = await this.cache.getSemantic<{
+        taskType: ClosedAgentTaskRequest["taskType"];
+        execution: ClosedBackendExecutionResult;
+      }>(request.namespace, semanticText);
+      let execution: ClosedBackendExecutionResult;
+      let candidateCacheHit = false;
+      if (
+        semanticLookup.hit
+        && semanticLookup.entry?.value.taskType === request.taskType
+        && semanticLookup.entry.value.execution.backendId === route.backend.id
+      ) {
+        execution = semanticLookup.entry.value.execution;
+        candidateCacheHit = true;
+      } else {
+        const exactResult = await this.cache.compute(
+          "exact",
+          request.namespace,
+          candidateInput,
+          () => backend.execute({ request, plan, actorContext, toolResults }),
+          { tags: ["closed-agent-candidate", `task:${request.taskType}`] },
+        );
+        execution = exactResult.value;
+        candidateCacheHit = exactResult.cacheHit;
+        await this.cache.put({
+          layer: "semantic",
+          namespace: request.namespace,
+          input: {
+            taskType: request.taskType,
+            candidateInput,
+          },
+          semanticText,
+          value: {
+            taskType: request.taskType,
+            execution,
+          },
+          tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
+        });
+      }
       if (execution.backendId !== route.backend.id) {
         throw osError("CLOSED_AI_BACKEND_IDENTITY_MISMATCH", undefined, {
           selected: route.backend.id,
@@ -347,7 +401,7 @@ export class ClosedAgentOS {
           fallbackAttempted: false,
         },
         cache: {
-          candidateHit: executionResult.cacheHit,
+          candidateHit: candidateCacheHit,
           planHit: planResult.cacheHit,
         },
         learning: activeLearning,
@@ -459,12 +513,33 @@ export class ClosedAgentOS {
         candidate.namespace,
         candidate.namespace.storyBibleRevision,
       );
+      let backendInvalidatedEntryCount = 0;
+      let backendInvalidationStatus = "not_connected";
+      const backend = this.backends.get(candidate.backendId);
+      if (backend?.invalidateCache) {
+        try {
+          backendInvalidatedEntryCount = await backend.invalidateCache({
+            tenantId: candidate.namespace.tenantId,
+            userId: candidate.namespace.userId,
+            projectId: candidate.namespace.projectId,
+            storyId: candidate.namespace.storyId,
+            canonId: candidate.namespace.canonId,
+            storyBibleRevision: candidate.namespace.storyBibleRevision,
+            layers: ["exact", "semantic", "retrieval", "agent-plan", "tool-result"],
+          });
+          backendInvalidationStatus = "completed";
+        } catch {
+          backendInvalidationStatus = "runtime_unavailable_revision_key_protected";
+        }
+      }
       await this.ledger.append({
         ledgerId,
         namespace: candidate.namespace,
         eventType: "cache-invalidated",
         payload: {
           invalidatedEntryCount: count,
+          backendInvalidatedEntryCount,
+          backendInvalidationStatus,
           previousStoryBibleRevision: candidate.namespace.storyBibleRevision,
           resultingStoryBibleRevision: nextStoryBibleRevision,
         },
@@ -677,6 +752,30 @@ export class ClosedAgentOS {
       canonicalMutationRequiresCallback: true,
       silentFallback: false,
       rawChainOfThoughtStored: false,
+    };
+  }
+
+  async invalidateCache(invalidation: ClosedAICacheInvalidation) {
+    const browserEntries = await this.cache.invalidate(invalidation);
+    const backendEntries: Partial<Record<ClosedAIBackendAdapter["id"], number>> = {};
+    const unavailableBackends: ClosedAIBackendAdapter["id"][] = [];
+    await Promise.all([...this.backends.values()].map(async (backend) => {
+      if (!backend.invalidateCache) return;
+      try {
+        backendEntries[backend.id] = await backend.invalidateCache(invalidation);
+      } catch {
+        unavailableBackends.push(backend.id);
+      }
+    }));
+    return {
+      targeted: true as const,
+      browserEntries,
+      backendEntries,
+      unavailableBackends,
+      totalInvalidated: browserEntries
+        + Object.values(backendEntries).reduce((sum, count) => sum + (count ?? 0), 0),
+      staleReuseBlockedByNamespace: true as const,
+      canonicalMutationCount: 0 as const,
     };
   }
 

@@ -1,11 +1,16 @@
 import http from "node:http";
 import os from "node:os";
+import path from "node:path";
 import { appendFile, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   BRIDGE_PROTOCOL, BRIDGE_VERSION, DEFAULT_LIMITS, BridgeError, PairingStore, RateLimiter, RequestLedger, WorkLimiter,
   assertOrigin, assertProtocol, buildOriginAllowlist, modelProfileFromTag, normalizeOllamaEndpoint, sanitizeLog, validateHostHeader, validateLoopbackHost,
 } from "./bridge-core.mjs";
+import {
+  assertRuntimeCacheNamespace,
+} from "../cache/cache-contract.mjs";
+import { LocalSQLiteCacheStore } from "../cache/sqlite-cache-store.mjs";
 
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, max-age=0" };
 const characterExtractionFormat = {
@@ -42,6 +47,20 @@ async function readJson(request, maxBytes) {
 function bearer(request) {
   const value = String(request.headers.authorization || "");
   return value.startsWith("Bearer ") ? value.slice(7) : "";
+}
+
+function cacheRequestError(error) {
+  if (error instanceof BridgeError) return error;
+  const code = String(error?.code || "CLOSED_AI_CACHE_REQUEST_INVALID");
+  const clientError = code === "CLOSED_AI_NAMESPACE_INVALID"
+    || code === "CLOSED_AI_CACHE_INVALIDATION_NOT_TARGETED"
+    || code === "CLOSED_AI_CACHE_LAYER_INVALID";
+  return new BridgeError(
+    code,
+    error instanceof Error ? error.message : "Closed AI cache request failed.",
+    clientError ? 400 : 500,
+    false,
+  );
 }
 
 async function ollamaFetch(endpoint, path, init = {}, timeoutMs = 5_000, controller) {
@@ -84,6 +103,14 @@ export function createBridgeServer(options = {}) {
   const pairingFile = options.pairingFile ?? process.env.BRIDGE_PAIRING_FILE ?? "";
   const accessLogPath = options.accessLogPath ?? process.env.BRIDGE_ACCESS_LOG ?? "";
   const accessLogs = [];
+  const runtimeDir = options.runtimeDir
+    || process.env.NOVEL_BRIDGE_RUNTIME_DIR
+    || path.join(process.env.LOCALAPPDATA || os.homedir(), "NovelLocalBridge");
+  const cache = options.cacheStore ?? new LocalSQLiteCacheStore({
+    filePath: options.cacheFile
+      || process.env.NOVEL_BRIDGE_CACHE_FILE
+      || path.join(runtimeDir, "cache", "closed-ai-cache.sqlite"),
+  });
 
   async function publishPairingCode(pending, origin) {
     if (!pairingFile) {
@@ -181,7 +208,7 @@ export function createBridgeServer(options = {}) {
       if (request.method === "GET" && url.pathname === "/health") {
         const ollama = await probeOllama();
         const state = pairing.state();
-        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "pairing", "models", "model-verify", "generate", "stream", "cancel"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], securityMode: "loopback-paired", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), limits }, origin);
+        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "pairing", "models", "model-verify", "generate", "stream", "cancel", "cache-stats", "targeted-cache-invalidation"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], securityMode: "loopback-paired", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), cache: await cache.stats(), limits }, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/pair/request") {
@@ -202,6 +229,28 @@ export function createBridgeServer(options = {}) {
         const body = await readJson(request, 1_024);
         if (body.confirm !== true) throw new BridgeError("OLLAMA_REQUEST_REJECTED", "Revocation confirmation is required.", 400);
         return sendJson(response, 200, pairing.revoke(origin, bearer(request), request.headers["x-bridge-csrf"]), origin);
+      }
+
+      if (request.method === "GET" && url.pathname === "/cache/stats") {
+        authenticate(request, origin, false);
+        return sendJson(response, 200, { cache: await cache.stats() }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/cache/invalidate") {
+        authenticate(request, origin);
+        const body = await readJson(request, 16_384);
+        let invalidatedEntries;
+        try {
+          invalidatedEntries = await cache.invalidate(body);
+        } catch (error) {
+          throw cacheRequestError(error);
+        }
+        return sendJson(response, 200, {
+          status: "completed",
+          targeted: true,
+          invalidatedEntries,
+          canonicalMutationCount: 0,
+        }, origin);
       }
 
       if (request.method === "GET" && url.pathname === "/models") {
@@ -298,6 +347,74 @@ export function createBridgeServer(options = {}) {
         if (!modelId || modelId.length > 200 || /[\\/?#\0]/.test(modelId)) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model ID is invalid.", 404);
         const maxTokens = Math.min(Number(body.options?.num_predict || limits.maxOutputTokens), limits.maxOutputTokens);
         const timeoutMs = Math.min(Math.max(Number(body.timeoutMs || 60_000), 100), limits.maxTimeoutMs);
+        let cacheNamespace = null;
+        try {
+          cacheNamespace = body.cacheNamespace
+            ? assertRuntimeCacheNamespace(body.cacheNamespace)
+            : null;
+        } catch (error) {
+          throw cacheRequestError(error);
+        }
+        if (cacheNamespace && cacheNamespace.modelId !== modelId) {
+          throw new BridgeError(
+            "LOCAL_REQUEST_IDENTITY_MISMATCH",
+            "Cache namespace model identity does not match the selected model.",
+            409,
+          );
+        }
+        if (cacheNamespace?.privacyLevel === "private_infrastructure_only") {
+          throw new BridgeError(
+            "LOCAL_SECURITY_POLICY_VIOLATION",
+            "Private-infrastructure cache scope cannot be written by Local Ollama.",
+            403,
+          );
+        }
+        const generationCacheInput = {
+          prompt,
+          systemInstruction: String(body.systemInstruction || ""),
+          taskType: String(body.taskType || "unknown"),
+          modelId,
+          options: body.options || {},
+          maxTokens,
+        };
+        const tagsResponse = await ollamaFetch(
+          ollamaEndpoint,
+          "/api/tags",
+          { method: "GET" },
+          5_000,
+        );
+        const tags = await tagsResponse.json();
+        const selectedModel = (tags.models || []).find(
+          (item) => (item.model || item.name) === modelId,
+        );
+        if (!selectedModel) {
+          throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
+        }
+        if (
+          cacheNamespace
+          && selectedModel.digest
+          && cacheNamespace.modelDigest !== selectedModel.digest
+        ) {
+          throw new BridgeError(
+            "LOCAL_REQUEST_IDENTITY_MISMATCH",
+            "Cache namespace model digest does not match the installed model.",
+            409,
+          );
+        }
+        const cached = cacheNamespace
+          ? await cache.get("exact", cacheNamespace, generationCacheInput)
+          : { hit: false, entry: null };
+        if (cached.hit && cached.entry?.value?.content) {
+          const cachedValue = cached.entry.value;
+          response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Access-Control-Allow-Origin": origin, Vary: "Origin", "X-Content-Type-Options": "nosniff" });
+          response.write(`${JSON.stringify({ type: "started", requestId, modelId, cacheHit: true })}\n`);
+          response.write(`${JSON.stringify({ type: "token", text: cachedValue.content, cacheHit: true })}\n`);
+          response.write(`${JSON.stringify({ type: "metadata", ...(cachedValue.metadata || {}), cacheHit: true })}\n`);
+          response.write(`${JSON.stringify({ type: "completed", requestId, cacheHit: true })}\n`);
+          response.end();
+          log({ requestId, taskType: body.taskType, modelId, elapsedMs: 0, status: "completed", cacheHit: true, errorCode: null });
+          return;
+        }
         ledger.begin(requestId, JSON.stringify({ origin, modelId, promptHash: Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(prompt))).toString("hex"), taskType: body.taskType || "unknown" }));
         const release = await work.acquire();
         const controller = new AbortController();
@@ -306,9 +423,6 @@ export function createBridgeServer(options = {}) {
         const startedAt = performance.now();
         let status = "failed";
         try {
-          const tagsResponse = await ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" }, 5_000);
-          const tags = await tagsResponse.json();
-          if (!(tags.models || []).some((item) => (item.model || item.name) === modelId)) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
           const format = body.taskType === "character.extract" ? characterExtractionFormat : undefined;
           const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, format, options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
           response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Access-Control-Allow-Origin": origin, Vary: "Origin", "X-Content-Type-Options": "nosniff" });
@@ -316,7 +430,7 @@ export function createBridgeServer(options = {}) {
           const reader = upstream.body?.getReader();
           if (!reader) throw new BridgeError("OLLAMA_INVALID_RESPONSE", "Ollama response has no stream.", 502);
           const decoder = new TextDecoder();
-          let buffer = "", tokenCount = 0, metadata = {};
+          let buffer = "", tokenCount = 0, metadata = {}, generatedContent = "";
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
@@ -325,9 +439,35 @@ export function createBridgeServer(options = {}) {
             for (const line of lines) {
               if (!line.trim()) continue;
               let item; try { item = JSON.parse(line); } catch { throw new BridgeError("OLLAMA_INVALID_RESPONSE", "Ollama returned invalid stream JSON.", 502); }
-              if (item.response) { tokenCount += 1; response.write(`${JSON.stringify({ type: "token", text: item.response })}\n`); }
+              if (item.response) { tokenCount += 1; generatedContent += item.response; response.write(`${JSON.stringify({ type: "token", text: item.response })}\n`); }
               if (item.done) metadata = { totalDuration: item.total_duration ?? null, loadDuration: item.load_duration ?? null, promptEvalCount: item.prompt_eval_count ?? null, evalCount: item.eval_count ?? null };
             }
+          }
+          if (cacheNamespace && generatedContent) {
+            await cache.put({
+              layer: "exact",
+              namespace: cacheNamespace,
+              input: generationCacheInput,
+              value: { content: generatedContent, modelId, metadata },
+              tags: ["generation", `task:${body.taskType || "unknown"}`],
+            });
+            await cache.put({
+              layer: "model-session",
+              namespace: cacheNamespace,
+              input: {
+                storyId: cacheNamespace.storyId,
+                branchId: cacheNamespace.branchId,
+                modelId,
+              },
+              value: {
+                runtime: "ollama",
+                modelId,
+                keepAlive: "runtime-managed",
+                stateKind: "runtime_handle_metadata_only",
+              },
+              ttlMs: 10 * 60_000,
+              tags: ["model-session"],
+            });
           }
           response.write(`${JSON.stringify({ type: "metadata", tokenEvents: tokenCount, ...metadata })}\n`);
           response.write(`${JSON.stringify({ type: "completed", requestId })}\n`);
@@ -357,7 +497,7 @@ export function createBridgeServer(options = {}) {
   });
 
   server.on("clientError", (_error, socket) => socket.end("HTTP/1.1 400 Bad Request\r\n\r\n"));
-  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, logs, accessLogs, active, async start() { if (accessLogPath) await writeFile(accessLogPath, "", { mode: 0o600 }); await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); await clearPairingCode(); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); } };
+  return { server, config: { host, port, ollamaEndpoint, limits, allowlist: [...allowlist], instanceId: pairing.instanceId }, pairing, cache, logs, accessLogs, active, async start() { await cache.initialize(); if (accessLogPath) await writeFile(accessLogPath, "", { mode: 0o600 }); await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); }); return this; }, async stop() { for (const controller of active.values()) controller.abort("cancelled"); await clearPairingCode(); server.closeIdleConnections?.(); await new Promise((resolve) => server.close(resolve)); server.closeAllConnections?.(); await cache.close?.(); } };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

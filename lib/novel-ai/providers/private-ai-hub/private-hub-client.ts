@@ -3,6 +3,10 @@ import type {
   ClosedBackendExecutionInput,
   ClosedBackendExecutionResult,
 } from "../../closed-agent-os/types";
+import type {
+  ClosedAICacheInvalidation,
+  ClosedAINamespace,
+} from "../../closed-ai-cache";
 import { normalizeTraditionalChinese } from "../../language/traditional-chinese";
 import { AiProviderError } from "../provider-errors";
 import {
@@ -479,6 +483,29 @@ export class PrivateHubClient {
     ));
   }
 
+  async cacheStats(signal?: AbortSignal) {
+    return this.parse(await this.fetchHub(
+      "/cache/stats",
+      { headers: this.headers(true), cache: "no-store" },
+      signal,
+    ));
+  }
+
+  async invalidateCache(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ) {
+    return this.parse(await this.fetchHub(
+      "/cache/invalidate",
+      {
+        method: "POST",
+        headers: { ...this.headers(true, true), "Content-Type": "application/json" },
+        body: JSON.stringify(invalidation),
+      },
+      signal,
+    ));
+  }
+
   async *generate(input: {
     requestId: string;
     projectId: string;
@@ -488,6 +515,7 @@ export class PrivateHubClient {
     taskType: string;
     timeoutMs?: number;
     options?: Record<string, unknown>;
+    cacheNamespace?: ClosedAINamespace;
     signal?: AbortSignal;
   }): AsyncGenerator<LocalBridgeEvent> {
     const abort = () => {
@@ -672,6 +700,16 @@ export class LoopbackPrivateHubTransport {
     }
   }
 
+  async invalidateCache(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ) {
+    const client = getConfiguredPrivateHubClient();
+    if (!client) return 0;
+    const result = await client.invalidateCache(invalidation, signal);
+    return Number(result.invalidatedEntries ?? 0);
+  }
+
   async execute(
     input: ClosedBackendExecutionInput,
   ): Promise<ClosedBackendExecutionResult> {
@@ -705,6 +743,7 @@ export class LoopbackPrivateHubTransport {
       taskType: input.request.taskType,
       timeoutMs: 240_000,
       options: { num_predict: 2_048 },
+      cacheNamespace: input.request.namespace,
       signal: input.request.signal,
     })) {
       if (event.type === "started") {

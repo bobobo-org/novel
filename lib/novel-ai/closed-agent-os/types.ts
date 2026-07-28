@@ -1,4 +1,5 @@
 import type {
+  ClosedAICacheInvalidation,
   ClosedAINamespace,
   ClosedAIPrivacyLevel,
 } from "../closed-ai-cache";
@@ -131,6 +132,10 @@ export interface ClosedAIBackendAdapter {
   readonly id: ClosedAIBackendId;
   snapshot(signal?: AbortSignal): Promise<ClosedAIBackendSnapshot>;
   execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult>;
+  invalidateCache?(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ): Promise<number>;
 }
 
 export type ClosedAgentEvaluation = {

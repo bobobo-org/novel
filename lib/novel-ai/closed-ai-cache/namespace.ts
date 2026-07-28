@@ -18,6 +18,13 @@ const REQUIRED_NAMESPACE_FIELDS = [
   "privacyLevel",
 ] as const satisfies ReadonlyArray<keyof ClosedAINamespace>;
 
+const PRIVACY_LEVELS = new Set([
+  "device_only",
+  "private_infrastructure_only",
+  "author_only",
+  "adult_isolated",
+] satisfies ClosedAINamespace["privacyLevel"][]);
+
 export function assertClosedAINamespace(namespace: ClosedAINamespace): void {
   for (const field of REQUIRED_NAMESPACE_FIELDS) {
     const value = namespace[field];
@@ -27,6 +34,12 @@ export function assertClosedAINamespace(namespace: ClosedAINamespace): void {
         field,
       });
     }
+  }
+  if (!PRIVACY_LEVELS.has(namespace.privacyLevel)) {
+    throw Object.assign(new Error("Closed AI namespace privacy level is invalid."), {
+      code: "CLOSED_AI_NAMESPACE_INVALID",
+      field: "privacyLevel",
+    });
   }
 }
 
@@ -47,6 +60,43 @@ export function namespaceMatchesInvalidation(
     const expected = invalidation[field];
     return expected === undefined || namespace[field] === expected;
   });
+}
+
+export function assertTargetedCacheInvalidation(
+  invalidation: ClosedAICacheInvalidation,
+): void {
+  const identityFields = REQUIRED_NAMESPACE_FIELDS.filter(
+    (field) => invalidation[field] !== undefined,
+  );
+  if (!identityFields.length) {
+    throw Object.assign(
+      new Error("Cache invalidation must include at least one namespace identity field."),
+      { code: "CLOSED_AI_CACHE_INVALIDATION_NOT_TARGETED" },
+    );
+  }
+  for (const field of identityFields) {
+    const value = invalidation[field];
+    if (
+      typeof value !== "string"
+      || !value
+      || value === "*"
+      || value.trim() !== value
+    ) {
+      throw Object.assign(new Error(`Cache invalidation field is invalid: ${field}`), {
+        code: "CLOSED_AI_CACHE_INVALIDATION_NOT_TARGETED",
+        field,
+      });
+    }
+  }
+  if (
+    invalidation.createdBefore !== undefined
+    && !Number.isFinite(Date.parse(invalidation.createdBefore))
+  ) {
+    throw Object.assign(new Error("Cache invalidation timestamp is invalid."), {
+      code: "CLOSED_AI_CACHE_INVALIDATION_NOT_TARGETED",
+      field: "createdBefore",
+    });
+  }
 }
 
 export function assertNoNamespaceDowngrade(

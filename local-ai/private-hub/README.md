@@ -45,3 +45,21 @@ page or restarting the node requires pairing again.
 - LoRA/QLoRA: not claimed unless a compatible GPU training backend completes
   a separate weight-training gate
 - Firewall changes, LAN binding, telemetry, hidden model downloads: none
+
+## Encrypted Private Hub Cache
+
+Private Hub persists user, story, task and model-session cache entries as
+AES-256-GCM encrypted files with a fresh nonce per write. File names contain
+only entry digests; namespace and candidate content are inside the encrypted
+envelope. The local key file and cache files are created with owner-only mode
+where the operating system supports it.
+
+The live `/generate` path can reuse an exact candidate only when every one of
+the fourteen namespace fields matches, including model digest, Story Bible
+revision, agent role and privacy level. GPU/KV state remains owned by Ollama;
+the Hub stores only encrypted runtime-handle metadata.
+
+Paired clients can inspect `/cache/stats` and perform targeted
+`/cache/invalidate`. Cache data never becomes Memory, Learning or Canon
+without the separate evaluator, human approval and signed approval
+transaction.

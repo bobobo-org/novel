@@ -735,8 +735,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   async function clearProjectCache() {
     setBusy(true);
     try {
-      const count = await os.cache.invalidate({ projectId });
-      setStatus(`已精準清除這個作品的 ${count} 筆 AI Cache；其他作品未受影響。`);
+      const result = await os.invalidateCache({ projectId });
+      const runtimeNote = result.unavailableBackends.length
+        ? `；${result.unavailableBackends.length} 個未連線後端由 namespace 隔離阻止舊資料重用`
+        : "";
+      setStatus(`已精準清除這個作品的 ${result.totalInvalidated} 筆 AI Cache；其他作品未受影響${runtimeNote}。`);
       await refresh(false);
     } catch (error) {
       setStatus(userMessage(error));

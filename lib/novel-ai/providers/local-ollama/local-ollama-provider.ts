@@ -76,7 +76,7 @@ export async function runLocalOllama(request: PlatformAIRequest, decision: Platf
   const client = bridgeClient(base);
   let content = "";
   let completed = false;
-  for await (const event of client.generate({ requestId: request.requestId, model: decision.modelId || "", prompt: [...request.context, request.input].join("\n\n"), systemInstruction: "你是台灣繁體中文小說助手。全程只使用繁體中文（例如：著、遠、將、離、穩），禁止輸出簡體字。只輸出作者要求的候選內容，不要解釋。", taskType: request.taskType, timeoutMs: 120_000, signal: request.signal })) {
+  for await (const event of client.generate({ requestId: request.requestId, model: decision.modelId || "", prompt: [...request.context, request.input].join("\n\n"), systemInstruction: "你是台灣繁體中文小說助手。全程只使用繁體中文（例如：著、遠、將、離、穩），禁止輸出簡體字。只輸出作者要求的候選內容，不要解釋。", taskType: request.taskType, timeoutMs: 120_000, cacheNamespace: request.cacheNamespace, signal: request.signal })) {
     if (event.type === "token") content += event.text ?? "";
     if (event.type === "completed") completed = true;
     if (event.type === "failed" || event.type === "cancelled") throw Object.assign(new Error(String(event.errorCode || event.type)), { code: event.errorCode || (event.type === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_STREAM_INTERRUPTED") });

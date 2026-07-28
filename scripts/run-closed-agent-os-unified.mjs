@@ -563,6 +563,42 @@ test("automatic light, standard and heavy routing use the three distinct backend
   ]);
 });
 
+test("shared OS uses semantic and retrieval caches without promoting cache authority", async () => {
+  const { os, calls } = createMockOS();
+  const context = [{
+    id: "approved-story-bible",
+    kind: "story-bible",
+    text: "The locked archive contains one approved clue.",
+    visibility: "both",
+    privacyLevel: "device_only",
+    approved: true,
+  }];
+  await os.execute(request(
+    "task-semantic-first",
+    "story.summary",
+    "light",
+    { objective: "Summarize the approved locked archive clue.", context },
+  ));
+  const reused = await os.execute(request(
+    "task-semantic-second",
+    "story.summary",
+    "light",
+    { objective: "Summarize the approved locked archive clue.", context },
+  ));
+  assert.equal(reused.cache.candidateHit, true);
+  assert.equal(calls.length, 1);
+  const stats = await os.cache.stats();
+  assert.equal(stats.layerEntries.semantic, 1);
+  assert.equal(stats.layerEntries.retrieval, 1);
+  const entries = await os.cache.repository.list();
+  assert(entries.every((entry) =>
+    entry.authority === "cache_candidate_only"
+    && entry.approvalTransactionId === null
+    && entry.memoryMutation === false
+    && entry.learningMutation === false
+    && entry.canonicalMutation === false));
+});
+
 test("explicit incompatible backend fails without silent fallback", async () => {
   const { os, calls } = createMockOS();
   await assert.rejects(
