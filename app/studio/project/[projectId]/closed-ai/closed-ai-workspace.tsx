@@ -1105,7 +1105,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
 
           <div className={styles.systemGroup}>
             <h3>區塊鏈式可驗證機制</h3>
-            <p>使用 Append-only、SHA-256 雜湊鏈、Merkle Tree、ECDSA 簽章與內容定址；不是公開區塊鏈，也沒有投票或資料複製。</p>
+            <p>Blockchain-inspired verifiable architecture：使用 Append-only Audit Log、SHA-256 雜湊鏈、Merkle Tree、ECDSA 核准簽章、範圍隔離的內容定址、不可竄改證據與資料血緣追蹤。</p>
+            <p>這是一個 Closed Agent OS 管理三個算力後端；不是三個節點共同維護一條鏈，也不使用投票、重型共識、完整資料複製、公開帳本或每次生成的區塊鏈成本。</p>
           </div>
 
           <details>

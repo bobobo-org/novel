@@ -47,6 +47,8 @@ export class ApprovalSigner {
 export async function verifyLedgerSignature(blockHash: string, signature: LedgerSignature) {
   if (signature.algorithm !== "ECDSA-P256-SHA256") return false;
   try {
+    const expectedKeyId = (await sha256Hex(JSON.stringify(signature.publicKeyJwk))).slice(0, 24);
+    if (signature.keyId !== expectedKeyId) return false;
     const publicKey = await crypto.subtle.importKey(
       "jwk",
       signature.publicKeyJwk,

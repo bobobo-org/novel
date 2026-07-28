@@ -32,6 +32,10 @@ Task execution
 No candidate can skip the evaluator, signed approval, approved dataset, or A/B
 gate. Active versions are rechecked against the candidate, dataset, A/B
 measurements, configuration digest, and immutable ledger on every load.
+The ledger is the
+[Blockchain-inspired verifiable architecture](./blockchain-inspired-verifiable-architecture.md):
+one Closed Agent OS owns the evidence flow; the three model backends are
+compute targets, not consensus nodes.
 
 ## Eligible signals
 

@@ -1,3 +1,4 @@
+export * from "./architecture";
 export * from "./types";
 export * from "./merkle";
 export * from "./repository";
