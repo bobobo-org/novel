@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "closed-ai-live-model-results-v1",
+  "generatedAt": "2026-07-28T16:01:55.700Z",
+  "operatingSystem": "win32 10.0.26200",
+  "localModel": {
+    "modelId": "qwen2.5:3b",
+    "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b"
+  },
+  "localBridgeVerification": {
+    "proofVersion": "private-hub-model-inference-proof-v1",
+    "outputDigest": "6f452fe09c20bacdb56adb90670824e4912bc48956de8eacc4244bdcd794a77f",
+    "latencyMs": 1296
+  },
+  "trainedPreferenceModel": {
+    "modelId": "preference-cc629731f636177d-20260728160136",
+    "artifactDigest": "ac96e3a69b598d38ae4f87a8cb4c6faad94bb54c08cd22f7213cfb60ec20ab51",
+    "datasetDigest": "cc629731f636177d27d33db1d96c323822229b1e55f548ce938bc3bf97814ff8",
+    "metrics": {
+      "trainingPairs": 4,
+      "holdoutPairs": 1,
+      "trainingPairAccuracy": 1,
+      "holdoutPairAccuracy": 1,
+      "allPairAccuracy": 1,
+      "finalLoss": 0.12422789
+    },
+    "trainingMethod": "offline_pairwise_logistic_gradient_descent"
+  },
+  "privateHubEndpoint": "http://127.0.0.1:3227",
+  "modelEndpoint": "http://127.0.0.1:11434",
+  "networkDestinations": [
+    "127.0.0.1:3227",
+    "127.0.0.1:11434"
+  ],
+  "externalAiCalls": 0,
+  "dataLeftDevice": false,
+  "pass": 7,
+  "fail": 0,
+  "results": [
+    {
+      "name": "Private Hub discovers a real text model",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "modelId": "qwen2.5:3b",
+        "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b"
+      }
+    },
+    {
+      "name": "candidate language normalization is deterministic and local",
+      "status": "PASS",
+      "elapsedMs": 1,
+      "evidence": {
+        "converter": "opencc-js/cn2t",
+        "externalRequest": false,
+        "dataLeftDevice": false
+      }
+    },
+    {
+      "name": "Private Hub produces a fixed-input inference proof",
+      "status": "PASS",
+      "elapsedMs": 1308,
+      "evidence": {
+        "proofVersion": "private-hub-model-inference-proof-v1",
+        "modelId": "qwen2.5:3b",
+        "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+        "outputDigest": "6f452fe09c20bacdb56adb90670824e4912bc48956de8eacc4244bdcd794a77f",
+        "latencyMs": 1296
+      }
+    },
+    {
+      "name": "offline preference training produces an immutable model artifact",
+      "status": "PASS",
+      "elapsedMs": 23,
+      "evidence": {
+        "modelId": "preference-cc629731f636177d-20260728160136",
+        "artifactDigest": "ac96e3a69b598d38ae4f87a8cb4c6faad94bb54c08cd22f7213cfb60ec20ab51",
+        "datasetDigest": "cc629731f636177d27d33db1d96c323822229b1e55f548ce938bc3bf97814ff8",
+        "metrics": {
+          "trainingPairs": 4,
+          "holdoutPairs": 1,
+          "trainingPairAccuracy": 1,
+          "holdoutPairAccuracy": 1,
+          "allPairAccuracy": 1,
+          "finalLoss": 0.12422789
+        },
+        "rawSamplesStored": false
+      }
+    },
+    {
+      "name": "trained preference model requires explicit activation and becomes active",
+      "status": "PASS",
+      "elapsedMs": 47,
+      "evidence": {
+        "activeModelId": "preference-cc629731f636177d-20260728160136",
+        "activeArtifactDigest": "ac96e3a69b598d38ae4f87a8cb4c6faad94bb54c08cd22f7213cfb60ec20ab51"
+      }
+    },
+    {
+      "name": "Closed Agent OS executes a heavy task through the real Private Hub model",
+      "status": "PASS",
+      "elapsedMs": 19039,
+      "evidence": {
+        "backendId": "private-ai-hub",
+        "modelId": "qwen2.5:3b",
+        "modelDigest": "6d001b6a71019a3209c5bec01cf6e89e6ef23f762d405e15a8eb1d1a83de43a7",
+        "adapterId": "preference-cc629731f636177d-20260728160136",
+        "adapterDigest": "ac96e3a69b598d38ae4f87a8cb4c6faad94bb54c08cd22f7213cfb60ec20ab51",
+        "contentDigest": "f4cd6e657b55ef4a48273d9ed5d5ee07a7008006357476d014cfbe4875c98152",
+        "ledgerHeadHash": "47cac11afd42f5c29bbe816af729ceca39ad36afd8c92f014cecd662983b7b44",
+        "candidateOnly": true,
+        "canonicalMutationCount": 0,
+        "outputChars": 128
+      }
+    },
+    {
+      "name": "runtime persistence contains no raw training examples or generated output",
+      "status": "PASS",
+      "elapsedMs": 20,
+      "evidence": {
+        "inspectedFiles": 3,
+        "rawTrainingSamplesStored": false,
+        "generatedOutputStoredInRuntimeLogs": false
+      }
+    }
+  ]
+}

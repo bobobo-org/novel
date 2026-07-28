@@ -1,7 +1,19 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
+import { normalizeTraditionalChinese } from "../../language/traditional-chinese";
 
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
 export type BrowserAICapability = { webGpu: boolean; wasm: boolean; worker: boolean; storageQuota: number | null; storageUsage: number | null; status: PlatformProviderSnapshot["status"]; reason: string; summaryAvailability: string };
+export type BrowserAIInferenceProof = {
+  proofVersion: "browser-ai-inference-proof-v1";
+  state: "inference_verified";
+  modelId: "chrome-built-in-summarizer";
+  verifiedAt: string;
+  latencyMs: number;
+  outputDigest: string;
+  outputBytes: number;
+  externalRequest: false;
+  dataLeftDevice: false;
+};
 
 type BrowserSummarizer = {
   summarize(text: string, options?: { context?: string; signal?: AbortSignal }): Promise<string>;
@@ -28,6 +40,80 @@ const BROWSER_SUMMARY_TASKS: PlatformAIRequest["taskType"][] = [
   "character.relationshipEventClassify",
   "character.dialogueConsistency",
 ];
+
+let browserInferenceProof: BrowserAIInferenceProof | null = null;
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function recordInferenceProof(output: string, startedAt: number) {
+  const content = output.trim();
+  if (!content) {
+    throw Object.assign(new Error("瀏覽器模型沒有傳回可驗證內容。"), {
+      code: "BROWSER_AI_INVALID_RESPONSE",
+      retryable: true,
+    });
+  }
+  browserInferenceProof = {
+    proofVersion: "browser-ai-inference-proof-v1",
+    state: "inference_verified",
+    modelId: "chrome-built-in-summarizer",
+    verifiedAt: new Date().toISOString(),
+    latencyMs: Math.round(performance.now() - startedAt),
+    outputDigest: await sha256Hex(content),
+    outputBytes: new TextEncoder().encode(content).byteLength,
+    externalRequest: false,
+    dataLeftDevice: false,
+  };
+  return { ...browserInferenceProof };
+}
+
+export function getBrowserAIInferenceProof() {
+  return browserInferenceProof ? { ...browserInferenceProof } : null;
+}
+
+export async function verifyBrowserAI(signal?: AbortSignal) {
+  const capability = await detectBrowserAI();
+  if (capability.status !== "ready") {
+    throw Object.assign(new Error(
+      capability.status === "runtime_not_installed"
+        ? "此裝置支援瀏覽器 AI，但模型尚未下載完成。"
+        : "此裝置目前不支援瀏覽器內建 AI。",
+    ), {
+      code: capability.status === "runtime_not_installed"
+        ? "BROWSER_AI_MODEL_NOT_READY"
+        : "BROWSER_AI_UNSUPPORTED",
+      retryable: capability.status === "runtime_not_installed",
+    });
+  }
+  const factory = summarizerFactory();
+  if (!factory) {
+    throw Object.assign(new Error("此瀏覽器不支援內建摘要模型。"), {
+      code: "BROWSER_AI_UNSUPPORTED",
+      retryable: false,
+    });
+  }
+  const startedAt = performance.now();
+  const summarizer = await factory.create({
+    type: "key-points",
+    format: "plain-text",
+    length: "short",
+    sharedContext: "這是裝置內模型健康測試。只摘要輸入，不增加新事實。",
+  });
+  try {
+    const output = await summarizer.summarize(
+      "林昭進入圖書館，發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。",
+      { context: "請以繁體中文輸出一句摘要。", signal },
+    );
+    return recordInferenceProof(output, startedAt);
+  } finally {
+    summarizer.destroy?.();
+  }
+}
 
 function summarizerFactory(): BrowserSummarizerFactory | null {
   const value = (globalThis as unknown as { Summarizer?: BrowserSummarizerFactory }).Summarizer;
@@ -97,11 +183,12 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
       context: "只輸出摘要，不新增原文不存在的事實。",
       signal: request.signal,
     });
+    await recordInferenceProof(content, started);
     return {
       requestId: request.requestId,
       providerId: "browser-ai",
       modelId: decision.modelId,
-      content: content.trim(),
+      content: normalizeTraditionalChinese(content.trim()),
       candidateOnly: true,
       externalRequest: false,
       dataLeavesDevice: false,

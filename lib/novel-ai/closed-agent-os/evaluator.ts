@@ -1,4 +1,5 @@
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
+import { containsConvertibleSimplifiedChinese } from "../language/traditional-chinese";
 import type {
   ClosedAgentEvaluation,
   ClosedAgentTaskRequest,
@@ -18,6 +19,9 @@ export async function evaluateClosedAgentCandidate(input: {
   if (!content) blockingCodes.push("CANDIDATE_EMPTY");
   if (CREDENTIAL.test(content)) blockingCodes.push("CANDIDATE_CREDENTIAL_LEAK");
   if (RAW_REASONING.test(content)) blockingCodes.push("CANDIDATE_RAW_REASONING_LEAK");
+  if (containsConvertibleSimplifiedChinese(content)) {
+    blockingCodes.push("CANDIDATE_SIMPLIFIED_CHINESE_REMAINS");
+  }
   if (!input.execution.candidateOnly) blockingCodes.push("CANDIDATE_ONLY_CONTRACT_MISSING");
   if (
     input.execution.backendId !== "private-ai-hub"

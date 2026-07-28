@@ -22,6 +22,20 @@ try {
   await test("origin allowlist accepts configured origins", async () => assert.equal(buildOriginAllowlist().has(origin), true));
   await test("unauthorized origin rejected", async () => { const result = await json(await fetch(`${base}/health`, { headers: { Origin: "https://evil.example", "X-Bridge-Protocol": BRIDGE_PROTOCOL } })); assert.equal(result.body.errorCode, "BRIDGE_ORIGIN_NOT_ALLOWED"); });
   await test("preflight uses exact origin and no wildcard", async () => { const response = await fetch(`${base}/health`, { method: "OPTIONS", headers: headers({ "Access-Control-Request-Headers": "content-type,x-bridge-protocol,x-bridge-csrf", "Access-Control-Request-Method": "POST" }) }); assert.equal(response.status, 204); assert.equal(response.headers.get("access-control-allow-origin"), origin); assert.notEqual(response.headers.get("access-control-allow-origin"), "*"); });
+  await test("preflight does not consume origin request quota", async () => {
+    for (let index = 0; index < 35; index += 1) {
+      const response = await fetch(`${base}/health`, {
+        method: "OPTIONS",
+        headers: headers({
+          "Access-Control-Request-Headers": "content-type,x-bridge-protocol",
+          "Access-Control-Request-Method": "POST",
+        }),
+      });
+      assert.equal(response.status, 204);
+    }
+    const health = await json(await fetch(`${base}/health`, { headers: headers() }));
+    assert.equal(health.status, 200);
+  });
   await test("malformed JSON rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: "{" })); assert.equal(result.body.errorCode, "OLLAMA_REQUEST_REJECTED"); });
   await test("oversized request rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ value: "x".repeat(2_000) }) })); assert.equal(result.body.errorCode, "LOCAL_REQUEST_TOO_LARGE"); });
 
@@ -32,6 +46,7 @@ try {
   await test("pairing code cannot be reused", async () => { const result = await json(await fetch(`${base}/pair/confirm`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ pairingId: pairingRequest.body.pairingId, code: pairingRequest.body.testCode }) })); assert.notEqual(result.status, 200); });
   await test("missing CSRF rejected", async () => { const result = await json(await fetch(`${base}/pair/revoke`, { method: "POST", headers: headers({ Authorization: `Bearer ${pairingConfirm.body.token}`, "Content-Type": "application/json" }), body: JSON.stringify({ confirm: true }) })); assert.equal(result.body.errorCode, "LOCAL_SECURITY_POLICY_VIOLATION"); });
   await test("invalid model id rejected", async () => { const result = await json(await fetch(`${base}/models/${encodeURIComponent("../secret")}`, { headers: headers({ Authorization: `Bearer ${pairingConfirm.body.token}` }) })); assert.equal(result.body.errorCode, "OLLAMA_MODEL_NOT_FOUND"); });
+  await test("model verification requires paired authorization", async () => { const result = await json(await fetch(`${base}/model/verify`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ model: "qwen2.5:3b" }) })); assert.equal(result.body.errorCode, "BRIDGE_NOT_PAIRED"); });
   await test("token and prompt absent from sanitized logs", async () => { const text = JSON.stringify(sanitizeLog({ requestId: "r", taskType: "t", modelId: "m", status: "failed", token: pairingConfirm.body.token, prompt: "private story" })); assert.equal(text.includes(pairingConfirm.body.token), false); assert.equal(text.includes("private story"), false); });
   await test("pair revoke succeeds", async () => { const result = await json(await fetch(`${base}/pair/revoke`, { method: "POST", headers: auth, body: JSON.stringify({ confirm: true }) })); assert.equal(result.body.state, "revoked"); });
   await test("revoked token rejected", async () => { const result = await json(await fetch(`${base}/models`, { headers: headers({ Authorization: `Bearer ${pairingConfirm.body.token}` }) })); assert.equal(result.body.errorCode, "BRIDGE_PAIRING_REVOKED"); });
@@ -49,7 +64,7 @@ try {
   await test("idempotency duplicate rejected", async () => { const ledger = new RequestLedger(); ledger.begin("request-1", "identity-a"); assert.throws(() => ledger.begin("request-1", "identity-a"), (error) => error.code === "LOCAL_DUPLICATE_REQUEST"); });
   await test("idempotency identity mismatch rejected", async () => { const ledger = new RequestLedger(); ledger.begin("request-1", "identity-a"); assert.throws(() => ledger.begin("request-1", "identity-b"), (error) => error.code === "LOCAL_REQUEST_IDENTITY_MISMATCH"); });
   await test("queue limit enforced", async () => { const limiter = new WorkLimiter({ maxConcurrent: 1, maxQueue: 1 }); const release = await limiter.acquire(); const queued = limiter.acquire(); await assert.rejects(() => limiter.acquire(), (error) => error.code === "LOCAL_CONCURRENCY_LIMIT"); release(); const releaseQueued = await queued; releaseQueued(); });
-  await test("required error catalog present", async () => assert.equal(ERROR_CODES.includes("OLLAMA_STREAM_INTERRUPTED") && ERROR_CODES.includes("LOCAL_SECURITY_POLICY_VIOLATION"), true));
+  await test("required error catalog present", async () => assert.equal(ERROR_CODES.includes("OLLAMA_STREAM_INTERRUPTED") && ERROR_CODES.includes("LOCAL_MODEL_INFERENCE_NOT_VERIFIED") && ERROR_CODES.includes("LOCAL_SECURITY_POLICY_VIOLATION"), true));
 } finally { await bridge.stop(); }
 
 const report = { schemaVersion: "closed-ai-bridge-contract-results-v1", generatedAt: new Date().toISOString(), protocolVersion: BRIDGE_PROTOCOL, pass: results.filter((item) => item.status === "PASS").length, fail: results.filter((item) => item.status === "FAIL").length, skip: 0, externalAiCalls: 0, results };

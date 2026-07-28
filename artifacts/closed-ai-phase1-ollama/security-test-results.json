@@ -1,8 +1,8 @@
 {
   "schemaVersion": "closed-ai-bridge-contract-results-v1",
-  "generatedAt": "2026-07-19T18:00:17.496Z",
+  "generatedAt": "2026-07-28T16:01:57.036Z",
   "protocolVersion": "novel-local-bridge/v1",
-  "pass": 31,
+  "pass": 33,
   "fail": 0,
   "skip": 0,
   "externalAiCalls": 0,
@@ -10,12 +10,12 @@
     {
       "name": "protocol health handshake",
       "status": "PASS",
-      "elapsedMs": 115
+      "elapsedMs": 37
     },
     {
       "name": "protocol version mismatch",
       "status": "PASS",
-      "elapsedMs": 4
+      "elapsedMs": 6
     },
     {
       "name": "origin allowlist accepts configured origins",
@@ -30,7 +30,12 @@
     {
       "name": "preflight uses exact origin and no wildcard",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
+    },
+    {
+      "name": "preflight does not consume origin request quota",
+      "status": "PASS",
+      "elapsedMs": 48
     },
     {
       "name": "malformed JSON rejected",
@@ -40,7 +45,7 @@
     {
       "name": "oversized request rejected",
       "status": "PASS",
-      "elapsedMs": 5
+      "elapsedMs": 3
     },
     {
       "name": "pairing lifecycle reaches paired",
@@ -50,7 +55,7 @@
     {
       "name": "pairing code cannot be reused",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "missing CSRF rejected",
@@ -60,7 +65,12 @@
     {
       "name": "invalid model id rejected",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
+    },
+    {
+      "name": "model verification requires paired authorization",
+      "status": "PASS",
+      "elapsedMs": 1
     },
     {
       "name": "token and prompt absent from sanitized logs",
@@ -70,22 +80,22 @@
     {
       "name": "pair revoke succeeds",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 1
     },
     {
       "name": "revoked token rejected",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "expired pairing rejected",
       "status": "PASS",
-      "elapsedMs": 16
+      "elapsedMs": 19
     },
     {
       "name": "old bridge token rejected by new instance",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "IPv4 loopback allowed",

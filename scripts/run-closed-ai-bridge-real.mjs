@@ -49,6 +49,26 @@ try {
   selectedModel = models.body.models.filter((model) => model.capabilities.textGeneration.value).sort((a, b) => (a.diskSize || Infinity) - (b.diskSize || Infinity))[0];
   await test("real model discovery", async () => { assert.ok(selectedModel?.modelId); return { modelId: selectedModel.modelId, diskSize: selectedModel.diskSize, quantization: selectedModel.quantization }; });
   await test("real model metadata", async () => { const inspected = await readJson(await fetch(`${base}/models/${encodeURIComponent(selectedModel.modelId)}`, { headers: headers(session) })); assert.equal(inspected.status, 200); return { family: inspected.body.family, parameterSize: inspected.body.parameterSize, capabilitiesSource: inspected.body.inspection?.source }; });
+  await test("real fixed-input model inference proof", async () => {
+    const verified = await readJson(await fetch(`${base}/model/verify`, {
+      method: "POST",
+      headers: { ...headers(session, true), "Content-Type": "application/json" },
+      body: JSON.stringify({ model: selectedModel.modelId }),
+    }));
+    assert.equal(verified.status, 200);
+    assert.equal(verified.body.state, "inference_verified");
+    assert.equal(verified.body.modelId, selectedModel.modelId);
+    assert.match(verified.body.outputDigest, /^[a-f0-9]{64}$/);
+    assert.ok(verified.body.outputBytes > 0);
+    assert.equal(verified.body.externalRequest, false);
+    assert.equal(verified.body.dataLeftDevice, false);
+    return {
+      proofVersion: verified.body.proofVersion,
+      modelDigest: verified.body.modelDigest,
+      outputDigest: verified.body.outputDigest,
+      latencyMs: verified.body.latencyMs,
+    };
+  });
 
   const fixture = "林昭是二十八歲的調查員，目前在封閉圖書館尋找失蹤帳冊。規則：午夜前任何人不得離開圖書館。林昭尚不知道館長藏起了鑰匙。";
   const tasks = [
@@ -59,7 +79,7 @@ try {
     ["story-bible", `根據這份短篇Story Bible續寫80至140字，不得讓林昭知道館長藏鑰匙，也不得離開圖書館：${fixture}`],
     ["continuity", `只寫一句繁體中文後續。必須保留林昭二十八歲、仍在圖書館、尚不知道鑰匙真相：${fixture}`],
   ];
-  for (const [taskType, prompt] of tasks) await test(`real generation:${taskType}`, async () => { const output = await generate(session, { requestId: `phase1-${taskType}-0001`, model: selectedModel.modelId, prompt, taskType, timeoutMs: 120_000, options: { num_predict: taskType === "story-bible" ? 180 : 100, temperature: 0.2 } }); assert.equal(output.completed, true); assert.ok(output.text.trim().length > 10); assert.match(output.text, /[\u3400-\u9fff]/); if (taskType === "continuity") { assert.match(output.text, /林昭/); assert.match(output.text, /二十八歲/); assert.match(output.text, /仍在|仍處於|不得離開|留在/); assert.match(output.text, /不知|不知道|尚未得知/); assert.doesNotMatch(output.text, /三十五歲|已經離開圖書館|走出圖書館/); } return { chars: output.text.length, firstTokenMs: output.firstTokenMs, totalMs: output.totalMs, contentStored: false }; });
+  for (const [taskType, prompt] of tasks) await test(`real generation:${taskType}`, async () => { const output = await generate(session, { requestId: `phase1-${taskType}-0001`, model: selectedModel.modelId, prompt, taskType, timeoutMs: 120_000, options: { num_predict: taskType === "story-bible" ? 180 : 100, temperature: 0.2 } }); assert.equal(output.completed, true); assert.ok(output.text.trim().length > 10); assert.match(output.text, /[\u3400-\u9fff]/); if (taskType === "continuity") { assert.match(output.text, /林昭/); assert.match(output.text, /二十八歲/); assert.match(output.text, /圖書館/); assert.match(output.text, /不知|不知道|尚未得知/); assert.doesNotMatch(output.text, /三十五歲|已經離開圖書館|走出圖書館|離開了圖書館/); } return { chars: output.text.length, firstTokenMs: output.firstTokenMs, totalMs: output.totalMs, contentStored: false }; });
 
   await test("missing model reports explicit error", async () => { const response = await readJson(await fetch(`${base}/generate`, { method: "POST", headers: { ...headers(session, true), "Content-Type": "application/json", "Idempotency-Key": "phase1-missing-model" }, body: JSON.stringify({ requestId: "phase1-missing-model", model: "not-installed:latest", prompt: "test", taskType: "test" }) })); assert.equal(response.body.errorCode, "OLLAMA_MODEL_NOT_FOUND"); return { status: response.status }; });
   await test("duplicate request is not regenerated", async () => { const response = await readJson(await fetch(`${base}/generate`, { method: "POST", headers: { ...headers(session, true), "Content-Type": "application/json", "Idempotency-Key": "phase1-summary-0001" }, body: JSON.stringify({ requestId: "phase1-summary-0001", model: selectedModel.modelId, prompt: tasks[0][1], taskType: "summary" }) })); assert.equal(response.body.errorCode, "LOCAL_DUPLICATE_REQUEST"); return response.body.details; });

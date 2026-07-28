@@ -156,7 +156,6 @@ export function createBridgeServer(options = {}) {
       accessRecord.origin_decision = "checking";
       origin = assertOrigin(request.headers.origin, allowlist);
       accessRecord.origin_decision = "allowed";
-      rate.take(origin);
       if (request.method === "OPTIONS") {
         accessRecord.cors_decision = "checking";
         const requestedHeaders = String(request.headers["access-control-request-headers"] || "").toLowerCase();
@@ -174,6 +173,7 @@ export function createBridgeServer(options = {}) {
         accessRecord.cors_decision = "allowed";
         response.end(); return;
       }
+      rate.take(origin);
       assertProtocol(request.headers["x-bridge-protocol"]);
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (url.searchParams.has("token") || url.searchParams.has("authorization")) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Credentials are not accepted in URLs.", 400);
@@ -181,7 +181,7 @@ export function createBridgeServer(options = {}) {
       if (request.method === "GET" && url.pathname === "/health") {
         const ollama = await probeOllama();
         const state = pairing.state();
-        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "pairing", "models", "generate", "stream", "cancel"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], securityMode: "loopback-paired", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), limits }, origin);
+        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "pairing", "models", "model-verify", "generate", "stream", "cancel"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], securityMode: "loopback-paired", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), limits }, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/pair/request") {
@@ -222,6 +222,60 @@ export function createBridgeServer(options = {}) {
         const showResponse = await ollamaFetch(ollamaEndpoint, "/api/show", { method: "POST", body: JSON.stringify({ model: modelId, verbose: false }) }, 10_000);
         const show = await showResponse.json();
         return sendJson(response, 200, { ...modelProfileFromTag(tag), inspection: { capabilities: show.capabilities ?? null, source: show.capabilities ? "reported" : "unknown" } }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/model/verify") {
+        authenticate(request, origin);
+        const body = await readJson(request, 2_048);
+        const modelId = String(body.model || "");
+        if (!modelId || modelId.length > 200 || /[\\/?#\0]/.test(modelId)) {
+          throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model ID is invalid.", 404);
+        }
+        const tagsResponse = await ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" }, 5_000);
+        const tags = await tagsResponse.json();
+        const tag = (tags.models || []).find((item) => (item.model || item.name) === modelId);
+        if (!tag) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
+        const profile = modelProfileFromTag(tag);
+        if (profile.capabilities.textGeneration.value !== true) {
+          throw new BridgeError("OLLAMA_REQUEST_REJECTED", "Selected model cannot generate text.", 400);
+        }
+        const startedAt = performance.now();
+        const verifyResponse = await ollamaFetch(ollamaEndpoint, "/api/generate", {
+          method: "POST",
+          body: JSON.stringify({
+            model: modelId,
+            prompt: "這是本機模型啟動驗證。請只回覆四個字：驗證完成",
+            system: "You are a local runtime health verifier. Follow the fixed instruction and do not add explanations.",
+            stream: false,
+            keep_alive: "10m",
+            options: { temperature: 0, seed: 7, num_predict: 16 },
+          }),
+        }, 45_000);
+        const verifyBody = await verifyResponse.json().catch(() => null);
+        const output = String(verifyBody?.response || "").trim();
+        if (!output) {
+          throw new BridgeError("LOCAL_MODEL_INFERENCE_NOT_VERIFIED", "Model returned no output during inference verification.", 502, true);
+        }
+        const outputDigest = Buffer.from(
+          await crypto.subtle.digest("SHA-256", new TextEncoder().encode(output)),
+        ).toString("hex");
+        const proof = {
+          proofVersion: "local-model-inference-proof-v1",
+          state: "inference_verified",
+          providerKind: "local_ollama",
+          instanceId: pairing.instanceId,
+          modelId,
+          modelDigest: profile.modelDigest,
+          verifiedAt: new Date().toISOString(),
+          latencyMs: Math.round(performance.now() - startedAt),
+          outputDigest,
+          outputBytes: Buffer.byteLength(output, "utf8"),
+          evalCount: Number(verifyBody?.eval_count) || null,
+          externalRequest: false,
+          dataLeftDevice: false,
+        };
+        log({ requestId: `model-verify:${outputDigest.slice(0, 16)}`, taskType: "model.verify", modelId, elapsedMs: proof.latencyMs, status: "completed", errorCode: null });
+        return sendJson(response, 200, proof, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/cancel") {

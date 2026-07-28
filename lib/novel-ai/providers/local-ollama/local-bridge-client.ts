@@ -8,6 +8,21 @@ const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhos
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
 export type LocalTextModel = { modelId: string; modelDigest?: string | null; contextLength?: { value?: number | null }; capabilities?: { textGeneration?: { value?: boolean }; embeddings?: { value?: boolean } } };
+export type LocalModelInferenceProof = {
+  proofVersion: "local-model-inference-proof-v1";
+  state: "inference_verified";
+  providerKind: "local_ollama";
+  instanceId: string;
+  modelId: string;
+  modelDigest: string | null;
+  verifiedAt: string;
+  latencyMs: number;
+  outputDigest: string;
+  outputBytes: number;
+  evalCount: number | null;
+  externalRequest: false;
+  dataLeftDevice: false;
+};
 type LocalBridgeBody = Record<string, unknown> & {
   errorCode?: string;
   message?: string;
@@ -23,6 +38,18 @@ type LocalBridgeBody = Record<string, unknown> & {
   csrf?: string;
   instanceId?: string;
   expiresAt?: string;
+  proofVersion?: string;
+  state?: string;
+  providerKind?: string;
+  modelId?: string;
+  modelDigest?: string | null;
+  verifiedAt?: string;
+  latencyMs?: number;
+  outputDigest?: string;
+  outputBytes?: number;
+  evalCount?: number | null;
+  externalRequest?: boolean;
+  dataLeftDevice?: boolean;
 };
 
 export function selectAvailableTextModel(models: LocalTextModel[], preferredModelId: string) {
@@ -127,6 +154,7 @@ export class LocalBridgeClient {
   readonly endpoint: string;
   readonly origin: string;
   private session: LocalBridgeSession | null = null;
+  private modelVerification: LocalModelInferenceProof | null = null;
 
   constructor(options: { endpoint?: string; origin?: string; session?: LocalBridgeSession } = {}) {
     this.endpoint = normalizeBridgeEndpoint(options.endpoint);
@@ -134,8 +162,17 @@ export class LocalBridgeClient {
     this.session = options.session ?? null;
   }
 
-  setSession(session: LocalBridgeSession | null) { this.session = session; }
+  setSession(session: LocalBridgeSession | null) {
+    if (!session || session.instanceId !== this.session?.instanceId) this.modelVerification = null;
+    this.session = session;
+  }
   getSessionMetadata() { return this.session ? { instanceId: this.session.instanceId, expiresAt: this.session.expiresAt } : null; }
+  getModelVerification(modelId?: string) {
+    if (!this.modelVerification || !this.session) return null;
+    if (this.modelVerification.instanceId !== this.session.instanceId) return null;
+    if (modelId && this.modelVerification.modelId !== modelId) return null;
+    return { ...this.modelVerification };
+  }
 
   private headers(authenticated = false, write = false) {
     const headers: Record<string, string> = { "X-Bridge-Protocol": LOCAL_BRIDGE_PROTOCOL };
@@ -193,6 +230,7 @@ export class LocalBridgeClient {
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {
     const session = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }) }, signal)) as LocalBridgeSession;
+    this.modelVerification = null;
     this.session = session;
     return session;
   }
@@ -200,6 +238,7 @@ export class LocalBridgeClient {
   async revoke(signal?: AbortSignal) {
     const result = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }, signal));
     this.session = null;
+    this.modelVerification = null;
     return result;
   }
 
@@ -209,6 +248,35 @@ export class LocalBridgeClient {
 
   async inspectModel(modelId: string, signal?: AbortSignal) {
     return this.parse(await this.fetchBridge(`${this.endpoint}/models/${encodeURIComponent(modelId)}`, { headers: this.headers(true), cache: "no-store" }, signal));
+  }
+
+  async verifyModel(modelId: string, signal?: AbortSignal): Promise<LocalModelInferenceProof> {
+    const body = await this.parse(await this.fetchBridge(`${this.endpoint}/model/verify`, {
+      method: "POST",
+      headers: { ...this.headers(true, true), "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    }, signal));
+    const valid = body.proofVersion === "local-model-inference-proof-v1"
+      && body.state === "inference_verified"
+      && body.providerKind === "local_ollama"
+      && body.instanceId === this.session?.instanceId
+      && body.modelId === modelId
+      && typeof body.verifiedAt === "string"
+      && typeof body.latencyMs === "number"
+      && typeof body.outputDigest === "string"
+      && /^[a-f0-9]{64}$/i.test(body.outputDigest)
+      && typeof body.outputBytes === "number"
+      && body.outputBytes > 0
+      && body.externalRequest === false
+      && body.dataLeftDevice === false;
+    if (!valid) {
+      throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "本機模型驗證證明不完整，不能標示為運作中。", {
+        retryable: true,
+        stage: "local-model-verification",
+      });
+    }
+    this.modelVerification = body as LocalModelInferenceProof;
+    return { ...this.modelVerification };
   }
 
   async cancel(requestId: string, signal?: AbortSignal) {

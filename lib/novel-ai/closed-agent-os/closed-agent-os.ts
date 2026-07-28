@@ -273,6 +273,8 @@ export class ClosedAgentOS {
           backendId: execution.backendId,
           modelId: execution.modelId,
           modelDigest: execution.modelDigest,
+          adapterId: execution.adapterId ?? null,
+          adapterDigest: execution.adapterDigest ?? null,
           contentDigest: await sha256Hex(execution.content),
           candidateOnly: true,
         },
@@ -310,6 +312,8 @@ export class ClosedAgentOS {
         backendId: execution.backendId,
         modelId: execution.modelId,
         modelDigest: execution.modelDigest,
+        adapterId: execution.adapterId ?? null,
+        adapterDigest: execution.adapterDigest ?? null,
         content: execution.content,
         contentDigest: await sha256Hex(execution.content),
         planDigest: plan.planDigest,
@@ -353,7 +357,11 @@ export class ClosedAgentOS {
       const code = String((cause as { code?: string })?.code || "CLOSED_AGENT_TASK_FAILED");
       task = {
         ...task,
-        state: code === "CLOSED_AGENT_TASK_CANCELLED" ? "cancelled" : "failed",
+        state: request.signal?.aborted
+          || code === "CLOSED_AGENT_TASK_CANCELLED"
+          || code === "OLLAMA_CANCELLED"
+          ? "cancelled"
+          : "failed",
         errorCode: code,
         updatedAt: this.now().toISOString(),
       };

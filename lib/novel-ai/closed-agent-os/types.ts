@@ -118,6 +118,8 @@ export type ClosedBackendExecutionResult = {
   backendId: ClosedAIBackendId;
   modelId: string;
   modelDigest: string;
+  adapterId?: string | null;
+  adapterDigest?: string | null;
   content: string;
   candidateOnly: true;
   dataLeftDevice: boolean;
@@ -150,6 +152,8 @@ export type ClosedAgentCandidate = {
   backendId: ClosedAIBackendId;
   modelId: string;
   modelDigest: string;
+  adapterId?: string | null;
+  adapterDigest?: string | null;
   content: string;
   contentDigest: string;
   planDigest: string;

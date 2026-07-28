@@ -7,6 +7,7 @@ import {
   runLocalOllama,
 } from "../providers/local-ollama/local-ollama-provider";
 import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
+import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
 import type {
   PlatformAIRequest,
   PlatformProviderSnapshot,
@@ -222,7 +223,7 @@ export function createDefaultClosedAIBackends(): ClosedAIBackendAdapter[] {
   return [
     new BrowserAIBackendAdapter(),
     new LocalOllamaBackendAdapter(),
-    new PrivateAIHubBackendAdapter(),
+    new PrivateAIHubBackendAdapter(new LoopbackPrivateHubTransport()),
   ];
 }
 
