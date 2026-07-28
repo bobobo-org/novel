@@ -34,9 +34,9 @@ test("正式快照與來源一致", () =>
 test("舊頁面引用生成快照", () =>
   legacy.includes("/generated/story-library.js"));
 test("首頁使用動態故事庫統計", () =>
-  page.includes("buildProfessionalFrontdoorUrl") &&
-  studio.includes("STORY_LIBRARY.packs.length") &&
-  studio.includes("STORY_LIBRARY.topics.filter"));
+  page.includes("storyLibraryStats") &&
+  page.includes("{library.packs}") &&
+  page.includes("{library.classicTopics}"));
 test("成人題材與經典題材分離", () =>
   adult.length > 0 && adult.every((topic) => !topic.classic));
 test("成人模式預設關閉", () => compactStudio.includes("adultMode:false"));
@@ -208,8 +208,8 @@ test("專業工具保留Legacy入口", () =>
 test("健康狀態回報正式故事庫", () =>
   health.includes("storyLibraryClassicTopicCount") &&
   health.includes("progressiveCreationStatus"));
-test("Browser AI誠實標示未實作", () =>
-  health.includes('browserAiStatus: "not_implemented"'));
+test("Browser AI誠實標示裝置相依", () =>
+  health.includes('browserAiStatus: "runtime_ready_device_dependent"'));
 test("Ollama誠實標示需要本機環境", () =>
   health.includes('ollamaConsumerStatus: "runtime_required"'));
 const failed = results.filter((result) => result.status === "FAIL");
