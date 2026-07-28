@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
-import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest, type LocalModelInferenceProof } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
 import { getLocalBridgeConsumerMessage } from "@/lib/novel-ai/providers/local-ollama/local-bridge-consumer-errors";
 import { assertEnrollmentCommandMatchesPage, buildOriginEnrollmentCommand, resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
@@ -46,6 +46,7 @@ const errorGuidance: Record<string, string> = {
   OLLAMA_CANCELLED: "本次生成已取消，可以修改內容後重新送出。",
   LOCAL_CONCURRENCY_LIMIT: "本機 AI 正在處理其他工作，請稍候再試。",
   LOCAL_DUPLICATE_REQUEST: "這個要求已送出，系統已阻止重複生成。",
+  LOCAL_MODEL_INFERENCE_NOT_VERIFIED: "模型雖然已安裝，但尚未完成真實推理驗證，不能標示為可生成。",
   LOCAL_MODEL_OUTPUT_UNRELIABLE: "本機模型的結果缺少可驗證證據，這次內容不會進入正式資料。請縮短原文或重新嘗試。",
   LOCAL_EXTRACTION_RETRY_EXHAUSTED: "本機模型連續三次都未能提供可靠證據，這次內容不會進入正式資料。",
   LOCAL_EXTRACTION_CANCELLED: "角色資料整理已取消，後續重試也已停止。",
@@ -71,6 +72,7 @@ export default function AISettingsClient() {
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus>("idle");
   const [requestId, setRequestId] = useState("");
   const [activeModel, setActiveModel] = useState("");
+  const [modelProof, setModelProof] = useState<LocalModelInferenceProof | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [firstTokenMs, setFirstTokenMs] = useState<number | null>(null);
   const [timeoutMs, setTimeoutMs] = useState(120_000);
@@ -146,6 +148,7 @@ export default function AISettingsClient() {
         configureLocalBridgeClient(client);
         configureLocalBridgeModel(refreshedModel || null);
         if (refreshedModel) localStorage.setItem("novel_local_ai_model", refreshedModel);
+        setModelProof(refreshedModel ? client.getModelVerification(refreshedModel) : null);
       } catch (error) {
         const code = String((error as { code?: string })?.code || "");
         modelError = errorGuidance[code] || "目前無法讀取本機模型，請重新檢查 Ollama。";
@@ -159,7 +162,11 @@ export default function AISettingsClient() {
       pairing: health?.pairingState === "paired" && client.getSessionMetadata() ? "已配對" : health?.pairingState === "paired" ? "頁面已重新載入，請重新配對" : "尚未配對",
       ollama: health?.ollamaReachable ? (health.modelAvailable ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型") : "Ollama 尚未啟動",
       model: refreshedModel || (health?.pairingState === "paired" ? value.model : "尚未選用"),
-      generation: health?.runtimeReady && refreshedModel ? "可以生成" : "尚未就緒",
+      generation: health?.runtimeReady && refreshedModel && client.getModelVerification(refreshedModel)
+        ? "模型已實際回答，可以生成"
+        : refreshedModel
+          ? "模型已安裝，等待真實推理驗證"
+          : "尚未就緒",
       hub: hub.status === "ready" ? "已連線" : "尚未連接執行環境",
       privacy: saved.privacy || "strict-local",
       external: Boolean(saved.external),
@@ -197,7 +204,9 @@ export default function AISettingsClient() {
       const selected = selectAvailableTextModel(available, savedModel) || "";
       configureLocalBridgeModel(selected || null);
       if (selected) localStorage.setItem("novel_local_ai_model", selected);
-      setStatus((value) => ({ ...value, pairing: "已配對", bridge: "本機橋接服務已啟動", origin: "目前網站已授權", ollama: available.length ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型", model: selected || "尚未選用", generation: selected ? "可以生成" : "尚未就緒" }));
+      const proof = selected ? await client.verifyModel(selected) : null;
+      setModelProof(proof);
+      setStatus((value) => ({ ...value, pairing: "已配對", bridge: "本機橋接服務已啟動", origin: "目前網站已授權", ollama: available.length ? "Ollama 與文字模型可用" : "Ollama 已啟動，尚無文字模型", model: selected || "尚未選用", generation: proof ? "模型已實際回答，可以生成" : "尚未就緒" }));
       setPairingCode("");
     } catch (error) { setStatus((value) => ({ ...value, error: error instanceof Error ? error.message : "配對沒有成功。" })); }
     finally { setBusy(false); }
@@ -205,9 +214,47 @@ export default function AISettingsClient() {
 
   const revoke = async () => {
     setBusy(true);
-    try { await client.revoke(); configureLocalBridgeClient(null); configureLocalBridgeModel(null); setPairingId(""); setPairingCode(""); setModels([]); setStatus((value) => ({ ...value, pairing: "已撤銷", model: "尚未選用", generation: "尚未就緒", error: "", errorCode: "" })); }
+    try { await client.revoke(); configureLocalBridgeClient(null); configureLocalBridgeModel(null); setPairingId(""); setPairingCode(""); setModels([]); setModelProof(null); setStatus((value) => ({ ...value, pairing: "已撤銷", model: "尚未選用", generation: "尚未就緒", error: "", errorCode: "" })); }
     catch (error) { setStatus((value) => ({ ...value, error: error instanceof Error ? error.message : "撤銷配對失敗。" })); }
     finally { setBusy(false); }
+  };
+
+  const selectAndVerifyModel = async (modelId: string) => {
+    if (busy) return;
+    setBusy(true);
+    setModelProof(null);
+    configureLocalBridgeModel(null);
+    setStatus((value) => ({
+      ...value,
+      model: modelId,
+      generation: "正在要求模型實際回答驗證題",
+      error: "",
+      errorCode: "",
+    }));
+    try {
+      const proof = await client.verifyModel(modelId);
+      configureLocalBridgeClient(client);
+      configureLocalBridgeModel(modelId);
+      localStorage.setItem("novel_local_ai_model", modelId);
+      setModelProof(proof);
+      setStatus((value) => ({
+        ...value,
+        model: modelId,
+        generation: "模型已實際回答，可以生成",
+      }));
+    } catch (error) {
+      const code = String((error as { code?: string })?.code || "");
+      setStatus((value) => ({
+        ...value,
+        generation: "模型推理驗證未通過",
+        error: errorGuidance[code] || (
+          error instanceof Error ? error.message : "模型推理驗證失敗。"
+        ),
+        errorCode: code,
+      }));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const runGeneration = async () => {
@@ -218,6 +265,7 @@ export default function AISettingsClient() {
     }
     if (!client.getSessionMetadata()) { setStatus((value) => ({ ...value, error: errorGuidance.BRIDGE_NOT_PAIRED })); return; }
     if (!status.model || status.model === "尚未選用") { setStatus((value) => ({ ...value, error: "請先選擇一個已安裝的文字模型。" })); return; }
+    if (!client.getModelVerification(status.model)) { setStatus((value) => ({ ...value, error: errorGuidance.LOCAL_MODEL_INFERENCE_NOT_VERIFIED })); return; }
     if (taskType !== "character.extract" && !prompt.trim()) { setStatus((value) => ({ ...value, error: "請先輸入要交給本機 AI 的內容。" })); return; }
     const controller = new AbortController();
     const currentRequestId = crypto.randomUUID();
@@ -376,7 +424,8 @@ export default function AISettingsClient() {
       {!pairingId && <button data-testid="pair-start" type="button" disabled={busy} onClick={() => void requestPairing()}>開始安全配對</button>}
       {pairingId && status.pairing !== "已配對" && <><label>本機配對碼<input data-testid="pair-code" value={pairingCode} inputMode="numeric" autoComplete="off" onChange={(event) => setPairingCode(event.target.value)} /></label><button data-testid="pair-confirm" type="button" disabled={busy || pairingCode.length !== 6} onClick={() => void confirmPairing()}>確認配對</button></>}
       {status.pairing === "已配對" && <button type="button" disabled={busy} onClick={() => void revoke()}>撤銷配對</button>}
-      {models.length > 0 && <label>本機模型<select data-testid="model-select" value={status.model} onChange={(event) => { configureLocalBridgeModel(event.target.value); localStorage.setItem("novel_local_ai_model", event.target.value); setStatus((value) => ({ ...value, model: event.target.value, generation: event.target.value ? "可以生成" : "尚未就緒" })); }}>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId} {model.parameterSize?.value || ""} {model.quantization?.value || ""}</option>)}</select></label>}
+      {models.length > 0 && <label>本機模型<select data-testid="model-select" value={status.model} disabled={busy} onChange={(event) => void selectAndVerifyModel(event.target.value)}>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId} {model.parameterSize?.value || ""} {model.quantization?.value || ""}</option>)}</select></label>}
+      {modelProof && <p data-testid="model-inference-proof"><strong>真實推理已通過：</strong>{new Date(modelProof.verifiedAt).toLocaleString("zh-TW")} · {modelProof.latencyMs} ms · 輸出證明 <code>{modelProof.outputDigest.slice(0, 16)}…</code></p>}
     </section>
     <section data-testid="local-generation"><h2>測試本機 AI</h2><p>內容只會送到這台電腦的本機模型，結果是候選內容，不會直接寫入正式作品。</p>
       <label>工作類型<select data-testid="task-select" value={taskType} onChange={(event) => setTaskType(event.target.value)}>{taskOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

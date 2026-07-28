@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOSED_AI_BACKEND_IDS,
   ClosedAgentOS,
@@ -10,11 +10,37 @@ import {
   type ClosedAgentExecutionResult,
 } from "@/lib/novel-ai/closed-agent-os";
 import type { ClosedAINamespace } from "@/lib/novel-ai/closed-ai-cache";
+import {
+  detectBrowserAI,
+  getBrowserAIInferenceProof,
+  verifyBrowserAI,
+  type BrowserAICapability,
+  type BrowserAIInferenceProof,
+} from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
+import {
+  LocalBridgeClient,
+  configureLocalBridgeClient,
+  configureLocalBridgeModel,
+  selectAvailableTextModel,
+  type LocalModelInferenceProof,
+  type LocalTextModel,
+} from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
+import {
+  PrivateHubClient,
+  configurePrivateHubClient,
+  configurePrivateHubModel,
+  configurePrivateHubProject,
+  type OfflinePreferenceModelArtifact,
+  type PrivateHubInferenceProof,
+} from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
 import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 import ProjectNavigation from "../project-navigation";
 import styles from "./closed-ai.module.css";
 
 type Dashboard = Awaited<ReturnType<ClosedAgentOS["dashboard"]>>;
+type PairingRequest = { pairingId: string; code: string };
+type PreferencePair = { id: string; chosen: string; rejected: string };
 
 const TASKS: Array<{
   id: PlatformTaskType;
@@ -38,11 +64,29 @@ const BACKEND_LABELS: Record<ClosedAIBackendId | "auto", string> = {
 };
 
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
-  if (status === "ready") return "可執行";
+  if (status === "ready") return "模型運作中";
   if (status === "contract_ready_runtime_not_connected") return "安全契約完成，算力未連線";
   if (status === "runtime_required") return "需要本機執行環境";
   if (status === "degraded") return "功能降級";
   return "已停用";
+}
+
+function runtimeError(error: unknown) {
+  const code = String((error as { code?: string })?.code || "");
+  const messages: Record<string, string> = {
+    BRIDGE_PROCESS_UNREACHABLE: "本機執行服務尚未啟動，或瀏覽器無法存取 loopback。",
+    BRIDGE_NOT_PAIRED: "目前頁面尚未與本機服務完成配對。",
+    BRIDGE_PAIRING_EXPIRED: "一次性配對已過期，請重新發起。",
+    BRIDGE_PAIRING_REVOKED: "本機配對已撤銷，請重新配對。",
+    OLLAMA_UNREACHABLE: "Ollama 尚未啟動。",
+    OLLAMA_MODEL_NOT_FOUND: "找不到選定的本機模型。",
+    LOCAL_MODEL_INFERENCE_NOT_VERIFIED: "模型尚未完成真實推理驗證。",
+    OFFLINE_TRAINING_SAMPLE_MINIMUM: "至少加入兩組喜歡／不採用的寫法。",
+    OFFLINE_TRAINING_SAMPLE_INVALID: "每組文字需不同，且每段至少 8 個字元。",
+    BROWSER_AI_UNSUPPORTED: "此裝置不支援瀏覽器內建 AI；其他閉端後端不受影響。",
+    BROWSER_AI_MODEL_NOT_READY: "此裝置可支援瀏覽器 AI，但裝置模型尚未可用。",
+  };
+  return messages[code] ?? (error instanceof Error ? error.message : "本機執行操作失敗。");
 }
 
 function saveJson(filename: string, value: unknown) {
@@ -70,15 +114,76 @@ function userMessage(error: unknown) {
 
 export default function ClosedAIWorkspace({ projectId }: { projectId: string }) {
   const os = useMemo(() => new ClosedAgentOS(), []);
+  const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
+  const localClient = useMemo(
+    () => new LocalBridgeClient({
+      origin: currentOrigin ?? "https://novel-orcin.vercel.app",
+    }),
+    [currentOrigin],
+  );
+  const hubClient = useMemo(
+    () => new PrivateHubClient({
+      origin: currentOrigin ?? "https://novel-orcin.vercel.app",
+    }),
+    [currentOrigin],
+  );
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [taskType, setTaskType] = useState<PlatformTaskType>("story.summary");
-  const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("auto");
-  const [objective, setObjective] = useState("整理目前章節的角色、事件、衝突與未解線索。");
+  const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
+  const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("local-ollama");
+  const [objective, setObjective] = useState("續寫一段約三百字的繁體中文小說場景，讓人物以行動面對新的選擇與代價。");
   const [storyContext, setStoryContext] = useState("");
   const [result, setResult] = useState<ClosedAgentExecutionResult | null>(null);
   const [status, setStatus] = useState("正在核對三個閉端 AI 與共用系統。");
   const [busy, setBusy] = useState(false);
+  const taskController = useRef<AbortController | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState("正在檢查本機執行環境。");
+  const [networkOnline, setNetworkOnline] = useState(true);
+  const [offlineWorkerControlled, setOfflineWorkerControlled] = useState(false);
+  const [browserCapability, setBrowserCapability] = useState<BrowserAICapability | null>(null);
+  const [browserProof, setBrowserProof] = useState<BrowserAIInferenceProof | null>(null);
+  const [localPairing, setLocalPairing] = useState<PairingRequest | null>(null);
+  const [localModels, setLocalModels] = useState<LocalTextModel[]>([]);
+  const [localModelId, setLocalModelId] = useState("");
+  const [localProof, setLocalProof] = useState<LocalModelInferenceProof | null>(null);
+  const [hubPairing, setHubPairing] = useState<PairingRequest | null>(null);
+  const [hubModels, setHubModels] = useState<LocalTextModel[]>([]);
+  const [hubModelId, setHubModelId] = useState("");
+  const [hubProof, setHubProof] = useState<PrivateHubInferenceProof | null>(null);
+  const [preferencePairs, setPreferencePairs] = useState<PreferencePair[]>([]);
+  const [preferredExample, setPreferredExample] = useState("");
+  const [rejectedExample, setRejectedExample] = useState("");
+  const [trainingModels, setTrainingModels] = useState<OfflinePreferenceModelArtifact[]>([]);
+  const [trainingCandidate, setTrainingCandidate] = useState<OfflinePreferenceModelArtifact | null>(null);
+
+  useEffect(() => {
+    const resolved = resolveCurrentStudioOrigin(window.location);
+    const updateNetwork = () => setNetworkOnline(navigator.onLine);
+    const updateWorker = () => setOfflineWorkerControlled(Boolean(navigator.serviceWorker?.controller));
+    const initialization = window.setTimeout(() => {
+      setCurrentOrigin(resolved.ready ? resolved.origin : null);
+      updateNetwork();
+      updateWorker();
+    }, 0);
+    window.addEventListener("online", updateNetwork);
+    window.addEventListener("offline", updateNetwork);
+    navigator.serviceWorker?.addEventListener("controllerchange", updateWorker);
+    return () => {
+      window.clearTimeout(initialization);
+      window.removeEventListener("online", updateNetwork);
+      window.removeEventListener("offline", updateNetwork);
+      navigator.serviceWorker?.removeEventListener("controllerchange", updateWorker);
+    };
+  }, []);
+
+  useEffect(() => {
+    configurePrivateHubProject(projectId);
+    return () => {
+      configurePrivateHubProject(null);
+      taskController.current?.abort();
+    };
+  }, [projectId]);
 
   const namespaceForBackend = useCallback((backendId: ClosedAIBackendId): ClosedAINamespace => {
     const selected = snapshots.find((snapshot) => snapshot.id === backendId);
@@ -113,7 +218,103 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     return namespaceForBackend(backend === "auto" ? automaticBackend : backend);
   }, [backend, namespaceForBackend, taskType]);
 
+  const refreshRuntimes = useCallback(async () => {
+    if (!currentOrigin) return;
+    setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
+    const browser = await detectBrowserAI();
+    setBrowserCapability(browser);
+    setBrowserProof(getBrowserAIInferenceProof());
+
+    let localReady = false;
+    try {
+      const health = await localClient.health();
+      if (health.runtimeReady && localClient.getSessionMetadata()) {
+        const response = await localClient.models();
+        const available = response.models.filter(
+          (model) => model.capabilities?.textGeneration?.value === true,
+        );
+        const selected = selectAvailableTextModel(
+          available,
+          localModelId || "qwen2.5:3b",
+        ) || "";
+        setLocalModels(available);
+        setLocalModelId(selected);
+        configureLocalBridgeClient(localClient);
+        configureLocalBridgeModel(selected || null);
+        const proof = selected ? localClient.getModelVerification(selected) : null;
+        setLocalProof(proof);
+        localReady = Boolean(proof);
+      } else {
+        setLocalModels([]);
+        setLocalProof(null);
+        configureLocalBridgeClient(null);
+        configureLocalBridgeModel(null);
+      }
+    } catch {
+      setLocalModels([]);
+      setLocalProof(null);
+      configureLocalBridgeClient(null);
+      configureLocalBridgeModel(null);
+    }
+
+    let hubReady = false;
+    try {
+      const health = await hubClient.health();
+      if (health.runtimeReady && hubClient.getSessionMetadata()) {
+        const response = await hubClient.models();
+        const available = response.models.filter(
+          (model) => model.capabilities?.textGeneration?.value === true,
+        );
+        const selected = selectAvailableTextModel(
+          available,
+          hubModelId || "qwen2.5:3b",
+        ) || "";
+        setHubModels(available);
+        setHubModelId(selected);
+        configurePrivateHubClient(hubClient);
+        configurePrivateHubModel(selected || null);
+        configurePrivateHubProject(projectId);
+        const proof = selected ? hubClient.getModelVerification(selected) : null;
+        setHubProof(proof);
+        const trained = await hubClient.listPreferenceModels(projectId);
+        setTrainingModels(trained);
+        hubReady = Boolean(proof);
+      } else {
+        setHubModels([]);
+        setHubProof(null);
+        setTrainingModels([]);
+        configurePrivateHubClient(null);
+        configurePrivateHubModel(null);
+      }
+    } catch {
+      setHubModels([]);
+      setHubProof(null);
+      setTrainingModels([]);
+      configurePrivateHubClient(null);
+      configurePrivateHubModel(null);
+    }
+    const browserState = browser.status === "ready"
+      ? getBrowserAIInferenceProof()
+        ? "瀏覽器模型已實測"
+        : "瀏覽器模型可用"
+      : browser.status === "runtime_not_installed"
+        ? "瀏覽器模型待下載"
+        : "此裝置不支援瀏覽器 AI";
+    setRuntimeStatus(
+      `${browserState}；Local Bridge ${localReady ? "模型已實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
+    );
+  }, [
+    currentOrigin,
+    hubClient,
+    hubModelId,
+    localClient,
+    localModelId,
+    offlineWorkerControlled,
+    projectId,
+  ]);
+
   const refresh = useCallback(async (announce = true) => {
+    await refreshRuntimes();
     const [nextSnapshots, nextDashboard] = await Promise.all([
       os.backendSnapshots(),
       os.dashboard(projectId),
@@ -123,27 +324,296 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     if (announce) {
       setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
     }
-  }, [os, projectId]);
+  }, [os, projectId, refreshRuntimes]);
 
   useEffect(() => {
-    let cancelled = false;
-    void Promise.all([os.backendSnapshots(), os.dashboard(projectId)])
-      .then(([nextSnapshots, nextDashboard]) => {
-        if (cancelled) return;
-        setSnapshots(nextSnapshots);
-        setDashboard(nextDashboard);
-        setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
-      })
-      .catch((error) => {
-        if (!cancelled) setStatus(userMessage(error));
+    if (!currentOrigin) return;
+    const initialization = window.setTimeout(() => {
+      void refresh().catch((error) => setStatus(userMessage(error)));
+    }, 0);
+    return () => window.clearTimeout(initialization);
+  }, [currentOrigin, refresh]);
+
+  async function verifyBrowserRuntime() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在要求此裝置的瀏覽器模型實際完成摘要。");
+    try {
+      const proof = await verifyBrowserAI();
+      setBrowserProof(proof);
+      setRuntimeStatus(`瀏覽器 AI 已實際回答，耗時 ${proof.latencyMs} ms。`);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function requestLocalPairing() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      const request = await localClient.requestPairing();
+      setLocalPairing({
+        pairingId: String(request.pairingId || ""),
+        code: "",
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [os, projectId]);
+      setRuntimeStatus("Local Bridge 已產生一次性配對要求；請從本機 Launcher 讀取六位數配對碼。");
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function verifyLocalModel(modelId: string) {
+    if (!modelId) return;
+    setLocalProof(null);
+    configureLocalBridgeModel(null);
+    setRuntimeStatus(`正在要求 ${modelId} 實際回答本機驗證題。`);
+    const proof = await localClient.verifyModel(modelId);
+    configureLocalBridgeClient(localClient);
+    configureLocalBridgeModel(modelId);
+    setLocalModelId(modelId);
+    setLocalProof(proof);
+    setRuntimeStatus(`Local Bridge 與 ${modelId} 已通過真實推理，耗時 ${proof.latencyMs} ms。`);
+  }
+
+  async function confirmLocalPairing() {
+    if (runtimeBusy || !localPairing) return;
+    setRuntimeBusy(true);
+    try {
+      await localClient.confirmPairing(localPairing.pairingId, localPairing.code);
+      configureLocalBridgeClient(localClient);
+      const response = await localClient.models();
+      const available = response.models.filter(
+        (model) => model.capabilities?.textGeneration?.value === true,
+      );
+      const selected = selectAvailableTextModel(available, "qwen2.5:3b") || "";
+      setLocalModels(available);
+      if (!selected) throw Object.assign(new Error("沒有可生成文字的本機模型。"), {
+        code: "OLLAMA_MODEL_NOT_FOUND",
+      });
+      await verifyLocalModel(selected);
+      setLocalPairing(null);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function revokeLocalPairing() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      await localClient.revoke();
+      configureLocalBridgeClient(null);
+      configureLocalBridgeModel(null);
+      setLocalPairing(null);
+      setLocalModels([]);
+      setLocalModelId("");
+      setLocalProof(null);
+      setRuntimeStatus("Local Bridge 配對已撤銷；模型與作品資料沒有被刪除。");
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function selectLocalModel(modelId: string) {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      await verifyLocalModel(modelId);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function requestHubPairing() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      const request = await hubClient.requestPairing();
+      setHubPairing({
+        pairingId: String(request.pairingId || ""),
+        code: "",
+      });
+      setRuntimeStatus("Private Hub 本機節點已產生一次性配對要求；請從 Private Hub Launcher 讀取配對碼。");
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function verifyHubModel(modelId: string) {
+    if (!modelId) return;
+    setHubProof(null);
+    configurePrivateHubModel(null);
+    setRuntimeStatus(`正在要求 Private Hub 的 ${modelId} 實際回答驗證題。`);
+    const proof = await hubClient.verifyModel(modelId);
+    configurePrivateHubClient(hubClient);
+    configurePrivateHubModel(modelId);
+    configurePrivateHubProject(projectId);
+    setHubModelId(modelId);
+    setHubProof(proof);
+    const trained = await hubClient.listPreferenceModels(projectId);
+    setTrainingModels(trained);
+    setRuntimeStatus(`Private Hub 與 ${modelId} 已通過真實推理，耗時 ${proof.latencyMs} ms。`);
+  }
+
+  async function confirmHubPairing() {
+    if (runtimeBusy || !hubPairing) return;
+    setRuntimeBusy(true);
+    try {
+      await hubClient.confirmPairing(hubPairing.pairingId, hubPairing.code);
+      configurePrivateHubClient(hubClient);
+      configurePrivateHubProject(projectId);
+      const response = await hubClient.models();
+      const available = response.models.filter(
+        (model) => model.capabilities?.textGeneration?.value === true,
+      );
+      const selected = selectAvailableTextModel(available, "qwen2.5:3b") || "";
+      setHubModels(available);
+      if (!selected) throw Object.assign(new Error("Private Hub 沒有可生成文字的模型。"), {
+        code: "OLLAMA_MODEL_NOT_FOUND",
+      });
+      await verifyHubModel(selected);
+      setHubPairing(null);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function revokeHubPairing() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      await hubClient.revoke();
+      configurePrivateHubClient(null);
+      configurePrivateHubModel(null);
+      setHubPairing(null);
+      setHubModels([]);
+      setHubModelId("");
+      setHubProof(null);
+      setTrainingModels([]);
+      setTrainingCandidate(null);
+      setRuntimeStatus("Private Hub 本機節點配對已撤銷；訓練模型成果仍保存在本機節點。");
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function selectHubModel(modelId: string) {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      await verifyHubModel(modelId);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  function addPreferencePair() {
+    const chosen = preferredExample.trim();
+    const rejected = rejectedExample.trim();
+    if (chosen.length < 8 || rejected.length < 8 || chosen === rejected) {
+      setRuntimeStatus("喜歡與不採用的寫法必須不同，且每段至少 8 個字元。");
+      return;
+    }
+    setPreferencePairs((current) => [
+      ...current,
+      { id: crypto.randomUUID(), chosen, rejected },
+    ]);
+    setPreferredExample("");
+    setRejectedExample("");
+    setRuntimeStatus("偏好對照只保留在目前頁面記憶中；送出訓練後，原文不會寫入模型成果。");
+  }
+
+  async function trainPreferenceModel() {
+    if (runtimeBusy || preferencePairs.length < 2 || !hubProof || !hubModelId) return;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在本機訓練成對偏好模型；原始範例只在這次請求記憶中使用。");
+    try {
+      const artifact = await hubClient.trainPreferenceModel({
+        projectId,
+        baseModelId: hubModelId,
+        datasetVersion: `author-approved-${new Date().toISOString().slice(0, 10)}`,
+        samples: preferencePairs.map(({ chosen, rejected }) => ({ chosen, rejected })),
+        hyperparameters: { epochs: 320, learningRate: 0.08, l2: 0.015 },
+      });
+      const verified = await hubClient.verifyPreferenceModel(projectId, artifact.modelId);
+      setTrainingCandidate(verified);
+      const trained = await hubClient.listPreferenceModels(projectId);
+      setTrainingModels(trained);
+      setPreferencePairs([]);
+      setRuntimeStatus(
+        `離線偏好模型已訓練並驗證：${verified.modelId}；準確率 ${Math.round((verified.metrics.allPairAccuracy ?? 0) * 100)}%，等待你啟用。`,
+      );
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function activatePreferenceModel(model: OfflinePreferenceModelArtifact) {
+    if (runtimeBusy) return;
+    if (!window.confirm(`啟用 ${model.modelId} 作為本作品的離線偏好模型？可再回滾。`)) return;
+    setRuntimeBusy(true);
+    try {
+      await hubClient.activatePreferenceModel(projectId, model.modelId);
+      const trained = await hubClient.listPreferenceModels(projectId);
+      setTrainingModels(trained);
+      setTrainingCandidate(null);
+      setRuntimeStatus(`偏好模型 ${model.modelId} 已啟用，之後的 Private Hub 候選會帶入此模型的偏好方向。`);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function rollbackPreferenceModel() {
+    if (runtimeBusy) return;
+    if (!window.confirm("把本作品的偏好模型回滾到上一個已啟用版本？")) return;
+    setRuntimeBusy(true);
+    try {
+      await hubClient.rollbackPreferenceModel(projectId);
+      const trained = await hubClient.listPreferenceModels(projectId);
+      setTrainingModels(trained);
+      setRuntimeStatus("偏好模型已回滾，模型雜湊與作用中的 Cache 命名空間會隨版本更新。");
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
 
   async function runTask() {
     if (busy || !objective.trim()) return;
+    const controller = new AbortController();
+    taskController.current = controller;
     setBusy(true);
     setResult(null);
     setStatus("正在鎖定後端、建立計畫、執行並評估候選。");
@@ -176,15 +646,22 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           "character:read",
           "world:read",
         ],
+        signal: controller.signal,
       });
       setResult(next);
       setStatus(`候選已由${BACKEND_LABELS[next.route.backendId]}完成，通過評估，等待你的核准。`);
       await refresh(false);
     } catch (error) {
-      setStatus(userMessage(error));
+      setStatus(controller.signal.aborted ? "這次閉端 AI 工作已取消；未建立候選，也未修改 Canon。" : userMessage(error));
     } finally {
+      taskController.current = null;
       setBusy(false);
     }
+  }
+
+  function cancelTask() {
+    taskController.current?.abort();
+    setStatus("正在取消模型工作。");
   }
 
   async function approve() {
@@ -324,12 +801,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
-          <button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button>
+          <button type="button" disabled={busy || runtimeBusy} onClick={() => void refresh()}>重新檢查</button>
         </div>
       </header>
 
       <ProjectNavigation projectId={projectId} active="closed-ai" />
       <p className={styles.status} role="status" aria-live="polite">{status}</p>
+      <p className={styles.runtimeStatus} role="status" aria-live="polite">{runtimeStatus}</p>
 
       <div className={styles.workspace}>
         <section className={styles.panel} aria-labelledby="backend-title">
@@ -353,7 +831,106 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <div><dt>資料邊界</dt><dd>{snapshot.dataBoundary === "device" ? "本機裝置" : "私有基礎設施"}</dd></div>
                   <div><dt>最大工作</dt><dd>{snapshot.maximumComplexity}</dd></div>
                   <div><dt>模型</dt><dd>{snapshot.modelId ?? "執行環境未連線"}</dd></div>
+                  <div><dt>真相碼</dt><dd>{snapshot.detailCode}</dd></div>
                 </dl>
+                {snapshot.id === "browser-ai" ? <div className={styles.runtimeControls}>
+                  <p>
+                    裝置能力：{browserCapability?.status === "ready"
+                      ? "內建模型可用"
+                      : browserCapability?.status === "runtime_not_installed"
+                        ? "支援但模型尚未下載"
+                        : "此裝置不支援"}
+                  </p>
+                  {browserProof ? <p className={styles.proof}>
+                    實際推理 {browserProof.latencyMs} ms · <code>{browserProof.outputDigest.slice(0, 12)}…</code>
+                  </p> : null}
+                  <button
+                    type="button"
+                    disabled={runtimeBusy || browserCapability?.status !== "ready"}
+                    onClick={() => void verifyBrowserRuntime()}
+                  >
+                    實際測試瀏覽器模型
+                  </button>
+                </div> : null}
+                {snapshot.id === "local-ollama" ? <div className={styles.runtimeControls}>
+                  <code>node local-ai/bridge/launcher.mjs start</code>
+                  {!localClient.getSessionMetadata() ? <>
+                    {!localPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestLocalPairing()}>
+                      開始 Local Bridge 配對
+                    </button> : <>
+                      <code>node local-ai/bridge/launcher.mjs pair</code>
+                      <label>六位數一次性配對碼
+                        <input
+                          value={localPairing.code}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={6}
+                          onChange={(event) => setLocalPairing({
+                            ...localPairing,
+                            code: event.target.value.replace(/\D/g, "").slice(0, 6),
+                          })}
+                        />
+                      </label>
+                      <button type="button" disabled={runtimeBusy || localPairing.code.length !== 6} onClick={() => void confirmLocalPairing()}>
+                        配對並實測模型
+                      </button>
+                    </>}
+                  </> : <>
+                    {localModels.length ? <label>文字模型
+                      <select value={localModelId} disabled={runtimeBusy} onChange={(event) => void selectLocalModel(event.target.value)}>
+                        {localModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId}</option>)}
+                      </select>
+                    </label> : null}
+                    {localProof ? <p className={styles.proof}>
+                      推理已驗證 {localProof.latencyMs} ms · <code>{localProof.outputDigest.slice(0, 12)}…</code>
+                    </p> : <button type="button" disabled={runtimeBusy || !localModelId} onClick={() => void selectLocalModel(localModelId)}>
+                      實際驗證模型
+                    </button>}
+                    <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeLocalPairing()}>
+                      撤銷本頁配對
+                    </button>
+                  </>}
+                </div> : null}
+                {snapshot.id === "private-ai-hub" ? <div className={styles.runtimeControls}>
+                  <p>自架型本機私有節點；與 Local Ollama 有獨立身分、配對、工作佇列與訓練模型。</p>
+                  <code>node local-ai/private-hub/launcher.mjs start</code>
+                  {!hubClient.getSessionMetadata() ? <>
+                    {!hubPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestHubPairing()}>
+                      開始 Private Hub 配對
+                    </button> : <>
+                      <code>node local-ai/private-hub/launcher.mjs pair</code>
+                      <label>六位數一次性配對碼
+                        <input
+                          value={hubPairing.code}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={6}
+                          onChange={(event) => setHubPairing({
+                            ...hubPairing,
+                            code: event.target.value.replace(/\D/g, "").slice(0, 6),
+                          })}
+                        />
+                      </label>
+                      <button type="button" disabled={runtimeBusy || hubPairing.code.length !== 6} onClick={() => void confirmHubPairing()}>
+                        配對並實測中樞模型
+                      </button>
+                    </>}
+                  </> : <>
+                    {hubModels.length ? <label>中樞模型
+                      <select value={hubModelId} disabled={runtimeBusy} onChange={(event) => void selectHubModel(event.target.value)}>
+                        {hubModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId}</option>)}
+                      </select>
+                    </label> : null}
+                    {hubProof ? <p className={styles.proof}>
+                      中樞推理已驗證 {hubProof.latencyMs} ms · <code>{hubProof.outputDigest.slice(0, 12)}…</code>
+                    </p> : <button type="button" disabled={runtimeBusy || !hubModelId} onClick={() => void selectHubModel(hubModelId)}>
+                      實際驗證中樞模型
+                    </button>}
+                    <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeHubPairing()}>
+                      撤銷本頁配對
+                    </button>
+                  </>}
+                </div> : null}
               </article>
             ))}
           </div>
@@ -362,7 +939,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <ul>
               <li>Browser AI 不承擔長篇推理或多代理工作。</li>
               <li>Local Ollama 需要本機 Bridge、配對與可用模型。</li>
-              <li>Private AI Hub 的閘道契約已完成；目前沒有私有算力端點時，不宣稱已連線。</li>
+              <li>Private AI Hub 可連接自架 loopback 私有節點；節點未啟動、未配對或未實測時，不宣稱已連線。</li>
               <li>後端一旦鎖定，失敗就停止；不會靜默改用其他 AI。</li>
             </ul>
           </details>
@@ -380,6 +957,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 setTaskType(next);
                 const task = TASKS.find((item) => item.id === next);
                 if (task?.complexity === "heavy") setBackend("private-ai-hub");
+                else if (task?.complexity === "standard") setBackend("local-ollama");
+                else if (task?.complexity === "light") setBackend("browser-ai");
               }}>
                 {TASKS.map((task) => (
                   <option key={task.id} value={task.id}>{task.label} · {task.hint}</option>
@@ -400,9 +979,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <label>已核准的故事脈絡（選填）
             <textarea rows={5} value={storyContext} onChange={(event) => setStoryContext(event.target.value)} placeholder="只貼入你允許 Actor 與 Evaluator 共同看見的故事資料。" />
           </label>
-          <button className={styles.primary} type="button" disabled={busy || !objective.trim()} onClick={() => void runTask()}>
-            {busy ? "處理中…" : "建立候選"}
-          </button>
+          <div className={styles.actions}>
+            <button className={styles.primary} type="button" disabled={busy || !objective.trim()} onClick={() => void runTask()}>
+              {busy ? "模型執行中…" : "建立真實模型候選"}
+            </button>
+            {busy ? <button className={styles.danger} type="button" onClick={cancelTask}>取消模型工作</button> : null}
+          </div>
 
           <div className={styles.candidate} data-empty={!result}>
             {result ? <>
@@ -433,6 +1015,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       : `未套用（${result.learning.reasonCode ?? "沒有有效版本"}）`}</dd>
                   </div>
                   <div><dt>計畫雜湊</dt><dd>{result.plan.planDigest}</dd></div>
+                  <div><dt>生成模型</dt><dd>{result.candidate.modelId}</dd></div>
+                  <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
+                  {result.candidate.adapterId ? <div><dt>偏好模型</dt><dd>{result.candidate.adapterId}</dd></div> : null}
+                  {result.candidate.adapterDigest ? <div><dt>偏好雜湊</dt><dd>{result.candidate.adapterDigest}</dd></div> : null}
+                  <div><dt>內容雜湊</dt><dd>{result.candidate.contentDigest}</dd></div>
                   <div><dt>證據鏈 Head</dt><dd>{result.ledgerHeadHash}</dd></div>
                 </dl>
               </details>
@@ -474,6 +1061,46 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </div>
 
           <div className={styles.systemGroup}>
+            <h3>離線偏好模型訓練</h3>
+            <p>這會在自架 Private Hub 節點訓練成對邏輯回歸風格模型，產出可驗證 Adapter；它會影響重型候選，但不會冒充未執行的 QLoRA／LLM 權重微調。</p>
+            {!hubProof ? <p className={styles.warning}>先啟動、配對並實測 Private Hub 模型，才可訓練。</p> : <>
+              <label>我喜歡的寫法
+                <textarea rows={3} value={preferredExample} onChange={(event) => setPreferredExample(event.target.value)} placeholder="貼入你有權使用、且希望模型偏好的短例子。" />
+              </label>
+              <label>我不採用的寫法
+                <textarea rows={3} value={rejectedExample} onChange={(event) => setRejectedExample(event.target.value)} placeholder="貼入同一目的但你不採用的寫法。" />
+              </label>
+              <div className={styles.actions}>
+                <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={addPreferencePair}>加入偏好對照</button>
+                <button type="button" disabled={runtimeBusy || preferencePairs.length < 2} onClick={() => void trainPreferenceModel()}>
+                  訓練 {preferencePairs.length} 組對照
+                </button>
+              </div>
+              {preferencePairs.length ? <ul className={styles.compactList}>
+                {preferencePairs.map((pair, index) => <li key={pair.id}>
+                  第 {index + 1} 組 · 喜歡 {pair.chosen.length} 字／不採用 {pair.rejected.length} 字
+                  <button className={styles.inlineButton} type="button" disabled={runtimeBusy} onClick={() => setPreferencePairs((current) => current.filter((item) => item.id !== pair.id))}>移除</button>
+                </li>)}
+              </ul> : null}
+            </>}
+            {trainingCandidate ? <article className={styles.trainingArtifact}>
+              <strong>已訓練候選：{trainingCandidate.modelId}</strong>
+              <span>資料集 {trainingCandidate.datasetDigest.slice(0, 12)}… · 成果 {trainingCandidate.artifactDigest.slice(0, 12)}…</span>
+              <span>全部對照準確率 {Math.round((trainingCandidate.metrics.allPairAccuracy ?? 0) * 100)}% · loss {trainingCandidate.metrics.finalLoss}</span>
+              <button type="button" disabled={runtimeBusy} onClick={() => void activatePreferenceModel(trainingCandidate)}>人工確認並啟用</button>
+            </article> : null}
+            {trainingModels.length ? <div className={styles.trainingModels}>
+              {trainingModels.map((model) => <article key={model.modelId} data-active={model.status === "active"}>
+                <strong>{model.modelId}</strong>
+                <span>{model.status === "active" ? "目前作用中" : "候選"} · {model.createdAt}</span>
+                <span>artifact <code>{model.artifactDigest.slice(0, 12)}…</code></span>
+                {model.status !== "active" ? <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void activatePreferenceModel(model)}>啟用此版本</button> : null}
+              </article>)}
+              {trainingModels.length > 1 && trainingModels.some((model) => model.status === "active") ? <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void rollbackPreferenceModel()}>回滾上一個偏好模型</button> : null}
+            </div> : null}
+          </div>
+
+          <div className={styles.systemGroup}>
             <h3>區塊鏈式可驗證機制</h3>
             <p>使用 Append-only、SHA-256 雜湊鏈、Merkle Tree、ECDSA 簽章與內容定址；不是公開區塊鏈，也沒有投票或資料複製。</p>
           </div>
@@ -481,10 +1108,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <details>
             <summary>技術狀態</summary>
             <ul>
-              <li>模型訓練：not_started</li>
+              <li>Local Bridge Model：{localProof ? "inference_verified" : "runtime_or_pairing_required"}</li>
+              <li>Browser AI：{browserCapability?.status ?? "device_probe_required"}{browserProof ? " / inference_verified" : ""}</li>
+              <li>Private Hub Runtime：{hubProof ? "self_hosted_private_node_ready" : "contract_ready_runtime_not_connected"}</li>
+              <li>網際網路：{networkOnline ? "online" : "offline"}；離線 Service Worker：{offlineWorkerControlled ? "controlled" : "installing_or_reload_required"}</li>
+              <li>離線偏好模型訓練：{trainingModels.length ? "trained_artifact_available" : "implementation_ready_no_approved_dataset"}</li>
+              <li>L2 Preference Adapter：{trainingModels.some((model) => model.status === "active") ? "active" : "candidate_or_not_trained"}</li>
+              <li>QLoRA／LLM 權重訓練：hardware_gate_not_met（本機無 NVIDIA GPU，不宣稱已執行）</li>
               <li>模型蒸餾：not_started</li>
-              <li>L2 Adapter：contract_only</li>
-              <li>Private Hub Runtime：contract_ready_runtime_not_connected</li>
               <li>思考鏈保存：false</li>
               <li>代理直接 Shell／DB／檔案／網路權限：false</li>
             </ul>

@@ -1,6 +1,6 @@
 .shell {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
   padding: 18px;
@@ -85,6 +85,18 @@
   color: #d8edff;
 }
 
+.runtimeStatus {
+  max-width: 1680px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 auto 10px;
+  padding: 8px 12px;
+  border: 1px solid #395270;
+  border-radius: 9px;
+  color: #b9cee6;
+  background: rgba(10, 25, 44, 0.86);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.4fr) minmax(290px, 0.9fr);
@@ -146,10 +158,61 @@
   border-color: #8d6a32;
 }
 
-.backendList article > div {
+.backendList article > div:not(.runtimeControls) {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+.runtimeControls {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #263d57;
+}
+
+.runtimeControls p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.runtimeControls label,
+.systemGroup label {
+  display: grid;
+  gap: 5px;
+  color: #c7d8eb;
+}
+
+.runtimeControls input,
+.runtimeControls select,
+.systemGroup textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 1px solid #365273;
+  border-radius: 7px;
+  color: #eff6ff;
+  background: #081322;
+}
+
+.runtimeControls > code {
+  display: block;
+  padding: 7px;
+  overflow-wrap: anywhere;
+  border: 1px solid #344c68;
+  border-radius: 6px;
+  color: #b9d8f3;
+  background: #06101d;
+  user-select: all;
+}
+
+.proof {
+  padding: 7px 8px;
+  border: 1px solid #2d856c;
+  border-radius: 7px;
+  color: #a4f1d7 !important;
+  background: rgba(25, 111, 84, 0.13);
 }
 
 .backendList article > div span {
@@ -330,6 +393,69 @@
 .systemGroup h3 {
   margin: 0 0 6px;
   color: #dceaff;
+}
+
+.systemGroup textarea {
+  resize: vertical;
+}
+
+.warning {
+  padding: 8px;
+  border-left: 3px solid #d0a347;
+  color: #f1d598 !important;
+  background: rgba(128, 89, 28, 0.14);
+}
+
+.compactList {
+  display: grid;
+  gap: 5px;
+  padding-left: 20px;
+}
+
+.compactList li {
+  color: #b9cbe0;
+}
+
+.inlineButton {
+  min-height: 28px !important;
+  margin-left: 7px;
+  padding: 3px 7px !important;
+  font-size: 12px !important;
+}
+
+.trainingArtifact,
+.trainingModels article {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid #496785;
+  border-radius: 8px;
+  color: #cbdcf0;
+  background: #0a1728;
+}
+
+.trainingArtifact strong,
+.trainingModels strong {
+  color: #f3d47d;
+  overflow-wrap: anywhere;
+}
+
+.trainingArtifact span,
+.trainingModels span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.trainingModels {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.trainingModels article[data-active="true"] {
+  border-color: #2d8f72;
+  background: rgba(24, 96, 74, 0.13);
 }
 
 .chips {

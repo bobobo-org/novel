@@ -1,6 +1,6 @@
 {
   "schemaVersion": "closed-ai-real-runtime-results-v1",
-  "generatedAt": "2026-07-19T18:02:38.554Z",
+  "generatedAt": "2026-07-28T15:28:04.084Z",
   "operatingSystem": "win32 10.0.26200",
   "ollamaEndpoint": "http://127.0.0.1:11434",
   "bridgeEndpoint": "http://127.0.0.1:3217",
@@ -17,7 +17,7 @@
       "source": "reported"
     }
   },
-  "pass": 15,
+  "pass": 16,
   "fail": 0,
   "skip": 0,
   "externalAiCalls": 0,
@@ -29,38 +29,38 @@
   "timings": [
     {
       "requestId": "phase1-summary-0001",
-      "firstTokenMs": 18022,
-      "totalMs": 24243
+      "firstTokenMs": 339,
+      "totalMs": 6529
     },
     {
       "requestId": "phase1-character-0001",
-      "firstTokenMs": 2340,
-      "totalMs": 11782
+      "firstTokenMs": 337,
+      "totalMs": 9510
     },
     {
       "requestId": "phase1-rewrite-0001",
-      "firstTokenMs": 2483,
-      "totalMs": 4401
+      "firstTokenMs": 930,
+      "totalMs": 2659
     },
     {
       "requestId": "phase1-choices-0001",
-      "firstTokenMs": 1933,
-      "totalMs": 16465
+      "firstTokenMs": 394,
+      "totalMs": 13052
     },
     {
       "requestId": "phase1-story-bible-0001",
-      "firstTokenMs": 2368,
-      "totalMs": 17054
+      "firstTokenMs": 370,
+      "totalMs": 8028
     },
     {
       "requestId": "phase1-continuity-0001",
-      "firstTokenMs": 2017,
-      "totalMs": 8523
+      "firstTokenMs": 399,
+      "totalMs": 5578
     },
     {
       "requestId": "phase1-cancel-0001",
-      "firstTokenMs": 1805,
-      "totalMs": 1832
+      "firstTokenMs": 1283,
+      "totalMs": 1288
     }
   ],
   "results": [
@@ -69,8 +69,8 @@
       "status": "PASS",
       "elapsedMs": 0,
       "evidence": {
-        "instanceId": "e7b62605-891f-4e14-9f04-e88544c8b697",
-        "ollamaVersion": "0.32.0"
+        "instanceId": "16c0fada-254f-4390-b883-0e09a5b8a4fd",
+        "ollamaVersion": "0.32.1"
       }
     },
     {
@@ -89,7 +89,7 @@
     {
       "name": "real model metadata",
       "status": "PASS",
-      "elapsedMs": 484,
+      "elapsedMs": 12,
       "evidence": {
         "family": {
           "value": "qwen2",
@@ -103,64 +103,86 @@
       }
     },
     {
+      "name": "real fixed-input model inference proof",
+      "status": "PASS",
+      "elapsedMs": 782,
+      "evidence": {
+        "proofVersion": "local-model-inference-proof-v1",
+        "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+        "outputDigest": "f4c4f27d2d735a68b5f4d74eb1974269ed00033ff3af8373d782a844bbf2fbbe",
+        "latencyMs": 775
+      }
+    },
+    {
       "name": "real generation:summary",
       "status": "PASS",
-      "elapsedMs": 24250,
+      "elapsedMs": 6530,
       "evidence": {
-        "chars": 41,
-        "firstTokenMs": 18022,
-        "totalMs": 24243,
+        "chars": 59,
+        "firstTokenMs": 339,
+        "totalMs": 6529,
         "contentStored": false
       }
     },
     {
       "name": "real generation:character",
       "status": "PASS",
-      "elapsedMs": 11806,
+      "elapsedMs": 9510,
       "evidence": {
-        "chars": 71,
-        "firstTokenMs": 2340,
-        "totalMs": 11782,
+        "chars": 86,
+        "firstTokenMs": 337,
+        "totalMs": 9510,
         "contentStored": false
       }
     },
     {
       "name": "real generation:rewrite",
       "status": "PASS",
-      "elapsedMs": 4402,
+      "elapsedMs": 2660,
       "evidence": {
         "chars": 17,
-        "firstTokenMs": 2483,
-        "totalMs": 4401,
+        "firstTokenMs": 930,
+        "totalMs": 2659,
         "contentStored": false
       }
     },
     {
       "name": "real generation:choices",
       "status": "PASS",
-      "elapsedMs": 16465,
+      "elapsedMs": 13052,
       "evidence": {
-        "chars": 141,
-        "firstTokenMs": 1933,
-        "totalMs": 16465,
+        "chars": 130,
+        "firstTokenMs": 394,
+        "totalMs": 13052,
         "contentStored": false
       }
     },
     {
       "name": "real generation:story-bible",
       "status": "PASS",
-      "elapsedMs": 17055,
+      "elapsedMs": 8028,
       "evidence": {
-        "chars": 159,
-        "firstTokenMs": 2368,
-        "totalMs": 17054,
+        "chars": 90,
+        "firstTokenMs": 370,
+        "totalMs": 8028,
+        "contentStored": false
+      }
+    },
+    {
+      "name": "real generation:continuity",
+      "status": "PASS",
+      "elapsedMs": 5579,
+      "evidence": {
+        "chars": 46,
+        "firstTokenMs": 399,
+        "totalMs": 5578,
         "contentStored": false
       }
     },
     {
       "name": "missing model reports explicit error",
       "status": "PASS",
-      "elapsedMs": 41,
+      "elapsedMs": 7,
       "evidence": {
         "status": 404
       }
@@ -168,7 +190,7 @@
     {
       "name": "duplicate request is not regenerated",
       "status": "PASS",
-      "elapsedMs": 1,
+      "elapsedMs": 2,
       "evidence": {
         "requestStatus": "completed"
       }
@@ -176,10 +198,19 @@
     {
       "name": "real cancellation",
       "status": "PASS",
-      "elapsedMs": 1834,
+      "elapsedMs": 1288,
       "evidence": {
         "partialChars": 3,
         "completed": false
+      }
+    },
+    {
+      "name": "real timeout",
+      "status": "PASS",
+      "elapsedMs": 120,
+      "evidence": {
+        "status": 408,
+        "errorCode": "OLLAMA_TIMEOUT"
       }
     },
     {
@@ -187,44 +218,17 @@
       "status": "PASS",
       "elapsedMs": 2,
       "evidence": {
-        "logRecords": 9
+        "logRecords": 10
       }
-    },
-    {
-      "name": "real timeout",
-      "status": "PASS",
-      "elapsedMs": 112,
-      "evidence": {
-        "status": 408,
-        "errorCode": "OLLAMA_TIMEOUT"
-      },
-      "recoveryRun": true
-    },
-    {
-      "name": "real generation:continuity",
-      "status": "PASS",
-      "elapsedMs": 8539,
-      "evidence": {
-        "chars": 67,
-        "contentStored": false
-      },
-      "recoveryRun": true
     },
     {
       "name": "bridge restart invalidates old pairing",
       "status": "PASS",
-      "elapsedMs": 17,
+      "elapsedMs": 139,
       "evidence": {
-        "instanceChanged": true,
-        "oldTokenRejected": true,
-        "transientReconnectHandled": true
-      },
-      "recoveryRun": true
+        "oldInstance": "16c0fada-254f-4390-b883-0e09a5b8a4fd",
+        "newInstance": "ebd29dc9-4125-4290-a20e-0e4f1efb1c73"
+      }
     }
-  ],
-  "recoveryGeneratedAt": "2026-07-19T18:06:35.195Z",
-  "recoveryOnly": [
-    "real generation:continuity",
-    "bridge restart invalidates old pairing"
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "name": "諸天萬界小說生成系統",
+  "short_name": "小說系統",
+  "description": "可離線保存作品並連接本機閉端 AI 的小說創作系統",
+  "lang": "zh-Hant",
+  "start_url": "/legacy/novel-system.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07101f",
+  "theme_color": "#07101f"
+}
