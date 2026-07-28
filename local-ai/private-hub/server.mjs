@@ -22,6 +22,12 @@ import {
   trainOfflinePreferenceModel,
   verifyOfflinePreferenceModel,
 } from "./preference-model.mjs";
+import {
+  assertRuntimeCacheNamespace,
+} from "../cache/cache-contract.mjs";
+import {
+  EncryptedPrivateHubCacheStore,
+} from "../cache/encrypted-cache-store.mjs";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 export const PRIVATE_HUB_VERSION = "1.0.0-live-model";
@@ -76,6 +82,20 @@ async function readJson(request, maxBytes) {
 function bearer(request) {
   const value = String(request.headers.authorization || "");
   return value.startsWith("Bearer ") ? value.slice(7) : "";
+}
+
+function cacheRequestError(error) {
+  if (error instanceof BridgeError) return error;
+  const code = String(error?.code || "CLOSED_AI_CACHE_REQUEST_INVALID");
+  const clientError = code === "CLOSED_AI_NAMESPACE_INVALID"
+    || code === "CLOSED_AI_CACHE_INVALIDATION_NOT_TARGETED"
+    || code === "CLOSED_AI_CACHE_LAYER_INVALID";
+  return new BridgeError(
+    code,
+    error instanceof Error ? error.message : "Closed AI cache request failed.",
+    clientError ? 400 : 500,
+    false,
+  );
 }
 
 function assertProtocol(value) {
@@ -198,11 +218,20 @@ export function createPrivateHubServer(options = {}) {
     ?? process.env.PRIVATE_HUB_ACCESS_LOG
     ?? path.join(runtimeDir, "access.jsonl");
   const modelRoot = path.join(runtimeDir, "preference-models");
+  const cache = options.cacheStore ?? new EncryptedPrivateHubCacheStore({
+    directory: options.cacheDirectory
+      || process.env.NOVEL_PRIVATE_HUB_CACHE_DIR
+      || path.join(runtimeDir, "cache", "entries"),
+    keyPath: options.cacheKeyPath
+      || process.env.NOVEL_PRIVATE_HUB_CACHE_KEY_FILE
+      || path.join(runtimeDir, "cache", "cache.key"),
+  });
   const logs = [];
   const accessLogs = [];
 
   async function ensureRuntime() {
     await mkdir(modelRoot, { recursive: true });
+    await cache.initialize();
   }
 
   async function publishPairingCode(pending, origin) {
@@ -442,6 +471,8 @@ export function createPrivateHubServer(options = {}) {
             "offline-preference-training",
             "adapter-activation",
             "rollback",
+            "cache-stats",
+            "targeted-cache-invalidation",
           ],
           streamingSupport: true,
           cancellationSupport: true,
@@ -458,6 +489,7 @@ export function createPrivateHubServer(options = {}) {
           runtimeReady: state === "paired" && ollama.reachable && modelAvailable,
           externalRequest: false,
           dataLeftDevice: false,
+          cache: await cache.stats(),
           limits,
         }, origin);
       }
@@ -502,6 +534,28 @@ export function createPrivateHubServer(options = {}) {
           pairing.revoke(origin, bearer(request), request.headers["x-hub-csrf"]),
           origin,
         );
+      }
+
+      if (request.method === "GET" && url.pathname === "/cache/stats") {
+        authenticate(request, origin, false);
+        return sendJson(response, 200, { cache: await cache.stats() }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/cache/invalidate") {
+        authenticate(request, origin);
+        const body = await readJson(request, 16_384);
+        let invalidatedEntries;
+        try {
+          invalidatedEntries = await cache.invalidate(body);
+        } catch (error) {
+          throw cacheRequestError(error);
+        }
+        return sendJson(response, 200, {
+          status: "completed",
+          targeted: true,
+          invalidatedEntries,
+          canonicalMutationCount: 0,
+        }, origin);
       }
 
       if (request.method === "GET" && url.pathname === "/models") {
@@ -680,9 +734,18 @@ export function createPrivateHubServer(options = {}) {
           JSON.stringify(record, null, 2),
           { encoding: "utf8", mode: 0o600 },
         );
+        let invalidatedEntries = 0;
+        let cacheInvalidationStatus = "completed";
+        try {
+          invalidatedEntries = await cache.invalidate({ projectId });
+        } catch {
+          cacheInvalidationStatus = "model_digest_namespace_protected";
+        }
         return sendJson(response, 200, {
           ...record,
           state: "active",
+          invalidatedEntries,
+          cacheInvalidationStatus,
           externalRequest: false,
           dataLeftDevice: false,
         }, origin);
@@ -724,7 +787,19 @@ export function createPrivateHubServer(options = {}) {
           JSON.stringify(record, null, 2),
           { encoding: "utf8", mode: 0o600 },
         );
-        return sendJson(response, 200, { ...record, state: "rolled_back" }, origin);
+        let invalidatedEntries = 0;
+        let cacheInvalidationStatus = "completed";
+        try {
+          invalidatedEntries = await cache.invalidate({ projectId });
+        } catch {
+          cacheInvalidationStatus = "model_digest_namespace_protected";
+        }
+        return sendJson(response, 200, {
+          ...record,
+          state: "rolled_back",
+          invalidatedEntries,
+          cacheInvalidationStatus,
+        }, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/cancel") {
@@ -772,6 +847,121 @@ export function createPrivateHubServer(options = {}) {
           Math.max(Number(body.timeoutMs || 180_000), 100),
           limits.maxTimeoutMs,
         );
+        let cacheNamespace = null;
+        try {
+          cacheNamespace = body.cacheNamespace
+            ? assertRuntimeCacheNamespace(body.cacheNamespace)
+            : null;
+        } catch (error) {
+          throw cacheRequestError(error);
+        }
+        if (
+          cacheNamespace
+          && (
+            cacheNamespace.projectId !== projectId
+            || cacheNamespace.modelId !== modelId
+          )
+        ) {
+          throw new BridgeError(
+            "LOCAL_REQUEST_IDENTITY_MISMATCH",
+            "Private Hub cache namespace does not match the request identity.",
+            409,
+          );
+        }
+        if (cacheNamespace?.privacyLevel === "device_only") {
+          throw new BridgeError(
+            "LOCAL_SECURITY_POLICY_VIOLATION",
+            "Device-only cache scope cannot be sent to Private Hub.",
+            403,
+          );
+        }
+        const generationCacheInput = {
+          prompt,
+          systemInstruction: String(body.systemInstruction || ""),
+          taskType: String(body.taskType || "unknown"),
+          modelId,
+          options: body.options || {},
+          maxTokens,
+        };
+        const tagsResponse = await ollamaFetch(
+          ollamaEndpoint,
+          "/api/tags",
+          { method: "GET" },
+          5_000,
+        );
+        const tags = await tagsResponse.json();
+        const selectedModel = (tags.models || []).find(
+          (item) => (item.model || item.name) === modelId,
+        );
+        if (!selectedModel) {
+          throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
+        }
+        const activeRecord = await activeTrainingRecord(projectId);
+        const activeAdapter = activeRecord
+          ? preferenceModelGuidance(activeRecord.artifact)
+          : null;
+        const activeModelDigest = sha256([
+          selectedModel.digest || "unknown-model-digest",
+          activeAdapter?.adapterDigest || "no-active-adapter",
+        ].join("|"));
+        if (
+          cacheNamespace
+          && cacheNamespace.modelDigest !== activeModelDigest
+        ) {
+          throw new BridgeError(
+            "LOCAL_REQUEST_IDENTITY_MISMATCH",
+            "Private Hub cache namespace model digest is not the active model identity.",
+            409,
+          );
+        }
+        const cached = cacheNamespace
+          ? await cache.get("exact", cacheNamespace, generationCacheInput)
+          : { hit: false, entry: null };
+        if (cached.hit && cached.entry?.value?.content) {
+          const cachedValue = cached.entry.value;
+          response.writeHead(200, {
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": origin,
+            Vary: "Origin",
+            "X-Content-Type-Options": "nosniff",
+          });
+          response.write(`${JSON.stringify({
+            type: "started",
+            requestId,
+            modelId,
+            adapterId: cachedValue.adapterId ?? null,
+            adapterDigest: cachedValue.adapterDigest ?? null,
+            cacheHit: true,
+          })}\n`);
+          response.write(`${JSON.stringify({
+            type: "token",
+            text: cachedValue.content,
+            cacheHit: true,
+          })}\n`);
+          response.write(`${JSON.stringify({
+            type: "metadata",
+            ...(cachedValue.metadata || {}),
+            cacheHit: true,
+          })}\n`);
+          response.write(`${JSON.stringify({
+            type: "completed",
+            requestId,
+            cacheHit: true,
+          })}\n`);
+          response.end();
+          log({
+            requestId,
+            taskType: body.taskType,
+            modelId,
+            adapterId: cachedValue.adapterId ?? null,
+            elapsedMs: 0,
+            status: "completed",
+            cacheHit: true,
+            errorCode: null,
+          });
+          return;
+        }
         ledger.begin(requestId, JSON.stringify({
           origin,
           projectId,
@@ -785,22 +975,7 @@ export function createPrivateHubServer(options = {}) {
         active.set(requestId, controller);
         const startedAt = performance.now();
         let status = "failed";
-        let activeAdapter = null;
         try {
-          const tagsResponse = await ollamaFetch(
-            ollamaEndpoint,
-            "/api/tags",
-            { method: "GET" },
-            5_000,
-          );
-          const tags = await tagsResponse.json();
-          if (!(tags.models || []).some((item) => (item.model || item.name) === modelId)) {
-            throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
-          }
-          const activeRecord = await activeTrainingRecord(projectId);
-          activeAdapter = activeRecord
-            ? preferenceModelGuidance(activeRecord.artifact)
-            : null;
           const systemInstruction = [
             String(body.systemInstruction || "Write in Traditional Chinese."),
             "This is a self-hosted private AI node. Return candidate content only.",
@@ -843,6 +1018,7 @@ export function createPrivateHubServer(options = {}) {
           let buffer = "";
           let tokenCount = 0;
           let metadata = {};
+          let generatedContent = "";
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
@@ -863,6 +1039,7 @@ export function createPrivateHubServer(options = {}) {
               }
               if (item.response) {
                 tokenCount += 1;
+                generatedContent += item.response;
                 response.write(`${JSON.stringify({ type: "token", text: item.response })}\n`);
               }
               if (item.done) {
@@ -874,6 +1051,39 @@ export function createPrivateHubServer(options = {}) {
                 };
               }
             }
+          }
+          if (cacheNamespace && generatedContent) {
+            await cache.put({
+              layer: "exact",
+              namespace: cacheNamespace,
+              input: generationCacheInput,
+              value: {
+                content: generatedContent,
+                modelId,
+                adapterId: activeAdapter?.adapterId ?? null,
+                adapterDigest: activeAdapter?.adapterDigest ?? null,
+                metadata,
+              },
+              tags: ["generation", `task:${body.taskType || "unknown"}`],
+            });
+            await cache.put({
+              layer: "model-session",
+              namespace: cacheNamespace,
+              input: {
+                storyId: cacheNamespace.storyId,
+                branchId: cacheNamespace.branchId,
+                modelId,
+              },
+              value: {
+                runtime: "private-ollama",
+                modelId,
+                adapterId: activeAdapter?.adapterId ?? null,
+                keepAlive: "10m",
+                stateKind: "encrypted_runtime_handle_metadata_only",
+              },
+              ttlMs: 10 * 60_000,
+              tags: ["gpu-session", "model-session"],
+            });
           }
           response.write(`${JSON.stringify({
             type: "metadata",
@@ -972,6 +1182,7 @@ export function createPrivateHubServer(options = {}) {
       runtimeDir,
     },
     pairing,
+    cache,
     logs,
     accessLogs,
     active,

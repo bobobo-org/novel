@@ -7,6 +7,7 @@ import {
 } from "./hashing";
 import {
   assertClosedAINamespace,
+  assertTargetedCacheInvalidation,
   closedAINamespaceDigest,
   namespaceMatchesInvalidation,
   sameClosedAINamespace,
@@ -101,8 +102,13 @@ export class ClosedAICache {
       semanticFingerprint: input.layer === "semantic" && input.semanticText
         ? await semanticFingerprint(input.semanticText)
         : [],
+      authority: "cache_candidate_only",
       candidateOnly: true,
+      approvalTransactionId: null,
+      memoryMutation: false,
+      learningMutation: false,
       canonicalMutation: false,
+      rawPromptStored: false,
       createdAt: createdAt.toISOString(),
       lastAccessedAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + Math.max(1, input.ttlMs ?? this.defaultTtlMs)).toISOString(),
@@ -123,7 +129,19 @@ export class ClosedAICache {
   ): Promise<ClosedAICacheLookup<T>> {
     const identity = await this.key(layer, namespace, input);
     const entry = await this.repository.get<T>(identity.id);
-    if (!entry || !sameClosedAINamespace(entry.namespace, namespace)) {
+    if (
+      !entry
+      || entry.schemaVersion !== CLOSED_AI_CACHE_SCHEMA_VERSION
+      || entry.authority !== "cache_candidate_only"
+      || entry.candidateOnly !== true
+      || entry.approvalTransactionId !== null
+      || entry.memoryMutation !== false
+      || entry.learningMutation !== false
+      || entry.canonicalMutation !== false
+      || entry.rawPromptStored !== false
+      || !sameClosedAINamespace(entry.namespace, namespace)
+    ) {
+      if (entry) await this.repository.remove(entry.id);
       this.counters.misses += 1;
       return { hit: false, layer, entry: null, similarity: null };
     }
@@ -151,6 +169,14 @@ export class ClosedAICache {
     const candidates = (await this.repository.list<T>())
       .filter((entry) =>
         entry.layer === "semantic"
+        && entry.schemaVersion === CLOSED_AI_CACHE_SCHEMA_VERSION
+        && entry.authority === "cache_candidate_only"
+        && entry.candidateOnly === true
+        && entry.approvalTransactionId === null
+        && entry.memoryMutation === false
+        && entry.learningMutation === false
+        && entry.canonicalMutation === false
+        && entry.rawPromptStored === false
         && sameClosedAINamespace(entry.namespace, namespace)
         && Date.parse(entry.expiresAt) > now)
       .map((entry) => ({
@@ -206,6 +232,7 @@ export class ClosedAICache {
   }
 
   async invalidate(invalidation: ClosedAICacheInvalidation): Promise<number> {
+    assertTargetedCacheInvalidation(invalidation);
     const entries = await this.repository.list();
     const selectedLayers = invalidation.layers ? new Set(invalidation.layers) : null;
     const selectedTags = invalidation.tags ? new Set(invalidation.tags) : null;
@@ -228,6 +255,39 @@ export class ClosedAICache {
       ...namespace,
       storyBibleRevision: previousRevision,
       layers: ["exact", "semantic", "retrieval", "agent-plan", "tool-result"],
+    });
+  }
+
+  async invalidateKnowledgeScopeRevision(
+    namespace: Pick<ClosedAINamespace, "tenantId" | "userId" | "projectId" | "storyId" | "canonId">,
+    previousRevision: string,
+  ): Promise<number> {
+    return this.invalidate({
+      ...namespace,
+      knowledgeScopeRevision: previousRevision,
+      layers: ["semantic", "retrieval", "agent-plan", "tool-result"],
+    });
+  }
+
+  async invalidateModelDigest(
+    namespace: Pick<ClosedAINamespace, "tenantId" | "userId" | "projectId">,
+    previousModelDigest: string,
+  ): Promise<number> {
+    return this.invalidate({
+      ...namespace,
+      modelDigest: previousModelDigest,
+      layers: [...CLOSED_AI_CACHE_LAYERS],
+    });
+  }
+
+  async invalidateBranch(
+    namespace: Pick<ClosedAINamespace, "tenantId" | "userId" | "projectId" | "storyId" | "canonId">,
+    branchId: string,
+  ): Promise<number> {
+    return this.invalidate({
+      ...namespace,
+      branchId,
+      layers: [...CLOSED_AI_CACHE_LAYERS],
     });
   }
 
@@ -263,8 +323,12 @@ export class ClosedAICache {
       ...this.counters,
       layerEntries,
       candidateOnly: true,
+      memoryMutationCount: 0,
+      learningMutationCount: 0,
       canonicalMutationCount: 0,
       rawPromptStored: false,
+      opfsLargePayloadStatus: this.repository.opfsStatus(),
+      modelSessionState: "runtime_handle_metadata_only",
       modelKvRuntimeStatus: "adapter_ready_runtime_dependent",
     };
   }
@@ -283,6 +347,12 @@ export const CLOSED_AI_CACHE_HEALTH = {
   namespaceIsolationStatus: "ready",
   ttlLruByteBudgetStatus: "ready",
   singleFlightStatus: "ready",
+  browserPersistence: "indexeddb-opfs",
+  localOllamaPersistence: "sqlite",
+  privateHubPersistence: "aes-256-gcm-encrypted-file",
+  cacheMemoryLearningCanonBoundaryStatus: "approval_transaction_enforced",
   rawPromptStored: false,
+  memoryMutationCount: 0,
+  learningMutationCount: 0,
   canonicalMutationCount: 0,
 } as const;

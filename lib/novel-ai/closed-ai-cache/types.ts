@@ -1,4 +1,4 @@
-export const CLOSED_AI_CACHE_SCHEMA_VERSION = "closed-ai-cache-v1" as const;
+export const CLOSED_AI_CACHE_SCHEMA_VERSION = "closed-ai-cache-v2" as const;
 
 export const CLOSED_AI_CACHE_LAYERS = [
   "exact",
@@ -48,8 +48,13 @@ export type ClosedAICacheEntry<T = unknown> = {
   valueDigest: string;
   value: T;
   semanticFingerprint: string[];
+  authority: "cache_candidate_only";
   candidateOnly: true;
+  approvalTransactionId: null;
+  memoryMutation: false;
+  learningMutation: false;
   canonicalMutation: false;
+  rawPromptStored: false;
   createdAt: string;
   lastAccessedAt: string;
   expiresAt: string;
@@ -74,7 +79,7 @@ export type ClosedAICacheInvalidation = Partial<ClosedAINamespace> & {
 export type ClosedAICacheStats = {
   schemaVersion: typeof CLOSED_AI_CACHE_SCHEMA_VERSION;
   status: "ready";
-  persistence: "indexeddb" | "memory";
+  persistence: "indexeddb-opfs" | "memory";
   entries: number;
   bytes: number;
   hits: number;
@@ -84,7 +89,11 @@ export type ClosedAICacheStats = {
   singleFlightJoins: number;
   layerEntries: Record<ClosedAICacheLayer, number>;
   candidateOnly: true;
+  memoryMutationCount: 0;
+  learningMutationCount: 0;
   canonicalMutationCount: 0;
   rawPromptStored: false;
+  opfsLargePayloadStatus: "ready" | "not_probed" | "runtime_unavailable" | "not_applicable";
+  modelSessionState: "runtime_handle_metadata_only";
   modelKvRuntimeStatus: "adapter_ready_runtime_dependent";
 };

@@ -1,4 +1,8 @@
 import { AiProviderError } from "../provider-errors";
+import type {
+  ClosedAICacheInvalidation,
+  ClosedAINamespace,
+} from "../../closed-ai-cache";
 
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
@@ -283,7 +287,28 @@ export class LocalBridgeClient {
     return this.parse(await this.fetchBridge(`${this.endpoint}/cancel`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ requestId }) }, signal));
   }
 
-  async *generate(input: { requestId: string; model: string; prompt?: string; messages?: Array<{ role: string; content: string }>; systemInstruction?: string; taskType: string; timeoutMs?: number; options?: Record<string, unknown>; signal?: AbortSignal }): AsyncGenerator<LocalBridgeEvent> {
+  async cacheStats(signal?: AbortSignal) {
+    return this.parse(await this.fetchBridge(`${this.endpoint}/cache/stats`, {
+      headers: this.headers(true),
+      cache: "no-store",
+    }, signal));
+  }
+
+  async invalidateCache(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ) {
+    return this.parse(await this.fetchBridge(`${this.endpoint}/cache/invalidate`, {
+      method: "POST",
+      headers: {
+        ...this.headers(true, true),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(invalidation),
+    }, signal));
+  }
+
+  async *generate(input: { requestId: string; model: string; prompt?: string; messages?: Array<{ role: string; content: string }>; systemInstruction?: string; taskType: string; timeoutMs?: number; options?: Record<string, unknown>; cacheNamespace?: ClosedAINamespace; signal?: AbortSignal }): AsyncGenerator<LocalBridgeEvent> {
     const abort = () => { void this.cancel(input.requestId).catch(() => undefined); };
     input.signal?.addEventListener("abort", abort, { once: true });
     try {

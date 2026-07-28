@@ -6,8 +6,12 @@ import {
   probeLocalOllama,
   runLocalOllama,
 } from "../providers/local-ollama/local-ollama-provider";
+import { getConfiguredLocalBridgeClient } from "../providers/local-ollama/local-bridge-client";
 import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
 import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
+import type {
+  ClosedAICacheInvalidation,
+} from "../closed-ai-cache";
 import type {
   PlatformAIRequest,
   PlatformProviderSnapshot,
@@ -97,6 +101,7 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
       (request.objective.length + input.actorContext.reduce((sum, item) => sum + item.text.length, 0)) / 2.5,
     ),
     idempotencyKey: request.taskId,
+    cacheNamespace: structuredClone(request.namespace),
     signal: request.signal,
   };
 }
@@ -182,11 +187,25 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
       elapsedMs: result.elapsedMs,
     };
   }
+
+  async invalidateCache(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ) {
+    const client = getConfiguredLocalBridgeClient();
+    if (!client) return 0;
+    const result = await client.invalidateCache(invalidation, signal);
+    return Number(result.invalidatedEntries ?? 0);
+  }
 }
 
 export type PrivateHubTransport = {
   execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult>;
   snapshot(signal?: AbortSignal): Promise<ClosedAIBackendSnapshot>;
+  invalidateCache?(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ): Promise<number>;
 };
 
 export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
@@ -216,6 +235,15 @@ export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
       });
     }
     return result;
+  }
+
+  async invalidateCache(
+    invalidation: ClosedAICacheInvalidation,
+    signal?: AbortSignal,
+  ) {
+    return this.transport?.invalidateCache
+      ? this.transport.invalidateCache(invalidation, signal)
+      : 0;
   }
 }
 

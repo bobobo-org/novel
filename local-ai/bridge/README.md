@@ -101,3 +101,17 @@ Common errors:
 
 Physical mobile devices cannot use the desktop's loopback Bridge. Phase 1.1R1
 does not expose a LAN endpoint or implement a remote desktop Bridge.
+
+## Local AI Cache
+
+The Local Bridge persists all six Closed AI Cache layers in a device-local
+SQLite database under the bridge runtime directory. Cache keys hash the input
+and bind all fourteen namespace fields; raw prompts are not stored. Exact
+generation results and Ollama runtime-session metadata are connected to the
+live `/generate` path. Retrieval and embedding results use the same
+`retrieval` layer contract.
+
+Paired clients can inspect `/cache/stats` and issue a namespace-scoped
+`/cache/invalidate`. Empty or wildcard invalidation selectors are rejected.
+Cache records are always candidate-only and cannot mutate Memory, Learning or
+Canon.
