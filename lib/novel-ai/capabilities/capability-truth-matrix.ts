@@ -1,4 +1,4 @@
-export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v2" as const;
+export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v3" as const;
 
 export type CapabilityTruthStatus =
   | "implemented"
@@ -41,7 +41,11 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "learning.runtimePolicyApplication", status: "verified", evidence: ["router, planner, cache threshold/TTL, retrieval facet ranking, tool ordering and model-context policy tests"], limitations: ["An adopted policy guides the selected local/private model; it does not alter model weights"] },
   { id: "learning.signedApprovalTransaction", status: "verified", evidence: ["ECDSA approval block membership and full-ledger verification", "forged transaction rejection", "candidate/dataset/version integrity checks"], limitations: ["The verifiable ledger is local and blockchain-inspired, not a public consensus network"] },
   { id: "learning.l2l3Gate", status: "verified", evidence: ["adapter-weight, private-model-training and distillation fail-closed tests"], limitations: ["L2 adapter training is contract-only; L3 model training and distillation are not started"] },
-  { id: "ledger.verifiable", status: "verified", evidence: ["append-only hash-chain, Merkle, ECDSA and content-address matrix"], limitations: ["Blockchain-inspired local evidence; not a public blockchain"] },
+  { id: "ledger.verifiable", status: "verified", evidence: ["verifiable architecture v2 matrix", "append-only hash chain, Merkle inclusion proof, ECDSA approval and scoped content-address verification"], limitations: ["Blockchain-inspired local/private evidence; not a blockchain or public consensus network"] },
+  { id: "ledger.immutableEvidence", status: "verified", evidence: ["independently signed evidence bundle", "evidence digest, block hash, Merkle and signature tamper rejection"], limitations: ["Immutable means tampering is detectable; local storage is not claimed to be physically undeletable"] },
+  { id: "ledger.dataLineage", status: "verified", evidence: ["same-ledger parent validation", "explicit rollback target", "queryable lineage trace and cross-ledger rejection"], limitations: ["Lineage records digests and identifiers, not raw private content"] },
+  { id: "ledger.scopedContentAddressing", status: "verified", evidence: ["tenant/project namespace-bound CAS locator", "same-content cross-project isolation and retained-content rehash verification"], limitations: ["Retained content remains local and is omitted from evidence exports"] },
+  { id: "ledger.noConsensusOrReplication", status: "verified", evidence: ["one Agent OS / three compute backend topology contract", "voting, consensus, public ledger, full replication and per-generation chain cost all disabled"], limitations: ["The three AI backends execute work; they are not ledger-maintaining blockchain nodes"] },
   { id: "learning.data", status: "implemented", evidence: ["controlled private learning records"], limitations: ["No shared training without explicit consent"] },
   { id: "learning.narrativeRuleAbstraction", status: "implemented", evidence: ["closed-ai sovereign learning service", "deterministic narrative DNA extraction", "local closed-AI deep extraction adapter"], limitations: ["Deep extraction requires an available local closed-AI runtime"] },
   { id: "learning.approvedRuleRag", status: "implemented", evidence: ["approved-rule context composer", "Studio closed generation integration"], limitations: ["Updates prompt/RAG behavior; it does not claim model-weight training"] },

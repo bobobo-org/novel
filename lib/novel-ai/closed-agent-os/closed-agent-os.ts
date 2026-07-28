@@ -833,8 +833,13 @@ export class ClosedAgentOS {
   async rollbackLearningVersion(versionId: string) {
     const version = await this.learning.repository.get<ControlledLearningVersion>(versionId);
     if (!version) throw osError("CONTROLLED_LEARNING_VERSION_NOT_FOUND");
-    const restored = await this.learning.rollbackVersion(versionId);
     const ledgerId = this.learningLedgerId(version.projectId, version.candidateId);
+    const ledgerBlocks = await this.ledger.repository.list(ledgerId);
+    const adoptedBlock = [...ledgerBlocks]
+      .reverse()
+      .find((candidate) => candidate.eventType === "learning-adopted");
+    if (!adoptedBlock) throw osError("CONTROLLED_LEARNING_ADOPTION_LEDGER_NOT_FOUND");
+    const restored = await this.learning.rollbackVersion(versionId);
     const block = await this.ledger.append({
       ledgerId,
       namespace: version.namespace,
@@ -844,6 +849,10 @@ export class ClosedAgentOS {
         candidateId: version.candidateId,
         restoredVersionId: restored?.id ?? null,
         resultingStatus: "rolled_back",
+      },
+      lineage: {
+        rollbackTargetBlockId: adoptedBlock.id,
+        causationId: versionId,
       },
     });
     return {

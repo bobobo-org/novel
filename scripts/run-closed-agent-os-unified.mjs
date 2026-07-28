@@ -512,10 +512,15 @@ test("ledger verifies hash chain, Merkle roots, content addresses and signed app
   assert.equal(verification.blockCount, 2);
   assert.equal(verification.signedApprovalCount, 1);
   const blocks = await repository.list("ledger-a");
-  assert(await repository.getContent(blocks[0].contentAddress));
+  assert(await repository.getContent(blocks[0].contentRecordId, {
+    ledgerId: blocks[0].ledgerId,
+    projectId: blocks[0].namespace.projectId,
+    namespaceDigest: blocks[0].namespaceDigest,
+  }));
   const evidence = await ledger.exportEvidence("ledger-a", "project-a");
   assert.equal(evidence.contentIncluded, false);
   assert.match(evidence.evidenceDigest, /^[a-f0-9]{64}$/u);
+  assert.equal((await ledger.verifyEvidence(evidence)).valid, true);
 });
 
 test("ledger detects tampered immutable block", async () => {
