@@ -18,8 +18,7 @@ env:
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
-  TARGET_ALIAS: novel-lqtechs-projects.vercel.app
-  LEGACY_ALIAS: novel-orcin.vercel.app
+  TARGET_ALIAS: novel-orcin.vercel.app
 
 jobs:
   deploy:
@@ -35,17 +34,6 @@ jobs:
 
       - name: Install deployment tooling
         run: npm install --global pnpm@10 vercel@56.3.2
-
-      - name: Capture legacy deployment guard
-        if: github.ref == 'refs/heads/main'
-        id: legacy
-        shell: bash
-        run: |
-          set -euo pipefail
-          health_url="https://${LEGACY_ALIAS}/api/ai/health?guard=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$health_url")"
-          deployment_id="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$body")"
-          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Pull Vercel environment (production)
         if: github.ref == 'refs/heads/main'
@@ -95,7 +83,7 @@ jobs:
           echo "Staged deployment health did not match commit $GITHUB_SHA." >&2
           exit 1
 
-      - name: Update only the requested production alias
+      - name: Update requested production alias
         if: github.ref == 'refs/heads/main'
         run: >-
           vercel alias set
@@ -104,7 +92,7 @@ jobs:
           --scope=lqtechs-projects
           --token="$VERCEL_TOKEN"
 
-      - name: Verify target alias and preserve legacy alias
+      - name: Verify production alias
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
@@ -124,14 +112,6 @@ jobs:
           done
           if [[ "$target_ok" != "true" ]]; then
             echo "Target alias did not resolve to the staged deployment." >&2
-            exit 1
-          fi
-
-          legacy_url="https://${LEGACY_ALIAS}/api/ai/health?guard=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-after"
-          legacy_body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$legacy_url")"
-          legacy_after="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$legacy_body")"
-          if [[ "$legacy_after" != "${{ steps.legacy.outputs.deployment_id }}" ]]; then
-            echo "Legacy alias deployment changed unexpectedly." >&2
             exit 1
           fi
 
