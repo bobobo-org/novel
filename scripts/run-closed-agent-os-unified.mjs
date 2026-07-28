@@ -25,6 +25,10 @@ import {
   ClosedAgentToolRegistry,
   MemoryClosedAgentStateRepository,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
+import {
+  capabilityStatus,
+  resolveCapabilityCatalog,
+} from "../lib/novel-ai/capabilities/index.ts";
 
 const tests = [];
 const results = [];
@@ -760,6 +764,7 @@ test("dashboard reports one shared system and truthful training states", async (
 
 test("product UI and health expose the unified system truth", () => {
   const root = process.cwd();
+  const capabilityCatalog = resolveCapabilityCatalog();
   const ui = fs.readFileSync(
     path.join(root, "app", "studio", "project", "[projectId]", "closed-ai", "closed-ai-workspace.tsx"),
     "utf8",
@@ -791,7 +796,11 @@ test("product UI and health expose the unified system truth", () => {
   assert.match(health, /continualLearningStatus: "ready_l0_l1_controlled"/);
   assert.match(
     health,
-    /offlinePreferenceTrainingStatus: capabilityStatus\(\s*capabilityCatalog,\s*"training\.offlinePreferenceModel",\s*\)/,
+    /offlinePreferenceTrainingStatus: capabilityStatus\(\s*capabilityCatalog,\s*"offlinePreferenceTraining",\s*\)/,
+  );
+  assert.equal(
+    capabilityStatus(capabilityCatalog, "offlinePreferenceTraining"),
+    "client_dependent",
   );
   assert.match(health, /adapterTrainingStatus: "offline_preference_adapter_ready"/);
   assert.match(health, /modelTraining: capabilityStatus\(capabilityCatalog, "modelTraining"\)/);
