@@ -1,4 +1,5 @@
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
+import { learningPlannerStrategy } from "../controlled-learning-os";
 import type {
   ClosedAgentPlan,
   ClosedAgentRole,
@@ -26,7 +27,10 @@ export async function createClosedAgentPlan(input: {
   backendId: ClosedAIBackendId;
   complexity: ClosedAITaskComplexity;
 }): Promise<ClosedAgentPlan> {
-  const roles = rolesByComplexity[input.complexity];
+  const plannerStrategy = learningPlannerStrategy(
+    input.request.learningConfiguration,
+  );
+  const roles = learnedRoles(rolesByComplexity[input.complexity], plannerStrategy);
   const steps = roles.map((role, index) => ({
     index,
     role,
@@ -41,6 +45,7 @@ export async function createClosedAgentPlan(input: {
     taskId: input.request.taskId,
     complexity: input.complexity,
     backendId: input.backendId,
+    plannerStrategy,
     roles,
     steps,
     candidateOnly: true as const,
@@ -53,6 +58,22 @@ export async function createClosedAgentPlan(input: {
     })),
     planDigest: await sha256Hex(stableStringify(body)),
   };
+}
+
+function learnedRoles(base: ClosedAgentRole[], strategy: string) {
+  const roles = [...base];
+  const required = strategy === "continuity-first"
+    ? "continuity-agent"
+    : strategy === "critical-review"
+      ? "critic"
+      : strategy === "character-depth"
+        ? "character-agent"
+        : null;
+  if (required && !roles.includes(required)) {
+    const evaluatorIndex = roles.indexOf("evaluator");
+    roles.splice(evaluatorIndex < 0 ? roles.length : evaluatorIndex, 0, required);
+  }
+  return roles;
 }
 
 function roleObjective(role: ClosedAgentRole, objective: string) {

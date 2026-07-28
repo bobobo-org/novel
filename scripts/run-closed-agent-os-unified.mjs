@@ -122,9 +122,6 @@ function createMockOS(options = {}) {
     repository: new MemoryClosedAICacheRepository(),
     semanticThreshold: 0.2,
   });
-  const learning = new ControlledLearningOS({
-    repository: new MemoryControlledLearningRepository(),
-  });
   const ledger = new VerifiableLedger({
     repository: new MemoryVerifiableLedgerRepository(),
     signer: new ApprovalSigner(),
@@ -137,7 +134,6 @@ function createMockOS(options = {}) {
   const os = new ClosedAgentOS({
     backends,
     cache,
-    learning,
     ledger,
     state: new MemoryClosedAgentStateRepository(),
   });
@@ -328,6 +324,7 @@ test("abandoned work is stored only as a negative label", async () => {
 test("learning candidate requires evaluator, human approval and passing A/B before adoption", async () => {
   const learning = new ControlledLearningOS({
     repository: new MemoryControlledLearningRepository(),
+    verifyApprovalTransaction: async () => true,
   });
   await learning.setConsent({ namespace: namespace(), enabled: true });
   const experience = await learning.collectExperience({
@@ -355,6 +352,8 @@ test("learning candidate requires evaluator, human approval and passing A/B befo
   const approved = await learning.approveCandidate(candidate.id, {
     approvedBy: "author",
     approvalId: "approval-1",
+    approvalTransactionId: "approval-transaction-1",
+    approvalTransactionDigest: "a".repeat(64),
     humanApproved: true,
   });
   const dataset = await learning.createDataset(approved.id, true);
@@ -711,11 +710,23 @@ test("shared Agent OS applies adopted learning and records only consented outcom
     proposal: { pacingWeight: 0.35 },
   });
   await os.learning.evaluateCandidate(learningCandidate.id, { score: 0.9 });
-  const approvedLearning = await os.learning.approveCandidate(learningCandidate.id, {
+  await assert.rejects(
+    () => os.learning.approveCandidate(learningCandidate.id, {
+      approvedBy: "author",
+      approvalId: "forged-approval-1",
+      approvalTransactionId: "forged-transaction-1",
+      approvalTransactionDigest: "f".repeat(64),
+      humanApproved: true,
+    }),
+    errorCode("CONTROLLED_LEARNING_APPROVAL_TRANSACTION_UNVERIFIED"),
+  );
+  const learningApproval = await os.approveLearningCandidate({
+    candidateId: learningCandidate.id,
+    score: 0.9,
     approvedBy: "author",
-    approvalId: "learning-approval-1",
     humanApproved: true,
   });
+  const approvedLearning = learningApproval.candidate;
   const ab = await os.learning.startABTest({
     candidateId: approvedLearning.id,
     minimumSamples: 2,
@@ -747,7 +758,16 @@ test("shared Agent OS applies adopted learning and records only consented outcom
   ));
   await os.rejectCandidate(second.candidate.id);
   const dashboard = await os.learning.dashboard("project-a");
-  assert.equal(dashboard.experiences, 3);
+  assert.equal(dashboard.experiences, 7);
+  const runtimeSignals = await os.learning.repository.list("project-a", "experience");
+  assert.equal(
+    runtimeSignals.filter((signal) => signal.outcome === "planner_result").length,
+    2,
+  );
+  assert.equal(
+    runtimeSignals.filter((signal) => signal.outcome === "plot_continuity_result").length,
+    2,
+  );
 
   const { os: noConsentOS } = createMockOS();
   const noConsent = await noConsentOS.execute(request(

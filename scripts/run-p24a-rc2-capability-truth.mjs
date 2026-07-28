@@ -57,9 +57,9 @@ test("realVideoGeneration remains contract_only and not_connected", () => {
   assert.equal(registry.realVideoGeneration.contractStatus, "contract_only");
   assert.equal(registry.realVideoGeneration.runtimeStatus, "not_connected");
 });
-test("privateAiHub remains contract_only and not_connected", () => {
-  assert.equal(registry.privateAiHub.contractStatus, "contract_only");
-  assert.equal(registry.privateAiHub.runtimeStatus, "not_connected");
+test("privateAiHub reflects the self-hosted ready contract and client-dependent runtime", () => {
+  assert.equal(registry.privateAiHub.contractStatus, "ready");
+  assert.equal(registry.privateAiHub.runtimeStatus, "client_dependent");
 });
 test("unrelated future capabilities remain unpromoted while P2.4B replaces the legacy Character Agent umbrella", () => {
   for (const id of ["audienceVoting", "audienceLearning", "creationDna", "storyBlueprintWorkbench"]) {

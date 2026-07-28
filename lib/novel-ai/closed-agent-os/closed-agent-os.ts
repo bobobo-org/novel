@@ -2,6 +2,7 @@ import {
   ClosedAICache,
   assertClosedAINamespace,
   createClosedAICacheRepository,
+  sameClosedAINamespace,
   sha256Hex,
   stableStringify,
   type ClosedAICacheInvalidation,
@@ -9,6 +10,11 @@ import {
 import {
   ControlledLearningOS,
   createControlledLearningRepository,
+  learningCacheTtl,
+  learningPreferredTool,
+  learningRetrievalWeight,
+  learningSemanticThreshold,
+  type ControlledLearningApprovalVerificationInput,
   type ControlledKnowledgeRule,
   type ControlledLearningOutcome,
   type ControlledLearningVersion,
@@ -80,11 +86,13 @@ export class ClosedAgentOS {
     this.cache = options.cache ?? new ClosedAICache({
       repository: createClosedAICacheRepository(),
     });
-    this.learning = options.learning ?? new ControlledLearningOS({
-      repository: createControlledLearningRepository(),
-    });
     this.ledger = options.ledger ?? new VerifiableLedger({
       repository: createVerifiableLedgerRepository(),
+    });
+    this.learning = options.learning ?? new ControlledLearningOS({
+      repository: createControlledLearningRepository(),
+      verifyApprovalTransaction: (input) =>
+        this.verifyLearningApprovalTransaction(input),
     });
     this.state = options.state ?? createClosedAgentStateRepository();
     this.tools = options.tools ?? new ClosedAgentToolRegistry();
@@ -174,6 +182,11 @@ export class ClosedAgentOS {
       },
     });
     try {
+      const routingLearning = await this.learning.activeConfiguration(request.namespace);
+      request = {
+        ...request,
+        learningConfiguration: routingLearning.configuration,
+      };
       const snapshots = await this.backendSnapshots(request.signal);
       const route = selectClosedAIBackend(request, snapshots);
       const backend = this.backends.get(route.backend.id);
@@ -208,6 +221,9 @@ export class ClosedAgentOS {
           automatic: route.automatic,
           reasonCode: route.reasonCode,
           fallbackAttempted: false,
+          routingLearningApplied: routingLearning.applied,
+          routingLearningVersionId: routingLearning.versionId,
+          routingLearningConfigurationDigest: routingLearning.configurationDigest,
           controlledLearningApplied: activeLearning.applied,
           controlledLearningVersionId: activeLearning.versionId,
           controlledLearningConfigurationDigest: activeLearning.configurationDigest,
@@ -225,10 +241,31 @@ export class ClosedAgentOS {
           backendId: route.backend.id,
           complexity: route.complexity,
         }),
-        { tags: ["closed-agent-plan", `task:${request.taskType}`] },
+        {
+          tags: ["closed-agent-plan", `task:${request.taskType}`],
+          ttlMs: learningCacheTtl(request.learningConfiguration, "agent-plan"),
+        },
       );
       const plan = planResult.value;
       for (const role of plan.roles) assertClosedAgentPermission({ request, role });
+      await this.recordOperationalLearningSignal({
+        request,
+        outcome: "planner_result",
+        score: 1,
+        tags: [
+          "planner-completed",
+          `complexity:${route.complexity}`,
+          ...plan.roles.map((role) => `role:${role}`),
+        ],
+        feature: {
+          backendId: route.backend.id,
+          planDigest: plan.planDigest,
+          roleCount: plan.roles.length,
+          plannerStrategy: String(
+            request.learningConfiguration?.["planner.strategy"] ?? "standard",
+          ),
+        },
+      });
       const toolResults = await this.executeTools(request, plan);
       if (request.context.some((item) =>
         item.kind === "author-note"
@@ -247,18 +284,36 @@ export class ClosedAgentOS {
           context: await Promise.all(request.context.map(async (item) => ({
             id: item.id,
             kind: item.kind,
+            learningFacet: item.learningFacet ?? "general",
             visibility: item.visibility,
             privacyLevel: item.privacyLevel,
             approved: item.approved,
             textDigest: await sha256Hex(item.text),
           }))),
+          learningConfiguration: request.learningConfiguration ?? {},
         },
-        async () => request.context.filter((item) =>
-          item.approved
-          && item.visibility !== "author-only"
-          && item.visibility !== "evaluator"
-          && item.privacyLevel === request.namespace.privacyLevel),
-        { tags: ["actor-context", `task:${request.taskType}`] },
+        async () => request.context
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) =>
+            item.approved
+            && item.visibility !== "author-only"
+            && item.visibility !== "evaluator"
+            && item.privacyLevel === request.namespace.privacyLevel)
+          .sort((left, right) =>
+            learningRetrievalWeight(
+              request.learningConfiguration,
+              right.item.kind,
+              right.item.learningFacet,
+            ) - learningRetrievalWeight(
+              request.learningConfiguration,
+              left.item.kind,
+              left.item.learningFacet,
+            ) || left.index - right.index)
+          .map(({ item }) => item),
+        {
+          tags: ["actor-context", `task:${request.taskType}`],
+          ttlMs: learningCacheTtl(request.learningConfiguration, "retrieval"),
+        },
       );
       const actorContext = actorContextResult.value;
       const candidateInput = {
@@ -276,7 +331,11 @@ export class ClosedAgentOS {
       const semanticLookup = await this.cache.getSemantic<{
         taskType: ClosedAgentTaskRequest["taskType"];
         execution: ClosedBackendExecutionResult;
-      }>(request.namespace, semanticText);
+      }>(
+        request.namespace,
+        semanticText,
+        learningSemanticThreshold(request.learningConfiguration),
+      );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
       if (
@@ -292,7 +351,10 @@ export class ClosedAgentOS {
           request.namespace,
           candidateInput,
           () => backend.execute({ request, plan, actorContext, toolResults }),
-          { tags: ["closed-agent-candidate", `task:${request.taskType}`] },
+          {
+            tags: ["closed-agent-candidate", `task:${request.taskType}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
+          },
         );
         execution = exactResult.value;
         candidateCacheHit = exactResult.cacheHit;
@@ -309,6 +371,7 @@ export class ClosedAgentOS {
             execution,
           },
           tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
+          ttlMs: learningCacheTtl(request.learningConfiguration, "semantic"),
         });
       }
       if (execution.backendId !== route.backend.id) {
@@ -350,6 +413,37 @@ export class ClosedAgentOS {
           evaluatorInputDigest: evaluation.evaluatorInputDigest,
         },
       });
+      await this.recordOperationalLearningSignal({
+        request,
+        outcome: "plot_continuity_result",
+        score: evaluation.score,
+        tags: [
+          evaluation.passed ? "continuity-pass" : "continuity-blocked",
+          ...evaluation.blockingCodes.map((code) => `block:${code}`),
+          ...evaluation.warningCodes.map((code) => `warning:${code}`),
+        ],
+        feature: {
+          evaluatorInputDigest: evaluation.evaluatorInputDigest,
+          passed: evaluation.passed,
+        },
+      });
+      if (
+        String(request.taskType).includes("character")
+        || plan.roles.includes("character-agent")
+      ) {
+        await this.recordOperationalLearningSignal({
+          request,
+          outcome: "character_consistency_result",
+          score: evaluation.score,
+          tags: [
+            evaluation.passed ? "character-consistency-pass" : "character-consistency-blocked",
+          ],
+          feature: {
+            evaluatorInputDigest: evaluation.evaluatorInputDigest,
+            passed: evaluation.passed,
+          },
+        });
+      }
       if (!evaluation.passed) {
         throw osError("CLOSED_AGENT_EVALUATION_BLOCKED", undefined, {
           blockingCodes: evaluation.blockingCodes,
@@ -587,8 +681,12 @@ export class ClosedAgentOS {
     rules: ControlledKnowledgeRule[];
     humanConfirmedRights: boolean;
     sourceTenantId?: string;
+    sourceUserId?: string;
     sourceProjectId?: string;
+    sourceStoryId?: string;
     sourceCanonId?: string;
+    sourceBranchId?: string;
+    sourceCharacterId?: string;
   }) {
     const transformation = await this.learning.createKnowledgeRulePackCandidate(input);
     const ledgerId = this.learningLedgerId(
@@ -625,18 +723,50 @@ export class ClosedAgentOS {
     approvedBy: string;
     humanApproved: boolean;
   }) {
+    if (!input.humanApproved) {
+      throw osError("CONTROLLED_LEARNING_HUMAN_APPROVAL_REQUIRED");
+    }
     const evaluated = await this.learning.evaluateCandidate(input.candidateId, {
       score: input.score,
       blockingCodes: input.blockingCodes,
+      evidence: {
+        evaluator: "closed-agent-os",
+        evaluationScore: input.score,
+      },
     });
+    if (
+      !evaluated.evaluation
+      || evaluated.evaluation.score < 0.6
+      || evaluated.evaluation.blockingCodes.length
+    ) {
+      throw osError("CONTROLLED_LEARNING_EVALUATION_GATE_FAILED");
+    }
     const approvalId = `controlled-learning-approval:${crypto.randomUUID()}`;
+    const ledgerId = this.learningLedgerId(evaluated.projectId, evaluated.id);
+    const approvalBlock = await this.ledger.append({
+      ledgerId,
+      namespace: evaluated.namespace,
+      eventType: "approval-signed",
+      payload: {
+        candidateId: evaluated.id,
+        proposalDigest: evaluated.proposalDigest,
+        evaluationEvidenceDigest: evaluated.evaluation?.evidenceDigest ?? null,
+        evaluationScore: evaluated.evaluation?.score ?? null,
+        blockingCodes: evaluated.evaluation?.blockingCodes ?? [],
+        approvalId,
+        approvedBy: input.approvedBy,
+        humanApproved: true,
+      },
+      signApproval: true,
+    });
     const approved = await this.learning.approveCandidate(evaluated.id, {
       approvedBy: input.approvedBy,
       approvalId,
-      humanApproved: input.humanApproved,
+      approvalTransactionId: approvalBlock.id,
+      approvalTransactionDigest: approvalBlock.blockHash,
+      humanApproved: true,
     });
-    const dataset = await this.learning.createDataset(approved.id, input.humanApproved);
-    const ledgerId = this.learningLedgerId(approved.projectId, approved.id);
+    const dataset = await this.learning.createDataset(approved.id, true);
     const block = await this.ledger.append({
       ledgerId,
       namespace: approved.namespace,
@@ -647,13 +777,13 @@ export class ClosedAgentOS {
         evaluationScore: approved.evaluation?.score ?? null,
         blockingCodes: approved.evaluation?.blockingCodes ?? [],
         approvalId,
+        approvalTransactionDigest: approvalBlock.blockHash,
         approvedBy: input.approvedBy,
         humanApproved: true,
         datasetId: dataset.id,
         datasetDigest: dataset.contentDigest,
         rawContentStored: false,
       },
-      signApproval: true,
     });
     return {
       candidate: approved,
@@ -781,30 +911,113 @@ export class ClosedAgentOS {
 
   private async executeTools(request: ClosedAgentTaskRequest, plan: ClosedAgentPlan) {
     const results: Array<{ toolId: string; value: unknown }> = [];
-    for (const toolId of request.allowedToolIds) {
+    const preferredTool = learningPreferredTool(request.learningConfiguration);
+    const toolIds = [...request.allowedToolIds].sort((left, right) =>
+      Number(right === preferredTool) - Number(left === preferredTool)
+      || left.localeCompare(right));
+    for (const toolId of toolIds) {
       const tool = this.tools.get(toolId);
       if (!tool) throw osError("CLOSED_AGENT_TOOL_NOT_REGISTERED", undefined, { toolId });
       const role = plan.steps.find((step) => step.allowedToolIds.includes(toolId))?.role ?? "planner";
       assertClosedAgentPermission({ request, role, tool });
-      const cacheResult = await this.cache.compute(
-        "tool-result",
-        request.namespace,
-        {
-          toolId,
-          taskId: request.taskId,
-          objectiveDigest: await sha256Hex(request.objective),
-        },
-        () => tool.execute({
-          namespace: request.namespace,
-          taskId: request.taskId,
-          payload: { taskType: request.taskType },
-          signal: request.signal,
-        }),
-        { tags: ["closed-agent-tool", `tool:${toolId}`] },
-      );
-      results.push({ toolId, value: cacheResult.value });
+      try {
+        const cacheResult = await this.cache.compute(
+          "tool-result",
+          request.namespace,
+          {
+            toolId,
+            taskId: request.taskId,
+            objectiveDigest: await sha256Hex(request.objective),
+            learningConfiguration: request.learningConfiguration ?? {},
+          },
+          () => tool.execute({
+            namespace: request.namespace,
+            taskId: request.taskId,
+            payload: { taskType: request.taskType },
+            signal: request.signal,
+          }),
+          {
+            tags: ["closed-agent-tool", `tool:${toolId}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "tool-result"),
+          },
+        );
+        results.push({ toolId, value: cacheResult.value });
+        await this.recordOperationalLearningSignal({
+          request,
+          outcome: "tool_result",
+          score: 1,
+          tags: [
+            "tool-success",
+            `tool:${toolId}`,
+            cacheResult.cacheHit ? "tool-cache-hit" : "tool-cache-miss",
+          ],
+          feature: {
+            toolId,
+            role,
+            resultDigest: await sha256Hex(stableStringify(cacheResult.value)),
+          },
+        });
+      } catch (cause) {
+        await this.recordOperationalLearningSignal({
+          request,
+          outcome: "tool_result",
+          score: 0,
+          tags: [
+            "tool-failure",
+            `tool:${toolId}`,
+            `error:${String((cause as { code?: string })?.code || "UNKNOWN")}`,
+          ],
+          feature: { toolId, role, success: false },
+        });
+        throw cause;
+      }
     }
     return results;
+  }
+
+  private async recordOperationalLearningSignal(input: {
+    request: ClosedAgentTaskRequest;
+    outcome:
+      | "planner_result"
+      | "tool_result"
+      | "character_consistency_result"
+      | "plot_continuity_result";
+    score: number;
+    tags: string[];
+    feature: Record<string, string | number | boolean>;
+  }) {
+    const collection = await this.learning.collectExperienceIfConsented({
+      namespace: input.request.namespace,
+      outcome: input.outcome,
+      taskType: input.request.taskType,
+      featureText: stableStringify(input.feature),
+      score: input.score,
+      tags: input.tags,
+      sourceApprovalId: null,
+    });
+    if (!collection.collected) return collection;
+    try {
+      await this.ledger.append({
+        ledgerId: this.ledgerId(input.request),
+        namespace: input.request.namespace,
+        eventType: "learning-experience",
+        payload: {
+          experienceId: collection.experience.id,
+          outcome: collection.experience.outcome,
+          outcomeLabel: collection.experience.outcomeLabel,
+          sourceClass: collection.experience.sourceClass,
+          featureDigest: collection.experience.featureDigest,
+          resultDigest: collection.experience.resultDigest,
+          score: collection.experience.score,
+          rawInputStored: false,
+          rawOutputStored: false,
+          rawChainOfThoughtStored: false,
+        },
+      });
+    } catch {
+      // Learning evidence must never make an otherwise valid task fail.
+    }
+    return collection;
   }
 
   private async recordLearningOutcome(input: {
@@ -877,6 +1090,45 @@ export class ClosedAgentOS {
     return `closed-learning:${projectId}:${candidateId}`;
   }
 
+  private async verifyLearningApprovalTransaction(
+    input: ControlledLearningApprovalVerificationInput,
+  ) {
+    const ledgerId = this.learningLedgerId(
+      input.candidate.projectId,
+      input.candidate.id,
+    );
+    const blocks = await this.ledger.repository.list(ledgerId);
+    const transaction = blocks.find((block) =>
+      block.id === input.approvalTransactionId
+      && block.blockHash === input.approvalTransactionDigest);
+    if (
+      !transaction
+      || transaction.ledgerId !== ledgerId
+      || transaction.eventType !== "approval-signed"
+      || !transaction.signature
+      || !sameClosedAINamespace(
+        transaction.namespace,
+        input.candidate.namespace,
+      )
+    ) {
+      return false;
+    }
+    const expectedPayloadDigest = await sha256Hex(stableStringify({
+      candidateId: input.candidate.id,
+      proposalDigest: input.candidate.proposalDigest,
+      evaluationEvidenceDigest:
+        input.candidate.evaluation?.evidenceDigest ?? null,
+      evaluationScore: input.candidate.evaluation?.score ?? null,
+      blockingCodes: input.candidate.evaluation?.blockingCodes ?? [],
+      approvalId: input.approvalId,
+      approvedBy: input.approvedBy,
+      humanApproved: true,
+    }));
+    if (transaction.payloadDigest !== expectedPayloadDigest) return false;
+    const verification = await this.ledger.verify(ledgerId);
+    return verification.valid && verification.signedApprovalCount >= 1;
+  }
+
   private planCacheInput(
     request: ClosedAgentTaskRequest,
     backendId: ClosedAIBackendAdapter["id"],
@@ -887,6 +1139,10 @@ export class ClosedAgentOS {
       objectiveDigest: request.objective,
       allowedToolIds: [...request.allowedToolIds].sort(),
       permissionScopes: [...request.permissionScopes].sort(),
+      learningConfiguration: Object.fromEntries(
+        Object.entries(request.learningConfiguration ?? {})
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
     };
   }
 }
