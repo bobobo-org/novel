@@ -78,16 +78,28 @@ Memory, and general-context ranking; preferred tool ordering; task
 decomposition; project templates; pacing and genre policies; and approved
 non-copying rule packs.
 
-### L2 and L3 — unavailable
+### L2 and L3 — operator-authorized runtime started
 
-L2 adapter or LoRA weight mutation is contract-only and fails closed.
-L3 private model training and distillation are not started and fail closed.
+L2 now has a real PEFT LoRA candidate with immutable weight and inference
+digests. It remains inactive until a separate approval transaction. The
+controlled-learning API still fails closed when ordinary learning traffic tries
+to start adapter-weight mutation.
+
+L3 has completed a local full-weight optimizer-step qualification smoke and
+sequence-level distillation into the LoRA student. Ordinary application
+requests still cannot start private training or distillation; those operations
+belong to the separate operator-authorized runtime.
+
+QLoRA remains hardware-blocked on the verified Intel-only machine because CUDA
+is unavailable. CPU LoRA is not represented as QLoRA.
 
 The public truth remains:
 
 ```text
-modelTraining = not_started
-distillation = not_started
+modelTraining = started
+distillation = started
+lora = candidate_ready_not_activated
+qlora = hardware_blocked_no_cuda
 ```
 
 ## Verification

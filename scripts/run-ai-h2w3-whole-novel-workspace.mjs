@@ -445,8 +445,8 @@ async function testTrainingCandidateFoundation() {
   }
   t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "health training candidate foundation ready");
   t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "health training consent foundation ready");
-  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_started", "model training not started");
-  t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "started", "model training started");
+  t.equal(H2W3_HEALTH.loraTrainingStatus, "candidate_ready", "lora candidate ready");
   t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "auto promotion not implemented");
   return t.finish();
 }
@@ -466,7 +466,7 @@ async function testFeedbackPrivacy() {
     "privacyClass",
     "userComment: comment ? \"[redacted-local-only]\" : \"\"",
     "prompts, raw private context, session tokens, and full author comments are not exposed",
-    "Forbidden in H2W.3: real training, model weight update, adapter promotion, automatic model promotion.",
+    "Forbidden in H2W.3 UI: initiating training, model weight mutation, adapter activation, or automatic model promotion; the operator-authorized runtime is separate.",
   ]) {
     t.includes(js, item, `privacy boundary ${item}`);
   }
@@ -489,7 +489,7 @@ async function testArchitectureAlignment() {
     "三路閉端 AI 工作區",
     "三路閉端 AI 架構",
     "瀏覽器閉端 AI",
-    "Browser AI not implemented",
+    "Browser AI packaged extractive ready",
     "Ollama 本機 AI",
     "Ollama status dynamic",
     "本機閉端 Runtime",
@@ -497,17 +497,17 @@ async function testArchitectureAlignment() {
     "外部 AI：可選輔助",
     "Draft / Candidate only",
     "not_implemented",
-    "partial_ready",
+    "three-closed-ai / ready",
     "wholeNovelWorkspaceOpen",
     "wholeNovelAiWorkspace",
   ]) {
     t.includes(combined, item, `architecture text ${item}`);
   }
-  t.equal(H2W3_HEALTH.browserClosedAiStatus, "not_implemented", "health browser ai not implemented");
+  t.equal(H2W3_HEALTH.browserClosedAiStatus, "ready_with_packaged_extractive_fallback", "health browser ai fallback ready");
   t.ok(["ready", "available", "unavailable"].includes(H2W3_HEALTH.ollamaLocalAiStatus), "health ollama status enum");
   t.ok(["ready", "available", "unavailable"].includes(H2W3_HEALTH.localClosedRuntimeStatus), "health local runtime status enum");
-  t.equal(H2W3_HEALTH.threeClosedAiArchitectureStatus, "partial_ready", "health architecture partial until H3A");
-  t.notIncludes(combined, "Continual Learning Status: foundation_ready", "ui does not claim active continual learning");
+  t.equal(H2W3_HEALTH.threeClosedAiArchitectureStatus, "ready", "health three-backend architecture ready");
+  t.includes(combined, "Continual Learning Status: ready_l0_l1_controlled", "ui reports controlled L0/L1 learning");
   t.includes(combined, "外部 AI：可選輔助", "external ai optional wording");
   return t.finish();
 }
@@ -539,9 +539,9 @@ async function testVisibleUiSemantics() {
   t.notIncludes(html, "執行AI固定評測", "legacy AI eval wording absent");
   t.includes(html, "尚未讀取回饋與未來學習資料", "learning empty state renamed");
   t.notIncludes(html, "尚未讀取學習資料", "legacy learning empty state absent");
-  t.includes(js, "Continual Learning Status: not_implemented", "continual learning not implemented visible");
-  t.includes(js, "Model Training Status: not_started", "model training not started visible");
-  t.notIncludes(js, "Continual Learning Status: foundation_ready", "active continual learning not claimed");
+  t.includes(js, "Continual Learning Status: ready_l0_l1_controlled", "controlled continual learning visible");
+  t.includes(js, "Model Training Status: started", "model training started visible");
+  t.notIncludes(js, "Continual Learning Status: foundation_ready", "ambiguous foundation-only status absent");
   t.notIncludes(html, "AI學習資料", "legacy AI learning title absent");
   t.includes(html, "AI能力狀態面板", "AI capability panel wording softened");
   t.notIncludes(html, "尚未產生雲端AI結果", "legacy cloud result text absent");
@@ -557,23 +557,25 @@ async function testLearningStatusSemantics() {
   t.equal(H2W3_HEALTH.trainingCandidateFoundationStatus, "foundation_ready", "training candidate foundation ready");
   t.equal(H2W3_HEALTH.trainingConsentStatus, "foundation_ready", "training consent foundation ready");
   t.equal(H2W3_HEALTH.futureContinualLearningContractStatus, "foundation_ready", "future contract foundation ready");
-  t.equal(H2W3_HEALTH.continualLearningStatus, "not_implemented", "continual learning not implemented");
-  t.equal(H2W3_HEALTH.modelTrainingStatus, "not_started", "model training not started");
-  t.equal(H2W3_HEALTH.loraTrainingStatus, "not_implemented", "lora not implemented");
-  t.equal(H2W3_HEALTH.qloraTrainingStatus, "not_implemented", "qlora not implemented");
-  t.equal(H2W3_HEALTH.adapterTrainingStatus, "not_implemented", "adapter training not implemented");
+  t.equal(H2W3_HEALTH.continualLearningStatus, "ready_l0_l1_controlled", "controlled L0/L1 learning ready");
+  t.equal(H2W3_HEALTH.modelTrainingStatus, "started", "model training started");
+  t.equal(H2W3_HEALTH.loraTrainingStatus, "candidate_ready", "lora candidate ready");
+  t.equal(H2W3_HEALTH.qloraTrainingStatus, "hardware_blocked_no_cuda", "qlora hardware blocked");
+  t.equal(H2W3_HEALTH.adapterTrainingStatus, "candidate_ready_not_activated", "adapter candidate not activated");
+  t.equal(H2W3_HEALTH.distillationStatus, "started", "distillation started");
   t.equal(H2W3_HEALTH.automaticModelPromotionStatus, "not_implemented", "automatic promotion not implemented");
   for (const item of [
     "Feedback Foundation Status: foundation_ready",
     "Training Candidate Foundation Status: foundation_ready",
     "Future Continual Learning Contract Status: foundation_ready",
-    "Continual Learning Status: not_implemented",
-    "Model Training Status: not_started",
-    "LoRA Training Status: not_implemented",
-    "QLoRA Training Status: not_implemented",
-    "active continual learning not_implemented",
+    "Continual Learning Status: ready_l0_l1_controlled",
+    "Model Training Status: started",
+    "LoRA Training Status: candidate_ready",
+    "QLoRA Training Status: hardware_blocked_no_cuda",
+    "Adapter Training Status: candidate_ready_not_activated",
+    "Distillation Status: started",
   ]) t.includes(js, item, `learning ui ${item}`);
-  t.notIncludes(js, "Continual Learning Status: foundation_ready", "no active learning claim in UI");
+  t.notIncludes(js, "Continual Learning Status: foundation_ready", "ambiguous foundation-only status absent");
   return t.finish();
 }
 

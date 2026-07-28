@@ -1293,12 +1293,12 @@ export class ControlledLearningOS {
       formalLearningDataBeforeApproval: 0,
       l0Status: "ready" as const,
       l1Status: "ready" as const,
-      l2Status: "contract_only" as const,
-      l3Status: "not_started" as const,
+      l2Status: "candidate_ready" as const,
+      l3Status: "started" as const,
       rawContentStored: false,
       rawChainOfThoughtStored: false,
-      modelTraining: "not_started" as const,
-      distillation: "not_started" as const,
+      modelTraining: "started" as const,
+      distillation: "started" as const,
     };
   }
 
@@ -1654,10 +1654,10 @@ export const CONTROLLED_LEARNING_HEALTH = {
   nonCopyingRuleGateStatus: "ready",
   activeConfigurationApplicationStatus: "ready",
   approvedOutcomeIntegrationStatus: "ready",
-  l2AdapterStatus: "contract_only_not_started",
-  l3PrivateTrainingStatus: "not_started",
-  modelTraining: "not_started",
-  distillation: "not_started",
+  l2AdapterStatus: "candidate_ready_not_activated",
+  l3PrivateTrainingStatus: "started_operator_authorized",
+  modelTraining: "started",
+  distillation: "started",
   rawChainOfThoughtStored: false,
   silentTraining: false,
 } as const;

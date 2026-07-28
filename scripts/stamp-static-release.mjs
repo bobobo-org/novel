@@ -20,8 +20,12 @@ const visibleUiRequiredStrings = [
   "回饋與未來學習資料",
   "匯出已核准樣本 JSONL",
   "執行品質基準測試",
-  "Continual Learning Status: not_implemented",
-  "Model Training Status: not_started",
+  "Continual Learning Status: ready_l0_l1_controlled",
+  "Model Training Status: started",
+  "LoRA Training Status: candidate_ready",
+  "QLoRA Training Status: hardware_blocked_no_cuda",
+  "Adapter Training Status: candidate_ready_not_activated",
+  "Distillation Status: started",
   "H2 Local Story Intelligence",
 ];
 const visibleUiBodyHash = createHash("sha256")

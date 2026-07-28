@@ -666,13 +666,21 @@ test("L2/L3 weight mutation, private training and distillation remain fail-close
     errorCode("CONTROLLED_LEARNING_L3_DISTILLATION_NOT_STARTED"),
   );
   assert.equal(CONTROLLED_LEARNING_HEALTH.l2L3RuntimeGateStatus, "fail_closed");
-  assert.equal(CONTROLLED_LEARNING_HEALTH.modelTraining, "not_started");
-  assert.equal(CONTROLLED_LEARNING_HEALTH.distillation, "not_started");
+  assert.equal(CONTROLLED_LEARNING_HEALTH.modelTraining, "started");
+  assert.equal(CONTROLLED_LEARNING_HEALTH.distillation, "started");
+  assert.equal(
+    CONTROLLED_LEARNING_HEALTH.l2AdapterStatus,
+    "candidate_ready_not_activated",
+  );
+  assert.equal(
+    CONTROLLED_LEARNING_HEALTH.l3PrivateTrainingStatus,
+    "started_operator_authorized",
+  );
   const dashboard = await learning.dashboard("project-a");
   assert.equal(dashboard.l0Status, "ready");
   assert.equal(dashboard.l1Status, "ready");
-  assert.equal(dashboard.l2Status, "contract_only");
-  assert.equal(dashboard.l3Status, "not_started");
+  assert.equal(dashboard.l2Status, "candidate_ready");
+  assert.equal(dashboard.l3Status, "started");
   for (const id of [
     "learning.controlledOS",
     "learning.signalPipeline",
@@ -688,12 +696,12 @@ test("L2/L3 weight mutation, private training and distillation remain fail-close
   assert.equal(
     CAPABILITY_TRUTH_MATRIX.find((record) => record.id === "modelTraining")
       ?.status,
-    "not_started",
+    "started",
   );
   assert.equal(
     CAPABILITY_TRUTH_MATRIX.find((record) => record.id === "distillation")
       ?.status,
-    "not_started",
+    "started",
   );
 });
 
@@ -741,9 +749,10 @@ const report = {
   ],
   l0: "ready",
   l1: "ready",
-  l2: "contract_only_not_started",
-  modelTraining: "not_started",
-  distillation: "not_started",
+  l2: "candidate_ready_not_activated",
+  l3: "started_operator_authorized",
+  modelTraining: "started",
+  distillation: "started",
   results,
 };
 

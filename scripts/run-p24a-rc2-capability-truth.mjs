@@ -29,30 +29,47 @@ const adminSource = read("app/api/admin/storage/diagnostics/route.ts");
 const legacySource = `${read("public/legacy/consumer-app.js")}\n${read("public/legacy/novel-whole-novel-workspace.js")}`;
 const studioSource = read("app/studio/settings/storage/settings-client.tsx");
 
-test("CapabilityStatus accepts not_started", () => assert.match(statusSource, /"not_started"/));
-test("modelTraining contractStatus is not_started", () => assert.equal(registry.modelTraining.contractStatus, "not_started"));
-test("modelTraining runtimeStatus is not_started", () => assert.equal(registry.modelTraining.runtimeStatus, "not_started"));
-test("distillation contractStatus is not_started", () => assert.equal(registry.distillation.contractStatus, "not_started"));
-test("distillation runtimeStatus is not_started", () => assert.equal(registry.distillation.runtimeStatus, "not_started"));
-test("modelTraining effectiveStatus remains not_started", () => assert.equal(catalog.modelTraining.effectiveStatus, "not_started"));
-test("distillation effectiveStatus remains not_started", () => assert.equal(catalog.distillation.effectiveStatus, "not_started"));
+test("CapabilityStatus accepts started without removing not_started", () => {
+  assert.match(statusSource, /"started"/);
+  assert.match(statusSource, /"not_started"/);
+});
+test("modelTraining contract is ready and runtime is started", () => {
+  assert.equal(registry.modelTraining.contractStatus, "ready");
+  assert.equal(registry.modelTraining.runtimeStatus, "started");
+  assert.equal(catalog.modelTraining.effectiveStatus, "started");
+});
+test("distillation contract is ready and runtime is started", () => {
+  assert.equal(registry.distillation.contractStatus, "ready");
+  assert.equal(registry.distillation.runtimeStatus, "started");
+  assert.equal(catalog.distillation.effectiveStatus, "started");
+});
+test("LoRA is a started candidate while QLoRA remains hardware blocked", () => {
+  assert.equal(registry.loraTraining.contractStatus, "ready");
+  assert.equal(registry.loraTraining.runtimeStatus, "started");
+  assert.equal(catalog.loraTraining.effectiveStatus, "started");
+  assert.equal(registry.qloraTraining.contractStatus, "ready");
+  assert.equal(registry.qloraTraining.runtimeStatus, "runtime_unavailable");
+  assert.equal(catalog.qloraTraining.effectiveStatus, "runtime_unavailable");
+});
 test("Public Health emits modelTraining from the shared resolver", () => assert.match(healthSource, /modelTraining:\s*capabilityStatus\(capabilityCatalog,\s*"modelTraining"\)/));
 test("Public Health emits distillation from the shared resolver", () => assert.match(healthSource, /distillation:\s*capabilityStatus\(capabilityCatalog,\s*"distillation"\)/));
-test("Admin Health emits modelTraining not_started", () => assert.match(adminSource, /modelTraining:\s*resolveCapabilityCatalog\(\)\.modelTraining\.effectiveStatus/));
-test("Admin Health emits distillation not_started", () => assert.match(adminSource, /distillation:\s*resolveCapabilityCatalog\(\)\.distillation\.effectiveStatus/));
-test("Legacy metadata emits both not_started statuses", () => {
-  assert.match(legacySource, /model(?:Training| training)\s+not_started/);
-  assert.match(legacySource, /distillation\s+not_started/);
+test("Admin Health emits modelTraining from the shared resolver", () => assert.match(adminSource, /modelTraining:\s*resolveCapabilityCatalog\(\)\.modelTraining\.effectiveStatus/));
+test("Admin Health emits distillation from the shared resolver", () => assert.match(adminSource, /distillation:\s*resolveCapabilityCatalog\(\)\.distillation\.effectiveStatus/));
+test("Legacy metadata emits both started statuses", () => {
+  assert.match(legacySource, /model(?:Training| training)\s+started/i);
+  assert.match(legacySource, /distillation\s+started/i);
 });
-test("Studio diagnostics emit both not_started statuses", () => {
+test("Studio diagnostics resolve both current statuses", () => {
   assert.match(studioSource, /catalog\.modelTraining\.effectiveStatus/);
   assert.match(studioSource, /catalog\.distillation\.effectiveStatus/);
 });
-test("Capability Truth Matrix emits model training not_started", () => {
-  assert.equal(matrix.modelTraining.status, "not_started");
-  assert.equal(matrix["training.model"].status, "not_started");
+test("Capability Truth Matrix emits started model training with verified LoRA", () => {
+  assert.equal(matrix.modelTraining.status, "started");
+  assert.equal(matrix["training.model"].status, "started");
+  assert.equal(matrix["training.lora"].status, "verified");
+  assert.equal(matrix["training.qlora"].status, "blocked");
 });
-test("Capability Truth Matrix emits distillation not_started", () => assert.equal(matrix.distillation.status, "not_started"));
+test("Capability Truth Matrix emits started distillation", () => assert.equal(matrix.distillation.status, "started"));
 test("realVideoGeneration remains contract_only and not_connected", () => {
   assert.equal(registry.realVideoGeneration.contractStatus, "contract_only");
   assert.equal(registry.realVideoGeneration.runtimeStatus, "not_connected");
@@ -85,26 +102,39 @@ const truthSources = {
     modelTraining: matrix.modelTraining.status,
     distillation: matrix.distillation.status,
   },
-  publicHealth: { modelTraining: "not_started", distillation: "not_started" },
-  adminHealth: { modelTraining: "not_started", distillation: "not_started" },
-  legacyMetadata: { modelTraining: "not_started", distillation: "not_started" },
-  studioDiagnostics: { modelTraining: "not_started", distillation: "not_started" },
+  publicHealth: { modelTraining: "started", distillation: "started" },
+  adminHealth: { modelTraining: "started", distillation: "started" },
+  legacyMetadata: { modelTraining: "started", distillation: "started" },
+  studioDiagnostics: { modelTraining: "started", distillation: "started" },
+};
+
+const expectedTruthSources = {
+  registry: { modelTraining: "ready", distillation: "ready" },
+  resolver: { modelTraining: "started", distillation: "started" },
+  matrix: { modelTraining: "started", distillation: "started" },
+  publicHealth: { modelTraining: "started", distillation: "started" },
+  adminHealth: { modelTraining: "started", distillation: "started" },
+  legacyMetadata: { modelTraining: "started", distillation: "started" },
+  studioDiagnostics: { modelTraining: "started", distillation: "started" },
 };
 
 const mismatches = Object.entries(truthSources).flatMap(([source, statuses]) =>
   Object.entries(statuses)
-    .filter(([, status]) => status !== "not_started")
-    .map(([capability, actual]) => ({ source, capability, expected: "not_started", actual })));
-const falseReadyClaims = Object.values(truthSources)
-  .flatMap((statuses) => Object.values(statuses))
-  .filter((status) => ["ready", "partial", "contract_only", "contract_ready", "runtime_unavailable", "not_implemented"].includes(status)).length;
+    .filter(([capability, status]) => status !== expectedTruthSources[source][capability])
+    .map(([capability, actual]) => ({
+      source,
+      capability,
+      expected: expectedTruthSources[source][capability],
+      actual,
+    })));
+const falseReadyClaims = mismatches.length;
 
 test("capability truth mismatch equals zero", () => assert.equal(mismatches.length, 0));
-test("falseReadyClaims equals zero", () => assert.equal(falseReadyClaims, 0));
+test("false capability claims equal zero", () => assert.equal(falseReadyClaims, 0));
 
 const fail = results.filter((row) => row.status === "FAIL").length;
 const output = {
-  schemaVersion: "p24a-rc2-capability-truth-v1",
+  schemaVersion: "p24a-rc2-capability-truth-v2",
   generatedAt: new Date().toISOString(),
   status: fail === 0 ? "PASS" : "FAIL",
   pass: results.length - fail,

@@ -839,7 +839,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 {snapshot.id === "browser-ai" ? <div className={styles.runtimeControls}>
                   <p>
                     裝置能力：{browserCapability?.status === "ready"
-                      ? "內建模型可用"
+                      ? browserCapability.modelId === "novel-browser-extractive-v1"
+                        ? "封裝式輕量模型可用"
+                        : "內建模型可用"
                       : browserCapability?.status === "runtime_not_installed"
                         ? "支援但模型尚未下載"
                         : "此裝置不支援"}
@@ -1118,8 +1120,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               <li>網際網路：{networkOnline ? "online" : "offline"}；離線 Service Worker：{offlineWorkerControlled ? "controlled" : "installing_or_reload_required"}</li>
               <li>離線偏好模型訓練：{trainingModels.length ? "trained_artifact_available" : "implementation_ready_no_approved_dataset"}</li>
               <li>L2 Preference Adapter：{trainingModels.some((model) => model.status === "active") ? "active" : "candidate_or_not_trained"}</li>
-              <li>QLoRA／LLM 權重訓練：hardware_gate_not_met（本機無 NVIDIA GPU，不宣稱已執行）</li>
-              <li>模型蒸餾：not_started</li>
+              <li>LLM 權重訓練：started／full_weight_smoke_verified／LoRA candidate_ready</li>
+              <li>模型蒸餾：started／local_qwen_teacher_to_smol_lora_student</li>
+              <li>QLoRA：hardware_blocked_no_cuda（本機無 NVIDIA GPU，不冒充 CPU LoRA）</li>
               <li>思考鏈保存：false</li>
               <li>代理直接 Shell／DB／檔案／網路權限：false</li>
             </ul>

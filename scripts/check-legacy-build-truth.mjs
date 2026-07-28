@@ -36,7 +36,7 @@ const prohibitedText = [
   "workspaceInitialized",
   "workspaceMounted",
   "workspaceVisible",
-  "三路閉端 AI 架構",
+  "三路閉端 AI 已完全可用",
 ];
 const prohibitedScripts = [
   "./ai-service.js",

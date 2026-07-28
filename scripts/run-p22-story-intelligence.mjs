@@ -598,6 +598,93 @@ test("Browser AI executes a real injected browser summary runtime contract", asy
   }
 });
 
+test("Browser AI executes the packaged model when the native Summarizer is unavailable", async () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const summarizerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Summarizer");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { storage: { estimate: async () => ({ quota: 2048, usage: 256 }) } },
+  });
+  delete globalThis.Summarizer;
+  try {
+    const capability = await detectBrowserAI();
+    assert.equal(capability.status, "ready");
+    assert.equal(capability.reason, "browser_packaged_extractive_model_ready");
+    assert.equal(capability.modelId, "novel-browser-extractive-v1");
+    const decision = {
+      providerId: "browser-ai",
+      modelId: "novel-browser-extractive-v1",
+      privacyMode: "strict-local",
+      reason: "packaged fallback test",
+      contextSources: [],
+      externalRequest: false,
+      dataLeavesDevice: false,
+      fallbackChain: [],
+      warnings: [],
+    };
+    const result = await runBrowserAI({
+      requestId: "browser-packaged-summary",
+      projectId: "fixture-browser-packaged",
+      taskType: "story.summary",
+      privacyMode: "strict-local",
+      input: "林昭進入圖書館。她發現帳冊失蹤，並在窗邊找到濕泥腳印。守門人聲稱沒有人進出。",
+      context: [],
+      externalConsent: false,
+      closedOnly: true,
+      offlineRequired: true,
+    }, decision);
+    assert.equal(result.modelId, "novel-browser-extractive-v1");
+    assert.equal(result.content, "她發現帳冊失蹤，並在窗邊找到濕泥腳印。");
+    assert.equal(result.externalRequest, false);
+    assert.equal(result.dataLeavesDevice, false);
+    assert.match(result.provenance.warnings.join("\n"), /packaged extractive model used/);
+  } finally {
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else delete globalThis.window;
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else delete globalThis.navigator;
+    if (summarizerDescriptor) Object.defineProperty(globalThis, "Summarizer", summarizerDescriptor);
+    else delete globalThis.Summarizer;
+  }
+});
+
+test("Browser AI capability probe fails over when the native Summarizer hangs", async () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const summarizerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Summarizer");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { storage: { estimate: async () => ({ quota: 4096, usage: 512 }) } },
+  });
+  Object.defineProperty(globalThis, "Summarizer", {
+    configurable: true,
+    value: {
+      availability: async () => new Promise(() => {}),
+      create: async () => {
+        throw new Error("native runtime must not be selected after a timed-out probe");
+      },
+    },
+  });
+  try {
+    const startedAt = Date.now();
+    const capability = await detectBrowserAI();
+    assert(Date.now() - startedAt < 3_000);
+    assert.equal(capability.status, "ready");
+    assert.equal(capability.reason, "browser_packaged_extractive_model_ready");
+    assert.equal(capability.modelId, "novel-browser-extractive-v1");
+  } finally {
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else delete globalThis.window;
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else delete globalThis.navigator;
+    if (summarizerDescriptor) Object.defineProperty(globalThis, "Summarizer", summarizerDescriptor);
+    else delete globalThis.Summarizer;
+  }
+});
+
 test("closed-only router never selects external provider", () => {
   const providers = [{ id: "gemini", status: "ready", capabilities: ["text"], modelId: "external", maxContext: 100000, local: false, requiresInternet: true }];
   assert.throws(() => resolvePlatformProvider({
