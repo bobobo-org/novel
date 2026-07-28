@@ -49,6 +49,11 @@ export type ClosedAIBackendSnapshot = {
 export type ClosedAIContextItem = {
   id: string;
   kind: "canon" | "story-bible" | "retrieval" | "memory" | "author-note" | "evaluator-note";
+  learningFacet?:
+    | "character-knowledge"
+    | "relationship-event"
+    | "story-bible"
+    | "general";
   text: string;
   visibility: "actor" | "evaluator" | "both" | "author-only";
   privacyLevel: ClosedAIPrivacyLevel;

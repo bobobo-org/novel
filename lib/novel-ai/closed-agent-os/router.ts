@@ -1,4 +1,5 @@
 import { BROWSER_AI_LIGHT_TASKS, taskComplexity } from "./backend-manifest";
+import { learningPreferredBackend } from "../controlled-learning-os";
 import type {
   ClosedAIBackendSnapshot,
   ClosedAgentTaskRequest,
@@ -58,6 +59,21 @@ export function selectClosedAIBackend(
     };
   }
 
+  const learnedBackendId = learningPreferredBackend(request.learningConfiguration);
+  if (learnedBackendId) {
+    const learned = snapshots.find((snapshot) => snapshot.id === learnedBackendId);
+    if (learned && supports(learned, request, complexity)) {
+      return {
+        backend: learned,
+        complexity,
+        automatic: true,
+        reasonCode: `LEARNED_L0_ROUTE_${learnedBackendId.toUpperCase().replaceAll("-", "_")}`,
+        fallbackAttempted: false as const,
+        learnedPreferenceApplied: true as const,
+      };
+    }
+  }
+
   const requiredId = complexity === "heavy"
     ? "private-ai-hub"
     : complexity === "standard"
@@ -81,5 +97,6 @@ export function selectClosedAIBackend(
     automatic: true,
     reasonCode: `AUTO_SELECTED_${requiredId.toUpperCase().replaceAll("-", "_")}`,
     fallbackAttempted: false as const,
+    learnedPreferenceApplied: false as const,
   };
 }

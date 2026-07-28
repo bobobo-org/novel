@@ -110,6 +110,7 @@
     "test:ai:closed:sovereign-learning:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-sovereign-learning-real.mjs",
     "test:ai:closed:unified-os": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-agent-os-unified.mjs",
     "test:ai:closed:cache-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-cache-runtime.mjs",
+    "test:ai:closed:controlled-learning-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-controlled-learning-runtime.mjs",
     "audit:p2:wave0": "node scripts/generate-p2-wave0.mjs",
     "start": "next start",
     "lint": "eslint",

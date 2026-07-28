@@ -2,6 +2,7 @@ import type {
   ControlledLearningRecord,
   ControlledLearningRecordKind,
 } from "./types";
+import { migrateControlledLearningRecord } from "./migration";
 
 export interface ControlledLearningRepository {
   readonly kind: "memory" | "indexeddb";
@@ -49,7 +50,7 @@ export class MemoryControlledLearningRepository implements ControlledLearningRep
 }
 
 const DB_NAME = "novel-controlled-learning-os";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "records";
 
 function request<T>(value: IDBRequest<T>): Promise<T> {
@@ -69,7 +70,12 @@ function complete(transaction: IDBTransaction): Promise<void> {
 
 export class IndexedDbControlledLearningRepository implements ControlledLearningRepository {
   readonly kind = "indexeddb" as const;
+  private readonly dbName: string;
   private database: Promise<IDBDatabase> | null = null;
+
+  constructor(options: { dbName?: string } = {}) {
+    this.dbName = options.dbName ?? DB_NAME;
+  }
 
   private open(): Promise<IDBDatabase> {
     if (typeof indexedDB === "undefined") {
@@ -77,7 +83,7 @@ export class IndexedDbControlledLearningRepository implements ControlledLearning
     }
     if (!this.database) {
       this.database = new Promise((resolve, reject) => {
-        const opening = indexedDB.open(DB_NAME, DB_VERSION);
+        const opening = indexedDB.open(this.dbName, DB_VERSION);
         opening.onupgradeneeded = () => {
           const database = opening.result;
           const store = database.objectStoreNames.contains(STORE)
@@ -100,7 +106,8 @@ export class IndexedDbControlledLearningRepository implements ControlledLearning
 
   async get<T extends ControlledLearningRecord>(id: string) {
     const database = await this.open();
-    return (await request(database.transaction(STORE).objectStore(STORE).get(id)) as T | undefined) ?? null;
+    const value = await request(database.transaction(STORE).objectStore(STORE).get(id));
+    return migrateControlledLearningRecord(value) as T | null;
   }
 
   async list<T extends ControlledLearningRecord>(
@@ -110,8 +117,11 @@ export class IndexedDbControlledLearningRepository implements ControlledLearning
     const database = await this.open();
     const records = await request(
       database.transaction(STORE).objectStore(STORE).index("projectId").getAll(projectId),
-    ) as ControlledLearningRecord[];
-    return records.filter((record) => !kind || record.kind === kind) as T[];
+    ) as unknown[];
+    return records
+      .map((record) => migrateControlledLearningRecord(record))
+      .filter((record): record is ControlledLearningRecord =>
+        record !== null && (!kind || record.kind === kind)) as T[];
   }
 
   async put(record: ControlledLearningRecord) {

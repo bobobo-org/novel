@@ -1,6 +1,6 @@
 import type { ClosedAINamespace } from "../closed-ai-cache";
 
-export const CONTROLLED_LEARNING_SCHEMA_VERSION = "controlled-learning-os-v1" as const;
+export const CONTROLLED_LEARNING_SCHEMA_VERSION = "controlled-learning-os-v2" as const;
 
 export type ControlledLearningLevel = "L0" | "L1" | "L2" | "L3";
 export type ControlledLearningOutcome =
@@ -8,12 +8,22 @@ export type ControlledLearningOutcome =
   | "rejected"
   | "edited"
   | "final_choice"
+  | "regenerated_final_choice"
   | "consistency_result"
+  | "character_consistency_result"
+  | "plot_continuity_result"
   | "tool_result"
   | "planner_result"
+  | "explicit_style_preference"
   | "approved_story_bible"
   | "approved_canon"
   | "abandoned";
+
+export type ControlledLearningSourceClass =
+  | "user-decision"
+  | "verified-runtime-result"
+  | "approved-authority"
+  | "negative-label-only";
 
 export type ControlledLearningRecordKind =
   | "consent"
@@ -57,6 +67,7 @@ export type ControlledLearningExperience = {
   namespace: ClosedAINamespace;
   outcome: ControlledLearningOutcome;
   outcomeLabel: "positive" | "negative" | "edited" | "verified";
+  sourceClass: ControlledLearningSourceClass;
   taskType: string;
   featureDigest: string;
   resultDigest: string | null;
@@ -65,10 +76,16 @@ export type ControlledLearningExperience = {
   tags: string[];
   sourceApprovalId: string | null;
   abandonedAsNegativeOnly: boolean;
+  negativeSignalOnly: boolean;
+  privacyFilterStatus: "passed" | "legacy-review-required";
+  outcomeLabelingStatus: "completed";
+  evaluatorEligible: boolean;
+  formalLearningData: false;
   rawInputStored: false;
   rawOutputStored: false;
   rawChainOfThoughtStored: false;
   createdAt: string;
+  recordDigest: string;
 };
 
 export type ControlledLearningCandidateStatus =
@@ -89,9 +106,17 @@ export type ControlledLearningCandidate = {
   level: "L0" | "L1";
   candidateType:
     | "preference"
+    | "prompt-policy"
+    | "router-policy"
     | "planner-policy"
+    | "cache-policy"
     | "tool-policy"
     | "retrieval-policy"
+    | "character-voice"
+    | "correction-rule"
+    | "task-decomposition"
+    | "project-template"
+    | "pacing-genre"
     | "approved-rule-pack"
     | "knowledge-rule-pack";
   status: ControlledLearningCandidateStatus;
@@ -102,13 +127,27 @@ export type ControlledLearningCandidate = {
     score: number;
     sampleCount: number;
     blockingCodes: string[];
+    evidenceDigest: string;
     evaluatedAt: string;
   } | null;
   humanApproval: {
     approvedBy: string;
     approvalId: string;
+    approvalTransactionId: string;
+    approvalTransactionDigest: string;
     approvedAt: string;
   } | null;
+  pipelineStatus:
+    | "experience-collected"
+    | "privacy-passed"
+    | "outcome-labeled"
+    | "evaluated"
+    | "candidate-created"
+    | "approved"
+    | "ab-testing"
+    | "adopted"
+    | "rolled-back"
+    | "rejected";
   createdAt: string;
   updatedAt: string;
   revision: number;
@@ -149,6 +188,8 @@ export type ControlledLearningVersion = {
   status: "active" | "superseded" | "rolled_back";
   configuration: Record<string, string | number | boolean>;
   configurationDigest: string;
+  approvalTransactionId: string;
+  approvalTransactionDigest: string;
   parentVersionId: string | null;
   adoptedAt: string;
   rolledBackAt: string | null;
@@ -167,6 +208,9 @@ export type ControlledLearningABTest = {
   requiredImprovement: number;
   baselineScores: number[];
   candidateScores: number[];
+  baselineMean: number | null;
+  candidateMean: number | null;
+  measuredImprovement: number | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -181,6 +225,8 @@ export type ControlledLearningDataset = {
   experienceIds: string[];
   contentDigest: string;
   status: "candidate" | "approved" | "revoked";
+  approvalTransactionId: string;
+  approvalTransactionDigest: string;
   rawContentStored: false;
   createdAt: string;
   approvedAt: string | null;

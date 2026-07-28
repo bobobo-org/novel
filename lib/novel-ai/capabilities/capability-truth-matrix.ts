@@ -1,4 +1,4 @@
-export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v1" as const;
+export const CAPABILITY_TRUTH_MATRIX_VERSION = "closed-agent-os-capability-truth-v2" as const;
 
 export type CapabilityTruthStatus =
   | "implemented"
@@ -36,7 +36,11 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "aiCache.namespaceIsolation", status: "verified", evidence: ["fourteen-field namespace and targeted invalidation matrix", "role, privacy, revision and model-switch contamination tests"], limitations: [] },
   { id: "aiCache.runtimePersistence", status: "verified", evidence: ["Browser IndexedDB/OPFS split", "Local Ollama SQLite reopen proof", "Private Hub AES-256-GCM ciphertext and restart proof"], limitations: ["Each persistence adapter is available only when its corresponding browser or local runtime is active"] },
   { id: "aiCache.authorityBoundary", status: "verified", evidence: ["cache_candidate_only authority record", "zero Memory, Learning and Canon mutation counters", "signed approval transaction gate"], limitations: [] },
-  { id: "learning.controlledOS", status: "verified", evidence: ["consent, privacy filter, evaluator, approval, A/B, version and rollback matrix"], limitations: ["L0/L1 remain the automatic boundary; preference model training and activation require explicit user actions"] },
+  { id: "learning.controlledOS", status: "verified", evidence: ["controlled-learning-os-v2 runtime suite", "consent, privacy filter, outcome labeling, evaluator, candidate, signed approval, A/B, version and rollback matrix"], limitations: ["L0/L1 are the active boundary; all adoption remains explicit and reversible"] },
+  { id: "learning.signalPipeline", status: "verified", evidence: ["fourteen eligible outcome classes", "user edit and regenerated-choice tests", "negative-label-only abandoned content test"], limitations: ["Signals store digests and bounded metadata, never raw prompts, outputs, or chain-of-thought"] },
+  { id: "learning.runtimePolicyApplication", status: "verified", evidence: ["router, planner, cache threshold/TTL, retrieval facet ranking, tool ordering and model-context policy tests"], limitations: ["An adopted policy guides the selected local/private model; it does not alter model weights"] },
+  { id: "learning.signedApprovalTransaction", status: "verified", evidence: ["ECDSA approval block membership and full-ledger verification", "forged transaction rejection", "candidate/dataset/version integrity checks"], limitations: ["The verifiable ledger is local and blockchain-inspired, not a public consensus network"] },
+  { id: "learning.l2l3Gate", status: "verified", evidence: ["adapter-weight, private-model-training and distillation fail-closed tests"], limitations: ["L2 adapter training is contract-only; L3 model training and distillation are not started"] },
   { id: "ledger.verifiable", status: "verified", evidence: ["append-only hash-chain, Merkle, ECDSA and content-address matrix"], limitations: ["Blockchain-inspired local evidence; not a public blockchain"] },
   { id: "learning.data", status: "implemented", evidence: ["controlled private learning records"], limitations: ["No shared training without explicit consent"] },
   { id: "learning.narrativeRuleAbstraction", status: "implemented", evidence: ["closed-ai sovereign learning service", "deterministic narrative DNA extraction", "local closed-AI deep extraction adapter"], limitations: ["Deep extraction requires an available local closed-AI runtime"] },
