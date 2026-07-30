@@ -81,6 +81,8 @@ export type ExecuteStudioClosedAgentInput = {
   promptProfileVersion?: string;
   storyBibleRevision?: string | number;
   knowledgeScopeRevision?: string | number;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   taskId?: string;
   contextTokenBudget?: number;
   signal?: AbortSignal;
@@ -139,6 +141,8 @@ export async function executeStudioClosedAgent(
     context: composed.context,
     contextDigest: composed.contextDigest,
     contextSourceSummary: JSON.stringify(composed.contextSourceSummary),
+    sourceChapterId: input.sourceChapterId,
+    sourceRevision: input.sourceRevision,
     complexity,
     qualityMode: input.qualityMode,
     preferredBackend: input.preferredBackend,

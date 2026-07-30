@@ -17,6 +17,16 @@ import {
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import { discoverStudioClosedAI, runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
+import {
+  approveStudioClosedAgentCandidate,
+  rejectStudioClosedAgentCandidate,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  applyWritingAidTransaction,
+  commitStudioCandidateToChapter,
+  type StudioCanonicalApplyResult,
+} from "@/lib/novel-ai/web/studio-canonical-approval";
 import {
   canPersistStudioShell,
   hydrateCanonicalWithNonDestructiveFallback,
@@ -190,11 +200,23 @@ type BackupRecord = {
 };
 type Candidate = {
   canonicalCandidateId?: string;
+  candidateId?: string | null;
+  taskId?: string | null;
   task: string;
   title: string;
   content: string;
   source: string;
   model: string;
+  provider?: string | null;
+  modelId?: string | null;
+  modelDigest?: string | null;
+  contextDigest?: string | null;
+  contentDigest?: string | null;
+  actualExecutor?: string;
+  canonicalMutationCount?: number;
+  sourceChapterId?: string | null;
+  sourceRevision?: number | null;
+  candidateKind?: "closed-ai" | "local-writing-aid";
   usedLocalMemory: boolean;
   externalRequest: boolean;
   proposal?: Partial<Wizard>;
@@ -696,6 +718,10 @@ function canonicalWriteBlocked(action: string) {
   );
 }
 
+function candidateApplyMode(task: string) {
+  return task === "rewrite_selection" ? "replace" as const : "append" as const;
+}
+
 function downloadRecoverySnapshot(raw: string) {
   const url = URL.createObjectURL(new Blob([raw], {
     type: "application/json;charset=utf-8",
@@ -903,13 +929,15 @@ export default function StudioClient({
       0,
     );
     return () => clearTimeout(timer);
+    // createBackup intentionally resolves the latest canonical snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     loaded,
     project,
     state.autoBackup,
     canonicalRuntimeGate.canonicalHydrationSucceeded,
     canonicalRuntimeGate.localCanonicalWritable,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps -- use latest canonical snapshot.
+  ]);
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get("screen") !== screen) {
@@ -1337,12 +1365,24 @@ export default function StudioClient({
     if (assistantBusy) return;
     const started = performance.now();
     let candidate: Candidate;
+    let sourceChapterId: string | null = null;
+    let sourceRevision: number | null = null;
     setAssistantBusy(task);
     try {
+      if (project) {
+        const canonical = await ensureStudioCanonicalProject(
+          repositoryRef.current!,
+          projectSeed(project),
+        );
+        sourceChapterId = canonical.chapter.id;
+        sourceRevision = canonical.chapter.revision;
+      }
       const result = await runStudioClosedAI({
         projectId: project?.id || "draft-project",
         task,
         input: contextFor(task),
+        sourceChapterId: sourceChapterId ?? undefined,
+        sourceRevision: sourceRevision ?? undefined,
         targetLength:
           task === "first_chapter"
             ? 1600
@@ -1351,14 +1391,26 @@ export default function StudioClient({
               : 700,
       });
       candidate = {
+        candidateId: result.candidateId,
+        taskId: result.taskId,
         task,
         title:
           assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
         content: result.content,
         source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
         model: result.model,
+        provider: result.provider,
+        modelId: result.model,
+        modelDigest: result.modelDigest,
+        contextDigest: result.contextDigest,
+        contentDigest: result.contentDigest,
+        actualExecutor: result.actualExecutor,
+        canonicalMutationCount: result.canonicalMutationCount,
+        sourceChapterId: result.sourceChapterId,
+        sourceRevision: result.sourceRevision,
+        candidateKind: "closed-ai",
         usedLocalMemory: Boolean(project),
-        externalRequest: Boolean(result.dataLeftDevice),
+        externalRequest: Boolean(result.externalRequest),
         createdAt: new Date().toISOString(),
       };
       setAssistantStatus(
@@ -1373,8 +1425,21 @@ export default function StudioClient({
           : code === "BROWSER_AI_TASK_NOT_SUPPORTED"
             ? "目前瀏覽器只有摘要／分類模型，不能拿來冒充續寫模型。"
             : "真實閉端模型沒有完成這次工作，系統已安全停止。";
+      const writingAid = ruleCandidate(task)!;
       candidate = {
-        ...ruleCandidate(task)!,
+        ...writingAid,
+        candidateId: null,
+        taskId: `local-writing-aid:${crypto.randomUUID()}`,
+        provider: "local-writing-aid",
+        modelId: null,
+        modelDigest: null,
+        contextDigest: await sha256Hex(contextFor(task)),
+        contentDigest: await sha256Hex(writingAid.content),
+        actualExecutor: "not_executed",
+        canonicalMutationCount: 0,
+        sourceChapterId,
+        sourceRevision,
+        candidateKind: "local-writing-aid",
         title: "真實 AI 尚未完成",
         source: "離線寫作工具（非 AI 模型）",
         diagnostic: `${guidance}（${code}）`,
@@ -1407,31 +1472,153 @@ export default function StudioClient({
     }));
     if (screen !== "write") navigate("write");
   }
-  function acceptCandidate(editedContent?: string) {
-    if (!project || !state.candidate) return;
+  async function acceptCandidate(editedContent?: string) {
+    if (!ensureCanonicalWritable("核准候選內容")) return;
+    if (!project || !state.candidate || assistantBusy) return;
+    const pending = state.candidate;
+    if (
+      !pending.taskId
+      || !pending.sourceChapterId
+      || pending.sourceRevision == null
+    ) {
+      alert("這份候選缺少來源章節版本，不能安全核准；請重新產生。");
+      return;
+    }
     const old = {
-        at: new Date().toISOString(),
-        title: project.chapterTitle,
-        content: project.draft,
-      },
-      content = editedContent ?? state.candidate.content;
+      at: new Date().toISOString(),
+      title: project.chapterTitle,
+      content: project.draft,
+    };
+    const content = (editedContent ?? pending.content).trim();
+    let committed: StudioCanonicalApplyResult;
+    setAssistantBusy("accept_candidate");
+    try {
+      if (pending.candidateKind === "closed-ai") {
+        if (
+          !pending.candidateId
+          || !pending.modelId
+          || !pending.modelDigest
+          || !pending.contentDigest
+          || pending.actualExecutor === "not_executed"
+        ) {
+          throw Object.assign(
+            new Error("真實 AI 候選缺少模型或執行證明，不能核准。"),
+            { code: "STUDIO_CLOSED_AI_CANDIDATE_PROOF_MISSING" },
+          );
+        }
+        let canonicalResult: StudioCanonicalApplyResult | null = null;
+        const approved = await approveStudioClosedAgentCandidate({
+          candidateId: pending.candidateId,
+          canonicalCommit: async ({ candidate }) => {
+            if (
+              candidate.taskId !== pending.taskId
+              || candidate.contentDigest !== pending.contentDigest
+              || candidate.modelId !== pending.modelId
+              || candidate.modelDigest !== pending.modelDigest
+              || candidate.sourceChapterId !== pending.sourceChapterId
+              || candidate.sourceRevision !== pending.sourceRevision
+            ) {
+              throw Object.assign(
+                new Error("候選身分與畫面內容不一致，核准已停止。"),
+                { code: "STUDIO_CANDIDATE_IDENTITY_MISMATCH" },
+              );
+            }
+            canonicalResult = await commitStudioCandidateToChapter({
+              repository: repositoryRef.current!,
+              projectId: project.id,
+              chapterId: pending.sourceChapterId!,
+              sourceRevision: pending.sourceRevision!,
+              taskId: pending.taskId!,
+              content,
+              mode: candidateApplyMode(pending.task),
+            });
+            return {
+              commitId: canonicalResult.commitId,
+            };
+          },
+        });
+        if (!canonicalResult || approved.canonicalMutationCount !== 1) {
+          throw Object.assign(
+            new Error("候選核准沒有產生正式章節交易。"),
+            { code: "STUDIO_CANONICAL_COMMIT_MISSING" },
+          );
+        }
+        committed = canonicalResult;
+      } else {
+        committed = await applyWritingAidTransaction({
+          repository: repositoryRef.current!,
+          projectId: project.id,
+          chapterId: pending.sourceChapterId,
+          sourceRevision: pending.sourceRevision,
+          taskId: pending.taskId,
+          content,
+          mode: candidateApplyMode(pending.task),
+        });
+      }
+    } catch (error) {
+      console.error("STUDIO_CANDIDATE_APPROVAL_FAILED", error);
+      alert(error instanceof Error ? error.message : "候選核准失敗，內容仍保留供你重試。");
+      setAssistantBusy(null);
+      return;
+    }
+
     setState((value) => {
       const projects = value.projects.map((item) =>
         item.id === project.id
           ? {
               ...item,
-              draft:
-                `${item.draft}${item.draft ? "\n\n" : ""}${content}`.trim(),
-              updatedAt: new Date().toISOString(),
+              chapterTitle: committed.chapter.title,
+              draft: committed.chapter.content,
+              updatedAt: committed.chapter.updatedAt,
               versions: [old, ...item.versions],
             }
           : item,
-      ), nextState = { ...value, candidate: null, projects },
-        nextProject = projects.find((item) => item.id === project.id)!;
-      return value.autoBackup === "accepted_content"
-        ? { ...nextState, backups: [makeBackupRecord(nextProject, "full", nextState), ...value.backups] }
-        : nextState;
+      );
+      return {
+        ...value,
+        candidate: null,
+        projects,
+      };
     });
+    setAssistantBusy(null);
+
+    if (state.autoBackup === "accepted_content") {
+      void createProjectBackup(
+        repositoryRef.current!,
+        project.id,
+        "full",
+        release,
+      ).then((formal) => {
+        setState((value) => {
+          const savedProject =
+            value.projects.find((item) => item.id === project.id) ?? project;
+          const record = {
+            ...makeBackupRecord(savedProject, "full", value),
+            backupId: formal.backup.id,
+            bytes: formal.backup.byteSize,
+            createdAt: formal.backup.createdAt,
+            formalPayload: formal.payload,
+          };
+          return { ...value, backups: [record, ...value.backups] };
+        });
+      }).catch((error) => console.error("ACCEPTED_CONTENT_AUTO_BACKUP_FAILED", error));
+    }
+  }
+  async function discardCandidate() {
+    const pending = state.candidate;
+    if (!pending) return;
+    if (
+      pending.candidateKind === "closed-ai"
+      && pending.candidateId
+    ) {
+      try {
+        await rejectStudioClosedAgentCandidate(pending.candidateId);
+      } catch (error) {
+        console.error("STUDIO_CANDIDATE_REJECTION_FAILED", error);
+        return;
+      }
+    }
+    update({ candidate: null });
   }
   function acceptWizardSuggestion(content: string) {
     if (!ensureCanonicalWritable("採用創作建議")) return;
@@ -1836,7 +2023,7 @@ export default function StudioClient({
                 runTask={runTask}
                 candidate={state.candidate}
                 acceptSuggestion={acceptWizardSuggestion}
-                discard={() => update({ candidate: null })}
+                discard={() => void discardCandidate()}
               />
             </fieldset>
           )}{" "}
@@ -1860,7 +2047,7 @@ export default function StudioClient({
                 runTask={runTask}
                 completeChapter={completeChapter}
                 acceptCandidate={acceptCandidate}
-                discard={() => update({ candidate: null })}
+                discard={() => void discardCandidate()}
                 assistantStatus={assistantStatus}
                 assistantBusy={assistantBusy}
               />
@@ -2468,7 +2655,7 @@ function WriteScreen({
   saveDraft: (title: string, draft: string) => void;
   runTask: (task: string) => Promise<void>;
   completeChapter: () => void;
-  acceptCandidate: (content?: string) => void;
+  acceptCandidate: (content?: string) => Promise<void>;
   discard: () => void;
   assistantStatus: AssistantStatus;
   assistantBusy: string | null;
@@ -2628,7 +2815,7 @@ function SuggestionCard({
   closedAiHref = "/studio/settings/ai",
 }: {
   candidate: NonNullable<Candidate>;
-  accept: (content: string) => void;
+  accept: (content: string) => void | Promise<void>;
   retry: () => void;
   discard: () => void;
   busy?: boolean;
@@ -2667,15 +2854,19 @@ function SuggestionCard({
         <pre>{content}</pre>
       )}
       <footer>
-        <button className="gold" onClick={() => accept(content)}>
-          {editing ? "修改後採用" : "採用這份建議"}
+        <button
+          className="gold"
+          disabled={busy}
+          onClick={() => void accept(content)}
+        >
+          {busy ? "正在完成核准交易…" : editing ? "修改後採用" : "採用這份建議"}
         </button>
-        <button onClick={() => setEditing(true)}>修改後採用</button>
+        <button disabled={busy} onClick={() => setEditing(true)}>修改後採用</button>
         <button disabled={busy} onClick={retry}>
           {busy ? "模型執行中…" : "再產生一份"}
         </button>
-        <button onClick={discard}>保持空白</button>
-        <button onClick={discard}>暫時不用</button>
+        <button disabled={busy} onClick={discard}>保持空白</button>
+        <button disabled={busy} onClick={discard}>暫時不用</button>
       </footer>
       <details>
         <summary>查看技術資訊</summary>
@@ -2687,6 +2878,22 @@ function SuggestionCard({
                 ? "本機規則工具（不是生成模型）"
                 : candidate.model}
             </dd>
+          </div>
+          <div>
+            <dt>實際執行器</dt>
+            <dd>{candidate.actualExecutor ?? "not_executed"}</dd>
+          </div>
+          <div>
+            <dt>模型證明</dt>
+            <dd>
+              {candidate.candidateKind === "closed-ai"
+                ? `${candidate.modelId ?? "missing"} · ${candidate.modelDigest ?? "missing"}`
+                : "不適用（非 AI 寫作工具）"}
+            </dd>
+          </div>
+          <div>
+            <dt>來源章節版本</dt>
+            <dd>{candidate.sourceRevision ?? "missing"}</dd>
           </div>
           <div>
             <dt>執行方式</dt>

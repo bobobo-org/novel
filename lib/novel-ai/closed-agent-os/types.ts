@@ -103,6 +103,8 @@ export type ClosedAgentTaskRequest = {
   learningConfiguration?: Record<string, string | number | boolean>;
   contextDigest?: string;
   contextSourceSummary?: string;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -224,6 +226,8 @@ export type ClosedAgentCandidate = {
   adapterDigest?: string | null;
   content: string;
   contentDigest: string;
+  sourceChapterId: string | null;
+  sourceRevision: number | null;
   actualExecutor?: ClosedAIBackendId;
   contextDigest?: string;
   contextSourceSummary?: string;

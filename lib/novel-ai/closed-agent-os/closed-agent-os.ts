@@ -566,6 +566,8 @@ export class ClosedAgentOS {
         adapterDigest: execution.adapterDigest ?? null,
         content: execution.content,
         contentDigest: await sha256Hex(execution.content),
+        sourceChapterId: request.sourceChapterId ?? null,
+        sourceRevision: request.sourceRevision ?? null,
         actualExecutor: execution.backendId,
         contextDigest: request.contextDigest ?? await sha256Hex(
           stableStringify(request.context.map((item) => ({

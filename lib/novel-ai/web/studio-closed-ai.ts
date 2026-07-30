@@ -32,6 +32,8 @@ export type StudioClosedAITaskInput = {
   task: string;
   input: string;
   targetLength?: number;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   signal?: AbortSignal;
 };
 
@@ -144,6 +146,8 @@ export async function runStudioClosedAI(
       taskId: requestId,
       signal: input.signal,
       promptProfileVersion: "studio-legacy-entry-v3",
+      sourceChapterId: input.sourceChapterId,
+      sourceRevision: input.sourceRevision,
     });
     if (
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
@@ -161,7 +165,10 @@ export async function runStudioClosedAI(
       provider: result.candidate.backendId,
       model: result.candidate.modelId,
       modelDigest: result.candidate.modelDigest,
+      sourceChapterId: result.candidate.sourceChapterId,
+      sourceRevision: result.candidate.sourceRevision,
       content: result.candidate.content,
+      contentDigest: result.candidate.contentDigest,
       actualExecutor: result.candidate.actualExecutor ?? result.candidate.backendId,
       contextDigest: result.candidate.contextDigest ?? null,
       contextSourceSummary: result.candidate.contextSourceSummary ?? null,
@@ -203,10 +210,23 @@ export async function runStudioClosedAI(
   }
   return {
     taskId: result.requestId,
+    candidateId: null,
     status: "completed" as const,
     provider: result.providerId,
     model: result.modelId ?? "unknown",
+    modelDigest: result.modelDigest ?? null,
     content: result.content,
+    contentDigest: await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(result.content),
+    ).then((digest) => [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")),
+    actualExecutor: result.providerId,
+    contextDigest: null,
+    sourceChapterId: input.sourceChapterId ?? null,
+    sourceRevision: input.sourceRevision ?? null,
+    canonicalMutationCount: 0,
     dataLeftDevice: result.dataLeavesDevice,
     externalRequest: result.externalRequest,
     warnings: result.provenance.warnings,
