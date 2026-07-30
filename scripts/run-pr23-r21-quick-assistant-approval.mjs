@@ -318,6 +318,10 @@ const studioSource = await readFile(
   new URL("../app/studio/studio-client.tsx", import.meta.url),
   "utf8",
 );
+const globalStyles = await readFile(
+  new URL("../app/globals.css", import.meta.url),
+  "utf8",
+);
 assert.match(studioSource, /async function acceptCandidate/);
 assert.match(studioSource, /approveStudioClosedAgentCandidate\(\{/);
 assert.match(studioSource, /canonicalCommit: async/);
@@ -331,6 +335,10 @@ assert.match(studioSource, /initialProjectId/);
 assert.match(
   studioSource,
   /title === project\.chapterTitle && draft === project\.draft/,
+);
+assert.match(
+  globalStyles,
+  /\.studioPersistenceBanner\[data-blocked="false"\]\{pointer-events:none\}/,
 );
 
 const quickAssistantRoute = await readFile(
@@ -361,6 +369,7 @@ console.log(JSON.stringify({
   approvedRevision: committed.resultingRevision,
   reloadPersistent: true,
   unchangedReloadDoesNotAdvanceRevision: true,
+  cloudDegradedBannerDoesNotBlockControls: true,
   duplicateRejected: true,
   staleRejected: true,
   cloudPersistenceRequired: false,
