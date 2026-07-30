@@ -14,38 +14,123 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
   PRIMARY_ALIAS: novel-orcin.vercel.app
   MIRROR_ALIAS: novel-lqtechs-projects.vercel.app
+  VERCEL_SCOPE: lqtechs-projects
 
 jobs:
-  deploy:
+  validate:
+    name: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install --global pnpm@10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run required product suites
+        run: |
+          set -euo pipefail
+          pnpm test:ai:p24b:all
+          pnpm test:ai:closed:unified-os
+          pnpm test:ai:closed:web-operability
+          pnpm test:ai:closed:optimization
+          pnpm test:ai:closed:super-agent-rpg
+          pnpm test:ai:closed:cache-runtime
+          pnpm test:ai:closed:controlled-learning-runtime
+          pnpm test:ai:closed-ai-runtime-r2
+          pnpm test:p12
+          pnpm test:ai:p15:consumer-platform
+          pnpm test:ai:p21:three-high
+
+      - name: Run PR23 R2.1 truth gates
+        run: |
+          set -euo pipefail
+          pnpm test:ai:indexeddb-blocked-byte-preservation
+          pnpm test:ai:indexeddb-blocked-ui-write-gate
+          pnpm test:ai:daily-backup-marker-after-success
+          pnpm test:ai:quick-assistant-canonical-approval
+          pnpm test:ai:actual-executor-truth
+          pnpm test:ai:legacy-health-cannot-claim-closed-runtime
+          pnpm test:ci:dual-alias-rollback
+          pnpm test:ci:workflow-contract
+
+      - name: Verify secrets, Companion ZIP, and evidence schemas
+        run: |
+          set -euo pipefail
+          pnpm test:ai:p24b:secret-scan
+          pnpm test:ci:companion-zip-content
+          pnpm test:ci:evidence-schema
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+  deploy:
+    name: deploy
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
 
       - name: Install deployment tooling
         run: npm install --global pnpm@10 vercel@56.3.2
 
-      - name: Capture current primary deployment for rollback
+      - name: Capture both current alias identities for rollback
         if: github.ref == 'refs/heads/main'
-        id: primary_before
+        id: aliases_before
         shell: bash
         run: |
           set -euo pipefail
-          health_url="https://${PRIMARY_ALIAS}/api/ai/health?rollback=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$health_url")"
-          deployment_id="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$body")"
-          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+          capture_identity() {
+            local alias="$1"
+            local label="$2"
+            local identity_url="https://${alias}/api/release/identity?rollback=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${label}"
+            local body
+            body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$identity_url")"
+            local provenance_status
+            local deployment_id
+            local app_commit
+            provenance_status="$(jq -er '.provenanceStatus' <<<"$body")"
+            deployment_id="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$body")"
+            app_commit="$(jq -er '.appCommit | select(type == "string" and length == 40)' <<<"$body")"
+            test "$provenance_status" = "verified"
+            echo "${label}_deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+            echo "${label}_app_commit=$app_commit" >> "$GITHUB_OUTPUT"
+          }
+          capture_identity "$PRIMARY_ALIAS" primary
+          capture_identity "$MIRROR_ALIAS" mirror
 
       - name: Pull Vercel environment (production)
         if: github.ref == 'refs/heads/main'
@@ -69,90 +154,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          output="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN")"
+          output="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN" 2>&1)"
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
 
-      - name: Verify staged production
+      - name: Verify staged production identity
         if: github.ref == 'refs/heads/main'
         id: staged
         shell: bash
         run: |
           set -euo pipefail
-          health_url="${{ steps.production.outputs.url }}/api/ai/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          identity_url="${{ steps.production.outputs.url }}/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$health_url" 2>/dev/null)"; then
+            if body="$(curl --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
               app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
               deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" ]]; then
+              provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
+              environment="$(jq -r '.environment // empty' <<<"$body")"
+              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$environment" == "production" ]]; then
                 echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
             fi
             sleep 2
           done
-          echo "Staged deployment health did not match commit $GITHUB_SHA." >&2
+          echo "Staged release identity did not match commit $GITHUB_SHA." >&2
           exit 1
 
-      - name: Update mirror alias before primary cutover
+      - name: Cut over both aliases with atomic compensation
         if: github.ref == 'refs/heads/main'
-        run: >-
-          vercel alias set
-          "${{ steps.production.outputs.url }}"
-          "$MIRROR_ALIAS"
-          --scope=lqtechs-projects
-          --token="$VERCEL_TOKEN"
-
-      - name: Verify mirror alias
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mirror_url="https://${MIRROR_ALIAS}/api/ai/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$mirror_url" 2>/dev/null)"; then
-              app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
-              deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && "$deployment_id" == "${{ steps.staged.outputs.deployment_id }}" ]]; then
-                exit 0
-              fi
-            fi
-            sleep 2
-          done
-          echo "Mirror alias did not resolve to the staged deployment." >&2
-          exit 1
-
-      - name: Promote primary alias with automatic rollback
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          vercel alias set \
-            "${{ steps.production.outputs.url }}" \
-            "$PRIMARY_ALIAS" \
-            --scope=lqtechs-projects \
-            --token="$VERCEL_TOKEN"
-
-          primary_url="https://${PRIMARY_ALIAS}/api/ai/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$primary_url" 2>/dev/null)"; then
-              app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
-              deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && "$deployment_id" == "${{ steps.staged.outputs.deployment_id }}" ]]; then
-                exit 0
-              fi
-            fi
-            sleep 2
-          done
-
-          echo "Primary verification failed; restoring the previous deployment." >&2
-          vercel alias set \
-            "${{ steps.primary_before.outputs.deployment_id }}" \
-            "$PRIMARY_ALIAS" \
-            --scope=lqtechs-projects \
-            --token="$VERCEL_TOKEN"
-          exit 1
+        env:
+          STAGED_TARGET: ${{ steps.production.outputs.url }}
+          STAGED_DEPLOYMENT_ID: ${{ steps.staged.outputs.deployment_id }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs
 
       - name: Deploy (preview)
         if: github.ref != 'refs/heads/main'

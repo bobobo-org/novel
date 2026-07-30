@@ -139,18 +139,47 @@ export async function GET() {
 
   return NextResponse.json({
     ...RELEASE_META,
+    surfaceType: "legacy_aggregate",
+    deprecatedForClosedAIRuntime: true,
+    authoritativeSurfaces: {
+      release: "/api/release/identity",
+      cloudAI: "/api/ai/cloud/health",
+      persistence: "/api/persistence/health",
+      closedAIContract: "/api/ai/closed/contract",
+    },
+    closedAiRuntimeStatus: "client_probe_required",
+    closedAiActualExecutor: "client_execution_receipt_required",
+    closedAiSilentExternalFallback: false,
     deploymentId: deploymentId(),
     productionVisualEvidenceStatus: "ready",
     initialHtmlConsumerShellStatus: "ready",
     legacyCompatibilityStatus: "ready",
     status: configured ? "ok" : "needs_configuration",
     apiStatus: "online",
-    modelStatus: configured ? (ping.ok ? "available" : "configured_but_unavailable") : "not_configured",
-    analysisStatus: ping.ok ? "model_ping_success" : runs.lastAnalysisSuccessAt ? "recent_success" : runs.lastError ? "recent_error" : "not_tested",
-    provider: meta.provider,
-    model: meta.model,
-    modelId: meta.modelId,
-    modelVersion: meta.modelVersion,
+    legacyCloudAnalysis: {
+      configured,
+      modelStatus: configured
+        ? (ping.ok ? "available" : "configured_but_unavailable")
+        : "not_configured",
+      analysisStatus: ping.ok
+        ? "model_ping_success"
+        : runs.lastAnalysisSuccessAt
+          ? "recent_success"
+          : runs.lastError
+            ? "recent_error"
+            : "not_tested",
+      provider: meta.provider,
+      model: meta.model,
+      modelId: meta.modelId,
+      modelVersion: meta.modelVersion,
+      fallbackEnabled: true,
+      fallbackModel: "local-rule",
+      fallback: {
+        enabled: true,
+        model: "local-rule",
+      },
+      modelPingMs: ping.elapsedMs,
+    },
     analyzerVersion: versions.storyAnalyzerVersion,
     benchmarkVersion: versions.candidateAnalyzerVersion,
     databaseProvider: "supabase-postgres",
@@ -165,10 +194,7 @@ export async function GET() {
     lastDatabaseError: persistence.lastDatabaseError ? "database_error_available_in_admin_logs" : null,
     dualWriteStatus: persistence.dualWriteStatus,
     key: "server-only",
-    fallbackEnabled: true,
-    fallbackModel: "local-rule",
     responseTimeMs: Date.now() - started,
-    modelPingMs: ping.elapsedMs,
     averageResponseTimeMs: runs.averageLatencyMs,
     lastSuccessAt: runs.lastSuccessAt,
     lastAnalysisSuccessAt: runs.lastAnalysisSuccessAt,
