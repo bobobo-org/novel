@@ -1812,6 +1812,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <div><dt>生成模型</dt><dd data-testid="closed-ai-model-id">{result.candidate.modelId}</dd></div>
                   <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
                   <div><dt>脈絡雜湊</dt><dd data-testid="closed-ai-context-digest">{result.candidate.contextDigest ?? "舊候選未記錄"}</dd></div>
+                  <div><dt>脈絡來源摘要</dt><dd data-testid="closed-ai-context-source-summary">{result.candidate.contextSourceSummary ?? "舊候選未記錄"}</dd></div>
                   <div><dt>資料離開裝置</dt><dd data-testid="closed-ai-data-left-device">{result.candidate.dataLeftDevice ? "是" : "否"}</dd></div>
                   <div><dt>外部請求</dt><dd data-testid="closed-ai-external-request">{result.candidate.externalRequest ? "是" : "否"}</dd></div>
                   {result.candidate.generationTelemetry ? <>
@@ -1819,6 +1820,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     <div><dt>品質管線</dt><dd>{QUALITY_LABELS[result.candidate.generationTelemetry.qualityMode]} · {result.candidate.generationTelemetry.qualityPasses} 次真實推理</dd></div>
                     <div><dt>模型耗時</dt><dd>{result.candidate.generationTelemetry.elapsedMs} ms</dd></div>
                     <div><dt>首字延遲</dt><dd>{result.candidate.generationTelemetry.firstTokenMs === null ? "整批回應" : `${result.candidate.generationTelemetry.firstTokenMs} ms`}</dd></div>
+                    <div><dt>真實生成事件</dt><dd data-testid="closed-ai-generated-token-events">{result.candidate.generationTelemetry.generatedTokenEvents}</dd></div>
                     <div><dt>輸入／輸出</dt><dd>{result.candidate.generationTelemetry.inputCharacters}／{result.candidate.generationTelemetry.outputCharacters} 字</dd></div>
                     <div><dt>預算省略</dt><dd>{result.candidate.generationTelemetry.omittedInputCharacters} 字</dd></div>
                     {result.candidate.generationTelemetry.draftDigest ? <div><dt>暫存草稿雜湊</dt><dd>{result.candidate.generationTelemetry.draftDigest}</dd></div> : null}

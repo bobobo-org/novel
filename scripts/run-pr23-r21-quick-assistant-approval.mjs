@@ -312,6 +312,9 @@ assert.match(studioSource, /canonicalCommit: async/);
 assert.match(studioSource, /applyWritingAidTransaction\(\{/);
 assert.match(studioSource, /candidate\.sourceRevision !== pending\.sourceRevision/);
 assert.match(studioSource, /approved\.canonicalMutationCount !== 1/);
+assert.match(studioSource, /data-testid="studio-candidate-diff"/);
+assert.match(studioSource, /contextSourceSummary: result\.contextSourceSummary/);
+assert.match(studioSource, /result\.executionReceipt\?\.generatedTokenEvents/);
 
 console.log(JSON.stringify({
   status: "PASS",

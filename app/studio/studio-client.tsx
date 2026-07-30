@@ -211,8 +211,11 @@ type Candidate = {
   modelId?: string | null;
   modelDigest?: string | null;
   contextDigest?: string | null;
+  contextSourceSummary?: string | null;
   contentDigest?: string | null;
   actualExecutor?: string;
+  generatedTokenEvents?: number;
+  dataLeftDevice?: boolean;
   canonicalMutationCount?: number;
   sourceChapterId?: string | null;
   sourceRevision?: number | null;
@@ -1403,8 +1406,12 @@ export default function StudioClient({
         modelId: result.model,
         modelDigest: result.modelDigest,
         contextDigest: result.contextDigest,
+        contextSourceSummary: result.contextSourceSummary,
         contentDigest: result.contentDigest,
         actualExecutor: result.actualExecutor,
+        generatedTokenEvents:
+          result.executionReceipt?.generatedTokenEvents ?? 0,
+        dataLeftDevice: result.dataLeftDevice,
         canonicalMutationCount: result.canonicalMutationCount,
         sourceChapterId: result.sourceChapterId,
         sourceRevision: result.sourceRevision,
@@ -2603,6 +2610,7 @@ function CreateScreen({
               <SuggestionCard
                 key={candidate.createdAt}
                 candidate={candidate}
+                originalContent=""
                 accept={acceptSuggestion}
                 retry={() => void runTask(candidate.task)}
                 discard={discard}
@@ -2789,6 +2797,7 @@ function WriteScreen({
             <SuggestionCard
               key={candidate.createdAt}
               candidate={candidate}
+              originalContent={project.draft}
               accept={acceptCandidate}
               retry={() => void runTask(candidate.task)}
               discard={discard}
@@ -2808,6 +2817,7 @@ function WriteScreen({
 
 function SuggestionCard({
   candidate,
+  originalContent,
   accept,
   retry,
   discard,
@@ -2815,6 +2825,7 @@ function SuggestionCard({
   closedAiHref = "/studio/settings/ai",
 }: {
   candidate: NonNullable<Candidate>;
+  originalContent: string;
   accept: (content: string) => void | Promise<void>;
   retry: () => void;
   discard: () => void;
@@ -2823,6 +2834,11 @@ function SuggestionCard({
 }) {
   const [editing, setEditing] = useState(false),
     [content, setContent] = useState(candidate.content);
+  const proposedContent = candidateApplyMode(candidate.task) === "replace"
+    ? content.trim()
+    : `${originalContent.trim()}${originalContent.trim() ? "\n\n" : ""}${content.trim()}`;
+  const beforeCharacters = originalContent.replace(/\s/g, "").length;
+  const afterCharacters = proposedContent.replace(/\s/g, "").length;
   return (
     <article className="studioCandidate">
       <header>
@@ -2853,6 +2869,25 @@ function SuggestionCard({
       ) : (
         <pre>{content}</pre>
       )}
+      <details data-testid="studio-candidate-diff">
+        <summary>查看與目前正文的差異</summary>
+        <p data-testid="studio-candidate-diff-summary">
+          目前 {beforeCharacters} 字 → 核准後 {afterCharacters} 字
+          {" · "}
+          {afterCharacters >= beforeCharacters ? "+" : ""}
+          {afterCharacters - beforeCharacters} 字
+        </p>
+        <div className="studioCandidateDiff">
+          <section>
+            <h4>目前正式正文</h4>
+            <pre>{originalContent || "（目前正文為空白）"}</pre>
+          </section>
+          <section>
+            <h4>核准後預覽</h4>
+            <pre>{proposedContent || "（核准後正文為空白）"}</pre>
+          </section>
+        </div>
+      </details>
       <footer>
         <button
           className="gold"
@@ -2894,6 +2929,24 @@ function SuggestionCard({
           <div>
             <dt>來源章節版本</dt>
             <dd>{candidate.sourceRevision ?? "missing"}</dd>
+          </div>
+          <div>
+            <dt>脈絡來源摘要</dt>
+            <dd data-testid="studio-candidate-context-source-summary">
+              {candidate.contextSourceSummary ?? "missing"}
+            </dd>
+          </div>
+          <div>
+            <dt>真實生成事件</dt>
+            <dd data-testid="studio-candidate-generated-token-events">
+              {candidate.generatedTokenEvents ?? 0}
+            </dd>
+          </div>
+          <div>
+            <dt>資料離開裝置</dt>
+            <dd data-testid="studio-candidate-data-left-device">
+              {candidate.dataLeftDevice ? "是" : "否"}
+            </dd>
           </div>
           <div>
             <dt>執行方式</dt>
