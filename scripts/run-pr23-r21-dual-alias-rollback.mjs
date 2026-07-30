@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
-import { promoteDualAliases } from "./vercel-dual-alias-cutover.mjs";
+import {
+  captureCurrentAliasIdentities,
+  createAliasIdentityReader,
+  createVercelControlPlaneReader,
+  normalizeVercelControlPlaneIdentity,
+  promoteDualAliases,
+} from "./vercel-dual-alias-cutover.mjs";
 
 const PRIMARY = "primary-pr23-r21.invalid";
 const MIRROR = "mirror-pr23-r21.invalid";
 const BEFORE_PRIMARY = {
-  deploymentId: "dpl_before_primary",
+  deploymentId: "dpl_BeforePrimary",
   appCommit: "a".repeat(40),
 };
 const BEFORE_MIRROR = {
-  deploymentId: "dpl_before_mirror",
+  deploymentId: "dpl_BeforeMirror",
   appCommit: "b".repeat(40),
 };
 const STAGED = {
-  deploymentId: "dpl_staged",
+  deploymentId: "dpl_Staged",
   appCommit: "c".repeat(40),
 };
 const TARGET = "https://staged-pr23-r21.invalid";
@@ -115,6 +121,139 @@ for (const failureMode of [
   );
 }
 
+const controlPlanePayload = {
+  id: "dpl_ControlPlane123",
+  projectId: "prj_control_plane_test",
+  readyState: "READY",
+  target: "production",
+  meta: {
+    githubCommitSha: "d".repeat(40),
+  },
+};
+const normalizedControlPlaneIdentity = normalizeVercelControlPlaneIdentity({
+  alias: PRIMARY,
+  deployment: controlPlanePayload,
+  expectedProjectId: controlPlanePayload.projectId,
+});
+assert.deepEqual(normalizedControlPlaneIdentity, {
+  deploymentId: controlPlanePayload.id,
+  appCommit: controlPlanePayload.meta.githubCommitSha,
+  provenanceStatus: "verified",
+  environment: "production",
+  identitySource: "vercel_control_plane_legacy_bootstrap",
+});
+assert.throws(
+  () => normalizeVercelControlPlaneIdentity({
+    alias: PRIMARY,
+    deployment: {
+      ...controlPlanePayload,
+      projectId: "prj_wrong",
+    },
+    expectedProjectId: controlPlanePayload.projectId,
+  }),
+  (error) => error?.code === "VERCEL_CONTROL_PLANE_IDENTITY_INVALID",
+);
+
+let apiRequestVerified = false;
+const controlPlaneReader = createVercelControlPlaneReader({
+  token: "unit-placeholder",
+  teamId: "team_control_plane_test",
+  projectId: controlPlanePayload.projectId,
+  fetchImpl: async (url, options) => {
+    assert.equal(url.hostname, "api.vercel.com");
+    assert.equal(url.pathname, `/v13/deployments/${PRIMARY}`);
+    assert.equal(url.searchParams.get("url"), PRIMARY);
+    assert.equal(url.searchParams.get("teamId"), "team_control_plane_test");
+    assert.equal(options.headers.Authorization, "Bearer unit-placeholder");
+    apiRequestVerified = true;
+    return new Response(JSON.stringify(controlPlanePayload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+});
+assert.deepEqual(
+  await controlPlaneReader(PRIMARY),
+  normalizedControlPlaneIdentity,
+);
+assert.equal(apiRequestVerified, true);
+
+let legacyControlPlaneReads = 0;
+const legacyIdentityReader = createAliasIdentityReader({
+  fetchImpl: async () => new Response("missing", { status: 404 }),
+  legacyBootstrapIdentity: normalizedControlPlaneIdentity,
+  readControlPlane: async () => {
+    legacyControlPlaneReads += 1;
+    return normalizedControlPlaneIdentity;
+  },
+});
+const capturedLegacyIdentities = await captureCurrentAliasIdentities({
+  primaryAlias: PRIMARY,
+  mirrorAlias: MIRROR,
+  readIdentity: legacyIdentityReader,
+  attempts: 1,
+  delayMs: 0,
+});
+assert.equal(
+  capturedLegacyIdentities.primary.deploymentId,
+  normalizedControlPlaneIdentity.deploymentId,
+);
+assert.equal(
+  capturedLegacyIdentities.mirror.deploymentId,
+  normalizedControlPlaneIdentity.deploymentId,
+);
+assert.equal(legacyControlPlaneReads, 2);
+assert.deepEqual(
+  await legacyIdentityReader(PRIMARY, {
+    phase: "verify-rollback-primary",
+    attempt: 1,
+  }),
+  normalizedControlPlaneIdentity,
+);
+assert.equal(legacyControlPlaneReads, 3);
+await assert.rejects(
+  legacyIdentityReader(PRIMARY, {
+    phase: "verify-primary",
+    attempt: 1,
+  }),
+  (error) => error?.code === "LEGACY_CONTROL_PLANE_FALLBACK_NOT_ALLOWED",
+);
+assert.equal(legacyControlPlaneReads, 3);
+
+const mismatchedLegacyIdentityReader = createAliasIdentityReader({
+  fetchImpl: async () => new Response("missing", { status: 404 }),
+  legacyBootstrapIdentity: normalizedControlPlaneIdentity,
+  readControlPlane: async () => ({
+    ...normalizedControlPlaneIdentity,
+    deploymentId: "dpl_UnexpectedBaseline",
+  }),
+});
+await assert.rejects(
+  mismatchedLegacyIdentityReader(PRIMARY, {
+    phase: "capture-primary",
+    attempt: 1,
+  }),
+  (error) => error?.code === "LEGACY_CONTROL_PLANE_BASELINE_MISMATCH",
+);
+
+let non404ControlPlaneReads = 0;
+const non404IdentityReader = createAliasIdentityReader({
+  fetchImpl: async () => new Response("server error", { status: 500 }),
+  legacyBootstrapIdentity: normalizedControlPlaneIdentity,
+  readControlPlane: async () => {
+    non404ControlPlaneReads += 1;
+    return normalizedControlPlaneIdentity;
+  },
+});
+await assert.rejects(
+  non404IdentityReader(PRIMARY, {
+    phase: "capture-primary",
+    attempt: 1,
+  }),
+  (error) => error?.code === "RELEASE_IDENTITY_HTTP_ERROR",
+);
+assert.equal(non404ControlPlaneReads, 0);
+
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-dual-alias-atomic-rollback-v1",
   status: "PASS",
@@ -124,4 +263,9 @@ console.log(JSON.stringify({
   mirrorFailureRestoredBoth: true,
   primaryFailureRestoredBoth: true,
   restoredDeploymentIdentityMatch: true,
+  legacy404ControlPlaneBootstrap: true,
+  legacyBootstrapFrozenToKnownBaseline: true,
+  controlPlaneProjectCommitAndStateVerified: true,
+  promotionFallbackForbidden: true,
+  non404FallbackForbidden: true,
 }, null, 2));

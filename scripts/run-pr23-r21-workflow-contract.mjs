@@ -85,11 +85,32 @@ assert.doesNotMatch(deployJob, /\/api\/ai\/health/u);
 assert.match(deployJob, /PRIMARY_BEFORE_DEPLOYMENT/u);
 assert.match(deployJob, /MIRROR_BEFORE_DEPLOYMENT/u);
 assert.match(deployJob, /vercel-dual-alias-cutover\.mjs/u);
+assert.match(
+  deployJob,
+  /node scripts\/vercel-dual-alias-cutover\.mjs capture/u,
+);
+assert.match(rollback, /api\.vercel\.com\/v13\/deployments/u);
+assert.match(rollback, /githubCommitSha/u);
+assert.match(rollback, /VERCEL_CONTROL_PLANE_IDENTITY_INVALID/u);
+assert.match(rollback, /vercel_control_plane_legacy_bootstrap/u);
+assert.match(rollback, /LEGACY_CONTROL_PLANE_BASELINE_MISMATCH/u);
+assert.match(rollback, /capture-primary/u);
+assert.match(rollback, /capture-mirror/u);
 assert.match(rollback, /rollback-primary/u);
 assert.match(rollback, /rollback-mirror/u);
 assert.match(rollback, /verify-rollback-primary/u);
 assert.match(rollback, /verify-rollback-mirror/u);
+assert.match(rollback, /LEGACY_CONTROL_PLANE_FALLBACK_NOT_ALLOWED/u);
 assert.match(rollback, /DUAL_ALIAS_ROLLBACK_FAILED/u);
+assert.doesNotMatch(rollback, /\/api\/ai\/health/u);
+assert.match(
+  globalConfiguration,
+  /LEGACY_BOOTSTRAP_DEPLOYMENT_ID:\s*dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa/u,
+);
+assert.match(
+  globalConfiguration,
+  /LEGACY_BOOTSTRAP_COMMIT:\s*d0e80323dc68bf08cb541e46c6b9114a71e05cd9/u,
+);
 
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v1",
@@ -99,6 +120,9 @@ console.log(JSON.stringify({
   validateSecretCount: 0,
   requiredCommandCount: requiredCommands.length,
   immutableActionUseCount: uses.length,
-  releaseIdentityOnlyForAliasVerification: true,
+  releaseIdentityRequiredForNewDeploymentVerification: true,
+  legacy404ControlPlaneBootstrap: true,
+  legacyBootstrapCaptureAndRollbackOnly: true,
+  legacyBootstrapFrozenToKnownBaseline: true,
   centralDualAliasRollback: true,
 }, null, 2));

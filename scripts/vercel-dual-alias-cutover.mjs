@@ -1,11 +1,215 @@
 import { spawnSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const LEGACY_CONTROL_PLANE_PHASES = new Set([
+  "capture-primary",
+  "capture-mirror",
+  "verify-rollback-primary",
+  "verify-rollback-mirror",
+]);
+
 function cutoverError(code, details = {}) {
   return Object.assign(new Error(code), { code, details });
+}
+
+function isCommitSha(value) {
+  return typeof value === "string" && /^[a-f0-9]{40}$/u.test(value);
+}
+
+function isDeploymentId(value) {
+  return typeof value === "string" && /^dpl_[A-Za-z0-9]+$/u.test(value);
+}
+
+export function normalizeVercelControlPlaneIdentity({
+  alias,
+  deployment,
+  expectedProjectId,
+}) {
+  const deploymentId = deployment?.id ?? deployment?.uid ?? null;
+  const appCommit = deployment?.meta?.githubCommitSha ?? null;
+  const projectId = deployment?.projectId ?? deployment?.project?.id ?? null;
+  const readyState = deployment?.readyState ?? deployment?.state ?? null;
+  const target = deployment?.target ?? null;
+  if (
+    !isDeploymentId(deploymentId)
+    || !isCommitSha(appCommit)
+    || projectId !== expectedProjectId
+    || readyState !== "READY"
+    || target !== "production"
+  ) {
+    throw cutoverError("VERCEL_CONTROL_PLANE_IDENTITY_INVALID", {
+      alias,
+      deploymentId,
+      appCommit,
+      projectId,
+      readyState,
+      target,
+    });
+  }
+  return {
+    deploymentId,
+    appCommit,
+    provenanceStatus: "verified",
+    environment: "production",
+    identitySource: "vercel_control_plane_legacy_bootstrap",
+  };
+}
+
+export function createVercelControlPlaneReader({
+  token,
+  teamId,
+  projectId,
+  fetchImpl = fetch,
+}) {
+  if (!token || !teamId || !projectId) {
+    throw cutoverError("VERCEL_CONTROL_PLANE_CONFIGURATION_INCOMPLETE");
+  }
+  return async (alias) => {
+    const url = new URL(
+      `https://api.vercel.com/v13/deployments/${encodeURIComponent(alias)}`,
+    );
+    url.searchParams.set("url", alias);
+    url.searchParams.set("teamId", teamId);
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw cutoverError("VERCEL_CONTROL_PLANE_HTTP_ERROR", {
+        alias,
+        status: response.status,
+      });
+    }
+    let deployment;
+    try {
+      deployment = await response.json();
+    } catch {
+      throw cutoverError("VERCEL_CONTROL_PLANE_JSON_INVALID", { alias });
+    }
+    return normalizeVercelControlPlaneIdentity({
+      alias,
+      deployment,
+      expectedProjectId: projectId,
+    });
+  };
+}
+
+export function createAliasIdentityReader({
+  readControlPlane,
+  legacyBootstrapIdentity,
+  fetchImpl = fetch,
+}) {
+  return async (alias, context) => {
+    const query = new URLSearchParams({
+      phase: context.phase,
+      attempt: String(context.attempt),
+      run: process.env.GITHUB_RUN_ID ?? "local",
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "0",
+    });
+    const response = await fetchImpl(
+      `https://${alias}/api/release/identity?${query}`,
+      { cache: "no-store" },
+    );
+    if (response.ok) {
+      const identity = await response.json();
+      return {
+        ...identity,
+        identitySource: "release_identity_endpoint",
+      };
+    }
+    if (response.status !== 404) {
+      throw cutoverError("RELEASE_IDENTITY_HTTP_ERROR", {
+        alias,
+        status: response.status,
+      });
+    }
+    if (!LEGACY_CONTROL_PLANE_PHASES.has(context.phase)) {
+      throw cutoverError("LEGACY_CONTROL_PLANE_FALLBACK_NOT_ALLOWED", {
+        alias,
+        phase: context.phase,
+      });
+    }
+    if (typeof readControlPlane !== "function") {
+      throw cutoverError("LEGACY_CONTROL_PLANE_READER_MISSING", {
+        alias,
+        phase: context.phase,
+      });
+    }
+    const identity = await readControlPlane(alias);
+    if (
+      !isDeploymentId(legacyBootstrapIdentity?.deploymentId)
+      || !isCommitSha(legacyBootstrapIdentity?.appCommit)
+      || identity?.deploymentId !== legacyBootstrapIdentity.deploymentId
+      || identity?.appCommit !== legacyBootstrapIdentity.appCommit
+    ) {
+      throw cutoverError("LEGACY_CONTROL_PLANE_BASELINE_MISMATCH", {
+        alias,
+        phase: context.phase,
+        expectedDeploymentId:
+          legacyBootstrapIdentity?.deploymentId ?? null,
+        expectedCommit: legacyBootstrapIdentity?.appCommit ?? null,
+        observedDeploymentId: identity?.deploymentId ?? null,
+        observedCommit: identity?.appCommit ?? null,
+      });
+    }
+    return identity;
+  };
+}
+
+function assertCapturedIdentity(alias, identity) {
+  if (
+    identity?.provenanceStatus !== "verified"
+    || !isDeploymentId(identity?.deploymentId)
+    || !isCommitSha(identity?.appCommit)
+  ) {
+    throw cutoverError("CAPTURED_ALIAS_IDENTITY_INVALID", {
+      alias,
+      identitySource: identity?.identitySource ?? null,
+    });
+  }
+  return identity;
+}
+
+export async function captureCurrentAliasIdentities({
+  primaryAlias,
+  mirrorAlias,
+  readIdentity,
+  attempts = 5,
+  delayMs = 1_000,
+}) {
+  const capture = async (alias, label) => {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return assertCapturedIdentity(
+          alias,
+          await readIdentity(alias, {
+            attempt,
+            phase: `capture-${label}`,
+          }),
+        );
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < attempts && delayMs > 0) await delay(delayMs);
+    }
+    throw cutoverError("ALIAS_IDENTITY_CAPTURE_FAILED", {
+      alias,
+      code: lastError?.code ?? "ALIAS_IDENTITY_CAPTURE_UNKNOWN",
+    });
+  };
+  const [primary, mirror] = await Promise.all([
+    capture(primaryAlias, "primary"),
+    capture(mirrorAlias, "mirror"),
+  ]);
+  return { primary, mirror };
 }
 
 async function verifyAliasIdentity({
@@ -158,7 +362,45 @@ function requiredEnvironment(name) {
   return value;
 }
 
-async function runCli() {
+function createEnvironmentIdentityReader() {
+  const readControlPlane = createVercelControlPlaneReader({
+    token: requiredEnvironment("VERCEL_TOKEN"),
+    teamId: requiredEnvironment("VERCEL_ORG_ID"),
+    projectId: requiredEnvironment("VERCEL_PROJECT_ID"),
+  });
+  return createAliasIdentityReader({
+    readControlPlane,
+    legacyBootstrapIdentity: {
+      deploymentId: requiredEnvironment("LEGACY_BOOTSTRAP_DEPLOYMENT_ID"),
+      appCommit: requiredEnvironment("LEGACY_BOOTSTRAP_COMMIT"),
+    },
+  });
+}
+
+async function runCaptureCli() {
+  const primaryAlias = requiredEnvironment("PRIMARY_ALIAS");
+  const mirrorAlias = requiredEnvironment("MIRROR_ALIAS");
+  const outputPath = requiredEnvironment("GITHUB_OUTPUT");
+  const identities = await captureCurrentAliasIdentities({
+    primaryAlias,
+    mirrorAlias,
+    readIdentity: createEnvironmentIdentityReader(),
+  });
+  appendFileSync(
+    outputPath,
+    [
+      `primary_deployment_id=${identities.primary.deploymentId}`,
+      `primary_app_commit=${identities.primary.appCommit}`,
+      `mirror_deployment_id=${identities.mirror.deploymentId}`,
+      `mirror_app_commit=${identities.mirror.appCommit}`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  console.log("VERCEL_ALIAS_IDENTITIES_CAPTURED");
+}
+
+async function runCutoverCli() {
   const primaryAlias = requiredEnvironment("PRIMARY_ALIAS");
   const mirrorAlias = requiredEnvironment("MIRROR_ALIAS");
   const stagedTarget = requiredEnvironment("STAGED_TARGET");
@@ -176,6 +418,7 @@ async function runCli() {
   };
   const scope = requiredEnvironment("VERCEL_SCOPE");
   const token = requiredEnvironment("VERCEL_TOKEN");
+  const readIdentity = createEnvironmentIdentityReader();
   const setAlias = async (target, alias) => {
     const result = spawnSync(
       "vercel",
@@ -200,25 +443,6 @@ async function runCli() {
       });
     }
   };
-  const readIdentity = async (alias, context) => {
-    const query = new URLSearchParams({
-      phase: context.phase,
-      attempt: String(context.attempt),
-      run: process.env.GITHUB_RUN_ID ?? "local",
-      runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "0",
-    });
-    const response = await fetch(
-      `https://${alias}/api/release/identity?${query}`,
-      { cache: "no-store" },
-    );
-    if (!response.ok) {
-      throw cutoverError("RELEASE_IDENTITY_HTTP_ERROR", {
-        alias,
-        status: response.status,
-      });
-    }
-    return response.json();
-  };
   await promoteDualAliases({
     primaryAlias,
     mirrorAlias,
@@ -229,6 +453,19 @@ async function runCli() {
     setAlias,
     readIdentity,
   });
+}
+
+async function runCli() {
+  const mode = process.argv[2] ?? "cutover";
+  if (mode === "capture") {
+    await runCaptureCli();
+    return;
+  }
+  if (mode === "cutover") {
+    await runCutoverCli();
+    return;
+  }
+  throw cutoverError("UNKNOWN_CLI_MODE", { mode });
 }
 
 if (

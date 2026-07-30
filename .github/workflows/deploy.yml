@@ -18,6 +18,8 @@ env:
   PRIMARY_ALIAS: novel-orcin.vercel.app
   MIRROR_ALIAS: novel-lqtechs-projects.vercel.app
   VERCEL_SCOPE: lqtechs-projects
+  LEGACY_BOOTSTRAP_DEPLOYMENT_ID: dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa
+  LEGACY_BOOTSTRAP_COMMIT: d0e80323dc68bf08cb541e46c6b9114a71e05cd9
 
 jobs:
   validate:
@@ -110,27 +112,7 @@ jobs:
       - name: Capture both current alias identities for rollback
         if: github.ref == 'refs/heads/main'
         id: aliases_before
-        shell: bash
-        run: |
-          set -euo pipefail
-          capture_identity() {
-            local alias="$1"
-            local label="$2"
-            local identity_url="https://${alias}/api/release/identity?rollback=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${label}"
-            local body
-            body="$(curl --fail --silent --show-error --retry 5 --retry-all-errors "$identity_url")"
-            local provenance_status
-            local deployment_id
-            local app_commit
-            provenance_status="$(jq -er '.provenanceStatus' <<<"$body")"
-            deployment_id="$(jq -er '.deploymentId | select(type == "string" and length > 0)' <<<"$body")"
-            app_commit="$(jq -er '.appCommit | select(type == "string" and length == 40)' <<<"$body")"
-            test "$provenance_status" = "verified"
-            echo "${label}_deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
-            echo "${label}_app_commit=$app_commit" >> "$GITHUB_OUTPUT"
-          }
-          capture_identity "$PRIMARY_ALIAS" primary
-          capture_identity "$MIRROR_ALIAS" mirror
+        run: node scripts/vercel-dual-alias-cutover.mjs capture
 
       - name: Pull Vercel environment (production)
         if: github.ref == 'refs/heads/main'
