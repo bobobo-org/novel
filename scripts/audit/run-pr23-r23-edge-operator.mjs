@@ -199,8 +199,7 @@ assert.equal(
   await page.getByTestId("studio-project-title").fill(STORY_FIXTURES[0]);
   await page.getByTestId("studio-create-submit").click();`,
     `  await page.getByRole("button", {
-    name: "空白建立",
-    exact: true,
+    name: /空白建立/u,
   }).click();
   await page.getByLabel("作品名稱（可留白）").fill(STORY_FIXTURES[0]);
   await page.getByRole("button", {
@@ -412,7 +411,9 @@ function runSelfTest() {
     noInjection: transformed.includes("permissionInjectionUsed"),
     noBypass: transformed.includes("localNetworkAccessBypassUsed"),
     rawListeners: transformed.includes("context.weberror"),
-    currentCreateUi: transformed.includes("作品名稱（可留白）"),
+    currentCreateUi:
+      transformed.includes("name: /空白建立/u")
+      && transformed.includes("作品名稱（可留白）"),
     correctedProofLabel: transformed.includes('proof["離開裝置"]'),
     operatorWait: transformed.includes("timeout: 600_000"),
     gateCountIsBlockingCount: transformed.includes(
