@@ -70,7 +70,8 @@ export function transformR22Runner(template, playwrightImportUrl) {
   source = replaceExact(
     source,
     'import { chromium } from "@playwright/test";',
-    `import { chromium } from ${JSON.stringify(playwrightImportUrl)};`,
+    `import playwrightPackage from ${JSON.stringify(playwrightImportUrl)};
+const { chromium } = playwrightPackage;`,
     "playwright-import",
   );
   source = replaceExact(
@@ -340,16 +341,9 @@ function verifyProtectedInputs() {
 }
 
 function resolvePlaywrightImport() {
-  try {
-    const direct = import.meta.resolve("@playwright/test");
-    if (direct.startsWith("file:") && existsSync(fileURLToPath(direct))) {
-      return direct;
-    }
-  } catch {
-    // A Git worktree does not share ignored node_modules. Resolve only from
-    // another local worktree of the same repository; no package is installed
-    // or downloaded by the audit runner.
-  }
+  // A Git worktree does not share ignored node_modules. Resolve only from
+  // another local worktree of the same repository; no package is installed
+  // or downloaded by the audit runner.
   const parent = path.dirname(root);
   const preferred = [
     root,
@@ -388,6 +382,20 @@ function runSelfTest() {
     windowsHide: true,
   });
   rmSync(tempDir, { recursive: true, force: true });
+  const installedPlaywright = resolvePlaywrightImport();
+  const dependencyProbe = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import pkg from ${JSON.stringify(installedPlaywright)}; if (!pkg.chromium) process.exit(2);`,
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
   const checks = {
     templateShaPinned: sha256(template) === templateSha256,
     dedicatedOutput: transformed.includes("R23_OUTPUT_DIR_MUST_BE_DEDICATED"),
@@ -409,7 +417,8 @@ function runSelfTest() {
     protectedOutputNotReferenced:
       !transformed.includes('artifacts", "pr23-r22-luna-unblock'),
     transformedSyntaxValid: syntax.status === 0,
-    installedPlaywrightResolvable: /^file:/u.test(resolvePlaywrightImport()),
+    installedPlaywrightResolvable:
+      /^file:/u.test(installedPlaywright) && dependencyProbe.status === 0,
   };
   assert.ok(Object.values(checks).every(Boolean), "R23_RUNNER_SELF_TEST_FAILED");
   process.stdout.write(`${JSON.stringify({
