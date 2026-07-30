@@ -1,0 +1,166 @@
+{
+  "schemaVersion": "closed-ai-runtime-r2-remote-preview-gate-v1",
+  "generatedAt": "2026-07-30T13:38:16.650Z",
+  "repository": "bobobo-org/novel",
+  "pullRequest": {
+    "number": 23,
+    "url": "https://github.com/bobobo-org/novel/pull/23",
+    "base": "main",
+    "productHeadCommit": "c873de93d3401a4325c473754ce3e70968f89465",
+    "state": "OPEN",
+    "draft": true,
+    "merged": false,
+    "mergeable": true,
+    "mergeStateStatusAtSeal": "CLEAN"
+  },
+  "continuousIntegration": {
+    "workflow": "Vercel Deploy",
+    "runId": 30547355720,
+    "jobId": 90886812758,
+    "url": "https://github.com/bobobo-org/novel/actions/runs/30547355720",
+    "event": "pull_request",
+    "status": "completed",
+    "conclusion": "success",
+    "productionStepsSkipped": true,
+    "previewBuildAndDeployPassed": true
+  },
+  "preview": {
+    "project": "lqtechs-projects/novel",
+    "url": "https://novel-ca1tifyjj-lqtechs-projects.vercel.app",
+    "deploymentId": "dpl_3cvaXWBDkL3Spav43ZmfHDTZBBGv",
+    "mergeCommit": "01923c65e19e3cea51b3edfee79d192890e68129",
+    "containsProductHeadCommit": true,
+    "environment": "preview",
+    "provenanceStatus": "verified",
+    "releaseIdentityStatusCode": 200,
+    "cacheControl": "no-store, max-age=0"
+  },
+  "freshRemoteClone": {
+    "exactCommit": "01923c65e19e3cea51b3edfee79d192890e68129",
+    "cleanWorkingTree": true,
+    "containsProductHeadCommit": true
+  },
+  "publicHealth": {
+    "releaseIdentity": "PASS",
+    "cloudAiHealth": {
+      "status": "not_configured",
+      "closedModeEligible": false,
+      "dataLeavesDevice": true,
+      "requiresExplicitConsent": true
+    },
+    "persistenceHealth": {
+      "localCanonicalProvider": "IndexedDB",
+      "localRuntimeStatus": "client_probe_required",
+      "cloudProvider": "Supabase",
+      "cloudStatus": "not_configured",
+      "writeProbeStatus": "skipped"
+    },
+    "closedContract": {
+      "browserRuntimeStatus": "client_probe_required",
+      "localOllamaRuntimeStatus": "client_probe_required",
+      "privateHubRuntimeStatus": "client_probe_required",
+      "noSilentExternalFallback": true,
+      "canonicalMutationBeforeApproval": 0
+    },
+    "serverOllamaSemantics": {
+      "scope": "server-runtime",
+      "applicable": false,
+      "status": "client_probe_required",
+      "directClientOllamaAccess": false
+    }
+  },
+  "browserGate": {
+    "surface": "remote Vercel Preview",
+    "studioHomeRendered": true,
+    "projectCreatedThroughUi": true,
+    "syntheticProjectTitle": "PR23 遠端驗收作品",
+    "syntheticProjectId": "p11-1785418598377",
+    "rpgCreationFlowCompleted": true,
+    "writingWorkspaceRendered": true,
+    "closedAiHandoffCompleted": true,
+    "indexedDbContext": {
+      "projectPresent": true,
+      "chapters": 1,
+      "characters": 1,
+      "storyStates": 1,
+      "tasks": 1
+    },
+    "runtimeTruth": {
+      "browserTaskModel": "ready_light",
+      "browserTaskModelGenerative": false,
+      "localOllama": "runtime_unavailable_in_this_preview_tab",
+      "privateHub": "not_connected_in_this_preview_tab"
+    },
+    "execution": {
+      "task": "story.summary",
+      "actualExecutor": "browser-ai",
+      "modelId": "novel-browser-task-runtime-v2",
+      "modelDigest": "ac7af317902b9bb7f4c8806b61a7a52962ce43f4ac747d3917fa0d721c25b59f",
+      "contextDigest": "e0555ee57721d460124f1ed3fbde160de7f42ecb2cdd60c6a78c43577c6f138f",
+      "contentDigest": "3b5a9144e57a2c2fbceb06e7deb6c5325461f6ad251e2070eeee151f3350a8ae",
+      "candidateCharacters": 258,
+      "evaluationScore": 0.87,
+      "backendLocked": true,
+      "silentFallback": false,
+      "dataLeftDevice": false,
+      "externalRequest": false,
+      "canonicalMutationCount": 0,
+      "humanApprovalPerformed": false
+    },
+    "reload": {
+      "projectPersisted": true,
+      "indexedDbContextPersisted": true,
+      "closedAgentOsReady": true
+    },
+    "setupWizard": {
+      "rendered": true,
+      "companionDownloadVisible": true,
+      "companionSha256": "878309803A9B22485A59B3902E1C6E2EBFD5D929B3D7BE9D8D913E6201054CD8",
+      "previewOriginRequiresExplicitLocalTrust": true,
+      "tokenRequested": false
+    }
+  },
+  "productionAfterPreviewGate": {
+    "url": "https://novel-orcin.vercel.app/",
+    "identitySurface": "/api/ai/health",
+    "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "deploymentId": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "mainRemoteCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "statusCode": 200,
+    "cacheControl": "no-store, max-age=0",
+    "modifiedByThisTask": false
+  },
+  "autoDeployment": {
+    "configuredPath": "push(main) -> GitHub Actions -> staged Vercel production -> identity verification -> mirror alias -> novel-orcin primary alias",
+    "workflowPath": ".github/workflows/deploy.yml",
+    "mainPushTriggerVerified": true,
+    "latestAuditedMainPushRun": 30535708969,
+    "latestAuditedMainPushConclusion": "success",
+    "automaticRollbackConfigured": true,
+    "nativeVercelGitIntegrationInspected": false
+  },
+  "boundaries": {
+    "productionMutationCount": 0,
+    "productionAliasMutationCount": 0,
+    "supabaseProductionMutationCount": 0,
+    "rawCredentialValuesStored": false,
+    "supabaseNonDestructiveRepairClaimed": false
+  },
+  "markers": [
+    "RELEASE_IDENTITY_SURFACE_PASS",
+    "CLOUD_AI_HEALTH_SEPARATION_PASS",
+    "CLIENT_CLOSED_AI_RUNTIME_TRUTH_PASS",
+    "SERVER_OLLAMA_SEMANTIC_REPAIR_PASS",
+    "CLOSED_AI_DISCOVERY_EXECUTION_PARITY_PASS",
+    "PAIRING_SESSION_RELOAD_PASS",
+    "INDEXEDDB_SUPABASE_DECOUPLING_PASS",
+    "PROJECT_CONTEXT_COMPOSER_PASS",
+    "CLOSED_AI_SETUP_WIZARD_PASS",
+    "LOCAL_FLOW_WITH_CLOUD_DOWN_PASS",
+    "REAL_MODEL_USER_E2E_PASS",
+    "MOBILE_CLOSED_AI_E2E_PASS",
+    "PREVIEW_READY_FOR_USER_ACCEPTANCE",
+    "PRODUCTION_CODE_UNCHANGED"
+  ],
+  "status": "PASS"
+}
