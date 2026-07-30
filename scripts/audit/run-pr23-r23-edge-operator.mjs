@@ -75,6 +75,108 @@ function replaceBetween(source, start, end, replacement, label) {
   );
 }
 
+function parseAbcChoiceContent(value) {
+  const raw = String(value ?? "").trim();
+  const normalizeChoice = (item) => {
+    if (typeof item === "string") return item.trim();
+    if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+    for (const key of [
+      "text",
+      "content",
+      "description",
+      "title",
+      "choice",
+      "option",
+      "summary",
+    ]) {
+      if (typeof item[key] === "string" && item[key].trim()) {
+        return item[key].trim();
+      }
+    }
+    return "";
+  };
+  const labeledChoices = ["A", "B", "C"].map((label) => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const match = raw.match(
+      new RegExp(
+        `(?:^|\\n)\\s*${escaped}\\s*[.．、:：)）-]\\s*(.+)`,
+        "u",
+      ),
+    );
+    return match?.[1]?.trim() ?? "";
+  });
+  if (labeledChoices.every(Boolean)) {
+    return {
+      sourceFormat: "labeled_text",
+      choices: labeledChoices,
+    };
+  }
+
+  const jsonCandidates = [raw];
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/iu);
+  if (fenced?.[1]) jsonCandidates.push(fenced[1].trim());
+  const objectIndex = raw.indexOf("{");
+  const arrayIndex = raw.indexOf("[");
+  const starts = [objectIndex, arrayIndex].filter((index) => index >= 0);
+  if (starts.length > 0) {
+    const start = Math.min(...starts);
+    const objectEnd = raw.lastIndexOf("}");
+    const arrayEnd = raw.lastIndexOf("]");
+    const end = Math.max(objectEnd, arrayEnd);
+    if (end > start) jsonCandidates.push(raw.slice(start, end + 1));
+  }
+
+  let parsed = null;
+  for (const candidate of [...new Set(jsonCandidates)]) {
+    try {
+      parsed = JSON.parse(candidate);
+      break;
+    } catch {
+      // Try the next bounded JSON representation.
+    }
+  }
+  if (parsed !== null) {
+    if (Array.isArray(parsed)) {
+      return {
+        sourceFormat: "json:root_array",
+        choices: parsed.map(normalizeChoice),
+      };
+    }
+    if (typeof parsed === "object") {
+      for (const key of [
+        "choices",
+        "options",
+        "candidate",
+        "candidates",
+        "alternatives",
+        "selections",
+      ]) {
+        if (Array.isArray(parsed[key])) {
+          return {
+            sourceFormat: `json:${key}`,
+            choices: parsed[key].map(normalizeChoice),
+          };
+        }
+      }
+      const abcObject = ["A", "B", "C"].map((label) =>
+        normalizeChoice(parsed[label] ?? parsed[label.toLowerCase()]));
+      if (abcObject.some(Boolean)) {
+        return {
+          sourceFormat: "json:abc_object",
+          choices: abcObject,
+        };
+      }
+    }
+  }
+
+  return {
+    sourceFormat: labeledChoices.some(Boolean)
+      ? "partial_labeled_text"
+      : "unrecognized",
+    choices: labeledChoices,
+  };
+}
+
 export function transformR22Runner(template, playwrightImportUrl) {
   assert.equal(sha256(template), templateSha256, "R23_TEMPLATE_SHA256_MISMATCH");
   let source = template;
@@ -341,6 +443,237 @@ assert.equal(
 
   source = replaceExact(
     source,
+    `      loopbackResponses.push({
+        method: request.method(),
+        path: pathname,
+        status: response.status(),
+      });`,
+    `      loopbackResponses.push({
+        method: request.method(),
+        path: pathname,
+        status: response.status(),
+        phase: currentPhase,
+      });`,
+    "loopback-response-phase",
+  );
+  source = replaceBetween(
+    source,
+    "    let abcEvidence = null;",
+    "    return {\n      candidateIdDigest:",
+    `    const parseAbcChoiceContent =
+      ${parseAbcChoiceContent.toString()};
+    let abcEvidence = null;
+    if (task?.taskType === "chapter.abcChoices") {
+      const parsedChoices = parseAbcChoiceContent(candidate.content);
+      const choices = parsedChoices.choices;
+      const normalizedChoices = choices.map((text) =>
+        String(text ?? "").trim().toLowerCase());
+      const nonEmptyChoices = normalizedChoices.filter(Boolean);
+      abcEvidence = {
+        sourceFormat: parsedChoices.sourceFormat,
+        labels: choices.map((_, index) =>
+          ["A", "B", "C"][index] ?? \`CHOICE_\${index + 1}\`),
+        extractedItemCount: choices.length,
+        choiceCount: nonEmptyChoices.length,
+        allNonEmpty:
+          choices.length === 3
+          && nonEmptyChoices.length === 3,
+        choiceDigests: await Promise.all(
+          choices.map((text) => sha256(text)),
+        ),
+        materiallyDistinct:
+          choices.length === 3
+          && nonEmptyChoices.length === 3
+          && new Set(normalizedChoices).size === 3,
+      };
+    }
+`,
+    "structured-abc-evidence",
+  );
+  source = replaceExact(
+    source,
+    `  assert.equal(abcChoices.abcEvidence?.choiceCount, 3);
+  assert.equal(abcChoices.abcEvidence?.allNonEmpty, true);
+  assert.equal(abcChoices.abcEvidence?.materiallyDistinct, true);`,
+    `  if (
+    abcChoices.abcEvidence?.choiceCount !== 3
+    || abcChoices.abcEvidence?.allNonEmpty !== true
+    || abcChoices.abcEvidence?.materiallyDistinct !== true
+  ) {
+    const error = new Error("ABC_CHOICES_INVALID_STRUCTURE");
+    error.code = "ABC_CHOICES_INVALID_STRUCTURE";
+    error.abcEvidence = abcChoices.abcEvidence ?? {
+      sourceFormat: "missing",
+      labels: [],
+      extractedItemCount: 0,
+      choiceCount: 0,
+      allNonEmpty: false,
+      choiceDigests: [],
+      materiallyDistinct: false,
+    };
+    throw error;
+  }`,
+    "strict-abc-assertion",
+  );
+  source = replaceExact(
+    source,
+    `  writeJson("abc-choices.json", quickAssistant?.abcChoices
+    ? {
+      schemaVersion: "pr23-r2-2-abc-choices-v1",
+      status: "PASS",
+      ...quickAssistant.abcChoices,
+    }
+    : notRun("abc-choices"));`,
+    `  writeJson("abc-choices.json", quickAssistant?.abcChoices
+    ? {
+      schemaVersion: "pr23-r2-2-abc-choices-v1",
+      status: "PASS",
+      ...quickAssistant.abcChoices,
+    }
+    : failure?.abcEvidence
+      ? {
+        schemaVersion: "pr23-r2-2-abc-choices-v1",
+        status: "FAIL",
+        reason: "ABC_CHOICES_INVALID_STRUCTURE",
+        candidate: {
+          abcEvidence: failure.abcEvidence,
+        },
+      }
+      : notRun("abc-choices"));`,
+    "abc-failure-diagnostics",
+  );
+  source = replaceBetween(
+    source,
+    "  if (\n    persistenceProbe",
+    "  if (\n    cancelled",
+    `  const cloudProbePhase = [
+    "CONTEXT_LOAD",
+    "CHAPTER_CONTINUE",
+    "CANDIDATE_DISCARD",
+    "CHAPTER_CONTINUE_APPROVAL",
+    "CHAPTER_REWRITE",
+    "ABC_CHOICES",
+    "FULL_WORKSPACE",
+    "BACKUP",
+    "RESTORE",
+    "RELOAD_RECOVERY",
+  ].includes(record.phase);
+  const cloudProbeRequestAbort = record.kind === "requestfailed";
+  const cloudProbeConsoleMirror =
+    record.kind === "console"
+    && ["error", "assert"].includes(String(record.level))
+    && /^Failed to load resource:\\s*net::ERR_FAILED$/iu.test(
+      String(record.message ?? ""),
+    )
+    && rawRecords.some((candidate) =>
+      candidate.kind === "requestfailed"
+      && candidate.phase === record.phase
+      && /\\/api\\/persistence\\/health/iu.test(
+        String(candidate.requestUrlRedacted ?? ""),
+      )
+      && candidate.sequence <= record.sequence
+      && record.sequence - candidate.sequence <= 2);
+  if (
+    persistenceProbe
+    && cloudProbePhase
+    && (cloudProbeRequestAbort || cloudProbeConsoleMirror)
+  ) {
+    return {
+      classification: "EXPECTED_CLOUD_DEGRADED_PROBE",
+      blocking: false,
+      reason: cloudProbeConsoleMirror
+        ? "Console mirrored the immediately preceding deliberate cloud persistence health abort."
+        : "The audit deliberately aborted cloud persistence health to prove local canonical operation in CLOUD_DEGRADED mode.",
+      expectedByContract: true,
+      contractReference: "PR23 local canonical flow with cloud persistence unavailable",
+      userVisibleImpact: false,
+      retryable: true,
+      resolvedDuringFlow: true,
+    };
+  }
+`,
+    "cloud-probe-console-mirror",
+  );
+  source = replaceExact(
+    source,
+    `  if (
+    cancelled
+    && ["CANDIDATE_DISCARD", "CLEANUP"].includes(record.phase)
+  ) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "The request was cancelled by an explicit discard or cleanup transition.",
+      expectedByContract: true,
+      contractReference: "candidate discard and audit cleanup cancellation contract",
+      userVisibleImpact: false,
+      retryable: true,
+      resolvedDuringFlow: true,
+    };
+  }`,
+    `  const loopbackPath = String(record.requestUrlRedacted ?? "").match(
+    /^https?:\\/\\/(?:127\\.0\\.0\\.1|localhost|\\[::1\\]):3217(\\/[^?#]*)/iu,
+  )?.[1] ?? null;
+  const samePhaseLoopbackResponse = loopbackResponses.some((response) =>
+    response.method === "POST"
+    && response.path === loopbackPath
+    && response.phase === record.phase
+    && response.status >= 200
+    && response.status < 300);
+  const completedLoopbackPhase =
+    (
+      loopbackPath === "/generate"
+      && [
+        "CHAPTER_CONTINUE",
+        "CHAPTER_REWRITE",
+        "ABC_CHOICES",
+        "FULL_WORKSPACE",
+      ].includes(record.phase)
+    )
+    || (
+      loopbackPath === "/model/verify"
+      && record.phase === "RELOAD_RECOVERY"
+    );
+  if (
+    record.kind === "requestfailed"
+    && record.requestMethod === "POST"
+    && String(record.failureTextRedacted ?? "").toUpperCase()
+      === "NET::ERR_ABORTED"
+    && record.runtimeReadyAtRecord === true
+    && record.pairingStateAtRecord === "paired"
+    && completedLoopbackPhase
+    && samePhaseLoopbackResponse
+  ) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
+      expectedByContract: true,
+      contractReference: "successful local Bridge stream completion and reload session revalidation contract",
+      userVisibleImpact: false,
+      retryable: false,
+      resolvedDuringFlow: true,
+    };
+  }
+  if (
+    cancelled
+    && ["CANDIDATE_DISCARD", "CLEANUP"].includes(record.phase)
+  ) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "The request was cancelled by an explicit discard or cleanup transition.",
+      expectedByContract: true,
+      contractReference: "candidate discard and audit cleanup cancellation contract",
+      userVisibleImpact: false,
+      retryable: true,
+      resolvedDuringFlow: true,
+    };
+  }`,
+    "successful-loopback-abort",
+  );
+  source = replaceExact(
+    source,
     "  const browserNoise = /(?:favicon\\.ico|DevTools failed to load source map|ResizeObserver loop limit exceeded|Autofocus processing was blocked)/iu.test(text);",
     `  const browserNoise =
     /(?:favicon\\.ico|DevTools failed to load source map|ResizeObserver loop limit exceeded|Autofocus processing was blocked)/iu.test(text)
@@ -537,6 +870,22 @@ function runSelfTest() {
       windowsHide: true,
     },
   );
+  const labeledFixture = parseAbcChoiceContent(
+    "A. 調查鐘樓\nB. 追蹤黑影\nC. 保護證人",
+  );
+  const jsonFixture = parseAbcChoiceContent(JSON.stringify({
+    choices: [
+      { title: "調查鐘樓" },
+      { description: "追蹤黑影" },
+      { text: "保護證人" },
+    ],
+  }));
+  const twoChoiceFixture = parseAbcChoiceContent(JSON.stringify({
+    candidate: [
+      { title: "調查鐘樓" },
+      { title: "追蹤黑影" },
+    ],
+  }));
   const checks = {
     templateShaPinned: sha256(template) === templateSha256,
     dedicatedOutput: transformed.includes("R23_OUTPUT_DIR_MUST_BE_DEDICATED"),
@@ -564,6 +913,27 @@ function runSelfTest() {
     boundedNavigationNoise:
       transformed.includes("legacy\\/novel-system\\.html")
       && transformed.includes("vercel\\.live\\/_next-live"),
+    loopbackResponsePhaseBound: transformed.includes("phase: currentPhase"),
+    cloudProbeConsoleMirrorBound:
+      transformed.includes("cloudProbeConsoleMirror")
+      && transformed.includes("record.sequence - candidate.sequence <= 2"),
+    completedLoopbackAbortBound:
+      transformed.includes("samePhaseLoopbackResponse")
+      && transformed.includes('loopbackPath === "/model/verify"'),
+    strictAbcDiagnostics:
+      transformed.includes("ABC_CHOICES_INVALID_STRUCTURE")
+      && transformed.includes("sourceFormat: parsedChoices.sourceFormat"),
+    labeledAbcParsed:
+      labeledFixture.sourceFormat === "labeled_text"
+      && labeledFixture.choices.length === 3
+      && labeledFixture.choices.every(Boolean),
+    jsonAbcParsed:
+      jsonFixture.sourceFormat === "json:choices"
+      && jsonFixture.choices.length === 3
+      && new Set(jsonFixture.choices).size === 3,
+    twoChoiceJsonNotPromoted:
+      twoChoiceFixture.sourceFormat === "json:candidate"
+      && twoChoiceFixture.choices.length === 2,
     correctedProofLabel: transformed.includes('proof["離開裝置"]'),
     operatorWait: transformed.includes("timeout: 600_000"),
     gateCountIsBlockingCount: transformed.includes(
