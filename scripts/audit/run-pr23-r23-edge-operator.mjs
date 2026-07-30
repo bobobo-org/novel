@@ -51,6 +51,18 @@ function replaceExact(source, search, replacement, label) {
   return source.slice(0, first) + replacement + source.slice(first + search.length);
 }
 
+function replaceAllExact(
+  source,
+  search,
+  replacement,
+  expectedCount,
+  label,
+) {
+  const count = source.split(search).length - 1;
+  assert.equal(count, expectedCount, `R23_TEMPLATE_COUNT_MISMATCH:${label}`);
+  return source.split(search).join(replacement);
+}
+
 function replaceBetween(source, start, end, replacement, label) {
   const startIndex = source.indexOf(start);
   assert.notEqual(startIndex, -1, `R23_TEMPLATE_START_MISSING:${label}`);
@@ -207,6 +219,100 @@ assert.equal(
     exact: true,
   }).click();`,
     "current-create-ui",
+  );
+  source = replaceAllExact(
+    source,
+    '"續寫下一段"',
+    '"續寫下一章"',
+    2,
+    "current-continue-label",
+  );
+  source = replaceExact(
+    source,
+    '"改寫目前內容"',
+    '"改寫選取內容"',
+    "current-rewrite-label",
+  );
+  source = replaceAllExact(
+    source,
+    '"放棄不採用"',
+    '"暫時不用"',
+    2,
+    "current-discard-label",
+  );
+  source = replaceAllExact(
+    source,
+    '"採用並寫入作品"',
+    '"採用這份建議"',
+    2,
+    "current-quick-approval-label",
+  );
+  source = replaceExact(
+    source,
+    "    /原文 \\d+ 字.*候選內容 \\d+ 字/u,",
+    "    /目前 \\d+ 字.*核准後 \\d+ 字/u,",
+    "current-diff-summary",
+  );
+  source = replaceExact(
+    source,
+    '"採用全文並寫入作品"',
+    '"核准並套用目前章節"',
+    "current-workspace-approval-label",
+  );
+  source = replaceBetween(
+    source,
+    "async function backupRestoreGate(page, projectId) {",
+    "\nfunction writeFlowEvidence({",
+    `async function backupRestoreGate(page, projectId) {
+  const before = await novelSnapshot(page, projectId);
+  const semanticHashBeforeBackup = canonHash(before);
+  setPhase("BACKUP");
+  await page.goto(\`\${previewUrl}/studio/project/\${projectId}/backups\`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.getByRole("heading", {
+    name: "備份與還原",
+    exact: true,
+  }).first().waitFor();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", {
+    name: "完整備份並下載",
+    exact: true,
+  }).click();
+  const download = await downloadPromise;
+  await page.getByText(/備份完成，大小約/u).waitFor({ timeout: 60_000 });
+  assert.ok(await download.suggestedFilename());
+  const fullBackupArticle = page
+    .locator(".p2DataList article")
+    .filter({
+      has: page.getByText("完整備份", { exact: true }),
+    })
+    .first();
+  setPhase("RESTORE");
+  page.once("dialog", (dialog) => void dialog.accept());
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 90_000 }),
+    fullBackupArticle
+      .getByRole("button", { name: "還原", exact: true })
+      .click(),
+  ]);
+  await page.getByRole("heading", {
+    name: "備份與還原",
+    exact: true,
+  }).first().waitFor();
+  const restored = await novelSnapshot(page, projectId);
+  const semanticHashAfterRestore = canonHash(restored);
+  assert.equal(semanticHashAfterRestore, semanticHashBeforeBackup);
+  return {
+    semanticHashBeforeBackup,
+    semanticHashAfterRestore,
+    semanticHashMatch: true,
+    productOwnedReload: true,
+    downloaded: true,
+  };
+}
+`,
+    "current-backup-restore-ui",
   );
 
   source = replaceExact(
@@ -414,6 +520,17 @@ function runSelfTest() {
     currentCreateUi:
       transformed.includes("name: /空白建立/u")
       && transformed.includes("作品名稱（可留白）"),
+    currentQuickAssistantUi:
+      transformed.includes('"續寫下一章"')
+      && transformed.includes('"改寫選取內容"')
+      && transformed.includes('"暫時不用"')
+      && transformed.includes('"採用這份建議"')
+      && transformed.includes("/目前 \\d+ 字.*核准後 \\d+ 字/u"),
+    currentWorkspaceUi:
+      transformed.includes('"核准並套用目前章節"'),
+    currentBackupRestoreUi:
+      transformed.includes('"完整備份並下載"')
+      && transformed.includes('"備份與還原"'),
     correctedProofLabel: transformed.includes('proof["離開裝置"]'),
     operatorWait: transformed.includes("timeout: 600_000"),
     gateCountIsBlockingCount: transformed.includes(
@@ -429,7 +546,10 @@ function runSelfTest() {
       /^file:/u.test(installedPlaywright) && dependencyProbe.status === 0,
     dependencyUrlNotRewritten: transformed.includes(fixturePlaywrightUrl),
   };
-  assert.ok(Object.values(checks).every(Boolean), "R23_RUNNER_SELF_TEST_FAILED");
+  assert.ok(
+    Object.values(checks).every(Boolean),
+    `R23_RUNNER_SELF_TEST_FAILED:${JSON.stringify(checks)}`,
+  );
   process.stdout.write(`${JSON.stringify({
     status: "PASS",
     suite: "pr23-r23-runner-transform",
