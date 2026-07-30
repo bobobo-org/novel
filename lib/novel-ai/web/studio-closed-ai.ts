@@ -3,10 +3,12 @@ import type {
   PlatformAIRequest,
   PlatformAIResult,
   PlatformProviderId,
+  PlatformProviderCapability,
   PlatformProviderSnapshot,
   PlatformTaskType,
 } from "../router/platform-types";
 import { executeStudioClosedAgent } from "./closed-agent-os-service";
+import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -19,6 +21,10 @@ export type StudioClosedAISnapshot = {
   providerId: PlatformProviderId | null;
   modelId: string | null;
   providers: PlatformProviderSnapshot[];
+  actualExecutor?: PlatformProviderId | "not_executed";
+  executionStatus?: "routable" | "not_executed";
+  reasonCode?: string;
+  recommendedNextAction?: string;
 };
 
 export type StudioClosedAITaskInput = {
@@ -56,6 +62,55 @@ export async function discoverStudioClosedAI(
   signal?: AbortSignal,
   readSnapshots: SnapshotReader = localProviderSnapshots,
 ): Promise<StudioClosedAISnapshot> {
+  if (readSnapshots === localProviderSnapshots) {
+    const runtime = await getStudioClosedAIRuntimeCoordinator().refresh({
+      projectId: "studio-discovery",
+      taskType: "chapter.continue",
+      signal,
+    });
+    const providers = runtime.backends.map((provider) => ({
+      id: provider.id,
+      status: provider.status === "ready"
+        ? "ready" as const
+        : provider.status === "degraded"
+          ? "degraded" as const
+          : "runtime_unavailable" as const,
+      capabilities: provider.capabilities as PlatformProviderCapability[],
+      modelId: provider.modelId,
+      modelDigest: provider.modelDigest,
+      maxContext: provider.maxContext ?? 0,
+      local: provider.local,
+      requiresInternet: false,
+      detail: provider.detailCode,
+    }));
+    if (runtime.route.executionStatus === "routable") {
+      const providerId = runtime.route.backend.id;
+      return {
+        status: providerId === "local-ollama"
+          ? "ollama_ready"
+          : "browser_ready",
+        providerId,
+        modelId: runtime.activeModel,
+        providers,
+        actualExecutor: providerId,
+        executionStatus: "routable",
+        reasonCode: runtime.route.reasonCode,
+        recommendedNextAction: runtime.nextAction,
+      };
+    }
+    return {
+      status: runtime.localNetworkPermission === "denied"
+        ? "auth_required"
+        : "runtime_required",
+      providerId: null,
+      modelId: null,
+      providers,
+      actualExecutor: "not_executed",
+      executionStatus: "not_executed",
+      reasonCode: runtime.route.reasonCode,
+      recommendedNextAction: runtime.nextAction,
+    };
+  }
   const providers = await readSnapshots(signal);
   const localOllama = providers.find((provider) => provider.id === "local-ollama");
   const browserAI = providers.find((provider) => provider.id === "browser-ai");
@@ -107,8 +162,11 @@ export async function runStudioClosedAI(
       model: result.candidate.modelId,
       modelDigest: result.candidate.modelDigest,
       content: result.candidate.content,
-      dataLeftDevice: false,
-      externalRequest: false,
+      actualExecutor: result.candidate.actualExecutor ?? result.candidate.backendId,
+      contextDigest: result.candidate.contextDigest ?? null,
+      contextSourceSummary: result.candidate.contextSourceSummary ?? null,
+      dataLeftDevice: result.candidate.dataLeftDevice ?? false,
+      externalRequest: result.candidate.externalRequest ?? false,
       warnings: result.candidate.evaluation.warningCodes,
       ledgerHeadHash: result.ledgerHeadHash,
       canonicalMutationCount: result.candidate.canonicalMutationCount,

@@ -566,6 +566,29 @@ export class ClosedAgentOS {
         adapterDigest: execution.adapterDigest ?? null,
         content: execution.content,
         contentDigest: await sha256Hex(execution.content),
+        actualExecutor: execution.backendId,
+        contextDigest: request.contextDigest ?? await sha256Hex(
+          stableStringify(request.context.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            visibility: item.visibility,
+            privacyLevel: item.privacyLevel,
+            approved: item.approved,
+            text: item.text,
+          }))),
+        ),
+        contextSourceSummary: request.contextSourceSummary ?? stableStringify(
+          Object.fromEntries(
+            [...new Set(request.context.map((item) => item.kind))]
+              .sort()
+              .map((kind) => [
+                kind,
+                request.context.filter((item) => item.kind === kind).length,
+              ]),
+          ),
+        ),
+        dataLeftDevice: execution.dataLeftDevice,
+        externalRequest: execution.externalRequest,
         planDigest: plan.planDigest,
         evaluation,
         status: "awaiting-approval",

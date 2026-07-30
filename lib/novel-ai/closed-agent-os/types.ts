@@ -101,6 +101,8 @@ export type ClosedAgentTaskRequest = {
   allowedToolIds: string[];
   permissionScopes: string[];
   learningConfiguration?: Record<string, string | number | boolean>;
+  contextDigest?: string;
+  contextSourceSummary?: string;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -222,6 +224,11 @@ export type ClosedAgentCandidate = {
   adapterDigest?: string | null;
   content: string;
   contentDigest: string;
+  actualExecutor?: ClosedAIBackendId;
+  contextDigest?: string;
+  contextSourceSummary?: string;
+  dataLeftDevice?: boolean;
+  externalRequest?: boolean;
   planDigest: string;
   evaluation: ClosedAgentEvaluation;
   status: "awaiting-approval" | "approved" | "rejected" | "committed" | "rolled-back";
