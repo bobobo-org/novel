@@ -60,7 +60,8 @@ test("備份包含閱讀進度", () => studio.includes("readingProgress") && stu
 test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("discoverStudioClosedAI"));
 test("Browser AI誠實標示裝置相依", () => health.includes('browserAiStatus: "runtime_ready_device_dependent"'));
 test("Ollama消費者接線誠實標示需本機環境", () => health.includes('ollamaConsumerIntegrationStatus: "runtime_required"'));
-test("IndexedDB遷移誠實標示未完成", () => health.includes('indexedDbMigrationStatus: "not_implemented"'));
+test("IndexedDB遷移誠實標示由瀏覽器執行", () =>
+  health.includes('indexedDbMigrationStatus: "client_runtime_migration_ready"'));
 test("平台整體狀態未冒充全數完成", () => health.includes('consumerPlatformClosureStatus: "partial"'));
 test("一般模式沒有固定英文模板", () => !studio.includes("The next scene continues from the selected evidence"));
 test("技術資料預設收合", () => compactStudio.includes("<details><summary>查看技術資訊</summary>"));

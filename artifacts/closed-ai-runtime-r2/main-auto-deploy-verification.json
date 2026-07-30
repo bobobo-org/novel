@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "novel-main-auto-deploy-verification-v1",
+  "checkedAt": "2026-07-30T13:17:07.656Z",
+  "repository": "bobobo-org/novel",
+  "requestedBranch": "main",
+  "githubDefaultBranchAtAudit": "codex/ai-story-generation",
+  "targetProductionUrl": "https://novel-orcin.vercel.app/",
+  "deploymentMechanism": "github-actions-vercel-cli",
+  "workflow": {
+    "path": ".github/workflows/deploy.yml",
+    "pushBranches": [
+      "main"
+    ],
+    "pullRequestBranches": [
+      "main"
+    ],
+    "productionCondition": "github.ref == 'refs/heads/main'",
+    "projectBindingSource": [
+      "VERCEL_ORG_ID secret",
+      "VERCEL_PROJECT_ID secret",
+      "VERCEL_TOKEN secret"
+    ],
+    "primaryAlias": "novel-orcin.vercel.app",
+    "mirrorAlias": "novel-lqtechs-projects.vercel.app",
+    "stagedVerificationRequired": true,
+    "primaryVerificationRequired": true,
+    "automaticRollbackConfigured": true
+  },
+  "latestMainPushRun": {
+    "runId": 30535708969,
+    "jobId": 90848391438,
+    "headSha": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "event": "push",
+    "headBranch": "main",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/bobobo-org/novel/actions/runs/30535708969",
+    "completedSteps": [
+      "Pull Vercel environment (production)",
+      "Build (production)",
+      "Deploy staged production",
+      "Verify staged production",
+      "Update mirror alias before primary cutover",
+      "Verify mirror alias",
+      "Promote primary alias with automatic rollback"
+    ]
+  },
+  "productionIdentityBeforeThisChange": {
+    "statusCode": 200,
+    "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "deploymentId": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "releaseTag": "novel-ai-p24b-character-agent-rc2",
+    "cacheControl": "no-store, max-age=0",
+    "vercelCache": "MISS"
+  },
+  "directVercelProjectAudit": {
+    "currentCliIdentity": "brendon1006-2299",
+    "targetProjectVisibleToCurrentCli": false,
+    "nativeVercelGitIntegrationInspected": false,
+    "reason": "The existing CLI session can only access novel-brendon. No pasted token was used."
+  },
+  "verdict": {
+    "mainPushAutoDeploymentConfigured": true,
+    "latestMainPushAutoDeploymentSucceeded": true,
+    "verifiedPath": "GitHub push(main) -> GitHub Actions -> staged Vercel production -> health identity verification -> mirror alias -> primary alias -> automatic rollback on failed verification",
+    "productionModifiedByThisAudit": false,
+    "nativeVercelGitIntegrationClaimed": false
+  }
+}

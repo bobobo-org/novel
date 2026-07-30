@@ -1,0 +1,182 @@
+{
+  "suite": "closed-ai-runtime-truth-persistence-product-recovery-r2",
+  "mode": "all",
+  "passed": 15,
+  "failed": 0,
+  "blockingSkip": 0,
+  "results": [
+    {
+      "scope": "health-surface-separation",
+      "name": "health surfaces expose one responsibility each",
+      "status": "PASS",
+      "elapsedMs": 3.78,
+      "detail": {
+        "releaseSurface": "isolated",
+        "cloudSurface": "external-and-consent-required",
+        "persistenceSurface": "client-local-plus-cloud",
+        "healthGetWrites": 0
+      }
+    },
+    {
+      "scope": "server-ollama-semantic-truth",
+      "name": "server Ollama health cannot impersonate the browser loopback runtime",
+      "status": "PASS",
+      "elapsedMs": 1.21,
+      "detail": {
+        "serverProbeAttempts": 0,
+        "clientLoopbackRequired": true
+      }
+    },
+    {
+      "scope": "client-runtime-coordinator",
+      "name": "coordinator reports the selected executor instead of API availability",
+      "status": "PASS",
+      "elapsedMs": 3.45,
+      "detail": {
+        "state": "ready_standard",
+        "actualExecutor": "local-ollama",
+        "apiAvailabilityUsedAsExecutor": false
+      }
+    },
+    {
+      "scope": "client-runtime-coordinator",
+      "name": "twenty-scenario runtime and persistence matrix has no silent fallback",
+      "status": "PASS",
+      "elapsedMs": 0.88,
+      "detail": {
+        "scenarios": 20,
+        "passed": 20,
+        "silentExternalFallback": 0
+      }
+    },
+    {
+      "scope": "route-discovery-execution-parity",
+      "name": "route resolution and execution lock the same backend",
+      "status": "PASS",
+      "elapsedMs": 47.66,
+      "detail": {
+        "discovered": "local-ollama",
+        "executed": "local-ollama",
+        "preApprovalCanonicalMutationCount": 0
+      }
+    },
+    {
+      "scope": "browser-task-vs-generative",
+      "name": "packaged browser task model cannot generate standard prose",
+      "status": "PASS",
+      "elapsedMs": 2.12,
+      "detail": {
+        "packagedTaskModelProseGeneration": 0,
+        "nativePromptMaximumComplexity": "standard"
+      }
+    },
+    {
+      "scope": "pairing-session-reload",
+      "name": "tab-only pairing reload revalidates instance, model, and proof",
+      "status": "PASS",
+      "elapsedMs": 25.38,
+      "detail": {
+        "restoredRequests": 3,
+        "exactOriginEnforced": true,
+        "expiredSessionRejected": true,
+        "localStorageWrites": 0
+      }
+    },
+    {
+      "scope": "indexeddb-supabase-decoupling",
+      "name": "missing IndexedDB never becomes an in-memory canonical store",
+      "status": "PASS",
+      "elapsedMs": 6.75,
+      "detail": {
+        "silentMemoryFallback": false,
+        "localCanonicalAuthority": "IndexedDB"
+      }
+    },
+    {
+      "scope": "indexeddb-supabase-decoupling",
+      "name": "newer public-frontdoor edits migrate into the existing canonical project",
+      "status": "PASS",
+      "elapsedMs": 3.38,
+      "detail": {
+        "projectCount": 1,
+        "latestChapterContentApplied": true,
+        "repeatedMigrationRevisionStable": true
+      }
+    },
+    {
+      "scope": "supabase-degraded-local-flow",
+      "name": "Supabase failure leaves healthy local canonical features enabled",
+      "status": "PASS",
+      "elapsedMs": 0.17,
+      "detail": {
+        "localFlowBlockedBySupabaseError": 0,
+        "cloudDegradedMode": "CLOUD_DEGRADED",
+        "indexedDbBlockedMode": "LOCAL_BLOCKED"
+      }
+    },
+    {
+      "scope": "supabase-migration-idempotency",
+      "name": "P0-B2 migration is additive and repeatable",
+      "status": "PASS",
+      "elapsedMs": 0.85,
+      "detail": {
+        "destructiveStatements": 0,
+        "firstApplyObjects": 6,
+        "secondApplyObjects": 6
+      }
+    },
+    {
+      "scope": "project-context-composer",
+      "name": "composer includes canonical project layers and withholds author-only data",
+      "status": "PASS",
+      "elapsedMs": 2.31,
+      "detail": {
+        "contextDigest": "52d0f385b9c3e48b31719d2f1282bf8aa5d02e6f356a4972049db9cf592f6ca6",
+        "includedSources": [
+          "PROJECT_METADATA",
+          "APPROVED_STORY_BIBLE",
+          "ACTIVE_CHAPTER",
+          "PROJECT_SEED",
+          "RPG_STORY_STATE",
+          "CHARACTERS",
+          "TASKS_AND_ACHIEVEMENTS"
+        ],
+        "authorOnlyLeak": 0
+      }
+    },
+    {
+      "scope": "quick-assistant-parity",
+      "name": "Studio AI entry points converge on the same Closed Agent OS service",
+      "status": "PASS",
+      "elapsedMs": 1.48,
+      "detail": {
+        "entryPointsChecked": 5,
+        "coordinatorCount": 1,
+        "routingImplementationCount": 1
+      }
+    },
+    {
+      "scope": "approval-local-with-cloud-down",
+      "name": "local approval remains candidate-only unless a canonical commit is supplied",
+      "status": "PASS",
+      "elapsedMs": 15.46,
+      "detail": {
+        "preApprovalCanonicalMutationCount": 0,
+        "postApprovalWithoutCommitMutationCount": 0,
+        "supabaseRequired": false
+      }
+    },
+    {
+      "scope": "release-identity-alias",
+      "name": "release identity and offline assets are commit-bound and non-cacheable",
+      "status": "PASS",
+      "elapsedMs": 0.56,
+      "detail": {
+        "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+        "assetManifestDigest": "3c8e3dcef99157c7ec1477a37c9f032aa51eb9554471355bb087dca756883312",
+        "cacheHeaders": "no-store",
+        "restartRecovery": true
+      }
+    }
+  ]
+}

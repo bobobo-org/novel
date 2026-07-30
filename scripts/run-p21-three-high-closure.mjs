@@ -69,7 +69,17 @@ const catalog = resolveCapabilityCatalog(), healthSource = await readFile(new UR
 await test("28 Health/capability consistency", async () => { for (const id of ["repository.approvalTransaction","repository.revisionGuard","repository.idempotency","backup.approvalTransactions","backup.idempotencyRecords"]) assert.ok(healthSource.includes(id)); });
 await test("29 Unsupported cannot be ready", async () => { assert.equal(capabilityStatus(catalog,"missing.capability"), "not_implemented"); });
 await test("30 Partial cannot be full", async () => { assert.equal(catalog["indexedDb.fullAdoption"].effectiveStatus, "partial"); });
-await test("31 Test-ready cannot be production-ready", async () => { assert.equal(catalog["browser.permissionGateway"].effectiveStatus, "client_dependent"); assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "not_implemented"); });
+await test("31 Packaged Browser light runtime does not imply a generative browser LLM", async () => {
+  assert.equal(
+    catalog["browser.permissionGateway"].effectiveStatus,
+    "client_dependent",
+  );
+  assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "ready");
+  assert.match(
+    catalog["browser.aiRuntime"].limitations.join(" "),
+    /light extractive tasks|generative Browser AI remains device-dependent/i,
+  );
+});
 await test("32 Studio A/B/C acceptance", async () => { assert.match(studioSource, /choice\.key/); assert.match(studioSource, /acceptStudioChoice/); });
 await test("33 Studio abandon candidate", async () => { assert.match(studioSource, /暫時不採用/); assert.match(studioSource, /discard/); });
 await test("34 Main-character card", async () => { assert.match(studioSource, /function WorldScreen/); assert.match(studioSource, /查看主角|編輯角色/); });

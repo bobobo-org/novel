@@ -624,7 +624,8 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(aiSource.includes("qualityMode"));
   assert.ok(aiSource.includes("approveStudioClosedAgentCandidate"));
   assert.ok(workspaceSource.includes("品質模式"));
-  assert.ok(workspaceSource.includes("STUDIO_CLOSED_AGENT_TOOL_IDS"));
+  assert.ok(workspaceSource.includes("executeStudioClosedAgent"));
+  assert.ok(closedAgentServiceSource.includes("STUDIO_CLOSED_AGENT_TOOL_IDS"));
   assert.ok(closedAgentServiceSource.includes("createStudioClosedAgentToolRegistry"));
   assert.ok(closedAgentToolsSource.includes("acceptance-checklist"));
   assert.ok(closedAgentToolsSource.includes("story-context-index"));

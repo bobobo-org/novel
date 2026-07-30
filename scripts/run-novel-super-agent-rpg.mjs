@@ -339,13 +339,15 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
   assert.match(workspace, /確認選擇並寫入故事/u);
   assert.match(workspace, /我喜歡的人物庫/u);
-  assert.match(serviceWorker, /novel-studio-offline-v2/u);
+  assert.match(serviceWorker, /NOVEL_RELEASE_IDENTITY/u);
+  assert.match(serviceWorker, /identity\.appCommit[\s\S]*identity\.assetManifestDigest/u);
+  assert.match(serviceWorker, /retainOnly\(cacheName\)/u);
   assert.match(serviceWorker, /url\.pathname\.startsWith\("\/_next\/static\/"\)[\s\S]*networkFirst\(request\)/u);
   return {
     navigation: "RPG route present",
     mobileMenu: "four-column non-overflow grid",
     approval: "explicit",
-    updateStrategy: "network-first application code with offline cache fallback",
+    updateStrategy: "commit-and-digest cache identity with network-first application code",
   };
 });
 

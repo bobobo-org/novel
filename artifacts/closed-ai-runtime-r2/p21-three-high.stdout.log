@@ -1,6 +1,10 @@
 {
   "suite": "p21-three-high-45",
-  "generatedAt": "2026-07-30T13:23:47.291Z",
+  "generatedAt": "2026-07-30T13:23:47.668Z",
+  "pass": 45,
+  "fail": 0,
+  "skip": 0,
+  "todo": 0,
   "results": [
     {
       "name": "01 First approval",
@@ -211,6 +215,21 @@
       "name": "42 Sensitive-information scan",
       "status": "PASS",
       "elapsedMs": 6
+    },
+    {
+      "name": "43 Manifest verification",
+      "status": "PASS",
+      "elapsedMs": 1
+    },
+    {
+      "name": "44 Node UTF-8 JSON parse",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "45 PowerShell ConvertFrom-Json parse",
+      "status": "PASS",
+      "elapsedMs": 375
     }
   ]
 }
