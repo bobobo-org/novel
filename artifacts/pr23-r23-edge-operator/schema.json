@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pr23-r23-edge-operator-evidence-v1",
+  "title": "PR23 R2.3 Native Edge operator evidence bundle",
+  "type": "object",
+  "required": [
+    "verdict",
+    "requirements",
+    "files"
+  ],
+  "properties": {
+    "verdict": {
+      "enum": [
+        "PR23_R2_3_EDGE_OPERATOR_GATE_PASS",
+        "PR23_R2_3_EDGE_OPERATOR_GATE_BLOCKED",
+        "PR23_R2_3_EDGE_OPERATOR_GATE_FAILED"
+      ]
+    },
+    "requirements": {
+      "type": "array"
+    },
+    "files": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true
+}
