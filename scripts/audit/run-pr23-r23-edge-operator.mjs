@@ -632,15 +632,28 @@ assert.equal(
     )
     || (
       loopbackPath === "/model/verify"
-      && record.phase === "RELOAD_RECOVERY"
+      && [
+        "PAIR_CONFIRM",
+        "FULL_WORKSPACE",
+        "RELOAD_RECOVERY",
+        "BACKUP",
+      ].includes(record.phase)
     );
+  const pairedRuntimeAtRecord =
+    record.runtimeReadyAtRecord === true
+    && record.pairingStateAtRecord === "paired";
+  const initialPairingVerification =
+    loopbackPath === "/model/verify"
+    && record.phase === "PAIR_CONFIRM"
+    && record.runtimeReadyAtRecord === false
+    && record.pairingStateAtRecord === "requested"
+    && pairing?.bridge?.proofState === "inference_verified";
   if (
     record.kind === "requestfailed"
     && record.requestMethod === "POST"
     && String(record.failureTextRedacted ?? "").toUpperCase()
       === "NET::ERR_ABORTED"
-    && record.runtimeReadyAtRecord === true
-    && record.pairingStateAtRecord === "paired"
+    && (pairedRuntimeAtRecord || initialPairingVerification)
     && completedLoopbackPhase
     && samePhaseLoopbackResponse
   ) {
@@ -650,6 +663,30 @@ assert.equal(
       reason: "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
       expectedByContract: true,
       contractReference: "successful local Bridge stream completion and reload session revalidation contract",
+      userVisibleImpact: false,
+      retryable: false,
+      resolvedDuringFlow: true,
+    };
+  }
+  const identityNavigationAbort =
+    record.kind === "requestfailed"
+    && record.requestMethod === "GET"
+    && String(record.failureTextRedacted ?? "").toUpperCase()
+      === "NET::ERR_ABORTED"
+    && /^https:\\/\\/novel-[a-z0-9-]+\\.vercel\\.app\\/api\\/release\\/identity$/iu.test(
+      String(record.requestUrlRedacted ?? ""),
+    )
+    && ["RELOAD_RECOVERY", "BACKUP", "RESTORE"].includes(record.phase)
+    && releaseIdentity?.appCommit === expectedMergeRef
+    && releaseIdentity?.deploymentId === expectedDeploymentId
+    && releaseIdentity?.provenanceStatus === "verified";
+  if (identityNavigationAbort) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "Navigation cancelled a same-origin release identity refresh after the authoritative identity had already been verified.",
+      expectedByContract: true,
+      contractReference: "verified preview identity and navigation cancellation contract",
       userVisibleImpact: false,
       retryable: false,
       resolvedDuringFlow: true,
@@ -671,6 +708,62 @@ assert.equal(
     };
   }`,
     "successful-loopback-abort",
+  );
+  source = replaceExact(
+    source,
+    "  if (security) {",
+    `  const optionalPrivateHubHealthProbe =
+    /http:\\/\\/127\\.0\\.0\\.1:3227\\/health(?:\\s|$|[?#])/iu.test(text)
+    && ["FULL_WORKSPACE", "RELOAD_RECOVERY"].includes(record.phase)
+    && record.runtimeReadyAtRecord === true
+    && record.pairingStateAtRecord === "paired"
+    && pairing?.bridge?.proofState === "inference_verified"
+    && fullWorkspace?.candidate?.actualExecutor === "local-ollama"
+    && (
+      (
+        record.kind === "requestfailed"
+        && record.requestMethod === "GET"
+        && /(?:ERR_FAILED|ERR_CONNECTION_REFUSED)/iu.test(
+          String(record.failureTextRedacted ?? ""),
+        )
+      )
+      || (
+        record.kind === "console"
+        && (
+          /blocked by CORS policy:[\\s\\S]*No 'Access-Control-Allow-Origin'/iu.test(
+            String(record.message ?? ""),
+          )
+          || /^Failed to load resource:\\s*net::ERR_(?:FAILED|CONNECTION_REFUSED)$/iu.test(
+            String(record.message ?? ""),
+          )
+        )
+      )
+    );
+  if (optionalPrivateHubHealthProbe) {
+    return {
+      classification: "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      blocking: false,
+      reason: "The command center discovered that the optional unpaired Private Hub health endpoint was unavailable while the verified Local Ollama backend remained selected.",
+      expectedByContract: true,
+      contractReference: "three-backend discovery with locked local-ollama execution",
+      userVisibleImpact: false,
+      retryable: true,
+      resolvedDuringFlow: true,
+    };
+  }
+  if (security) {`,
+    "optional-private-hub-health-probe",
+  );
+  source = replaceExact(
+    source,
+    `      "EXPECTED_CANCELLED_REQUEST",
+      "EXPECTED_CLOUD_DEGRADED_PROBE",
+      "BROWSER_NOISE",`,
+    `      "EXPECTED_CANCELLED_REQUEST",
+      "EXPECTED_CLOUD_DEGRADED_PROBE",
+      "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "BROWSER_NOISE",`,
+    "optional-backend-summary-count",
   );
   source = replaceExact(
     source,
@@ -922,7 +1015,20 @@ function runSelfTest() {
       && transformed.includes("record.sequence - candidate.sequence <= 2"),
     completedLoopbackAbortBound:
       transformed.includes("samePhaseLoopbackResponse")
-      && transformed.includes('loopbackPath === "/model/verify"'),
+      && transformed.includes('loopbackPath === "/model/verify"')
+      && transformed.includes("initialPairingVerification"),
+    identityNavigationAbortBound:
+      transformed.includes("identityNavigationAbort")
+      && transformed.includes(
+        "releaseIdentity?.deploymentId === expectedDeploymentId",
+      ),
+    optionalPrivateHubProbeBound:
+      transformed.includes("optionalPrivateHubHealthProbe")
+      && transformed.includes("127\\.0\\.0\\.1:3227\\/health")
+      && transformed.includes("EXPECTED_OPTIONAL_BACKEND_PROBE")
+      && transformed.includes(
+        'fullWorkspace?.candidate?.actualExecutor === "local-ollama"',
+      ),
     strictAbcDiagnostics:
       transformed.includes("ABC_CHOICES_INVALID_STRUCTURE")
       && transformed.includes("sourceFormat: parsedChoices.sourceFormat"),
