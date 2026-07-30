@@ -1,4 +1,4 @@
-import { executePlatformAI, localProviderSnapshots } from "../router/platform-executor";
+import { localProviderSnapshots } from "../router/platform-executor";
 import type {
   PlatformAIRequest,
   PlatformAIResult,
@@ -6,6 +6,7 @@ import type {
   PlatformProviderSnapshot,
   PlatformTaskType,
 } from "../router/platform-types";
+import { executeStudioClosedAgent } from "./closed-agent-os-service";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -72,16 +73,52 @@ export async function discoverStudioClosedAI(
 
 export async function runStudioClosedAI(
   input: StudioClosedAITaskInput,
-  execute: PlatformExecutor = executePlatformAI,
+  execute?: PlatformExecutor,
 ) {
   const requestId = `studio-closed-${crypto.randomUUID()}`;
   const targetInstruction = input.targetLength
     ? `\n\n請將候選內容控制在約 ${input.targetLength} 個中文字以內。`
     : "";
+  const taskType = studioPlatformTaskType(input.task);
+
+  if (!execute) {
+    const result = await executeStudioClosedAgent({
+      projectId: input.projectId,
+      taskType,
+      objective: `${input.input}${targetInstruction}`,
+      taskId: requestId,
+      signal: input.signal,
+      promptProfileVersion: "studio-legacy-entry-v3",
+    });
+    if (
+      !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
+      || result.candidate.canonicalMutationCount !== 0
+    ) {
+      throw Object.assign(
+        new Error("Closed Agent OS returned a result outside the device-only candidate boundary."),
+        { code: "CLOSED_AI_BOUNDARY_VIOLATION" },
+      );
+    }
+    return {
+      taskId: result.task.id,
+      candidateId: result.candidate.id,
+      status: "awaiting_approval" as const,
+      provider: result.candidate.backendId,
+      model: result.candidate.modelId,
+      modelDigest: result.candidate.modelDigest,
+      content: result.candidate.content,
+      dataLeftDevice: false,
+      externalRequest: false,
+      warnings: result.candidate.evaluation.warningCodes,
+      ledgerHeadHash: result.ledgerHeadHash,
+      canonicalMutationCount: result.candidate.canonicalMutationCount,
+    };
+  }
+
   const result = await execute({
     requestId,
     projectId: input.projectId,
-    taskType: studioPlatformTaskType(input.task),
+    taskType,
     privacyMode: "strict-local",
     privacyLevel: "device_only",
     fallbackPolicy: "closed-only",

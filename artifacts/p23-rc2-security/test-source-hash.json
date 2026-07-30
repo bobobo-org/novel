@@ -1,5 +1,5 @@
 {
   "algorithm": "sha256",
   "script": "scripts/run-p23-rc2-security.mjs",
-  "hash": "9c643d3c430f533e962b76c98c510ca6b1034ea5e745ab530fa83483bbb54fbe"
+  "hash": "d52ba92a44b65c8ebb5fafc6a2369c715c16d52076489b8cc991377ce5928229"
 }

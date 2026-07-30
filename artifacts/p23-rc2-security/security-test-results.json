@@ -1,6 +1,6 @@
 {
   "suite": "P2.3 RC2 Knowledge Security and Supply Chain",
-  "runAt": "2026-07-27T23:51:25.915Z",
+  "runAt": "2026-07-29T14:32:26.009Z",
   "pass": 59,
   "fail": 0,
   "skip": 0,
@@ -14,17 +14,17 @@
     {
       "name": "PI-01 blocks INSTRUCTION_OVERRIDE",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 7
     },
     {
       "name": "PI-02 blocks ROLE_IMPERSONATION",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "PI-03 blocks CROSS_SCOPE_ACCESS",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "PI-04 blocks CANONICAL_MUTATION",
@@ -44,7 +44,7 @@
     {
       "name": "PI-07 blocks EXTERNAL_TRANSFER",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "PI-08 blocks HIDDEN_INSTRUCTION",
@@ -74,7 +74,7 @@
     {
       "name": "PI-13 blocks INSTRUCTION_OVERRIDE",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "PI-14 blocks ROLE_IMPERSONATION",
@@ -99,7 +99,7 @@
     {
       "name": "HTML hidden instructions are audited before markup removal",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 4
     },
     {
       "name": "structured tool keys are removed recursively",
@@ -109,17 +109,17 @@
     {
       "name": "closed-only router ignores an injected external preference",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "taint propagates through every declared processing stage",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "cross-story and adult namespace isolation are fail closed",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 4
     },
     {
       "name": "registered source taint reaches chunks and embedding metadata",
@@ -129,7 +129,7 @@
     {
       "name": "duplicate flood detection penalizes repeated false documents",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "approved newest revision outranks stale unapproved data",
@@ -179,7 +179,7 @@
     {
       "name": "PARSER-01 fails closed with DOCUMENT_TOO_LARGE",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "PARSER-02 fails closed with DOCUMENT_DEPTH_EXCEEDED",
@@ -189,7 +189,7 @@
     {
       "name": "PARSER-03 fails closed with DOCUMENT_PATH_TRAVERSAL_REJECTED",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "PARSER-04 fails closed with DOCUMENT_ARCHIVE_BOMB_REJECTED",
@@ -209,7 +209,7 @@
     {
       "name": "malicious controls are normalized without external side effects",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "PDF fails closed before any partial indexing",
@@ -229,7 +229,7 @@
     {
       "name": "SUPPLY-01 rejects MODEL_DIGEST_MISMATCH",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "SUPPLY-02 rejects MODEL_FILE_SIZE_MISMATCH",
@@ -274,12 +274,12 @@
     {
       "name": "unknown model cannot transition directly to active",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "layered evaluator preserves deterministic authority",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "layered evaluator blocks silent external switch and mutation",
@@ -289,7 +289,7 @@
     {
       "name": "generation replay manifest is content-hash based and contains no prompt",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "generation concurrency limiter fails closed and releases slots",
@@ -302,9 +302,9 @@
       "elapsedMs": 0
     },
     {
-      "name": "capability truth matrix never marks contract-only runtimes available",
+      "name": "capability truth matrix requires evidence and preserves remaining contract-only gates",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     }
   ]
 }

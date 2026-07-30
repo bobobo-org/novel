@@ -18,6 +18,7 @@ export const BROWSER_AI_LIGHT_TASKS: PlatformTaskType[] = [
   "character.emotionClassify",
   "character.relationshipEventClassify",
   "character.dialogueConsistency",
+  "game.stateEvaluation",
 ];
 
 export const HEAVY_TASKS = new Set<PlatformTaskType>([

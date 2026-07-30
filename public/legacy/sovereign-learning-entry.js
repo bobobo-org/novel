@@ -4,6 +4,8 @@
   function currentProjectId() {
     const params = new URLSearchParams(window.location.search);
     return params.get("projectId")
+      || document.body?.dataset?.frontdoorProjectId
+      || localStorage.getItem("novel_p2_active_project_id")
       || localStorage.getItem("novel_last_project_id")
       || localStorage.getItem("novel_current_project_id")
       || "";

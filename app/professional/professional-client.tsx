@@ -12,7 +12,7 @@ export default function ProfessionalClient() {
   const reload=async()=>{setStatus((value)=>({...value,api:"正在檢查",error:""}));try{const response=await fetch("/api/ai/health",{cache:"no-store"}),raw=await response.json();if(!response.ok)throw new Error(raw?.userMessage||`狀態碼 ${response.status}`);setStatus({api:"正常",database:raw.databaseStatus==="reachable"?"正常":"需要注意",model:raw.model||raw.modelId||"尚未啟動",analyzer:raw.analyzerVersion||raw.storyAnalyzerVersion||"尚未提供",error:"",raw})}catch(reason){setStatus({api:"載入失敗",database:"無法確認",model:"無法確認",analyzer:"無法確認",error:reason instanceof Error?reason.message:"未知錯誤",raw:null})}try{const snapshot=await discoverStudioClosedAI();setLocal(snapshot.status==="ollama_ready"?"本機 AI 已連線":snapshot.status==="browser_ready"?"瀏覽器閉端 AI 已連線":snapshot.status==="auth_required"?"需要本機授權":"尚未啟動")}catch{setLocal("尚未啟動")}try{const saved=JSON.parse(localStorage.getItem("novel_p12_studio_state")||"null");setBackups(Array.isArray(saved?.backups)?saved.backups.length:0)}catch{setBackups(0)}};
   useEffect(()=>{const timer=setTimeout(()=>void reload(),0);return()=>clearTimeout(timer)},[]);
   const groups=[
-    {title:"AI 與執行狀態",items:[`本機故事系統：${status.api}`,`本機 AI：${local}`,"瀏覽器 AI：建置中","外部 AI：預設未啟用","內容隱私：預設不離開裝置"]},
+    {title:"AI 與執行狀態",items:[`本機故事系統：${status.api}`,`本機 AI：${local}`,"瀏覽器 AI：已接入，依裝置模型狀態啟用","Private Hub：需啟動、配對與真實模型驗證","外部 AI：預設未啟用","內容隱私：預設不離開裝置"]},
     {title:"故事資料",items:["前文搜尋與 AI 參考資料","Story Bible 候選與正式記憶","時間線、伏筆與人物世界資料","資料完整性檢查"]},
     {title:"版本與建議稿",items:["草稿與建議稿","正式版本與版本差異","故事分支與安全回復"]},
     {title:"資料管理",items:[`消費者備份：${backups?`${backups} 份`:'尚未建立'}`,"匯入、匯出與資料轉換","本機儲存診斷"]},

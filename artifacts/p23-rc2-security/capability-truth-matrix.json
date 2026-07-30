@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "closed-agent-os-capability-truth-v1",
+  "schemaVersion": "closed-agent-os-capability-truth-v4",
   "capabilities": {
     "knowledge.promptInjectionProtection": {
       "id": "knowledge.promptInjectionProtection",
@@ -37,12 +37,14 @@
     },
     "model.supplyChain": {
       "id": "model.supplyChain",
-      "status": "contract_only",
+      "status": "verified",
       "evidence": [
-        "p23 model supply-chain contract"
+        "SmolLM2 immutable commit hash",
+        "teacher model and license digests",
+        "local-only candidate artifact"
       ],
       "limitations": [
-        "No model download or activation performed"
+        "The LoRA candidate is not activated, merged, promoted, or shared"
       ]
     },
     "evaluation.layered": {
@@ -55,32 +57,38 @@
     },
     "browser.aiRuntime": {
       "id": "browser.aiRuntime",
-      "status": "not_configured",
+      "status": "available",
       "evidence": [
-        "browser provider contract"
+        "Chrome built-in Summarizer capability probe",
+        "packaged extractive model with immutable digest",
+        "fixed-input inference proof"
       ],
       "limitations": [
-        "Requires an installed browser model runtime"
+        "Chrome Summarizer remains device-dependent; the packaged fallback is an extractive light-task model, not a generative LLM"
       ]
     },
     "ollama.localRuntime": {
       "id": "ollama.localRuntime",
       "status": "implemented",
       "evidence": [
-        "loopback bridge and provider adapter"
+        "paired loopback bridge",
+        "authenticated fixed-input model verification",
+        "streaming generation and cancellation"
       ],
       "limitations": [
-        "Availability depends on the client device"
+        "Availability depends on the client device, Ollama process, installed model and in-memory pairing"
       ]
     },
     "privateHub.runtime": {
       "id": "privateHub.runtime",
-      "status": "contract_only",
+      "status": "implemented",
       "evidence": [
-        "private hub request contract"
+        "self-hosted loopback private node",
+        "independent pairing and work queue",
+        "real model verification and streaming transport"
       ],
       "limitations": [
-        "No runtime is connected"
+        "The private node must be running and paired on the client device; no remote cloud hub is claimed"
       ]
     },
     "closedAgentOS.sharedKernel": {
@@ -118,17 +126,41 @@
       "id": "aiCache.sixLayer",
       "status": "verified",
       "evidence": [
-        "exact, semantic, retrieval, plan, tool and model-session cache matrix"
+        "exact, semantic, retrieval, plan, tool and model-session cache matrix",
+        "runtime persistence test across all six layers"
       ],
       "limitations": [
-        "Model KV reuse requires support from the selected runtime"
+        "Ollama owns its in-memory KV implementation; the application persists only runtime-handle metadata"
       ]
     },
     "aiCache.namespaceIsolation": {
       "id": "aiCache.namespaceIsolation",
       "status": "verified",
       "evidence": [
-        "fourteen-field namespace and targeted invalidation matrix"
+        "fourteen-field namespace and targeted invalidation matrix",
+        "role, privacy, revision and model-switch contamination tests"
+      ],
+      "limitations": []
+    },
+    "aiCache.runtimePersistence": {
+      "id": "aiCache.runtimePersistence",
+      "status": "verified",
+      "evidence": [
+        "Browser IndexedDB/OPFS split",
+        "Local Ollama SQLite reopen proof",
+        "Private Hub AES-256-GCM ciphertext and restart proof"
+      ],
+      "limitations": [
+        "Each persistence adapter is available only when its corresponding browser or local runtime is active"
+      ]
+    },
+    "aiCache.authorityBoundary": {
+      "id": "aiCache.authorityBoundary",
+      "status": "verified",
+      "evidence": [
+        "cache_candidate_only authority record",
+        "zero Memory, Learning and Canon mutation counters",
+        "signed approval transaction gate"
       ],
       "limitations": []
     },
@@ -136,20 +168,112 @@
       "id": "learning.controlledOS",
       "status": "verified",
       "evidence": [
-        "consent, privacy filter, evaluator, approval, A/B, version and rollback matrix"
+        "controlled-learning-os-v2 runtime suite",
+        "consent, privacy filter, outcome labeling, evaluator, candidate, signed approval, A/B, version and rollback matrix"
       ],
       "limitations": [
-        "L0 and L1 only; no model-weight changes"
+        "L0/L1 are the active boundary; all adoption remains explicit and reversible"
+      ]
+    },
+    "learning.signalPipeline": {
+      "id": "learning.signalPipeline",
+      "status": "verified",
+      "evidence": [
+        "fourteen eligible outcome classes",
+        "user edit and regenerated-choice tests",
+        "negative-label-only abandoned content test"
+      ],
+      "limitations": [
+        "Signals store digests and bounded metadata, never raw prompts, outputs, or chain-of-thought"
+      ]
+    },
+    "learning.runtimePolicyApplication": {
+      "id": "learning.runtimePolicyApplication",
+      "status": "verified",
+      "evidence": [
+        "router, planner, cache threshold/TTL, retrieval facet ranking, tool ordering and model-context policy tests"
+      ],
+      "limitations": [
+        "An adopted policy guides the selected local/private model; it does not alter model weights"
+      ]
+    },
+    "learning.signedApprovalTransaction": {
+      "id": "learning.signedApprovalTransaction",
+      "status": "verified",
+      "evidence": [
+        "ECDSA approval block membership and full-ledger verification",
+        "forged transaction rejection",
+        "candidate/dataset/version integrity checks"
+      ],
+      "limitations": [
+        "The verifiable ledger is local and blockchain-inspired, not a public consensus network"
+      ]
+    },
+    "learning.l2l3Gate": {
+      "id": "learning.l2l3Gate",
+      "status": "verified",
+      "evidence": [
+        "automatic adapter-weight, private-model-training and distillation fail-closed tests",
+        "separate operator-authorized training runtime"
+      ],
+      "limitations": [
+        "A real LoRA candidate now exists, but activation and automatic adoption remain fail-closed"
       ]
     },
     "ledger.verifiable": {
       "id": "ledger.verifiable",
       "status": "verified",
       "evidence": [
-        "append-only hash-chain, Merkle, ECDSA and content-address matrix"
+        "verifiable architecture v2 matrix",
+        "append-only hash chain, Merkle inclusion proof, ECDSA approval and scoped content-address verification"
       ],
       "limitations": [
-        "Blockchain-inspired local evidence; not a public blockchain"
+        "Blockchain-inspired local/private evidence; not a blockchain or public consensus network"
+      ]
+    },
+    "ledger.immutableEvidence": {
+      "id": "ledger.immutableEvidence",
+      "status": "verified",
+      "evidence": [
+        "independently signed evidence bundle",
+        "evidence digest, block hash, Merkle and signature tamper rejection"
+      ],
+      "limitations": [
+        "Immutable means tampering is detectable; local storage is not claimed to be physically undeletable"
+      ]
+    },
+    "ledger.dataLineage": {
+      "id": "ledger.dataLineage",
+      "status": "verified",
+      "evidence": [
+        "same-ledger parent validation",
+        "explicit rollback target",
+        "queryable lineage trace and cross-ledger rejection"
+      ],
+      "limitations": [
+        "Lineage records digests and identifiers, not raw private content"
+      ]
+    },
+    "ledger.scopedContentAddressing": {
+      "id": "ledger.scopedContentAddressing",
+      "status": "verified",
+      "evidence": [
+        "tenant/project namespace-bound CAS locator",
+        "same-content cross-project isolation and retained-content rehash verification"
+      ],
+      "limitations": [
+        "Retained content remains local and is omitted from evidence exports"
+      ]
+    },
+    "ledger.noConsensusOrReplication": {
+      "id": "ledger.noConsensusOrReplication",
+      "status": "verified",
+      "evidence": [
+        "one Agent OS / three compute backend topology contract",
+        "voting, consensus, public ledger, full replication and per-generation chain cost all disabled"
+      ],
+      "limitations": [
+        "The three AI backends execute work; they are not ledger-maintaining blockchain nodes"
       ]
     },
     "learning.data": {
@@ -228,34 +352,77 @@
         "Samples useful combinations instead of exhaustively enumerating an unbounded space"
       ]
     },
-    "training.model": {
-      "id": "training.model",
-      "status": "not_started",
+    "training.offlinePreferenceModel": {
+      "id": "training.offlinePreferenceModel",
+      "status": "implemented",
       "evidence": [
-        "P2.4A architecture roadmap entry"
+        "pairwise logistic gradient-descent trainer",
+        "immutable artifact digest",
+        "activation and rollback pointer",
+        "Private Hub prompt adapter"
       ],
       "limitations": [
-        "No product implementation, training run, model artifact, or callable runtime exists"
+        "This trains an interpretable style preference adapter; it is not LoRA/QLoRA or an LLM weight update"
+      ]
+    },
+    "training.model": {
+      "id": "training.model",
+      "status": "started",
+      "evidence": [
+        "closed-ai-20260728T214010Z-4b4cf91d",
+        "full-weight digest changed after one optimizer step",
+        "LoRA checkpoint and inference proof"
+      ],
+      "limitations": [
+        "Full-weight work is a pipeline qualification smoke; only the LoRA candidate checkpoint is persisted"
+      ]
+    },
+    "training.lora": {
+      "id": "training.lora",
+      "status": "verified",
+      "evidence": [
+        "230400 trainable parameters updated",
+        "two optimizer steps",
+        "adapter digest 31d13501e0f0e28082060b196c313f1a205e08bbe63164068ab589b85b09835f",
+        "post-training inference proof"
+      ],
+      "limitations": [
+        "Candidate only; activation, merge, promotion and sharing require separate approval"
+      ]
+    },
+    "training.qlora": {
+      "id": "training.qlora",
+      "status": "blocked",
+      "evidence": [
+        "hardware probe: CUDA unavailable, Intel UHD 730"
+      ],
+      "limitations": [
+        "QLoRA is not started on this device and cannot be relabeled as CPU LoRA"
       ]
     },
     "modelTraining": {
       "id": "modelTraining",
-      "status": "not_started",
+      "status": "started",
       "evidence": [
-        "P2.4A architecture roadmap entry"
+        "verifiable full-weight smoke",
+        "real PEFT LoRA candidate",
+        "append-only training hash chain"
       ],
       "limitations": [
-        "No product implementation, training run, model artifact, or callable runtime exists"
+        "Program started; no model is automatically activated or promoted"
       ]
     },
     "distillation": {
       "id": "distillation",
-      "status": "not_started",
+      "status": "started",
       "evidence": [
-        "P2.4A architecture roadmap entry"
+        "local qwen2.5:3b teacher",
+        "four verified synthetic demonstrations",
+        "sequence-level distillation dataset digest",
+        "student LoRA candidate"
       ],
       "limitations": [
-        "No product implementation, distillation run, model artifact, or callable runtime exists"
+        "Synthetic dataset only; no private user content or cross-user data was used"
       ]
     },
     "media.storyboard": {

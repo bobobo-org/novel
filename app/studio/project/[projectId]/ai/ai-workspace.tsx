@@ -2,18 +2,39 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Character, Chapter, NovelProject, StoryBible, StoryBranch, StoryState, TimelineEvent, WorldRule } from "@/lib/novel-ai/domain";
-import { ClosedStoryGenerationLoop, PlatformGenerationProviderAdapter, packageGenerationCandidateForApproval, type GenerationCandidate, type GenerationProgressEvent, type GenerationTaskType } from "@/lib/novel-ai/generation-loop";
-import type { StoryIntelligenceFact, StorySource, TraceableMemory } from "@/lib/novel-ai/story-intelligence";
-import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
-import { acceptStudioChoice } from "@/lib/novel-ai/repository/studio-canonical";
+import type {
+  Character,
+  Chapter,
+  NovelProject,
+  StoryBible,
+  StoryBranch,
+  StoryState,
+  TimelineEvent,
+  WorldRule,
+} from "@/lib/novel-ai/domain";
+import type {
+  ClosedAIBackendId,
+  ClosedAIProgressEvent,
+  ClosedAIQualityMode,
+  ClosedAgentExecutionResult,
+} from "@/lib/novel-ai/closed-agent-os";
+import type { GenerationTaskType } from "@/lib/novel-ai/generation-loop";
 import type { PersonaProfileId } from "@/lib/novel-ai/persona";
+import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
+import { mirrorChapterToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import {
   buildApprovedLearningContext,
   createSovereignLearningRepository,
   evaluateLearningOriginality,
   recordSovereignLearningFeedback,
 } from "@/lib/novel-ai/sovereign-learning";
+import {
+  approveStudioClosedAgentCandidate,
+  executeStudioClosedAgent,
+  rejectStudioClosedAgentCandidate,
+  type StudioClosedAgentContext,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
+import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 import ProjectNavigation from "../project-navigation";
 
 type WorkspaceData = {
@@ -28,78 +49,130 @@ type WorkspaceData = {
   branches: StoryBranch[];
 };
 
-const taskLabels: Record<GenerationTaskType, string> = {
-  continue_writing: "續寫下一段",
-  rewrite: "改寫目前章節",
-  dialogue_generation: "加強角色對話",
-  scene_expansion: "擴寫目前場景",
-  outline_generation: "規劃後續情節",
+type CandidateView = {
+  result: ClosedAgentExecutionResult;
+  intent: string;
+  sourceChapterId: string;
+  sourceRevision: number;
+  learningRuleIds: string[];
 };
 
-const personaOptions: Array<[PersonaProfileId, string]> = [
-  ["fiction_writer", "小說創作"],
-  ["rigorous_advisor", "嚴謹顧問"],
-  ["open_discussion", "開放討論"],
-  ["adversarial_critic", "對抗式批評"],
-  ["deep_reasoning", "深度研究推理"],
-  ["adult_fiction", "成人小說"],
+const taskOptions: Array<[GenerationTaskType, string, PlatformTaskType]> = [
+  ["continue_writing", "續寫目前章節", "chapter.continue"],
+  ["rewrite", "改寫目前章節", "chapter.rewrite"],
+  ["dialogue_generation", "生成角色對話", "character.dialogue"],
+  ["scene_expansion", "擴寫場景", "chapter.expand"],
+  ["outline_generation", "規劃章節大綱", "chapter.outline"],
 ];
 
-function source(record: { id: string; revision: number }, text: string): StorySource {
-  return { sourceChapterId: record.id, sourceRevision: String(record.revision), evidenceExcerpt: text, start: 0, end: text.length };
-}
+const personaOptions: Array<[PersonaProfileId, string]> = [
+  ["fiction_writer", "小說作者"],
+  ["rigorous_advisor", "嚴謹顧問"],
+  ["open_discussion", "開放討論"],
+  ["adversarial_critic", "反方批評"],
+  ["deep_reasoning", "深度推理"],
+  ["adult_fiction", "成人虛構"],
+];
 
-function memory(input: {
-  id: string;
-  kind: TraceableMemory["kind"];
-  text: string;
-  record: { id: string; revision: number };
-  projectId: string;
-  order?: number;
-}): TraceableMemory {
-  return {
-    memoryId: input.id,
-    kind: input.kind,
-    text: input.text,
-    source: source(input.record, input.text),
-    metadata: { projectId: input.projectId, entityIds: [input.record.id], canonical: true, visibility: "private", chapterOrder: input.order },
-  };
-}
+const candidateIntents = [
+  ["穩健延續", "優先承接上一段行動與已核准設定。"],
+  ["衝突升級", "增加具體阻礙與代價，但不得改寫 Canon。"],
+  ["意外轉折", "提出可解釋的新轉折，避免無來源新增重大事實。"],
+] as const;
 
-function buildContext(data: WorkspaceData) {
-  const memories: TraceableMemory[] = [];
-  const facts: StoryIntelligenceFact[] = [];
-  for (const chapter of data.chapters.filter((item) => item.id !== data.chapter.id)) {
-    if (chapter.content.trim()) memories.push(memory({ id: `chapter:${chapter.id}`, kind: "recent_chapter", text: chapter.content, record: chapter, projectId: data.project.id, order: chapter.order }));
-  }
-  for (const character of data.characters) {
-    const text = [`人物：${character.name}`, character.identity.value ? `身分：${character.identity.value}` : "", character.personality.value ? `性格：${character.personality.value}` : "", character.goal.value ? `目標：${character.goal.value}` : "", `生存狀態：${character.lifeStatus}`].filter(Boolean).join("；");
-    const factSource = source(character, text);
-    memories.push(memory({ id: `character:${character.id}`, kind: "character", text, record: character, projectId: data.project.id }));
-    facts.push({ factId: `character-name:${character.id}`, entityType: "character", entityId: character.id, field: "name", value: character.name, factType: "explicit", sources: [factSource], confidence: 1, createdAt: character.createdAt, updatedAt: character.updatedAt });
-  }
-  for (const rule of data.worldRules) {
-    const text = `世界規則：${rule.title}。${rule.description}`;
-    const factSource = source(rule, text);
-    memories.push(memory({ id: `world-rule:${rule.id}`, kind: "world_rule", text, record: rule, projectId: data.project.id }));
-    facts.push({ factId: `world-rule:${rule.id}`, entityType: "world_rule", entityId: rule.id, field: "description", value: rule.description, factType: "explicit", sources: [factSource], confidence: 1, createdAt: rule.createdAt, updatedAt: rule.updatedAt });
-  }
-  for (const event of data.timeline) {
-    const text = `時間線：${event.storyTime ?? "時間未定"}，${event.title}。${event.summary}`;
-    memories.push(memory({ id: `timeline:${event.id}`, kind: "event", text, record: event, projectId: data.project.id }));
-  }
-  data.storyBible.unresolvedThreads.forEach((thread, index) => memories.push(memory({ id: `thread:${index}`, kind: "plot_thread", text: thread, record: data.storyBible, projectId: data.project.id })));
-  data.storyBible.foreshadowing.forEach((thread, index) => memories.push(memory({ id: `foreshadowing:${index}`, kind: "foreshadowing", text: thread, record: data.storyBible, projectId: data.project.id })));
-  return { memories, facts };
+function taskPlatformType(task: GenerationTaskType) {
+  return taskOptions.find(([value]) => value === task)?.[2] ?? "chapter.continue";
 }
 
 function errorMessage(cause: unknown) {
-  const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
-  if (code === "CLOSED_PROVIDER_UNAVAILABLE") return "本機 AI 尚未就緒。請先到 AI 設定完成配對並選擇模型。";
-  if (code === "PROVIDER_RUNTIME_NOT_CONNECTED" || code === "NO_PROVIDER_AVAILABLE" || code === "NO_CLOSED_PROVIDER_AVAILABLE") return "本機 AI 尚未就緒。請先到 AI 設定完成配對並選擇模型。系統不會改用外部 AI。";
-  if (code === "ADULT_FICTION_CONTEXT_REJECTED") return "成人小說模式需要作品主動啟用，且所有相關角色年齡都有明確成人證據。";
-  if (code === "GENERATION_SOURCE_REVISION_STALE") return "章節在生成期間已修改，請重新載入後再產生。";
-  return cause instanceof Error ? cause.message : "這次生成沒有成功，請重新嘗試。";
+  const code = String((cause as { code?: string })?.code || "");
+  if (
+    code === "CLOSED_AI_SELECTED_BACKEND_NOT_READY"
+    || code === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"
+    || code === "NO_PROVIDER_AVAILABLE"
+    || code === "PROVIDER_RUNTIME_NOT_CONNECTED"
+  ) {
+    return "本機 AI 尚未就緒；請先到閉端 AI 中心啟動、配對並實測模型。";
+  }
+  if (code === "CLOSED_AGENT_TASK_CANCELLED" || code === "OLLAMA_CANCELLED") {
+    return "工作已取消；未修改 Memory 或 Canon。";
+  }
+  if (code === "CLOSED_AGENT_EVALUATION_BLOCKED") {
+    return "候選未通過 Closed Agent OS 評估，已安全停止。";
+  }
+  return cause instanceof Error ? cause.message : "閉端 AI 工作失敗，請重試。";
+}
+
+function buildContext(data: WorkspaceData, learnedInstructions: string[]): StudioClosedAgentContext[] {
+  const context: StudioClosedAgentContext[] = [
+    {
+      id: `chapter:${data.chapter.id}`,
+      kind: "canon",
+      text: `目前章節「${data.chapter.title}」：\n${data.chapter.content}`,
+      visibility: "both",
+    },
+  ];
+  for (const chapter of data.chapters.filter((item) => item.id !== data.chapter.id && item.content.trim()).slice(-6)) {
+    context.push({
+      id: `chapter:${chapter.id}`,
+      kind: "retrieval",
+      text: `前文章節「${chapter.title}」：\n${chapter.content}`,
+      visibility: "both",
+    });
+  }
+  for (const character of data.characters) {
+    context.push({
+      id: `character:${character.id}`,
+      kind: "story-bible",
+      learningFacet: "character-knowledge",
+      text: [
+        `角色：${character.name}`,
+        character.identity.value ? `身分：${character.identity.value}` : "",
+        character.personality.value ? `性格：${character.personality.value}` : "",
+        character.goal.value ? `目標：${character.goal.value}` : "",
+        `狀態：${character.lifeStatus}`,
+      ].filter(Boolean).join("；"),
+      visibility: "both",
+    });
+  }
+  if (data.worldRules.length) {
+    context.push({
+      id: `world-rules:${data.project.id}`,
+      kind: "story-bible",
+      text: data.worldRules.map((item) => `${item.title}：${item.description}`).join("\n"),
+      visibility: "both",
+    });
+  }
+  if (data.timeline.length) {
+    context.push({
+      id: `timeline:${data.project.id}`,
+      kind: "story-bible",
+      text: data.timeline.map((item) => `${item.storyTime ?? "未定時間"}｜${item.title}：${item.summary}`).join("\n"),
+      visibility: "both",
+    });
+  }
+  context.push({
+    id: `story-bible:${data.storyBible.id}`,
+    kind: "story-bible",
+    learningFacet: "story-bible",
+    text: [
+      data.storyBible.theme.value ? `主題：${data.storyBible.theme.value}` : "",
+      data.storyBible.style.value ? `風格：${data.storyBible.style.value}` : "",
+      data.storyBible.foreshadowing.length ? `伏筆：${data.storyBible.foreshadowing.join("；")}` : "",
+      data.storyBible.unresolvedThreads.length ? `未解線索：${data.storyBible.unresolvedThreads.join("；")}` : "",
+      data.storyBible.forbiddenContradictions.length ? `禁止矛盾：${data.storyBible.forbiddenContradictions.join("；")}` : "",
+    ].filter(Boolean).join("\n") || "Story Bible 尚未補充細節。",
+    visibility: "both",
+  });
+  if (learnedInstructions.length) {
+    context.push({
+      id: `approved-learning:${data.project.id}`,
+      kind: "memory",
+      text: `已核准的 L0／L1 創作規則：\n${learnedInstructions.join("\n")}`,
+      visibility: "both",
+    });
+  }
+  return context;
 }
 
 export default function AiWorkspace({ projectId }: { projectId: string }) {
@@ -107,13 +180,14 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
   const abortRef = useRef<AbortController | null>(null);
   const learningRepository = useMemo(() => createSovereignLearningRepository(), []);
   const [data, setData] = useState<WorkspaceData | null>(null);
-  const [status, setStatus] = useState("正在讀取作品……");
+  const [status, setStatus] = useState("正在載入作品與 Closed Agent OS。");
   const [taskType, setTaskType] = useState<GenerationTaskType>("continue_writing");
   const [persona, setPersona] = useState<PersonaProfileId>("fiction_writer");
-  const [instruction, setInstruction] = useState("延續目前衝突，讓角色的選擇帶來可追蹤的後果。");
-  const [progress, setProgress] = useState<GenerationProgressEvent[]>([]);
-  const [candidates, setCandidates] = useState<GenerationCandidate[]>([]);
-  const [activeLearningRuleIds, setActiveLearningRuleIds] = useState<string[]>([]);
+  const [backend, setBackend] = useState<Extract<ClosedAIBackendId, "local-ollama" | "private-ai-hub">>("local-ollama");
+  const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode>("balanced");
+  const [instruction, setInstruction] = useState("承接目前場景，讓人物以行動面對新的選擇與代價。");
+  const [progress, setProgress] = useState<ClosedAIProgressEvent[]>([]);
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
   const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
@@ -121,7 +195,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
     repositoryRef.current = repository;
     const project = await repository.get<NovelProject>("projects", projectId);
     if (!project) throw new Error("找不到作品。");
-    const chapters = (await repository.list<Chapter>("chapters", projectId)).sort((a, b) => a.order - b.order);
+    const chapters = (await repository.list<Chapter>("chapters", projectId)).sort((left, right) => left.order - right.order);
     const chapter = chapters.find((item) => item.id === project.activeChapterId) ?? chapters[0];
     const [characters, worldRules, timeline, storyBibles, storyStates, branches] = await Promise.all([
       repository.list<Character>("characters", projectId),
@@ -131,168 +205,292 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
       repository.list<StoryState>("storyStates", projectId),
       repository.listStoryBranches(projectId),
     ]);
-    if (!chapter || !storyBibles[0] || !storyStates[0]) throw new Error("作品尚缺少可生成的章節或故事狀態。");
-    setData({ project, chapter, chapters, characters, worldRules, timeline, storyBible: storyBibles[0], storyState: storyStates[0], branches });
-    setStatus("作品資料已就緒");
+    const storyBible = storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0];
+    if (!chapter || !storyBible || !storyStates[0]) {
+      throw new Error("作品缺少章節、Story Bible 或故事狀態；請先重新建立作品資料。");
+    }
+    setData({
+      project,
+      chapter,
+      chapters,
+      characters,
+      worldRules,
+      timeline,
+      storyBible,
+      storyState: storyStates[0],
+      branches,
+    });
+    setStatus("作品資料與核准邊界已載入。");
   }, [projectId]);
 
-  useEffect(() => { void load().catch((cause) => setStatus(errorMessage(cause))); }, [load]);
+  useEffect(() => {
+    void load().catch((cause) => setStatus(errorMessage(cause)));
+  }, [load]);
 
   async function generate() {
     if (!data || running) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setRunning(true);
-    setCandidates([]);
     setProgress([]);
-    setStatus("本機 AI 正在理解任務……");
+    setCandidates([]);
+    setStatus("Closed Agent OS 正在建立三份彼此不同、但共享相同 Canon 的候選。");
     try {
-      const context = buildContext(data);
       const learned = await buildApprovedLearningContext({
         repository: learningRepository,
         projectId,
         taskType,
         maximumRules: 8,
       });
-      setActiveLearningRuleIds(learned.selectedRuleIds);
-      const activeBranch = data.branches.find((branch) => branch.status === "active");
-      const result = await new ClosedStoryGenerationLoop(new PlatformGenerationProviderAdapter()).run({
-        requestId: `studio-ai-${crypto.randomUUID()}`,
-        projectId,
-        branchId: activeBranch?.branchId ?? "root",
-        taskType,
-        authorInstruction: instruction.trim() || taskLabels[taskType],
-        currentText: data.chapter.content,
-        currentChapterId: data.chapter.id,
-        sourceRevision: String(data.chapter.revision),
-        storyRevision: data.project.revision,
-        memories: context.memories,
-        canonicalFacts: context.facts,
-        constraints: data.storyBible.forbiddenContradictions,
-        styleProfile: [
-          data.project.narrativeStyle.value,
-          data.storyBible.style.value,
-          learned.promptBoundary,
-          ...learned.instructions,
-        ].filter((value): value is string => Boolean(value)),
-        multiCandidate: true,
-        qualityThreshold: 70,
-        personaProfile: persona,
-        maxCritiqueRounds: 1,
-        signal: controller.signal,
-        getCurrentSourceRevision: async () => String((await repositoryRef.current!.get<Chapter>("chapters", data.chapter.id))?.revision ?? -1),
-        onProgress: (event) => setProgress((items) => {
-          const index = items.findIndex((item) => item.stage === event.stage && item.candidateIntent === event.candidateIntent);
-          if (index < 0) return [...items, event];
-          return items.map((item, itemIndex) => itemIndex === index ? event : item);
-        }),
-      });
-      const guardedCandidates = await Promise.all(result.candidates.map(async (candidate) => {
+      const activeBranch = data.branches.find((item) => item.status === "active");
+      const platformTask = taskPlatformType(taskType);
+      const personaLabel = personaOptions.find(([value]) => value === persona)?.[1] ?? persona;
+      const context = buildContext(data, learned.instructions);
+      const results: CandidateView[] = [];
+      for (const [intent, intentInstruction] of candidateIntents) {
+        if (controller.signal.aborted) break;
+        const result = await executeStudioClosedAgent({
+          projectId,
+          taskType: platformTask,
+          objective: [
+            `回應方式：${personaLabel}`,
+            `作者要求：${instruction.trim() || "依已核准資料建立候選"}`,
+            `候選方向：${intent}。${intentInstruction}`,
+            "輸出繁體中文小說內容，不得輸出工程說明；這只是候選，不得自行修改 Memory 或 Canon。",
+          ].join("\n"),
+          context,
+          preferredBackend: backend,
+          qualityMode,
+          branchId: activeBranch?.branchId ?? "root",
+          storyBibleRevision: data.storyBible.revision,
+          knowledgeScopeRevision: Math.max(
+            data.project.revision,
+            data.chapter.revision,
+            ...data.characters.map((item) => item.revision),
+            ...data.worldRules.map((item) => item.revision),
+            ...data.timeline.map((item) => item.revision),
+          ),
+          promptProfileVersion: `studio-ai:${persona}:v4`,
+          signal: controller.signal,
+          onProgress: (event) => setProgress((items) => [
+            ...items,
+            { ...event, label: `${intent}｜${event.label}` },
+          ].slice(-18)),
+        });
         const originality = await evaluateLearningOriginality({
           repository: learningRepository,
           projectId,
-          output: candidate.finalCandidate,
+          output: result.candidate.content,
         });
-        if (originality.passed) return candidate;
-        return {
-          ...candidate,
-          status: "quality_rejected" as const,
-          confidence: Math.min(candidate.confidence, 40),
-          riskHints: [
-            ...candidate.riskHints,
-            "與學習來源的文字指紋重疊過高，已阻止採用；請重新生成。",
-          ],
-        };
-      }));
-      const originalityBlocks = guardedCandidates.filter((candidate) =>
-        candidate.status === "quality_rejected"
-        && candidate.riskHints.includes("與學習來源的文字指紋重疊過高，已阻止採用；請重新生成。")).length;
-      setCandidates(guardedCandidates);
+        if (!originality.passed) {
+          await rejectStudioClosedAgentCandidate(result.candidate.id);
+          continue;
+        }
+        results.push({
+          result,
+          intent,
+          sourceChapterId: data.chapter.id,
+          sourceRevision: data.chapter.revision,
+          learningRuleIds: learned.selectedRuleIds,
+        });
+      }
+      setCandidates(results);
       setStatus(
-        originalityBlocks
-          ? `${originalityBlocks} 個候選因來源文字重疊風險被阻止；其餘候選可人工確認。`
-          : result.recommendedCandidateId
-            ? `候選已完成，使用 ${learned.selectedRuleIds.length} 條已核准閉端學習規則。`
-            : "候選未通過品質門檻，沒有寫入作品",
+        results.length
+          ? `已建立 ${results.length} 份 Closed Agent OS 候選；Canon 寫入仍為 0，請逐份審核。`
+          : "候選未通過安全、原創性或品質評估；Canon 沒有變更。",
       );
     } catch (cause) {
-      const message = errorMessage(cause);
-      setStatus(message);
-      setProgress((items) => items.map((item) => item.status === "running" ? { ...item, status: "failed", message } : item));
+      setStatus(errorMessage(cause));
     } finally {
       abortRef.current = null;
       setRunning(false);
     }
   }
 
-  async function accept(candidate: GenerationCandidate) {
-    if (!data || candidate.status !== "awaiting_approval") return;
-    setStatus("正在以安全 transaction 採用候選……");
+  async function approve(view: CandidateView, applyToChapter: boolean) {
+    if (!data || running) return;
+    setRunning(true);
     try {
-      const repository = repositoryRef.current!;
-      const packaged = packageGenerationCandidateForApproval({ candidate, chapterId: data.chapter.id, chapterRevision: data.chapter.revision, storyStateRevision: data.storyState.revision, storyBibleRevision: data.storyBible.revision });
-      await repository.put("candidates", packaged);
-      const result = await acceptStudioChoice(repository, packaged.id, candidate.finalCandidate, candidate.differenceSummary);
+      const canonicalCommit = applyToChapter
+        ? async ({ candidate }: { candidate: ClosedAgentExecutionResult["candidate"] }) => {
+          const repository = repositoryRef.current!;
+          const current = await repository.get<Chapter>("chapters", view.sourceChapterId);
+          if (!current || current.revision !== view.sourceRevision) {
+            throw Object.assign(new Error("章節已在候選產生後修改；請重新產生候選。"), {
+              code: "GENERATION_SOURCE_REVISION_STALE",
+            });
+          }
+          const platformTask = view.result.task.taskType;
+          const nextContent = platformTask === "chapter.rewrite"
+            ? candidate.content.trim()
+            : `${current.content.trim()}${current.content.trim() ? "\n\n" : ""}${candidate.content.trim()}`;
+          const saved = await repository.put<Chapter>("chapters", {
+            ...current,
+            content: nextContent,
+          }, current.revision);
+          mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
+          return {
+            commitId: `chapter:${saved.id}:revision:${saved.revision}`,
+            storyBibleRevision: String(data.storyBible.revision),
+          };
+        }
+        : undefined;
+      const approved = await approveStudioClosedAgentCandidate({
+        candidateId: view.result.candidate.id,
+        canonicalCommit,
+      });
       await recordSovereignLearningFeedback(learningRepository, {
         projectId,
         decision: "accepted",
         taskType,
-        ruleIds: activeLearningRuleIds,
-        output: candidate.finalCandidate,
-        reasonTags: ["USER_APPROVED", "CANONICAL_ACCEPTED"],
-        provider: candidate.provider,
-        model: candidate.model,
+        ruleIds: view.learningRuleIds,
+        output: view.result.candidate.content,
+        reasonTags: applyToChapter ? ["USER_APPROVED", "CANONICAL_ACCEPTED"] : ["USER_APPROVED", "MEMORY_ACCEPTED"],
+        provider: view.result.candidate.backendId,
+        model: view.result.candidate.modelId,
       }).catch(() => null);
-      setStatus(result.replayed ? "這份候選先前已採用，沒有重複寫入" : "已採用並建立正式故事版本");
-      setCandidates((items) => items.filter((item) => item.candidateId !== candidate.candidateId));
-      await load();
+      setCandidates((items) => items.map((item) => item.result.candidate.id === view.result.candidate.id
+        ? { ...item, result: { ...item.result, candidate: approved.candidate } }
+        : item));
+      setStatus(
+        applyToChapter
+          ? "候選已由你核准並套用目前章節；核准、Canon commit 與雜湊證據已記錄。"
+          : "候選已由你核准到 Memory；正文與 Canon 沒有變更。",
+      );
+      if (applyToChapter) await load();
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setRunning(false);
     }
   }
 
-  async function discard(candidate: GenerationCandidate) {
-    setCandidates((items) => items.filter((item) => item.candidateId !== candidate.candidateId));
-    await recordSovereignLearningFeedback(learningRepository, {
-      projectId,
-      decision: "rejected",
-      taskType,
-      ruleIds: activeLearningRuleIds,
-      output: candidate.finalCandidate,
-      reasonTags: ["USER_REJECTED"],
-      provider: candidate.provider,
-      model: candidate.model,
-    }).catch(() => null);
-    setStatus("候選已捨棄；本機偏好權重已記錄這次拒絕。");
+  async function reject(view: CandidateView) {
+    if (running) return;
+    setRunning(true);
+    try {
+      const candidate = await rejectStudioClosedAgentCandidate(view.result.candidate.id);
+      await recordSovereignLearningFeedback(learningRepository, {
+        projectId,
+        decision: "rejected",
+        taskType,
+        ruleIds: view.learningRuleIds,
+        output: view.result.candidate.content,
+        reasonTags: ["USER_REJECTED"],
+        provider: view.result.candidate.backendId,
+        model: view.result.candidate.modelId,
+      }).catch(() => null);
+      setCandidates((items) => items.map((item) => item.result.candidate.id === candidate.id
+        ? { ...item, result: { ...item.result, candidate } }
+        : item));
+      setStatus("候選已拒絕；只留下可控學習的負面標籤，不會寫入 Memory 或 Canon。");
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    } finally {
+      setRunning(false);
+    }
   }
 
   if (!data) return <main className="p2ProjectShell"><p>{status}</p></main>;
-  return <main className="p2ProjectShell">
-    <header><Link href="/studio">← 我的作品</Link><div><small>{data.project.title}</small><h1>閉端 AI 創作</h1></div><span>{status}</span></header>
-    <ProjectNavigation projectId={projectId} active="ai" />
-    <section className="p23AiWorkspace">
-      <div className="p23AiControls">
-        <label>這次要做什麼<select value={taskType} onChange={(event) => setTaskType(event.target.value as GenerationTaskType)}>{Object.entries(taskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label>回應方式<select value={persona} onChange={(event) => setPersona(event.target.value as PersonaProfileId)}>{personaOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label>你的要求<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} /></label>
-        <div className="p23AiActions"><button disabled={running} onClick={() => void generate()}>{running ? "正在生成……" : "產生三份候選"}</button>{running ? <button className="secondary" onClick={() => abortRef.current?.abort()}>取消</button> : null}</div>
-        <p>只使用已配對的閉端執行者。未配對時會明確失敗，不會改用外部 AI。</p><Link href="/studio/settings/ai">本機 AI 設定</Link> · <Link href={`/studio/project/${projectId}/learning`}>閉端 AI 學習中心</Link>
-      </div>
-      <div className="p23AiMain">
-        <section className="p23AiProgress" aria-live="polite"><h2>工作流程</h2>{progress.length === 0 ? <p>尚未開始。本機 AI 會先讀取作品，再規劃、檢查及修訂。</p> : <ol>{progress.map((event, index) => <li key={`${event.at}-${index}`} data-status={event.status}><strong>{event.status === "running" ? "進行中" : event.status === "success" ? "完成" : event.status === "skipped" ? "略過" : "失敗"}</strong><span>{event.message}</span></li>)}</ol>}</section>
-        <section className="p23CandidateList">{candidates.map((candidate) => <article key={candidate.candidateId}>
-          <header><div><small>{candidate.differenceSummary}</small><h2>{candidate.status === "awaiting_approval" ? "可採用候選" : "需要重新處理"}</h2></div><span>{candidate.confidence} 分</span></header>
-          <p className="p23CandidateText">{candidate.finalCandidate}</p>
-          <div className="p23CandidateMeta">
-            <section><h3>主要規劃</h3><ul>{candidate.plan.map((item) => <li key={item}>{item}</li>)}</ul></section>
-            <section><h3>為何推薦</h3><p>{candidate.reasoningSummary.recommendationReason}</p></section>
-            <section><h3>關鍵風險</h3>{candidate.riskHints.length ? <ul>{candidate.riskHints.map((item) => <li key={item}>{item}</li>)}</ul> : <p>未發現明顯風險。</p>}</section>
-            <section><h3>使用的作品資料</h3><p>{candidate.retrievedMemory.sourceReferences.length} 筆可追蹤來源</p></section>
+
+  return (
+    <main className="p2ProjectShell">
+      <header>
+        <Link href="/studio">我的作品</Link>
+        <div><small>{data.project.title}</small><h1>閉端 AI 創作</h1></div>
+        <span>{status}</span>
+      </header>
+      <ProjectNavigation projectId={projectId} active="ai" />
+      <section className="p23AiWorkspace">
+        <div className="p23AiControls">
+          <label>這次要做什麼
+            <select value={taskType} onChange={(event) => setTaskType(event.target.value as GenerationTaskType)}>
+              {taskOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>回應方式
+            <select value={persona} onChange={(event) => setPersona(event.target.value as PersonaProfileId)}>
+              {personaOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>閉端執行者
+            <select value={backend} onChange={(event) => setBackend(event.target.value as typeof backend)}>
+              <option value="local-ollama">個人本機 Ollama</option>
+              <option value="private-ai-hub">私有 AI Hub</option>
+            </select>
+          </label>
+          <label>候選品質
+            <select
+              value={qualityMode}
+              onChange={(event) => setQualityMode(event.target.value as ClosedAIQualityMode)}
+            >
+              <option value="fast">快速 · 每份 1 次推理</option>
+              <option value="balanced">平衡 · 每份草稿＋修訂</option>
+              <option value="deep">深度 · 每份草稿＋反方檢查＋修訂</option>
+            </select>
+          </label>
+          <label>作者要求
+            <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} />
+          </label>
+          <div className="p23AiActions">
+            <button disabled={running || !instruction.trim()} onClick={() => void generate()}>
+              {running ? "Closed Agent OS 執行中…" : "產生三份候選"}
+            </button>
+            {running ? <button className="secondary" onClick={() => abortRef.current?.abort()}>取消</button> : null}
           </div>
-          <div className="p23AiActions"><button disabled={candidate.status !== "awaiting_approval"} onClick={() => void accept(candidate)}>採用並建立版本</button><button className="secondary" onClick={() => void discard(candidate)}>暫時不用</button></div>
-          <details><summary>查看技術資訊</summary><p>執行來源：{candidate.provider}｜模型：{candidate.model}｜外部請求：否｜正式作品寫入：0｜來源版本：{candidate.sourceRevision}</p></details>
-        </article>)}</section>
-      </div>
-    </section>
-  </main>;
+          <p>只使用已配對的閉端執行者。未配對時會明確失敗，不會改用外部 AI。</p>
+          <Link href={`/studio/project/${projectId}/closed-ai`}>啟動／配對／實測閉端 AI</Link>
+          <span> · </span>
+          <Link href={`/studio/project/${projectId}/learning`}>規則學習與訓練資料</Link>
+        </div>
+
+        <div className="p23AiMain">
+          <section className="p23AiProgress" aria-live="polite">
+            <h2>Closed Agent OS 進度</h2>
+            {progress.length ? (
+              <ol>{progress.map((event, index) => (
+                <li key={`${event.occurredAt}-${index}`} data-status={event.phase === "failed" ? "failed" : "success"}>
+                  <strong>{event.percent}%</strong><span>{event.label}</span>
+                </li>
+              ))}</ol>
+            ) : <p>候選會依序完成路由、計畫、檢索、模型生成、評估與人工核准 Gate。</p>}
+          </section>
+
+          <section className="p23CandidateList">
+            {candidates.map((view) => {
+              const candidate = view.result.candidate;
+              return (
+                <article key={candidate.id}>
+                  <header>
+                    <div><small>{view.intent} · {candidate.backendId}</small><h2>{candidate.status === "awaiting-approval" ? "等待你的核准" : candidate.status}</h2></div>
+                    <span>{Math.round(candidate.evaluation.score * 100)} 分</span>
+                  </header>
+                  <p className="p23CandidateText">{candidate.content}</p>
+                  <div className="p23CandidateMeta">
+                    <section><h3>代理計畫</h3><ul>{view.result.plan.steps.map((step) => <li key={step.index}>{step.role}：{step.objective}</li>)}</ul></section>
+                    <section><h3>安全評估</h3><p>{candidate.evaluation.passed ? "通過候選評估" : "未通過"}</p></section>
+                    <section><h3>可控學習</h3><p>採用 {view.learningRuleIds.length} 條已核准規則；不使用未核准草稿。</p></section>
+                    <section><h3>證據</h3><p>{candidate.generationTelemetry?.qualityPasses ?? 1} 次真實推理 · 內容雜湊：{candidate.contentDigest.slice(0, 16)}…</p></section>
+                  </div>
+                  <div className="p23AiActions">
+                    {candidate.status === "awaiting-approval" ? <>
+                      {view.result.task.taskType !== "chapter.outline" ? <button disabled={running} onClick={() => void approve(view, true)}>核准並套用章節</button> : null}
+                      <button className="secondary" disabled={running} onClick={() => void approve(view, false)}>只核准到記憶</button>
+                      <button className="secondary" disabled={running} onClick={() => void reject(view)}>拒絕</button>
+                    </> : null}
+                    <button className="secondary" onClick={() => void navigator.clipboard.writeText(candidate.content)}>複製候選</button>
+                  </div>
+                  <details>
+                    <summary>模型與資料邊界</summary>
+                    <p>模型：{candidate.modelId}；模型雜湊：{candidate.modelDigest}；靜默切換：{view.result.route.fallbackAttempted ? "有" : "無"}；Canon 寫入：{candidate.canonicalMutationCount}</p>
+                  </details>
+                </article>
+              );
+            })}
+          </section>
+        </div>
+      </section>
+    </main>
+  );
 }

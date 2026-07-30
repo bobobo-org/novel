@@ -1,16 +1,19 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
-import { normalizeTraditionalChinese } from "../../language/traditional-chinese";
 import {
-  BROWSER_EXTRACTIVE_MODEL,
-  runPackagedBrowserExtractiveModel,
-} from "./browser-extractive-model";
+  normalizeTraditionalChinesePreservingProperNouns,
+} from "../../language/traditional-chinese";
+import {
+  BROWSER_TASK_MODEL,
+  isNativeBrowserSummaryTask,
+  runPackagedBrowserTaskModel,
+} from "./browser-task-model";
 
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
-export type BrowserAICapability = { webGpu: boolean; wasm: boolean; worker: boolean; storageQuota: number | null; storageUsage: number | null; status: PlatformProviderSnapshot["status"]; reason: string; summaryAvailability: string; modelId: "chrome-built-in-summarizer" | "novel-browser-extractive-v1" | null };
+export type BrowserAICapability = { webGpu: boolean; wasm: boolean; worker: boolean; storageQuota: number | null; storageUsage: number | null; status: PlatformProviderSnapshot["status"]; reason: string; summaryAvailability: string; modelId: typeof BROWSER_TASK_MODEL.modelId | null };
 export type BrowserAIInferenceProof = {
   proofVersion: "browser-ai-inference-proof-v1";
   state: "inference_verified";
-  modelId: "chrome-built-in-summarizer" | "novel-browser-extractive-v1";
+  modelId: "chrome-built-in-summarizer" | typeof BROWSER_TASK_MODEL.modelId;
   modelDigest: string;
   verifiedAt: string;
   latencyMs: number;
@@ -30,7 +33,7 @@ type BrowserSummarizerFactory = {
   create(options?: Record<string, unknown>): Promise<BrowserSummarizer>;
 };
 
-const BROWSER_SUMMARY_TASKS: PlatformAIRequest["taskType"][] = [
+const BROWSER_LIGHT_TASKS: PlatformAIRequest["taskType"][] = [
   "story.summary",
   "drama.chapterClassify",
   "drama.sceneClassify",
@@ -44,6 +47,7 @@ const BROWSER_SUMMARY_TASKS: PlatformAIRequest["taskType"][] = [
   "character.emotionClassify",
   "character.relationshipEventClassify",
   "character.dialogueConsistency",
+  "game.stateEvaluation",
 ];
 
 const BROWSER_CONTROL_TIMEOUT_MS = 1_500;
@@ -139,8 +143,12 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
   }
   const startedAt = performance.now();
   const factory = summarizerFactory();
-  if (!factory || capability.modelId === BROWSER_EXTRACTIVE_MODEL.modelId) {
-    const result = runPackagedBrowserExtractiveModel(
+  const availability = factory
+    ? await browserSummarizerAvailability(factory)
+    : "unavailable";
+  if (!factory || (availability !== "available" && availability !== "readily")) {
+    const result = runPackagedBrowserTaskModel(
+      "story.summary",
       "林昭進入圖書館。她發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。守門人聲稱整晚沒有人進出。",
     );
     return recordInferenceProof(
@@ -177,7 +185,8 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
       "browser-managed-model-digest-unavailable",
     );
   } catch {
-    const result = runPackagedBrowserExtractiveModel(
+    const result = runPackagedBrowserTaskModel(
+      "story.summary",
       "林昭進入圖書館。她發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。守門人聲稱整晚沒有人進出。",
     );
     return recordInferenceProof(
@@ -222,16 +231,14 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     storageUsage: estimate.usage ?? null,
     status: "ready",
     reason: ready
-      ? "browser_summarizer_ready"
-      : "browser_packaged_extractive_model_ready",
+      ? "browser_hybrid_runtime_native_summary_ready"
+      : "browser_hybrid_runtime_packaged_ready",
     summaryAvailability: ready
       ? summaryAvailability
       : downloadable
         ? `${summaryAvailability}:packaged-fallback-ready`
-        : "packaged-extractive-ready",
-    modelId: ready
-      ? "chrome-built-in-summarizer"
-      : BROWSER_EXTRACTIVE_MODEL.modelId,
+        : "packaged-task-runtime-ready",
+    modelId: BROWSER_TASK_MODEL.modelId,
   };
 }
 
@@ -242,27 +249,24 @@ export async function browserProviderSnapshot(): Promise<PlatformProviderSnapsho
     status: capability.status,
     capabilities: ["text", "offline"],
     modelId: capability.modelId,
+    modelDigest: capability.status === "ready" ? BROWSER_TASK_MODEL.modelDigest : null,
     maxContext: capability.status === "ready" ? 16_384 : 0,
     local: true,
     requiresInternet: false,
-    taskTypes: BROWSER_SUMMARY_TASKS,
+    taskTypes: BROWSER_LIGHT_TASKS,
     detail: capability.reason,
   };
 }
 
 export async function runBrowserAI(request: PlatformAIRequest, decision: PlatformRouterDecision): Promise<PlatformAIResult> {
-  if (!BROWSER_SUMMARY_TASKS.includes(request.taskType)) {
-    throw Object.assign(new Error("瀏覽器 AI 目前只支援章節摘要。"), { code: "BROWSER_AI_TASK_NOT_SUPPORTED", retryable: false });
+  if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
+    throw Object.assign(new Error("瀏覽器 AI 目前不支援這個工作類型。"), { code: "BROWSER_AI_TASK_NOT_SUPPORTED", retryable: false });
   }
   const factory = summarizerFactory();
   const started = performance.now();
-  const availability = factory
-    ? await browserSummarizerAvailability(factory)
-    : "unavailable";
+  const sourceText = [...request.context, request.input].join("\n\n");
   const runPackagedFallback = async (warning: string): Promise<PlatformAIResult> => {
-    const result = runPackagedBrowserExtractiveModel(
-      [...request.context, request.input].join("\n\n"),
-    );
+    const result = runPackagedBrowserTaskModel(request.taskType, sourceText);
     await recordInferenceProof(
       result.content,
       started,
@@ -273,7 +277,11 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
       requestId: request.requestId,
       providerId: "browser-ai",
       modelId: result.modelId,
-      content: normalizeTraditionalChinese(result.content),
+      modelDigest: result.modelDigest,
+      content: normalizeTraditionalChinesePreservingProperNouns(
+        result.content,
+        sourceText,
+      ),
       candidateOnly: true,
       externalRequest: false,
       dataLeavesDevice: false,
@@ -286,11 +294,25 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
           warning,
         ],
       },
+      profileId: "closed-browser-ai-light-task-v2",
+      firstTokenMs: Math.round(performance.now() - started),
+      inputCharacters: sourceText.length,
+      outputCharacters: result.content.length,
+      generatedTokenEvents: 1,
+      omittedInputCharacters: 0,
     };
   };
+  if (!isNativeBrowserSummaryTask(request.taskType)) {
+    return runPackagedFallback(
+      "Deterministic packaged browser task model used for this light task.",
+    );
+  }
+  const availability = factory
+    ? await browserSummarizerAvailability(factory)
+    : "unavailable";
   if (!factory || (availability !== "available" && availability !== "readily")) {
     return runPackagedFallback(
-      "Chrome Summarizer unavailable; packaged extractive model used.",
+      "Chrome Summarizer unavailable; packaged browser task model used.",
     );
   }
   let summarizer: BrowserSummarizer | null = null;
@@ -306,7 +328,7 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
       "BROWSER_AI_CREATE_TIMEOUT",
     );
     const content = await withBrowserDeadline(
-      summarizer.summarize([...request.context, request.input].join("\n\n"), {
+      summarizer.summarize(sourceText, {
         context: "只輸出摘要，不新增原文不存在的事實。",
         signal: request.signal,
       }),
@@ -322,17 +344,27 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
     return {
       requestId: request.requestId,
       providerId: "browser-ai",
-      modelId: decision.modelId,
-      content: normalizeTraditionalChinese(content.trim()),
+      modelId: BROWSER_TASK_MODEL.modelId,
+      modelDigest: BROWSER_TASK_MODEL.modelDigest,
+      content: normalizeTraditionalChinesePreservingProperNouns(
+        content.trim(),
+        sourceText,
+      ),
       candidateOnly: true,
       externalRequest: false,
       dataLeavesDevice: false,
       elapsedMs: Math.round(performance.now() - started),
       provenance: decision,
+      profileId: "closed-browser-ai-native-summary-v2",
+      firstTokenMs: Math.round(performance.now() - started),
+      inputCharacters: sourceText.length,
+      outputCharacters: content.trim().length,
+      generatedTokenEvents: 1,
+      omittedInputCharacters: 0,
     };
   } catch {
     return runPackagedFallback(
-      "Chrome Summarizer failed or timed out; packaged extractive model used.",
+      "Chrome Summarizer failed or timed out; packaged browser task model used.",
     );
   } finally {
     summarizer?.destroy?.();

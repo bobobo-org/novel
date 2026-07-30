@@ -6,4 +6,5 @@ export * from "./planner";
 export * from "./tool-registry";
 export * from "./repository";
 export * from "./evaluator";
+export * from "./acceptance";
 export * from "./closed-agent-os";

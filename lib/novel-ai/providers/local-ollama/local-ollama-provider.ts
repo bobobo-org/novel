@@ -1,5 +1,12 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderCapability, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
-import { normalizeTraditionalChinese } from "../../language/traditional-chinese";
+import {
+  normalizeTraditionalChinesePreservingProperNouns,
+} from "../../language/traditional-chinese";
+import {
+  buildClosedAIModelPrompt,
+  getClosedAIModelProfile,
+  type ClosedProviderGenerationProgress,
+} from "../closed/task-profile";
 import { LocalBridgeClient, getConfiguredLocalBridgeClient, getConfiguredLocalBridgeModel } from "./local-bridge-client";
 
 function bridgeClient(base?: string) {
@@ -71,16 +78,87 @@ export async function probeLocalOllama(base?: string, signal?: AbortSignal): Pro
   }
 }
 
-export async function runLocalOllama(request: PlatformAIRequest, decision: PlatformRouterDecision, base?: string): Promise<PlatformAIResult> {
+export async function runLocalOllama(
+  request: PlatformAIRequest,
+  decision: PlatformRouterDecision,
+  base?: string,
+  onProgress?: (progress: ClosedProviderGenerationProgress) => void,
+): Promise<PlatformAIResult> {
   const started = performance.now();
   const client = bridgeClient(base);
+  const profile = getClosedAIModelProfile(request.taskType, "local-ollama");
+  const prompt = buildClosedAIModelPrompt({
+    objective: request.input,
+    context: request.context,
+    profile,
+    qualityPhase: request.qualityPhase,
+    agentPlan: request.agentPlan,
+    toolResults: request.toolResults,
+    workingMaterials: request.workingMaterials,
+  });
   let content = "";
   let completed = false;
-  for await (const event of client.generate({ requestId: request.requestId, model: decision.modelId || "", prompt: [...request.context, request.input].join("\n\n"), systemInstruction: "你是台灣繁體中文小說助手。全程只使用繁體中文（例如：著、遠、將、離、穩），禁止輸出簡體字。只輸出作者要求的候選內容，不要解釋。", taskType: request.taskType, timeoutMs: 120_000, cacheNamespace: request.cacheNamespace, signal: request.signal })) {
-    if (event.type === "token") content += event.text ?? "";
+  let firstTokenMs: number | null = null;
+  let tokenEvents = 0;
+  let lastReportedCharacters = 0;
+  for await (const event of client.generate({
+    requestId: request.requestId,
+    model: decision.modelId || "",
+    prompt: prompt.prompt,
+    systemInstruction: profile.systemInstruction,
+    taskType: request.taskType,
+    timeoutMs: profile.timeoutMs,
+    options: profile.options,
+    cacheNamespace: request.cacheNamespace,
+    signal: request.signal,
+  })) {
+    if (event.type === "token") {
+      const text = event.text ?? "";
+      if (text && firstTokenMs === null) {
+        firstTokenMs = Math.round(performance.now() - started);
+      }
+      content += text;
+      tokenEvents += 1;
+      if (
+        onProgress
+        && (content.length - lastReportedCharacters >= 48 || lastReportedCharacters === 0)
+      ) {
+        lastReportedCharacters = content.length;
+        onProgress({
+          generatedCharacters: content.length,
+          firstTokenMs,
+          tokenEvents,
+        });
+      }
+    }
     if (event.type === "completed") completed = true;
     if (event.type === "failed" || event.type === "cancelled") throw Object.assign(new Error(String(event.errorCode || event.type)), { code: event.errorCode || (event.type === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_STREAM_INTERRUPTED") });
   }
   if (!completed) throw Object.assign(new Error("Local Ollama stream did not complete."), { code: "OLLAMA_STREAM_INTERRUPTED" });
-  return { requestId: request.requestId, providerId: "local-ollama", modelId: decision.modelId, modelDigest: decision.modelDigest ?? null, content: normalizeTraditionalChinese(content), candidateOnly: true, externalRequest: false, dataLeavesDevice: false, elapsedMs: Math.round(performance.now() - started), provenance: decision };
+  onProgress?.({
+    generatedCharacters: content.length,
+    firstTokenMs,
+    tokenEvents,
+  });
+  return {
+    requestId: request.requestId,
+    providerId: "local-ollama",
+    modelId: decision.modelId,
+    modelDigest: decision.modelDigest ?? null,
+    content: normalizeTraditionalChinesePreservingProperNouns(
+      content,
+      [request.input, ...request.context].join("\n"),
+    ),
+    candidateOnly: true,
+    externalRequest: false,
+    dataLeavesDevice: false,
+    elapsedMs: Math.round(performance.now() - started),
+    provenance: decision,
+    profileId: profile.profileId,
+    firstTokenMs,
+    inputCharacters: prompt.inputCharacters,
+    outputCharacters: content.length,
+    generatedTokenEvents: tokenEvents,
+    omittedInputCharacters: prompt.omittedCharacters,
+  };
 }

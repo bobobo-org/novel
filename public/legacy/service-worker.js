@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-system-unified-closed-ai-20260728-1";
+const CACHE_VERSION = "novel-system-unified-closed-ai-20260729-2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "./offline.html";
 

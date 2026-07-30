@@ -111,7 +111,7 @@
       shell.hidden = true;
       shell.innerHTML = `
         <header class="h2w3-head">
-          <div><h2>三路閉端 AI 工作區</h2><p class="muted">目前顯示三路閉端 AI 架構：瀏覽器閉端 AI 尚未實作；Ollama 本機 AI 需偵測本機 Runtime；本機閉端 Runtime 已可執行本機檢索、上下文組合與候選稿管線。結果只進入 Draft / Candidate，不直接修改 Canonical。</p></div>
+          <div><h2>三路閉端 AI 工作區</h2><p class="muted">三路閉端 AI 已統一接到 Closed Agent OS：Browser AI 視裝置模型而定；Local Ollama 與 Private Hub 必須在正式閉端 AI 中心啟動、配對並完成真實推理驗證。結果只進入 Draft／Candidate，人工核准前不修改 Memory 或 Canon。</p></div>
           <button id="wholeNovelWorkspaceClose" type="button" aria-controls="wholeNovelAiWorkspace" onclick="NovelWholeNovelWorkspace.setWorkspaceCollapsed(true)">關閉</button>
         </header>
         <div id="wholeNovelWorkspaceDiagnostics" class="h2w3-log" aria-live="polite"></div>

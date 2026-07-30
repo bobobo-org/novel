@@ -4,11 +4,29 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOSED_AI_BACKEND_IDS,
-  ClosedAgentOS,
+  type ClosedAgentOS,
   type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
+  type ClosedAIProgressEvent,
+  type ClosedAIQualityMode,
+  type ClosedAgentCandidate,
   type ClosedAgentExecutionResult,
 } from "@/lib/novel-ai/closed-agent-os";
+import type {
+  Achievement,
+  Chapter,
+  Character,
+  NovelProject,
+  StoryBible,
+  StoryState,
+  TimelineEvent,
+  WorldRule,
+  WritingTask,
+} from "@/lib/novel-ai/domain";
+import { createNovelRepository } from "@/lib/novel-ai/repository";
+import { mirrorChapterToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { getStudioClosedAgentOS } from "@/lib/novel-ai/web/closed-agent-os-service";
+import { STUDIO_CLOSED_AGENT_TOOL_IDS } from "@/lib/novel-ai/web/studio-closed-agent-tools";
 import type { ClosedAINamespace } from "@/lib/novel-ai/closed-ai-cache";
 import {
   detectBrowserAI,
@@ -35,25 +53,104 @@ import {
   type PrivateHubInferenceProof,
 } from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
 import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
+import {
+  describePrivateModelRole,
+  rankPrivateModels,
+  type PrivateModelFleetProfile,
+} from "@/lib/novel-ai/model-orchestration/private-model-fleet";
+import {
+  sealFormalPreferenceDataset,
+  verifyFormalPreferenceDataset,
+  type FormalPreferenceDatasetManifest,
+} from "@/lib/novel-ai/training/formal-preference-dataset";
 import ProjectNavigation from "../project-navigation";
 import styles from "./closed-ai.module.css";
 
 type Dashboard = Awaited<ReturnType<ClosedAgentOS["dashboard"]>>;
 type PairingRequest = { pairingId: string; code: string };
 type PreferencePair = { id: string; chosen: string; rejected: string };
+type ContextInventory = {
+  repository: "indexeddb" | "memory";
+  chapters: number;
+  characters: number;
+  storyStates: number;
+  tasks: number;
+  achievements: number;
+};
+type RuntimeTelemetry = {
+  controlLatencyMs: number;
+  active: number;
+  queued: number;
+  maxConcurrent: number;
+  maxQueue: number;
+  cacheEntries: number;
+  maxPromptBytes: number;
+};
 
-const TASKS: Array<{
+type TaskGroup =
+  | "assistant"
+  | "writing"
+  | "analysis"
+  | "character"
+  | "world"
+  | "game"
+  | "learning";
+
+type ClosedAITaskOption = {
   id: PlatformTaskType;
   label: string;
   complexity: "light" | "standard" | "heavy";
   hint: string;
-}> = [
-  { id: "story.summary", label: "章節摘要", complexity: "light", hint: "適合瀏覽器 AI" },
-  { id: "character.dialogueConsistency", label: "角色對話檢查", complexity: "light", hint: "裝置內輕量檢查" },
-  { id: "chapter.continue", label: "小說續寫", complexity: "standard", hint: "適合本機 Ollama" },
-  { id: "chapter.rewrite", label: "段落改寫", complexity: "standard", hint: "適合本機 Ollama" },
-  { id: "character.dialogue", label: "角色對話生成", complexity: "standard", hint: "適合本機 Ollama" },
-  { id: "character.multiAgentSimulation", label: "多角色推演", complexity: "heavy", hint: "需要私有 AI Hub" },
+  group: TaskGroup;
+  defaultObjective: string;
+};
+
+const TASK_GROUP_LABELS: Record<TaskGroup, string> = {
+  assistant: "GPT 類通用助理",
+  writing: "正文與章節創作",
+  analysis: "全書分析與編輯",
+  character: "角色與關係",
+  world: "世界與規則",
+  game: "RPG 三選一與養成",
+  learning: "學習與長上下文",
+};
+
+const TASKS: ClosedAITaskOption[] = [
+  { id: "assistant.general", label: "通用小說助理", complexity: "standard", hint: "問答、規劃、整理", group: "assistant", defaultObjective: "根據已核准的作品資料，直接回答我的小說創作問題；資料不足時指出缺口並提供可執行的下一步。" },
+  { id: "assistant.brainstorm", label: "創意腦力激盪", complexity: "standard", hint: "三個真正不同方向", group: "assistant", defaultObjective: "針對目前作品提出三個彼此不同的創意方向；每個方向說明衝突、人物選擇、代價與風險。" },
+  { id: "assistant.critique", label: "批判編輯", complexity: "standard", hint: "優點、問題、修法", group: "assistant", defaultObjective: "以專業小說編輯角度審查目前內容，列出亮點、具體問題、讀者影響與優先修正方案。" },
+  { id: "assistant.transform", label: "文字整理與轉換", complexity: "standard", hint: "不改動既有事實", group: "assistant", defaultObjective: "整理目前文字，使結構與表達更清楚；保留所有既有事實、角色關係與因果，不新增 Canon。" },
+  { id: "chapter.continue", label: "小說續寫", complexity: "standard", hint: "可核准套用章節", group: "writing", defaultObjective: "續寫一段約三百字的繁體中文小說場景，讓人物以行動面對新的選擇與代價。" },
+  { id: "chapter.rewrite", label: "段落改寫", complexity: "standard", hint: "可核准取代章節", group: "writing", defaultObjective: "在不改變既有事實與角色意圖的前提下，重寫目前章節，使動作、感官與潛台詞更有張力。" },
+  { id: "chapter.expand", label: "場景擴寫", complexity: "standard", hint: "可核准追加章節", group: "writing", defaultObjective: "把目前片段擴寫成完整場景，補足空間、感官、行動、對話潛台詞與可見後果。" },
+  { id: "chapter.outline", label: "章節大綱", complexity: "standard", hint: "場景節拍與章尾鉤子", group: "writing", defaultObjective: "規劃下一章的可執行大綱，包含開場狀態、場景節拍、衝突升級、選擇、代價與章尾鉤子。" },
+  { id: "story.plotCandidate", label: "三條劇情分支", complexity: "standard", hint: "互斥候選與長期代價", group: "writing", defaultObjective: "提出三個都符合 Canon、但彼此互斥的後續分支，說明觸發事件、短期結果、長期代價與回接主線方式。" },
+  { id: "story.endingPlan", label: "結局規劃", complexity: "standard", hint: "衝突、弧線與伏筆", group: "writing", defaultObjective: "提出一份可執行的結局方案，處理核心衝突、角色弧線、伏筆、主題回聲與最後代價。" },
+  { id: "drama.episodePlan", label: "短劇深度改編", complexity: "heavy", hint: "Private Hub 多階段規劃", group: "writing", defaultObjective: "把目前作品整理成可執行的短劇單集規劃，逐集列出開場 Hook、衝突、人物選擇、轉折、代價、連續性與結尾懸念。" },
+  { id: "story.summary", label: "章節摘要", complexity: "light", hint: "瀏覽器 AI 可離線執行", group: "analysis", defaultObjective: "摘要目前章節，保留人物、事件、地點、衝突、因果、選擇、代價與未解線索。" },
+  { id: "story.chapterReview", label: "完整章節審稿", complexity: "standard", hint: "編輯級檢查", group: "analysis", defaultObjective: "完整審查目前章節：摘要、亮點、一致性、角色、節奏、敘事視角、語言問題與優先修訂清單。" },
+  { id: "story.consistencyCheck", label: "全書一致性檢查", complexity: "standard", hint: "設定、因果與物件狀態", group: "analysis", defaultObjective: "檢查已核准資料的設定、因果、時序、物件狀態與視角矛盾；逐項附證據、影響與最小修法。" },
+  { id: "story.timelineCheck", label: "時間線檢查", complexity: "standard", hint: "順序、跨度與旅行時間", group: "analysis", defaultObjective: "重建並檢查事件順序、時間跨度、先後關係、旅行時間與章節連結；不確定處標示待確認。" },
+  { id: "story.characterCheck", label: "角色一致性檢查", complexity: "standard", hint: "動機、知識與語氣", group: "analysis", defaultObjective: "逐角檢查目標、知識邊界、能力、情緒、語氣與行為因果，列出偏離證據與最小修法。" },
+  { id: "story.worldRuleCheck", label: "世界規則檢查", complexity: "standard", hint: "逐條比對 Canon", group: "analysis", defaultObjective: "逐條對照世界規則與正文，區分明確違反、可能衝突與資訊不足，提出不改規則的修正候選。" },
+  { id: "story.foreshadowingCheck", label: "伏筆回收檢查", complexity: "standard", hint: "埋設、窗口與逾期風險", group: "analysis", defaultObjective: "盤點伏筆的已知證據、預期回收窗口、逾期風險與不劇透的回收候選。" },
+  { id: "story.plotAnalysis", label: "劇情因果分析", complexity: "standard", hint: "斷鏈與轉折", group: "analysis", defaultObjective: "拆解目前劇情的因果鏈、動機、阻力、升級、轉折、高潮與結果，指出斷鏈與候選修法。" },
+  { id: "story.pacingCheck", label: "節奏檢查", complexity: "standard", hint: "場景功能與資訊密度", group: "analysis", defaultObjective: "逐場景檢查功能、資訊密度、速度、重複與停滯，提出精準的刪減、擴寫、換序或增壓建議。" },
+  { id: "story.themeAnalysis", label: "主題與母題分析", complexity: "standard", hint: "證據與推測分離", group: "analysis", defaultObjective: "從已核准內容分析主題、母題、價值衝突與人物弧線呼應，清楚區分文字證據與推測。" },
+  { id: "story.originalityCheck", label: "原創性自檢", complexity: "standard", hint: "不是網路抄襲比對", group: "analysis", defaultObjective: "檢查目前內容內部的套路重複、表達相似與辨識度，提出保留核心但改變機制、視角、代價與意象的方案。" },
+  { id: "character.create", label: "角色候選", complexity: "standard", hint: "身分、矛盾與劇情功能", group: "character", defaultObjective: "建立一名適合目前作品的角色候選，包含目標、需求、能力、限制、恐懼、矛盾、語氣、關係鉤子與劇情功能。" },
+  { id: "character.dialogue", label: "角色對話生成", complexity: "standard", hint: "可核准追加章節", group: "character", defaultObjective: "根據角色知識邊界、目標、語氣與關係狀態，產生一段以動作和停頓呈現潛台詞的候選對話。" },
+  { id: "character.dialogueConsistency", label: "角色對話檢查", complexity: "light", hint: "裝置內輕量檢查", group: "character", defaultObjective: "比較目前對話與角色聲音基準，列出一致與偏離證據；沒有足夠資料時明確標示。" },
+  { id: "character.relationshipAnalysis", label: "人物關係分析", complexity: "standard", hint: "張力、權力與信任", group: "character", defaultObjective: "分析人物關係的公開狀態、私人張力、權力、信任、債務、衝突與可能轉折，區分事實和推論。" },
+  { id: "world.create", label: "世界設定候選", complexity: "standard", hint: "秩序、資源與成本", group: "world", defaultObjective: "建立符合目前作品的世界候選，包含時代、地理、社會秩序、資源、限制、日常生活與衝突成本。" },
+  { id: "world.ruleCandidate", label: "世界規則候選", complexity: "standard", hint: "可測試規則", group: "world", defaultObjective: "提出三條可測試的世界規則候選；每條列觸發條件、效果、限制、例外、代價與正文例子。" },
+  { id: "game.questCandidate", label: "RPG 任務候選", complexity: "standard", hint: "目標、風險、報酬與分支", group: "game", defaultObjective: "根據目前作品設計一個可玩的 RPG 任務候選，包含觸發條件、目標、三條解法、能力檢定、風險、代價、獎勵與失敗後仍可推進的結果。" },
+  { id: "game.stateEvaluation", label: "RPG 狀態評估", complexity: "light", hint: "能力與分支檢查", group: "game", defaultObjective: "檢查目前角色能力、資源、關係、任務與成就是否一致，指出異常值、斷裂分支與最小修正候選；不得自行寫入狀態。" },
+  { id: "game.rewardCandidate", label: "養成獎勵候選", complexity: "standard", hint: "平衡且有故事代價", group: "game", defaultObjective: "依目前章節與角色成長設計三個平衡的獎勵候選，分別偏向能力、關係與世界資源；每個都列出獲得條件、數值影響、故事意義與防止失衡的限制。" },
+  { id: "game.achievementCandidate", label: "成就候選", complexity: "standard", hint: "隱藏、進度與解鎖條件", group: "game", defaultObjective: "設計五個符合目前作品的 RPG 成就候選，包含名稱、可見或隱藏、進度公式、解鎖條件、稀有度與不破壞劇情的獎勵。" },
+  { id: "learning.preferenceReview", label: "學習偏好檢查", complexity: "standard", hint: "只產生 L0／L1 候選", group: "learning", defaultObjective: "從已核准的使用者訊號中萃取可回滾的 L0／L1 偏好候選，不保存原文、秘密或思考鏈。" },
+  { id: "story.storyBibleCandidate", label: "Story Bible 候選", complexity: "heavy", hint: "Private Hub 長上下文", group: "learning", defaultObjective: "整理全書 Story Bible 候選，分成已核准事實、待確認、矛盾、角色、世界、時間線、伏筆與禁改項。" },
+  { id: "character.multiAgentSimulation", label: "多角色推演", complexity: "heavy", hint: "Private Hub 知識隔離", group: "learning", defaultObjective: "依各角色知識邊界推演一場多角色互動，只輸出外顯行動與對話，不洩露角色私人內部推演。" },
 ];
 
 const BACKEND_LABELS: Record<ClosedAIBackendId | "auto", string> = {
@@ -61,6 +158,13 @@ const BACKEND_LABELS: Record<ClosedAIBackendId | "auto", string> = {
   "browser-ai": "瀏覽器 AI",
   "local-ollama": "個人本機 Ollama",
   "private-ai-hub": "私有 AI Hub",
+};
+
+const QUALITY_LABELS: Record<ClosedAIQualityMode | "auto", string> = {
+  auto: "智慧自動（輕量 1／標準 2／深度 3 階段）",
+  fast: "快速（1 階段）",
+  balanced: "平衡（草稿＋修訂）",
+  deep: "深度（草稿＋反方檢查＋修訂）",
 };
 
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
@@ -71,10 +175,44 @@ function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
   return "已停用";
 }
 
+function candidateStatusLabel(status: ClosedAgentCandidate["status"]) {
+  const labels: Record<ClosedAgentCandidate["status"], string> = {
+    "awaiting-approval": "等待你的核准",
+    approved: "已核准到記憶",
+    rejected: "已拒絕",
+    committed: "已核准並套用",
+    "rolled-back": "已回滾",
+  };
+  return labels[status];
+}
+
+const COMPLEXITY_RANK = { light: 1, standard: 2, heavy: 3 } as const;
+const CHAPTER_COMMIT_TASKS = new Set<PlatformTaskType>([
+  "assistant.transform",
+  "story.summary",
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+]);
+
+function backendCanRun(
+  snapshot: ClosedAIBackendSnapshot | undefined,
+  task: (typeof TASKS)[number] | undefined,
+) {
+  if (!snapshot || !task || snapshot.status !== "ready") return false;
+  if (COMPLEXITY_RANK[snapshot.maximumComplexity] < COMPLEXITY_RANK[task.complexity]) {
+    return false;
+  }
+  return snapshot.supportedTaskTypes === "all"
+    || snapshot.supportedTaskTypes.includes(task.id);
+}
+
 function runtimeError(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
   const messages: Record<string, string> = {
     BRIDGE_PROCESS_UNREACHABLE: "本機執行服務尚未啟動，或瀏覽器無法存取 loopback。",
+    LOCAL_NETWORK_PERMISSION_DENIED: "瀏覽器已拒絕本機網路權限。請在網址列的網站權限中允許「本機網路存取」，再按一次實際驗證模型。",
     BRIDGE_NOT_PAIRED: "目前頁面尚未與本機服務完成配對。",
     BRIDGE_PAIRING_EXPIRED: "一次性配對已過期，請重新發起。",
     BRIDGE_PAIRING_REVOKED: "本機配對已撤銷，請重新配對。",
@@ -83,6 +221,11 @@ function runtimeError(error: unknown) {
     LOCAL_MODEL_INFERENCE_NOT_VERIFIED: "模型尚未完成真實推理驗證。",
     OFFLINE_TRAINING_SAMPLE_MINIMUM: "至少加入兩組喜歡／不採用的寫法。",
     OFFLINE_TRAINING_SAMPLE_INVALID: "每組文字需不同，且每段至少 8 個字元。",
+    OFFLINE_TRAINING_MANIFEST_REQUIRED: "必須先封印正式訓練資料清單。",
+    OFFLINE_TRAINING_MANIFEST_INVALID: "訓練資料清單與目前對照不一致，已安全停止。",
+    TRAINING_RIGHTS_CONFIRMATION_REQUIRED: "請先確認訓練文字是你擁有或已獲明確授權的內容。",
+    TRAINING_CREDENTIAL_INPUT_BLOCKED: "訓練文字疑似包含憑證或密鑰，已安全阻擋。",
+    DATASET_DUPLICATE_EXAMPLES: "訓練資料集中有重複對照，請移除後再封印。",
     BROWSER_AI_UNSUPPORTED: "此裝置不支援瀏覽器內建 AI；其他閉端後端不受影響。",
     BROWSER_AI_MODEL_NOT_READY: "此裝置可支援瀏覽器 AI，但裝置模型尚未可用。",
   };
@@ -101,6 +244,8 @@ function saveJson(filename: string, value: unknown) {
 
 function userMessage(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
+  const recommendedBackendId = (error as { recommendedBackendId?: ClosedAIBackendId | null })
+    ?.recommendedBackendId;
   const messages: Record<string, string> = {
     CLOSED_AI_REQUIRED_BACKEND_NOT_READY: "這項工作所需的閉端 AI 尚未就緒；系統沒有暗中換用其他 AI。",
     CLOSED_AI_SELECTED_BACKEND_NOT_READY: "你指定的閉端 AI 目前不能執行這項工作；系統已安全停止。",
@@ -109,11 +254,53 @@ function userMessage(error: unknown) {
     CONTROLLED_LEARNING_CONSENT_REQUIRED: "請先開啟這個作品的可控學習同意。",
     CONTROLLED_LEARNING_KILL_SWITCH_ENGAGED: "可控學習緊急停止目前已開啟。",
   };
-  return messages[code] ?? (error instanceof Error ? error.message : "操作失敗。");
+  const message = messages[code] ?? (error instanceof Error ? error.message : "操作失敗。");
+  return recommendedBackendId
+    ? `${message} 可由你手動改選：${BACKEND_LABELS[recommendedBackendId]}。`
+    : message;
+}
+
+function runtimeTelemetry(
+  health: {
+    cache?: { entries?: number };
+    limits?: { maxPromptBytes?: number; maxConcurrent?: number; maxQueue?: number };
+    workload?: {
+      active?: number;
+      queued?: number;
+      maxConcurrent?: number;
+      maxQueue?: number;
+    };
+  },
+  startedAt: number,
+): RuntimeTelemetry {
+  return {
+    controlLatencyMs: Math.round(performance.now() - startedAt),
+    active: Number(health.workload?.active ?? 0),
+    queued: Number(health.workload?.queued ?? 0),
+    maxConcurrent: Number(
+      health.workload?.maxConcurrent ?? health.limits?.maxConcurrent ?? 0,
+    ),
+    maxQueue: Number(health.workload?.maxQueue ?? health.limits?.maxQueue ?? 0),
+    cacheEntries: Number(health.cache?.entries ?? 0),
+    maxPromptBytes: Number(health.limits?.maxPromptBytes ?? 0),
+  };
+}
+
+function formatModelSize(bytes: number | null) {
+  if (!bytes || bytes <= 0) return "容量未回報";
+  const gib = bytes / 1024 / 1024 / 1024;
+  return gib >= 1 ? `${gib.toFixed(gib >= 10 ? 0 : 1)} GB` : `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
+function modelSummary(profile: PrivateModelFleetProfile) {
+  const roles = profile.roles.length
+    ? profile.roles.map(describePrivateModelRole).join("／")
+    : "能力待辨識";
+  return `${profile.parameterLabel} · ${profile.quantization} · ${roles}`;
 }
 
 export default function ClosedAIWorkspace({ projectId }: { projectId: string }) {
-  const os = useMemo(() => new ClosedAgentOS(), []);
+  const os = useMemo(() => getStudioClosedAgentOS(), []);
   const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
   const localClient = useMemo(
     () => new LocalBridgeClient({
@@ -131,8 +318,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
   const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("local-ollama");
-  const [objective, setObjective] = useState("續寫一段約三百字的繁體中文小說場景，讓人物以行動面對新的選擇與代價。");
+  const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
+  const [objective, setObjective] = useState(
+    TASKS.find((task) => task.id === "chapter.continue")!.defaultObjective,
+  );
   const [storyContext, setStoryContext] = useState("");
+  const [storyBibleRevision, setStoryBibleRevision] = useState("current");
+  const [knowledgeScopeRevision, setKnowledgeScopeRevision] = useState("current");
   const [result, setResult] = useState<ClosedAgentExecutionResult | null>(null);
   const [status, setStatus] = useState("正在核對三個閉端 AI 與共用系統。");
   const [busy, setBusy] = useState(false);
@@ -156,6 +348,176 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [rejectedExample, setRejectedExample] = useState("");
   const [trainingModels, setTrainingModels] = useState<OfflinePreferenceModelArtifact[]>([]);
   const [trainingCandidate, setTrainingCandidate] = useState<OfflinePreferenceModelArtifact | null>(null);
+  const [trainingRightsConfirmed, setTrainingRightsConfirmed] = useState(false);
+  const [trainingManifest, setTrainingManifest] =
+    useState<FormalPreferenceDatasetManifest | null>(null);
+  const [localTelemetry, setLocalTelemetry] = useState<RuntimeTelemetry | null>(null);
+  const [hubTelemetry, setHubTelemetry] = useState<RuntimeTelemetry | null>(null);
+  const [progressEvents, setProgressEvents] = useState<ClosedAIProgressEvent[]>([]);
+  const [contextInventory, setContextInventory] = useState<ContextInventory | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const repository = createNovelRepository();
+      const [
+        project,
+        chapters,
+        characters,
+        rules,
+        timeline,
+        storyBibles,
+        storyStates,
+        writingTasks,
+        achievements,
+      ] = await Promise.all([
+        repository.get<NovelProject>("projects", projectId),
+        repository.list<Chapter>("chapters", projectId),
+        repository.list<Character>("characters", projectId),
+        repository.list<WorldRule>("worldRules", projectId),
+        repository.list<TimelineEvent>("timeline", projectId),
+        repository.list<StoryBible>("storyBibles", projectId),
+        repository.list<StoryState>("storyStates", projectId),
+        repository.list<WritingTask>("tasks", projectId),
+        repository.list<Achievement>("achievements", projectId),
+      ]);
+      if (cancelled) return;
+      const referencedStoryState = project?.storyStateId
+        ? await repository.get<StoryState>("storyStates", project.storyStateId)
+        : null;
+      if (cancelled) return;
+      const storyBible = storyBibles.find((item) => item.id === project?.storyBibleId)
+        ?? storyBibles[0]
+        ?? null;
+      const storyState = referencedStoryState
+        ?? storyStates.find((item) => item.id === project?.storyStateId)
+        ?? storyStates[0]
+        ?? null;
+      setContextInventory({
+        repository: repository.kind,
+        chapters: chapters.length,
+        characters: characters.length,
+        storyStates: storyState ? Math.max(1, storyStates.length) : 0,
+        tasks: writingTasks.length,
+        achievements: achievements.length,
+      });
+      const activeChapter = chapters.find((item) => item.id === project?.activeChapterId)
+        ?? chapters.sort((left, right) => left.order - right.order).at(-1)
+        ?? null;
+      const taskProgress = writingTasks.length
+        ? Math.round(
+          writingTasks.reduce(
+            (total, item) => total + (item.target > 0 ? (item.progress / item.target) * 100 : 0),
+            0,
+          ) / writingTasks.length,
+        )
+        : null;
+      const achievementProgress = achievements.length
+        ? Math.round(
+          achievements.reduce(
+            (total, item) => total + (item.target > 0 ? (item.progress / item.target) * 100 : 0),
+            0,
+          ) / achievements.length,
+        )
+        : null;
+      const rpgContext = storyState ? [
+        "【RPG StoryState｜正式狀態】",
+        ...Object.entries(storyState.protagonistStats)
+          .filter(([, value]) => Number.isFinite(value))
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value]) => `${key}: ${value}`),
+        ...Object.entries(storyState.resources)
+          .filter(([, value]) => Number.isFinite(value))
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value], index) => `resource.${index + 1}: ${value}（${key}）`),
+        ...Object.entries(storyState.relationships)
+          .filter(([, value]) => Number.isFinite(value))
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value], index) => `relationship.${index + 1}: ${value}（${key}）`),
+        storyState.money === null ? "" : `money: ${storyState.money}`,
+        storyState.reputation === null ? "" : `reputation: ${storyState.reputation}`,
+        taskProgress === null ? "" : `任務進度: ${taskProgress}`,
+        achievementProgress === null ? "" : `成就進度: ${achievementProgress}`,
+        storyState.locationState ? `目前位置：${storyState.locationState}` : "",
+        storyState.timeState ? `目前時間：${storyState.timeState}` : "",
+        `StoryState ID：${storyState.id}`,
+        `StoryState Revision：${storyState.revision}`,
+      ].filter(Boolean).join("\n") : "";
+      const approvedContext = [
+        project?.coreIdea.value ? `【作品核心】${project.coreIdea.value}` : "",
+        activeChapter?.content.trim()
+          ? `【目前章節：${activeChapter.title}】\n${activeChapter.content}`
+          : "",
+        characters.length
+          ? `【角色】\n${characters.map((item) => [
+            item.name,
+            item.identity.value ? `身分：${item.identity.value}` : "",
+            item.personality.value ? `性格：${item.personality.value}` : "",
+            item.goal.value ? `目標：${item.goal.value}` : "",
+          ].filter(Boolean).join("；")).join("\n")}`
+          : "",
+        rules.length
+          ? `【世界規則】\n${rules.map((item) => `${item.title}：${item.description}`).join("\n")}`
+          : "",
+        timeline.length
+          ? `【時間線】\n${timeline.map((item) => `${item.storyTime ?? "未定時間"}｜${item.title}：${item.summary}`).join("\n")}`
+          : "",
+        storyBible ? [
+          "【Story Bible】",
+          storyBible.theme.value ? `主題：${storyBible.theme.value}` : "",
+          storyBible.style.value ? `風格：${storyBible.style.value}` : "",
+          storyBible.foreshadowing.length ? `伏筆：${storyBible.foreshadowing.join("；")}` : "",
+          storyBible.unresolvedThreads.length ? `未解線索：${storyBible.unresolvedThreads.join("；")}` : "",
+          storyBible.forbiddenContradictions.length ? `禁止矛盾：${storyBible.forbiddenContradictions.join("；")}` : "",
+        ].filter(Boolean).join("\n") : "",
+        rpgContext,
+      ].filter(Boolean).join("\n\n");
+      setStoryContext((current) => {
+        if (!current.trim()) return approvedContext;
+        const isGeneratedContext = current.includes("【目前章節：")
+          && current.includes("【Story Bible】");
+        if (rpgContext && isGeneratedContext && !current.includes("【RPG StoryState｜正式狀態】")) {
+          return `${current.trim()}\n\n${rpgContext}`;
+        }
+        return current;
+      });
+      setStoryBibleRevision(String(storyBible?.revision ?? "none"));
+      const maximumRevision = Math.max(
+        0,
+        ...chapters.map((item) => item.revision),
+        ...characters.map((item) => item.revision),
+        ...rules.map((item) => item.revision),
+        ...timeline.map((item) => item.revision),
+        ...storyBibles.map((item) => item.revision),
+        ...storyStates.map((item) => item.revision),
+        ...writingTasks.map((item) => item.revision),
+        ...achievements.map((item) => item.revision),
+      );
+      setKnowledgeScopeRevision(String(maximumRevision));
+
+      const query = new URL(location.href).searchParams;
+      const requestedTask = query.get("task") as PlatformTaskType | null;
+      if (requestedTask && TASKS.some((item) => item.id === requestedTask)) {
+        setTaskType(requestedTask);
+        const requested = TASKS.find((item) => item.id === requestedTask)!;
+        setObjective(requested.defaultObjective);
+        setBackend(
+          requested.complexity === "heavy"
+            ? "private-ai-hub"
+            : requested.complexity === "standard"
+              ? "local-ollama"
+              : "browser-ai",
+        );
+      }
+      const requestedObjective = query.get("objective")?.trim();
+      if (requestedObjective) setObjective(requestedObjective.slice(0, 4000));
+    })().catch((error) => {
+      if (!cancelled) setStatus(`作品脈絡載入失敗：${runtimeError(error)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     const resolved = resolveCurrentStudioOrigin(window.location);
@@ -201,12 +563,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       agentRole: "closed-agent-os",
       modelId: selected?.modelId ?? `${backendId}:runtime-managed`,
       modelDigest: selected?.modelDigest ?? `${backendId}:digest-runtime-managed`,
-      promptProfileVersion: "closed-agent-prompt-v1",
-      storyBibleRevision: "current",
-      knowledgeScopeRevision: "current",
+      promptProfileVersion: "closed-agent-prompt-v3",
+      storyBibleRevision,
+      knowledgeScopeRevision,
       privacyLevel,
     };
-  }, [projectId, snapshots]);
+  }, [knowledgeScopeRevision, projectId, snapshots, storyBibleRevision]);
 
   const namespace = useCallback((): ClosedAINamespace => {
     const complexity = TASKS.find((item) => item.id === taskType)?.complexity ?? "light";
@@ -218,17 +580,64 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     return namespaceForBackend(backend === "auto" ? automaticBackend : backend);
   }, [backend, namespaceForBackend, taskType]);
 
+  const selectedTask = useMemo(
+    () => TASKS.find((item) => item.id === taskType),
+    [taskType],
+  );
+  const automaticBackendId: ClosedAIBackendId = selectedTask?.complexity === "heavy"
+    ? "private-ai-hub"
+    : selectedTask?.complexity === "standard"
+      ? "local-ollama"
+      : "browser-ai";
+  const executionBackendId = backend === "auto" ? automaticBackendId : backend;
+  const executionSnapshot = snapshots.find(
+    (snapshot) => snapshot.id === executionBackendId,
+  );
+  const executionReady = backendCanRun(executionSnapshot, selectedTask);
+  const fleetRequest = useMemo(() => ({
+    taskType,
+    complexity: selectedTask?.complexity ?? "light",
+    preferLatency: qualityMode === "fast",
+  }), [qualityMode, selectedTask?.complexity, taskType]);
+  const localFleet = useMemo(
+    () => rankPrivateModels(localModels, fleetRequest),
+    [fleetRequest, localModels],
+  );
+  const hubFleet = useMemo(
+    () => rankPrivateModels(hubModels, fleetRequest),
+    [fleetRequest, hubModels],
+  );
+  const recommendedFleetModel = executionBackendId === "private-ai-hub"
+    ? hubFleet[0] ?? null
+    : executionBackendId === "local-ollama"
+      ? localFleet[0] ?? null
+      : null;
+  const selectedRuntimeModelId = executionBackendId === "private-ai-hub"
+    ? hubModelId
+    : executionBackendId === "local-ollama"
+      ? localModelId
+      : null;
+
   const refreshRuntimes = useCallback(async () => {
     if (!currentOrigin) return;
     setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
-    const browser = await detectBrowserAI();
-    setBrowserCapability(browser);
-    setBrowserProof(getBrowserAIInferenceProof());
-
-    let localReady = false;
-    try {
-      const health = await localClient.health();
-      if (health.runtimeReady && localClient.getSessionMetadata()) {
+    const browserProbe = detectBrowserAI().then((browser) => {
+      setBrowserCapability(browser);
+      setBrowserProof(getBrowserAIInferenceProof());
+      return browser;
+    });
+    const localProbe = (async () => {
+      const startedAt = performance.now();
+      try {
+        const health = await localClient.health();
+        setLocalTelemetry(runtimeTelemetry(health, startedAt));
+        if (!health.runtimeReady || !localClient.getSessionMetadata()) {
+          setLocalModels([]);
+          setLocalProof(null);
+          configureLocalBridgeClient(null);
+          configureLocalBridgeModel(null);
+          return false;
+        }
         const response = await localClient.models();
         const available = response.models.filter(
           (model) => model.capabilities?.textGeneration?.value === true,
@@ -243,24 +652,29 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         configureLocalBridgeModel(selected || null);
         const proof = selected ? localClient.getModelVerification(selected) : null;
         setLocalProof(proof);
-        localReady = Boolean(proof);
-      } else {
+        return Boolean(proof);
+      } catch {
         setLocalModels([]);
         setLocalProof(null);
+        setLocalTelemetry(null);
         configureLocalBridgeClient(null);
         configureLocalBridgeModel(null);
+        return false;
       }
-    } catch {
-      setLocalModels([]);
-      setLocalProof(null);
-      configureLocalBridgeClient(null);
-      configureLocalBridgeModel(null);
-    }
-
-    let hubReady = false;
-    try {
-      const health = await hubClient.health();
-      if (health.runtimeReady && hubClient.getSessionMetadata()) {
+    })();
+    const hubProbe = (async () => {
+      const startedAt = performance.now();
+      try {
+        const health = await hubClient.health();
+        setHubTelemetry(runtimeTelemetry(health, startedAt));
+        if (!health.runtimeReady || !hubClient.getSessionMetadata()) {
+          setHubModels([]);
+          setHubProof(null);
+          setTrainingModels([]);
+          configurePrivateHubClient(null);
+          configurePrivateHubModel(null);
+          return false;
+        }
         const response = await hubClient.models();
         const available = response.models.filter(
           (model) => model.capabilities?.textGeneration?.value === true,
@@ -278,21 +692,22 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setHubProof(proof);
         const trained = await hubClient.listPreferenceModels(projectId);
         setTrainingModels(trained);
-        hubReady = Boolean(proof);
-      } else {
+        return Boolean(proof);
+      } catch {
         setHubModels([]);
         setHubProof(null);
         setTrainingModels([]);
+        setHubTelemetry(null);
         configurePrivateHubClient(null);
         configurePrivateHubModel(null);
+        return false;
       }
-    } catch {
-      setHubModels([]);
-      setHubProof(null);
-      setTrainingModels([]);
-      configurePrivateHubClient(null);
-      configurePrivateHubModel(null);
-    }
+    })();
+    const [browser, localReady, hubReady] = await Promise.all([
+      browserProbe,
+      localProbe,
+      hubProbe,
+    ]);
     const browserState = browser.status === "ready"
       ? getBrowserAIInferenceProof()
         ? "瀏覽器模型已實測"
@@ -315,10 +730,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
 
   const refresh = useCallback(async (announce = true) => {
     await refreshRuntimes();
-    const [nextSnapshots, nextDashboard] = await Promise.all([
-      os.backendSnapshots(),
-      os.dashboard(projectId),
-    ]);
+    const nextSnapshots = await os.backendSnapshots();
+    const nextDashboard = await os.dashboard(projectId, nextSnapshots);
     setSnapshots(nextSnapshots);
     setDashboard(nextDashboard);
     if (announce) {
@@ -370,12 +783,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   async function verifyLocalModel(modelId: string) {
     if (!modelId) return;
     setLocalProof(null);
+    setLocalModelId(modelId);
     configureLocalBridgeModel(null);
     setRuntimeStatus(`正在要求 ${modelId} 實際回答本機驗證題。`);
     const proof = await localClient.verifyModel(modelId);
     configureLocalBridgeClient(localClient);
     configureLocalBridgeModel(modelId);
-    setLocalModelId(modelId);
     setLocalProof(proof);
     setRuntimeStatus(`Local Bridge 與 ${modelId} 已通過真實推理，耗時 ${proof.latencyMs} ms。`);
   }
@@ -458,13 +871,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   async function verifyHubModel(modelId: string) {
     if (!modelId) return;
     setHubProof(null);
+    setHubModelId(modelId);
     configurePrivateHubModel(null);
     setRuntimeStatus(`正在要求 Private Hub 的 ${modelId} 實際回答驗證題。`);
     const proof = await hubClient.verifyModel(modelId);
     configurePrivateHubClient(hubClient);
     configurePrivateHubModel(modelId);
     configurePrivateHubProject(projectId);
-    setHubModelId(modelId);
     setHubProof(proof);
     const trained = await hubClient.listPreferenceModels(projectId);
     setTrainingModels(trained);
@@ -543,21 +956,58 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       ...current,
       { id: crypto.randomUUID(), chosen, rejected },
     ]);
+    setTrainingManifest(null);
     setPreferredExample("");
     setRejectedExample("");
     setRuntimeStatus("偏好對照只保留在目前頁面記憶中；送出訓練後，原文不會寫入模型成果。");
   }
 
-  async function trainPreferenceModel() {
-    if (runtimeBusy || preferencePairs.length < 2 || !hubProof || !hubModelId) return;
+  async function sealTrainingDataset() {
+    if (runtimeBusy || preferencePairs.length < 2 || !hubModelId) return;
     setRuntimeBusy(true);
-    setRuntimeStatus("正在本機訓練成對偏好模型；原始範例只在這次請求記憶中使用。");
     try {
-      const artifact = await hubClient.trainPreferenceModel({
+      const manifest = await sealFormalPreferenceDataset({
         projectId,
         baseModelId: hubModelId,
         datasetVersion: `author-approved-${new Date().toISOString().slice(0, 10)}`,
         samples: preferencePairs.map(({ chosen, rejected }) => ({ chosen, rejected })),
+        rightsConfirmed: trainingRightsConfirmed,
+      });
+      setTrainingManifest(manifest);
+      setRuntimeStatus(
+        `正式訓練資料已封印：${manifest.sampleCount} 組、manifest ${manifest.manifestHash.slice(0, 12)}…；原文仍只留在目前頁面記憶中。`,
+      );
+    } catch (error) {
+      setTrainingManifest(null);
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function trainPreferenceModel() {
+    if (
+      runtimeBusy
+      || preferencePairs.length < 2
+      || !hubProof
+      || !hubModelId
+      || !trainingManifest
+    ) return;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在驗證正式資料清單，並於 Private Hub 本機訓練偏好模型。");
+    try {
+      const samples = preferencePairs.map(({ chosen, rejected }) => ({ chosen, rejected }));
+      if (!await verifyFormalPreferenceDataset(trainingManifest, samples)) {
+        throw Object.assign(new Error("正式訓練資料清單與目前內容不一致。"), {
+          code: "OFFLINE_TRAINING_MANIFEST_INVALID",
+        });
+      }
+      const artifact = await hubClient.trainPreferenceModel({
+        projectId,
+        baseModelId: hubModelId,
+        datasetVersion: trainingManifest.datasetVersion,
+        samples,
+        datasetManifest: trainingManifest,
         hyperparameters: { epochs: 320, learningRate: 0.08, l2: 0.015 },
       });
       const verified = await hubClient.verifyPreferenceModel(projectId, artifact.modelId);
@@ -565,8 +1015,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const trained = await hubClient.listPreferenceModels(projectId);
       setTrainingModels(trained);
       setPreferencePairs([]);
+      setTrainingManifest(null);
+      setTrainingRightsConfirmed(false);
       setRuntimeStatus(
-        `離線偏好模型已訓練並驗證：${verified.modelId}；準確率 ${Math.round((verified.metrics.allPairAccuracy ?? 0) * 100)}%，等待你啟用。`,
+        `離線偏好模型已訓練並驗證：${verified.modelId}；正式資料集 ${verified.datasetDigest.slice(0, 12)}…；準確率 ${Math.round((verified.metrics.allPairAccuracy ?? 0) * 100)}%，等待你啟用。`,
       );
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
@@ -610,18 +1062,31 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
+  function recordProgress(event: ClosedAIProgressEvent) {
+    setProgressEvents((current) => {
+      const previous = current.at(-1);
+      if (previous?.phase === event.phase) {
+        return [...current.slice(0, -1), event];
+      }
+      return [...current, event].slice(-12);
+    });
+    setStatus(event.label);
+  }
+
   async function runTask() {
     if (busy || !objective.trim()) return;
     const controller = new AbortController();
     taskController.current = controller;
     setBusy(true);
     setResult(null);
+    setProgressEvents([]);
     setStatus("正在鎖定後端、建立計畫、執行並評估候選。");
     const task = TASKS.find((item) => item.id === taskType)!;
     try {
+      const runNamespace = namespace();
       const next = await os.execute({
         taskId: `closed-agent-${crypto.randomUUID()}`,
-        namespace: namespace(),
+        namespace: runNamespace,
         taskType,
         objective,
         context: storyContext.trim()
@@ -630,13 +1095,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             kind: "story-bible",
             text: storyContext,
             visibility: "both",
-            privacyLevel: namespace().privacyLevel,
+            privacyLevel: runNamespace.privacyLevel,
             approved: true,
           }]
           : [],
         complexity: task.complexity,
+        qualityMode: qualityMode === "auto" ? undefined : qualityMode,
         preferredBackend: backend === "auto" ? undefined : backend,
-        allowedToolIds: [],
+        allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
         permissionScopes: [
           "story:read",
           "story-bible:read",
@@ -647,6 +1113,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           "world:read",
         ],
         signal: controller.signal,
+        onProgress: recordProgress,
       });
       setResult(next);
       setStatus(`候選已由${BACKEND_LABELS[next.route.backendId]}完成，通過評估，等待你的核准。`);
@@ -664,20 +1131,56 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setStatus("正在取消模型工作。");
   }
 
-  async function approve() {
+  async function approve(applyToChapter = false) {
     if (!result || busy) return;
     setBusy(true);
     try {
+      const canonicalCommit = applyToChapter
+        ? async ({ candidate }: { candidate: typeof result.candidate }) => {
+          const repository = createNovelRepository();
+          const currentProject = await repository.get<NovelProject>("projects", projectId);
+          if (!currentProject?.activeChapterId) {
+            throw Object.assign(new Error("目前作品沒有可套用的章節。"), {
+              code: "CLOSED_AGENT_CANONICAL_CHAPTER_REQUIRED",
+            });
+          }
+          const currentChapter = await repository.get<Chapter>("chapters", currentProject.activeChapterId);
+          if (!currentChapter) {
+            throw Object.assign(new Error("目前章節已不存在，請重新載入。"), {
+              code: "CLOSED_AGENT_CANONICAL_CHAPTER_STALE",
+            });
+          }
+          const taskType = result.task.taskType;
+          const nextContent = taskType === "chapter.rewrite" || taskType === "assistant.transform"
+            ? candidate.content.trim()
+            : `${currentChapter.content.trim()}${currentChapter.content.trim() ? "\n\n" : ""}${candidate.content.trim()}`;
+          const saved = await repository.put<Chapter>("chapters", {
+            ...currentChapter,
+            content: taskType === "story.summary" ? currentChapter.content : nextContent,
+            summary: taskType === "story.summary" ? candidate.content.trim() : currentChapter.summary,
+          }, currentChapter.revision);
+          mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
+          return {
+            commitId: `chapter:${saved.id}:revision:${saved.revision}`,
+            storyBibleRevision,
+          };
+        }
+        : undefined;
       const approved = await os.approveCandidate({
         candidateId: result.candidate.id,
         approvedBy: "local-author",
         humanApproved: true,
+        canonicalCommit,
       });
       setResult({
         ...result,
         candidate: approved.candidate,
       });
-      setStatus("核准已簽章並寫入核准記憶；本頁未直接修改 Canon。");
+      setStatus(
+        applyToChapter
+          ? "核准已簽章，候選已寫入目前章節並建立可驗證 Canon commit。"
+          : "核准已簽章並寫入核准記憶；本頁未修改 Canon。",
+      );
       await refresh(false);
     } catch (error) {
       setStatus(userMessage(error));
@@ -798,9 +1301,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     <main className={styles.shell}>
       <header className={styles.header}>
         <div>
-          <small>單一系統 · 三個執行後端</small>
+          <small>PRIVATE NOVEL INTELLIGENCE · CLOSED AGENT FABRIC</small>
           <h1>閉端 AI 指揮中心</h1>
-          <p>所有後端共用同一個 Router、Planner、權限、記憶、快取、學習與證據鏈。</p>
+          <p>一個小說專用 Agent OS，協調三個私有算力後端、模型艦隊、記憶、工具、訓練與證據鏈。</p>
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
@@ -809,6 +1312,34 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       </header>
 
       <ProjectNavigation projectId={projectId} active="closed-ai" />
+      <section className={styles.commandDeck} aria-label="閉端 AI 核心狀態">
+        <div className={styles.aiCore} aria-hidden="true">
+          <span className={styles.corePulse}>OS</span>
+          <span className={`${styles.coreNode} ${styles.browserNode}`}>B</span>
+          <span className={`${styles.coreNode} ${styles.localNode}`}>L</span>
+          <span className={`${styles.coreNode} ${styles.hubNode}`}>H</span>
+        </div>
+        <div className={styles.deckCopy}>
+          <small>NOVEL DOMAIN SUPER-AGENT</small>
+          <h2>讓每個模型各自做最擅長的工作</h2>
+          <p>Planner 拆解、Actor 生成、Critic 反方檢查、Evaluator 評分；候選經人工核准後，才可進入記憶或 Canon。</p>
+          <div className={styles.deckMetrics}>
+            <span><strong>{TASKS.length}</strong> 種小說任務</span>
+            <span><strong>{localModels.length + hubModels.length}</strong> 個已偵測私有模型</span>
+            <span><strong>{snapshots.filter((item) => item.status === "ready").length}/3</strong> 後端已實測</span>
+            <span><strong>{trainingModels.length}</strong> 個偏好模型成果</span>
+          </div>
+        </div>
+        <div className={styles.truthPanel}>
+          <span>目前能力真相</span>
+          <strong>{recommendedFleetModel
+            ? `${recommendedFleetModel.modelId} · 適配 ${recommendedFleetModel.score}%`
+            : "等待私有模型配對"}</strong>
+          <p>{recommendedFleetModel
+            ? recommendedFleetModel.reasons.slice(0, 2).join("；")
+            : "架構已支援多模型；實際能力仍取決於已安裝、已驗證的模型與硬體。"}</p>
+        </div>
+      </section>
       <p className={styles.status} role="status" aria-live="polite">{status}</p>
       <p className={styles.runtimeStatus} role="status" aria-live="polite">{runtimeStatus}</p>
 
@@ -834,14 +1365,17 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <div><dt>資料邊界</dt><dd>{snapshot.dataBoundary === "device" ? "本機裝置" : "私有基礎設施"}</dd></div>
                   <div><dt>最大工作</dt><dd>{snapshot.maximumComplexity}</dd></div>
                   <div><dt>模型</dt><dd>{snapshot.modelId ?? "執行環境未連線"}</dd></div>
+                  <div><dt>模型雜湊</dt><dd>{snapshot.modelDigest ? `${snapshot.modelDigest.slice(0, 16)}…` : "等待驗證"}</dd></div>
+                  <div><dt>上下文</dt><dd>{snapshot.maxContext ? `${snapshot.maxContext.toLocaleString()} tokens` : "依裝置／模型"}</dd></div>
+                  <div><dt>探測耗時</dt><dd>{typeof snapshot.controlLatencyMs === "number" ? `${snapshot.controlLatencyMs} ms` : "—"}</dd></div>
                   <div><dt>真相碼</dt><dd>{snapshot.detailCode}</dd></div>
                 </dl>
                 {snapshot.id === "browser-ai" ? <div className={styles.runtimeControls}>
                   <p>
                     裝置能力：{browserCapability?.status === "ready"
-                      ? browserCapability.modelId === "novel-browser-extractive-v1"
-                        ? "封裝式輕量模型可用"
-                        : "內建模型可用"
+                      ? browserCapability.reason.includes("native_summary")
+                        ? "混合模型可用（內建摘要加速）"
+                        : "封裝式摘要／分類模型可用"
                       : browserCapability?.status === "runtime_not_installed"
                         ? "支援但模型尚未下載"
                         : "此裝置不支援"}
@@ -883,7 +1417,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   </> : <>
                     {localModels.length ? <label>文字模型
                       <select value={localModelId} disabled={runtimeBusy} onChange={(event) => void selectLocalModel(event.target.value)}>
-                        {localModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId}</option>)}
+                        {localModels.map((model) => {
+                          const profile = localFleet.find((item) => item.modelId === model.modelId);
+                          return <option key={model.modelId} value={model.modelId}>
+                            {model.modelId}{profile ? ` · ${profile.parameterLabel} · 適配 ${profile.score}%` : ""}
+                          </option>;
+                        })}
                       </select>
                     </label> : null}
                     {localProof ? <p className={styles.proof}>
@@ -891,6 +1430,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     </p> : <button type="button" disabled={runtimeBusy || !localModelId} onClick={() => void selectLocalModel(localModelId)}>
                       實際驗證模型
                     </button>}
+                    {localTelemetry ? <p className={styles.runtimeMetrics}>
+                      控制面 {localTelemetry.controlLatencyMs} ms · 執行 {localTelemetry.active}/{localTelemetry.maxConcurrent} · 排隊 {localTelemetry.queued}/{localTelemetry.maxQueue} · Cache {localTelemetry.cacheEntries}
+                    </p> : null}
                     <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeLocalPairing()}>
                       撤銷本頁配對
                     </button>
@@ -923,7 +1465,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   </> : <>
                     {hubModels.length ? <label>中樞模型
                       <select value={hubModelId} disabled={runtimeBusy} onChange={(event) => void selectHubModel(event.target.value)}>
-                        {hubModels.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId}</option>)}
+                        {hubModels.map((model) => {
+                          const profile = hubFleet.find((item) => item.modelId === model.modelId);
+                          return <option key={model.modelId} value={model.modelId}>
+                            {model.modelId}{profile ? ` · ${profile.parameterLabel} · 適配 ${profile.score}%` : ""}
+                          </option>;
+                        })}
                       </select>
                     </label> : null}
                     {hubProof ? <p className={styles.proof}>
@@ -931,6 +1478,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     </p> : <button type="button" disabled={runtimeBusy || !hubModelId} onClick={() => void selectHubModel(hubModelId)}>
                       實際驗證中樞模型
                     </button>}
+                    {hubTelemetry ? <p className={styles.runtimeMetrics}>
+                      控制面 {hubTelemetry.controlLatencyMs} ms · 執行 {hubTelemetry.active}/{hubTelemetry.maxConcurrent} · 排隊 {hubTelemetry.queued}/{hubTelemetry.maxQueue} · 加密 Cache {hubTelemetry.cacheEntries}
+                    </p> : null}
                     <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeHubPairing()}>
                       撤銷本頁配對
                     </button>
@@ -938,6 +1488,34 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 </div> : null}
               </article>
             ))}
+          </div>
+          <div className={styles.fleetBoard}>
+            <div className={styles.fleetHeading}>
+              <div>
+                <small>MODEL FLEET ROUTER</small>
+                <h3>私有模型艦隊</h3>
+              </div>
+              <span>依目前任務即時計分</span>
+            </div>
+            {localFleet.length || hubFleet.length ? (
+              <div className={styles.fleetList}>
+                {[...new Map(
+                  [...localFleet, ...hubFleet].map((profile) => [profile.modelId, profile]),
+                ).values()].slice(0, 5).map((profile, index) => (
+                  <article key={profile.modelId} data-recommended={profile.modelId === recommendedFleetModel?.modelId}>
+                    <div>
+                      <span>{profile.modelId === recommendedFleetModel?.modelId ? "推薦" : `#${index + 1}`}</span>
+                      <strong>{profile.modelId}</strong>
+                      <b>{profile.score}%</b>
+                    </div>
+                    <p>{modelSummary(profile)}</p>
+                    <small>{profile.contextLength
+                      ? `${profile.contextLength.toLocaleString()} tokens`
+                      : "上下文未回報"} · {formatModelSize(profile.diskSizeBytes)}</small>
+                  </article>
+                ))}
+              </div>
+            ) : <p className={styles.fleetEmpty}>配對 Local Bridge 或 Private Hub 後，這裡會依工作難度、參數量、上下文與角色能力推薦已安裝模型。</p>}
           </div>
           <details>
             <summary>能力真相與限制</summary>
@@ -959,51 +1537,136 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <label>工作類型
               <select value={taskType} onChange={(event) => {
                 const next = event.target.value as PlatformTaskType;
-                setTaskType(next);
+                const previous = TASKS.find((item) => item.id === taskType);
                 const task = TASKS.find((item) => item.id === next);
+                setTaskType(next);
+                if (
+                  task
+                  && (!objective.trim() || objective.trim() === previous?.defaultObjective)
+                ) {
+                  setObjective(task.defaultObjective);
+                }
                 if (task?.complexity === "heavy") setBackend("private-ai-hub");
                 else if (task?.complexity === "standard") setBackend("local-ollama");
                 else if (task?.complexity === "light") setBackend("browser-ai");
               }}>
-                {TASKS.map((task) => (
-                  <option key={task.id} value={task.id}>{task.label} · {task.hint}</option>
+                {(Object.keys(TASK_GROUP_LABELS) as TaskGroup[]).map((group) => (
+                  <optgroup key={group} label={TASK_GROUP_LABELS[group]}>
+                    {TASKS.filter((task) => task.group === group).map((task) => (
+                      <option key={task.id} value={task.id}>{task.label} · {task.hint}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
             <label>執行後端
               <select value={backend} onChange={(event) => setBackend(event.target.value as ClosedAIBackendId | "auto")}>
-                {Object.entries(BACKEND_LABELS).map(([value, label]) => (
+                {Object.entries(BACKEND_LABELS).map(([value, label]) => {
+                  const backendId = value as ClosedAIBackendId | "auto";
+                  const snapshot = backendId === "auto"
+                    ? undefined
+                    : snapshots.find((item) => item.id === backendId);
+                  const runnable = backendId === "auto"
+                    || backendCanRun(snapshot, selectedTask);
+                  return (
+                    <option key={value} value={value} disabled={!runnable}>
+                      {label}{backendId === "auto" ? "" : ` · ${snapshot ? statusLabel(snapshot.status) : "核對中"}`}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label>品質模式
+              <select
+                value={qualityMode}
+                onChange={(event) =>
+                  setQualityMode(event.target.value as ClosedAIQualityMode | "auto")}
+              >
+                {Object.entries(QUALITY_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
             </label>
           </div>
+          <div className={styles.executionReadiness} data-ready={executionReady}>
+            <div>
+              <strong>{executionReady ? "可執行" : "尚未就緒"}</strong>
+              <span>{BACKEND_LABELS[executionBackendId]} · {executionSnapshot?.modelId ?? "等待模型身分"}</span>
+            </div>
+            <p>{executionReady
+              ? "工作會鎖定此後端，串流進度與最終雜湊證據會顯示在本頁。"
+               : "請先在左側啟動、配對並實測所需後端；系統不會暗中換用別的 AI。"}</p>
+          </div>
+          {recommendedFleetModel ? <div className={styles.modelRecommendation}>
+            <div>
+              <small>此任務的模型路由建議</small>
+              <strong>{recommendedFleetModel.modelId} · 適配 {recommendedFleetModel.score}%</strong>
+              <span>{recommendedFleetModel.reasons.slice(0, 3).join("；")}</span>
+            </div>
+            {recommendedFleetModel.modelId !== selectedRuntimeModelId ? <button
+              type="button"
+              className={styles.secondary}
+              disabled={runtimeBusy}
+              onClick={() => {
+                if (executionBackendId === "private-ai-hub") {
+                  void selectHubModel(recommendedFleetModel.modelId);
+                } else if (executionBackendId === "local-ollama") {
+                  void selectLocalModel(recommendedFleetModel.modelId);
+                }
+              }}
+            >
+              實測並採用建議模型
+            </button> : <span className={styles.activeModel}>目前已採用</span>}
+          </div> : null}
           <label>你要完成什麼？
             <textarea rows={4} value={objective} onChange={(event) => setObjective(event.target.value)} />
           </label>
           <label>已核准的故事脈絡（選填）
             <textarea rows={5} value={storyContext} onChange={(event) => setStoryContext(event.target.value)} placeholder="只貼入你允許 Actor 與 Evaluator 共同看見的故事資料。" />
           </label>
+          {contextInventory ? <small className={styles.contextInventory} data-story-state-ready={contextInventory.storyStates > 0}>
+            正式脈絡：{contextInventory.repository === "indexeddb" ? "IndexedDB" : "工作階段記憶"}
+            {" · "}{contextInventory.chapters} 章
+            {" · "}{contextInventory.characters} 角色
+            {" · "}{contextInventory.storyStates} StoryState
+            {" · "}{contextInventory.tasks} 任務
+            {" · "}{contextInventory.achievements} 成就
+          </small> : null}
           <div className={styles.actions}>
-            <button className={styles.primary} type="button" disabled={busy || !objective.trim()} onClick={() => void runTask()}>
+            <button className={styles.primary} type="button" disabled={busy || !objective.trim() || !executionReady} onClick={() => void runTask()}>
               {busy ? "模型執行中…" : "建立真實模型候選"}
             </button>
             {busy ? <button className={styles.danger} type="button" onClick={cancelTask}>取消模型工作</button> : null}
           </div>
+          {progressEvents.length ? <div className={styles.progressPanel} aria-label="閉端 AI 執行進度">
+            <div className={styles.progressTrack}>
+              <span style={{ width: `${progressEvents.at(-1)?.percent ?? 0}%` }} />
+            </div>
+            <ol>
+              {progressEvents.map((event) => <li key={`${event.phase}:${event.occurredAt}`} data-current={event === progressEvents.at(-1)}>
+                <strong>{event.percent}%</strong>
+                <span>{event.label}</span>
+                {typeof event.generatedCharacters === "number" ? <small>{event.generatedCharacters} 字</small> : null}
+              </li>)}
+            </ol>
+          </div> : null}
 
           <div className={styles.candidate} data-empty={!result}>
             {result ? <>
               <header>
                 <div>
                   <small>{BACKEND_LABELS[result.candidate.backendId]} · 評分 {Math.round(result.candidate.evaluation.score * 100)}%</small>
-                  <h3>{result.candidate.status === "awaiting-approval" ? "等待你的核准" : result.candidate.status}</h3>
+                  <h3>{candidateStatusLabel(result.candidate.status)}</h3>
                 </div>
                 <span>Canon 寫入：{result.candidate.canonicalMutationCount}</span>
               </header>
               <div className={styles.candidateText}>{result.candidate.content}</div>
               <div className={styles.actions}>
                 {result.candidate.status === "awaiting-approval" ? <>
-                  <button type="button" disabled={busy} onClick={() => void approve()}>簽章核准並寫入記憶</button>
+                  {CHAPTER_COMMIT_TASKS.has(result.task.taskType) ? (
+                    <button type="button" disabled={busy} onClick={() => void approve(true)}>核准並套用目前章節</button>
+                  ) : null}
+                  <button className={styles.secondary} type="button" disabled={busy} onClick={() => void approve(false)}>只核准到記憶</button>
                   <button className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
                 </> : null}
                 <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportEvidence()}>匯出驗證證據</button>
@@ -1022,6 +1685,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <div><dt>計畫雜湊</dt><dd>{result.plan.planDigest}</dd></div>
                   <div><dt>生成模型</dt><dd>{result.candidate.modelId}</dd></div>
                   <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
+                  {result.candidate.generationTelemetry ? <>
+                    <div><dt>任務設定</dt><dd>{result.candidate.generationTelemetry.profileId}</dd></div>
+                    <div><dt>品質管線</dt><dd>{QUALITY_LABELS[result.candidate.generationTelemetry.qualityMode]} · {result.candidate.generationTelemetry.qualityPasses} 次真實推理</dd></div>
+                    <div><dt>模型耗時</dt><dd>{result.candidate.generationTelemetry.elapsedMs} ms</dd></div>
+                    <div><dt>首字延遲</dt><dd>{result.candidate.generationTelemetry.firstTokenMs === null ? "整批回應" : `${result.candidate.generationTelemetry.firstTokenMs} ms`}</dd></div>
+                    <div><dt>輸入／輸出</dt><dd>{result.candidate.generationTelemetry.inputCharacters}／{result.candidate.generationTelemetry.outputCharacters} 字</dd></div>
+                    <div><dt>預算省略</dt><dd>{result.candidate.generationTelemetry.omittedInputCharacters} 字</dd></div>
+                    {result.candidate.generationTelemetry.draftDigest ? <div><dt>暫存草稿雜湊</dt><dd>{result.candidate.generationTelemetry.draftDigest}</dd></div> : null}
+                    {result.candidate.generationTelemetry.criticDigest ? <div><dt>反方檢查雜湊</dt><dd>{result.candidate.generationTelemetry.criticDigest}</dd></div> : null}
+                  </> : null}
+                  <div><dt>候選快取</dt><dd>{result.cache.candidateHit ? "命中" : "未命中"}</dd></div>
+                  <div><dt>計畫快取</dt><dd>{result.cache.planHit ? "命中" : "未命中"}</dd></div>
                   {result.candidate.adapterId ? <div><dt>偏好模型</dt><dd>{result.candidate.adapterId}</dd></div> : null}
                   {result.candidate.adapterDigest ? <div><dt>偏好雜湊</dt><dd>{result.candidate.adapterDigest}</dd></div> : null}
                   <div><dt>內容雜湊</dt><dd>{result.candidate.contentDigest}</dd></div>
@@ -1065,9 +1740,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             </div>
           </div>
 
-          <div className={styles.systemGroup}>
-            <h3>離線偏好模型訓練</h3>
-            <p>這會在自架 Private Hub 節點訓練成對邏輯回歸風格模型，產出可驗證 Adapter；它會影響重型候選，但不會冒充未執行的 QLoRA／LLM 權重微調。</p>
+          <div className={styles.systemGroup} id="training">
+            <h3>正式私有訓練資料與偏好模型</h3>
+            <p>先封印權利、範圍、隱私、樣本雜湊與品質 Gate，再由 Private Hub 驗證清單並訓練可回滾 Adapter。這不會冒充尚未完成的大型 LLM 權重微調。</p>
             {!hubProof ? <p className={styles.warning}>先啟動、配對並實測 Private Hub 模型，才可訓練。</p> : <>
               <label>我喜歡的寫法
                 <textarea rows={3} value={preferredExample} onChange={(event) => setPreferredExample(event.target.value)} placeholder="貼入你有權使用、且希望模型偏好的短例子。" />
@@ -1077,20 +1752,44 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               </label>
               <div className={styles.actions}>
                 <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={addPreferencePair}>加入偏好對照</button>
-                <button type="button" disabled={runtimeBusy || preferencePairs.length < 2} onClick={() => void trainPreferenceModel()}>
-                  訓練 {preferencePairs.length} 組對照
+                <button className={styles.secondary} type="button" disabled={runtimeBusy || preferencePairs.length < 2 || !trainingRightsConfirmed} onClick={() => void sealTrainingDataset()}>
+                  封印正式資料集
+                </button>
+                <button type="button" disabled={runtimeBusy || !trainingManifest} onClick={() => void trainPreferenceModel()}>
+                  驗證清單並訓練
                 </button>
               </div>
+              <label className={styles.rightsCheck}>
+                <input
+                  type="checkbox"
+                  checked={trainingRightsConfirmed}
+                  onChange={(event) => {
+                    setTrainingRightsConfirmed(event.target.checked);
+                    setTrainingManifest(null);
+                  }}
+                />
+                <span>我確認這些訓練文字由我擁有或已獲明確授權，只供此作品的私有個人化使用。</span>
+              </label>
               {preferencePairs.length ? <ul className={styles.compactList}>
                 {preferencePairs.map((pair, index) => <li key={pair.id}>
                   第 {index + 1} 組 · 喜歡 {pair.chosen.length} 字／不採用 {pair.rejected.length} 字
-                  <button className={styles.inlineButton} type="button" disabled={runtimeBusy} onClick={() => setPreferencePairs((current) => current.filter((item) => item.id !== pair.id))}>移除</button>
+                  <button className={styles.inlineButton} type="button" disabled={runtimeBusy} onClick={() => {
+                    setPreferencePairs((current) => current.filter((item) => item.id !== pair.id));
+                    setTrainingManifest(null);
+                  }}>移除</button>
                 </li>)}
               </ul> : null}
+              {trainingManifest ? <article className={styles.datasetManifest}>
+                <div><span>SEALED DATASET</span><strong>{trainingManifest.datasetId}</strong></div>
+                <p>{trainingManifest.sampleCount} 組 · 專案私有 · 權利已確認 · 憑證掃描通過</p>
+                <code>{trainingManifest.manifestHash}</code>
+                <small>只封印雜湊、血緣與治理資料；模型成果不保存或回傳原始範例。</small>
+              </article> : null}
             </>}
             {trainingCandidate ? <article className={styles.trainingArtifact}>
               <strong>已訓練候選：{trainingCandidate.modelId}</strong>
               <span>資料集 {trainingCandidate.datasetDigest.slice(0, 12)}… · 成果 {trainingCandidate.artifactDigest.slice(0, 12)}…</span>
+              <span>資料治理：{trainingCandidate.datasetGovernance === "formal_manifest_verified" ? "正式清單已由 Private Hub 驗證" : "舊版明確確認流程"}</span>
               <span>全部對照準確率 {Math.round((trainingCandidate.metrics.allPairAccuracy ?? 0) * 100)}% · loss {trainingCandidate.metrics.finalLoss}</span>
               <button type="button" disabled={runtimeBusy} onClick={() => void activatePreferenceModel(trainingCandidate)}>人工確認並啟用</button>
             </article> : null}

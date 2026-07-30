@@ -1,5 +1,9 @@
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
-import { containsConvertibleSimplifiedChinese } from "../language/traditional-chinese";
+import {
+  containsConvertibleSimplifiedChinese,
+  containsProtectedProperNounDrift,
+} from "../language/traditional-chinese";
+import { evaluateObjectiveAcceptance } from "./acceptance";
 import type {
   ClosedAgentEvaluation,
   ClosedAgentTaskRequest,
@@ -19,8 +23,15 @@ export async function evaluateClosedAgentCandidate(input: {
   if (!content) blockingCodes.push("CANDIDATE_EMPTY");
   if (CREDENTIAL.test(content)) blockingCodes.push("CANDIDATE_CREDENTIAL_LEAK");
   if (RAW_REASONING.test(content)) blockingCodes.push("CANDIDATE_RAW_REASONING_LEAK");
-  if (containsConvertibleSimplifiedChinese(content)) {
+  const protectedSource = [
+    input.request.objective,
+    ...input.request.context.map((item) => item.text),
+  ].join("\n");
+  if (containsConvertibleSimplifiedChinese(content, protectedSource)) {
     blockingCodes.push("CANDIDATE_SIMPLIFIED_CHINESE_REMAINS");
+  }
+  if (containsProtectedProperNounDrift(content, protectedSource)) {
+    blockingCodes.push("CANDIDATE_PROPER_NOUN_DRIFT");
   }
   if (!input.execution.candidateOnly) blockingCodes.push("CANDIDATE_ONLY_CONTRACT_MISSING");
   if (
@@ -28,6 +39,35 @@ export async function evaluateClosedAgentCandidate(input: {
     && (input.execution.externalRequest || input.execution.dataLeftDevice)
   ) {
     blockingCodes.push("CANDIDATE_DEVICE_BOUNDARY_VIOLATION");
+  }
+  if (
+    /風險/u.test(input.request.objective)
+    && !/(?:風險|代價|失敗條件|可能後果)/u.test(content)
+  ) {
+    warningCodes.push("OBJECTIVE_RISK_DIMENSION_MISSING");
+  }
+  const objectiveAcceptance = evaluateObjectiveAcceptance({
+    objective: input.request.objective,
+    content,
+  });
+  for (const code of objectiveAcceptance.warningCodes) {
+    if (!warningCodes.includes(code)) warningCodes.push(code);
+  }
+  if (input.request.taskType === "story.storyBibleCandidate") {
+    for (const heading of [
+      "已核准事實",
+      "待確認",
+      "矛盾",
+      "角色",
+      "世界規則",
+      "時間線",
+      "伏筆",
+      "禁改項",
+    ]) {
+      if (!content.includes(heading)) {
+        warningCodes.push(`STORY_BIBLE_SECTION_MISSING:${heading}`);
+      }
+    }
   }
   if (content.length < 24) warningCodes.push("CANDIDATE_VERY_SHORT");
   const approvedEvaluatorContext = input.request.context
@@ -44,6 +84,12 @@ export async function evaluateClosedAgentCandidate(input: {
     objective: input.request.objective,
     candidateDigest: await sha256Hex(content),
     approvedEvaluatorContext,
+    objectiveAcceptance: {
+      contract: objectiveAcceptance.contract,
+      detectedItemCount: objectiveAcceptance.detectedItemCount,
+      missingDimensions: objectiveAcceptance.missingDimensions,
+      dimensionCoverage: objectiveAcceptance.dimensionCoverage,
+    },
   }));
   const score = Math.max(
     0,

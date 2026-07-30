@@ -126,8 +126,77 @@ export function splitBrowserModelSentences(text: string) {
     .split(/(?<=[。！？!?])|\n+/u)
     .map((sentence) => sentence.trim())
     .filter(Boolean)
-    .slice(0, 80);
+    .slice(0, 320);
   return sentences.length ? sentences : [normalized];
+}
+
+function desiredSentenceCount(total: number) {
+  if (total <= 5) return 1;
+  if (total <= 18) return 2;
+  if (total <= 48) return 3;
+  if (total <= 100) return 4;
+  if (total <= 180) return 5;
+  return 6;
+}
+
+function sentenceShingles(sentence: string) {
+  const normalized = sentence
+    .replace(/[\s，。！？、；：「」『』（）()!?.,;:'"]/gu, "")
+    .toLocaleLowerCase("zh-Hant");
+  const shingles = new Set<string>();
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    shingles.add(normalized.slice(index, index + 2));
+  }
+  if (!shingles.size && normalized) shingles.add(normalized);
+  return shingles;
+}
+
+function sentenceSimilarity(left: string, right: string) {
+  const leftSet = sentenceShingles(left);
+  const rightSet = sentenceShingles(right);
+  if (!leftSet.size || !rightSet.size) return 0;
+  let intersection = 0;
+  for (const value of leftSet) {
+    if (rightSet.has(value)) intersection += 1;
+  }
+  return intersection / Math.max(1, leftSet.size + rightSet.size - intersection);
+}
+
+function selectDiverseSentences(sentences: string[], desired: number) {
+  const ranked = sentences
+    .map((sentence, index) => ({
+      sentence,
+      index,
+      score: scoreSentence(sentence, index, sentences.length),
+    }));
+  const selected: typeof ranked = [];
+  const addIfDiverse = (candidate: (typeof ranked)[number]) => {
+    if (selected.some((item) => item.index === candidate.index)) return;
+    if (selected.some((item) =>
+      sentenceSimilarity(item.sentence, candidate.sentence) >= 0.78)) return;
+    selected.push(candidate);
+  };
+
+  const chunkSize = Math.ceil(sentences.length / desired);
+  for (let chunk = 0; chunk < desired; chunk += 1) {
+    const start = chunk * chunkSize;
+    const chunkCandidates = ranked
+      .slice(start, Math.min(sentences.length, start + chunkSize))
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    for (const candidate of chunkCandidates) {
+      const before = selected.length;
+      addIfDiverse(candidate);
+      if (selected.length > before) break;
+    }
+  }
+
+  for (const candidate of [...ranked].sort(
+    (left, right) => right.score - left.score || left.index - right.index,
+  )) {
+    if (selected.length >= desired) break;
+    addIfDiverse(candidate);
+  }
+  return selected.sort((left, right) => left.index - right.index);
 }
 
 export function runPackagedBrowserExtractiveModel(text: string) {
@@ -138,17 +207,13 @@ export function runPackagedBrowserExtractiveModel(text: string) {
       retryable: false,
     });
   }
-  const desired = sentences.length > 5 ? 2 : 1;
-  const selected = sentences
-    .map((sentence, index) => ({
-      sentence,
-      index,
-      score: scoreSentence(sentence, index, sentences.length),
-    }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, desired)
-    .sort((left, right) => left.index - right.index);
-  const output = selected.map((item) => item.sentence).join("");
+  const selected = selectDiverseSentences(
+    sentences,
+    desiredSentenceCount(sentences.length),
+  );
+  const output = selected
+    .map((item) => item.sentence)
+    .join(selected.length > 2 ? "\n" : "");
   if (!output) {
     throw Object.assign(new Error("瀏覽器模型沒有產生摘要。"), {
       code: "BROWSER_AI_INVALID_RESPONSE",
@@ -161,6 +226,12 @@ export function runPackagedBrowserExtractiveModel(text: string) {
     modelDigest: BROWSER_EXTRACTIVE_MODEL.modelDigest,
     selectedSentenceCount: selected.length,
     candidateSentenceCount: sentences.length,
+    coverage: selected.length
+      ? {
+        firstSentenceIndex: selected[0].index,
+        lastSentenceIndex: selected[selected.length - 1].index,
+      }
+      : null,
     externalRequest: false as const,
     dataLeftDevice: false as const,
   };

@@ -18,7 +18,10 @@ import {
   validateLoopbackHost,
 } from "../bridge/bridge-core.mjs";
 import {
+  preferenceDatasetDigest,
+  preferenceSampleDigests,
   preferenceModelGuidance,
+  stablePreferenceValue,
   trainOfflinePreferenceModel,
   verifyOfflinePreferenceModel,
 } from "./preference-model.mjs";
@@ -49,6 +52,51 @@ const jsonHeaders = {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+export function assertFormalTrainingManifest(manifest, input) {
+  if (!manifest || manifest.schemaVersion !== "novel-formal-preference-dataset-v1") {
+    throw new BridgeError(
+      "OFFLINE_TRAINING_MANIFEST_REQUIRED",
+      "A sealed formal training dataset manifest is required.",
+      400,
+    );
+  }
+  const {
+    manifestHash,
+    ...body
+  } = manifest;
+  const expectedHash = sha256(stablePreferenceValue(body));
+  const sampleDigests = preferenceSampleDigests(input.samples);
+  const expectedDatasetDigest = preferenceDatasetDigest(input.samples);
+  const valid = manifest.status === "sealed"
+    && manifest.rightsConfirmed === true
+    && manifest.humanApproved === true
+    && manifest.ownerScope === "project_private"
+    && manifest.purpose === "private_story_personalization"
+    && manifest.projectId === input.projectId
+    && manifest.baseModelId === input.baseModelId
+    && manifest.datasetVersion === input.datasetVersion
+    && manifest.sampleCount === input.samples.length
+    && manifest.datasetDigest === expectedDatasetDigest
+    && stablePreferenceValue(manifest.sampleDigests) === stablePreferenceValue(sampleDigests)
+    && manifest.privacy?.rawSamplesStored === false
+    && manifest.privacy?.externalRequest === false
+    && manifest.privacy?.dataLeftDevice === false
+    && manifest.privacy?.chainOfThoughtStored === false
+    && manifest.qualityGates?.minimumPairs === true
+    && manifest.qualityGates?.distinctPairs === true
+    && manifest.qualityGates?.credentialScanPassed === true
+    && manifest.qualityGates?.projectIsolationPassed === true
+    && manifestHash === expectedHash;
+  if (!valid) {
+    throw new BridgeError(
+      "OFFLINE_TRAINING_MANIFEST_INVALID",
+      "The formal training dataset manifest does not match the submitted samples.",
+      400,
+    );
+  }
+  return manifestHash;
 }
 
 function sendJson(response, status, body, origin) {
@@ -178,6 +226,8 @@ function safeTrainingModel(artifact, active) {
     baseModelId: artifact.baseModelId,
     datasetVersion: artifact.datasetVersion,
     datasetDigest: artifact.datasetDigest,
+    datasetManifestHash: artifact.datasetManifestHash ?? null,
+    datasetGovernance: artifact.datasetGovernance ?? "legacy_explicit_confirmation",
     trainingMethod: artifact.trainingMethod,
     featureNames: artifact.featureNames,
     weights: artifact.weights,
@@ -490,6 +540,12 @@ export function createPrivateHubServer(options = {}) {
           externalRequest: false,
           dataLeftDevice: false,
           cache: await cache.stats(),
+          workload: {
+            active: work.active,
+            queued: work.queue.length,
+            maxConcurrent: work.maxConcurrent,
+            maxQueue: work.maxQueue,
+          },
           limits,
         }, origin);
       }
@@ -649,12 +705,24 @@ export function createPrivateHubServer(options = {}) {
           );
         }
         const projectId = validProjectId(body.projectId);
+        const baseModelId = String(body.baseModelId || "runtime-selected");
+        const datasetVersion = String(body.datasetVersion || "local-approved-v1");
+        const datasetManifestHash = assertFormalTrainingManifest(
+          body.datasetManifest,
+          {
+            projectId,
+            baseModelId,
+            datasetVersion,
+            samples: Array.isArray(body.samples) ? body.samples : [],
+          },
+        );
         const startedAt = performance.now();
         const artifact = trainOfflinePreferenceModel({
           projectId,
-          baseModelId: String(body.baseModelId || "runtime-selected"),
-          datasetVersion: String(body.datasetVersion || "local-approved-v1"),
+          baseModelId,
+          datasetVersion,
           samples: body.samples,
+          datasetManifestHash,
           epochs: body.hyperparameters?.epochs,
           learningRate: body.hyperparameters?.learningRate,
           l2: body.hyperparameters?.l2,
