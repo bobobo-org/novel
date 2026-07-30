@@ -5,12 +5,14 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
@@ -337,6 +339,37 @@ function verifyProtectedInputs() {
   );
 }
 
+function resolvePlaywrightImport() {
+  try {
+    return import.meta.resolve("@playwright/test");
+  } catch {
+    // A Git worktree does not share ignored node_modules. Resolve only from
+    // another local worktree of the same repository; no package is installed
+    // or downloaded by the audit runner.
+  }
+  const parent = path.dirname(root);
+  const preferred = [
+    root,
+    path.join(parent, "novel-pr23-r22-audit"),
+    path.join(parent, "novel-closed-ai-runtime-r2"),
+  ];
+  const discovered = readdirSync(parent, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("novel-"))
+    .map((entry) => path.join(parent, entry.name));
+  for (const candidate of [...new Set([...preferred, ...discovered])]) {
+    const packageJson = path.join(candidate, "package.json");
+    if (!existsSync(packageJson)) continue;
+    try {
+      const requireFromCandidate = createRequire(pathToFileURL(packageJson));
+      const resolved = requireFromCandidate.resolve("@playwright/test");
+      return pathToFileURL(resolved).href;
+    } catch {
+      // Continue to the next same-repository worktree.
+    }
+  }
+  throw new Error("R23_PLAYWRIGHT_DEPENDENCY_NOT_FOUND");
+}
+
 function runSelfTest() {
   const template = readFileSync(templatePath, "utf8");
   const transformed = transformR22Runner(
@@ -373,6 +406,7 @@ function runSelfTest() {
     protectedOutputNotReferenced:
       !transformed.includes('artifacts", "pr23-r22-luna-unblock'),
     transformedSyntaxValid: syntax.status === 0,
+    installedPlaywrightResolvable: /^file:/u.test(resolvePlaywrightImport()),
   };
   assert.ok(Object.values(checks).every(Boolean), "R23_RUNNER_SELF_TEST_FAILED");
   process.stdout.write(`${JSON.stringify({
@@ -396,7 +430,7 @@ if (process.argv.includes("--self-test")) {
   assert.match(mergeRef, /^[a-f0-9]{40}$/u);
 
   const template = readFileSync(templatePath, "utf8");
-  const playwrightImportUrl = import.meta.resolve("@playwright/test");
+  const playwrightImportUrl = resolvePlaywrightImport();
   const transformed = transformR22Runner(template, playwrightImportUrl);
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "novel-r23-runner-"));
   const delegatePath = path.join(tempDir, "run-pr23-r23-delegate.mjs");
