@@ -6,6 +6,7 @@ import {
   sha256Hex,
   stableStringify,
   type ClosedAICacheInvalidation,
+  type ClosedAINamespace,
 } from "../closed-ai-cache";
 import {
   ControlledLearningOS,
@@ -38,6 +39,11 @@ import {
 import {
   CLOSED_AGENT_OS_SCHEMA_VERSION,
   type ClosedAIBackendAdapter,
+  type ClosedAIBackendSnapshot,
+  type ClosedAIProgressEvent,
+  type ClosedAIProgressPhase,
+  type ClosedAIQualityPhase,
+  type ClosedAIWorkingMaterial,
   type ClosedAgentApprovalRecord,
   type ClosedAgentCandidate,
   type ClosedAgentExecutionResult,
@@ -102,13 +108,19 @@ export class ClosedAgentOS {
     this.now = options.now ?? (() => new Date());
   }
 
-  async backendSnapshots(signal?: AbortSignal) {
-    return Promise.all([...this.backends.values()].map((backend) => backend.snapshot(signal)));
+  async backendSnapshots(
+    signal?: AbortSignal,
+    namespace?: Pick<ClosedAINamespace, "projectId">,
+  ) {
+    return Promise.all(
+      [...this.backends.values()].map((backend) => backend.snapshot(signal, namespace)),
+    );
   }
 
   execute(request: ClosedAgentTaskRequest): Promise<ClosedAgentExecutionResult> {
     const projectId = request.namespace.projectId;
     const previous = this.projectQueues.get(projectId) ?? Promise.resolve();
+    this.emitProgress(request, "queued", "工作已進入此作品的安全佇列", 0);
     const operation = previous.then(() => this.executeInternal(request));
     this.projectQueues.set(projectId, operation.catch(() => undefined));
     return operation;
@@ -182,15 +194,23 @@ export class ClosedAgentOS {
       },
     });
     try {
+      this.emitProgress(request, "probing", "正在核對三個閉端後端的真實狀態", 8);
       const routingLearning = await this.learning.activeConfiguration(request.namespace);
       request = {
         ...request,
         learningConfiguration: routingLearning.configuration,
       };
-      const snapshots = await this.backendSnapshots(request.signal);
+      const snapshots = await this.backendSnapshots(request.signal, request.namespace);
       const route = selectClosedAIBackend(request, snapshots);
       const backend = this.backends.get(route.backend.id);
       if (!backend) throw osError("CLOSED_AI_BACKEND_ADAPTER_MISSING");
+      this.emitProgress(
+        request,
+        "routing",
+        `已鎖定 ${route.backend.label}，不會靜默切換`,
+        18,
+        { backendId: route.backend.id },
+      );
       request = {
         ...request,
         namespace: {
@@ -247,6 +267,16 @@ export class ClosedAgentOS {
         },
       );
       const plan = planResult.value;
+      this.emitProgress(
+        request,
+        "planning",
+        planResult.cacheHit ? "已重用通過驗證的代理計畫" : "代理計畫已建立並完成權限檢查",
+        28,
+        {
+          backendId: route.backend.id,
+          cacheHit: planResult.cacheHit,
+        },
+      );
       for (const role of plan.roles) assertClosedAgentPermission({ request, role });
       await this.recordOperationalLearningSignal({
         request,
@@ -276,6 +306,13 @@ export class ClosedAgentOS {
         ...request.namespace,
         agentRole: "actor",
       };
+      this.emitProgress(
+        request,
+        "retrieving",
+        "正在取得已核准且符合可見性邊界的脈絡",
+        40,
+        { backendId: route.backend.id },
+      );
       const actorContextResult = await this.cache.compute(
         "retrieval",
         actorNamespace,
@@ -321,6 +358,7 @@ export class ClosedAgentOS {
         objectiveDigest: await sha256Hex(request.objective),
         actorContextDigests: await Promise.all(actorContext.map((item) => sha256Hex(item.text))),
         planDigest: plan.planDigest,
+        qualityMode: plan.qualityMode,
         backendId: route.backend.id,
         learningConfiguration: request.learningConfiguration ?? {},
         toolResultDigests: await Promise.all(
@@ -330,6 +368,7 @@ export class ClosedAgentOS {
       const semanticText = `${request.taskType}\n${request.objective}`;
       const semanticLookup = await this.cache.getSemantic<{
         taskType: ClosedAgentTaskRequest["taskType"];
+        qualityMode: ClosedAgentPlan["qualityMode"];
         execution: ClosedBackendExecutionResult;
       }>(
         request.namespace,
@@ -338,19 +377,44 @@ export class ClosedAgentOS {
       );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
+      this.emitProgress(
+        request,
+        "generating",
+        "模型已開始產生候選",
+        50,
+        { backendId: route.backend.id },
+      );
       if (
         semanticLookup.hit
         && semanticLookup.entry?.value.taskType === request.taskType
+        && semanticLookup.entry.value.qualityMode === plan.qualityMode
         && semanticLookup.entry.value.execution.backendId === route.backend.id
       ) {
         execution = semanticLookup.entry.value.execution;
         candidateCacheHit = true;
+        this.emitProgress(
+          request,
+          "generating",
+          "命中同命名空間的語意候選快取",
+          80,
+          {
+            backendId: route.backend.id,
+            cacheHit: true,
+            generatedCharacters: execution.content.length,
+          },
+        );
       } else {
         const exactResult = await this.cache.compute(
           "exact",
           request.namespace,
           candidateInput,
-          () => backend.execute({ request, plan, actorContext, toolResults }),
+          () => this.executeQualityPipeline({
+            backend,
+            request,
+            plan,
+            actorContext,
+            toolResults,
+          }),
           {
             tags: ["closed-agent-candidate", `task:${request.taskType}`],
             ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
@@ -358,6 +422,19 @@ export class ClosedAgentOS {
         );
         execution = exactResult.value;
         candidateCacheHit = exactResult.cacheHit;
+        if (exactResult.cacheHit) {
+          this.emitProgress(
+            request,
+            "generating",
+            "命中完全相同輸入的候選快取",
+            80,
+            {
+              backendId: route.backend.id,
+              cacheHit: true,
+              generatedCharacters: execution.content.length,
+            },
+          );
+        }
         await this.cache.put({
           layer: "semantic",
           namespace: request.namespace,
@@ -368,6 +445,7 @@ export class ClosedAgentOS {
           semanticText,
           value: {
             taskType: request.taskType,
+            qualityMode: plan.qualityMode,
             execution,
           },
           tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
@@ -380,6 +458,17 @@ export class ClosedAgentOS {
           actual: execution.backendId,
         });
       }
+      this.emitProgress(
+        request,
+        "evaluating",
+        "正在檢查語言、資料邊界、品質與憑證洩漏",
+        86,
+        {
+          backendId: route.backend.id,
+          generatedCharacters: execution.content.length,
+          cacheHit: candidateCacheHit,
+        },
+      );
       const evaluation = await evaluateClosedAgentCandidate({ request, execution });
       await this.ledger.append({
         ledgerId: this.ledgerId(request),
@@ -394,11 +483,24 @@ export class ClosedAgentOS {
           adapterDigest: execution.adapterDigest ?? null,
           contentDigest: await sha256Hex(execution.content),
           candidateOnly: true,
+          qualityMode: execution.qualityMode,
+          qualityPasses: execution.qualityPasses,
+          draftDigest: execution.draftDigest,
+          criticDigest: execution.criticDigest,
         },
         result: {
           elapsedMs: execution.elapsedMs,
           dataLeftDevice: execution.dataLeftDevice,
           externalRequest: execution.externalRequest,
+          profileId: execution.profileId ?? null,
+          firstTokenMs: execution.firstTokenMs ?? null,
+          inputCharacters: execution.inputCharacters ?? null,
+          outputCharacters: execution.outputCharacters ?? execution.content.length,
+          omittedInputCharacters: execution.omittedInputCharacters ?? 0,
+          qualityMode: execution.qualityMode,
+          qualityPasses: execution.qualityPasses,
+          draftDigest: execution.draftDigest,
+          criticDigest: execution.criticDigest,
         },
       });
       await this.ledger.append({
@@ -469,6 +571,19 @@ export class ClosedAgentOS {
         status: "awaiting-approval",
         candidateOnly: true,
         canonicalMutationCount: 0,
+        generationTelemetry: {
+          profileId: execution.profileId ?? `${execution.backendId}-default-v1`,
+          elapsedMs: execution.elapsedMs,
+          firstTokenMs: execution.firstTokenMs ?? null,
+          inputCharacters: execution.inputCharacters ?? 0,
+          outputCharacters: execution.outputCharacters ?? execution.content.length,
+          generatedTokenEvents: execution.generatedTokenEvents ?? 0,
+          omittedInputCharacters: execution.omittedInputCharacters ?? 0,
+          qualityMode: execution.qualityMode,
+          qualityPasses: execution.qualityPasses,
+          draftDigest: execution.draftDigest,
+          criticDigest: execution.criticDigest,
+        },
         createdAt: updatedAt,
         updatedAt,
       };
@@ -483,6 +598,17 @@ export class ClosedAgentOS {
       if (!verification.valid || !verification.headHash) {
         throw osError("CLOSED_AGENT_LEDGER_INTEGRITY_FAILED");
       }
+      this.emitProgress(
+        request,
+        "awaiting-approval",
+        "候選與證據鏈已完成，等待人工核准",
+        100,
+        {
+          backendId: route.backend.id,
+          generatedCharacters: execution.content.length,
+          cacheHit: candidateCacheHit,
+        },
+      );
       return {
         task,
         candidate,
@@ -514,6 +640,15 @@ export class ClosedAgentOS {
         updatedAt: this.now().toISOString(),
       };
       await this.state.put(task);
+      this.emitProgress(
+        request,
+        task.state === "cancelled" ? "cancelled" : "failed",
+        task.state === "cancelled"
+          ? "工作已取消，未修改 Memory 或 Canon"
+          : `工作安全停止（${code}）`,
+        100,
+        task.backendId ? { backendId: task.backendId } : {},
+      );
       throw cause;
     }
   }
@@ -863,9 +998,14 @@ export class ClosedAgentOS {
     };
   }
 
-  async dashboard(projectId: string) {
+  async dashboard(
+    projectId: string,
+    knownBackends?: ClosedAIBackendSnapshot[],
+  ) {
     const [backends, cache, learning, tasks, candidates, approvals, memories] = await Promise.all([
-      this.backendSnapshots(),
+      knownBackends
+        ? Promise.resolve(structuredClone(knownBackends))
+        : this.backendSnapshots(),
       this.cache.stats(),
       this.learning.dashboard(projectId),
       this.state.list<ClosedAgentTaskRecord>(projectId, "task"),
@@ -892,6 +1032,193 @@ export class ClosedAgentOS {
       silentFallback: false,
       rawChainOfThoughtStored: false,
     };
+  }
+
+  private async executeQualityPipeline(input: {
+    backend: ClosedAIBackendAdapter;
+    request: ClosedAgentTaskRequest;
+    plan: ClosedAgentPlan;
+    actorContext: ClosedAgentTaskRequest["context"];
+    toolResults: Array<{ toolId: string; value: unknown }>;
+  }): Promise<ClosedBackendExecutionResult> {
+    const {
+      backend,
+      request,
+      plan,
+      actorContext,
+      toolResults,
+    } = input;
+    const passResults: ClosedBackendExecutionResult[] = [];
+    const ranges: Record<
+      ClosedAIQualityPhase,
+      { start: number; end: number; phase: ClosedAIProgressPhase; label: string }
+    > = plan.qualityMode === "deep"
+      ? {
+        draft: { start: 50, end: 61, phase: "generating", label: "第一階段：建立完整草稿" },
+        critic: { start: 62, end: 71, phase: "critiquing", label: "第二階段：反方檢查缺漏與矛盾" },
+        revision: { start: 72, end: 82, phase: "revising", label: "第三階段：依檢查結果完成修訂" },
+      }
+      : plan.qualityMode === "balanced"
+        ? {
+          draft: { start: 50, end: 65, phase: "generating", label: "第一階段：建立完整草稿" },
+          critic: { start: 65, end: 65, phase: "critiquing", label: "品質檢查" },
+          revision: { start: 66, end: 82, phase: "revising", label: "第二階段：自我檢查並修訂" },
+        }
+        : {
+          draft: { start: 50, end: 82, phase: "generating", label: "快速模式：建立候選" },
+          critic: { start: 82, end: 82, phase: "critiquing", label: "品質檢查" },
+          revision: { start: 82, end: 82, phase: "revising", label: "完成候選" },
+        };
+
+    const runPass = async (
+      qualityPhase: ClosedAIQualityPhase,
+      workingMaterials: ClosedAIWorkingMaterial[],
+    ) => {
+      if (request.signal?.aborted) throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      const range = ranges[qualityPhase];
+      this.emitProgress(
+        request,
+        range.phase,
+        range.label,
+        range.start,
+        { backendId: plan.backendId },
+      );
+      const passDigest = await sha256Hex(
+        `${request.taskId}|${qualityPhase}|${passResults.length}`,
+      );
+      const passRequest: ClosedAgentTaskRequest = {
+        ...request,
+        taskId: `quality:${qualityPhase}:${passDigest.slice(0, 32)}`,
+        onProgress: (event) => {
+          const ratio = Math.max(0, Math.min(1, event.percent / 100));
+          try {
+            request.onProgress?.({
+              ...event,
+              taskId: request.taskId,
+              phase: range.phase,
+              label: `${range.label}｜${event.label}`,
+              percent: Math.round(range.start + (range.end - range.start) * ratio),
+            });
+          } catch {
+            // The quality transaction is not controlled by UI observers.
+          }
+        },
+      };
+      const result = await backend.execute({
+        request: passRequest,
+        plan,
+        actorContext,
+        toolResults,
+        qualityPhase,
+        workingMaterials,
+      });
+      if (!result.content.trim()) {
+        throw osError("CLOSED_AGENT_QUALITY_PASS_EMPTY", undefined, {
+          qualityPhase,
+        });
+      }
+      const first = passResults[0];
+      if (
+        first
+        && (
+          result.backendId !== first.backendId
+          || result.modelId !== first.modelId
+          || result.modelDigest !== first.modelDigest
+        )
+      ) {
+        throw osError("CLOSED_AI_QUALITY_IDENTITY_CHANGED", undefined, {
+          qualityPhase,
+        });
+      }
+      passResults.push(result);
+      return result;
+    };
+
+    const draft = await runPass("draft", []);
+    let critic: ClosedBackendExecutionResult | null = null;
+    let final = draft;
+    let draftDigest: string | null = null;
+    let criticDigest: string | null = null;
+    if (plan.qualityMode !== "fast") {
+      draftDigest = await sha256Hex(draft.content);
+      const draftMaterial: ClosedAIWorkingMaterial = {
+        kind: "draft",
+        text: draft.content,
+        digest: draftDigest,
+      };
+      if (plan.qualityMode === "deep") {
+        critic = await runPass("critic", [draftMaterial]);
+        criticDigest = await sha256Hex(critic.content);
+      }
+      final = await runPass(
+        "revision",
+        critic
+          ? [
+            draftMaterial,
+            {
+              kind: "critic",
+              text: critic.content,
+              digest: criticDigest!,
+            },
+          ]
+          : [draftMaterial],
+      );
+    }
+    return {
+      ...final,
+      adapterId: final.adapterId ?? draft.adapterId ?? null,
+      adapterDigest: final.adapterDigest ?? draft.adapterDigest ?? null,
+      content: final.content.trim(),
+      elapsedMs: passResults.reduce((sum, item) => sum + item.elapsedMs, 0),
+      profileId: `${final.profileId ?? `${final.backendId}-default-v1`}:quality-${plan.qualityMode}-v1`,
+      firstTokenMs: passResults[0]?.firstTokenMs ?? null,
+      inputCharacters: passResults.reduce(
+        (sum, item) => sum + (item.inputCharacters ?? 0),
+        0,
+      ),
+      outputCharacters: passResults.reduce(
+        (sum, item) => sum + (item.outputCharacters ?? item.content.length),
+        0,
+      ),
+      generatedTokenEvents: passResults.reduce(
+        (sum, item) => sum + (item.generatedTokenEvents ?? 0),
+        0,
+      ),
+      omittedInputCharacters: passResults.reduce(
+        (sum, item) => sum + (item.omittedInputCharacters ?? 0),
+        0,
+      ),
+      dataLeftDevice: passResults.some((item) => item.dataLeftDevice),
+      externalRequest: passResults.some((item) => item.externalRequest),
+      qualityMode: plan.qualityMode,
+      qualityPasses: passResults.length,
+      draftDigest,
+      criticDigest,
+    };
+  }
+
+  private emitProgress(
+    request: ClosedAgentTaskRequest,
+    phase: ClosedAIProgressPhase,
+    label: string,
+    percent: number,
+    detail: Partial<Pick<
+      ClosedAIProgressEvent,
+      "backendId" | "generatedCharacters" | "cacheHit"
+    >> = {},
+  ) {
+    try {
+      request.onProgress?.({
+        taskId: request.taskId,
+        phase,
+        label,
+        percent: Math.max(0, Math.min(100, Math.round(percent))),
+        occurredAt: this.now().toISOString(),
+        ...detail,
+      });
+    } catch {
+      // Progress observers are non-authoritative and cannot fail the transaction.
+    }
   }
 
   async invalidateCache(invalidation: ClosedAICacheInvalidation) {
@@ -942,6 +1269,13 @@ export class ClosedAgentOS {
           () => tool.execute({
             namespace: request.namespace,
             taskId: request.taskId,
+            taskType: request.taskType,
+            objective: request.objective,
+            approvedContext: request.context.filter((item) =>
+              item.approved
+              && item.visibility !== "author-only"
+              && item.visibility !== "evaluator"
+              && item.privacyLevel === request.namespace.privacyLevel),
             payload: { taskType: request.taskType },
             signal: request.signal,
           }),
@@ -1145,7 +1479,9 @@ export class ClosedAgentOS {
     return {
       taskType: request.taskType,
       backendId,
+      complexity: request.complexity ?? "automatic",
       objectiveDigest: request.objective,
+      qualityMode: request.qualityMode ?? "automatic",
       allowedToolIds: [...request.allowedToolIds].sort(),
       permissionScopes: [...request.permissionScopes].sort(),
       learningConfiguration: Object.fromEntries(
@@ -1166,7 +1502,11 @@ export const CLOSED_AGENT_OS_HEALTH = {
   privateAIHubAdapterStatus: "contract_ready_runtime_not_connected",
   routerStatus: "ready",
   plannerStatus: "ready",
+  multiPassQualityPipelineStatus: "ready",
+  transientCriticRevisionStatus: "ready",
   toolRegistryStatus: "ready",
+  studioAcceptanceToolStatus: "ready",
+  studioContextIndexToolStatus: "ready",
   permissionGatewayStatus: "ready",
   taskQueueStatus: "ready",
   storyMemoryStatus: "ready",

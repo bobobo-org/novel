@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-studio-offline-v1";
+const CACHE_VERSION = "novel-studio-offline-v2";
 const OFFLINE_FALLBACK = "/offline-studio.html";
 const STATIC_SEED = [
   OFFLINE_FALLBACK,
@@ -61,7 +61,15 @@ self.addEventListener("fetch", (event) => {
   ) return;
   if (
     url.pathname.startsWith("/_next/static/")
-    || /\.(?:js|css|woff2?|png|jpg|jpeg|webp|svg|ico)$/i.test(url.pathname)
+    || /\.(?:js|css)$/i.test(url.pathname)
+  ) {
+    // Application code must prefer the newest deployment. The cache remains
+    // an offline fallback, but it can no longer pin an old UI after an update.
+    event.respondWith(networkFirst(request));
+    return;
+  }
+  if (
+    /\.(?:woff2?|png|jpg|jpeg|webp|svg|ico)$/i.test(url.pathname)
   ) {
     event.respondWith(cacheFirst(request));
     return;

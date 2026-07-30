@@ -7,19 +7,30 @@ import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
 } from "../../closed-ai-cache";
-import { normalizeTraditionalChinese } from "../../language/traditional-chinese";
+import {
+  normalizeTraditionalChinesePreservingProperNouns,
+} from "../../language/traditional-chinese";
 import { AiProviderError } from "../provider-errors";
 import {
+  buildClosedAIModelPrompt,
+  getClosedAIModelProfile,
+} from "../closed/task-profile";
+import {
   assertLocalBridgeStreamCompleted,
+  classifyBridgeConnectivityError,
   parseLocalBridgeJson,
   validateLocalBridgeEvent,
   type LocalBridgeEvent,
   type LocalTextModel,
 } from "../local-ollama/local-bridge-client";
+import type {
+  FormalPreferenceDatasetManifest,
+} from "../../training/formal-preference-dataset";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
 const CONTROL_TIMEOUT_MS = 5_000;
+const CONTROL_CACHE_TTL_MS = 1_500;
 
 export type PrivateHubSession = {
   token: string;
@@ -53,6 +64,8 @@ export type OfflinePreferenceModelArtifact = {
   baseModelId: string;
   datasetVersion: string;
   datasetDigest: string;
+  datasetManifestHash?: string | null;
+  datasetGovernance?: "formal_manifest_verified" | "legacy_explicit_confirmation";
   trainingMethod: "offline_pairwise_logistic_gradient_descent";
   featureNames: string[];
   weights: number[];
@@ -113,6 +126,19 @@ type PrivateHubBody = Record<string, unknown> & {
   evalCount?: number | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  cache?: { entries?: number; hits?: number; misses?: number };
+  limits?: {
+    maxPromptBytes?: number;
+    maxOutputTokens?: number;
+    maxConcurrent?: number;
+    maxQueue?: number;
+  };
+  workload?: {
+    active?: number;
+    queued?: number;
+    maxConcurrent?: number;
+    maxQueue?: number;
+  };
 };
 
 function endpoint(value = PRIVATE_HUB_ENDPOINT) {
@@ -191,6 +217,16 @@ export class PrivateHubClient {
   private session: PrivateHubSession | null = null;
   private modelVerification: PrivateHubInferenceProof | null = null;
   private activeAdapters = new Map<string, OfflinePreferenceModelArtifact>();
+  private healthCache: { expiresAt: number; value: PrivateHubBody } | null = null;
+  private modelsCache: { expiresAt: number; value: PrivateHubBody & { models: LocalTextModel[] } } | null = null;
+  private preferenceCache = new Map<string, {
+    expiresAt: number;
+    value: OfflinePreferenceModelArtifact[];
+  }>();
+  private healthInFlight: Promise<PrivateHubBody> | null = null;
+  private modelsInFlight: Promise<PrivateHubBody & { models: LocalTextModel[] }> | null = null;
+  private preferenceInFlight = new Map<string, Promise<OfflinePreferenceModelArtifact[]>>();
+  private cacheEpoch = 0;
 
   constructor(options: {
     endpoint?: string;
@@ -208,6 +244,7 @@ export class PrivateHubClient {
       this.activeAdapters.clear();
     }
     this.session = session;
+    this.clearControlPlaneCache();
   }
 
   getSessionMetadata() {
@@ -226,6 +263,16 @@ export class PrivateHubClient {
   getActiveAdapter(projectId: string) {
     const artifact = this.activeAdapters.get(projectId);
     return artifact ? structuredClone(artifact) : null;
+  }
+
+  clearControlPlaneCache() {
+    this.cacheEpoch += 1;
+    this.healthCache = null;
+    this.modelsCache = null;
+    this.preferenceCache.clear();
+    this.healthInFlight = null;
+    this.modelsInFlight = null;
+    this.preferenceInFlight.clear();
   }
 
   private headers(authenticated = false, write = false) {
@@ -258,14 +305,8 @@ export class PrivateHubClient {
         ...init,
         signal: signalWithTimeout,
       });
-    } catch {
-      throw new AiProviderError(
-        signalWithTimeout.aborted ? "REQUEST_TIMEOUT" : "BRIDGE_PROCESS_UNREACHABLE",
-        signalWithTimeout.aborted
-          ? "Private Hub control request timed out."
-          : "The browser could not reach the self-hosted Private Hub node.",
-        { retryable: true, stage: "private-hub-connect" },
-      );
+    } catch (error) {
+      throw await classifyBridgeConnectivityError(error, signalWithTimeout);
     }
   }
 
@@ -285,15 +326,36 @@ export class PrivateHubClient {
   }
 
   async health(signal?: AbortSignal) {
-    return this.parse(await this.fetchHub(
+    const now = Date.now();
+    if (!signal && this.healthCache && this.healthCache.expiresAt > now) {
+      return structuredClone(this.healthCache.value);
+    }
+    if (!signal && this.healthInFlight) {
+      return structuredClone(await this.healthInFlight);
+    }
+    const epoch = this.cacheEpoch;
+    const operation = this.fetchHub(
       "/health",
       { headers: this.headers(), cache: "no-store" },
       signal,
-    ));
+    ).then((response) => this.parse(response));
+    if (!signal) this.healthInFlight = operation;
+    try {
+      const value = await operation;
+      if (!signal && epoch === this.cacheEpoch) {
+        this.healthCache = {
+          expiresAt: Date.now() + CONTROL_CACHE_TTL_MS,
+          value: structuredClone(value),
+        };
+      }
+      return structuredClone(value);
+    } finally {
+      if (!signal && this.healthInFlight === operation) this.healthInFlight = null;
+    }
   }
 
   async requestPairing(signal?: AbortSignal) {
-    return this.parse(await this.fetchHub(
+    const result = await this.parse(await this.fetchHub(
       "/pair/request",
       {
         method: "POST",
@@ -302,6 +364,8 @@ export class PrivateHubClient {
       },
       signal,
     ));
+    this.clearControlPlaneCache();
+    return result;
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {
@@ -317,6 +381,7 @@ export class PrivateHubClient {
     this.modelVerification = null;
     this.activeAdapters.clear();
     this.session = session;
+    this.clearControlPlaneCache();
     return session;
   }
 
@@ -333,16 +398,41 @@ export class PrivateHubClient {
     this.session = null;
     this.modelVerification = null;
     this.activeAdapters.clear();
+    this.clearControlPlaneCache();
     return result;
   }
 
   async models(signal?: AbortSignal) {
-    const body = await this.parse(await this.fetchHub(
+    const now = Date.now();
+    if (!signal && this.modelsCache && this.modelsCache.expiresAt > now) {
+      return structuredClone(this.modelsCache.value);
+    }
+    if (!signal && this.modelsInFlight) {
+      return structuredClone(await this.modelsInFlight);
+    }
+    const epoch = this.cacheEpoch;
+    const operation = this.fetchHub(
       "/models",
       { headers: this.headers(true), cache: "no-store" },
       signal,
-    ));
-    return { ...body, models: (body.models ?? []) as LocalTextModel[] };
+    ).then((response) => this.parse(response))
+      .then((body) => ({
+        ...body,
+        models: (body.models ?? []) as LocalTextModel[],
+      }));
+    if (!signal) this.modelsInFlight = operation;
+    try {
+      const value = await operation;
+      if (!signal && epoch === this.cacheEpoch) {
+        this.modelsCache = {
+          expiresAt: Date.now() + CONTROL_CACHE_TTL_MS,
+          value: structuredClone(value),
+        };
+      }
+      return structuredClone(value);
+    } finally {
+      if (!signal && this.modelsInFlight === operation) this.modelsInFlight = null;
+    }
   }
 
   async verifyModel(modelId: string, signal?: AbortSignal) {
@@ -371,6 +461,7 @@ export class PrivateHubClient {
     baseModelId: string;
     datasetVersion?: string;
     samples: Array<{ chosen: string; rejected: string }>;
+    datasetManifest: FormalPreferenceDatasetManifest;
     hyperparameters?: {
       epochs?: number;
       learningRate?: number;
@@ -393,11 +484,20 @@ export class PrivateHubClient {
         { retryable: false, stage: "offline-preference-training" },
       );
     }
+    this.clearControlPlaneCache();
     return structuredClone(body as OfflinePreferenceModelArtifact);
   }
 
   async listPreferenceModels(projectId: string, signal?: AbortSignal) {
-    const body = await this.parse(await this.fetchHub(
+    const now = Date.now();
+    const cached = this.preferenceCache.get(projectId);
+    if (!signal && cached && cached.expiresAt > now) {
+      return structuredClone(cached.value);
+    }
+    const pending = this.preferenceInFlight.get(projectId);
+    if (!signal && pending) return structuredClone(await pending);
+    const epoch = this.cacheEpoch;
+    const operation = this.fetchHub(
       "/training/list",
       {
         method: "POST",
@@ -405,14 +505,28 @@ export class PrivateHubClient {
         body: JSON.stringify({ projectId }),
       },
       signal,
-    ));
-    const models = Array.isArray(body.models)
-      ? body.models.filter(validateTrainingArtifact)
-      : [];
-    const active = models.find((model) => model.status === "active") ?? null;
-    if (active) this.activeAdapters.set(projectId, active);
-    else this.activeAdapters.delete(projectId);
-    return models;
+    ).then((response) => this.parse(response))
+      .then((body) => Array.isArray(body.models)
+        ? body.models.filter(validateTrainingArtifact)
+        : []);
+    if (!signal) this.preferenceInFlight.set(projectId, operation);
+    try {
+      const models = await operation;
+      const active = models.find((model) => model.status === "active") ?? null;
+      if (active) this.activeAdapters.set(projectId, active);
+      else this.activeAdapters.delete(projectId);
+      if (!signal && epoch === this.cacheEpoch) {
+        this.preferenceCache.set(projectId, {
+          expiresAt: Date.now() + CONTROL_CACHE_TTL_MS,
+          value: structuredClone(models),
+        });
+      }
+      return structuredClone(models);
+    } finally {
+      if (!signal && this.preferenceInFlight.get(projectId) === operation) {
+        this.preferenceInFlight.delete(projectId);
+      }
+    }
   }
 
   async verifyPreferenceModel(
@@ -453,6 +567,7 @@ export class PrivateHubClient {
       },
       signal,
     ));
+    this.clearControlPlaneCache();
     await this.listPreferenceModels(projectId, signal);
     return body;
   }
@@ -467,6 +582,7 @@ export class PrivateHubClient {
       },
       signal,
     ));
+    this.clearControlPlaneCache();
     await this.listPreferenceModels(projectId, signal);
     return body;
   }
@@ -610,8 +726,13 @@ export function configurePrivateHubProject(projectId: string | null) {
 }
 
 export class LoopbackPrivateHubTransport {
-  async snapshot(signal?: AbortSignal): Promise<ClosedAIBackendSnapshot> {
+  async snapshot(
+    signal?: AbortSignal,
+    namespace?: Pick<ClosedAINamespace, "projectId">,
+  ): Promise<ClosedAIBackendSnapshot> {
+    const startedAt = performance.now();
     const client = getConfiguredPrivateHubClient();
+    const projectId = namespace?.projectId ?? configuredProjectId;
     if (!client) {
       return {
         id: "private-ai-hub",
@@ -644,7 +765,12 @@ export class LoopbackPrivateHubTransport {
           detailCode: String(health.pairingState || "private_hub_pairing_required"),
         };
       }
-      const modelResponse = await client.models(signal);
+      const [modelResponse] = await Promise.all([
+        client.models(signal),
+        projectId
+          ? client.listPreferenceModels(projectId, signal)
+          : Promise.resolve([]),
+      ]);
       const textModels = modelResponse.models.filter(
         (model) => model.capabilities?.textGeneration?.value === true,
       );
@@ -652,11 +778,8 @@ export class LoopbackPrivateHubTransport {
         ?? textModels[0]
         ?? null;
       const proof = model ? client.getModelVerification(model.modelId) : null;
-      if (configuredProjectId) {
-        await client.listPreferenceModels(configuredProjectId, signal);
-      }
-      const adapter = configuredProjectId
-        ? client.getActiveAdapter(configuredProjectId)
+      const adapter = projectId
+        ? client.getActiveAdapter(projectId)
         : null;
       const compositeDigest = model
         ? await sha256Hex([
@@ -675,6 +798,8 @@ export class LoopbackPrivateHubTransport {
         maximumComplexity: "heavy",
         capabilities: ["text", "structured", "streaming", "long-context"],
         supportedTaskTypes: "all",
+        maxContext: Number(model?.contextLength?.value ?? 0),
+        controlLatencyMs: Math.round(performance.now() - startedAt),
         detailCode: model && proof
           ? adapter
             ? `model_and_adapter_verified:${adapter.modelId}`
@@ -719,30 +844,58 @@ export class LoopbackPrivateHubTransport {
         code: "CLOSED_AI_SELECTED_BACKEND_NOT_READY",
       });
     }
-    const snapshot = await this.snapshot(input.request.signal);
-    if (snapshot.status !== "ready" || !snapshot.modelId || !snapshot.modelDigest) {
-      throw Object.assign(new Error("Private Hub model is not inference-verified."), {
-        code: "CLOSED_AI_SELECTED_BACKEND_NOT_READY",
-      });
+    const routedModelId = input.request.namespace.modelId;
+    const routedModelDigest = input.request.namespace.modelDigest;
+    if (
+      !routedModelId
+      || routedModelId.endsWith(":runtime-managed")
+      || !routedModelDigest
+      || routedModelDigest.endsWith(":digest-runtime-managed")
+    ) {
+      throw Object.assign(
+        new Error("Private Hub task has no verified routed model identity."),
+        {
+          code: "CLOSED_AI_SELECTED_BACKEND_NOT_READY",
+        },
+      );
     }
     let content = "";
     let completed = false;
     let adapterId: string | null = null;
     let adapterDigest: string | null = null;
     const startedAt = performance.now();
+    const profile = getClosedAIModelProfile(
+      input.request.taskType,
+      "private-ai-hub",
+    );
+    const prompt = buildClosedAIModelPrompt({
+      objective: input.request.objective,
+      context: input.actorContext.map((item) => item.text),
+      profile,
+      qualityPhase: input.qualityPhase,
+      agentPlan: {
+        planDigest: input.plan.planDigest,
+        roles: [...input.plan.roles],
+        steps: input.plan.steps.map((step) => ({
+          role: step.role,
+          objective: step.objective,
+        })),
+      },
+      toolResults: input.toolResults,
+      workingMaterials: input.workingMaterials,
+    });
+    let firstTokenMs: number | null = null;
+    let tokenEvents = 0;
+    let lastReportedCharacters = 0;
     for await (const event of client.generate({
       requestId: input.request.taskId,
       projectId: input.request.namespace.projectId,
-      model: snapshot.modelId,
-      prompt: [
-        ...input.actorContext.map((item) => item.text),
-        ...input.toolResults.map((item) => JSON.stringify(item.value)),
-        input.request.objective,
-      ].join("\n\n"),
-      systemInstruction: "你是台灣繁體中文小說助手。全程只使用繁體中文（例如：著、遠、將、離、穩），禁止輸出簡體字。只輸出可供作者核准的候選內容，不修改 Canon。",
+      model: routedModelId,
+      prompt: prompt.prompt,
+      systemInstruction: profile.systemInstruction,
       taskType: input.request.taskType,
-      timeoutMs: 240_000,
-      options: { num_predict: 2_048 },
+      timeoutMs: profile.timeoutMs,
+      options: profile.options,
       cacheNamespace: input.request.namespace,
       signal: input.request.signal,
     })) {
@@ -752,7 +905,36 @@ export class LoopbackPrivateHubTransport {
           ? event.adapterDigest
           : null;
       }
-      if (event.type === "token") content += event.text ?? "";
+      if (event.type === "token") {
+        const text = event.text ?? "";
+        if (text && firstTokenMs === null) {
+          firstTokenMs = Math.round(performance.now() - startedAt);
+        }
+        content += text;
+        tokenEvents += 1;
+        if (
+          content.length - lastReportedCharacters >= 48
+          || lastReportedCharacters === 0
+        ) {
+          lastReportedCharacters = content.length;
+          try {
+            input.request.onProgress?.({
+              taskId: input.request.taskId,
+              phase: "generating",
+              label: `Private Hub 串流中 · ${content.length} 字`,
+              percent: Math.min(
+                80,
+                50 + Math.round(Math.sqrt(content.length) * 1.8),
+              ),
+              occurredAt: new Date().toISOString(),
+              backendId: "private-ai-hub",
+              generatedCharacters: content.length,
+            });
+          } catch {
+            // Progress callbacks cannot affect a private generation transaction.
+          }
+        }
+      }
       if (event.type === "completed") completed = true;
       if (event.type === "failed" || event.type === "cancelled") {
         throw Object.assign(new Error(String(event.errorCode || event.type)), {
@@ -771,15 +953,31 @@ export class LoopbackPrivateHubTransport {
     }
     return {
       backendId: "private-ai-hub",
-      modelId: snapshot.modelId,
-      modelDigest: snapshot.modelDigest,
+      modelId: routedModelId,
+      modelDigest: routedModelDigest,
       adapterId,
       adapterDigest,
-      content: normalizeTraditionalChinese(content),
+      content: normalizeTraditionalChinesePreservingProperNouns(
+        content,
+        [
+          input.request.objective,
+          ...input.actorContext.map((item) => item.text),
+        ].join("\n"),
+      ),
       candidateOnly: true,
       dataLeftDevice: false,
       externalRequest: false,
       elapsedMs: Math.round(performance.now() - startedAt),
+      profileId: profile.profileId,
+      firstTokenMs,
+      inputCharacters: prompt.inputCharacters,
+      outputCharacters: content.length,
+      generatedTokenEvents: tokenEvents,
+      omittedInputCharacters: prompt.omittedCharacters,
+      qualityMode: input.plan.qualityMode,
+      qualityPasses: 1,
+      draftDigest: null,
+      criticDigest: null,
     };
   }
 }

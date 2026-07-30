@@ -7,11 +7,35 @@ import type {
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
 const BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+const CONTROL_CACHE_TTL_MS = 1_500;
 const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
-export type LocalTextModel = { modelId: string; modelDigest?: string | null; contextLength?: { value?: number | null }; capabilities?: { textGeneration?: { value?: boolean }; embeddings?: { value?: boolean } } };
+export type ReportedModelValue<T> = {
+  value?: T;
+  source?: "reported" | "derived" | "unknown" | string;
+};
+
+export type LocalTextModel = {
+  modelId: string;
+  modelDigest?: string | null;
+  family?: ReportedModelValue<string | null>;
+  parameterSize?: ReportedModelValue<string | null>;
+  quantization?: ReportedModelValue<string | null>;
+  contextLength?: ReportedModelValue<number | null>;
+  diskSize?: ReportedModelValue<number | null>;
+  modifiedAt?: ReportedModelValue<string | null>;
+  capabilities?: {
+    textGeneration?: ReportedModelValue<boolean>;
+    chat?: ReportedModelValue<boolean>;
+    embeddings?: ReportedModelValue<boolean>;
+    toolUse?: ReportedModelValue<boolean>;
+    structuredOutput?: ReportedModelValue<boolean>;
+    vision?: ReportedModelValue<boolean>;
+    streaming?: ReportedModelValue<boolean>;
+  };
+};
 export type LocalModelInferenceProof = {
   proofVersion: "local-model-inference-proof-v1";
   state: "inference_verified";
@@ -54,6 +78,19 @@ type LocalBridgeBody = Record<string, unknown> & {
   evalCount?: number | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  cache?: { entries?: number; hits?: number; misses?: number };
+  limits?: {
+    maxPromptBytes?: number;
+    maxOutputTokens?: number;
+    maxConcurrent?: number;
+    maxQueue?: number;
+  };
+  workload?: {
+    active?: number;
+    queued?: number;
+    maxConcurrent?: number;
+    maxQueue?: number;
+  };
 };
 
 export function selectAvailableTextModel(models: LocalTextModel[], preferredModelId: string) {
@@ -128,17 +165,28 @@ export function assertLocalBridgeStreamCompleted(state: { started: boolean; comp
   }
 }
 
+export function resolveLocalNetworkPermissionStates(
+  supportedStates: readonly PermissionState[],
+): LocalNetworkPermissionState {
+  if (supportedStates.includes("granted")) return "granted";
+  if (supportedStates.length && supportedStates.every((state) => state === "denied")) {
+    return "denied";
+  }
+  return supportedStates.length ? "prompt" : "unsupported";
+}
+
 async function readLocalNetworkPermissionState(): Promise<LocalNetworkPermissionState> {
   if (typeof navigator === "undefined" || !navigator.permissions?.query) return "unsupported";
+  const supportedStates: PermissionState[] = [];
   for (const name of ["loopback-network", "local-network-access"]) {
     try {
       const status = await navigator.permissions.query({ name } as PermissionDescriptor);
-      if (status.state === "denied" || status.state === "granted") return status.state;
+      supportedStates.push(status.state);
     } catch {
       // Chromium versions expose either the split permission or its legacy alias.
     }
   }
-  return "prompt";
+  return resolveLocalNetworkPermissionStates(supportedStates);
 }
 
 export async function classifyBridgeConnectivityError(
@@ -159,6 +207,11 @@ export class LocalBridgeClient {
   readonly origin: string;
   private session: LocalBridgeSession | null = null;
   private modelVerification: LocalModelInferenceProof | null = null;
+  private healthCache: { expiresAt: number; value: LocalBridgeBody } | null = null;
+  private modelsCache: { expiresAt: number; value: LocalBridgeBody } | null = null;
+  private healthInFlight: Promise<LocalBridgeBody> | null = null;
+  private modelsInFlight: Promise<LocalBridgeBody> | null = null;
+  private cacheEpoch = 0;
 
   constructor(options: { endpoint?: string; origin?: string; session?: LocalBridgeSession } = {}) {
     this.endpoint = normalizeBridgeEndpoint(options.endpoint);
@@ -169,6 +222,7 @@ export class LocalBridgeClient {
   setSession(session: LocalBridgeSession | null) {
     if (!session || session.instanceId !== this.session?.instanceId) this.modelVerification = null;
     this.session = session;
+    this.clearControlPlaneCache();
   }
   getSessionMetadata() { return this.session ? { instanceId: this.session.instanceId, expiresAt: this.session.expiresAt } : null; }
   getModelVerification(modelId?: string) {
@@ -176,6 +230,14 @@ export class LocalBridgeClient {
     if (this.modelVerification.instanceId !== this.session.instanceId) return null;
     if (modelId && this.modelVerification.modelId !== modelId) return null;
     return { ...this.modelVerification };
+  }
+
+  clearControlPlaneCache() {
+    this.cacheEpoch += 1;
+    this.healthCache = null;
+    this.modelsCache = null;
+    this.healthInFlight = null;
+    this.modelsInFlight = null;
   }
 
   private headers(authenticated = false, write = false) {
@@ -201,13 +263,38 @@ export class LocalBridgeClient {
     return body;
   }
 
-  async health(signal?: AbortSignal) {
+  private async fetchHealth(signal?: AbortSignal) {
     try {
       return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
     } catch (error) {
       if (signal?.aborted || !(error instanceof AiProviderError) || !error.retryable) throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
       return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
+    }
+  }
+
+  async health(signal?: AbortSignal) {
+    const now = Date.now();
+    if (!signal && this.healthCache && this.healthCache.expiresAt > now) {
+      return structuredClone(this.healthCache.value);
+    }
+    if (!signal && this.healthInFlight) {
+      return structuredClone(await this.healthInFlight);
+    }
+    const epoch = this.cacheEpoch;
+    const operation = this.fetchHealth(signal);
+    if (!signal) this.healthInFlight = operation;
+    try {
+      const value = await operation;
+      if (!signal && epoch === this.cacheEpoch) {
+        this.healthCache = {
+          expiresAt: Date.now() + CONTROL_CACHE_TTL_MS,
+          value: structuredClone(value),
+        };
+      }
+      return structuredClone(value);
+    } finally {
+      if (!signal && this.healthInFlight === operation) this.healthInFlight = null;
     }
   }
 
@@ -229,13 +316,16 @@ export class LocalBridgeClient {
   }
 
   async requestPairing(signal?: AbortSignal) {
-    return this.parse(await this.fetchBridge(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}" }, signal));
+    const result = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}" }, signal));
+    this.clearControlPlaneCache();
+    return result;
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {
     const session = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/confirm`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: JSON.stringify({ pairingId, code }) }, signal)) as LocalBridgeSession;
     this.modelVerification = null;
     this.session = session;
+    this.clearControlPlaneCache();
     return session;
   }
 
@@ -243,11 +333,37 @@ export class LocalBridgeClient {
     const result = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/revoke`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }, signal));
     this.session = null;
     this.modelVerification = null;
+    this.clearControlPlaneCache();
     return result;
   }
 
   async models(signal?: AbortSignal) {
-    return this.parse(await this.fetchBridge(`${this.endpoint}/models`, { headers: this.headers(true), cache: "no-store" }, signal));
+    const now = Date.now();
+    if (!signal && this.modelsCache && this.modelsCache.expiresAt > now) {
+      return structuredClone(this.modelsCache.value);
+    }
+    if (!signal && this.modelsInFlight) {
+      return structuredClone(await this.modelsInFlight);
+    }
+    const epoch = this.cacheEpoch;
+    const operation = this.fetchBridge(
+      `${this.endpoint}/models`,
+      { headers: this.headers(true), cache: "no-store" },
+      signal,
+    ).then((response) => this.parse(response));
+    if (!signal) this.modelsInFlight = operation;
+    try {
+      const value = await operation;
+      if (!signal && epoch === this.cacheEpoch) {
+        this.modelsCache = {
+          expiresAt: Date.now() + CONTROL_CACHE_TTL_MS,
+          value: structuredClone(value),
+        };
+      }
+      return structuredClone(value);
+    } finally {
+      if (!signal && this.modelsInFlight === operation) this.modelsInFlight = null;
+    }
   }
 
   async inspectModel(modelId: string, signal?: AbortSignal) {
@@ -255,11 +371,33 @@ export class LocalBridgeClient {
   }
 
   async verifyModel(modelId: string, signal?: AbortSignal): Promise<LocalModelInferenceProof> {
-    const body = await this.parse(await this.fetchBridge(`${this.endpoint}/model/verify`, {
-      method: "POST",
-      headers: { ...this.headers(true, true), "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelId }),
-    }, signal));
+    const requestVerification = () => this.fetchBridge(
+      `${this.endpoint}/model/verify`,
+      {
+        method: "POST",
+        headers: {
+          ...this.headers(true, true),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ model: modelId }),
+      },
+      signal,
+    );
+    let response: Response;
+    try {
+      response = await requestVerification();
+    } catch (error) {
+      if (
+        signal?.aborted
+        || !(error instanceof AiProviderError)
+        || !error.retryable
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      response = await requestVerification();
+    }
+    const body = await this.parse(response);
     const valid = body.proofVersion === "local-model-inference-proof-v1"
       && body.state === "inference_verified"
       && body.providerKind === "local_ollama"

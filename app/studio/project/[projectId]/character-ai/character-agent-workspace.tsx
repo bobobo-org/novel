@@ -616,7 +616,13 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
             </section>
 
             <section className="simulationSection">
-              <header><h2>私人模擬場景</h2><p>每位角色只會看到自己的資訊；私下訊息不會自動廣播。</p></header>
+              <header>
+                <h2>私人模擬場景</h2>
+                <p>每位角色只會看到自己的資訊；私下訊息不會自動廣播。</p>
+                <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?task=character.multiAgentSimulation&objective=${encodeURIComponent(`依角色知識邊界深度推演：${scenario}`)}`}>
+                  用閉端 AI 深度推演
+                </Link>
+              </header>
               <div className="simulationSetup"><fieldset><legend>參與角色</legend>{data.characters.map((character) => <label key={character.id}><input type="checkbox" checked={participantIds.includes(character.id)} onChange={(event) => setParticipantIds((current) => event.target.checked ? [...new Set([...current, character.id])] : current.filter((id) => id !== character.id))} />{character.name}</label>)}</fieldset><label>場景<textarea value={scenario} onChange={(event) => setScenario(event.target.value)} /></label><label>回合數<input type="number" min="1" max="30" value={turnBudget} onChange={(event) => setTurnBudget(event.target.value)} /></label><div><button disabled={busy} onClick={() => void startSimulation()}>開始私人模擬</button><button disabled={busy || !selectedSession || !["READY", "RUNNING", "PAUSED"].includes(selectedSession.status)} onClick={() => void pauseSimulation()}>暫停</button><button disabled={busy || !selectedSession || !["PAUSED", "READY"].includes(selectedSession.status)} onClick={() => void resumeSimulation()}>繼續</button><button disabled={busy || !selectedSession || !["PAUSED", "READY", "RUNNING"].includes(selectedSession.status)} onClick={() => void cancelSimulation()}>取消</button><button disabled={busy} onClick={() => void startSimulation()}>重新產生</button></div></div>
               {data.simulations.length ? <label className="sessionPicker">模擬紀錄<select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)}>{data.simulations.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.status} · {session.currentTurn}/{session.turnBudget} 回合</option>)}</select></label> : null}
               <ol className="simulationTurns" data-testid="simulation-turns">{sessionTurns.map((turn) => <li key={turn.turnId}><header><b>第 {turn.turnNumber} 回合 · {data.characters.find((character) => character.id === turn.speakerCharacterId)?.name}</b><span>{turn.publicMessage ? "公開訊息" : "私人訊息"}</span></header><p>{turn.action.action}</p>{turn.dialogue ? <blockquote>{turn.dialogue.line}</blockquote> : null}<small>角色參考了 {turn.knownEvidenceIds.length} 筆已知資訊；Canonical mutation = {turn.canonicalMutation}</small></li>)}</ol>

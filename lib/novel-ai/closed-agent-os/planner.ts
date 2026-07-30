@@ -6,6 +6,7 @@ import type {
   ClosedAgentTaskRequest,
   ClosedAITaskComplexity,
   ClosedAIBackendId,
+  ClosedAIQualityMode,
 } from "./types";
 
 const rolesByComplexity: Record<ClosedAITaskComplexity, ClosedAgentRole[]> = {
@@ -31,6 +32,11 @@ export async function createClosedAgentPlan(input: {
     input.request.learningConfiguration,
   );
   const roles = learnedRoles(rolesByComplexity[input.complexity], plannerStrategy);
+  const qualityMode = resolveQualityMode(
+    input.request.qualityMode,
+    input.backendId,
+    input.complexity,
+  );
   const steps = roles.map((role, index) => ({
     index,
     role,
@@ -44,6 +50,7 @@ export async function createClosedAgentPlan(input: {
     schemaVersion: "closed-agent-os-v1" as const,
     taskId: input.request.taskId,
     complexity: input.complexity,
+    qualityMode,
     backendId: input.backendId,
     plannerStrategy,
     roles,
@@ -58,6 +65,18 @@ export async function createClosedAgentPlan(input: {
     })),
     planDigest: await sha256Hex(stableStringify(body)),
   };
+}
+
+export function resolveQualityMode(
+  requested: ClosedAIQualityMode | undefined,
+  backendId: ClosedAIBackendId,
+  complexity: ClosedAITaskComplexity,
+): ClosedAIQualityMode {
+  if (backendId === "browser-ai") return "fast";
+  if (requested) return requested;
+  if (complexity === "heavy") return "deep";
+  if (complexity === "standard") return "balanced";
+  return "fast";
 }
 
 function learnedRoles(base: ClosedAgentRole[], strategy: string) {

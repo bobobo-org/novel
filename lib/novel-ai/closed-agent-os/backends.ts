@@ -11,6 +11,7 @@ import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
 import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
 import type {
   ClosedAICacheInvalidation,
+  ClosedAINamespace,
 } from "../closed-ai-cache";
 import type {
   PlatformAIRequest,
@@ -56,7 +57,30 @@ function snapshotFromPlatform(
     capabilities: snapshot.capabilities,
     supportedTaskTypes: id === "browser-ai" ? BROWSER_AI_LIGHT_TASKS : "all",
     detailCode: snapshot.detail ?? snapshot.status,
+    maxContext: snapshot.maxContext,
+    controlLatencyMs: snapshot.latencyMs ?? null,
   };
+}
+
+function reportGenerationProgress(
+  input: ClosedBackendExecutionInput,
+  label: string,
+  generatedCharacters: number,
+  percent: number,
+) {
+  try {
+    input.request.onProgress?.({
+      taskId: input.request.taskId,
+      phase: "generating",
+      label,
+      percent,
+      occurredAt: new Date().toISOString(),
+      backendId: input.plan.backendId,
+      generatedCharacters,
+    });
+  } catch {
+    // UI callbacks are observational and must never alter the model transaction.
+  }
 }
 
 function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest {
@@ -87,18 +111,32 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     input: request.objective,
     context: [
       ...input.actorContext.map((item) => item.text),
-      ...input.toolResults.map((result) => JSON.stringify({
-        toolId: result.toolId,
-        value: result.value,
-      })),
       ...controlledLearningContext,
     ],
+    qualityPreference: input.plan.qualityMode === "deep"
+      ? "high"
+      : input.plan.qualityMode,
+    qualityPhase: input.qualityPhase,
+    agentPlan: {
+      planDigest: input.plan.planDigest,
+      roles: [...input.plan.roles],
+      steps: input.plan.steps.map((step) => ({
+        role: step.role,
+        objective: step.objective,
+      })),
+    },
+    toolResults: structuredClone(input.toolResults),
+    workingMaterials: structuredClone(input.workingMaterials),
     externalConsent: false,
     requiredCapabilities: ["text"],
     closedOnly: true,
     offlineRequired: input.plan.backendId !== "private-ai-hub",
     estimatedContextSize: Math.ceil(
-      (request.objective.length + input.actorContext.reduce((sum, item) => sum + item.text.length, 0)) / 2.5,
+      (
+        request.objective.length
+        + input.actorContext.reduce((sum, item) => sum + item.text.length, 0)
+        + input.workingMaterials.reduce((sum, item) => sum + item.text.length, 0)
+      ) / 2.5,
     ),
     idempotencyKey: request.taskId,
     cacheNamespace: structuredClone(request.namespace),
@@ -149,6 +187,12 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
     }
     const request = platformRequest(input);
     const result = await runBrowserAI(request, lockedDecision(request, snapshot));
+    reportGenerationProgress(
+      input,
+      `瀏覽器模型已產生 ${result.content.length} 字候選`,
+      result.content.length,
+      82,
+    );
     return {
       backendId: this.id,
       modelId: result.modelId ?? "browser-runtime",
@@ -158,24 +202,57 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       dataLeftDevice: result.dataLeavesDevice,
       externalRequest: result.externalRequest,
       elapsedMs: result.elapsedMs,
+      profileId: result.profileId,
+      firstTokenMs: result.firstTokenMs,
+      inputCharacters: result.inputCharacters,
+      outputCharacters: result.outputCharacters,
+      generatedTokenEvents: result.generatedTokenEvents,
+      omittedInputCharacters: result.omittedInputCharacters,
+      qualityMode: input.plan.qualityMode,
+      qualityPasses: 1,
+      draftDigest: null,
+      criticDigest: null,
     };
   }
 }
 
 export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
   readonly id = "local-ollama" as const;
+  private verifiedSnapshot: ClosedAIBackendSnapshot | null = null;
 
   async snapshot(signal?: AbortSignal) {
-    return snapshotFromPlatform(this.id, await probeLocalOllama(undefined, signal));
+    const snapshot = snapshotFromPlatform(
+      this.id,
+      await probeLocalOllama(undefined, signal),
+    );
+    this.verifiedSnapshot = snapshot.status === "ready" ? snapshot : null;
+    return snapshot;
   }
 
   async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult> {
-    const snapshot = await this.snapshot(input.request.signal);
+    const routedModelId = input.request.namespace.modelId;
+    const routedModelDigest = input.request.namespace.modelDigest;
+    const cached = this.verifiedSnapshot;
+    const snapshot = cached
+      && cached.modelId === routedModelId
+      && cached.modelDigest === routedModelDigest
+      ? cached
+      : await this.snapshot(input.request.signal);
     if (snapshot.status !== "ready" || !snapshot.modelId) {
       throw unavailable(this.id, snapshot.status);
     }
     const request = platformRequest(input);
-    const result = await runLocalOllama(request, lockedDecision(request, snapshot));
+    const result = await runLocalOllama(
+      request,
+      lockedDecision(request, snapshot),
+      undefined,
+      (progress) => reportGenerationProgress(
+        input,
+        `Local Ollama 串流中 · ${progress.generatedCharacters} 字`,
+        progress.generatedCharacters,
+        Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
+      ),
+    );
     return {
       backendId: this.id,
       modelId: result.modelId ?? "unknown-local-model",
@@ -185,6 +262,16 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
       dataLeftDevice: false,
       externalRequest: false,
       elapsedMs: result.elapsedMs,
+      profileId: result.profileId,
+      firstTokenMs: result.firstTokenMs,
+      inputCharacters: result.inputCharacters,
+      outputCharacters: result.outputCharacters,
+      generatedTokenEvents: result.generatedTokenEvents,
+      omittedInputCharacters: result.omittedInputCharacters,
+      qualityMode: input.plan.qualityMode,
+      qualityPasses: 1,
+      draftDigest: null,
+      criticDigest: null,
     };
   }
 
@@ -201,7 +288,10 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
 
 export type PrivateHubTransport = {
   execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult>;
-  snapshot(signal?: AbortSignal): Promise<ClosedAIBackendSnapshot>;
+  snapshot(
+    signal?: AbortSignal,
+    namespace?: Pick<ClosedAINamespace, "projectId">,
+  ): Promise<ClosedAIBackendSnapshot>;
   invalidateCache?(
     invalidation: ClosedAICacheInvalidation,
     signal?: AbortSignal,
@@ -216,9 +306,12 @@ export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
     this.transport = transport;
   }
 
-  async snapshot(signal?: AbortSignal) {
+  async snapshot(
+    signal?: AbortSignal,
+    namespace?: Pick<ClosedAINamespace, "projectId">,
+  ) {
     return this.transport
-      ? this.transport.snapshot(signal)
+      ? this.transport.snapshot(signal, namespace)
       : snapshotFromPlatform(this.id, privateHubSnapshot);
   }
 
@@ -226,8 +319,6 @@ export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
     if (!this.transport) {
       throw unavailable(this.id, "contract_ready_runtime_not_connected");
     }
-    const snapshot = await this.snapshot(input.request.signal);
-    if (snapshot.status !== "ready") throw unavailable(this.id, snapshot.status);
     const result = await this.transport.execute(input);
     if (result.backendId !== this.id) {
       throw Object.assign(new Error("Private Hub returned the wrong backend identity."), {

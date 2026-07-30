@@ -560,9 +560,15 @@ test("automatic light, standard and heavy routing use the three distinct backend
   assert.equal(light.route.backendId, "browser-ai");
   assert.equal(standard.route.backendId, "local-ollama");
   assert.equal(heavy.route.backendId, "private-ai-hub");
+  assert.equal(light.candidate.generationTelemetry.qualityPasses, 1);
+  assert.equal(standard.candidate.generationTelemetry.qualityPasses, 2);
+  assert.equal(heavy.candidate.generationTelemetry.qualityPasses, 3);
   assert.deepEqual(calls.map((call) => call.backendId), [
     "browser-ai",
     "local-ollama",
+    "local-ollama",
+    "private-ai-hub",
+    "private-ai-hub",
     "private-ai-hub",
   ]);
 });

@@ -11,6 +11,9 @@ import {
 } from "../lib/novel-ai/providers/private-ai-hub/private-hub-client.ts";
 import { ClosedAgentOS } from "../lib/novel-ai/closed-agent-os/closed-agent-os.ts";
 import {
+  sealFormalPreferenceDataset,
+} from "../lib/novel-ai/training/formal-preference-dataset.ts";
+import {
   containsConvertibleSimplifiedChinese,
   normalizeTraditionalChinese,
 } from "../lib/novel-ai/language/traditional-chinese.ts";
@@ -151,11 +154,20 @@ try {
 
   await test("offline preference training produces an immutable model artifact", async () => {
     assert.ok(selectedModel?.modelId);
+    const datasetManifest = await sealFormalPreferenceDataset({
+      projectId: "live-model-proof-project",
+      baseModelId: selectedModel.modelId,
+      datasetVersion: "synthetic-approved-v1",
+      samples: privateSamples,
+      rightsConfirmed: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
     trained = await client.trainPreferenceModel({
       projectId: "live-model-proof-project",
       baseModelId: selectedModel.modelId,
       datasetVersion: "synthetic-approved-v1",
       samples: privateSamples,
+      datasetManifest,
       hyperparameters: {
         epochs: 320,
         learningRate: 0.08,
@@ -166,6 +178,8 @@ try {
     assert.equal(trained.privacy.rawSamplesStored, false);
     assert.equal(trained.privacy.externalRequest, false);
     assert.equal(trained.verified, true);
+    assert.equal(trained.datasetGovernance, "formal_manifest_verified");
+    assert.equal(trained.datasetManifestHash, datasetManifest.manifestHash);
     assert.match(trained.artifactDigest, /^[a-f0-9]{64}$/);
     assert.ok((trained.metrics.allPairAccuracy ?? 0) >= 0.6);
     const verified = await client.verifyPreferenceModel(
@@ -336,11 +350,19 @@ const report = {
   results,
 };
 
-await mkdir(new URL("../artifacts/closed-ai-live-model/", import.meta.url), {
+const evidenceOutput = process.env.CLOSED_AI_LIVE_MODEL_OUTPUT
+  ? path.resolve(process.env.CLOSED_AI_LIVE_MODEL_OUTPUT)
+  : new URL("../artifacts/closed-ai-live-model/live-model-results.json", import.meta.url);
+await mkdir(
+  typeof evidenceOutput === "string"
+    ? path.dirname(evidenceOutput)
+    : new URL(".", evidenceOutput),
+  {
   recursive: true,
-});
+  },
+);
 await writeFile(
-  new URL("../artifacts/closed-ai-live-model/live-model-results.json", import.meta.url),
+  evidenceOutput,
   JSON.stringify(report, null, 2),
 );
 console.log(JSON.stringify(report, null, 2));

@@ -36,16 +36,27 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-function stable(value) {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+export function stablePreferenceValue(value) {
+  if (Array.isArray(value)) return `[${value.map(stablePreferenceValue).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stablePreferenceValue(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
 
 function normalizedText(value) {
   return String(value || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+}
+
+export function preferenceSampleDigests(samples) {
+  return (Array.isArray(samples) ? samples : []).map((sample) => ({
+    chosen: sha256(normalizedText(sample?.chosen)),
+    rejected: sha256(normalizedText(sample?.rejected)),
+  }));
+}
+
+export function preferenceDatasetDigest(samples) {
+  return sha256(stablePreferenceValue(preferenceSampleDigests(samples)));
 }
 
 function density(text, pattern) {
@@ -171,10 +182,7 @@ export function trainOfflinePreferenceModel(input) {
     finalLoss = epochLoss / trainingPairs.length;
   }
 
-  const datasetDigest = sha256(stable(samples.map((sample) => ({
-    chosen: sha256(sample.chosen),
-    rejected: sha256(sample.rejected),
-  }))));
+  const datasetDigest = preferenceDatasetDigest(samples);
   const createdAt = new Date().toISOString();
   const modelId = `preference-${datasetDigest.slice(0, 16)}-${createdAt.replace(/\D/g, "").slice(0, 14)}`;
   const artifactWithoutDigest = {
@@ -185,6 +193,12 @@ export function trainOfflinePreferenceModel(input) {
     baseModelId: String(input.baseModelId || "runtime-selected"),
     datasetVersion: String(input.datasetVersion || "local-approved-v1"),
     datasetDigest,
+    datasetManifestHash: input.datasetManifestHash
+      ? String(input.datasetManifestHash)
+      : null,
+    datasetGovernance: input.datasetManifestHash
+      ? "formal_manifest_verified"
+      : "legacy_explicit_confirmation",
     trainingMethod: "offline_pairwise_logistic_gradient_descent",
     featureNames: [...FEATURE_NAMES],
     weights: weights.map((value) => Number(value.toFixed(8))),
@@ -210,7 +224,7 @@ export function trainOfflinePreferenceModel(input) {
   };
   return {
     ...artifactWithoutDigest,
-    artifactDigest: sha256(stable(artifactWithoutDigest)),
+    artifactDigest: sha256(stablePreferenceValue(artifactWithoutDigest)),
   };
 }
 
@@ -221,7 +235,7 @@ export function verifyOfflinePreferenceModel(artifact) {
   const { artifactDigest, ...withoutDigest } = artifact;
   return typeof artifactDigest === "string"
     && /^[a-f0-9]{64}$/i.test(artifactDigest)
-    && sha256(stable(withoutDigest)) === artifactDigest;
+    && sha256(stablePreferenceValue(withoutDigest)) === artifactDigest;
 }
 
 export function scoreWithPreferenceModel(artifact, content) {

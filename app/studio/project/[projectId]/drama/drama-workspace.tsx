@@ -164,6 +164,9 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
           <div><span>DRAMA OS</span><h2>把正式章節整理成可核准的戲劇候選</h2><p>系統會讀取章節、角色、世界規則與時間線。建立候選不會直接改動小說正史。</p></div>
           <label>目標長度<select value={format} onChange={(event) => setFormat(event.target.value as DramaFormatProfileId)}>{listDramaFormatProfiles().map((item) => <option key={item.id} value={item.id}>{FORMAT_LABELS[item.id]}</option>)}</select></label>
           <button className="gold" disabled={busy || data.chapters.length === 0} onClick={() => void generate()}>{busy ? "正在規劃……" : candidate ? "重新生成" : "建立改編候選"}</button>
+          <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?task=drama.episodePlan&objective=${encodeURIComponent(`把目前作品強化為${FORMAT_LABELS[format]}，檢查開場 Hook、衝突、轉折、角色動機、連續性與代價。`)}`}>
+            用閉端 AI 強化改編
+          </Link>
         </header>
         <p className="dramaStatus" role="status">{message}</p>
         {!candidate ? <div className="p2DataEmpty"><p>{data.chapters.length ? `將使用 ${data.chapters.length} 章正式內容，預計每集約 ${profile.targetDurationSeconds} 秒。` : "目前沒有可用章節，請先寫一段故事。"}</p></div> : (

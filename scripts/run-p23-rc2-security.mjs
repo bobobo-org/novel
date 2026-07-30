@@ -461,11 +461,23 @@ test("benchmark contamination guard rejects cross-split duplicates and training 
   assert.deepEqual(report.benchmarkTrainingLeaks, ["holdout-1"]);
 });
 
-test("capability truth matrix never marks contract-only runtimes available", () => {
+test("capability truth matrix requires evidence and preserves remaining contract-only gates", () => {
   const matrix = capabilityTruthMatrix();
-  assert.equal(matrix.capabilities["model.supplyChain"].status, "contract_only");
-  assert.equal(matrix.capabilities["privateHub.runtime"].status, "contract_only");
-  assert.equal(matrix.capabilities["training.model"].status, "not_started");
+  assert.equal(matrix.capabilities["model.supplyChain"].status, "verified");
+  assert(matrix.capabilities["model.supplyChain"].evidence.length >= 2);
+  assert(
+    matrix.capabilities["model.supplyChain"].limitations.some((item) =>
+      item.includes("not activated")),
+  );
+  assert.equal(matrix.capabilities["privateHub.runtime"].status, "implemented");
+  assert(
+    matrix.capabilities["privateHub.runtime"].evidence.some((item) =>
+      item.includes("real model verification")),
+  );
+  assert.equal(matrix.capabilities["training.model"].status, "started");
+  assert(matrix.capabilities["training.model"].evidence.length >= 2);
+  assert.equal(matrix.capabilities["media.videoGeneration"].status, "contract_only");
+  assert.equal(matrix.capabilities.externalAI.status, "not_configured");
 });
 
 for (const entry of tests) {

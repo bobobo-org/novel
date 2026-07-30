@@ -5,6 +5,7 @@ const LEGACY_PROFESSIONAL_PATH =
 const LEGACY_CONSUMER_PATH = "/legacy/novel-system.html";
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [
       {

@@ -1,7 +1,7 @@
 (function legacySecurityBoundary() {
   "use strict";
 
-  const BOUNDARY_VERSION = "legacy-security-boundary-v2";
+  const BOUNDARY_VERSION = "legacy-security-boundary-v3";
   const DISABLED_CODE = "LEGACY_PROVIDER_PATH_DISABLED";
   const blockedStorageKeys = [
     /^novel_external_ai_cfg$/,
@@ -72,6 +72,48 @@
     const output = document.getElementById("aiOutput") || document.getElementById("miniAiOutput") || document.getElementById("phase1LocalGenerationStatus");
     if (output) output.textContent = "此舊連線方式已停用。請使用正式創作中心的本機 AI 設定。";
     return Promise.reject(disabledError());
+  }
+
+  function closedAgentTask(handler) {
+    if (/train|adapter|distill/i.test(handler)) return "learning.preferenceReview";
+    if (/dialog/i.test(handler)) return "character.dialogue";
+    if (/timeline/i.test(handler)) return "story.timelineCheck";
+    if (/world|rule/i.test(handler)) return "story.worldRuleCheck";
+    if (/consisten|review|audit|analy/i.test(handler)) return "story.consistencyCheck";
+    if (/rewrite|regenerate/i.test(handler)) return "chapter.rewrite";
+    if (/outline|plan/i.test(handler)) return "chapter.outline";
+    return "chapter.continue";
+  }
+
+  function officialClosedAIUrl(handler, label) {
+    const rawProjectId = String(document.body?.dataset?.frontdoorProjectId || "");
+    const projectId = /^[A-Za-z0-9_-]{1,128}$/.test(rawProjectId) ? rawProjectId : "";
+    if (!projectId) return "/studio/create?from=legacy-ai&target=closed-ai";
+    const query = new URLSearchParams({
+      task: closedAgentTask(handler),
+      objective: `從 Legacy 工具交接「${String(label || "AI 工作").slice(0, 120)}」。請依已核准作品資料建立候選，不得直接修改 Memory 或 Canon。`,
+      source: "legacy-safe-handoff",
+    });
+    return `/studio/project/${encodeURIComponent(projectId)}/closed-ai?${query.toString()}`;
+  }
+
+  function installOfficialClosedAIReplacement(button, handler) {
+    if (
+      button.dataset.officialClosedAiReplacement === "installed"
+      || typeof document.createElement !== "function"
+      || typeof button.insertAdjacentElement !== "function"
+    ) return;
+    button.dataset.officialClosedAiReplacement = "installed";
+    const replacement = document.createElement("button");
+    replacement.type = "button";
+    replacement.className = button.className || "btn";
+    replacement.textContent = `在閉端 AI 中心執行：${button.textContent?.trim() || "AI 工作"}`;
+    replacement.dataset.officialClosedAiHandoff = closedAgentTask(handler);
+    replacement.title = "使用正式 Closed Agent OS；候選需人工核准。";
+    replacement.addEventListener("click", () => {
+      location.assign(officialClosedAIUrl(handler, button.textContent));
+    });
+    button.insertAdjacentElement("afterend", replacement);
   }
 
   function lockGlobal(name, value) {
@@ -242,17 +284,20 @@
       button.setAttribute("aria-disabled", "true");
       button.dataset.legacySecurityBoundary = "disabled";
       button.title = "此舊連線方式已停用，請使用正式創作中心的本機 AI 設定。";
+      installOfficialClosedAIReplacement(button, handler);
     });
     const diagnostics = document.getElementById("wholeNovelWorkspaceDiagnostics");
     if (diagnostics && new URLSearchParams(location.search).get("diagnostics") !== "true") diagnostics.hidden = true;
     const architecture = document.getElementById("h2w3ArchitectureAlignment");
     const architectureText = [
       "閉端 AI 能力狀態",
-      "Browser AI：尚未完成",
-      "個人本機 Ollama：請使用正式創作中心設定；Legacy 直連已停用",
-      "私有 AI 中樞：尚未完成",
-      "本機檢索與候選稿：僅資料處理，不代表模型已就緒",
-      "模型訓練：未實作；現有學習功能僅為偏好、記憶或資料準備",
+      "Browser AI：已接入 Closed Agent OS；能否執行取決於目前裝置模型",
+      "個人本機 Ollama：已接入 Local Bridge；需啟動、配對與真實模型驗證",
+      "私有 AI 中樞：已接入自架 Private Hub；需啟動、配對與真實模型驗證",
+      "AI Cache、Memory、Learning、Canon：分層隔離；候選不會自動成為正式事實",
+      "可控學習：L0／L1 規則核准可用；L2 離線偏好模型可訓練、啟用與回滾",
+      "LLM 權重工作：LoRA 候選與蒸餾流程已開始；QLoRA 仍受本機 CUDA 硬體限制",
+      "Legacy 舊直連：持續停用；請使用旁邊新增的正式閉端 AI 交接按鈕",
     ].join("\n");
     if (architecture && architecture.textContent !== architectureText) architecture.textContent = architectureText;
     const cloudPanel = document.getElementById("cloudNovelAiPanel");

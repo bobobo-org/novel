@@ -469,12 +469,14 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.panelHeading}><div><small>復原與真相</small><h2>備份、還原與能力邊界</h2></div></div>
           <ul className={styles.truthList}>
             <li>已實作：本機規則抽象、候選核准、來源撤銷、規則組合、回饋偏好與防抄指紋。</li>
-            <li>本機深度抽象：需 Ollama 或瀏覽器閉端 AI 可用；失敗時不會假裝成功。</li>
+            <li>深度抽象：透過 Closed Agent OS 鎖定 Local Ollama；未配對時明確失敗，不會改用外部 AI。</li>
             <li>自我學習方式：核准規則＋本機 RAG／提示偏好，不會在背景偷偷改模型權重。</li>
-            <li>尚未執行：LoRA／QLoRA、模型權重訓練與自動模型升級。</li>
+            <li>L2 離線偏好模型：Private Hub 已可訓練、人工啟用與回滾；資料仍限定此作品。</li>
+            <li>權重工作真相：LoRA 候選與蒸餾流程已開始；QLoRA 仍因本機沒有 CUDA 而受阻，不會假裝完成。</li>
             <li>來源原文與生成全文均不寫入學習紀錄，只保存雜湊、指紋與抽象規則。</li>
           </ul>
           <div className={styles.actions}>
+            <Link href={`/studio/project/${projectId}/closed-ai#training`}>前往偏好模型訓練／啟用／回滾</Link>
             <button type="button" disabled={busy} onClick={() => void exportSnapshot()}>匯出學習庫快照</button>
             <label className={styles.importButton}>還原快照
               <input type="file" accept="application/json,.json" disabled={busy} onChange={(event) => {

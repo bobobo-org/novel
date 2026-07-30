@@ -28,6 +28,16 @@ function supports(
   return true;
 }
 
+function compatibleBackendIds(
+  snapshots: ClosedAIBackendSnapshot[],
+  request: ClosedAgentTaskRequest,
+  complexity: ClosedAITaskComplexity,
+) {
+  return snapshots
+    .filter((snapshot) => supports(snapshot, request, complexity))
+    .map((snapshot) => snapshot.id);
+}
+
 export function selectClosedAIBackend(
   request: ClosedAgentTaskRequest,
   snapshots: ClosedAIBackendSnapshot[],
@@ -42,12 +52,15 @@ export function selectClosedAIBackend(
       });
     }
     if (!supports(selected, request, complexity)) {
+      const compatible = compatibleBackendIds(snapshots, request, complexity);
       throw Object.assign(new Error("The selected closed AI backend cannot run this task."), {
         code: "CLOSED_AI_SELECTED_BACKEND_NOT_READY",
         backendId: selected.id,
         status: selected.status,
         complexity,
         fallbackAttempted: false,
+        compatibleBackendIds: compatible,
+        recommendedBackendId: compatible[0] ?? null,
       });
     }
     return {
@@ -83,12 +96,15 @@ export function selectClosedAIBackend(
         : "local-ollama";
   const selected = snapshots.find((snapshot) => snapshot.id === requiredId);
   if (!selected || !supports(selected, request, complexity)) {
+    const compatible = compatibleBackendIds(snapshots, request, complexity);
     throw Object.assign(new Error("The required closed AI backend is not ready."), {
       code: "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
       backendId: requiredId,
       status: selected?.status ?? "missing",
       complexity,
       fallbackAttempted: false,
+      compatibleBackendIds: compatible,
+      recommendedBackendId: compatible[0] ?? null,
     });
   }
   return {
