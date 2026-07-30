@@ -1,0 +1,193 @@
+{
+  "schemaVersion": "pr23-r2-1-remote-preview-gate-v2",
+  "generatedAt": "2026-07-30T18:56:07.3433749Z",
+  "status": "PASS",
+  "repository": "bobobo-org/novel",
+  "pullRequest": {
+    "number": 23,
+    "url": "https://github.com/bobobo-org/novel/pull/23",
+    "base": "main",
+    "validatedProductHead": "cf80c045cdab88e3515e9fc9a894c65400a59284",
+    "stateAtSeal": "OPEN",
+    "draftAtSeal": true,
+    "mergedAtSeal": false,
+    "mergeableAtSeal": true,
+    "mergeStateStatusAtSeal": "CLEAN"
+  },
+  "continuousIntegration": {
+    "workflow": "Vercel Deploy",
+    "runId": 30570122337,
+    "validateJobId": 90964426441,
+    "deployJobId": 90965031856,
+    "url": "https://github.com/bobobo-org/novel/actions/runs/30570122337",
+    "event": "pull_request",
+    "headCommit": "cf80c045cdab88e3515e9fc9a894c65400a59284",
+    "status": "completed",
+    "conclusion": "success",
+    "requiredProductSuitesPassed": true,
+    "pr23TruthGatesPassed": true,
+    "typecheckPassed": true,
+    "lintPassed": true,
+    "buildPassed": true,
+    "previewBuildAndDeployPassed": true,
+    "productionStepsSkipped": {
+      "captureAliasIdentities": true,
+      "pullProductionEnvironment": true,
+      "buildProduction": true,
+      "deployStagedProduction": true,
+      "verifyStagedProductionIdentity": true,
+      "dualAliasCutover": true
+    },
+    "actionsImmutablyPinnedGatePassed": true,
+    "dualAliasAtomicRollbackConfigurationGatePassed": true,
+    "productionCutoverExecuted": false
+  },
+  "preview": {
+    "project": "lqtechs-projects/novel",
+    "url": "https://novel-hxh5cy2vk-lqtechs-projects.vercel.app",
+    "deploymentId": "dpl_DfDCC5gCuNeXA8soxumrXmcTnTFf",
+    "validatedMergeRef": "73b5c10cf622a3272fcafe8b2a9319016029fb19",
+    "containsValidatedProductHead": true,
+    "environment": "preview",
+    "provenanceStatus": "verified",
+    "provenanceSource": "build_sealed",
+    "releaseIdentityStatusCode": 200
+  },
+  "browserGate": {
+    "run": "r20",
+    "completedAt": "2026-07-30T18:53:58.520Z",
+    "channel": "msedge",
+    "realInstalledBrowser": true,
+    "freshIsolatedProfile": true,
+    "sandboxEnabled": true,
+    "nativeLoopbackPermissionAllowed": true,
+    "localNetworkPermissionBypassUsed": false,
+    "localNetworkPermissionInjectionUsed": false,
+    "successfulLoopbackResponses": 41,
+    "publicProjectCreated": true,
+    "characterCreated": true,
+    "worldRuleCreated": true,
+    "firstPassageSaved": true,
+    "initialChapterRevision": 2,
+    "quickAssistant": {
+      "cloudMode": "CLOUD_DEGRADED",
+      "localCanonicalWritable": true,
+      "candidateDiffDisplayed": true,
+      "contextSourceSummaryDisplayed": true,
+      "discardedContinueCanonUnchanged": true,
+      "approvedContinueRevisionBefore": 2,
+      "approvedContinueRevisionAfter": 3,
+      "approvedContinueReloadPersistent": true,
+      "approvedRewriteRevisionBefore": 3,
+      "approvedRewriteRevisionAfter": 4,
+      "abcChoicesExecutedByRealModel": true,
+      "requiredTaskExecutors": {
+        "chapter.continue": "local-ollama",
+        "chapter.rewrite": "local-ollama",
+        "chapter.abcChoices": "local-ollama"
+      }
+    },
+    "fullWorkspace": {
+      "task": "chapter.continue",
+      "actualExecutor": "local-ollama",
+      "revisionBefore": 4,
+      "revisionAfter": 5,
+      "reloadPersistent": true,
+      "contextSourceSummaryDisplayed": true
+    },
+    "backupRestore": {
+      "downloaded": true,
+      "productOwnedReload": true,
+      "semanticHashMatch": true
+    },
+    "storage": {
+      "canonicalIndexedDbPresent": true,
+      "closedAgentIndexedDbPresent": true
+    },
+    "diagnostics": {
+      "pageErrorCount": 0,
+      "consoleErrorCount": 22,
+      "consoleErrorsAreRecordedWithoutClaimingAZeroErrorConsole": true
+    }
+  },
+  "localBridge": {
+    "instanceId": "ad9daca4-c3e0-4d40-b4e6-51df8390a6d0",
+    "protocolVersion": "novel-local-bridge/v1",
+    "modelId": "qwen2.5:3b",
+    "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "proofState": "inference_verified",
+    "dataLeftDevice": false,
+    "browserOrigin": "https://novel-hxh5cy2vk-lqtechs-projects.vercel.app",
+    "browserRequestCount": 48,
+    "browserFailureCount": 0,
+    "requestEvidence": {
+      "pairRequestPostSuccess": 1,
+      "pairConfirmPostSuccess": 1,
+      "modelVerifyPostSuccess": 4,
+      "generatePostSuccess": 9,
+      "cacheInvalidatePostSuccess": 1
+    },
+    "modelDownloadPerformed": false
+  },
+  "evidenceIntegrity": {
+    "browserResultSha256": "8d01b24452f5dc33457158b56f764ddde6c867f578aec7164fb6411faebd3bbb",
+    "bridgeAccessLogSha256": "c7e85a09396dd44a418941d291d10eefeba30dd406d62d059df6b4d49b065397",
+    "credentialPatternHits": 0,
+    "privateStoryTextPersisted": false,
+    "rawChainOfThoughtPersisted": false,
+    "pairingCodePersisted": false,
+    "bridgeTokenPersisted": false,
+    "csrfPersisted": false,
+    "cookiePersisted": false,
+    "authorizationHeaderPersisted": false
+  },
+  "security": {
+    "forbiddenExternalAiRequests": 0,
+    "silentExternalFallback": false,
+    "externalRequest": false,
+    "dataLeftDevice": false,
+    "canonicalMutationBeforeApproval": 0
+  },
+  "productionAfterGate": {
+    "aliases": [
+      "https://novel-orcin.vercel.app",
+      "https://novel-lqtechs-projects.vercel.app"
+    ],
+    "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "deploymentId": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "commitProvenanceStatus": "verified",
+    "persistenceStatus": "degraded",
+    "databaseStatus": "error",
+    "productionMutationCount": 0,
+    "productionAliasMutationCount": 0,
+    "modifiedByThisTask": false
+  },
+  "boundaries": {
+    "supabaseProductionRepairCompleted": false,
+    "cloudPersistenceReady": false,
+    "localCanonicalFlowReady": true,
+    "productionReadyClaimed": false,
+    "productionDeployedClaimed": false,
+    "generalConsumerInstallationReadyClaimed": false
+  },
+  "markers": [
+    "PR23_R2_1_ACTUAL_EXECUTOR_TRUTH_PASS",
+    "PR23_R2_1_QUICK_ASSISTANT_CANONICAL_APPROVAL_PASS",
+    "PR23_R2_1_INDEXEDDB_FAILURE_NONDESTRUCTIVE_PASS",
+    "PR23_R2_1_LEGACY_HEALTH_DEPRECATION_PASS",
+    "PR23_R2_1_GITHUB_VALIDATE_GATE_PASS",
+    "PR23_R2_1_ACTIONS_IMMUTABLY_PINNED",
+    "PR23_R2_1_DUAL_ALIAS_ATOMIC_ROLLBACK_PASS",
+    "PR23_R2_1_FINAL_PREVIEW_REAL_OLLAMA_PASS",
+    "PR23_R2_1_FINAL_PREVIEW_CANON_APPLY_RELOAD_PASS",
+    "PR23_R2_1_REMOTE_EVIDENCE_V2_PASS",
+    "PR23_R2_1_READY_FOR_INDEPENDENT_LUNA",
+    "SUPABASE_PRODUCTION_REPAIR_NOT_COMPLETED",
+    "CLOUD_PERSISTENCE_NOT_READY",
+    "LOCAL_CANONICAL_FLOW_READY",
+    "PRODUCTION_UNCHANGED",
+    "PR23_OPEN",
+    "PR23_DRAFT",
+    "PR23_UNMERGED"
+  ]
+}
