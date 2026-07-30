@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import OfflineRuntime from "./offline-runtime";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 
 export const metadata: Metadata = {
   title: "諸天萬界小說生成系統",
@@ -16,7 +17,10 @@ export default function RootLayout({
   return (
     <html lang="zh-Hant" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <OfflineRuntime />
+        <OfflineRuntime
+          appCommit={RELEASE_MANIFEST.appCommit}
+          assetManifestDigest={RELEASE_MANIFEST.commitProvenanceHash}
+        />
         {children}
       </body>
     </html>
