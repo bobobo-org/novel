@@ -106,6 +106,12 @@ assert.equal(
     "const profileDir = path.join(os.tmpdir(), `novel-pr23-r23-${runId}`);",
     "profile-dir",
   );
+  source = replaceExact(
+    source,
+    "  const recordId = `r22-${String(sequence).padStart(5, \"0\")}-${duplicateKey.slice(0, 12)}`;",
+    "  const recordId = `r23-${String(sequence).padStart(5, \"0\")}-${duplicateKey.slice(0, 12)}`;",
+    "record-id",
+  );
 
   source = replaceBetween(
     source,
@@ -296,8 +302,7 @@ assert.equal(
 
   source = source
     .replaceAll("pr23-r2-2", "pr23-r2-3")
-    .replaceAll("PR23 R2.2", "PR23 R2.3")
-    .replaceAll("r22-", "r23-");
+    .replaceAll("PR23 R2.2", "PR23 R2.3");
 
   assert.match(source, /R23_OUTPUT_DIR_MUST_BE_DEDICATED/u);
   assert.match(source, /nativePermissionObserved/u);
@@ -369,9 +374,11 @@ function resolvePlaywrightImport() {
 
 function runSelfTest() {
   const template = readFileSync(templatePath, "utf8");
+  const fixturePlaywrightUrl =
+    "file:///C:/dev/novel-pr23-r22-audit/node_modules/@playwright/test/index.js";
   const transformed = transformR22Runner(
     template,
-    "file:///C:/audit-fixture/playwright.mjs",
+    fixturePlaywrightUrl,
   );
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "novel-r23-syntax-"));
   const transformedPath = path.join(tempDir, "transformed-runner.mjs");
@@ -419,6 +426,7 @@ function runSelfTest() {
     transformedSyntaxValid: syntax.status === 0,
     installedPlaywrightResolvable:
       /^file:/u.test(installedPlaywright) && dependencyProbe.status === 0,
+    dependencyUrlNotRewritten: transformed.includes(fixturePlaywrightUrl),
   };
   assert.ok(Object.values(checks).every(Boolean), "R23_RUNNER_SELF_TEST_FAILED");
   process.stdout.write(`${JSON.stringify({
