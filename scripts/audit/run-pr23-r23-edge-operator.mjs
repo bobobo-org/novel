@@ -259,6 +259,19 @@ assert.equal(
     '"核准並套用目前章節"',
     "current-workspace-approval-label",
   );
+  source = replaceExact(
+    source,
+    `  await page.getByText("模式：CLOUD_DEGRADED", { exact: false }).waitFor({
+    timeout: 60_000,
+  });`,
+    `  await page.getByText("模式：CLOUD_DEGRADED", { exact: false }).waitFor({
+    timeout: 60_000,
+  });
+  await page.getByText("真實本機 AI 已連線", { exact: true })
+    .first()
+    .waitFor({ timeout: 120_000 });`,
+    "session-recovery-readiness",
+  );
   source = replaceBetween(
     source,
     "async function backupRestoreGate(page, projectId) {",
@@ -330,8 +343,13 @@ assert.equal(
     )
     || (
       ["console", "httperror", "requestfailed"].includes(record.kind)
-      && /https:\\/\\/novel-[a-z0-9-]+\\.vercel\\.app\\/(?:studio|professional)\\?keys=_rsc/iu.test(text)
+      && /https:\\/\\/novel-[a-z0-9-]+\\.vercel\\.app\\/(?:legacy\\/novel-system\\.html|professional|studio(?:\\/[^?]*)?)\\?keys=_rsc/iu.test(text)
       && (record.httpStatus === 404 || /(?:404|ERR_ABORTED)/iu.test(text))
+    )
+    || (
+      record.kind === "requestfailed"
+      && cancelled
+      && /(?:https:\\/\\/vercel\\.live\\/_next-live\\/|\\/file\\.svg)/iu.test(text)
     );`,
     "bounded-browser-noise",
   );
@@ -525,12 +543,16 @@ function runSelfTest() {
       && transformed.includes('"改寫選取內容"')
       && transformed.includes('"暫時不用"')
       && transformed.includes('"採用這份建議"')
-      && transformed.includes("/目前 \\d+ 字.*核准後 \\d+ 字/u"),
+      && transformed.includes("/目前 \\d+ 字.*核准後 \\d+ 字/u")
+      && transformed.includes('"真實本機 AI 已連線"'),
     currentWorkspaceUi:
       transformed.includes('"核准並套用目前章節"'),
     currentBackupRestoreUi:
       transformed.includes('"完整備份並下載"')
       && transformed.includes('"備份與還原"'),
+    boundedNavigationNoise:
+      transformed.includes("legacy\\/novel-system\\.html")
+      && transformed.includes("vercel\\.live\\/_next-live"),
     correctedProofLabel: transformed.includes('proof["離開裝置"]'),
     operatorWait: transformed.includes("timeout: 600_000"),
     gateCountIsBlockingCount: transformed.includes(
