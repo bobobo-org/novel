@@ -315,6 +315,27 @@ assert.match(studioSource, /approved\.canonicalMutationCount !== 1/);
 assert.match(studioSource, /data-testid="studio-candidate-diff"/);
 assert.match(studioSource, /contextSourceSummary: result\.contextSourceSummary/);
 assert.match(studioSource, /result\.executionReceipt\?\.generatedTokenEvents/);
+assert.match(studioSource, /initialProjectId/);
+
+const quickAssistantRoute = await readFile(
+  new URL("../app/studio/quick-assistant/page.tsx", import.meta.url),
+  "utf8",
+);
+const consumerActions = await readFile(
+  new URL("../public/legacy/consumer-ai-actions.js", import.meta.url),
+  "utf8",
+);
+const consumerCenter = await readFile(
+  new URL("../public/legacy/consumer-creation-center.js", import.meta.url),
+  "utf8",
+);
+assert.match(quickAssistantRoute, /<StudioClient/);
+assert.match(quickAssistantRoute, /initialProjectId=/);
+assert.match(consumerActions, /data-open-quick-assistant/);
+assert.match(
+  consumerCenter,
+  /return `\/studio\/quick-assistant\?\$\{params\.toString\(\)\}`/,
+);
 
 console.log(JSON.stringify({
   status: "PASS",

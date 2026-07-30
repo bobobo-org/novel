@@ -798,10 +798,12 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
 export default function StudioClient({
   initialScreen,
   initialTask,
+  initialProjectId = "",
   release,
 }: {
   initialScreen: string;
   initialTask: string;
+  initialProjectId?: string;
   release: Record<string, string>;
 }) {
   const [screen, setScreen] = useState<Screen>(
@@ -843,6 +845,9 @@ export default function StudioClient({
       void (async () => {
         const originalStorageBytes = localStorage.getItem(STORAGE_KEY);
         const legacy = migrate();
+        const hydrationShell = /^[A-Za-z0-9_-]{1,128}$/.test(initialProjectId)
+          ? { ...legacy, activeProjectId: initialProjectId }
+          : legacy;
         let raw: unknown = null;
         try {
           raw = JSON.parse(originalStorageBytes || "null");
@@ -856,10 +861,10 @@ export default function StudioClient({
           });
         const result = await hydrateCanonicalWithNonDestructiveFallback({
           originalStorageBytes,
-          legacyState: legacy,
+          legacyState: hydrationShell,
           fallbackSnapshot: recoverySnapshot,
           hydrate: () =>
-            hydrateCanonicalStudio(repositoryRef.current!, legacy),
+            hydrateCanonicalStudio(repositoryRef.current!, hydrationShell),
         });
         setMigrationRecoverySnapshot(result.recoverySnapshot);
         setState(result.state);
@@ -882,7 +887,7 @@ export default function StudioClient({
       })();
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [initialProjectId]);
   useEffect(() => {
     if (loaded && canPersistStudioShell(canonicalRuntimeGate)) {
       localStorage.setItem(

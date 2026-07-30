@@ -455,6 +455,17 @@
     return `/studio/project/${encodeURIComponent(projectId)}/closed-ai?${params.toString()}`;
   }
 
+  function quickAssistantUrl() {
+    const project = currentProject();
+    const rawProjectId = String(project.projectId || "");
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(rawProjectId)) return "";
+    const params = new URLSearchParams({
+      screen: "write",
+      projectId: rawProjectId,
+    });
+    return `/studio/quick-assistant?${params.toString()}`;
+  }
+
   function acceptCandidate() {
     if (h2w3()?.captureFeedback) h2w3().captureFeedback("accepted");
     pushWorkflow("persisting", "success", "feedback accepted");
@@ -484,6 +495,7 @@
     rejectCandidate,
     resetWorkflow,
     openWorkspace,
+    quickAssistantUrl,
     closedAiUrlForSelectedTask: () => {
       const task = TASKS.find((item) => item.id === state.selectedTask) || TASKS[0];
       return closedAiUrl(task, currentProject());
