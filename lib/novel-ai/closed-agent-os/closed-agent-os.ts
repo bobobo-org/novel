@@ -857,11 +857,29 @@ export class ClosedAgentOS {
     if (candidate.status !== "awaiting-approval") {
       throw osError("CLOSED_AGENT_REJECTION_GATE_FAILED");
     }
+    const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
+    const invalidatedCacheEntries = await this.cache.invalidate({
+      ...candidate.namespace,
+      layers: ["exact", "semantic"],
+      ...(task ? { tags: [`task:${task.taskType}`] } : {}),
+    });
     const updated: ClosedAgentCandidate = {
       ...candidate,
       status: "rejected",
       updatedAt: this.now().toISOString(),
     };
+    await this.ledger.append({
+      ledgerId: `closed-agent:${candidate.projectId}:${candidate.taskId}`,
+      namespace: candidate.namespace,
+      eventType: "cache-invalidated",
+      payload: {
+        reason: "candidate-rejected",
+        layers: ["exact", "semantic"],
+        taskType: task?.taskType ?? null,
+        invalidatedCacheEntries,
+        canonicalMutationCount: 0,
+      },
+    });
     await this.state.put(updated);
     await this.recordLearningOutcome({
       candidate: updated,

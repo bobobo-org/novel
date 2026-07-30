@@ -155,11 +155,12 @@ const os = new ClosedAgentOS({
 });
 
 const initialHash = await semanticHash(repository, projectId);
+const repeatableObjective = "產生一份可放棄或核准的續寫候選。";
 const abandoned = await os.execute(request(
   projectId,
   snapshot.chapter,
   "quick-abandon",
-  "產生第一份可放棄的續寫候選。",
+  repeatableObjective,
 ));
 assert.equal(abandoned.candidate.sourceChapterId, snapshot.chapter.id);
 assert.equal(abandoned.candidate.sourceRevision, snapshot.chapter.revision);
@@ -171,8 +172,10 @@ const regenerated = await os.execute(request(
   projectId,
   snapshot.chapter,
   "quick-approve",
-  "重新產生不同內容並準備正式核准。",
+  repeatableObjective,
 ));
+assert.equal(backend.calls, 2);
+assert.equal(regenerated.candidate.actualExecutor, "local-ollama");
 assert.notEqual(regenerated.candidate.contentDigest, abandoned.candidate.contentDigest);
 let committed = null;
 const approved = await os.approveCandidate({
@@ -340,6 +343,8 @@ assert.match(
 console.log(JSON.stringify({
   status: "PASS",
   abandonedCanonHashUnchanged: true,
+  rejectedCandidateCacheInvalidated: true,
+  regeneratedActualExecutor: regenerated.candidate.actualExecutor,
   approvedRevision: committed.resultingRevision,
   reloadPersistent: true,
   duplicateRejected: true,
