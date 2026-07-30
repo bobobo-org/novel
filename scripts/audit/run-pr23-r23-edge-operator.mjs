@@ -341,7 +341,10 @@ function verifyProtectedInputs() {
 
 function resolvePlaywrightImport() {
   try {
-    return import.meta.resolve("@playwright/test");
+    const direct = import.meta.resolve("@playwright/test");
+    if (direct.startsWith("file:") && existsSync(fileURLToPath(direct))) {
+      return direct;
+    }
   } catch {
     // A Git worktree does not share ignored node_modules. Resolve only from
     // another local worktree of the same repository; no package is installed
@@ -362,7 +365,7 @@ function resolvePlaywrightImport() {
     try {
       const requireFromCandidate = createRequire(pathToFileURL(packageJson));
       const resolved = requireFromCandidate.resolve("@playwright/test");
-      return pathToFileURL(resolved).href;
+      if (existsSync(resolved)) return pathToFileURL(resolved).href;
     } catch {
       // Continue to the next same-repository worktree.
     }
