@@ -272,6 +272,17 @@ assert.equal(
     .waitFor({ timeout: 120_000 });`,
     "session-recovery-readiness",
   );
+  source = replaceExact(
+    source,
+    `  runtimeReady = true;
+  const reloaded = await novelSnapshot(page, projectId);`,
+    `  runtimeReady = true;
+  await page.getByText("真實本機 AI 已連線", { exact: true })
+    .first()
+    .waitFor({ timeout: 120_000 });
+  const reloaded = await novelSnapshot(page, projectId);`,
+    "post-reload-session-recovery",
+  );
   source = replaceBetween(
     source,
     "async function backupRestoreGate(page, projectId) {",
@@ -544,7 +555,7 @@ function runSelfTest() {
       && transformed.includes('"暫時不用"')
       && transformed.includes('"採用這份建議"')
       && transformed.includes("/目前 \\d+ 字.*核准後 \\d+ 字/u")
-      && transformed.includes('"真實本機 AI 已連線"'),
+      && transformed.split('"真實本機 AI 已連線"').length - 1 === 2,
     currentWorkspaceUi:
       transformed.includes('"核准並套用目前章節"'),
     currentBackupRestoreUi:
