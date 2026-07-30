@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [workflow, rollback] = await Promise.all([
+const [workflow, rollback, packageText] = await Promise.all([
   readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
   readFile(new URL("./vercel-dual-alias-cutover.mjs", import.meta.url), "utf8"),
+  readFile(new URL("../package.json", import.meta.url), "utf8"),
 ]);
+const packageScripts = JSON.parse(packageText).scripts;
 
 const jobsIndex = workflow.indexOf("\njobs:");
 const validateIndex = workflow.indexOf("\n  validate:");
@@ -111,6 +113,16 @@ assert.match(
   globalConfiguration,
   /LEGACY_BOOTSTRAP_COMMIT:\s*d0e80323dc68bf08cb541e46c6b9114a71e05cd9/u,
 );
+for (const scriptName of [
+  "test:ai:release-identity-alias",
+  "test:ai:closed-ai-runtime-r2",
+]) {
+  assert.match(
+    packageScripts[scriptName],
+    /^node scripts\/generate-release-provenance\.mjs && /u,
+    `${scriptName} must bootstrap provenance in a clean checkout`,
+  );
+}
 
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v1",
@@ -124,5 +136,6 @@ console.log(JSON.stringify({
   legacy404ControlPlaneBootstrap: true,
   legacyBootstrapCaptureAndRollbackOnly: true,
   legacyBootstrapFrozenToKnownBaseline: true,
+  cleanCheckoutProvenanceBootstrap: true,
   centralDualAliasRollback: true,
 }, null, 2));
