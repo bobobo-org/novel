@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "pr23-r2-2-audit-baseline-v1",
+  "status": "PASS",
+  "repository": "bobobo-org/novel",
+  "prNumber": 23,
+  "auditBranch": "audit/pr23-r22-luna-unblock",
+  "auditBase": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "baseline": {
+    "baseMain": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "validatedProductHead": "cf80c045cdab88e3515e9fc9a894c65400a59284",
+    "finalPrHead": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+    "mergeRef": "169328016111d69e0adab784d817a5653113a852",
+    "productCi": 30570122337,
+    "evidenceCi": 30572775023,
+    "productPreview": "https://novel-hxh5cy2vk-lqtechs-projects.vercel.app",
+    "finalEvidencePreview": "https://novel-15gi72tr4-lqtechs-projects.vercel.app",
+    "finalEvidenceDeployment": "dpl_5G2ggFhtgvLJxB8Q29X94RMoXFxY",
+    "productionCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "productionDeployment": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "productionPrimary": "https://novel-orcin.vercel.app",
+    "productionMirror": "https://novel-lqtechs-projects.vercel.app",
+    "lunaR1Verdict": "PR23_R2_1_FRESH_INDEPENDENT_LUNA_R1_BLOCKED",
+    "lunaR1Manifest": "c2886dd7831789c77132a2a7fc26d7f54afd8905d95b389bd2fa845750f3b213"
+  },
+  "previousEvidenceImmutable": true,
+  "auditTooling": {
+    "scripts/audit/run-pr23-r22-edge-evidence.mjs": "56cc8186a9425cfca761dcaec1a8833401b5327cb616a246c0662c4c871ea470",
+    "scripts/audit/run-pr23-r22-edge-evidence.ps1": "423dc8ca3675c4e8ce78116cd379424c6a7cf5ec61b6f651932b70e94ba81408",
+    "scripts/audit/seal-pr23-r22-audit.mjs": "dca861cacf03016ab11220afd7d6368a086581d6d1b457cfa967ec7a2c8fe64c"
+  },
+  "generatedAt": "2026-07-30T21:15:05.720Z"
+}

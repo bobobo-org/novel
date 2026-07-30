@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "pr23-r2-2-findings-v1",
+  "status": "BLOCKED",
+  "findings": [
+    {
+      "id": "R22-EDGE-001",
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "title": "Current runtime cannot control Microsoft Edge",
+      "impact": "Fresh raw browser records and the complete Edge product flow cannot be produced.",
+      "disposition": "Run the committed audit runner in an Edge-capable LUNA environment."
+    },
+    {
+      "id": "R22-IDENTITY-001",
+      "severity": "INFO",
+      "status": "RESOLVED",
+      "title": "Legacy Production Release Identity transition is bounded",
+      "impact": "Legacy 404 is limited to capture and rollback verification."
+    },
+    {
+      "id": "R22-PRBODY-001",
+      "severity": "INFO",
+      "status": "RESOLVED",
+      "title": "PR #23 body current identity",
+      "impact": "PASS"
+    },
+    {
+      "id": "R22-PRODUCTION-001",
+      "severity": "INFO",
+      "status": "VERIFIED",
+      "title": "Production remained unchanged",
+      "impact": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9/dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa"
+    },
+    {
+      "id": "R22-AUTODEPLOY-001",
+      "severity": "INFO",
+      "status": "VERIFIED",
+      "title": "main push automatic Production deployment is configured",
+      "impact": "Active workflow, required secret names present, latest main push completed/success, dual-alias rollback contract PASS."
+    }
+  ],
+  "finalVerdict": "PR23_R2_2_EDGE_ENVIRONMENT_BLOCKED"
+}

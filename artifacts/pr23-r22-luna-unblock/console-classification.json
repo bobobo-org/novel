@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "pr23-r2-2-console-classification-v1",
+  "status": "NOT_EXECUTED",
+  "reason": "EDGE_ENVIRONMENT_BLOCKED_BEFORE_FRESH_AUTHORITATIVE_RERUN",
+  "entries": [],
+  "rawRecordsReusedFromV2": false,
+  "productErrorZeroClaimed": false,
+  "securityErrorZeroClaimed": false,
+  "unclassifiedZeroClaimed": false
+}

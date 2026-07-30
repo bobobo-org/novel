@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "pr23-release-identity-bootstrap-transition-v1",
+  "status": "PASS",
+  "legacyProductionCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "legacyProductionDeployment": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+  "legacyEndpoint": "/api/release/identity",
+  "legacyEndpointExpectedStatus": 404,
+  "legacyPublicIdentitySurface": "/api/ai/health",
+  "targetIdentitySurface": "/api/release/identity",
+  "transitionMode": "one_time_legacy_bootstrap",
+  "allowedFallbackPhases": [
+    "capture-primary",
+    "capture-mirror",
+    "verify-rollback-primary",
+    "verify-rollback-mirror"
+  ],
+  "forbiddenFallbackPhases": [
+    "verify-staged",
+    "verify-mirror",
+    "verify-primary",
+    "promote-mirror",
+    "promote-primary"
+  ],
+  "sourceEvidence": {
+    "file": "scripts/vercel-dual-alias-cutover.mjs",
+    "createAliasIdentityReaderSha256": "75107250f99bb28e39c37a9fe9cf8bdbef4aae9f35d0dde7b0168590211d6f05",
+    "legacyControlPlanePhasesSha256": "2480b6abdab37a721847843c8f6e5ad437dc12a6605d6d6951d4185564b35b85",
+    "legacyBootstrapIdentityBindingSha256": "e0b759169ee0c78a6778bd79821b7291a44eaa78dd1abfe641138601590f9b2e"
+  },
+  "legacyBootstrapIdentity": {
+    "deploymentId": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "valuesFrozenByRequiredEnvironment": true
+  },
+  "contractAssertions": {
+    "mismatchedBaselineRejected": true,
+    "http500FallbackForbidden": true,
+    "promotionVerificationFallbackForbidden": true,
+    "captureFallbackAllowed": true,
+    "rollbackVerificationFallbackAllowed": true,
+    "newPreviewIdentityHttp200": true,
+    "newPreviewProvenanceVerified": true,
+    "productionModified": false
+  },
+  "tests": {
+    "dualAliasRollback": {
+      "status": "PASS",
+      "exitCode": 0,
+      "payload": {
+        "schemaVersion": "pr23-r2-1-dual-alias-atomic-rollback-v1",
+        "status": "PASS",
+        "aliases": [
+          "primary-pr23-r21.invalid",
+          "mirror-pr23-r21.invalid"
+        ],
+        "productionAliasesTouched": 0,
+        "successCutoverVerified": true,
+        "mirrorFailureRestoredBoth": true,
+        "primaryFailureRestoredBoth": true,
+        "restoredDeploymentIdentityMatch": true,
+        "legacy404ControlPlaneBootstrap": true,
+        "legacyBootstrapFrozenToKnownBaseline": true,
+        "controlPlaneProjectCommitAndStateVerified": true,
+        "promotionFallbackForbidden": true,
+        "non404FallbackForbidden": true
+      },
+      "stdoutSha256": "08959ad36ec62796aff50596f4168f03ba91e7fc7448f396a99815723cd89456",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workflowContract": {
+      "status": "PASS",
+      "exitCode": 0,
+      "payload": {
+        "schemaVersion": "pr23-r2-1-github-validate-contract-v1",
+        "status": "PASS",
+        "jobs": [
+          "validate",
+          "deploy"
+        ],
+        "deployNeedsValidate": true,
+        "validateSecretCount": 0,
+        "requiredCommandCount": 25,
+        "immutableActionUseCount": 4,
+        "releaseIdentityRequiredForNewDeploymentVerification": true,
+        "legacy404ControlPlaneBootstrap": true,
+        "legacyBootstrapCaptureAndRollbackOnly": true,
+        "legacyBootstrapFrozenToKnownBaseline": true,
+        "cleanCheckoutProvenanceBootstrap": true,
+        "crossPlatformP21Validation": true,
+        "centralDualAliasRollback": true
+      },
+      "stdoutSha256": "fbb6405c53eec9137e9e7c42efd85ab9a73fb23e9005a0e71ad71cd6c461c2e0",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

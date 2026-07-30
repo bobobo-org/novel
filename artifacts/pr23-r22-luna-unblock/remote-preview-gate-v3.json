@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "pr23-r2-2-remote-preview-gate-v3",
+  "status": "PR23_R2_2_EDGE_ENVIRONMENT_BLOCKED",
+  "previousEvidenceVersion": "pr23-r2-1-remote-preview-gate-v2",
+  "previousConsoleEvidenceStatus": "count_only_raw_records_missing",
+  "previousConsoleErrorCount": 22,
+  "previousEvidenceSupersededForConsoleClassification": false,
+  "supersessionPendingReason": "fresh_edge_raw_records_not_captured_in_current_environment",
+  "preview": {
+    "url": "https://novel-15gi72tr4-lqtechs-projects.vercel.app",
+    "identityStatus": "PASS",
+    "appCommit": "169328016111d69e0adab784d817a5653113a852",
+    "deploymentId": "dpl_5G2ggFhtgvLJxB8Q29X94RMoXFxY",
+    "environment": "preview",
+    "provenanceStatus": "verified"
+  },
+  "edge": {
+    "installed": true,
+    "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "version": "150.0.4078.83",
+    "controlSurfaceAvailable": false,
+    "actualRunExecuted": false
+  },
+  "rawEvidence": {
+    "schemaVersion": "pr23-r2-2-console-summary-v1",
+    "status": "NOT_EXECUTED",
+    "actualEdgeRunCompleted": false,
+    "previousGateCount": 22,
+    "currentGateCount": null,
+    "countDifference": null,
+    "countDifferenceReason": "edge_environment_blocked_before_fresh_authoritative_rerun",
+    "rawRecordCount": 0,
+    "classifiedRecordCount": 0,
+    "productErrorCount": null,
+    "securityErrorCount": null,
+    "unclassifiedCount": null,
+    "pass": false
+  },
+  "productFlowExecuted": false,
+  "independentLunaPassClaimed": false,
+  "productionModified": false,
+  "generatedAt": "2026-07-30T21:15:11.871Z"
+}

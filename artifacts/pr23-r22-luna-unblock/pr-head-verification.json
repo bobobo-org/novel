@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "pr23-r2-2-pr-head-verification-v1",
+  "status": "PASS",
+  "localAuditBase": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "remoteMain": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "remotePrBranch": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "remotePrHead": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "remoteMergeRef": "169328016111d69e0adab784d817a5653113a852",
+  "pr": {
+    "state": "OPEN",
+    "isDraft": true,
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "BLOCKED",
+    "headRefName": "agent/closed-ai-runtime-truth-r2",
+    "headRefOid": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+    "baseRefName": "main",
+    "baseRefOid": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9"
+  },
+  "defaultBranch": "main",
+  "ci": {
+    "product": {
+      "conclusion": "success",
+      "databaseId": 30570122337,
+      "event": "pull_request",
+      "headBranch": "agent/closed-ai-runtime-truth-r2",
+      "headSha": "cf80c045cdab88e3515e9fc9a894c65400a59284",
+      "status": "completed",
+      "url": "https://github.com/bobobo-org/novel/actions/runs/30570122337",
+      "workflowName": "Vercel Deploy"
+    },
+    "evidence": {
+      "conclusion": "success",
+      "databaseId": 30572775023,
+      "event": "pull_request",
+      "headBranch": "agent/closed-ai-runtime-truth-r2",
+      "headSha": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+      "status": "completed",
+      "url": "https://github.com/bobobo-org/novel/actions/runs/30572775023",
+      "workflowName": "Vercel Deploy"
+    }
+  },
+  "deploymentAutomation": {
+    "status": "PASS",
+    "workflowName": "Vercel Deploy",
+    "workflowPath": ".github/workflows/deploy.yml",
+    "workflowState": "active",
+    "trigger": "push(main)",
+    "validateBeforeDeploy": true,
+    "primaryAlias": "novel-orcin.vercel.app",
+    "mirrorAlias": "novel-lqtechs-projects.vercel.app",
+    "requiredSecretNamesPresent": [
+      "VERCEL_ORG_ID",
+      "VERCEL_PROJECT_ID",
+      "VERCEL_TOKEN"
+    ],
+    "secretValuesRead": false,
+    "latestMainPushRun": {
+      "conclusion": "success",
+      "createdAt": "2026-07-30T10:42:32Z",
+      "databaseId": 30535708969,
+      "event": "push",
+      "headSha": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+      "status": "completed",
+      "updatedAt": "2026-07-30T10:43:43Z",
+      "url": "https://github.com/bobobo-org/novel/actions/runs/30535708969",
+      "workflowName": "Vercel Deploy"
+    },
+    "automaticRollbackContractTest": "PASS"
+  },
+  "prHeadUnchanged": true
+}

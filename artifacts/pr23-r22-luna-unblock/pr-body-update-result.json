@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "pr23-r2-2-pr-body-update-result-v1",
+  "status": "PASS",
+  "command": "gh pr edit 23 --repo bobobo-org/novel --body-file [audit artifact]",
+  "requiredBodyValueCount": 16,
+  "missingBodyValues": [],
+  "bodySha256": "8d1063ed932c0d117d3bbd026de9100ea25b29c33f597a363c58d5753d758360",
+  "prState": "OPEN",
+  "isDraft": true,
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "BLOCKED",
+  "headRefOid": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "baseRefOid": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "updatedAt": "2026-07-30T21:15:14.685Z"
+}

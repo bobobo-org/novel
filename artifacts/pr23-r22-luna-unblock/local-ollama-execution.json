@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "pr23-r2-2-local-ollama-execution-v1",
+  "status": "PREFLIGHT_PASS_EXECUTION_NOT_RUN",
+  "ollamaReachable": true,
+  "ollamaVersion": "0.32.1",
+  "requiredModel": "qwen2.5:3b",
+  "requiredModelPresent": true,
+  "modelDownloadedOrModified": false,
+  "realGenerationExecutedInThisAudit": false
+}

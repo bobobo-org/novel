@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "pr23-r2-2-local-bridge-runtime-v1",
+  "status": "PREFLIGHT_ONLY",
+  "bridgeAliveBeforeAudit": false,
+  "bridgeStartedByAudit": false,
+  "bridgeStoppedByAudit": false,
+  "exactOriginTemporarilyEnrolled": false,
+  "pairingPerformed": false,
+  "reason": "EDGE_ENVIRONMENT_BLOCKED_BEFORE_BRIDGE_START"
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "pr23-r2-2-redaction-report-v1",
+  "status": "PASS",
+  "scannedFileCount": 36,
+  "credentialPatternHits": 0,
+  "credentialHits": [],
+  "privateStoryTextPersisted": false,
+  "privateStoryHits": [],
+  "pairingCodePersisted": false,
+  "tokenPersisted": false,
+  "csrfPersisted": false,
+  "cookiePersisted": false,
+  "authorizationHeaderPersisted": false,
+  "rawChainOfThoughtPersisted": false,
+  "rawFiles": {
+    "console-raw.ndjson": {
+      "bytes": 0,
+      "recordCount": 0,
+      "validNdjson": true
+    },
+    "page-errors-raw.ndjson": {
+      "bytes": 0,
+      "recordCount": 0,
+      "validNdjson": true
+    },
+    "network-failures-raw.ndjson": {
+      "bytes": 0,
+      "recordCount": 0,
+      "validNdjson": true
+    },
+    "http-errors-raw.ndjson": {
+      "bytes": 0,
+      "recordCount": 0,
+      "validNdjson": true
+    }
+  }
+}

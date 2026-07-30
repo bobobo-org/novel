@@ -1,0 +1,212 @@
+{
+  "schemaVersion": "pr23-r2-2-evidence-manifest-v1",
+  "status": "PASS",
+  "verdict": "PR23_R2_2_EDGE_ENVIRONMENT_BLOCKED",
+  "expectedArtifactCount": 39,
+  "hashedArtifactCount": 37,
+  "expectedArtifacts": [
+    "abc-choices.json",
+    "actual-executor.json",
+    "audit-baseline.json",
+    "backup-restore.json",
+    "canon-approval.json",
+    "canon-discard.json",
+    "console-classification.json",
+    "console-raw.ndjson",
+    "console-summary.json",
+    "console-summary.md",
+    "edge-executable.json",
+    "edge-profile.json",
+    "edge-run-metadata.json",
+    "evidence-manifest.json",
+    "evidence-manifest.sha256",
+    "executive-summary.md",
+    "findings.json",
+    "full-workspace.json",
+    "http-errors-raw.ndjson",
+    "local-bridge-runtime.json",
+    "local-network-permission.json",
+    "local-ollama-execution.json",
+    "luna-r2-handoff.md",
+    "network-failures-raw.ndjson",
+    "page-errors-raw.ndjson",
+    "pr-body-current.md",
+    "pr-body-update-result.json",
+    "pr-head-verification.json",
+    "preview-release-identity.json",
+    "production-mirror-identity-1.json",
+    "production-mirror-identity-2.json",
+    "production-mirror-identity-3.json",
+    "production-primary-identity-1.json",
+    "production-primary-identity-2.json",
+    "production-primary-identity-3.json",
+    "redaction-report.json",
+    "release-identity-bootstrap-transition.json",
+    "reload-persistence.json",
+    "remote-preview-gate-v3.json"
+  ],
+  "files": {
+    "abc-choices.json": {
+      "bytes": 147,
+      "sha256": "e5d538214e8d6a42a2a314067c0ab3f1fadda1a1913cf2e13a2f251fcc160e97"
+    },
+    "actual-executor.json": {
+      "bytes": 151,
+      "sha256": "522d7b0a07b6faabf1ab7e8d3459534c732a879dc87979b65defa82a2d1e7caf"
+    },
+    "audit-baseline.json": {
+      "bytes": 1674,
+      "sha256": "775ae7b6c194d5e277f9e397ab7b2565360630970bd79c0a273386686b7fbbd5"
+    },
+    "backup-restore.json": {
+      "bytes": 150,
+      "sha256": "d0fd89ecc05349147c8b7e492e32ad269078838639c694dc5a039fdb982a5fda"
+    },
+    "canon-approval.json": {
+      "bytes": 150,
+      "sha256": "65f6bfdcdac15d9059c582185d0c340d575c44c8fa1dbf4a0a1e470b83558357"
+    },
+    "canon-discard.json": {
+      "bytes": 149,
+      "sha256": "411f421952e8969add1202515340e8bf591eccd9c9cc6928725b45dafea74450"
+    },
+    "console-classification.json": {
+      "bytes": 323,
+      "sha256": "03c5322fd6c86bde76af795ab2c04fc67f2d7686c9c3a90c135cec2c6ccda9ac"
+    },
+    "console-raw.ndjson": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "console-summary.json": {
+      "bytes": 445,
+      "sha256": "3f2e1bc1be445179d5656094d1c71c6a70eeec8f3b4eb188293da1e1d539c6e3"
+    },
+    "console-summary.md": {
+      "bytes": 380,
+      "sha256": "5ba719c59136373f6ec321cdb61cecbe1024adab8330cc042db4016f112a7c70"
+    },
+    "edge-executable.json": {
+      "bytes": 259,
+      "sha256": "087cc2b6fb9925979ca4b085335d1866fcf4b5b6122acd5c2b6c91d934fb8a80"
+    },
+    "edge-profile.json": {
+      "bytes": 669,
+      "sha256": "132587655bd2533560ff457d3bebe962e03771e05387fd9b55723b253a3eea28"
+    },
+    "edge-run-metadata.json": {
+      "bytes": 970,
+      "sha256": "23d2622e975cf7494c7906b4c141d48c9b6768c1be99ace77a2c540322f1f22e"
+    },
+    "executive-summary.md": {
+      "bytes": 1366,
+      "sha256": "ea54ae2d8491401c09e4dcbf3475ea02edf5a56cfda1530bc42f02f47f0a005e"
+    },
+    "findings.json": {
+      "bytes": 1467,
+      "sha256": "fd4a820d09ed391aa03895d711d5c9ef3d567cf5ada473cb98fd0b2023eb7dfe"
+    },
+    "full-workspace.json": {
+      "bytes": 150,
+      "sha256": "9c1ae880f05e97dde110bcad7d68866cec7f9f8c18bc99b9b45fff0a6e2213b0"
+    },
+    "http-errors-raw.ndjson": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "local-bridge-runtime.json": {
+      "bytes": 322,
+      "sha256": "ba2ee6c2362611b5808b72a9ac2cf0b14bfc9e109201b987228044223dec8539"
+    },
+    "local-network-permission.json": {
+      "bytes": 309,
+      "sha256": "c604db32dd7a819d74c55edd7355718e53cfd98d72130dbfa49e5512745ae501"
+    },
+    "local-ollama-execution.json": {
+      "bytes": 314,
+      "sha256": "ea8b190e478b8a93222f7f22081aeff3ba527a30b38d4254d3e27d22c123b3f9"
+    },
+    "luna-r2-handoff.md": {
+      "bytes": 1265,
+      "sha256": "55dad7adc269d63e8a2951c5cfc4f75e913edcb1ebc12ba0d1e16de033011dbd"
+    },
+    "network-failures-raw.ndjson": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "page-errors-raw.ndjson": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "pr-body-current.md": {
+      "bytes": 3056,
+      "sha256": "8d1063ed932c0d117d3bbd026de9100ea25b29c33f597a363c58d5753d758360"
+    },
+    "pr-body-update-result.json": {
+      "bytes": 570,
+      "sha256": "80d55097abfd8496b751ece055aafe33ef315983632c545d579b5a51d4e424fd"
+    },
+    "pr-head-verification.json": {
+      "bytes": 2490,
+      "sha256": "ad23ed7358bcb58e5be0ccbe849e94ba682685ba55e4adba137416b3fb1ca3d9"
+    },
+    "preview-release-identity.json": {
+      "bytes": 607,
+      "sha256": "68dde26a8d2ce35907ca3167abcf58bd93a62ffd0781a44773ef15dbe91aae7b"
+    },
+    "production-mirror-identity-1.json": {
+      "bytes": 1008,
+      "sha256": "d60becc87abcdccb7c509f4d71611368a73c35e2a37d7c9b5b8a6490e2dd1174"
+    },
+    "production-mirror-identity-2.json": {
+      "bytes": 1008,
+      "sha256": "5f11e4fd94c10f5854d7fc1e2ad79f95ae21a62414651b4a42d4991a026a458a"
+    },
+    "production-mirror-identity-3.json": {
+      "bytes": 1008,
+      "sha256": "2f688388b112d9c09b6b9cb24f619b9818bcccd923814233eb690bf8229c458a"
+    },
+    "production-primary-identity-1.json": {
+      "bytes": 998,
+      "sha256": "c7fe3c38dd515438cec553cf7afb9860de45ece6507b1eb0c76f3866286b69be"
+    },
+    "production-primary-identity-2.json": {
+      "bytes": 998,
+      "sha256": "7cb48d8074f87fc4133eaa547bfad5cc2a3e5c0d8fbabfe9dc9f630b1bbab321"
+    },
+    "production-primary-identity-3.json": {
+      "bytes": 998,
+      "sha256": "e44ba6387b72a9abad26057650994e6c8b1a7a0eb822097603cab685569cc967"
+    },
+    "redaction-report.json": {
+      "bytes": 862,
+      "sha256": "fde0c4a45c4672081e21a164ac14eaac1fbc2408e76e8116ce203a37b8f3f3ae"
+    },
+    "release-identity-bootstrap-transition.json": {
+      "bytes": 3628,
+      "sha256": "d98fcd9ea6313e8be6a1b9305e609a0d51425b8684a7721c007fd4b8c65c408c"
+    },
+    "reload-persistence.json": {
+      "bytes": 154,
+      "sha256": "821bfe0ccab709236e3ca41cfda3beaca96d6ed8caee3d69321e9012e6917c7a"
+    },
+    "remote-preview-gate-v3.json": {
+      "bytes": 1601,
+      "sha256": "7ba3fae9c0846b67d9ffc61389ee6696c1f7f8995776292b4f4b568a288300ac"
+    }
+  },
+  "integrity": {
+    "missing": [],
+    "unexpected": [],
+    "mismatch": [],
+    "credentialHits": [],
+    "missingCount": 0,
+    "unexpectedCount": 0,
+    "mismatchCount": 0,
+    "credentialHitCount": 0
+  },
+  "selfHashMethod": "sha256(JSON.stringify(stable(manifest_without_selfHash)))",
+  "generatedAt": "2026-07-30T21:15:14.694Z",
+  "selfHash": "f50ec635e6bc5741b62330e087c99f64f94bb649c8011b09f669d4598b7b35b4",
+  "selfHashVerification": "MATCH"
+}

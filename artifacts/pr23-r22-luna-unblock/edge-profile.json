@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "pr23-r2-2-edge-profile-v1",
+  "status": "NOT_EXECUTED",
+  "reason": "EDGE_CONTROL_SURFACE_UNAVAILABLE_IN_CURRENT_CODEX_RUNTIME",
+  "installedMicrosoftEdgeVerified": true,
+  "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "version": "150.0.4078.83",
+  "availableBrowserControlSurface": "Codex In-app Browser (IAB)",
+  "requiredBrowserControlSurface": "Microsoft Edge",
+  "profileCreated": false,
+  "existingUserProfileUsed": false,
+  "priorPairingSessionReused": false,
+  "permissionInjectionUsed": false,
+  "localNetworkAccessBypassUsed": false,
+  "mockBrowserUsed": false,
+  "chromiumUsedAsEdge": false
+}

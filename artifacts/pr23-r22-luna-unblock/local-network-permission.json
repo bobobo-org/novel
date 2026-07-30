@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "pr23-r2-2-local-network-permission-v1",
+  "status": "NOT_EXECUTED",
+  "reason": "EDGE_ENVIRONMENT_BLOCKED_BEFORE_NATIVE_PERMISSION_FLOW",
+  "nativePermissionObserved": false,
+  "permissionInjectionUsed": false,
+  "browserPolicyModified": false,
+  "localNetworkAccessBypassUsed": false
+}

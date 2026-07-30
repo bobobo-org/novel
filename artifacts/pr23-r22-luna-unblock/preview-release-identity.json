@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "pr23-r2-2-preview-release-identity-v1",
+  "status": "PASS",
+  "url": "https://novel-15gi72tr4-lqtechs-projects.vercel.app",
+  "httpStatus": 200,
+  "appCommit": "169328016111d69e0adab784d817a5653113a852",
+  "deploymentId": "dpl_5G2ggFhtgvLJxB8Q29X94RMoXFxY",
+  "releaseTag": "novel-ai-p24b-character-agent-rc2",
+  "architectureStage": "P2.4B RC",
+  "environment": "preview",
+  "provenanceStatus": "verified",
+  "cacheControl": "no-store, max-age=0",
+  "responseBodySha256": "daf757bb762e030f3be7b02eb657e69ccc2d6b9bdb07378ff89f421caefcb79d",
+  "checkedAt": "2026-07-30T21:15:06.161Z"
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "pr23-r2-2-console-summary-v1",
+  "status": "NOT_EXECUTED",
+  "actualEdgeRunCompleted": false,
+  "previousGateCount": 22,
+  "currentGateCount": null,
+  "countDifference": null,
+  "countDifferenceReason": "edge_environment_blocked_before_fresh_authoritative_rerun",
+  "rawRecordCount": 0,
+  "classifiedRecordCount": 0,
+  "productErrorCount": null,
+  "securityErrorCount": null,
+  "unclassifiedCount": null,
+  "pass": false
+}

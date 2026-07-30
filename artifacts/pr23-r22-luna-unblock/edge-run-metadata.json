@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "pr23-r2-2-edge-run-metadata-v1",
+  "status": "PR23_R2_2_EDGE_ENVIRONMENT_BLOCKED",
+  "reasonCode": "EDGE_CONTROL_SURFACE_UNAVAILABLE_IN_CURRENT_CODEX_RUNTIME",
+  "actualEdgeRunExecuted": false,
+  "actualEdgeFlowCompleted": false,
+  "rawRecordsCaptured": false,
+  "installedMicrosoftEdgeVerified": true,
+  "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "version": "150.0.4078.83",
+  "runnerReady": "scripts/audit/run-pr23-r22-edge-evidence.ps1",
+  "runnerSha256": "56cc8186a9425cfca761dcaec1a8833401b5327cb616a246c0662c4c871ea470",
+  "powershellWrapperSha256": "423dc8ca3675c4e8ce78116cd379424c6a7cf5ec61b6f651932b70e94ba81408",
+  "controlSurfaceEvidence": {
+    "selectedSurface": "Codex In-app Browser",
+    "selectedSurfaceType": "iab",
+    "microsoftEdgeSurfaceAvailable": false
+  },
+  "noOldSolEvidenceReused": true,
+  "noPassInferredFromPreflight": true,
+  "generatedAt": "2026-07-30T21:15:11.868Z"
+}
