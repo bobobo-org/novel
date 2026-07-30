@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [workflow, rollback, packageText] = await Promise.all([
+const [workflow, rollback, packageText, p21ThreeHigh] = await Promise.all([
   readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
   readFile(new URL("./vercel-dual-alias-cutover.mjs", import.meta.url), "utf8"),
   readFile(new URL("../package.json", import.meta.url), "utf8"),
+  readFile(new URL("./run-p21-three-high-closure.mjs", import.meta.url), "utf8"),
 ]);
 const packageScripts = JSON.parse(packageText).scripts;
 
@@ -123,6 +124,13 @@ for (const scriptName of [
     `${scriptName} must bootstrap provenance in a clean checkout`,
   );
 }
+assert.match(p21ThreeHigh, /process\.platform === "win32"/u);
+assert.match(p21ThreeHigh, /: execFileSync\("pnpm", args/u);
+assert.match(
+  p21ThreeHigh,
+  /process\.platform === "win32" \? "powershell\.exe" : "pwsh"/u,
+);
+assert.match(p21ThreeHigh, /fileURLToPath\(prePath\)/u);
 
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v1",
@@ -137,5 +145,6 @@ console.log(JSON.stringify({
   legacyBootstrapCaptureAndRollbackOnly: true,
   legacyBootstrapFrozenToKnownBaseline: true,
   cleanCheckoutProvenanceBootstrap: true,
+  crossPlatformP21Validation: true,
   centralDualAliasRollback: true,
 }, null, 2));
