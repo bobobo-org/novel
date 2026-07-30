@@ -138,6 +138,21 @@
   color: #8ea6c8;
 }
 
+.sessionPreference {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 12px;
+  color: #9fb4d2;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sessionPreference input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
 .backendList {
   display: grid;
   gap: 9px;
