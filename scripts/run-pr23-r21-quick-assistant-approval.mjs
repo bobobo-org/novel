@@ -22,6 +22,7 @@ import {
 } from "../lib/novel-ai/repository/backup.ts";
 import {
   ensureStudioCanonicalProject,
+  saveStudioChapter,
 } from "../lib/novel-ai/repository/studio-canonical.ts";
 import {
   applyWritingAidTransaction,
@@ -200,6 +201,14 @@ assert.equal(committed.resultingRevision, snapshot.chapter.revision + 1);
 const reloaded = await repository.get("chapters", snapshot.chapter.id);
 assert.equal(reloaded.revision, committed.resultingRevision);
 assert.equal(reloaded.content, committed.chapter.content);
+const unchangedAfterHydration = await saveStudioChapter(repository, {
+  id: projectId,
+  title: snapshot.project.title,
+  chapterTitle: reloaded.title,
+  draft: reloaded.content,
+});
+assert.equal(unchangedAfterHydration.chapter.revision, reloaded.revision);
+assert.equal(unchangedAfterHydration.chapter.updatedAt, reloaded.updatedAt);
 await assert.rejects(
   os.approveCandidate({
     candidateId: regenerated.candidate.id,
@@ -319,6 +328,10 @@ assert.match(studioSource, /data-testid="studio-candidate-diff"/);
 assert.match(studioSource, /contextSourceSummary: result\.contextSourceSummary/);
 assert.match(studioSource, /result\.executionReceipt\?\.generatedTokenEvents/);
 assert.match(studioSource, /initialProjectId/);
+assert.match(
+  studioSource,
+  /title === project\.chapterTitle && draft === project\.draft/,
+);
 
 const quickAssistantRoute = await readFile(
   new URL("../app/studio/quick-assistant/page.tsx", import.meta.url),
@@ -347,6 +360,7 @@ console.log(JSON.stringify({
   regeneratedActualExecutor: regenerated.candidate.actualExecutor,
   approvedRevision: committed.resultingRevision,
   reloadPersistent: true,
+  unchangedReloadDoesNotAdvanceRevision: true,
   duplicateRejected: true,
   staleRejected: true,
   cloudPersistenceRequired: false,

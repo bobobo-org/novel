@@ -70,6 +70,12 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
 
 export async function saveStudioChapter(repository: NovelRepository, input: StudioProjectSeed) {
   const current = await ensureStudioCanonicalProject(repository, input);
+  if (
+    current.chapter.title === input.chapterTitle
+    && current.chapter.content === input.draft
+  ) {
+    return current;
+  }
   const chapter = await repository.put("chapters", { ...current.chapter, title: input.chapterTitle, content: input.draft }, current.chapter.revision);
   return { ...current, chapter };
 }

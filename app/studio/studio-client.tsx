@@ -2678,7 +2678,10 @@ function WriteScreen({
     [focus, setFocus] = useState(false),
     [helperOpen, setHelperOpen] = useState(false);
   useEffect(() => {
-    if (!project) return;
+    if (
+      !project
+      || (title === project.chapterTitle && draft === project.draft)
+    ) return;
     const timer = setTimeout(() => saveDraft(title, draft), 1000);
     return () => clearTimeout(timer);
   }, [title, draft]); // eslint-disable-line react-hooks/exhaustive-deps
