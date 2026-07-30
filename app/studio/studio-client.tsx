@@ -18,6 +18,10 @@ import {
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import { discoverStudioClosedAI, runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
+import {
+  resolvePersistenceRuntimeHealth,
+  type PersistenceRuntimeMode,
+} from "@/lib/novel-ai/repository/runtime-health";
 import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import type { NovelProject, ProjectBackup, ProjectSeed, StoryState as CanonicalStoryState, StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
@@ -573,7 +577,23 @@ function migrateProject(raw: Record<string, unknown>): Project {
   };
 }
 function migrate(): StudioState {
-  for (const key of [STORAGE_KEY, ...LEGACY_KEYS])
+  const defaultOrder = [STORAGE_KEY, ...LEGACY_KEYS];
+  let orderedKeys = defaultOrder;
+  try {
+    const primary = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (!Array.isArray(primary?.projects) || primary.projects.length === 0) {
+      for (const key of LEGACY_KEYS) {
+        const legacy = JSON.parse(localStorage.getItem(key) || "null");
+        if (Array.isArray(legacy?.projects) && legacy.projects.length > 0) {
+          orderedKeys = [key, ...defaultOrder.filter((item) => item !== key)];
+          break;
+        }
+      }
+    }
+  } catch {
+    orderedKeys = defaultOrder;
+  }
+  for (const key of orderedKeys)
     try {
       const raw = JSON.parse(localStorage.getItem(key) || "null");
       if (raw) {
@@ -741,7 +761,13 @@ export default function StudioClient({
     [customChoice, setCustomChoice] = useState(""),
     [assistantStatus, setAssistantStatus] =
       useState<AssistantStatus>("checking"),
-    [assistantBusy, setAssistantBusy] = useState<string | null>(null);
+    [assistantBusy, setAssistantBusy] = useState<string | null>(null),
+    [storageFailure, setStorageFailure] = useState<{
+      code: string;
+      message: string;
+    } | null>(null),
+    [persistenceMode, setPersistenceMode] =
+      useState<PersistenceRuntimeMode | null>(null);
   const repositoryRef = useRef<NovelRepository | null>(null);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
@@ -757,10 +783,21 @@ export default function StudioClient({
         const legacy = migrate();
         const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
         localStorage.setItem("novel_p21r1_interaction_migration_preview", JSON.stringify({ ...auditLegacyStudioInteractions(raw), checkedAt: new Date().toISOString() }));
-        try { setState(await hydrateCanonicalStudio(repositoryRef.current!, legacy)); }
+        try {
+          setState(await hydrateCanonicalStudio(repositoryRef.current!, legacy));
+          setStorageFailure(null);
+        }
         catch (error) {
           console.error("STUDIO_CANONICAL_HYDRATION_FAILED", error);
-          setState({ ...initialState, wizard: legacy.wizard, autoBackup: legacy.autoBackup });
+          setState(legacy);
+          setStorageFailure({
+            code: String(
+              (error as { code?: string })?.code
+              || (error as Error)?.message
+              || "INDEXEDDB_HYDRATION_FAILED",
+            ),
+            message: "IndexedDB 正式作品庫目前無法開啟；畫面保留既有資料，不會清空、覆蓋或改用暫存記憶。",
+          });
         }
         setLoaded(true);
       })();
@@ -770,6 +807,20 @@ export default function StudioClient({
   useEffect(() => {
     if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(shellStateForLocalStorage(state)));
   }, [state, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    void resolvePersistenceRuntimeHealth({
+      repository: repositoryRef.current ?? undefined,
+    }).then((health) => {
+      setPersistenceMode(health.mode);
+      if (!health.localFeaturesAvailable) {
+        setStorageFailure({
+          code: health.localCanonicalStorage.errorCode ?? "INDEXEDDB_BLOCKED",
+          message: "IndexedDB 正式作品庫目前不可用；本機創作功能已安全停止，既有畫面與匯出入口仍保留。",
+        });
+      }
+    });
+  }, [loaded]);
   useEffect(() => {
     if (!loaded || !project || state.autoBackup !== "daily") return;
     const day = new Date().toISOString().slice(0, 10),
@@ -1542,6 +1593,32 @@ export default function StudioClient({
       data-app-commit={release.appCommit}
       data-story-library={STORY_LIBRARY.schemaVersion}
     >
+      {(storageFailure || persistenceMode === "CLOUD_DEGRADED") ? (
+        <section
+          className="studioPersistenceBanner"
+          data-blocked={Boolean(storageFailure)}
+          role={storageFailure ? "alert" : "status"}
+        >
+          <strong>
+            {storageFailure
+              ? "本機正式作品庫需要恢復"
+              : "雲端同步暫時不可用，本機創作仍可使用"}
+          </strong>
+          <span>
+            {storageFailure?.message
+              ?? "IndexedDB 仍是 Canonical Authority；Supabase 錯誤不會阻擋本機寫作、閉端 AI、核准或匯出。"}
+          </span>
+          <small>
+            模式：{persistenceMode ?? "檢查中"}
+            {storageFailure ? ` · ${storageFailure.code}` : ""}
+          </small>
+          {storageFailure ? (
+            <button type="button" onClick={() => location.reload()}>
+              重新檢查 IndexedDB
+            </button>
+          ) : null}
+        </section>
+      ) : null}
       <button
         className="studioMenuButton"
         onClick={() => setMenuOpen(true)}
@@ -1829,7 +1906,7 @@ function CreateScreen({
     </div>
   );
   return (
-    <section className="studioWizard">
+    <section className="studioWizard" data-testid="studio-create-wizard">
       <header>
         <span>建立新作品</span>
         <h1>
@@ -1872,6 +1949,7 @@ function CreateScreen({
             <label>
               作品名稱 <small>可空白</small>
               <input
+                data-testid="studio-project-title"
                 value={w.title}
                 onChange={(event) =>
                   updateWizard({ title: event.target.value })
@@ -1920,6 +1998,7 @@ function CreateScreen({
                 隨機驚喜
               </button>
               <button
+                data-testid="studio-create-blank"
                 className={w.creationMethod === "blank" ? "active" : ""}
                 onClick={() => updateWizard({ creationMethod: "blank" })}
               >
@@ -2187,12 +2266,12 @@ function CreateScreen({
           <button onClick={() => setStep(Math.min(5, step + 1))}>
             略過這一步
           </button>
-            <button className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
+            <button data-testid="studio-create-next" className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
               下一步
             </button>
           </>
         ) : (
-          <button className="gold" onClick={createProject}>
+          <button data-testid="studio-create-submit" className="gold" onClick={createProject}>
             建立作品
           </button>
         )}
@@ -2242,7 +2321,11 @@ function WriteScreen({
       </div>
     );
   return (
-    <section className={`studioWriting ${focus ? "focusMode" : ""}`}>
+    <section
+      className={`studioWriting ${focus ? "focusMode" : ""}`}
+      data-testid="studio-writing"
+      data-project-id={project.id}
+    >
       {!focus && (
         <aside>
           <h2>{project.title}</h2>
@@ -2339,7 +2422,7 @@ function WriteScreen({
                 <b>{assistantBusy === id ? "真實模型執行中…" : label}</b>
                 <span>
                   {assistantStatus === "ollama_ready"
-                    ? "由本機模型產生候選，再由你決定是否加入"
+                    ? "本機 AI 建議：由本機模型產生候選，再由你決定是否加入"
                     : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
                 </span>
               </button>

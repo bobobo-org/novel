@@ -61,7 +61,7 @@ export type AcceptChoiceTransactionResult = {
 };
 
 export interface NovelRepository {
-  readonly kind: "indexeddb" | "memory";
+  readonly kind: "indexeddb" | "memory" | "unavailable";
   isAvailable(): boolean;
   get<T extends DomainRecord>(store: NovelStoreName, id: string): Promise<T | null>;
   list<T extends DomainRecord>(store: NovelStoreName, projectId?: string): Promise<T[]>;

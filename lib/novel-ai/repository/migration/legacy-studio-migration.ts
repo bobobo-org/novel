@@ -1,26 +1,199 @@
-import { createDraft, buildProjectBundle } from "../../domain/creation";
 import { optionalValue } from "../../domain/index";
 import type { NovelRepository } from "../contracts/index";
-import type { ProjectBundle } from "../../domain/index";
+import type {
+  Chapter,
+  NovelProject,
+  ProjectBundle,
+} from "../../domain/index";
+import { ensureStudioCanonicalProject } from "../studio-canonical";
 
 const LEGACY_KEYS = ["novel_p12_studio_state", "novel_p11r2_studio_state", "novel_p11_consumer_state"];
 
 export async function migrateLegacyStudioProjects(repository: NovelRepository) {
-  if (typeof localStorage === "undefined") return { status: "not_applicable", migrated: 0, errors: [] as string[] };
-  let migrated = 0; const errors: string[] = [];
-  for (const key of LEGACY_KEYS) {
-    const raw = localStorage.getItem(key); if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw), projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
-      for (const legacy of projects) {
-        const draft = createDraft("legacy"); draft.projectId = String(legacy.id || crypto.randomUUID()); draft.id = `migration-${draft.projectId}`; draft.title = String(legacy.title || "未命名作品"); draft.genrePackId = legacy.packId || null; draft.genreId = legacy.topicId || null; draft.subgenreId = legacy.subCategory || null;
-        draft.coreIdea = optionalValue(legacy.coreIdea?.value ?? null, legacy.coreIdea?.status ?? "deferred"); draft.protagonist = optionalValue(legacy.optionalFields?.protagonist?.value ?? null, legacy.optionalFields?.protagonist?.status ?? "deferred"); draft.style = optionalValue(legacy.optionalFields?.style?.value ?? null, legacy.optionalFields?.style?.status ?? "deferred");
-        const bundle = buildProjectBundle(draft); await repository.createProject(bundle, `legacy:${key}:${draft.projectId}`); migrated += 1;
-      }
-    } catch (error) { errors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`); }
+  if (typeof localStorage === "undefined") {
+    return {
+      status: "not_applicable",
+      migrated: 0,
+      errors: [] as string[],
+    };
   }
-  localStorage.setItem("novel_p2_legacy_migration_journal", JSON.stringify({ at: new Date().toISOString(), migrated, errors, sourceKeysRetained: true }));
-  return { status: errors.length ? "partial" : "completed", migrated, errors };
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object"
+      ? value as Record<string, unknown>
+      : {};
+  const text = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+      const nested = asRecord(value).value;
+      if (typeof nested === "string" && nested.trim()) return nested.trim();
+    }
+    return null;
+  };
+  const rawText = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === "string") return value;
+      const nested = asRecord(value).value;
+      if (typeof nested === "string") return nested;
+    }
+    return null;
+  };
+  let migrated = 0;
+  const errors: string[] = [];
+  const seenProjectIds = new Set<string>();
+  for (const key of LEGACY_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+      for (const legacy of projects) {
+        const row = asRecord(legacy);
+        const projectId = String(row.id || crypto.randomUUID());
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(projectId)) {
+          errors.push(`${key}:${projectId}: invalid project id`);
+          continue;
+        }
+        if (seenProjectIds.has(projectId)) continue;
+        seenProjectIds.add(projectId);
+        const optionalFields = asRecord(row.optionalFields);
+        const stats = asRecord(row.stats);
+        const existingProject = await repository.get<NovelProject>(
+          "projects",
+          projectId,
+        );
+        let snapshot = await ensureStudioCanonicalProject(repository, {
+          id: projectId,
+          title: text(row.title) || "未命名作品",
+          chapterTitle: text(row.chapterTitle) || "第一章",
+          draft: text(row.draft, row.text) || "",
+          packId: text(row.packId),
+          topicId: text(row.topicId),
+          subCategory: text(row.subCategory),
+          coreIdea: text(row.coreIdea, row.synopsis),
+          protagonist: text(optionalFields.protagonist, row.protagonist),
+          goal: text(optionalFields.goal, row.goal),
+          world: text(optionalFields.world, row.world, row.location),
+          worldRule: text(optionalFields.worldRule, row.worldRule),
+          conflict: text(optionalFields.conflict, row.conflict, row.crisis),
+          style: text(optionalFields.style, row.style),
+          enabledStats: Array.isArray(row.enabledStats)
+            ? row.enabledStats.map(String)
+            : Object.keys(stats),
+        });
+        const legacyUpdatedAt = Date.parse(text(row.updatedAt) ?? "");
+        const canonicalUpdatedAt = Math.max(
+          Date.parse(existingProject?.updatedAt ?? ""),
+          Date.parse(snapshot.chapter.updatedAt),
+        );
+        if (
+          existingProject
+          && Number.isFinite(legacyUpdatedAt)
+          && (
+            !Number.isFinite(canonicalUpdatedAt)
+            || legacyUpdatedAt > canonicalUpdatedAt
+          )
+        ) {
+          const coreIdea = text(row.coreIdea, row.synopsis);
+          const narrativeStyle = text(optionalFields.style, row.style);
+          const nextProject: NovelProject = {
+            ...snapshot.project,
+            title: text(row.title) || snapshot.project.title,
+            genrePackId: text(row.packId) ?? snapshot.project.genrePackId,
+            genreId: text(row.topicId) ?? snapshot.project.genreId,
+            subgenreId:
+              text(row.subCategory) ?? snapshot.project.subgenreId,
+            coreIdea: coreIdea
+              && coreIdea !== snapshot.project.coreIdea.value
+              ? optionalValue(coreIdea, "user_defined")
+              : snapshot.project.coreIdea,
+            narrativeStyle: narrativeStyle
+              && narrativeStyle !== snapshot.project.narrativeStyle.value
+              ? optionalValue(narrativeStyle, "user_defined")
+              : snapshot.project.narrativeStyle,
+            adultMode: snapshot.project.adultMode
+              || row.adult === true
+              || row.adultMode === true,
+          };
+          if (
+            JSON.stringify({
+              title: nextProject.title,
+              genrePackId: nextProject.genrePackId,
+              genreId: nextProject.genreId,
+              subgenreId: nextProject.subgenreId,
+              coreIdea: nextProject.coreIdea,
+              narrativeStyle: nextProject.narrativeStyle,
+              adultMode: nextProject.adultMode,
+            }) !== JSON.stringify({
+              title: snapshot.project.title,
+              genrePackId: snapshot.project.genrePackId,
+              genreId: snapshot.project.genreId,
+              subgenreId: snapshot.project.subgenreId,
+              coreIdea: snapshot.project.coreIdea,
+              narrativeStyle: snapshot.project.narrativeStyle,
+              adultMode: snapshot.project.adultMode,
+            })
+          ) {
+            snapshot = {
+              ...snapshot,
+              project: await repository.put(
+                "projects",
+                nextProject,
+                snapshot.project.revision,
+              ),
+            };
+          }
+          const nextChapter: Chapter = {
+            ...snapshot.chapter,
+            title: text(row.chapterTitle) || snapshot.chapter.title,
+            content:
+              rawText(row.draft, row.text) ?? snapshot.chapter.content,
+          };
+          if (
+            nextChapter.title !== snapshot.chapter.title
+            || nextChapter.content !== snapshot.chapter.content
+          ) {
+            snapshot = {
+              ...snapshot,
+              chapter: await repository.put(
+                "chapters",
+                nextChapter,
+                snapshot.chapter.revision,
+              ),
+            };
+          }
+        }
+        if (
+          (row.adult === true || row.adultMode === true)
+          && !snapshot.project.adultMode
+        ) {
+          await repository.put(
+            "projects",
+            { ...snapshot.project, adultMode: true },
+            snapshot.project.revision,
+          );
+        }
+        migrated += 1;
+      }
+    } catch (error) {
+      errors.push(
+        `${key}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  localStorage.setItem(
+    "novel_p2_legacy_migration_journal",
+    JSON.stringify({
+      at: new Date().toISOString(),
+      migrated,
+      errors,
+      sourceKeysRetained: true,
+    }),
+  );
+  return {
+    status: errors.length ? "partial" : "completed",
+    migrated,
+    errors,
+  };
 }
 
 export function mirrorProjectToLegacyStudio(bundle: ProjectBundle) {
