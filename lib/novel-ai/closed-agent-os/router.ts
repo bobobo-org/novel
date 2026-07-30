@@ -87,14 +87,17 @@ export function selectClosedAIBackend(
     }
   }
 
-  const requiredId = complexity === "heavy"
-    ? "private-ai-hub"
+  const automaticOrder = complexity === "heavy"
+    ? ["private-ai-hub"] as const
     : complexity === "standard"
-      ? "local-ollama"
+      ? ["local-ollama", "browser-ai"] as const
       : BROWSER_AI_LIGHT_TASKS.includes(request.taskType)
-        ? "browser-ai"
-        : "local-ollama";
-  const selected = snapshots.find((snapshot) => snapshot.id === requiredId);
+        ? ["browser-ai", "local-ollama"] as const
+        : ["local-ollama", "browser-ai"] as const;
+  const requiredId = automaticOrder[0];
+  const selected = automaticOrder
+    .map((backendId) => snapshots.find((snapshot) => snapshot.id === backendId))
+    .find((snapshot) => snapshot && supports(snapshot, request, complexity));
   if (!selected || !supports(selected, request, complexity)) {
     const compatible = compatibleBackendIds(snapshots, request, complexity);
     throw Object.assign(new Error("The required closed AI backend is not ready."), {
@@ -111,7 +114,7 @@ export function selectClosedAIBackend(
     backend: selected,
     complexity,
     automatic: true,
-    reasonCode: `AUTO_SELECTED_${requiredId.toUpperCase().replaceAll("-", "_")}`,
+    reasonCode: `AUTO_SELECTED_${selected.id.toUpperCase().replaceAll("-", "_")}`,
     fallbackAttempted: false as const,
     learnedPreferenceApplied: false as const,
   };

@@ -1,6 +1,9 @@
 import type { PlatformTaskType } from "../../router/platform-types";
 
-export type ClosedModelBackendId = "local-ollama" | "private-ai-hub";
+export type ClosedModelBackendId =
+  | "browser-ai"
+  | "local-ollama"
+  | "private-ai-hub";
 
 export type ClosedAIModelProfile = {
   profileId: string;
@@ -170,6 +173,7 @@ export function getClosedAIModelProfile(
   backendId: ClosedModelBackendId,
 ): ClosedAIModelProfile {
   const privateHub = backendId === "private-ai-hub";
+  const browserAI = backendId === "browser-ai";
   const classification = CLASSIFICATION_TASKS.has(taskType);
   const summary = SUMMARY_TASKS.has(taskType);
   const creative = CREATIVE_TASKS.has(taskType);
@@ -185,25 +189,27 @@ export function getClosedAIModelProfile(
           : "balanced";
 
   const numPredict = classification
-    ? privateHub ? 1_024 : 768
+    ? privateHub ? 1_024 : browserAI ? 640 : 768
     : summary
-      ? privateHub ? 1_536 : 1_024
+      ? privateHub ? 1_536 : browserAI ? 896 : 1_024
       : heavy
         ? 3_584
         : privateHub
           ? 3_072
-          : 1_792;
+          : browserAI
+            ? 1_280
+            : 1_792;
 
   return {
     profileId: `closed-${backendId}-${family}-v3`,
     backendId,
     taskType,
     systemInstruction: `${BASE_INSTRUCTION}\n${taskInstruction(taskType)}`,
-    timeoutMs: privateHub ? 240_000 : 120_000,
-    maxInputCharacters: privateHub ? 72_000 : 16_000,
+    timeoutMs: privateHub ? 240_000 : browserAI ? 90_000 : 120_000,
+    maxInputCharacters: privateHub ? 72_000 : browserAI ? 10_000 : 16_000,
     options: {
       num_predict: numPredict,
-      num_ctx: privateHub ? 24_576 : 8_192,
+      num_ctx: privateHub ? 24_576 : browserAI ? 4_096 : 8_192,
       temperature: classification ? 0.1 : summary ? 0.25 : heavy ? 0.58 : creative ? 0.72 : 0.45,
       top_p: classification ? 0.82 : summary ? 0.88 : 0.92,
       repeat_penalty: creative || heavy ? 1.12 : 1.08,

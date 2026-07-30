@@ -640,7 +640,8 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(consumerSource.includes('params.set("projectId",projectId)'));
   assert.ok(sovereignEntrySource.includes("frontdoorProjectId"));
   assert.ok(sovereignEntrySource.includes("novel_p2_active_project_id"));
-  assert.ok(legacyHtmlSource.includes("consumer-app.js?v=p24b-closed-ai-optimization-r1"));
+  assert.ok(legacyHtmlSource.includes("consumer-app.js?v=p24b-closed-ai-optimization-r2"));
+  assert.ok(legacyHtmlSource.includes("consumer-app.css?v=p24b-closed-ai-truth-r2"));
   assert.ok(legacyHtmlSource.includes("sovereign-learning-entry.js?v=closed-ai-sovereign-learning-v2"));
   assert.ok(serviceWorkerSource.includes("novel-system-unified-closed-ai-20260729-2"));
 });

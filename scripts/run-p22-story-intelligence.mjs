@@ -27,7 +27,11 @@ import {
   validatePrivateHubRequest,
 } from "../lib/novel-ai/providers/private-ai-hub/private-ai-hub.ts";
 import { resolvePlatformProvider } from "../lib/novel-ai/router/platform-router.ts";
-import { detectBrowserAI, runBrowserAI } from "../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts";
+import {
+  BROWSER_LANGUAGE_MODEL_ID,
+  detectBrowserAI,
+  runBrowserAI,
+} from "../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts";
 import {
   PERSONA_PROFILES,
   evaluateOpenExpression,
@@ -593,6 +597,78 @@ test("Browser AI executes a real injected browser summary runtime contract", asy
     else delete globalThis.window;
     if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
     else delete globalThis.navigator;
+    if (summarizerDescriptor) Object.defineProperty(globalThis, "Summarizer", summarizerDescriptor);
+    else delete globalThis.Summarizer;
+  }
+});
+
+test("Browser Prompt API executes a real on-device standard creation task", async () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const languageModelDescriptor = Object.getOwnPropertyDescriptor(globalThis, "LanguageModel");
+  const summarizerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Summarizer");
+  let receivedPrompt = "";
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { storage: { estimate: async () => ({ quota: 4096, usage: 512 }) } },
+  });
+  Object.defineProperty(globalThis, "LanguageModel", {
+    configurable: true,
+    value: {
+      availability: async () => "available",
+      create: async ({ initialPrompts }) => {
+        assert.match(initialPrompts[0].content, /候選/u);
+        return {
+          prompt: async (prompt) => {
+            receivedPrompt = prompt;
+            return "林昭把濕泥刮進紙袋，沿著只在雨夜出現的足跡走向封閉書庫。門後忽然傳來翻頁聲，她停下腳步，先熄掉手電筒。";
+          },
+          destroy() {},
+        };
+      },
+    },
+  });
+  delete globalThis.Summarizer;
+  try {
+    const capability = await detectBrowserAI();
+    assert.equal(capability.generativeModelReady, true);
+    assert.equal(capability.modelId, BROWSER_LANGUAGE_MODEL_ID);
+    const decision = {
+      providerId: "browser-ai",
+      modelId: BROWSER_LANGUAGE_MODEL_ID,
+      privacyMode: "strict-local",
+      reason: "native prompt test",
+      contextSources: [],
+      externalRequest: false,
+      dataLeavesDevice: false,
+      fallbackChain: [],
+      warnings: [],
+    };
+    const result = await runBrowserAI({
+      requestId: "browser-native-continue",
+      projectId: "fixture-browser-native",
+      taskType: "chapter.continue",
+      privacyMode: "strict-local",
+      input: "承接濕泥腳印續寫一個具體動作場景。",
+      context: ["林昭在圖書館發現帳冊失蹤。"],
+      externalConsent: false,
+      closedOnly: true,
+      offlineRequired: true,
+    }, decision);
+    assert.match(receivedPrompt, /chapter\.continue/u);
+    assert.match(result.content, /林昭/u);
+    assert.equal(result.modelId, BROWSER_LANGUAGE_MODEL_ID);
+    assert.equal(result.dataLeavesDevice, false);
+    assert.equal(result.externalRequest, false);
+    assert.match(result.profileId, /closed-browser-ai-creative/u);
+  } finally {
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else delete globalThis.window;
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else delete globalThis.navigator;
+    if (languageModelDescriptor) Object.defineProperty(globalThis, "LanguageModel", languageModelDescriptor);
+    else delete globalThis.LanguageModel;
     if (summarizerDescriptor) Object.defineProperty(globalThis, "Summarizer", summarizerDescriptor);
     else delete globalThis.Summarizer;
   }

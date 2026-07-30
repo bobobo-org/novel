@@ -39,6 +39,7 @@ import {
   LocalBridgeClient,
   configureLocalBridgeClient,
   configureLocalBridgeModel,
+  getConfiguredLocalBridgeClient,
   selectAvailableTextModel,
   type LocalModelInferenceProof,
   type LocalTextModel,
@@ -49,6 +50,7 @@ import {
   configurePrivateHubClient,
   configurePrivateHubModel,
   configurePrivateHubProject,
+  getConfiguredPrivateHubClient,
   type OfflinePreferenceModelArtifact,
   type PrivateHubInferenceProof,
 } from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
@@ -208,6 +210,23 @@ function backendCanRun(
     || snapshot.supportedTaskTypes.includes(task.id);
 }
 
+function automaticBackendForTask(
+  snapshots: ClosedAIBackendSnapshot[],
+  task: (typeof TASKS)[number] | undefined,
+): ClosedAIBackendId {
+  const preferredOrder: ClosedAIBackendId[] = task?.complexity === "heavy"
+    ? ["private-ai-hub"]
+    : task?.complexity === "standard"
+      ? ["local-ollama", "browser-ai"]
+      : ["browser-ai", "local-ollama"];
+  return preferredOrder.find((backendId) =>
+    backendCanRun(
+      snapshots.find((snapshot) => snapshot.id === backendId),
+      task,
+    ))
+    ?? preferredOrder[0];
+}
+
 function runtimeError(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
   const messages: Record<string, string> = {
@@ -303,21 +322,29 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const os = useMemo(() => getStudioClosedAgentOS(), []);
   const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
   const localClient = useMemo(
-    () => new LocalBridgeClient({
-      origin: currentOrigin ?? "https://novel-orcin.vercel.app",
-    }),
+    () => {
+      const origin = currentOrigin ?? "https://novel-orcin.vercel.app";
+      const configured = getConfiguredLocalBridgeClient();
+      return configured?.origin === origin
+        ? configured
+        : new LocalBridgeClient({ origin });
+    },
     [currentOrigin],
   );
   const hubClient = useMemo(
-    () => new PrivateHubClient({
-      origin: currentOrigin ?? "https://novel-orcin.vercel.app",
-    }),
+    () => {
+      const origin = currentOrigin ?? "https://novel-orcin.vercel.app";
+      const configured = getConfiguredPrivateHubClient();
+      return configured?.origin === origin
+        ? configured
+        : new PrivateHubClient({ origin });
+    },
     [currentOrigin],
   );
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
-  const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("local-ollama");
+  const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("auto");
   const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
   const [objective, setObjective] = useState(
     TASKS.find((task) => task.id === "chapter.continue")!.defaultObjective,
@@ -501,16 +528,43 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setTaskType(requestedTask);
         const requested = TASKS.find((item) => item.id === requestedTask)!;
         setObjective(requested.defaultObjective);
-        setBackend(
-          requested.complexity === "heavy"
-            ? "private-ai-hub"
-            : requested.complexity === "standard"
-              ? "local-ollama"
-              : "browser-ai",
-        );
+        setBackend("auto");
       }
       const requestedObjective = query.get("objective")?.trim();
       if (requestedObjective) setObjective(requestedObjective.slice(0, 4000));
+      const handoffId = query.get("handoff")?.trim() ?? "";
+      if (/^[A-Za-z0-9-]{16,128}$/.test(handoffId)) {
+        try {
+          const rawHandoff = window.sessionStorage.getItem(`novel_closed_ai_handoff:${handoffId}`);
+          const handoff = rawHandoff
+            ? JSON.parse(rawHandoff) as {
+              schemaVersion?: string;
+              projectId?: string;
+              taskType?: string;
+              objective?: string;
+              createdAt?: string;
+            }
+            : null;
+          const createdAt = Date.parse(handoff?.createdAt ?? "");
+          const age = Date.now() - createdAt;
+          const validTask = TASKS.some((item) => item.id === handoff?.taskType);
+          if (
+            handoff?.schemaVersion === "novel-closed-ai-handoff-v1"
+            && handoff.projectId === projectId
+            && handoff.taskType === requestedTask
+            && validTask
+            && typeof handoff.objective === "string"
+            && handoff.objective.trim()
+            && Number.isFinite(age)
+            && age >= 0
+            && age <= 30 * 60 * 1000
+          ) {
+            setObjective(handoff.objective.trim().slice(0, 4000));
+          }
+        } catch {
+          // 安全交接失敗時保留任務預設文字，不從不可信 URL 還原正文。
+        }
+      }
     })().catch((error) => {
       if (!cancelled) setStatus(`作品脈絡載入失敗：${runtimeError(error)}`);
     });
@@ -571,24 +625,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   }, [knowledgeScopeRevision, projectId, snapshots, storyBibleRevision]);
 
   const namespace = useCallback((): ClosedAINamespace => {
-    const complexity = TASKS.find((item) => item.id === taskType)?.complexity ?? "light";
-    const automaticBackend: ClosedAIBackendId = complexity === "heavy"
-      ? "private-ai-hub"
-      : complexity === "standard"
-        ? "local-ollama"
-        : "browser-ai";
+    const automaticBackend = automaticBackendForTask(
+      snapshots,
+      TASKS.find((item) => item.id === taskType),
+    );
     return namespaceForBackend(backend === "auto" ? automaticBackend : backend);
-  }, [backend, namespaceForBackend, taskType]);
+  }, [backend, namespaceForBackend, snapshots, taskType]);
 
   const selectedTask = useMemo(
     () => TASKS.find((item) => item.id === taskType),
     [taskType],
   );
-  const automaticBackendId: ClosedAIBackendId = selectedTask?.complexity === "heavy"
-    ? "private-ai-hub"
-    : selectedTask?.complexity === "standard"
-      ? "local-ollama"
-      : "browser-ai";
+  const automaticBackendId = automaticBackendForTask(snapshots, selectedTask);
   const executionBackendId = backend === "auto" ? automaticBackendId : backend;
   const executionSnapshot = snapshots.find(
     (snapshot) => snapshot.id === executionBackendId,
@@ -754,7 +802,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     try {
       const proof = await verifyBrowserAI();
       setBrowserProof(proof);
-      setRuntimeStatus(`瀏覽器 AI 已實際回答，耗時 ${proof.latencyMs} ms。`);
+      setRuntimeStatus(
+        proof.inferenceMode === "generative-model"
+          ? `瀏覽器裝置內生成模型已實際回答，耗時 ${proof.latencyMs} ms；可承擔一般創作工作。`
+          : `瀏覽器輕量任務模型已實際回答，耗時 ${proof.latencyMs} ms；它只負責摘要與分類，不會冒充長篇生成模型。`,
+      );
       await refresh(false);
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
@@ -1357,7 +1409,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <span>{statusLabel(snapshot.status)}</span>
                 </div>
                 <p>{snapshot.id === "browser-ai"
-                  ? "免安裝的輕量摘要、分類與角色檢查。"
+                  ? browserCapability?.generativeModelReady
+                    ? "裝置內生成模型已就緒，可執行一般續寫、對話與分析。"
+                    : "免安裝的輕量摘要、分類與角色檢查；目前不是長篇生成模型。"
                   : snapshot.id === "local-ollama"
                     ? "裝置內續寫、對話、檢索與一般代理任務。"
                     : "私有算力的長上下文、重型與多代理任務。"}</p>
@@ -1373,15 +1427,21 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 {snapshot.id === "browser-ai" ? <div className={styles.runtimeControls}>
                   <p>
                     裝置能力：{browserCapability?.status === "ready"
-                      ? browserCapability.reason.includes("native_summary")
+                      ? browserCapability.generativeModelReady
+                        ? "裝置內生成模型可用"
+                        : browserCapability.reason.includes("native_summary")
                         ? "混合模型可用（內建摘要加速）"
-                        : "封裝式摘要／分類模型可用"
+                        : browserCapability.reason.includes("download_required")
+                          ? "生成模型可下載；目前只有輕量任務模型"
+                          : "封裝式摘要／分類模型可用（非生成式 LLM）"
                       : browserCapability?.status === "runtime_not_installed"
                         ? "支援但模型尚未下載"
                         : "此裝置不支援"}
                   </p>
                   {browserProof ? <p className={styles.proof}>
-                    實際推理 {browserProof.latencyMs} ms · <code>{browserProof.outputDigest.slice(0, 12)}…</code>
+                    {browserProof.inferenceMode === "generative-model"
+                      ? "生成模型實測"
+                      : "輕量任務模型實測"} {browserProof.latencyMs} ms · <code>{browserProof.outputDigest.slice(0, 12)}…</code>
                   </p> : null}
                   <button
                     type="button"
@@ -1523,7 +1583,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               <li>Browser AI 不承擔長篇推理或多代理工作。</li>
               <li>Local Ollama 需要本機 Bridge、配對與可用模型。</li>
               <li>Private AI Hub 可連接自架 loopback 私有節點；節點未啟動、未配對或未實測時，不宣稱已連線。</li>
-              <li>後端一旦鎖定，失敗就停止；不會靜默改用其他 AI。</li>
+              <li>後端一旦鎖定，失敗就停止；系統不會暗中換用別的 AI。</li>
             </ul>
           </details>
         </section>
@@ -1546,9 +1606,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 ) {
                   setObjective(task.defaultObjective);
                 }
-                if (task?.complexity === "heavy") setBackend("private-ai-hub");
-                else if (task?.complexity === "standard") setBackend("local-ollama");
-                else if (task?.complexity === "light") setBackend("browser-ai");
+                setBackend("auto");
               }}>
                 {(Object.keys(TASK_GROUP_LABELS) as TaskGroup[]).map((group) => (
                   <optgroup key={group} label={TASK_GROUP_LABELS[group]}>
@@ -1591,11 +1649,28 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.executionReadiness} data-ready={executionReady}>
             <div>
               <strong>{executionReady ? "可執行" : "尚未就緒"}</strong>
-              <span>{BACKEND_LABELS[executionBackendId]} · {executionSnapshot?.modelId ?? "等待模型身分"}</span>
+              <span>
+                {backend === "auto" ? "自動選定：" : ""}
+                {BACKEND_LABELS[executionBackendId]} · {executionSnapshot?.modelId ?? "等待模型身分"}
+              </span>
             </div>
             <p>{executionReady
-              ? "工作會鎖定此後端，串流進度與最終雜湊證據會顯示在本頁。"
-               : "請先在左側啟動、配對並實測所需後端；系統不會暗中換用別的 AI。"}</p>
+              ? "按下執行後才會鎖定這個已就緒後端；執行途中失敗不會偷換模型。"
+              : selectedTask?.complexity === "heavy"
+                ? "這是重型工作，請先配對並實測 Private Hub。"
+                : selectedTask?.complexity === "standard"
+                  ? "續寫與一般代理工作需要配對 Local Ollama；若桌面瀏覽器有 Prompt API，系統也會自動採用其裝置內生成模型。"
+                  : "請先完成可執行後端的實際模型測試。"}</p>
+            {!executionReady ? <button
+              type="button"
+              className={styles.secondary}
+              onClick={() => document.getElementById("backend-title")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              })}
+            >
+              前往連接真實 AI
+            </button> : null}
           </div>
           {recommendedFleetModel ? <div className={styles.modelRecommendation}>
             <div>

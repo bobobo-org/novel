@@ -47,8 +47,24 @@ check("return consumer control is hidden", legacy.includes("#p11ReturnConsumer")
 check("app dock is hidden", legacy.includes(".appDock"));
 check("Professional workspace has a stable marker", legacy.includes('data-testid="professional-workspace"'));
 check("Professional route hub has a stable marker", legacy.includes('data-testid="professional-route-hub"'));
-check("route hub exposes eight formal destinations", (legacy.match(/class="p24b-route-card"/g) ?? []).length === 8);
-for (const route of ["write", "characters", "world", "story-bible", "character-ai", "reader", "backups"]) {
+const routeCardCount = (legacy.match(/class="p24b-route-card"/g) ?? []).length;
+check("route hub exposes all fifteen formal destinations", routeCardCount === 15, { routeCardCount });
+for (const route of [
+  "write",
+  "ai",
+  "closed-ai",
+  "learning",
+  "characters",
+  "character-ai",
+  "world",
+  "timeline",
+  "story-bible",
+  "tasks",
+  "achievements",
+  "drama",
+  "reader",
+  "backups",
+]) {
   check(`route hub preserves ${route}`, legacy.includes(`data-project-route="${route}"`));
 }
 check("screen semantics preserve create", legacy.includes('create:"studio"'));
