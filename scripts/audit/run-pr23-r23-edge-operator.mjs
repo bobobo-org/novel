@@ -648,6 +648,30 @@ assert.equal(
     && record.runtimeReadyAtRecord === false
     && record.pairingStateAtRecord === "requested"
     && pairing?.bridge?.proofState === "inference_verified";
+  const nativePermissionInterruptedPairRequest =
+    record.kind === "requestfailed"
+    && record.requestMethod === "POST"
+    && loopbackPath === "/pair/request"
+    && record.phase === "PAIR_REQUEST"
+    && String(record.failureTextRedacted ?? "").toUpperCase()
+      === "NET::ERR_ABORTED"
+    && record.runtimeReadyAtRecord === false
+    && record.pairingStateAtRecord === "requested"
+    && pairing?.permission?.nativePermissionObserved === true
+    && pairing?.bridge?.proofState === "inference_verified"
+    && samePhaseLoopbackResponse;
+  if (nativePermissionInterruptedPairRequest) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "The native Local Network Access decision interrupted the initial pairing fetch; the exact same-phase pairing request then completed and the Bridge proof was inference-verified.",
+      expectedByContract: true,
+      contractReference: "operator-assisted native Local Network Access pairing retry contract",
+      userVisibleImpact: false,
+      retryable: false,
+      resolvedDuringFlow: true,
+    };
+  }
   if (
     record.kind === "requestfailed"
     && record.requestMethod === "POST"
@@ -663,6 +687,28 @@ assert.equal(
       reason: "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
       expectedByContract: true,
       contractReference: "successful local Bridge stream completion and reload session revalidation contract",
+      userVisibleImpact: false,
+      retryable: false,
+      resolvedDuringFlow: true,
+    };
+  }
+  const navigationCancelledVerifiedModelRefresh =
+    record.kind === "requestfailed"
+    && record.requestMethod === "POST"
+    && loopbackPath === "/model/verify"
+    && record.phase === "BACKUP"
+    && String(record.failureTextRedacted ?? "").toUpperCase()
+      === "NET::ERR_ABORTED"
+    && pairedRuntimeAtRecord
+    && pairing?.bridge?.proofState === "inference_verified"
+    && fullWorkspace?.candidate?.actualExecutor === "local-ollama";
+  if (navigationCancelledVerifiedModelRefresh) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "Navigation to backup cancelled an optional model refresh after the Bridge and Local Ollama executor had already been inference-verified.",
+      expectedByContract: true,
+      contractReference: "verified local model session and backup navigation cancellation contract",
       userVisibleImpact: false,
       retryable: false,
       resolvedDuringFlow: true,
@@ -713,7 +759,7 @@ assert.equal(
     source,
     "  if (security) {",
     `  const optionalPrivateHubHealthProbe =
-    /http:\\/\\/127\\.0\\.0\\.1:3227\\/health(?:\\s|$|[?#])/iu.test(text)
+    /http:\\/\\/127\\.0\\.0\\.1:3227\\/health(?:['"\\s]|$|[?#])/iu.test(text)
     && ["FULL_WORKSPACE", "RELOAD_RECOVERY"].includes(record.phase)
     && record.runtimeReadyAtRecord === true
     && record.pairingStateAtRecord === "paired"
@@ -743,7 +789,7 @@ assert.equal(
     return {
       classification: "EXPECTED_OPTIONAL_BACKEND_PROBE",
       blocking: false,
-      reason: "The command center discovered that the optional unpaired Private Hub health endpoint was unavailable while the verified Local Ollama backend remained selected.",
+      reason: "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
       expectedByContract: true,
       contractReference: "three-backend discovery with locked local-ollama execution",
       userVisibleImpact: false,
@@ -1017,6 +1063,18 @@ function runSelfTest() {
       transformed.includes("samePhaseLoopbackResponse")
       && transformed.includes('loopbackPath === "/model/verify"')
       && transformed.includes("initialPairingVerification"),
+    nativePermissionPairRetryBound:
+      transformed.includes("nativePermissionInterruptedPairRequest")
+      && transformed.includes('loopbackPath === "/pair/request"')
+      && transformed.includes(
+        "pairing?.permission?.nativePermissionObserved === true",
+      ),
+    backupModelRefreshAbortBound:
+      transformed.includes("navigationCancelledVerifiedModelRefresh")
+      && transformed.includes('record.phase === "BACKUP"')
+      && transformed.includes(
+        'fullWorkspace?.candidate?.actualExecutor === "local-ollama"',
+      ),
     identityNavigationAbortBound:
       transformed.includes("identityNavigationAbort")
       && transformed.includes(
