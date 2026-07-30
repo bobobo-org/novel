@@ -1808,7 +1808,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       : `未套用（${result.learning.reasonCode ?? "沒有有效版本"}）`}</dd>
                   </div>
                   <div><dt>計畫雜湊</dt><dd>{result.plan.planDigest}</dd></div>
-                  <div><dt>實際執行器</dt><dd data-testid="closed-ai-actual-executor">{result.candidate.actualExecutor ?? result.candidate.backendId}</dd></div>
+                  <div><dt>實際執行器</dt><dd data-testid="closed-ai-actual-executor">{result.candidate.actualExecutor}</dd></div>
                   <div><dt>生成模型</dt><dd data-testid="closed-ai-model-id">{result.candidate.modelId}</dd></div>
                   <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
                   <div><dt>脈絡雜湊</dt><dd data-testid="closed-ai-context-digest">{result.candidate.contextDigest ?? "舊候選未記錄"}</dd></div>

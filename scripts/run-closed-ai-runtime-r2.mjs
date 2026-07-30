@@ -283,7 +283,7 @@ test("server-ollama-semantic-truth", "server Ollama health cannot impersonate th
   };
 });
 
-test("client-runtime-coordinator", "coordinator reports the selected executor instead of API availability", async () => {
+test("client-runtime-coordinator", "coordinator keeps planned routing separate from actual execution", async () => {
   const snapshots = [
     backend("browser-ai"),
     backend("local-ollama"),
@@ -313,12 +313,16 @@ test("client-runtime-coordinator", "coordinator reports the selected executor in
     taskType: "chapter.continue",
   });
   assert.equal(snapshot.state, "ready_standard");
-  assert.equal(snapshot.activeBackend, "local-ollama");
-  assert.equal(snapshot.actualExecutor, "local-ollama");
-  assert.equal(snapshot.dataBoundary, "device");
+  assert.equal(snapshot.plannedBackend, "local-ollama");
+  assert.equal(snapshot.plannedModel, "local-ollama-model");
+  assert.equal(snapshot.routeStatus, "routable");
+  assert.equal(snapshot.actualExecutor, "not_executed");
+  assert.equal(snapshot.executionReceipt, null);
+  assert.equal(snapshot.plannedDataBoundary, "device");
   assert.equal(snapshot.releaseStatus.status, "verified");
   return {
     state: snapshot.state,
+    plannedBackend: snapshot.plannedBackend,
     actualExecutor: snapshot.actualExecutor,
     apiAvailabilityUsedAsExecutor: false,
   };

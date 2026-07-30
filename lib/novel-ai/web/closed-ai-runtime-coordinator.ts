@@ -3,6 +3,7 @@ import {
   taskComplexity,
   type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
+  type ClosedAIExecutionReceipt,
   type ClosedAIRoutePolicy,
   type ClosedAIRouteResolution,
 } from "../closed-agent-os";
@@ -85,12 +86,14 @@ export type ClosedAIRuntimeSnapshot = {
     proofVerified: boolean;
     paired: boolean;
   };
-  activeBackend: ClosedAIBackendId | null;
-  activeModel: string | null;
-  modelProof: "verified" | "not_verified" | "not_applicable";
+  plannedBackend: ClosedAIBackendId | null;
+  plannedModel: string | null;
+  plannedModelProof: "verified" | "not_verified" | "not_applicable";
+  routeStatus: ClosedAIRouteResolution["executionStatus"];
   pairingExpiry: string | null;
   actualExecutor: ClosedAIBackendId | "not_executed";
-  dataBoundary: "device" | "private-infrastructure" | "none";
+  executionReceipt: ClosedAIExecutionReceipt | null;
+  plannedDataBoundary: "device" | "private-infrastructure" | "none";
   lastError: {
     code: string;
     message: string;
@@ -271,6 +274,7 @@ export class ClosedAIRuntimeCoordinator {
   private readonly snapshotReader: SnapshotReader;
   private readonly releaseReader: ReleaseReader;
   private readonly browserCapabilityReader: () => Promise<BrowserAICapability>;
+  private readonly executionReceipts = new Map<string, ClosedAIExecutionReceipt>();
   private recoveryAttempted = false;
   private recoveryError: ReturnType<typeof safeError> | null = null;
 
@@ -298,6 +302,59 @@ export class ClosedAIRuntimeCoordinator {
   getRememberPairingWithinTab() {
     return this.localClient.getRememberWithinTab()
       && this.privateHubClient.getRememberWithinTab();
+  }
+
+  private executionReceiptKey(
+    projectId: string,
+    taskType: PlatformTaskType,
+  ) {
+    return `${projectId}\u0000${taskType}`;
+  }
+
+  beginExecution(
+    projectId: string,
+    taskType: PlatformTaskType,
+  ) {
+    this.executionReceipts.delete(
+      this.executionReceiptKey(projectId, taskType),
+    );
+  }
+
+  recordExecutionReceipt(
+    projectId: string,
+    taskType: PlatformTaskType,
+    receipt: ClosedAIExecutionReceipt,
+  ) {
+    const startedAt = Date.parse(receipt.startedAt);
+    const completedAt = Date.parse(receipt.completedAt);
+    const valid =
+      receipt.taskId.trim().length > 0
+      && ["browser-ai", "local-ollama", "private-ai-hub"].includes(
+        receipt.backendId,
+      )
+      && receipt.modelId.trim().length > 0
+      && receipt.modelDigest.trim().length > 0
+      && Number.isFinite(startedAt)
+      && Number.isFinite(completedAt)
+      && completedAt >= startedAt
+      && Number.isInteger(receipt.generatedTokenEvents)
+      && receipt.generatedTokenEvents >= 0
+      && Number.isInteger(receipt.outputCharacters)
+      && receipt.outputCharacters > 0
+      && /^[a-f0-9]{64}$/i.test(receipt.contentDigest)
+      && /^[a-f0-9]{64}$/i.test(receipt.contextDigest)
+      && receipt.proofState === "verified"
+      && typeof receipt.dataLeftDevice === "boolean"
+      && typeof receipt.externalRequest === "boolean";
+    const key = this.executionReceiptKey(projectId, taskType);
+    if (!valid) {
+      this.executionReceipts.delete(key);
+      throw Object.assign(
+        new Error("Closed AI execution receipt failed validation."),
+        { code: "CLOSED_AI_EXECUTION_RECEIPT_INVALID" },
+      );
+    }
+    this.executionReceipts.set(key, structuredClone(receipt));
   }
 
   private async restorePairings(signal?: AbortSignal) {
@@ -376,6 +433,9 @@ export class ClosedAIRuntimeCoordinator {
       : selected?.id === "private-ai-hub"
         ? this.privateHubClient.getModelVerification(selected.modelId ?? undefined)
         : getBrowserAIInferenceProof();
+    const executionReceipt = this.executionReceipts.get(
+      this.executionReceiptKey(input.projectId, input.taskType),
+    ) ?? null;
     return {
       schemaVersion: CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION,
       state: deriveState(route, backends, localNetworkPermission),
@@ -429,9 +489,9 @@ export class ClosedAIRuntimeCoordinator {
         ),
         paired: Boolean(privateSession),
       },
-      activeBackend: selected?.id ?? null,
-      activeModel: selected?.modelId ?? null,
-      modelProof: selected?.id === "browser-ai"
+      plannedBackend: selected?.id ?? null,
+      plannedModel: selected?.modelId ?? null,
+      plannedModelProof: selected?.id === "browser-ai"
         ? browserCapability.generativeModelReady
           ? selectedProof
             ? "verified"
@@ -440,13 +500,17 @@ export class ClosedAIRuntimeCoordinator {
         : selectedProof
           ? "verified"
           : "not_verified",
+      routeStatus: route.executionStatus,
       pairingExpiry: selected?.id === "local-ollama"
         ? localSession?.expiresAt ?? null
         : selected?.id === "private-ai-hub"
           ? privateSession?.expiresAt ?? null
           : null,
-      actualExecutor: selected?.id ?? "not_executed",
-      dataBoundary: selected?.dataBoundary ?? "none",
+      actualExecutor: executionReceipt?.backendId ?? "not_executed",
+      executionReceipt: executionReceipt
+        ? structuredClone(executionReceipt)
+        : null,
+      plannedDataBoundary: selected?.dataBoundary ?? "none",
       lastError: this.recoveryError,
       nextAction: route.recommendedNextAction,
       route,

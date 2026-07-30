@@ -212,6 +212,22 @@ export type ClosedAgentEvaluation = {
   rawChainOfThoughtStored: false;
 };
 
+export type ClosedAIExecutionReceipt = {
+  taskId: string;
+  backendId: ClosedAIBackendId;
+  modelId: string;
+  modelDigest: string;
+  startedAt: string;
+  completedAt: string;
+  generatedTokenEvents: number;
+  outputCharacters: number;
+  contentDigest: string;
+  contextDigest: string;
+  proofState: "verified";
+  dataLeftDevice: boolean;
+  externalRequest: boolean;
+};
+
 export type ClosedAgentCandidate = {
   schemaVersion: typeof CLOSED_AGENT_OS_SCHEMA_VERSION;
   kind: "candidate";
@@ -228,7 +244,8 @@ export type ClosedAgentCandidate = {
   contentDigest: string;
   sourceChapterId: string | null;
   sourceRevision: number | null;
-  actualExecutor?: ClosedAIBackendId;
+  actualExecutor: ClosedAIBackendId | "not_executed";
+  executionReceipt: ClosedAIExecutionReceipt | null;
   contextDigest?: string;
   contextSourceSummary?: string;
   dataLeftDevice?: boolean;

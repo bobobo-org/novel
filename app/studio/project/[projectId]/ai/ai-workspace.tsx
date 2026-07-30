@@ -484,7 +484,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
                   <details>
                     <summary>模型與資料邊界</summary>
                     <p>
-                      實際執行器：{candidate.actualExecutor ?? candidate.backendId}；
+                      實際執行器：{candidate.actualExecutor}；
                       模型：{candidate.modelId}；
                       模型雜湊：{candidate.modelDigest}；
                       脈絡雜湊：{candidate.contextDigest ?? "舊候選未記錄"}；

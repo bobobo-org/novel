@@ -43,6 +43,7 @@ import {
   type ClosedAIProgressEvent,
   type ClosedAIProgressPhase,
   type ClosedAIQualityPhase,
+  type ClosedAIExecutionReceipt,
   type ClosedAIWorkingMaterial,
   type ClosedAgentApprovalRecord,
   type ClosedAgentCandidate,
@@ -377,6 +378,8 @@ export class ClosedAgentOS {
       );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
+      let executionStartedAt: string | null = null;
+      let executionCompletedAt: string | null = null;
       this.emitProgress(
         request,
         "generating",
@@ -408,13 +411,18 @@ export class ClosedAgentOS {
           "exact",
           request.namespace,
           candidateInput,
-          () => this.executeQualityPipeline({
-            backend,
-            request,
-            plan,
-            actorContext,
-            toolResults,
-          }),
+          async () => {
+            executionStartedAt = this.now().toISOString();
+            const generated = await this.executeQualityPipeline({
+              backend,
+              request,
+              plan,
+              actorContext,
+              toolResults,
+            });
+            executionCompletedAt = this.now().toISOString();
+            return generated;
+          },
           {
             tags: ["closed-agent-candidate", `task:${request.taskType}`],
             ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
@@ -458,6 +466,42 @@ export class ClosedAgentOS {
           actual: execution.backendId,
         });
       }
+      const contentDigest = await sha256Hex(execution.content);
+      const contextDigest = request.contextDigest ?? await sha256Hex(
+        stableStringify(request.context.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          visibility: item.visibility,
+          privacyLevel: item.privacyLevel,
+          approved: item.approved,
+          text: item.text,
+        }))),
+      );
+      const outputCharacters =
+        execution.outputCharacters ?? execution.content.length;
+      const executionReceipt: ClosedAIExecutionReceipt | null =
+        !candidateCacheHit
+        && executionStartedAt
+        && executionCompletedAt
+        && outputCharacters > 0
+        && Boolean(execution.modelId)
+        && Boolean(execution.modelDigest)
+          ? {
+            taskId: request.taskId,
+            backendId: execution.backendId,
+            modelId: execution.modelId,
+            modelDigest: execution.modelDigest,
+            startedAt: executionStartedAt,
+            completedAt: executionCompletedAt,
+            generatedTokenEvents: execution.generatedTokenEvents ?? 0,
+            outputCharacters,
+            contentDigest,
+            contextDigest,
+            proofState: "verified",
+            dataLeftDevice: execution.dataLeftDevice,
+            externalRequest: execution.externalRequest,
+          }
+          : null;
       this.emitProgress(
         request,
         "evaluating",
@@ -481,7 +525,7 @@ export class ClosedAgentOS {
           modelDigest: execution.modelDigest,
           adapterId: execution.adapterId ?? null,
           adapterDigest: execution.adapterDigest ?? null,
-          contentDigest: await sha256Hex(execution.content),
+          contentDigest,
           candidateOnly: true,
           qualityMode: execution.qualityMode,
           qualityPasses: execution.qualityPasses,
@@ -501,6 +545,8 @@ export class ClosedAgentOS {
           qualityPasses: execution.qualityPasses,
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
+          actualExecutor: executionReceipt?.backendId ?? "not_executed",
+          executionReceipt,
         },
       });
       await this.ledger.append({
@@ -565,20 +611,12 @@ export class ClosedAgentOS {
         adapterId: execution.adapterId ?? null,
         adapterDigest: execution.adapterDigest ?? null,
         content: execution.content,
-        contentDigest: await sha256Hex(execution.content),
+        contentDigest,
         sourceChapterId: request.sourceChapterId ?? null,
         sourceRevision: request.sourceRevision ?? null,
-        actualExecutor: execution.backendId,
-        contextDigest: request.contextDigest ?? await sha256Hex(
-          stableStringify(request.context.map((item) => ({
-            id: item.id,
-            kind: item.kind,
-            visibility: item.visibility,
-            privacyLevel: item.privacyLevel,
-            approved: item.approved,
-            text: item.text,
-          }))),
-        ),
+        actualExecutor: executionReceipt?.backendId ?? "not_executed",
+        executionReceipt,
+        contextDigest,
         contextSourceSummary: request.contextSourceSummary ?? stableStringify(
           Object.fromEntries(
             [...new Set(request.context.map((item) => item.kind))]

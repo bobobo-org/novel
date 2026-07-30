@@ -93,6 +93,10 @@ export async function executeStudioClosedAgent(
   input: ExecuteStudioClosedAgentInput,
 ): Promise<ClosedAgentExecutionResult> {
   const os = getStudioClosedAgentOS();
+  const runtime = getStudioClosedAIRuntimeCoordinator();
+  const taskId =
+    input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`;
+  runtime.beginExecution(input.projectId, input.taskType);
   const complexity = taskComplexity(input.taskType);
   const privacyLevel = complexity === "heavy"
     ? "private_infrastructure_only"
@@ -118,39 +122,52 @@ export async function executeStudioClosedAgent(
     privacyLevel: item.privacyLevel ?? privacyLevel,
     approved: item.approved ?? true,
   }));
-  const composed = await composeProjectContext({
-    repository: createNovelRepository(),
-    taskType: input.taskType,
-    projectId: input.projectId,
-    storyId: input.storyId,
-    canonId: input.canonId,
-    branchId: input.branchId,
-    characterId: input.characterId,
-    revision: input.storyBibleRevision,
-    privacyLevel,
-    tokenBudget: input.contextTokenBudget,
-    audience: "actor",
-    supplementalContext,
-  });
+  try {
+    const composed = await composeProjectContext({
+      repository: createNovelRepository(),
+      taskType: input.taskType,
+      projectId: input.projectId,
+      storyId: input.storyId,
+      canonId: input.canonId,
+      branchId: input.branchId,
+      characterId: input.characterId,
+      revision: input.storyBibleRevision,
+      privacyLevel,
+      tokenBudget: input.contextTokenBudget,
+      audience: "actor",
+      supplementalContext,
+    });
 
-  return os.execute({
-    taskId: input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`,
-    namespace,
-    taskType: input.taskType,
-    objective: input.objective.trim(),
-    context: composed.context,
-    contextDigest: composed.contextDigest,
-    contextSourceSummary: JSON.stringify(composed.contextSourceSummary),
-    sourceChapterId: input.sourceChapterId,
-    sourceRevision: input.sourceRevision,
-    complexity,
-    qualityMode: input.qualityMode,
-    preferredBackend: input.preferredBackend,
-    allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
-    permissionScopes: [...STUDIO_CLOSED_AGENT_PERMISSION_SCOPES],
-    signal: input.signal,
-    onProgress: input.onProgress,
-  });
+    const result = await os.execute({
+      taskId,
+      namespace,
+      taskType: input.taskType,
+      objective: input.objective.trim(),
+      context: composed.context,
+      contextDigest: composed.contextDigest,
+      contextSourceSummary: JSON.stringify(composed.contextSourceSummary),
+      sourceChapterId: input.sourceChapterId,
+      sourceRevision: input.sourceRevision,
+      complexity,
+      qualityMode: input.qualityMode,
+      preferredBackend: input.preferredBackend,
+      allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
+      permissionScopes: [...STUDIO_CLOSED_AGENT_PERMISSION_SCOPES],
+      signal: input.signal,
+      onProgress: input.onProgress,
+    });
+    if (result.candidate.executionReceipt) {
+      runtime.recordExecutionReceipt(
+        input.projectId,
+        input.taskType,
+        result.candidate.executionReceipt,
+      );
+    }
+    return result;
+  } catch (error) {
+    runtime.beginExecution(input.projectId, input.taskType);
+    throw error;
+  }
 }
 
 export async function approveStudioClosedAgentCandidate(input: {

@@ -106,7 +106,8 @@ export default function LocalAISetupWizard() {
         setProof(null);
       }
       setMessage(
-        snapshot.actualExecutor === "local-ollama"
+        snapshot.localOllama.status === "ready"
+        && snapshot.localOllama.proofVerified
           ? "Local Bridge、Ollama 與模型推理已通過，可開始使用。"
           : snapshot.localNetworkPermission === "denied"
             ? "需要允許此網站存取本機網路。"
