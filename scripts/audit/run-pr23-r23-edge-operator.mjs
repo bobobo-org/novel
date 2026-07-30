@@ -452,7 +452,7 @@ assert.equal(
         method: request.method(),
         path: pathname,
         status: response.status(),
-        phase: currentPhase,
+        phase,
       });`,
     "loopback-response-phase",
   );
@@ -913,7 +913,10 @@ function runSelfTest() {
     boundedNavigationNoise:
       transformed.includes("legacy\\/novel-system\\.html")
       && transformed.includes("vercel\\.live\\/_next-live"),
-    loopbackResponsePhaseBound: transformed.includes("phase: currentPhase"),
+    loopbackResponsePhaseBound:
+      transformed.includes('let phase = "BOOT"')
+      && transformed.includes("phase,")
+      && !transformed.includes("currentPhase"),
     cloudProbeConsoleMirrorBound:
       transformed.includes("cloudProbeConsoleMirror")
       && transformed.includes("record.sequence - candidate.sequence <= 2"),
