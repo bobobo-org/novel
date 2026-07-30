@@ -24,6 +24,7 @@ import {
   ClosedAgentOS,
   ClosedAgentToolRegistry,
   MemoryClosedAgentStateRepository,
+  selectClosedAIBackend,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
 import {
   capabilityStatus,
@@ -571,6 +572,57 @@ test("automatic light, standard and heavy routing use the three distinct backend
     "private-ai-hub",
     "private-ai-hub",
   ]);
+});
+
+test("automatic routing uses a verified native browser generator when Local Ollama is unavailable", () => {
+  const route = selectClosedAIBackend(
+    request("task-native-browser", "chapter.continue", "standard"),
+    [
+      {
+        id: "browser-ai",
+        label: "瀏覽器 AI",
+        status: "ready",
+        modelId: "chrome-built-in-language-model",
+        modelDigest: "browser-managed-model-digest-unavailable",
+        local: true,
+        dataBoundary: "device",
+        maximumComplexity: "standard",
+        capabilities: ["text", "offline"],
+        supportedTaskTypes: "all",
+        detailCode: "browser_hybrid_runtime_native_prompt_ready",
+      },
+      {
+        id: "local-ollama",
+        label: "個人本機 Ollama",
+        status: "runtime_required",
+        modelId: null,
+        modelDigest: null,
+        local: true,
+        dataBoundary: "device",
+        maximumComplexity: "standard",
+        capabilities: ["text", "offline"],
+        supportedTaskTypes: "all",
+        detailCode: "pairing_required",
+      },
+      {
+        id: "private-ai-hub",
+        label: "私有 AI Hub",
+        status: "runtime_required",
+        modelId: null,
+        modelDigest: null,
+        local: true,
+        dataBoundary: "private-infrastructure",
+        maximumComplexity: "heavy",
+        capabilities: ["text"],
+        supportedTaskTypes: "all",
+        detailCode: "pairing_required",
+      },
+    ],
+  );
+  assert.equal(route.backend.id, "browser-ai");
+  assert.equal(route.automatic, true);
+  assert.equal(route.fallbackAttempted, false);
+  assert.equal(route.reasonCode, "AUTO_SELECTED_BROWSER_AI");
 });
 
 test("shared OS uses semantic and retrieval caches without promoting cache authority", async () => {

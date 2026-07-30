@@ -191,6 +191,7 @@ type Candidate = {
   choiceText?: string;
   impacts?: string[];
   statChanges?: StatChange[];
+  diagnostic?: string;
   createdAt: string;
 } | null;
 type Choice = {
@@ -739,7 +740,8 @@ export default function StudioClient({
     [selectedChoice, setSelectedChoice] = useState("A"),
     [customChoice, setCustomChoice] = useState(""),
     [assistantStatus, setAssistantStatus] =
-      useState<AssistantStatus>("checking");
+      useState<AssistantStatus>("checking"),
+    [assistantBusy, setAssistantBusy] = useState<string | null>(null);
   const repositoryRef = useRef<NovelRepository | null>(null);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
@@ -1171,8 +1173,10 @@ export default function StudioClient({
     };
   }
   async function runTask(task: string) {
+    if (assistantBusy) return;
     const started = performance.now();
     let candidate: Candidate;
+    setAssistantBusy(task);
     try {
       const result = await runStudioClosedAI({
         projectId: project?.id || "draft-project",
@@ -1199,11 +1203,26 @@ export default function StudioClient({
       setAssistantStatus(
         result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready",
       );
-    } catch {
-      candidate = ruleCandidate(task);
+    } catch (error) {
+      const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+      const guidance = code === "LOCAL_NETWORK_PERMISSION_DENIED"
+        ? "瀏覽器拒絕本機網路權限。請在網址列的網站權限中允許「本機網路存取」，再到閉端 AI 指揮中心重新配對。"
+        : code === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"
+          ? "這項創作需要真實生成模型；Local Ollama 尚未完成配對與實測。"
+          : code === "BROWSER_AI_TASK_NOT_SUPPORTED"
+            ? "目前瀏覽器只有摘要／分類模型，不能拿來冒充續寫模型。"
+            : "真實閉端模型沒有完成這次工作，系統已安全停止。";
+      candidate = {
+        ...ruleCandidate(task)!,
+        title: "真實 AI 尚未完成",
+        source: "離線寫作工具（非 AI 模型）",
+        diagnostic: `${guidance}（${code}）`,
+      };
       setAssistantStatus((current) =>
         current === "auth_required" ? current : "runtime_required",
       );
+    } finally {
+      setAssistantBusy(null);
     }
     const elapsedMs = Math.round(performance.now() - started),
       status: ExecutionLog["status"] =
@@ -1571,12 +1590,12 @@ export default function StudioClient({
           </nav>
           <span>
             {assistantStatus === "ollama_ready"
-              ? "本機 AI 已連線"
+              ? "真實本機 AI 已連線"
               : assistantStatus === "runtime_ready"
-                ? "本機創作服務已連線"
+                ? "瀏覽器輕量 AI 可用"
                 : assistantStatus === "auth_required"
-                  ? "本機服務需要授權"
-                  : "本機故事功能可用"}
+                  ? "本機 AI 等待授權"
+                  : "真實 AI 尚未連線"}
           </span>
         </header>
         <main className="studioContent">
@@ -1612,6 +1631,7 @@ export default function StudioClient({
               acceptCandidate={acceptCandidate}
               discard={() => update({ candidate: null })}
               assistantStatus={assistantStatus}
+              assistantBusy={assistantBusy}
             />
           )}{" "}
           {screen === "world" && (
@@ -2191,6 +2211,7 @@ function WriteScreen({
   acceptCandidate,
   discard,
   assistantStatus,
+  assistantBusy,
 }: {
   project: Project | null;
   candidate: Candidate;
@@ -2201,6 +2222,7 @@ function WriteScreen({
   acceptCandidate: (content?: string) => void;
   discard: () => void;
   assistantStatus: AssistantStatus;
+  assistantBusy: string | null;
 }) {
   const [title, setTitle] = useState(project?.chapterTitle || "第一章"),
     [draft, setDraft] = useState(project?.draft || ""),
@@ -2278,12 +2300,21 @@ function WriteScreen({
             <span>閉端創作助手</span>
             <h2>
               {assistantStatus === "ollama_ready"
-                ? "本機 AI 已連線"
+                ? "真實本機 AI 已連線"
                 : assistantStatus === "runtime_ready"
-                  ? "本機創作服務已連線"
-                  : "本機模型未連線，仍可使用本機故事建議"}
+                  ? "瀏覽器輕量 AI 可用；創作模型未連線"
+                  : "真實創作模型尚未連線"}
             </h2>
           </header>
+          {assistantStatus !== "ollama_ready" ? (
+            <div className="studioAiConnection" role="status">
+              <strong>續寫、改寫與對話需要真實生成模型</strong>
+              <span>未連線時只會提供清楚標示的離線寫作工具，不會把規則模板冒充 AI。</span>
+              <Link href={`/studio/project/${project.id}/closed-ai?task=chapter.continue`}>
+                連接並實測閉端 AI
+              </Link>
+            </div>
+          ) : null}
           <div className="studioTaskGrid">
             {(focus
               ? assistantTasks.filter(([id]) =>
@@ -2300,9 +2331,17 @@ function WriteScreen({
                 )
               : assistantTasks
             ).map(([id, label]) => (
-              <button key={id} onClick={() => void runTask(id)}>
-                <b>{label}</b>
-                <span>先提供建議，由你決定是否加入</span>
+              <button
+                key={id}
+                disabled={Boolean(assistantBusy)}
+                onClick={() => void runTask(id)}
+              >
+                <b>{assistantBusy === id ? "真實模型執行中…" : label}</b>
+                <span>
+                  {assistantStatus === "ollama_ready"
+                    ? "由本機模型產生候選，再由你決定是否加入"
+                    : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
+                </span>
               </button>
             ))}
           </div>
@@ -2313,6 +2352,12 @@ function WriteScreen({
               accept={acceptCandidate}
               retry={() => void runTask(candidate.task)}
               discard={discard}
+              busy={Boolean(assistantBusy)}
+              closedAiHref={`/studio/project/${project.id}/closed-ai?task=${encodeURIComponent(
+                candidate.task === "continue_story"
+                  ? "chapter.continue"
+                  : "assistant.general",
+              )}`}
             />
           )}
         </aside>
@@ -2326,11 +2371,15 @@ function SuggestionCard({
   accept,
   retry,
   discard,
+  busy = false,
+  closedAiHref = "/studio/settings/ai",
 }: {
   candidate: NonNullable<Candidate>;
   accept: (content: string) => void;
   retry: () => void;
   discard: () => void;
+  busy?: boolean;
+  closedAiHref?: string;
 }) {
   const [editing, setEditing] = useState(false),
     [content, setContent] = useState(candidate.content);
@@ -2338,13 +2387,23 @@ function SuggestionCard({
     <article className="studioCandidate">
       <header>
         <b>
-          {candidate.model === "local-rule" ? "本機故事建議" : "本機 AI 建議"}
+          {candidate.model === "local-rule"
+            ? "離線寫作工具（非 AI）"
+            : "真實閉端 AI 候選"}
         </b>
         <span>這份內容還沒有加入正式故事</span>
       </header>
-      <p>
-        根據你目前的故事設定，我整理出以下建議。你可以直接採用、修改後採用，或暫時不使用。
-      </p>
+      {candidate.diagnostic ? (
+        <div className="studioAiWarning" role="alert">
+          <strong>本次沒有取得真實模型回答</strong>
+          <span>{candidate.diagnostic}</span>
+          <Link href={closedAiHref}>前往連接與實測真實 AI</Link>
+        </div>
+      ) : (
+        <p>
+          這是模型產生、尚未核准的候選。你可以直接採用、修改後採用，或暫時不使用。
+        </p>
+      )}
       {editing ? (
         <textarea
           aria-label="修改故事建議"
@@ -2359,7 +2418,9 @@ function SuggestionCard({
           {editing ? "修改後採用" : "採用這份建議"}
         </button>
         <button onClick={() => setEditing(true)}>修改後採用</button>
-        <button onClick={retry}>再產生一份</button>
+        <button disabled={busy} onClick={retry}>
+          {busy ? "模型執行中…" : "再產生一份"}
+        </button>
         <button onClick={discard}>保持空白</button>
         <button onClick={discard}>暫時不用</button>
       </footer>
@@ -2370,7 +2431,7 @@ function SuggestionCard({
             <dt>使用中的 AI</dt>
             <dd>
               {candidate.model === "local-rule"
-                ? "本機故事規則"
+                ? "本機規則工具（不是生成模型）"
                 : candidate.model}
             </dd>
           </div>

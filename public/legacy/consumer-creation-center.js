@@ -1,8 +1,18 @@
 (function () {
   "use strict";
 
-  const VERSION = "p1-consumer-real-ai-execution-v1";
+  const VERSION = "p1-consumer-closed-agent-handoff-v3";
   const STORAGE_KEY = "novel_p1_consumer_creation_center";
+  const CLOSED_AI_TASKS = Object.freeze({
+    create_story: "assistant.brainstorm",
+    plan_chapter: "chapter.outline",
+    branch_choice: "story.plotCandidate",
+    continue_story: "chapter.continue",
+    rewrite_scene: "chapter.rewrite",
+    diagnose_story: "story.chapterReview",
+    fix_conflicts: "story.consistencyCheck",
+    learn_preferences: "learning.preferenceReview",
+  });
   const STATUSES = {
     consumerExperienceStatus: "ready",
     consumerAiTaskRouterStatus: "ready",
@@ -40,7 +50,7 @@
 
   function loadState() {
     try {
-      return {
+      const loaded = {
         selectedTask: "continue_story",
         selectedChoice: "",
         editedChoice: "",
@@ -50,6 +60,14 @@
         usage: { taskCount: 0, freeLimit: 40 },
         ...(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")),
       };
+      const legacyRuleCandidate = loaded.lastRouterDecision?.actualExecutor === "deterministic_rule"
+        || /browser-workspace-local-rule|LOCAL_CLOSED_RUNTIME/.test(String(loaded.lastCandidate || ""));
+      if (legacyRuleCandidate) {
+        loaded.lastCandidate = "";
+        loaded.workflow = [];
+        loaded.lastRouterDecision = null;
+      }
+      return loaded;
     } catch {
       return { selectedTask: "continue_story", selectedChoice: "", editedChoice: "", taskHistory: [], workflow: [], lastCandidate: "", usage: { taskCount: 0, freeLimit: 40 } };
     }
@@ -78,14 +96,29 @@
   }
 
   function currentProject() {
-    const text = getValue(["phase1ChapterContent", "simpleFreeContent"]) || document.getElementById("storyOutput")?.textContent || "";
-    const title = getValue(["storyTitle", "projectTitle"]) || localStorage.getItem("storyTitle") || "目前瀏覽器作品";
-    const protagonist = getValue(["hostName", "protagonistName", "mainCharacter"]) || "主角";
-    const archetype = getValue(["leadType", "protagonistArchetype"]) || "未設定原型";
-    const conflict = getValue(["conflictCore", "mainConflict"]) || "目前主要衝突";
-    const style = getValue(["narrativeStyle", "styleMode"]) || "目前敘事風格";
+    const consumerProject = window.NovelConsumer?.activeProject?.() || null;
+    const text = getValue(["phase1ChapterContent", "simpleFreeContent"])
+      || consumerProject?.text
+      || document.getElementById("storyOutput")?.textContent
+      || "";
+    const title = getValue(["storyTitle", "projectTitle"])
+      || consumerProject?.title
+      || localStorage.getItem("storyTitle")
+      || "目前瀏覽器作品";
+    const protagonist = getValue(["hostName", "protagonistName", "mainCharacter"])
+      || consumerProject?.protagonist
+      || "主角";
+    const archetype = getValue(["leadType", "protagonistArchetype"])
+      || consumerProject?.archetype
+      || "未設定原型";
+    const conflict = getValue(["conflictCore", "mainConflict"])
+      || consumerProject?.conflict
+      || "目前主要衝突";
+    const style = getValue(["narrativeStyle", "styleMode"])
+      || consumerProject?.style
+      || "目前敘事風格";
     return {
-      projectId: localStorage.getItem("novel_last_project_id") || "legacy-browser-project",
+      projectId: consumerProject?.id || localStorage.getItem("novel_last_project_id") || "legacy-browser-project",
       title,
       protagonist,
       archetype,
@@ -116,15 +149,20 @@
     const workspace = h2w3();
     const diagnostics = workspace?.getDiagnostics ? workspace.getDiagnostics() : {};
     const h2State = workspaceState();
+    const browserGenerativeCapability = typeof globalThis.LanguageModel === "object"
+      || typeof globalThis.LanguageModel === "function"
+      || Boolean(globalThis.ai?.languageModel);
     return {
       browserOnline: navigator.onLine,
       h2w3Mounted: Boolean(diagnostics.workspaceMounted),
       h2w3Visible: Boolean(diagnostics.workspaceVisible),
-      localRuntime: workspace ? "ready" : "LOCAL_RUNTIME_UNAVAILABLE",
-      browserAi: "not_implemented",
-      ollama: "runtime_detected_by_h2w1_when_available",
-      provider: "LOCAL_CLOSED_RUNTIME",
-      model: "browser-workspace-local-rule",
+      localRuntime: "pairing_required_in_closed_ai_center",
+      browserAi: browserGenerativeCapability
+        ? "device_capability_detected_verify_in_closed_ai_center"
+        : "device_dependent_check_in_closed_ai_center",
+      ollama: "pair_and_verify_in_closed_ai_center",
+      provider: null,
+      model: null,
       externalRequestCount: Number(h2State.externalRequestCount || 0),
       dataLeftDevice: Boolean(h2State.dataLeftDevice),
       evidenceCount: Array.isArray(h2State.evidence) ? h2State.evidence.length : 0,
@@ -292,8 +330,7 @@
       `adultExperienceFoundationStatus=${STATUSES.adultExperienceFoundationStatus}`,
       `monetizationFoundationStatus=${STATUSES.monetizationFoundationStatus}`,
       ROUTER_EVENTS.join(" "),
-      "LOCAL_RUNTIME_UNAVAILABLE",
-      "browser_ai ollama local_runtime external_ai deterministic_rule",
+      "browser_ai local_ollama private_ai_hub not_executed",
       "taskType requestedCapability selectedProvider actualExecutor selectionReason fallbackReason externalConsent contextSources outputDestination executionStatus",
       "Draft / Candidate only",
     ].join(" ");
@@ -302,10 +339,10 @@
   function renderRouterDecision() {
     const decision = state.lastRouterDecision || {
       taskType: state.selectedTask,
-      requestedCapability: "retrieval_augmented_candidate",
-      selectedProvider: "LOCAL_CLOSED_RUNTIME",
-      actualExecutor: "deterministic_rule",
-      selectionReason: "waiting_for_user_execution",
+      requestedCapability: "verified_closed_model_candidate",
+      selectedProvider: null,
+      actualExecutor: "not_executed",
+      selectionReason: "waiting_for_closed_agent_os_backend_verification",
       fallbackReason: "",
       externalConsent: false,
       contextSources: [],
@@ -343,11 +380,11 @@
   }
 
   function openWorkspace() {
-    const workspace = h2w3();
-    if (workspace?.mount) workspace.mount();
-    if (workspace?.setWorkspaceCollapsed) workspace.setWorkspaceCollapsed(false);
-    document.getElementById("wholeNovelAiWorkspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    render();
+    const task = TASKS.find((item) => item.id === state.selectedTask) || TASKS[0];
+    const project = currentProject();
+    const url = closedAiUrl(task, project);
+    window.location.assign(url);
+    return { redirected: true, url };
   }
 
   async function runSelectedTask() {
@@ -358,78 +395,64 @@
     state.usage = { ...(state.usage || { freeLimit: 40 }), taskCount: (state.usage?.taskCount || 0) + 1 };
     state.workflow = [];
     state.lastCandidate = "";
-    saveState();
-    render();
-
-    pushWorkflow("analyze_task", "running", task.id);
+    pushWorkflow("analyze_task", "success", task.id);
     pushWorkflow("read_project", "success", `${project.title}; words=${project.wordCount}`);
     state.lastRouterDecision = {
       taskType: task.id,
-      requestedCapability: "retrieval_augmented_candidate",
-      selectedProvider: "LOCAL_CLOSED_RUNTIME",
-      actualExecutor: "deterministic_rule",
-      selectionReason: "H2W3 local retrieval/context/generation pipeline is available; Browser AI runtime is reserved for H3A.",
+      requestedCapability: "verified_closed_model_candidate",
+      selectedProvider: null,
+      actualExecutor: "not_executed",
+      selectionReason: "The Closed Agent OS will select only a verified, paired backend for this task.",
       fallbackReason: "",
       externalConsent: false,
-      contextSources: ["PRIVATE_PROJECT", "CURRENT_BRANCH", "STORY_BIBLE"],
+      contextSources: ["LEGACY_CONSUMER_PROJECT", "CURRENT_EDITOR", "USER_SELECTED_DIRECTION"],
       outputDestination: "draft_candidate_only",
-      executionStatus: "running",
+      executionStatus: "handoff_to_closed_agent_os",
     };
+    pushWorkflow("provider_selection", "handoff", "Closed Agent OS automatic verified-backend route");
+    pushWorkflow("completed", "handoff", "opening closed AI command center; no candidate generated yet");
     saveState();
-    const workspace = h2w3();
-    if (!workspace) {
-      pushWorkflow("provider_selection", "failed", "LOCAL_RUNTIME_UNAVAILABLE");
-      state.lastRouterDecision.executionStatus = "fallback_local_rule";
-      state.lastRouterDecision.fallbackReason = "H2W3 browser workspace API unavailable; deterministic rule executor used and labelled.";
-      state.lastCandidate = localCandidate(task, project);
-      pushWorkflow("completed", "success", "local-rule candidate because workspace unavailable");
-      saveState();
-      render();
-      return;
-    }
-
-    openWorkspace();
-    const query = `${task.label} ${project.protagonist} ${project.archetype} ${project.conflict} ${state.editedChoice}`.trim();
-    const searchInput = document.getElementById("wholeNovelSearchInput");
-    if (searchInput) searchInput.value = query;
-    pushWorkflow("retrieval_started", "running", query);
-    await pause(20);
-    workspace.runHybridSearch();
-    pushWorkflow("retrieval_started", "success", `${workspace._state?.evidence?.length || 0} evidence`);
-    await pause(20);
-    workspace.composeContext();
-    pushWorkflow("context_ready", "success", `${workspace._state?.contextTrace?.length || 0} context items`);
-    pushWorkflow("provider_selection", "success", "LOCAL_CLOSED_RUNTIME / browser-workspace-local-rule");
-    await pause(20);
-    workspace.continueWithContext();
-    pushWorkflow("token", "success", "candidate stream completed by H2W3 local runtime pipeline");
-    pushWorkflow("quality_review", "success", "candidate only; canonical mutation count = 0");
-    pushWorkflow("persisting", "success", "P1 task state and H2W3 draft saved to localStorage");
-    state.lastCandidate = [
-      `任務：${task.label}`,
-      `來源：LOCAL_CLOSED_RUNTIME`,
-      `模型：browser-workspace-local-rule`,
-      `是否使用本機記憶：true`,
-      `是否使用檢索：true`,
-      `是否使用外部網路：false`,
-      "",
-      workspace._state?.generationDraft || localCandidate(task, project),
-    ].join("\n");
-    state.taskHistory.unshift({ taskId: task.id, choice: state.editedChoice, at: now(), source: "LOCAL_CLOSED_RUNTIME", externalRequestCount: runtimeStatus().externalRequestCount });
-    state.lastRouterDecision.executionStatus = "completed";
-    state.taskHistory = state.taskHistory.slice(0, 50);
-    pushWorkflow("completed", "success", "candidate_ready");
-    saveState();
-    render();
+    const url = closedAiUrl(task, project);
+    window.location.assign(url);
+    return { redirected: true, url };
   }
 
-  function localCandidate(task, project) {
+  function closedAiObjective(task, project) {
+    const excerpt = String(project.text || "").trim().slice(-1800);
     return [
-      `${task.label}候選`,
-      `${project.protagonist}以「${project.archetype}」的行動邏輯面對「${project.conflict}」。`,
-      `作者本次意圖：${state.editedChoice || "尚未選擇"}`,
-      "建議先保留既有正文，將此結果作為候選方向，再由作者決定是否採用。",
-    ].join("\n");
+      task.intent,
+      `作品：${project.title}`,
+      `主角：${project.protagonist}`,
+      `角色行動模式：${project.archetype}`,
+      `主要衝突：${project.conflict}`,
+      `敘事風格：${project.style}`,
+      state.editedChoice ? `作者選擇／補充：${state.editedChoice}` : "",
+      excerpt ? `目前章節片段：\n${excerpt}` : "目前章節尚無可讀正文；請先指出缺少哪些必要資料。",
+      "請只產生候選，不得直接修改 Canon；資料不足時請明確說明。",
+    ].filter(Boolean).join("\n\n").slice(0, 4000);
+  }
+
+  function closedAiUrl(task, project) {
+    const rawProjectId = String(project.projectId || "");
+    const projectId = /^[A-Za-z0-9_-]{1,128}$/.test(rawProjectId)
+      ? rawProjectId
+      : "legacy-browser-project";
+    const taskType = CLOSED_AI_TASKS[task.id] || "assistant.general";
+    const handoffId = globalThis.crypto?.randomUUID?.()
+      || `legacy-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(`novel_closed_ai_handoff:${handoffId}`, JSON.stringify({
+      schemaVersion: "novel-closed-ai-handoff-v1",
+      projectId,
+      taskType,
+      objective: closedAiObjective(task, project),
+      createdAt: new Date().toISOString(),
+    }));
+    const params = new URLSearchParams({
+      task: taskType,
+      handoff: handoffId,
+      source: "legacy-consumer",
+    });
+    return `/studio/project/${encodeURIComponent(projectId)}/closed-ai?${params.toString()}`;
   }
 
   function acceptCandidate() {
@@ -451,10 +474,6 @@
     render();
   }
 
-  function pause(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   window.NovelConsumerCenter = {
     version: VERSION,
     statuses: STATUSES,
@@ -465,6 +484,10 @@
     rejectCandidate,
     resetWorkflow,
     openWorkspace,
+    closedAiUrlForSelectedTask: () => {
+      const task = TASKS.find((item) => item.id === state.selectedTask) || TASKS[0];
+      return closedAiUrl(task, currentProject());
+    },
     getState: () => ({ ...state }),
     getRuntimeStatus: runtimeStatus,
     _routerEvents: ROUTER_EVENTS,

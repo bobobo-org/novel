@@ -146,3 +146,12 @@ nav.p2ProjectNav .p2NavLabel{
   nav.p2ProjectNav{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:4px!important;margin:9px auto!important;padding:5px!important;border-radius:13px!important}
   nav.p2ProjectNav>a{min-height:48px!important;padding:6px 3px!important;flex-direction:column!important;gap:2px!important;font-size:11px!important}
 }
+
+/* Closed AI connection truth: never present deterministic writing aids as a
+   connected generative model. */
+.studioAiConnection,.studioAiWarning{display:grid;gap:7px;margin:0 0 13px;padding:12px;border:1px solid #8f6b36;border-radius:10px;background:linear-gradient(145deg,rgba(105,70,23,.25),rgba(10,23,40,.96));color:#dce8f7}
+.studioAiConnection strong,.studioAiWarning strong{color:#ffe0a0}
+.studioAiConnection span,.studioAiWarning span{color:#b9c8da;font-size:13px;line-height:1.55}
+.studioAiConnection a,.studioAiWarning a{display:inline-flex;width:fit-content;min-height:38px;align-items:center;padding:7px 10px;border:1px solid #5da98f;border-radius:8px;background:rgba(26,99,82,.25);color:#baf3df;font-weight:800}
+.studioAiWarning{margin-top:12px;border-color:#a66b45;background:linear-gradient(145deg,rgba(112,54,30,.28),rgba(17,22,39,.96))}
+.studioTaskGrid button:disabled{cursor:wait;opacity:.7}

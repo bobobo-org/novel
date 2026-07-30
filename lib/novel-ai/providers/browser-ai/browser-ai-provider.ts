@@ -7,13 +7,37 @@ import {
   isNativeBrowserSummaryTask,
   runPackagedBrowserTaskModel,
 } from "./browser-task-model";
+import { taskComplexity } from "../../closed-agent-os/backend-manifest";
+import {
+  buildClosedAIModelPrompt,
+  getClosedAIModelProfile,
+} from "../closed/task-profile";
 
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
-export type BrowserAICapability = { webGpu: boolean; wasm: boolean; worker: boolean; storageQuota: number | null; storageUsage: number | null; status: PlatformProviderSnapshot["status"]; reason: string; summaryAvailability: string; modelId: typeof BROWSER_TASK_MODEL.modelId | null };
+export type BrowserAICapability = {
+  webGpu: boolean;
+  wasm: boolean;
+  worker: boolean;
+  storageQuota: number | null;
+  storageUsage: number | null;
+  status: PlatformProviderSnapshot["status"];
+  reason: string;
+  summaryAvailability: string;
+  promptAvailability: string;
+  generativeModelReady: boolean;
+  modelId:
+    | typeof BROWSER_TASK_MODEL.modelId
+    | typeof BROWSER_LANGUAGE_MODEL_ID
+    | null;
+};
 export type BrowserAIInferenceProof = {
   proofVersion: "browser-ai-inference-proof-v1";
   state: "inference_verified";
-  modelId: "chrome-built-in-summarizer" | typeof BROWSER_TASK_MODEL.modelId;
+  inferenceMode: "generative-model" | "task-model";
+  modelId:
+    | "chrome-built-in-summarizer"
+    | typeof BROWSER_LANGUAGE_MODEL_ID
+    | typeof BROWSER_TASK_MODEL.modelId;
   modelDigest: string;
   verifiedAt: string;
   latencyMs: number;
@@ -32,6 +56,24 @@ type BrowserSummarizerFactory = {
   availability(options?: Record<string, unknown>): Promise<string>;
   create(options?: Record<string, unknown>): Promise<BrowserSummarizer>;
 };
+
+type BrowserLanguageModelSession = {
+  prompt(
+    input: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<string>;
+  destroy?(): void;
+};
+
+type BrowserLanguageModelFactory = {
+  availability(options?: Record<string, unknown>): Promise<string>;
+  create(options?: Record<string, unknown>): Promise<BrowserLanguageModelSession>;
+};
+
+export const BROWSER_LANGUAGE_MODEL_ID =
+  "chrome-built-in-language-model" as const;
+const BROWSER_MANAGED_MODEL_DIGEST =
+  "browser-managed-model-digest-unavailable";
 
 const BROWSER_LIGHT_TASKS: PlatformAIRequest["taskType"][] = [
   "story.summary",
@@ -88,6 +130,20 @@ async function browserSummarizerAvailability(factory: BrowserSummarizerFactory) 
   }
 }
 
+async function browserLanguageModelAvailability(
+  factory: BrowserLanguageModelFactory,
+) {
+  try {
+    return await withBrowserDeadline(
+      factory.availability(),
+      BROWSER_CONTROL_TIMEOUT_MS,
+      "BROWSER_AI_PROMPT_AVAILABILITY_TIMEOUT",
+    );
+  } catch {
+    return "unavailable";
+  }
+}
+
 async function sha256Hex(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)]
@@ -100,6 +156,7 @@ async function recordInferenceProof(
   startedAt: number,
   modelId: BrowserAIInferenceProof["modelId"],
   modelDigest: string,
+  inferenceMode: BrowserAIInferenceProof["inferenceMode"] = "task-model",
 ) {
   const content = output.trim();
   if (!content) {
@@ -111,6 +168,7 @@ async function recordInferenceProof(
   browserInferenceProof = {
     proofVersion: "browser-ai-inference-proof-v1",
     state: "inference_verified",
+    inferenceMode,
     modelId,
     modelDigest,
     verifiedAt: new Date().toISOString(),
@@ -142,6 +200,48 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
     });
   }
   const startedAt = performance.now();
+  const languageFactory = languageModelFactory();
+  const promptAvailability = languageFactory
+    ? await browserLanguageModelAvailability(languageFactory)
+    : "unavailable";
+  if (
+    languageFactory
+    && (promptAvailability === "available" || promptAvailability === "readily")
+  ) {
+    let session: BrowserLanguageModelSession | null = null;
+    try {
+      session = await withBrowserDeadline(
+        languageFactory.create({
+          initialPrompts: [{
+            role: "system",
+            content: "你是裝置內小說助手。只用繁體中文簡短回答，不新增輸入不存在的事實。",
+          }],
+          signal,
+        }),
+        BROWSER_INFERENCE_TIMEOUT_MS,
+        "BROWSER_AI_PROMPT_CREATE_TIMEOUT",
+      );
+      const output = await withBrowserDeadline(
+        session.prompt(
+          "請用一句話摘要：林昭進入圖書館，發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。",
+          { signal },
+        ),
+        BROWSER_INFERENCE_TIMEOUT_MS,
+        "BROWSER_AI_PROMPT_INFERENCE_TIMEOUT",
+      );
+      return recordInferenceProof(
+        output,
+        startedAt,
+        BROWSER_LANGUAGE_MODEL_ID,
+        BROWSER_MANAGED_MODEL_DIGEST,
+        "generative-model",
+      );
+    } catch {
+      // Keep probing the native summarizer and packaged task model below.
+    } finally {
+      session?.destroy?.();
+    }
+  }
   const factory = summarizerFactory();
   const availability = factory
     ? await browserSummarizerAvailability(factory)
@@ -205,8 +305,33 @@ function summarizerFactory(): BrowserSummarizerFactory | null {
   return value && typeof value.availability === "function" && typeof value.create === "function" ? value : null;
 }
 
+function languageModelFactory(): BrowserLanguageModelFactory | null {
+  const scope = globalThis as unknown as {
+    LanguageModel?: BrowserLanguageModelFactory;
+    ai?: { languageModel?: BrowserLanguageModelFactory };
+  };
+  const value = scope.LanguageModel ?? scope.ai?.languageModel;
+  return value
+    && typeof value.availability === "function"
+    && typeof value.create === "function"
+    ? value
+    : null;
+}
+
 export async function detectBrowserAI(): Promise<BrowserAICapability> {
-  if (typeof window === "undefined") return { webGpu: false, wasm: false, worker: false, storageQuota: null, storageUsage: null, status: "runtime_unavailable", reason: "browser_required", summaryAvailability: "unavailable", modelId: null };
+  if (typeof window === "undefined") return {
+    webGpu: false,
+    wasm: false,
+    worker: false,
+    storageQuota: null,
+    storageUsage: null,
+    status: "runtime_unavailable",
+    reason: "browser_required",
+    summaryAvailability: "unavailable",
+    promptAvailability: "unavailable",
+    generativeModelReady: false,
+    modelId: null,
+  };
   const webGpu = "gpu" in navigator;
   const wasm = typeof WebAssembly !== "undefined";
   const worker = typeof Worker !== "undefined";
@@ -221,6 +346,12 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
   const summaryAvailability = factory
     ? await browserSummarizerAvailability(factory)
     : "unavailable";
+  const languageFactory = languageModelFactory();
+  const promptAvailability = languageFactory
+    ? await browserLanguageModelAvailability(languageFactory)
+    : "unavailable";
+  const generativeModelReady = promptAvailability === "available"
+    || promptAvailability === "readily";
   const ready = summaryAvailability === "available" || summaryAvailability === "readily";
   const downloadable = summaryAvailability === "downloadable" || summaryAvailability === "after-download";
   return {
@@ -230,15 +361,27 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     storageQuota: estimate.quota ?? null,
     storageUsage: estimate.usage ?? null,
     status: "ready",
-    reason: ready
-      ? "browser_hybrid_runtime_native_summary_ready"
-      : "browser_hybrid_runtime_packaged_ready",
+    reason: generativeModelReady
+      ? "browser_hybrid_runtime_native_prompt_ready"
+      : ready
+        ? "browser_hybrid_runtime_native_summary_ready"
+        : languageFactory && (
+          promptAvailability === "downloadable"
+          || promptAvailability === "downloading"
+          || promptAvailability === "after-download"
+        )
+          ? "browser_hybrid_runtime_native_prompt_download_required"
+          : "browser_hybrid_runtime_packaged_ready",
     summaryAvailability: ready
       ? summaryAvailability
       : downloadable
         ? `${summaryAvailability}:packaged-fallback-ready`
         : "packaged-task-runtime-ready",
-    modelId: BROWSER_TASK_MODEL.modelId,
+    promptAvailability,
+    generativeModelReady,
+    modelId: generativeModelReady
+      ? BROWSER_LANGUAGE_MODEL_ID
+      : BROWSER_TASK_MODEL.modelId,
   };
 }
 
@@ -249,8 +392,16 @@ export async function browserProviderSnapshot(): Promise<PlatformProviderSnapsho
     status: capability.status,
     capabilities: ["text", "offline"],
     modelId: capability.modelId,
-    modelDigest: capability.status === "ready" ? BROWSER_TASK_MODEL.modelDigest : null,
-    maxContext: capability.status === "ready" ? 16_384 : 0,
+    modelDigest: capability.status === "ready"
+      ? capability.generativeModelReady
+        ? BROWSER_MANAGED_MODEL_DIGEST
+        : BROWSER_TASK_MODEL.modelDigest
+      : null,
+    maxContext: capability.status === "ready"
+      ? capability.generativeModelReady
+        ? 8_192
+        : 16_384
+      : 0,
     local: true,
     requiresInternet: false,
     taskTypes: BROWSER_LIGHT_TASKS,
@@ -259,12 +410,104 @@ export async function browserProviderSnapshot(): Promise<PlatformProviderSnapsho
 }
 
 export async function runBrowserAI(request: PlatformAIRequest, decision: PlatformRouterDecision): Promise<PlatformAIResult> {
-  if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
-    throw Object.assign(new Error("瀏覽器 AI 目前不支援這個工作類型。"), { code: "BROWSER_AI_TASK_NOT_SUPPORTED", retryable: false });
-  }
-  const factory = summarizerFactory();
   const started = performance.now();
   const sourceText = [...request.context, request.input].join("\n\n");
+  const languageFactory = languageModelFactory();
+  const promptAvailability = languageFactory
+    ? await browserLanguageModelAvailability(languageFactory)
+    : "unavailable";
+  const nativeGenerativeReady = Boolean(
+    languageFactory
+    && (promptAvailability === "available" || promptAvailability === "readily"),
+  );
+  if (nativeGenerativeReady && taskComplexity(request.taskType) !== "heavy") {
+    const profile = getClosedAIModelProfile(request.taskType, "browser-ai");
+    const prompt = buildClosedAIModelPrompt({
+      objective: request.input,
+      context: request.context,
+      profile,
+      qualityPhase: request.qualityPhase,
+      agentPlan: request.agentPlan,
+      toolResults: request.toolResults,
+      workingMaterials: request.workingMaterials,
+    });
+    let session: BrowserLanguageModelSession | null = null;
+    try {
+      session = await withBrowserDeadline(
+        languageFactory!.create({
+          initialPrompts: [{
+            role: "system",
+            content: profile.systemInstruction,
+          }],
+          signal: request.signal,
+        }),
+        BROWSER_INFERENCE_TIMEOUT_MS,
+        "BROWSER_AI_PROMPT_CREATE_TIMEOUT",
+      );
+      const content = await withBrowserDeadline(
+        session.prompt(prompt.prompt, { signal: request.signal }),
+        profile.timeoutMs,
+        "BROWSER_AI_PROMPT_INFERENCE_TIMEOUT",
+      );
+      const normalized = normalizeTraditionalChinesePreservingProperNouns(
+        content.trim(),
+        sourceText,
+      );
+      await recordInferenceProof(
+        normalized,
+        started,
+        BROWSER_LANGUAGE_MODEL_ID,
+        BROWSER_MANAGED_MODEL_DIGEST,
+        "generative-model",
+      );
+      return {
+        requestId: request.requestId,
+        providerId: "browser-ai",
+        modelId: BROWSER_LANGUAGE_MODEL_ID,
+        modelDigest: BROWSER_MANAGED_MODEL_DIGEST,
+        content: normalized,
+        candidateOnly: true,
+        externalRequest: false,
+        dataLeavesDevice: false,
+        elapsedMs: Math.round(performance.now() - started),
+        provenance: {
+          ...decision,
+          modelId: BROWSER_LANGUAGE_MODEL_ID,
+          modelDigest: BROWSER_MANAGED_MODEL_DIGEST,
+          warnings: [
+            ...decision.warnings,
+            "Chrome/Edge on-device Prompt API generative model used.",
+          ],
+        },
+        profileId: profile.profileId,
+        firstTokenMs: Math.round(performance.now() - started),
+        inputCharacters: prompt.inputCharacters,
+        outputCharacters: normalized.length,
+        generatedTokenEvents: 1,
+        omittedInputCharacters: prompt.omittedCharacters,
+      };
+    } catch (error) {
+      if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
+        throw Object.assign(
+          new Error("瀏覽器內建生成模型執行失敗，沒有改用規則模板冒充生成結果。"),
+          {
+            code: "BROWSER_AI_GENERATION_FAILED",
+            retryable: true,
+            cause: error,
+          },
+        );
+      }
+    } finally {
+      session?.destroy?.();
+    }
+  }
+  if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
+    throw Object.assign(
+      new Error("此瀏覽器只有輕量任務模型；續寫等工作需要 Local Ollama，或支援 Prompt API 的桌面瀏覽器。"),
+      { code: "BROWSER_AI_TASK_NOT_SUPPORTED", retryable: false },
+    );
+  }
+  const factory = summarizerFactory();
   const runPackagedFallback = async (warning: string): Promise<PlatformAIResult> => {
     const result = runPackagedBrowserTaskModel(request.taskType, sourceText);
     await recordInferenceProof(

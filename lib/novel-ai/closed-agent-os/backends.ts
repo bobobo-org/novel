@@ -45,6 +45,8 @@ function snapshotFromPlatform(
   snapshot: PlatformProviderSnapshot,
 ): ClosedAIBackendSnapshot {
   const truth = BACKEND_TRUTH[id];
+  const browserGenerativeReady = id === "browser-ai"
+    && snapshot.detail === "browser_hybrid_runtime_native_prompt_ready";
   return {
     id,
     label: truth.label,
@@ -53,9 +55,15 @@ function snapshotFromPlatform(
     modelDigest: snapshot.modelDigest ?? null,
     local: id !== "private-ai-hub",
     dataBoundary: truth.dataBoundary,
-    maximumComplexity: truth.maximumComplexity,
+    maximumComplexity: browserGenerativeReady
+      ? "standard"
+      : truth.maximumComplexity,
     capabilities: snapshot.capabilities,
-    supportedTaskTypes: id === "browser-ai" ? BROWSER_AI_LIGHT_TASKS : "all",
+    supportedTaskTypes: id === "browser-ai"
+      ? browserGenerativeReady
+        ? "all"
+        : snapshot.taskTypes ?? BROWSER_AI_LIGHT_TASKS
+      : "all",
     detailCode: snapshot.detail ?? snapshot.status,
     maxContext: snapshot.maxContext,
     controlLatencyMs: snapshot.latencyMs ?? null,

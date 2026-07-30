@@ -1323,3 +1323,56 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Operability repair: one document scroll, the runnable task first, no nested
+   full-height columns that hide controls below the fold. Keep this last. */
+@media (min-width: 721px) {
+  .shell {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .commandDeck,
+  .status,
+  .runtimeStatus {
+    margin-bottom: 12px;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    min-height: auto;
+  }
+
+  .panel {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .taskPanel {
+    order: -1;
+    grid-column: 1 / -1;
+  }
+
+  .workspace > .panel:last-child {
+    grid-column: auto;
+  }
+
+  .panelHeading,
+  #backend-title {
+    scroll-margin-top: 18px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1120px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .taskPanel,
+  .workspace > .panel:last-child {
+    grid-column: auto;
+  }
+}

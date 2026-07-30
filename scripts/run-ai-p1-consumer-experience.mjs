@@ -66,8 +66,8 @@ function testStatic() {
   const script = read(scriptPath);
   const health = read(healthPath);
 
-  h.includes(html, "consumer-creation-center.js?v=p1-consumer-real-ai-execution", "HTML loads P1 consumer center script");
-  h.includes(html, "data-consumer-creation-center-version=\"p1-consumer-real-ai-execution-v1\"", "HTML exposes P1 consumer script version");
+  h.includes(html, "consumer-creation-center.js?v=p1-consumer-closed-agent-handoff-r3", "HTML loads consumer closed-agent handoff script");
+  h.includes(html, "data-consumer-creation-center-version=\"p1-consumer-closed-agent-handoff-v3\"", "HTML exposes truthful handoff version");
   h.includes(script, "P1 消費者版創作中心", "Visible P1 creation center title is present");
   h.includes(script, "Draft / Candidate only", "P1 explicitly keeps candidate-only semantics");
   h.includes(script, "consumerExperienceStatus", "P1 script exposes consumerExperienceStatus");
@@ -84,8 +84,8 @@ function testStatic() {
   h.includes(script, "monetizationFoundationStatus: \"foundation_ready\"", "Monetization is correctly marked foundation_ready");
   h.includes(script, "branch_choice", "P1 exposes branch choice task");
   h.includes(script, "rewrite_scene", "P1 exposes rewrite task");
-  h.includes(script, "actualExecutor: \"deterministic_rule\"", "P1 labels deterministic rule executor");
-  h.includes(script, "Browser AI runtime is reserved for H3A", "P1 does not overclaim Browser AI runtime");
+  h.includes(script, "actualExecutor: \"not_executed\"", "P1 reports no executor before verified model execution");
+  h.includes(script, "handoff_to_closed_agent_os", "P1 records the Closed Agent OS handoff");
   h.includes(script, "window.NovelConsumerCenter", "P1 browser API is exported");
   h.includes(script, "novel_p1_consumer_creation_center", "P1 persists isolated state");
   h.notIncludes(script, "fetch(\"https://", "P1 client script does not call external HTTPS by default");
@@ -113,22 +113,29 @@ function testIntegration() {
     h.includes(script, event, `P1 workflow includes ${event}`);
     h.includes(health, event, `Health workflow includes ${event}`);
   }
-  h.includes(script, "workspace.runHybridSearch()", "P1 calls H2W3 retrieval");
-  h.includes(script, "workspace.composeContext()", "P1 calls H2W3 context composer");
-  h.includes(script, "workspace.continueWithContext()", "P1 calls H2W3 generation candidate");
+  h.includes(script, "assistant.brainstorm", "P1 maps story creation to a real Closed Agent OS task");
+  h.includes(script, "chapter.continue", "P1 maps continuation to a real Closed Agent OS task");
+  h.includes(script, "story.consistencyCheck", "P1 maps consistency checks to a real Closed Agent OS task");
   h.includes(script, "h2w3().captureFeedback(\"accepted\")", "P1 accepts feedback through H2W3");
   h.includes(script, "h2w3().captureFeedback(\"rejected\")", "P1 rejects feedback through H2W3");
-  h.includes(script, "LOCAL_CLOSED_RUNTIME", "P1 labels local closed runtime source");
-  h.includes(script, "browser-workspace-local-rule", "P1 labels actual H2W3 browser model");
+  h.includes(script, "/closed-ai?", "P1 hands tasks to the real Closed AI workspace");
+  h.includes(script, "novel_closed_ai_handoff:", "P1 keeps story context in same-tab session storage");
+  h.includes(script, "handoff: handoffId", "P1 URL carries only an opaque handoff identifier");
+  const handoffQuery = script.slice(
+    script.indexOf("const params = new URLSearchParams({"),
+    script.indexOf("return `/studio/project/", script.indexOf("const params = new URLSearchParams({")),
+  );
+  h.notIncludes(handoffQuery, "objective:", "P1 does not place story text in the URL query");
+  h.notIncludes(script, "來源：LOCAL_CLOSED_RUNTIME", "P1 no longer generates fake local-runtime candidates");
   h.includes(script, "externalRequestCount", "P1 reads external request count");
   h.includes(script, "dataLeftDevice", "P1 reads data-left-device flag");
   h.includes(script, "externalConsent: false", "P1 defaults to no external consent");
   h.includes(script, "outputDestination: \"draft_candidate_only\"", "P1 routes output to draft/candidate only");
   h.includes(script, "Canonical", "P1 UI warns Canonical is not directly mutated");
-  h.includes(script, "browser_ai ollama local_runtime external_ai deterministic_rule", "P1 exposes all router provider slots");
+  h.includes(script, "browser_ai local_ollama private_ai_hub not_executed", "P1 exposes truthful closed backend slots");
   h.includes(script, "taskType requestedCapability selectedProvider actualExecutor selectionReason fallbackReason externalConsent contextSources outputDestination executionStatus", "P1 exposes full router decision contract");
-  h.includes(health, "consumerDefaultProvider: \"LOCAL_CLOSED_RUNTIME\"", "Health default provider is local runtime");
-  h.includes(health, "consumerDefaultModel: \"browser-workspace-local-rule\"", "Health default model/executor label is explicit");
+  h.includes(health, "consumerDefaultProvider: \"AUTO_VERIFIED_CLOSED_BACKEND\"", "Health defaults to verified automatic routing");
+  h.includes(health, "consumerDefaultModel: null", "Health does not claim a model before runtime verification");
   h.includes(health, "consumerDraftCandidateOnly: true", "Health confirms candidate-only destination");
 
   return h.finish();
