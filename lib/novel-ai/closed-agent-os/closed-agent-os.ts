@@ -138,6 +138,27 @@ export class ClosedAgentOS {
     if (!request.taskId || !request.objective.trim()) {
       throw osError("CLOSED_AGENT_TASK_INVALID");
     }
+    if (request.regeneration) {
+      const regeneration = request.regeneration;
+      if (
+        regeneration.cacheBypassReason !== "explicit_regeneration"
+        || !Number.isSafeInteger(regeneration.regenerationAttempt)
+        || regeneration.regenerationAttempt < 1
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+          regeneration.regenerationNonce,
+        )
+        || !/^[a-f0-9]{64}$/iu.test(regeneration.previousCandidateDigest)
+        || !Number.isSafeInteger(regeneration.modelSeed)
+        || regeneration.modelSeed < 1
+        || regeneration.modelSeed > 0x7fffffff
+        || !regeneration.direction.trim()
+      ) {
+        throw osError("CLOSED_AGENT_REGENERATION_CONTRACT_INVALID");
+      }
+      if (request.preferredBackend !== "local-ollama") {
+        throw osError("CLOSED_AGENT_REGENERATION_REQUIRES_LOCAL_OLLAMA");
+      }
+    }
     if (request.signal?.aborted) throw osError("CLOSED_AGENT_TASK_CANCELLED");
     const existing = await this.state.get<ClosedAgentTaskRecord>(request.taskId);
     if (existing && existing.state === "awaiting-approval") {
@@ -167,7 +188,7 @@ export class ClosedAgentOS {
           reasonCode: "IDEMPOTENT_REPLAY",
           fallbackAttempted: false,
         },
-        cache: { candidateHit: true, planHit: true },
+        cache: { candidateHit: true, planHit: true, bypassReason: null },
         learning: activeLearning,
         ledgerHeadHash: blocks.at(-1)?.blockHash ?? "",
       };
@@ -368,6 +389,15 @@ export class ClosedAgentOS {
         toolResultDigests: await Promise.all(
           toolResults.map((item) => sha256Hex(stableStringify(item.value))),
         ),
+        regeneration: request.regeneration
+          ? {
+            regenerationAttempt: request.regeneration.regenerationAttempt,
+            regenerationNonce: request.regeneration.regenerationNonce,
+            previousCandidateDigest: request.regeneration.previousCandidateDigest,
+            cacheBypassReason: request.regeneration.cacheBypassReason,
+            modelSeed: request.regeneration.modelSeed,
+          }
+          : null,
       };
       const semanticContextDigest = await sha256Hex(stableStringify({
         taskType: candidateInput.taskType,
@@ -379,21 +409,11 @@ export class ClosedAgentOS {
         toolResultDigests: candidateInput.toolResultDigests,
       }));
       const semanticText = `${request.taskType}\n${request.objective}`;
-      const semanticLookup = await this.cache.getSemantic<{
-        taskType: ClosedAgentTaskRequest["taskType"];
-        qualityMode: ClosedAgentPlan["qualityMode"];
-        semanticContextDigest: string;
-        execution: ClosedBackendExecutionResult;
-      }>(
-        request.namespace,
-        semanticText,
-        learningSemanticThreshold(request.learningConfiguration),
-        (entry) => entry.value.semanticContextDigest === semanticContextDigest,
-      );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
       let executionStartedAt: string | null = null;
       let executionCompletedAt: string | null = null;
+      const cacheBypassReason = request.regeneration?.cacheBypassReason ?? null;
       this.emitProgress(
         request,
         "generating",
@@ -401,54 +421,63 @@ export class ClosedAgentOS {
         50,
         { backendId: route.backend.id },
       );
-      if (
-        semanticLookup.hit
-        && semanticLookup.entry?.value.taskType === request.taskType
-        && semanticLookup.entry.value.qualityMode === plan.qualityMode
-        && semanticLookup.entry.value.execution.backendId === route.backend.id
-      ) {
-        execution = semanticLookup.entry.value.execution;
-        candidateCacheHit = true;
+      if (request.regeneration) {
+        executionStartedAt = this.now().toISOString();
+        execution = await this.executeQualityPipeline({
+          backend,
+          request,
+          plan,
+          actorContext,
+          toolResults,
+        });
+        executionCompletedAt = this.now().toISOString();
+        await this.cache.put({
+          layer: "exact",
+          namespace: request.namespace,
+          input: candidateInput,
+          value: execution,
+          tags: [
+            "closed-agent-candidate",
+            "explicit-regeneration",
+            `task:${request.taskType}`,
+          ],
+          ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
+        });
         this.emitProgress(
           request,
           "generating",
-          "命中同命名空間的語意候選快取",
+          "已依明確重新生成要求略過舊候選快取",
           80,
           {
             backendId: route.backend.id,
-            cacheHit: true,
+            cacheHit: false,
             generatedCharacters: execution.content.length,
           },
         );
       } else {
-        const exactResult = await this.cache.compute(
-          "exact",
+        const semanticLookup = await this.cache.getSemantic<{
+          taskType: ClosedAgentTaskRequest["taskType"];
+          qualityMode: ClosedAgentPlan["qualityMode"];
+          semanticContextDigest: string;
+          execution: ClosedBackendExecutionResult;
+        }>(
           request.namespace,
-          candidateInput,
-          async () => {
-            executionStartedAt = this.now().toISOString();
-            const generated = await this.executeQualityPipeline({
-              backend,
-              request,
-              plan,
-              actorContext,
-              toolResults,
-            });
-            executionCompletedAt = this.now().toISOString();
-            return generated;
-          },
-          {
-            tags: ["closed-agent-candidate", `task:${request.taskType}`],
-            ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
-          },
+          semanticText,
+          learningSemanticThreshold(request.learningConfiguration),
+          (entry) => entry.value.semanticContextDigest === semanticContextDigest,
         );
-        execution = exactResult.value;
-        candidateCacheHit = exactResult.cacheHit;
-        if (exactResult.cacheHit) {
+        if (
+          semanticLookup.hit
+          && semanticLookup.entry?.value.taskType === request.taskType
+          && semanticLookup.entry.value.qualityMode === plan.qualityMode
+          && semanticLookup.entry.value.execution.backendId === route.backend.id
+        ) {
+          execution = semanticLookup.entry.value.execution;
+          candidateCacheHit = true;
           this.emitProgress(
             request,
             "generating",
-            "命中完全相同輸入的候選快取",
+            "命中同命名空間的語意候選快取",
             80,
             {
               backendId: route.backend.id,
@@ -456,24 +485,61 @@ export class ClosedAgentOS {
               generatedCharacters: execution.content.length,
             },
           );
-        }
-        await this.cache.put({
-          layer: "semantic",
-          namespace: request.namespace,
-          input: {
-            taskType: request.taskType,
+        } else {
+          const exactResult = await this.cache.compute(
+            "exact",
+            request.namespace,
             candidateInput,
-          },
-          semanticText,
-          value: {
-            taskType: request.taskType,
-            qualityMode: plan.qualityMode,
-            semanticContextDigest,
-            execution,
-          },
-          tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
-          ttlMs: learningCacheTtl(request.learningConfiguration, "semantic"),
-        });
+            async () => {
+              executionStartedAt = this.now().toISOString();
+              const generated = await this.executeQualityPipeline({
+                backend,
+                request,
+                plan,
+                actorContext,
+                toolResults,
+              });
+              executionCompletedAt = this.now().toISOString();
+              return generated;
+            },
+            {
+              tags: ["closed-agent-candidate", `task:${request.taskType}`],
+              ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
+            },
+          );
+          execution = exactResult.value;
+          candidateCacheHit = exactResult.cacheHit;
+          if (exactResult.cacheHit) {
+            this.emitProgress(
+              request,
+              "generating",
+              "命中完全相同輸入的候選快取",
+              80,
+              {
+                backendId: route.backend.id,
+                cacheHit: true,
+                generatedCharacters: execution.content.length,
+              },
+            );
+          }
+          await this.cache.put({
+            layer: "semantic",
+            namespace: request.namespace,
+            input: {
+              taskType: request.taskType,
+              candidateInput,
+            },
+            semanticText,
+            value: {
+              taskType: request.taskType,
+              qualityMode: plan.qualityMode,
+              semanticContextDigest,
+              execution,
+            },
+            tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "semantic"),
+          });
+        }
       }
       if (request.taskType === "chapter.abcChoices") {
         const normalized = normalizeAbcChoicesCandidate(execution.content);
@@ -575,6 +641,16 @@ export class ClosedAgentOS {
           criticDigest: execution.criticDigest,
           actualExecutor: executionReceipt?.backendId ?? "not_executed",
           executionReceipt,
+          regeneration: request.regeneration
+            ? {
+              regenerationAttempt: request.regeneration.regenerationAttempt,
+              previousCandidateDigest: request.regeneration.previousCandidateDigest,
+              cacheBypassReason: request.regeneration.cacheBypassReason,
+              cacheBypassed: true,
+              previousContentReused: false,
+              nonceStored: false,
+            }
+            : null,
         },
       });
       await this.ledger.append({
@@ -662,6 +738,17 @@ export class ClosedAgentOS {
         status: "awaiting-approval",
         candidateOnly: true,
         canonicalMutationCount: 0,
+        regeneration: request.regeneration
+          ? {
+            regenerationAttempt: request.regeneration.regenerationAttempt,
+            previousCandidateDigest: request.regeneration.previousCandidateDigest,
+            cacheBypassReason: request.regeneration.cacheBypassReason,
+            cacheBypassed: true,
+            previousContentReused: false,
+            newCandidate: true,
+            nonceStored: false,
+          }
+          : undefined,
         generationTelemetry: {
           profileId: execution.profileId ?? `${execution.backendId}-default-v1`,
           elapsedMs: execution.elapsedMs,
@@ -714,6 +801,7 @@ export class ClosedAgentOS {
         cache: {
           candidateHit: candidateCacheHit,
           planHit: planResult.cacheHit,
+          bypassReason: cacheBypassReason,
         },
         learning: activeLearning,
         ledgerHeadHash: verification.headHash,

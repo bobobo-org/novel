@@ -16,7 +16,11 @@ import {
   type OptionalFieldStatus,
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
-import { discoverStudioClosedAI, runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import {
+  discoverStudioClosedAI,
+  regenerateStudioClosedAI,
+  runStudioClosedAI,
+} from "@/lib/novel-ai/web/studio-closed-ai";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
 import {
   approveStudioClosedAgentCandidate,
@@ -204,6 +208,7 @@ type BackupRecord = {
   formalPayload?: BackupPayload;
 };
 type Candidate = {
+  projectId?: string | null;
   canonicalCandidateId?: string;
   candidateId?: string | null;
   taskId?: string | null;
@@ -222,6 +227,12 @@ type Candidate = {
   generatedTokenEvents?: number;
   dataLeftDevice?: boolean;
   canonicalMutationCount?: number;
+  regenerationAttempt?: number;
+  newCandidate?: boolean;
+  previousContentReused?: boolean;
+  cacheBypassed?: boolean;
+  similarityMetric?: string;
+  similarityScore?: number;
   sourceChapterId?: string | null;
   sourceRevision?: number | null;
   candidateKind?: "closed-ai" | "local-writing-aid";
@@ -234,6 +245,11 @@ type Candidate = {
   diagnostic?: string;
   createdAt: string;
 } | null;
+type RunTaskOptions = {
+  regenerateFrom?: NonNullable<Candidate>;
+  extraRequirement?: string;
+};
+type StudioRunTask = (task: string, options?: RunTaskOptions) => Promise<void>;
 type Choice = {
   key: "A" | "B" | "C";
   text: string;
@@ -810,6 +826,9 @@ export default function StudioClient({
     [assistantStatus, setAssistantStatus] =
       useState<AssistantStatus>("checking"),
     [assistantBusy, setAssistantBusy] = useState<string | null>(null),
+    [lastRejectedCandidate, setLastRejectedCandidate] =
+      useState<NonNullable<Candidate> | null>(null),
+    [regenerationError, setRegenerationError] = useState(""),
     [storageFailure, setStorageFailure] = useState<{
       code: string;
       message: string;
@@ -1402,14 +1421,35 @@ export default function StudioClient({
       createdAt: new Date().toISOString(),
     };
   }
-  async function runTask(task: string) {
+  async function runTask(task: string, options: RunTaskOptions = {}) {
     if (!ensureCanonicalWritable("執行會產生候選的助手工作")) return;
     if (assistantBusy) return;
     const started = performance.now();
-    let candidate: Candidate;
+    const regenerationSource = options.regenerateFrom;
+    let candidate: Candidate = null;
     let sourceChapterId: string | null = null;
     let sourceRevision: number | null = null;
-    setAssistantBusy(task);
+    if (regenerationSource && regenerationSource.candidateKind !== "closed-ai") {
+      setRegenerationError("只有具備真實模型證明的候選才能換一個版本。");
+      return;
+    }
+    setRegenerationError("");
+    if (!regenerationSource) setLastRejectedCandidate(null);
+    if (
+      regenerationSource?.candidateId
+      && state.candidate?.candidateId === regenerationSource.candidateId
+    ) {
+      try {
+        await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+        setState((value) => ({ ...value, candidate: null }));
+        setLastRejectedCandidate(regenerationSource);
+      } catch (error) {
+        console.error("STUDIO_REGENERATION_SOURCE_REJECTION_FAILED", error);
+        setRegenerationError("原候選尚未安全放棄，系統沒有開始重新生成。");
+        return;
+      }
+    }
+    setAssistantBusy(regenerationSource ? `regenerate:${task}` : task);
     try {
       if (project) {
         const canonical = await ensureStudioCanonicalProject(
@@ -1419,7 +1459,7 @@ export default function StudioClient({
         sourceChapterId = canonical.chapter.id;
         sourceRevision = canonical.chapter.revision;
       }
-      const result = await runStudioClosedAI({
+      const taskInput = {
         projectId: project?.id || "draft-project",
         task,
         input: contextFor(task),
@@ -1431,8 +1471,26 @@ export default function StudioClient({
             : task === "continue_story"
               ? 900
               : 700,
-      });
+      };
+      const result = regenerationSource
+        ? await regenerateStudioClosedAI(taskInput, {
+          taskId: regenerationSource.taskId,
+          candidateId: regenerationSource.candidateId,
+          content: regenerationSource.content,
+          contentDigest: regenerationSource.contentDigest,
+          regenerationAttempt: regenerationSource.regenerationAttempt,
+        }, {
+          extraRequirement: options.extraRequirement,
+        })
+        : await runStudioClosedAI(taskInput);
+      const distinctness = ("distinctness" in result
+        ? result.distinctness
+        : null) as null | {
+          similarityMetric: string;
+          similarityScore: number;
+        };
       candidate = {
+        projectId: project?.id ?? null,
         candidateId: result.candidateId,
         taskId: result.taskId,
         task,
@@ -1452,6 +1510,14 @@ export default function StudioClient({
           result.executionReceipt?.generatedTokenEvents ?? 0,
         dataLeftDevice: result.dataLeftDevice,
         canonicalMutationCount: result.canonicalMutationCount,
+        regenerationAttempt:
+          result.regeneration?.regenerationAttempt ?? undefined,
+        newCandidate: result.regeneration?.newCandidate ?? undefined,
+        previousContentReused:
+          result.regeneration?.previousContentReused ?? undefined,
+        cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
+        similarityMetric: distinctness?.similarityMetric,
+        similarityScore: distinctness?.similarityScore,
         sourceChapterId: result.sourceChapterId,
         sourceRevision: result.sourceRevision,
         candidateKind: "closed-ai",
@@ -1462,8 +1528,41 @@ export default function StudioClient({
       setAssistantStatus(
         result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready",
       );
+      setLastRejectedCandidate(null);
     } catch (error) {
       const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+      if (regenerationSource) {
+        console.error("STUDIO_EXPLICIT_REGENERATION_FAILED", {
+          code,
+          normalizedDigestDifferent: (error as { normalizedDigestDifferent?: boolean })
+            ?.normalizedDigestDifferent,
+          similarityMetric: (error as { similarityMetric?: string })?.similarityMetric,
+          similarityScore: (error as { similarityScore?: number })?.similarityScore,
+        });
+        setRegenerationError(
+          code === "REGENERATION_NOT_DISTINCT"
+            ? "本機模型連續產生相同內容，請調整額外要求或改用其他已安裝模型。"
+            : "本機模型沒有完成不同版本；原候選已放棄，正式故事沒有變更。",
+        );
+        setState((value) => ({
+          ...value,
+          candidate: null,
+          executionLogs: [
+            {
+              id: crypto.randomUUID(),
+              task,
+              source: "explicit-regeneration",
+              model: regenerationSource.model,
+              elapsedMs: Math.round(performance.now() - started),
+              externalRequest: false,
+              at: new Date().toISOString(),
+              status: "failed" as const,
+            },
+            ...value.executionLogs,
+          ].slice(0, 50),
+        }));
+        return;
+      }
       const guidance = code === "LOCAL_NETWORK_PERMISSION_DENIED"
         ? "瀏覽器拒絕本機網路權限。請在網址列的網站權限中允許「本機網路存取」，再到閉端 AI 指揮中心重新配對。"
         : code === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"
@@ -1474,6 +1573,7 @@ export default function StudioClient({
       const writingAid = ruleCandidate(task)!;
       candidate = {
         ...writingAid,
+        projectId: project?.id ?? null,
         candidateId: null,
         taskId: `local-writing-aid:${crypto.randomUUID()}`,
         provider: "local-writing-aid",
@@ -1627,6 +1727,8 @@ export default function StudioClient({
         projects,
       };
     });
+    setLastRejectedCandidate(null);
+    setRegenerationError("");
     setAssistantBusy(null);
 
     if (state.autoBackup === "accepted_content") {
@@ -1664,6 +1766,13 @@ export default function StudioClient({
         console.error("STUDIO_CANDIDATE_REJECTION_FAILED", error);
         return;
       }
+    }
+    if (
+      pending.candidateKind === "closed-ai"
+      && pending.task !== "branch_choice"
+    ) {
+      setLastRejectedCandidate(pending);
+      setRegenerationError("");
     }
     update({ candidate: null });
   }
@@ -1717,6 +1826,7 @@ export default function StudioClient({
   async function generateChoiceResult(
     choiceText: string,
     signal?: AbortSignal,
+    regenerationSource?: NonNullable<Candidate>,
   ) {
     if (!ensureCanonicalWritable("建立互動候選")) return;
     if (!project) return;
@@ -1751,12 +1861,31 @@ export default function StudioClient({
     const protagonist = name || "主角",
       scene = world || "目前場景",
       activeConflict = conflict || "尚未解決的問題";
+    if (regenerationSource && regenerationSource.candidateKind !== "closed-ai") {
+      setRegenerationError("只有具備真實模型證明的故事候選才能換一個版本。");
+      return;
+    }
+    if (
+      regenerationSource?.candidateId
+      && state.candidate?.candidateId === regenerationSource.candidateId
+    ) {
+      try {
+        await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+        update({ candidate: null });
+      } catch (error) {
+        console.error("STUDIO_CHOICE_REGENERATION_SOURCE_REJECTION_FAILED", error);
+        setRegenerationError("原故事候選尚未安全放棄，系統沒有開始重新生成。");
+        return;
+      }
+    }
+    setRegenerationError("");
     let content = `${protagonist}依照「${choiceText}」採取行動。\n\n在${scene}裡，這個決定立刻改變了局勢：${activeConflict}不再只是等待處理的問題，而成為必須正面承擔的後果。${protagonist}從對方的反應中察覺一個新的細節，也因此確定下一步不能照原來的方式進行。`,
       source = "本機故事建議",
       model = "local-rule",
-      providerId = "local-rule";
+      providerId = "local-rule",
+      closedAIIdentity: Partial<NonNullable<Candidate>> = {};
     try {
-      const result = await runStudioClosedAI({
+      const taskInput = {
         projectId: project.id,
         task: "branch_choice",
         input: JSON.stringify({
@@ -1774,15 +1903,64 @@ export default function StudioClient({
         }),
         targetLength: 650,
         signal,
-      });
+      };
+      const result = regenerationSource
+        ? await regenerateStudioClosedAI(taskInput, {
+          taskId: regenerationSource.taskId,
+          candidateId: regenerationSource.candidateId,
+          content: regenerationSource.content,
+          contentDigest: regenerationSource.contentDigest,
+          regenerationAttempt: regenerationSource.regenerationAttempt,
+        })
+        : await runStudioClosedAI(taskInput);
       if (/[\u4e00-\u9fff]{20}/.test(result.content)) {
         content = result.content;
         source =
           result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
         model = result.model;
         providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
+        const distinctness = ("distinctness" in result
+          ? result.distinctness
+          : null) as null | {
+            similarityMetric: string;
+            similarityScore: number;
+          };
+        closedAIIdentity = {
+          candidateId: result.candidateId,
+          taskId: result.taskId,
+          provider: result.provider,
+          modelId: result.model,
+          modelDigest: result.modelDigest,
+          contextDigest: result.contextDigest,
+          contentDigest: result.contentDigest,
+          actualExecutor: result.actualExecutor,
+          generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
+          dataLeftDevice: result.dataLeftDevice,
+          canonicalMutationCount: result.canonicalMutationCount,
+          sourceChapterId: result.sourceChapterId,
+          sourceRevision: result.sourceRevision,
+          candidateKind: "closed-ai",
+          regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
+          newCandidate: result.regeneration?.newCandidate ?? undefined,
+          previousContentReused:
+            result.regeneration?.previousContentReused ?? undefined,
+          cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
+          similarityMetric: distinctness?.similarityMetric,
+          similarityScore: distinctness?.similarityScore,
+        };
       }
-    } catch {}
+    } catch (error) {
+      if (regenerationSource) {
+        const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+        console.error("STUDIO_CHOICE_EXPLICIT_REGENERATION_FAILED", { code });
+        setRegenerationError(
+          code === "REGENERATION_NOT_DISTINCT"
+            ? "本機模型連續產生相同內容，請調整額外要求或改用其他已安裝模型。"
+            : "本機模型沒有完成不同版本；正式故事沒有變更。",
+        );
+        return;
+      }
+    }
     if (signal?.aborted) return;
     const deltaByChoice: Record<string, number> = { A: 3, B: 2, C: -2 },
       suggestedDelta = deltaByChoice[selectedChoice] ?? 1,
@@ -1838,6 +2016,8 @@ export default function StudioClient({
     setState((value) => ({
       ...value,
       candidate: {
+        ...closedAIIdentity,
+        projectId: project.id,
         canonicalCandidateId,
         task: "branch_choice",
         title: "故事發展",
@@ -2196,6 +2376,16 @@ export default function StudioClient({
                 discard={() => void discardCandidate()}
                 assistantStatus={assistantStatus}
                 assistantBusy={assistantBusy}
+                lastRejectedCandidate={
+                  lastRejectedCandidate?.projectId === project?.id
+                    ? lastRejectedCandidate
+                    : null
+                }
+                regenerationError={
+                  lastRejectedCandidate?.projectId === project?.id
+                    ? regenerationError
+                    : ""
+                }
               />
             </fieldset>
           )}{" "}
@@ -2234,20 +2424,25 @@ export default function StudioClient({
                     : null
                 }
                 accept={acceptChoiceResult}
-                discard={() => update({ candidate: null })}
+                discard={() => void discardCandidate()}
                 undo={undoBranch}
                 canUndo={state.branches.some(
                   (branch) => branch.projectId === project?.id && branch.reversible,
                 )}
                 regenerate={() =>
-                  void generateChoiceResult(
+                  generateChoiceResult(
                     state.candidate?.choiceText ||
                       customChoice ||
                       choices().find((choice) => choice.key === selectedChoice)
-                        ?.text ||
+                      ?.text ||
                       "",
+                    undefined,
+                    state.candidate?.task === "branch_choice"
+                      ? state.candidate
+                      : undefined,
                   )
                 }
+                regenerationError={regenerationError}
                 stats={project ? state.gameStates[project.id]?.stats || {} : {}}
                 history={
                   project ? state.gameStates[project.id]?.history || [] : []
@@ -2368,7 +2563,7 @@ function CreateScreen({
   ) => void;
   setStep: (step: number) => void;
   createProject: () => void;
-  runTask: (task: string) => Promise<void>;
+  runTask: StudioRunTask;
   candidate: Candidate;
   acceptSuggestion: (content: string) => void;
   discard: () => void;
@@ -2754,7 +2949,9 @@ function CreateScreen({
                 candidate={candidate}
                 originalContent=""
                 accept={acceptSuggestion}
-                retry={() => void runTask(candidate.task)}
+                retry={() => void runTask(candidate.task, {
+                  regenerateFrom: candidate,
+                })}
                 discard={discard}
               />
             )}
@@ -2798,22 +2995,27 @@ function WriteScreen({
   discard,
   assistantStatus,
   assistantBusy,
+  lastRejectedCandidate,
+  regenerationError,
 }: {
   project: Project | null;
   candidate: Candidate;
   navigate: (screen: Screen) => void;
   saveDraft: (title: string, draft: string) => void;
-  runTask: (task: string) => Promise<void>;
+  runTask: StudioRunTask;
   completeChapter: () => void;
   acceptCandidate: (content?: string) => Promise<void>;
   discard: () => void;
   assistantStatus: AssistantStatus;
   assistantBusy: string | null;
+  lastRejectedCandidate: NonNullable<Candidate> | null;
+  regenerationError: string;
 }) {
   const [title, setTitle] = useState(project?.chapterTitle || "第一章"),
     [draft, setDraft] = useState(project?.draft || ""),
     [focus, setFocus] = useState(false),
-    [helperOpen, setHelperOpen] = useState(false);
+    [helperOpen, setHelperOpen] = useState(false),
+    [regenerationExtra, setRegenerationExtra] = useState("");
   useEffect(() => {
     if (
       !project
@@ -2938,15 +3140,51 @@ function WriteScreen({
               </button>
             ))}
           </div>
+          {!candidate && lastRejectedCandidate && (
+            <div className="studioRegenerationPrompt" data-testid="studio-rejected-regeneration">
+              <strong>原候選已放棄，正式故事沒有變更</strong>
+              <label>
+                額外要求（選填）
+                <input
+                  data-testid="studio-regeneration-extra-requirement"
+                  value={regenerationExtra}
+                  onChange={(event) => setRegenerationExtra(event.target.value)}
+                  placeholder="例如：改由配角先採取行動"
+                />
+              </label>
+              <button
+                data-testid="studio-candidate-regenerate"
+                className="gold"
+                disabled={Boolean(assistantBusy)}
+                onClick={() => void runTask(lastRejectedCandidate.task, {
+                  regenerateFrom: lastRejectedCandidate,
+                  extraRequirement: regenerationExtra,
+                })}
+              >
+                {assistantBusy?.startsWith("regenerate:")
+                  ? "正在產生不同版本"
+                  : "換一個版本"}
+              </button>
+            </div>
+          )}
+          {regenerationError && (
+            <div className="studioAiWarning" role="alert" data-testid="studio-regeneration-error">
+              <strong>沒有建立新的候選</strong>
+              <span>{regenerationError}</span>
+            </div>
+          )}
           {candidate && (
             <SuggestionCard
               key={candidate.createdAt}
               candidate={candidate}
               originalContent={project.draft}
               accept={acceptCandidate}
-              retry={() => void runTask(candidate.task)}
+              retry={() => void runTask(candidate.task, {
+                regenerateFrom: candidate,
+              })}
               discard={discard}
               busy={Boolean(assistantBusy)}
+              regenerating={Boolean(assistantBusy?.startsWith("regenerate:"))}
               closedAiHref={`/studio/project/${project.id}/closed-ai?task=${encodeURIComponent(
                 candidate.task === "continue_story"
                   ? "chapter.continue"
@@ -2967,6 +3205,7 @@ function SuggestionCard({
   retry,
   discard,
   busy = false,
+  regenerating = false,
   closedAiHref = "/studio/settings/ai",
 }: {
   candidate: NonNullable<Candidate>;
@@ -2975,6 +3214,7 @@ function SuggestionCard({
   retry: () => void;
   discard: () => void;
   busy?: boolean;
+  regenerating?: boolean;
   closedAiHref?: string;
 }) {
   const [editing, setEditing] = useState(false),
@@ -3044,7 +3284,7 @@ function SuggestionCard({
         </button>
         <button disabled={busy} onClick={() => setEditing(true)}>修改後採用</button>
         <button data-testid="studio-candidate-regenerate" disabled={busy} onClick={retry}>
-          {busy ? "模型執行中…" : "再產生一份"}
+          {regenerating ? "正在產生不同版本" : "換一個版本"}
         </button>
         <button data-testid="studio-candidate-discard" disabled={busy} onClick={discard}>保持空白</button>
         <button disabled={busy} onClick={discard}>暫時不用</button>
@@ -3076,6 +3316,32 @@ function SuggestionCard({
             <dt>來源章節版本</dt>
             <dd>{candidate.sourceRevision ?? "missing"}</dd>
           </div>
+          {candidate.regenerationAttempt != null && (
+            <>
+              <div>
+                <dt>regenerationAttempt</dt>
+                <dd data-testid="studio-regeneration-attempt">{candidate.regenerationAttempt}</dd>
+              </div>
+              <div>
+                <dt>new candidate</dt>
+                <dd data-testid="studio-regeneration-new-candidate">{candidate.newCandidate ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>previous content reused</dt>
+                <dd data-testid="studio-regeneration-content-reused">{candidate.previousContentReused ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>cache bypassed</dt>
+                <dd data-testid="studio-regeneration-cache-bypassed">{candidate.cacheBypassed ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>差異檢查</dt>
+                <dd data-testid="studio-regeneration-similarity">
+                  {candidate.similarityMetric ?? "missing"} · {candidate.similarityScore ?? "missing"}
+                </dd>
+              </div>
+            </>
+          )}
           <div>
             <dt>脈絡來源摘要</dt>
             <dd data-testid="studio-candidate-context-source-summary">
@@ -3123,7 +3389,7 @@ function WorldScreen({
 }: {
   project: Project | null;
   updateProject: (changes: Partial<Record<OptionalKey, OptionalField>>) => void;
-  runTask: (task: string) => Promise<void>;
+  runTask: StudioRunTask;
 }) {
   const [selected, setSelected] = useState<
       "protagonist" | "archetype" | "conflict" | "world" | null
@@ -3426,6 +3692,7 @@ function ChoiceScreen({
   undo,
   canUndo,
   regenerate,
+  regenerationError,
   stats,
   history,
 }: {
@@ -3441,7 +3708,8 @@ function ChoiceScreen({
   discard: () => void;
   undo: () => void;
   canUndo: boolean;
-  regenerate: () => void;
+  regenerate: () => Promise<void>;
+  regenerationError: string;
   stats: Record<string, number>;
   history: StatHistory[];
 }) {
@@ -3450,6 +3718,7 @@ function ChoiceScreen({
     [progress, setProgress] = useState(0),
     [editing, setEditing] = useState(false),
     [edited, setEdited] = useState(""),
+    [regenerating, setRegenerating] = useState(false),
     controller = useRef<AbortController | null>(null);
   useEffect(() => {
     if (!loading) return;
@@ -3624,6 +3893,12 @@ function ChoiceScreen({
           </button>
         </div>
       )}
+      {regenerationError && (
+        <div className="studioAiWarning" role="alert" data-testid="studio-choice-regeneration-error">
+          <strong>沒有建立新的故事候選</strong>
+          <span>{regenerationError}</span>
+        </div>
+      )}
       {result && (
         <article className="choiceResult" data-testid="studio-choice-result">
           <section>
@@ -3674,7 +3949,15 @@ function ChoiceScreen({
               {editing ? "修改後接受" : "接受並繼續"}
             </button>
             <button onClick={() => setEditing(true)}>修改後接受</button>
-            <button onClick={regenerate}>再生成一次</button>
+            <button
+              disabled={regenerating}
+              onClick={() => {
+                setRegenerating(true);
+                void regenerate().finally(() => setRegenerating(false));
+              }}
+            >
+              {regenerating ? "正在產生不同版本" : "換一個版本"}
+            </button>
             {canUndo && <button onClick={undo}>回到上一個選擇</button>}
             <button data-testid="studio-choice-discard" onClick={discard}>暫時不採用</button>
           </footer>

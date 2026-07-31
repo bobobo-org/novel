@@ -5,6 +5,7 @@ import {
   type ClosedAIContextItem,
   type ClosedAIProgressEvent,
   type ClosedAIQualityMode,
+  type ClosedAIRegenerationContract,
   type ClosedAgentExecutionResult,
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
@@ -83,6 +84,7 @@ export type ExecuteStudioClosedAgentInput = {
   knowledgeScopeRevision?: string | number;
   sourceChapterId?: string;
   sourceRevision?: number;
+  regeneration?: ClosedAIRegenerationContract;
   taskId?: string;
   contextTokenBudget?: number;
   signal?: AbortSignal;
@@ -148,6 +150,7 @@ export async function executeStudioClosedAgent(
       contextSourceSummary: JSON.stringify(composed.contextSourceSummary),
       sourceChapterId: input.sourceChapterId,
       sourceRevision: input.sourceRevision,
+      regeneration: input.regeneration,
       complexity,
       qualityMode: input.qualityMode,
       preferredBackend: input.preferredBackend,

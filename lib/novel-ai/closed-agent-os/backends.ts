@@ -135,6 +135,9 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     },
     toolResults: structuredClone(input.toolResults),
     workingMaterials: structuredClone(input.workingMaterials),
+    generationOptions: request.regeneration
+      ? { seed: request.regeneration.modelSeed }
+      : undefined,
     externalConsent: false,
     requiredCapabilities: ["text"],
     closedOnly: true,

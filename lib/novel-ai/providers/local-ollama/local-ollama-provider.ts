@@ -108,6 +108,9 @@ export async function runLocalOllama(
     options: {
       ...profile.options,
       num_predict: Math.min(profile.options.num_predict, outputTokenCap),
+      ...(request.generationOptions?.seed == null
+        ? {}
+        : { seed: request.generationOptions.seed }),
     },
   };
   const prompt = buildClosedAIModelPrompt({

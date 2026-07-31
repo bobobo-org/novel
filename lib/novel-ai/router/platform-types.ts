@@ -51,6 +51,9 @@ export type PlatformAIRequest = {
     text: string;
     digest: string;
   }>;
+  generationOptions?: {
+    seed?: number;
+  };
   idempotencyKey?: string;
   cacheNamespace?: ClosedAINamespace;
   signal?: AbortSignal;
