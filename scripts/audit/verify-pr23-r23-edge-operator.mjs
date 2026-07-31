@@ -34,7 +34,7 @@ const credentialPatterns = [
   /\bBearer\s+(?!\[REDACTED_SECRET\])[A-Za-z0-9._~+/-]{8,}/giu,
   /\b(?:set-)?cookie\s*:\s*(?!\[REDACTED_SECRET\])[^\r\n]+/giu,
   /\bcsrf\s*[:=]\s*(?!\[REDACTED_SECRET\])[^\s,;"']+/giu,
-  /\b\d{6}\b/gu,
+  /(?:(?:\b(?:otp|one[-_\s]?time[-_\s]+(?:password|code)|verification[-_\s]+code|pairing[-_\s]+code|device[-_\s]+code|user[-_\s]+code)\b|驗證碼|配對碼)[^\r\n\d]{0,32}\b\d{6}\b|\b\d{6}\b[^\r\n\d]{0,32}(?:\b(?:otp|one[-_\s]?time[-_\s]+(?:password|code)|verification[-_\s]+code|pairing[-_\s]+code|device[-_\s]+code|user[-_\s]+code)\b|驗證碼|配對碼))/giu,
 ];
 const privateStoryFixtures = [
   "林澈",
@@ -197,11 +197,15 @@ export function verifyBundle(
   };
 }
 
-function writeFixture(directory, { verdict = "PASS" } = {}) {
+function writeFixture(
+  directory,
+  { verdict = "PASS", rawContent = "" } = {},
+) {
   mkdirSync(directory, { recursive: true });
   const rawPath = path.join(directory, "console-raw.ndjson");
-  writeFileSync(rawPath, "", "utf8");
-  const rawHash = sha256(Buffer.alloc(0));
+  writeFileSync(rawPath, rawContent, "utf8");
+  const rawBytes = Buffer.from(rawContent, "utf8");
+  const rawHash = sha256(rawBytes);
   const manifest = {
     schemaVersion: "pr23-r2-3-edge-operator-manifest-v1",
     verdict:
@@ -226,7 +230,7 @@ function writeFixture(directory, { verdict = "PASS" } = {}) {
     files: [
       {
         path: "console-raw.ndjson",
-        bytes: 0,
+        bytes: rawBytes.length,
         sha256: rawHash,
       },
     ],
@@ -252,6 +256,26 @@ function runSelfTest() {
     writeFixture(valid);
     verifyBundle(valid, { requireDedicated: false, checkGit: false });
     tests.push("valid_manifest_passes");
+
+    const telemetry = path.join(tempRoot, "telemetry");
+    writeFixture(telemetry, {
+      rawContent: '{"elapsedMs":151065,"httpStatus":404}\n',
+    });
+    verifyBundle(telemetry, { requireDedicated: false, checkGit: false });
+    tests.push("six_digit_telemetry_not_credential");
+
+    const labeledCode = path.join(tempRoot, "labeled-code");
+    writeFixture(labeledCode, {
+      rawContent: '{"message":"verification code is 123456"}\n',
+    });
+    assert.throws(
+      () => verifyBundle(labeledCode, {
+        requireDedicated: false,
+        checkGit: false,
+      }),
+      /R23_CREDENTIAL_PATTERN_HIT/u,
+    );
+    tests.push("labeled_verification_code_is_rejected");
 
     const tampered = path.join(tempRoot, "tampered");
     writeFixture(tampered);
