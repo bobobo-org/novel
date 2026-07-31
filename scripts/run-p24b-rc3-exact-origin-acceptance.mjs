@@ -111,8 +111,8 @@ async function runSurfaceChecks(page, origin, checks, screenshotsDirectory) {
   await page.locator("#novelStaticRelease[data-consumer-entry-mode='legacy-explicit-only']").waitFor({ state: "attached", timeout: 60_000 });
   if (!new URL(page.url()).pathname.startsWith("/legacy/")) throw new Error("LEGACY_EXPLICIT_ROUTE_MISSING");
   checks.push({ name: "legacy-explicit-only", status: "PASS" });
-  await page.getByRole("link", { name: "前往正式創作中心" }).click();
-  await page.getByTestId("modern-studio").waitFor({ state: "visible", timeout: 60_000 });
+  await page.getByRole("link", { name: "返回新版首頁" }).click();
+  await page.getByTestId("modern-consumer-frontdoor").waitFor({ state: "visible", timeout: 60_000 });
   checks.push({ name: "legacy-return-to-modern", status: "PASS" });
 }
 
@@ -140,6 +140,7 @@ async function main() {
   const consoleRows = [];
   const networkRows = [];
   const externalRequests = [];
+  const previewInfrastructureRequests = [];
   let context;
   try {
     context = await chromium.launchPersistentContext(profilePath, {
@@ -157,9 +158,12 @@ async function main() {
       const url = safeUrl(request.url());
       networkRows.push({ phase: "request", method: request.method(), url, resourceType: request.resourceType() });
       const requestOrigin = new URL(request.url()).origin;
+      const previewInfrastructure = target.isVercelPreview && requestOrigin === "https://vercel.live";
+      if (previewInfrastructure) previewInfrastructureRequests.push({ method: request.method(), url });
       const allowed = requestOrigin === target.origin
         || requestOrigin === "http://127.0.0.1:3217"
-        || requestOrigin === "http://localhost:3217";
+        || requestOrigin === "http://localhost:3217"
+        || previewInfrastructure;
       if (!allowed) externalRequests.push({ method: request.method(), url });
     });
     page.on("response", (response) => {
@@ -195,6 +199,7 @@ async function main() {
       manualDeepUrlCount: 0,
       checks,
       externalRequestCount: 0,
+      previewInfrastructureRequestCount: previewInfrastructureRequests.length,
       productionMutationCount: 0,
     };
     await writeJson(path.join(artifactRoot, "exact-origin-results.json"), result);
