@@ -192,11 +192,28 @@ async function main() {
   }
 
   const productParent = await git(repositoryRoot, "rev-parse", `${productCommit}^`);
-  if (productParent !== baselineCommit) throw new Error("PRODUCT_PARENT_BASELINE_MISMATCH");
+  try {
+    await git(repositoryRoot, "merge-base", "--is-ancestor", baselineCommit, productCommit);
+  } catch {
+    throw new Error("PRODUCT_BASELINE_NOT_ANCESTOR");
+  }
+  const productCommitCount = Number(await git(
+    repositoryRoot,
+    "rev-list",
+    "--count",
+    `${baselineCommit}..${productCommit}`,
+  ));
+  if (!Number.isSafeInteger(productCommitCount) || productCommitCount < 1) {
+    throw new Error("PRODUCT_COMMIT_RANGE_INVALID");
+  }
   const productFiles = (await git(repositoryRoot, "diff", "--name-only", baselineCommit, productCommit))
     .split(/\r?\n/u).filter(Boolean);
   if (productFiles.some((file) => file.startsWith("artifacts/p24b-rc3-1-consumer-activation/"))) {
     throw new Error("PRODUCT_COMMIT_CONTAINS_EVIDENCE_RESULT");
+  }
+  const allowedProductPath = /^(?:\.github\/workflows\/deploy\.yml|app\/|lib\/|scripts\/|tests\/|package\.json$)/u;
+  if (productFiles.some((file) => !allowedProductPath.test(file))) {
+    throw new Error("PRODUCT_COMMIT_RANGE_CONTAINS_UNEXPECTED_PATH");
   }
   await writeJson(path.join(artifactRoot, "baseline.json"), {
     status: "PASS",
@@ -209,6 +226,8 @@ async function main() {
     status: "PASS",
     productCommit,
     parentCommit: productParent,
+    baselineCommit,
+    productCommitCount,
     message: await git(repositoryRoot, "show", "-s", "--format=%s", productCommit),
     files: productFiles,
     evidenceResultIncluded: false,
