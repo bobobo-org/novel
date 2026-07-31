@@ -51,6 +51,7 @@ export function releaseIdentity() {
     deploymentId: runtimeDeploymentId(),
     releaseTag: RELEASE_MANIFEST.releaseTag,
     releaseName: RELEASE_MANIFEST.releaseName,
+    consumerRelease: RELEASE_MANIFEST.consumerRelease,
     architectureStage: RELEASE_MANIFEST.architectureStage,
     buildTime: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV || "local",

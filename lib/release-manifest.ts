@@ -22,6 +22,12 @@ if (!allowedArchitectureStages.has(manifest.architectureStage)) {
 if (!(new RegExp(contract.releaseTagPattern)).test(manifest.releaseTag)) {
   throw new Error(`Invalid release tag: ${manifest.releaseTag}`);
 }
+if (!(new RegExp(contract.consumerReleasePattern)).test(manifest.consumerRelease)) {
+  throw new Error(`Invalid consumer release: ${manifest.consumerRelease}`);
+}
+if (Number.isNaN(Date.parse(manifest.buildTime))) {
+  throw new Error(`Invalid release build time: ${manifest.buildTime}`);
+}
 const allowedProvenanceSchemas = new Set<string>(
   contract.allowedProvenanceSchemaVersions ?? [contract.provenanceSchemaVersion],
 );

@@ -19,5 +19,7 @@
     "P2.4A RC",
     "P2.4B RC"
   ],
-  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$"
+  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$",
+  "consumerReleasePattern": "^p(?:1\\.5|2(?:\\.[0-9]+[a-z]?)*)(?:-[a-z0-9]+)*$",
+  "buildTimeFormat": "iso-8601"
 }
