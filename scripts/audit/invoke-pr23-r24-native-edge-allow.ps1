@@ -148,6 +148,25 @@ while ((Get-Date) -lt $deadline) {
             startedAt = $startedAt.ToString("o")
             invokedAt = (Get-Date).ToUniversalTime().ToString("o")
           }
+          $retryPath = Join-Path $PSScriptRoot "invoke-pr23-r24-pairing-retry.ps1"
+          $powershellPath = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $retryArguments = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", "`"$retryPath`"",
+            "-OutputDir", "`"$resolvedOutput`"",
+            "-TimeoutSeconds", "20",
+            "-AllowNotNeeded"
+          )
+          $retryHelper = Start-Process `
+            -FilePath $powershellPath `
+            -ArgumentList $retryArguments `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+          if ($retryHelper.ExitCode -ne 0) {
+            exit 3
+          }
           exit 0
         } catch {
           continue

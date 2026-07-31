@@ -75,7 +75,7 @@ try {
   Remove-Item Env:\PR23_NATIVE_ALLOW_DELEGATION -ErrorAction SilentlyContinue
   if ($allowHelper) {
     if (-not $allowHelper.HasExited) {
-      $allowHelper.WaitForExit(5000) | Out-Null
+      $allowHelper.WaitForExit(30000) | Out-Null
     }
     if (-not $allowHelper.HasExited) {
       Stop-Process -Id $allowHelper.Id -Force

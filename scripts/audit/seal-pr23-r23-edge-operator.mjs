@@ -433,6 +433,34 @@ export function evaluateGate(model) {
       && consoleSummary?.currentGateCount === 0
     );
   const observedExecutors = executor?.observed ?? [];
+  const pairingRetrySafety =
+    nativePairingRetry?.delegatedActor === "codex"
+    && nativePairingRetry?.decisionMethod === "WINDOWS_UI_AUTOMATION"
+    && nativePairingRetry?.decisionTarget === "PRODUCT_START_SECURE_PAIRING"
+    && nativePairingRetry?.processName === "msedge.exe"
+    && nativePairingRetry?.processIdMatchedFreshAuditProfile === true
+    && nativePairingRetry?.fixedScreenCoordinatesUsed === false
+    && nativePairingRetry?.permissionInjectionUsed === false
+    && nativePairingRetry?.browserPolicyModified === false
+    && nativePairingRetry?.localNetworkAccessBypassUsed === false;
+  const pairingRetryInvoked =
+    pairingRetrySafety
+    && nativePairingRetry?.status === "INVOKED"
+    && nativePairingRetry?.reason
+      === "NATIVE_PERMISSION_DECISION_INTERRUPTED_INITIAL_PAIRING_FETCH"
+    && nativePairingRetry?.automationRole === "Button"
+    && nativePairingRetry?.controlObserved === true
+    && nativePairingRetry?.retryCount === 1
+    && nativePairingRetry?.pairingControlDismissedOrDisabled === true;
+  const pairingRetryNotNeeded =
+    pairingRetrySafety
+    && nativePairingRetry?.status === "NOT_NEEDED"
+    && nativePairingRetry?.reason
+      === "INITIAL_PAIRING_CONTINUED_AFTER_NATIVE_PERMISSION_DECISION"
+    && nativePairingRetry?.controlObserved === false
+    && nativePairingRetry?.retryCount === 0
+    && bridge?.status === "PASS"
+    && permission?.nativePermissionObserved === true;
   const requirements = [
     requirement("runner_status_pass", metadata?.status === "PASS", metadata?.status),
     requirement(
@@ -490,19 +518,11 @@ export function evaluateGate(model) {
     ),
     requirement(
       "native_permission_pairing_retry_auditable",
-      nativePairingRetry?.status === "INVOKED"
-      && nativePairingRetry?.reason
-        === "NATIVE_PERMISSION_DECISION_INTERRUPTED_INITIAL_PAIRING_FETCH"
-      && nativePairingRetry?.delegatedActor === "codex"
-      && nativePairingRetry?.decisionMethod === "WINDOWS_UI_AUTOMATION"
-      && nativePairingRetry?.decisionTarget === "PRODUCT_START_SECURE_PAIRING"
-      && nativePairingRetry?.automationRole === "Button"
-      && nativePairingRetry?.processName === "msedge.exe"
-      && nativePairingRetry?.processIdMatchedFreshAuditProfile === true
-      && nativePairingRetry?.fixedScreenCoordinatesUsed === false
-      && nativePairingRetry?.permissionInjectionUsed === false
-      && nativePairingRetry?.browserPolicyModified === false
-      && nativePairingRetry?.localNetworkAccessBypassUsed === false,
+      pairingRetryInvoked || pairingRetryNotNeeded,
+      {
+        status: nativePairingRetry?.status ?? null,
+        retryCount: nativePairingRetry?.retryCount ?? null,
+      },
     ),
     requirement(
       "no_permission_injection_policy_bypass_or_mock",
@@ -766,6 +786,9 @@ function makePassModel() {
       automationRole: "Button",
       processName: "msedge.exe",
       processIdMatchedFreshAuditProfile: true,
+      controlObserved: true,
+      retryCount: 1,
+      pairingControlDismissedOrDisabled: true,
       fixedScreenCoordinatesUsed: false,
       permissionInjectionUsed: false,
       browserPolicyModified: false,
@@ -925,6 +948,49 @@ function runSelfTest() {
     tests.push({ name, verdict: result.verdict });
   };
   run("pass_metadata_can_pass", () => {}, "PR23_R2_3_EDGE_OPERATOR_GATE_PASS");
+  run(
+    "pairing_retry_not_needed_can_pass_after_verified_pairing",
+    (model) => {
+      model.nativePairingRetry = {
+        status: "NOT_NEEDED",
+        reason: "INITIAL_PAIRING_CONTINUED_AFTER_NATIVE_PERMISSION_DECISION",
+        delegatedActor: "codex",
+        decisionMethod: "WINDOWS_UI_AUTOMATION",
+        decisionTarget: "PRODUCT_START_SECURE_PAIRING",
+        processName: "msedge.exe",
+        processIdMatchedFreshAuditProfile: true,
+        controlObserved: false,
+        retryCount: 0,
+        fixedScreenCoordinatesUsed: false,
+        permissionInjectionUsed: false,
+        browserPolicyModified: false,
+        localNetworkAccessBypassUsed: false,
+      };
+    },
+    "PR23_R2_3_EDGE_OPERATOR_GATE_PASS",
+  );
+  run(
+    "pairing_retry_not_needed_without_verified_pairing_blocks",
+    (model) => {
+      model.nativePairingRetry = {
+        status: "NOT_NEEDED",
+        reason: "INITIAL_PAIRING_CONTINUED_AFTER_NATIVE_PERMISSION_DECISION",
+        delegatedActor: "codex",
+        decisionMethod: "WINDOWS_UI_AUTOMATION",
+        decisionTarget: "PRODUCT_START_SECURE_PAIRING",
+        processName: "msedge.exe",
+        processIdMatchedFreshAuditProfile: true,
+        controlObserved: false,
+        retryCount: 0,
+        fixedScreenCoordinatesUsed: false,
+        permissionInjectionUsed: false,
+        browserPolicyModified: false,
+        localNetworkAccessBypassUsed: false,
+      };
+      model.bridge.status = "FAIL";
+    },
+    "PR23_R2_3_EDGE_OPERATOR_GATE_FAILED",
+  );
   run(
     "blocked_does_not_become_pass",
     (model) => {

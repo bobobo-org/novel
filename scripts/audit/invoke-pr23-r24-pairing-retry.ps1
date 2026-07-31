@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$OutputDir,
-  [int]$TimeoutSeconds = 30
+  [int]$TimeoutSeconds = 30,
+  [switch]$AllowNotNeeded
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +37,7 @@ function Write-RetryEvidence([hashtable]$Evidence) {
   [IO.File]::WriteAllText($target, "$json`n", [Text.UTF8Encoding]::new($false))
 }
 
+$freshProfileObserved = $false
 while ((Get-Date) -lt $deadline) {
   $edgeProcesses = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq "msedge.exe" -and
@@ -43,6 +45,9 @@ while ((Get-Date) -lt $deadline) {
     $_.CommandLine.IndexOf($profileMarker, [StringComparison]::OrdinalIgnoreCase) -ge 0
   })
   $edgePids = @($edgeProcesses | Select-Object -ExpandProperty ProcessId)
+  if ($edgePids.Count -gt 0) {
+    $freshProfileObserved = $true
+  }
   $mainWindows = @($edgeProcesses | ForEach-Object {
     Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
   } | Where-Object { $_.MainWindowHandle -ne 0 })
@@ -70,6 +75,69 @@ while ((Get-Date) -lt $deadline) {
         $element.SetFocus()
         $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
         $pattern.Invoke()
+        $effectiveDeadline = (Get-Date).AddSeconds(5)
+        $invocationEffective = $false
+        while ((Get-Date) -lt $effectiveDeadline) {
+          Start-Sleep -Milliseconds 200
+          $activePairingControl = $false
+          $refreshedWindows = @($edgeProcesses | ForEach-Object {
+            Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+          } | Where-Object { $_.MainWindowHandle -ne 0 })
+          foreach ($refreshedWindow in $refreshedWindows) {
+            try {
+              $refreshedElement =
+                [Windows.Automation.AutomationElement]::FromHandle(
+                  $refreshedWindow.MainWindowHandle
+                )
+              $refreshedControls = $refreshedElement.FindAll(
+                [Windows.Automation.TreeScope]::Descendants,
+                [Windows.Automation.Condition]::TrueCondition
+              )
+            } catch {
+              continue
+            }
+            foreach ($control in $refreshedControls) {
+              try {
+                if ($edgePids -notcontains $control.Current.ProcessId) { continue }
+                if (
+                  $control.Current.ControlType -eq
+                    [Windows.Automation.ControlType]::Button -and
+                  [string]$control.Current.Name -eq $pairingName -and
+                  $control.Current.IsEnabled
+                ) {
+                  $activePairingControl = $true
+                  break
+                }
+              } catch {
+                continue
+              }
+            }
+            if ($activePairingControl) { break }
+          }
+          if (-not $activePairingControl) {
+            $invocationEffective = $true
+            break
+          }
+        }
+        if (-not $invocationEffective) {
+          Write-RetryEvidence @{
+            schemaVersion = "pr23-r2-4-native-pairing-retry-v1"
+            status = "INVOCATION_NOT_EFFECTIVE"
+            reason = "NATIVE_PERMISSION_DECISION_INTERRUPTED_INITIAL_PAIRING_FETCH"
+            delegatedActor = "codex"
+            decisionMethod = "WINDOWS_UI_AUTOMATION"
+            decisionTarget = "PRODUCT_START_SECURE_PAIRING"
+            processName = "msedge.exe"
+            processIdMatchedFreshAuditProfile = $true
+            fixedScreenCoordinatesUsed = $false
+            permissionInjectionUsed = $false
+            browserPolicyModified = $false
+            localNetworkAccessBypassUsed = $false
+            startedAt = $startedAt.ToString("o")
+            completedAt = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          exit 3
+        }
         Write-RetryEvidence @{
           schemaVersion = "pr23-r2-4-native-pairing-retry-v1"
           status = "INVOKED"
@@ -81,6 +149,9 @@ while ((Get-Date) -lt $deadline) {
           automationRole = "Button"
           processName = "msedge.exe"
           processIdMatchedFreshAuditProfile = $true
+          controlObserved = $true
+          retryCount = 1
+          pairingControlDismissedOrDisabled = $true
           fixedScreenCoordinatesUsed = $false
           permissionInjectionUsed = $false
           browserPolicyModified = $false
@@ -95,6 +166,29 @@ while ((Get-Date) -lt $deadline) {
     }
   }
   Start-Sleep -Milliseconds 200
+}
+
+if ($AllowNotNeeded) {
+  Write-RetryEvidence @{
+    schemaVersion = "pr23-r2-4-native-pairing-retry-v1"
+    status = "NOT_NEEDED"
+    reason = "INITIAL_PAIRING_CONTINUED_AFTER_NATIVE_PERMISSION_DECISION"
+    delegatedActor = "codex"
+    decisionMethod = "WINDOWS_UI_AUTOMATION"
+    decisionTarget = "PRODUCT_START_SECURE_PAIRING"
+    processName = "msedge.exe"
+    processIdMatchedFreshAuditProfile = $freshProfileObserved
+    controlObserved = $false
+    retryCount = 0
+    fixedScreenCoordinatesUsed = $false
+    permissionInjectionUsed = $false
+    browserPolicyModified = $false
+    localNetworkAccessBypassUsed = $false
+    startedAt = $startedAt.ToString("o")
+    completedAt = (Get-Date).ToUniversalTime().ToString("o")
+    timeoutSeconds = $TimeoutSeconds
+  }
+  exit 0
 }
 
 Write-RetryEvidence @{

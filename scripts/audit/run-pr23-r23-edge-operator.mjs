@@ -994,6 +994,10 @@ function runSelfTest() {
     path.join(scriptDir, "invoke-pr23-r24-native-edge-allow.ps1"),
     "utf8",
   );
+  const pairingRetryHelper = readFileSync(
+    path.join(scriptDir, "invoke-pr23-r24-pairing-retry.ps1"),
+    "utf8",
+  );
   const fixturePlaywrightUrl =
     "file:///C:/dev/novel-pr23-r22-audit/node_modules/@playwright/test/index.js";
   const transformed = transformR22Runner(
@@ -1128,6 +1132,17 @@ function runSelfTest() {
       delegatedAllowHelper.includes("SetForegroundWindow")
       && delegatedAllowHelper.includes("nativePromptDismissed")
       && delegatedAllowHelper.includes("$promptStillPresent"),
+    delegatedHelperStartsConditionalPairingRetry:
+      delegatedAllowHelper.includes("invoke-pr23-r24-pairing-retry.ps1")
+      && delegatedAllowHelper.includes("-AllowNotNeeded"),
+    pairingRetryHelperWindowScoped:
+      pairingRetryHelper.includes("AutomationElement]::FromHandle")
+      && pairingRetryHelper.includes("$windowElement.FindAll")
+      && !pairingRetryHelper.includes("AutomationElement]::RootElement.FindAll"),
+    pairingRetryHelperVerifiesEffectiveInvocation:
+      pairingRetryHelper.includes("pairingControlDismissedOrDisabled")
+      && pairingRetryHelper.includes("$invocationEffective")
+      && pairingRetryHelper.includes("INVOCATION_NOT_EFFECTIVE"),
     gateCountIsBlockingCount: transformed.includes(
       "const rawConsoleErrorCount",
     ),
