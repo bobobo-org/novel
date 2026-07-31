@@ -111,7 +111,7 @@ jobs:
           node-version: 22
 
       - name: Install Preview deployment tooling
-        run: npm install --global vercel@56.3.2
+        run: npm install --global pnpm@10 vercel@56.3.2
 
       - name: Pull Vercel environment (Preview)
         run: vercel pull --yes --environment=preview --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
