@@ -3,7 +3,8 @@ param(
   [string]$OutputDir = "artifacts/pr23-r23-edge-operator",
   [string]$PreviewUrl = "https://novel-brendon-hkoxvsfdx-brendon1006-2299s-projects.vercel.app",
   [string]$ExpectedDeploymentId = "dpl_DQ2SH9UubwyiTDs78KUCgCNS5Li8",
-  [string]$ExpectedMergeRef = "bc564667cc110a5d060ff94cf4b342a37690d763"
+  [string]$ExpectedMergeRef = "bc564667cc110a5d060ff94cf4b342a37690d763",
+  [switch]$DelegateNativeAllow
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,13 +41,52 @@ if (-not (Test-Path -LiteralPath $node)) {
   throw "R23_NODE_RUNTIME_NOT_FOUND"
 }
 
-Write-Host "Microsoft Edge will open. Click Allow once in the native Local Network Access prompt; do not operate the page."
-& $node (Join-Path $PSScriptRoot "run-pr23-r23-edge-operator.mjs") `
-  --output-dir $resolvedOutput `
-  --preview-url $PreviewUrl `
-  --expected-deployment-id $ExpectedDeploymentId `
-  --expected-merge-ref $ExpectedMergeRef
-$runnerExit = $LASTEXITCODE
+$allowHelper = $null
+if ($DelegateNativeAllow) {
+  $helperPath = Join-Path $PSScriptRoot "invoke-pr23-r24-native-edge-allow.ps1"
+  $powershellPath = (Get-Command powershell.exe -ErrorAction Stop).Source
+  $helperArguments = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", "`"$helperPath`"",
+    "-OutputDir", "`"$resolvedOutput`"",
+    "-TimeoutSeconds", "240"
+  )
+  $allowHelper = Start-Process `
+    -FilePath $powershellPath `
+    -ArgumentList $helperArguments `
+    -WindowStyle Hidden `
+    -PassThru
+  $env:PR23_NATIVE_ALLOW_DELEGATION = "codex_windows_ui_automation"
+  Write-Host "Microsoft Edge will open. The explicitly delegated semantic UI Automation helper will invoke the native Allow control; do not operate the page."
+} else {
+  $env:PR23_NATIVE_ALLOW_DELEGATION = "human_operator"
+  Write-Host "Microsoft Edge will open. Click Allow once in the native Local Network Access prompt; do not operate the page."
+}
+
+try {
+  & $node (Join-Path $PSScriptRoot "run-pr23-r23-edge-operator.mjs") `
+    --output-dir $resolvedOutput `
+    --preview-url $PreviewUrl `
+    --expected-deployment-id $ExpectedDeploymentId `
+    --expected-merge-ref $ExpectedMergeRef
+  $runnerExit = $LASTEXITCODE
+} finally {
+  Remove-Item Env:\PR23_NATIVE_ALLOW_DELEGATION -ErrorAction SilentlyContinue
+  if ($allowHelper) {
+    if (-not $allowHelper.HasExited) {
+      $allowHelper.WaitForExit(5000) | Out-Null
+    }
+    if (-not $allowHelper.HasExited) {
+      Stop-Process -Id $allowHelper.Id -Force
+      $allowHelper.WaitForExit()
+    }
+  }
+}
+
+if ($DelegateNativeAllow -and $runnerExit -eq 0 -and $allowHelper.ExitCode -ne 0) {
+  throw "R24_NATIVE_ALLOW_DELEGATION_FAILED:$($allowHelper.ExitCode)"
+}
 if ($runnerExit -ne 0) {
   Write-Host "PR23_R2_3_OPERATOR_RUN_NOT_PASS (exit=$runnerExit)"
   exit $runnerExit

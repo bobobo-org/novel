@@ -304,6 +304,11 @@ assert.equal(
       browserPolicyModified: false,
       localNetworkAccessBypassUsed: false,
       mockBrowserUsed: false,
+      decisionActuator:
+        process.env.PR23_NATIVE_ALLOW_DELEGATION
+          === "codex_windows_ui_automation"
+          ? "semantic_windows_ui_automation"
+          : "human_operator",
     },`,
     "permission-result",
   );
@@ -902,6 +907,11 @@ assert.equal(
       protectedR22EvidenceTree:
         "122804d2974df57d0c37eb2f6e2116f281e4eab1",
       operatorAssisted: true,
+      operatorDelegationMethod:
+        process.env.PR23_NATIVE_ALLOW_DELEGATION ?? "human_operator",
+      humanOperatorClicked:
+        process.env.PR23_NATIVE_ALLOW_DELEGATION
+          !== "codex_windows_ui_automation",
     });`,
     "metadata-attestation",
   );
@@ -1103,6 +1113,9 @@ function runSelfTest() {
       && twoChoiceFixture.choices.length === 2,
     correctedProofLabel: transformed.includes('proof["離開裝置"]'),
     operatorWait: transformed.includes("timeout: 600_000"),
+    delegatedDecisionIsAuditable:
+      transformed.includes("semantic_windows_ui_automation")
+      && transformed.includes("humanOperatorClicked"),
     gateCountIsBlockingCount: transformed.includes(
       "const rawConsoleErrorCount",
     ),

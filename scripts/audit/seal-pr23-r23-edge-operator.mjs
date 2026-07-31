@@ -137,6 +137,11 @@ function readJson(outputDir, name) {
   return JSON.parse(readFileSync(path.join(outputDir, name), "utf8"));
 }
 
+function readOptionalJson(outputDir, name) {
+  const target = path.join(outputDir, name);
+  return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : null;
+}
+
 function command(executable, args) {
   return execFileSync(executable, args, {
     cwd: root,
@@ -404,6 +409,7 @@ export function evaluateGate(model) {
     backupRestore,
     remoteGate,
     consoleSummary,
+    nativeAllowDelegation,
     rawStats,
     rawPreserved,
     scan,
@@ -456,6 +462,28 @@ export function evaluateGate(model) {
       && Object.values(permission?.after?.states ?? {}).some(
         (state) => state === "granted",
       ),
+    ),
+    requirement(
+      "native_permission_decision_authorized_and_auditable",
+      metadata?.operatorDelegationMethod === "codex_windows_ui_automation"
+      && metadata?.humanOperatorClicked === false
+      && permission?.decisionActuator === "semantic_windows_ui_automation"
+      && nativeAllowDelegation?.status === "INVOKED"
+      && nativeAllowDelegation?.explicitUserDelegation === true
+      && nativeAllowDelegation?.delegatedActor === "codex"
+      && nativeAllowDelegation?.decisionMethod === "WINDOWS_UI_AUTOMATION"
+      && nativeAllowDelegation?.decisionTarget
+        === "MICROSOFT_EDGE_NATIVE_LOCAL_NETWORK_ACCESS_ALLOW"
+      && nativeAllowDelegation?.automationRole === "Button"
+      && nativeAllowDelegation?.processName === "msedge.exe"
+      && nativeAllowDelegation?.processIdMatchedFreshAuditProfile === true
+      && /^[a-f0-9]{64}$/u.test(
+        nativeAllowDelegation?.profileCommandLineDigest ?? "",
+      )
+      && nativeAllowDelegation?.fixedScreenCoordinatesUsed === false
+      && nativeAllowDelegation?.permissionInjectionUsed === false
+      && nativeAllowDelegation?.browserPolicyModified === false
+      && nativeAllowDelegation?.localNetworkAccessBypassUsed === false,
     ),
     requirement(
       "no_permission_injection_policy_bypass_or_mock",
@@ -639,6 +667,10 @@ function loadModel(outputDir, rawPreserved, scan, live) {
     backupRestore: readJson(outputDir, "backup-restore.json"),
     remoteGate: readJson(outputDir, "remote-preview-gate-v3.json"),
     consoleSummary: readJson(outputDir, "console-summary.json"),
+    nativeAllowDelegation: readOptionalJson(
+      outputDir,
+      "native-allow-delegation.json",
+    ),
     rawStats: collectRawStats(outputDir),
     rawPreserved,
     scan,
@@ -665,6 +697,8 @@ function makePassModel() {
       permissionInjectionUsed: false,
       localNetworkAccessBypassUsed: false,
       mockBrowserUsed: false,
+      operatorDelegationMethod: "codex_windows_ui_automation",
+      humanOperatorClicked: false,
     },
     edgeProfile: {
       status: "PASS",
@@ -681,6 +715,22 @@ function makePassModel() {
       browserPolicyModified: false,
       localNetworkAccessBypassUsed: false,
       mockBrowserUsed: false,
+      decisionActuator: "semantic_windows_ui_automation",
+    },
+    nativeAllowDelegation: {
+      status: "INVOKED",
+      explicitUserDelegation: true,
+      delegatedActor: "codex",
+      decisionMethod: "WINDOWS_UI_AUTOMATION",
+      decisionTarget: "MICROSOFT_EDGE_NATIVE_LOCAL_NETWORK_ACCESS_ALLOW",
+      automationRole: "Button",
+      processName: "msedge.exe",
+      processIdMatchedFreshAuditProfile: true,
+      profileCommandLineDigest: digest,
+      fixedScreenCoordinatesUsed: false,
+      permissionInjectionUsed: false,
+      browserPolicyModified: false,
+      localNetworkAccessBypassUsed: false,
     },
     bridge: {
       status: "PASS",
