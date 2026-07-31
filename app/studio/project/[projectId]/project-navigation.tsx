@@ -47,7 +47,7 @@ export default function ProjectNavigation({
 }) {
   return (
     <nav className="p2ProjectNav" aria-label="作品功能">
-      <Link className="p2NavWorkbench" href={`/professional?projectId=${encodeURIComponent(projectId)}`}>
+      <Link className="p2NavWorkbench" href={`/professional?projectId=${encodeURIComponent(projectId)}`} prefetch={false}>
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
         <span className="p2NavLabel">專業工作台</span>
         <span className="p2NavShort">工作台</span>

@@ -51,6 +51,12 @@ function safeProjectId(value: string) {
   return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : "";
 }
 
+function isExplicitLegacyRoute(href: string) {
+  return href === "/professional"
+    || href.startsWith("/professional?")
+    || href.startsWith("/legacy/");
+}
+
 export default function FrontdoorClient({ release, packs, classicTopics }: FrontdoorProps) {
   const [recentProject, setRecentProject] = useState<RecentProject | null>(null);
   const [closedAI, setClosedAI] = useState<ClosedAIStatus>("未設定");
@@ -184,7 +190,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
             </button>
             <Link data-testid="legacy-import-explicit" href="/studio?legacyMigration=import">匯入到新版作品庫</Link>
             <button type="button" onClick={() => setDismissLegacy(true)}>暫不匯入</button>
-            <Link href="/legacy/novel-system.html">繼續使用舊版</Link>
+            <Link href="/legacy/novel-system.html" prefetch={false}>繼續使用舊版</Link>
           </div>
         </section>
       ) : null}
@@ -196,7 +202,12 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </div>
         <div className="entryGrid">
           {entries.map(([title, description, href, icon]) => (
-            <Link className="entryCard" href={href} key={title}>
+            <Link
+              className="entryCard"
+              href={href}
+              key={title}
+              prefetch={!isExplicitLegacyRoute(href)}
+            >
               <span className="entryIndex">{icon}</span><h3>{title}</h3><p>{description}</p>
               <span className="entryArrow" aria-hidden="true">→</span>
             </Link>
@@ -205,7 +216,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       </section>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
-        <Link href="/legacy/novel-system.html">Legacy 進階工具</Link>
+        <Link href="/legacy/novel-system.html" prefetch={false}>Legacy 進階工具</Link>
       </footer>
     </main>
   );

@@ -2042,7 +2042,7 @@ export default function StudioClient({
             >
               暫不匯入
             </button>
-            <Link href="/legacy/novel-system.html">繼續使用舊版</Link>
+            <Link href="/legacy/novel-system.html" prefetch={false}>繼續使用舊版</Link>
           </div>
         </section>
       ) : null}
@@ -2119,7 +2119,7 @@ export default function StudioClient({
         <Link className="studioLocalAI" href={localAISetupHref}>
           設定本機 AI
         </Link>
-        <Link className="studioProfessional" href="/professional">
+        <Link className="studioProfessional" href="/professional" prefetch={false}>
           專業工具
         </Link>
       </aside>

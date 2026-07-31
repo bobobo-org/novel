@@ -74,6 +74,10 @@ async function legacyExplicitOnly() {
     source("public/legacy/consumer-app.js"),
   ]);
   assert.match(frontdoor, /legacyMigration=import/);
+  assert.match(frontdoor, /function isExplicitLegacyRoute/);
+  assert.match(frontdoor, /prefetch=\{!isExplicitLegacyRoute\(href\)\}/);
+  assert.match(frontdoor, /href="\/legacy\/novel-system\.html" prefetch=\{false\}/);
+  assert.match(studio, /href="\/professional" prefetch=\{false\}/);
   assert.match(frontdoor, /暫不匯入/);
   assert.match(frontdoor, /繼續使用舊版/);
   assert.match(studio, /overwriteExisting:\s*false/);
