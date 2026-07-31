@@ -150,7 +150,12 @@ function Find-ProfileUiElement(
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne $ControlType) { continue }
-          if ($Names -contains $element.Current.Name) { return $element }
+          $elementName = [string]$element.Current.Name
+          $matchesName = @($Names | Where-Object {
+            $elementName -eq $_ -or
+            $elementName.StartsWith($_, [StringComparison]::Ordinal)
+          }).Count -gt 0
+          if ($matchesName) { return $element }
         } catch { }
       }
     }
@@ -162,6 +167,7 @@ function Find-ProfileUiElement(
 function Invoke-UiPairing([string]$ProfilePath) {
   $startName = ([char]0x958B)+([char]0x59CB)+([char]0x5B89)+([char]0x5168)+([char]0x914D)+([char]0x5C0D)
   $codeName = ([char]0x672C)+([char]0x6A5F)+([char]0x914D)+([char]0x5C0D)+([char]0x78BC)
+  $sixDigitCodeName = ([char]0x516D)+([char]0x4F4D)+([char]0x6578)+([char]0x914D)+([char]0x5C0D)+([char]0x78BC)
   $confirmName = ([char]0x78BA)+([char]0x8A8D)+([char]0x914D)+([char]0x5C0D)
   $start = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Button) -Names @($startName) -Deadline ((Get-Date).AddSeconds(30))
   if (-not $start) { return [ordered]@{ status = "PAIR_START_NOT_FOUND" } }
@@ -178,7 +184,7 @@ function Invoke-UiPairing([string]$ProfilePath) {
   }
   if (-not $pairing) { return [ordered]@{ status = "PAIRING_CODE_NOT_AVAILABLE" } }
 
-  $input = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Edit) -Names @($codeName) -Deadline ((Get-Date).AddSeconds(10))
+  $input = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Edit) -Names @($codeName, $sixDigitCodeName) -Deadline ((Get-Date).AddSeconds(10))
   if (-not $input) { return [ordered]@{ status = "PAIR_CODE_INPUT_NOT_FOUND" } }
   $input.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue([string]$pairing.code)
   $pairing.code = $null
