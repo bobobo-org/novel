@@ -26,14 +26,14 @@ const ghPath = existsSync("C:\\Program Files\\GitHub CLI\\gh.exe")
   : "gh.exe";
 const baseline = Object.freeze({
   baseMain: "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
-  protectedPrHead: "5bed30071fbdbf5f2be0e374e1bc8fc5ac2162ee",
-  mergeRef: "bc564667cc110a5d060ff94cf4b342a37690d763",
+  protectedPrHead: "f0c86cbf0b6e063124de227648242d53e338ee41",
+  mergeRef: "b82e10bc13ed8268a499368c7c19023225918820",
   r22AuditCommit: "94ff70847b449e08d53759bad6d0bf3f1ffa530f",
   r22EvidenceTree: "122804d2974df57d0c37eb2f6e2116f281e4eab1",
   r22Manifest:
     "a32e176398ccb55c583138292c3a34acf4c09149e1084ae42386174f0df24561",
-  preview: "https://novel-brendon-hkoxvsfdx-brendon1006-2299s-projects.vercel.app",
-  previewDeployment: "dpl_DQ2SH9UubwyiTDs78KUCgCNS5Li8",
+  preview: "https://novel-brendon-f8drzvf3d-brendon1006-2299s-projects.vercel.app",
+  previewDeployment: "dpl_CUKCjfhskDq7P2dVi4LFqtLGhNFQ",
   productionCommit: "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
   productionDeployment: "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
   productionPrimary: "https://novel-orcin.vercel.app",

@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
   [string]$OutputDir = "artifacts/pr23-r23-edge-operator",
-  [string]$PreviewUrl = "https://novel-brendon-hkoxvsfdx-brendon1006-2299s-projects.vercel.app",
-  [string]$ExpectedDeploymentId = "dpl_DQ2SH9UubwyiTDs78KUCgCNS5Li8",
-  [string]$ExpectedMergeRef = "bc564667cc110a5d060ff94cf4b342a37690d763",
+  [string]$PreviewUrl = "https://novel-brendon-f8drzvf3d-brendon1006-2299s-projects.vercel.app",
+  [string]$ExpectedDeploymentId = "dpl_CUKCjfhskDq7P2dVi4LFqtLGhNFQ",
+  [string]$ExpectedMergeRef = "b82e10bc13ed8268a499368c7c19023225918820",
   [switch]$DelegateNativeAllow
 )
 
