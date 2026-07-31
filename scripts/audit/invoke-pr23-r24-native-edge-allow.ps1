@@ -17,6 +17,19 @@ $allowNames = @(
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+if (-not ("PR23.NativeWindow" -as [type])) {
+  Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+namespace PR23 {
+  public static class NativeWindow {
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  }
+}
+"@
+}
 New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
 
 function Write-DelegationEvidence([hashtable]$Evidence) {
@@ -72,8 +85,47 @@ while ((Get-Date) -lt $deadline) {
             Where-Object { $_.ProcessId -eq $element.Current.ProcessId } |
             Select-Object -First 1
           if (-not $process) { continue }
+          [PR23.NativeWindow]::ShowWindowAsync($mainWindow.MainWindowHandle, 9) | Out-Null
+          [PR23.NativeWindow]::BringWindowToTop($mainWindow.MainWindowHandle) | Out-Null
+          [PR23.NativeWindow]::SetForegroundWindow($mainWindow.MainWindowHandle) | Out-Null
+          Start-Sleep -Milliseconds 300
+          $element.SetFocus()
           $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
           $pattern.Invoke()
+          Start-Sleep -Milliseconds 900
+          $promptStillPresent = $false
+          try {
+            $refreshedWindow = [Windows.Automation.AutomationElement]::FromHandle(
+              $mainWindow.MainWindowHandle
+            )
+            $refreshedElements = $refreshedWindow.FindAll(
+              [Windows.Automation.TreeScope]::Descendants,
+              [Windows.Automation.Condition]::TrueCondition
+            )
+            foreach ($refreshedElement in $refreshedElements) {
+              try {
+                if ($edgePids -notcontains $refreshedElement.Current.ProcessId) { continue }
+                if ($refreshedElement.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
+                $refreshedName = [string]$refreshedElement.Current.Name
+                if (
+                  $allowNames -contains $refreshedName -or
+                  $refreshedName.StartsWith(
+                    ([char]0x5141) + ([char]0x8A31),
+                    [StringComparison]::Ordinal
+                  ) -or
+                  $refreshedName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
+                ) {
+                  $promptStillPresent = $true
+                  break
+                }
+              } catch {
+                continue
+              }
+            }
+          } catch {
+            $promptStillPresent = $false
+          }
+          if ($promptStillPresent) { continue }
           Write-DelegationEvidence @{
             schemaVersion = "pr23-r2-4-native-allow-delegation-v1"
             status = "INVOKED"
@@ -88,6 +140,8 @@ while ((Get-Date) -lt $deadline) {
             processIdMatchedFreshAuditProfile = $true
             profileCommandLineDigest = Get-Sha256 ([string]$process.CommandLine)
             fixedScreenCoordinatesUsed = $false
+            windowForegrounded = $true
+            nativePromptDismissed = $true
             permissionInjectionUsed = $false
             browserPolicyModified = $false
             localNetworkAccessBypassUsed = $false

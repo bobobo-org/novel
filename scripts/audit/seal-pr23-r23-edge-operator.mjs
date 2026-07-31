@@ -481,6 +481,8 @@ export function evaluateGate(model) {
         nativeAllowDelegation?.profileCommandLineDigest ?? "",
       )
       && nativeAllowDelegation?.fixedScreenCoordinatesUsed === false
+      && nativeAllowDelegation?.windowForegrounded === true
+      && nativeAllowDelegation?.nativePromptDismissed === true
       && nativeAllowDelegation?.permissionInjectionUsed === false
       && nativeAllowDelegation?.browserPolicyModified === false
       && nativeAllowDelegation?.localNetworkAccessBypassUsed === false,
@@ -728,6 +730,8 @@ function makePassModel() {
       processIdMatchedFreshAuditProfile: true,
       profileCommandLineDigest: digest,
       fixedScreenCoordinatesUsed: false,
+      windowForegrounded: true,
+      nativePromptDismissed: true,
       permissionInjectionUsed: false,
       browserPolicyModified: false,
       localNetworkAccessBypassUsed: false,

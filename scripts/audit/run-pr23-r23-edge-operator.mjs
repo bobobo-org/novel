@@ -1124,6 +1124,10 @@ function runSelfTest() {
       delegatedAllowHelper.includes("AutomationElement]::FromHandle")
       && delegatedAllowHelper.includes("$windowElement.FindAll")
       && !delegatedAllowHelper.includes("AutomationElement]::RootElement.FindAll"),
+    delegatedHelperVerifiesEffectiveDecision:
+      delegatedAllowHelper.includes("SetForegroundWindow")
+      && delegatedAllowHelper.includes("nativePromptDismissed")
+      && delegatedAllowHelper.includes("$promptStillPresent"),
     gateCountIsBlockingCount: transformed.includes(
       "const rawConsoleErrorCount",
     ),
