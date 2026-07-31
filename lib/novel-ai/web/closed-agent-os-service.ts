@@ -9,10 +9,13 @@ import {
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
 import type { PlatformTaskType } from "../router/platform-types";
+import { createNovelRepository } from "../repository";
 import {
   createStudioClosedAgentToolRegistry,
   STUDIO_CLOSED_AGENT_TOOL_IDS,
 } from "./studio-closed-agent-tools";
+import { ClosedAIRuntimeCoordinator } from "./closed-ai-runtime-coordinator";
+import { composeProjectContext } from "./project-context-composer";
 
 export const STUDIO_CLOSED_AGENT_PERMISSION_SCOPES = [
   "story:read",
@@ -25,12 +28,34 @@ export const STUDIO_CLOSED_AGENT_PERMISSION_SCOPES = [
 ] as const;
 
 let studioClosedAgentOS: ClosedAgentOS | null = null;
+let studioClosedAIRuntime:
+  | { origin: string; coordinator: ClosedAIRuntimeCoordinator }
+  | null = null;
 
 export function getStudioClosedAgentOS() {
   studioClosedAgentOS ??= new ClosedAgentOS({
     tools: createStudioClosedAgentToolRegistry(),
   });
   return studioClosedAgentOS;
+}
+
+export function getStudioClosedAIRuntimeCoordinator(
+  origin = typeof window === "undefined"
+    ? "https://novel-orcin.vercel.app"
+    : window.location.origin,
+) {
+  if (!studioClosedAIRuntime || studioClosedAIRuntime.origin !== origin) {
+    const os = getStudioClosedAgentOS();
+    studioClosedAIRuntime = {
+      origin,
+      coordinator: new ClosedAIRuntimeCoordinator({
+        origin,
+        snapshotReader: (signal, namespace) =>
+          os.backendSnapshots(signal, namespace),
+      }),
+    };
+  }
+  return studioClosedAIRuntime.coordinator;
 }
 
 export type StudioClosedAgentContext = Omit<
@@ -56,24 +81,24 @@ export type ExecuteStudioClosedAgentInput = {
   promptProfileVersion?: string;
   storyBibleRevision?: string | number;
   knowledgeScopeRevision?: string | number;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   taskId?: string;
+  contextTokenBudget?: number;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
-
-function automaticBackend(taskType: PlatformTaskType): ClosedAIBackendId {
-  const complexity = taskComplexity(taskType);
-  if (complexity === "heavy") return "private-ai-hub";
-  if (complexity === "standard") return "local-ollama";
-  return "browser-ai";
-}
 
 export async function executeStudioClosedAgent(
   input: ExecuteStudioClosedAgentInput,
 ): Promise<ClosedAgentExecutionResult> {
   const os = getStudioClosedAgentOS();
-  const backendId = input.preferredBackend ?? automaticBackend(input.taskType);
-  const privacyLevel = backendId === "private-ai-hub"
+  const runtime = getStudioClosedAIRuntimeCoordinator();
+  const taskId =
+    input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`;
+  runtime.beginExecution(input.projectId, input.taskType);
+  const complexity = taskComplexity(input.taskType);
+  const privacyLevel = complexity === "heavy"
     ? "private_infrastructure_only"
     : "device_only";
   const namespace: ClosedAINamespace = {
@@ -85,32 +110,64 @@ export async function executeStudioClosedAgent(
     branchId: input.branchId ?? "main",
     characterId: input.characterId ?? "shared",
     agentRole: input.agentRole ?? "closed-agent-os",
-    modelId: `${backendId}:runtime-managed`,
-    modelDigest: `${backendId}:digest-runtime-managed`,
+    modelId: "unrouted:runtime-managed",
+    modelDigest: "unrouted:digest-runtime-managed",
     promptProfileVersion: input.promptProfileVersion ?? "studio-closed-agent-v3",
     storyBibleRevision: String(input.storyBibleRevision ?? "current"),
     knowledgeScopeRevision: String(input.knowledgeScopeRevision ?? "current"),
     privacyLevel,
   };
+  const supplementalContext = (input.context ?? []).map((item) => ({
+    ...item,
+    privacyLevel: item.privacyLevel ?? privacyLevel,
+    approved: item.approved ?? true,
+  }));
+  try {
+    const composed = await composeProjectContext({
+      repository: createNovelRepository(),
+      taskType: input.taskType,
+      projectId: input.projectId,
+      storyId: input.storyId,
+      canonId: input.canonId,
+      branchId: input.branchId,
+      characterId: input.characterId,
+      revision: input.storyBibleRevision,
+      privacyLevel,
+      tokenBudget: input.contextTokenBudget,
+      audience: "actor",
+      supplementalContext,
+    });
 
-  return os.execute({
-    taskId: input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`,
-    namespace,
-    taskType: input.taskType,
-    objective: input.objective.trim(),
-    context: (input.context ?? []).map((item) => ({
-      ...item,
-      privacyLevel: item.privacyLevel ?? privacyLevel,
-      approved: item.approved ?? true,
-    })),
-    complexity: taskComplexity(input.taskType),
-    qualityMode: input.qualityMode,
-    preferredBackend: input.preferredBackend,
-    allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
-    permissionScopes: [...STUDIO_CLOSED_AGENT_PERMISSION_SCOPES],
-    signal: input.signal,
-    onProgress: input.onProgress,
-  });
+    const result = await os.execute({
+      taskId,
+      namespace,
+      taskType: input.taskType,
+      objective: input.objective.trim(),
+      context: composed.context,
+      contextDigest: composed.contextDigest,
+      contextSourceSummary: JSON.stringify(composed.contextSourceSummary),
+      sourceChapterId: input.sourceChapterId,
+      sourceRevision: input.sourceRevision,
+      complexity,
+      qualityMode: input.qualityMode,
+      preferredBackend: input.preferredBackend,
+      allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
+      permissionScopes: [...STUDIO_CLOSED_AGENT_PERMISSION_SCOPES],
+      signal: input.signal,
+      onProgress: input.onProgress,
+    });
+    if (result.candidate.executionReceipt) {
+      runtime.recordExecutionReceipt(
+        input.projectId,
+        input.taskType,
+        result.candidate.executionReceipt,
+      );
+    }
+    return result;
+  } catch (error) {
+    runtime.beginExecution(input.projectId, input.taskType);
+    throw error;
+  }
 }
 
 export async function approveStudioClosedAgentCandidate(input: {

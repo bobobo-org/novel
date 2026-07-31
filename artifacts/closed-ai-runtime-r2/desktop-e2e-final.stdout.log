@@ -1,0 +1,17 @@
+{"mode":"desktop","status":"PROGRESS","name":"reuse explicitly matching local application server","details":{"baseUrl":"http://127.0.0.1:3100"}}
+{"mode":"desktop","status":"PROGRESS","name":"pair Local Bridge and verify a real Ollama model","details":{"actualExecutor":"local-ollama","proofVisible":true,"pairingSecretStored":false}}
+{"mode":"desktop","status":"PROGRESS","name":"Service Worker accepts release-scoped cache identity","details":{"controlled":true,"appCommitPresent":true,"assetManifestDigestPresent":true}}
+{"mode":"desktop","status":"PROGRESS","name":"create consumer project through the public frontdoor UI","details":{"projectIdPresent":true}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop Closed AI route loaded","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop Closed AI workspace visible","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"public frontdoor project is migrated to canonical IndexedDB","details":{"projectPresent":true}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop canonical project context visible","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop Local Ollama execution route ready","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop real-model task configured","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop real-model task submitted","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"desktop real-model candidate visible","details":{}}
+{"mode":"desktop","status":"PROGRESS","name":"candidate exposes truthful executor and data boundary","details":{"executor":"local-ollama","modelId":"qwen2.5:3b","contextDigestPresent":true,"dataLeftDevice":false,"externalRequest":false,"canonicalMutationCount":0}}
+{"mode":"desktop","status":"PROGRESS","name":"memory approval does not mutate Canon","details":{"canonicalMutationCount":0}}
+{"mode":"desktop","status":"PROGRESS","name":"tab-scoped pairing and IndexedDB project survive reload","details":{"pairingRestored":true,"projectRestored":true}}
+{"mode":"desktop","status":"PROGRESS","name":"browser runtime has no uncaught page errors","details":{"count":0}}
+{"mode":"desktop","status":"PASS","passCount":9,"failCount":0,"blockingSkipCount":0,"evidencePath":"C:\\dev\\novel-closed-ai-runtime-r2\\artifacts\\closed-ai-runtime-r2\\desktop-user-e2e.json"}

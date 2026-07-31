@@ -483,7 +483,16 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
                   </div>
                   <details>
                     <summary>模型與資料邊界</summary>
-                    <p>模型：{candidate.modelId}；模型雜湊：{candidate.modelDigest}；靜默切換：{view.result.route.fallbackAttempted ? "有" : "無"}；Canon 寫入：{candidate.canonicalMutationCount}</p>
+                    <p>
+                      實際執行器：{candidate.actualExecutor}；
+                      模型：{candidate.modelId}；
+                      模型雜湊：{candidate.modelDigest}；
+                      脈絡雜湊：{candidate.contextDigest ?? "舊候選未記錄"}；
+                      資料離開裝置：{candidate.dataLeftDevice ? "是" : "否"}；
+                      外部請求：{candidate.externalRequest ? "是" : "否"}；
+                      靜默切換：{view.result.route.fallbackAttempted ? "有" : "無"}；
+                      Canon 寫入：{candidate.canonicalMutationCount}
+                    </p>
                   </details>
                 </article>
               );

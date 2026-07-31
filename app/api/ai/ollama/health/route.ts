@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
-import { checkOllamaHealth } from "@/lib/novel-ai/providers/ollama/ollama-health";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const health = await checkOllamaHealth();
   return NextResponse.json({
-    ollamaBridgeStatus: "contract_ready",
-    ollamaStatus: health.status === "configured" ? "configured" : "local_runtime_required",
-    ollamaModelStatus: health.status,
-    ollamaInstalledModelCount: health.modelCount,
-    ollamaSelectedModel: health.selectedModel ?? null,
-    ollamaLastPingMs: health.latencyMs,
-    ollamaLastErrorCode: health.lastErrorCode,
-  }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    scope: "server-runtime",
+    applicable: false,
+    status: "client_probe_required",
+    reason: "Local Ollama must be probed by the user's browser through Local Bridge.",
+    localBridgeEndpoint: "http://127.0.0.1:3217",
+    directClientOllamaAccess: false,
+  }, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      "X-Novel-Runtime-Surface": "server-ollama-semantics",
+    },
+  });
 }

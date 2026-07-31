@@ -3,10 +3,16 @@ import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
 } from "../../closed-ai-cache";
+import {
+  clearClosedAITabSession,
+  readClosedAITabSession,
+  saveClosedAITabSession,
+} from "../closed/tab-session-recovery";
 
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
-const BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+export const LOCAL_BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+export const LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
 
@@ -62,6 +68,7 @@ type LocalBridgeBody = Record<string, unknown> & {
   ollamaReachable?: boolean;
   modelAvailable?: boolean;
   runtimeReady?: boolean;
+  protocolVersion?: string;
   token?: string;
   csrf?: string;
   instanceId?: string;
@@ -111,8 +118,11 @@ function normalizeBridgeEndpoint(value = DEFAULT_ENDPOINT) {
   return url.origin;
 }
 
-function controlSignal(signal?: AbortSignal) {
-  const timeoutSignal = AbortSignal.timeout(BRIDGE_CONTROL_TIMEOUT_MS);
+function controlSignal(
+  signal?: AbortSignal,
+  timeoutMs = LOCAL_BRIDGE_CONTROL_TIMEOUT_MS,
+) {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
@@ -212,11 +222,21 @@ export class LocalBridgeClient {
   private healthInFlight: Promise<LocalBridgeBody> | null = null;
   private modelsInFlight: Promise<LocalBridgeBody> | null = null;
   private cacheEpoch = 0;
+  private rememberWithinTab = false;
+  private readonly tabStorage: Storage | null | undefined;
 
-  constructor(options: { endpoint?: string; origin?: string; session?: LocalBridgeSession } = {}) {
+  constructor(options: {
+    endpoint?: string;
+    origin?: string;
+    session?: LocalBridgeSession;
+    tabStorage?: Storage | null;
+    rememberWithinTab?: boolean;
+  } = {}) {
     this.endpoint = normalizeBridgeEndpoint(options.endpoint);
     this.origin = options.origin ?? "https://novel-orcin.vercel.app";
     this.session = options.session ?? null;
+    this.tabStorage = options.tabStorage;
+    this.rememberWithinTab = options.rememberWithinTab ?? false;
   }
 
   setSession(session: LocalBridgeSession | null) {
@@ -230,6 +250,113 @@ export class LocalBridgeClient {
     if (this.modelVerification.instanceId !== this.session.instanceId) return null;
     if (modelId && this.modelVerification.modelId !== modelId) return null;
     return { ...this.modelVerification };
+  }
+
+  setRememberWithinTab(enabled: boolean) {
+    this.rememberWithinTab = enabled;
+    if (!enabled) clearClosedAITabSession("local-ollama", this.tabStorage);
+  }
+
+  getRememberWithinTab() {
+    return this.rememberWithinTab;
+  }
+
+  clearRememberedSession() {
+    clearClosedAITabSession("local-ollama", this.tabStorage);
+  }
+
+  private saveRememberedSession(
+    modelId: string | null = null,
+    modelDigest: string | null = null,
+  ) {
+    if (!this.rememberWithinTab || !this.session) return false;
+    return saveClosedAITabSession({
+      schemaVersion: "closed-ai-tab-session-v1",
+      backend: "local-ollama",
+      protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+      instanceId: this.session.instanceId,
+      expiresAt: this.session.expiresAt,
+      session: {
+        token: this.session.token,
+        csrf: this.session.csrf,
+      },
+      modelId,
+      modelDigest,
+      savedAt: new Date().toISOString(),
+    }, this.tabStorage);
+  }
+
+  async restoreRememberedSession(signal?: AbortSignal) {
+    const remembered = readClosedAITabSession({
+      backend: "local-ollama",
+      protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+    }, this.tabStorage);
+    if (!remembered) return null;
+    this.rememberWithinTab = true;
+    this.setSession({
+      token: remembered.session.token,
+      csrf: remembered.session.csrf,
+      instanceId: remembered.instanceId,
+      expiresAt: remembered.expiresAt,
+    });
+    try {
+      const health = await this.health(signal);
+      if (
+        health.protocolVersion !== LOCAL_BRIDGE_PROTOCOL
+        || health.instanceId !== remembered.instanceId
+      ) {
+        throw new AiProviderError(
+          "LOCAL_REQUEST_IDENTITY_MISMATCH",
+          "Local Bridge instance changed after the page was reloaded.",
+          { retryable: false, stage: "local-session-recovery" },
+        );
+      }
+      const modelResponse = await this.models(signal);
+      const models = modelResponse.models ?? [];
+      const selected = models.find((model) =>
+        model.modelId === remembered.modelId
+        && model.modelDigest === remembered.modelDigest
+        && model.capabilities?.textGeneration?.value === true)
+        ?? models.find((model) =>
+          model.capabilities?.textGeneration?.value === true)
+        ?? null;
+      if (!selected) {
+        throw new AiProviderError(
+          "OLLAMA_MODEL_NOT_FOUND",
+          "No text model is available for the restored Local Bridge session.",
+          { retryable: true, stage: "local-session-recovery" },
+        );
+      }
+      const proof = await this.verifyModel(selected.modelId, signal);
+      if (
+        proof.instanceId !== remembered.instanceId
+        || proof.modelId !== selected.modelId
+        || proof.modelDigest !== (selected.modelDigest ?? null)
+      ) {
+        throw new AiProviderError(
+          "LOCAL_REQUEST_IDENTITY_MISMATCH",
+          "The restored Local Bridge model proof does not match the current model.",
+          { retryable: false, stage: "local-session-recovery" },
+        );
+      }
+      this.saveRememberedSession(
+        selected.modelId,
+        selected.modelDigest ?? null,
+      );
+      return {
+        session: this.getSessionMetadata(),
+        model: structuredClone(selected),
+        proof,
+      };
+    } catch (error) {
+      this.setSession(null);
+      this.clearRememberedSession();
+      throw error;
+    }
   }
 
   clearControlPlaneCache() {
@@ -251,8 +378,13 @@ export class LocalBridgeClient {
     return headers;
   }
 
-  private async fetchBridge(url: string, init: RequestInit = {}, signal?: AbortSignal) {
-    const boundedSignal = controlSignal(signal);
+  private async fetchBridge(
+    url: string,
+    init: RequestInit = {},
+    signal?: AbortSignal,
+    timeoutMs = LOCAL_BRIDGE_CONTROL_TIMEOUT_MS,
+  ) {
+    const boundedSignal = controlSignal(signal, timeoutMs);
     try { return await fetch(url, { ...init, signal: boundedSignal }); }
     catch (error) { throw await classifyBridgeConnectivityError(error, boundedSignal); }
   }
@@ -326,6 +458,7 @@ export class LocalBridgeClient {
     this.modelVerification = null;
     this.session = session;
     this.clearControlPlaneCache();
+    this.saveRememberedSession();
     return session;
   }
 
@@ -334,6 +467,7 @@ export class LocalBridgeClient {
     this.session = null;
     this.modelVerification = null;
     this.clearControlPlaneCache();
+    this.clearRememberedSession();
     return result;
   }
 
@@ -382,6 +516,7 @@ export class LocalBridgeClient {
         body: JSON.stringify({ model: modelId }),
       },
       signal,
+      LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS,
     );
     let response: Response;
     try {
@@ -418,6 +553,10 @@ export class LocalBridgeClient {
       });
     }
     this.modelVerification = body as LocalModelInferenceProof;
+    this.saveRememberedSession(
+      this.modelVerification.modelId,
+      this.modelVerification.modelDigest,
+    );
     return { ...this.modelVerification };
   }
 

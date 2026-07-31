@@ -101,6 +101,10 @@ export type ClosedAgentTaskRequest = {
   allowedToolIds: string[];
   permissionScopes: string[];
   learningConfiguration?: Record<string, string | number | boolean>;
+  contextDigest?: string;
+  contextSourceSummary?: string;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -208,6 +212,22 @@ export type ClosedAgentEvaluation = {
   rawChainOfThoughtStored: false;
 };
 
+export type ClosedAIExecutionReceipt = {
+  taskId: string;
+  backendId: ClosedAIBackendId;
+  modelId: string;
+  modelDigest: string;
+  startedAt: string;
+  completedAt: string;
+  generatedTokenEvents: number;
+  outputCharacters: number;
+  contentDigest: string;
+  contextDigest: string;
+  proofState: "verified";
+  dataLeftDevice: boolean;
+  externalRequest: boolean;
+};
+
 export type ClosedAgentCandidate = {
   schemaVersion: typeof CLOSED_AGENT_OS_SCHEMA_VERSION;
   kind: "candidate";
@@ -222,6 +242,14 @@ export type ClosedAgentCandidate = {
   adapterDigest?: string | null;
   content: string;
   contentDigest: string;
+  sourceChapterId: string | null;
+  sourceRevision: number | null;
+  actualExecutor: ClosedAIBackendId | "not_executed";
+  executionReceipt: ClosedAIExecutionReceipt | null;
+  contextDigest?: string;
+  contextSourceSummary?: string;
+  dataLeftDevice?: boolean;
+  externalRequest?: boolean;
   planDigest: string;
   evaluation: ClosedAgentEvaluation;
   status: "awaiting-approval" | "approved" | "rejected" | "committed" | "rolled-back";

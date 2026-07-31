@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "closed-ai-runtime-r2-browser-e2e-v1",
+  "mode": "desktop",
+  "status": "PASS",
+  "passCount": 9,
+  "failCount": 0,
+  "blockingSkipCount": 0,
+  "baseUrl": "http://127.0.0.1:3100",
+  "pairingCodePersisted": false,
+  "consoleErrorCount": 0,
+  "records": [
+    {
+      "name": "reuse explicitly matching local application server",
+      "status": "PASS",
+      "details": {
+        "baseUrl": "http://127.0.0.1:3100"
+      }
+    },
+    {
+      "name": "pair Local Bridge and verify a real Ollama model",
+      "status": "PASS",
+      "details": {
+        "actualExecutor": "local-ollama",
+        "proofVisible": true,
+        "pairingSecretStored": false
+      }
+    },
+    {
+      "name": "Service Worker accepts release-scoped cache identity",
+      "status": "PASS",
+      "details": {
+        "controlled": true,
+        "appCommitPresent": true,
+        "assetManifestDigestPresent": true
+      }
+    },
+    {
+      "name": "create consumer project through the public frontdoor UI",
+      "status": "PASS",
+      "details": {
+        "projectIdPresent": true
+      }
+    },
+    {
+      "name": "public frontdoor project is migrated to canonical IndexedDB",
+      "status": "PASS",
+      "details": {
+        "projectPresent": true
+      }
+    },
+    {
+      "name": "candidate exposes truthful executor and data boundary",
+      "status": "PASS",
+      "details": {
+        "executor": "local-ollama",
+        "modelId": "qwen2.5:3b",
+        "contextDigestPresent": true,
+        "dataLeftDevice": false,
+        "externalRequest": false,
+        "canonicalMutationCount": 0
+      }
+    },
+    {
+      "name": "memory approval does not mutate Canon",
+      "status": "PASS",
+      "details": {
+        "canonicalMutationCount": 0
+      }
+    },
+    {
+      "name": "tab-scoped pairing and IndexedDB project survive reload",
+      "status": "PASS",
+      "details": {
+        "pairingRestored": true,
+        "projectRestored": true
+      }
+    },
+    {
+      "name": "browser runtime has no uncaught page errors",
+      "status": "PASS",
+      "details": {
+        "count": 0
+      }
+    }
+  ]
+}

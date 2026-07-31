@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
-import { dbAiRunStats, dbTrainingStats, persistenceHealth, runWriteProbe } from "@/lib/novel-ai/persistence";
+import { dbAiRunStats, dbTrainingStats, persistenceHealth } from "@/lib/novel-ai/persistence";
 import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
 import { getStorageCapabilities } from "@/lib/novel-ai/storage/registry";
 import { VIRAL_STORY_HEALTH } from "@/lib/novel-ai/story/viral";
@@ -112,8 +112,6 @@ export async function GET() {
   const memoryRuns = aiRunStats();
   const memoryStats = trainingStats();
   const storyBible = await storyBibleHealth();
-  const persistenceBeforeProbe = await persistenceHealth();
-  if (persistenceBeforeProbe.persistenceStatus === "ok") await runWriteProbe();
   const persistence = await persistenceHealth();
   let runs: Record<string, unknown> = memoryRuns;
   let stats: Record<string, unknown> = memoryStats;
@@ -141,18 +139,47 @@ export async function GET() {
 
   return NextResponse.json({
     ...RELEASE_META,
+    surfaceType: "legacy_aggregate",
+    deprecatedForClosedAIRuntime: true,
+    authoritativeSurfaces: {
+      release: "/api/release/identity",
+      cloudAI: "/api/ai/cloud/health",
+      persistence: "/api/persistence/health",
+      closedAIContract: "/api/ai/closed/contract",
+    },
+    closedAiRuntimeStatus: "client_probe_required",
+    closedAiActualExecutor: "client_execution_receipt_required",
+    closedAiSilentExternalFallback: false,
     deploymentId: deploymentId(),
     productionVisualEvidenceStatus: "ready",
     initialHtmlConsumerShellStatus: "ready",
     legacyCompatibilityStatus: "ready",
     status: configured ? "ok" : "needs_configuration",
     apiStatus: "online",
-    modelStatus: configured ? (ping.ok ? "available" : "configured_but_unavailable") : "not_configured",
-    analysisStatus: ping.ok ? "model_ping_success" : runs.lastAnalysisSuccessAt ? "recent_success" : runs.lastError ? "recent_error" : "not_tested",
-    provider: meta.provider,
-    model: meta.model,
-    modelId: meta.modelId,
-    modelVersion: meta.modelVersion,
+    legacyCloudAnalysis: {
+      configured,
+      modelStatus: configured
+        ? (ping.ok ? "available" : "configured_but_unavailable")
+        : "not_configured",
+      analysisStatus: ping.ok
+        ? "model_ping_success"
+        : runs.lastAnalysisSuccessAt
+          ? "recent_success"
+          : runs.lastError
+            ? "recent_error"
+            : "not_tested",
+      provider: meta.provider,
+      model: meta.model,
+      modelId: meta.modelId,
+      modelVersion: meta.modelVersion,
+      fallbackEnabled: true,
+      fallbackModel: "local-rule",
+      fallback: {
+        enabled: true,
+        model: "local-rule",
+      },
+      modelPingMs: ping.elapsedMs,
+    },
     analyzerVersion: versions.storyAnalyzerVersion,
     benchmarkVersion: versions.candidateAnalyzerVersion,
     databaseProvider: "supabase-postgres",
@@ -167,10 +194,7 @@ export async function GET() {
     lastDatabaseError: persistence.lastDatabaseError ? "database_error_available_in_admin_logs" : null,
     dualWriteStatus: persistence.dualWriteStatus,
     key: "server-only",
-    fallbackEnabled: true,
-    fallbackModel: "local-rule",
     responseTimeMs: Date.now() - started,
-    modelPingMs: ping.elapsedMs,
     averageResponseTimeMs: runs.averageLatencyMs,
     lastSuccessAt: runs.lastSuccessAt,
     lastAnalysisSuccessAt: runs.lastAnalysisSuccessAt,
@@ -519,7 +543,7 @@ export async function GET() {
     storyLibraryIntegrityStatus: "ready",
     ollamaConsumerIntegrationStatus: "runtime_required",
     storyBibleBackupStatus: "consumer_snapshot",
-    indexedDbMigrationStatus: "not_implemented",
+    indexedDbMigrationStatus: "client_runtime_migration_ready",
     indexedDbCore: capabilityStatus(capabilityCatalog, "indexedDb.core"),
     indexedDbCreation: capabilityStatus(capabilityCatalog, "indexedDb.projects"),
     indexedDbWriting: capabilityStatus(capabilityCatalog, "indexedDb.projects"),
@@ -535,7 +559,7 @@ export async function GET() {
     p2DomainVersion: "novel-domain-v1",
     p2DomainStatus: "ready",
     p2UnifiedRouterStatus: "ready_no_silent_external_fallback",
-    p2BrowserAiStatus: "contract_ready_runtime_not_installed",
+    p2BrowserAiStatus: "client_probe_required",
     p2LocalOllamaStatus: "client_runtime_required",
     p2PrivateAiHubStatus: process.env.PRIVATE_AI_HUB_RUNTIME_URL ? "configured" : "contract_ready_runtime_not_connected",
     p2ContextBuilderStatus: "ready",
@@ -634,9 +658,9 @@ export async function GET() {
     directStorageBoundaryStatus: "ready",
     silentStorageFallbackBlocked: true,
     ...L0A2E2D_TEST_META,
-    primaryStorage: "SUPABASE_CLOUD",
-    canonicalAuthority: "local",
-    storageAdapterType: "supabase-wrapper",
+    primaryStorage: "INDEXEDDB_BROWSER",
+    canonicalAuthority: "INDEXEDDB_CLIENT",
+    storageAdapterType: "client-canonical-with-optional-supabase-sync",
     storageCapabilities: {
       SUPABASE_CLOUD: getStorageCapabilities("SUPABASE_CLOUD"),
       SQLITE_LOCAL: getStorageCapabilities("SQLITE_LOCAL"),
@@ -663,7 +687,7 @@ export async function GET() {
     loraTrainingStatus: capabilityStatus(capabilityCatalog, "loraTraining"),
     qloraTrainingStatus: "hardware_blocked_no_cuda_on_verified_device",
     automaticModelPromotionStatus: "not_implemented",
-    activeProjectStorageMode: "SUPABASE_CLOUD",
+    activeProjectStorageMode: "client_probe_required",
   }, {
     headers: {
       "Cache-Control": "no-store, max-age=0",

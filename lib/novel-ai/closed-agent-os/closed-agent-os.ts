@@ -32,6 +32,7 @@ import {
   type ClosedAgentStateRepository,
 } from "./repository";
 import { selectClosedAIBackend } from "./router";
+import { normalizeAbcChoicesCandidate } from "./structured-output";
 import {
   assertClosedAgentPermission,
   ClosedAgentToolRegistry,
@@ -43,6 +44,7 @@ import {
   type ClosedAIProgressEvent,
   type ClosedAIProgressPhase,
   type ClosedAIQualityPhase,
+  type ClosedAIExecutionReceipt,
   type ClosedAIWorkingMaterial,
   type ClosedAgentApprovalRecord,
   type ClosedAgentCandidate,
@@ -71,6 +73,7 @@ type ApprovalInput = {
   canonicalCommit?: (input: {
     candidate: ClosedAgentCandidate;
     approvalId: string;
+    idempotencyKey: string;
   }) => Promise<{ commitId: string; storyBibleRevision?: string }>;
 };
 
@@ -87,6 +90,7 @@ export class ClosedAgentOS {
   private readonly backends: Map<ClosedAIBackendAdapter["id"], ClosedAIBackendAdapter>;
   private readonly now: () => Date;
   private readonly projectQueues = new Map<string, Promise<unknown>>();
+  private readonly approvalQueues = new Map<string, Promise<unknown>>();
 
   constructor(options: ClosedAgentOSOptions = {}) {
     this.cache = options.cache ?? new ClosedAICache({
@@ -365,18 +369,31 @@ export class ClosedAgentOS {
           toolResults.map((item) => sha256Hex(stableStringify(item.value))),
         ),
       };
+      const semanticContextDigest = await sha256Hex(stableStringify({
+        taskType: candidateInput.taskType,
+        actorContextDigests: candidateInput.actorContextDigests,
+        planDigest: candidateInput.planDigest,
+        qualityMode: candidateInput.qualityMode,
+        backendId: candidateInput.backendId,
+        learningConfiguration: candidateInput.learningConfiguration,
+        toolResultDigests: candidateInput.toolResultDigests,
+      }));
       const semanticText = `${request.taskType}\n${request.objective}`;
       const semanticLookup = await this.cache.getSemantic<{
         taskType: ClosedAgentTaskRequest["taskType"];
         qualityMode: ClosedAgentPlan["qualityMode"];
+        semanticContextDigest: string;
         execution: ClosedBackendExecutionResult;
       }>(
         request.namespace,
         semanticText,
         learningSemanticThreshold(request.learningConfiguration),
+        (entry) => entry.value.semanticContextDigest === semanticContextDigest,
       );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
+      let executionStartedAt: string | null = null;
+      let executionCompletedAt: string | null = null;
       this.emitProgress(
         request,
         "generating",
@@ -408,13 +425,18 @@ export class ClosedAgentOS {
           "exact",
           request.namespace,
           candidateInput,
-          () => this.executeQualityPipeline({
-            backend,
-            request,
-            plan,
-            actorContext,
-            toolResults,
-          }),
+          async () => {
+            executionStartedAt = this.now().toISOString();
+            const generated = await this.executeQualityPipeline({
+              backend,
+              request,
+              plan,
+              actorContext,
+              toolResults,
+            });
+            executionCompletedAt = this.now().toISOString();
+            return generated;
+          },
           {
             tags: ["closed-agent-candidate", `task:${request.taskType}`],
             ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
@@ -446,11 +468,25 @@ export class ClosedAgentOS {
           value: {
             taskType: request.taskType,
             qualityMode: plan.qualityMode,
+            semanticContextDigest,
             execution,
           },
           tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
           ttlMs: learningCacheTtl(request.learningConfiguration, "semantic"),
         });
+      }
+      if (request.taskType === "chapter.abcChoices") {
+        const normalized = normalizeAbcChoicesCandidate(execution.content);
+        if (!normalized.valid) {
+          throw osError("ABC_CHOICES_INVALID_STRUCTURE", undefined, {
+            extractedItemCount: normalized.extractedItemCount,
+            materiallyDistinct: normalized.materiallyDistinct,
+          });
+        }
+        execution = {
+          ...execution,
+          content: normalized.content,
+        };
       }
       if (execution.backendId !== route.backend.id) {
         throw osError("CLOSED_AI_BACKEND_IDENTITY_MISMATCH", undefined, {
@@ -458,6 +494,42 @@ export class ClosedAgentOS {
           actual: execution.backendId,
         });
       }
+      const contentDigest = await sha256Hex(execution.content);
+      const contextDigest = request.contextDigest ?? await sha256Hex(
+        stableStringify(request.context.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          visibility: item.visibility,
+          privacyLevel: item.privacyLevel,
+          approved: item.approved,
+          text: item.text,
+        }))),
+      );
+      const outputCharacters =
+        execution.outputCharacters ?? execution.content.length;
+      const executionReceipt: ClosedAIExecutionReceipt | null =
+        !candidateCacheHit
+        && executionStartedAt
+        && executionCompletedAt
+        && outputCharacters > 0
+        && Boolean(execution.modelId)
+        && Boolean(execution.modelDigest)
+          ? {
+            taskId: request.taskId,
+            backendId: execution.backendId,
+            modelId: execution.modelId,
+            modelDigest: execution.modelDigest,
+            startedAt: executionStartedAt,
+            completedAt: executionCompletedAt,
+            generatedTokenEvents: execution.generatedTokenEvents ?? 0,
+            outputCharacters,
+            contentDigest,
+            contextDigest,
+            proofState: "verified",
+            dataLeftDevice: execution.dataLeftDevice,
+            externalRequest: execution.externalRequest,
+          }
+          : null;
       this.emitProgress(
         request,
         "evaluating",
@@ -481,7 +553,7 @@ export class ClosedAgentOS {
           modelDigest: execution.modelDigest,
           adapterId: execution.adapterId ?? null,
           adapterDigest: execution.adapterDigest ?? null,
-          contentDigest: await sha256Hex(execution.content),
+          contentDigest,
           candidateOnly: true,
           qualityMode: execution.qualityMode,
           qualityPasses: execution.qualityPasses,
@@ -501,6 +573,8 @@ export class ClosedAgentOS {
           qualityPasses: execution.qualityPasses,
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
+          actualExecutor: executionReceipt?.backendId ?? "not_executed",
+          executionReceipt,
         },
       });
       await this.ledger.append({
@@ -565,7 +639,24 @@ export class ClosedAgentOS {
         adapterId: execution.adapterId ?? null,
         adapterDigest: execution.adapterDigest ?? null,
         content: execution.content,
-        contentDigest: await sha256Hex(execution.content),
+        contentDigest,
+        sourceChapterId: request.sourceChapterId ?? null,
+        sourceRevision: request.sourceRevision ?? null,
+        actualExecutor: executionReceipt?.backendId ?? "not_executed",
+        executionReceipt,
+        contextDigest,
+        contextSourceSummary: request.contextSourceSummary ?? stableStringify(
+          Object.fromEntries(
+            [...new Set(request.context.map((item) => item.kind))]
+              .sort()
+              .map((kind) => [
+                kind,
+                request.context.filter((item) => item.kind === kind).length,
+              ]),
+          ),
+        ),
+        dataLeftDevice: execution.dataLeftDevice,
+        externalRequest: execution.externalRequest,
         planDigest: plan.planDigest,
         evaluation,
         status: "awaiting-approval",
@@ -653,46 +744,72 @@ export class ClosedAgentOS {
     }
   }
 
-  async approveCandidate(input: ApprovalInput) {
+  approveCandidate(input: ApprovalInput) {
+    const previous = this.approvalQueues.get(input.candidateId) ?? Promise.resolve();
+    const operation = previous.then(() => this.approveCandidateInternal(input));
+    this.approvalQueues.set(input.candidateId, operation.catch(() => undefined));
+    return operation;
+  }
+
+  private async approveCandidateInternal(input: ApprovalInput) {
     const candidate = await this.state.get<ClosedAgentCandidate>(input.candidateId);
     if (!candidate) throw osError("CLOSED_AGENT_CANDIDATE_NOT_FOUND");
     if (!input.humanApproved) throw osError("CLOSED_AGENT_HUMAN_APPROVAL_REQUIRED");
     if (!candidate.evaluation.passed || candidate.status !== "awaiting-approval") {
       throw osError("CLOSED_AGENT_APPROVAL_GATE_FAILED");
     }
-    const approvalId = `closed-agent-approval:${crypto.randomUUID()}`;
+    const approvalId = `closed-agent-approval:${candidate.id}`;
     const ledgerId = `closed-agent:${candidate.namespace.projectId}:${candidate.taskId}`;
-    const approvalBlock = await this.ledger.append({
+    const approvalPayload = {
+      approvalId,
+      candidateId: candidate.id,
+      candidateDigest: candidate.contentDigest,
+      approvedBy: input.approvedBy,
+      humanApproved: true,
+    };
+    const approvalPayloadDigest = await sha256Hex(stableStringify(approvalPayload));
+    const existingApprovalBlock = (await this.ledger.repository.list(ledgerId))
+      .find((block) =>
+        block.eventType === "approval-signed"
+        && block.payloadDigest === approvalPayloadDigest
+        && block.signature);
+    const approvalBlock = existingApprovalBlock ?? await this.ledger.append({
       ledgerId,
       namespace: candidate.namespace,
       eventType: "approval-signed",
-      payload: {
-        approvalId,
-        candidateId: candidate.id,
-        candidateDigest: candidate.contentDigest,
-        approvedBy: input.approvedBy,
-        humanApproved: true,
-      },
+      payload: approvalPayload,
       signApproval: true,
     });
     let canonicalCommitId: string | null = null;
     let nextStoryBibleRevision: string | undefined;
     if (input.canonicalCommit) {
-      const result = await input.canonicalCommit({ candidate, approvalId });
+      const result = await input.canonicalCommit({
+        candidate,
+        approvalId,
+        idempotencyKey: approvalId,
+      });
       canonicalCommitId = result.commitId;
       nextStoryBibleRevision = result.storyBibleRevision;
-      await this.ledger.append({
-        ledgerId,
-        namespace: candidate.namespace,
-        eventType: "canonical-commit",
-        payload: {
-          approvalId,
-          candidateId: candidate.id,
-          commitId: result.commitId,
-          previousStoryBibleRevision: candidate.namespace.storyBibleRevision,
-          resultingStoryBibleRevision: result.storyBibleRevision ?? null,
-        },
-      });
+      const canonicalPayload = {
+        approvalId,
+        candidateId: candidate.id,
+        commitId: result.commitId,
+        previousStoryBibleRevision: candidate.namespace.storyBibleRevision,
+        resultingStoryBibleRevision: result.storyBibleRevision ?? null,
+      };
+      const canonicalPayloadDigest = await sha256Hex(stableStringify(canonicalPayload));
+      const existingCanonicalBlock = (await this.ledger.repository.list(ledgerId))
+        .find((block) =>
+          block.eventType === "canonical-commit"
+          && block.payloadDigest === canonicalPayloadDigest);
+      if (!existingCanonicalBlock) {
+        await this.ledger.append({
+          ledgerId,
+          namespace: candidate.namespace,
+          eventType: "canonical-commit",
+          payload: canonicalPayload,
+        });
+      }
     }
     const approvedAt = this.now().toISOString();
     const approval: ClosedAgentApprovalRecord = {
@@ -726,16 +843,30 @@ export class ClosedAgentOS {
       canonicalMutationCount: canonicalCommitId ? 1 : 0,
       updatedAt: approvedAt,
     };
-    await this.state.put(approval);
-    await this.state.put(memory);
-    await this.state.put(updatedCandidate);
     const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
-    if (task) {
-      await this.state.put({
+    const stateRecords = [
+      approval,
+      memory,
+      updatedCandidate,
+      ...(task ? [{
         ...task,
         state: "completed",
         updatedAt: approvedAt,
-      });
+      } as ClosedAgentTaskRecord] : []),
+    ];
+    try {
+      await this.state.putMany(stateRecords);
+    } catch (cause) {
+      throw osError(
+        "CLOSED_AGENT_APPROVAL_STATE_COMMIT_FAILED_RECOVERABLE",
+        "The canonical operation is journaled and this approval can be retried safely.",
+        {
+          candidateId: candidate.id,
+          approvalId,
+          canonicalCommitId,
+          causeCode: String((cause as { code?: string })?.code || "STATE_COMMIT_FAILED"),
+        },
+      );
     }
     if (nextStoryBibleRevision) {
       const count = await this.cache.invalidateStoryBibleRevision(
@@ -794,11 +925,29 @@ export class ClosedAgentOS {
     if (candidate.status !== "awaiting-approval") {
       throw osError("CLOSED_AGENT_REJECTION_GATE_FAILED");
     }
+    const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
+    const invalidatedCacheEntries = await this.cache.invalidate({
+      ...candidate.namespace,
+      layers: ["exact", "semantic"],
+      ...(task ? { tags: [`task:${task.taskType}`] } : {}),
+    });
     const updated: ClosedAgentCandidate = {
       ...candidate,
       status: "rejected",
       updatedAt: this.now().toISOString(),
     };
+    await this.ledger.append({
+      ledgerId: `closed-agent:${candidate.projectId}:${candidate.taskId}`,
+      namespace: candidate.namespace,
+      eventType: "cache-invalidated",
+      payload: {
+        reason: "candidate-rejected",
+        layers: ["exact", "semantic"],
+        taskType: task?.taskType ?? null,
+        invalidatedCacheEntries,
+        canonicalMutationCount: 0,
+      },
+    });
     await this.state.put(updated);
     await this.recordLearningOutcome({
       candidate: updated,
@@ -1164,13 +1313,32 @@ export class ClosedAgentOS {
           : [draftMaterial],
       );
     }
+    let selected = final;
+    let selectedContent = final.content.trim();
+    if (request.taskType === "chapter.abcChoices") {
+      const structured = [final, draft]
+        .map((result) => ({
+          result,
+          normalized: normalizeAbcChoicesCandidate(result.content),
+        }))
+        .find((item) => item.normalized.valid);
+      if (!structured || !structured.normalized.valid) {
+        const finalStructure = normalizeAbcChoicesCandidate(final.content);
+        throw osError("ABC_CHOICES_INVALID_STRUCTURE", undefined, {
+          extractedItemCount: finalStructure.extractedItemCount,
+          materiallyDistinct: finalStructure.materiallyDistinct,
+        });
+      }
+      selected = structured.result;
+      selectedContent = structured.normalized.content;
+    }
     return {
-      ...final,
-      adapterId: final.adapterId ?? draft.adapterId ?? null,
-      adapterDigest: final.adapterDigest ?? draft.adapterDigest ?? null,
-      content: final.content.trim(),
+      ...selected,
+      adapterId: selected.adapterId ?? draft.adapterId ?? null,
+      adapterDigest: selected.adapterDigest ?? draft.adapterDigest ?? null,
+      content: selectedContent,
       elapsedMs: passResults.reduce((sum, item) => sum + item.elapsedMs, 0),
-      profileId: `${final.profileId ?? `${final.backendId}-default-v1`}:quality-${plan.qualityMode}-v1`,
+      profileId: `${selected.profileId ?? `${selected.backendId}-default-v1`}:quality-${plan.qualityMode}-v1`,
       firstTokenMs: passResults[0]?.firstTokenMs ?? null,
       inputCharacters: passResults.reduce(
         (sum, item) => sum + (item.inputCharacters ?? 0),

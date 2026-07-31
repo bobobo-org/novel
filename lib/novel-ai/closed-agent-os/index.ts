@@ -7,4 +7,5 @@ export * from "./tool-registry";
 export * from "./repository";
 export * from "./evaluator";
 export * from "./acceptance";
+export * from "./structured-output";
 export * from "./closed-agent-os";

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "closed-ai-runtime-r2-browser-e2e-v1",
+  "mode": "mobile",
+  "status": "PASS",
+  "passCount": 11,
+  "failCount": 0,
+  "blockingSkipCount": 0,
+  "baseUrl": "http://127.0.0.1:3100",
+  "pairingCodePersisted": false,
+  "consoleErrorCount": 0,
+  "records": [
+    {
+      "name": "reuse explicitly matching local application server",
+      "status": "PASS",
+      "details": {
+        "baseUrl": "http://127.0.0.1:3100"
+      }
+    },
+    {
+      "name": "mobile setup fits viewport",
+      "status": "PASS",
+      "details": {
+        "viewport": 390,
+        "document": 390
+      }
+    },
+    {
+      "name": "mobile setup reports runtime truth without inherited pairing",
+      "status": "PASS",
+      "details": {
+        "runtimeState": "pairing_required"
+      }
+    },
+    {
+      "name": "mobile Service Worker release identity is available",
+      "status": "PASS",
+      "details": {
+        "controlled": true
+      }
+    },
+    {
+      "name": "create consumer project through the public frontdoor UI",
+      "status": "PASS",
+      "details": {
+        "projectIdPresent": true
+      }
+    },
+    {
+      "name": "mobile Studio fits viewport",
+      "status": "PASS",
+      "details": {
+        "viewport": 390,
+        "document": 390
+      }
+    },
+    {
+      "name": "candidate exposes truthful executor and data boundary",
+      "status": "PASS",
+      "details": {
+        "executor": "browser-ai",
+        "modelId": "novel-browser-task-runtime-v2",
+        "contextDigestPresent": true,
+        "dataLeftDevice": false,
+        "externalRequest": false,
+        "canonicalMutationCount": 0
+      }
+    },
+    {
+      "name": "mobile packaged Browser AI executes only a light task",
+      "status": "PASS",
+      "details": {
+        "taskType": "story.summary",
+        "actualExecutor": "browser-ai"
+      }
+    },
+    {
+      "name": "mobile Closed AI workspace fits viewport",
+      "status": "PASS",
+      "details": {
+        "viewport": 390,
+        "document": 390
+      }
+    },
+    {
+      "name": "mobile primary action has a usable touch target",
+      "status": "PASS",
+      "details": {
+        "width": 342,
+        "height": 42
+      }
+    },
+    {
+      "name": "browser runtime has no uncaught page errors",
+      "status": "PASS",
+      "details": {
+        "count": 0
+      }
+    }
+  ]
+}

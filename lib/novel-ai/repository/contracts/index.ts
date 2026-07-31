@@ -60,8 +60,46 @@ export type AcceptChoiceTransactionResult = {
   idempotencyRecord: IdempotencyRecord;
 };
 
+export type CommitStudioCandidateTransactionInput = {
+  operationId: string;
+  idempotencyKey: string;
+  payloadFingerprint: string;
+  projectId: string;
+  chapterId: string;
+  taskId: string;
+  mode: "append" | "replace" | "summary";
+  expectedChapterRevision: number;
+  nextContent: string;
+  nextSummary: string | null;
+  acceptedContentDigest: string;
+  resultContentDigest: string;
+  commitId: string;
+};
+
+export type StudioCandidateOperationJournal = DomainRecord & {
+  operationId: string;
+  idempotencyKey: string;
+  operationType: "studio_candidate_commit";
+  payloadFingerprint: string;
+  chapterId: string;
+  taskId: string;
+  mode: CommitStudioCandidateTransactionInput["mode"];
+  sourceRevision: number;
+  resultingRevision: number;
+  acceptedContentDigest: string;
+  resultContentDigest: string;
+  commitId: string;
+  completedAt: string;
+};
+
+export type CommitStudioCandidateTransactionResult = {
+  replayed: boolean;
+  chapter: Chapter;
+  journal: StudioCandidateOperationJournal;
+};
+
 export interface NovelRepository {
-  readonly kind: "indexeddb" | "memory";
+  readonly kind: "indexeddb" | "memory" | "unavailable";
   isAvailable(): boolean;
   get<T extends DomainRecord>(store: NovelStoreName, id: string): Promise<T | null>;
   list<T extends DomainRecord>(store: NovelStoreName, projectId?: string): Promise<T[]>;
@@ -69,6 +107,9 @@ export interface NovelRepository {
   remove(store: NovelStoreName, id: string): Promise<void>;
   createProject(bundle: ProjectBundle, requestId: string): Promise<ProjectBundle>;
   acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult>;
+  commitStudioCandidateTransaction(
+    input: CommitStudioCandidateTransactionInput,
+  ): Promise<CommitStudioCandidateTransactionResult>;
   saveDramaProjectionTransaction(input: DramaProjectionPackage): Promise<void>;
   approveDramaProjectionTransaction(input: ApproveDramaProjectionInput): Promise<ApproveDramaProjectionResult>;
   markDramaProjectionsStaleTransaction(input: MarkDramaProjectionsStaleInput): Promise<MarkDramaProjectionsStaleResult>;

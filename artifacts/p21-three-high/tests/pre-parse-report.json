@@ -1,26 +1,26 @@
 {
   "suite": "p21-three-high-45",
-  "generatedAt": "2026-07-22T21:53:05.939Z",
+  "generatedAt": "2026-07-30T13:23:47.291Z",
   "results": [
     {
       "name": "01 First approval",
       "status": "PASS",
-      "elapsedMs": 15
+      "elapsedMs": 10
     },
     {
       "name": "02 Duplicate approval",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "03 Ten-times duplicate approval",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 2
     },
     {
       "name": "04 Concurrent duplicate approval",
       "status": "PASS",
-      "elapsedMs": 20
+      "elapsedMs": 14
     },
     {
       "name": "05 Same key different payload",
@@ -65,7 +65,7 @@
     {
       "name": "13 Full rollback",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "14 Reload persistence",
@@ -75,12 +75,12 @@
     {
       "name": "15 Browser restart persistence",
       "status": "PASS",
-      "elapsedMs": 10
+      "elapsedMs": 9
     },
     {
       "name": "16 App restart persistence",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "17 Legacy localStorage cannot become canonical",
@@ -115,7 +115,7 @@
     {
       "name": "23 Backup round-trip equivalence",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 4
     },
     {
       "name": "24 Corrupt and incomplete backup rejection",
@@ -125,17 +125,17 @@
     {
       "name": "25 Hash mismatch rejection",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "name": "26 Schema mismatch and partial replace rejection",
       "status": "PASS",
-      "elapsedMs": 4
+      "elapsedMs": 1
     },
     {
       "name": "27 Restore rollback",
       "status": "PASS",
-      "elapsedMs": 4
+      "elapsedMs": 2
     },
     {
       "name": "28 Health/capability consistency",
@@ -153,7 +153,7 @@
       "elapsedMs": 0
     },
     {
-      "name": "31 Test-ready cannot be production-ready",
+      "name": "31 Packaged Browser light runtime does not imply a generative browser LLM",
       "status": "PASS",
       "elapsedMs": 0
     },
@@ -185,7 +185,7 @@
     {
       "name": "37 Professional tools health",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "38 Mobile core flow",
@@ -195,22 +195,22 @@
     {
       "name": "39 Production build",
       "status": "PASS",
-      "elapsedMs": 17973
+      "elapsedMs": 21332
     },
     {
       "name": "40 TypeScript",
       "status": "PASS",
-      "elapsedMs": 2744
+      "elapsedMs": 2547
     },
     {
       "name": "41 ESLint",
       "status": "PASS",
-      "elapsedMs": 12675
+      "elapsedMs": 18742
     },
     {
       "name": "42 Sensitive-information scan",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 6
     }
   ]
 }

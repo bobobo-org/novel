@@ -17,7 +17,27 @@ import {
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import { discoverStudioClosedAI, runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
+import {
+  approveStudioClosedAgentCandidate,
+  rejectStudioClosedAgentCandidate,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  applyWritingAidTransaction,
+  commitStudioCandidateToChapter,
+  type StudioCanonicalApplyResult,
+} from "@/lib/novel-ai/web/studio-canonical-approval";
+import {
+  canPersistStudioShell,
+  hydrateCanonicalWithNonDestructiveFallback,
+  runDailyBackupAndMark,
+  type CanonicalRuntimeGate,
+} from "@/lib/novel-ai/web/studio-canonical-runtime-gate";
 import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
+import {
+  resolvePersistenceRuntimeHealth,
+  type PersistenceRuntimeMode,
+} from "@/lib/novel-ai/repository/runtime-health";
 import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import type { NovelProject, ProjectBackup, ProjectSeed, StoryState as CanonicalStoryState, StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
@@ -180,11 +200,26 @@ type BackupRecord = {
 };
 type Candidate = {
   canonicalCandidateId?: string;
+  candidateId?: string | null;
+  taskId?: string | null;
   task: string;
   title: string;
   content: string;
   source: string;
   model: string;
+  provider?: string | null;
+  modelId?: string | null;
+  modelDigest?: string | null;
+  contextDigest?: string | null;
+  contextSourceSummary?: string | null;
+  contentDigest?: string | null;
+  actualExecutor?: string;
+  generatedTokenEvents?: number;
+  dataLeftDevice?: boolean;
+  canonicalMutationCount?: number;
+  sourceChapterId?: string | null;
+  sourceRevision?: number | null;
+  candidateKind?: "closed-ai" | "local-writing-aid";
   usedLocalMemory: boolean;
   externalRequest: boolean;
   proposal?: Partial<Wizard>;
@@ -573,7 +608,23 @@ function migrateProject(raw: Record<string, unknown>): Project {
   };
 }
 function migrate(): StudioState {
-  for (const key of [STORAGE_KEY, ...LEGACY_KEYS])
+  const defaultOrder = [STORAGE_KEY, ...LEGACY_KEYS];
+  let orderedKeys = defaultOrder;
+  try {
+    const primary = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (!Array.isArray(primary?.projects) || primary.projects.length === 0) {
+      for (const key of LEGACY_KEYS) {
+        const legacy = JSON.parse(localStorage.getItem(key) || "null");
+        if (Array.isArray(legacy?.projects) && legacy.projects.length > 0) {
+          orderedKeys = [key, ...defaultOrder.filter((item) => item !== key)];
+          break;
+        }
+      }
+    }
+  } catch {
+    orderedKeys = defaultOrder;
+  }
+  for (const key of orderedKeys)
     try {
       const raw = JSON.parse(localStorage.getItem(key) || "null");
       if (raw) {
@@ -663,6 +714,28 @@ function shellStateForLocalStorage(state: StudioState): StudioState {
   };
 }
 
+function canonicalWriteBlocked(action: string) {
+  return Object.assign(
+    new Error(`本機正式作品庫目前是唯讀狀態，無法${action}。請恢復 IndexedDB 後重新載入。`),
+    { code: "LOCAL_CANONICAL_WRITE_BLOCKED" },
+  );
+}
+
+function candidateApplyMode(task: string) {
+  return task === "rewrite_selection" ? "replace" as const : "append" as const;
+}
+
+function downloadRecoverySnapshot(raw: string) {
+  const url = URL.createObjectURL(new Blob([raw], {
+    type: "application/json;charset=utf-8",
+  }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `novel-legacy-recovery-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 function projectFromCanonical(project: NovelProject, seed: ProjectSeed | null, existing?: Project): Project {
   const fields = existing?.optionalFields ?? emptyOptional();
   const setIfEmpty = (key: OptionalKey, raw: string | null | undefined) => {
@@ -725,10 +798,12 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
 export default function StudioClient({
   initialScreen,
   initialTask,
+  initialProjectId = "",
   release,
 }: {
   initialScreen: string;
   initialTask: string;
+  initialProjectId?: string;
   release: Record<string, string>;
 }) {
   const [screen, setScreen] = useState<Screen>(
@@ -741,7 +816,21 @@ export default function StudioClient({
     [customChoice, setCustomChoice] = useState(""),
     [assistantStatus, setAssistantStatus] =
       useState<AssistantStatus>("checking"),
-    [assistantBusy, setAssistantBusy] = useState<string | null>(null);
+    [assistantBusy, setAssistantBusy] = useState<string | null>(null),
+    [storageFailure, setStorageFailure] = useState<{
+      code: string;
+      message: string;
+    } | null>(null),
+    [persistenceMode, setPersistenceMode] =
+      useState<PersistenceRuntimeMode | null>(null),
+    [canonicalRuntimeGate, setCanonicalRuntimeGate] =
+      useState<CanonicalRuntimeGate>({
+        canonicalHydrationSucceeded: false,
+        localCanonicalWritable: false,
+        legacySnapshotPreserved: false,
+      }),
+    [migrationRecoverySnapshot, setMigrationRecoverySnapshot] =
+      useState<string | null>(null);
   const repositoryRef = useRef<NovelRepository | null>(null);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
@@ -754,34 +843,109 @@ export default function StudioClient({
   useEffect(() => {
     const timer = setTimeout(() => {
       void (async () => {
+        const originalStorageBytes = localStorage.getItem(STORAGE_KEY);
         const legacy = migrate();
-        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-        localStorage.setItem("novel_p21r1_interaction_migration_preview", JSON.stringify({ ...auditLegacyStudioInteractions(raw), checkedAt: new Date().toISOString() }));
-        try { setState(await hydrateCanonicalStudio(repositoryRef.current!, legacy)); }
-        catch (error) {
+        const hydrationShell = /^[A-Za-z0-9_-]{1,128}$/.test(initialProjectId)
+          ? { ...legacy, activeProjectId: initialProjectId }
+          : legacy;
+        let raw: unknown = null;
+        try {
+          raw = JSON.parse(originalStorageBytes || "null");
+        } catch {
+          raw = null;
+        }
+        const recoverySnapshot = originalStorageBytes
+          ?? JSON.stringify({
+            ...legacy,
+            migrationAudit: auditLegacyStudioInteractions(raw),
+          });
+        const result = await hydrateCanonicalWithNonDestructiveFallback({
+          originalStorageBytes,
+          legacyState: hydrationShell,
+          fallbackSnapshot: recoverySnapshot,
+          hydrate: () =>
+            hydrateCanonicalStudio(repositoryRef.current!, hydrationShell),
+        });
+        setMigrationRecoverySnapshot(result.recoverySnapshot);
+        setState(result.state);
+        setCanonicalRuntimeGate(result.gate);
+        if (result.error) {
+          const error = result.error;
           console.error("STUDIO_CANONICAL_HYDRATION_FAILED", error);
-          setState({ ...initialState, wizard: legacy.wizard, autoBackup: legacy.autoBackup });
+          setStorageFailure({
+            code: String(
+              (error as { code?: string })?.code
+              || (error as Error)?.message
+              || "INDEXEDDB_HYDRATION_FAILED",
+            ),
+            message: "IndexedDB 正式作品庫目前無法開啟；畫面保留既有資料，不會清空、覆蓋或改用暫存記憶。",
+          });
+        } else {
+          setStorageFailure(null);
         }
         setLoaded(true);
       })();
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [initialProjectId]);
   useEffect(() => {
-    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(shellStateForLocalStorage(state)));
-  }, [state, loaded]);
+    if (loaded && canPersistStudioShell(canonicalRuntimeGate)) {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(shellStateForLocalStorage(state)),
+      );
+    }
+  }, [state, loaded, canonicalRuntimeGate]);
   useEffect(() => {
-    if (!loaded || !project || state.autoBackup !== "daily") return;
+    if (!loaded) return;
+    void resolvePersistenceRuntimeHealth({
+      repository: repositoryRef.current ?? undefined,
+    }).then((health) => {
+      setPersistenceMode(health.mode);
+      if (!health.localFeaturesAvailable) {
+        setCanonicalRuntimeGate((current) => ({
+          ...current,
+          localCanonicalWritable: false,
+          legacySnapshotPreserved: true,
+        }));
+        setStorageFailure({
+          code: health.localCanonicalStorage.errorCode ?? "INDEXEDDB_BLOCKED",
+          message: "IndexedDB 正式作品庫目前不可用；本機創作功能已安全停止，既有畫面與匯出入口仍保留。",
+        });
+      }
+    });
+  }, [loaded]);
+  useEffect(() => {
+    if (
+      !loaded
+      || !project
+      || state.autoBackup !== "daily"
+      || !canonicalRuntimeGate.canonicalHydrationSucceeded
+      || !canonicalRuntimeGate.localCanonicalWritable
+    ) return;
     const day = new Date().toISOString().slice(0, 10),
       marker = `novel_daily_backup_${project.id}_${day}`;
     if (localStorage.getItem(marker)) return;
-    localStorage.setItem(marker, "started");
     const timer = setTimeout(
-      () => { void createBackup("full").catch((error) => console.error("AUTO_BACKUP_FAILED", error)); },
+      () => {
+        void runDailyBackupAndMark({
+          createBackup: () => createBackup("full"),
+          markCompleted: () => localStorage.setItem(marker, "completed"),
+        })
+          .catch((error) => console.error("AUTO_BACKUP_FAILED", error));
+      },
       0,
     );
     return () => clearTimeout(timer);
-  }, [loaded, project, state.autoBackup]); // eslint-disable-line react-hooks/exhaustive-deps -- use latest canonical snapshot.
+    // createBackup intentionally resolves the latest canonical snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loaded,
+    project,
+    state.autoBackup,
+    canonicalRuntimeGate.canonicalHydrationSucceeded,
+    canonicalRuntimeGate.localCanonicalWritable,
+  ]);
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get("screen") !== screen) {
@@ -808,8 +972,26 @@ export default function StudioClient({
       .catch(() => setAssistantStatus("runtime_required"));
   }, [loaded]);
   useEffect(() => {
-    if (initialTask && loaded && project) void runTask(initialTask);
-  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (
+      initialTask
+      && loaded
+      && project
+      && canonicalRuntimeGate.localCanonicalWritable
+    ) {
+      void runTask(initialTask);
+    }
+  }, [loaded, canonicalRuntimeGate.localCanonicalWritable]); // eslint-disable-line react-hooks/exhaustive-deps
+  function ensureCanonicalWritable(action: string) {
+    if (
+      canonicalRuntimeGate.canonicalHydrationSucceeded
+      && canonicalRuntimeGate.localCanonicalWritable
+    ) return true;
+    setStorageFailure((current) => current ?? {
+      code: "LOCAL_CANONICAL_WRITE_BLOCKED",
+      message: `本機正式作品庫目前不可寫入，已阻擋${action}；原始資料保持不變，仍可匯出復原快照。`,
+    });
+    return false;
+  }
   function update(partial: Partial<StudioState>) {
     setState((value) => ({ ...value, ...partial }));
   }
@@ -843,6 +1025,7 @@ export default function StudioClient({
     setMenuOpen(false);
   }
   async function createProject() {
+    if (!ensureCanonicalWritable("建立作品")) return;
     const w = state.wizard;
     if (!w.creationMethod) {
       alert("請先選擇一種建立方式，也可以選擇「保持空白」。");
@@ -892,6 +1075,7 @@ export default function StudioClient({
     navigate("write");
   }
   async function saveDraft(title: string, draft: string) {
+    if (!ensureCanonicalWritable("儲存草稿")) return;
     if (!project) return;
     setState((value) => ({
       ...value,
@@ -910,6 +1094,7 @@ export default function StudioClient({
     catch (error) { console.error("CHAPTER_CANONICAL_SAVE_FAILED", error); }
   }
   async function createBackup(type: "quick" | "full") {
+    if (!ensureCanonicalWritable("建立備份")) return null;
     if (!project) return null;
     await saveStudioChapter(repositoryRef.current!, projectSeed(project));
     const formal = await createProjectBackup(repositoryRef.current!, project.id, type, release),
@@ -918,6 +1103,9 @@ export default function StudioClient({
     return record;
   }
   async function importBackup(snapshot: BackupPackage) {
+    if (!ensureCanonicalWritable("匯入備份")) {
+      throw canonicalWriteBlocked("匯入備份");
+    }
     if (snapshot.formalPayload) {
       const validated = await validateBackupPayload(snapshot.formalPayload);
       if (!validated.valid) throw new Error(validated.reason);
@@ -954,6 +1142,9 @@ export default function StudioClient({
     }));
   }
   async function restoreBackup(record: BackupRecord, asCopy: boolean) {
+    if (!ensureCanonicalWritable("還原備份")) {
+      throw canonicalWriteBlocked("還原備份");
+    }
     if (!project) return;
     if (record.formalPayload) {
       const validated = await validateBackupPayload(record.formalPayload);
@@ -989,12 +1180,16 @@ export default function StudioClient({
     );
   }
   async function deleteBackup(backupId: string) {
+    if (!ensureCanonicalWritable("刪除備份")) {
+      throw canonicalWriteBlocked("刪除備份");
+    }
     await repositoryRef.current!.remove("backups", backupId);
     update({ backups: state.backups.filter((backup) => backup.backupId !== backupId) });
   }
   function updateProjectOptional(
     changes: Partial<Record<OptionalKey, OptionalField>>,
   ) {
+    if (!ensureCanonicalWritable("更新角色與世界設定")) return;
     if (!project) return;
     const old = {
       at: new Date().toISOString(),
@@ -1016,6 +1211,7 @@ export default function StudioClient({
     }));
   }
   function completeChapter() {
+    if (!ensureCanonicalWritable("完成章節")) return;
     if (!project) return;
     const completedAt = new Date().toISOString(),
       old = {
@@ -1173,15 +1369,28 @@ export default function StudioClient({
     };
   }
   async function runTask(task: string) {
+    if (!ensureCanonicalWritable("執行會產生候選的助手工作")) return;
     if (assistantBusy) return;
     const started = performance.now();
     let candidate: Candidate;
+    let sourceChapterId: string | null = null;
+    let sourceRevision: number | null = null;
     setAssistantBusy(task);
     try {
+      if (project) {
+        const canonical = await ensureStudioCanonicalProject(
+          repositoryRef.current!,
+          projectSeed(project),
+        );
+        sourceChapterId = canonical.chapter.id;
+        sourceRevision = canonical.chapter.revision;
+      }
       const result = await runStudioClosedAI({
         projectId: project?.id || "draft-project",
         task,
         input: contextFor(task),
+        sourceChapterId: sourceChapterId ?? undefined,
+        sourceRevision: sourceRevision ?? undefined,
         targetLength:
           task === "first_chapter"
             ? 1600
@@ -1190,14 +1399,30 @@ export default function StudioClient({
               : 700,
       });
       candidate = {
+        candidateId: result.candidateId,
+        taskId: result.taskId,
         task,
         title:
           assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
         content: result.content,
         source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
         model: result.model,
+        provider: result.provider,
+        modelId: result.model,
+        modelDigest: result.modelDigest,
+        contextDigest: result.contextDigest,
+        contextSourceSummary: result.contextSourceSummary,
+        contentDigest: result.contentDigest,
+        actualExecutor: result.actualExecutor,
+        generatedTokenEvents:
+          result.executionReceipt?.generatedTokenEvents ?? 0,
+        dataLeftDevice: result.dataLeftDevice,
+        canonicalMutationCount: result.canonicalMutationCount,
+        sourceChapterId: result.sourceChapterId,
+        sourceRevision: result.sourceRevision,
+        candidateKind: "closed-ai",
         usedLocalMemory: Boolean(project),
-        externalRequest: Boolean(result.dataLeftDevice),
+        externalRequest: Boolean(result.externalRequest),
         createdAt: new Date().toISOString(),
       };
       setAssistantStatus(
@@ -1212,8 +1437,21 @@ export default function StudioClient({
           : code === "BROWSER_AI_TASK_NOT_SUPPORTED"
             ? "目前瀏覽器只有摘要／分類模型，不能拿來冒充續寫模型。"
             : "真實閉端模型沒有完成這次工作，系統已安全停止。";
+      const writingAid = ruleCandidate(task)!;
       candidate = {
-        ...ruleCandidate(task)!,
+        ...writingAid,
+        candidateId: null,
+        taskId: `local-writing-aid:${crypto.randomUUID()}`,
+        provider: "local-writing-aid",
+        modelId: null,
+        modelDigest: null,
+        contextDigest: await sha256Hex(contextFor(task)),
+        contentDigest: await sha256Hex(writingAid.content),
+        actualExecutor: "not_executed",
+        canonicalMutationCount: 0,
+        sourceChapterId,
+        sourceRevision,
+        candidateKind: "local-writing-aid",
         title: "真實 AI 尚未完成",
         source: "離線寫作工具（非 AI 模型）",
         diagnostic: `${guidance}（${code}）`,
@@ -1246,33 +1484,157 @@ export default function StudioClient({
     }));
     if (screen !== "write") navigate("write");
   }
-  function acceptCandidate(editedContent?: string) {
-    if (!project || !state.candidate) return;
+  async function acceptCandidate(editedContent?: string) {
+    if (!ensureCanonicalWritable("核准候選內容")) return;
+    if (!project || !state.candidate || assistantBusy) return;
+    const pending = state.candidate;
+    if (
+      !pending.taskId
+      || !pending.sourceChapterId
+      || pending.sourceRevision == null
+    ) {
+      alert("這份候選缺少來源章節版本，不能安全核准；請重新產生。");
+      return;
+    }
     const old = {
-        at: new Date().toISOString(),
-        title: project.chapterTitle,
-        content: project.draft,
-      },
-      content = editedContent ?? state.candidate.content;
+      at: new Date().toISOString(),
+      title: project.chapterTitle,
+      content: project.draft,
+    };
+    const content = (editedContent ?? pending.content).trim();
+    let committed: StudioCanonicalApplyResult;
+    setAssistantBusy("accept_candidate");
+    try {
+      if (pending.candidateKind === "closed-ai") {
+        if (
+          !pending.candidateId
+          || !pending.modelId
+          || !pending.modelDigest
+          || !pending.contentDigest
+          || pending.actualExecutor === "not_executed"
+        ) {
+          throw Object.assign(
+            new Error("真實 AI 候選缺少模型或執行證明，不能核准。"),
+            { code: "STUDIO_CLOSED_AI_CANDIDATE_PROOF_MISSING" },
+          );
+        }
+        let canonicalResult: StudioCanonicalApplyResult | null = null;
+        const approved = await approveStudioClosedAgentCandidate({
+          candidateId: pending.candidateId,
+          canonicalCommit: async ({ candidate, idempotencyKey }) => {
+            if (
+              candidate.taskId !== pending.taskId
+              || candidate.contentDigest !== pending.contentDigest
+              || candidate.modelId !== pending.modelId
+              || candidate.modelDigest !== pending.modelDigest
+              || candidate.sourceChapterId !== pending.sourceChapterId
+              || candidate.sourceRevision !== pending.sourceRevision
+            ) {
+              throw Object.assign(
+                new Error("候選身分與畫面內容不一致，核准已停止。"),
+                { code: "STUDIO_CANDIDATE_IDENTITY_MISMATCH" },
+              );
+            }
+            canonicalResult = await commitStudioCandidateToChapter({
+              repository: repositoryRef.current!,
+              projectId: project.id,
+              chapterId: pending.sourceChapterId!,
+              sourceRevision: pending.sourceRevision!,
+              taskId: pending.taskId!,
+              idempotencyKey,
+              content,
+              mode: candidateApplyMode(pending.task),
+            });
+            return {
+              commitId: canonicalResult.commitId,
+            };
+          },
+        });
+        if (!canonicalResult || approved.canonicalMutationCount !== 1) {
+          throw Object.assign(
+            new Error("候選核准沒有產生正式章節交易。"),
+            { code: "STUDIO_CANONICAL_COMMIT_MISSING" },
+          );
+        }
+        committed = canonicalResult;
+      } else {
+        committed = await applyWritingAidTransaction({
+          repository: repositoryRef.current!,
+          projectId: project.id,
+          chapterId: pending.sourceChapterId,
+          sourceRevision: pending.sourceRevision,
+          taskId: pending.taskId,
+          content,
+          mode: candidateApplyMode(pending.task),
+        });
+      }
+    } catch (error) {
+      console.error("STUDIO_CANDIDATE_APPROVAL_FAILED", error);
+      alert(error instanceof Error ? error.message : "候選核准失敗，內容仍保留供你重試。");
+      setAssistantBusy(null);
+      return;
+    }
+
     setState((value) => {
       const projects = value.projects.map((item) =>
         item.id === project.id
           ? {
               ...item,
-              draft:
-                `${item.draft}${item.draft ? "\n\n" : ""}${content}`.trim(),
-              updatedAt: new Date().toISOString(),
+              chapterTitle: committed.chapter.title,
+              draft: committed.chapter.content,
+              updatedAt: committed.chapter.updatedAt,
               versions: [old, ...item.versions],
             }
           : item,
-      ), nextState = { ...value, candidate: null, projects },
-        nextProject = projects.find((item) => item.id === project.id)!;
-      return value.autoBackup === "accepted_content"
-        ? { ...nextState, backups: [makeBackupRecord(nextProject, "full", nextState), ...value.backups] }
-        : nextState;
+      );
+      return {
+        ...value,
+        candidate: null,
+        projects,
+      };
     });
+    setAssistantBusy(null);
+
+    if (state.autoBackup === "accepted_content") {
+      void createProjectBackup(
+        repositoryRef.current!,
+        project.id,
+        "full",
+        release,
+      ).then((formal) => {
+        setState((value) => {
+          const savedProject =
+            value.projects.find((item) => item.id === project.id) ?? project;
+          const record = {
+            ...makeBackupRecord(savedProject, "full", value),
+            backupId: formal.backup.id,
+            bytes: formal.backup.byteSize,
+            createdAt: formal.backup.createdAt,
+            formalPayload: formal.payload,
+          };
+          return { ...value, backups: [record, ...value.backups] };
+        });
+      }).catch((error) => console.error("ACCEPTED_CONTENT_AUTO_BACKUP_FAILED", error));
+    }
+  }
+  async function discardCandidate() {
+    const pending = state.candidate;
+    if (!pending) return;
+    if (
+      pending.candidateKind === "closed-ai"
+      && pending.candidateId
+    ) {
+      try {
+        await rejectStudioClosedAgentCandidate(pending.candidateId);
+      } catch (error) {
+        console.error("STUDIO_CANDIDATE_REJECTION_FAILED", error);
+        return;
+      }
+    }
+    update({ candidate: null });
   }
   function acceptWizardSuggestion(content: string) {
+    if (!ensureCanonicalWritable("採用創作建議")) return;
     const task = state.candidate?.task;
     const target: OptionalKey =
       task === "protagonist_recommendation"
@@ -1322,6 +1684,7 @@ export default function StudioClient({
     choiceText: string,
     signal?: AbortSignal,
   ) {
+    if (!ensureCanonicalWritable("建立互動候選")) return;
     if (!project) return;
     const fields = project.optionalFields,
       name = optionalValue(fields, "protagonist"),
@@ -1461,6 +1824,7 @@ export default function StudioClient({
     }));
   }
   async function acceptChoiceResult(content: string) {
+    if (!ensureCanonicalWritable("核准互動選擇")) return;
     if (!project || !state.candidate?.choiceText || !state.candidate.canonicalCandidateId) return;
     const candidate = state.candidate,
       currentGame = state.gameStates[project.id] || emptyGameState(),
@@ -1494,6 +1858,7 @@ export default function StudioClient({
     }
   }
   function undoBranch() {
+    if (!ensureCanonicalWritable("回復故事分支")) return;
     if (!project) return;
     const index = state.branches
       .map((branch) => branch.projectId === project.id && branch.reversible ? project.id : "")
@@ -1541,7 +1906,54 @@ export default function StudioClient({
       data-consumer-release={release.consumerRelease}
       data-app-commit={release.appCommit}
       data-story-library={STORY_LIBRARY.schemaVersion}
+      data-canonical-hydration-succeeded={
+        canonicalRuntimeGate.canonicalHydrationSucceeded
+      }
+      data-local-canonical-writable={
+        canonicalRuntimeGate.localCanonicalWritable
+      }
+      data-legacy-snapshot-preserved={
+        canonicalRuntimeGate.legacySnapshotPreserved
+      }
     >
+      {(storageFailure || persistenceMode === "CLOUD_DEGRADED") ? (
+        <section
+          className="studioPersistenceBanner"
+          data-blocked={Boolean(storageFailure)}
+          role={storageFailure ? "alert" : "status"}
+        >
+          <strong>
+            {storageFailure
+              ? "本機正式作品庫需要恢復"
+              : "雲端同步暫時不可用，本機創作仍可使用"}
+          </strong>
+          <span>
+            {storageFailure?.message
+              ?? "IndexedDB 仍是 Canonical Authority；Supabase 錯誤不會阻擋本機寫作、閉端 AI、核准或匯出。"}
+          </span>
+          <small>
+            模式：{persistenceMode ?? "檢查中"}
+            {storageFailure ? ` · ${storageFailure.code}` : ""}
+          </small>
+          {storageFailure ? (
+            <>
+              {migrationRecoverySnapshot ? (
+                <button
+                  type="button"
+                  data-testid="download-migration-recovery-snapshot"
+                  onClick={() =>
+                    downloadRecoverySnapshot(migrationRecoverySnapshot)}
+                >
+                  匯出唯讀復原快照
+                </button>
+              ) : null}
+              <button type="button" onClick={() => location.reload()}>
+                重新檢查 IndexedDB
+              </button>
+            </>
+          ) : null}
+        </section>
+      ) : null}
       <button
         className="studioMenuButton"
         onClick={() => setMenuOpen(true)}
@@ -1554,9 +1966,15 @@ export default function StudioClient({
           <b>諸天萬界</b>
           <span>小說生成系統</span>
         </Link>
-        <Link className="studioCreate" href="/studio/create">
-          ＋ 建立新作品
-        </Link>
+        {canonicalRuntimeGate.localCanonicalWritable ? (
+          <Link className="studioCreate" href="/studio/create">
+            ＋ 建立新作品
+          </Link>
+        ) : (
+          <span className="studioCreate" aria-disabled="true">
+            ＋ 建立新作品（唯讀）
+          </span>
+        )}
         <nav>
           {navItems.map(([id, label]) => (
             <button
@@ -1603,78 +2021,106 @@ export default function StudioClient({
             <HomeScreen project={project} navigate={navigate} />
           )}{" "}
           {screen === "create" && (
-            <CreateScreen
-              state={state}
-              updateWizard={updateWizard}
-              setOptionalField={setOptionalField}
-              setStep={(step) => update({ wizardStep: step })}
-              createProject={createProject}
-              runTask={runTask}
-              candidate={state.candidate}
-              acceptSuggestion={acceptWizardSuggestion}
-              discard={() => update({ candidate: null })}
-            />
+            <fieldset
+              className="studioWriteGate"
+              data-testid="studio-write-gate"
+              data-writable={canonicalRuntimeGate.localCanonicalWritable}
+              disabled={!canonicalRuntimeGate.localCanonicalWritable}
+            >
+              <CreateScreen
+                state={state}
+                updateWizard={updateWizard}
+                setOptionalField={setOptionalField}
+                setStep={(step) => update({ wizardStep: step })}
+                createProject={createProject}
+                runTask={runTask}
+                candidate={state.candidate}
+                acceptSuggestion={acceptWizardSuggestion}
+                discard={() => void discardCandidate()}
+              />
+            </fieldset>
           )}{" "}
           {(screen === "write" || screen === "inspect") && (
-            <WriteScreen
-              key={project?.id || "empty"}
-              project={project}
-              candidate={
-                state.candidate?.task === "branch_choice"
-                  ? null
-                  : state.candidate
-              }
-              navigate={navigate}
-              saveDraft={saveDraft}
-              runTask={runTask}
-              completeChapter={completeChapter}
-              acceptCandidate={acceptCandidate}
-              discard={() => update({ candidate: null })}
-              assistantStatus={assistantStatus}
-              assistantBusy={assistantBusy}
-            />
+            <fieldset
+              className="studioWriteGate"
+              data-testid="studio-write-gate"
+              data-writable={canonicalRuntimeGate.localCanonicalWritable}
+              disabled={!canonicalRuntimeGate.localCanonicalWritable}
+            >
+              <WriteScreen
+                key={project?.id || "empty"}
+                project={project}
+                candidate={
+                  state.candidate?.task === "branch_choice"
+                    ? null
+                    : state.candidate
+                }
+                navigate={navigate}
+                saveDraft={saveDraft}
+                runTask={runTask}
+                completeChapter={completeChapter}
+                acceptCandidate={acceptCandidate}
+                discard={() => void discardCandidate()}
+                assistantStatus={assistantStatus}
+                assistantBusy={assistantBusy}
+              />
+            </fieldset>
           )}{" "}
           {screen === "world" && (
-            <WorldScreen
-              project={project}
-              updateProject={updateProjectOptional}
-              runTask={runTask}
-            />
+            <fieldset
+              className="studioWriteGate"
+              data-testid="studio-write-gate"
+              data-writable={canonicalRuntimeGate.localCanonicalWritable}
+              disabled={!canonicalRuntimeGate.localCanonicalWritable}
+            >
+              <WorldScreen
+                project={project}
+                updateProject={updateProjectOptional}
+                runTask={runTask}
+              />
+            </fieldset>
           )}{" "}
           {screen === "choice" && (
-            <ChoiceScreen
-              project={project}
-              choices={choices()}
-              selected={selectedChoice}
-              setSelected={setSelectedChoice}
-              custom={customChoice}
-              setCustom={setCustomChoice}
-              generateChoice={generateChoiceResult}
-              result={
-                state.candidate?.task === "branch_choice"
-                  ? state.candidate
-                  : null
-              }
-              accept={acceptChoiceResult}
-              discard={() => update({ candidate: null })}
-              undo={undoBranch}
-              canUndo={state.branches.some(
-                (branch) => branch.projectId === project?.id && branch.reversible,
-              )}
-              regenerate={() =>
-                void generateChoiceResult(
-                  state.candidate?.choiceText ||
-                    customChoice ||
-                    choices().find((choice) => choice.key === selectedChoice)
-                      ?.text ||
-                    "",
-                )
-              }
-              stats={project ? state.gameStates[project.id]?.stats || {} : {}}
-              history={
-                project ? state.gameStates[project.id]?.history || [] : []
-              }
-            />
+            <fieldset
+              className="studioWriteGate"
+              data-testid="studio-write-gate"
+              data-writable={canonicalRuntimeGate.localCanonicalWritable}
+              disabled={!canonicalRuntimeGate.localCanonicalWritable}
+            >
+              <ChoiceScreen
+                project={project}
+                choices={choices()}
+                selected={selectedChoice}
+                setSelected={setSelectedChoice}
+                custom={customChoice}
+                setCustom={setCustomChoice}
+                generateChoice={generateChoiceResult}
+                result={
+                  state.candidate?.task === "branch_choice"
+                    ? state.candidate
+                    : null
+                }
+                accept={acceptChoiceResult}
+                discard={() => update({ candidate: null })}
+                undo={undoBranch}
+                canUndo={state.branches.some(
+                  (branch) => branch.projectId === project?.id && branch.reversible,
+                )}
+                regenerate={() =>
+                  void generateChoiceResult(
+                    state.candidate?.choiceText ||
+                      customChoice ||
+                      choices().find((choice) => choice.key === selectedChoice)
+                        ?.text ||
+                      "",
+                  )
+                }
+                stats={project ? state.gameStates[project.id]?.stats || {} : {}}
+                history={
+                  project ? state.gameStates[project.id]?.history || [] : []
+                }
+              />
+            </fieldset>
           )}{" "}
           {screen === "dashboard" && (
             <StoryDashboard
@@ -1693,6 +2139,7 @@ export default function StudioClient({
               restoreBackup={restoreBackup}
               deleteBackup={deleteBackup}
               setAutoBackup={(autoBackup) => update({ autoBackup })}
+              writable={canonicalRuntimeGate.localCanonicalWritable}
             />
           )}{" "}
           {screen === "library" && (
@@ -1829,7 +2276,7 @@ function CreateScreen({
     </div>
   );
   return (
-    <section className="studioWizard">
+    <section className="studioWizard" data-testid="studio-create-wizard">
       <header>
         <span>建立新作品</span>
         <h1>
@@ -1872,6 +2319,7 @@ function CreateScreen({
             <label>
               作品名稱 <small>可空白</small>
               <input
+                data-testid="studio-project-title"
                 value={w.title}
                 onChange={(event) =>
                   updateWizard({ title: event.target.value })
@@ -1920,6 +2368,7 @@ function CreateScreen({
                 隨機驚喜
               </button>
               <button
+                data-testid="studio-create-blank"
                 className={w.creationMethod === "blank" ? "active" : ""}
                 onClick={() => updateWizard({ creationMethod: "blank" })}
               >
@@ -2167,6 +2616,7 @@ function CreateScreen({
               <SuggestionCard
                 key={candidate.createdAt}
                 candidate={candidate}
+                originalContent=""
                 accept={acceptSuggestion}
                 retry={() => void runTask(candidate.task)}
                 discard={discard}
@@ -2187,12 +2637,12 @@ function CreateScreen({
           <button onClick={() => setStep(Math.min(5, step + 1))}>
             略過這一步
           </button>
-            <button className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
+            <button data-testid="studio-create-next" className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
               下一步
             </button>
           </>
         ) : (
-          <button className="gold" onClick={createProject}>
+          <button data-testid="studio-create-submit" className="gold" onClick={createProject}>
             建立作品
           </button>
         )}
@@ -2219,7 +2669,7 @@ function WriteScreen({
   saveDraft: (title: string, draft: string) => void;
   runTask: (task: string) => Promise<void>;
   completeChapter: () => void;
-  acceptCandidate: (content?: string) => void;
+  acceptCandidate: (content?: string) => Promise<void>;
   discard: () => void;
   assistantStatus: AssistantStatus;
   assistantBusy: string | null;
@@ -2229,7 +2679,10 @@ function WriteScreen({
     [focus, setFocus] = useState(false),
     [helperOpen, setHelperOpen] = useState(false);
   useEffect(() => {
-    if (!project) return;
+    if (
+      !project
+      || (title === project.chapterTitle && draft === project.draft)
+    ) return;
     const timer = setTimeout(() => saveDraft(title, draft), 1000);
     return () => clearTimeout(timer);
   }, [title, draft]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2242,7 +2695,11 @@ function WriteScreen({
       </div>
     );
   return (
-    <section className={`studioWriting ${focus ? "focusMode" : ""}`}>
+    <section
+      className={`studioWriting ${focus ? "focusMode" : ""}`}
+      data-testid="studio-writing"
+      data-project-id={project.id}
+    >
       {!focus && (
         <aside>
           <h2>{project.title}</h2>
@@ -2339,7 +2796,7 @@ function WriteScreen({
                 <b>{assistantBusy === id ? "真實模型執行中…" : label}</b>
                 <span>
                   {assistantStatus === "ollama_ready"
-                    ? "由本機模型產生候選，再由你決定是否加入"
+                    ? "本機 AI 建議：由本機模型產生候選，再由你決定是否加入"
                     : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
                 </span>
               </button>
@@ -2349,6 +2806,7 @@ function WriteScreen({
             <SuggestionCard
               key={candidate.createdAt}
               candidate={candidate}
+              originalContent={project.draft}
               accept={acceptCandidate}
               retry={() => void runTask(candidate.task)}
               discard={discard}
@@ -2368,6 +2826,7 @@ function WriteScreen({
 
 function SuggestionCard({
   candidate,
+  originalContent,
   accept,
   retry,
   discard,
@@ -2375,7 +2834,8 @@ function SuggestionCard({
   closedAiHref = "/studio/settings/ai",
 }: {
   candidate: NonNullable<Candidate>;
-  accept: (content: string) => void;
+  originalContent: string;
+  accept: (content: string) => void | Promise<void>;
   retry: () => void;
   discard: () => void;
   busy?: boolean;
@@ -2383,6 +2843,11 @@ function SuggestionCard({
 }) {
   const [editing, setEditing] = useState(false),
     [content, setContent] = useState(candidate.content);
+  const proposedContent = candidateApplyMode(candidate.task) === "replace"
+    ? content.trim()
+    : `${originalContent.trim()}${originalContent.trim() ? "\n\n" : ""}${content.trim()}`;
+  const beforeCharacters = originalContent.replace(/\s/g, "").length;
+  const afterCharacters = proposedContent.replace(/\s/g, "").length;
   return (
     <article className="studioCandidate">
       <header>
@@ -2413,16 +2878,39 @@ function SuggestionCard({
       ) : (
         <pre>{content}</pre>
       )}
+      <details data-testid="studio-candidate-diff">
+        <summary>查看與目前正文的差異</summary>
+        <p data-testid="studio-candidate-diff-summary">
+          目前 {beforeCharacters} 字 → 核准後 {afterCharacters} 字
+          {" · "}
+          {afterCharacters >= beforeCharacters ? "+" : ""}
+          {afterCharacters - beforeCharacters} 字
+        </p>
+        <div className="studioCandidateDiff">
+          <section>
+            <h4>目前正式正文</h4>
+            <pre>{originalContent || "（目前正文為空白）"}</pre>
+          </section>
+          <section>
+            <h4>核准後預覽</h4>
+            <pre>{proposedContent || "（核准後正文為空白）"}</pre>
+          </section>
+        </div>
+      </details>
       <footer>
-        <button className="gold" onClick={() => accept(content)}>
-          {editing ? "修改後採用" : "採用這份建議"}
+        <button
+          className="gold"
+          disabled={busy}
+          onClick={() => void accept(content)}
+        >
+          {busy ? "正在完成核准交易…" : editing ? "修改後採用" : "採用這份建議"}
         </button>
-        <button onClick={() => setEditing(true)}>修改後採用</button>
+        <button disabled={busy} onClick={() => setEditing(true)}>修改後採用</button>
         <button disabled={busy} onClick={retry}>
           {busy ? "模型執行中…" : "再產生一份"}
         </button>
-        <button onClick={discard}>保持空白</button>
-        <button onClick={discard}>暫時不用</button>
+        <button disabled={busy} onClick={discard}>保持空白</button>
+        <button disabled={busy} onClick={discard}>暫時不用</button>
       </footer>
       <details>
         <summary>查看技術資訊</summary>
@@ -2433,6 +2921,40 @@ function SuggestionCard({
               {candidate.model === "local-rule"
                 ? "本機規則工具（不是生成模型）"
                 : candidate.model}
+            </dd>
+          </div>
+          <div>
+            <dt>實際執行器</dt>
+            <dd>{candidate.actualExecutor ?? "not_executed"}</dd>
+          </div>
+          <div>
+            <dt>模型證明</dt>
+            <dd>
+              {candidate.candidateKind === "closed-ai"
+                ? `${candidate.modelId ?? "missing"} · ${candidate.modelDigest ?? "missing"}`
+                : "不適用（非 AI 寫作工具）"}
+            </dd>
+          </div>
+          <div>
+            <dt>來源章節版本</dt>
+            <dd>{candidate.sourceRevision ?? "missing"}</dd>
+          </div>
+          <div>
+            <dt>脈絡來源摘要</dt>
+            <dd data-testid="studio-candidate-context-source-summary">
+              {candidate.contextSourceSummary ?? "missing"}
+            </dd>
+          </div>
+          <div>
+            <dt>真實生成事件</dt>
+            <dd data-testid="studio-candidate-generated-token-events">
+              {candidate.generatedTokenEvents ?? 0}
+            </dd>
+          </div>
+          <div>
+            <dt>資料離開裝置</dt>
+            <dd data-testid="studio-candidate-data-left-device">
+              {candidate.dataLeftDevice ? "是" : "否"}
             </dd>
           </div>
           <div>
@@ -3052,6 +3574,7 @@ function BackupCenter({
   restoreBackup,
   deleteBackup,
   setAutoBackup,
+  writable,
 }: {
   project: Project | null;
   backups: BackupRecord[];
@@ -3061,6 +3584,7 @@ function BackupCenter({
   restoreBackup: (record: BackupRecord, asCopy: boolean) => Promise<void>;
   deleteBackup: (backupId: string) => Promise<void>;
   setAutoBackup: (value: StudioState["autoBackup"]) => void;
+  writable: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
@@ -3087,13 +3611,14 @@ function BackupCenter({
     return <section className="studioEmpty"><b>尚未開啟作品</b><p>載入作品後才能建立備份。</p></section>;
   return <section className="backupCenter">
     <header><span>存檔與備份</span><h1>保護你的作品</h1><p>作品目前主要保存在這個瀏覽器中。建議定期下載備份，避免清除瀏覽器資料後遺失。</p></header>
-    <div className="backupActions"><button className="gold" disabled={busy} onClick={() => void startBackup("quick")}>立即快速備份</button><button disabled={busy} onClick={() => void startBackup("full")}>建立完整備份</button><label className="fileButton">匯入作品備份<input type="file" accept="application/json,.json" onChange={async (event) => {setError("");const file=event.target.files?.[0];if(!file)return;try{setImportPreview(coerceBackupPackage(JSON.parse(await file.text())))}catch(reason){setError(`無法讀取備份：${reason instanceof Error?reason.message:"檔案已損壞"}`)}finally{event.target.value=""}}}/></label></div>
+    {!writable ? <div className="backupError" role="alert" data-testid="backup-read-only-gate">本機正式作品庫目前不可寫入；建立、匯入、還原、刪除與自動備份已停用，但下載匯出仍可使用。</div> : null}
+    <div className="backupActions"><button className="gold" disabled={busy || !writable} onClick={() => void startBackup("quick")}>立即快速備份</button><button disabled={busy || !writable} onClick={() => void startBackup("full")}>建立完整備份</button><label className="fileButton" aria-disabled={!writable}>匯入作品備份<input disabled={!writable} type="file" accept="application/json,.json" onChange={async (event) => {setError("");const file=event.target.files?.[0];if(!file)return;try{setImportPreview(coerceBackupPackage(JSON.parse(await file.text())))}catch(reason){setError(`無法讀取備份：${reason instanceof Error?reason.message:"檔案已損壞"}`)}finally{event.target.value=""}}}/></label></div>
     {message && <div className="backupNotice" role="status">{message}</div>}{error && <div className="backupError" role="alert">{error}</div>}
     <section><h2>純文字匯出</h2><div className="backupActions"><button onClick={() => download(`${project.title}.txt`, project.draft, "text/plain;charset=utf-8")}>下載 TXT</button><button onClick={() => download(`${project.title}.md`, `# ${project.title}\n\n## ${project.chapterTitle}\n\n${project.draft}`, "text/markdown;charset=utf-8")}>下載 Markdown</button><button onClick={() => download(`${project.title}.html`, `<!doctype html><meta charset="utf-8"><title>${project.title}</title><h1>${project.title}</h1><h2>${project.chapterTitle}</h2>${project.draft.split("\n").map((line) => `<p>${line.replace(/[&<>]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[char]||char))}</p>`).join("")}`, "text/html;charset=utf-8")}>下載 HTML</button></div></section>
-    <section><h2>自動備份</h2><label>備份時機<select value={autoBackup} onChange={(event) => setAutoBackup(event.target.value as StudioState["autoBackup"])}><option value="off">關閉</option><option value="accepted_content">每次正式採用內容後</option><option value="chapter_complete">每完成一章後</option><option value="daily">每日第一次開啟作品時</option></select></label><p>自動備份保存在此瀏覽器；仍建議定期下載備份檔。</p></section>
+    <section><h2>自動備份</h2><label>備份時機<select disabled={!writable} value={autoBackup} onChange={(event) => setAutoBackup(event.target.value as StudioState["autoBackup"])}><option value="off">關閉</option><option value="accepted_content">每次正式採用內容後</option><option value="chapter_complete">每完成一章後</option><option value="daily">每日第一次開啟作品時</option></select></label><p>自動備份保存在此瀏覽器；仍建議定期下載備份檔。</p></section>
     <section><h2>最近備份</h2>{backups.length ? <div className="backupList">{backups.map((backup) => <article key={backup.backupId}><div><b>{backup.name}</b><span>{formatTime(backup.createdAt)}・{backup.type === "full" ? "完整備份" : "快速備份"}・{Math.max(1,Math.round(backup.bytes/1024))} KB</span></div><button onClick={() => setSelected(backup)}>查看詳情</button><button onClick={() => download(`${backup.name}.json`,JSON.stringify(backup.formalPayload || backup.snapshot,null,2),"application/json")}>下載</button></article>)}</div> : <div className="worldEmpty">這本作品目前還沒有備份。建立第一份備份，可以避免瀏覽器資料遺失。</div>}</section>
-    {importPreview && <div className="backupPreview"><h2>匯入預覽</h2><dl><div><dt>作品名稱</dt><dd>{importPreview.project.title}</dd></div><div><dt>備份日期</dt><dd>{formatTime(importPreview.exportedAt)}</dd></div><div><dt>總字數</dt><dd>{words(importPreview.project.draft)}</dd></div><div><dt>版本／分支</dt><dd>{importPreview.project.versions.length}／{importPreview.branches.length}</dd></div><div><dt>任務／成就</dt><dd>{importPreview.gameState.tasks.length}／{importPreview.gameState.achievements.length}</dd></div><div><dt>成人內容標記</dt><dd>{importPreview.project.adultMode?"有":"無"}</dd></div></dl><button className="gold" onClick={() => void importBackup(importPreview).then(() => {setImportPreview(null);setMessage("已匯入為新作品。");}).catch((reason) => setError(`匯入失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>匯入為新作品</button><button onClick={() => setImportPreview(null)}>取消</button></div>}
-    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>互動選擇與故事分支</dt><dd>{selected.formalPayload ? `${selected.formalPayload.manifest.recordCounts.acceptedChoices || 0}／${selected.formalPayload.manifest.recordCounts.storyBranches || 0}` : "舊格式未完整記錄"}</dd></div><div><dt>角色與世界資料</dt><dd>包含已確認的消費者設定快照</dd></div><div><dt>閱讀資料</dt><dd>包含閱讀位置、書籤與筆記</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務、成就與閱讀進度。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.formalPayload || selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" onClick={() => void restoreBackup(selected,false).then(() => {setSelected(null);setMessage("已先建立安全備份並完成還原。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>安全還原</button><button onClick={() => void restoreBackup(selected,true).then(() => {setSelected(null);setMessage("已還原為新副本。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>還原成新副本</button><button onClick={() => void deleteBackup(selected.backupId).then(() => {setSelected(null);setMessage("備份已刪除。");}).catch((reason) => setError(`刪除失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>刪除備份</button></footer></aside></div>}
+    {importPreview && <div className="backupPreview"><h2>匯入預覽</h2><dl><div><dt>作品名稱</dt><dd>{importPreview.project.title}</dd></div><div><dt>備份日期</dt><dd>{formatTime(importPreview.exportedAt)}</dd></div><div><dt>總字數</dt><dd>{words(importPreview.project.draft)}</dd></div><div><dt>版本／分支</dt><dd>{importPreview.project.versions.length}／{importPreview.branches.length}</dd></div><div><dt>任務／成就</dt><dd>{importPreview.gameState.tasks.length}／{importPreview.gameState.achievements.length}</dd></div><div><dt>成人內容標記</dt><dd>{importPreview.project.adultMode?"有":"無"}</dd></div></dl><button className="gold" disabled={!writable} onClick={() => void importBackup(importPreview).then(() => {setImportPreview(null);setMessage("已匯入為新作品。");}).catch((reason) => setError(`匯入失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>匯入為新作品</button><button onClick={() => setImportPreview(null)}>取消</button></div>}
+    {selected && <div className="worldScrim" onClick={() => setSelected(null)}><aside className="worldDetail" role="dialog" aria-modal="true" aria-labelledby="backupTitle" onClick={(event)=>event.stopPropagation()}><header><div><small>備份詳情</small><h2 id="backupTitle">{selected.name}</h2></div><button onClick={() => setSelected(null)}>關閉</button></header><dl><div><dt>建立時間</dt><dd>{formatTime(selected.createdAt)}</dd></div><div><dt>作品名稱</dt><dd>{selected.snapshot.project.title}</dd></div><div><dt>章節數</dt><dd>1</dd></div><div><dt>總字數</dt><dd>{words(selected.snapshot.project.draft)}</dd></div><div><dt>備份大小</dt><dd>{Math.max(1,Math.round(selected.bytes/1024))} KB</dd></div><div><dt>草稿與版本</dt><dd>{selected.type === "full" ? "包含" : "只含目前進度"}</dd></div><div><dt>互動選擇與故事分支</dt><dd>{selected.formalPayload ? `${selected.formalPayload.manifest.recordCounts.acceptedChoices || 0}／${selected.formalPayload.manifest.recordCounts.storyBranches || 0}` : "舊格式未完整記錄"}</dd></div><div><dt>角色與世界資料</dt><dd>包含已確認的消費者設定快照</dd></div><div><dt>閱讀資料</dt><dd>包含閱讀位置、書籤與筆記</dd></div></dl><h3>還原差異摘要</h3><p>目前作品將改回備份時的正文、設定、版本、分支、數值、任務、成就與閱讀進度。系統會先建立一份目前狀態的安全備份。</p><footer><button onClick={() => download(`${selected.name}.json`,JSON.stringify(selected.formalPayload || selected.snapshot,null,2),"application/json")}>下載備份</button><button className="gold" disabled={!writable} onClick={() => void restoreBackup(selected,false).then(() => {setSelected(null);setMessage("已先建立安全備份並完成還原。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>安全還原</button><button disabled={!writable} onClick={() => void restoreBackup(selected,true).then(() => {setSelected(null);setMessage("已還原為新副本。");}).catch((reason) => setError(`還原失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>還原成新副本</button><button disabled={!writable} onClick={() => void deleteBackup(selected.backupId).then(() => {setSelected(null);setMessage("備份已刪除。");}).catch((reason) => setError(`刪除失敗：${reason instanceof Error ? reason.message : "請重試"}`))}>刪除備份</button></footer></aside></div>}
   </section>;
 }
 

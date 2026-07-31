@@ -162,6 +162,7 @@ export class ClosedAICache {
     namespace: ClosedAINamespace,
     semanticText: string,
     threshold = this.semanticThreshold,
+    acceptEntry?: (entry: ClosedAICacheEntry<T>) => boolean,
   ): Promise<ClosedAICacheLookup<T>> {
     assertClosedAINamespace(namespace);
     const fingerprint = await semanticFingerprint(semanticText);
@@ -178,7 +179,8 @@ export class ClosedAICache {
         && entry.canonicalMutation === false
         && entry.rawPromptStored === false
         && sameClosedAINamespace(entry.namespace, namespace)
-        && Date.parse(entry.expiresAt) > now)
+        && Date.parse(entry.expiresAt) > now
+        && (!acceptEntry || acceptEntry(entry)))
       .map((entry) => ({
         entry,
         similarity: jaccardSimilarity(fingerprint, entry.semanticFingerprint),

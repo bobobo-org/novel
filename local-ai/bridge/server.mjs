@@ -12,6 +12,8 @@ import {
 } from "../cache/cache-contract.mjs";
 import { LocalSQLiteCacheStore } from "../cache/sqlite-cache-store.mjs";
 
+export const LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
+export const LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, max-age=0" };
 const characterExtractionFormat = {
   type: "object", additionalProperties: false, required: ["schemaVersion", "facts"],
@@ -280,7 +282,12 @@ export function createBridgeServer(options = {}) {
         if (!modelId || modelId.length > 200 || /[\\/?#\0]/.test(modelId)) {
           throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model ID is invalid.", 404);
         }
-        const tagsResponse = await ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" }, 5_000);
+        const tagsResponse = await ollamaFetch(
+          ollamaEndpoint,
+          "/api/tags",
+          { method: "GET" },
+          LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS,
+        );
         const tags = await tagsResponse.json();
         const tag = (tags.models || []).find((item) => (item.model || item.name) === modelId);
         if (!tag) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
@@ -299,7 +306,7 @@ export function createBridgeServer(options = {}) {
             keep_alive: "10m",
             options: { temperature: 0, seed: 7, num_predict: 16 },
           }),
-        }, 45_000);
+        }, LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS);
         const verifyBody = await verifyResponse.json().catch(() => null);
         const output = String(verifyBody?.response || "").trim();
         if (!output) {

@@ -87,10 +87,33 @@ export async function runLocalOllama(
   const started = performance.now();
   const client = bridgeClient(base);
   const profile = getClosedAIModelProfile(request.taskType, "local-ollama");
+  const smallLocalModel = /(?:^|[:_-])(?:1|2|3|4)b(?:$|[:_-])/iu.test(
+    decision.modelId || "",
+  );
+  const outputTokenCap = request.qualityPreference === "fast"
+    ? 256
+    : smallLocalModel
+      ? request.qualityPreference === "high"
+        ? 640
+        : 448
+      : profile.options.num_predict;
+  const effectiveProfile = {
+    ...profile,
+    maxInputCharacters: smallLocalModel
+      ? Math.min(
+        profile.maxInputCharacters,
+        request.qualityPreference === "fast" ? 6_000 : 10_000,
+      )
+      : profile.maxInputCharacters,
+    options: {
+      ...profile.options,
+      num_predict: Math.min(profile.options.num_predict, outputTokenCap),
+    },
+  };
   const prompt = buildClosedAIModelPrompt({
     objective: request.input,
     context: request.context,
-    profile,
+    profile: effectiveProfile,
     qualityPhase: request.qualityPhase,
     agentPlan: request.agentPlan,
     toolResults: request.toolResults,
@@ -105,10 +128,10 @@ export async function runLocalOllama(
     requestId: request.requestId,
     model: decision.modelId || "",
     prompt: prompt.prompt,
-    systemInstruction: profile.systemInstruction,
+    systemInstruction: effectiveProfile.systemInstruction,
     taskType: request.taskType,
-    timeoutMs: profile.timeoutMs,
-    options: profile.options,
+    timeoutMs: effectiveProfile.timeoutMs,
+    options: effectiveProfile.options,
     cacheNamespace: request.cacheNamespace,
     signal: request.signal,
   })) {
@@ -154,7 +177,9 @@ export async function runLocalOllama(
     dataLeavesDevice: false,
     elapsedMs: Math.round(performance.now() - started),
     provenance: decision,
-    profileId: profile.profileId,
+    profileId: `${profile.profileId}:${
+      request.qualityPreference ?? "balanced"
+    }-${effectiveProfile.options.num_predict}`,
     firstTokenMs,
     inputCharacters: prompt.inputCharacters,
     outputCharacters: content.length,

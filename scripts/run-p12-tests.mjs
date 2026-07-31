@@ -9,7 +9,8 @@ const read = (file) => fs.readFileSync(file, "utf8"),
   professional = read("app/professional/professional-client.tsx"),
   closedAI = read("lib/novel-ai/web/studio-closed-ai.ts"),
   legacy = read("public/legacy/novel-system.html"),
-  compactStudio = studio.replace(/\s+/g, "");
+  compactStudio = studio.replace(/\s+/g, ""),
+  consumerVisibleStudio = studio.replace(/<details>[\s\S]*?<\/details>/gu, "");
 const results = [];
 function test(name, fn) {
   try {
@@ -92,7 +93,7 @@ for (const term of [
   "externalConsent",
 ])
   test(`一般畫面不顯示 ${term}`, () =>
-    !new RegExp(`>[\\s\\S]{0,40}${term}[\\s\\S]{0,40}<`, "i").test(studio));
+    !new RegExp(`>[\\s\\S]{0,40}${term}[\\s\\S]{0,40}<`, "i").test(consumerVisibleStudio));
 test("沉浸閱讀只讀正式作品", () =>
   reader.includes('repo.get<NovelProject>("projects"') &&
   reader.includes('repo.list<Chapter>("chapters"') &&

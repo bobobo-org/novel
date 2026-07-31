@@ -1,0 +1,134 @@
+{
+  "suite": "Closed AI Optimization Real Model",
+  "runAt": "2026-07-30T13:08:13.062Z",
+  "pass": 4,
+  "fail": 0,
+  "skipped": 0,
+  "existingRuntimePortsModified": false,
+  "temporaryPorts": [
+    33217,
+    33227
+  ],
+  "externalAiCalls": 0,
+  "results": [
+    {
+      "name": "isolated optimization runtimes discover the same real Ollama model",
+      "status": "PASS",
+      "elapsedMs": 0,
+      "evidence": {
+        "modelId": "qwen2.5:3b",
+        "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+        "externalAiCalls": 0
+      }
+    },
+    {
+      "name": "runtime health exposes queue and cache resource governance",
+      "status": "PASS",
+      "elapsedMs": 16,
+      "evidence": {
+        "local": {
+          "workload": {
+            "active": 0,
+            "queued": 0,
+            "maxConcurrent": 1,
+            "maxQueue": 2
+          },
+          "cache": {
+            "schemaVersion": "closed-ai-cache-v2",
+            "status": "ready",
+            "backend": "local-ollama",
+            "persistence": "sqlite",
+            "encryptedAtRest": false,
+            "entries": 0,
+            "bytes": 0,
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "invalidations": 0,
+            "corruptions": 0,
+            "layerEntries": {
+              "exact": 0,
+              "semantic": 0,
+              "retrieval": 0,
+              "agent-plan": 0,
+              "tool-result": 0,
+              "model-session": 0
+            },
+            "candidateOnly": true,
+            "memoryMutationCount": 0,
+            "learningMutationCount": 0,
+            "canonicalMutationCount": 0,
+            "rawPromptStored": false,
+            "embeddingCacheLayer": "retrieval",
+            "modelSessionState": "runtime_handle_metadata_only",
+            "modelKvRuntimeStatus": "ollama_runtime_managed"
+          }
+        },
+        "hub": {
+          "workload": {
+            "active": 0,
+            "queued": 0,
+            "maxConcurrent": 2,
+            "maxQueue": 4
+          },
+          "cache": {
+            "schemaVersion": "closed-ai-cache-v2",
+            "status": "ready",
+            "backend": "private-ai-hub",
+            "persistence": "encrypted-file",
+            "encryption": "AES-256-GCM",
+            "encryptedAtRest": true,
+            "entries": 0,
+            "bytes": 0,
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "invalidations": 0,
+            "corruptions": 0,
+            "layerEntries": {
+              "exact": 0,
+              "semantic": 0,
+              "retrieval": 0,
+              "agent-plan": 0,
+              "tool-result": 0,
+              "model-session": 0
+            },
+            "candidateOnly": true,
+            "memoryMutationCount": 0,
+            "learningMutationCount": 0,
+            "canonicalMutationCount": 0,
+            "rawPromptStored": false,
+            "gpuSessionState": "encrypted_runtime_handle_metadata_only",
+            "modelKvRuntimeStatus": "ollama_runtime_managed"
+          }
+        }
+      }
+    },
+    {
+      "name": "Local Bridge executes the optimized standard profile with real tokens",
+      "status": "PASS",
+      "elapsedMs": 34088,
+      "evidence": {
+        "profileId": "closed-local-ollama-creative-v3",
+        "firstTokenMs": 13999,
+        "elapsedMs": 34086,
+        "outputCharacters": 216,
+        "tokenEvents": 144,
+        "promptCharacters": 300
+      }
+    },
+    {
+      "name": "Private Hub executes the optimized heavy profile with real tokens",
+      "status": "PASS",
+      "elapsedMs": 27670,
+      "evidence": {
+        "profileId": "closed-private-ai-hub-heavy-v3",
+        "firstTokenMs": 12479,
+        "elapsedMs": 27670,
+        "outputCharacters": 160,
+        "tokenEvents": 112,
+        "promptCharacters": 315
+      }
+    }
+  ]
+}

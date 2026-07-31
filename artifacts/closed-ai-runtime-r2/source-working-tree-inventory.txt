@@ -1,0 +1,8 @@
+source=C:\dev\novel
+status=dirty
+entry=?? pnpm-workspace.yaml
+type=untracked-file
+sizeBytes=91
+lastWriteTimeUtc=2026-07-16T23:47:09
+sha256=541C9F09BF29F96CC27CF1422A7B11E98D8DD4D51575197F00DDB300D2FF1CAB
+action=preserved-unmodified

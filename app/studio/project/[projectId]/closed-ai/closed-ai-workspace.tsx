@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOSED_AI_BACKEND_IDS,
+  resolveClosedAIRoute,
   type ClosedAgentOS,
   type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
@@ -24,9 +25,15 @@ import type {
   WritingTask,
 } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
-import { mirrorChapterToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
-import { getStudioClosedAgentOS } from "@/lib/novel-ai/web/closed-agent-os-service";
-import { STUDIO_CLOSED_AGENT_TOOL_IDS } from "@/lib/novel-ai/web/studio-closed-agent-tools";
+import {
+  migrateLegacyStudioProjects,
+} from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canonical-approval";
+import {
+  executeStudioClosedAgent,
+  getStudioClosedAgentOS,
+  getStudioClosedAIRuntimeCoordinator,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
 import type { ClosedAINamespace } from "@/lib/novel-ai/closed-ai-cache";
 import {
   detectBrowserAI,
@@ -36,21 +43,17 @@ import {
   type BrowserAIInferenceProof,
 } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import {
-  LocalBridgeClient,
   configureLocalBridgeClient,
   configureLocalBridgeModel,
-  getConfiguredLocalBridgeClient,
   selectAvailableTextModel,
   type LocalModelInferenceProof,
   type LocalTextModel,
 } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
 import { resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
 import {
-  PrivateHubClient,
   configurePrivateHubClient,
   configurePrivateHubModel,
   configurePrivateHubProject,
-  getConfiguredPrivateHubClient,
   type OfflinePreferenceModelArtifact,
   type PrivateHubInferenceProof,
 } from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
@@ -72,7 +75,8 @@ type Dashboard = Awaited<ReturnType<ClosedAgentOS["dashboard"]>>;
 type PairingRequest = { pairingId: string; code: string };
 type PreferencePair = { id: string; chosen: string; rejected: string };
 type ContextInventory = {
-  repository: "indexeddb" | "memory";
+  repository: "indexeddb" | "memory" | "unavailable";
+  projectPresent: boolean;
   chapters: number;
   characters: number;
   storyStates: number;
@@ -210,23 +214,6 @@ function backendCanRun(
     || snapshot.supportedTaskTypes.includes(task.id);
 }
 
-function automaticBackendForTask(
-  snapshots: ClosedAIBackendSnapshot[],
-  task: (typeof TASKS)[number] | undefined,
-): ClosedAIBackendId {
-  const preferredOrder: ClosedAIBackendId[] = task?.complexity === "heavy"
-    ? ["private-ai-hub"]
-    : task?.complexity === "standard"
-      ? ["local-ollama", "browser-ai"]
-      : ["browser-ai", "local-ollama"];
-  return preferredOrder.find((backendId) =>
-    backendCanRun(
-      snapshots.find((snapshot) => snapshot.id === backendId),
-      task,
-    ))
-    ?? preferredOrder[0];
-}
-
 function runtimeError(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
   const messages: Record<string, string> = {
@@ -321,26 +308,14 @@ function modelSummary(profile: PrivateModelFleetProfile) {
 export default function ClosedAIWorkspace({ projectId }: { projectId: string }) {
   const os = useMemo(() => getStudioClosedAgentOS(), []);
   const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
-  const localClient = useMemo(
-    () => {
-      const origin = currentOrigin ?? "https://novel-orcin.vercel.app";
-      const configured = getConfiguredLocalBridgeClient();
-      return configured?.origin === origin
-        ? configured
-        : new LocalBridgeClient({ origin });
-    },
+  const runtimeCoordinator = useMemo(
+    () => getStudioClosedAIRuntimeCoordinator(
+      currentOrigin ?? "https://novel-orcin.vercel.app",
+    ),
     [currentOrigin],
   );
-  const hubClient = useMemo(
-    () => {
-      const origin = currentOrigin ?? "https://novel-orcin.vercel.app";
-      const configured = getConfiguredPrivateHubClient();
-      return configured?.origin === origin
-        ? configured
-        : new PrivateHubClient({ origin });
-    },
-    [currentOrigin],
-  );
+  const localClient = runtimeCoordinator.localClient;
+  const hubClient = runtimeCoordinator.privateHubClient;
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
@@ -357,6 +332,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [busy, setBusy] = useState(false);
   const taskController = useRef<AbortController | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [rememberPairing, setRememberPairing] = useState(true);
   const [runtimeStatus, setRuntimeStatus] = useState("正在檢查本機執行環境。");
   const [networkOnline, setNetworkOnline] = useState(true);
   const [offlineWorkerControlled, setOfflineWorkerControlled] = useState(false);
@@ -387,6 +363,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     let cancelled = false;
     void (async () => {
       const repository = createNovelRepository();
+      await migrateLegacyStudioProjects(repository);
       const [
         project,
         chapters,
@@ -422,6 +399,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ?? null;
       setContextInventory({
         repository: repository.kind,
+        projectPresent: Boolean(project),
         chapters: chapters.length,
         characters: characters.length,
         storyStates: storyState ? Math.max(1, storyStates.length) : 0,
@@ -625,23 +603,54 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   }, [knowledgeScopeRevision, projectId, snapshots, storyBibleRevision]);
 
   const namespace = useCallback((): ClosedAINamespace => {
-    const automaticBackend = automaticBackendForTask(
-      snapshots,
-      TASKS.find((item) => item.id === taskType),
-    );
-    return namespaceForBackend(backend === "auto" ? automaticBackend : backend);
-  }, [backend, namespaceForBackend, snapshots, taskType]);
+    const task = TASKS.find((item) => item.id === taskType);
+    const backendId = backend === "auto"
+      ? task?.complexity === "heavy"
+        ? "private-ai-hub"
+        : task?.complexity === "standard"
+          ? "local-ollama"
+          : "browser-ai"
+      : backend;
+    return namespaceForBackend(backendId);
+  }, [backend, namespaceForBackend, taskType]);
 
   const selectedTask = useMemo(
     () => TASKS.find((item) => item.id === taskType),
     [taskType],
   );
-  const automaticBackendId = automaticBackendForTask(snapshots, selectedTask);
-  const executionBackendId = backend === "auto" ? automaticBackendId : backend;
+  const routingNamespace = useMemo<ClosedAINamespace>(() => ({
+    ...namespaceForBackend(
+      selectedTask?.complexity === "heavy"
+        ? "private-ai-hub"
+        : "local-ollama",
+    ),
+    modelId: "unrouted:runtime-managed",
+    modelDigest: "unrouted:digest-runtime-managed",
+    privacyLevel: selectedTask?.complexity === "heavy"
+      ? "private_infrastructure_only"
+      : "device_only",
+  }), [namespaceForBackend, selectedTask?.complexity]);
+  const runtimeRoute = useMemo(() => resolveClosedAIRoute({
+    taskType,
+    namespace: routingNamespace,
+    complexity: selectedTask?.complexity,
+  }, snapshots, {
+    preferredBackend: backend === "auto" ? undefined : backend,
+  }), [backend, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
+  const executionBackendId: ClosedAIBackendId =
+    runtimeRoute.executionStatus === "routable"
+      ? runtimeRoute.backend.id
+      : backend !== "auto"
+        ? backend
+        : selectedTask?.complexity === "heavy"
+          ? "private-ai-hub"
+          : selectedTask?.complexity === "standard"
+            ? "local-ollama"
+            : "browser-ai";
   const executionSnapshot = snapshots.find(
     (snapshot) => snapshot.id === executionBackendId,
   );
-  const executionReady = backendCanRun(executionSnapshot, selectedTask);
+  const executionReady = runtimeRoute.executionStatus === "routable";
   const fleetRequest = useMemo(() => ({
     taskType,
     complexity: selectedTask?.complexity ?? "light",
@@ -669,6 +678,15 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const refreshRuntimes = useCallback(async () => {
     if (!currentOrigin) return;
     setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
+    await runtimeCoordinator.refresh({
+      projectId,
+      taskType,
+      storyBibleRevision,
+      knowledgeScopeRevision,
+      policy: {
+        preferredBackend: backend === "auto" ? undefined : backend,
+      },
+    });
     const browserProbe = detectBrowserAI().then((browser) => {
       setBrowserCapability(browser);
       setBrowserProof(getBrowserAIInferenceProof());
@@ -767,25 +785,52 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       `${browserState}；Local Bridge ${localReady ? "模型已實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
     );
   }, [
+    backend,
     currentOrigin,
     hubClient,
     hubModelId,
+    knowledgeScopeRevision,
     localClient,
     localModelId,
     offlineWorkerControlled,
     projectId,
+    runtimeCoordinator,
+    storyBibleRevision,
+    taskType,
   ]);
 
   const refresh = useCallback(async (announce = true) => {
     await refreshRuntimes();
-    const nextSnapshots = await os.backendSnapshots();
+    const runtime = await runtimeCoordinator.refresh({
+      projectId,
+      taskType,
+      storyBibleRevision,
+      knowledgeScopeRevision,
+      policy: {
+        preferredBackend: backend === "auto" ? undefined : backend,
+      },
+    });
+    const nextSnapshots = runtime.backends;
     const nextDashboard = await os.dashboard(projectId, nextSnapshots);
     setSnapshots(nextSnapshots);
     setDashboard(nextDashboard);
     if (announce) {
       setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
     }
-  }, [os, projectId, refreshRuntimes]);
+  }, [
+    backend,
+    knowledgeScopeRevision,
+    os,
+    projectId,
+    refreshRuntimes,
+    runtimeCoordinator,
+    storyBibleRevision,
+    taskType,
+  ]);
+
+  useEffect(() => {
+    runtimeCoordinator.setRememberPairingWithinTab(rememberPairing);
+  }, [rememberPairing, runtimeCoordinator]);
 
   useEffect(() => {
     if (!currentOrigin) return;
@@ -1133,12 +1178,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setResult(null);
     setProgressEvents([]);
     setStatus("正在鎖定後端、建立計畫、執行並評估候選。");
-    const task = TASKS.find((item) => item.id === taskType)!;
     try {
       const runNamespace = namespace();
-      const next = await os.execute({
+      const repository = createNovelRepository();
+      const currentProject = await repository.get<NovelProject>("projects", projectId);
+      const sourceChapter = currentProject?.activeChapterId
+        ? await repository.get<Chapter>("chapters", currentProject.activeChapterId)
+        : null;
+      const next = await executeStudioClosedAgent({
         taskId: `closed-agent-${crypto.randomUUID()}`,
-        namespace: runNamespace,
+        projectId,
         taskType,
         objective,
         context: storyContext.trim()
@@ -1151,19 +1200,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             approved: true,
           }]
           : [],
-        complexity: task.complexity,
         qualityMode: qualityMode === "auto" ? undefined : qualityMode,
         preferredBackend: backend === "auto" ? undefined : backend,
-        allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
-        permissionScopes: [
-          "story:read",
-          "story-bible:read",
-          "candidate:write",
-          "candidate:read",
-          "evaluation:write",
-          "character:read",
-          "world:read",
-        ],
+        storyBibleRevision,
+        knowledgeScopeRevision,
+        sourceChapterId: sourceChapter?.id,
+        sourceRevision: sourceChapter?.revision,
         signal: controller.signal,
         onProgress: recordProgress,
       });
@@ -1188,32 +1230,36 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     try {
       const canonicalCommit = applyToChapter
-        ? async ({ candidate }: { candidate: typeof result.candidate }) => {
+        ? async ({
+          candidate,
+          idempotencyKey,
+        }: {
+          candidate: typeof result.candidate;
+          idempotencyKey: string;
+        }) => {
           const repository = createNovelRepository();
-          const currentProject = await repository.get<NovelProject>("projects", projectId);
-          if (!currentProject?.activeChapterId) {
-            throw Object.assign(new Error("目前作品沒有可套用的章節。"), {
+          if (!candidate.sourceChapterId || candidate.sourceRevision == null) {
+            throw Object.assign(new Error("The generated candidate has no canonical source chapter."), {
               code: "CLOSED_AGENT_CANONICAL_CHAPTER_REQUIRED",
             });
           }
-          const currentChapter = await repository.get<Chapter>("chapters", currentProject.activeChapterId);
-          if (!currentChapter) {
-            throw Object.assign(new Error("目前章節已不存在，請重新載入。"), {
-              code: "CLOSED_AGENT_CANONICAL_CHAPTER_STALE",
-            });
-          }
           const taskType = result.task.taskType;
-          const nextContent = taskType === "chapter.rewrite" || taskType === "assistant.transform"
-            ? candidate.content.trim()
-            : `${currentChapter.content.trim()}${currentChapter.content.trim() ? "\n\n" : ""}${candidate.content.trim()}`;
-          const saved = await repository.put<Chapter>("chapters", {
-            ...currentChapter,
-            content: taskType === "story.summary" ? currentChapter.content : nextContent,
-            summary: taskType === "story.summary" ? candidate.content.trim() : currentChapter.summary,
-          }, currentChapter.revision);
-          mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
+          const committed = await commitStudioCandidateToChapter({
+            repository,
+            projectId,
+            chapterId: candidate.sourceChapterId,
+            sourceRevision: candidate.sourceRevision,
+            taskId: candidate.taskId,
+            idempotencyKey,
+            content: candidate.content,
+            mode: taskType === "story.summary"
+              ? "summary"
+              : taskType === "chapter.rewrite" || taskType === "assistant.transform"
+                ? "replace"
+                : "append",
+          });
           return {
-            commitId: `chapter:${saved.id}:revision:${saved.revision}`,
+            commitId: committed.commitId,
             storyBibleRevision,
           };
         }
@@ -1350,7 +1396,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   }
 
   return (
-    <main className={styles.shell}>
+    <main className={styles.shell} data-testid="closed-ai-workspace">
       <header className={styles.header}>
         <div>
           <small>PRIVATE NOVEL INTELLIGENCE · CLOSED AGENT FABRIC</small>
@@ -1359,6 +1405,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
+          <Link href="/settings/local-ai">本機 AI 安裝精靈</Link>
           <button type="button" disabled={busy || runtimeBusy} onClick={() => void refresh()}>重新檢查</button>
         </div>
       </header>
@@ -1392,7 +1439,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             : "架構已支援多模型；實際能力仍取決於已安裝、已驗證的模型與硬體。"}</p>
         </div>
       </section>
-      <p className={styles.status} role="status" aria-live="polite">{status}</p>
+      <p className={styles.status} data-testid="closed-ai-task-status" role="status" aria-live="polite">{status}</p>
       <p className={styles.runtimeStatus} role="status" aria-live="polite">{runtimeStatus}</p>
 
       <div className={styles.workspace}>
@@ -1401,6 +1448,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <div><small>執行層</small><h2 id="backend-title">三個閉端 AI</h2></div>
             <span>並存，不互相取代</span>
           </div>
+          <label className={styles.sessionPreference}>
+            <input
+              type="checkbox"
+              checked={rememberPairing}
+              onChange={(event) => setRememberPairing(event.target.checked)}
+            />
+            僅在目前分頁記住已驗證配對；關閉分頁即失效，不寫入 localStorage 或作品備份。
+          </label>
           <div className={styles.backendList}>
             {snapshots.map((snapshot) => (
               <article key={snapshot.id} data-status={snapshot.status}>
@@ -1595,7 +1650,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </div>
           <div className={styles.formGrid}>
             <label>工作類型
-              <select value={taskType} onChange={(event) => {
+              <select data-testid="closed-ai-task-type" value={taskType} onChange={(event) => {
                 const next = event.target.value as PlatformTaskType;
                 const previous = TASKS.find((item) => item.id === taskType);
                 const task = TASKS.find((item) => item.id === next);
@@ -1618,7 +1673,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               </select>
             </label>
             <label>執行後端
-              <select value={backend} onChange={(event) => setBackend(event.target.value as ClosedAIBackendId | "auto")}>
+              <select data-testid="closed-ai-backend" value={backend} onChange={(event) => setBackend(event.target.value as ClosedAIBackendId | "auto")}>
                 {Object.entries(BACKEND_LABELS).map(([value, label]) => {
                   const backendId = value as ClosedAIBackendId | "auto";
                   const snapshot = backendId === "auto"
@@ -1636,6 +1691,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             </label>
             <label>品質模式
               <select
+                data-testid="closed-ai-quality"
                 value={qualityMode}
                 onChange={(event) =>
                   setQualityMode(event.target.value as ClosedAIQualityMode | "auto")}
@@ -1646,7 +1702,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               </select>
             </label>
           </div>
-          <div className={styles.executionReadiness} data-ready={executionReady}>
+          <div className={styles.executionReadiness} data-testid="closed-ai-execution-readiness" data-ready={executionReady}>
             <div>
               <strong>{executionReady ? "可執行" : "尚未就緒"}</strong>
               <span>
@@ -1694,12 +1750,17 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             </button> : <span className={styles.activeModel}>目前已採用</span>}
           </div> : null}
           <label>你要完成什麼？
-            <textarea rows={4} value={objective} onChange={(event) => setObjective(event.target.value)} />
+            <textarea data-testid="closed-ai-objective" rows={4} value={objective} onChange={(event) => setObjective(event.target.value)} />
           </label>
           <label>已核准的故事脈絡（選填）
             <textarea rows={5} value={storyContext} onChange={(event) => setStoryContext(event.target.value)} placeholder="只貼入你允許 Actor 與 Evaluator 共同看見的故事資料。" />
           </label>
-          {contextInventory ? <small className={styles.contextInventory} data-story-state-ready={contextInventory.storyStates > 0}>
+          {contextInventory ? <small
+            className={styles.contextInventory}
+            data-testid="closed-ai-context-inventory"
+            data-project-ready={contextInventory.projectPresent}
+            data-story-state-ready={contextInventory.storyStates > 0}
+          >
             正式脈絡：{contextInventory.repository === "indexeddb" ? "IndexedDB" : "工作階段記憶"}
             {" · "}{contextInventory.chapters} 章
             {" · "}{contextInventory.characters} 角色
@@ -1708,7 +1769,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             {" · "}{contextInventory.achievements} 成就
           </small> : null}
           <div className={styles.actions}>
-            <button className={styles.primary} type="button" disabled={busy || !objective.trim() || !executionReady} onClick={() => void runTask()}>
+            <button data-testid="closed-ai-run" className={styles.primary} type="button" disabled={busy || !objective.trim() || !executionReady} onClick={() => void runTask()}>
               {busy ? "模型執行中…" : "建立真實模型候選"}
             </button>
             {busy ? <button className={styles.danger} type="button" onClick={cancelTask}>取消模型工作</button> : null}
@@ -1726,14 +1787,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             </ol>
           </div> : null}
 
-          <div className={styles.candidate} data-empty={!result}>
+          <div className={styles.candidate} data-testid="closed-ai-candidate" data-empty={!result}>
             {result ? <>
               <header>
                 <div>
                   <small>{BACKEND_LABELS[result.candidate.backendId]} · 評分 {Math.round(result.candidate.evaluation.score * 100)}%</small>
-                  <h3>{candidateStatusLabel(result.candidate.status)}</h3>
+                  <h3 data-testid="closed-ai-candidate-status">{candidateStatusLabel(result.candidate.status)}</h3>
                 </div>
-                <span>Canon 寫入：{result.candidate.canonicalMutationCount}</span>
+                <span data-testid="closed-ai-canonical-mutation-count">Canon 寫入：{result.candidate.canonicalMutationCount}</span>
               </header>
               <div className={styles.candidateText}>{result.candidate.content}</div>
               <div className={styles.actions}>
@@ -1741,7 +1802,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   {CHAPTER_COMMIT_TASKS.has(result.task.taskType) ? (
                     <button type="button" disabled={busy} onClick={() => void approve(true)}>核准並套用目前章節</button>
                   ) : null}
-                  <button className={styles.secondary} type="button" disabled={busy} onClick={() => void approve(false)}>只核准到記憶</button>
+                  <button data-testid="closed-ai-approve-memory" className={styles.secondary} type="button" disabled={busy} onClick={() => void approve(false)}>只核准到記憶</button>
                   <button className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
                 </> : null}
                 <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportEvidence()}>匯出驗證證據</button>
@@ -1758,13 +1819,19 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       : `未套用（${result.learning.reasonCode ?? "沒有有效版本"}）`}</dd>
                   </div>
                   <div><dt>計畫雜湊</dt><dd>{result.plan.planDigest}</dd></div>
-                  <div><dt>生成模型</dt><dd>{result.candidate.modelId}</dd></div>
+                  <div><dt>實際執行器</dt><dd data-testid="closed-ai-actual-executor">{result.candidate.actualExecutor}</dd></div>
+                  <div><dt>生成模型</dt><dd data-testid="closed-ai-model-id">{result.candidate.modelId}</dd></div>
                   <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
+                  <div><dt>脈絡雜湊</dt><dd data-testid="closed-ai-context-digest">{result.candidate.contextDigest ?? "舊候選未記錄"}</dd></div>
+                  <div><dt>脈絡來源摘要</dt><dd data-testid="closed-ai-context-source-summary">{result.candidate.contextSourceSummary ?? "舊候選未記錄"}</dd></div>
+                  <div><dt>資料離開裝置</dt><dd data-testid="closed-ai-data-left-device">{result.candidate.dataLeftDevice ? "是" : "否"}</dd></div>
+                  <div><dt>外部請求</dt><dd data-testid="closed-ai-external-request">{result.candidate.externalRequest ? "是" : "否"}</dd></div>
                   {result.candidate.generationTelemetry ? <>
                     <div><dt>任務設定</dt><dd>{result.candidate.generationTelemetry.profileId}</dd></div>
                     <div><dt>品質管線</dt><dd>{QUALITY_LABELS[result.candidate.generationTelemetry.qualityMode]} · {result.candidate.generationTelemetry.qualityPasses} 次真實推理</dd></div>
                     <div><dt>模型耗時</dt><dd>{result.candidate.generationTelemetry.elapsedMs} ms</dd></div>
                     <div><dt>首字延遲</dt><dd>{result.candidate.generationTelemetry.firstTokenMs === null ? "整批回應" : `${result.candidate.generationTelemetry.firstTokenMs} ms`}</dd></div>
+                    <div><dt>真實生成事件</dt><dd data-testid="closed-ai-generated-token-events">{result.candidate.generationTelemetry.generatedTokenEvents}</dd></div>
                     <div><dt>輸入／輸出</dt><dd>{result.candidate.generationTelemetry.inputCharacters}／{result.candidate.generationTelemetry.outputCharacters} 字</dd></div>
                     <div><dt>預算省略</dt><dd>{result.candidate.generationTelemetry.omittedInputCharacters} 字</dd></div>
                     {result.candidate.generationTelemetry.draftDigest ? <div><dt>暫存草稿雜湊</dt><dd>{result.candidate.generationTelemetry.draftDigest}</dd></div> : null}

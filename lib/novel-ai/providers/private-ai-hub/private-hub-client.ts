@@ -26,10 +26,16 @@ import {
 import type {
   FormalPreferenceDatasetManifest,
 } from "../../training/formal-preference-dataset";
+import {
+  clearClosedAITabSession,
+  readClosedAITabSession,
+  saveClosedAITabSession,
+} from "../closed/tab-session-recovery";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
-const CONTROL_TIMEOUT_MS = 5_000;
+export const PRIVATE_HUB_CONTROL_TIMEOUT_MS = 5_000;
+export const PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 
 export type PrivateHubSession = {
@@ -109,6 +115,7 @@ type PrivateHubBody = Record<string, unknown> & {
   modelRuntimeReachable?: boolean;
   modelAvailable?: boolean;
   runtimeReady?: boolean;
+  protocolVersion?: string;
   instanceId?: string;
   deploymentKind?: string;
   token?: string;
@@ -160,8 +167,11 @@ function endpoint(value = PRIVATE_HUB_ENDPOINT) {
   return url.origin;
 }
 
-function boundedSignal(signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(CONTROL_TIMEOUT_MS);
+function boundedSignal(
+  signal?: AbortSignal,
+  timeoutMs = PRIVATE_HUB_CONTROL_TIMEOUT_MS,
+) {
+  const timeout = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -227,15 +237,21 @@ export class PrivateHubClient {
   private modelsInFlight: Promise<PrivateHubBody & { models: LocalTextModel[] }> | null = null;
   private preferenceInFlight = new Map<string, Promise<OfflinePreferenceModelArtifact[]>>();
   private cacheEpoch = 0;
+  private rememberWithinTab = false;
+  private readonly tabStorage: Storage | null | undefined;
 
   constructor(options: {
     endpoint?: string;
     origin?: string;
     session?: PrivateHubSession;
+    tabStorage?: Storage | null;
+    rememberWithinTab?: boolean;
   } = {}) {
     this.endpoint = endpoint(options.endpoint);
     this.origin = options.origin ?? "https://novel-orcin.vercel.app";
     this.session = options.session ?? null;
+    this.tabStorage = options.tabStorage;
+    this.rememberWithinTab = options.rememberWithinTab ?? false;
   }
 
   setSession(session: PrivateHubSession | null) {
@@ -263,6 +279,113 @@ export class PrivateHubClient {
   getActiveAdapter(projectId: string) {
     const artifact = this.activeAdapters.get(projectId);
     return artifact ? structuredClone(artifact) : null;
+  }
+
+  setRememberWithinTab(enabled: boolean) {
+    this.rememberWithinTab = enabled;
+    if (!enabled) clearClosedAITabSession("private-ai-hub", this.tabStorage);
+  }
+
+  getRememberWithinTab() {
+    return this.rememberWithinTab;
+  }
+
+  clearRememberedSession() {
+    clearClosedAITabSession("private-ai-hub", this.tabStorage);
+  }
+
+  private saveRememberedSession(
+    modelId: string | null = null,
+    modelDigest: string | null = null,
+  ) {
+    if (!this.rememberWithinTab || !this.session) return false;
+    return saveClosedAITabSession({
+      schemaVersion: "closed-ai-tab-session-v1",
+      backend: "private-ai-hub",
+      protocolVersion: PRIVATE_HUB_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+      instanceId: this.session.instanceId,
+      expiresAt: this.session.expiresAt,
+      session: {
+        token: this.session.token,
+        csrf: this.session.csrf,
+      },
+      modelId,
+      modelDigest,
+      savedAt: new Date().toISOString(),
+    }, this.tabStorage);
+  }
+
+  async restoreRememberedSession(signal?: AbortSignal) {
+    const remembered = readClosedAITabSession({
+      backend: "private-ai-hub",
+      protocolVersion: PRIVATE_HUB_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+    }, this.tabStorage);
+    if (!remembered) return null;
+    this.rememberWithinTab = true;
+    this.setSession({
+      token: remembered.session.token,
+      csrf: remembered.session.csrf,
+      instanceId: remembered.instanceId,
+      expiresAt: remembered.expiresAt,
+    });
+    try {
+      const health = await this.health(signal);
+      if (
+        health.protocolVersion !== PRIVATE_HUB_PROTOCOL
+        || health.instanceId !== remembered.instanceId
+      ) {
+        throw new AiProviderError(
+          "LOCAL_REQUEST_IDENTITY_MISMATCH",
+          "Private Hub instance changed after the page was reloaded.",
+          { retryable: false, stage: "private-session-recovery" },
+        );
+      }
+      const modelResponse = await this.models(signal);
+      const models = modelResponse.models ?? [];
+      const selected = models.find((model) =>
+        model.modelId === remembered.modelId
+        && model.modelDigest === remembered.modelDigest
+        && model.capabilities?.textGeneration?.value === true)
+        ?? models.find((model) =>
+          model.capabilities?.textGeneration?.value === true)
+        ?? null;
+      if (!selected) {
+        throw new AiProviderError(
+          "OLLAMA_MODEL_NOT_FOUND",
+          "No text model is available for the restored Private Hub session.",
+          { retryable: true, stage: "private-session-recovery" },
+        );
+      }
+      const proof = await this.verifyModel(selected.modelId, signal);
+      if (
+        proof.instanceId !== remembered.instanceId
+        || proof.modelId !== selected.modelId
+        || proof.modelDigest !== (selected.modelDigest ?? null)
+      ) {
+        throw new AiProviderError(
+          "LOCAL_REQUEST_IDENTITY_MISMATCH",
+          "The restored Private Hub model proof does not match the current model.",
+          { retryable: false, stage: "private-session-recovery" },
+        );
+      }
+      this.saveRememberedSession(
+        selected.modelId,
+        selected.modelDigest ?? null,
+      );
+      return {
+        session: this.getSessionMetadata(),
+        model: structuredClone(selected),
+        proof,
+      };
+    } catch (error) {
+      this.setSession(null);
+      this.clearRememberedSession();
+      throw error;
+    }
   }
 
   clearControlPlaneCache() {
@@ -298,8 +421,9 @@ export class PrivateHubClient {
     path: string,
     init: RequestInit = {},
     signal?: AbortSignal,
+    timeoutMs = PRIVATE_HUB_CONTROL_TIMEOUT_MS,
   ) {
-    const signalWithTimeout = boundedSignal(signal);
+    const signalWithTimeout = boundedSignal(signal, timeoutMs);
     try {
       return await fetch(`${this.endpoint}${path}`, {
         ...init,
@@ -382,6 +506,7 @@ export class PrivateHubClient {
     this.activeAdapters.clear();
     this.session = session;
     this.clearControlPlaneCache();
+    this.saveRememberedSession();
     return session;
   }
 
@@ -399,6 +524,7 @@ export class PrivateHubClient {
     this.modelVerification = null;
     this.activeAdapters.clear();
     this.clearControlPlaneCache();
+    this.clearRememberedSession();
     return result;
   }
 
@@ -444,6 +570,7 @@ export class PrivateHubClient {
         body: JSON.stringify({ model: modelId }),
       },
       signal,
+      PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS,
     ));
     if (!validateInferenceProof(body, this.session, modelId)) {
       throw new AiProviderError(
@@ -453,6 +580,10 @@ export class PrivateHubClient {
       );
     }
     this.modelVerification = body;
+    this.saveRememberedSession(
+      this.modelVerification.modelId,
+      this.modelVerification.modelDigest,
+    );
     return { ...this.modelVerification };
   }
 

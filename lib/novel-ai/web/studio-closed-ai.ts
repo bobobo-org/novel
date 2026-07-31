@@ -1,12 +1,18 @@
 import { localProviderSnapshots } from "../router/platform-executor";
 import type {
+  ClosedAIBackendId,
+  ClosedAIExecutionReceipt,
+} from "../closed-agent-os";
+import type {
   PlatformAIRequest,
   PlatformAIResult,
   PlatformProviderId,
+  PlatformProviderCapability,
   PlatformProviderSnapshot,
   PlatformTaskType,
 } from "../router/platform-types";
 import { executeStudioClosedAgent } from "./closed-agent-os-service";
+import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -16,9 +22,15 @@ export type StudioClosedAIStatus =
 
 export type StudioClosedAISnapshot = {
   status: StudioClosedAIStatus;
+  /** Compatibility alias for plannedProviderId. This is not execution proof. */
   providerId: PlatformProviderId | null;
+  plannedProviderId: PlatformProviderId | null;
   modelId: string | null;
   providers: PlatformProviderSnapshot[];
+  actualExecutor: PlatformProviderId | "not_executed";
+  executionStatus: "routable" | "not_executed";
+  reasonCode?: string;
+  recommendedNextAction?: string;
 };
 
 export type StudioClosedAITaskInput = {
@@ -26,11 +38,22 @@ export type StudioClosedAITaskInput = {
   task: string;
   input: string;
   targetLength?: number;
+  sourceChapterId?: string;
+  sourceRevision?: number;
   signal?: AbortSignal;
 };
 
 type SnapshotReader = (signal?: AbortSignal) => Promise<PlatformProviderSnapshot[]>;
 type PlatformExecutor = (request: PlatformAIRequest) => Promise<PlatformAIResult>;
+
+async function digestText(value: string) {
+  return crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  ).then((digest) => [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(""));
+}
 
 export function studioPlatformTaskType(task: string): PlatformTaskType {
   if (task === "knowledge_rule_extraction") return "knowledge.ruleExtraction";
@@ -56,19 +79,102 @@ export async function discoverStudioClosedAI(
   signal?: AbortSignal,
   readSnapshots: SnapshotReader = localProviderSnapshots,
 ): Promise<StudioClosedAISnapshot> {
+  if (readSnapshots === localProviderSnapshots) {
+    const runtime = await getStudioClosedAIRuntimeCoordinator().refresh({
+      projectId: "studio-discovery",
+      taskType: "chapter.continue",
+      signal,
+    });
+    const providers = runtime.backends.map((provider) => ({
+      id: provider.id,
+      status: provider.status === "ready"
+        ? "ready" as const
+        : provider.status === "degraded"
+          ? "degraded" as const
+          : "runtime_unavailable" as const,
+      capabilities: provider.capabilities as PlatformProviderCapability[],
+      modelId: provider.modelId,
+      modelDigest: provider.modelDigest,
+      maxContext: provider.maxContext ?? 0,
+      local: provider.local,
+      requiresInternet: false,
+      detail: provider.detailCode,
+    }));
+    if (runtime.route.executionStatus === "routable") {
+      const providerId = runtime.route.backend.id;
+      return {
+        status: providerId === "local-ollama"
+          ? "ollama_ready"
+          : "browser_ready",
+        providerId,
+        plannedProviderId: providerId,
+        modelId: runtime.plannedModel,
+        providers,
+        actualExecutor: runtime.actualExecutor,
+        executionStatus: "routable",
+        reasonCode: runtime.route.reasonCode,
+        recommendedNextAction: runtime.nextAction,
+      };
+    }
+    return {
+      status: runtime.localNetworkPermission === "denied"
+        ? "auth_required"
+        : "runtime_required",
+      providerId: null,
+      plannedProviderId: null,
+      modelId: null,
+      providers,
+      actualExecutor: "not_executed",
+      executionStatus: "not_executed",
+      reasonCode: runtime.route.reasonCode,
+      recommendedNextAction: runtime.nextAction,
+    };
+  }
   const providers = await readSnapshots(signal);
   const localOllama = providers.find((provider) => provider.id === "local-ollama");
   const browserAI = providers.find((provider) => provider.id === "browser-ai");
   if (localOllama?.status === "ready") {
-    return { status: "ollama_ready", providerId: localOllama.id, modelId: localOllama.modelId, providers };
+    return {
+      status: "ollama_ready",
+      providerId: localOllama.id,
+      plannedProviderId: localOllama.id,
+      modelId: localOllama.modelId,
+      providers,
+      actualExecutor: "not_executed",
+      executionStatus: "routable",
+    };
   }
   if (browserAI?.status === "ready") {
-    return { status: "browser_ready", providerId: browserAI.id, modelId: browserAI.modelId, providers };
+    return {
+      status: "browser_ready",
+      providerId: browserAI.id,
+      plannedProviderId: browserAI.id,
+      modelId: browserAI.modelId,
+      providers,
+      actualExecutor: "not_executed",
+      executionStatus: "routable",
+    };
   }
   if (localOllama?.status === "auth_required" || browserAI?.status === "auth_required") {
-    return { status: "auth_required", providerId: null, modelId: null, providers };
+    return {
+      status: "auth_required",
+      providerId: null,
+      plannedProviderId: null,
+      modelId: null,
+      providers,
+      actualExecutor: "not_executed",
+      executionStatus: "not_executed",
+    };
   }
-  return { status: "runtime_required", providerId: null, modelId: null, providers };
+  return {
+    status: "runtime_required",
+    providerId: null,
+    plannedProviderId: null,
+    modelId: null,
+    providers,
+    actualExecutor: "not_executed",
+    executionStatus: "not_executed",
+  };
 }
 
 export async function runStudioClosedAI(
@@ -89,6 +195,8 @@ export async function runStudioClosedAI(
       taskId: requestId,
       signal: input.signal,
       promptProfileVersion: "studio-legacy-entry-v3",
+      sourceChapterId: input.sourceChapterId,
+      sourceRevision: input.sourceRevision,
     });
     if (
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
@@ -106,15 +214,23 @@ export async function runStudioClosedAI(
       provider: result.candidate.backendId,
       model: result.candidate.modelId,
       modelDigest: result.candidate.modelDigest,
+      sourceChapterId: result.candidate.sourceChapterId,
+      sourceRevision: result.candidate.sourceRevision,
       content: result.candidate.content,
-      dataLeftDevice: false,
-      externalRequest: false,
+      contentDigest: result.candidate.contentDigest,
+      actualExecutor: result.candidate.actualExecutor,
+      executionReceipt: result.candidate.executionReceipt,
+      contextDigest: result.candidate.contextDigest ?? null,
+      contextSourceSummary: result.candidate.contextSourceSummary ?? null,
+      dataLeftDevice: result.candidate.dataLeftDevice ?? false,
+      externalRequest: result.candidate.externalRequest ?? false,
       warnings: result.candidate.evaluation.warningCodes,
       ledgerHeadHash: result.ledgerHeadHash,
       canonicalMutationCount: result.candidate.canonicalMutationCount,
     };
   }
 
+  const startedAt = new Date().toISOString();
   const result = await execute({
     requestId,
     projectId: input.projectId,
@@ -133,6 +249,7 @@ export async function runStudioClosedAI(
     idempotencyKey: requestId,
     signal: input.signal,
   });
+  const completedAt = new Date().toISOString();
   if (
     !["browser-ai", "local-ollama"].includes(result.providerId)
     || result.externalRequest
@@ -143,12 +260,46 @@ export async function runStudioClosedAI(
       { code: "CLOSED_AI_BOUNDARY_VIOLATION" },
     );
   }
+  const contentDigest = await digestText(result.content);
+  const contextDigest = await digestText(`${input.projectId}\n${taskType}\n${input.input}`);
+  const modelId = result.modelId?.trim() ?? "";
+  const modelDigest = result.modelDigest?.trim() ?? "";
+  const outputCharacters = result.outputCharacters ?? result.content.length;
+  const executionReceipt: ClosedAIExecutionReceipt | null =
+    modelId
+    && modelDigest
+    && outputCharacters > 0
+      ? {
+        taskId: result.requestId,
+        backendId: result.providerId as ClosedAIBackendId,
+        modelId,
+        modelDigest,
+        startedAt,
+        completedAt,
+        generatedTokenEvents: result.generatedTokenEvents ?? 0,
+        outputCharacters,
+        contentDigest,
+        contextDigest,
+        proofState: "verified",
+        dataLeftDevice: result.dataLeavesDevice,
+        externalRequest: result.externalRequest,
+      }
+      : null;
   return {
     taskId: result.requestId,
+    candidateId: null,
     status: "completed" as const,
     provider: result.providerId,
     model: result.modelId ?? "unknown",
+    modelDigest: result.modelDigest ?? null,
     content: result.content,
+    contentDigest,
+    actualExecutor: executionReceipt?.backendId ?? "not_executed",
+    executionReceipt,
+    contextDigest,
+    sourceChapterId: input.sourceChapterId ?? null,
+    sourceRevision: input.sourceRevision ?? null,
+    canonicalMutationCount: 0,
     dataLeftDevice: result.dataLeavesDevice,
     externalRequest: result.externalRequest,
     warnings: result.provenance.warnings,

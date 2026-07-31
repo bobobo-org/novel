@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
@@ -69,7 +70,17 @@ const catalog = resolveCapabilityCatalog(), healthSource = await readFile(new UR
 await test("28 Health/capability consistency", async () => { for (const id of ["repository.approvalTransaction","repository.revisionGuard","repository.idempotency","backup.approvalTransactions","backup.idempotencyRecords"]) assert.ok(healthSource.includes(id)); });
 await test("29 Unsupported cannot be ready", async () => { assert.equal(capabilityStatus(catalog,"missing.capability"), "not_implemented"); });
 await test("30 Partial cannot be full", async () => { assert.equal(catalog["indexedDb.fullAdoption"].effectiveStatus, "partial"); });
-await test("31 Test-ready cannot be production-ready", async () => { assert.equal(catalog["browser.permissionGateway"].effectiveStatus, "client_dependent"); assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "not_implemented"); });
+await test("31 Packaged Browser light runtime does not imply a generative browser LLM", async () => {
+  assert.equal(
+    catalog["browser.permissionGateway"].effectiveStatus,
+    "client_dependent",
+  );
+  assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "ready");
+  assert.match(
+    catalog["browser.aiRuntime"].limitations.join(" "),
+    /light extractive tasks|generative Browser AI remains device-dependent/i,
+  );
+});
 await test("32 Studio A/B/C acceptance", async () => { assert.match(studioSource, /choice\.key/); assert.match(studioSource, /acceptStudioChoice/); });
 await test("33 Studio abandon candidate", async () => { assert.match(studioSource, /暫時不採用/); assert.match(studioSource, /discard/); });
 await test("34 Main-character card", async () => { assert.match(studioSource, /function WorldScreen/); assert.match(studioSource, /查看主角|編輯角色/); });
@@ -77,7 +88,23 @@ await test("35 Tasks and achievements", async () => { assert.match(studioSource,
 await test("36 Save and backup", async () => { assert.match(studioSource, /立即快速備份/); assert.match(studioSource, /安全還原/); });
 await test("37 Professional tools health", async () => { const source = await readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"); assert.match(source, /系統狀態|本機 AI|本機AI/); assert.doesNotMatch(source, /<Link href="\/legacy\/novel-system\.html/); assert.match(source, /<a href="\/legacy\/novel-system\.html/); });
 await test("38 Mobile core flow", async () => { const css = await readFile(new URL("../app/studio/studio.css", import.meta.url), "utf8").catch(() => readFile(new URL("../app/globals.css", import.meta.url), "utf8")); assert.match(css, /390|max-width:\s*600|max-width:\s*720|max-width:\s*768/); });
-const run = (args) => execFileSync(process.env.ComSpec || "cmd.exe", ["/d","/s","/c",`pnpm ${args.join(" ")}`], { cwd: process.cwd(), stdio:"pipe", encoding:"utf8", env:process.env });
+const run = (args) => process.platform === "win32"
+  ? execFileSync(
+    process.env.ComSpec || "cmd.exe",
+    ["/d", "/s", "/c", `pnpm ${args.join(" ")}`],
+    {
+      cwd: process.cwd(),
+      stdio: "pipe",
+      encoding: "utf8",
+      env: process.env,
+    },
+  )
+  : execFileSync("pnpm", args, {
+    cwd: process.cwd(),
+    stdio: "pipe",
+    encoding: "utf8",
+    env: process.env,
+  });
 await test("39 Production build", async () => { run(["build"]); });
 await test("40 TypeScript", async () => { run(["exec","tsc","--noEmit"]); });
 await test("41 ESLint", async () => { run(["exec","eslint","."]); });
@@ -86,7 +113,15 @@ const preReport = { suite:"p21-three-high-45", generatedAt:new Date().toISOStrin
 const prePath = new URL("pre-parse-report.json", artifactDir); await writeFile(prePath, JSON.stringify(preReport,null,2));
 await test("43 Manifest verification", async () => { const body = await readFile(prePath); const digest = createHash("sha256").update(body).digest("hex"); assert.equal(digest.length,64); await writeFile(new URL("pre-parse-report.sha256",artifactDir),`${digest}  pre-parse-report.json\n`); });
 await test("44 Node UTF-8 JSON parse", async () => { JSON.parse(await readFile(prePath,"utf8")); });
-await test("45 PowerShell ConvertFrom-Json parse", async () => { const path = decodeURIComponent(prePath.pathname).replace(/^\//,"").replaceAll("/","\\").replaceAll("'","''"); const command = `$utf8=[System.Text.UTF8Encoding]::new($false);$text=[System.IO.File]::ReadAllText('${path}',$utf8);$null=$text|ConvertFrom-Json`; execFileSync("powershell.exe",["-NoProfile","-Command",command],{stdio:"pipe"}); });
+await test("45 PowerShell ConvertFrom-Json parse", async () => {
+  const path = fileURLToPath(prePath).replaceAll("'", "''");
+  const command = `$utf8=[System.Text.UTF8Encoding]::new($false);$text=[System.IO.File]::ReadAllText('${path}',$utf8);$null=$text|ConvertFrom-Json`;
+  execFileSync(
+    process.platform === "win32" ? "powershell.exe" : "pwsh",
+    ["-NoProfile", "-NonInteractive", "-Command", command],
+    { stdio: "pipe" },
+  );
+});
 const report = { suite:"p21-three-high-45", generatedAt:new Date().toISOString(), pass:results.filter(x=>x.status==="PASS").length, fail:results.filter(x=>x.status==="FAIL").length, skip:0, todo:0, results };
 await writeFile(new URL("latest.json",artifactDir),JSON.stringify(report,null,2));
 console.log(JSON.stringify(report,null,2));

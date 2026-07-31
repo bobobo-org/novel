@@ -1,0 +1,12 @@
+{"mode":"mobile","status":"PROGRESS","name":"reuse explicitly matching local application server","details":{"baseUrl":"http://127.0.0.1:3100"}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile setup fits viewport","details":{"viewport":390,"document":390}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile setup reports runtime truth without inherited pairing","details":{"runtimeState":"pairing_required"}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile Service Worker release identity is available","details":{"controlled":true}}
+{"mode":"mobile","status":"PROGRESS","name":"create consumer project through the public frontdoor UI","details":{"projectIdPresent":true}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile Studio fits viewport","details":{"viewport":390,"document":390}}
+{"mode":"mobile","status":"PROGRESS","name":"candidate exposes truthful executor and data boundary","details":{"executor":"browser-ai","modelId":"novel-browser-task-runtime-v2","contextDigestPresent":true,"dataLeftDevice":false,"externalRequest":false,"canonicalMutationCount":0}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile packaged Browser AI executes only a light task","details":{"taskType":"story.summary","actualExecutor":"browser-ai"}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile Closed AI workspace fits viewport","details":{"viewport":390,"document":390}}
+{"mode":"mobile","status":"PROGRESS","name":"mobile primary action has a usable touch target","details":{"width":342,"height":42}}
+{"mode":"mobile","status":"PROGRESS","name":"browser runtime has no uncaught page errors","details":{"count":0}}
+{"mode":"mobile","status":"PASS","passCount":11,"failCount":0,"blockingSkipCount":0,"evidencePath":"C:\\dev\\novel-closed-ai-runtime-r2\\artifacts\\closed-ai-runtime-r2\\mobile-user-e2e.json"}
