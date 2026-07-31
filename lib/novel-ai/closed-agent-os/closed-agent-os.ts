@@ -32,6 +32,7 @@ import {
   type ClosedAgentStateRepository,
 } from "./repository";
 import { selectClosedAIBackend } from "./router";
+import { normalizeAbcChoicesCandidate } from "./structured-output";
 import {
   assertClosedAgentPermission,
   ClosedAgentToolRegistry,
@@ -473,6 +474,19 @@ export class ClosedAgentOS {
           tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
           ttlMs: learningCacheTtl(request.learningConfiguration, "semantic"),
         });
+      }
+      if (request.taskType === "chapter.abcChoices") {
+        const normalized = normalizeAbcChoicesCandidate(execution.content);
+        if (!normalized.valid) {
+          throw osError("ABC_CHOICES_INVALID_STRUCTURE", undefined, {
+            extractedItemCount: normalized.extractedItemCount,
+            materiallyDistinct: normalized.materiallyDistinct,
+          });
+        }
+        execution = {
+          ...execution,
+          content: normalized.content,
+        };
       }
       if (execution.backendId !== route.backend.id) {
         throw osError("CLOSED_AI_BACKEND_IDENTITY_MISMATCH", undefined, {
@@ -1299,13 +1313,32 @@ export class ClosedAgentOS {
           : [draftMaterial],
       );
     }
+    let selected = final;
+    let selectedContent = final.content.trim();
+    if (request.taskType === "chapter.abcChoices") {
+      const structured = [final, draft]
+        .map((result) => ({
+          result,
+          normalized: normalizeAbcChoicesCandidate(result.content),
+        }))
+        .find((item) => item.normalized.valid);
+      if (!structured || !structured.normalized.valid) {
+        const finalStructure = normalizeAbcChoicesCandidate(final.content);
+        throw osError("ABC_CHOICES_INVALID_STRUCTURE", undefined, {
+          extractedItemCount: finalStructure.extractedItemCount,
+          materiallyDistinct: finalStructure.materiallyDistinct,
+        });
+      }
+      selected = structured.result;
+      selectedContent = structured.normalized.content;
+    }
     return {
-      ...final,
-      adapterId: final.adapterId ?? draft.adapterId ?? null,
-      adapterDigest: final.adapterDigest ?? draft.adapterDigest ?? null,
-      content: final.content.trim(),
+      ...selected,
+      adapterId: selected.adapterId ?? draft.adapterId ?? null,
+      adapterDigest: selected.adapterDigest ?? draft.adapterDigest ?? null,
+      content: selectedContent,
       elapsedMs: passResults.reduce((sum, item) => sum + item.elapsedMs, 0),
-      profileId: `${final.profileId ?? `${final.backendId}-default-v1`}:quality-${plan.qualityMode}-v1`,
+      profileId: `${selected.profileId ?? `${selected.backendId}-default-v1`}:quality-${plan.qualityMode}-v1`,
       firstTokenMs: passResults[0]?.firstTokenMs ?? null,
       inputCharacters: passResults.reduce(
         (sum, item) => sum + (item.inputCharacters ?? 0),

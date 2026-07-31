@@ -127,6 +127,7 @@ const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "chapter.continue": "直接續寫正文；承接最後可見動作與語氣，以人物選擇和代價推進，不重述已有內容，不解說創作方法。",
   "chapter.rewrite": "保留必要事實、角色意圖與因果，依作者目標完整改寫指定文字；只輸出可替換正文。",
   "chapter.expand": "把指定片段擴成完整場景，增加可見動作、感官、空間、對話潛台詞與後果，但不新增未核准設定。",
+  "chapter.abcChoices": "只輸出恰好三個彼此不同、都符合 Canon 的後續選項。每項必須包含角色可執行的行動與明確代價，並嚴格使用三行格式：「A. …」、「B. …」、「C. …」。不得加入前言、結語、第四個選項、JSON 或 Markdown 程式碼區塊。",
   "character.create": "建立角色候選，包含身分、外在目標、內在需求、能力、限制、恐懼、矛盾、語氣、關係鉤子與劇情功能。",
   "character.dialogue": "只輸出符合角色知識邊界、目標、語氣與關係狀態的候選對話；用動作或停頓呈現潛台詞。",
   "character.dialogueConsistency": "比較對話與角色聲音基準，列出一致與偏離證據；沒有足夠角色基準時明確標示，不能猜測。",
@@ -178,6 +179,7 @@ export function getClosedAIModelProfile(
   const summary = SUMMARY_TASKS.has(taskType);
   const creative = CREATIVE_TASKS.has(taskType);
   const heavy = HEAVY_TASKS.has(taskType);
+  const conciseAbcChoices = taskType === "chapter.abcChoices";
   const family = classification
     ? "analysis"
     : summary
@@ -188,7 +190,9 @@ export function getClosedAIModelProfile(
           ? "creative"
           : "balanced";
 
-  const numPredict = classification
+  const numPredict = conciseAbcChoices
+    ? privateHub ? 640 : 512
+    : classification
     ? privateHub ? 1_024 : browserAI ? 640 : 768
     : summary
       ? privateHub ? 1_536 : browserAI ? 896 : 1_024
@@ -210,8 +214,8 @@ export function getClosedAIModelProfile(
     options: {
       num_predict: numPredict,
       num_ctx: privateHub ? 24_576 : browserAI ? 4_096 : 8_192,
-      temperature: classification ? 0.1 : summary ? 0.25 : heavy ? 0.58 : creative ? 0.72 : 0.45,
-      top_p: classification ? 0.82 : summary ? 0.88 : 0.92,
+      temperature: conciseAbcChoices ? 0.45 : classification ? 0.1 : summary ? 0.25 : heavy ? 0.58 : creative ? 0.72 : 0.45,
+      top_p: conciseAbcChoices ? 0.86 : classification ? 0.82 : summary ? 0.88 : 0.92,
       repeat_penalty: creative || heavy ? 1.12 : 1.08,
     },
   };

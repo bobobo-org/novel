@@ -9,6 +9,7 @@ import {
   ClosedAgentOS,
   MemoryClosedAgentStateRepository,
   evaluateObjectiveAcceptance,
+  normalizeAbcChoicesCandidate,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
 import {
   ApprovalSigner,
@@ -108,11 +109,18 @@ class OptimizationBackend {
       backendId: this.id,
       generatedCharacters: 48,
     });
+    const content = input.request.taskType === "chapter.abcChoices"
+      ? [
+          "- 林昭公開帳冊的缺頁，換取群眾協助，但必須承擔打草驚蛇的代價。",
+          "- 林昭私下追蹤守門人，以保住證據來源，但會失去盟友的即時支援。",
+          "- 林昭設局引出幕後買家，能快速逼近核心，卻可能讓無辜證人暴露。",
+        ].join("\n")
+      : `這是由 ${this.id} 產生的繁體中文候選，包含足夠內容供評估、證據封存與作者人工核准。`;
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
       modelDigest: `${this.id}-digest`,
-      content: `這是由 ${this.id} 產生的繁體中文候選，包含足夠內容供評估、證據封存與作者人工核准。`,
+      content,
       candidateOnly: true,
       dataLeftDevice: false,
       externalRequest: false,
@@ -226,6 +234,104 @@ test("Local and Hub task profiles enforce different budgets and truthful prompts
   assert.match(built.prompt, /不要修改 Canon/u);
   assert.equal(built.contextItems, 1);
   assert(built.omittedCharacters > 0);
+});
+
+test("A/B/C profile is concise and requires one strict three-line contract", () => {
+  const profile = getClosedAIModelProfile(
+    "chapter.abcChoices",
+    "local-ollama",
+  );
+  assert.match(profile.systemInstruction, /A\. …/u);
+  assert.match(profile.systemInstruction, /B\. …/u);
+  assert.match(profile.systemInstruction, /C\. …/u);
+  assert.match(profile.systemInstruction, /不得加入前言/u);
+  assert(profile.options.num_predict <= 512);
+  assert(profile.options.temperature <= 0.45);
+});
+
+test("A/B/C normalization preserves three real model choices across common formats", () => {
+  const numbered = normalizeAbcChoicesCandidate([
+    "1. 公開證據並承擔敵人警覺的代價。",
+    "2. 私下追查並承擔盟友誤解的代價。",
+    "3. 設局誘敵並承擔證人暴露的代價。",
+  ].join("\n"));
+  const json = normalizeAbcChoicesCandidate(JSON.stringify({
+    choices: [
+      { action: "公開證據", description: "敵人會立刻警覺。" },
+      { action: "私下追查", description: "盟友可能產生誤解。" },
+      { action: "設局誘敵", description: "證人可能因此暴露。" },
+    ],
+  }));
+  const labeled = normalizeAbcChoicesCandidate([
+    "A：公開證據並承擔敵人警覺的代價。",
+    "B：私下追查並承擔盟友誤解的代價。",
+    "C：設局誘敵並承擔證人暴露的代價。",
+  ].join("\n"));
+  for (const result of [numbered, json, labeled]) {
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.choices.map((choice) => choice.label), ["A", "B", "C"]);
+    assert.match(result.content, /^A\. .+\nB\. .+\nC\. .+$/u);
+    assert.equal(result.materiallyDistinct, true);
+  }
+});
+
+test("A/B/C normalization rejects missing or duplicated choices", () => {
+  const missing = normalizeAbcChoicesCandidate(
+    "A. 公開證據\nB. 私下追查",
+  );
+  const duplicated = normalizeAbcChoicesCandidate([
+    "A. 公開證據並承擔代價",
+    "B. 公開證據並承擔代價",
+    "C. 設局誘敵並承擔代價",
+  ].join("\n"));
+  const fourth = normalizeAbcChoicesCandidate([
+    "A. 公開證據並承擔敵人警覺的代價。",
+    "B. 私下追查並承擔盟友誤解的代價。",
+    "C. 設局誘敵並承擔證人暴露的代價。",
+    "D. 放棄追查並承擔證據失效的代價。",
+  ].join("\n"));
+  const extraJsonChoice = normalizeAbcChoicesCandidate(JSON.stringify({
+    A: "公開證據並承擔敵人警覺的代價。",
+    B: "私下追查並承擔盟友誤解的代價。",
+    C: "設局誘敵並承擔證人暴露的代價。",
+    D: "放棄追查並承擔證據失效的代價。",
+  }));
+  assert.equal(missing.valid, false);
+  assert.equal(duplicated.valid, false);
+  assert.equal(fourth.valid, false);
+  assert.equal(extraJsonChoice.valid, false);
+  assert.equal(missing.reasonCode, "ABC_CHOICES_INVALID_STRUCTURE");
+  assert.equal(duplicated.materiallyDistinct, false);
+});
+
+test("Closed Agent OS stores only normalized A/B/C model output", async () => {
+  const { os, calls } = createOS();
+  const result = await os.execute({
+    taskId: "optimization-abc-task",
+    namespace: namespace({ projectId: "project-abc" }),
+    taskType: "chapter.abcChoices",
+    objective: "依已核准情節提出三個不同的後續選項，每項都要有行動與代價。",
+    context: [],
+    complexity: "standard",
+    qualityMode: "balanced",
+    preferredBackend: "local-ollama",
+    allowedToolIds: [],
+    permissionScopes: [
+      "story:read",
+      "story-bible:read",
+      "candidate:write",
+      "candidate:read",
+      "evaluation:write",
+      "character:read",
+      "world:read",
+    ],
+  });
+  assert.equal(result.candidate.backendId, "local-ollama");
+  assert.equal(result.candidate.actualExecutor, "local-ollama");
+  assert.match(result.candidate.content, /^A\. .+\nB\. .+\nC\. .+$/u);
+  assert.equal(result.candidate.evaluation.passed, true);
+  assert.equal(result.candidate.canonicalMutationCount, 0);
+  assert.equal(calls.executions, 2);
 });
 
 test("Deep quality mode performs draft, critic and revision without persisting transient text", async () => {

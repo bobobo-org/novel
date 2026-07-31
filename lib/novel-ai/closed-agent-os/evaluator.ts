@@ -4,6 +4,7 @@ import {
   containsProtectedProperNounDrift,
 } from "../language/traditional-chinese";
 import { evaluateObjectiveAcceptance } from "./acceptance";
+import { normalizeAbcChoicesCandidate } from "./structured-output";
 import type {
   ClosedAgentEvaluation,
   ClosedAgentTaskRequest,
@@ -39,6 +40,12 @@ export async function evaluateClosedAgentCandidate(input: {
     && (input.execution.externalRequest || input.execution.dataLeftDevice)
   ) {
     blockingCodes.push("CANDIDATE_DEVICE_BOUNDARY_VIOLATION");
+  }
+  if (
+    input.request.taskType === "chapter.abcChoices"
+    && !normalizeAbcChoicesCandidate(content).valid
+  ) {
+    blockingCodes.push("ABC_CHOICES_INVALID_STRUCTURE");
   }
   if (
     /風險/u.test(input.request.objective)
