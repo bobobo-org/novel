@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "novel-studio-offline-";
-const BOOTSTRAP_CACHE = `${CACHE_PREFIX}bootstrap-v3`;
+const BOOTSTRAP_CACHE = `${CACHE_PREFIX}bootstrap-v4`;
 const OFFLINE_FALLBACK = "/offline-studio.html";
 const STATIC_SEED = [
   OFFLINE_FALLBACK,
@@ -97,16 +97,35 @@ async function networkFirst(request) {
   }
 }
 
+function isLocalRuntimeRequest(url) {
+  return url.hostname === "127.0.0.1"
+    || url.hostname === "localhost"
+    || url.hostname === "[::1]";
+}
+
+function isHashedImmutableAsset(pathname) {
+  return /(?:^|[-._])[0-9a-f]{8,}(?:[-._]|$)/i.test(pathname)
+    && /\.(?:woff2?|png|jpg|jpeg|webp|svg|ico)$/i.test(pathname);
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+  // Local model runtimes are authenticated separately and must never pass
+  // through an application cache, even if a browser changes SW scope rules.
+  if (isLocalRuntimeRequest(url)) return;
   if (url.origin !== self.location.origin) return;
   if (
-    url.pathname.startsWith("/api/")
+    url.pathname === "/api"
+    || url.pathname.startsWith("/api/")
     || url.pathname.includes("/_next/webpack-hmr")
     || request.headers.get("range")
   ) return;
+  if (isHashedImmutableAsset(url.pathname)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
   if (
     url.pathname.startsWith("/_next/static/")
     || /\.(?:js|css)$/i.test(url.pathname)
@@ -114,12 +133,6 @@ self.addEventListener("fetch", (event) => {
     // Application code must prefer the newest deployment. The cache remains
     // an offline fallback, but it can no longer pin an old UI after an update.
     event.respondWith(networkFirst(request));
-    return;
-  }
-  if (
-    /\.(?:woff2?|png|jpg|jpeg|webp|svg|ico)$/i.test(url.pathname)
-  ) {
-    event.respondWith(cacheFirst(request));
     return;
   }
   if (request.mode === "navigate") {

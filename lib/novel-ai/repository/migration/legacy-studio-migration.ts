@@ -9,7 +9,91 @@ import { ensureStudioCanonicalProject } from "../studio-canonical";
 
 const LEGACY_KEYS = ["novel_p12_studio_state", "novel_p11r2_studio_state", "novel_p11_consumer_state"];
 
-export async function migrateLegacyStudioProjects(repository: NovelRepository) {
+export const EXPLICIT_LEGACY_STUDIO_KEYS = [
+  "novel_p11r2_studio_state",
+  "novel_p11_consumer_state",
+] as const;
+
+type LegacyMigrationOptions = {
+  sourceKeys?: readonly string[];
+  overwriteExisting?: boolean;
+};
+
+type LegacyMigrationJournal = {
+  sourceFingerprint?: string;
+};
+
+function fingerprint(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}-${value.length}`;
+}
+
+export function previewLegacyStudioProjects(
+  sourceKeys: readonly string[] = EXPLICIT_LEGACY_STUDIO_KEYS,
+) {
+  if (typeof localStorage === "undefined") {
+    return {
+      found: false,
+      pending: false,
+      projectCount: 0,
+      titles: [] as string[],
+      sourceKeys: [] as string[],
+      sourceFingerprint: null as string | null,
+    };
+  }
+  const rows: Array<{ key: string; raw: string }> = [];
+  const titles: string[] = [];
+  const projectIds = new Set<string>();
+  for (const key of sourceKeys) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+      if (!projects.length) continue;
+      rows.push({ key, raw });
+      for (const project of projects) {
+        const id = String(project?.id || `${key}:${titles.length}`);
+        if (projectIds.has(id)) continue;
+        projectIds.add(id);
+        titles.push(String(project?.title || "未命名作品").slice(0, 120));
+      }
+    } catch {
+      // Invalid legacy bytes remain untouched and are reported by the explicit
+      // import operation instead of being rewritten during discovery.
+    }
+  }
+  const sourceFingerprint = rows.length
+    ? fingerprint(rows.map((row) => `${row.key}:${row.raw}`).join("\n"))
+    : null;
+  let journal: LegacyMigrationJournal = {};
+  try {
+    journal = JSON.parse(
+      localStorage.getItem("novel_p2_legacy_migration_journal") || "{}",
+    ) as LegacyMigrationJournal;
+  } catch {}
+  return {
+    found: rows.length > 0,
+    pending: Boolean(
+      rows.length
+      && sourceFingerprint
+      && journal.sourceFingerprint !== sourceFingerprint
+    ),
+    projectCount: projectIds.size,
+    titles,
+    sourceKeys: rows.map((row) => row.key),
+    sourceFingerprint,
+  };
+}
+
+export async function migrateLegacyStudioProjects(
+  repository: NovelRepository,
+  options: LegacyMigrationOptions = {},
+) {
   if (typeof localStorage === "undefined") {
     return {
       status: "not_applicable",
@@ -38,9 +122,13 @@ export async function migrateLegacyStudioProjects(repository: NovelRepository) {
     return null;
   };
   let migrated = 0;
+  let skippedExisting = 0;
   const errors: string[] = [];
   const seenProjectIds = new Set<string>();
-  for (const key of LEGACY_KEYS) {
+  const sourceKeys = options.sourceKeys ?? LEGACY_KEYS;
+  const overwriteExisting = options.overwriteExisting ?? true;
+  const preview = previewLegacyStudioProjects(sourceKeys);
+  for (const key of sourceKeys) {
     const raw = localStorage.getItem(key);
     if (!raw) continue;
     try {
@@ -61,6 +149,10 @@ export async function migrateLegacyStudioProjects(repository: NovelRepository) {
           "projects",
           projectId,
         );
+        if (existingProject && !overwriteExisting) {
+          skippedExisting += 1;
+          continue;
+        }
         let snapshot = await ensureStudioCanonicalProject(repository, {
           id: projectId,
           title: text(row.title) || "未命名作品",
@@ -185,14 +277,19 @@ export async function migrateLegacyStudioProjects(repository: NovelRepository) {
     JSON.stringify({
       at: new Date().toISOString(),
       migrated,
+      skippedExisting,
       errors,
       sourceKeysRetained: true,
+      sourceFingerprint: preview.sourceFingerprint,
     }),
   );
   return {
     status: errors.length ? "partial" : "completed",
     migrated,
+    skippedExisting,
     errors,
+    sourceKeysRetained: true,
+    sourceFingerprint: preview.sourceFingerprint,
   };
 }
 
