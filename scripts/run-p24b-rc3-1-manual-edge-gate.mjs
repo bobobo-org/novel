@@ -138,9 +138,12 @@ async function permissionStates(page) {
 }
 
 function resolvedPermission(states) {
-  return ["local-network-access", "local-network", "loopback-network"]
+  const supported = ["local-network-access", "local-network", "loopback-network"]
     .map((name) => ({ name, state: states[name] }))
-    .find((entry) => entry.state !== "unsupported")
+    .filter((entry) => entry.state !== "unsupported");
+  return supported.find((entry) => entry.state === "granted")
+    ?? supported.find((entry) => entry.state === "denied")
+    ?? supported[0]
     ?? { name: "unsupported", state: "unsupported" };
 }
 
