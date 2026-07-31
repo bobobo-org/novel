@@ -1,7 +1,7 @@
 {
   "schemaVersion": "pr23-r2-3-local-bridge-runtime-v1",
   "status": "PASS",
-  "instanceIdDigest": "cf3646008753c31b63fe42df3bbb4a029ef49825cc5b0d4ec008d00ebb2f3698",
+  "instanceIdDigest": "8c445fb1619a9293507b5e3bd280673342b9a9bc427f5554d2a1f6cf60811501",
   "protocolVersion": "novel-local-bridge/v1",
   "pairingSecretPersisted": false,
   "modelId": "qwen2.5:3b",

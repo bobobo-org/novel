@@ -1,0 +1,22 @@
+{
+    "fixedScreenCoordinatesUsed":  false,
+    "explicitUserDelegation":  true,
+    "nativePromptDismissed":  true,
+    "delegatedActor":  "codex",
+    "profileCommandLineDigest":  "eed866f437d85a2e0ec634e2f7d4110c3ad2b27b4a0a2f39e0cf5a473b0a228a",
+    "processIdMatchedFreshAuditProfile":  true,
+    "humanOperatorClicked":  false,
+    "startedAt":  "2026-07-31T03:14:00.3237872Z",
+    "permissionInjectionUsed":  false,
+    "processName":  "msedge.exe",
+    "localNetworkAccessBypassUsed":  false,
+    "windowForegrounded":  true,
+    "decisionTarget":  "MICROSOFT_EDGE_NATIVE_LOCAL_NETWORK_ACCESS_ALLOW",
+    "semanticControlName":  "允許",
+    "schemaVersion":  "pr23-r2-4-native-allow-delegation-v1",
+    "automationRole":  "Button",
+    "browserPolicyModified":  false,
+    "status":  "INVOKED",
+    "invokedAt":  "2026-07-31T03:14:06.3480807Z",
+    "decisionMethod":  "WINDOWS_UI_AUTOMATION"
+}

@@ -2,25 +2,25 @@
   "schemaVersion": "pr23-r2-3-abc-choices-v1",
   "status": "PASS",
   "candidate": {
-    "candidateIdDigest": "6750862103b862711d41c6d4d189ccc304ee0af1b83abedf719bdeefa27c3e49",
-    "taskIdDigest": "4d692ed1f179340e33071ada5a86e9d595553ef66f5a0627364f4009a06bb4c7",
+    "candidateIdDigest": "4c414ee0fb92b950e961b9af865bb767ac99c253cd1f6d4c91ecbf7da50f6125",
+    "taskIdDigest": "d8a562f41385bc9bda82e08c10cf0af1453e6d374da2f8b81737770a35f6326c",
     "taskType": "chapter.abcChoices",
     "status": "awaiting-approval",
     "backendId": "local-ollama",
     "actualExecutor": "local-ollama",
     "modelId": "qwen2.5:3b",
     "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
-    "contextDigest": "68802d31d61228390fee5c7202073f0af61da1730607786cd5c8e7c205e9d87a",
-    "contextSourceSummaryDigest": "e7ea74dd934b53aee1804cbfdb4ae865a04b74dfa2fb15e62fda927af120ca47",
-    "contentDigest": "352a685c7ba7185eedf49eb34be59681831e4a6408216834850c57dd49b13964",
-    "generatedTokenEvents": 275,
-    "outputCharacters": 530,
+    "contextDigest": "f8dccdafb4db15ef63cbacf8394bcf954e766cf89fa200ca4c7fca33743f8c0c",
+    "contextSourceSummaryDigest": "9bbb51fd3d9f0582f669a262bb1095680a0db8200ae0e7919242cd7fc7779e6c",
+    "contentDigest": "25f0d5348decdb603c48d96618e1f820c324019ff42a7ec08a341b7917133a99",
+    "generatedTokenEvents": 184,
+    "outputCharacters": 258,
     "canonicalMutationCount": 0,
     "dataLeftDevice": false,
     "externalRequest": false,
     "proofState": "verified",
     "abcEvidence": {
-      "sourceFormat": "json:choices",
+      "sourceFormat": "labeled_text",
       "labels": [
         "A",
         "B",
@@ -30,13 +30,13 @@
       "choiceCount": 3,
       "allNonEmpty": true,
       "choiceDigests": [
-        "a84f099502917dceebf2b9e45e84dad89e54ddcd245b2328d90b47239d654350",
-        "56ece1a421ce3a29bb1900ac5f0821040bd114bde0e5876f7d35fcc5e09cbff2",
-        "df5cd58e3bb9fd6b7d3b10eaa75882a209df13662ac507421d394665677aa88f"
+        "2c55ce04370f57c53ddbf2f2869ba0f71c50510a2a1b399474b534a21f678492",
+        "d266631e3bcd255ae7fb3467adc114cbeb57fc72f9826ac5b499b7b3c4e46ed5",
+        "91ae5867e71464fd6914157e7a676d064242e86cdaea4b81e415ba4bcf2246ae"
       ],
       "materiallyDistinct": true
     },
-    "createdAt": "2026-07-31T00:03:13.683Z"
+    "createdAt": "2026-07-31T03:21:00.362Z"
   },
   "realLocalModel": true
 }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": "pr23-r2-3-console-classification-v1",
-  "generatedAt": "2026-07-31T00:04:29.733Z",
+  "generatedAt": "2026-07-31T03:22:00.207Z",
   "entries": [
     {
-      "recordId": "r23-00001-b256cce62ae1",
+      "recordId": "r23-00001-4f62e1a958bd",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -14,7 +14,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00002-88f19266fa7d",
+      "recordId": "r23-00002-68a55f7e8799",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -25,7 +25,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00003-88f19266fa7d",
+      "recordId": "r23-00003-68a55f7e8799",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -36,7 +36,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00004-0f8bd4638b9a",
+      "recordId": "r23-00004-a2a0569baf93",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -47,7 +47,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00005-a9e74a3bb3a7",
+      "recordId": "r23-00005-1549eeaad391",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -58,7 +58,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00006-4dbbf82a66aa",
+      "recordId": "r23-00006-46800634fbd8",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -69,7 +69,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00007-07e581020e73",
+      "recordId": "r23-00007-3d517793a31c",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -80,7 +80,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00008-50ae8c2d3435",
+      "recordId": "r23-00008-fa8e88eb85ba",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -91,7 +91,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00009-cef4ac383bd0",
+      "recordId": "r23-00009-d7483a3f367a",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -102,7 +102,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00010-cef4ac383bd0",
+      "recordId": "r23-00010-d7483a3f367a",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -113,7 +113,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00011-cef4ac383bd0",
+      "recordId": "r23-00011-d7483a3f367a",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -124,7 +124,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00012-cef4ac383bd0",
+      "recordId": "r23-00012-d7483a3f367a",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -135,7 +135,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00013-a63cc324fb89",
+      "recordId": "r23-00013-11b366cd1751",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -146,7 +146,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00014-ecc9f55f2983",
+      "recordId": "r23-00014-112464c0298b",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -157,7 +157,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00015-ff0f95a444a0",
+      "recordId": "r23-00015-822b69a3beda",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -168,7 +168,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00016-dab23a2d67f5",
+      "recordId": "r23-00016-cc14329ad079",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -179,7 +179,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00017-6f7bd4d85686",
+      "recordId": "r23-00017-98fc72d2e199",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -190,7 +190,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00018-7f59fd5d0fca",
+      "recordId": "r23-00018-a764c2a1b788",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -201,7 +201,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00019-20efd9ed6a3b",
+      "recordId": "r23-00019-a8da2a291e77",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -212,7 +212,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00020-4e37919f29d5",
+      "recordId": "r23-00020-4122d4ac442d",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -223,7 +223,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00021-a5964c1b2395",
+      "recordId": "r23-00021-fb6d81e83ea4",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -234,7 +234,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00022-be7b53d20af2",
+      "recordId": "r23-00022-8c50e5ea01f8",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -245,7 +245,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00023-20efd9ed6a3b",
+      "recordId": "r23-00023-3fed3e20e421",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -256,7 +256,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00024-c7be62f49f08",
+      "recordId": "r23-00024-2ef85419ec49",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -267,7 +267,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00025-41a245dde751",
+      "recordId": "r23-00025-f674f3357f93",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -278,7 +278,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00026-efc324b911e9",
+      "recordId": "r23-00026-8a174493ef10",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -289,7 +289,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00027-49024bcd9afc",
+      "recordId": "r23-00027-e57510f2effb",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -300,7 +300,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00028-c7be62f49f08",
+      "recordId": "r23-00028-8568fa4a7256",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -311,7 +311,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00029-e26fff538553",
+      "recordId": "r23-00029-154d0221e885",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -322,7 +322,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00030-49024bcd9afc",
+      "recordId": "r23-00030-bbb1f6dd291a",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -333,7 +333,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00031-efc324b911e9",
+      "recordId": "r23-00031-f674f3357f93",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -344,7 +344,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00032-150fc64b07c8",
+      "recordId": "r23-00032-3adac350f703",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -355,7 +355,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00033-20efd9ed6a3b",
+      "recordId": "r23-00033-8568fa4a7256",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -366,7 +366,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00034-49024bcd9afc",
+      "recordId": "r23-00034-737efd912293",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -377,7 +377,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00035-41a245dde751",
+      "recordId": "r23-00035-8568fa4a7256",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -388,7 +388,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00036-5e8094067705",
+      "recordId": "r23-00036-e57510f2effb",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -399,7 +399,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00037-efc324b911e9",
+      "recordId": "r23-00037-154d0221e885",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -410,7 +410,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00038-c7be62f49f08",
+      "recordId": "r23-00038-8568fa4a7256",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -421,7 +421,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00039-0608f1078edb",
+      "recordId": "r23-00039-ffd553df1078",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -432,18 +432,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00040-4961a99b50a4",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00041-8e70a5826bfd",
+      "recordId": "r23-00040-902eda03c3f3",
       "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
       "blocking": false,
       "reason": "The audit deliberately aborted cloud persistence health to prove local canonical operation in CLOUD_DEGRADED mode.",
@@ -454,7 +443,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00042-3316149fdfb1",
+      "recordId": "r23-00041-22e90608e762",
       "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
       "blocking": false,
       "reason": "Console mirrored the immediately preceding deliberate cloud persistence health abort.",
@@ -465,7 +454,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00043-20efd9ed6a3b",
+      "recordId": "r23-00042-ff6ce9295152",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -476,40 +465,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00044-f17f363b4d53",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00045-6096099ef293",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00046-f17f363b4d53",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00047-66588e3bf732",
+      "recordId": "r23-00043-640218556a8b",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -520,7 +476,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00048-00fbe77a5f03",
+      "recordId": "r23-00044-ffd553df1078",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -531,7 +487,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00049-94cc792db605",
+      "recordId": "r23-00045-4d1763c9d53f",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -542,12 +498,56 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00050-d2451f320173",
-      "classification": "EXPECTED_CANCELLED_REQUEST",
+      "recordId": "r23-00046-b6d87708f0f5",
+      "classification": "PRODUCT_WARNING",
       "blocking": false,
-      "reason": "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
-      "expectedByContract": true,
-      "contractReference": "successful local Bridge stream completion and reload session revalidation contract",
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00047-4d1763c9d53f",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00048-a764c2a1b788",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00049-8fd5fd8d1574",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00050-54d24e733136",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
       "userVisibleImpact": false,
       "retryable": false,
       "resolvedDuringFlow": true
@@ -564,106 +564,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00052-94cc792db605",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00053-1b4fa05baf9c",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00054-8d6a78804975",
-      "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
-      "blocking": false,
-      "reason": "The audit deliberately aborted cloud persistence health to prove local canonical operation in CLOUD_DEGRADED mode.",
-      "expectedByContract": true,
-      "contractReference": "PR23 local canonical flow with cloud persistence unavailable",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00055-f59e5bf9eae2",
-      "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
-      "blocking": false,
-      "reason": "Console mirrored the immediately preceding deliberate cloud persistence health abort.",
-      "expectedByContract": true,
-      "contractReference": "PR23 local canonical flow with cloud persistence unavailable",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00056-6c317954a97e",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00057-38e68e5bd598",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00058-53ed8b8d4946",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00059-d550abb3e44c",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00060-a5cc9a1e293f",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00061-10715f74ddb9",
+      "recordId": "r23-00052-d2451f320173",
       "classification": "EXPECTED_CANCELLED_REQUEST",
       "blocking": false,
       "reason": "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
@@ -674,7 +575,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00062-85a1ee3ac177",
+      "recordId": "r23-00053-54d24e733136",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -685,7 +586,95 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00063-cd7913d8b3fd",
+      "recordId": "r23-00054-0ceb1650d280",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00055-af10f38dfcce",
+      "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
+      "blocking": false,
+      "reason": "The audit deliberately aborted cloud persistence health to prove local canonical operation in CLOUD_DEGRADED mode.",
+      "expectedByContract": true,
+      "contractReference": "PR23 local canonical flow with cloud persistence unavailable",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00056-7f37bb6f527a",
+      "classification": "EXPECTED_CLOUD_DEGRADED_PROBE",
+      "blocking": false,
+      "reason": "Console mirrored the immediately preceding deliberate cloud persistence health abort.",
+      "expectedByContract": true,
+      "contractReference": "PR23 local canonical flow with cloud persistence unavailable",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00057-169cda4e963d",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00058-3e0b50d24031",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00059-03357fd64230",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00060-ee0edf1be0ab",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00061-9becb0d609d0",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00062-2af7ed6ba3a0",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -696,7 +685,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00064-85a1ee3ac177",
+      "recordId": "r23-00063-353ff68673d5",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -707,7 +696,18 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00065-20eb1a1c979c",
+      "recordId": "r23-00064-2af7ed6ba3a0",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00065-936b4041d8b0",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -740,7 +740,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00068-4e78db59a20d",
+      "recordId": "r23-00068-0073b02e16cc",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -773,7 +773,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00071-ae73a7a7ed4a",
+      "recordId": "r23-00071-121b1a26ba95",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -784,7 +784,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00072-602a10ae313e",
+      "recordId": "r23-00072-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -795,7 +795,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00073-6041197ab5ad",
+      "recordId": "r23-00073-0cef02d970d8",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -806,7 +806,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00074-602a10ae313e",
+      "recordId": "r23-00074-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -817,7 +817,18 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00075-602a10ae313e",
+      "recordId": "r23-00075-608991aef18c",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00076-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -828,7 +839,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00076-ce0b77e0c30b",
+      "recordId": "r23-00077-1beeabe9174e",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -839,7 +850,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00077-2bb28fc50a7f",
+      "recordId": "r23-00078-2bb28fc50a7f",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -850,7 +861,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00078-284db745a183",
+      "recordId": "r23-00079-284db745a183",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -861,7 +872,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00079-602a10ae313e",
+      "recordId": "r23-00080-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -872,7 +883,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00080-602a10ae313e",
+      "recordId": "r23-00081-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -883,7 +894,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00081-602a10ae313e",
+      "recordId": "r23-00082-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -894,7 +905,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00082-602a10ae313e",
+      "recordId": "r23-00083-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -905,7 +916,40 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00083-602a10ae313e",
+      "recordId": "r23-00084-d4a7c79685c6",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00085-e4e08aeda422",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00086-7b60fa336229",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00087-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -916,7 +960,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00084-ce0b77e0c30b",
+      "recordId": "r23-00088-1beeabe9174e",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -927,7 +971,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00085-2bb28fc50a7f",
+      "recordId": "r23-00089-2bb28fc50a7f",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -938,7 +982,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00086-284db745a183",
+      "recordId": "r23-00090-284db745a183",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -949,7 +993,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00087-602a10ae313e",
+      "recordId": "r23-00091-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -960,7 +1004,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00088-602a10ae313e",
+      "recordId": "r23-00092-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -971,7 +1015,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00089-82eaa12ba996",
+      "recordId": "r23-00093-aa73414342f6",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -982,7 +1026,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00090-5b6c55e86d51",
+      "recordId": "r23-00094-b1a0a83714e5",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -993,7 +1037,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00091-18f9377a6834",
+      "recordId": "r23-00095-4696e14e68ee",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1004,7 +1048,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00092-a56bf0651d91",
+      "recordId": "r23-00096-f48e35a42ee7",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1015,7 +1059,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00093-fcad326db1d4",
+      "recordId": "r23-00097-fecbb69aa1b9",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1026,10 +1070,10 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00094-c1181de4d2f8",
-      "classification": "BROWSER_NOISE",
+      "recordId": "r23-00098-ffc06175c8b1",
+      "classification": "PRODUCT_WARNING",
       "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
+      "reason": "Non-fatal product warning; retained for review.",
       "expectedByContract": false,
       "contractReference": null,
       "userVisibleImpact": false,
@@ -1037,10 +1081,10 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00095-bf5858441880",
-      "classification": "BROWSER_NOISE",
+      "recordId": "r23-00099-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
       "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
+      "reason": "Non-fatal product warning; retained for review.",
       "expectedByContract": false,
       "contractReference": null,
       "userVisibleImpact": false,
@@ -1048,7 +1092,194 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00096-7fbe79ffdaff",
+      "recordId": "r23-00100-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00101-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00102-1beeabe9174e",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00103-2bb28fc50a7f",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00104-284db745a183",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00105-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00106-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00107-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00108-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00109-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00110-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00111-1beeabe9174e",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00112-2bb28fc50a7f",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00113-284db745a183",
+      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
+      "blocking": false,
+      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
+      "expectedByContract": true,
+      "contractReference": "three-backend discovery with locked local-ollama execution",
+      "userVisibleImpact": false,
+      "retryable": true,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00114-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00115-dba45d4a3865",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00116-ffc06175c8b1",
+      "classification": "PRODUCT_WARNING",
+      "blocking": false,
+      "reason": "Non-fatal product warning; retained for review.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00117-0fb10077bbef",
       "classification": "EXPECTED_CANCELLED_REQUEST",
       "blocking": false,
       "reason": "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
@@ -1059,7 +1290,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00097-602a10ae313e",
+      "recordId": "r23-00118-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1070,7 +1301,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00098-602a10ae313e",
+      "recordId": "r23-00119-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1081,7 +1312,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00099-602a10ae313e",
+      "recordId": "r23-00120-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1092,7 +1323,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00100-ce0b77e0c30b",
+      "recordId": "r23-00121-1beeabe9174e",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1103,7 +1334,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00101-2bb28fc50a7f",
+      "recordId": "r23-00122-2bb28fc50a7f",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1114,7 +1345,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00102-284db745a183",
+      "recordId": "r23-00123-284db745a183",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1125,7 +1356,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00103-602a10ae313e",
+      "recordId": "r23-00124-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1136,7 +1367,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00104-602a10ae313e",
+      "recordId": "r23-00125-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1147,7 +1378,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00105-602a10ae313e",
+      "recordId": "r23-00126-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1158,7 +1389,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00106-602a10ae313e",
+      "recordId": "r23-00127-dba45d4a3865",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1169,7 +1400,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00107-602a10ae313e",
+      "recordId": "r23-00128-a1c117c0d1f6",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1180,18 +1411,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00108-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00109-ce0b77e0c30b",
+      "recordId": "r23-00129-c4eb383a9d2f",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1202,7 +1422,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00110-2bb28fc50a7f",
+      "recordId": "r23-00130-100fa2424678",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1213,7 +1433,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00111-284db745a183",
+      "recordId": "r23-00131-e19701b48bf3",
       "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
       "blocking": false,
       "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
@@ -1224,7 +1444,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00112-602a10ae313e",
+      "recordId": "r23-00132-a1c117c0d1f6",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1235,7 +1455,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00113-602a10ae313e",
+      "recordId": "r23-00133-a1c117c0d1f6",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1246,205 +1466,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00114-291c7df573b4",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00115-0fb10077bbef",
-      "classification": "EXPECTED_CANCELLED_REQUEST",
-      "blocking": false,
-      "reason": "Edge reported a fetch abort after the exact same-phase loopback POST had already returned a successful response.",
-      "expectedByContract": true,
-      "contractReference": "successful local Bridge stream completion and reload session revalidation contract",
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00116-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00117-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00118-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00119-ce0b77e0c30b",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00120-2bb28fc50a7f",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00121-284db745a183",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00122-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00123-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00124-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00125-602a10ae313e",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00126-a288ab60ead7",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00127-93ebde7d0633",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00128-100fa2424678",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00129-e19701b48bf3",
-      "classification": "EXPECTED_OPTIONAL_BACKEND_PROBE",
-      "blocking": false,
-      "reason": "The optional Private Hub discovery endpoint was unavailable to the audited preview origin while the verified Local Ollama backend remained selected.",
-      "expectedByContract": true,
-      "contractReference": "three-backend discovery with locked local-ollama execution",
-      "userVisibleImpact": false,
-      "retryable": true,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00130-a288ab60ead7",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00131-a288ab60ead7",
-      "classification": "PRODUCT_WARNING",
-      "blocking": false,
-      "reason": "Non-fatal product warning; retained for review.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00132-1b4fa05baf9c",
+      "recordId": "r23-00134-0ceb1650d280",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1455,7 +1477,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00133-69795a8722f4",
+      "recordId": "r23-00135-741e147e5964",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1466,18 +1488,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00134-230d9a2a351f",
-      "classification": "EXPECTED_CANCELLED_REQUEST",
-      "blocking": false,
-      "reason": "Navigation cancelled a same-origin release identity refresh after the authoritative identity had already been verified.",
-      "expectedByContract": true,
-      "contractReference": "verified preview identity and navigation cancellation contract",
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00135-94c5984e2af0",
+      "recordId": "r23-00136-899501ed100c",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1488,7 +1499,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00136-181e4f3a6c3b",
+      "recordId": "r23-00137-3506c9626500",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1499,7 +1510,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00137-94c5984e2af0",
+      "recordId": "r23-00138-899501ed100c",
       "classification": "PRODUCT_WARNING",
       "blocking": false,
       "reason": "Non-fatal product warning; retained for review.",
@@ -1510,7 +1521,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00138-0a6e6557d6f1",
+      "recordId": "r23-00139-a5fdd03ba83e",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1521,7 +1532,18 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00139-5669014f30ff",
+      "recordId": "r23-00140-48a81a0689ad",
+      "classification": "BROWSER_NOISE",
+      "blocking": false,
+      "reason": "Known browser diagnostic with no product impact.",
+      "expectedByContract": false,
+      "contractReference": null,
+      "userVisibleImpact": false,
+      "retryable": false,
+      "resolvedDuringFlow": true
+    },
+    {
+      "recordId": "r23-00141-5669014f30ff",
       "classification": "EXPECTED_CANCELLED_REQUEST",
       "blocking": false,
       "reason": "Navigation to backup cancelled an optional model refresh after the Bridge and Local Ollama executor had already been inference-verified.",
@@ -1532,18 +1554,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00140-454d82617a10",
-      "classification": "BROWSER_NOISE",
-      "blocking": false,
-      "reason": "Known browser diagnostic with no product impact.",
-      "expectedByContract": false,
-      "contractReference": null,
-      "userVisibleImpact": false,
-      "retryable": false,
-      "resolvedDuringFlow": true
-    },
-    {
-      "recordId": "r23-00141-9108a45d5314",
+      "recordId": "r23-00142-7d7c45f061dd",
       "classification": "EXPECTED_CANCELLED_REQUEST",
       "blocking": false,
       "reason": "Navigation cancelled a same-origin release identity refresh after the authoritative identity had already been verified.",
@@ -1554,7 +1565,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00142-4ab09fc204e3",
+      "recordId": "r23-00143-a5fdd03ba83e",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1565,7 +1576,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00143-5af4c6a9b5cc",
+      "recordId": "r23-00144-5dbabbcd464f",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1576,7 +1587,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00144-e1c07e0248ca",
+      "recordId": "r23-00145-2914598d3e56",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1587,7 +1598,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00145-725b65c4f5eb",
+      "recordId": "r23-00146-dfc942b754c8",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1598,7 +1609,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00146-179f85108c71",
+      "recordId": "r23-00147-40d18849e1d2",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1609,7 +1620,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00147-f8084f2eb4f4",
+      "recordId": "r23-00148-cb36bf1e5f7b",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1620,7 +1631,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00148-b165e38a99a9",
+      "recordId": "r23-00149-3e809e588a97",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1631,7 +1642,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00149-b1824e146e30",
+      "recordId": "r23-00150-935d13fa8e3b",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1642,7 +1653,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00150-6b52457d1011",
+      "recordId": "r23-00151-8ad779d56069",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1653,7 +1664,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00151-a08eccab5fad",
+      "recordId": "r23-00152-b7bd0c8d00d3",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1664,7 +1675,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00152-84db0715aae2",
+      "recordId": "r23-00153-e08a79c594a3",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1675,7 +1686,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00153-fea2631214f4",
+      "recordId": "r23-00154-8e06af0c017d",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1686,7 +1697,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00154-27ed960c37df",
+      "recordId": "r23-00155-a9a256f25a4e",
       "classification": "BROWSER_NOISE",
       "blocking": false,
       "reason": "Known browser diagnostic with no product impact.",
@@ -1697,7 +1708,7 @@
       "resolvedDuringFlow": true
     },
     {
-      "recordId": "r23-00155-03e24d6e60e9",
+      "recordId": "r23-00156-03e24d6e60e9",
       "classification": "EXPECTED_CANCELLED_REQUEST",
       "blocking": false,
       "reason": "The request was cancelled by an explicit discard or cleanup transition.",
@@ -1710,26 +1721,26 @@
   ],
   "summary": {
     "schemaVersion": "pr23-r2-3-console-summary-v1",
-    "generatedAt": "2026-07-31T00:04:29.733Z",
+    "generatedAt": "2026-07-31T03:22:00.207Z",
     "status": "SEALED",
     "actualEdgeRunCompleted": true,
     "previousGateCount": 22,
     "currentGateCount": 0,
     "countDifference": -22,
     "countDifferenceReason": "fresh_authoritative_operator_assisted_rerun",
-    "rawRecordCount": 155,
+    "rawRecordCount": 156,
     "rawConsoleErrorCount": 23,
-    "classifiedRecordCount": 155,
+    "classifiedRecordCount": 156,
     "blockingCount": 0,
     "counts": {
       "EXPECTED_PERMISSION_PROBE": 0,
       "EXPECTED_PRE_PAIRING_PROBE": 0,
       "EXPECTED_SESSION_RECOVERY_PROBE": 0,
-      "EXPECTED_CANCELLED_REQUEST": 13,
+      "EXPECTED_CANCELLED_REQUEST": 10,
       "EXPECTED_CLOUD_DEGRADED_PROBE": 4,
       "EXPECTED_OPTIONAL_BACKEND_PROBE": 18,
-      "BROWSER_NOISE": 66,
-      "PRODUCT_WARNING": 54,
+      "BROWSER_NOISE": 69,
+      "PRODUCT_WARNING": 55,
       "PRODUCT_ERROR": 0,
       "SECURITY_ERROR": 0,
       "UNCLASSIFIED": 0

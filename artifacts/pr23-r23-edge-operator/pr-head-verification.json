@@ -4,7 +4,7 @@
   "baseRefName": "main",
   "baseRefOid": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
   "headRefName": "agent/closed-ai-runtime-truth-r2",
-  "headRefOid": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "headRefOid": "073234bfd87175c0956af7af7aeb3e0684b29300",
   "isDraft": false,
   "mergeStateStatus": "BLOCKED",
   "mergeable": "MERGEABLE",
@@ -13,9 +13,9 @@
   "state": "OPEN",
   "url": "https://github.com/bobobo-org/novel/pull/23",
   "refs": {
-    "refs/heads/agent/closed-ai-runtime-truth-r2": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+    "refs/heads/agent/closed-ai-runtime-truth-r2": "073234bfd87175c0956af7af7aeb3e0684b29300",
     "refs/heads/main": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
-    "refs/pull/23/head": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
-    "refs/pull/23/merge": "169328016111d69e0adab784d817a5653113a852"
+    "refs/pull/23/head": "073234bfd87175c0956af7af7aeb3e0684b29300",
+    "refs/pull/23/merge": "9b9051e3f695fb9f36794d249652ec2c2f10e5cf"
   }
 }

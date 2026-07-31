@@ -9,7 +9,7 @@
     "observedStatus": 404,
     "cacheControl": "public, max-age=0, must-revalidate",
     "responseBodySha256": "16e580944ce9722c3d45977b3b5db9d73d9a4df39463c3b6de5668e8c0cb9e0e",
-    "checkedAt": "2026-07-31T00:06:35.127Z"
+    "checkedAt": "2026-07-31T03:22:02.700Z"
   },
   "publicIdentityFallback": {
     "path": "/api/ai/health",
@@ -19,8 +19,8 @@
     "releaseTag": "novel-ai-p24b-character-agent-rc2",
     "architectureStage": "P2.4B RC",
     "cacheControl": "no-store, max-age=0",
-    "responseBodySha256": "64e686a87b7a25b77f1cad883636bb03ef99d56199832151eec79ad54a9a91f2",
-    "checkedAt": "2026-07-31T00:06:36.237Z"
+    "responseBodySha256": "f5471417620b32ada31040731e166637560561d39f6f06b25a3efd3d2e377db9",
+    "checkedAt": "2026-07-31T03:22:05.263Z"
   },
   "productionUnchanged": true
 }

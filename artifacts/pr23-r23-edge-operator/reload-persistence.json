@@ -1,8 +1,8 @@
 {
   "schemaVersion": "pr23-r2-3-reload-persistence-v1",
   "status": "PASS",
-  "expectedCanonHash": "525c6b8be98187eeab38985c5be34afae2bafe6bd551ef7382850758e194157d",
-  "actualCanonHash": "525c6b8be98187eeab38985c5be34afae2bafe6bd551ef7382850758e194157d",
-  "contentDigest": "fa425cb1d4960cf4a9f636c44203fdf64b88de02a160cbc525f1cf323398a518",
+  "expectedCanonHash": "b5846b2c89721cf4a271bd5bc875daa8caf9e192c8b5be1ea7f63f12c46a2e61",
+  "actualCanonHash": "b5846b2c89721cf4a271bd5bc875daa8caf9e192c8b5be1ea7f63f12c46a2e61",
+  "contentDigest": "87c449e94375b837f4fefbf8797e10de2c683094bcf0a65b488a075ad8367d7c",
   "persistent": true
 }

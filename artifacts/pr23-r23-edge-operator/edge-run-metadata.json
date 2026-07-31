@@ -1,17 +1,17 @@
 {
   "schemaVersion": "pr23-r2-3-edge-run-metadata-v1",
   "status": "PASS",
-  "runId": "r23-edge-1785455790622-ec0b4c7b014fde11",
-  "startedAt": "2026-07-30T23:56:30.622Z",
-  "completedAt": "2026-07-31T00:04:29.765Z",
+  "runId": "r23-edge-1785467640692-90f2f3893da36e2a",
+  "startedAt": "2026-07-31T03:14:00.692Z",
+  "completedAt": "2026-07-31T03:22:00.248Z",
   "actualEdgeRunExecuted": true,
   "actualEdgeFlowCompleted": true,
   "userVisible": true,
   "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   "version": "150.0.4078.83",
-  "profilePathDigest": "823c4770740d713ab1693f3127ea08a11cf08bec81cbcc5968c039467a535bce",
+  "profilePathDigest": "5b741c96adceb44692b798d1393b1f56b113877911dad66ea3e751c5f1e08ed0",
   "auditProfilePreserved": true,
-  "rawRecordCount": 155,
+  "rawRecordCount": 156,
   "failureCode": null,
   "failureMessageDigest": null,
   "permissionEvidence": null,
@@ -28,5 +28,7 @@
   "localNetworkAccessBypassUsed": false,
   "mockBrowserUsed": false,
   "protectedR22EvidenceTree": "122804d2974df57d0c37eb2f6e2116f281e4eab1",
-  "operatorAssisted": true
+  "operatorAssisted": true,
+  "operatorDelegationMethod": "codex_windows_ui_automation",
+  "humanOperatorClicked": false
 }

@@ -26,5 +26,6 @@
   "permissionInjectionUsed": false,
   "browserPolicyModified": false,
   "localNetworkAccessBypassUsed": false,
-  "mockBrowserUsed": false
+  "mockBrowserUsed": false,
+  "decisionActuator": "semantic_windows_ui_automation"
 }

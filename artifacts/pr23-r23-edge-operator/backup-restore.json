@@ -1,8 +1,8 @@
 {
   "schemaVersion": "pr23-r2-3-backup-restore-v1",
   "status": "PASS",
-  "semanticHashBeforeBackup": "2f4fe67bc47804b9f7cc3b4e92eecd8cdf542368e57dced8bf536e8624129d2a",
-  "semanticHashAfterRestore": "2f4fe67bc47804b9f7cc3b4e92eecd8cdf542368e57dced8bf536e8624129d2a",
+  "semanticHashBeforeBackup": "e75e8fec14d5c34e6792d4ba2680ee1cf1415c71cec8d7eb0c083570c93e34ad",
+  "semanticHashAfterRestore": "e75e8fec14d5c34e6792d4ba2680ee1cf1415c71cec8d7eb0c083570c93e34ad",
   "semanticHashMatch": true,
   "productOwnedReload": true,
   "downloaded": true

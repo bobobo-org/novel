@@ -1,6 +1,6 @@
 {
   "schemaVersion": "pr23-r2-3-findings-v1",
-  "generatedAt": "2026-07-31T00:06:36.328Z",
+  "generatedAt": "2026-07-31T03:22:05.483Z",
   "verdict": "PR23_R2_3_EDGE_OPERATOR_GATE_PASS",
   "pass": true,
   "blocked": false,
@@ -40,6 +40,19 @@
       "id": "native_permission_observed",
       "pass": true,
       "evidence": null
+    },
+    {
+      "id": "native_permission_decision_authorized_and_auditable",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "native_permission_pairing_retry_auditable",
+      "pass": true,
+      "evidence": {
+        "status": "NOT_NEEDED",
+        "retryCount": 0
+      }
     },
     {
       "id": "no_permission_injection_policy_bypass_or_mock",
