@@ -74,7 +74,10 @@ const credentialPatterns = [
     "csrf_value",
     /\bcsrf\s*[:=]\s*(?!\[REDACTED_SECRET\])[^\s,;"']+/giu,
   ],
-  ["pairing_or_otp_code", /\b\d{6}\b/gu],
+  [
+    "pairing_or_otp_code",
+    /(?:(?:\b(?:otp|one[-_\s]?time[-_\s]+(?:password|code)|verification[-_\s]+code|pairing[-_\s]+code|device[-_\s]+code|user[-_\s]+code)\b|驗證碼|配對碼)[^\r\n\d]{0,32}\b\d{6}\b|\b\d{6}\b[^\r\n\d]{0,32}(?:\b(?:otp|one[-_\s]?time[-_\s]+(?:password|code)|verification[-_\s]+code|pairing[-_\s]+code|device[-_\s]+code|user[-_\s]+code)\b|驗證碼|配對碼))/giu,
+  ],
 ];
 const privateStoryFixtures = [
   "林澈",
@@ -798,6 +801,33 @@ function makePassModel() {
 
 function runSelfTest() {
   const tests = [];
+  const pairingCodePattern = credentialPatterns.find(
+    ([name]) => name === "pairing_or_otp_code",
+  )?.[1];
+  assert.ok(pairingCodePattern);
+  pairingCodePattern.lastIndex = 0;
+  assert.equal(
+    '{"elapsedMs":151065,"httpStatus":404}'.match(pairingCodePattern)?.length
+      ?? 0,
+    0,
+    "six-digit telemetry must not be treated as a credential",
+  );
+  tests.push({
+    name: "six_digit_telemetry_not_credential",
+    verdict: "PASS",
+  });
+  pairingCodePattern.lastIndex = 0;
+  assert.equal(
+    "[Provider] Your verification code is: 123456".match(
+      pairingCodePattern,
+    )?.length,
+    1,
+    "a labeled verification code must be detected",
+  );
+  tests.push({
+    name: "labeled_verification_code_detected",
+    verdict: "PASS",
+  });
   const run = (name, mutate, expected) => {
     const model = structuredClone(makePassModel());
     mutate(model);
