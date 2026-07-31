@@ -97,6 +97,9 @@ export default function LocalAISetupWizard() {
     if (!origin) return;
     setBusy(true);
     try {
+      // First-time setup must probe the exact-origin loopback client before a
+      // pairing session exists; otherwise no browser LNA request is issued.
+      configureLocalBridgeClient(client);
       const snapshot = await coordinator.refresh({
         projectId: "local-ai-setup",
         taskType: "chapter.continue",

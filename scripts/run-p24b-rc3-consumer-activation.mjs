@@ -101,6 +101,10 @@ async function frontdoorAISetupDiscovery() {
   ]) assert.ok(wizard.includes(heading), `missing setup step: ${heading}`);
   assert.match(wizard, /快速本機模式：速度較快，長篇品質有限。/);
   assert.match(wizard, /safeStudioReturnTo/);
+  assert.match(
+    wizard,
+    /configureLocalBridgeClient\(client\);[\s\S]*?coordinator\.refresh\(/,
+  );
   assert.match(wizard, /<details>/);
 }
 
