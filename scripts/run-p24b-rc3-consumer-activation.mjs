@@ -75,9 +75,10 @@ async function legacyExplicitOnly() {
   ]);
   assert.match(frontdoor, /legacyMigration=import/);
   assert.match(frontdoor, /function isExplicitLegacyRoute/);
-  assert.match(frontdoor, /prefetch=\{!isExplicitLegacyRoute\(href\)\}/);
-  assert.match(frontdoor, /href="\/legacy\/novel-system\.html" prefetch=\{false\}/);
-  assert.match(studio, /href="\/professional" prefetch=\{false\}/);
+  assert.match(frontdoor, /isExplicitLegacyRoute\(href\) \? \(/);
+  assert.match(frontdoor, /<a className="entryCard" href=\{href\}/);
+  assert.match(frontdoor, /<a href="\/legacy\/novel-system\.html"/);
+  assert.match(studio, /<a className="studioProfessional" href="\/professional">/);
   assert.match(frontdoor, /暫不匯入/);
   assert.match(frontdoor, /繼續使用舊版/);
   assert.match(studio, /overwriteExisting:\s*false/);

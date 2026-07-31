@@ -49,9 +49,9 @@ export default function CreateProjectClient() {
     } catch (error) { setMessage(`建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`); } finally { setSaving(false); }
   }
   if (!ready) return <main className="p2CreateShell"><p>正在讀取你的創作資料……</p></main>;
-  if (createdId) return <main className="p2CreateShell"><section className="p2CreateSuccess"><span>建立完成</span><h1>{draft.title.trim() || "未命名作品"}</h1><p>{message}</p><div><Link className="primaryAction" href={`/studio/project/${createdId}/write`}>開始寫作</Link><Link className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`} prefetch={false}>返回 Professional 工作台</Link></div></section></main>;
+  if (createdId) return <main className="p2CreateShell"><section className="p2CreateSuccess"><span>建立完成</span><h1>{draft.title.trim() || "未命名作品"}</h1><p>{message}</p><div><Link className="primaryAction" href={`/studio/project/${createdId}/write`}>開始寫作</Link><a className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>返回 Professional 工作台</a></div></section></main>;
   return <main className="p2CreateShell">
-    <header><Link href="/professional" prefetch={false}>← 返回 Professional 工作台</Link><div><span>建立新作品</span><h1>從一個想法開始</h1><p>設定都可以稍後補充；空白不是錯誤。</p></div><small>資料先保存在這個瀏覽器</small></header>
+    <header><a href="/professional">← 返回 Professional 工作台</a><div><span>建立新作品</span><h1>從一個想法開始</h1><p>設定都可以稍後補充；空白不是錯誤。</p></div><small>資料先保存在這個瀏覽器</small></header>
     <nav className="p2ModeTabs" aria-label="建立方式">
       <button className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseMode("quick")}><b>快速建立</b><span>提供少量資料，先看故事雛形</span></button>
       <button className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseMode("guided")}><b>引導建立</b><span>用五個問題慢慢整理想法</span></button>
