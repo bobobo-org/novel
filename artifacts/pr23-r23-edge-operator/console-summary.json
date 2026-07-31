@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "pr23-r2-3-console-summary-v1",
+  "generatedAt": "2026-07-31T00:04:29.733Z",
+  "status": "SEALED",
+  "actualEdgeRunCompleted": true,
+  "previousGateCount": 22,
+  "currentGateCount": 0,
+  "countDifference": -22,
+  "countDifferenceReason": "fresh_authoritative_operator_assisted_rerun",
+  "rawRecordCount": 155,
+  "rawConsoleErrorCount": 23,
+  "classifiedRecordCount": 155,
+  "blockingCount": 0,
+  "counts": {
+    "EXPECTED_PERMISSION_PROBE": 0,
+    "EXPECTED_PRE_PAIRING_PROBE": 0,
+    "EXPECTED_SESSION_RECOVERY_PROBE": 0,
+    "EXPECTED_CANCELLED_REQUEST": 13,
+    "EXPECTED_CLOUD_DEGRADED_PROBE": 4,
+    "EXPECTED_OPTIONAL_BACKEND_PROBE": 18,
+    "BROWSER_NOISE": 66,
+    "PRODUCT_WARNING": 54,
+    "PRODUCT_ERROR": 0,
+    "SECURITY_ERROR": 0,
+    "UNCLASSIFIED": 0
+  },
+  "productErrorCount": 0,
+  "securityErrorCount": 0,
+  "unclassifiedCount": 0,
+  "pass": true
+}

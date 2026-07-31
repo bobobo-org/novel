@@ -1,0 +1,30 @@
+{
+  "before": {
+    "apiAvailable": true,
+    "permissionName": "local-network-access",
+    "state": "prompt",
+    "states": {
+      "local-network-access": "prompt",
+      "loopback-network": "prompt"
+    },
+    "errors": {},
+    "browserDecisionRequired": true
+  },
+  "after": {
+    "apiAvailable": true,
+    "permissionName": "local-network-access",
+    "state": "granted",
+    "states": {
+      "local-network-access": "granted",
+      "loopback-network": "granted"
+    },
+    "errors": {},
+    "browserDecisionRequired": false
+  },
+  "decisionMethod": "real_microsoft_edge_native_permission",
+  "nativePermissionObserved": true,
+  "permissionInjectionUsed": false,
+  "browserPolicyModified": false,
+  "localNetworkAccessBypassUsed": false,
+  "mockBrowserUsed": false
+}

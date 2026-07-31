@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "pr23-r2-3-local-ollama-execution-v1",
+  "status": "PASS",
+  "modelId": "qwen2.5:3b",
+  "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+  "proofState": "inference_verified",
+  "runtime": {
+    "reachable": true,
+    "version": "0.32.1",
+    "models": [
+      "nomic-embed-text:latest",
+      "qwen2.5:3b"
+    ]
+  }
+}

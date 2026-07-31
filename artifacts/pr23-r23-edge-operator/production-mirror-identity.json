@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "pr23-r2-3-production-identity-v1",
+  "status": "PASS",
+  "role": "mirror",
+  "alias": "https://novel-lqtechs-projects.vercel.app",
+  "releaseIdentityEndpoint": {
+    "path": "/api/release/identity",
+    "expectedLegacyStatus": 404,
+    "observedStatus": 404,
+    "cacheControl": "public, max-age=0, must-revalidate",
+    "responseBodySha256": "16e580944ce9722c3d45977b3b5db9d73d9a4df39463c3b6de5668e8c0cb9e0e",
+    "checkedAt": "2026-07-31T00:06:35.146Z"
+  },
+  "publicIdentityFallback": {
+    "path": "/api/ai/health",
+    "httpStatus": 200,
+    "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "deploymentId": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+    "releaseTag": "novel-ai-p24b-character-agent-rc2",
+    "architectureStage": "P2.4B RC",
+    "cacheControl": "no-store, max-age=0",
+    "responseBodySha256": "3028cf2bc93f8463994cb326dda00b8ac7bc2414da9b5e1797c3e74dfb85c335",
+    "checkedAt": "2026-07-31T00:06:36.217Z"
+  },
+  "productionUnchanged": true
+}

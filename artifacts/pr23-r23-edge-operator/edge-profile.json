@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "pr23-r2-3-edge-profile-v1",
+  "status": "PASS",
+  "product": "Microsoft Edge",
+  "version": "150.0.4078.83",
+  "userAgentDigest": "e625a3d42ef01c764e5960f048f430f34b7862e7aa3264338186d02f75d0cb9c",
+  "executablePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "realInstalledBrowser": true,
+  "freshIsolatedProfile": true,
+  "sandboxEnabled": true,
+  "extensionsDisabled": true,
+  "syncDisabled": true,
+  "localNetworkPermissionBypassUsed": false,
+  "localNetworkPermissionInjectionUsed": false,
+  "browserPolicyModified": false,
+  "userAgentContainsEdge": true,
+  "collectorAttached": true,
+  "listenersAttached": [
+    "page.console",
+    "page.pageerror",
+    "page.requestfailed",
+    "page.response",
+    "context.weberror"
+  ]
+}

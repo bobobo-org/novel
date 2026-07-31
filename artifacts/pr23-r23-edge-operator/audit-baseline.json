@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "pr23-r2-3-audit-baseline-v1",
+  "capturedAt": "2026-07-31T00:06:36.314Z",
+  "baseMain": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "protectedPrHead": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "mergeRef": "169328016111d69e0adab784d817a5653113a852",
+  "r22AuditCommit": "94ff70847b449e08d53759bad6d0bf3f1ffa530f",
+  "r22EvidenceTree": "122804d2974df57d0c37eb2f6e2116f281e4eab1",
+  "r22Manifest": "a32e176398ccb55c583138292c3a34acf4c09149e1084ae42386174f0df24561",
+  "preview": "https://novel-15gi72tr4-lqtechs-projects.vercel.app",
+  "previewDeployment": "dpl_5G2ggFhtgvLJxB8Q29X94RMoXFxY",
+  "productionCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "productionDeployment": "dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa",
+  "productionPrimary": "https://novel-orcin.vercel.app",
+  "productionMirror": "https://novel-lqtechs-projects.vercel.app"
+}

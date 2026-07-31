@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "pr23-r2-3-findings-v1",
+  "generatedAt": "2026-07-31T00:06:36.328Z",
+  "verdict": "PR23_R2_3_EDGE_OPERATOR_GATE_PASS",
+  "pass": true,
+  "blocked": false,
+  "requirements": [
+    {
+      "id": "runner_status_pass",
+      "pass": true,
+      "evidence": "PASS"
+    },
+    {
+      "id": "actual_edge_run_executed",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "actual_edge_flow_completed",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "native_microsoft_edge",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "raw_collectors_attached",
+      "pass": true,
+      "evidence": [
+        "page.console",
+        "page.pageerror",
+        "page.requestfailed",
+        "page.response",
+        "context.weberror"
+      ]
+    },
+    {
+      "id": "native_permission_observed",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "no_permission_injection_policy_bypass_or_mock",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "real_local_bridge_and_qwen",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "real_generation_local_executor",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "no_external_ai_or_data_egress",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "canon_discard_unchanged",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "canon_approval_revision_plus_one",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "reload_persistence",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "abc_distinct",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "full_workspace_approval_reload",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "backup_restore_semantic_hash",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "canon_safety_counters_zero",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "console_fully_classified_without_blockers",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "raw_files_present_and_parseable",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "zero_raw_records_rule",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "raw_evidence_preserved",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "credential_free",
+      "pass": true,
+      "evidence": []
+    },
+    {
+      "id": "private_story_text_not_persisted",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "preview_identity_frozen",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "pr_head_unchanged_and_unmerged",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "production_unchanged",
+      "pass": true,
+      "evidence": null
+    },
+    {
+      "id": "r22_evidence_immutable",
+      "pass": true,
+      "evidence": null
+    }
+  ],
+  "failures": []
+}

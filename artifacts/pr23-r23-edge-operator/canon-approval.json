@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "pr23-r2-3-canon-approval-v1",
+  "status": "PASS",
+  "candidate": {
+    "candidateIdDigest": "e0a1e52e84f8eb227d30ffe3adf46e8dd125dd8364d7abbb8c8d4517f2c1af6a",
+    "taskIdDigest": "ad1d9c58e37e576cbc9f012be1669eda7de2afea263291a480f265e9790456db",
+    "taskType": "chapter.continue",
+    "status": "awaiting-approval",
+    "backendId": "local-ollama",
+    "actualExecutor": "local-ollama",
+    "modelId": "qwen2.5:3b",
+    "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "contextDigest": "5365c077c7c5fa38fa793aa9d8da3981f1924241d8d88f512139e7eded4b9e3d",
+    "contextSourceSummaryDigest": "9f32225f47fdb0bd1b236ae2b371ccc7c4ce29e611d715b38fb01b1260c36541",
+    "contentDigest": "868ac339dfffee9ac697cea8f2a8607d933739c6848b76f6825d7739c44dc51c",
+    "generatedTokenEvents": 2,
+    "outputCharacters": 260,
+    "canonicalMutationCount": 0,
+    "dataLeftDevice": false,
+    "externalRequest": false,
+    "proofState": "verified",
+    "abcEvidence": null,
+    "createdAt": "2026-07-30T23:59:01.759Z"
+  },
+  "preCanonHash": "f6d5faad3b347119b343b2781763d460291a81c0f0076757185cf9f9e23ca985",
+  "postCanonHash": "525c6b8be98187eeab38985c5be34afae2bafe6bd551ef7382850758e194157d",
+  "revisionBefore": 2,
+  "revisionAfter": 3
+}

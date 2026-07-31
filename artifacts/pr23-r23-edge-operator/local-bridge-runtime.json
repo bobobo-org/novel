@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pr23-r2-3-local-bridge-runtime-v1",
+  "status": "PASS",
+  "instanceIdDigest": "cf3646008753c31b63fe42df3bbb4a029ef49825cc5b0d4ec008d00ebb2f3698",
+  "protocolVersion": "novel-local-bridge/v1",
+  "pairingSecretPersisted": false,
+  "modelId": "qwen2.5:3b",
+  "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+  "proofState": "inference_verified",
+  "outputDigest": "f4c4f27d2d735a68b5f4d74eb1974269ed00033ff3af8373d782a844bbf2fbbe",
+  "dataLeftDevice": false,
+  "preflight": {
+    "ok": true,
+    "status": "Bridge未啟動",
+    "bridgeAlive": false,
+    "pairingState": null,
+    "configuredOriginCount": 0
+  }
+}

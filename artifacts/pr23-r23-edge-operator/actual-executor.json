@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "pr23-r2-3-actual-executor-v1",
+  "status": "PASS",
+  "expected": "local-ollama",
+  "observed": [
+    "local-ollama",
+    "local-ollama",
+    "local-ollama",
+    "local-ollama"
+  ]
+}

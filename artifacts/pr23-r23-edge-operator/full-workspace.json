@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "pr23-r2-3-full-workspace-v1",
+  "status": "PASS",
+  "candidate": {
+    "candidateIdDigest": "8b609089bfbf3a0173dc93da1173cd35e081ee2b40a3215dfd82fc3a471b7c09",
+    "taskIdDigest": "95f8bb127f1dafab86369b2ce156730392f437d1489a2d03ab9e2e51f0910603",
+    "taskType": "chapter.continue",
+    "status": "awaiting-approval",
+    "backendId": "local-ollama",
+    "actualExecutor": "local-ollama",
+    "modelId": "qwen2.5:3b",
+    "modelDigest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "contextDigest": "e4cd40881aac73d9655c4c510466f77ab20e58bf82ada29775d1b2d675c48804",
+    "contextSourceSummaryDigest": "1cf3d2bf3629883d39883cf032f4ff7a382fd8d7cb7ff9e5d409fcf9e69c5925",
+    "contentDigest": "82629d5a4b395a3d7d960185b27f8cca4cad7612cbeace780a69ce9dfed24890",
+    "generatedTokenEvents": 183,
+    "outputCharacters": 270,
+    "canonicalMutationCount": 0,
+    "dataLeftDevice": false,
+    "externalRequest": false,
+    "proofState": "verified",
+    "abcEvidence": null,
+    "createdAt": "2026-07-31T00:04:24.763Z"
+  },
+  "preCanonHash": "585572d1c20a044a785dea802898d8bee3cbe0c7af699437a79fdf62ef86ef18",
+  "postCanonHash": "2f4fe67bc47804b9f7cc3b4e92eecd8cdf542368e57dced8bf536e8624129d2a",
+  "reloadHash": "2f4fe67bc47804b9f7cc3b4e92eecd8cdf542368e57dced8bf536e8624129d2a",
+  "revisionBefore": 4,
+  "revisionAfter": 5,
+  "reloadPersistent": true
+}

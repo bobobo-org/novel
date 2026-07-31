@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "pr23-r2-3-pr-head-verification-v1",
+  "status": "PASS",
+  "baseRefName": "main",
+  "baseRefOid": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+  "headRefName": "agent/closed-ai-runtime-truth-r2",
+  "headRefOid": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+  "isDraft": false,
+  "mergeStateStatus": "BLOCKED",
+  "mergeable": "MERGEABLE",
+  "number": 23,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "state": "OPEN",
+  "url": "https://github.com/bobobo-org/novel/pull/23",
+  "refs": {
+    "refs/heads/agent/closed-ai-runtime-truth-r2": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+    "refs/heads/main": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
+    "refs/pull/23/head": "6c00673bb3349e49a49f0f5d72cce499c67033d6",
+    "refs/pull/23/merge": "169328016111d69e0adab784d817a5653113a852"
+  }
+}
