@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import {
   ClosedAICache,
   MemoryClosedAICacheRepository,
@@ -8,6 +9,7 @@ import {
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
 import {
   ClosedAgentOS,
+  IndexedDbClosedAgentStateRepository,
   MemoryClosedAgentStateRepository,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
 import {
@@ -183,13 +185,14 @@ const approved = await os.approveCandidate({
   candidateId: regenerated.candidate.id,
   approvedBy: "local-author",
   humanApproved: true,
-  canonicalCommit: async ({ candidate }) => {
+  canonicalCommit: async ({ candidate, idempotencyKey }) => {
     committed = await commitStudioCandidateToChapter({
       repository,
       projectId,
       chapterId: candidate.sourceChapterId,
       sourceRevision: candidate.sourceRevision,
       taskId: candidate.taskId,
+      idempotencyKey,
       content: candidate.content,
       mode: "append",
     });
@@ -238,13 +241,14 @@ await assert.rejects(
     candidateId: stale.candidate.id,
     approvedBy: "local-author",
     humanApproved: true,
-    canonicalCommit: async ({ candidate }) => {
+    canonicalCommit: async ({ candidate, idempotencyKey }) => {
       const result = await commitStudioCandidateToChapter({
         repository,
         projectId,
         chapterId: candidate.sourceChapterId,
         sourceRevision: candidate.sourceRevision,
         taskId: candidate.taskId,
+        idempotencyKey,
         content: candidate.content,
         mode: "append",
       });
@@ -277,13 +281,14 @@ const cloudDownApproval = await os.approveCandidate({
   candidateId: cloudDownCandidate.candidate.id,
   approvedBy: "local-author",
   humanApproved: true,
-  canonicalCommit: async ({ candidate }) => {
+  canonicalCommit: async ({ candidate, idempotencyKey }) => {
     cloudDownCommit = await commitStudioCandidateToChapter({
       repository,
       projectId,
       chapterId: candidate.sourceChapterId,
       sourceRevision: candidate.sourceRevision,
       taskId: candidate.taskId,
+      idempotencyKey,
       content: candidate.content,
       mode: "append",
     });
@@ -291,6 +296,152 @@ const cloudDownApproval = await os.approveCandidate({
   },
 });
 assert.equal(cloudDownApproval.canonicalMutationCount, 1);
+
+const recoveryRepository = new MemoryNovelRepository();
+const recoveryProjectId = "quick-assistant-recovery-project";
+const recoverySnapshot = await ensureStudioCanonicalProject(recoveryRepository, {
+  id: recoveryProjectId,
+  title: "Recovery project",
+  chapterTitle: "Recovery chapter",
+  draft: "Original canonical content.",
+});
+let injectApprovalStateFailure = false;
+const recoveryState = new MemoryClosedAgentStateRepository({
+  faultInjector: (point) => {
+    if (injectApprovalStateFailure && point === "after:approval") {
+      injectApprovalStateFailure = false;
+      throw Object.assign(new Error("TEST_STATE_BATCH_FAILURE"), {
+        code: "TEST_STATE_BATCH_FAILURE",
+      });
+    }
+  },
+});
+const recoveryOS = new ClosedAgentOS({
+  backends: [new LocalBackend()],
+  cache: new ClosedAICache({
+    repository: new MemoryClosedAICacheRepository(),
+  }),
+  ledger: new VerifiableLedger({
+    repository: new MemoryVerifiableLedgerRepository(),
+    signer: new ApprovalSigner(),
+  }),
+  state: recoveryState,
+});
+const recoveryCandidate = await recoveryOS.execute(request(
+  recoveryProjectId,
+  recoverySnapshot.chapter,
+  "quick-approval-recovery",
+  "Generate one recoverable canonical continuation.",
+));
+let recoveryCommitCalls = 0;
+let recoveryReplayObserved = false;
+const recoverCanonicalCommit = async ({ candidate, idempotencyKey }) => {
+  recoveryCommitCalls += 1;
+  const canonical = await commitStudioCandidateToChapter({
+    repository: recoveryRepository,
+    projectId: recoveryProjectId,
+    chapterId: candidate.sourceChapterId,
+    sourceRevision: candidate.sourceRevision,
+    taskId: candidate.taskId,
+    idempotencyKey,
+    content: candidate.content,
+    mode: "append",
+  });
+  recoveryReplayObserved ||= canonical.replayed;
+  return { commitId: canonical.commitId };
+};
+injectApprovalStateFailure = true;
+await assert.rejects(
+  recoveryOS.approveCandidate({
+    candidateId: recoveryCandidate.candidate.id,
+    approvedBy: "local-author",
+    humanApproved: true,
+    canonicalCommit: recoverCanonicalCommit,
+  }),
+  (error) => error?.code === "CLOSED_AGENT_APPROVAL_STATE_COMMIT_FAILED_RECOVERABLE",
+);
+const chapterAfterInjectedFailure = await recoveryRepository.get(
+  "chapters",
+  recoverySnapshot.chapter.id,
+);
+assert.equal(
+  chapterAfterInjectedFailure.revision,
+  recoverySnapshot.chapter.revision + 1,
+);
+assert.equal(
+  (await recoveryState.get(recoveryCandidate.candidate.id)).status,
+  "awaiting-approval",
+);
+assert.equal(
+  await recoveryState.get(`closed-agent-approval:${recoveryCandidate.candidate.id}`),
+  null,
+);
+assert.equal(
+  await recoveryState.get(`closed-agent-memory:${recoveryCandidate.candidate.id}`),
+  null,
+);
+assert.equal(
+  (await recoveryState.get(recoveryCandidate.candidate.taskId)).state,
+  "awaiting-approval",
+);
+assert.equal(
+  (await recoveryRepository.list("operationJournal", recoveryProjectId)).length,
+  1,
+);
+const recoveredApproval = await recoveryOS.approveCandidate({
+  candidateId: recoveryCandidate.candidate.id,
+  approvedBy: "local-author",
+  humanApproved: true,
+  canonicalCommit: recoverCanonicalCommit,
+});
+assert.equal(recoveredApproval.canonicalMutationCount, 1);
+assert.equal(recoveredApproval.candidate.status, "committed");
+assert.equal(recoveryCommitCalls, 2);
+assert.equal(recoveryReplayObserved, true);
+assert.equal(
+  (await recoveryRepository.get("chapters", recoverySnapshot.chapter.id)).revision,
+  chapterAfterInjectedFailure.revision,
+);
+const recoveryLedger = await recoveryOS.ledger.verify(
+  `closed-agent:${recoveryProjectId}:${recoveryCandidate.candidate.taskId}`,
+);
+assert.equal(recoveryLedger.valid, true);
+assert.equal(recoveryLedger.signedApprovalCount, 1);
+
+const originalIndexedDB = globalThis.indexedDB;
+globalThis.indexedDB = fakeIndexedDB;
+await new Promise((resolve, reject) => {
+  const deletion = fakeIndexedDB.deleteDatabase("novel-closed-agent-state");
+  deletion.onsuccess = () => resolve();
+  deletion.onerror = () => reject(deletion.error);
+});
+let injectIndexedDbApprovalFailure = true;
+const indexedDbState = new IndexedDbClosedAgentStateRepository({
+  faultInjector: (point) => {
+    if (injectIndexedDbApprovalFailure && point === "after:approval") {
+      injectIndexedDbApprovalFailure = false;
+      throw Object.assign(new Error("TEST_INDEXEDDB_STATE_BATCH_FAILURE"), {
+        code: "TEST_INDEXEDDB_STATE_BATCH_FAILURE",
+      });
+    }
+  },
+});
+await assert.rejects(
+  indexedDbState.putMany([
+    recoveredApproval.approval,
+    recoveredApproval.memory,
+    recoveredApproval.candidate,
+  ]),
+  (error) => error?.code === "TEST_INDEXEDDB_STATE_BATCH_FAILURE",
+);
+assert.equal(await indexedDbState.get(recoveredApproval.approval.id), null);
+assert.equal(await indexedDbState.get(recoveredApproval.memory.id), null);
+assert.equal(await indexedDbState.get(recoveredApproval.candidate.id), null);
+if (originalIndexedDB === undefined) {
+  delete globalThis.indexedDB;
+} else {
+  globalThis.indexedDB = originalIndexedDB;
+}
 
 const backup = await createProjectBackup(
   repository,
@@ -318,6 +469,10 @@ const studioSource = await readFile(
   new URL("../app/studio/studio-client.tsx", import.meta.url),
   "utf8",
 );
+const closedWorkspaceSource = await readFile(
+  new URL("../app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx", import.meta.url),
+  "utf8",
+);
 const globalStyles = await readFile(
   new URL("../app/globals.css", import.meta.url),
   "utf8",
@@ -332,6 +487,11 @@ assert.match(studioSource, /data-testid="studio-candidate-diff"/);
 assert.match(studioSource, /contextSourceSummary: result\.contextSourceSummary/);
 assert.match(studioSource, /result\.executionReceipt\?\.generatedTokenEvents/);
 assert.match(studioSource, /initialProjectId/);
+assert.match(closedWorkspaceSource, /sourceChapterId: sourceChapter\?\.id/);
+assert.match(closedWorkspaceSource, /sourceRevision: sourceChapter\?\.revision/);
+assert.match(closedWorkspaceSource, /chapterId: candidate\.sourceChapterId/);
+assert.match(closedWorkspaceSource, /sourceRevision: candidate\.sourceRevision/);
+assert.match(closedWorkspaceSource, /commitStudioCandidateToChapter\(\{/);
 assert.match(
   studioSource,
   /title === project\.chapterTitle && draft === project\.draft/,
@@ -374,5 +534,9 @@ console.log(JSON.stringify({
   staleRejected: true,
   cloudPersistenceRequired: false,
   localCanonicalApproval: true,
+  canonicalJournalReplay: true,
+  approvalStateAtomicBatch: true,
+  indexedDbPartialWriteAborted: true,
+  injectedPostCanonStateFailureRecovered: true,
   backupRestoreSemanticHashMatch: true,
 }, null, 2));

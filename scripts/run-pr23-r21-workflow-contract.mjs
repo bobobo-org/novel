@@ -36,6 +36,12 @@ for (const secret of [
 }
 
 assert.match(deployJob, /\n    needs:\s*validate\s*$/mu);
+assert.match(
+  deployJob,
+  /\n    if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\s*$/mu,
+);
+assert.doesNotMatch(deployJob, /environment=preview/u);
+assert.doesNotMatch(deployJob, /Deploy \(preview\)/u);
 for (const secret of [
   "VERCEL_TOKEN",
   "VERCEL_ORG_ID",
@@ -106,6 +112,9 @@ assert.match(rollback, /verify-rollback-mirror/u);
 assert.match(rollback, /LEGACY_CONTROL_PLANE_FALLBACK_NOT_ALLOWED/u);
 assert.match(rollback, /DUAL_ALIAS_ROLLBACK_FAILED/u);
 assert.doesNotMatch(rollback, /\/api\/ai\/health/u);
+assert.match(rollback, /api\.vercel\.com\/v2\/deployments/u);
+assert.doesNotMatch(rollback, /spawnSync/u);
+assert.doesNotMatch(rollback, /--token/u);
 assert.match(
   globalConfiguration,
   /LEGACY_BOOTSTRAP_DEPLOYMENT_ID:\s*dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa/u,
@@ -137,6 +146,8 @@ console.log(JSON.stringify({
   status: "PASS",
   jobs: ["validate", "deploy"],
   deployNeedsValidate: true,
+  deployTrustedPushOnly: true,
+  pullRequestSecretBearingDeploy: false,
   validateSecretCount: 0,
   requiredCommandCount: requiredCommands.length,
   immutableActionUseCount: uses.length,

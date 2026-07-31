@@ -12,8 +12,9 @@ import type {
   RejectCharacterProposalResult,
 } from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
-import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
+import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
+import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
 
 const DB_NAME = "novel-intelligence-platform";
 const DB_VERSION = 6;
@@ -124,6 +125,45 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore("operationJournal").put(records.journal);
       await complete(tx);
       return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch, storyBible: records.storyBible, storyBibleDelta: records.storyBibleDelta, approvalTransaction: records.approvalTransaction, idempotencyRecord: records.idempotencyRecord };
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
+  }
+  async commitStudioCandidateTransaction(input: CommitStudioCandidateTransactionInput): Promise<CommitStudioCandidateTransactionResult> {
+    const db = await this.open();
+    const tx = db.transaction(["chapters", "operationJournal"], "readwrite");
+    try {
+      const journalStore = tx.objectStore("operationJournal");
+      const replay = await request(
+        journalStore.index("idempotencyKey").get(input.idempotencyKey),
+      ) as StudioCandidateOperationJournal | undefined;
+      if (replay) {
+        assertStudioCandidateReplay(input, replay);
+        const chapter = await request(
+          tx.objectStore("chapters").get(replay.chapterId),
+        ) as Chapter | undefined;
+        if (!chapter || chapter.revision < replay.resultingRevision) {
+          throw new RepositoryOperationError("STUDIO_CANDIDATE_IDEMPOTENCY_REPLAY_INCOMPLETE");
+        }
+        await complete(tx);
+        return { replayed: true, chapter, journal: replay };
+      }
+      const current = await request(
+        tx.objectStore("chapters").get(input.chapterId),
+      ) as Chapter | undefined;
+      if (!current) {
+        throw new RepositoryOperationError("STUDIO_CANDIDATE_SOURCE_CHAPTER_NOT_FOUND");
+      }
+      const records = buildStudioCandidateCommitRecords(input, current);
+      this.inject("before:studioCandidateChapter");
+      tx.objectStore("chapters").put(records.chapter);
+      this.inject("after:studioCandidateChapter");
+      this.inject("before:studioCandidateJournal");
+      journalStore.put(records.journal);
+      this.inject("after:studioCandidateJournal");
+      await complete(tx);
+      return { replayed: false, ...records };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
       throw error;

@@ -1521,7 +1521,7 @@ export default function StudioClient({
         let canonicalResult: StudioCanonicalApplyResult | null = null;
         const approved = await approveStudioClosedAgentCandidate({
           candidateId: pending.candidateId,
-          canonicalCommit: async ({ candidate }) => {
+          canonicalCommit: async ({ candidate, idempotencyKey }) => {
             if (
               candidate.taskId !== pending.taskId
               || candidate.contentDigest !== pending.contentDigest
@@ -1541,6 +1541,7 @@ export default function StudioClient({
               chapterId: pending.sourceChapterId!,
               sourceRevision: pending.sourceRevision!,
               taskId: pending.taskId!,
+              idempotencyKey,
               content,
               mode: candidateApplyMode(pending.task),
             });

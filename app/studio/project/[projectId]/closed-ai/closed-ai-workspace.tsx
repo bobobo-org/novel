@@ -27,8 +27,8 @@ import type {
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   migrateLegacyStudioProjects,
-  mirrorChapterToLegacyStudio,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canonical-approval";
 import {
   executeStudioClosedAgent,
   getStudioClosedAgentOS,
@@ -1180,6 +1180,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setStatus("正在鎖定後端、建立計畫、執行並評估候選。");
     try {
       const runNamespace = namespace();
+      const repository = createNovelRepository();
+      const currentProject = await repository.get<NovelProject>("projects", projectId);
+      const sourceChapter = currentProject?.activeChapterId
+        ? await repository.get<Chapter>("chapters", currentProject.activeChapterId)
+        : null;
       const next = await executeStudioClosedAgent({
         taskId: `closed-agent-${crypto.randomUUID()}`,
         projectId,
@@ -1199,6 +1204,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         preferredBackend: backend === "auto" ? undefined : backend,
         storyBibleRevision,
         knowledgeScopeRevision,
+        sourceChapterId: sourceChapter?.id,
+        sourceRevision: sourceChapter?.revision,
         signal: controller.signal,
         onProgress: recordProgress,
       });
@@ -1223,32 +1230,36 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     try {
       const canonicalCommit = applyToChapter
-        ? async ({ candidate }: { candidate: typeof result.candidate }) => {
+        ? async ({
+          candidate,
+          idempotencyKey,
+        }: {
+          candidate: typeof result.candidate;
+          idempotencyKey: string;
+        }) => {
           const repository = createNovelRepository();
-          const currentProject = await repository.get<NovelProject>("projects", projectId);
-          if (!currentProject?.activeChapterId) {
-            throw Object.assign(new Error("目前作品沒有可套用的章節。"), {
+          if (!candidate.sourceChapterId || candidate.sourceRevision == null) {
+            throw Object.assign(new Error("The generated candidate has no canonical source chapter."), {
               code: "CLOSED_AGENT_CANONICAL_CHAPTER_REQUIRED",
             });
           }
-          const currentChapter = await repository.get<Chapter>("chapters", currentProject.activeChapterId);
-          if (!currentChapter) {
-            throw Object.assign(new Error("目前章節已不存在，請重新載入。"), {
-              code: "CLOSED_AGENT_CANONICAL_CHAPTER_STALE",
-            });
-          }
           const taskType = result.task.taskType;
-          const nextContent = taskType === "chapter.rewrite" || taskType === "assistant.transform"
-            ? candidate.content.trim()
-            : `${currentChapter.content.trim()}${currentChapter.content.trim() ? "\n\n" : ""}${candidate.content.trim()}`;
-          const saved = await repository.put<Chapter>("chapters", {
-            ...currentChapter,
-            content: taskType === "story.summary" ? currentChapter.content : nextContent,
-            summary: taskType === "story.summary" ? candidate.content.trim() : currentChapter.summary,
-          }, currentChapter.revision);
-          mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
+          const committed = await commitStudioCandidateToChapter({
+            repository,
+            projectId,
+            chapterId: candidate.sourceChapterId,
+            sourceRevision: candidate.sourceRevision,
+            taskId: candidate.taskId,
+            idempotencyKey,
+            content: candidate.content,
+            mode: taskType === "story.summary"
+              ? "summary"
+              : taskType === "chapter.rewrite" || taskType === "assistant.transform"
+                ? "replace"
+                : "append",
+          });
           return {
-            commitId: `chapter:${saved.id}:revision:${saved.revision}`,
+            commitId: committed.commitId,
             storyBibleRevision,
           };
         }

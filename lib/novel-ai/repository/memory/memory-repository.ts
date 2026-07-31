@@ -12,8 +12,9 @@ import type {
   RejectCharacterProposalResult,
 } from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
-import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type NovelRepository, type NovelStoreName } from "../contracts/index";
+import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
+import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
 
 export class MemoryNovelRepository implements NovelRepository {
   readonly kind = "memory" as const;
@@ -69,6 +70,50 @@ export class MemoryNovelRepository implements NovelRepository {
       for (const [store, row] of [["projects",records.project],["chapters",records.chapter],["candidates",records.candidate],["storyStates",records.storyState],["acceptedChoices",records.acceptedChoice],["storyBranches",records.branch],["storyBibles",records.storyBible],["storyBibleDeltas",records.storyBibleDelta],["approvalTransactions",records.approvalTransaction],["idempotencyRecords",records.idempotencyRecord],["operationJournal",records.journal]] as Array<[NovelStoreName, DomainRecord]>) this.stores.get(store)?.set(row.id, structuredClone(row));
       return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch, storyBible: records.storyBible, storyBibleDelta: records.storyBibleDelta, approvalTransaction: records.approvalTransaction, idempotencyRecord: records.idempotencyRecord };
     } catch (error) { this.stores = before; throw error; }
+  }
+  commitStudioCandidateTransaction(input: CommitStudioCandidateTransactionInput): Promise<CommitStudioCandidateTransactionResult> {
+    const run = this.interactionQueue.then(() =>
+      this.commitStudioCandidateTransactionInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async commitStudioCandidateTransactionInternal(input: CommitStudioCandidateTransactionInput): Promise<CommitStudioCandidateTransactionResult> {
+    const replay = (await this.list<StudioCandidateOperationJournal>("operationJournal", input.projectId))
+      .find((record) => record.idempotencyKey === input.idempotencyKey);
+    if (replay) {
+      assertStudioCandidateReplay(input, replay);
+      const chapter = await this.get<Chapter>("chapters", replay.chapterId);
+      if (!chapter || chapter.revision < replay.resultingRevision) {
+        throw new RepositoryOperationError("STUDIO_CANDIDATE_IDEMPOTENCY_REPLAY_INCOMPLETE");
+      }
+      return { replayed: true, chapter, journal: replay };
+    }
+    const current = await this.get<Chapter>("chapters", input.chapterId);
+    if (!current) {
+      throw new RepositoryOperationError("STUDIO_CANDIDATE_SOURCE_CHAPTER_NOT_FOUND");
+    }
+    const records = buildStudioCandidateCommitRecords(input, current);
+    const beforeChapters = new Map(
+      [...(this.stores.get("chapters")?.entries() ?? [])]
+        .map(([id, row]) => [id, structuredClone(row)]),
+    );
+    const beforeJournal = new Map(
+      [...(this.stores.get("operationJournal")?.entries() ?? [])]
+        .map(([id, row]) => [id, structuredClone(row)]),
+    );
+    try {
+      this.inject("before:studioCandidateChapter");
+      this.stores.get("chapters")?.set(records.chapter.id, structuredClone(records.chapter));
+      this.inject("after:studioCandidateChapter");
+      this.inject("before:studioCandidateJournal");
+      this.stores.get("operationJournal")?.set(records.journal.id, structuredClone(records.journal));
+      this.inject("after:studioCandidateJournal");
+      return { replayed: false, ...records };
+    } catch (error) {
+      this.stores.set("chapters", beforeChapters);
+      this.stores.set("operationJournal", beforeJournal);
+      throw error;
+    }
   }
   async saveDramaProjectionTransaction(input: DramaProjectionPackage): Promise<void> {
     const rows: Array<[NovelStoreName, DomainRecord[]]> = [

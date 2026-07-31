@@ -661,6 +661,49 @@ test("shared OS uses semantic and retrieval caches without promoting cache autho
     && entry.canonicalMutation === false));
 });
 
+test("semantic candidate cache is bound to the evaluated context digest", async () => {
+  const { os, calls } = createMockOS();
+  const context = (text) => [{
+    id: "approved-story-bible",
+    kind: "story-bible",
+    text,
+    visibility: "both",
+    privacyLevel: "device_only",
+    approved: true,
+  }];
+  await os.execute(request(
+    "task-semantic-context-a",
+    "story.summary",
+    "light",
+    {
+      objective: "Summarize the approved clue.",
+      context: context("The approved clue is the silver key."),
+    },
+  ));
+  const changedContext = await os.execute(request(
+    "task-semantic-context-b",
+    "story.summary",
+    "light",
+    {
+      objective: "Summarize the approved clue.",
+      context: context("The approved clue is the obsidian gate."),
+    },
+  ));
+  assert.equal(changedContext.cache.candidateHit, false);
+  assert.equal(calls.length, 2);
+  const repeatedContext = await os.execute(request(
+    "task-semantic-context-b-repeat",
+    "story.summary",
+    "light",
+    {
+      objective: "Summarize the approved clue.",
+      context: context("The approved clue is the obsidian gate."),
+    },
+  ));
+  assert.equal(repeatedContext.cache.candidateHit, true);
+  assert.equal(calls.length, 2);
+});
+
 test("explicit incompatible backend fails without silent fallback", async () => {
   const { os, calls } = createMockOS();
   await assert.rejects(
@@ -748,6 +791,36 @@ test("candidate approval is signed before memory and optional canonical commit",
   assert.equal(approved.canonicalMutationCount, 1);
   assert.equal(approved.memory.canonical, true);
   const verification = await os.ledger.verify("closed-agent:project-a:task-approval");
+  assert.equal(verification.valid, true);
+  assert.equal(verification.signedApprovalCount, 1);
+});
+
+test("concurrent approval attempts serialize to one signed state transition", async () => {
+  const { os } = createMockOS();
+  const result = await os.execute(request(
+    "task-concurrent-approval",
+    "chapter.continue",
+    "standard",
+  ));
+  const attempts = await Promise.allSettled([
+    os.approveCandidate({
+      candidateId: result.candidate.id,
+      approvedBy: "author",
+      humanApproved: true,
+    }),
+    os.approveCandidate({
+      candidateId: result.candidate.id,
+      approvedBy: "author",
+      humanApproved: true,
+    }),
+  ]);
+  assert.equal(attempts.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter((item) =>
+    item.status === "rejected"
+    && item.reason?.code === "CLOSED_AGENT_APPROVAL_GATE_FAILED").length, 1);
+  const verification = await os.ledger.verify(
+    "closed-agent:project-a:task-concurrent-approval",
+  );
   assert.equal(verification.valid, true);
   assert.equal(verification.signedApprovalCount, 1);
 });

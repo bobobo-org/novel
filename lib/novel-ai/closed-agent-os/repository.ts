@@ -5,11 +5,21 @@ export interface ClosedAgentStateRepository {
   get<T extends ClosedAgentStateRecord>(id: string): Promise<T | null>;
   list<T extends ClosedAgentStateRecord>(projectId: string, kind?: T["kind"]): Promise<T[]>;
   put(record: ClosedAgentStateRecord): Promise<void>;
+  putMany(records: ClosedAgentStateRecord[]): Promise<void>;
 }
 
 export class MemoryClosedAgentStateRepository implements ClosedAgentStateRepository {
   readonly kind = "memory" as const;
   private readonly records = new Map<string, ClosedAgentStateRecord>();
+  private readonly faultInjector: ((point: string) => void) | null;
+
+  constructor(options: { faultInjector?: (point: string) => void } = {}) {
+    this.faultInjector = options.faultInjector ?? null;
+  }
+
+  private inject(point: string) {
+    this.faultInjector?.(point);
+  }
 
   async get<T extends ClosedAgentStateRecord>(id: string) {
     const record = this.records.get(id);
@@ -23,7 +33,22 @@ export class MemoryClosedAgentStateRepository implements ClosedAgentStateReposit
   }
 
   async put(record: ClosedAgentStateRecord) {
-    this.records.set(record.id, structuredClone(record));
+    await this.putMany([record]);
+  }
+
+  async putMany(records: ClosedAgentStateRecord[]) {
+    const before = new Map(this.records);
+    try {
+      for (const record of records) {
+        this.inject(`before:${record.kind}`);
+        this.records.set(record.id, structuredClone(record));
+        this.inject(`after:${record.kind}`);
+      }
+    } catch (error) {
+      this.records.clear();
+      for (const [id, record] of before) this.records.set(id, record);
+      throw error;
+    }
   }
 }
 
@@ -49,6 +74,15 @@ function complete(transaction: IDBTransaction): Promise<void> {
 export class IndexedDbClosedAgentStateRepository implements ClosedAgentStateRepository {
   readonly kind = "indexeddb" as const;
   private database: Promise<IDBDatabase> | null = null;
+  private readonly faultInjector: ((point: string) => void) | null;
+
+  constructor(options: { faultInjector?: (point: string) => void } = {}) {
+    this.faultInjector = options.faultInjector ?? null;
+  }
+
+  private inject(point: string) {
+    this.faultInjector?.(point);
+  }
 
   private open() {
     if (typeof indexedDB === "undefined") {
@@ -88,10 +122,24 @@ export class IndexedDbClosedAgentStateRepository implements ClosedAgentStateRepo
   }
 
   async put(record: ClosedAgentStateRecord) {
+    await this.putMany([record]);
+  }
+
+  async putMany(records: ClosedAgentStateRecord[]) {
     const database = await this.open();
     const transaction = database.transaction(STORE, "readwrite");
-    transaction.objectStore(STORE).put(record);
-    await complete(transaction);
+    try {
+      const store = transaction.objectStore(STORE);
+      for (const record of records) {
+        this.inject(`before:${record.kind}`);
+        store.put(record);
+        this.inject(`after:${record.kind}`);
+      }
+      await complete(transaction);
+    } catch (error) {
+      try { transaction.abort(); } catch { /* transaction already completed */ }
+      throw error;
+    }
   }
 }
 

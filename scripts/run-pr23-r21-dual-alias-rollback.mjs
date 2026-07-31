@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   captureCurrentAliasIdentities,
   createAliasIdentityReader,
+  createVercelAliasSetter,
   createVercelControlPlaneReader,
   normalizeVercelControlPlaneIdentity,
   promoteDualAliases,
@@ -178,6 +179,30 @@ assert.deepEqual(
 );
 assert.equal(apiRequestVerified, true);
 
+let aliasApiRequestVerified = false;
+const aliasSetter = createVercelAliasSetter({
+  token: "unit-placeholder",
+  teamId: "team_control_plane_test",
+  fetchImpl: async (url, options) => {
+    assert.equal(url.hostname, "api.vercel.com");
+    assert.equal(
+      url.pathname,
+      "/v2/deployments/staged-pr23-r21.invalid/aliases",
+    );
+    assert.equal(url.searchParams.get("teamId"), "team_control_plane_test");
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.Authorization, "Bearer unit-placeholder");
+    assert.deepEqual(JSON.parse(options.body), { alias: MIRROR });
+    aliasApiRequestVerified = true;
+    return new Response(JSON.stringify({ alias: MIRROR }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+});
+await aliasSetter(TARGET, MIRROR);
+assert.equal(aliasApiRequestVerified, true);
+
 let legacyControlPlaneReads = 0;
 const legacyIdentityReader = createAliasIdentityReader({
   fetchImpl: async () => new Response("missing", { status: 404 }),
@@ -266,6 +291,8 @@ console.log(JSON.stringify({
   legacy404ControlPlaneBootstrap: true,
   legacyBootstrapFrozenToKnownBaseline: true,
   controlPlaneProjectCommitAndStateVerified: true,
+  aliasMutationUsesAuthorizationHeader: true,
+  tokenExcludedFromChildProcessArguments: true,
   promotionFallbackForbidden: true,
   non404FallbackForbidden: true,
 }, null, 2));

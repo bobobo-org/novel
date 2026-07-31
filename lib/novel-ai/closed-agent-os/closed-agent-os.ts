@@ -72,6 +72,7 @@ type ApprovalInput = {
   canonicalCommit?: (input: {
     candidate: ClosedAgentCandidate;
     approvalId: string;
+    idempotencyKey: string;
   }) => Promise<{ commitId: string; storyBibleRevision?: string }>;
 };
 
@@ -88,6 +89,7 @@ export class ClosedAgentOS {
   private readonly backends: Map<ClosedAIBackendAdapter["id"], ClosedAIBackendAdapter>;
   private readonly now: () => Date;
   private readonly projectQueues = new Map<string, Promise<unknown>>();
+  private readonly approvalQueues = new Map<string, Promise<unknown>>();
 
   constructor(options: ClosedAgentOSOptions = {}) {
     this.cache = options.cache ?? new ClosedAICache({
@@ -366,15 +368,26 @@ export class ClosedAgentOS {
           toolResults.map((item) => sha256Hex(stableStringify(item.value))),
         ),
       };
+      const semanticContextDigest = await sha256Hex(stableStringify({
+        taskType: candidateInput.taskType,
+        actorContextDigests: candidateInput.actorContextDigests,
+        planDigest: candidateInput.planDigest,
+        qualityMode: candidateInput.qualityMode,
+        backendId: candidateInput.backendId,
+        learningConfiguration: candidateInput.learningConfiguration,
+        toolResultDigests: candidateInput.toolResultDigests,
+      }));
       const semanticText = `${request.taskType}\n${request.objective}`;
       const semanticLookup = await this.cache.getSemantic<{
         taskType: ClosedAgentTaskRequest["taskType"];
         qualityMode: ClosedAgentPlan["qualityMode"];
+        semanticContextDigest: string;
         execution: ClosedBackendExecutionResult;
       }>(
         request.namespace,
         semanticText,
         learningSemanticThreshold(request.learningConfiguration),
+        (entry) => entry.value.semanticContextDigest === semanticContextDigest,
       );
       let execution: ClosedBackendExecutionResult;
       let candidateCacheHit = false;
@@ -454,6 +467,7 @@ export class ClosedAgentOS {
           value: {
             taskType: request.taskType,
             qualityMode: plan.qualityMode,
+            semanticContextDigest,
             execution,
           },
           tags: ["closed-agent-semantic-candidate", `task:${request.taskType}`],
@@ -716,46 +730,72 @@ export class ClosedAgentOS {
     }
   }
 
-  async approveCandidate(input: ApprovalInput) {
+  approveCandidate(input: ApprovalInput) {
+    const previous = this.approvalQueues.get(input.candidateId) ?? Promise.resolve();
+    const operation = previous.then(() => this.approveCandidateInternal(input));
+    this.approvalQueues.set(input.candidateId, operation.catch(() => undefined));
+    return operation;
+  }
+
+  private async approveCandidateInternal(input: ApprovalInput) {
     const candidate = await this.state.get<ClosedAgentCandidate>(input.candidateId);
     if (!candidate) throw osError("CLOSED_AGENT_CANDIDATE_NOT_FOUND");
     if (!input.humanApproved) throw osError("CLOSED_AGENT_HUMAN_APPROVAL_REQUIRED");
     if (!candidate.evaluation.passed || candidate.status !== "awaiting-approval") {
       throw osError("CLOSED_AGENT_APPROVAL_GATE_FAILED");
     }
-    const approvalId = `closed-agent-approval:${crypto.randomUUID()}`;
+    const approvalId = `closed-agent-approval:${candidate.id}`;
     const ledgerId = `closed-agent:${candidate.namespace.projectId}:${candidate.taskId}`;
-    const approvalBlock = await this.ledger.append({
+    const approvalPayload = {
+      approvalId,
+      candidateId: candidate.id,
+      candidateDigest: candidate.contentDigest,
+      approvedBy: input.approvedBy,
+      humanApproved: true,
+    };
+    const approvalPayloadDigest = await sha256Hex(stableStringify(approvalPayload));
+    const existingApprovalBlock = (await this.ledger.repository.list(ledgerId))
+      .find((block) =>
+        block.eventType === "approval-signed"
+        && block.payloadDigest === approvalPayloadDigest
+        && block.signature);
+    const approvalBlock = existingApprovalBlock ?? await this.ledger.append({
       ledgerId,
       namespace: candidate.namespace,
       eventType: "approval-signed",
-      payload: {
-        approvalId,
-        candidateId: candidate.id,
-        candidateDigest: candidate.contentDigest,
-        approvedBy: input.approvedBy,
-        humanApproved: true,
-      },
+      payload: approvalPayload,
       signApproval: true,
     });
     let canonicalCommitId: string | null = null;
     let nextStoryBibleRevision: string | undefined;
     if (input.canonicalCommit) {
-      const result = await input.canonicalCommit({ candidate, approvalId });
+      const result = await input.canonicalCommit({
+        candidate,
+        approvalId,
+        idempotencyKey: approvalId,
+      });
       canonicalCommitId = result.commitId;
       nextStoryBibleRevision = result.storyBibleRevision;
-      await this.ledger.append({
-        ledgerId,
-        namespace: candidate.namespace,
-        eventType: "canonical-commit",
-        payload: {
-          approvalId,
-          candidateId: candidate.id,
-          commitId: result.commitId,
-          previousStoryBibleRevision: candidate.namespace.storyBibleRevision,
-          resultingStoryBibleRevision: result.storyBibleRevision ?? null,
-        },
-      });
+      const canonicalPayload = {
+        approvalId,
+        candidateId: candidate.id,
+        commitId: result.commitId,
+        previousStoryBibleRevision: candidate.namespace.storyBibleRevision,
+        resultingStoryBibleRevision: result.storyBibleRevision ?? null,
+      };
+      const canonicalPayloadDigest = await sha256Hex(stableStringify(canonicalPayload));
+      const existingCanonicalBlock = (await this.ledger.repository.list(ledgerId))
+        .find((block) =>
+          block.eventType === "canonical-commit"
+          && block.payloadDigest === canonicalPayloadDigest);
+      if (!existingCanonicalBlock) {
+        await this.ledger.append({
+          ledgerId,
+          namespace: candidate.namespace,
+          eventType: "canonical-commit",
+          payload: canonicalPayload,
+        });
+      }
     }
     const approvedAt = this.now().toISOString();
     const approval: ClosedAgentApprovalRecord = {
@@ -789,16 +829,30 @@ export class ClosedAgentOS {
       canonicalMutationCount: canonicalCommitId ? 1 : 0,
       updatedAt: approvedAt,
     };
-    await this.state.put(approval);
-    await this.state.put(memory);
-    await this.state.put(updatedCandidate);
     const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
-    if (task) {
-      await this.state.put({
+    const stateRecords = [
+      approval,
+      memory,
+      updatedCandidate,
+      ...(task ? [{
         ...task,
         state: "completed",
         updatedAt: approvedAt,
-      });
+      } as ClosedAgentTaskRecord] : []),
+    ];
+    try {
+      await this.state.putMany(stateRecords);
+    } catch (cause) {
+      throw osError(
+        "CLOSED_AGENT_APPROVAL_STATE_COMMIT_FAILED_RECOVERABLE",
+        "The canonical operation is journaled and this approval can be retried safely.",
+        {
+          candidateId: candidate.id,
+          approvalId,
+          canonicalCommitId,
+          causeCode: String((cause as { code?: string })?.code || "STATE_COMMIT_FAILED"),
+        },
+      );
     }
     if (nextStoryBibleRevision) {
       const count = await this.cache.invalidateStoryBibleRevision(

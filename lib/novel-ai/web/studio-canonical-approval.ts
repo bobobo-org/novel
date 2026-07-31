@@ -1,9 +1,12 @@
 import type { Chapter } from "../domain";
-import { sha256Hex } from "../closed-ai-cache";
-import type { NovelRepository } from "../repository";
+import { sha256Hex, stableStringify } from "../closed-ai-cache";
+import type {
+  NovelRepository,
+  StudioCandidateOperationJournal,
+} from "../repository";
 import { mirrorChapterToLegacyStudio } from "../repository/migration/legacy-studio-migration";
 
-export type StudioCanonicalApplyMode = "append" | "replace";
+export type StudioCanonicalApplyMode = "append" | "replace" | "summary";
 
 export type StudioCanonicalApplyInput = {
   repository: NovelRepository;
@@ -11,6 +14,7 @@ export type StudioCanonicalApplyInput = {
   chapterId: string;
   sourceRevision: number;
   taskId: string;
+  idempotencyKey?: string;
   content: string;
   mode: StudioCanonicalApplyMode;
 };
@@ -21,6 +25,7 @@ export type StudioCanonicalApplyResult = {
   contentDigest: string;
   sourceRevision: number;
   resultingRevision: number;
+  replayed: boolean;
 };
 
 function staleRevision(expected: number, actual: number | null) {
@@ -43,6 +48,44 @@ export async function commitStudioCandidateToChapter(
       code: "STUDIO_CANDIDATE_CONTENT_EMPTY",
     });
   }
+  const idempotencyKey = input.idempotencyKey
+    ?? `studio-candidate:${input.projectId}:${input.chapterId}:${input.sourceRevision}:${input.taskId}`;
+  const operationId = `studio-candidate-operation:${await sha256Hex(idempotencyKey)}`;
+  const acceptedContentDigest = await sha256Hex(acceptedContent);
+  const replay = (await input.repository.list<StudioCandidateOperationJournal>(
+    "operationJournal",
+    input.projectId,
+  )).find((record) => record.idempotencyKey === idempotencyKey);
+  if (replay) {
+    if (
+      replay.operationType !== "studio_candidate_commit"
+      || replay.id !== operationId
+      || replay.chapterId !== input.chapterId
+      || replay.taskId !== input.taskId
+      || replay.mode !== input.mode
+      || replay.sourceRevision !== input.sourceRevision
+      || replay.acceptedContentDigest !== acceptedContentDigest
+    ) {
+      throw Object.assign(new Error("The canonical retry payload does not match its journal."), {
+        code: "STUDIO_CANDIDATE_IDEMPOTENCY_PAYLOAD_MISMATCH",
+      });
+    }
+    const chapter = await input.repository.get<Chapter>("chapters", input.chapterId);
+    if (!chapter || chapter.revision < replay.resultingRevision) {
+      throw Object.assign(new Error("The canonical recovery journal is incomplete."), {
+        code: "STUDIO_CANDIDATE_IDEMPOTENCY_REPLAY_INCOMPLETE",
+      });
+    }
+    mirrorChapterToLegacyStudio(input.projectId, chapter.title, chapter.content);
+    return {
+      chapter,
+      commitId: replay.commitId,
+      contentDigest: replay.resultContentDigest,
+      sourceRevision: replay.sourceRevision,
+      resultingRevision: replay.resultingRevision,
+      replayed: true,
+    };
+  }
   const current = await input.repository.get<Chapter>(
     "chapters",
     input.chapterId,
@@ -57,16 +100,48 @@ export async function commitStudioCandidateToChapter(
   }
   const nextContent = input.mode === "replace"
     ? acceptedContent
-    : `${current.content.trim()}${current.content.trim() ? "\n\n" : ""}${acceptedContent}`;
-  const contentDigest = await sha256Hex(nextContent);
-  const saved = await input.repository.put<Chapter>(
-    "chapters",
-    {
-      ...current,
-      content: nextContent,
-    },
-    current.revision,
-  );
+    : input.mode === "summary"
+      ? current.content
+      : `${current.content.trim()}${current.content.trim() ? "\n\n" : ""}${acceptedContent}`;
+  const nextSummary = input.mode === "summary"
+    ? acceptedContent
+    : current.summary;
+  const contentDigest = await sha256Hex(stableStringify({
+    content: nextContent,
+    summary: nextSummary,
+  }));
+  const payloadFingerprint = await sha256Hex(stableStringify({
+    projectId: input.projectId,
+    chapterId: input.chapterId,
+    sourceRevision: input.sourceRevision,
+    taskId: input.taskId,
+    mode: input.mode,
+    acceptedContent,
+    contentDigest,
+  }));
+  const commitId = [
+    "studio-chapter",
+    current.id,
+    `revision-${current.revision + 1}`,
+    `task-${input.taskId}`,
+    contentDigest,
+  ].join(":");
+  const transaction = await input.repository.commitStudioCandidateTransaction({
+    operationId,
+    idempotencyKey,
+    payloadFingerprint,
+    projectId: input.projectId,
+    chapterId: input.chapterId,
+    taskId: input.taskId,
+    mode: input.mode,
+    expectedChapterRevision: input.sourceRevision,
+    nextContent,
+    nextSummary,
+    acceptedContentDigest,
+    resultContentDigest: contentDigest,
+    commitId,
+  });
+  const saved = transaction.chapter;
   mirrorChapterToLegacyStudio(
     input.projectId,
     saved.title,
@@ -74,16 +149,11 @@ export async function commitStudioCandidateToChapter(
   );
   return {
     chapter: saved,
-    commitId: [
-      "studio-chapter",
-      saved.id,
-      `revision-${saved.revision}`,
-      `task-${input.taskId}`,
-      contentDigest,
-    ].join(":"),
+    commitId: transaction.journal.commitId,
     contentDigest,
     sourceRevision: input.sourceRevision,
-    resultingRevision: saved.revision,
+    resultingRevision: transaction.journal.resultingRevision,
+    replayed: transaction.replayed,
   };
 }
 

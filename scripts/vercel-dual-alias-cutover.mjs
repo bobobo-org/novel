@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -98,6 +97,44 @@ export function createVercelControlPlaneReader({
       deployment,
       expectedProjectId: projectId,
     });
+  };
+}
+
+export function createVercelAliasSetter({
+  token,
+  teamId,
+  fetchImpl = fetch,
+}) {
+  if (!token || !teamId) {
+    throw cutoverError("VERCEL_ALIAS_CONFIGURATION_INCOMPLETE");
+  }
+  return async (target, alias) => {
+    const deployment = String(target)
+      .replace(/^https?:\/\//u, "")
+      .replace(/\/+$/u, "");
+    if (!deployment || !alias) {
+      throw cutoverError("VERCEL_ALIAS_TARGET_INVALID");
+    }
+    const url = new URL(
+      `https://api.vercel.com/v2/deployments/${encodeURIComponent(deployment)}/aliases`,
+    );
+    url.searchParams.set("teamId", teamId);
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ alias }),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw cutoverError("VERCEL_ALIAS_SET_FAILED", {
+        alias,
+        status: response.status,
+      });
+    }
   };
 }
 
@@ -416,33 +453,10 @@ async function runCutoverCli() {
     deploymentId: requiredEnvironment("MIRROR_BEFORE_DEPLOYMENT"),
     appCommit: requiredEnvironment("MIRROR_BEFORE_COMMIT"),
   };
-  const scope = requiredEnvironment("VERCEL_SCOPE");
   const token = requiredEnvironment("VERCEL_TOKEN");
+  const teamId = requiredEnvironment("VERCEL_ORG_ID");
   const readIdentity = createEnvironmentIdentityReader();
-  const setAlias = async (target, alias) => {
-    const result = spawnSync(
-      "vercel",
-      [
-        "alias",
-        "set",
-        target,
-        alias,
-        `--scope=${scope}`,
-        `--token=${token}`,
-      ],
-      {
-        encoding: "utf8",
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    if (result.status !== 0) {
-      throw cutoverError("VERCEL_ALIAS_SET_FAILED", {
-        alias,
-        exitCode: result.status,
-      });
-    }
-  };
+  const setAlias = createVercelAliasSetter({ token, teamId });
   await promoteDualAliases({
     primaryAlias,
     mirrorAlias,
