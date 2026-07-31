@@ -137,15 +137,24 @@ function Invoke-NativeDeny([string]$ProfilePath, [string]$RunDirectory) {
       if (-not $mainChrome) { Start-Sleep -Milliseconds 250; continue }
       $windowElement = [Windows.Automation.AutomationElement]::FromHandle($mainChrome.MainWindowHandle)
       $windowBounds = $windowElement.Current.BoundingRectangle
-      $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [Windows.Automation.TreeScope]::Descendants,
-        [Windows.Automation.Condition]::TrueCondition
-      )
+      try {
+        # Edge 150 can fail a desktop-wide UIA traversal with RPC_E_SERVERFAULT.
+        # Search only the verified test window containing the native prompt.
+        $elements = $windowElement.FindAll(
+          [Windows.Automation.TreeScope]::Descendants,
+          [Windows.Automation.Condition]::TrueCondition
+        )
+      } catch {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       foreach ($element in $elements) {
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
-          if ($denyNames -notcontains $element.Current.Name) { continue }
+          $candidateName = [string]$element.Current.Name
+          $candidateAutomationId = [string]$element.Current.AutomationId
+          if ($denyNames -notcontains $candidateName -and $candidateAutomationId -ne "block-button") { continue }
           $elementName = $element.Current.Name
           $elementProcessId = $element.Current.ProcessId
           $elementBounds = $element.Current.BoundingRectangle

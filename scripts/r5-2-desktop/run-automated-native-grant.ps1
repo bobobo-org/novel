@@ -127,8 +127,18 @@ function Find-ProfileUiElement(
       $_.CommandLine.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     } | Select-Object -ExpandProperty ProcessId)
     if ($chromePids.Count) {
+      $mainChrome = $chromePids | ForEach-Object {
+        Get-Process -Id $_ -ErrorAction SilentlyContinue
+      } | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+      if (-not $mainChrome) {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       try {
-        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+        $windowElement = [Windows.Automation.AutomationElement]::FromHandle(
+          $mainChrome.MainWindowHandle
+        )
+        $elements = $windowElement.FindAll(
           [Windows.Automation.TreeScope]::Descendants,
           [Windows.Automation.Condition]::TrueCondition
         )
@@ -215,7 +225,10 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
       $windowElement = [Windows.Automation.AutomationElement]::FromHandle($mainChrome.MainWindowHandle)
       $windowBounds = $windowElement.Current.BoundingRectangle
       try {
-        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+        # Edge 150 can fail a desktop-wide UIA traversal with RPC_E_SERVERFAULT.
+        # Restrict discovery to the verified browser window so the native
+        # permission bubble remains semantically discoverable and invokable.
+        $elements = $windowElement.FindAll(
           [Windows.Automation.TreeScope]::Descendants,
           [Windows.Automation.Condition]::TrueCondition
         )
@@ -228,9 +241,11 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
           $candidateName = [string]$element.Current.Name
+          $candidateAutomationId = [string]$element.Current.AutomationId
           $matchesGrantName = $grantNames -contains $candidateName -or
             $candidateName.StartsWith(([char]0x5141)+([char]0x8A31), [StringComparison]::Ordinal) -or
-            $candidateName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
+            $candidateName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase) -or
+            $candidateAutomationId -eq "allow-button"
           if (-not $matchesGrantName) { continue }
           $elementName = $element.Current.Name
           $elementProcessId = $element.Current.ProcessId

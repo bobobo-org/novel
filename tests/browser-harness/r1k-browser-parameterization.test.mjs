@@ -22,6 +22,10 @@ for (const { file, source } of scripts) {
   pass += 1;
   assert.doesNotMatch(source, /\$runId = "chrome-(?:grant|deny)-"/);
   pass += 1;
+  assert.doesNotMatch(source, /RootElement\.FindAll/);
+  pass += 1;
+  assert.match(source, /\$windowElement\.FindAll/);
+  pass += 1;
   console.log(`${file}: PASS`);
 }
 
