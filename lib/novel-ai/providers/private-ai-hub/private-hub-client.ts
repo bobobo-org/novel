@@ -34,7 +34,8 @@ import {
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
-const CONTROL_TIMEOUT_MS = 5_000;
+export const PRIVATE_HUB_CONTROL_TIMEOUT_MS = 5_000;
+export const PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 
 export type PrivateHubSession = {
@@ -166,8 +167,11 @@ function endpoint(value = PRIVATE_HUB_ENDPOINT) {
   return url.origin;
 }
 
-function boundedSignal(signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(CONTROL_TIMEOUT_MS);
+function boundedSignal(
+  signal?: AbortSignal,
+  timeoutMs = PRIVATE_HUB_CONTROL_TIMEOUT_MS,
+) {
+  const timeout = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -417,8 +421,9 @@ export class PrivateHubClient {
     path: string,
     init: RequestInit = {},
     signal?: AbortSignal,
+    timeoutMs = PRIVATE_HUB_CONTROL_TIMEOUT_MS,
   ) {
-    const signalWithTimeout = boundedSignal(signal);
+    const signalWithTimeout = boundedSignal(signal, timeoutMs);
     try {
       return await fetch(`${this.endpoint}${path}`, {
         ...init,
@@ -565,6 +570,7 @@ export class PrivateHubClient {
         body: JSON.stringify({ model: modelId }),
       },
       signal,
+      PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS,
     ));
     if (!validateInferenceProof(body, this.session, modelId)) {
       throw new AiProviderError(

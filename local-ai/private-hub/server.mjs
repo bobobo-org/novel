@@ -34,6 +34,8 @@ import {
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 export const PRIVATE_HUB_VERSION = "1.0.0-live-model";
+export const PRIVATE_HUB_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
+export const PRIVATE_HUB_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 const DEFAULT_PORT = 3227;
 const DEFAULT_LIMITS = Object.freeze({
   maxPromptBytes: 262_144,
@@ -639,7 +641,7 @@ export function createPrivateHubServer(options = {}) {
           ollamaEndpoint,
           "/api/tags",
           { method: "GET" },
-          5_000,
+          PRIVATE_HUB_MODEL_DISCOVERY_SERVER_TIMEOUT_MS,
         );
         const tags = await tagsResponse.json();
         const tag = (tags.models || []).find(
@@ -665,7 +667,7 @@ export function createPrivateHubServer(options = {}) {
             keep_alive: "10m",
             options: { temperature: 0, seed: 11, num_predict: 16 },
           }),
-        }, 45_000);
+        }, PRIVATE_HUB_MODEL_INFERENCE_SERVER_TIMEOUT_MS);
         const verifyBody = await verifyResponse.json().catch(() => null);
         const output = String(verifyBody?.response || "").trim();
         if (!output) {

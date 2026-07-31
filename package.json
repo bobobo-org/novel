@@ -111,6 +111,7 @@
     "test:ai:closed:unified-os": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-agent-os-unified.mjs",
     "test:ai:closed:optimization": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization.mjs",
     "test:ai:closed:optimization:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization-real.mjs",
+    "test:ai:closed:model-verification-timeout": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-model-verification-timeout.mjs",
     "test:ai:closed:web-operability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-web-operability.mjs",
     "test:ai:closed:super-agent-rpg": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-novel-super-agent-rpg.mjs",
     "test:ai:closed:cache-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-cache-runtime.mjs",

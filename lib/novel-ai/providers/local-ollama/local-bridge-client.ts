@@ -11,7 +11,8 @@ import {
 
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
-const BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+export const LOCAL_BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
+export const LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
 
@@ -117,8 +118,11 @@ function normalizeBridgeEndpoint(value = DEFAULT_ENDPOINT) {
   return url.origin;
 }
 
-function controlSignal(signal?: AbortSignal) {
-  const timeoutSignal = AbortSignal.timeout(BRIDGE_CONTROL_TIMEOUT_MS);
+function controlSignal(
+  signal?: AbortSignal,
+  timeoutMs = LOCAL_BRIDGE_CONTROL_TIMEOUT_MS,
+) {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
@@ -374,8 +378,13 @@ export class LocalBridgeClient {
     return headers;
   }
 
-  private async fetchBridge(url: string, init: RequestInit = {}, signal?: AbortSignal) {
-    const boundedSignal = controlSignal(signal);
+  private async fetchBridge(
+    url: string,
+    init: RequestInit = {},
+    signal?: AbortSignal,
+    timeoutMs = LOCAL_BRIDGE_CONTROL_TIMEOUT_MS,
+  ) {
+    const boundedSignal = controlSignal(signal, timeoutMs);
     try { return await fetch(url, { ...init, signal: boundedSignal }); }
     catch (error) { throw await classifyBridgeConnectivityError(error, boundedSignal); }
   }
@@ -507,6 +516,7 @@ export class LocalBridgeClient {
         body: JSON.stringify({ model: modelId }),
       },
       signal,
+      LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS,
     );
     let response: Response;
     try {

@@ -50,6 +50,7 @@ jobs:
           pnpm test:ai:closed:unified-os
           pnpm test:ai:closed:web-operability
           pnpm test:ai:closed:optimization
+          pnpm test:ai:closed:model-verification-timeout
           pnpm test:ai:closed:super-agent-rpg
           pnpm test:ai:closed:cache-runtime
           pnpm test:ai:closed:controlled-learning-runtime
