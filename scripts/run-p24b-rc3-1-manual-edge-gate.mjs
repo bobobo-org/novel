@@ -391,27 +391,26 @@ async function main() {
     await page.getByRole("link", { name: "設定本機 AI" }).click();
     await page.getByTestId("local-ai-setup").waitFor({ state: "visible" });
     await page.getByRole("button", { name: "檢查本機網路權限" }).click();
-    const permissionGrantHandle = await page.waitForFunction(async () => {
-      const states = {};
-      for (const name of ["local-network-access", "local-network", "loopback-network"]) {
-        try {
-          states[name] = (await navigator.permissions.query({ name })).state;
-        } catch {
-          states[name] = "unsupported";
-        }
+    const permissionDeadline = Date.now() + 600_000;
+    let permissionAfterStates = {};
+    let permissionAfter = { name: "unsupported", state: "unsupported" };
+    while (Date.now() < permissionDeadline) {
+      permissionAfterStates = await permissionStates(page);
+      permissionAfter = resolvedPermission(permissionAfterStates);
+      if (permissionAfter.state === "granted") break;
+      if (permissionAfter.state === "denied") {
+        throw new Error("EDGE_PERMISSION_DENIED_BY_OPERATOR");
       }
-      const grantedName = Object.keys(states).find((name) => states[name] === "granted");
-      return grantedName ? { name: grantedName, states } : null;
-    }, undefined, { timeout: 180_000 });
-    const permissionGrantObservation = await permissionGrantHandle.jsonValue();
-    await permissionGrantHandle.dispose();
-    const permissionAfterStates = permissionGrantObservation?.states ?? {};
-    const permissionAfter = permissionGrantObservation?.name
-      ? { name: permissionGrantObservation.name, state: "granted" }
-      : resolvedPermission(permissionAfterStates);
-    if (permissionAfter.state !== "granted") {
-      throw new Error(`EDGE_PERMISSION_AFTER_NOT_GRANTED:${permissionAfter.state}`);
+      await page.waitForTimeout(250);
     }
+    if (permissionAfter.state !== "granted") {
+      throw new Error(`EDGE_PERMISSION_GRANT_TIMEOUT:${permissionAfter.state}`);
+    }
+    process.stdout.write(`${JSON.stringify({
+      event: "native_permission_observed",
+      permissionName: permissionAfter.name,
+      permissionState: permissionAfter.state,
+    })}\n`);
 
     await page.getByTestId("local-ai-start-pairing").click();
     const pairingInput = page.getByTestId("local-ai-pairing-code");
