@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "p24b-rc3-mobile-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "viewport": "390x844",
+  "frontdoor": {
+    "name": "mobile-frontdoor-no-horizontal-overflow",
+    "status": "PASS",
+    "viewport": 390,
+    "document": 375
+  },
+  "studio": {
+    "name": "mobile-studio-no-horizontal-overflow",
+    "status": "PASS",
+    "viewport": 390,
+    "document": 375
+  },
+  "legacy": {
+    "name": "28-30-legacy-return-mobile",
+    "status": "PASS",
+    "legacyUnexpectedRedirectCount": 0,
+    "viewport": "390x844"
+  },
+  "horizontalOverflowCount": 0,
+  "unitCheckpoint": {
+    "name": "mobile-frontdoor-usability",
+    "status": "PASS"
+  },
+  "status": "PASS"
+}

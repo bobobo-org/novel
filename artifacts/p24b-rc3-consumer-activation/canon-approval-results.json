@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "p24b-rc3-canon-approval-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "actualExecutor": "local-ollama",
+  "rejectRegenerateApproveReload": true,
+  "preApprovalCanonMutationCount": 0,
+  "firstCandidateDigest": "19f4448ac28716cfd1577fa829bda8c82213e3686cd382d859f922f9c49b108a",
+  "regeneratedCandidateDigest": "19f4448ac28716cfd1577fa829bda8c82213e3686cd382d859f922f9c49b108a",
+  "approvedCanonHash": "65d5b542807d6bd0989d36c82bf0399281057604d94864fbdb00c2145b2c685b",
+  "privateStoryTextStored": false,
+  "status": "PASS"
+}

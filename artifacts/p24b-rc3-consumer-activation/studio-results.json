@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "p24b-rc3-studio-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "defaultSurface": "modern-studio",
+  "browserCheckpoint": {
+    "name": "modern-studio-default",
+    "status": "PASS"
+  },
+  "desktop": {
+    "name": "desktop-studio-no-horizontal-overflow",
+    "status": "PASS",
+    "measured": {
+      "viewport": 1440,
+      "document": 1440
+    }
+  },
+  "projectFlow": {
+    "name": "02-05-project-character-world-paragraph",
+    "status": "PASS",
+    "projectIdPresent": true,
+    "canonHash": "efb7e8cc4b46e451575a2e32ae88f91f7080a74b4ceeca14b371581d0e593734"
+  },
+  "unitCheckpoints": [
+    {
+      "name": "studio-modern-default",
+      "status": "PASS"
+    },
+    {
+      "name": "frontdoor-project-routing",
+      "status": "PASS"
+    }
+  ],
+  "status": "PASS"
+}

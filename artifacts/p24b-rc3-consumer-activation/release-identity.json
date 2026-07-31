@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "p24b-rc3-release-identity-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "previewOrigin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "previewDeploymentId": "dpl_Hpz2d6g6v1AUfjyChRZygpcCfWTA",
+  "releaseTag": "novel-ai-p24b-runtime-consumer-activation-rc3",
+  "releaseName": "P2.4B Closed AI Runtime and Consumer Activation RC3",
+  "consumerRelease": "p2.4b-runtime-consumer-activation-rc3",
+  "architectureStage": "P2.4B RC",
+  "buildTime": "2026-08-01T03:36:15+08:00",
+  "environment": "preview",
+  "provenanceStatus": "verified",
+  "provenanceSource": "build_sealed",
+  "ci": {
+    "runId": 30666646378,
+    "validateJobId": 91275144736,
+    "previewJobId": 91275601654,
+    "productionJobId": 91275602191,
+    "validateConclusion": "success",
+    "previewConclusion": "success",
+    "productionConclusion": "skipped"
+  },
+  "productionDeploymentJobSkipped": true,
+  "status": "P2.4B_RC3_RELEASE_IDENTITY_PASS"
+}

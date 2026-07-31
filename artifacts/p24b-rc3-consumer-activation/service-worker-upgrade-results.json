@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "p24b-rc3-service-worker-upgrade-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "policy": {
+    "navigation": "network-first-modern-frontdoor",
+    "immutableHashedAssets": "cache-first",
+    "api": "not-cached",
+    "localBridge": "not-intercepted",
+    "indexedDb": "not-cleared-or-rewritten"
+  },
+  "unitCheckpoint": {
+    "name": "service-worker-frontdoor-upgrade",
+    "status": "PASS"
+  },
+  "status": "PASS"
+}

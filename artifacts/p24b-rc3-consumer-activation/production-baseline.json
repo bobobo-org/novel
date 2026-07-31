@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "p24b-rc3-production-baseline-v1",
+  "capturedAt": "2026-07-31T19:25:00.0481707Z",
+  "expectedAppCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+  "expectedDeploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+  "productionMutationCount": 0,
+  "aliases": [
+    {
+      "name": "primary",
+      "origin": "https://novel-orcin.vercel.app",
+      "endpoints": {
+        "/api/release/identity": {
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "environment": "production",
+            "provenanceStatus": "verified"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:45.2295623Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"},
+            {"capturedAt":"2026-07-31T19:24:47.7534672Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"},
+            {"capturedAt":"2026-07-31T19:24:50.2872738Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"}
+          ]
+        },
+        "/api/ai/health": {
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "provenanceStatus": "verified",
+            "apiStatus": "online",
+            "persistenceStatus": "degraded",
+            "databaseStatus": "error",
+            "closedAiRuntimeStatus": "client_probe_required"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:46.3107350Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"50ebd9f9b5aa058c5b2e5cc6eac093c694adebd0ed7c3cf9ad3444f10c88519f"},
+            {"capturedAt":"2026-07-31T19:24:48.7122215Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"fcd4f2d128f604b33de01b79f988f66014acf33d7979be926f70bb29a115358d"},
+            {"capturedAt":"2026-07-31T19:24:51.0356466Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"d9acfae7c7e4d09b6f198a57dfab0771ecb46e83362c9fff7f89963f362f4075"}
+          ]
+        },
+        "/api/persistence/health": {
+          "stable": {
+            "cloudPersistenceStatus": "degraded",
+            "migrationStatus": "required_or_unknown",
+            "writeProbeStatus": "failed",
+            "localCanonicalProvider": "IndexedDB",
+            "localCanonicalRuntimeStatus": "client_probe_required"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:46.5809630Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"},
+            {"capturedAt":"2026-07-31T19:24:48.9903731Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"},
+            {"capturedAt":"2026-07-31T19:24:51.2943606Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"}
+          ]
+        },
+        "/api/ai/cloud/health": {
+          "stable": {
+            "configured": true,
+            "provider": "google",
+            "model": "gemini-3.1-flash-lite",
+            "pingStatus": "reachable",
+            "dataLeavesDevice": true,
+            "requiresExplicitConsent": true,
+            "closedModeEligible": false
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:47.2228568Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"2dd6ae30a40f51ef13e1631fcf9a52393d063e0a95991a697e50e009a2c952fd"},
+            {"capturedAt":"2026-07-31T19:24:49.7787258Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"9eda0a7a49d52030f2153040ee42666fa3833b0e1d210af17a2b542e98fe36c8"},
+            {"capturedAt":"2026-07-31T19:24:52.0318895Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"d20c3e092a48474cb1ddedb71a7394eb4d448a97e4edf58d09e0c43b714a7a99"}
+          ]
+        },
+        "/api/ai/closed/contract": {
+          "stable": {
+            "noSilentExternalFallback": true,
+            "localOllamaRuntimeStatus": "client_probe_required",
+            "closedAgentRuntimeStatus": "client_runtime",
+            "canonicalMutationBeforeApproval": 0
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:47.4875800Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"},
+            {"capturedAt":"2026-07-31T19:24:50.0288448Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"},
+            {"capturedAt":"2026-07-31T19:24:52.3152604Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"}
+          ]
+        }
+      },
+      "routes": {
+        "/": {"initialStatus":307,"location":"/legacy/novel-system.html?screen=home","finalStatus":200},
+        "/studio": {"initialStatus":307,"location":"/legacy/novel-system.html","finalStatus":200},
+        "/settings/local-ai": {"initialStatus":200,"finalStatus":200},
+        "/studio/quick-assistant": {"initialStatus":200,"finalStatus":200}
+      }
+    },
+    {
+      "name": "mirror",
+      "origin": "https://novel-lqtechs-projects.vercel.app",
+      "endpoints": {
+        "/api/release/identity": {
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "environment": "production",
+            "provenanceStatus": "verified"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:52.6246874Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"},
+            {"capturedAt":"2026-07-31T19:24:55.1356680Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"},
+            {"capturedAt":"2026-07-31T19:24:57.7654694Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4"}
+          ]
+        },
+        "/api/ai/health": {
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "provenanceStatus": "verified",
+            "apiStatus": "online",
+            "persistenceStatus": "degraded",
+            "databaseStatus": "error",
+            "closedAiRuntimeStatus": "client_probe_required"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:53.5377279Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"cf2ea287f9dc51a8bdd999c8623656e29a990b6c0d2b707b653fa684dcd4ac0e"},
+            {"capturedAt":"2026-07-31T19:24:56.1443008Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"bed2e365509ae6f2d86e32779a020f9c2559319d06d8cbd5d709b72a11f560b7"},
+            {"capturedAt":"2026-07-31T19:24:58.6957939Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"8e1aab7961d779435ed0b368fb030fd3bba4b6b77af66e06e0898fdf4ab0cba2"}
+          ]
+        },
+        "/api/persistence/health": {
+          "stable": {
+            "cloudPersistenceStatus": "degraded",
+            "migrationStatus": "required_or_unknown",
+            "writeProbeStatus": "failed",
+            "localCanonicalProvider": "IndexedDB",
+            "localCanonicalRuntimeStatus": "client_probe_required"
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:53.7882116Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"},
+            {"capturedAt":"2026-07-31T19:24:56.4097450Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"},
+            {"capturedAt":"2026-07-31T19:24:58.9573513Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1"}
+          ]
+        },
+        "/api/ai/cloud/health": {
+          "stable": {
+            "configured": true,
+            "provider": "google",
+            "model": "gemini-3.1-flash-lite",
+            "pingStatus": "reachable",
+            "dataLeavesDevice": true,
+            "requiresExplicitConsent": true,
+            "closedModeEligible": false
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:54.6198918Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"b99df3ec2f70889c5e3afa4ad92afb5d3138fb149805eb5380554a04c6b85008"},
+            {"capturedAt":"2026-07-31T19:24:57.1953926Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"9d7691aa30c8480e433a12cf6041fd96bb50eb3077b2bfd02caf2cac0fa9df40"},
+            {"capturedAt":"2026-07-31T19:24:59.7780851Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"91936086d8127366a37708c2df24f2893a611a19e60437ad21603d6c7d6ac638"}
+          ]
+        },
+        "/api/ai/closed/contract": {
+          "stable": {
+            "noSilentExternalFallback": true,
+            "localOllamaRuntimeStatus": "client_probe_required",
+            "closedAgentRuntimeStatus": "client_runtime",
+            "canonicalMutationBeforeApproval": 0
+          },
+          "samples": [
+            {"capturedAt":"2026-07-31T19:24:54.8725188Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"},
+            {"capturedAt":"2026-07-31T19:24:57.4784589Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"},
+            {"capturedAt":"2026-07-31T19:25:00.0471640Z","httpStatus":200,"cacheControl":"no-store, max-age=0","bodySha256":"125ef13955112bc4f0ca9229b812099d84afe10962669fe0c2f0c2a79392a821"}
+          ]
+        }
+      },
+      "routes": {
+        "/": {"initialStatus":307,"location":"/legacy/novel-system.html?screen=home","finalStatus":200},
+        "/studio": {"initialStatus":307,"location":"/legacy/novel-system.html","finalStatus":200},
+        "/settings/local-ai": {"initialStatus":200,"finalStatus":200},
+        "/studio/quick-assistant": {"initialStatus":200,"finalStatus":200}
+      }
+    }
+  ],
+  "verdict": {
+    "identityStable": true,
+    "primaryMirrorMatch": true,
+    "cloudPersistenceStatus": "degraded",
+    "productionUnchanged": true
+  }
+}

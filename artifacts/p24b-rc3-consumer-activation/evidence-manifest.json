@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "p24b-rc3-consumer-activation-evidence-manifest-v1",
+  "generatedAt": "2026-07-31T21:44:16.450Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "previewOrigin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "previewDeploymentId": "dpl_Hpz2d6g6v1AUfjyChRZygpcCfWTA",
+  "productionCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+  "productionDeploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+  "recordCount": 20,
+  "missing": 0,
+  "unexpected": 0,
+  "mismatch": 0,
+  "credentialHits": 0,
+  "records": [
+    {
+      "path": "backup-restore-results.json",
+      "bytes": 343,
+      "sha256": "9965617dd5a28aaef52d38da053dfcd9b5d57c64608485c5dd4ce56ce3f06296"
+    },
+    {
+      "path": "baseline.json",
+      "bytes": 7584,
+      "sha256": "b90a495a167fccb1014a5273a52d1894443f7496233fb8727548bce9b39fa3fc"
+    },
+    {
+      "path": "canon-approval-results.json",
+      "bytes": 624,
+      "sha256": "3c595545b7e9ee598b0419ebf6f40cb7ba2cbeb88218b67552b8af56ed8eb8d0"
+    },
+    {
+      "path": "edge-runtime-results.json",
+      "bytes": 653,
+      "sha256": "4c5abccb88eabbedd84aa5b67bb9101413be2a8d58d86a958cdff91216b6cfca"
+    },
+    {
+      "path": "executive-summary.md",
+      "bytes": 1283,
+      "sha256": "1e1f3bf5e486808baa5bbf625d410c8f72fa5a5751be1736b2f24568ac5c91a2"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 538,
+      "sha256": "e021f638f66157b22713b8d3f2d3fd94cc5db02c8b7b33e286fa5dbdff3ee8ee"
+    },
+    {
+      "path": "frontdoor-results.json",
+      "bytes": 677,
+      "sha256": "91ff5976e6946d0ba3a6d051f86daf642ab920c54d8a61e2e4fd1815163cccc6"
+    },
+    {
+      "path": "legacy-migration-results.json",
+      "bytes": 658,
+      "sha256": "4ffc23c4ae46b945186bcbb065e0bbc5b4c0bc1ffab99a800131be841f78ca73"
+    },
+    {
+      "path": "local-ai-setup-results.json",
+      "bytes": 549,
+      "sha256": "8e9bdd3f7cc1c1426916c2a9cfcd85f4b6dbcf2049ebc1b3afdb652a5bd818f9"
+    },
+    {
+      "path": "local-ollama-results.json",
+      "bytes": 542,
+      "sha256": "0a699d1e833c383ac7af7ac9cc9607f2fcf0d2c9f24c5c8bcbbcf2199ad1c780"
+    },
+    {
+      "path": "luna-handoff.md",
+      "bytes": 1117,
+      "sha256": "6d62494d0513ca5afc894efe8a1b0ff3f9dc0efbe0ce0a3bbb7bfa7b97a1b3b4"
+    },
+    {
+      "path": "mobile-results.json",
+      "bytes": 751,
+      "sha256": "f4c65737d6afc0771d932ebb974cae278afebcde9fd15c1449a0e5da528a7dd8"
+    },
+    {
+      "path": "production-baseline.json",
+      "bytes": 11459,
+      "sha256": "9adb6cd09c0fa2f8eb5dca2e3f9e2b051b54a83ae8e97f9a8fb2bc35b4d85f28"
+    },
+    {
+      "path": "release-identity.json",
+      "bytes": 1028,
+      "sha256": "6f583018fea1f7b3590e8bc9a96a2d9f9c7ea424ad855734035796b0a216007b"
+    },
+    {
+      "path": "route-matrix.json",
+      "bytes": 2992,
+      "sha256": "ac87cf1322a2c8cdab4fd8e4b554db82f76d78eefd81d98d28cf038c11b0702d"
+    },
+    {
+      "path": "rpg-results.json",
+      "bytes": 287,
+      "sha256": "ac9b4065bd04a6187e65c06ad27049388d7ba17f9ff2fe53998a35d15366f4f4"
+    },
+    {
+      "path": "secret-scan.json",
+      "bytes": 233,
+      "sha256": "e83667cb61512e634c8d26110009b092f9c239e46969199bd26c87c2416694a7"
+    },
+    {
+      "path": "service-worker-upgrade-results.json",
+      "bytes": 515,
+      "sha256": "c4bf6c611f15ad7348227da335e2179bfc780a266f375568363f23fb0ac69e26"
+    },
+    {
+      "path": "studio-results.json",
+      "bytes": 868,
+      "sha256": "c98dfdc777c7c257ac79acb8d114ef187483435c13bda2d51a4821172f037e10"
+    },
+    {
+      "path": "supabase-audit.json",
+      "bytes": 1722,
+      "sha256": "d767856ff9d84a588736c6dd140a7bdec379f3b292d94fe1a6586630ebc2c55f"
+    }
+  ],
+  "selfHash": "4d863e3af48bbed56a98876692c83b853c4d8c5992e3ebbc3222ced978ef9821",
+  "selfHashStatus": "MATCH"
+}
