@@ -44,53 +44,60 @@ while ((Get-Date) -lt $deadline) {
   })
   $edgePids = @($edgeProcesses | Select-Object -ExpandProperty ProcessId)
   if ($edgePids.Count -gt 0) {
-    try {
-      $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [Windows.Automation.TreeScope]::Descendants,
-        [Windows.Automation.Condition]::TrueCondition
-      )
-    } catch {
-      Start-Sleep -Milliseconds 200
-      continue
-    }
-    foreach ($element in $elements) {
+    $mainWindows = @($edgeProcesses | ForEach-Object {
+      Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+    } | Where-Object { $_.MainWindowHandle -ne 0 })
+    foreach ($mainWindow in $mainWindows) {
       try {
-        if ($edgePids -notcontains $element.Current.ProcessId) { continue }
-        if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
-        $name = [string]$element.Current.Name
-        $semanticMatch = $allowNames -contains $name -or
-          $name.StartsWith(([char]0x5141) + ([char]0x8A31), [StringComparison]::Ordinal) -or
-          $name.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
-        if (-not $semanticMatch) { continue }
-        $process = $edgeProcesses |
-          Where-Object { $_.ProcessId -eq $element.Current.ProcessId } |
-          Select-Object -First 1
-        if (-not $process) { continue }
-        $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
-        $pattern.Invoke()
-        Write-DelegationEvidence @{
-          schemaVersion = "pr23-r2-4-native-allow-delegation-v1"
-          status = "INVOKED"
-          explicitUserDelegation = $true
-          delegatedActor = "codex"
-          decisionMethod = "WINDOWS_UI_AUTOMATION"
-          decisionTarget = "MICROSOFT_EDGE_NATIVE_LOCAL_NETWORK_ACCESS_ALLOW"
-          humanOperatorClicked = $false
-          semanticControlName = $name
-          automationRole = "Button"
-          processName = $process.Name
-          processIdMatchedFreshAuditProfile = $true
-          profileCommandLineDigest = Get-Sha256 ([string]$process.CommandLine)
-          fixedScreenCoordinatesUsed = $false
-          permissionInjectionUsed = $false
-          browserPolicyModified = $false
-          localNetworkAccessBypassUsed = $false
-          startedAt = $startedAt.ToString("o")
-          invokedAt = (Get-Date).ToUniversalTime().ToString("o")
-        }
-        exit 0
+        $windowElement = [Windows.Automation.AutomationElement]::FromHandle(
+          $mainWindow.MainWindowHandle
+        )
+        $elements = $windowElement.FindAll(
+          [Windows.Automation.TreeScope]::Descendants,
+          [Windows.Automation.Condition]::TrueCondition
+        )
       } catch {
         continue
+      }
+      foreach ($element in $elements) {
+        try {
+          if ($edgePids -notcontains $element.Current.ProcessId) { continue }
+          if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
+          $name = [string]$element.Current.Name
+          $semanticMatch = $allowNames -contains $name -or
+            $name.StartsWith(([char]0x5141) + ([char]0x8A31), [StringComparison]::Ordinal) -or
+            $name.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
+          if (-not $semanticMatch) { continue }
+          $process = $edgeProcesses |
+            Where-Object { $_.ProcessId -eq $element.Current.ProcessId } |
+            Select-Object -First 1
+          if (-not $process) { continue }
+          $pattern = $element.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+          $pattern.Invoke()
+          Write-DelegationEvidence @{
+            schemaVersion = "pr23-r2-4-native-allow-delegation-v1"
+            status = "INVOKED"
+            explicitUserDelegation = $true
+            delegatedActor = "codex"
+            decisionMethod = "WINDOWS_UI_AUTOMATION"
+            decisionTarget = "MICROSOFT_EDGE_NATIVE_LOCAL_NETWORK_ACCESS_ALLOW"
+            humanOperatorClicked = $false
+            semanticControlName = $name
+            automationRole = "Button"
+            processName = $process.Name
+            processIdMatchedFreshAuditProfile = $true
+            profileCommandLineDigest = Get-Sha256 ([string]$process.CommandLine)
+            fixedScreenCoordinatesUsed = $false
+            permissionInjectionUsed = $false
+            browserPolicyModified = $false
+            localNetworkAccessBypassUsed = $false
+            startedAt = $startedAt.ToString("o")
+            invokedAt = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          exit 0
+        } catch {
+          continue
+        }
       }
     }
   }

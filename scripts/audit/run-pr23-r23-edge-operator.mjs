@@ -990,6 +990,10 @@ function resolvePlaywrightImport() {
 
 function runSelfTest() {
   const template = readFileSync(templatePath, "utf8");
+  const delegatedAllowHelper = readFileSync(
+    path.join(scriptDir, "invoke-pr23-r24-native-edge-allow.ps1"),
+    "utf8",
+  );
   const fixturePlaywrightUrl =
     "file:///C:/dev/novel-pr23-r22-audit/node_modules/@playwright/test/index.js";
   const transformed = transformR22Runner(
@@ -1116,6 +1120,10 @@ function runSelfTest() {
     delegatedDecisionIsAuditable:
       transformed.includes("semantic_windows_ui_automation")
       && transformed.includes("humanOperatorClicked"),
+    delegatedHelperWindowScoped:
+      delegatedAllowHelper.includes("AutomationElement]::FromHandle")
+      && delegatedAllowHelper.includes("$windowElement.FindAll")
+      && !delegatedAllowHelper.includes("AutomationElement]::RootElement.FindAll"),
     gateCountIsBlockingCount: transformed.includes(
       "const rawConsoleErrorCount",
     ),
