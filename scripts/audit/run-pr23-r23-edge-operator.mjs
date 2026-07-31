@@ -765,7 +765,8 @@ assert.equal(
     "  if (security) {",
     `  const optionalPrivateHubHealthProbe =
     /http:\\/\\/127\\.0\\.0\\.1:3227\\/health(?:['"\\s]|$|[?#])/iu.test(text)
-    && ["FULL_WORKSPACE", "RELOAD_RECOVERY"].includes(record.phase)
+    && ["FULL_WORKSPACE", "RELOAD_RECOVERY", "BACKUP", "RESTORE"]
+      .includes(record.phase)
     && record.runtimeReadyAtRecord === true
     && record.pairingStateAtRecord === "paired"
     && pairing?.bridge?.proofState === "inference_verified"
@@ -1102,6 +1103,9 @@ function runSelfTest() {
       transformed.includes("optionalPrivateHubHealthProbe")
       && transformed.includes("127\\.0\\.0\\.1:3227\\/health")
       && transformed.includes("EXPECTED_OPTIONAL_BACKEND_PROBE")
+      && transformed.includes(
+        '["FULL_WORKSPACE", "RELOAD_RECOVERY", "BACKUP", "RESTORE"]',
+      )
       && transformed.includes(
         'fullWorkspace?.candidate?.actualExecutor === "local-ollama"',
       ),
