@@ -410,6 +410,7 @@ export function evaluateGate(model) {
     remoteGate,
     consoleSummary,
     nativeAllowDelegation,
+    nativePairingRetry,
     rawStats,
     rawPreserved,
     scan,
@@ -486,6 +487,22 @@ export function evaluateGate(model) {
       && nativeAllowDelegation?.permissionInjectionUsed === false
       && nativeAllowDelegation?.browserPolicyModified === false
       && nativeAllowDelegation?.localNetworkAccessBypassUsed === false,
+    ),
+    requirement(
+      "native_permission_pairing_retry_auditable",
+      nativePairingRetry?.status === "INVOKED"
+      && nativePairingRetry?.reason
+        === "NATIVE_PERMISSION_DECISION_INTERRUPTED_INITIAL_PAIRING_FETCH"
+      && nativePairingRetry?.delegatedActor === "codex"
+      && nativePairingRetry?.decisionMethod === "WINDOWS_UI_AUTOMATION"
+      && nativePairingRetry?.decisionTarget === "PRODUCT_START_SECURE_PAIRING"
+      && nativePairingRetry?.automationRole === "Button"
+      && nativePairingRetry?.processName === "msedge.exe"
+      && nativePairingRetry?.processIdMatchedFreshAuditProfile === true
+      && nativePairingRetry?.fixedScreenCoordinatesUsed === false
+      && nativePairingRetry?.permissionInjectionUsed === false
+      && nativePairingRetry?.browserPolicyModified === false
+      && nativePairingRetry?.localNetworkAccessBypassUsed === false,
     ),
     requirement(
       "no_permission_injection_policy_bypass_or_mock",
@@ -673,6 +690,10 @@ function loadModel(outputDir, rawPreserved, scan, live) {
       outputDir,
       "native-allow-delegation.json",
     ),
+    nativePairingRetry: readOptionalJson(
+      outputDir,
+      "native-pairing-retry.json",
+    ),
     rawStats: collectRawStats(outputDir),
     rawPreserved,
     scan,
@@ -732,6 +753,20 @@ function makePassModel() {
       fixedScreenCoordinatesUsed: false,
       windowForegrounded: true,
       nativePromptDismissed: true,
+      permissionInjectionUsed: false,
+      browserPolicyModified: false,
+      localNetworkAccessBypassUsed: false,
+    },
+    nativePairingRetry: {
+      status: "INVOKED",
+      reason: "NATIVE_PERMISSION_DECISION_INTERRUPTED_INITIAL_PAIRING_FETCH",
+      delegatedActor: "codex",
+      decisionMethod: "WINDOWS_UI_AUTOMATION",
+      decisionTarget: "PRODUCT_START_SECURE_PAIRING",
+      automationRole: "Button",
+      processName: "msedge.exe",
+      processIdMatchedFreshAuditProfile: true,
+      fixedScreenCoordinatesUsed: false,
       permissionInjectionUsed: false,
       browserPolicyModified: false,
       localNetworkAccessBypassUsed: false,
