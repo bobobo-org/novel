@@ -391,16 +391,24 @@ async function main() {
     await page.getByRole("link", { name: "設定本機 AI" }).click();
     await page.getByTestId("local-ai-setup").waitFor({ state: "visible" });
     await page.getByRole("button", { name: "檢查本機網路權限" }).click();
-    await page.waitForFunction(async () => {
+    const permissionGrantHandle = await page.waitForFunction(async () => {
+      const states = {};
       for (const name of ["local-network-access", "local-network", "loopback-network"]) {
         try {
-          if ((await navigator.permissions.query({ name })).state === "granted") return true;
-        } catch { /* unsupported alias */ }
+          states[name] = (await navigator.permissions.query({ name })).state;
+        } catch {
+          states[name] = "unsupported";
+        }
       }
-      return false;
+      const grantedName = Object.keys(states).find((name) => states[name] === "granted");
+      return grantedName ? { name: grantedName, states } : null;
     }, undefined, { timeout: 180_000 });
-    const permissionAfterStates = await permissionStates(page);
-    const permissionAfter = resolvedPermission(permissionAfterStates);
+    const permissionGrantObservation = await permissionGrantHandle.jsonValue();
+    await permissionGrantHandle.dispose();
+    const permissionAfterStates = permissionGrantObservation?.states ?? {};
+    const permissionAfter = permissionGrantObservation?.name
+      ? { name: permissionGrantObservation.name, state: "granted" }
+      : resolvedPermission(permissionAfterStates);
     if (permissionAfter.state !== "granted") {
       throw new Error(`EDGE_PERMISSION_AFTER_NOT_GRANTED:${permissionAfter.state}`);
     }
