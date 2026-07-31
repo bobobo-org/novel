@@ -1,14 +1,14 @@
 [CmdletBinding()]
 param(
   [string]$OutputDir = "artifacts/pr23-r23-edge-operator",
-  [string]$PreviewUrl = "https://novel-15gi72tr4-lqtechs-projects.vercel.app",
-  [string]$ExpectedDeploymentId = "dpl_5G2ggFhtgvLJxB8Q29X94RMoXFxY",
-  [string]$ExpectedMergeRef = "169328016111d69e0adab784d817a5653113a852"
+  [string]$PreviewUrl = "https://novel-brendon-hkoxvsfdx-brendon1006-2299s-projects.vercel.app",
+  [string]$ExpectedDeploymentId = "dpl_DQ2SH9UubwyiTDs78KUCgCNS5Li8",
+  [string]$ExpectedMergeRef = "bc564667cc110a5d060ff94cf4b342a37690d763"
 )
 
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$expectedBranch = "audit/pr23-r23-edge-operator-gate"
+$expectedBranch = "audit/pr23-r24-edge-regate"
 $expectedBase = "94ff70847b449e08d53759bad6d0bf3f1ffa530f"
 $expectedOutput = (Join-Path $root "artifacts\pr23-r23-edge-operator")
 $resolvedOutput = [System.IO.Path]::GetFullPath((Join-Path $root $OutputDir))

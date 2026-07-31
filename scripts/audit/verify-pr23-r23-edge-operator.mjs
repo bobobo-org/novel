@@ -22,7 +22,7 @@ const defaultOutputDir = path.join(
   "artifacts",
   "pr23-r23-edge-operator",
 );
-const expectedBranch = "audit/pr23-r23-edge-operator-gate";
+const expectedBranch = "audit/pr23-r24-edge-regate";
 const protectedR22Tree = "122804d2974df57d0c37eb2f6e2116f281e4eab1";
 const credentialPatterns = [
   /\bvcp_[A-Za-z0-9]{20,}\b/gu,
