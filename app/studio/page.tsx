@@ -1,13 +1,49 @@
-import {
-  buildProfessionalFrontdoorUrl,
-  type ProfessionalFrontdoorSearchParams,
-} from "@/lib/professional-frontdoor";
-import { redirect } from "next/navigation";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import StudioClient from "./studio-client";
+
+const SCREENS = new Set([
+  "home",
+  "create",
+  "write",
+  "choice",
+  "inspect",
+  "library",
+  "world",
+  "dashboard",
+  "backup",
+]);
+
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function safeProjectId(value: string) {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : "";
+}
 
 export default async function StudioPage({
   searchParams,
 }: {
-  searchParams: Promise<ProfessionalFrontdoorSearchParams>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  redirect(buildProfessionalFrontdoorUrl(await searchParams));
+  const params = await searchParams;
+  const requestedScreen = first(params.screen);
+  const initialScreen = requestedScreen === "interactive"
+    ? "choice"
+    : SCREENS.has(requestedScreen)
+      ? requestedScreen
+      : "home";
+  const migrationAction = first(params.legacyMigration) === "import"
+    ? "import"
+    : "";
+
+  return (
+    <StudioClient
+      initialScreen={initialScreen}
+      initialTask={first(params.task)}
+      initialProjectId={safeProjectId(first(params.projectId))}
+      initialLegacyMigrationAction={migrationAction}
+      release={RELEASE_MANIFEST}
+    />
+  );
 }

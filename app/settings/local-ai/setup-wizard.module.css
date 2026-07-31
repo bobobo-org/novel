@@ -154,6 +154,20 @@
   line-height: 1.65;
 }
 
+.steps details {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2f4b69;
+  border-radius: 10px;
+  background: rgba(5, 14, 27, 0.68);
+}
+
+.steps summary {
+  color: #a9d9cc;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .steps label {
   display: grid;
   gap: 7px;

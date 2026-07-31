@@ -35,6 +35,11 @@ import {
 } from "@/lib/novel-ai/web/studio-canonical-runtime-gate";
 import { createNovelRepository, type NovelRepository } from "@/lib/novel-ai/repository";
 import {
+  EXPLICIT_LEGACY_STUDIO_KEYS,
+  migrateLegacyStudioProjects,
+  previewLegacyStudioProjects,
+} from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import {
   resolvePersistenceRuntimeHealth,
   type PersistenceRuntimeMode,
 } from "@/lib/novel-ai/repository/runtime-health";
@@ -271,7 +276,6 @@ type StudioState = {
 };
 
 const STORAGE_KEY = "novel_p12_studio_state";
-const LEGACY_KEYS = ["novel_p11r2_studio_state", "novel_p11_consumer_state"];
 const optionalKeys: OptionalKey[] = [
   "protagonist",
   "identity",
@@ -608,22 +612,9 @@ function migrateProject(raw: Record<string, unknown>): Project {
   };
 }
 function migrate(): StudioState {
-  const defaultOrder = [STORAGE_KEY, ...LEGACY_KEYS];
-  let orderedKeys = defaultOrder;
-  try {
-    const primary = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (!Array.isArray(primary?.projects) || primary.projects.length === 0) {
-      for (const key of LEGACY_KEYS) {
-        const legacy = JSON.parse(localStorage.getItem(key) || "null");
-        if (Array.isArray(legacy?.projects) && legacy.projects.length > 0) {
-          orderedKeys = [key, ...defaultOrder.filter((item) => item !== key)];
-          break;
-        }
-      }
-    }
-  } catch {
-    orderedKeys = defaultOrder;
-  }
+  // RC3 keeps P11 source bytes as an explicit migration choice. Only the
+  // current compatibility shell may hydrate automatically.
+  const orderedKeys = [STORAGE_KEY];
   for (const key of orderedKeys)
     try {
       const raw = JSON.parse(localStorage.getItem(key) || "null");
@@ -799,11 +790,13 @@ export default function StudioClient({
   initialScreen,
   initialTask,
   initialProjectId = "",
+  initialLegacyMigrationAction = "",
   release,
 }: {
   initialScreen: string;
   initialTask: string;
   initialProjectId?: string;
+  initialLegacyMigrationAction?: string;
   release: Record<string, string>;
 }) {
   const [screen, setScreen] = useState<Screen>(
@@ -830,7 +823,14 @@ export default function StudioClient({
         legacySnapshotPreserved: false,
       }),
     [migrationRecoverySnapshot, setMigrationRecoverySnapshot] =
-      useState<string | null>(null);
+      useState<string | null>(null),
+    [legacyMigrationPreview, setLegacyMigrationPreview] = useState<
+      ReturnType<typeof previewLegacyStudioProjects> | null
+    >(null),
+    [legacyMigrationDetails, setLegacyMigrationDetails] = useState(false),
+    [legacyMigrationDismissed, setLegacyMigrationDismissed] = useState(false),
+    [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false),
+    [legacyMigrationStatus, setLegacyMigrationStatus] = useState("");
   const repositoryRef = useRef<NovelRepository | null>(null);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
@@ -845,6 +845,10 @@ export default function StudioClient({
       void (async () => {
         const originalStorageBytes = localStorage.getItem(STORAGE_KEY);
         const legacy = migrate();
+        const explicitLegacyPreview = previewLegacyStudioProjects(
+          EXPLICIT_LEGACY_STUDIO_KEYS,
+        );
+        setLegacyMigrationPreview(explicitLegacyPreview);
         const hydrationShell = /^[A-Za-z0-9_-]{1,128}$/.test(initialProjectId)
           ? { ...legacy, activeProjectId: initialProjectId }
           : legacy;
@@ -866,8 +870,38 @@ export default function StudioClient({
           hydrate: () =>
             hydrateCanonicalStudio(repositoryRef.current!, hydrationShell),
         });
+        let hydratedState = result.state;
+        if (
+          initialLegacyMigrationAction === "import"
+          && explicitLegacyPreview.pending
+          && result.gate.localCanonicalWritable
+        ) {
+          try {
+            const migration = await migrateLegacyStudioProjects(
+              repositoryRef.current!,
+              {
+                sourceKeys: EXPLICIT_LEGACY_STUDIO_KEYS,
+                overwriteExisting: false,
+              },
+            );
+            hydratedState = await hydrateCanonicalStudio(
+              repositoryRef.current!,
+              hydratedState,
+            );
+            setLegacyMigrationStatus(
+              `已匯入 ${migration.migrated} 部舊版作品；${migration.skippedExisting} 部同名正式作品保持不變，舊版來源仍完整保留。`,
+            );
+            setLegacyMigrationPreview(
+              previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS),
+            );
+          } catch (error) {
+            setLegacyMigrationStatus(
+              `舊版作品尚未匯入：${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
         setMigrationRecoverySnapshot(result.recoverySnapshot);
-        setState(result.state);
+        setState(hydratedState);
         setCanonicalRuntimeGate(result.gate);
         if (result.error) {
           const error = result.error;
@@ -887,7 +921,7 @@ export default function StudioClient({
       })();
     }, 0);
     return () => clearTimeout(timer);
-  }, [initialProjectId]);
+  }, [initialLegacyMigrationAction, initialProjectId]);
   useEffect(() => {
     if (loaded && canPersistStudioShell(canonicalRuntimeGate)) {
       localStorage.setItem(
@@ -1889,6 +1923,50 @@ export default function StudioClient({
       ),
     }));
   }
+  async function importLegacyProjectsExplicitly() {
+    if (legacyMigrationBusy) return;
+    if (!canonicalRuntimeGate.localCanonicalWritable) {
+      setLegacyMigrationStatus(
+        "IndexedDB 正式作品庫目前不可寫入；舊版來源未變更，請先恢復本機作品庫。",
+      );
+      return;
+    }
+    setLegacyMigrationBusy(true);
+    setLegacyMigrationStatus("正在以非覆蓋方式匯入舊版作品……");
+    try {
+      const migration = await migrateLegacyStudioProjects(
+        repositoryRef.current!,
+        {
+          sourceKeys: EXPLICIT_LEGACY_STUDIO_KEYS,
+          overwriteExisting: false,
+        },
+      );
+      const hydrated = await hydrateCanonicalStudio(
+        repositoryRef.current!,
+        state,
+      );
+      setState(hydrated);
+      setLegacyMigrationPreview(
+        previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS),
+      );
+      setLegacyMigrationStatus(
+        `已匯入 ${migration.migrated} 部舊版作品；${migration.skippedExisting} 部同名正式作品保持不變，舊版來源仍完整保留。`,
+      );
+    } catch (error) {
+      setLegacyMigrationStatus(
+        `舊版作品尚未匯入：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setLegacyMigrationBusy(false);
+    }
+  }
+  const showLegacyMigration = !legacyMigrationDismissed && Boolean(
+    legacyMigrationPreview?.pending || legacyMigrationStatus,
+  );
+  const studioReturnTo = `/studio?screen=${encodeURIComponent(screen)}${
+    project?.id ? `&projectId=${encodeURIComponent(project.id)}` : ""
+  }`;
+  const localAISetupHref = `/settings/local-ai?returnTo=${encodeURIComponent(studioReturnTo)}`;
   const navItems: Array<[Screen, string]> = [
     ["home", "首頁"],
     ["create", "開始創作"],
@@ -1903,6 +1981,7 @@ export default function StudioClient({
   return (
     <div
       className="studioShell"
+      data-testid="modern-studio"
       data-consumer-release={release.consumerRelease}
       data-app-commit={release.appCommit}
       data-story-library={STORY_LIBRARY.schemaVersion}
@@ -1916,6 +1995,57 @@ export default function StudioClient({
         canonicalRuntimeGate.legacySnapshotPreserved
       }
     >
+      {showLegacyMigration ? (
+        <section
+          className="studioLegacyMigration"
+          data-testid="studio-legacy-migration"
+          data-pending={legacyMigrationPreview?.pending ?? false}
+          role="status"
+        >
+          <div>
+            <strong>
+              {legacyMigrationStatus || "發現舊版作品"}
+            </strong>
+            <span>
+              {legacyMigrationStatus
+                || `找到 ${legacyMigrationPreview?.projectCount ?? 0} 部作品。匯入前可先預覽，系統不會覆蓋同 ID 的新版正式作品。`}
+            </span>
+            {legacyMigrationDetails && legacyMigrationPreview?.titles.length ? (
+              <ul>
+                {legacyMigrationPreview.titles.map((title) => (
+                  <li key={title}>{title}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          <div>
+            {legacyMigrationPreview?.pending ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setLegacyMigrationDetails((value) => !value)}
+                >
+                  {legacyMigrationDetails ? "收起遷移預覽" : "查看遷移預覽"}
+                </button>
+                <button
+                  type="button"
+                  disabled={legacyMigrationBusy}
+                  onClick={() => void importLegacyProjectsExplicitly()}
+                >
+                  {legacyMigrationBusy ? "匯入中……" : "匯入到新版作品庫"}
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setLegacyMigrationDismissed(true)}
+            >
+              暫不匯入
+            </button>
+            <Link href="/legacy/novel-system.html">繼續使用舊版</Link>
+          </div>
+        </section>
+      ) : null}
       {(storageFailure || persistenceMode === "CLOUD_DEGRADED") ? (
         <section
           className="studioPersistenceBanner"
@@ -1986,6 +2116,9 @@ export default function StudioClient({
             </button>
           ))}
         </nav>
+        <Link className="studioLocalAI" href={localAISetupHref}>
+          設定本機 AI
+        </Link>
         <Link className="studioProfessional" href="/professional">
           專業工具
         </Link>
@@ -2255,6 +2388,7 @@ function CreateScreen({
       <label>
         {optionalLabels[key]} <small>選填</small>
         <input
+          data-testid={`studio-optional-${key}`}
           value={optionalValue(w.optionalFields, key)}
           onChange={(event) => setOptionalField(key, event.target.value)}
         />
@@ -2498,6 +2632,7 @@ function CreateScreen({
                 .map((mode) => (
                   <button
                     key={mode.playModeId}
+                    data-testid={`studio-play-mode-${mode.playModeId}`}
                     className={w.playModeId === mode.playModeId ? "active" : ""}
                     onClick={() =>
                       updateWizard({ playModeId: mode.playModeId })
@@ -2525,6 +2660,7 @@ function CreateScreen({
                 {STORY_LIBRARY.storyStats.map((stat) => (
                   <label key={stat.statId}>
                     <input
+                      data-testid={`studio-story-stat-${stat.statId}`}
                       type="checkbox"
                       checked={w.enabledStats.includes(stat.statId)}
                       onChange={(event) =>
@@ -2849,7 +2985,7 @@ function SuggestionCard({
   const beforeCharacters = originalContent.replace(/\s/g, "").length;
   const afterCharacters = proposedContent.replace(/\s/g, "").length;
   return (
-    <article className="studioCandidate">
+    <article className="studioCandidate" data-testid="studio-candidate">
       <header>
         <b>
           {candidate.model === "local-rule"
@@ -2899,6 +3035,7 @@ function SuggestionCard({
       </details>
       <footer>
         <button
+          data-testid="studio-candidate-accept"
           className="gold"
           disabled={busy}
           onClick={() => void accept(content)}
@@ -2906,10 +3043,10 @@ function SuggestionCard({
           {busy ? "正在完成核准交易…" : editing ? "修改後採用" : "採用這份建議"}
         </button>
         <button disabled={busy} onClick={() => setEditing(true)}>修改後採用</button>
-        <button disabled={busy} onClick={retry}>
+        <button data-testid="studio-candidate-regenerate" disabled={busy} onClick={retry}>
           {busy ? "模型執行中…" : "再產生一份"}
         </button>
-        <button disabled={busy} onClick={discard}>保持空白</button>
+        <button data-testid="studio-candidate-discard" disabled={busy} onClick={discard}>保持空白</button>
         <button disabled={busy} onClick={discard}>暫時不用</button>
       </footer>
       <details>
@@ -2925,7 +3062,7 @@ function SuggestionCard({
           </div>
           <div>
             <dt>實際執行器</dt>
-            <dd>{candidate.actualExecutor ?? "not_executed"}</dd>
+            <dd data-testid="studio-candidate-actual-executor">{candidate.actualExecutor ?? "not_executed"}</dd>
           </div>
           <div>
             <dt>模型證明</dt>
@@ -2963,7 +3100,7 @@ function SuggestionCard({
           </div>
           <div>
             <dt>是否使用外部網路</dt>
-            <dd>{candidate.externalRequest ? "是" : "否"}</dd>
+            <dd data-testid="studio-candidate-external-request">{candidate.externalRequest ? "是" : "否"}</dd>
           </div>
           <div>
             <dt>是否參考目前作品</dt>
@@ -3361,6 +3498,7 @@ function ChoiceScreen({
   return (
     <section
       className={`studioChoice gameTheme-${project.selectedPlayModeId || "general"}`}
+      data-testid="studio-rpg-choice"
     >
       <header>
         <span>互動故事</span>
@@ -3424,6 +3562,7 @@ function ChoiceScreen({
             {choices.map((choice) => (
               <button
                 key={choice.key}
+                data-testid={`studio-choice-${choice.key}`}
                 className={selected === choice.key ? "active" : ""}
                 onClick={() => {
                   setSelected(choice.key);
@@ -3486,7 +3625,7 @@ function ChoiceScreen({
         </div>
       )}
       {result && (
-        <article className="choiceResult">
+        <article className="choiceResult" data-testid="studio-choice-result">
           <section>
             <h2>你選擇了</h2>
             <p>{result.choiceText}</p>
@@ -3528,6 +3667,7 @@ function ChoiceScreen({
           </section>
           <footer>
             <button
+              data-testid="studio-choice-accept"
               className="gold"
               onClick={() => accept(edited || result.content)}
             >
@@ -3536,7 +3676,7 @@ function ChoiceScreen({
             <button onClick={() => setEditing(true)}>修改後接受</button>
             <button onClick={regenerate}>再生成一次</button>
             {canUndo && <button onClick={undo}>回到上一個選擇</button>}
-            <button onClick={discard}>暫時不採用</button>
+            <button data-testid="studio-choice-discard" onClick={discard}>暫時不採用</button>
           </footer>
           <p className="localPrivacy">這次使用本機故事系統，內容未送出裝置。</p>
           <details>
@@ -3552,11 +3692,15 @@ function ChoiceScreen({
               </div>
               <div>
                 <dt>執行方式</dt>
-                <dd>{result.source}</dd>
+                <dd data-testid="studio-choice-actual-executor">{result.actualExecutor ?? result.source}</dd>
               </div>
               <div>
                 <dt>是否使用外部網路</dt>
-                <dd>{result.externalRequest ? "是" : "否"}</dd>
+                <dd data-testid="studio-choice-external-request">{result.externalRequest ? "是" : "否"}</dd>
+              </div>
+              <div>
+                <dt>資料離開裝置</dt>
+                <dd data-testid="studio-choice-data-left-device">{result.dataLeftDevice ? "是" : "否"}</dd>
               </div>
             </dl>
           </details>

@@ -49,8 +49,17 @@ function runtimeMessage(error: unknown) {
     ?? (error instanceof Error ? error.message : "本機 AI 檢查未完成。");
 }
 
+function safeStudioReturnTo(value: string | null) {
+  if (!value || !value.startsWith("/studio") || value.startsWith("//")) {
+    return "/studio";
+  }
+  if (value.includes("\\") || /[\r\n]/.test(value)) return "/studio";
+  return value;
+}
+
 export default function LocalAISetupWizard() {
   const [origin, setOrigin] = useState<string | null>(null);
+  const [returnTo, setReturnTo] = useState("/studio");
   const coordinator = useMemo(
     () => getStudioClosedAIRuntimeCoordinator(
       origin ?? "https://novel-orcin.vercel.app",
@@ -71,6 +80,11 @@ export default function LocalAISetupWizard() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setOrigin(window.location.origin);
+      setReturnTo(
+        safeStudioReturnTo(
+          new URLSearchParams(window.location.search).get("returnTo"),
+        ),
+      );
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -239,7 +253,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
           <small>LOCAL AI SETUP</small>
           <h1>把真正的閉端 AI 接到這台電腦</h1>
           <p>
-            精靈只連接 loopback，不開放區域網路、不改防火牆、不安裝軟體，
+            精靈只連接這台電腦，不開放區域網路、不改防火牆、不安裝軟體，
             也不要求任何 Vercel、GitHub 或雲端 Token。
           </p>
         </div>
@@ -255,7 +269,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
       </header>
 
       <nav className={styles.topNav}>
-        <Link href="/studio">返回創作中心</Link>
+        <Link href={returnTo}>返回原本的創作畫面</Link>
         <Link href="/studio/settings/ai">進階診斷</Link>
         <button type="button" disabled={busy} onClick={() => void refresh()}>
           重新檢查
@@ -287,75 +301,83 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         <article>
           <span className={styles.stepNumber}>1</span>
           <div>
-            <h2>下載可驗證 Companion</h2>
+            <h2>允許這個網站使用本機 AI</h2>
             <p>
-              版本 {LOCAL_AI_COMPANION_RELEASE.version}；目前為 checksum
-              可驗證、未簽章套件。若組織政策禁止未簽章程式，請勿繞過政策。
+              按下重新檢查；若 Edge 詢問是否允許存取本機網路，請核對網址後按「允許」。
+              沒有出現詢問也沒關係，系統會直接顯示目前狀態。
             </p>
             <div className={styles.actions}>
-              <a
-                className={styles.primary}
-                href={LOCAL_AI_COMPANION_RELEASE.downloadPath}
-                download
-                data-testid="local-ai-companion-download"
-              >
-                下載 Windows Companion ZIP
-              </a>
-              <a
-                href={`${LOCAL_AI_COMPANION_RELEASE.downloadPath.replace(
-                  /\.zip$/,
-                  ".sha256",
-                )}`}
-                download
-              >
-                下載 SHA-256
-              </a>
+              <button type="button" disabled={busy} onClick={() => void refresh()}>
+                檢查本機網路權限
+              </button>
             </div>
-            <code className={styles.hash}>
-              {LOCAL_AI_COMPANION_RELEASE.sha256}
-            </code>
-            <Command
-              label="PowerShell 驗證指令"
-              value={hashCommand}
-              copied={copied === "hash"}
-              onCopy={() => void copy("hash", hashCommand)}
-            />
+            <p className={runtime?.localNetworkPermission === "denied" ? "" : styles.success}>
+              目前狀態：{runtime?.localNetworkPermission ?? "檢查中"}
+            </p>
+            <details>
+              <summary>技術說明</summary>
+              <p>
+                網頁只會連線到這台電腦的 loopback 位址，不會開放區域網路，
+                也不會修改防火牆。授權只適用於目前精確 Origin。
+              </p>
+            </details>
           </div>
         </article>
 
         <article>
           <span className={styles.stepNumber}>2</span>
           <div>
-            <h2>確認 Node.js 與 Ollama</h2>
+            <h2>準備這台電腦的 AI 服務</h2>
             <p>
-              需要 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+
-              與已啟動的 Ollama。Companion 不會代你下載模型或改 PATH。
+              如果狀態不是「可連線」，展開下方設定說明，依序下載、解壓、啟動；
+              完成後再按重新檢查。
             </p>
-            <div className={styles.actions}>
-              <a href="https://nodejs.org/en/download">Node.js 官方下載</a>
-              <a href="https://ollama.com/download/windows">Ollama 官方下載</a>
-            </div>
-            <p>
-              安裝模型範例：<code>ollama pull qwen2.5:3b</code>。此 3B
-              模型是快速本機基線，適合摘要、對話與短內容；長篇品質工作應選更強模型。
-            </p>
-          </div>
-        </article>
-
-        <article>
-          <span className={styles.stepNumber}>3</span>
-          <div>
-            <h2>解壓後啟動 Local Bridge</h2>
-            <Command
-              label="診斷、啟動與狀態"
-              value={launcher}
-              copied={copied === "launcher"}
-              onCopy={() => void copy("launcher", launcher)}
-            />
-            {origin && origin !== "https://novel-orcin.vercel.app" ? (
-              <>
+            <p>目前狀態：{runtime?.localBridge.status ?? "檢查中"}</p>
+            <details>
+              <summary>第一次設定／技術指令</summary>
+              <p>
+                Companion 版本 {LOCAL_AI_COMPANION_RELEASE.version}；套件可用
+                SHA-256 驗證，目前未簽章。組織政策若禁止未簽章程式，請勿繞過政策。
+              </p>
+              <div className={styles.actions}>
+                <a
+                  className={styles.primary}
+                  href={LOCAL_AI_COMPANION_RELEASE.downloadPath}
+                  download
+                  data-testid="local-ai-companion-download"
+                >
+                  下載 Windows Companion ZIP
+                </a>
+                <a
+                  href={LOCAL_AI_COMPANION_RELEASE.downloadPath.replace(/\.zip$/, ".sha256")}
+                  download
+                >
+                  下載 SHA-256
+                </a>
+                <a href="https://nodejs.org/en/download">Node.js 官方下載</a>
+                <a href="https://ollama.com/download/windows">Ollama 官方下載</a>
+              </div>
+              <code className={styles.hash}>{LOCAL_AI_COMPANION_RELEASE.sha256}</code>
+              <Command
+                label="驗證下載內容"
+                value={hashCommand}
+                copied={copied === "hash"}
+                onCopy={() => void copy("hash", hashCommand)}
+              />
+              <p>
+                需要 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+ 與已啟動的
+                Ollama。快速模型範例：<code>ollama pull qwen2.5:3b</code>。
+              </p>
+              <Command
+                label="診斷、啟動與狀態"
+                value={launcher}
+                copied={copied === "launcher"}
+                onCopy={() => void copy("launcher", launcher)}
+              />
+              {origin && origin !== "https://novel-orcin.vercel.app" ? (
+                <>
                 <p>
-                  目前是 Preview／其他精確 origin。Bridge 不會自動信任，
+                  目前是 Preview／其他精確 Origin。Bridge 不會自動信任，
                   請在本機明確加入後重啟：
                 </p>
                 <Command
@@ -364,13 +386,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                   copied={copied === "origin"}
                   onCopy={() => void copy("origin", originCommand)}
                 />
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </details>
           </div>
         </article>
 
         <article>
-          <span className={styles.stepNumber}>4</span>
+          <span className={styles.stepNumber}>3</span>
           <div>
             <h2>一次性安全配對</h2>
             <label className={styles.checkbox}>
@@ -380,7 +403,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 onChange={(event) =>
                   setRememberWithinTab(event.target.checked)}
               />
-              僅在目前分頁記住短期配對；關閉分頁、Bridge 重啟、origin
+              僅在目前分頁記住短期配對；關閉分頁、服務重啟、網站網址
               改變或期限到達即失效。
             </label>
             {!client.getSessionMetadata() ? (
@@ -435,9 +458,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         </article>
 
         <article>
-          <span className={styles.stepNumber}>5</span>
+          <span className={styles.stepNumber}>4</span>
           <div>
-            <h2>選擇並真實驗證模型</h2>
+            <h2>選擇模型並做一次實際測試</h2>
             {models.length ? (
               <label>
                 Ollama 文字模型
@@ -464,14 +487,22 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
               <p>配對完成後，這裡才會列出 Ollama 真正回報的文字模型。</p>
             )}
             {proof ? (
-              <dl className={styles.proof} data-testid="local-ai-model-proof">
-                <div><dt>狀態</dt><dd>{proof.state}</dd></div>
-                <div><dt>模型</dt><dd>{proof.modelId}</dd></div>
-                <div><dt>模型雜湊</dt><dd>{proof.modelDigest ?? "runtime-managed"}</dd></div>
-                <div><dt>耗時</dt><dd>{proof.latencyMs} ms</dd></div>
-                <div><dt>輸出證明</dt><dd>{proof.outputDigest}</dd></div>
-                <div><dt>離開裝置</dt><dd>{proof.dataLeftDevice ? "是" : "否"}</dd></div>
-              </dl>
+              <>
+                <p className={styles.success} data-testid="local-ai-model-proof">
+                  模型已實際回覆，耗時 {proof.latencyMs} ms；資料未離開這台裝置。
+                </p>
+                <details>
+                  <summary>查看技術證明</summary>
+                  <dl className={styles.proof}>
+                    <div><dt>狀態</dt><dd>{proof.state}</dd></div>
+                    <div><dt>模型</dt><dd>{proof.modelId}</dd></div>
+                    <div><dt>Model Digest</dt><dd>{proof.modelDigest ?? "runtime-managed"}</dd></div>
+                    <div><dt>耗時</dt><dd>{proof.latencyMs} ms</dd></div>
+                    <div><dt>Output Digest</dt><dd>{proof.outputDigest}</dd></div>
+                    <div><dt>離開裝置</dt><dd>{proof.dataLeftDevice ? "是" : "否"}</dd></div>
+                  </dl>
+                </details>
+              </>
             ) : null}
             {selectedModel ? (() => {
               const model = models.find((item) => item.modelId === selectedModel);
@@ -489,16 +520,23 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         </article>
 
         <article data-complete={ready}>
-          <span className={styles.stepNumber}>6</span>
+          <span className={styles.stepNumber}>5</span>
           <div>
             <h2>{ready ? "設定完成" : "等待前面步驟完成"}</h2>
             <p>
-              只有真實模型推理 proof、modelId、modelDigest 與目前 Bridge
-              instance 一致時，系統才會標記可執行。
+              快速本機模式：速度較快，長篇品質有限。完成後會回到你剛才的創作畫面，
+              作品與任務不會被清除。
             </p>
+            <details>
+              <summary>完成條件</summary>
+              <p>
+                只有真實模型推理 Proof、Model ID、Model Digest 與目前 Bridge
+                Instance 一致時，系統才會標記可執行。
+              </p>
+            </details>
             <div className={styles.actions}>
-              <Link className={styles.primary} href="/studio">
-                回到創作中心
+              <Link className={styles.primary} href={returnTo}>
+                回到原本的創作畫面
               </Link>
               <Link href="/studio/settings/ai">開啟進階實測</Link>
             </div>

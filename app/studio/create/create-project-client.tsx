@@ -6,7 +6,7 @@ import { STORY_LIBRARY, listStoryTopics, resolveStoryTopic } from "@/lib/novel-d
 import { buildProjectBundle, buildSeedCandidate, createDraft } from "@/lib/novel-ai/domain/creation";
 import { optionalValue, type ProjectCreationDraft } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
-import { migrateLegacyStudioProjects, mirrorProjectToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { mirrorProjectToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
 const questions = [
@@ -25,8 +25,6 @@ function safeLoadDraft() {
 export default function CreateProjectClient() {
   const [draft, setDraft] = useState<ProjectCreationDraft>(() => createDraft()), [ready, setReady] = useState(false), [saving, setSaving] = useState(false), [message, setMessage] = useState(""), [createdId, setCreatedId] = useState<string | null>(null), requestId = useRef(crypto.randomUUID());
   useEffect(() => {
-    const repository = createNovelRepository();
-    void migrateLegacyStudioProjects(repository);
     const restoreTimer = window.setTimeout(() => {
       setDraft(safeLoadDraft());
       setReady(true);
