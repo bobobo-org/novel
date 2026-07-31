@@ -647,6 +647,44 @@ assert.equal(
   const pairedRuntimeAtRecord =
     record.runtimeReadyAtRecord === true
     && record.pairingStateAtRecord === "paired";
+  const successfulControlPlaneRefresh =
+    ["/health", "/models"].includes(loopbackPath)
+    && loopbackResponses.some((response) =>
+      response.method === "GET"
+      && response.path === loopbackPath
+      && response.status >= 200
+      && response.status < 300);
+  const navigationCancelledVerifiedControlRefresh =
+    record.kind === "requestfailed"
+    && record.requestMethod === "GET"
+    && String(record.failureTextRedacted ?? "").toUpperCase()
+      === "NET::ERR_ABORTED"
+    && (
+      (
+        loopbackPath === "/models"
+        && record.phase === "FULL_WORKSPACE"
+      )
+      || (
+        loopbackPath === "/health"
+        && ["RELOAD_RECOVERY", "BACKUP", "RESTORE"].includes(record.phase)
+      )
+    )
+    && pairedRuntimeAtRecord
+    && pairing?.bridge?.proofState === "inference_verified"
+    && fullWorkspace?.candidate?.actualExecutor === "local-ollama"
+    && successfulControlPlaneRefresh;
+  if (navigationCancelledVerifiedControlRefresh) {
+    return {
+      classification: "EXPECTED_CANCELLED_REQUEST",
+      blocking: false,
+      reason: "Navigation cancelled a Local Bridge control-plane refresh after the same exact GET endpoint returned 2xx elsewhere in this run and Local Ollama inference was verified.",
+      expectedByContract: true,
+      contractReference: "verified Local Bridge control-plane refresh and navigation cancellation contract",
+      userVisibleImpact: false,
+      retryable: false,
+      resolvedDuringFlow: true,
+    };
+  }
   const initialPairingVerification =
     loopbackPath === "/model/verify"
     && record.phase === "PAIR_CONFIRM"
@@ -1082,6 +1120,20 @@ function runSelfTest() {
       transformed.includes("samePhaseLoopbackResponse")
       && transformed.includes('loopbackPath === "/model/verify"')
       && transformed.includes("initialPairingVerification"),
+    navigationControlRefreshAbortBound:
+      transformed.includes("navigationCancelledVerifiedControlRefresh")
+      && transformed.includes("successfulControlPlaneRefresh")
+      && transformed.includes('loopbackPath === "/models"')
+      && transformed.includes('record.phase === "FULL_WORKSPACE"')
+      && transformed.includes('loopbackPath === "/health"')
+      && transformed.includes(
+        '["RELOAD_RECOVERY", "BACKUP", "RESTORE"]',
+      )
+      && transformed.includes('response.method === "GET"')
+      && transformed.includes("response.status >= 200")
+      && transformed.includes(
+        'fullWorkspace?.candidate?.actualExecutor === "local-ollama"',
+      ),
     nativePermissionPairRetryBound:
       transformed.includes("nativePermissionInterruptedPairRequest")
       && transformed.includes('loopbackPath === "/pair/request"')
