@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import vm from "node:vm";
-import { isUsableChineseStoryOutput } from "../lib/novel-ai/web/story-output-quality.ts";
+import {
+  hasVerifiedExecutedStoryOutput,
+  isUsableChineseStoryOutput,
+} from "../lib/novel-ai/web/story-output-quality.ts";
 
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
@@ -144,6 +147,26 @@ async function interactiveStoryOutputAcceptance() {
     isUsableChineseStoryOutput("This is an English fallback without story prose."),
     false,
     "non-Chinese fallback output must not be accepted",
+  );
+  assert.equal(
+    hasVerifiedExecutedStoryOutput({
+      content: "短候選。",
+      provider: "local-ollama",
+      actualExecutor: "local-ollama",
+      modelDigest: "sha256:model",
+    }),
+    true,
+    "verified model provenance must be preserved even when prose is short",
+  );
+  assert.equal(
+    hasVerifiedExecutedStoryOutput({
+      content: "短候選。",
+      provider: "local-ollama",
+      actualExecutor: "not_executed",
+      modelDigest: "sha256:model",
+    }),
+    false,
+    "planned routing without an actual executor must not masquerade as model output",
   );
 }
 

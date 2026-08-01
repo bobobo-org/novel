@@ -299,8 +299,12 @@ async function main() {
   let originAdded = false;
   let bridgeStarted = false;
   let context;
+  let page;
   let profileDeleted = false;
   let gateError = null;
+  let gateStage = "initialization";
+  let observedPermission = null;
+  let observedRpg = null;
   let evidence = null;
   const consoleRows = [];
   const pageErrors = [];
@@ -322,6 +326,7 @@ async function main() {
     originAdded = true;
     await invokeLauncher(root, "start", "--origin", origin);
     bridgeStarted = true;
+    gateStage = "edge-launch";
     context = await chromium.launchPersistentContext(profilePath, {
       channel: "msedge",
       headless: false,
@@ -329,7 +334,7 @@ async function main() {
       serviceWorkers: "allow",
       args: ["--no-first-run", "--no-default-browser-check"],
     });
-    const page = context.pages()[0] || await context.newPage();
+    page = context.pages()[0] || await context.newPage();
     page.on("console", (message) => consoleRows.push({
       type: message.type(),
       text: message.text().replace(/\s+/gu, " ").slice(0, 2_000),
@@ -350,7 +355,9 @@ async function main() {
       if (frame === page.mainFrame()) navigationRows.push(safeRoute(frame.url()));
     });
 
+    gateStage = "frontdoor-navigation";
     await page.goto(`${origin}/`, { waitUntil: "networkidle", timeout: 60_000 });
+    gateStage = "frontdoor-visible";
     await page.getByTestId("modern-consumer-frontdoor").waitFor({ state: "visible" });
     await assertNoOverflow(page, "frontdoor-desktop", overflowRows);
     const permissionBeforeStates = await permissionStates(page);
@@ -360,6 +367,7 @@ async function main() {
     }
 
     await page.getByRole("link", { name: /開始新故事/ }).first().click();
+    gateStage = "create-wizard-visible";
     await page.getByTestId("studio-create-wizard").waitFor({ state: "visible" });
     await page.getByTestId("studio-project-title").fill(testStory.title);
     await page.getByLabel(/核心想法/).fill(testStory.idea);
@@ -374,8 +382,10 @@ async function main() {
       await page.getByTestId(`studio-story-stat-${stat}`).check();
     }
     await page.getByTestId("studio-create-next").click();
+    gateStage = "create-submit";
     await page.getByTestId("studio-create-submit").click();
     const writing = page.getByTestId("studio-writing");
+    gateStage = "writing-visible-after-create";
     await writing.waitFor({ state: "visible", timeout: 60_000 });
     const projectId = await writing.getAttribute("data-project-id");
     if (!projectId || !/^[A-Za-z0-9_-]{1,128}$/u.test(projectId)) {
@@ -389,7 +399,9 @@ async function main() {
     await page.locator("a.entryCard").filter({ hasText: "AI 助手" }).click();
     await writing.waitFor({ state: "visible", timeout: 60_000 });
     await page.getByRole("link", { name: "設定本機 AI" }).click();
+    gateStage = "local-ai-setup-visible";
     await page.getByTestId("local-ai-setup").waitFor({ state: "visible" });
+    gateStage = "native-permission-prompt";
     await page.getByRole("button", { name: "檢查本機網路權限" }).click();
     const permissionDeadline = Date.now() + 600_000;
     let permissionAfterStates = {};
@@ -411,6 +423,12 @@ async function main() {
       permissionName: permissionAfter.name,
       permissionState: permissionAfter.state,
     })}\n`);
+    observedPermission = {
+      permissionName: permissionAfter.name,
+      permissionBefore: permissionBefore.state,
+      permissionAfter: permissionAfter.state,
+      nativeDecisionMethod: "HUMAN_OPERATOR",
+    };
 
     await page.getByTestId("local-ai-start-pairing").click();
     const pairingInput = page.getByTestId("local-ai-pairing-code");
@@ -498,13 +516,25 @@ async function main() {
       throw new Error("APPROVED_REGENERATION_NOT_PERSISTENT");
     }
 
+    gateStage = "rpg-open";
     await page.getByRole("button", { name: "互動故事" }).first().click();
     await page.getByTestId("studio-rpg-choice").waitFor({ state: "visible" });
     const beforeRpg = await canonSnapshot(page, projectId);
+    gateStage = "rpg-model-execution";
     await page.getByTestId("studio-choice-A").click();
     const choiceResult = page.getByTestId("studio-choice-result");
     await choiceResult.waitFor({ state: "visible", timeout: 300_000 });
-    if ((await choiceResult.getByTestId("studio-choice-actual-executor").textContent())?.trim() !== "local-ollama") {
+    const rpgActualExecutor = (await choiceResult
+      .getByTestId("studio-choice-actual-executor").textContent())?.trim() || "missing";
+    const rpgContent = (await choiceResult.locator(".choiceStory").innerText()).trim();
+    observedRpg = {
+      actualExecutor: rpgActualExecutor,
+      contentLength: Array.from(rpgContent).length,
+      hanCharacterCount: rpgContent.match(/[\u3400-\u9fff]/gu)?.length ?? 0,
+    };
+    process.stdout.write(`${JSON.stringify({ event: "rpg_executor_observed", ...observedRpg })}\n`);
+    gateStage = "rpg-executor-proof";
+    if (rpgActualExecutor !== "local-ollama") {
       throw new Error("RPG_EXECUTOR_MISMATCH");
     }
     await choiceResult.getByTestId("studio-choice-accept").click();
@@ -700,6 +730,10 @@ async function main() {
     await writeJson(artifactRoot, "manual-edge-results.json", {
       status: "BLOCKED",
       errorCode: String(gateError?.message || "EDGE_GATE_FAILED").split(":")[0],
+      failureStage: gateStage,
+      failureRoute: page?.url() ? safeRoute(page.url()) : null,
+      observedPermission,
+      observedRpg,
       nativeDecisionMethod: "HUMAN_OPERATOR",
       permissionInjectionUsed: false,
       windowsUiAutomationUsed: false,

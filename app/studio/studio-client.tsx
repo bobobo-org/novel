@@ -21,7 +21,10 @@ import {
   regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
-import { isUsableChineseStoryOutput } from "@/lib/novel-ai/web/story-output-quality";
+import {
+  hasVerifiedExecutedStoryOutput,
+  isUsableChineseStoryOutput,
+} from "@/lib/novel-ai/web/story-output-quality";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
 import {
   approveStudioClosedAgentCandidate,
@@ -1914,42 +1917,49 @@ export default function StudioClient({
           regenerationAttempt: regenerationSource.regenerationAttempt,
         })
         : await runStudioClosedAI(taskInput);
-      if (isUsableChineseStoryOutput(result.content)) {
-        content = result.content;
-        source =
-          result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
-        model = result.model;
-        providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
-        const distinctness = ("distinctness" in result
-          ? result.distinctness
-          : null) as null | {
-            similarityMetric: string;
-            similarityScore: number;
-          };
-        closedAIIdentity = {
-          candidateId: result.candidateId,
-          taskId: result.taskId,
-          provider: result.provider,
-          modelId: result.model,
-          modelDigest: result.modelDigest,
-          contextDigest: result.contextDigest,
-          contentDigest: result.contentDigest,
-          actualExecutor: result.actualExecutor,
-          generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
-          dataLeftDevice: result.dataLeftDevice,
-          canonicalMutationCount: result.canonicalMutationCount,
-          sourceChapterId: result.sourceChapterId,
-          sourceRevision: result.sourceRevision,
-          candidateKind: "closed-ai",
-          regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
-          newCandidate: result.regeneration?.newCandidate ?? undefined,
-          previousContentReused:
-            result.regeneration?.previousContentReused ?? undefined,
-          cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
-          similarityMetric: distinctness?.similarityMetric,
-          similarityScore: distinctness?.similarityScore,
-        };
+      if (!hasVerifiedExecutedStoryOutput(result)) {
+        throw Object.assign(
+          new Error("閉端 AI 回傳內容缺少可驗證的實際執行證明。"),
+          { code: "CLOSED_AI_EXECUTION_PROOF_MISSING" },
+        );
       }
+      content = result.content;
+      source =
+        result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
+      model = result.model;
+      providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
+      const distinctness = ("distinctness" in result
+        ? result.distinctness
+        : null) as null | {
+          similarityMetric: string;
+          similarityScore: number;
+        };
+      closedAIIdentity = {
+        candidateId: result.candidateId,
+        taskId: result.taskId,
+        provider: result.provider,
+        modelId: result.model,
+        modelDigest: result.modelDigest,
+        contextDigest: result.contextDigest,
+        contentDigest: result.contentDigest,
+        actualExecutor: result.actualExecutor,
+        generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
+        dataLeftDevice: result.dataLeftDevice,
+        canonicalMutationCount: result.canonicalMutationCount,
+        sourceChapterId: result.sourceChapterId,
+        sourceRevision: result.sourceRevision,
+        candidateKind: "closed-ai",
+        regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
+        newCandidate: result.regeneration?.newCandidate ?? undefined,
+        previousContentReused:
+          result.regeneration?.previousContentReused ?? undefined,
+        cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
+        similarityMetric: distinctness?.similarityMetric,
+        similarityScore: distinctness?.similarityScore,
+        diagnostic: isUsableChineseStoryOutput(result.content)
+          ? undefined
+          : "本機模型已完成推理，但這份候選偏短；你可以重新生成或直接編輯。",
+      };
     } catch (error) {
       if (regenerationSource) {
         const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
@@ -1961,6 +1971,12 @@ export default function StudioClient({
         );
         return;
       }
+      const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+      console.error("STUDIO_CHOICE_CLOSED_AI_FAILED", { code });
+      closedAIIdentity = {
+        actualExecutor: "not_executed",
+        diagnostic: `真實閉端模型未完成這次推理，已保留本機規則候選。（${code}）`,
+      };
     }
     if (signal?.aborted) return;
     const deltaByChoice: Record<string, number> = { A: 3, B: 2, C: -2 },
