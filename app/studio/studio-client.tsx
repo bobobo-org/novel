@@ -1889,6 +1889,10 @@ export default function StudioClient({
       providerId = "local-rule",
       closedAIIdentity: Partial<NonNullable<Candidate>> = {};
     try {
+      const canonical = await ensureStudioCanonicalProject(
+        repositoryRef.current!,
+        projectSeed(project),
+      );
       const taskInput = {
         projectId: project.id,
         task: "branch_choice",
@@ -1906,6 +1910,8 @@ export default function StudioClient({
               .length + 1,
         }),
         targetLength: 650,
+        sourceChapterId: canonical.chapter.id,
+        sourceRevision: canonical.chapter.revision,
         signal,
       };
       const result = regenerationSource

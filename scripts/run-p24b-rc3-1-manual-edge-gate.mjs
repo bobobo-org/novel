@@ -527,10 +527,16 @@ async function main() {
     const rpgActualExecutor = (await choiceResult
       .getByTestId("studio-choice-actual-executor").textContent())?.trim() || "missing";
     const rpgContent = (await choiceResult.locator(".choiceStory").innerText()).trim();
+    const rpgFailureDiagnostic = consoleRows
+      .filter((row) => row.text.includes("STUDIO_CHOICE_CLOSED_AI_FAILED"))
+      .at(-1)?.text
+      ?.replace(/[^A-Z0-9_:\-{}., ]/gu, "")
+      .slice(0, 300) ?? null;
     observedRpg = {
       actualExecutor: rpgActualExecutor,
       contentLength: Array.from(rpgContent).length,
       hanCharacterCount: rpgContent.match(/[\u3400-\u9fff]/gu)?.length ?? 0,
+      failureDiagnostic: rpgFailureDiagnostic,
     };
     process.stdout.write(`${JSON.stringify({ event: "rpg_executor_observed", ...observedRpg })}\n`);
     gateStage = "rpg-executor-proof";

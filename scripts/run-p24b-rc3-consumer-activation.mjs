@@ -168,6 +168,14 @@ async function interactiveStoryOutputAcceptance() {
     false,
     "planned routing without an actual executor must not masquerade as model output",
   );
+  const studio = await readFile("app/studio/studio-client.tsx", "utf8");
+  const branchChoiceStart = studio.indexOf('task: "branch_choice"');
+  const branchChoiceRuntime = studio.slice(branchChoiceStart, branchChoiceStart + 8_000);
+  assert.match(
+    branchChoiceRuntime,
+    /ensureStudioCanonicalProject\([\s\S]*sourceChapterId:\s*canonical\.chapter\.id[\s\S]*sourceRevision:\s*canonical\.chapter\.revision/u,
+    "RPG model execution must be bound to the active canonical chapter revision",
+  );
 }
 
 class StorageStub {
