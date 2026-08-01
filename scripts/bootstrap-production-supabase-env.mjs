@@ -186,7 +186,8 @@ export async function main() {
 
   const directory = await mkdtemp(`${tmpdir()}/novel-supabase-bootstrap-`);
   const productionFile = resolve(directory, ".env.production");
-  const sourceFile = resolve(directory, ".env.preview");
+  const previewFile = resolve(directory, ".env.preview");
+  const developmentFile = resolve(directory, ".env.development");
   try {
     const production = await pullEnvironment({
       filename: productionFile,
@@ -196,15 +197,24 @@ export async function main() {
       token,
     });
     const productionMissing = REQUIRED_SUPABASE_KEYS.filter((key) => !production[key]);
-    const source = productionMissing.length > 0
-      ? await pullEnvironment({
-          filename: sourceFile,
-          environment: "preview",
-          projectId,
-          scope,
-          token,
-        })
-      : {};
+    let source = {};
+    if (productionMissing.length > 0) {
+      const preview = await pullEnvironment({
+        filename: previewFile,
+        environment: "preview",
+        projectId,
+        scope,
+        token,
+      });
+      const development = await pullEnvironment({
+        filename: developmentFile,
+        environment: "development",
+        projectId,
+        scope,
+        token,
+      });
+      source = { ...development, ...preview };
+    }
     const configuration = mergeProductionWithSource(production, source);
     let projectRef;
     try {
