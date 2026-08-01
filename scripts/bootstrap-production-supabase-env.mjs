@@ -172,12 +172,17 @@ export async function discoverProjectRef(configuration) {
     headers: { authorization: `Bearer ${configuration.SUPABASE_ACCESS_TOKEN}` },
   });
   const body = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(body)) {
+  const projects = Array.isArray(body)
+    ? body
+    : (Array.isArray(body?.projects) ? body.projects : null);
+  if (!response.ok || !projects) {
     throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_DISCOVERY_FAILED"), {
       code: "SUPABASE_BOOTSTRAP_PROJECT_DISCOVERY_FAILED",
+      httpStatus: response.status,
+      responseShape: Array.isArray(body) ? "array" : typeof body,
     });
   }
-  const projectRefs = [...new Set(body
+  const projectRefs = [...new Set(projects
     .map((project) => String(project?.ref || project?.id || ""))
     .filter((projectRef) => /^[a-z0-9]{8,32}$/u.test(projectRef)))];
   const configuredCandidates = [
@@ -359,6 +364,8 @@ if (entryUrl === import.meta.url) {
       availableSourceKeys: Array.isArray(error?.availableSourceKeys)
         ? error.availableSourceKeys
         : [],
+      httpStatus: Number.isInteger(error?.httpStatus) ? error.httpStatus : null,
+      responseShape: typeof error?.responseShape === "string" ? error.responseShape : null,
     }));
     process.exitCode = 1;
   });
