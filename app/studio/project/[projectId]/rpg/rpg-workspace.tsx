@@ -29,6 +29,7 @@ import {
 } from "@/lib/novel-ai/game/procedural-pill-engine";
 import {
   DEFAULT_RPG_RULE_SETTINGS,
+  RPG_FREE_WORLD_ACTIVITIES,
   RPG_FORMULA_VERSION,
   RPG_MODE_DEFINITIONS,
   RPG_STAT_DEFINITIONS,
@@ -662,6 +663,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   const mode = RPG_MODE_DEFINITIONS[activeMode];
+  const journeyActivities = RPG_FREE_WORLD_ACTIVITIES[activeMode];
   const trackedQuest = activeMode === "management" ? "management.survive90" : activeMode === "cultivation" ? "growth.main" : "rpg.mainArc";
   const trackedProgress = Number(data.storyState.questStates[trackedQuest] ?? 0);
   const rerollUsed = Number(data.storyState.worldFlags["rpg.rerollTurn"] ?? -1) === progression.turn;
@@ -824,7 +826,48 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               <header><span>{activeMode === "management" ? "階段目標" : activeMode === "cultivation" ? "成長路線" : "主線任務"}</span><b>{trackedProgress}%</b></header>
               <h3>{activeMode === "management" ? "生存 90 天" : activeMode === "cultivation" ? "形成自己的道路" : "推進當前主線"}</h3>
               <progress max={100} value={trackedProgress} />
-              <p>{activeMode === "management" ? "維持現金流、團隊與顧客，不以一次失敗直接結束。" : activeMode === "cultivation" ? "能力、關係、健康與旗標共同決定結局。" : "每個核准選擇都會同步改變任務、世界與正文。"}</p>
+              <p>{progression.journey.mainlineGoal}</p>
+              <div className={styles.gateGrid} aria-label="主線門檻">
+                {([
+                  ["數值門檻", progression.journey.gates.power],
+                  ["情報門檻", progression.journey.gates.information],
+                  ["道具門檻", progression.journey.gates.item],
+                ] as const).map(([label, gate]) => <span key={label} data-ready={gate.ready}><b>{gate.ready ? "可通過" : "未滿足"}</b>{label}<small>{gate.current}／{gate.required}</small></span>)}
+              </div>
+            </section>
+
+            <section className={styles.identityPathCard} data-testid="rpg-identity-path">
+              <header><small>LIFE PATH</small><span>第二層</span></header>
+              <h3>{progression.journey.identityLabel}</h3>
+              <p>每次核准選擇都會累積人格與行事路線；這是角色走過的人生，不是可以無痛重置的職業皮膚。</p>
+              <div className={styles.pathScores}>
+                <span data-leading={progression.journey.identityStrategy === "steady"}>守序 <b>{progression.journey.identityScores.steady}</b></span>
+                <span data-leading={progression.journey.identityStrategy === "resource"}>結盟 <b>{progression.journey.identityScores.resource}</b></span>
+                <span data-leading={progression.journey.identityStrategy === "bold"}>破界 <b>{progression.journey.identityScores.bold}</b></span>
+              </div>
+              <small>目前承諾強度 {progression.journey.identityCommitment}</small>
+            </section>
+
+            <section className={styles.freedomCard} data-testid="rpg-free-world">
+              <header><div><small>LIVING WORLD</small><h3>今天想做什麼？</h3></div><b>{progression.journey.worldFreedom}</b></header>
+              <p>不必等主線指令；先選生活目標，系統會把它轉成同一套可驗證候選。</p>
+              <div className={styles.activityGrid}>
+                {journeyActivities.map((activity) => (
+                  <button
+                    key={activity.id}
+                    type="button"
+                    data-testid={`rpg-activity-${activity.id}`}
+                    onClick={() => {
+                      setCustomAction(activity.action);
+                      setSelectedChoice(null);
+                      setStatus(`已準備「${activity.label}」自由行動；確認文字後建立候選，尚未寫入 Canon。`);
+                    }}
+                  >
+                    <b>{activity.label}</b>
+                    <small>{activity.description}</small>
+                  </button>
+                ))}
+              </div>
             </section>
 
             {activeMode === "management" ? (

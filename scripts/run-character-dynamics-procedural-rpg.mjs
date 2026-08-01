@@ -22,6 +22,7 @@ import {
   generateXianxiaRuleCandidate,
 } from "../lib/novel-ai/game/xianxia-procedural-rule-packs.ts";
 import {
+  RPG_FREE_WORLD_ACTIVITIES,
   buildRpgChoices,
   initialRpgResources,
   readRpgProgression,
@@ -153,7 +154,25 @@ await test("RPG choices carry changing world encounters into approved effects", 
   const resolved = resolveRpgChoice(choices[0], { seed: runSeed, revision: 1, turn: progression.turn, recentEncounterSignatures: [] });
   assert.equal(resolved.effect.worldFlags["rpg.lastEncounterSignature"], choices[0].encounter.signature);
   assert.ok(resolved.acceptedText.includes("事件預兆"));
-  return { choices: choices.map((choice) => ({ key: choice.key, encounter: choice.encounter.title })), outcome: resolved.outcome };
+  assert.ok(resolved.effect.resourceChanges[`journey.path.${choices[0].approach}`] > 0);
+  assert.ok(resolved.effect.resourceChanges["journey.mainlineMomentum"] > 0);
+  assert.ok(resolved.effect.resourceChanges["journey.worldFreedom"] > 0);
+  const nextResources = { ...resources };
+  for (const [key, delta] of Object.entries(resolved.effect.resourceChanges)) {
+    nextResources[key] = (nextResources[key] ?? 0) + delta;
+  }
+  const nextQuestStates = {};
+  for (const [key, delta] of Object.entries(resolved.effect.questProgress)) {
+    nextQuestStates[key] = (nextQuestStates[key] ?? 0) + delta;
+  }
+  const nextProgression = readRpgProgression({ protagonistStats: { "rpg.xp": 0 }, resources: nextResources, money: 1200, inventory: [], questStates: nextQuestStates, worldFlags: { "rpg.runSeed": runSeed, "rpg.cycle": 1 } }, "fallback", "cultivation");
+  assert.equal(nextProgression.journey.identityStrategy, choices[0].approach);
+  assert.ok(nextProgression.journey.mainlineProgress > 0);
+  assert.ok(nextProgression.journey.worldFreedom > 0);
+  assert.equal(RPG_FREE_WORLD_ACTIVITIES.adventure.length, 6);
+  assert.equal(RPG_FREE_WORLD_ACTIVITIES.cultivation.length, 6);
+  assert.equal(RPG_FREE_WORLD_ACTIVITIES.management.length, 6);
+  return { choices: choices.map((choice) => ({ key: choice.key, encounter: choice.encounter.title })), outcome: resolved.outcome, identity: nextProgression.journey.identityLabel, freeWorldActivities: 18 };
 });
 
 const failed = results.filter((result) => result.status === "FAIL");

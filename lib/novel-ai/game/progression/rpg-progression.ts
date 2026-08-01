@@ -168,6 +168,54 @@ export type ManagementSnapshot = {
   annualScore: number;
 };
 
+export type RpgJourneySnapshot = {
+  mainlineQuestId: string;
+  mainlineGoal: string;
+  mainlineProgress: number;
+  identityStrategy: RpgChoiceStrategy | "unformed";
+  identityLabel: string;
+  identityCommitment: number;
+  identityScores: Record<RpgChoiceStrategy, number>;
+  worldFreedom: number;
+  gates: {
+    power: { ready: boolean; current: number; required: number };
+    information: { ready: boolean; current: number; required: number };
+    item: { ready: boolean; current: number; required: number };
+  };
+};
+
+export const RPG_FREE_WORLD_ACTIVITIES: Record<RpgMode, ReadonlyArray<{
+  id: string;
+  label: string;
+  description: string;
+  action: string;
+}>> = {
+  adventure: [
+    { id: "explore", label: "探索", description: "找地點、線索與隱藏道路", action: "離開安全區，調查一條尚未標記的道路與沿途線索" },
+    { id: "hunt", label: "討伐", description: "處理威脅並取得材料", action: "追蹤附近正在威脅旅人的敵對生物，但先確認退路" },
+    { id: "commission", label: "委託", description: "以任務換取信用與報酬", action: "在聚落尋找一項能真正改善當地處境的委託" },
+    { id: "craft", label: "製作", description: "把材料變成工具與裝備", action: "盤點手邊材料，製作能解決目前困局的實用工具" },
+    { id: "social", label: "社交", description: "建立情報與人際網絡", action: "與目前最可能掌握內情的人交談，先理解他的立場與代價" },
+    { id: "boss", label: "挑戰頭目", description: "高風險推進世界危機", action: "追查章節頭目的弱點與前置條件，再決定是否正式挑戰" },
+  ],
+  cultivation: [
+    { id: "practice", label: "修練", description: "累積熟練與身心底盤", action: "針對目前最薄弱的能力完成一輪可檢驗的基礎修練" },
+    { id: "mentor", label: "拜師", description: "建立師承、門規與長期承諾", action: "尋找一位理念相容的導師，先完成考驗再決定是否拜師" },
+    { id: "study", label: "研習", description: "把知識轉成自己的理解", action: "研讀一份與目前瓶頸相關的典籍，整理出可實作的心得" },
+    { id: "alchemy", label: "煉製", description: "以材料、技術與風險換成果", action: "用現有材料設計一份可追溯配方，進行小規模試煉" },
+    { id: "bond", label: "同修", description: "讓能力與關係共同成長", action: "邀請可信任的人共同修練，交換彼此的觀察與限制" },
+    { id: "breakthrough", label: "突破", description: "承擔代價跨越成長門檻", action: "先檢查健康、疲勞與資源，再評估是否挑戰下一階段" },
+  ],
+  management: [
+    { id: "trade", label: "經商", description: "在價格、需求與信用間取捨", action: "調查真正需求後完成一筆有利但不透支信譽的交易" },
+    { id: "produce", label: "生產", description: "平衡品質、成本與產能", action: "找出目前生產瓶頸，改善一項最影響品質的流程" },
+    { id: "recruit", label: "招募", description: "補足團隊能力與文化缺口", action: "依目前團隊缺口尋找合適人才，明確說明責任與回報" },
+    { id: "research", label: "研發", description: "投入資源建立長期差異", action: "選擇一個可小規模驗證的新產品方向，限制本輪研發成本" },
+    { id: "network", label: "結盟", description: "建立供應、客戶與地方網絡", action: "拜訪一個可能長期合作的組織，先確認雙方真正需求" },
+    { id: "territory", label: "經營領地", description: "讓組織影響世界而非只看營收", action: "盤點領地的安全、民生與資源，選出最急迫的一項改善" },
+  ],
+};
+
 export type RpgInventoryItem = {
   itemId: string;
   name: string;
@@ -208,6 +256,7 @@ export type RpgProgressionSnapshot = {
   derived: RpgDerivedStats;
   status: RpgStatusSnapshot;
   management: ManagementSnapshot;
+  journey: RpgJourneySnapshot;
   inventory: RpgInventoryStack[];
   currencies: { gold: number; spiritStone: number; guildToken: number };
   xp: number;
@@ -309,6 +358,11 @@ export function initialRpgResources() {
     "game.turn": 0,
     "game.choiceVariant": 0,
     "game.fatePoints": 2,
+    "journey.mainlineMomentum": 0,
+    "journey.path.steady": 0,
+    "journey.path.resource": 0,
+    "journey.path.bold": 0,
+    "journey.worldFreedom": 0,
     "currency.spiritStone": 24,
     "currency.guildToken": 3,
     "item.healing-potion": 3,
@@ -515,8 +569,70 @@ function readManagement(resources: Record<string, number>): ManagementSnapshot {
 }
 
 type StoryStateInput = Pick<StoryState, "protagonistStats"> & Partial<
-  Pick<StoryState, "resources" | "money" | "inventory" | "worldFlags">
+  Pick<StoryState, "resources" | "money" | "inventory" | "worldFlags" | "questStates">
 >;
+
+function readJourney(
+  mode: RpgMode,
+  resources: Record<string, number>,
+  questStates: Record<string, string>,
+  inventory: RpgInventoryStack[],
+  powerScore: number,
+): RpgJourneySnapshot {
+  const mainlineQuestId = mode === "management"
+    ? "management.survive90"
+    : mode === "cultivation"
+      ? "growth.main"
+      : "rpg.mainArc";
+  const mainlineGoal = mode === "management"
+    ? "讓組織跨過生存期，建立可持續的秩序"
+    : mode === "cultivation"
+      ? "形成不可被輕易重置的師承、能力與人生道路"
+      : "追查世界危機，取得進入下一章所需的力量、情報與關鍵物";
+  const identityScores = {
+    steady: Math.max(0, Math.round(numberFrom(resources["journey.path.steady"], 0))),
+    resource: Math.max(0, Math.round(numberFrom(resources["journey.path.resource"], 0))),
+    bold: Math.max(0, Math.round(numberFrom(resources["journey.path.bold"], 0))),
+  };
+  const rankedIdentity = (Object.entries(identityScores) as Array<[RpgChoiceStrategy, number]>)
+    .sort((left, right) => right[1] - left[1])[0];
+  const identityStrategy = rankedIdentity[1] > 0 ? rankedIdentity[0] : "unformed";
+  const identityLabel = {
+    unformed: "尚未定型的旅人",
+    steady: "守序遠行者",
+    resource: "結盟織網者",
+    bold: "破界冒險者",
+  }[identityStrategy];
+  const information = Math.max(0, Math.round(
+    numberFrom(resources["adventure.clues"], 0)
+    + numberFrom(resources["adventure.mapProgress"], 0),
+  ));
+  const keyItems = inventory.filter((item) =>
+    item.quantity > 0 && (item.category === "quest" || item.itemId === "royal-pass"),
+  ).reduce((sum, item) => sum + item.quantity, 0)
+    + Math.max(0, Math.round(numberFrom(resources["adventure.tools"], 0)));
+  const mainlineProgress = clamp(
+    Math.round(numberFrom(questStates[mainlineQuestId], 0)),
+    0,
+    100,
+  );
+  const requiredPower = 52 + Math.floor(mainlineProgress / 25) * 6;
+  return {
+    mainlineQuestId,
+    mainlineGoal,
+    mainlineProgress,
+    identityStrategy,
+    identityLabel,
+    identityCommitment: rankedIdentity[1],
+    identityScores,
+    worldFreedom: clamp(Math.round(numberFrom(resources["journey.worldFreedom"], 0)), 0, 100),
+    gates: {
+      power: { ready: powerScore >= requiredPower, current: powerScore, required: requiredPower },
+      information: { ready: information >= 3, current: information, required: 3 },
+      item: { ready: keyItems >= 1, current: keyItems, required: 1 },
+    },
+  };
+}
 
 export function readRpgProgression(
   storyState: StoryStateInput,
@@ -552,6 +668,7 @@ export function readRpgProgression(
   };
   const inventory = readInventory(resources, storyState.inventory ?? [], worldFlags, runSeed, cycle);
   const carryWeight = Math.round(inventory.reduce((sum, item) => sum + item.weight * item.quantity, 0) * 10) / 10;
+  const powerScore = computePowerScore(stats, level);
   return {
     formulaVersion: RPG_FORMULA_VERSION,
     mode,
@@ -561,6 +678,7 @@ export function readRpgProgression(
     derived: computeDerivedStats(stats, level),
     status,
     management: readManagement(resources),
+    journey: readJourney(mode, resources, storyState.questStates ?? {}, inventory, powerScore),
     inventory,
     currencies: {
       gold: Math.round(storyState.money ?? 1_200),
@@ -574,7 +692,7 @@ export function readRpgProgression(
     levelProgress: level >= 99
       ? 100
       : Math.round((xp - currentLevelXp) / Math.max(1, nextLevelXp - currentLevelXp) * 100),
-    powerScore: computePowerScore(stats, level),
+    powerScore,
     day: Math.max(1, Math.round(numberFrom(resources["game.day"], 1))),
     turn: Math.max(0, Math.round(numberFrom(resources["game.turn"], 0))),
     choiceVariant: Math.max(0, Math.round(numberFrom(resources["game.choiceVariant"], 0))),
@@ -703,6 +821,15 @@ function makeEffect(
     : -blueprint.actionCost;
   const resourceChanges: Record<string, number> = {
     ...blueprint.resourceRewards,
+    "journey.mainlineMomentum": blueprint.mode === "adventure"
+      ? 2 + blueprint.risk
+      : 1 + Math.ceil(blueprint.risk / 2),
+    [`journey.path.${blueprint.strategy}`]: 2 + blueprint.risk,
+    "journey.worldFreedom": blueprint.strategy === "resource"
+      ? 3
+      : blueprint.strategy === "bold"
+        ? 2
+        : 1,
     "status.stamina": -blueprint.staminaCost,
     "status.fatigue": blueprint.fatigueDelta,
     "status.stress": blueprint.stressDelta,
@@ -719,6 +846,7 @@ function makeEffect(
       "rpg.lastChoiceId": blueprint.id,
       "rpg.lastChoiceStrategy": blueprint.strategy,
       "rpg.lastMode": blueprint.mode,
+      "rpg.journey.lastActivity": blueprint.id,
     },
     questProgress: { [blueprint.questId]: 6 + blueprint.risk * 2 },
     achievementProgress: { [blueprint.achievementId]: 16 + blueprint.risk * 4 },
@@ -1000,6 +1128,9 @@ export function buildManagementSettlementEffect(snapshot: RpgProgressionSnapshot
       "management.lastProfit": management.expectedNetProfit,
       "management.reputation": management.satisfaction >= 60 ? 1 : 0,
       "management.risk": management.expectedNetProfit < 0 ? 3 : -1,
+      "journey.mainlineMomentum": 1,
+      "journey.path.steady": 1,
+      "journey.worldFreedom": 1,
       "game.day": 1,
       "game.turn": 1,
       "game.actionPoints": RPG_MODE_DEFINITIONS.management.dailyActionPoints - snapshot.status.actionPoints,

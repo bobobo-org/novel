@@ -431,6 +431,8 @@
 .managementCard,
 .worldCard,
 .walletCard,
+.identityPathCard,
+.freedomCard,
 .resolution {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -897,7 +899,9 @@
 .questCard,
 .managementCard,
 .worldCard,
-.walletCard {
+.walletCard,
+.identityPathCard,
+.freedomCard {
   padding: 13px;
 }
 
@@ -928,11 +932,139 @@
 .questCard p,
 .managementCard p,
 .worldCard p,
-.walletCard p {
+.walletCard p,
+.identityPathCard p,
+.freedomCard p {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.55;
 }
+
+.gateGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.gateGrid > span {
+  display: grid;
+  gap: 2px;
+  padding: 7px 5px;
+  border: 1px solid rgba(255, 152, 166, 0.24);
+  border-radius: 8px;
+  color: #a9bdd0;
+  background: rgba(48, 18, 31, 0.4);
+  font-size: 0.58rem;
+  text-align: center;
+}
+
+.gateGrid > span[data-ready="true"] {
+  border-color: rgba(97, 221, 176, 0.32);
+  background: rgba(15, 54, 49, 0.42);
+}
+
+.gateGrid b { color: #ffb3bd; font-size: 0.62rem; }
+.gateGrid [data-ready="true"] b { color: var(--green); }
+.gateGrid small { color: #738ba4; font-size: 0.55rem; }
+
+.identityPathCard {
+  background:
+    radial-gradient(circle at 100% 0, rgba(176, 140, 255, 0.16), transparent 42%),
+    var(--panel);
+}
+
+.identityPathCard > header,
+.freedomCard > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.identityPathCard > header > span {
+  padding: 3px 7px;
+  border: 1px solid rgba(176, 140, 255, 0.35);
+  border-radius: 999px;
+  color: #d9c9ff;
+  font-size: 0.58rem;
+}
+
+.identityPathCard h3,
+.freedomCard h3 {
+  margin: 7px 0 3px;
+  font-size: 1rem;
+}
+
+.pathScores {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 9px 0;
+}
+
+.pathScores span {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.6rem;
+  text-align: center;
+}
+
+.pathScores span[data-leading="true"] {
+  border-color: rgba(247, 199, 91, 0.5);
+  color: var(--gold);
+  background: rgba(86, 57, 17, 0.3);
+}
+
+.pathScores b { color: var(--text); font-size: 0.82rem; }
+
+.freedomCard {
+  background:
+    radial-gradient(circle at 100% 0, rgba(97, 214, 232, 0.15), transparent 42%),
+    var(--panel);
+}
+
+.freedomCard > header > b {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(97, 214, 232, 0.42);
+  border-radius: 50%;
+  color: var(--cyan);
+  background: rgba(8, 39, 58, 0.72);
+}
+
+.activityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.activityGrid button {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(7, 22, 39, 0.72);
+  cursor: pointer;
+  text-align: left;
+}
+
+.activityGrid button:hover {
+  border-color: var(--line-strong);
+  background: rgba(12, 41, 63, 0.9);
+}
+
+.activityGrid b { color: var(--gold); font-size: 0.68rem; }
+.activityGrid small { color: var(--muted); font-size: 0.56rem; font-weight: 400; letter-spacing: 0; line-height: 1.35; }
 
 .managementCard > header > span {
   padding: 5px 8px;
