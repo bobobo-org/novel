@@ -1,7 +1,7 @@
 const baseUrl = process.env.NOVEL_BASE_URL || "https://novel-orcin.vercel.app";
 const adminToken = process.env.ADMIN_TOKEN || "";
 const managementToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
-const supabaseProjectRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";
+const supabaseProjectRef = process.env.SUPABASE_PROJECT_REF || "iwobncchxuykcztziavw";
 const projectId = process.env.P0C2A_PROJECT_ID || `p0c2a-conflict-${Date.now()}`;
 const otherProjectId = `${projectId}-other`;
 const expectedCommit = process.env.EXPECTED_APP_COMMIT || "";

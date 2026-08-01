@@ -1,7 +1,7 @@
 import { persistStoryBibleExtractionRows } from "../lib/novel-ai/storage/supabase/supabase-extraction-persistence-storage.ts";
 
 const supabaseToken = process.env.SUPABASE_MANAGEMENT_TOKEN || "";
-const supabaseRef = process.env.SUPABASE_PROJECT_REF || "ijjicaiiirkfbewbhepx";
+const supabaseRef = process.env.SUPABASE_PROJECT_REF || "iwobncchxuykcztziavw";
 const originalEnv = {
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   SUPABASE_URL: process.env.SUPABASE_URL,

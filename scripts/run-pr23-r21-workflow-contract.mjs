@@ -78,7 +78,7 @@ assert.match(
 assert.match(productionBootstrapJob, /bootstrap-production-supabase-env\.mjs/u);
 assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
 assert.match(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
-assert.match(productionBootstrapJob, /SUPABASE_PROJECT_REF_FALLBACK:\s*ijjicaiiirkfbewbhepx/u);
+assert.match(productionBootstrapJob, /SUPABASE_PROJECT_REF_FALLBACK:\s*iwobncchxuykcztziavw/u);
 assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
 
 assert.match(
