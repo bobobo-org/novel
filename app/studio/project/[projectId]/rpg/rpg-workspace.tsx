@@ -714,11 +714,28 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
       {!activated ? (
         <section className={styles.activation}>
-          <div><small>目前只有故事骨架</small><h2>啟用統合 RPG／養成／經營系統</h2><p>建立能力、狀態、背包、寶物、貨幣與公司初始資料；不會改寫任何章節或 Canon。</p></div>
-          <button data-testid="rpg-initialize" type="button" disabled={busy} onClick={() => void initializeProgression()}>啟用完整遊戲系統</button>
+          <div>
+            <small>新手只要三步</small>
+            <h2>讓故事變成可以玩的第一回合</h2>
+            <p>系統會依目前人物與故事建立能力、背包、寶物、貨幣和第一批事件；不會偷偷改寫章節。</p>
+            <ol className={styles.activationSteps}>
+              <li><span>1</span><div><b>建立初始狀態</b><small>人物設定會轉成可計算能力；未設定部分使用可重現公式。</small></div></li>
+              <li><span>2</span><div><b>挑 A／B／C 或自由行動</b><small>先看成功率、代價與可能影響，不必理解所有儀表。</small></div></li>
+              <li><span>3</span><div><b>確認後才寫入故事</b><small>正文、數值、關係、任務與物品會一起更新。</small></div></li>
+            </ol>
+          </div>
+          <div className={styles.activationAction}>
+            <button data-testid="rpg-initialize" type="button" disabled={busy} onClick={() => void initializeProgression()}>{busy ? "正在建立第一回合…" : "開始第一回合"}</button>
+            <Link href={`/studio/project/${projectId}/write`}>先回正文寫作</Link>
+          </div>
         </section>
       ) : (
         <>
+        <section className={styles.playGuide} data-testid="rpg-play-guide">
+          <div><small>第一次玩，只看這一列</small><strong>選行動 → 看預計影響 → 確認寫入故事</strong></div>
+          <ol><li><b>1</b> 在 A／B／C 選一張</li><li><b>2</b> 檢查代價與成功率</li><li><b>3</b> 按「確認選擇並寫入故事」</li></ol>
+          <div><a href="#rpg-next-action">直接選下一步</a><Link href={`/studio/project/${projectId}/write`}>查看／續寫正文</Link></div>
+        </section>
         <section className={styles.worldRibbon} aria-label="本周目世界脈動">
           <div className={styles.cycleEmblem}><small>VARIATION CYCLE</small><strong>{progression.procedural.cycle}</strong><span>世界種子 {progression.procedural.runSeed.slice(0, 8)}</span></div>
           <div><small>目前世界脈動</small><h2>{progression.procedural.currentAspect ?? "事件尚未揭露"}</h2><p>{progression.procedural.currentLocationVariant ?? "你的下一個核准選擇會改變地點、勢力與事件排列。"}</p></div>
@@ -781,7 +798,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               </article>
             ) : null}
 
-            <section className={styles.choiceSection}>
+            <section className={styles.choiceSection} id="rpg-next-action">
               <header>
                 <div><small>ROUND {progression.turn + 1} · DYNAMIC CHOICE POOL</small><h2>接下來要怎麼做？</h2></div>
                 <button type="button" disabled={busy || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲選項（命運點 -1）</button>

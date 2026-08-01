@@ -17,6 +17,15 @@ import {
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import {
+  buildLocalCreationGuide,
+  creationFoundationChecklist,
+  creationFoundationMissing,
+  isStructuredGameMode,
+  type CreationEntryMode as EntryMode,
+  type CreationOptionalKey as OptionalKey,
+  type CreationWizard as Wizard,
+} from "@/lib/novel-data/creation-guide";
+import {
   discoverStudioClosedAI,
   regenerateStudioClosedAI,
   runStudioClosedAI,
@@ -78,7 +87,6 @@ type Screen =
   | "world"
   | "dashboard"
   | "backup";
-type EntryMode = "quick" | "guided" | "explore";
 type AssistantStatus =
   | "checking"
   | "ollama_ready"
@@ -86,42 +94,12 @@ type AssistantStatus =
   | "external_ready"
   | "runtime_required"
   | "auth_required";
-type OptionalKey =
-  | "protagonist"
-  | "identity"
-  | "archetype"
-  | "goal"
-  | "weakness"
-  | "world"
-  | "worldRule"
-  | "factions"
-  | "conflict"
-  | "villain"
-  | "style"
-  | "storySeed"
-  | "outline";
-
 const STUDIO_SCREENS: Screen[] = ["home", "create", "write", "choice", "inspect", "library", "world", "dashboard", "backup"];
 
 function resolveStudioScreen(value: string | null): Screen {
   if (value === "interactive") return "choice";
   return STUDIO_SCREENS.includes(value as Screen) ? value as Screen : "home";
 }
-type Wizard = {
-  entryMode: EntryMode;
-  creationMethod: "" | "topic" | "idea" | "recommend" | "random" | "blank";
-  title: string;
-  coreIdea: string;
-  consumerGroupId: string;
-  packId: string;
-  topicId: string;
-  subCategory: string;
-  playModeId: string;
-  enabledStats: string[];
-  optionalFields: Record<OptionalKey, OptionalField>;
-  adultMode: boolean;
-  ageConfirmed: boolean;
-};
 type Project = {
   id: string;
   title: string;
@@ -1212,6 +1190,13 @@ export default function StudioClient({
       alert("成人模式需要先完成年齡確認。");
       return;
     }
+    const missingFoundation = creationFoundationMissing(w);
+    if (missingFoundation.length) {
+      alert(
+        `還不能開始：請先完成${missingFoundation.map((item) => `「${item.label}」`).join("、")}。\n\n你可以自己填寫，或按「引導精靈代為完成」。`,
+      );
+      return;
+    }
     const topic = resolveStoryTopic(w.topicId),
       now = new Date().toISOString(),
       id = crypto.randomUUID();
@@ -1941,7 +1926,18 @@ export default function StudioClient({
         ...value.executionLogs,
       ].slice(0, 50),
     }));
-    if (screen !== "write") navigate("write");
+    const creationTasks = new Set([
+      "idea_directions",
+      "topic_recommendation",
+      "protagonist_recommendation",
+      "world_recommendation",
+      "conflict_recommendation",
+      "mode_recommendation",
+      "improve_settings",
+      "story_seed",
+      "plan_chapter",
+    ]);
+    if (screen !== "write" && !creationTasks.has(task)) navigate("write");
   }
   function stopAssistantTask() {
     if (!assistantControllerRef.current || !assistantBusy) return;
@@ -3065,6 +3061,10 @@ function CreateScreen({
 }) {
   const w = state.wizard,
     step = state.wizardStep;
+  const gameMode = isStructuredGameMode(w.playModeId);
+  const structuredStart = w.creationMethod !== "blank" || gameMode;
+  const foundation = creationFoundationChecklist(w);
+  const missingFoundation = foundation.filter((item) => item.required && !item.ready);
   const topics = listStoryTopics({
     groupId: w.consumerGroupId || undefined,
     packId: w.packId || undefined,
@@ -3073,10 +3073,13 @@ function CreateScreen({
     limit: w.entryMode === "explore" ? 218 : 12,
   });
   const selectedTopic = resolveStoryTopic(w.topicId);
-  const optionalInput = (key: OptionalKey) => (
+  const optionalInput = (key: OptionalKey) => {
+    const required = (key === "protagonist" && structuredStart)
+      || (key === "world" && gameMode);
+    return (
     <div className="optionalField" key={key}>
       <label>
-        {optionalLabels[key]} <small>選填</small>
+        {optionalLabels[key]} <small>{required ? "開始前必填" : "可稍後補充"}</small>
         <input
           data-testid={`studio-optional-${key}`}
           value={optionalValue(w.optionalFields, key)}
@@ -3098,7 +3101,8 @@ function CreateScreen({
         </button>
       </div>
     </div>
-  );
+    );
+  };
   return (
     <section className="studioWizard" data-testid="studio-create-wizard">
       <header>
@@ -3115,7 +3119,7 @@ function CreateScreen({
             ][step]
           }
         </h1>
-        <p>第 {step} 步，共 5 步・除建立方式外皆可略過</p>
+        <p>第 {step} 步，共 5 步・自己設定，或讓引導精靈代為完成後再修改</p>
       </header>
       <div className="studioSteps">
         {[1, 2, 3, 4, 5].map((index) => (
@@ -3123,6 +3127,45 @@ function CreateScreen({
         ))}
       </div>
       <div className="studioWizardBody">
+        <section className="studioCreationGuide" data-testid="studio-creation-guide">
+          <div>
+            <small>創作帶領精靈</small>
+            <h2>先準備人物與第一幕，再開始寫或玩</h2>
+            <p>
+              不需要面對一整頁空白。你可以逐項設定，也能先產生一套可修改的本機建議；
+              規則建議會清楚標示，不會冒充真實 AI。
+            </p>
+          </div>
+          <ol aria-label="起始設定完成度">
+            {foundation.map((item) => (
+              <li
+                key={item.key}
+                data-ready={item.ready}
+                data-required={item.required}
+              >
+                <span aria-hidden="true">{item.ready ? "✓" : item.required ? "!" : "○"}</span>
+                <div><b>{item.label}</b><small>{item.detail}</small></div>
+              </li>
+            ))}
+          </ol>
+          <div className="studioCreationGuideActions">
+            <button
+              type="button"
+              data-testid="studio-guide-autofill"
+              className="gold"
+              onClick={() => updateWizard(buildLocalCreationGuide(w))}
+            >
+              引導精靈代為完成
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(candidate)}
+              onClick={() => void runTask("improve_settings")}
+            >
+              請真實模型深化候選
+            </button>
+          </div>
+        </section>
         {step === 1 && (
           <>
             <div className="entryModeTabs">
@@ -3313,9 +3356,8 @@ function CreateScreen({
         )}
         {step === 4 && (
           <>
-            <h2>
-              故事玩法 <small>選填</small>
-            </h2>
+            <h2>選擇讀者要「讀故事」還是「玩故事」</h2>
+            <p className="studioWizardHint">互動、RPG、戀愛與經營會先確認人物和世界；一般小說仍可直接進入章節寫作。</p>
             <div className="studioGenreGrid">
               {STORY_LIBRARY.playModes
                 .filter((mode) => !mode.adultOnly || w.adultMode)
@@ -3438,19 +3480,33 @@ function CreateScreen({
             <p>
               空白欄位會原樣保存，不會被填入假值。稍後可在故事發展中逐步補充。
             </p>
-            {candidate && (
-              <SuggestionCard
-                key={candidate.createdAt}
-                candidate={candidate}
-                originalContent=""
-                accept={acceptSuggestion}
-                retry={() => void runTask(candidate.task, {
-                  regenerateFrom: candidate,
-                })}
-                discard={discard}
-              />
+            {missingFoundation.length ? (
+              <div className="studioFoundationBlock" role="alert" data-testid="studio-foundation-blocked">
+                <strong>還差 {missingFoundation.length} 項，暫時不能開始</strong>
+                <span>{missingFoundation.map((item) => item.label).join("、")}</span>
+                <button type="button" onClick={() => updateWizard(buildLocalCreationGuide(w))}>
+                  由引導精靈補齊後再檢查
+                </button>
+              </div>
+            ) : (
+              <div className="studioFoundationReady" role="status" data-testid="studio-foundation-ready">
+                <strong>起始設定已足夠</strong>
+                <span>{gameMode ? "建立後可先寫開場，也可直接進入第一個 RPG／互動回合。" : "建立後可自己寫第一幕，或請真實模型提出開場候選。"}</span>
+              </div>
             )}
           </>
+        )}
+        {candidate && (
+          <SuggestionCard
+            key={candidate.createdAt}
+            candidate={candidate}
+            originalContent=""
+            accept={acceptSuggestion}
+            retry={() => void runTask(candidate.task, {
+              regenerateFrom: candidate,
+            })}
+            discard={discard}
+          />
         )}
       </div>
       <footer>
@@ -3461,17 +3517,12 @@ function CreateScreen({
           返回修改
         </button>
         {step < 5 ? (
-          <>
-          <button onClick={() => setStep(Math.min(5, step + 1))}>
-            略過這一步
+          <button data-testid="studio-create-next" className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
+            儲存本步並繼續
           </button>
-            <button data-testid="studio-create-next" className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
-              下一步
-            </button>
-          </>
         ) : (
-          <button data-testid="studio-create-submit" className="gold" onClick={createProject}>
-            建立作品
+          <button data-testid="studio-create-submit" className="gold" disabled={missingFoundation.length > 0} onClick={createProject}>
+            {missingFoundation.length ? "完成必要設定後才能開始" : "建立作品並進入第一幕"}
           </button>
         )}
       </footer>
@@ -3535,6 +3586,7 @@ function WriteScreen({
   const displayedProjectStamp = useRef(project?.updatedAt ?? "");
   const titleRef = useRef(title);
   const draftRef = useRef(draft);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     titleRef.current = title;
@@ -3753,7 +3805,34 @@ function WriteScreen({
           </label>
           <span>{chapterMessage}</span>
         </header>
+        {!draft.trim() && !candidate ? (
+          <section className="studioStoryStarter" data-testid="studio-story-starter">
+            <div>
+              <small>第一幕起跑區</small>
+              <h2>設定完成了，現在只選一件最想做的事</h2>
+              <p>不必先理解全部工具。自己寫一個場景、請模型提出開場候選，或直接進入第一個互動回合。</p>
+            </div>
+            <div>
+              <button
+                type="button"
+                className="gold"
+                disabled={Boolean(assistantBusy)}
+                onClick={() => void runTask("first_chapter")}
+              >
+                {assistantBusy === "first_chapter" ? "正在產生開場候選…" : "請 AI 寫開場候選"}
+              </button>
+              <button type="button" onClick={() => editorRef.current?.focus()}>
+                我自己寫第一幕
+              </button>
+              {isStructuredGameMode(project.selectedPlayModeId) ? (
+                <Link href={`/studio/project/${project.id}/rpg`}>進入第一個遊戲回合</Link>
+              ) : null}
+              <button type="button" onClick={() => navigate("world")}>先調整人物與世界</button>
+            </div>
+          </section>
+        ) : null}
         <textarea
+          ref={editorRef}
           aria-label="正文編輯器"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

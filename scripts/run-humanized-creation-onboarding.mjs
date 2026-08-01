@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const guide = read("lib/novel-data/creation-guide.ts");
+const studio = read("app/studio/studio-client.tsx");
+const rpg = read("app/studio/project/[projectId]/rpg/rpg-workspace.tsx");
+const globalCss = read("app/globals.css");
+const rpgCss = read("app/studio/project/[projectId]/rpg/rpg.module.css");
+
+const checks = [
+  ["遊戲模式有必要起始資料 Gate", /creationFoundationMissing\(w\)/u.test(studio) && /GAME_MODE_IDS/u.test(guide)],
+  ["空白一般小說仍保留相容入口", /explicitBlankNovel/u.test(guide) && /creationMethod === "blank"/u.test(guide)],
+  ["引導精靈只寫入誠實規則建議", /"rule_suggested", "local-rule"/u.test(guide)],
+  ["引導精靈會補人物、世界與衝突", /protagonist: name/u.test(guide) && /world:/u.test(guide) && /conflict:/u.test(guide)],
+  ["RPG 預設能力已連到遊戲模式", /rpg: \["stamina", "money", "experience", "level", "turns", "questProgress"\]/u.test(guide)],
+  ["設定完成度對消費者可見", /data-testid="studio-creation-guide"/u.test(studio) && /data-testid="studio-foundation-blocked"/u.test(studio)],
+  ["一鍵代設入口可操作", /data-testid="studio-guide-autofill"/u.test(studio) && /buildLocalCreationGuide\(w\)/u.test(studio)],
+  ["建立頁的 AI 工作不再突然跳頁", /!creationTasks\.has\(task\)/u.test(studio)],
+  ["第一幕提供 AI、自寫與遊戲入口", /data-testid="studio-story-starter"/u.test(studio) && /請 AI 寫開場候選/u.test(studio) && /進入第一個遊戲回合/u.test(studio)],
+  ["RPG 新手流程清楚呈現", /data-testid="rpg-play-guide"/u.test(rpg) && /選行動 → 看預計影響 → 確認寫入故事/u.test(rpg)],
+  ["RPG 選擇仍須明確核准", /確認選擇並寫入故事/u.test(rpg) && /id="rpg-next-action"/u.test(rpg)],
+  ["桌機與手機都有新手流程版面", /\.studioCreationGuide/u.test(globalCss) && /\.studioStoryStarter/u.test(globalCss) && /\.playGuide/u.test(rpgCss) && /@media \(max-width: 680px\)/u.test(rpgCss)],
+];
+
+for (const [name, pass] of checks) assert.equal(pass, true, name);
+
+console.log(JSON.stringify({
+  suite: "HUMANIZED_CREATION_AND_RPG_ONBOARDING",
+  pass: checks.length,
+  fail: 0,
+  checks: checks.map(([name]) => name),
+}, null, 2));

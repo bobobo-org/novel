@@ -40,6 +40,8 @@
     "build:story-library": "node scripts/build-story-library.mjs",
     "audit:story-library": "node scripts/audit-story-library.mjs",
     "test:p12": "node scripts/run-p12-tests.mjs",
+    "test:studio:humanized-onboarding": "node scripts/run-humanized-creation-onboarding.mjs",
+    "test:studio:humanized-browser": "node scripts/run-humanized-creation-browser.mjs",
     "test:ai:p15:consumer-platform": "node scripts/run-ai-p15-consumer-platform-closure.mjs",
     "test:ai:p2:grand-integration": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p2-grand-integration.mjs",
     "test:ai:p21:data-closure": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p21-data-closure.mjs",
