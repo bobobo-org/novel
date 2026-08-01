@@ -22,6 +22,10 @@ import {
   explicitRegenerationInstruction,
   type ExplicitRegenerationSource,
 } from "./explicit-regeneration";
+import {
+  HUMANIZED_SERIAL_FICTION_PROFILE_VERSION,
+  humanizedSerialFictionInstruction,
+} from "./humanized-serial-fiction-profile";
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 
 export type StudioClosedAIStatus =
@@ -84,6 +88,12 @@ export function studioPlatformTaskType(task: string): PlatformTaskType {
   if (task === "story_seed") return "creation.storySeed";
   if (task === "idea_directions" || task === "mode_recommendation") return "creation.guidedChoices";
   return "story.summary";
+}
+
+export function studioPromptProfileVersion(regeneration = false) {
+  return regeneration
+    ? `studio-explicit-regeneration-v5-${HUMANIZED_SERIAL_FICTION_PROFILE_VERSION}`
+    : `studio-${HUMANIZED_SERIAL_FICTION_PROFILE_VERSION}`;
 }
 
 export async function discoverStudioClosedAI(
@@ -199,8 +209,12 @@ export async function runStudioClosedAI(
   const regenerationInstruction = input.regeneration
     ? explicitRegenerationInstruction(input.regeneration)
     : "";
-  const objective = `${input.input}${targetInstruction}${regenerationInstruction}`;
   const taskType = studioPlatformTaskType(input.task);
+  const humanizedInstruction = humanizedSerialFictionInstruction(
+    taskType,
+    input.targetLength,
+  );
+  const objective = `${input.input}${targetInstruction}${humanizedInstruction}${regenerationInstruction}`;
 
   if (!execute) {
     const result = await executeStudioClosedAgent({
@@ -209,9 +223,7 @@ export async function runStudioClosedAI(
       objective,
       taskId: requestId,
       signal: input.signal,
-      promptProfileVersion: input.regeneration
-        ? "studio-explicit-regeneration-v4"
-        : "studio-legacy-entry-v3",
+      promptProfileVersion: studioPromptProfileVersion(Boolean(input.regeneration)),
       sourceChapterId: input.sourceChapterId,
       sourceRevision: input.sourceRevision,
       preferredBackend: input.regeneration ? "local-ollama" : undefined,
