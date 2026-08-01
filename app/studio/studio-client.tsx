@@ -62,7 +62,10 @@ import {
 } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
-import type { ExternalAIProviderId, NovelAIExecutionMode } from "@/lib/novel-ai/providers/external/external-provider-contract";
+import type {
+  ExternalAIProviderId as ExternalAIConnectorId,
+  NovelAIExecutionMode,
+} from "@/lib/novel-ai/providers/external/external-provider-contract";
 import { generateExternalAIStream } from "@/lib/novel-ai/providers/external/external-provider-client";
 
 type Screen =
@@ -882,7 +885,7 @@ export default function StudioClient({
     [legacyMigrationStatus, setLegacyMigrationStatus] = useState(""),
     [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
     [studioAiSource, setStudioAiSource] = useState<"closed" | "external">("closed"),
-    [externalProviderId, setExternalProviderId] = useState<ExternalAIProviderId>("openai"),
+    [externalConnectorId, setExternalConnectorId] = useState<ExternalAIConnectorId>("openai"),
     [externalRunConsent, setExternalRunConsent] = useState(false),
     [aiModeMessage, setAiModeMessage] = useState(""),
     [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false);
@@ -1086,12 +1089,12 @@ export default function StudioClient({
         : saved.privacy === "external-allowed"
           ? "hybrid"
           : "closed-only";
-      const provider: ExternalAIProviderId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
+      const provider: ExternalAIConnectorId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
         ? saved.externalProviderId
         : "openai";
       setAiExecutionMode(mode);
       setStudioAiSource(mode === "external-only" ? "external" : "closed");
-      setExternalProviderId(provider);
+      setExternalConnectorId(provider);
       setAiPreferencesLoaded(true);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -1103,7 +1106,7 @@ export default function StudioClient({
       fetch("/api/ai/external/providers", { cache: "no-store" })
         .then((response) => response.json())
         .then((payload: { providers?: Array<{ id: string; configured: boolean }> }) => {
-          const selected = payload.providers?.find((provider) => provider.id === externalProviderId);
+          const selected = payload.providers?.find((provider) => provider.id === externalConnectorId);
           setAssistantStatus(selected?.configured ? "external_ready" : "runtime_required");
           setAiModeMessage(selected?.configured ? "外接 AI 已由伺服器設定；每次送出前仍需單次同意。" : "所選外接 AI 尚未設定伺服器金鑰，請到 AI 使用方式查看。" );
         })
@@ -1119,7 +1122,7 @@ export default function StudioClient({
         setAiModeMessage("");
       })
       .catch(() => setAssistantStatus("runtime_required"));
-  }, [aiExecutionMode, externalProviderId, loaded, studioAiSource]);
+  }, [aiExecutionMode, externalConnectorId, loaded, studioAiSource]);
   useEffect(() => {
     if (
       initialTask
@@ -1174,9 +1177,9 @@ export default function StudioClient({
     setScreen(value);
     setMenuOpen(false);
   }
-  function persistStudioAISettings(input: { mode?: NovelAIExecutionMode; providerId?: ExternalAIProviderId }) {
+  function persistStudioAISettings(input: { mode?: NovelAIExecutionMode; providerId?: ExternalAIConnectorId }) {
     const mode = input.mode ?? aiExecutionMode;
-    const providerId = input.providerId ?? externalProviderId;
+    const providerId = input.providerId ?? externalConnectorId;
     const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
     localStorage.setItem("novel_p2_ai_settings", JSON.stringify({
       ...saved,
@@ -1734,7 +1737,7 @@ export default function StudioClient({
         ].filter(Boolean).join("\n");
         const generated = await generateExternalAIStream({
           executionMode: aiExecutionMode,
-          providerId: externalProviderId,
+          providerId: externalConnectorId,
           externalConsent: true,
           prompt: externalPrompt,
           maxOutputTokens: taskInput.targetLength ? Math.min(4096, Math.max(512, Math.round(taskInput.targetLength * 1.6))) : 1536,
@@ -1756,15 +1759,15 @@ export default function StudioClient({
           task,
           title: assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
           content: generated.text,
-          source: `${externalProviderId} 外接 AI`,
-          model: generated.modelId || externalProviderId,
-          provider: externalProviderId,
-          modelId: generated.modelId || externalProviderId,
+          source: `${externalConnectorId} 外接 AI`,
+          model: generated.modelId || externalConnectorId,
+          provider: externalConnectorId,
+          modelId: generated.modelId || externalConnectorId,
           modelDigest: null,
           contextDigest: await sha256Hex(externalPrompt),
           contextSourceSummary: "目前章節、作品設定與本次明確指示",
           contentDigest,
-          actualExecutor: `external-api:${externalProviderId}`,
+          actualExecutor: `external-api:${externalConnectorId}`,
           generatedTokenEvents: generated.generatedTokenEvents,
           dataLeftDevice: true,
           canonicalMutationCount: 0,
@@ -1868,7 +1871,7 @@ export default function StudioClient({
         setState((value) => ({
           ...value,
           candidate: null,
-          executionLogs: [{ id: crypto.randomUUID(), task, source: `${externalProviderId} 外接 AI`, model: externalProviderId, elapsedMs: Math.round(performance.now() - started), externalRequest: true, at: new Date().toISOString(), status: "failed" as const }, ...value.executionLogs].slice(0, 50),
+          executionLogs: [{ id: crypto.randomUUID(), task, source: `${externalConnectorId} 外接 AI`, model: externalConnectorId, elapsedMs: Math.round(performance.now() - started), externalRequest: true, at: new Date().toISOString(), status: "failed" as const }, ...value.executionLogs].slice(0, 50),
         }));
         return;
       }
@@ -2252,7 +2255,7 @@ export default function StudioClient({
         ].filter(Boolean).join("\n\n");
         const generated = await generateExternalAIStream({
           executionMode: aiExecutionMode,
-          providerId: externalProviderId,
+          providerId: externalConnectorId,
           externalConsent: true,
           prompt: externalPrompt,
           maxOutputTokens: 1400,
@@ -2262,18 +2265,18 @@ export default function StudioClient({
           throw Object.assign(new Error("外接 AI 重新產生了完全相同的內容。"), { code: "REGENERATION_NOT_DISTINCT" });
         }
         content = generated.text;
-        source = `${externalProviderId} 外接 AI 劇情發展`;
+        source = `${externalConnectorId} 外接 AI 劇情發展`;
         model = generated.modelId;
-        providerId = externalProviderId;
+        providerId = externalConnectorId;
         candidateIdentity = {
           candidateId: `external:${generated.requestId}`,
           taskId: `external-choice:${crypto.randomUUID()}`,
-          provider: externalProviderId,
+          provider: externalConnectorId,
           modelId: generated.modelId,
           modelDigest: null,
           contextDigest: await sha256Hex(externalPrompt),
           contentDigest,
-          actualExecutor: `external-api:${externalProviderId}`,
+          actualExecutor: `external-api:${externalConnectorId}`,
           generatedTokenEvents: generated.generatedTokenEvents,
           dataLeftDevice: true,
           canonicalMutationCount: 0,
@@ -2759,7 +2762,7 @@ export default function StudioClient({
             {assistantStatus === "ollama_ready"
               ? "真實本機 AI 已連線"
               : assistantStatus === "external_ready"
-                ? `${externalProviderId} 外接 AI 已就緒`
+                ? `${externalConnectorId} 外接 AI 已就緒`
               : assistantStatus === "runtime_ready"
                 ? "瀏覽器輕量 AI 可用"
                 : assistantStatus === "auth_required"
@@ -2789,16 +2792,16 @@ export default function StudioClient({
           </label>}
           {(aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external")) && <>
             <label>外接模型
-              <select value={externalProviderId} onChange={(event) => {
-                const providerId = event.target.value as ExternalAIProviderId;
-                setExternalProviderId(providerId);
+              <select value={externalConnectorId} onChange={(event) => {
+                const providerId = event.target.value as ExternalAIConnectorId;
+                setExternalConnectorId(providerId);
                 setExternalRunConsent(false);
                 persistStudioAISettings({ providerId });
               }}>
                 <option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="claude">Claude</option>
               </select>
             </label>
-            <label className="studioExternalConsent"><input type="checkbox" checked={externalRunConsent} onChange={(event) => setExternalRunConsent(event.target.checked)} /><span>同意下一次工作把內容傳給所選外接 AI（只用一次）</span></label>
+            <label className="studioExternalApproval"><input type="checkbox" checked={externalRunConsent} onChange={(event) => setExternalRunConsent(event.target.checked)} /><span>同意下一次工作把內容傳給所選外接 AI（只用一次）</span></label>
           </>}
           <Link href="/studio/settings/ai">完整 AI 設定</Link>
           {aiModeMessage && <p role="status">{aiModeMessage}</p>}
