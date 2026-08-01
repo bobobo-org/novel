@@ -3,6 +3,7 @@ import {
   collectEnvironmentServiceRoleCandidates,
   discoverProjectRef,
   discoverProjectApiKeyCandidates,
+  isSupabaseManagementAccessToken,
   PRODUCTION_RUNTIME_SUPABASE_KEYS,
   REQUIRED_SUPABASE_KEYS,
   SUPABASE_SERVER_CREDENTIAL_KEYS,
@@ -39,6 +40,9 @@ assert.equal(projectRefFromServiceRole(serviceRoleJwt), projectRef);
 assert.equal(serviceRoleCredentialKind("sb_secret_abcdefghijklmnopqrstuvwxyz"), "secret_key");
 assert.equal(serviceRoleCredentialKind("opaque-service-role-value"), "");
 assert.equal(serviceRoleCredentialKind("short"), "");
+assert.equal(isSupabaseManagementAccessToken(source.SUPABASE_ACCESS_TOKEN), true);
+assert.equal(isSupabaseManagementAccessToken("sb_secret_abcdefghijklmnopqrstuvwxyz"), false);
+assert.equal(isSupabaseManagementAccessToken(serviceRoleJwt), false);
 
 assert.deepEqual(SUPABASE_SERVER_CREDENTIAL_KEYS, [
   "SUPABASE_SERVICE_ROLE_KEY",

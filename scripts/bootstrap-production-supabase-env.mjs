@@ -62,6 +62,10 @@ export function serviceRoleCredentialKind(value) {
   return "";
 }
 
+export function isSupabaseManagementAccessToken(value) {
+  return /^sbp_[A-Za-z0-9._-]{16,}$/u.test(String(value || "").trim());
+}
+
 function decodeSupabaseJwt(value) {
   const parts = String(value).split(".");
   if (parts.length !== 3) return null;
@@ -172,7 +176,7 @@ export function validateConfigurationShape(configuration) {
     });
   }
   const result = validateRuntimeConfigurationShape(configuration);
-  if (!/^sbp_[A-Za-z0-9._-]{16,}$/u.test(configuration.SUPABASE_ACCESS_TOKEN)) {
+  if (!isSupabaseManagementAccessToken(configuration.SUPABASE_ACCESS_TOKEN)) {
     throw Object.assign(new Error("SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID"), {
       code: "SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID",
     });
@@ -506,7 +510,13 @@ export async function main() {
       throw error;
     }
     const environments = { production, preview, development };
-    const environmentCandidates = collectEnvironmentServiceRoleCandidates(environments);
+    const environmentCandidates = [
+      ...collectEnvironmentServiceRoleCandidates(environments),
+      {
+        source: "github:SUPABASE_ACCESS_TOKEN",
+        value: configuration.SUPABASE_ACCESS_TOKEN,
+      },
+    ];
     const availableSourceKeys = [...new Set(Object.values(environments)
       .flatMap((environment) => Object.keys(environment))
       .filter((key) => /^(?:SUPABASE|DATABASE|POSTGRES)_/u.test(key)))]
@@ -519,7 +529,7 @@ export async function main() {
         candidates: environmentCandidates,
       });
     } catch (environmentError) {
-      if (!configuration.SUPABASE_ACCESS_TOKEN) {
+      if (!isSupabaseManagementAccessToken(configuration.SUPABASE_ACCESS_TOKEN)) {
         environmentError.availableSourceKeys = availableSourceKeys;
         throw environmentError;
       }
