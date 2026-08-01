@@ -51,6 +51,34 @@ function normalizeRpgStat(key: string, value: number) {
   return value;
 }
 
+function normalizeResource(key: string, value: number) {
+  if (
+    key.startsWith("status.")
+    || [
+      "management.morale",
+      "management.reputation",
+      "management.satisfaction",
+      "management.technology",
+      "management.risk",
+      "management.marketShare",
+      "management.socialImpact",
+      "management.employeeSkill",
+      "management.jobFit",
+      "management.staffStamina",
+    ].includes(key)
+  ) return clamp(Math.round(value), 0, 100);
+  if (key === "game.actionPoints") return clamp(Math.round(value), 0, 5);
+  if (
+    key.startsWith("game.")
+    || key.startsWith("currency.")
+    || key.startsWith("item.")
+    || key === "management.staff"
+    || key === "management.inventory"
+  ) return Math.max(0, Math.round(value));
+  if (key.startsWith("management.")) return Math.round(value);
+  return value;
+}
+
 function addProgress(
   base: Record<string, string>,
   changes: Record<string, number>,
@@ -83,7 +111,11 @@ export function applyStoryChoiceEffect(
       effect.relationshipChanges,
       (_key, value) => clamp(Math.round(value), -100, 100),
     ),
-    resources: addNumericMap(state.resources, effect.resourceChanges),
+    resources: addNumericMap(
+      state.resources,
+      effect.resourceChanges,
+      normalizeResource,
+    ),
     money: (state.money ?? 0) + effect.moneyChange,
     worldFlags: { ...state.worldFlags, ...effect.worldFlags },
     questStates: addProgress(state.questStates, effect.questProgress),

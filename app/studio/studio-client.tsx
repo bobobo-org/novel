@@ -53,7 +53,7 @@ import {
 } from "@/lib/novel-ai/repository/runtime-health";
 import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
-import type { NovelProject, ProjectBackup, ProjectSeed, StoryState as CanonicalStoryState, StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
+import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 
 type Screen =
   | "home"
@@ -111,6 +111,7 @@ type Wizard = {
 type Project = {
   id: string;
   title: string;
+  activeChapterId: string | null;
   consumerGroupId: string | null;
   packId: string | null;
   topicId: string | null;
@@ -612,6 +613,9 @@ function migrateProject(raw: Record<string, unknown>): Project {
   return {
     id: String(raw.id || crypto.randomUUID()),
     title: String(raw.title || "未命名作品"),
+    activeChapterId: typeof raw.activeChapterId === "string"
+      ? raw.activeChapterId
+      : null,
     consumerGroupId: selection.consumerGroupId,
     packId: selection.packId,
     topicId: selection.topicId,
@@ -698,6 +702,7 @@ function projectSeed(project: Project): StudioProjectSeed {
   return {
     id: project.id,
     title: project.title,
+    chapterId: project.activeChapterId,
     chapterTitle: project.chapterTitle,
     draft: project.draft,
     packId: project.packId,
@@ -762,10 +767,11 @@ function projectFromCanonical(project: NovelProject, seed: ProjectSeed | null, e
       id: project.id, title: project.title, consumerGroupId: null, packId: project.genrePackId, topicId: project.genreId,
       topicName: null, subCategory: project.subgenreId, coreIdea: project.coreIdea as OptionalField, selectedPlayModeId: null,
       enabledStats: [], adultMode: project.adultMode, optionalFields: fields, storyLibrarySchemaVersion: STORY_LIBRARY.schemaVersion,
-      chapterTitle: "第一章", draft: "", updatedAt: project.updatedAt, versions: [],
+      activeChapterId: project.activeChapterId, chapterTitle: "第一章", draft: "", updatedAt: project.updatedAt, versions: [],
     }),
     id: project.id,
     title: project.title,
+    activeChapterId: project.activeChapterId,
     coreIdea: project.coreIdea as OptionalField,
     optionalFields: fields,
     updatedAt: project.updatedAt,
@@ -789,6 +795,7 @@ async function hydrateCanonicalStudio(repository: NovelRepository, shell: Studio
     const existing = shell.projects.find((item) => item.id === formal.id);
     const snapshot = await ensureStudioCanonicalProject(repository, projectSeed(projectFromCanonical(formal, seed, existing)));
     const item = projectFromCanonical(snapshot.project, seed, existing);
+    item.activeChapterId = snapshot.chapter.id;
     item.chapterTitle = snapshot.chapter.title;
     item.draft = snapshot.chapter.content;
     item.updatedAt = snapshot.chapter.updatedAt;
@@ -1098,6 +1105,7 @@ export default function StudioClient({
     const next: Project = {
       id,
       title: w.title.trim() || "未命名作品",
+      activeChapterId: null,
       consumerGroupId: w.consumerGroupId || topic?.consumerGroupId || null,
       packId: w.packId || topic?.packId || null,
       topicId: topic?.topicId || null,
@@ -1116,10 +1124,18 @@ export default function StudioClient({
       updatedAt: now,
       versions: [],
     };
-    try { await ensureStudioCanonicalProject(repositoryRef.current!, projectSeed(next)); }
+    let canonical: Awaited<ReturnType<typeof ensureStudioCanonicalProject>>;
+    try { canonical = await ensureStudioCanonicalProject(repositoryRef.current!, projectSeed(next)); }
     catch (error) { console.error("PROJECT_CANONICAL_CREATE_FAILED", error); alert("作品保存失敗，尚未建立正式作品，請再試一次。"); return; }
+    const persistedNext: Project = {
+      ...next,
+      activeChapterId: canonical.chapter.id,
+      chapterTitle: canonical.chapter.title,
+      draft: canonical.chapter.content,
+      updatedAt: canonical.chapter.updatedAt,
+    };
     update({
-      projects: [next, ...state.projects],
+      projects: [persistedNext, ...state.projects],
       activeProjectId: id,
       candidate: null,
       gameStates: {
@@ -1134,21 +1150,94 @@ export default function StudioClient({
   async function saveDraft(title: string, draft: string) {
     if (!ensureCanonicalWritable("儲存草稿")) return;
     if (!project) return;
+    try {
+      const canonical = await saveStudioChapter(
+        repositoryRef.current!,
+        projectSeed({ ...project, chapterTitle: title, draft }),
+      );
+      setState((value) => ({
+        ...value,
+        projects: value.projects.map((item) =>
+          item.id === project.id
+            ? {
+                ...item,
+                activeChapterId: canonical.chapter.id,
+                chapterTitle: canonical.chapter.title,
+                draft: canonical.chapter.content,
+                updatedAt: canonical.chapter.updatedAt,
+              }
+            : item,
+        ),
+      }));
+    } catch (error) {
+      console.error("CHAPTER_CANONICAL_SAVE_FAILED", error);
+      throw error;
+    }
+  }
+  async function activateStudioChapter(chapterId: string) {
+    if (!ensureCanonicalWritable("切換章節")) throw canonicalWriteBlocked("切換章節");
+    if (!project) throw new Error("目前沒有可切換的作品。");
+    const repository = repositoryRef.current!;
+    const [formalProject, targetChapter] = await Promise.all([
+      repository.get<NovelProject>("projects", project.id),
+      repository.get<Chapter>("chapters", chapterId),
+    ]);
+    if (!formalProject || !targetChapter || targetChapter.projectId !== project.id) {
+      throw new Error("找不到指定章節，未切換任何內容。");
+    }
+    if (formalProject.activeChapterId !== targetChapter.id) {
+      await repository.put<NovelProject>("projects", {
+        ...formalProject,
+        activeChapterId: targetChapter.id,
+      }, formalProject.revision);
+    }
     setState((value) => ({
       ...value,
-      projects: value.projects.map((item) =>
-        item.id === project.id
-          ? {
-              ...item,
-              chapterTitle: title,
-              draft,
-              updatedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
+      candidate: null,
+      projects: value.projects.map((item) => item.id === project.id
+        ? {
+            ...item,
+            activeChapterId: targetChapter.id,
+            chapterTitle: targetChapter.title,
+            draft: targetChapter.content,
+            updatedAt: targetChapter.updatedAt,
+          }
+        : item),
     }));
-    try { await saveStudioChapter(repositoryRef.current!, projectSeed({ ...project, chapterTitle: title, draft })); }
-    catch (error) { console.error("CHAPTER_CANONICAL_SAVE_FAILED", error); }
+    return targetChapter;
+  }
+  async function createStudioChapter() {
+    if (!ensureCanonicalWritable("新增章節")) throw canonicalWriteBlocked("新增章節");
+    if (!project) throw new Error("目前沒有可新增章節的作品。");
+    const repository = repositoryRef.current!;
+    const chapters = (await repository.list<Chapter>("chapters", project.id))
+      .sort((left, right) => left.order - right.order);
+    const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
+    const chapter = await repository.put<Chapter>("chapters", {
+      ...makeRecord(project.id, "user"),
+      title: `第${order}章`,
+      order,
+      content: "",
+      summary: null,
+      status: "draft",
+    });
+    await activateStudioChapter(chapter.id);
+    return chapter;
+  }
+  async function deleteStudioChapter(chapterId: string) {
+    if (!ensureCanonicalWritable("刪除章節")) throw canonicalWriteBlocked("刪除章節");
+    if (!project) throw new Error("目前沒有可刪除章節的作品。");
+    const repository = repositoryRef.current!;
+    const chapters = (await repository.list<Chapter>("chapters", project.id))
+      .sort((left, right) => left.order - right.order);
+    if (chapters.length <= 1) throw new Error("作品至少要保留一章。");
+    const index = chapters.findIndex((item) => item.id === chapterId);
+    if (index < 0) throw new Error("找不到要刪除的章節。");
+    await repository.remove("chapters", chapterId);
+    const remaining = chapters.filter((item) => item.id !== chapterId);
+    const next = remaining[Math.min(index, remaining.length - 1)];
+    await activateStudioChapter(next.id);
+    return next;
   }
   async function createBackup(type: "quick" | "full") {
     if (!ensureCanonicalWritable("建立備份")) return null;
@@ -1267,51 +1356,95 @@ export default function StudioClient({
       ),
     }));
   }
-  function completeChapter() {
+  async function completeChapter() {
     if (!ensureCanonicalWritable("完成章節")) return;
     if (!project) return;
-    const completedAt = new Date().toISOString(),
-      old = {
-        at: completedAt,
-        title: "完成章節前",
-        content: project.draft,
+    const completedAt = new Date().toISOString();
+    const old = {
+      at: completedAt,
+      title: project.chapterTitle,
+      content: project.draft,
+    };
+    try {
+      const repository = repositoryRef.current!;
+      const canonicalProject = await repository.get<NovelProject>("projects", project.id);
+      const activeChapterId = project.activeChapterId ?? canonicalProject?.activeChapterId;
+      const currentChapter = activeChapterId
+        ? await repository.get<Chapter>("chapters", activeChapterId)
+        : null;
+      if (!canonicalProject || !currentChapter || currentChapter.projectId !== project.id) {
+        throw new Error("完成章節時找不到目前章節資料。");
+      }
+      const completed = currentChapter.status === "completed"
+        ? currentChapter
+        : await repository.put<Chapter>("chapters", {
+            ...currentChapter,
+            status: "completed",
+          }, currentChapter.revision);
+      const chapters = (await repository.list<Chapter>("chapters", project.id))
+        .sort((left, right) => left.order - right.order);
+      const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
+      const nextChapter = await repository.put<Chapter>("chapters", {
+        ...makeRecord(project.id, "user"),
+        title: `第${order}章`,
+        order,
+        content: "",
+        summary: null,
+        status: "draft",
+      });
+      await repository.put<NovelProject>("projects", {
+        ...canonicalProject,
+        activeChapterId: nextChapter.id,
+      }, canonicalProject.revision);
+      const nextProject: Project = {
+        ...project,
+        activeChapterId: nextChapter.id,
+        chapterTitle: nextChapter.title,
+        draft: nextChapter.content,
+        updatedAt: nextChapter.updatedAt,
+        versions: [{ ...old, title: `${completed.title}（完成）` }, ...project.versions],
       };
-    setState((value) => {
-      const projects = value.projects.map((item) =>
-          item.id === project.id
-            ? {
-                ...item,
-                updatedAt: completedAt,
-                versions: [old, ...item.versions],
-              }
-            : item,
-        ),
-        nextState = { ...value, projects },
-        nextProject = projects.find((item) => item.id === project.id)!,
-        chapterBackup =
-          value.autoBackup === "chapter_complete"
-            ? [makeBackupRecord(nextProject, "full", nextState)]
-            : [];
-      return {
-        ...nextState,
-        backups: [...chapterBackup, ...value.backups],
-        executionLogs: [
-          {
-            id: crypto.randomUUID(),
-            task: "chapter_completed",
-            source: "正式章節完成事件",
-            model: "local-event",
-            elapsedMs: 0,
-            externalRequest: false,
-            at: completedAt,
-            status: "completed" as const,
-          },
-          ...value.executionLogs,
-        ].slice(0, 50),
-      };
-    });
+      const formalBackup = state.autoBackup === "chapter_complete"
+        ? await createProjectBackup(repository, project.id, "full", release)
+        : null;
+      setState((value) => {
+        const projects = value.projects.map((item) => item.id === project.id
+          ? nextProject
+          : item);
+        const nextState = { ...value, projects, candidate: null };
+        const chapterBackup = formalBackup
+          ? [{
+              ...makeBackupRecord(nextProject, "full", nextState),
+              backupId: formalBackup.backup.id,
+              bytes: formalBackup.backup.byteSize,
+              createdAt: formalBackup.backup.createdAt,
+              formalPayload: formalBackup.payload,
+            }]
+          : [];
+        return {
+          ...nextState,
+          backups: [...chapterBackup, ...value.backups],
+          executionLogs: [
+            {
+              id: crypto.randomUUID(),
+              task: "chapter_completed",
+              source: "正式章節完成事件",
+              model: "local-event",
+              elapsedMs: 0,
+              externalRequest: false,
+              at: completedAt,
+              status: "completed" as const,
+            },
+            ...value.executionLogs,
+          ].slice(0, 50),
+        };
+      });
+    } catch (error) {
+      console.error("CHAPTER_COMPLETE_FAILED", error);
+      alert(error instanceof Error ? error.message : "完成章節失敗，沒有建立下一章。");
+    }
   }
-  function contextFor(task: string) {
+  function contextFor(task: string, currentChapterText = project?.draft ?? "") {
     const fields = project?.optionalFields ?? state.wizard.optionalFields;
     return JSON.stringify({
       task,
@@ -1324,7 +1457,7 @@ export default function StudioClient({
       protagonist: optionalValue(fields, "protagonist") || null,
       world: optionalValue(fields, "world") || null,
       conflict: optionalValue(fields, "conflict") || null,
-      recentText: project?.draft.slice(-1600) || null,
+      recentText: currentChapterText.slice(-1600) || null,
       instruction:
         "只提出候選，不得假設空白欄位已設定；若輸出推薦或三選一，請使用簡潔 JSON。",
     });
@@ -1433,6 +1566,7 @@ export default function StudioClient({
     let candidate: Candidate = null;
     let sourceChapterId: string | null = null;
     let sourceRevision: number | null = null;
+    let currentChapterText = project?.draft ?? "";
     if (regenerationSource && regenerationSource.candidateKind !== "closed-ai") {
       setRegenerationError("只有具備真實模型證明的候選才能換一個版本。");
       return;
@@ -1462,11 +1596,12 @@ export default function StudioClient({
         );
         sourceChapterId = canonical.chapter.id;
         sourceRevision = canonical.chapter.revision;
+        currentChapterText = canonical.chapter.content;
       }
       const taskInput = {
         projectId: project?.id || "draft-project",
         task,
-        input: contextFor(task),
+        input: contextFor(task, currentChapterText),
         sourceChapterId: sourceChapterId ?? undefined,
         sourceRevision: sourceRevision ?? undefined,
         targetLength:
@@ -2393,6 +2528,9 @@ export default function StudioClient({
                 }
                 navigate={navigate}
                 saveDraft={saveDraft}
+                activateChapter={activateStudioChapter}
+                createChapter={createStudioChapter}
+                deleteChapter={deleteStudioChapter}
                 runTask={runTask}
                 completeChapter={completeChapter}
                 acceptCandidate={acceptCandidate}
@@ -3012,6 +3150,9 @@ function WriteScreen({
   candidate,
   navigate,
   saveDraft,
+  activateChapter,
+  createChapter,
+  deleteChapter,
   runTask,
   completeChapter,
   acceptCandidate,
@@ -3024,9 +3165,12 @@ function WriteScreen({
   project: Project | null;
   candidate: Candidate;
   navigate: (screen: Screen) => void;
-  saveDraft: (title: string, draft: string) => void;
+  saveDraft: (title: string, draft: string) => Promise<void>;
+  activateChapter: (chapterId: string) => Promise<Chapter>;
+  createChapter: () => Promise<Chapter>;
+  deleteChapter: (chapterId: string) => Promise<Chapter>;
   runTask: StudioRunTask;
-  completeChapter: () => void;
+  completeChapter: () => Promise<void>;
   acceptCandidate: (content?: string) => Promise<void>;
   discard: () => void;
   assistantStatus: AssistantStatus;
@@ -3038,13 +3182,151 @@ function WriteScreen({
     [draft, setDraft] = useState(project?.draft || ""),
     [focus, setFocus] = useState(false),
     [helperOpen, setHelperOpen] = useState(false),
-    [regenerationExtra, setRegenerationExtra] = useState("");
+    [regenerationExtra, setRegenerationExtra] = useState(""),
+    [chapters, setChapters] = useState<Chapter[]>([]),
+    [chapterBusy, setChapterBusy] = useState(false),
+    [chapterMessage, setChapterMessage] = useState("章節彼此獨立保存");
+  const lastSubmitted = useRef<{
+    chapterId: string | null;
+    title: string;
+    draft: string;
+  } | null>(null);
+  const displayedChapterId = useRef(project?.activeChapterId ?? null);
+  const displayedProjectStamp = useRef(project?.updatedAt ?? "");
+  const titleRef = useRef(title);
+  const draftRef = useRef(draft);
+
+  useEffect(() => {
+    titleRef.current = title;
+    draftRef.current = draft;
+  }, [title, draft]);
+
+  useEffect(() => {
+    if (!project) return;
+    const identityChanged = displayedChapterId.current !== project.activeChapterId;
+    const stampChanged = displayedProjectStamp.current !== project.updatedAt;
+    if (!identityChanged && !stampChanged) return;
+    const submitted = lastSubmitted.current;
+    const isOwnSave = Boolean(
+      submitted
+      && submitted.chapterId === project.activeChapterId
+      && submitted.title === project.chapterTitle
+      && submitted.draft === project.draft,
+    );
+    displayedChapterId.current = project.activeChapterId;
+    displayedProjectStamp.current = project.updatedAt;
+    if (identityChanged || !isOwnSave) {
+      setTitle(project.chapterTitle);
+      setDraft(project.draft);
+    }
+    if (isOwnSave) lastSubmitted.current = null;
+  }, [project]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!project) return;
+    void createNovelRepository().list<Chapter>("chapters", project.id)
+      .then((rows) => {
+        if (!cancelled) setChapters(rows.sort((left, right) => left.order - right.order));
+      })
+      .catch((error) => {
+        if (!cancelled) setChapterMessage(error instanceof Error ? error.message : "章節列表讀取失敗");
+      });
+    return () => { cancelled = true; };
+  }, [project]);
+
+  async function persistCurrentChapter() {
+    if (!project) return;
+    const payload = {
+      chapterId: project.activeChapterId,
+      title: titleRef.current,
+      draft: draftRef.current,
+    };
+    lastSubmitted.current = payload;
+    setChapterMessage("正在保存目前章節……");
+    try {
+      await saveDraft(payload.title, payload.draft);
+      setChapters((rows) => rows.map((item) => item.id === payload.chapterId
+        ? { ...item, title: payload.title, content: payload.draft }
+        : item));
+      setChapterMessage("目前章節已獨立保存");
+    } catch (error) {
+      lastSubmitted.current = null;
+      setChapterMessage(error instanceof Error ? error.message : "章節保存失敗");
+      throw error;
+    }
+  }
+
+  async function selectChapter(next: Chapter) {
+    if (!project || next.id === project.activeChapterId || chapterBusy) return;
+    if (candidate) {
+      alert("請先採用或放棄目前 AI 候選，再切換章節，避免候選套用到錯誤章節。");
+      return;
+    }
+    setChapterBusy(true);
+    try {
+      await persistCurrentChapter();
+      const activated = await activateChapter(next.id);
+      setTitle(activated.title);
+      setDraft(activated.content);
+      setChapterMessage(`已切換到「${activated.title}」`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "章節切換失敗。");
+    } finally {
+      setChapterBusy(false);
+    }
+  }
+
+  async function addChapter() {
+    if (!project || chapterBusy) return;
+    if (candidate) {
+      alert("請先處理目前 AI 候選，再新增章節。");
+      return;
+    }
+    setChapterBusy(true);
+    try {
+      await persistCurrentChapter();
+      const created = await createChapter();
+      setChapters((rows) => [...rows, created].sort((left, right) => left.order - right.order));
+      setTitle(created.title);
+      setDraft(created.content);
+      setChapterMessage(`已建立「${created.title}」`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "新增章節失敗。");
+    } finally {
+      setChapterBusy(false);
+    }
+  }
+
+  async function removeCurrentChapter() {
+    if (!project?.activeChapterId || chapterBusy) return;
+    if (candidate) {
+      alert("請先處理目前 AI 候選，再刪除章節。");
+      return;
+    }
+    if (!confirm(`確定刪除「${titleRef.current}」嗎？其他章節不會受影響。`)) return;
+    setChapterBusy(true);
+    try {
+      const next = await deleteChapter(project.activeChapterId);
+      setChapters((rows) => rows.filter((item) => item.id !== project.activeChapterId));
+      setTitle(next.title);
+      setDraft(next.content);
+      setChapterMessage(`已刪除章節，現在是「${next.title}」`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "刪除章節失敗。");
+    } finally {
+      setChapterBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (
       !project
       || (title === project.chapterTitle && draft === project.draft)
     ) return;
-    const timer = setTimeout(() => saveDraft(title, draft), 1000);
+    const timer = setTimeout(() => {
+      void persistCurrentChapter().catch(() => undefined);
+    }, 1000);
     return () => clearTimeout(timer);
   }, [title, draft]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!project)
@@ -3062,12 +3344,36 @@ function WriteScreen({
       data-project-id={project.id}
     >
       {!focus && (
-        <aside>
+        <aside className="studioChapterSidebar">
           <h2>{project.title}</h2>
           <p>{project.topicName || "題材尚未設定"}</p>
+          <section className="studioChapterManager" aria-label="章節列表" data-testid="studio-chapter-manager">
+            <header>
+              <div><small>章節列表</small><b>{chapters.length} 章</b></div>
+              <button type="button" disabled={chapterBusy} onClick={() => void addChapter()}>＋ 新增</button>
+            </header>
+            <div>
+              {chapters.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  data-testid={`studio-chapter-${item.id}`}
+                  className={item.id === project.activeChapterId ? "active" : ""}
+                  disabled={chapterBusy}
+                  onClick={() => void selectChapter(item)}
+                >
+                  <span>{item.order}. {item.title}</span>
+                  <small>{item.status === "completed" ? "已完成" : `${words(item.content)} 字`}</small>
+                </button>
+              ))}
+            </div>
+            <footer>
+              <small>{chapterMessage}</small>
+              <button type="button" disabled={chapterBusy || chapters.length <= 1} onClick={() => void removeCurrentChapter()}>刪除本章</button>
+            </footer>
+          </section>
           <nav>
-            <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-            <button onClick={() => navigate("library")}>章節列表</button>
+            <Link href={`/studio/read/${project.id}`} onClick={() => void persistCurrentChapter()}>閱讀作品</Link>
             <button onClick={() => navigate("create")}>故事設定</button>
             <button onClick={() => navigate("world")}>主要角色</button>
             <button onClick={() => navigate("world")}>世界設定</button>
@@ -3085,7 +3391,7 @@ function WriteScreen({
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <span>已啟用自動保存</span>
+          <span>{chapterMessage}</span>
         </header>
         <textarea
           aria-label="正文編輯器"
@@ -3104,9 +3410,9 @@ function WriteScreen({
             <button onClick={() => setFocus(!focus)}>
               {focus ? "離開專注模式" : "專注寫作"}
             </button>
-            <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-            <button onClick={completeChapter}>完成章節</button>
-            <button className="gold" onClick={() => saveDraft(title, draft)}>
+            <Link href={`/studio/read/${project.id}`} onClick={() => void persistCurrentChapter()}>閱讀作品</Link>
+            <button onClick={() => void persistCurrentChapter().then(() => completeChapter())}>完成本章並建立下一章</button>
+            <button className="gold" onClick={() => void persistCurrentChapter()}>
               儲存草稿
             </button>
           </div>
@@ -3152,7 +3458,7 @@ function WriteScreen({
               <button
                 key={id}
                 disabled={Boolean(assistantBusy)}
-                onClick={() => void runTask(id)}
+                onClick={() => void persistCurrentChapter().then(() => runTask(id))}
               >
                 <b>{assistantBusy === id ? "真實模型執行中…" : label}</b>
                 <span>

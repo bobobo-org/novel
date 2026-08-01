@@ -5,6 +5,7 @@ import { RepositoryOperationError, type AcceptChoiceTransactionResult, type Nove
 export type StudioProjectSeed = {
   id: string;
   title: string;
+  chapterId?: string | null;
   chapterTitle: string;
   draft: string;
   packId?: string | null;
@@ -51,7 +52,14 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     await repository.createProject(bundle, `studio-project:${input.id}`);
     project = bundle.project;
   }
-  let chapter = project.activeChapterId ? await repository.get<Chapter>("chapters", project.activeChapterId) : null;
+  let chapter = input.chapterId
+    ? await repository.get<Chapter>("chapters", input.chapterId)
+    : project.activeChapterId
+      ? await repository.get<Chapter>("chapters", project.activeChapterId)
+      : null;
+  if (input.chapterId && (!chapter || chapter.projectId !== input.id)) {
+    throw new RepositoryOperationError("STUDIO_SOURCE_CHAPTER_NOT_FOUND");
+  }
   if (!chapter) {
     chapter = { ...makeRecord(input.id, "migration"), title: input.chapterTitle || "第一章", order: 1, content: input.draft || "", summary: null, status: "draft" };
     chapter = await repository.put("chapters", chapter);
