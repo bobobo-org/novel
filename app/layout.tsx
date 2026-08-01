@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import OfflineRuntime from "./offline-runtime";
+import CloudSyncRuntime from "./cloud-sync-runtime";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
           appCommit={RELEASE_MANIFEST.appCommit}
           assetManifestDigest={RELEASE_MANIFEST.commitProvenanceHash}
         />
+        <CloudSyncRuntime />
         {children}
       </body>
     </html>

@@ -168,9 +168,9 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       </section>
 
       <section className="frontdoorRuntime" aria-label="目前執行狀態">
-        <article><span>作品儲存</span><strong>本機裝置</strong><small>IndexedDB 是正式作品庫</small></article>
+        <Link className="frontdoorRuntimeCard" href="/studio/settings/storage"><span>作品儲存</span><strong>本機裝置</strong><small>IndexedDB 是正式作品庫</small></Link>
         <article data-state={closedAI}><span>閉端 AI</span><strong>{closedAI}</strong><small>不會暗中切換外部 AI</small></article>
-        <article data-state={cloudSync}><span>雲端同步</span><strong>{cloudSync}</strong><small>異常時不阻擋本機創作</small></article>
+        <Link className="frontdoorRuntimeCard" data-state={cloudSync} href="/studio/settings/storage"><span>雲端同步</span><strong>{cloudSync}</strong><small>端對端加密・異常不阻擋創作</small></Link>
         <article><span>外部 AI</span><strong>預設未使用</strong><small>只有明確同意才可呼叫</small></article>
       </section>
 

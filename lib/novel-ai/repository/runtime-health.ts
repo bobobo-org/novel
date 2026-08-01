@@ -42,7 +42,7 @@ export function derivePersistenceRuntimeMode(input: {
   cloudStatus: string;
 }): PersistenceRuntimeMode {
   if (!input.localReady) return "LOCAL_BLOCKED";
-  if (input.cloudStatus === "ok" || input.cloudStatus === "healthy") {
+  if (["ok", "healthy", "ready", "online"].includes(input.cloudStatus)) {
     return "LOCAL_PLUS_CLOUD";
   }
   if (

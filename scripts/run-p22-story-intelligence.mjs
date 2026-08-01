@@ -688,10 +688,10 @@ test("Browser AI executes the packaged model when the native Summarizer is unava
     const capability = await detectBrowserAI();
     assert.equal(capability.status, "ready");
     assert.equal(capability.reason, "browser_hybrid_runtime_packaged_ready");
-    assert.equal(capability.modelId, "novel-browser-task-runtime-v2");
+    assert.equal(capability.modelId, "novel-browser-task-runtime-v3");
     const decision = {
       providerId: "browser-ai",
-      modelId: "novel-browser-task-runtime-v2",
+      modelId: "novel-browser-task-runtime-v3",
       privacyMode: "strict-local",
       reason: "packaged fallback test",
       contextSources: [],
@@ -711,7 +711,7 @@ test("Browser AI executes the packaged model when the native Summarizer is unava
       closedOnly: true,
       offlineRequired: true,
     }, decision);
-    assert.equal(result.modelId, "novel-browser-task-runtime-v2");
+    assert.equal(result.modelId, "novel-browser-task-runtime-v3");
     assert.equal(result.content, "她發現帳冊失蹤，並在窗邊找到濕泥腳印。");
     assert.equal(result.externalRequest, false);
     assert.equal(result.dataLeavesDevice, false);
@@ -750,7 +750,7 @@ test("Browser AI capability probe fails over when the native Summarizer hangs", 
     assert(Date.now() - startedAt < 3_000);
     assert.equal(capability.status, "ready");
     assert.equal(capability.reason, "browser_hybrid_runtime_packaged_ready");
-    assert.equal(capability.modelId, "novel-browser-task-runtime-v2");
+    assert.equal(capability.modelId, "novel-browser-task-runtime-v3");
   } finally {
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else delete globalThis.window;

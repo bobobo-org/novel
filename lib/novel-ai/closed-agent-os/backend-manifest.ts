@@ -5,7 +5,17 @@ import type {
 } from "./types";
 
 export const BROWSER_AI_LIGHT_TASKS: PlatformTaskType[] = [
+  "chapter.compress",
   "story.summary",
+  "story.chapterReview",
+  "story.consistencyCheck",
+  "story.timelineCheck",
+  "story.characterCheck",
+  "story.worldRuleCheck",
+  "story.foreshadowingCheck",
+  "story.plotAnalysis",
+  "story.pacingCheck",
+  "story.originalityCheck",
   "drama.chapterClassify",
   "drama.sceneClassify",
   "drama.characterPresence",

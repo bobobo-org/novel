@@ -15,6 +15,7 @@ import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../.
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
+import { notifyCloudSyncMutation } from "../../cloud-sync/mutation-events";
 
 const DB_NAME = "novel-intelligence-platform";
 const DB_VERSION = 6;
@@ -72,9 +73,17 @@ export class IndexedDbNovelRepository implements NovelRepository {
     const db = await this.open(), tx = db.transaction(store, "readwrite"), objectStore = tx.objectStore(store), current = await request(objectStore.get(record.id)) as T | undefined;
     if (expectedRevision !== undefined && (current?.revision ?? 0) !== expectedRevision) { tx.abort(); throw new RevisionConflictError(expectedRevision, current?.revision ?? 0); }
     const next = { ...record, revision: current ? current.revision + 1 : record.revision, updatedAt: new Date().toISOString(), parentRevision: current?.revision ?? null } as T;
-    objectStore.put(next); await complete(tx); return next;
+    objectStore.put(next); await complete(tx);
+    notifyCloudSyncMutation(next.projectId, `put:${store}`);
+    return next;
   }
-  async remove(store: NovelStoreName, id: string) { const db = await this.open(), tx = db.transaction(store, "readwrite"); tx.objectStore(store).delete(id); await complete(tx); }
+  async remove(store: NovelStoreName, id: string) {
+    const db = await this.open(), tx = db.transaction(store, "readwrite"), objectStore = tx.objectStore(store);
+    const current = await request(objectStore.get(id)) as DomainRecord | undefined;
+    objectStore.delete(id);
+    await complete(tx);
+    if (current?.projectId) notifyCloudSyncMutation(current.projectId, `remove:${store}`);
+  }
   async createProject(bundle: ProjectBundle, requestId: string) {
     const db = await this.open(), names = ["projects","projectSeeds","storyBibles","characters","worlds","storyStates","tasks","readerStates","backups",REQUEST_STORE] as string[], tx = db.transaction(names, "readwrite"), ledger = tx.objectStore(REQUEST_STORE);
     const replay = await request(ledger.get(requestId)) as { requestId: string; bundle: ProjectBundle } | undefined;
@@ -82,7 +91,10 @@ export class IndexedDbNovelRepository implements NovelRepository {
     if (await request(tx.objectStore("projects").get(bundle.project.id))) { tx.abort(); throw new Error("PROJECT_ALREADY_EXISTS"); }
     const writes: Array<[string, DomainRecord | null]> = [["projects",bundle.project],["projectSeeds",bundle.seed],["storyBibles",bundle.storyBible],["characters",bundle.protagonist],["worlds",bundle.world],["storyStates",bundle.storyState],["tasks",bundle.initialTask],["readerStates",bundle.readerState],["backups",bundle.initialBackup]];
     for (const [store, record] of writes) if (record) tx.objectStore(store).put(record);
-    ledger.put({ requestId, projectId: bundle.project.id, bundle, createdAt: new Date().toISOString() }); await complete(tx); return bundle;
+    ledger.put({ requestId, projectId: bundle.project.id, bundle, createdAt: new Date().toISOString() });
+    await complete(tx);
+    notifyCloudSyncMutation(bundle.project.id, "create-project");
+    return bundle;
   }
   async acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult> {
     const db = await this.open();
@@ -124,6 +136,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore("idempotencyRecords").put(records.idempotencyRecord);
       tx.objectStore("operationJournal").put(records.journal);
       await complete(tx);
+      notifyCloudSyncMutation(input.projectId, "accept-choice");
       return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch, storyBible: records.storyBible, storyBibleDelta: records.storyBibleDelta, approvalTransaction: records.approvalTransaction, idempotencyRecord: records.idempotencyRecord };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
@@ -163,6 +176,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       journalStore.put(records.journal);
       this.inject("after:studioCandidateJournal");
       await complete(tx);
+      notifyCloudSyncMutation(input.projectId, "commit-studio-candidate");
       return { replayed: false, ...records };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
@@ -189,6 +203,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
     try {
       for (const [store, records] of rows) for (const record of records) tx.objectStore(store).put(record);
       await complete(tx);
+      notifyCloudSyncMutation(input.project.projectId, "save-drama-projection");
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
       throw error;
@@ -233,6 +248,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       approvalStore.put(records.approval);
       tx.objectStore("narrativeCanonLinks").put(records.canonLink);
       await complete(tx);
+      notifyCloudSyncMutation(input.projectId, "approve-drama-projection");
       return { replayed: false, ...records };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
@@ -275,6 +291,9 @@ export class IndexedDbNovelRepository implements NovelRepository {
         updatedAt: now,
       });
       await complete(tx);
+      if (staleProjects.length || staleLinks.length) {
+        notifyCloudSyncMutation(input.projectId, "mark-drama-projection-stale");
+      }
       return {
         staleDramaProjectIds: staleProjects.map((row) => row.dramaProjectId),
         staleCanonLinkIds: staleLinks.map((row) => row.canonLinkId),
@@ -399,6 +418,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
         this.inject(`after:${store}`);
       }
       await complete(tx);
+      notifyCloudSyncMutation(input.projectId, "approve-character-proposal");
       return { replayed: false, proposal: records.proposal, approval: records.approval, canonicalRecord: records.canonicalRecord };
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
@@ -428,6 +448,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore("characterAgentAudit").put(records.audit);
       this.inject("after:characterAgentAudit");
       await complete(tx);
+      notifyCloudSyncMutation(input.projectId, "reject-character-proposal");
       return records;
     } catch (error) {
       try { tx.abort(); } catch { /* transaction already completed */ }
@@ -440,6 +461,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
     const db = await this.open(), stores: NovelStoreName[] = ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal"], tx = db.transaction(stores, "readwrite");
     for (const store of stores) { const objectStore = tx.objectStore(store), keys = await request(objectStore.index("projectId").getAllKeys(projectId)); for (const key of keys) objectStore.delete(key); }
     await complete(tx);
+    notifyCloudSyncMutation(projectId, "delete-project-interactions");
   }
   async exportProject(projectId: string) {
     const db = await this.open(), tx = db.transaction([...NOVEL_STORES], "readonly"), output: Record<string, unknown[]> = {};
@@ -467,7 +489,9 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore(store).put(remapImportedRecord(raw as DomainRecord, nextProjectId, idMap, mode === "copy"));
       }
     }
-    await complete(tx); return nextProjectId;
+    await complete(tx);
+    notifyCloudSyncMutation(nextProjectId, mode === "replace" ? "restore-cloud-snapshot" : "copy-cloud-snapshot");
+    return nextProjectId;
   }
 }
 

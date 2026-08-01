@@ -51,6 +51,7 @@ jobs:
           pnpm test:ai:closed:unified-os
           pnpm test:ai:closed:web-operability
           pnpm test:ai:closed:optimization
+          pnpm test:ai:closed:cloud-sync
           pnpm test:ai:closed:model-verification-timeout
           pnpm test:ai:closed:super-agent-rpg
           pnpm test:ai:closed:cache-runtime
@@ -189,6 +190,10 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Apply and verify encrypted cloud sync migration
+        if: github.ref == 'refs/heads/main'
+        run: node scripts/apply-cloud-sync-migration.mjs --env-file .vercel/.env.production.local --required
+
       - name: Build (production)
         if: github.ref == 'refs/heads/main'
         run: vercel build --prod --token="$VERCEL_TOKEN"
@@ -225,6 +230,28 @@ jobs:
             sleep 2
           done
           echo "Staged release identity did not match commit $GITHUB_SHA." >&2
+          exit 1
+
+      - name: Verify staged encrypted cloud sync runtime
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          STAGED_URL: ${{ steps.production.outputs.url }}
+        run: |
+          set -euo pipefail
+          health_url="$STAGED_URL/api/persistence/sync/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for attempt in {1..30}; do
+            if body="$(curl --fail --silent --show-error "$health_url" 2>/dev/null)"; then
+              status="$(jq -r '.status // empty' <<<"$body")"
+              migration="$(jq -r '.migrationVersion // empty' <<<"$body")"
+              schema="$(jq -r '.schemaVersion // empty' <<<"$body")"
+              if [[ "$status" == "ready" && "$migration" == "cloud_sync_e2ee_025" && "$schema" == "novel-cloud-sync-e2ee-v1" ]]; then
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo "Staged encrypted cloud sync runtime is not ready; aliases remain unchanged." >&2
           exit 1
 
       - name: Cut over both aliases with atomic compensation

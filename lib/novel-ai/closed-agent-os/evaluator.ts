@@ -14,6 +14,37 @@ import type {
 const CREDENTIAL = /\b(?:vcp|sbp|sk|gh[pousr])_[A-Za-z0-9_-]{20,}\b/u;
 const RAW_REASONING = /\b(?:chain[- ]of[- ]thought|hidden reasoning)\b/iu;
 
+function candidateRubric(input: {
+  content: string;
+  blockingCodes: string[];
+  objectiveAcceptance: ReturnType<typeof evaluateObjectiveAcceptance>;
+}) {
+  const paragraphs = input.content.split(/\n\s*\n/gu).filter((item) => item.trim());
+  const sentences = input.content.split(/[。！？!?\n]+/gu)
+    .map((item) => item.replace(/\s+/gu, "").trim())
+    .filter((item) => item.length >= 8);
+  const uniqueSentences = new Set(sentences);
+  const repetitionRatio = sentences.length
+    ? 1 - uniqueSentences.size / sentences.length
+    : 0;
+  const objectiveDimensions = input.objectiveAcceptance.contract.requiredDimensions.length;
+  const objectiveCoverage = objectiveDimensions
+    ? 1 - input.objectiveAcceptance.missingDimensions.length / objectiveDimensions
+    : input.content.length >= 48
+      ? 1
+      : 0.5;
+  const concreteSignals = (input.content.match(
+    /(?:因為|因此|如果|當|代價|風險|證據|步驟|條件|結果|限制|例外|\d+)/gu,
+  ) ?? []).length;
+  return {
+    safety: input.blockingCodes.length ? 0 : 1,
+    objectiveCoverage: Math.max(0, Math.min(1, objectiveCoverage)),
+    structure: Math.max(0.25, Math.min(1, (paragraphs.length + 1) / 4)),
+    specificity: Math.max(0.2, Math.min(1, concreteSignals / 8)),
+    repetitionPenalty: Math.max(0, Math.min(1, repetitionRatio)),
+  };
+}
+
 export async function evaluateClosedAgentCandidate(input: {
   request: ClosedAgentTaskRequest;
   execution: ClosedBackendExecutionResult;
@@ -57,6 +88,12 @@ export async function evaluateClosedAgentCandidate(input: {
     objective: input.request.objective,
     content,
   });
+  const repeatedLines = content.split(/\n+/gu)
+    .map((line) => line.replace(/\s+/gu, "").trim())
+    .filter((line) => line.length >= 16);
+  if (repeatedLines.length >= 4 && new Set(repeatedLines).size / repeatedLines.length < 0.65) {
+    warningCodes.push("CANDIDATE_HIGH_REPETITION");
+  }
   for (const code of objectiveAcceptance.warningCodes) {
     if (!warningCodes.includes(code)) warningCodes.push(code);
   }
@@ -86,6 +123,7 @@ export async function evaluateClosedAgentCandidate(input: {
       kind: item.kind,
       digestSource: item.text,
     }));
+  const rubric = candidateRubric({ content, blockingCodes, objectiveAcceptance });
   const evaluatorInputDigest = await sha256Hex(stableStringify({
     taskType: input.request.taskType,
     objective: input.request.objective,
@@ -97,6 +135,7 @@ export async function evaluateClosedAgentCandidate(input: {
       missingDimensions: objectiveAcceptance.missingDimensions,
       dimensionCoverage: objectiveAcceptance.dimensionCoverage,
     },
+    rubric,
   }));
   const score = Math.max(
     0,
@@ -108,6 +147,7 @@ export async function evaluateClosedAgentCandidate(input: {
     blockingCodes,
     warningCodes,
     evaluatorInputDigest,
+    rubric,
     rawChainOfThoughtStored: false,
   };
 }

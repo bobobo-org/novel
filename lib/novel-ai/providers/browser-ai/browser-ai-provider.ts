@@ -76,7 +76,17 @@ const BROWSER_MANAGED_MODEL_DIGEST =
   "browser-managed-model-digest-unavailable";
 
 const BROWSER_LIGHT_TASKS: PlatformAIRequest["taskType"][] = [
+  "chapter.compress",
   "story.summary",
+  "story.chapterReview",
+  "story.consistencyCheck",
+  "story.timelineCheck",
+  "story.characterCheck",
+  "story.worldRuleCheck",
+  "story.foreshadowingCheck",
+  "story.plotAnalysis",
+  "story.pacingCheck",
+  "story.originalityCheck",
   "drama.chapterClassify",
   "drama.sceneClassify",
   "drama.characterPresence",
