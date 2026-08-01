@@ -13,7 +13,7 @@ artifact with a dataset digest, model digest, metrics, activation record, and
 rollback pointer. It is not presented as LoRA/QLoRA or as a modified LLM
 weight file.
 
-## Start and pair
+## Start and connect
 
 ```powershell
 $launcher = ".\local-ai\private-hub\novel-private-hub.ps1"
@@ -21,20 +21,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher diagnose
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher start
 ```
 
-Start pairing in the Closed AI Center, then read the one-time code:
+The two official production origins connect automatically with an
+exact-origin, short-lived session. No website password or pairing code is
+required. Preview and custom origins remain explicit; only for those origins,
+start pairing in the Closed AI Center and read the one-time code:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher pair
 ```
 
-The authorization token stays in the current page's memory. Reloading the
-page or restarting the node requires pairing again.
+The short session may be retained only in the current tab's `sessionStorage`.
+It is never written to localStorage, a URL, project data, backup data, or normal
+logs. Studio also reads `hubVersion` from `/health`; when the running node is
+older than the website's compatible release, it shows an update action. After
+restart, Studio reconnects and re-verifies the selected model automatically.
 
 ## Security and capability truth
 
 - Bind address: `127.0.0.1`
 - Model endpoint: `http://127.0.0.1:11434`
-- Pairing: origin-, instance-, and expiry-bound
+- Session: exact-origin-, instance-, and expiry-bound
 - Allowed origins: shared with the Local Bridge exact-origin registry
 - Logs: request identity, task type, model/adapter identity, timing, and
   sanitized status only

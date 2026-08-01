@@ -17,12 +17,14 @@ import {
   configureLocalBridgeClient,
   configureLocalBridgeModel,
   LocalBridgeClient,
+  type LocalBridgeAutomaticConnection,
 } from "../providers/local-ollama/local-bridge-client";
 import {
   configurePrivateHubClient,
   configurePrivateHubModel,
   configurePrivateHubProject,
   PrivateHubClient,
+  type PrivateHubAutomaticConnection,
 } from "../providers/private-ai-hub/private-hub-client";
 import type { PlatformTaskType } from "../router/platform-types";
 
@@ -41,6 +43,11 @@ export type ClosedAIRuntimeState =
   | "ready_heavy"
   | "degraded"
   | "blocked";
+
+export type ClosedAIAutomaticConnectionResult = {
+  localOllama: PromiseSettledResult<LocalBridgeAutomaticConnection>;
+  privateHub: PromiseSettledResult<PrivateHubAutomaticConnection>;
+};
 
 export type ClosedAIRuntimeReleaseStatus = {
   status: "verified" | "unverified" | "unreachable";
@@ -207,6 +214,21 @@ async function readLocalNetworkPermission(): Promise<
   return states.length ? "prompt" : "unsupported";
 }
 
+export function resolveEffectiveLocalNetworkPermission(input: {
+  reported: PermissionState | "unsupported";
+  localRuntimeReady: boolean;
+  loopbackSessionEstablished: boolean;
+}): PermissionState | "unsupported" {
+  // A verified, origin-bound loopback session can only exist after the browser
+  // successfully reached the local service. Some Chromium channels still
+  // report a stale or alias-specific `denied` value through Permissions API;
+  // do not show that value as truth after the real connection succeeded.
+  if (input.localRuntimeReady && input.loopbackSessionEstablished) {
+    return "granted";
+  }
+  return input.reported;
+}
+
 function namespaceForTask(
   input: ClosedAIRuntimeRefreshInput,
 ): ClosedAINamespace {
@@ -275,7 +297,7 @@ export class ClosedAIRuntimeCoordinator {
   private readonly releaseReader: ReleaseReader;
   private readonly browserCapabilityReader: () => Promise<BrowserAICapability>;
   private readonly executionReceipts = new Map<string, ClosedAIExecutionReceipt>();
-  private recoveryAttempted = false;
+  private recoveryPromise: Promise<void> | null = null;
   private recoveryError: ReturnType<typeof safeError> | null = null;
 
   constructor(options: ClosedAIRuntimeCoordinatorOptions) {
@@ -358,24 +380,46 @@ export class ClosedAIRuntimeCoordinator {
   }
 
   private async restorePairings(signal?: AbortSignal) {
-    if (this.recoveryAttempted) return;
-    this.recoveryAttempted = true;
-    const [local, privateHub] = await Promise.allSettled([
-      this.localClient.restoreRememberedSession(signal),
-      this.privateHubClient.restoreRememberedSession(signal),
-    ]);
-    if (local.status === "fulfilled" && local.value) {
-      configureLocalBridgeClient(this.localClient);
-      configureLocalBridgeModel(local.value.model.modelId);
+    if (!this.recoveryPromise) {
+      this.recoveryPromise = (async () => {
+        const [local, privateHub] = await Promise.allSettled([
+          this.localClient.restoreRememberedSession(signal),
+          this.privateHubClient.restoreRememberedSession(signal),
+        ]);
+        if (local.status === "fulfilled" && local.value) {
+          configureLocalBridgeClient(this.localClient);
+          configureLocalBridgeModel(local.value.model.modelId);
+        }
+        if (privateHub.status === "fulfilled" && privateHub.value) {
+          configurePrivateHubClient(this.privateHubClient);
+          configurePrivateHubModel(privateHub.value.model.modelId);
+        }
+        const rejected = [local, privateHub].find(
+          (result): result is PromiseRejectedResult => result.status === "rejected",
+        );
+        this.recoveryError = rejected ? safeError(rejected.reason) : null;
+      })();
     }
-    if (privateHub.status === "fulfilled" && privateHub.value) {
+    await this.recoveryPromise;
+  }
+
+  async connectAutomatically(
+    signal?: AbortSignal,
+  ): Promise<ClosedAIAutomaticConnectionResult> {
+    await this.restorePairings(signal);
+    const [localOllama, privateHub] = await Promise.allSettled([
+      this.localClient.connectAutomatically("qwen2.5:3b", signal),
+      this.privateHubClient.connectAutomatically("qwen2.5:3b", signal),
+    ]);
+    if (localOllama.status === "fulfilled") {
+      configureLocalBridgeClient(this.localClient);
+      configureLocalBridgeModel(localOllama.value.model.modelId);
+    }
+    if (privateHub.status === "fulfilled") {
       configurePrivateHubClient(this.privateHubClient);
       configurePrivateHubModel(privateHub.value.model.modelId);
     }
-    const rejected = [local, privateHub].find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    this.recoveryError = rejected ? safeError(rejected.reason) : null;
+    return { localOllama, privateHub };
   }
 
   async refresh(
@@ -436,9 +480,14 @@ export class ClosedAIRuntimeCoordinator {
     const executionReceipt = this.executionReceipts.get(
       this.executionReceiptKey(input.projectId, input.taskType),
     ) ?? null;
+    const effectiveLocalNetworkPermission = resolveEffectiveLocalNetworkPermission({
+      reported: localNetworkPermission,
+      localRuntimeReady: local.status === "ready",
+      loopbackSessionEstablished: Boolean(localSession),
+    });
     return {
       schemaVersion: CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION,
-      state: deriveState(route, backends, localNetworkPermission),
+      state: deriveState(route, backends, effectiveLocalNetworkPermission),
       checkedAt: new Date().toISOString(),
       releaseStatus,
       browserTaskModel: {
@@ -463,7 +512,7 @@ export class ClosedAIRuntimeCoordinator {
           : null,
         maximumComplexity: "standard",
       },
-      localNetworkPermission,
+      localNetworkPermission: effectiveLocalNetworkPermission,
       localBridge: {
         status: local.status,
         detailCode: local.detailCode,

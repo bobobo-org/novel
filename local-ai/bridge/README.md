@@ -55,15 +55,28 @@ Enrollment is an explicit local action. Wildcards, paths, query strings,
 remote HTTP origins, and remote IP origins are rejected. The registry stores
 only the non-sensitive origin and audit event; it never stores a pairing token.
 
-After Studio requests pairing, read the one-time code locally:
+The two official production origins receive an exact-origin, short-lived
+session automatically. They do not ask the user for a website password or
+six-digit pairing code. The browser can still show its native local-network
+permission once, and the person using the browser must approve that prompt.
+
+Preview and custom origins still use explicit one-time pairing. After Studio
+requests pairing for one of those origins, read the code locally:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher pair
 ```
 
-Enter that code in Studio. The authorization token remains in page memory. It
-is not written to localStorage, sessionStorage, a URL, or normal logs. Reloading
-Studio or restarting the Bridge requires a new pairing.
+Enter that code in Studio. A short session can be retained only in the current
+tab's `sessionStorage`; it is not written to localStorage, a URL, project data,
+backup data, or normal logs. Closing the tab or restarting the Bridge invalidates
+it. Revoking an automatic production session blocks reconnection for that exact
+origin until the Bridge restarts or a manual pairing is explicitly completed.
+
+Studio reads `bridgeVersion` from `/health`, compares it with the website's
+minimum and recommended versions, and shows a download/update action when
+needed. After the user replaces and restarts the package, Studio reconnects and
+re-verifies the model automatically.
 
 ## Security and limits
 
@@ -71,7 +84,7 @@ Studio or restarting the Bridge requires a new pairing.
 - Ollama endpoint: `http://127.0.0.1:11434`
 - CORS: explicit Studio origins only
 - Preview access: enroll the exact HTTPS origin with `origin add`, restart the Bridge, and revoke it after testing. `start --origin` only selects an origin that is already enrolled; it cannot create authorization.
-- Pairing: origin-bound, instance-bound, short-lived, revocable
+- Session: exact-origin-bound, instance-bound, short-lived, revocable
 - Logging: request ID, task type, provider, model ID, timing, status, and
   sanitized error code only
 - Full prompts, outputs, Story Bible content, authorization headers, and

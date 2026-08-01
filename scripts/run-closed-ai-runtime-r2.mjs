@@ -34,6 +34,10 @@ import {
   LocalBridgeClient,
 } from "../lib/novel-ai/providers/local-ollama/local-bridge-client.ts";
 import {
+  evaluateLocalAIRuntimeVersion,
+  PASSWORDLESS_LOCAL_AI_ORIGINS,
+} from "../lib/novel-ai/providers/local-ollama/companion-release.ts";
+import {
   runPackagedBrowserTaskModel,
 } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 import {
@@ -567,6 +571,137 @@ test("pairing-session-reload", "tab-only pairing reload revalidates instance, mo
     exactOriginEnforced: true,
     expiredSessionRejected: true,
     localStorageWrites: 0,
+  };
+});
+
+test("automatic-local-connection", "official origin connects without password or pairing code and verifies a real model proof", async () => {
+  const storage = new MemoryStorage();
+  const origin = "https://novel-orcin.vercel.app";
+  const instanceId = "bridge-auto-instance-r2";
+  let reportedInstanceId = instanceId;
+  const modelId = "qwen2.5:3b";
+  const modelDigest = "auto-model-digest-r2";
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const headers = new Headers(init.headers);
+    const pathname = new URL(String(url)).pathname;
+    requests.push({
+      pathname,
+      method: String(init.method ?? "GET"),
+      authorization: headers.get("Authorization"),
+      csrf: headers.get("X-Bridge-CSRF"),
+      body: typeof init.body === "string" ? init.body : null,
+    });
+    if (pathname === "/health") {
+      return Response.json({
+        bridgeProcessAlive: true,
+        bridgeVersion: "1.2.0-origin-auto-connect",
+        protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+        instanceId: reportedInstanceId,
+        automaticSessionSupported: true,
+      });
+    }
+    if (pathname === "/session/auto") {
+      return Response.json({
+        token: "t".repeat(48),
+        csrf: "c".repeat(32),
+        instanceId: reportedInstanceId,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        state: "paired",
+        sessionKind: "trusted_origin_auto",
+        automaticConnection: true,
+        protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+      });
+    }
+    if (pathname === "/models") {
+      assert.match(headers.get("Authorization") ?? "", /^Bearer /u);
+      return Response.json({
+        models: [{
+          modelId,
+          modelDigest,
+          capabilities: {
+            textGeneration: { value: true, source: "reported" },
+          },
+        }],
+      });
+    }
+    if (pathname === "/model/verify") {
+      assert.match(headers.get("Authorization") ?? "", /^Bearer /u);
+      assert.equal(headers.get("X-Bridge-CSRF"), "c".repeat(32));
+      return Response.json({
+        proofVersion: "local-model-inference-proof-v1",
+        state: "inference_verified",
+        providerKind: "local_ollama",
+        instanceId: reportedInstanceId,
+        modelId,
+        modelDigest,
+        verifiedAt: new Date().toISOString(),
+        latencyMs: 2,
+        outputDigest: "d".repeat(64),
+        outputBytes: 16,
+        evalCount: 3,
+        externalRequest: false,
+        dataLeftDevice: false,
+      });
+    }
+    return Response.json({ errorCode: "UNEXPECTED_TEST_REQUEST" }, { status: 500 });
+  };
+  try {
+    const client = new LocalBridgeClient({
+      origin,
+      tabStorage: storage,
+      rememberWithinTab: true,
+    });
+    const connected = await client.connectAutomatically(modelId);
+    assert.equal(connected.state, "connected");
+    assert.equal(connected.mode, "trusted-origin-auto");
+    assert.equal(connected.model.modelId, modelId);
+    assert.equal(connected.proof.modelDigest, modelDigest);
+    assert.deepEqual(
+      requests.map((item) => item.pathname),
+      ["/health", "/session/auto", "/models", "/model/verify"],
+    );
+    assert.equal(requests.some((item) => item.pathname.startsWith("/pair/")), false);
+    assert.equal(requests[1].body, JSON.stringify({ intent: "closed-ai-connect" }));
+    assert.ok(storage.getItem(closedAITabSessionStorageKey("local-ollama")));
+
+    reportedInstanceId = "bridge-auto-instance-r2-updated";
+    const reconnected = await client.connectAutomatically(modelId);
+    assert.equal(reconnected.mode, "trusted-origin-auto");
+    assert.equal(reconnected.session.instanceId, reportedInstanceId);
+    assert.equal(
+      requests.filter((item) => item.pathname === "/session/auto").length,
+      2,
+    );
+    assert.equal(client.getSessionMetadata()?.instanceId, reportedInstanceId);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(PASSWORDLESS_LOCAL_AI_ORIGINS.includes(origin), true);
+  assert.equal(evaluateLocalAIRuntimeVersion({
+    reportedVersion: "1.2.0-origin-auto-connect",
+    minimumVersion: "1.2.0",
+    recommendedVersion: "1.2.0",
+  }), "current");
+  assert.equal(evaluateLocalAIRuntimeVersion({
+    reportedVersion: "1.1.9",
+    minimumVersion: "1.2.0",
+    recommendedVersion: "1.2.0",
+  }), "incompatible");
+  assert.equal(evaluateLocalAIRuntimeVersion({
+    reportedVersion: "1.2.0",
+    minimumVersion: "1.2.0",
+    recommendedVersion: "1.3.0",
+  }), "update_available");
+  return {
+    automaticSessionRequests: 2,
+    pairingCodeRequests: 0,
+    passwordInputs: 0,
+    modelProofVerified: true,
+    restartAutoRecovery: true,
+    versionUpdateStates: 3,
   };
 });
 

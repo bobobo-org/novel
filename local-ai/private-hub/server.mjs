@@ -15,6 +15,7 @@ import {
   modelProfileFromTag,
   normalizeOllamaEndpoint,
   validateHostHeader,
+  TRUSTED_AUTO_SESSION_ORIGINS,
   validateLoopbackHost,
 } from "../bridge/bridge-core.mjs";
 import {
@@ -33,7 +34,7 @@ import {
 } from "../cache/encrypted-cache-store.mjs";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
-export const PRIVATE_HUB_VERSION = "1.0.0-live-model";
+export const PRIVATE_HUB_VERSION = "1.1.0-origin-auto-connect";
 export const PRIVATE_HUB_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
 export const PRIVATE_HUB_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 const DEFAULT_PORT = 3227;
@@ -253,6 +254,14 @@ export function createPrivateHubServer(options = {}) {
   const limits = { ...DEFAULT_LIMITS, ...(options.limits || {}) };
   const allowlist = buildOriginAllowlist(
     options.extraOrigins ?? process.env.PRIVATE_HUB_ALLOWED_ORIGINS ?? "",
+  );
+  const trustedAutoSessionOrigins = new Set(
+    (options.trustedAutoSessionOrigins === false
+      ? []
+      : Array.isArray(options.trustedAutoSessionOrigins)
+        ? options.trustedAutoSessionOrigins
+        : TRUSTED_AUTO_SESSION_ORIGINS
+    ).filter((origin) => allowlist.has(origin)),
   );
   const pairing = new PairingStore(options.pairingOptions);
   const rate = new RateLimiter(limits.rateLimitPerMinute);
@@ -514,6 +523,7 @@ export function createPrivateHubServer(options = {}) {
           operatingSystem: `${os.platform()} ${os.release()}`,
           supportedOperations: [
             "health",
+            "trusted-origin-auto-session",
             "pairing",
             "models",
             "model-verify",
@@ -532,7 +542,8 @@ export function createPrivateHubServer(options = {}) {
           loraTrainingSupport: "hardware_gate_required",
           maximumRequestSize: limits.maxPromptBytes,
           configuredOrigins: [...allowlist],
-          securityMode: "loopback-private-node-paired",
+          automaticSessionSupported: trustedAutoSessionOrigins.has(origin),
+          securityMode: "loopback-private-node-origin-bound-short-session",
           bindAddress: host,
           pairingState: state,
           modelRuntimeReachable: ollama.reachable,
@@ -549,6 +560,30 @@ export function createPrivateHubServer(options = {}) {
             maxQueue: work.maxQueue,
           },
           limits,
+        }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/session/auto") {
+        const body = await readJson(request, 1_024);
+        if (body.intent !== "closed-ai-connect") {
+          throw new BridgeError(
+            "LOCAL_SECURITY_POLICY_VIOLATION",
+            "Automatic connection intent is invalid.",
+            400,
+          );
+        }
+        if (!trustedAutoSessionOrigins.has(origin)) {
+          throw new BridgeError(
+            "BRIDGE_ORIGIN_NOT_ALLOWED",
+            "This exact origin is not enabled for passwordless private connection.",
+            403,
+          );
+        }
+        const session = pairing.issueTrustedOriginSession(origin);
+        return sendJson(response, 200, {
+          ...session,
+          protocolVersion: PRIVATE_HUB_PROTOCOL,
+          automaticConnection: true,
         }, origin);
       }
 

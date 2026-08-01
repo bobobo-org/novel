@@ -2,7 +2,13 @@ import crypto from "node:crypto";
 import { isIP } from "node:net";
 
 export const BRIDGE_PROTOCOL = "novel-local-bridge/v1";
-export const BRIDGE_VERSION = "1.1.0-live-model";
+export const BRIDGE_VERSION = "1.2.0-origin-auto-connect";
+export const TRUSTED_AUTO_SESSION_ORIGINS = Object.freeze([
+  "https://novel-orcin.vercel.app",
+  "https://novel-lqtechs-projects.vercel.app",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]);
 export const DEFAULT_LIMITS = Object.freeze({ maxPromptBytes: 65_536, maxOutputTokens: 2_048, maxConcurrent: 1, maxQueue: 2, maxTimeoutMs: 120_000, rateLimitPerMinute: 30 });
 export const ERROR_CODES = Object.freeze([
   "BRIDGE_PROCESS_UNREACHABLE", "MIXED_CONTENT_BLOCKED", "PRIVATE_NETWORK_ACCESS_BLOCKED", "CORS_PREFLIGHT_REJECTED", "HOST_VALIDATION_FAILED", "PAIRING_STATE_INVALID", "PROTOCOL_MISMATCH", "REQUEST_TIMEOUT",
@@ -43,7 +49,7 @@ export function normalizeOllamaEndpoint(value = "http://127.0.0.1:11434") {
 }
 
 export function buildOriginAllowlist(extra = "") {
-  const defaults = ["https://novel-orcin.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"];
+  const defaults = [...TRUSTED_AUTO_SESSION_ORIGINS];
   const additions = String(extra).split(",").map((item) => item.trim()).filter(Boolean);
   for (const value of additions) {
     if (value.includes("*")) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", `Unsafe configured origin: ${value}`, 500);
@@ -76,6 +82,40 @@ export class PairingStore {
     this.pending = new Map();
     this.sessions = new Map();
     this.revoked = new Set();
+    this.autoBlockedOrigins = new Set();
+  }
+
+  issueSession(origin, sessionKind = "pairing_code") {
+    const token = crypto.randomBytes(32).toString("base64url");
+    const csrf = crypto.randomBytes(24).toString("base64url");
+    const tokenHash = digest(`${this.instanceId}:${token}`).toString("hex");
+    const expiresAt = Date.now() + this.sessionTtlMs;
+    this.sessions.set(tokenHash, {
+      origin,
+      csrfHash: digest(`${this.instanceId}:${csrf}`),
+      expiresAt,
+      state: "paired",
+      sessionKind,
+    });
+    return {
+      token,
+      csrf,
+      instanceId: this.instanceId,
+      expiresAt: new Date(expiresAt).toISOString(),
+      state: "paired",
+      sessionKind,
+    };
+  }
+
+  issueTrustedOriginSession(origin) {
+    if (this.autoBlockedOrigins.has(origin)) {
+      throw new BridgeError(
+        "BRIDGE_PAIRING_REVOKED",
+        "Automatic connection was revoked for this origin until the bridge restarts or a manual pairing is completed.",
+        401,
+      );
+    }
+    return this.issueSession(origin, "trusted_origin_auto");
   }
 
   request(origin) {
@@ -93,13 +133,9 @@ export class PairingStore {
     if (Date.now() > pending.expiresAt) { this.pending.delete(pairingId); throw new BridgeError("BRIDGE_PAIRING_EXPIRED", "Pairing request expired.", 401); }
     if (pending.origin !== origin || !equalDigest(pending.codeHash, digest(`${this.instanceId}:${code}`))) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Pairing confirmation is invalid.", 401);
     pending.used = true;
-    const token = crypto.randomBytes(32).toString("base64url");
-    const csrf = crypto.randomBytes(24).toString("base64url");
-    const tokenHash = digest(`${this.instanceId}:${token}`).toString("hex");
-    const expiresAt = Date.now() + this.sessionTtlMs;
-    this.sessions.set(tokenHash, { origin, csrfHash: digest(`${this.instanceId}:${csrf}`), expiresAt, state: "paired" });
     this.pending.delete(pairingId);
-    return { token, csrf, instanceId: this.instanceId, expiresAt: new Date(expiresAt).toISOString(), state: "paired" };
+    this.autoBlockedOrigins.delete(origin);
+    return this.issueSession(origin, "pairing_code");
   }
 
   authorize(origin, token, csrf, { requireCsrf = true } = {}) {
@@ -118,6 +154,7 @@ export class PairingStore {
     const { tokenHash } = this.authorize(origin, token, csrf);
     this.sessions.delete(tokenHash);
     this.revoked.add(tokenHash);
+    this.autoBlockedOrigins.add(origin);
     return { state: "revoked" };
   }
 

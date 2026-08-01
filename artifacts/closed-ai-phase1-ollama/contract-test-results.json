@@ -1,8 +1,8 @@
 {
   "schemaVersion": "closed-ai-bridge-contract-results-v1",
-  "generatedAt": "2026-07-28T16:01:57.036Z",
+  "generatedAt": "2026-08-01T22:09:42.106Z",
   "protocolVersion": "novel-local-bridge/v1",
-  "pass": 33,
+  "pass": 37,
   "fail": 0,
   "skip": 0,
   "externalAiCalls": 0,
@@ -10,12 +10,12 @@
     {
       "name": "protocol health handshake",
       "status": "PASS",
-      "elapsedMs": 37
+      "elapsedMs": 39
     },
     {
       "name": "protocol version mismatch",
       "status": "PASS",
-      "elapsedMs": 6
+      "elapsedMs": 4
     },
     {
       "name": "origin allowlist accepts configured origins",
@@ -30,22 +30,42 @@
     {
       "name": "preflight uses exact origin and no wildcard",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 4
     },
     {
       "name": "preflight does not consume origin request quota",
       "status": "PASS",
-      "elapsedMs": 48
+      "elapsedMs": 50
     },
     {
       "name": "malformed JSON rejected",
       "status": "PASS",
-      "elapsedMs": 8
+      "elapsedMs": 7
     },
     {
       "name": "oversized request rejected",
       "status": "PASS",
-      "elapsedMs": 3
+      "elapsedMs": 4
+    },
+    {
+      "name": "trusted exact origin receives passwordless short session",
+      "status": "PASS",
+      "elapsedMs": 0
+    },
+    {
+      "name": "automatic session authorizes local control plane",
+      "status": "PASS",
+      "elapsedMs": 2
+    },
+    {
+      "name": "automatic session revocation blocks silent reconnection",
+      "status": "PASS",
+      "elapsedMs": 5
+    },
+    {
+      "name": "lookalike production origin cannot obtain automatic session",
+      "status": "PASS",
+      "elapsedMs": 2
     },
     {
       "name": "pairing lifecycle reaches paired",
@@ -65,7 +85,7 @@
     {
       "name": "invalid model id rejected",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "model verification requires paired authorization",
@@ -90,7 +110,7 @@
     {
       "name": "expired pairing rejected",
       "status": "PASS",
-      "elapsedMs": 19
+      "elapsedMs": 8
     },
     {
       "name": "old bridge token rejected by new instance",

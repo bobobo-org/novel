@@ -153,6 +153,8 @@
     "test:ai:route-discovery-execution-parity": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs route-discovery-execution-parity",
     "test:ai:browser-task-vs-generative": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs browser-task-vs-generative",
     "test:ai:pairing-session-reload": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs pairing-session-reload",
+    "test:ai:automatic-local-connection": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs automatic-local-connection",
+    "test:ai:private-hub-auto-session": "node scripts/run-private-hub-auto-session.mjs",
     "test:ai:indexeddb-supabase-decoupling": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs indexeddb-supabase-decoupling",
     "test:ai:supabase-degraded-local-flow": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs supabase-degraded-local-flow",
     "test:ai:supabase-migration-idempotency": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-runtime-r2.mjs supabase-migration-idempotency",

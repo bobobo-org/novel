@@ -32,6 +32,9 @@ import {
   resolveLocalNetworkPermissionStates,
 } from "../lib/novel-ai/providers/local-ollama/local-bridge-client.ts";
 import {
+  resolveEffectiveLocalNetworkPermission,
+} from "../lib/novel-ai/web/closed-ai-runtime-coordinator.ts";
+import {
   LoopbackPrivateHubTransport,
   configurePrivateHubClient,
   configurePrivateHubModel,
@@ -44,6 +47,10 @@ const read = (relativePath) =>
 
 const workspaceSource = read(
   "app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx",
+);
+const localAISetupSource = read("app/settings/local-ai/setup-wizard.tsx");
+const companionReleaseSource = read(
+  "lib/novel-ai/providers/local-ollama/companion-release.ts",
 );
 const projectSource = read(
   "app/studio/project/[projectId]/project-section-client.tsx",
@@ -332,6 +339,22 @@ await test("Local Network Access aliases cannot create a false denial", () => {
   );
   assert.equal(resolveLocalNetworkPermissionStates(["prompt"]), "prompt");
   assert.equal(resolveLocalNetworkPermissionStates([]), "unsupported");
+  assert.equal(
+    resolveEffectiveLocalNetworkPermission({
+      reported: "denied",
+      localRuntimeReady: true,
+      loopbackSessionEstablished: true,
+    }),
+    "granted",
+  );
+  assert.equal(
+    resolveEffectiveLocalNetworkPermission({
+      reported: "denied",
+      localRuntimeReady: false,
+      loopbackSessionEstablished: true,
+    }),
+    "denied",
+  );
 });
 
 await test("Evaluator blocks drift from an author-approved proper noun", async () => {
@@ -593,6 +616,38 @@ await test("every Closed AI command button has a real handler or form action", (
   ]) {
     assert.match(workspaceSource, new RegExp(`function ${handler}\\b`, "u"), handler);
   }
+});
+
+await test("official production UI auto-connects local runtimes and exposes version updates", () => {
+  for (const marker of [
+    "connectRuntimesAutomatically",
+    'data-testid="closed-ai-auto-connect-status"',
+    'data-testid="local-ai-direct-connection"',
+    'data-testid="local-ai-version-status"',
+    'data-testid="private-hub-direct-connection"',
+    'data-testid="private-hub-version-status"',
+    'data-testid="local-ai-companion-update"',
+    "免密碼自動連線已完成",
+  ]) {
+    assert.ok(workspaceSource.includes(marker), marker);
+  }
+  for (const marker of [
+    "directConnectionEnabled",
+    "client.connectAutomatically",
+    'data-testid="local-ai-auto-connect"',
+    'data-testid="local-ai-direct-connection-ready"',
+    'data-testid="local-ai-companion-version-status"',
+  ]) {
+    assert.ok(localAISetupSource.includes(marker), marker);
+  }
+  for (const origin of [
+    "https://novel-orcin.vercel.app",
+    "https://novel-lqtechs-projects.vercel.app",
+  ]) {
+    assert.ok(companionReleaseSource.includes(origin), origin);
+  }
+  assert.ok(companionReleaseSource.includes("evaluateLocalAIRuntimeVersion"));
+  assert.ok(companionReleaseSource.includes('version: "1.2.0"'));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {

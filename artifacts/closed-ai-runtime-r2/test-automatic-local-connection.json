@@ -1,0 +1,23 @@
+{
+  "suite": "closed-ai-runtime-truth-persistence-product-recovery-r2",
+  "mode": "automatic-local-connection",
+  "passed": 1,
+  "failed": 0,
+  "blockingSkip": 0,
+  "results": [
+    {
+      "scope": "automatic-local-connection",
+      "name": "official origin connects without password or pairing code and verifies a real model proof",
+      "status": "PASS",
+      "elapsedMs": 39.04,
+      "detail": {
+        "automaticSessionRequests": 2,
+        "pairingCodeRequests": 0,
+        "passwordInputs": 0,
+        "modelProofVerified": true,
+        "restartAutoRecovery": true,
+        "versionUpdateStates": 3
+      }
+    }
+  ]
+}

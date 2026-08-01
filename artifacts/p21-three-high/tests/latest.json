@@ -1,6 +1,6 @@
 {
   "suite": "p21-three-high-45",
-  "generatedAt": "2026-07-30T13:23:47.668Z",
+  "generatedAt": "2026-08-01T22:13:04.235Z",
   "pass": 45,
   "fail": 0,
   "skip": 0,
@@ -9,22 +9,22 @@
     {
       "name": "01 First approval",
       "status": "PASS",
-      "elapsedMs": 10
+      "elapsedMs": 16
     },
     {
       "name": "02 Duplicate approval",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "03 Ten-times duplicate approval",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "04 Concurrent duplicate approval",
       "status": "PASS",
-      "elapsedMs": 14
+      "elapsedMs": 20
     },
     {
       "name": "05 Same key different payload",
@@ -44,22 +44,22 @@
     {
       "name": "08 AcceptedChoice write failure",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "09 StoryBranch write failure",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "10 Story Bible write failure",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "11 Revision update failure",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "12 Idempotency record failure",
@@ -79,12 +79,12 @@
     {
       "name": "15 Browser restart persistence",
       "status": "PASS",
-      "elapsedMs": 9
+      "elapsedMs": 8
     },
     {
       "name": "16 App restart persistence",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "17 Legacy localStorage cannot become canonical",
@@ -94,7 +94,7 @@
     {
       "name": "18 Legacy migration first run",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "19 Legacy migration rerun",
@@ -124,12 +124,12 @@
     {
       "name": "24 Corrupt and incomplete backup rejection",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "25 Hash mismatch rejection",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "name": "26 Schema mismatch and partial replace rejection",
@@ -139,7 +139,7 @@
     {
       "name": "27 Restore rollback",
       "status": "PASS",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "name": "28 Health/capability consistency",
@@ -189,7 +189,7 @@
     {
       "name": "37 Professional tools health",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "38 Mobile core flow",
@@ -199,22 +199,22 @@
     {
       "name": "39 Production build",
       "status": "PASS",
-      "elapsedMs": 21332
+      "elapsedMs": 36488
     },
     {
       "name": "40 TypeScript",
       "status": "PASS",
-      "elapsedMs": 2547
+      "elapsedMs": 8965
     },
     {
       "name": "41 ESLint",
       "status": "PASS",
-      "elapsedMs": 18742
+      "elapsedMs": 39755
     },
     {
       "name": "42 Sensitive-information scan",
       "status": "PASS",
-      "elapsedMs": 6
+      "elapsedMs": 8
     },
     {
       "name": "43 Manifest verification",
@@ -224,12 +224,12 @@
     {
       "name": "44 Node UTF-8 JSON parse",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "45 PowerShell ConvertFrom-Json parse",
       "status": "PASS",
-      "elapsedMs": 375
+      "elapsedMs": 521
     }
   ]
 }

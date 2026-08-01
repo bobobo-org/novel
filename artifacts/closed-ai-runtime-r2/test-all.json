@@ -1,7 +1,7 @@
 {
   "suite": "closed-ai-runtime-truth-persistence-product-recovery-r2",
   "mode": "all",
-  "passed": 15,
+  "passed": 16,
   "failed": 0,
   "blockingSkip": 0,
   "results": [
@@ -9,7 +9,7 @@
       "scope": "health-surface-separation",
       "name": "health surfaces expose one responsibility each",
       "status": "PASS",
-      "elapsedMs": 3.78,
+      "elapsedMs": 3.38,
       "detail": {
         "releaseSurface": "isolated",
         "cloudSurface": "external-and-consent-required",
@@ -21,7 +21,7 @@
       "scope": "server-ollama-semantic-truth",
       "name": "server Ollama health cannot impersonate the browser loopback runtime",
       "status": "PASS",
-      "elapsedMs": 1.21,
+      "elapsedMs": 0.55,
       "detail": {
         "serverProbeAttempts": 0,
         "clientLoopbackRequired": true
@@ -29,12 +29,13 @@
     },
     {
       "scope": "client-runtime-coordinator",
-      "name": "coordinator reports the selected executor instead of API availability",
+      "name": "coordinator keeps planned routing separate from actual execution",
       "status": "PASS",
-      "elapsedMs": 3.45,
+      "elapsedMs": 2.32,
       "detail": {
         "state": "ready_standard",
-        "actualExecutor": "local-ollama",
+        "plannedBackend": "local-ollama",
+        "actualExecutor": "not_executed",
         "apiAvailabilityUsedAsExecutor": false
       }
     },
@@ -42,7 +43,7 @@
       "scope": "client-runtime-coordinator",
       "name": "twenty-scenario runtime and persistence matrix has no silent fallback",
       "status": "PASS",
-      "elapsedMs": 0.88,
+      "elapsedMs": 1.58,
       "detail": {
         "scenarios": 20,
         "passed": 20,
@@ -53,7 +54,7 @@
       "scope": "route-discovery-execution-parity",
       "name": "route resolution and execution lock the same backend",
       "status": "PASS",
-      "elapsedMs": 47.66,
+      "elapsedMs": 42.96,
       "detail": {
         "discovered": "local-ollama",
         "executed": "local-ollama",
@@ -64,7 +65,7 @@
       "scope": "browser-task-vs-generative",
       "name": "packaged browser task model cannot generate standard prose",
       "status": "PASS",
-      "elapsedMs": 2.12,
+      "elapsedMs": 2.25,
       "detail": {
         "packagedTaskModelProseGeneration": 0,
         "nativePromptMaximumComplexity": "standard"
@@ -74,7 +75,7 @@
       "scope": "pairing-session-reload",
       "name": "tab-only pairing reload revalidates instance, model, and proof",
       "status": "PASS",
-      "elapsedMs": 25.38,
+      "elapsedMs": 30.54,
       "detail": {
         "restoredRequests": 3,
         "exactOriginEnforced": true,
@@ -83,10 +84,24 @@
       }
     },
     {
+      "scope": "automatic-local-connection",
+      "name": "official origin connects without password or pairing code and verifies a real model proof",
+      "status": "PASS",
+      "elapsedMs": 3.68,
+      "detail": {
+        "automaticSessionRequests": 2,
+        "pairingCodeRequests": 0,
+        "passwordInputs": 0,
+        "modelProofVerified": true,
+        "restartAutoRecovery": true,
+        "versionUpdateStates": 3
+      }
+    },
+    {
       "scope": "indexeddb-supabase-decoupling",
       "name": "missing IndexedDB never becomes an in-memory canonical store",
       "status": "PASS",
-      "elapsedMs": 6.75,
+      "elapsedMs": 9.2,
       "detail": {
         "silentMemoryFallback": false,
         "localCanonicalAuthority": "IndexedDB"
@@ -96,7 +111,7 @@
       "scope": "indexeddb-supabase-decoupling",
       "name": "newer public-frontdoor edits migrate into the existing canonical project",
       "status": "PASS",
-      "elapsedMs": 3.38,
+      "elapsedMs": 2.71,
       "detail": {
         "projectCount": 1,
         "latestChapterContentApplied": true,
@@ -107,7 +122,7 @@
       "scope": "supabase-degraded-local-flow",
       "name": "Supabase failure leaves healthy local canonical features enabled",
       "status": "PASS",
-      "elapsedMs": 0.17,
+      "elapsedMs": 0.21,
       "detail": {
         "localFlowBlockedBySupabaseError": 0,
         "cloudDegradedMode": "CLOUD_DEGRADED",
@@ -118,7 +133,7 @@
       "scope": "supabase-migration-idempotency",
       "name": "P0-B2 migration is additive and repeatable",
       "status": "PASS",
-      "elapsedMs": 0.85,
+      "elapsedMs": 1.18,
       "detail": {
         "destructiveStatements": 0,
         "firstApplyObjects": 6,
@@ -129,9 +144,9 @@
       "scope": "project-context-composer",
       "name": "composer includes canonical project layers and withholds author-only data",
       "status": "PASS",
-      "elapsedMs": 2.31,
+      "elapsedMs": 2.79,
       "detail": {
-        "contextDigest": "52d0f385b9c3e48b31719d2f1282bf8aa5d02e6f356a4972049db9cf592f6ca6",
+        "contextDigest": "0cfb16235460226f5b89d002a4cb3383e9d5156cde5f846605bdf2c44f044fc1",
         "includedSources": [
           "PROJECT_METADATA",
           "APPROVED_STORY_BIBLE",
@@ -148,7 +163,7 @@
       "scope": "quick-assistant-parity",
       "name": "Studio AI entry points converge on the same Closed Agent OS service",
       "status": "PASS",
-      "elapsedMs": 1.48,
+      "elapsedMs": 1.6,
       "detail": {
         "entryPointsChecked": 5,
         "coordinatorCount": 1,
@@ -159,7 +174,7 @@
       "scope": "approval-local-with-cloud-down",
       "name": "local approval remains candidate-only unless a canonical commit is supplied",
       "status": "PASS",
-      "elapsedMs": 15.46,
+      "elapsedMs": 18.92,
       "detail": {
         "preApprovalCanonicalMutationCount": 0,
         "postApprovalWithoutCommitMutationCount": 0,
@@ -170,10 +185,10 @@
       "scope": "release-identity-alias",
       "name": "release identity and offline assets are commit-bound and non-cacheable",
       "status": "PASS",
-      "elapsedMs": 0.56,
+      "elapsedMs": 1.7,
       "detail": {
-        "appCommit": "d0e80323dc68bf08cb541e46c6b9114a71e05cd9",
-        "assetManifestDigest": "3c8e3dcef99157c7ec1477a37c9f032aa51eb9554471355bb087dca756883312",
+        "appCommit": "08d10cb17425ce4df62b68dcddcd93ad7ba97553",
+        "assetManifestDigest": "e84090ec0e6bcc96faa1cac7b88b9450763c73056b1071cc2f9afb983dec3152",
         "cacheHeaders": "no-store",
         "restartRecovery": true
       }

@@ -5,7 +5,7 @@ import { appendFile, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   BRIDGE_PROTOCOL, BRIDGE_VERSION, DEFAULT_LIMITS, BridgeError, PairingStore, RateLimiter, RequestLedger, WorkLimiter,
-  assertOrigin, assertProtocol, buildOriginAllowlist, modelProfileFromTag, normalizeOllamaEndpoint, sanitizeLog, validateHostHeader, validateLoopbackHost,
+  assertOrigin, assertProtocol, buildOriginAllowlist, modelProfileFromTag, normalizeOllamaEndpoint, sanitizeLog, TRUSTED_AUTO_SESSION_ORIGINS, validateHostHeader, validateLoopbackHost,
 } from "./bridge-core.mjs";
 import {
   assertRuntimeCacheNamespace,
@@ -89,6 +89,14 @@ export function createBridgeServer(options = {}) {
   const ollamaEndpoint = normalizeOllamaEndpoint(options.ollamaEndpoint || process.env.OLLAMA_ENDPOINT || "http://127.0.0.1:11434");
   const limits = { ...DEFAULT_LIMITS, ...(options.limits || {}) };
   const allowlist = buildOriginAllowlist(options.extraOrigins ?? process.env.BRIDGE_ALLOWED_ORIGINS ?? "");
+  const trustedAutoSessionOrigins = new Set(
+    (options.trustedAutoSessionOrigins === false
+      ? []
+      : Array.isArray(options.trustedAutoSessionOrigins)
+        ? options.trustedAutoSessionOrigins
+        : TRUSTED_AUTO_SESSION_ORIGINS
+    ).filter((origin) => allowlist.has(origin)),
+  );
   const envPairingTtlMs = Number(process.env.BRIDGE_PAIRING_TTL_MS || 0);
   const envSessionTtlMs = Number(process.env.BRIDGE_SESSION_TTL_MS || 0);
   const pairingOptions = options.pairingOptions || {
@@ -210,7 +218,19 @@ export function createBridgeServer(options = {}) {
       if (request.method === "GET" && url.pathname === "/health") {
         const ollama = await probeOllama();
         const state = pairing.state();
-        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "pairing", "models", "model-verify", "generate", "stream", "cancel", "cache-stats", "targeted-cache-invalidation"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], securityMode: "loopback-paired", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), cache: await cache.stats(), workload: { active: work.active, queued: work.queue.length, maxConcurrent: work.maxConcurrent, maxQueue: work.maxQueue }, limits }, origin);
+        return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "trusted-origin-auto-session", "pairing", "models", "model-verify", "generate", "stream", "cancel", "cache-stats", "targeted-cache-invalidation"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], automaticSessionSupported: trustedAutoSessionOrigins.has(origin), securityMode: "loopback-origin-bound-short-session", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), cache: await cache.stats(), workload: { active: work.active, queued: work.queue.length, maxConcurrent: work.maxConcurrent, maxQueue: work.maxQueue }, limits }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/session/auto") {
+        const body = await readJson(request, 1_024);
+        if (body.intent !== "closed-ai-connect") throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Automatic connection intent is invalid.", 400);
+        if (!trustedAutoSessionOrigins.has(origin)) throw new BridgeError("BRIDGE_ORIGIN_NOT_ALLOWED", "This exact origin is not enabled for passwordless local connection.", 403);
+        const session = pairing.issueTrustedOriginSession(origin);
+        return sendJson(response, 200, {
+          ...session,
+          protocolVersion: BRIDGE_PROTOCOL,
+          automaticConnection: true,
+        }, origin);
       }
 
       if (request.method === "POST" && url.pathname === "/pair/request") {

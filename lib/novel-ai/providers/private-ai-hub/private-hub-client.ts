@@ -19,6 +19,7 @@ import {
   assertLocalBridgeStreamCompleted,
   classifyBridgeConnectivityError,
   parseLocalBridgeJson,
+  selectAvailableTextModel,
   validateLocalBridgeEvent,
   type LocalBridgeEvent,
   type LocalTextModel,
@@ -31,6 +32,10 @@ import {
   readClosedAITabSession,
   saveClosedAITabSession,
 } from "../closed/tab-session-recovery";
+import {
+  evaluateLocalAIRuntimeVersion,
+  LOCAL_AI_COMPANION_RELEASE,
+} from "../local-ollama/companion-release";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
@@ -60,6 +65,14 @@ export type PrivateHubInferenceProof = {
   evalCount: number | null;
   externalRequest: false;
   dataLeftDevice: false;
+};
+
+export type PrivateHubAutomaticConnection = {
+  state: "connected";
+  mode: "existing-session" | "trusted-origin-auto";
+  session: { instanceId: string; expiresAt: string };
+  model: LocalTextModel;
+  proof: PrivateHubInferenceProof;
 };
 
 export type OfflinePreferenceModelArtifact = {
@@ -111,6 +124,7 @@ type PrivateHubBody = Record<string, unknown> & {
   retryable?: boolean;
   models?: LocalTextModel[] | OfflinePreferenceModelArtifact[];
   hubProcessAlive?: boolean;
+  hubVersion?: string;
   pairingState?: string;
   modelRuntimeReachable?: boolean;
   modelAvailable?: boolean;
@@ -133,6 +147,9 @@ type PrivateHubBody = Record<string, unknown> & {
   evalCount?: number | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  automaticConnection?: boolean;
+  automaticSessionSupported?: boolean;
+  sessionKind?: string;
   cache?: { entries?: number; hits?: number; misses?: number };
   limits?: {
     maxPromptBytes?: number;
@@ -236,6 +253,7 @@ export class PrivateHubClient {
   private healthInFlight: Promise<PrivateHubBody> | null = null;
   private modelsInFlight: Promise<PrivateHubBody & { models: LocalTextModel[] }> | null = null;
   private preferenceInFlight = new Map<string, Promise<OfflinePreferenceModelArtifact[]>>();
+  private automaticConnectionInFlight: Promise<PrivateHubAutomaticConnection> | null = null;
   private cacheEpoch = 0;
   private rememberWithinTab = false;
   private readonly tabStorage: Storage | null | undefined;
@@ -490,6 +508,138 @@ export class PrivateHubClient {
     ));
     this.clearControlPlaneCache();
     return result;
+  }
+
+  async connectAutomatically(
+    preferredModelId = "qwen2.5:3b",
+    signal?: AbortSignal,
+  ): Promise<PrivateHubAutomaticConnection> {
+    if (this.automaticConnectionInFlight) {
+      return structuredClone(await this.automaticConnectionInFlight);
+    }
+    const operation = (async () => {
+      const health = await this.health(
+        signal ?? AbortSignal.timeout(PRIVATE_HUB_CONTROL_TIMEOUT_MS),
+      );
+      const versionStatus = evaluateLocalAIRuntimeVersion({
+        reportedVersion: health.hubVersion,
+        minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumPrivateHubVersion,
+        recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedPrivateHubVersion,
+      });
+      if (versionStatus === "unknown" || versionStatus === "incompatible") {
+        throw new AiProviderError(
+          "LOCAL_PROVIDER_NOT_READY",
+          `Private Hub ${String(health.hubVersion ?? "unknown")} is not compatible with the current Studio release.`,
+          { retryable: false, stage: "private-automatic-connection" },
+        );
+      }
+      if (
+        this.session
+        && (
+          this.session.instanceId !== health.instanceId
+          || Date.parse(this.session.expiresAt) <= Date.now()
+        )
+      ) {
+        this.setSession(null);
+        this.clearRememberedSession();
+      }
+      let automaticSessionIssued = false;
+      const issueAutomaticSession = async () => {
+        if (health.automaticSessionSupported !== true) {
+          throw new AiProviderError(
+            "LOCAL_PROVIDER_NOT_READY",
+            "This Private Hub version does not support trusted-origin automatic sessions.",
+            { retryable: false, stage: "private-automatic-connection" },
+          );
+        }
+        const body = await this.parse(await this.fetchHub(
+          "/session/auto",
+          {
+            method: "POST",
+            headers: { ...this.headers(), "Content-Type": "application/json" },
+            body: JSON.stringify({ intent: "closed-ai-connect" }),
+          },
+          signal,
+        ));
+        const validSession = typeof body.token === "string"
+          && body.token.length >= 32
+          && typeof body.csrf === "string"
+          && body.csrf.length >= 24
+          && typeof body.instanceId === "string"
+          && body.instanceId.length > 0
+          && typeof body.expiresAt === "string"
+          && Date.parse(body.expiresAt) > Date.now()
+          && body.automaticConnection === true
+          && body.sessionKind === "trusted_origin_auto";
+        if (!validSession) {
+          throw new AiProviderError(
+            "OLLAMA_INVALID_RESPONSE",
+            "Private Hub did not return a valid origin-bound automatic session.",
+            { retryable: true, stage: "private-automatic-connection" },
+          );
+        }
+        this.setSession({
+          token: body.token!,
+          csrf: body.csrf!,
+          instanceId: body.instanceId!,
+          expiresAt: body.expiresAt!,
+        });
+        this.saveRememberedSession();
+        automaticSessionIssued = true;
+      };
+      if (!this.session) await issueAutomaticSession();
+
+      let modelResponse;
+      try {
+        modelResponse = await this.models(signal);
+      } catch (error) {
+        const code = String((error as { code?: string })?.code ?? "");
+        if (!["BRIDGE_NOT_PAIRED", "BRIDGE_PAIRING_EXPIRED", "BRIDGE_PAIRING_REVOKED"].includes(code)) {
+          throw error;
+        }
+        this.setSession(null);
+        this.clearRememberedSession();
+        await issueAutomaticSession();
+        modelResponse = await this.models(signal);
+      }
+      const available = modelResponse.models.filter(
+        (model) => model.capabilities?.textGeneration?.value === true,
+      );
+      const selectedId = selectAvailableTextModel(available, preferredModelId);
+      const selected = available.find((model) => model.modelId === selectedId);
+      if (!selected) {
+        throw new AiProviderError(
+          "OLLAMA_MODEL_NOT_FOUND",
+          "Automatic Private Hub connection succeeded, but no text model is available.",
+          { retryable: true, stage: "private-automatic-connection" },
+        );
+      }
+      const proof = this.getModelVerification(selected.modelId)
+        ?? await this.verifyModel(selected.modelId, signal);
+      const session = this.getSessionMetadata();
+      if (!session) {
+        throw new AiProviderError(
+          "BRIDGE_NOT_PAIRED",
+          "Automatic Private Hub session was lost during verification.",
+          { retryable: true, stage: "private-automatic-connection" },
+        );
+      }
+      return {
+        state: "connected" as const,
+        mode: automaticSessionIssued ? "trusted-origin-auto" as const : "existing-session" as const,
+        session,
+        model: structuredClone(selected),
+        proof,
+      };
+    })();
+    this.automaticConnectionInFlight = operation;
+    try {
+      return structuredClone(await operation);
+    } finally {
+      if (this.automaticConnectionInFlight === operation) {
+        this.automaticConnectionInFlight = null;
+      }
+    }
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {

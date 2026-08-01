@@ -73,6 +73,11 @@ import {
   type LocalModelInferenceProof,
   type LocalTextModel,
 } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import {
+  evaluateLocalAIRuntimeVersion,
+  LOCAL_AI_COMPANION_RELEASE,
+  PASSWORDLESS_LOCAL_AI_ORIGINS,
+} from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import { resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
 import {
   configurePrivateHubClient,
@@ -245,9 +250,9 @@ function runtimeError(error: unknown) {
   const messages: Record<string, string> = {
     BRIDGE_PROCESS_UNREACHABLE: "本機執行服務尚未啟動，或瀏覽器無法存取 loopback。",
     LOCAL_NETWORK_PERMISSION_DENIED: "瀏覽器已拒絕本機網路權限。請在網址列的網站權限中允許「本機網路存取」，再按一次實際驗證模型。",
-    BRIDGE_NOT_PAIRED: "目前頁面尚未與本機服務完成配對。",
-    BRIDGE_PAIRING_EXPIRED: "一次性配對已過期，請重新發起。",
-    BRIDGE_PAIRING_REVOKED: "本機配對已撤銷，請重新配對。",
+    BRIDGE_NOT_PAIRED: "目前頁面尚未取得本機短期工作階段，請重新自動連線。",
+    BRIDGE_PAIRING_EXPIRED: "本機短期工作階段已過期，請重新自動連線。",
+    BRIDGE_PAIRING_REVOKED: "這個網站的本機連線已撤銷；重新啟動 Companion 後才能再次自動連線。",
     OLLAMA_UNREACHABLE: "Ollama 尚未啟動。",
     OLLAMA_MODEL_NOT_FOUND: "找不到選定的本機模型。",
     LOCAL_MODEL_INFERENCE_NOT_VERIFIED: "模型尚未完成真實推理驗證。",
@@ -266,6 +271,26 @@ function runtimeError(error: unknown) {
     BROWSER_WEBLLM_MODEL_NOT_INSTALLED: "請先安裝並驗證一個 Browser AI 生成模型。",
   };
   return messages[code] ?? (error instanceof Error ? error.message : "本機執行操作失敗。");
+}
+
+function automaticConnectionFailure(error: unknown, label: string) {
+  const code = String((error as { code?: string })?.code ?? "");
+  if (code === "BRIDGE_PROCESS_UNREACHABLE" || code === "REQUEST_TIMEOUT") {
+    return `${label} 尚未在這台電腦啟動`;
+  }
+  if (code === "LOCAL_NETWORK_PERMISSION_DENIED") {
+    return `${label} 等待瀏覽器允許本機網路`;
+  }
+  if (code === "BRIDGE_PAIRING_REVOKED") {
+    return `${label} 的自動連線已被使用者撤銷`;
+  }
+  if (code === "BRIDGE_ORIGIN_NOT_ALLOWED") {
+    return `${label} 不允許目前網址免配對碼連線`;
+  }
+  if (code === "LOCAL_PROVIDER_NOT_READY") {
+    return `${label} 版本過舊，請更新 Companion`;
+  }
+  return `${label} 尚未就緒（${code || "連線失敗"}）`;
 }
 
 function saveJson(filename: string, value: unknown) {
@@ -406,8 +431,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     useState<FormalPreferenceDatasetManifest | null>(null);
   const [localTelemetry, setLocalTelemetry] = useState<RuntimeTelemetry | null>(null);
   const [hubTelemetry, setHubTelemetry] = useState<RuntimeTelemetry | null>(null);
+  const [localRuntimeVersion, setLocalRuntimeVersion] = useState<string | null>(null);
+  const [hubRuntimeVersion, setHubRuntimeVersion] = useState<string | null>(null);
   const [progressEvents, setProgressEvents] = useState<ClosedAIProgressEvent[]>([]);
   const [contextInventory, setContextInventory] = useState<ContextInventory | null>(null);
+  const automaticConnectionOrigin = useRef<string | null>(null);
+  const automaticConnectionRunning = useRef(false);
+  const automaticConnectionCheckedAt = useRef(0);
 
   useEffect(() => {
     const unsubscribeWebLlm = subscribeBrowserWebLLMProgress(setBrowserWebLlmProgress);
@@ -741,6 +771,22 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     : executionBackendId === "local-ollama"
       ? localModelId
       : null;
+  const passwordlessConnectionEnabled = Boolean(
+    currentOrigin
+    && PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+      currentOrigin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+    ),
+  );
+  const localVersionStatus = evaluateLocalAIRuntimeVersion({
+    reportedVersion: localRuntimeVersion,
+    minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumBridgeVersion,
+    recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedBridgeVersion,
+  });
+  const hubVersionStatus = evaluateLocalAIRuntimeVersion({
+    reportedVersion: hubRuntimeVersion,
+    minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumPrivateHubVersion,
+    recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedPrivateHubVersion,
+  });
 
   const refreshRuntimes = useCallback(async () => {
     if (!currentOrigin) return;
@@ -769,6 +815,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const startedAt = performance.now();
       try {
         const health = await localClient.health();
+        setLocalRuntimeVersion(health.bridgeVersion ?? null);
         setLocalTelemetry(runtimeTelemetry(health, startedAt));
         if (!health.runtimeReady || !localClient.getSessionMetadata()) {
           setLocalModels([]);
@@ -793,6 +840,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setLocalProof(proof);
         return Boolean(proof);
       } catch {
+        setLocalRuntimeVersion(null);
         setLocalModels([]);
         setLocalProof(null);
         setLocalTelemetry(null);
@@ -805,6 +853,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const startedAt = performance.now();
       try {
         const health = await hubClient.health();
+        setHubRuntimeVersion(health.hubVersion ?? null);
         setHubTelemetry(runtimeTelemetry(health, startedAt));
         if (!health.runtimeReady || !hubClient.getSessionMetadata()) {
           setHubModels([]);
@@ -833,6 +882,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setTrainingModels(trained);
         return Boolean(proof);
       } catch {
+        setHubRuntimeVersion(null);
         setHubModels([]);
         setHubProof(null);
         setTrainingModels([]);
@@ -856,7 +906,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ? "瀏覽器模型待下載"
         : "此裝置不支援瀏覽器 AI";
     setRuntimeStatus(
-      `${browserState}；語意檢索 ${browserResult.semantic?.model.cacheVerified ? "已驗證" : "等待安裝／驗證"}；Local Bridge ${localReady ? "模型已實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
+      `${browserState}；語意檢索 ${browserResult.semantic?.model.cacheVerified ? "已驗證" : "等待安裝／驗證"}；Local Bridge ${localReady ? "模型已實測" : passwordlessConnectionEnabled ? "等待啟動／自動連線／實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : passwordlessConnectionEnabled ? "等待啟動／自動連線／實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
     );
   }, [
     backend,
@@ -867,6 +917,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     localClient,
     localModelId,
     offlineWorkerControlled,
+    passwordlessConnectionEnabled,
     projectId,
     runtimeCoordinator,
     storyBibleRevision,
@@ -902,17 +953,71 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     taskType,
   ]);
 
+  const connectRuntimesAutomatically = useCallback(async () => {
+    if (automaticConnectionRunning.current) return;
+    automaticConnectionRunning.current = true;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在直接連接這台電腦的閉端 AI；不需要輸入密碼或配對碼。");
+    try {
+      const result = await runtimeCoordinator.connectAutomatically();
+      const messages: string[] = [];
+      if (result.localOllama.status === "fulfilled") {
+        setLocalPairing(null);
+        setLocalModelId(result.localOllama.value.model.modelId);
+        setLocalProof(result.localOllama.value.proof);
+        messages.push(`Local Ollama 已直接連線（${result.localOllama.value.model.modelId}）`);
+      } else {
+        messages.push(automaticConnectionFailure(result.localOllama.reason, "Local Ollama"));
+      }
+      if (result.privateHub.status === "fulfilled") {
+        setHubPairing(null);
+        setHubModelId(result.privateHub.value.model.modelId);
+        setHubProof(result.privateHub.value.proof);
+        messages.push(`Private Hub 已直接連線（${result.privateHub.value.model.modelId}）`);
+      } else {
+        messages.push(automaticConnectionFailure(result.privateHub.reason, "Private Hub"));
+      }
+      await refresh(false);
+      setRuntimeStatus(`${messages.join("；")}。Browser AI 會依裝置能力直接使用。`);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      automaticConnectionCheckedAt.current = Date.now();
+      automaticConnectionRunning.current = false;
+      setRuntimeBusy(false);
+    }
+  }, [refresh, runtimeCoordinator]);
+
   useEffect(() => {
     runtimeCoordinator.setRememberPairingWithinTab(rememberPairing);
   }, [rememberPairing, runtimeCoordinator]);
 
   useEffect(() => {
     if (!currentOrigin) return;
+    if (automaticConnectionOrigin.current === currentOrigin) return;
+    automaticConnectionOrigin.current = currentOrigin;
     const initialization = window.setTimeout(() => {
-      void refresh().catch((error) => setStatus(userMessage(error)));
+      void connectRuntimesAutomatically();
     }, 0);
     return () => window.clearTimeout(initialization);
-  }, [currentOrigin, refresh]);
+  }, [connectRuntimesAutomatically, currentOrigin]);
+
+  useEffect(() => {
+    if (!currentOrigin) return;
+    const reconnectAfterResume = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - automaticConnectionCheckedAt.current < 60_000) return;
+      void connectRuntimesAutomatically();
+    };
+    window.addEventListener("focus", reconnectAfterResume);
+    window.addEventListener("online", reconnectAfterResume);
+    document.addEventListener("visibilitychange", reconnectAfterResume);
+    return () => {
+      window.removeEventListener("focus", reconnectAfterResume);
+      window.removeEventListener("online", reconnectAfterResume);
+      document.removeEventListener("visibilitychange", reconnectAfterResume);
+    };
+  }, [connectRuntimesAutomatically, currentOrigin]);
 
   async function verifyBrowserRuntime() {
     if (runtimeBusy) return;
@@ -1708,7 +1813,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
           <Link href="/settings/local-ai">本機 AI 安裝精靈</Link>
-          <button type="button" disabled={busy || runtimeBusy} onClick={() => void refresh()}>重新檢查</button>
+          <button type="button" disabled={busy || runtimeBusy} onClick={() => void connectRuntimesAutomatically()}>
+            重新連線／檢查
+          </button>
         </div>
       </header>
 
@@ -1735,14 +1842,19 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <span>目前能力真相</span>
           <strong>{recommendedFleetModel
             ? `${recommendedFleetModel.modelId} · 適配 ${recommendedFleetModel.score}%`
-            : "等待私有模型配對"}</strong>
+            : "等待本機服務自動連線"}</strong>
           <p>{recommendedFleetModel
             ? recommendedFleetModel.reasons.slice(0, 2).join("；")
             : "架構已支援多模型；實際能力仍取決於已安裝、已驗證的模型與硬體。"}</p>
         </div>
       </section>
       <p className={styles.status} data-testid="closed-ai-task-status" role="status" aria-live="polite">{status}</p>
-      <p className={styles.runtimeStatus} role="status" aria-live="polite">{runtimeStatus}</p>
+      <p
+        className={styles.runtimeStatus}
+        data-testid="closed-ai-auto-connect-status"
+        role="status"
+        aria-live="polite"
+      >{runtimeStatus}</p>
 
       <div className={styles.workspace}>
         <section className={styles.panel} aria-labelledby="backend-title">
@@ -1756,7 +1868,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               checked={rememberPairing}
               onChange={(event) => setRememberPairing(event.target.checked)}
             />
-            僅在目前分頁記住已驗證配對；關閉分頁即失效，不寫入 localStorage 或作品備份。
+            自動連線只在目前分頁保留短期工作階段；不需密碼或配對碼，關閉分頁即失效，也不寫入 localStorage 或作品備份。
           </label>
           <div className={styles.backendList}>
             {snapshots.map((snapshot) => (
@@ -1964,29 +2076,67 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   </button>
                 </div> : null}
                 {snapshot.id === "local-ollama" ? <div className={styles.runtimeControls}>
-                  <code>node local-ai/bridge/launcher.mjs start</code>
-                  {!localClient.getSessionMetadata() ? <>
-                    {!localPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestLocalPairing()}>
-                      開始 Local Bridge 配對
-                    </button> : <>
-                      <code>node local-ai/bridge/launcher.mjs pair</code>
-                      <label>六位數一次性配對碼
-                        <input
-                          value={localPairing.code}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          maxLength={6}
-                          onChange={(event) => setLocalPairing({
-                            ...localPairing,
-                            code: event.target.value.replace(/\D/g, "").slice(0, 6),
-                          })}
-                        />
-                      </label>
-                      <button type="button" disabled={runtimeBusy || localPairing.code.length !== 6} onClick={() => void confirmLocalPairing()}>
-                        配對並實測模型
-                      </button>
-                    </>}
+                  {passwordlessConnectionEnabled ? <>
+                    <p className={localClient.getSessionMetadata() ? styles.proof : styles.warning} data-testid="local-ai-direct-connection">
+                      {localClient.getSessionMetadata()
+                        ? "免密碼自動連線已完成；本頁使用 Origin 綁定的短期工作階段。"
+                        : "尚未偵測到 Local Bridge；安裝並啟動 Companion 後，本頁會直接連線。"}
+                    </p>
+                    <p
+                      className={localVersionStatus === "current" ? styles.proof : styles.warning}
+                      data-testid="local-ai-version-status"
+                    >
+                      Local Bridge：{localRuntimeVersion ?? "未偵測"} · 建議版本 {LOCAL_AI_COMPANION_RELEASE.recommendedBridgeVersion}
+                      {localVersionStatus === "current"
+                        ? " · 已是相容最新版"
+                        : localVersionStatus === "incompatible"
+                          ? " · 版本不相容，必須更新"
+                          : localVersionStatus === "update_available"
+                            ? " · 有新版可更新"
+                            : " · 啟動後會自動核對版本"}
+                    </p>
+                    {localVersionStatus !== "current" ? <a
+                      className={styles.secondaryLink}
+                      data-testid="local-ai-companion-update"
+                      download={LOCAL_AI_COMPANION_RELEASE.filename}
+                      href={LOCAL_AI_COMPANION_RELEASE.downloadPath}
+                    >
+                      下載／更新本機 AI Companion {LOCAL_AI_COMPANION_RELEASE.version}
+                    </a> : null}
+                    {!localClient.getSessionMetadata() ? <button
+                      type="button"
+                      data-testid="local-ai-auto-connect"
+                      disabled={runtimeBusy}
+                      onClick={() => void connectRuntimesAutomatically()}
+                    >
+                      重新自動連線
+                    </button> : null}
                   </> : <>
+                    <code>node local-ai/bridge/launcher.mjs start</code>
+                    {!localClient.getSessionMetadata() ? <>
+                      {!localPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestLocalPairing()}>
+                        開始 Local Bridge 配對
+                      </button> : <>
+                        <code>node local-ai/bridge/launcher.mjs pair</code>
+                        <label>六位數一次性配對碼
+                          <input
+                            value={localPairing.code}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={6}
+                            onChange={(event) => setLocalPairing({
+                              ...localPairing,
+                              code: event.target.value.replace(/\D/g, "").slice(0, 6),
+                            })}
+                          />
+                        </label>
+                        <button type="button" disabled={runtimeBusy || localPairing.code.length !== 6} onClick={() => void confirmLocalPairing()}>
+                          配對並實測模型
+                        </button>
+                      </>}
+                    </> : null}
+                  </>}
+                  {localClient.getSessionMetadata() ? <>
                     {localModels.length ? <label>文字模型
                       <select value={localModelId} disabled={runtimeBusy} onChange={(event) => void selectLocalModel(event.target.value)}>
                         {localModels.map((model) => {
@@ -2006,35 +2156,65 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       控制面 {localTelemetry.controlLatencyMs} ms · 執行 {localTelemetry.active}/{localTelemetry.maxConcurrent} · 排隊 {localTelemetry.queued}/{localTelemetry.maxQueue} · Cache {localTelemetry.cacheEntries}
                     </p> : null}
                     <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeLocalPairing()}>
-                      撤銷本頁配對
+                      撤銷這個網站的本機連線
                     </button>
-                  </>}
+                  </> : null}
                 </div> : null}
                 {snapshot.id === "private-ai-hub" ? <div className={styles.runtimeControls}>
-                  <p>自架型本機私有節點；與 Local Ollama 有獨立身分、配對、工作佇列與訓練模型。</p>
-                  <code>node local-ai/private-hub/launcher.mjs start</code>
-                  {!hubClient.getSessionMetadata() ? <>
-                    {!hubPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestHubPairing()}>
-                      開始 Private Hub 配對
-                    </button> : <>
-                      <code>node local-ai/private-hub/launcher.mjs pair</code>
-                      <label>六位數一次性配對碼
-                        <input
-                          value={hubPairing.code}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          maxLength={6}
-                          onChange={(event) => setHubPairing({
-                            ...hubPairing,
-                            code: event.target.value.replace(/\D/g, "").slice(0, 6),
-                          })}
-                        />
-                      </label>
-                      <button type="button" disabled={runtimeBusy || hubPairing.code.length !== 6} onClick={() => void confirmHubPairing()}>
-                        配對並實測中樞模型
-                      </button>
-                    </>}
+                  <p>自架型本機私有節點；與 Local Ollama 有獨立身分、短期工作階段、工作佇列與訓練模型。</p>
+                  {passwordlessConnectionEnabled ? <>
+                    <p className={hubClient.getSessionMetadata() ? styles.proof : styles.warning} data-testid="private-hub-direct-connection">
+                      {hubClient.getSessionMetadata()
+                        ? "免密碼自動連線已完成；Private Hub 使用獨立的 Origin 綁定短期工作階段。"
+                        : "尚未偵測到 Private Hub；啟動 Companion 後，本頁會直接連線。"}
+                    </p>
+                    <p
+                      className={hubVersionStatus === "current" ? styles.proof : styles.warning}
+                      data-testid="private-hub-version-status"
+                    >
+                      Private Hub：{hubRuntimeVersion ?? "未偵測"} · 建議版本 {LOCAL_AI_COMPANION_RELEASE.recommendedPrivateHubVersion}
+                      {hubVersionStatus === "current"
+                        ? " · 已是相容最新版"
+                        : hubVersionStatus === "incompatible"
+                          ? " · 版本不相容，必須更新"
+                          : hubVersionStatus === "update_available"
+                            ? " · 有新版可更新"
+                            : " · 啟動後會自動核對版本"}
+                    </p>
+                    {!hubClient.getSessionMetadata() ? <button
+                      type="button"
+                      data-testid="private-hub-auto-connect"
+                      disabled={runtimeBusy}
+                      onClick={() => void connectRuntimesAutomatically()}
+                    >
+                      重新自動連線
+                    </button> : null}
                   </> : <>
+                    <code>node local-ai/private-hub/launcher.mjs start</code>
+                    {!hubClient.getSessionMetadata() ? <>
+                      {!hubPairing ? <button type="button" disabled={runtimeBusy} onClick={() => void requestHubPairing()}>
+                        開始 Private Hub 配對
+                      </button> : <>
+                        <code>node local-ai/private-hub/launcher.mjs pair</code>
+                        <label>六位數一次性配對碼
+                          <input
+                            value={hubPairing.code}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={6}
+                            onChange={(event) => setHubPairing({
+                              ...hubPairing,
+                              code: event.target.value.replace(/\D/g, "").slice(0, 6),
+                            })}
+                          />
+                        </label>
+                        <button type="button" disabled={runtimeBusy || hubPairing.code.length !== 6} onClick={() => void confirmHubPairing()}>
+                          配對並實測中樞模型
+                        </button>
+                      </>}
+                    </> : null}
+                  </>}
+                  {hubClient.getSessionMetadata() ? <>
                     {hubModels.length ? <label>中樞模型
                       <select value={hubModelId} disabled={runtimeBusy} onChange={(event) => void selectHubModel(event.target.value)}>
                         {hubModels.map((model) => {
@@ -2054,9 +2234,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       控制面 {hubTelemetry.controlLatencyMs} ms · 執行 {hubTelemetry.active}/{hubTelemetry.maxConcurrent} · 排隊 {hubTelemetry.queued}/{hubTelemetry.maxQueue} · 加密 Cache {hubTelemetry.cacheEntries}
                     </p> : null}
                     <button className={styles.secondary} type="button" disabled={runtimeBusy} onClick={() => void revokeHubPairing()}>
-                      撤銷本頁配對
+                      撤銷這個網站的中樞連線
                     </button>
-                  </>}
+                  </> : null}
                 </div> : null}
               </article>
             ))}

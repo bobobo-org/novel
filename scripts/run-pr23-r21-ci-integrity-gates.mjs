@@ -66,16 +66,16 @@ function parseZip(buffer) {
 }
 
 function companionZipGate() {
-  const zipRelative = "public/downloads/novel-local-ai-companion-v1.0.0.zip";
+  const zipRelative = "public/downloads/novel-local-ai-companion-v1.2.0.zip";
   const zip = fs.readFileSync(path.join(root, zipRelative));
   const checksumLine = fs.readFileSync(
-    path.join(root, "public/downloads/novel-local-ai-companion-v1.0.0.sha256"),
+    path.join(root, "public/downloads/novel-local-ai-companion-v1.2.0.sha256"),
     "ascii",
   ).trim();
   const expectedDigest = checksumLine.split(/\s+/u)[0].toLowerCase();
   assert.equal(sha256(zip), expectedDigest, "Companion ZIP checksum mismatch");
   const entries = parseZip(zip);
-  const prefix = "novel-local-ai-companion-v1.0.0/";
+  const prefix = "novel-local-ai-companion-v1.2.0/";
   const sourceByEntry = new Map([
     [`${prefix}manifest.json`, "local-ai/companion/manifest.json"],
     [`${prefix}README.md`, "local-ai/companion/README.md"],
@@ -88,6 +88,11 @@ function companionZipGate() {
     [`${prefix}cache/cache-contract.mjs`, "local-ai/cache/cache-contract.mjs"],
     [`${prefix}cache/encrypted-cache-store.mjs`, "local-ai/cache/encrypted-cache-store.mjs"],
     [`${prefix}cache/sqlite-cache-store.mjs`, "local-ai/cache/sqlite-cache-store.mjs"],
+    [`${prefix}private-hub/launcher.mjs`, "local-ai/private-hub/launcher.mjs"],
+    [`${prefix}private-hub/novel-private-hub.ps1`, "local-ai/private-hub/novel-private-hub.ps1"],
+    [`${prefix}private-hub/preference-model.mjs`, "local-ai/private-hub/preference-model.mjs"],
+    [`${prefix}private-hub/README.md`, "local-ai/private-hub/README.md"],
+    [`${prefix}private-hub/server.mjs`, "local-ai/private-hub/server.mjs"],
   ]);
   assert.deepEqual(
     entries.map((entry) => entry.name).sort(),

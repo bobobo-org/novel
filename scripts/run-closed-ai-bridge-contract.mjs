@@ -17,7 +17,7 @@ const headers = (extra = {}) => ({ Origin: origin, "X-Bridge-Protocol": BRIDGE_P
 const json = async (response) => ({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.json().catch(() => ({})) });
 
 try {
-  await test("protocol health handshake", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers() })); assert.equal(result.status, 200); assert.equal(result.body.protocolVersion, BRIDGE_PROTOCOL); assert.equal(result.body.bridgeProcessAlive, true); });
+  await test("protocol health handshake", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers() })); assert.equal(result.status, 200); assert.equal(result.body.protocolVersion, BRIDGE_PROTOCOL); assert.equal(result.body.bridgeProcessAlive, true); assert.equal(result.body.automaticSessionSupported, true); });
   await test("protocol version mismatch", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers({ "X-Bridge-Protocol": "novel-local-bridge/v0" }) })); assert.equal(result.body.errorCode, "BRIDGE_PROTOCOL_INCOMPATIBLE"); });
   await test("origin allowlist accepts configured origins", async () => assert.equal(buildOriginAllowlist().has(origin), true));
   await test("unauthorized origin rejected", async () => { const result = await json(await fetch(`${base}/health`, { headers: { Origin: "https://evil.example", "X-Bridge-Protocol": BRIDGE_PROTOCOL } })); assert.equal(result.body.errorCode, "BRIDGE_ORIGIN_NOT_ALLOWED"); });
@@ -38,6 +38,57 @@ try {
   });
   await test("malformed JSON rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: "{" })); assert.equal(result.body.errorCode, "OLLAMA_REQUEST_REJECTED"); });
   await test("oversized request rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ value: "x".repeat(2_000) }) })); assert.equal(result.body.errorCode, "LOCAL_REQUEST_TOO_LARGE"); });
+
+  const automaticSession = await json(await fetch(`${base}/session/auto`, {
+    method: "POST",
+    headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ intent: "closed-ai-connect" }),
+  }));
+  const automaticAuth = headers({
+    Authorization: `Bearer ${automaticSession.body.token}`,
+    "X-Bridge-CSRF": automaticSession.body.csrf,
+    "Content-Type": "application/json",
+  });
+  await test("trusted exact origin receives passwordless short session", async () => {
+    assert.equal(automaticSession.status, 200);
+    assert.equal(automaticSession.body.automaticConnection, true);
+    assert.equal(automaticSession.body.sessionKind, "trusted_origin_auto");
+    assert.equal(typeof automaticSession.body.token, "string");
+    assert.equal("pairingId" in automaticSession.body, false);
+    assert.equal("code" in automaticSession.body, false);
+  });
+  await test("automatic session authorizes local control plane", async () => {
+    const result = await json(await fetch(`${base}/cache/stats`, {
+      headers: headers({ Authorization: `Bearer ${automaticSession.body.token}` }),
+    }));
+    assert.equal(result.status, 200);
+  });
+  await test("automatic session revocation blocks silent reconnection", async () => {
+    const revoked = await json(await fetch(`${base}/pair/revoke`, {
+      method: "POST",
+      headers: automaticAuth,
+      body: JSON.stringify({ confirm: true }),
+    }));
+    assert.equal(revoked.body.state, "revoked");
+    const retried = await json(await fetch(`${base}/session/auto`, {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ intent: "closed-ai-connect" }),
+    }));
+    assert.equal(retried.body.errorCode, "BRIDGE_PAIRING_REVOKED");
+  });
+  await test("lookalike production origin cannot obtain automatic session", async () => {
+    const result = await json(await fetch(`${base}/session/auto`, {
+      method: "POST",
+      headers: {
+        Origin: "https://novel-orcin.vercel.app.evil.example",
+        "X-Bridge-Protocol": BRIDGE_PROTOCOL,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ intent: "closed-ai-connect" }),
+    }));
+    assert.equal(result.body.errorCode, "BRIDGE_ORIGIN_NOT_ALLOWED");
+  });
 
   const pairingRequest = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: "{}" }));
   const pairingConfirm = await json(await fetch(`${base}/pair/confirm`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ pairingId: pairingRequest.body.pairingId, code: pairingRequest.body.testCode }) }));

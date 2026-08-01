@@ -8,6 +8,10 @@ import {
   readClosedAITabSession,
   saveClosedAITabSession,
 } from "../closed/tab-session-recovery";
+import {
+  evaluateLocalAIRuntimeVersion,
+  LOCAL_AI_COMPANION_RELEASE,
+} from "./companion-release";
 
 export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
@@ -57,6 +61,13 @@ export type LocalModelInferenceProof = {
   externalRequest: false;
   dataLeftDevice: false;
 };
+export type LocalBridgeAutomaticConnection = {
+  state: "connected";
+  mode: "existing-session" | "trusted-origin-auto";
+  session: { instanceId: string; expiresAt: string };
+  model: LocalTextModel;
+  proof: LocalModelInferenceProof;
+};
 type LocalBridgeBody = Record<string, unknown> & {
   errorCode?: string;
   message?: string;
@@ -64,6 +75,7 @@ type LocalBridgeBody = Record<string, unknown> & {
   models: LocalTextModel[];
   configuredOrigins: string[];
   bridgeProcessAlive?: boolean;
+  bridgeVersion?: string;
   pairingState?: string;
   ollamaReachable?: boolean;
   modelAvailable?: boolean;
@@ -85,6 +97,9 @@ type LocalBridgeBody = Record<string, unknown> & {
   evalCount?: number | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  automaticConnection?: boolean;
+  automaticSessionSupported?: boolean;
+  sessionKind?: string;
   cache?: { entries?: number; hits?: number; misses?: number };
   limits?: {
     maxPromptBytes?: number;
@@ -221,6 +236,7 @@ export class LocalBridgeClient {
   private modelsCache: { expiresAt: number; value: LocalBridgeBody } | null = null;
   private healthInFlight: Promise<LocalBridgeBody> | null = null;
   private modelsInFlight: Promise<LocalBridgeBody> | null = null;
+  private automaticConnectionInFlight: Promise<LocalBridgeAutomaticConnection> | null = null;
   private cacheEpoch = 0;
   private rememberWithinTab = false;
   private readonly tabStorage: Storage | null | undefined;
@@ -451,6 +467,138 @@ export class LocalBridgeClient {
     const result = await this.parse(await this.fetchBridge(`${this.endpoint}/pair/request`, { method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, body: "{}" }, signal));
     this.clearControlPlaneCache();
     return result;
+  }
+
+  async connectAutomatically(
+    preferredModelId = "qwen2.5:3b",
+    signal?: AbortSignal,
+  ): Promise<LocalBridgeAutomaticConnection> {
+    if (this.automaticConnectionInFlight) {
+      return structuredClone(await this.automaticConnectionInFlight);
+    }
+    const operation = (async () => {
+      const health = await this.health(
+        signal ?? AbortSignal.timeout(LOCAL_BRIDGE_CONTROL_TIMEOUT_MS),
+      );
+      const versionStatus = evaluateLocalAIRuntimeVersion({
+        reportedVersion: health.bridgeVersion,
+        minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumBridgeVersion,
+        recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedBridgeVersion,
+      });
+      if (versionStatus === "unknown" || versionStatus === "incompatible") {
+        throw new AiProviderError(
+          "LOCAL_PROVIDER_NOT_READY",
+          `Local Bridge ${String(health.bridgeVersion ?? "unknown")} is not compatible with the current Studio release.`,
+          { retryable: false, stage: "local-automatic-connection" },
+        );
+      }
+      if (
+        this.session
+        && (
+          this.session.instanceId !== health.instanceId
+          || Date.parse(this.session.expiresAt) <= Date.now()
+        )
+      ) {
+        this.setSession(null);
+        this.clearRememberedSession();
+      }
+      let automaticSessionIssued = false;
+      const issueAutomaticSession = async () => {
+        if (health.automaticSessionSupported !== true) {
+          throw new AiProviderError(
+            "LOCAL_PROVIDER_NOT_READY",
+            "This Local Bridge version does not support trusted-origin automatic sessions.",
+            { retryable: false, stage: "local-automatic-connection" },
+          );
+        }
+        const body = await this.parse(await this.fetchBridge(
+          `${this.endpoint}/session/auto`,
+          {
+            method: "POST",
+            headers: { ...this.headers(), "Content-Type": "application/json" },
+            body: JSON.stringify({ intent: "closed-ai-connect" }),
+          },
+          signal,
+        ));
+        const validSession = typeof body.token === "string"
+          && body.token.length >= 32
+          && typeof body.csrf === "string"
+          && body.csrf.length >= 24
+          && typeof body.instanceId === "string"
+          && body.instanceId.length > 0
+          && typeof body.expiresAt === "string"
+          && Date.parse(body.expiresAt) > Date.now()
+          && body.automaticConnection === true
+          && body.sessionKind === "trusted_origin_auto";
+        if (!validSession) {
+          throw new AiProviderError(
+            "OLLAMA_INVALID_RESPONSE",
+            "Local Bridge did not return a valid origin-bound automatic session.",
+            { retryable: true, stage: "local-automatic-connection" },
+          );
+        }
+        this.setSession({
+          token: body.token!,
+          csrf: body.csrf!,
+          instanceId: body.instanceId!,
+          expiresAt: body.expiresAt!,
+        });
+        this.saveRememberedSession();
+        automaticSessionIssued = true;
+      };
+      if (!this.session) await issueAutomaticSession();
+
+      let modelResponse;
+      try {
+        modelResponse = await this.models(signal);
+      } catch (error) {
+        const code = String((error as { code?: string })?.code ?? "");
+        if (!["BRIDGE_NOT_PAIRED", "BRIDGE_PAIRING_EXPIRED", "BRIDGE_PAIRING_REVOKED"].includes(code)) {
+          throw error;
+        }
+        this.setSession(null);
+        this.clearRememberedSession();
+        await issueAutomaticSession();
+        modelResponse = await this.models(signal);
+      }
+      const available = modelResponse.models.filter(
+        (model) => model.capabilities?.textGeneration?.value === true,
+      );
+      const selectedId = selectAvailableTextModel(available, preferredModelId);
+      const selected = available.find((model) => model.modelId === selectedId);
+      if (!selected) {
+        throw new AiProviderError(
+          "OLLAMA_MODEL_NOT_FOUND",
+          "Automatic connection succeeded, but no local text model is available.",
+          { retryable: true, stage: "local-automatic-connection" },
+        );
+      }
+      const proof = this.getModelVerification(selected.modelId)
+        ?? await this.verifyModel(selected.modelId, signal);
+      const session = this.getSessionMetadata();
+      if (!session) {
+        throw new AiProviderError(
+          "BRIDGE_NOT_PAIRED",
+          "Automatic Local Bridge session was lost during verification.",
+          { retryable: true, stage: "local-automatic-connection" },
+        );
+      }
+      return {
+        state: "connected" as const,
+        mode: automaticSessionIssued ? "trusted-origin-auto" as const : "existing-session" as const,
+        session,
+        model: structuredClone(selected),
+        proof,
+      };
+    })();
+    this.automaticConnectionInFlight = operation;
+    try {
+      return structuredClone(await operation);
+    } finally {
+      if (this.automaticConnectionInFlight === operation) {
+        this.automaticConnectionInFlight = null;
+      }
+    }
   }
 
   async confirmPairing(pairingId: string, code: string, signal?: AbortSignal) {

@@ -9,7 +9,11 @@ import {
   type LocalModelInferenceProof,
   type LocalTextModel,
 } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
-import { LOCAL_AI_COMPANION_RELEASE } from "@/lib/novel-ai/providers/local-ollama/companion-release";
+import {
+  evaluateLocalAIRuntimeVersion,
+  LOCAL_AI_COMPANION_RELEASE,
+  PASSWORDLESS_LOCAL_AI_ORIGINS,
+} from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import {
   classifyClosedAIModelTier,
   modelTierLabel,
@@ -72,6 +76,7 @@ export default function LocalAISetupWizard() {
   const [models, setModels] = useState<LocalTextModel[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [proof, setProof] = useState<LocalModelInferenceProof | null>(null);
+  const [bridgeVersion, setBridgeVersion] = useState<string | null>(null);
   const [rememberWithinTab, setRememberWithinTab] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("正在檢查這台裝置。");
@@ -93,6 +98,18 @@ export default function LocalAISetupWizard() {
     coordinator.setRememberPairingWithinTab(rememberWithinTab);
   }, [coordinator, rememberWithinTab]);
 
+  const directConnectionEnabled = Boolean(
+    origin
+    && PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+      origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+    ),
+  );
+  const bridgeVersionStatus = evaluateLocalAIRuntimeVersion({
+    reportedVersion: bridgeVersion,
+    minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumBridgeVersion,
+    recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedBridgeVersion,
+  });
+
   const refresh = useCallback(async () => {
     if (!origin) return;
     setBusy(true);
@@ -100,6 +117,26 @@ export default function LocalAISetupWizard() {
       // First-time setup must probe the exact-origin loopback client before a
       // pairing session exists; otherwise no browser LNA request is issued.
       configureLocalBridgeClient(client);
+      let automaticConnectionError: unknown = null;
+      if (directConnectionEnabled && !client.getSessionMetadata()) {
+        try {
+          const connected = await client.connectAutomatically("qwen2.5:3b");
+          configureLocalBridgeClient(client);
+          configureLocalBridgeModel(connected.model.modelId);
+          setModels([connected.model]);
+          setSelectedModel(connected.model.modelId);
+          setProof(connected.proof);
+          setPairing(null);
+        } catch (error) {
+          automaticConnectionError = error;
+        }
+      }
+      try {
+        const health = await client.health();
+        setBridgeVersion(health.bridgeVersion ?? null);
+      } catch {
+        setBridgeVersion(null);
+      }
       const snapshot = await coordinator.refresh({
         projectId: "local-ai-setup",
         taskType: "chapter.continue",
@@ -128,14 +165,18 @@ export default function LocalAISetupWizard() {
           ? "Local Bridge、Ollama 與模型推理已通過，可開始使用。"
           : snapshot.localNetworkPermission === "denied"
             ? "需要允許此網站存取本機網路。"
-            : "依序完成下載、啟動、配對與模型實測。",
+            : automaticConnectionError
+              ? runtimeMessage(automaticConnectionError)
+              : directConnectionEnabled
+                ? "安裝並啟動 Companion 後，這個正式網址會免密碼自動連線與實測模型。"
+                : "依序完成下載、啟動、配對與模型實測。",
       );
     } catch (error) {
       setMessage(runtimeMessage(error));
     } finally {
       setBusy(false);
     }
-  }, [client, coordinator, origin, selectedModel]);
+  }, [client, coordinator, directConnectionEnabled, origin, selectedModel]);
 
   useEffect(() => {
     if (!origin) return;
@@ -338,9 +379,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
             <p>目前狀態：{runtime?.localBridge.status ?? "檢查中"}</p>
             <details>
               <summary>第一次設定／技術指令</summary>
-              <p>
-                Companion 版本 {LOCAL_AI_COMPANION_RELEASE.version}；套件可用
-                SHA-256 驗證，目前未簽章。組織政策若禁止未簽章程式，請勿繞過政策。
+              <p data-testid="local-ai-companion-version-status">
+                Companion 最新版本 {LOCAL_AI_COMPANION_RELEASE.version}；目前 Bridge {bridgeVersion ?? "未偵測"}。
+                {bridgeVersionStatus === "current"
+                  ? " 已是相容最新版。"
+                  : bridgeVersionStatus === "incompatible"
+                    ? " 版本不相容，請下載更新後重新啟動。"
+                    : bridgeVersionStatus === "update_available"
+                      ? " 有新版可更新。"
+                      : " 啟動後會自動核對版本。"}
+                套件可用 SHA-256 驗證，目前未簽章。組織政策若禁止未簽章程式，請勿繞過政策。
               </p>
               <div className={styles.actions}>
                 <a
@@ -377,7 +425,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 copied={copied === "launcher"}
                 onCopy={() => void copy("launcher", launcher)}
               />
-              {origin && origin !== "https://novel-orcin.vercel.app" ? (
+              {origin && !directConnectionEnabled ? (
                 <>
                 <p>
                   目前是 Preview／其他精確 Origin。Bridge 不會自動信任，
@@ -398,7 +446,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         <article>
           <span className={styles.stepNumber}>3</span>
           <div>
-            <h2>一次性安全配對</h2>
+            <h2>{directConnectionEnabled ? "免密碼自動連線" : "一次性安全配對"}</h2>
             <label className={styles.checkbox}>
               <input
                 type="checkbox"
@@ -406,10 +454,31 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 onChange={(event) =>
                   setRememberWithinTab(event.target.checked)}
               />
-              僅在目前分頁記住短期配對；關閉分頁、服務重啟、網站網址
+              僅在目前分頁記住短期工作階段；關閉分頁、服務重啟、網站網址
               改變或期限到達即失效。
             </label>
-            {!client.getSessionMetadata() ? (
+            {directConnectionEnabled ? (
+              client.getSessionMetadata() ? (
+                <p className={styles.success} data-testid="local-ai-direct-connection-ready">
+                  已免密碼連線至 instance：
+                  <code>{client.getSessionMetadata()?.instanceId}</code>
+                </p>
+              ) : (
+                <div className={styles.pairBox}>
+                  <p>
+                    不需輸入密碼或六位數碼。Companion 啟動後，正式站會用精確 Origin 綁定的短期工作階段直接連線。
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="local-ai-auto-connect"
+                    disabled={busy}
+                    onClick={() => void refresh()}
+                  >
+                    重新自動連線
+                  </button>
+                </div>
+              )
+            ) : !client.getSessionMetadata() ? (
               pairing ? (
                 <div className={styles.pairBox}>
                   <Command
@@ -487,7 +556,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 </select>
               </label>
             ) : (
-              <p>配對完成後，這裡才會列出 Ollama 真正回報的文字模型。</p>
+              <p>本機連線完成後，這裡才會列出 Ollama 真正回報的文字模型。</p>
             )}
             {proof ? (
               <>

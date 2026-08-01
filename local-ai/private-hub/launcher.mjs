@@ -58,6 +58,7 @@ async function configuredOrigins() {
   } catch {
     return [
       "https://novel-orcin.vercel.app",
+      "https://novel-lqtechs-projects.vercel.app",
       "http://localhost:3000",
       "http://127.0.0.1:3000",
     ];

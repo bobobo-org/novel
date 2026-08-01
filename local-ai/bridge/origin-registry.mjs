@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 export const ORIGIN_REGISTRY_SCHEMA_VERSION = "novel-bridge-origin-registry-v1";
 export const BUILT_IN_ORIGINS = Object.freeze([
   "https://novel-orcin.vercel.app",
+  "https://novel-lqtechs-projects.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ]);

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.0.0"
+  [string]$Version = "1.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +29,8 @@ New-Item -ItemType Directory -Path (Join-Path $stageRoot "bridge") -Force |
   Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stageRoot "cache") -Force |
   Out-Null
+New-Item -ItemType Directory -Path (Join-Path $stageRoot "private-hub") -Force |
+  Out-Null
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 $bridgeFiles = @(
@@ -52,6 +54,18 @@ $cacheFiles = @(
 foreach ($name in $cacheFiles) {
   Copy-Item -LiteralPath (Join-Path $repositoryRoot "local-ai\cache\$name") `
     -Destination (Join-Path $stageRoot "cache\$name")
+}
+
+$privateHubFiles = @(
+  "launcher.mjs",
+  "novel-private-hub.ps1",
+  "preference-model.mjs",
+  "README.md",
+  "server.mjs"
+)
+foreach ($name in $privateHubFiles) {
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "local-ai\private-hub\$name") `
+    -Destination (Join-Path $stageRoot "private-hub\$name")
 }
 
 Copy-Item -LiteralPath (
