@@ -1,5 +1,6 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
 import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
+import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 
 export type StudioProjectSeed = {
@@ -86,6 +87,56 @@ export async function saveStudioChapter(repository: NovelRepository, input: Stud
   }
   const chapter = await repository.put("chapters", { ...current.chapter, title: input.chapterTitle, content: input.draft }, current.chapter.revision);
   return { ...current, chapter };
+}
+
+export async function completeStudioChapter(repository: NovelRepository, input: {
+  projectId: string;
+  chapterId: string;
+  chapterTitle: string;
+  draft: string;
+  createFullBackup: boolean;
+  release?: { appCommit?: string | null; releaseTag?: string | null };
+}) {
+  const project = await repository.get<NovelProject>("projects", input.projectId);
+  if (!project) throw new RepositoryOperationError("STUDIO_PROJECT_NOT_FOUND", "完成章節時找不到作品資料。");
+  if (project.activeChapterId !== input.chapterId) {
+    throw new RepositoryOperationError("STUDIO_ACTIVE_CHAPTER_CHANGED", "目前章節已在其他操作中切換，請確認內容後再完成章節。");
+  }
+  const currentChapter = await repository.get<Chapter>("chapters", input.chapterId);
+  if (!currentChapter || currentChapter.projectId !== input.projectId) {
+    throw new RepositoryOperationError("STUDIO_SOURCE_CHAPTER_NOT_FOUND", "完成章節時找不到目前章節資料。");
+  }
+
+  const completedChapter = await repository.put<Chapter>("chapters", {
+    ...currentChapter,
+    title: input.chapterTitle.trim() || currentChapter.title,
+    content: input.draft,
+    status: "completed",
+  }, currentChapter.revision);
+
+  // The recovery point belongs to the chapter that just completed. Create it
+  // before a new blank chapter exists or becomes the project's active chapter.
+  const backup = input.createFullBackup
+    ? await createProjectBackup(repository, input.projectId, "full", input.release)
+    : null;
+
+  const chapters = (await repository.list<Chapter>("chapters", input.projectId))
+    .sort((left, right) => left.order - right.order);
+  const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
+  const nextChapter = await repository.put<Chapter>("chapters", {
+    ...makeRecord(input.projectId, "user"),
+    title: `第${order}章`,
+    order,
+    content: "",
+    summary: null,
+    status: "draft",
+  });
+  const nextProject = await repository.put<NovelProject>("projects", {
+    ...project,
+    activeChapterId: nextChapter.id,
+  }, project.revision);
+
+  return { completedChapter, nextChapter, nextProject, backup };
 }
 
 export async function persistStudioChoiceCandidate(repository: NovelRepository, input: StudioProjectSeed, candidate: {

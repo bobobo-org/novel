@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { makeRecord } from "../lib/novel-ai/domain/index.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/index.ts";
 import {
+  completeStudioChapter,
   ensureStudioCanonicalProject,
   saveStudioChapter,
 } from "../lib/novel-ai/repository/studio-canonical.ts";
@@ -118,6 +119,35 @@ await test("stale rewrite cannot overwrite a newer chapter revision", async () =
     (error) => error?.code === "GENERATION_SOURCE_REVISION_STALE",
   );
   assert.equal((await repository.get("chapters", second.id)).content, "第二章完整重寫版本。\n\n第二章續文。");
+});
+
+await test("chapter completion backs up the completed chapter before opening the next chapter", async () => {
+  const completionRepository = new MemoryNovelRepository();
+  const seeded = await ensureStudioCanonicalProject(completionRepository, {
+    id: "chapter-completion-backup-project",
+    title: "完成與備份驗收",
+    chapterTitle: "第一章",
+    draft: "尚未完成的舊正文。",
+  });
+  const result = await completeStudioChapter(completionRepository, {
+    projectId: seeded.project.id,
+    chapterId: seeded.chapter.id,
+    chapterTitle: "第一章・雨夜",
+    draft: "按下完成前的最新正文。",
+    createFullBackup: true,
+    release: { appCommit: "test-commit", releaseTag: "test-release" },
+  });
+  const backupProject = result.backup.payload.records.projects[0];
+  const backupChapters = result.backup.payload.records.chapters;
+
+  assert.equal(result.completedChapter.title, "第一章・雨夜");
+  assert.equal(result.completedChapter.content, "按下完成前的最新正文。");
+  assert.equal(result.completedChapter.status, "completed");
+  assert.equal(backupProject.activeChapterId, result.completedChapter.id);
+  assert.equal(backupChapters.some((chapter) => chapter.id === result.nextChapter.id), false);
+  assert.equal((await completionRepository.get("projects", seeded.project.id)).activeChapterId, result.nextChapter.id);
+  assert.equal(result.nextChapter.content, "");
+  assert.equal(result.nextChapter.status, "draft");
 });
 
 await test("studio UI exposes real chapter controls and source-identity guard", async () => {

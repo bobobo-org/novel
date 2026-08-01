@@ -7,6 +7,8 @@ const compactStudio = studio.replace(/\s+/g, "");
 const reader = read("app/studio/read/[projectId]/reader-client.tsx");
 const professional = read("app/professional/professional-client.tsx");
 const health = read("app/api/ai/health/route.ts");
+const chapterLifecycle = read("lib/novel-ai/repository/studio-canonical.ts");
+const compactChapterLifecycle = chapterLifecycle.replace(/\s+/g, "");
 const library = JSON.parse(read("data/story-library.json"));
 const manifest = JSON.parse(read("release-manifest.json"));
 const releaseMetadataContract = JSON.parse(read("release-metadata-contract.json"));
@@ -54,7 +56,11 @@ test("閱讀資料可持久保存", () => reader.includes("readerStates") && rea
 test("專注模式提供六種小型助手", () => ["繼續寫", "改寫選取內容", "加強人物對話", "增加情緒張力", "調整節奏", "製造章尾懸念"].every((label) => studio.includes(label)));
 test("AI結果維持建議稿邊界", () => studio.includes("SuggestionCard") && studio.includes("acceptCandidate"));
 test("章節完成事件存在", () => studio.includes('task: "chapter_completed"'));
-test("章節完成可觸發完整備份", () => compactStudio.includes('value.autoBackup==="chapter_complete"') && compactStudio.includes('makeBackupRecord(nextProject,"full",nextState)'));
+test("章節完成可觸發完整備份", () =>
+  studio.includes("completeCanonicalStudioChapter") &&
+  compactChapterLifecycle.includes('input.createFullBackup?awaitcreateProjectBackup(repository,input.projectId,"full",input.release):null') &&
+  compactChapterLifecycle.indexOf("constbackup=") < compactChapterLifecycle.indexOf("constnextChapter=") &&
+  compactStudio.includes('makeBackupRecord(completedProject,"full",backupState)'));
 test("備份包含消費者故事資料快照", () => studio.includes('storyBibleStatus: "consumer_snapshot"') && studio.includes("unresolvedThreads"));
 test("備份包含閱讀進度", () => studio.includes("readingProgress") && studio.includes("novel_reader_progress_"));
 test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("discoverStudioClosedAI"));

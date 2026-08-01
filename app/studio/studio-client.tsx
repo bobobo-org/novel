@@ -51,7 +51,15 @@ import {
   resolvePersistenceRuntimeHealth,
   type PersistenceRuntimeMode,
 } from "@/lib/novel-ai/repository/runtime-health";
-import { acceptStudioChoice, auditLegacyStudioInteractions, ensureStudioCanonicalProject, persistStudioChoiceCandidate, saveStudioChapter, type StudioProjectSeed } from "@/lib/novel-ai/repository/studio-canonical";
+import {
+  acceptStudioChoice,
+  auditLegacyStudioInteractions,
+  completeStudioChapter as completeCanonicalStudioChapter,
+  ensureStudioCanonicalProject,
+  persistStudioChoiceCandidate,
+  saveStudioChapter,
+  type StudioProjectSeed,
+} from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 
@@ -1356,65 +1364,65 @@ export default function StudioClient({
       ),
     }));
   }
-  async function completeChapter() {
-    if (!ensureCanonicalWritable("完成章節")) return;
-    if (!project) return;
+  async function completeChapter(chapterTitle: string, draft: string) {
+    if (!ensureCanonicalWritable("完成章節")) {
+      throw new Error("本機正式作品庫目前不可寫入，沒有完成或切換章節。");
+    }
+    if (!project) throw new Error("目前沒有可完成的作品。");
     const completedAt = new Date().toISOString();
     const old = {
       at: completedAt,
-      title: project.chapterTitle,
-      content: project.draft,
+      title: chapterTitle,
+      content: draft,
     };
     try {
       const repository = repositoryRef.current!;
-      const canonicalProject = await repository.get<NovelProject>("projects", project.id);
-      const activeChapterId = project.activeChapterId ?? canonicalProject?.activeChapterId;
-      const currentChapter = activeChapterId
-        ? await repository.get<Chapter>("chapters", activeChapterId)
-        : null;
-      if (!canonicalProject || !currentChapter || currentChapter.projectId !== project.id) {
+      if (!project.activeChapterId) {
         throw new Error("完成章節時找不到目前章節資料。");
       }
-      const completed = currentChapter.status === "completed"
-        ? currentChapter
-        : await repository.put<Chapter>("chapters", {
-            ...currentChapter,
-            status: "completed",
-          }, currentChapter.revision);
-      const chapters = (await repository.list<Chapter>("chapters", project.id))
-        .sort((left, right) => left.order - right.order);
-      const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
-      const nextChapter = await repository.put<Chapter>("chapters", {
-        ...makeRecord(project.id, "user"),
-        title: `第${order}章`,
-        order,
-        content: "",
-        summary: null,
-        status: "draft",
+      const {
+        completedChapter: completed,
+        nextChapter,
+        backup: formalBackup,
+      } = await completeCanonicalStudioChapter(repository, {
+        projectId: project.id,
+        chapterId: project.activeChapterId,
+        chapterTitle,
+        draft,
+        createFullBackup: state.autoBackup === "chapter_complete",
+        release,
       });
-      await repository.put<NovelProject>("projects", {
-        ...canonicalProject,
-        activeChapterId: nextChapter.id,
-      }, canonicalProject.revision);
-      const nextProject: Project = {
+      const completedProject: Project = {
         ...project,
+        activeChapterId: completed.id,
+        chapterTitle: completed.title,
+        draft: completed.content,
+        updatedAt: completed.updatedAt,
+        versions: [{ ...old, title: `${completed.title}（完成）` }, ...project.versions],
+      };
+      const nextProject: Project = {
+        ...completedProject,
         activeChapterId: nextChapter.id,
         chapterTitle: nextChapter.title,
         draft: nextChapter.content,
         updatedAt: nextChapter.updatedAt,
-        versions: [{ ...old, title: `${completed.title}（完成）` }, ...project.versions],
       };
-      const formalBackup = state.autoBackup === "chapter_complete"
-        ? await createProjectBackup(repository, project.id, "full", release)
-        : null;
       setState((value) => {
         const projects = value.projects.map((item) => item.id === project.id
           ? nextProject
           : item);
         const nextState = { ...value, projects, candidate: null };
+        const backupState = {
+          ...value,
+          projects: value.projects.map((item) => item.id === project.id
+            ? completedProject
+            : item),
+          candidate: null,
+        };
         const chapterBackup = formalBackup
           ? [{
-              ...makeBackupRecord(nextProject, "full", nextState),
+              ...makeBackupRecord(completedProject, "full", backupState),
+              name: `${completedProject.title}・${completed.title}完成備份`,
               backupId: formalBackup.backup.id,
               bytes: formalBackup.backup.byteSize,
               createdAt: formalBackup.backup.createdAt,
@@ -1441,7 +1449,7 @@ export default function StudioClient({
       });
     } catch (error) {
       console.error("CHAPTER_COMPLETE_FAILED", error);
-      alert(error instanceof Error ? error.message : "完成章節失敗，沒有建立下一章。");
+      throw error instanceof Error ? error : new Error("完成章節失敗，沒有建立下一章。");
     }
   }
   function contextFor(task: string, currentChapterText = project?.draft ?? "") {
@@ -3170,7 +3178,7 @@ function WriteScreen({
   createChapter: () => Promise<Chapter>;
   deleteChapter: (chapterId: string) => Promise<Chapter>;
   runTask: StudioRunTask;
-  completeChapter: () => Promise<void>;
+  completeChapter: (title: string, draft: string) => Promise<void>;
   acceptCandidate: (content?: string) => Promise<void>;
   discard: () => void;
   assistantStatus: AssistantStatus;
@@ -3319,6 +3327,26 @@ function WriteScreen({
     }
   }
 
+  async function finishCurrentChapter() {
+    if (!project || chapterBusy) return;
+    if (candidate) {
+      alert("請先採用或放棄目前 AI 候選，再完成章節，避免候選失去來源章節。");
+      return;
+    }
+    setChapterBusy(true);
+    setChapterMessage("正在保存、完成並備份目前章節……");
+    try {
+      await completeChapter(titleRef.current, draftRef.current);
+      setChapterMessage("本章已完成，已開啟下一章");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "完成章節失敗，沒有建立下一章。";
+      setChapterMessage(message);
+      alert(message);
+    } finally {
+      setChapterBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (
       !project
@@ -3411,7 +3439,9 @@ function WriteScreen({
               {focus ? "離開專注模式" : "專注寫作"}
             </button>
             <Link href={`/studio/read/${project.id}`} onClick={() => void persistCurrentChapter()}>閱讀作品</Link>
-            <button onClick={() => void persistCurrentChapter().then(() => completeChapter())}>完成本章並建立下一章</button>
+            <button disabled={chapterBusy} onClick={() => void finishCurrentChapter()}>
+              {chapterBusy ? "正在完成本章……" : "完成本章並建立下一章"}
+            </button>
             <button className="gold" onClick={() => void persistCurrentChapter()}>
               儲存草稿
             </button>
