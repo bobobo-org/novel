@@ -45,14 +45,24 @@ export function projectRefFromUrl(rawUrl) {
 
 export function serviceRoleCredentialKind(value) {
   if (/^sb_secret_[A-Za-z0-9._-]{16,}$/u.test(value)) return "secret_key";
+  const payload = decodeSupabaseJwt(value);
+  return payload?.role === "service_role" ? "service_role_jwt" : "";
+}
+
+function decodeSupabaseJwt(value) {
   const parts = String(value).split(".");
-  if (parts.length !== 3) return "";
+  if (parts.length !== 3) return null;
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-    return payload?.role === "service_role" ? "service_role_jwt" : "";
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
   } catch {
-    return "";
+    return null;
   }
+}
+
+export function projectRefFromServiceRole(value) {
+  const payload = decodeSupabaseJwt(value);
+  const projectRef = String(payload?.ref || "");
+  return /^[a-z0-9]{8,32}$/u.test(projectRef) ? projectRef : "";
 }
 
 export function mergeProductionWithSource(production, source) {
@@ -62,6 +72,10 @@ export function mergeProductionWithSource(production, source) {
     production.SUPABASE_URL,
     source.NEXT_PUBLIC_SUPABASE_URL,
     source.SUPABASE_URL,
+  );
+  const serviceRole = first(
+    production.SUPABASE_SERVICE_ROLE_KEY,
+    source.SUPABASE_SERVICE_ROLE_KEY,
   );
   return {
     SUPABASE_ACCESS_TOKEN: first(
@@ -74,12 +88,10 @@ export function mergeProductionWithSource(production, source) {
       production.SUPABASE_PROJECT_REF,
       source.SUPABASE_PROJECT_REF,
       projectRefFromUrl(url),
+      projectRefFromServiceRole(serviceRole),
     ),
     NEXT_PUBLIC_SUPABASE_URL: url,
-    SUPABASE_SERVICE_ROLE_KEY: first(
-      production.SUPABASE_SERVICE_ROLE_KEY,
-      source.SUPABASE_SERVICE_ROLE_KEY,
-    ),
+    SUPABASE_SERVICE_ROLE_KEY: serviceRole,
   };
 }
 
@@ -214,6 +226,9 @@ export async function main() {
         token,
       });
       source = { ...development, ...preview };
+      if (process.env.SUPABASE_ACCESS_TOKEN) {
+        source.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+      }
     }
     const configuration = mergeProductionWithSource(production, source);
     let projectRef;

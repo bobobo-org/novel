@@ -4,12 +4,13 @@ import {
   mergeProductionWithSource,
   parseEnvFile,
   projectRefFromUrl,
+  projectRefFromServiceRole,
   serviceRoleCredentialKind,
   validateConfigurationShape,
 } from "./bootstrap-production-supabase-env.mjs";
 
 const projectRef = "abcdefghijklmnopqrst";
-const serviceRolePayload = Buffer.from(JSON.stringify({ role: "service_role" })).toString("base64url");
+const serviceRolePayload = Buffer.from(JSON.stringify({ role: "service_role", ref: projectRef })).toString("base64url");
 const serviceRoleJwt = `header.${serviceRolePayload}.signature`;
 const source = {
   SUPABASE_ACCESS_TOKEN: "sbp_abcdefghijklmnopqrstuvwxyz",
@@ -26,6 +27,7 @@ assert.equal(projectRefFromUrl(source.NEXT_PUBLIC_SUPABASE_URL), projectRef);
 assert.equal(projectRefFromUrl("http://abcdefghijklmnopqrst.supabase.co"), "");
 assert.equal(projectRefFromUrl("https://example.com"), "");
 assert.equal(serviceRoleCredentialKind(serviceRoleJwt), "service_role_jwt");
+assert.equal(projectRefFromServiceRole(serviceRoleJwt), projectRef);
 assert.equal(serviceRoleCredentialKind("sb_secret_abcdefghijklmnopqrstuvwxyz"), "secret_key");
 assert.equal(serviceRoleCredentialKind("not-a-service-role"), "");
 
@@ -42,6 +44,13 @@ const aliasOnly = mergeProductionWithSource({}, {
 });
 assert.deepEqual(aliasOnly, source);
 assert.deepEqual(validateConfigurationShape(aliasOnly), { projectRef });
+
+const serviceRoleRefOnly = mergeProductionWithSource({}, {
+  SUPABASE_ACCESS_TOKEN: source.SUPABASE_ACCESS_TOKEN,
+  NEXT_PUBLIC_SUPABASE_URL: "https://custom.example.com",
+  SUPABASE_SERVICE_ROLE_KEY: source.SUPABASE_SERVICE_ROLE_KEY,
+});
+assert.equal(serviceRoleRefOnly.SUPABASE_PROJECT_REF, projectRef);
 
 assert.throws(
   () => validateConfigurationShape({ ...merged, SUPABASE_PROJECT_REF: "differentprojectref" }),

@@ -65,6 +65,7 @@ assert.match(previewJob, /\/api\/release\/identity/u);
 assert.doesNotMatch(previewJob, /--prod/u);
 assert.doesNotMatch(previewJob, /vercel\s+alias/u);
 assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
+assert.doesNotMatch(previewJob, /SUPABASE_ACCESS_TOKEN/u);
 
 assert.match(productionBootstrapJob, /\n    needs:\s*validate\s*$/mu);
 assert.match(
@@ -73,6 +74,7 @@ assert.match(
 );
 assert.match(productionBootstrapJob, /bootstrap-production-supabase-env\.mjs/u);
 assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
+assert.match(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
 assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
 
 assert.match(deployJob, /\n    needs:\s*\[validate,\s*production_env_bootstrap\]\s*$/mu);
