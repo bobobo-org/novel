@@ -248,6 +248,9 @@ jobs:
       - name: Install deployment tooling
         run: npm install --global pnpm@10 vercel@56.3.2
 
+      - name: Install project dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Capture both current alias identities for rollback
         if: github.ref == 'refs/heads/main'
         id: aliases_before
