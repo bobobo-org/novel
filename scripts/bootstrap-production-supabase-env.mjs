@@ -128,6 +128,20 @@ export function mergeProductionWithSource(production, source) {
   };
 }
 
+export function overrideSupabaseProjectIdentity(configuration, rawProjectRef) {
+  const projectRef = String(rawProjectRef || "").trim();
+  if (!/^[a-z0-9]{8,32}$/u.test(projectRef)) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_REF_OVERRIDE_INVALID"), {
+      code: "SUPABASE_BOOTSTRAP_PROJECT_REF_OVERRIDE_INVALID",
+    });
+  }
+  return {
+    ...configuration,
+    SUPABASE_PROJECT_REF: projectRef,
+    NEXT_PUBLIC_SUPABASE_URL: `https://${projectRef}.supabase.co`,
+  };
+}
+
 export function validateRuntimeConfigurationShape(configuration) {
   const missingKeys = PRODUCTION_RUNTIME_SUPABASE_KEYS.filter((key) => !configuration[key]);
   if (missingKeys.length > 0) {
@@ -482,11 +496,17 @@ export async function main() {
     if (process.env.SUPABASE_PROJECT_REF_FALLBACK) {
       source.SUPABASE_PROJECT_REF = process.env.SUPABASE_PROJECT_REF_FALLBACK;
     }
-    const configuration = mergeProductionWithSource(production, source);
+    let configuration = mergeProductionWithSource(production, source);
     let projectRef;
     let projectRefDiscovery = "configured";
     try {
-      if (
+      if (process.env.SUPABASE_PROJECT_REF_FALLBACK) {
+        configuration = overrideSupabaseProjectIdentity(
+          configuration,
+          process.env.SUPABASE_PROJECT_REF_FALLBACK,
+        );
+        projectRefDiscovery = "repository_fallback_override";
+      } else if (
         configuration.SUPABASE_PROJECT_REF
         && projectRefFromUrl(configuration.NEXT_PUBLIC_SUPABASE_URL)
           !== configuration.SUPABASE_PROJECT_REF

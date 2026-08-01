@@ -8,6 +8,7 @@ import {
   REQUIRED_SUPABASE_KEYS,
   SUPABASE_SERVER_CREDENTIAL_KEYS,
   mergeProductionWithSource,
+  overrideSupabaseProjectIdentity,
   parseEnvFile,
   projectRefFromUrl,
   projectRefFromServiceRole,
@@ -110,6 +111,24 @@ const production = { NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL }
 const merged = mergeProductionWithSource(production, source);
 assert.deepEqual(Object.keys(merged), [...REQUIRED_SUPABASE_KEYS]);
 assert.equal(merged.NEXT_PUBLIC_SUPABASE_URL, production.NEXT_PUBLIC_SUPABASE_URL);
+const recoveryProjectRef = "iwobncchxuykcztziavw";
+const recoveredIdentity = overrideSupabaseProjectIdentity(
+  {
+    ...merged,
+    SUPABASE_PROJECT_REF: "ijjicaiiirkfbewbhepx",
+    NEXT_PUBLIC_SUPABASE_URL: "https://ijjicaiiirkfbewbhepx.supabase.co",
+  },
+  recoveryProjectRef,
+);
+assert.equal(recoveredIdentity.SUPABASE_PROJECT_REF, recoveryProjectRef);
+assert.equal(
+  recoveredIdentity.NEXT_PUBLIC_SUPABASE_URL,
+  `https://${recoveryProjectRef}.supabase.co`,
+);
+assert.throws(
+  () => overrideSupabaseProjectIdentity(merged, "not a project ref"),
+  (error) => error?.code === "SUPABASE_BOOTSTRAP_PROJECT_REF_OVERRIDE_INVALID",
+);
 assert.deepEqual(validateConfigurationShape(merged), { projectRef });
 assert.deepEqual(validateRuntimeConfigurationShape({
   SUPABASE_PROJECT_REF: projectRef,
