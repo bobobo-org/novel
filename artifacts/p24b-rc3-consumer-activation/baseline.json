@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "p24b-rc3-production-final-readonly-v1",
+  "capturedAt": "2026-07-31T21:41:39.071Z",
+  "mode": "read-only-public-health-and-routes",
+  "requestCredentialsUsed": false,
+  "productionMutationCount": 0,
+  "expectedAppCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+  "expectedDeploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+  "originalBaselineSha256": "9adb6cd09c0fa2f8eb5dca2e3f9e2b051b54a83ae8e97f9a8fb2bc35b4d85f28",
+  "aliases": [
+    {
+      "name": "primary",
+      "origin": "https://novel-orcin.vercel.app",
+      "endpoints": {
+        "/api/release/identity": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4",
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "environment": "production",
+            "provenanceStatus": "verified"
+          }
+        },
+        "/api/ai/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "03607ca1703dee49d63e74db08ddcc911bb0b3302211f0e47c2c9ea536e96483",
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "provenanceStatus": "verified",
+            "apiStatus": "online",
+            "persistenceStatus": "degraded",
+            "databaseStatus": "error",
+            "closedAiRuntimeStatus": "client_probe_required"
+          }
+        },
+        "/api/persistence/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1",
+          "stable": {
+            "cloudPersistenceStatus": "degraded",
+            "migrationStatus": "required_or_unknown",
+            "writeProbeStatus": "failed",
+            "localCanonicalProvider": "IndexedDB",
+            "localCanonicalRuntimeStatus": "client_probe_required"
+          }
+        },
+        "/api/ai/cloud/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "d61e0f6bb8de77f1387da3cf913620a824fec0025bf6c62a2c906e5980d0272b",
+          "stable": {
+            "configured": true,
+            "provider": "google",
+            "model": "gemini-3.1-flash-lite",
+            "pingStatus": "reachable",
+            "dataLeavesDevice": true,
+            "requiresExplicitConsent": true,
+            "closedModeEligible": false
+          }
+        },
+        "/api/ai/closed/contract": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "0fc400cf70806e696fa6acf2b9bbd5cd8ce662dcc4bf4eea407fd9e864b623b7",
+          "stable": {
+            "noSilentExternalFallback": true,
+            "localOllamaRuntimeStatus": "client_probe_required",
+            "closedAgentRuntimeStatus": "client_runtime",
+            "canonicalMutationBeforeApproval": 0
+          }
+        }
+      },
+      "routes": {
+        "/": {
+          "initialStatus": 307,
+          "location": "/legacy/novel-system.html?screen=home",
+          "finalStatus": 200
+        },
+        "/studio": {
+          "initialStatus": 307,
+          "location": "/legacy/novel-system.html",
+          "finalStatus": 200
+        },
+        "/settings/local-ai": {
+          "initialStatus": 200,
+          "finalStatus": 200
+        },
+        "/studio/quick-assistant": {
+          "initialStatus": 200,
+          "finalStatus": 200
+        }
+      }
+    },
+    {
+      "name": "mirror",
+      "origin": "https://novel-lqtechs-projects.vercel.app",
+      "endpoints": {
+        "/api/release/identity": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "5df77eb638a3ebda787262b9f321bcf9f7f99ccbf282f09f108cabe6da8529c4",
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "environment": "production",
+            "provenanceStatus": "verified"
+          }
+        },
+        "/api/ai/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "2745ec61385ed4453de86494361fba5f65c192f35f8e10109575c8e6c24af3cf",
+          "stable": {
+            "appCommit": "5ddc32918f0d866a85e04b4398c7e66ce8d36e2b",
+            "deploymentId": "dpl_2LvkxKiQY5VHGf7eaNm3hBsN5YJT",
+            "releaseTag": "novel-ai-p24b-character-agent-rc2",
+            "architectureStage": "P2.4B RC",
+            "provenanceStatus": "verified",
+            "apiStatus": "online",
+            "persistenceStatus": "degraded",
+            "databaseStatus": "error",
+            "closedAiRuntimeStatus": "client_probe_required"
+          }
+        },
+        "/api/persistence/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "eb1f993a92fc71e7f2c4dd240a33d60d3ce9b2acaeb2456e3807fc047a2c32a1",
+          "stable": {
+            "cloudPersistenceStatus": "degraded",
+            "migrationStatus": "required_or_unknown",
+            "writeProbeStatus": "failed",
+            "localCanonicalProvider": "IndexedDB",
+            "localCanonicalRuntimeStatus": "client_probe_required"
+          }
+        },
+        "/api/ai/cloud/health": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "8aff7cc013079ccc14bdebed9b3bedaf8a26f5fe94e7d474f1bd0d48e2a767fb",
+          "stable": {
+            "configured": true,
+            "provider": "google",
+            "model": "gemini-3.1-flash-lite",
+            "pingStatus": "reachable",
+            "dataLeavesDevice": true,
+            "requiresExplicitConsent": true,
+            "closedModeEligible": false
+          }
+        },
+        "/api/ai/closed/contract": {
+          "httpStatus": 200,
+          "cacheControl": "no-store, max-age=0",
+          "bodySha256": "0fc400cf70806e696fa6acf2b9bbd5cd8ce662dcc4bf4eea407fd9e864b623b7",
+          "stable": {
+            "noSilentExternalFallback": true,
+            "localOllamaRuntimeStatus": "client_probe_required",
+            "closedAgentRuntimeStatus": "client_runtime",
+            "canonicalMutationBeforeApproval": 0
+          }
+        }
+      },
+      "routes": {
+        "/": {
+          "initialStatus": 307,
+          "location": "/legacy/novel-system.html?screen=home",
+          "finalStatus": 200
+        },
+        "/studio": {
+          "initialStatus": 307,
+          "location": "/legacy/novel-system.html",
+          "finalStatus": 200
+        },
+        "/settings/local-ai": {
+          "initialStatus": 200,
+          "finalStatus": 200
+        },
+        "/studio/quick-assistant": {
+          "initialStatus": 200,
+          "finalStatus": 200
+        }
+      }
+    }
+  ],
+  "verdict": {
+    "identityStable": true,
+    "primaryMirrorMatch": true,
+    "routesStable": true,
+    "cloudPersistenceStatus": "degraded",
+    "productionUnchanged": true,
+    "status": "CURRENT_PRODUCTION_UNCHANGED"
+  }
+}

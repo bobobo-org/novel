@@ -47,11 +47,11 @@ export default function ProjectNavigation({
 }) {
   return (
     <nav className="p2ProjectNav" aria-label="作品功能">
-      <Link className="p2NavWorkbench" href={`/professional?projectId=${encodeURIComponent(projectId)}`}>
+      <a className="p2NavWorkbench" href={`/professional?projectId=${encodeURIComponent(projectId)}`}>
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
         <span className="p2NavLabel">專業工作台</span>
         <span className="p2NavShort">工作台</span>
-      </Link>
+      </a>
       {PROJECT_LINKS.map(([path, label]) => {
         const { icon, short } = PROJECT_LINK_PRESENTATION[path];
         return (

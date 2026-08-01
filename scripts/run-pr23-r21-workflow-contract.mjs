@@ -11,10 +11,17 @@ const packageScripts = JSON.parse(packageText).scripts;
 
 const jobsIndex = workflow.indexOf("\njobs:");
 const validateIndex = workflow.indexOf("\n  validate:");
+const previewIndex = workflow.indexOf("\n  preview:");
 const deployIndex = workflow.indexOf("\n  deploy:");
-assert.ok(jobsIndex > 0 && validateIndex > jobsIndex && deployIndex > validateIndex);
+assert.ok(
+  jobsIndex > 0
+  && validateIndex > jobsIndex
+  && previewIndex > validateIndex
+  && deployIndex > previewIndex,
+);
 const globalConfiguration = workflow.slice(0, jobsIndex);
-const validateJob = workflow.slice(validateIndex, deployIndex);
+const validateJob = workflow.slice(validateIndex, previewIndex);
+const previewJob = workflow.slice(previewIndex, deployIndex);
 const deployJob = workflow.slice(deployIndex);
 
 for (const secret of [
@@ -34,6 +41,27 @@ for (const secret of [
     `${secret} must not be available to validate`,
   );
 }
+
+assert.match(previewJob, /\n    needs:\s*validate\s*$/mu);
+assert.match(
+  previewJob,
+  /\n    if:\s*github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository\s*$/mu,
+);
+for (const secret of [
+  "VERCEL_TOKEN",
+  "VERCEL_ORG_ID",
+  "VERCEL_PROJECT_ID",
+]) {
+  assert.match(previewJob, new RegExp(`${secret}:\\s*\\$\\{\\{ secrets\\.`, "u"));
+}
+assert.match(previewJob, /ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
+assert.match(previewJob, /VERCEL_GIT_COMMIT_SHA:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
+assert.match(previewJob, /environment=preview/u);
+assert.match(previewJob, /vercel deploy --prebuilt/u);
+assert.match(previewJob, /\/api\/release\/identity/u);
+assert.doesNotMatch(previewJob, /--prod/u);
+assert.doesNotMatch(previewJob, /vercel\s+alias/u);
+assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 
 assert.match(deployJob, /\n    needs:\s*validate\s*$/mu);
 assert.match(
@@ -144,10 +172,11 @@ assert.match(p21ThreeHigh, /fileURLToPath\(prePath\)/u);
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v1",
   status: "PASS",
-  jobs: ["validate", "deploy"],
+  jobs: ["validate", "preview", "deploy"],
   deployNeedsValidate: true,
   deployTrustedPushOnly: true,
-  pullRequestSecretBearingDeploy: false,
+  trustedPullRequestPreviewDeploy: true,
+  pullRequestProductionDeploy: false,
   validateSecretCount: 0,
   requiredCommandCount: requiredCommands.length,
   immutableActionUseCount: uses.length,

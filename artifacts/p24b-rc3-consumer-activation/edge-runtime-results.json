@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "p24b-rc3-edge-runtime-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "browser": "Microsoft Edge",
+  "freshProfileAtNativeGateStart": true,
+  "nativeDecision": "allow",
+  "nativeDecisionMethod": "WINDOWS_UI_AUTOMATION",
+  "nativeDecisionStatus": "INVOKED",
+  "permissionSetting": 1,
+  "harnessExitCode": 0,
+  "technicalStatus": "AUTOMATED_PASS",
+  "acceptanceProfileReusedFromNativeGate": true,
+  "consoleErrorCount": 0,
+  "httpErrorResponseCount": 0,
+  "rawProfileStored": false,
+  "rawCookieStored": false,
+  "rawHarStored": false,
+  "status": "PASS"
+}

@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 
 const LEGACY_PROFESSIONAL_PATH =
   "/legacy/novel-system.html?mode=professional";
-const LEGACY_CONSUMER_PATH = "/legacy/novel-system.html";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
@@ -20,11 +19,6 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      {
-        source: "/studio",
-        destination: LEGACY_CONSUMER_PATH,
-        permanent: false,
-      },
       {
         source: "/professional",
         destination: LEGACY_PROFESSIONAL_PATH,

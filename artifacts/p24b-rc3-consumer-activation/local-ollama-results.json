@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "p24b-rc3-local-ollama-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "origin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "modelId": "qwen2.5:3b",
+  "actualExecutor": "local-ollama",
+  "modelVerification": "real_inference_proof_visible",
+  "dataLeftDevice": false,
+  "externalRequest": false,
+  "externalAiRequestCount": 0,
+  "rawChainOfThoughtStored": false,
+  "privateStoryTextPersistedInEvidence": false,
+  "status": "PASS"
+}

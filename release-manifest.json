@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p24b-character-agent-rc2",
-  "releaseName": "P2.4B Closed Character Agent Core RC2",
-  "consumerRelease": "p2.4b-character-agent-rc2",
+  "releaseTag": "novel-ai-p24b-runtime-consumer-activation-rc3",
+  "releaseName": "P2.4B Closed AI Runtime and Consumer Activation RC3",
+  "consumerRelease": "p2.4b-runtime-consumer-activation-rc3",
   "architectureStage": "P2.4B RC",
-  "buildTime": "2026-07-26T23:23:46+08:00"
+  "buildTime": "2026-08-01T03:36:15+08:00"
 }

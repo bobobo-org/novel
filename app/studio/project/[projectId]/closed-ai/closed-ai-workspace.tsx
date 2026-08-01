@@ -25,9 +25,6 @@ import type {
   WritingTask,
 } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
-import {
-  migrateLegacyStudioProjects,
-} from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canonical-approval";
 import {
   executeStudioClosedAgent,
@@ -363,7 +360,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     let cancelled = false;
     void (async () => {
       const repository = createNovelRepository();
-      await migrateLegacyStudioProjects(repository);
       const [
         project,
         chapters,
@@ -1800,10 +1796,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               <div className={styles.actions}>
                 {result.candidate.status === "awaiting-approval" ? <>
                   {CHAPTER_COMMIT_TASKS.has(result.task.taskType) ? (
-                    <button type="button" disabled={busy} onClick={() => void approve(true)}>核准並套用目前章節</button>
+                    <button data-testid="closed-ai-approve-canon" type="button" disabled={busy} onClick={() => void approve(true)}>核准並套用目前章節</button>
                   ) : null}
                   <button data-testid="closed-ai-approve-memory" className={styles.secondary} type="button" disabled={busy} onClick={() => void approve(false)}>只核准到記憶</button>
-                  <button className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
+                  <button data-testid="closed-ai-reject" className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
                 </> : null}
                 <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportEvidence()}>匯出驗證證據</button>
               </div>

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "p24b-rc3-rpg-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "choicesPresented": 3,
+  "acceptedChoiceDelta": 1,
+  "storyBranchDelta": 1,
+  "atomicChoiceApplied": true,
+  "status": "PASS"
+}

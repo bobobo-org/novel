@@ -72,7 +72,9 @@ test("Ollama白話標示", () => studio.includes("本機 AI 建議"));
 test("AI結果不直接寫正文", () =>
   studio.includes("acceptCandidate") && studio.includes("採用這份建議"));
 test("建議可修改後採用", () => studio.includes("修改後採用"));
-test("建議可重新產生", () => studio.includes("再產生一份"));
+test("建議可重新產生", () =>
+  studio.includes("換一個版本") &&
+  studio.includes("regenerateStudioClosedAI"));
 test("建議可保持空白", () => studio.includes("保持空白"));
 test("技術資訊預設收合", () =>
   compactStudio.includes("<details><summary>查看技術資訊</summary>"));
@@ -128,7 +130,10 @@ test("接受後才建立分支", () =>
   studio.includes("acceptChoiceResult") &&
   compactStudio.includes("branches:[...value.branches"));
 test("放棄不修改正式作品", () =>
-  compactStudio.includes("discard={()=>update({candidate:null})}"));
+  compactStudio.includes("discard={()=>voiddiscardCandidate()}") &&
+  compactStudio.includes("asyncfunctiondiscardCandidate()") &&
+  compactStudio.includes("awaitrejectStudioClosedAgentCandidate(pending.candidateId)") &&
+  compactStudio.includes("update({candidate:null})"));
 test("回復同步正文與數值", () =>
   compactStudio.includes("draft:last.draft") &&
   compactStudio.includes("[project.id]:last.gameState"));

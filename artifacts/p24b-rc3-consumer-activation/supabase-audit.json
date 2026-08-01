@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "p24b-rc3-supabase-audit-v1",
+  "capturedAt": "2026-07-31T21:43:57.397Z",
+  "status": "SUPABASE_PRODUCTION_REPAIR_READY_FOR_EXPLICIT_APPROVAL",
+  "cloudPersistenceStatus": "degraded",
+  "environmentPresenceAudit": {
+    "NEXT_PUBLIC_SUPABASE_URL": "present_inferred_from_configured_runtime",
+    "SUPABASE_SERVICE_ROLE_KEY": "present_inferred_from_configured_runtime",
+    "projectRefConsistency": "not_verifiable_from_redacted_public_health",
+    "valuesRead": false,
+    "valuesRecorded": false
+  },
+  "migrationAudit": {
+    "requiredTables": [
+      "schema_migrations",
+      "health_checks",
+      "ai_runs",
+      "feedback",
+      "training_examples",
+      "evaluation_runs",
+      "model_errors",
+      "story_memories",
+      "memory_candidates"
+    ],
+    "missingSourceTables": [],
+    "repairPlanTables": [
+      "ai_runs",
+      "evaluation_runs",
+      "feedback",
+      "health_checks",
+      "memory_candidates",
+      "model_errors",
+      "schema_migrations",
+      "story_memories",
+      "training_examples"
+    ],
+    "missingRepairTables": []
+  },
+  "isolatedTest": {
+    "kind": "static-additive-catalog-simulation",
+    "applications": 2,
+    "idempotent": true,
+    "statementCount": 18,
+    "unexpectedStatements": 0,
+    "forbiddenStatements": 0
+  },
+  "repairPlan": {
+    "path": "prisma/repair-plans/p24b_rc3_supabase_persistence_additive.sql",
+    "sha256": "2d09548dbb71bd853d2277e19297898f84ead7c9cace46b15718316327ee28b2",
+    "requiresExplicitProductionApproval": true,
+    "appliedToProduction": false
+  },
+  "productionMutationCount": 0,
+  "productionModified": false,
+  "claims": {
+    "cloudPersistenceReady": false,
+    "productionRepairExecuted": false
+  }
+}

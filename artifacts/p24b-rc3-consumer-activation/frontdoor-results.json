@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "p24b-rc3-frontdoor-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "origin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "defaultSurface": "modern-consumer-frontdoor",
+  "manualDeepUrlCount": 0,
+  "desktop": {
+    "name": "desktop-frontdoor-no-horizontal-overflow",
+    "status": "PASS",
+    "measured": {
+      "viewport": 1440,
+      "document": 1440
+    }
+  },
+  "browserCheckpoint": {
+    "name": "modern-frontdoor-default",
+    "status": "PASS"
+  },
+  "unitCheckpoint": {
+    "name": "consumer-frontdoor-default",
+    "status": "PASS"
+  },
+  "status": "PASS"
+}

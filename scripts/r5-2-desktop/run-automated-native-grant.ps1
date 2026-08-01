@@ -127,8 +127,18 @@ function Find-ProfileUiElement(
       $_.CommandLine.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     } | Select-Object -ExpandProperty ProcessId)
     if ($chromePids.Count) {
+      $mainChrome = $chromePids | ForEach-Object {
+        Get-Process -Id $_ -ErrorAction SilentlyContinue
+      } | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+      if (-not $mainChrome) {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       try {
-        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+        $windowElement = [Windows.Automation.AutomationElement]::FromHandle(
+          $mainChrome.MainWindowHandle
+        )
+        $elements = $windowElement.FindAll(
           [Windows.Automation.TreeScope]::Descendants,
           [Windows.Automation.Condition]::TrueCondition
         )
@@ -140,7 +150,12 @@ function Find-ProfileUiElement(
         try {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne $ControlType) { continue }
-          if ($Names -contains $element.Current.Name) { return $element }
+          $elementName = [string]$element.Current.Name
+          $matchesName = @($Names | Where-Object {
+            $elementName -eq $_ -or
+            $elementName.StartsWith($_, [StringComparison]::Ordinal)
+          }).Count -gt 0
+          if ($matchesName) { return $element }
         } catch { }
       }
     }
@@ -152,6 +167,7 @@ function Find-ProfileUiElement(
 function Invoke-UiPairing([string]$ProfilePath) {
   $startName = ([char]0x958B)+([char]0x59CB)+([char]0x5B89)+([char]0x5168)+([char]0x914D)+([char]0x5C0D)
   $codeName = ([char]0x672C)+([char]0x6A5F)+([char]0x914D)+([char]0x5C0D)+([char]0x78BC)
+  $sixDigitCodeName = ([char]0x516D)+([char]0x4F4D)+([char]0x6578)+([char]0x914D)+([char]0x5C0D)+([char]0x78BC)
   $confirmName = ([char]0x78BA)+([char]0x8A8D)+([char]0x914D)+([char]0x5C0D)
   $start = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Button) -Names @($startName) -Deadline ((Get-Date).AddSeconds(30))
   if (-not $start) { return [ordered]@{ status = "PAIR_START_NOT_FOUND" } }
@@ -168,7 +184,7 @@ function Invoke-UiPairing([string]$ProfilePath) {
   }
   if (-not $pairing) { return [ordered]@{ status = "PAIRING_CODE_NOT_AVAILABLE" } }
 
-  $input = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Edit) -Names @($codeName) -Deadline ((Get-Date).AddSeconds(10))
+  $input = Find-ProfileUiElement -ProfilePath $ProfilePath -ControlType ([Windows.Automation.ControlType]::Edit) -Names @($codeName, $sixDigitCodeName) -Deadline ((Get-Date).AddSeconds(10))
   if (-not $input) { return [ordered]@{ status = "PAIR_CODE_INPUT_NOT_FOUND" } }
   $input.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue([string]$pairing.code)
   $pairing.code = $null
@@ -215,7 +231,10 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
       $windowElement = [Windows.Automation.AutomationElement]::FromHandle($mainChrome.MainWindowHandle)
       $windowBounds = $windowElement.Current.BoundingRectangle
       try {
-        $elements = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+        # Edge 150 can fail a desktop-wide UIA traversal with RPC_E_SERVERFAULT.
+        # Restrict discovery to the verified browser window so the native
+        # permission bubble remains semantically discoverable and invokable.
+        $elements = $windowElement.FindAll(
           [Windows.Automation.TreeScope]::Descendants,
           [Windows.Automation.Condition]::TrueCondition
         )
@@ -228,9 +247,11 @@ function Invoke-NativeGrant([string]$ProfilePath, [string]$RunDirectory) {
           if ($chromePids -notcontains $element.Current.ProcessId) { continue }
           if ($element.Current.ControlType -ne [Windows.Automation.ControlType]::Button) { continue }
           $candidateName = [string]$element.Current.Name
+          $candidateAutomationId = [string]$element.Current.AutomationId
           $matchesGrantName = $grantNames -contains $candidateName -or
             $candidateName.StartsWith(([char]0x5141)+([char]0x8A31), [StringComparison]::Ordinal) -or
-            $candidateName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase)
+            $candidateName.StartsWith("Allow", [StringComparison]::OrdinalIgnoreCase) -or
+            $candidateAutomationId -eq "allow-button"
           if (-not $matchesGrantName) { continue }
           $elementName = $element.Current.Name
           $elementProcessId = $element.Current.ProcessId

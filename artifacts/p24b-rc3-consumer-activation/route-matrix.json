@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "p24b-rc3-route-matrix-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "previewOrigin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "unit": {
+    "pass": 1,
+    "fail": 0,
+    "skip": 0
+  },
+  "preview": {
+    "manualDeepUrlCount": 0,
+    "legacyUnexpectedRedirectCount": 0,
+    "checks": [
+      {
+        "name": "modern-frontdoor-default",
+        "status": "PASS"
+      },
+      {
+        "name": "desktop-frontdoor-no-horizontal-overflow",
+        "status": "PASS"
+      },
+      {
+        "name": "local-ai-setup-discoverable",
+        "status": "PASS"
+      },
+      {
+        "name": "desktop-local-ai-no-horizontal-overflow",
+        "status": "PASS"
+      },
+      {
+        "name": "modern-studio-default",
+        "status": "PASS"
+      },
+      {
+        "name": "desktop-studio-no-horizontal-overflow",
+        "status": "PASS"
+      },
+      {
+        "name": "legacy-explicit-only",
+        "status": "PASS"
+      },
+      {
+        "name": "legacy-return-to-modern",
+        "status": "PASS"
+      },
+      {
+        "name": "mobile-frontdoor-no-horizontal-overflow",
+        "status": "PASS"
+      },
+      {
+        "name": "mobile-studio-create-no-horizontal-overflow",
+        "status": "PASS"
+      },
+      {
+        "name": "mobile-core-flow",
+        "status": "PASS"
+      },
+      {
+        "name": "external-ai-request-count",
+        "status": "PASS"
+      }
+    ]
+  },
+  "production": {
+    "mode": "read-only",
+    "mutationCount": 0,
+    "unchanged": true,
+    "routes": [
+      {
+        "name": "primary",
+        "origin": "https://novel-orcin.vercel.app",
+        "routes": {
+          "/": {
+            "initialStatus": 307,
+            "location": "/legacy/novel-system.html?screen=home",
+            "finalStatus": 200
+          },
+          "/studio": {
+            "initialStatus": 307,
+            "location": "/legacy/novel-system.html",
+            "finalStatus": 200
+          },
+          "/settings/local-ai": {
+            "initialStatus": 200,
+            "finalStatus": 200
+          },
+          "/studio/quick-assistant": {
+            "initialStatus": 200,
+            "finalStatus": 200
+          }
+        }
+      },
+      {
+        "name": "mirror",
+        "origin": "https://novel-lqtechs-projects.vercel.app",
+        "routes": {
+          "/": {
+            "initialStatus": 307,
+            "location": "/legacy/novel-system.html?screen=home",
+            "finalStatus": 200
+          },
+          "/studio": {
+            "initialStatus": 307,
+            "location": "/legacy/novel-system.html",
+            "finalStatus": 200
+          },
+          "/settings/local-ai": {
+            "initialStatus": 200,
+            "finalStatus": 200
+          },
+          "/studio/quick-assistant": {
+            "initialStatus": 200,
+            "finalStatus": 200
+          }
+        }
+      }
+    ]
+  },
+  "status": "PASS"
+}

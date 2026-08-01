@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "p24b-rc3-legacy-migration-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "explicitOnly": {
+    "name": "legacy-explicit-only",
+    "status": "PASS"
+  },
+  "hardReturnToModern": {
+    "name": "legacy-return-to-modern",
+    "status": "PASS"
+  },
+  "mobileCompatibility": {
+    "name": "28-30-legacy-return-mobile",
+    "status": "PASS",
+    "legacyUnexpectedRedirectCount": 0,
+    "viewport": "390x844"
+  },
+  "migrationPreview": {
+    "name": "legacy-indexeddb-migration-preview",
+    "status": "PASS"
+  },
+  "legacyDataMutationCount": 0,
+  "status": "PASS"
+}

@@ -302,7 +302,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <main className={styles.shell}>
+    <main className={styles.shell} data-testid="rpg-workspace">
       <header className={styles.header}>
         <div>
           <small>INTERACTIVE STORY RPG · GROWTH ENGINE</small>
@@ -356,7 +356,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             <h2>啟用本作品的角色養成</h2>
             <p>只建立初始能力值與 0 EXP，不會改寫章節、角色設定或 Story Bible。</p>
           </div>
-          <button type="button" disabled={busy} onClick={() => void initializeProgression()}>
+          <button data-testid="rpg-initialize" type="button" disabled={busy} onClick={() => void initializeProgression()}>
             啟用養成系統
           </button>
         </section>
@@ -370,6 +370,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             {choices.map((choice) => (
               <button
                 key={choice.key}
+                data-testid={`rpg-choice-${choice.key}`}
                 type="button"
                 className={selectedChoice?.key === choice.key ? styles.selected : ""}
                 onClick={() => setSelectedChoice(choice)}
@@ -401,7 +402,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                 {Object.entries(selectedChoice.effect.statChanges).map(([key, value]) => (
                   <span key={key}>{RPG_STAT_DEFINITIONS.find((item) => item.key === key)?.label ?? key} +{value}</span>
                 ))}
-                <button type="button" disabled={busy} onClick={() => void acceptChoice(selectedChoice)}>
+                <button data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void acceptChoice(selectedChoice)}>
                   確認選擇並寫入故事
                 </button>
               </div>

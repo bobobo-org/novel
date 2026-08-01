@@ -47,6 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm test:ai:p24b:all
+          pnpm test:ai:p24b-rc3-1-regeneration
           pnpm test:ai:closed:unified-os
           pnpm test:ai:closed:web-operability
           pnpm test:ai:closed:optimization
@@ -86,6 +87,73 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  preview:
+    name: preview
+    needs: validate
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout trusted PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install Preview deployment tooling
+        run: npm install --global pnpm@10 vercel@56.3.2
+
+      - name: Pull Vercel environment (Preview)
+        run: vercel pull --yes --environment=preview --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+
+      - name: Build Preview
+        run: vercel build --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+
+      - name: Deploy isolated Preview
+        id: preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(vercel deploy --prebuilt --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
+          test -n "$deployment_url"
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "::notice title=RC3 Preview URL::$deployment_url"
+
+      - name: Verify Preview release identity
+        shell: bash
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          identity_url="$PREVIEW_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for attempt in {1..30}; do
+            if body="$(curl --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
+              app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
+              environment="$(jq -r '.environment // empty' <<<"$body")"
+              provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
+              release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
+              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-runtime-consumer-activation-rc3" ]]; then
+                printf '### RC3 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
+          exit 1
 
   deploy:
     name: deploy

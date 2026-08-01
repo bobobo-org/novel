@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "p24b-rc3-local-ai-setup-evidence-v1",
+  "generatedAt": "2026-07-31T21:41:32.880Z",
+  "productCommit": "5d4baf603d722965940bbd3427144b335675d692",
+  "origin": "https://novel-q7bdnq1dt-lqtechs-projects.vercel.app",
+  "discovery": {
+    "name": "local-ai-setup-discoverable",
+    "status": "PASS",
+    "stepCount": 5
+  },
+  "setupStepCount": 5,
+  "firstTimeNetworkProbeInvoked": true,
+  "pairingCodePersisted": false,
+  "originEnrollmentRemainingAfterCleanup": 0,
+  "localBridgeListenerCountAfterCleanup": 0,
+  "status": "PASS"
+}

@@ -2,6 +2,7 @@ import { localProviderSnapshots } from "../router/platform-executor";
 import type {
   ClosedAIBackendId,
   ClosedAIExecutionReceipt,
+  ClosedAIRegenerationContract,
 } from "../closed-agent-os";
 import type {
   PlatformAIRequest,
@@ -11,7 +12,16 @@ import type {
   PlatformProviderSnapshot,
   PlatformTaskType,
 } from "../router/platform-types";
-import { executeStudioClosedAgent } from "./closed-agent-os-service";
+import {
+  executeStudioClosedAgent,
+  rejectStudioClosedAgentCandidate,
+} from "./closed-agent-os-service";
+import {
+  assessRegenerationDistinctness,
+  createExplicitRegenerationContract,
+  explicitRegenerationInstruction,
+  type ExplicitRegenerationSource,
+} from "./explicit-regeneration";
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 
 export type StudioClosedAIStatus =
@@ -40,6 +50,7 @@ export type StudioClosedAITaskInput = {
   targetLength?: number;
   sourceChapterId?: string;
   sourceRevision?: number;
+  regeneration?: ClosedAIRegenerationContract;
   signal?: AbortSignal;
 };
 
@@ -185,22 +196,39 @@ export async function runStudioClosedAI(
   const targetInstruction = input.targetLength
     ? `\n\n請將候選內容控制在約 ${input.targetLength} 個中文字以內。`
     : "";
+  const regenerationInstruction = input.regeneration
+    ? explicitRegenerationInstruction(input.regeneration)
+    : "";
+  const objective = `${input.input}${targetInstruction}${regenerationInstruction}`;
   const taskType = studioPlatformTaskType(input.task);
 
   if (!execute) {
     const result = await executeStudioClosedAgent({
       projectId: input.projectId,
       taskType,
-      objective: `${input.input}${targetInstruction}`,
+      objective,
       taskId: requestId,
       signal: input.signal,
-      promptProfileVersion: "studio-legacy-entry-v3",
+      promptProfileVersion: input.regeneration
+        ? "studio-explicit-regeneration-v4"
+        : "studio-legacy-entry-v3",
       sourceChapterId: input.sourceChapterId,
       sourceRevision: input.sourceRevision,
+      preferredBackend: input.regeneration ? "local-ollama" : undefined,
+      regeneration: input.regeneration,
     });
     if (
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0
+      || (input.regeneration && (
+        result.candidate.backendId !== "local-ollama"
+        || result.candidate.actualExecutor !== "local-ollama"
+        || result.candidate.externalRequest
+        || result.candidate.dataLeftDevice
+        || result.cache.candidateHit
+        || result.cache.bypassReason !== "explicit_regeneration"
+        || !result.candidate.regeneration?.cacheBypassed
+      ))
     ) {
       throw Object.assign(
         new Error("Closed Agent OS returned a result outside the device-only candidate boundary."),
@@ -227,6 +255,8 @@ export async function runStudioClosedAI(
       warnings: result.candidate.evaluation.warningCodes,
       ledgerHeadHash: result.ledgerHeadHash,
       canonicalMutationCount: result.candidate.canonicalMutationCount,
+      regeneration: result.candidate.regeneration ?? null,
+      cache: result.cache,
     };
   }
 
@@ -239,13 +269,16 @@ export async function runStudioClosedAI(
     privacyLevel: "device_only",
     fallbackPolicy: "closed-only",
     preferredProvider: "local-ollama",
-    input: `${input.input}${targetInstruction}`,
+    input: objective,
     context: [],
     externalConsent: false,
     requiredCapabilities: ["text"],
     closedOnly: true,
     offlineRequired: false,
     estimatedContextSize: Math.ceil(input.input.length / 2.5),
+    generationOptions: input.regeneration
+      ? { seed: input.regeneration.modelSeed }
+      : undefined,
     idempotencyKey: requestId,
     signal: input.signal,
   });
@@ -254,6 +287,7 @@ export async function runStudioClosedAI(
     !["browser-ai", "local-ollama"].includes(result.providerId)
     || result.externalRequest
     || result.dataLeavesDevice
+    || (input.regeneration && result.providerId !== "local-ollama")
   ) {
     throw Object.assign(
       new Error("Closed AI provider returned a result outside the device-only boundary."),
@@ -303,5 +337,99 @@ export async function runStudioClosedAI(
     dataLeftDevice: result.dataLeavesDevice,
     externalRequest: result.externalRequest,
     warnings: result.provenance.warnings,
+    regeneration: input.regeneration
+      ? {
+        regenerationAttempt: input.regeneration.regenerationAttempt,
+        previousCandidateDigest: input.regeneration.previousCandidateDigest,
+        cacheBypassReason: input.regeneration.cacheBypassReason,
+        cacheBypassed: true as const,
+        previousContentReused: false as const,
+        newCandidate: true as const,
+        nonceStored: false as const,
+      }
+      : null,
+    cache: {
+      candidateHit: false,
+      planHit: false,
+      bypassReason: input.regeneration?.cacheBypassReason ?? null,
+    },
   };
+}
+
+export async function regenerateStudioClosedAI(
+  input: Omit<StudioClosedAITaskInput, "regeneration">,
+  previous: ExplicitRegenerationSource,
+  options: {
+    extraRequirement?: string;
+    maximumAttempts?: number;
+    execute?: PlatformExecutor;
+    rejectCandidate?: (candidateId: string) => Promise<unknown>;
+  } = {},
+) {
+  if (!previous.taskId || !previous.candidateId) {
+    throw Object.assign(
+      new Error("Only a verified Closed Agent candidate can be regenerated."),
+      { code: "REGENERATION_SOURCE_IDENTITY_MISSING" },
+    );
+  }
+  const previousCandidateDigest = previous.contentDigest
+    ?? await digestText(previous.content);
+  const maximumAttempts = Math.min(3, Math.max(1, options.maximumAttempts ?? 3));
+  const rejectCandidate = options.rejectCandidate
+    ?? rejectStudioClosedAgentCandidate;
+  let lastDistinctness = await assessRegenerationDistinctness(
+    previous.content,
+    previous.content,
+  );
+
+  for (let offset = 1; offset <= maximumAttempts; offset += 1) {
+    const regeneration = createExplicitRegenerationContract({
+      previousCandidateDigest,
+      regenerationAttempt: (previous.regenerationAttempt ?? 0) + offset,
+      extraRequirement: options.extraRequirement,
+    });
+    const result = await runStudioClosedAI(
+      { ...input, regeneration },
+      options.execute,
+    );
+    lastDistinctness = await assessRegenerationDistinctness(
+      previous.content,
+      result.content,
+    );
+    const taskIdentityChanged = result.taskId !== previous.taskId;
+    const candidateIdentityChanged = Boolean(
+      result.candidateId && result.candidateId !== previous.candidateId,
+    );
+    if (
+      lastDistinctness.distinct
+      && taskIdentityChanged
+      && candidateIdentityChanged
+      && result.provider === "local-ollama"
+      && result.actualExecutor === "local-ollama"
+      && !result.externalRequest
+      && !result.dataLeftDevice
+      && result.canonicalMutationCount === 0
+      && result.cache.candidateHit === false
+      && result.cache.bypassReason === "explicit_regeneration"
+    ) {
+      return {
+        ...result,
+        distinctness: lastDistinctness,
+      };
+    }
+    if (result.candidateId) {
+      await rejectCandidate(result.candidateId);
+    }
+  }
+
+  throw Object.assign(
+    new Error("Local model repeatedly returned the previous candidate."),
+    {
+      code: "REGENERATION_NOT_DISTINCT",
+      normalizedDigestDifferent: lastDistinctness.normalizedDigestDifferent,
+      similarityMetric: lastDistinctness.similarityMetric,
+      similarityScore: lastDistinctness.similarityScore,
+      attempts: maximumAttempts,
+    },
+  );
 }

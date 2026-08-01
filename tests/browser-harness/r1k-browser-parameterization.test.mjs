@@ -22,7 +22,17 @@ for (const { file, source } of scripts) {
   pass += 1;
   assert.doesNotMatch(source, /\$runId = "chrome-(?:grant|deny)-"/);
   pass += 1;
+  assert.doesNotMatch(source, /RootElement\.FindAll/);
+  pass += 1;
+  assert.match(source, /\$windowElement\.FindAll/);
+  pass += 1;
   console.log(`${file}: PASS`);
 }
+
+const grantSource = scripts.find(({ file }) => file.endsWith("run-automated-native-grant.ps1"))?.source ?? "";
+assert.match(grantSource, /\$elementName\.StartsWith\(\$_, \[StringComparison\]::Ordinal\)/);
+pass += 1;
+assert.match(grantSource, /\$sixDigitCodeName/);
+pass += 1;
 
 console.log(JSON.stringify({ suite: "r1k-browser-parameterization", pass, fail: 0, skip: 0 }));

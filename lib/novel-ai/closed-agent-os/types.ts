@@ -89,6 +89,30 @@ export type ClosedAIContextItem = {
   approved: boolean;
 };
 
+/**
+ * Ephemeral contract for an author-requested alternative candidate.
+ * `regenerationNonce` participates in the generation cache key, but is never
+ * copied into candidate records, audit records, or UI telemetry.
+ */
+export type ClosedAIRegenerationContract = {
+  regenerationAttempt: number;
+  regenerationNonce: string;
+  previousCandidateDigest: string;
+  cacheBypassReason: "explicit_regeneration";
+  modelSeed: number;
+  direction: string;
+};
+
+export type ClosedAIRegenerationEvidence = {
+  regenerationAttempt: number;
+  previousCandidateDigest: string;
+  cacheBypassReason: "explicit_regeneration";
+  cacheBypassed: true;
+  previousContentReused: false;
+  newCandidate: true;
+  nonceStored: false;
+};
+
 export type ClosedAgentTaskRequest = {
   taskId: string;
   namespace: ClosedAINamespace;
@@ -105,6 +129,7 @@ export type ClosedAgentTaskRequest = {
   contextSourceSummary?: string;
   sourceChapterId?: string;
   sourceRevision?: number;
+  regeneration?: ClosedAIRegenerationContract;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -255,6 +280,7 @@ export type ClosedAgentCandidate = {
   status: "awaiting-approval" | "approved" | "rejected" | "committed" | "rolled-back";
   candidateOnly: true;
   canonicalMutationCount: 0 | 1;
+  regeneration?: ClosedAIRegenerationEvidence;
   generationTelemetry?: {
     profileId: string;
     elapsedMs: number;
@@ -333,6 +359,7 @@ export type ClosedAgentExecutionResult = {
   cache: {
     candidateHit: boolean;
     planHit: boolean;
+    bypassReason: "explicit_regeneration" | null;
   };
   learning: {
     applied: boolean;
