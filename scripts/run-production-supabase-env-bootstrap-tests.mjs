@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  discoverProjectRef,
   REQUIRED_SUPABASE_KEYS,
   mergeProductionWithSource,
   parseEnvFile,
@@ -65,6 +66,33 @@ assert.throws(
   (error) => error?.code === "SUPABASE_BOOTSTRAP_SOURCE_MISSING"
     && error.missingKeys.includes("SUPABASE_ACCESS_TOKEN"),
 );
+
+const originalFetch = globalThis.fetch;
+const discoveryRef = "zyxwvutsrqponmlkjihg";
+try {
+  globalThis.fetch = async (url) => {
+    if (url === "https://api.supabase.com/v1/projects") {
+      return new Response(JSON.stringify([
+        { ref: "aaaaaaaaaaaaaaaaaaaa" },
+        { ref: discoveryRef },
+      ]), { status: 200 });
+    }
+    if (url === `https://${discoveryRef}.supabase.co/rest/v1/`) {
+      return new Response("{}", { status: 200 });
+    }
+    return new Response("{}", { status: 401 });
+  };
+  assert.deepEqual(await discoverProjectRef({
+    SUPABASE_ACCESS_TOKEN: source.SUPABASE_ACCESS_TOKEN,
+    NEXT_PUBLIC_SUPABASE_URL: "https://custom.example.com",
+    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_abcdefghijklmnopqrstuvwxyz",
+  }), {
+    projectRef: discoveryRef,
+    method: "service_role_probe",
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 console.log(JSON.stringify({
   schemaVersion: "production-supabase-env-bootstrap-tests-v1",

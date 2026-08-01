@@ -159,6 +159,71 @@ async function fetchWithTimeout(url, options, timeoutMs = 30_000) {
   }
 }
 
+function serviceRoleHeaders(serviceRoleCredential) {
+  const headers = { apikey: serviceRoleCredential };
+  if (serviceRoleCredentialKind(serviceRoleCredential) === "service_role_jwt") {
+    headers.authorization = `Bearer ${serviceRoleCredential}`;
+  }
+  return headers;
+}
+
+export async function discoverProjectRef(configuration) {
+  const response = await fetchWithTimeout("https://api.supabase.com/v1/projects", {
+    headers: { authorization: `Bearer ${configuration.SUPABASE_ACCESS_TOKEN}` },
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(body)) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_DISCOVERY_FAILED"), {
+      code: "SUPABASE_BOOTSTRAP_PROJECT_DISCOVERY_FAILED",
+    });
+  }
+  const projectRefs = [...new Set(body
+    .map((project) => String(project?.ref || project?.id || ""))
+    .filter((projectRef) => /^[a-z0-9]{8,32}$/u.test(projectRef)))];
+  const configuredCandidates = [
+    projectRefFromUrl(configuration.NEXT_PUBLIC_SUPABASE_URL),
+    projectRefFromServiceRole(configuration.SUPABASE_SERVICE_ROLE_KEY),
+  ].filter(Boolean);
+  const configuredMatches = [...new Set(
+    configuredCandidates.filter((candidate) => projectRefs.includes(candidate)),
+  )];
+  if (configuredMatches.length === 1) {
+    return { projectRef: configuredMatches[0], method: "configured_identity" };
+  }
+  if (configuredMatches.length > 1) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_MISMATCH"), {
+      code: "SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_MISMATCH",
+    });
+  }
+
+  const serviceRoleMatches = [];
+  for (const projectRef of projectRefs) {
+    const serviceRoleResponse = await fetchWithTimeout(
+      `https://${projectRef}.supabase.co/rest/v1/`,
+      { headers: serviceRoleHeaders(configuration.SUPABASE_SERVICE_ROLE_KEY) },
+    );
+    await serviceRoleResponse.body?.cancel().catch(() => undefined);
+    if (serviceRoleResponse.ok) serviceRoleMatches.push(projectRef);
+  }
+  if (serviceRoleMatches.length === 1) {
+    return { projectRef: serviceRoleMatches[0], method: "service_role_probe" };
+  }
+  if (serviceRoleMatches.length > 1) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_AMBIGUOUS"), {
+      code: "SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_AMBIGUOUS",
+      projectCount: serviceRoleMatches.length,
+    });
+  }
+
+  if (projectRefs.length === 1) {
+    return { projectRef: projectRefs[0], method: "unique_management_project" };
+  }
+  throw Object.assign(new Error("SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_AMBIGUOUS"), {
+    code: "SUPABASE_BOOTSTRAP_PROJECT_IDENTITY_AMBIGUOUS",
+    projectCount: projectRefs.length,
+  });
+}
+
 async function verifySupabase(configuration, projectRef) {
   const managementResponse = await fetchWithTimeout(
     `https://api.supabase.com/v1/projects/${projectRef}`,
@@ -171,16 +236,9 @@ async function verifySupabase(configuration, projectRef) {
     });
   }
 
-  const credentialKind = serviceRoleCredentialKind(configuration.SUPABASE_SERVICE_ROLE_KEY);
-  const serviceRoleHeaders = {
-    apikey: configuration.SUPABASE_SERVICE_ROLE_KEY,
-  };
-  if (credentialKind === "service_role_jwt") {
-    serviceRoleHeaders.authorization = `Bearer ${configuration.SUPABASE_SERVICE_ROLE_KEY}`;
-  }
   const serviceRoleResponse = await fetchWithTimeout(
     `${configuration.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/u, "")}/rest/v1/`,
-    { headers: serviceRoleHeaders },
+    { headers: serviceRoleHeaders(configuration.SUPABASE_SERVICE_ROLE_KEY) },
   );
   await serviceRoleResponse.body?.cancel().catch(() => undefined);
   if (!serviceRoleResponse.ok) {
@@ -232,7 +290,16 @@ export async function main() {
     }
     const configuration = mergeProductionWithSource(production, source);
     let projectRef;
+    let projectRefDiscovery = "configured";
     try {
+      if (!configuration.SUPABASE_PROJECT_REF && configuration.SUPABASE_ACCESS_TOKEN) {
+        const discovered = await discoverProjectRef(configuration);
+        configuration.SUPABASE_PROJECT_REF = discovered.projectRef;
+        projectRefDiscovery = discovered.method;
+        if (projectRefFromUrl(configuration.NEXT_PUBLIC_SUPABASE_URL) !== discovered.projectRef) {
+          configuration.NEXT_PUBLIC_SUPABASE_URL = `https://${discovered.projectRef}.supabase.co`;
+        }
+      }
       ({ projectRef } = validateConfigurationShape(configuration));
     } catch (error) {
       error.availableSourceKeys = Object.keys(source)
@@ -242,7 +309,9 @@ export async function main() {
     }
     await verifySupabase(configuration, projectRef);
 
-    for (const key of productionMissing) {
+    const productionChanges = REQUIRED_SUPABASE_KEYS
+      .filter((key) => production[key] !== configuration[key]);
+    for (const key of productionChanges) {
       runVercel([
         "env", "add", key, "production",
         "--project", projectId,
@@ -265,12 +334,13 @@ export async function main() {
       assert.equal(verified[key], configuration[key], `${key}_PROMOTION_MISMATCH`);
     }
     console.log(JSON.stringify({
-      status: productionMissing.length > 0
+      status: productionChanges.length > 0
         ? "production_supabase_env_promoted"
         : "production_supabase_env_already_ready",
-      promotedKeys: productionMissing,
+      promotedKeys: productionChanges,
       requiredKeyCount: REQUIRED_SUPABASE_KEYS.length,
       projectRefSuffix: projectRef.slice(-4),
+      projectRefDiscovery,
       managementVerified: true,
       serviceRoleVerified: true,
     }));
