@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   discoverProjectRef,
+  PRODUCTION_RUNTIME_SUPABASE_KEYS,
   REQUIRED_SUPABASE_KEYS,
   mergeProductionWithSource,
   parseEnvFile,
@@ -8,6 +9,7 @@ import {
   projectRefFromServiceRole,
   serviceRoleCredentialKind,
   validateConfigurationShape,
+  validateRuntimeConfigurationShape,
 } from "./bootstrap-production-supabase-env.mjs";
 
 const projectRef = "abcdefghijklmnopqrst";
@@ -37,6 +39,16 @@ const merged = mergeProductionWithSource(production, source);
 assert.deepEqual(Object.keys(merged), [...REQUIRED_SUPABASE_KEYS]);
 assert.equal(merged.NEXT_PUBLIC_SUPABASE_URL, production.NEXT_PUBLIC_SUPABASE_URL);
 assert.deepEqual(validateConfigurationShape(merged), { projectRef });
+assert.deepEqual(validateRuntimeConfigurationShape({
+  SUPABASE_PROJECT_REF: projectRef,
+  NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: source.SUPABASE_SERVICE_ROLE_KEY,
+}), { projectRef });
+assert.deepEqual(PRODUCTION_RUNTIME_SUPABASE_KEYS, [
+  "SUPABASE_PROJECT_REF",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+]);
 
 const aliasOnly = mergeProductionWithSource({}, {
   SUPABASE_MANAGEMENT_TOKEN: source.SUPABASE_ACCESS_TOKEN,

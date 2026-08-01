@@ -43,18 +43,86 @@ const env = { ...fileEnv, ...process.env };
 const accessToken = env.SUPABASE_ACCESS_TOKEN || env.SUPABASE_MANAGEMENT_TOKEN || "";
 const projectRef = env.SUPABASE_PROJECT_REF
   || projectRefFromUrl(env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || "");
+const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || "";
+const serviceRoleCredential = env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+function serviceRoleHeaders() {
+  const headers = {
+    apikey: serviceRoleCredential,
+    accept: "application/json",
+  };
+  if (String(serviceRoleCredential).split(".").length === 3) {
+    headers.authorization = `Bearer ${serviceRoleCredential}`;
+  }
+  return headers;
+}
+
+async function verifyExistingMigrationViaRest() {
+  if (!supabaseUrl || !serviceRoleCredential) {
+    return { ready: false, status: "runtime_configuration_missing" };
+  }
+  const base = supabaseUrl.replace(/\/$/u, "");
+  try {
+    const [markerResponse, snapshotsResponse, operationsResponse, openApiResponse] = await Promise.all([
+      fetch(`${base}/rest/v1/schema_migrations?select=version&version=eq.${MIGRATION_VERSION}&limit=1`, {
+        headers: serviceRoleHeaders(),
+      }),
+      fetch(`${base}/rest/v1/novel_cloud_snapshots?select=project_id&limit=0`, {
+        headers: serviceRoleHeaders(),
+      }),
+      fetch(`${base}/rest/v1/novel_cloud_sync_operations?select=operation_id&limit=0`, {
+        headers: serviceRoleHeaders(),
+      }),
+      fetch(`${base}/rest/v1/`, {
+        headers: { ...serviceRoleHeaders(), accept: "application/openapi+json" },
+      }),
+    ]);
+    const markerRows = await markerResponse.json().catch(() => null);
+    const openApi = await openApiResponse.json().catch(() => null);
+    await Promise.all([
+      snapshotsResponse.body?.cancel().catch(() => undefined),
+      operationsResponse.body?.cancel().catch(() => undefined),
+    ]);
+    const markerReady = markerResponse.ok
+      && Array.isArray(markerRows)
+      && markerRows.some((row) => row?.version === MIGRATION_VERSION);
+    const rpcReady = openApiResponse.ok
+      && Boolean(openApi?.paths?.["/rpc/novel_cloud_sync_push"]);
+    const ready = markerReady
+      && snapshotsResponse.ok
+      && operationsResponse.ok
+      && rpcReady;
+    return { ready, status: ready ? "ready" : "migration_required" };
+  } catch {
+    return { ready: false, status: "runtime_verification_failed" };
+  }
+}
+
 const configuration = {
   accessTokenConfigured: Boolean(accessToken),
   projectRefConfigured: Boolean(projectRef),
   migrationVersion: MIGRATION_VERSION,
 };
+const existingMigration = await verifyExistingMigrationViaRest();
 
 if (checkOnly) {
   console.log(JSON.stringify({
-    status: configuration.accessTokenConfigured && configuration.projectRefConfigured
-      ? "migration_channel_ready"
-      : "migration_channel_missing",
+    status: existingMigration.ready
+      ? "migration_already_verified_via_rest"
+      : (configuration.accessTokenConfigured && configuration.projectRefConfigured
+        ? "migration_channel_ready"
+        : "migration_channel_missing"),
     ...configuration,
+    runtimeMigrationStatus: existingMigration.status,
+  }));
+  process.exit(0);
+}
+
+if (existingMigration.ready) {
+  console.log(JSON.stringify({
+    status: "migration_already_verified_via_rest",
+    migrationVersion: MIGRATION_VERSION,
+    projectRefSuffix: projectRef ? projectRef.slice(-4) : null,
   }));
   process.exit(0);
 }
@@ -63,6 +131,7 @@ if (!accessToken || !projectRef) {
   console.error(JSON.stringify({
     status: "migration_channel_missing",
     ...configuration,
+    runtimeMigrationStatus: existingMigration.status,
   }));
   if (required) process.exit(2);
   process.exit(0);

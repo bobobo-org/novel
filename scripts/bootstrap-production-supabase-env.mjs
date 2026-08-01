@@ -12,6 +12,12 @@ export const REQUIRED_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_SERVICE_ROLE_KEY",
 ]);
 
+export const PRODUCTION_RUNTIME_SUPABASE_KEYS = Object.freeze([
+  "SUPABASE_PROJECT_REF",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+]);
+
 export function parseEnvFile(source) {
   const parsed = {};
   for (const rawLine of source.split(/\r?\n/u)) {
@@ -95,8 +101,8 @@ export function mergeProductionWithSource(production, source) {
   };
 }
 
-export function validateConfigurationShape(configuration) {
-  const missingKeys = REQUIRED_SUPABASE_KEYS.filter((key) => !configuration[key]);
+export function validateRuntimeConfigurationShape(configuration) {
+  const missingKeys = PRODUCTION_RUNTIME_SUPABASE_KEYS.filter((key) => !configuration[key]);
   if (missingKeys.length > 0) {
     throw Object.assign(new Error("SUPABASE_BOOTSTRAP_SOURCE_MISSING"), {
       code: "SUPABASE_BOOTSTRAP_SOURCE_MISSING",
@@ -109,17 +115,29 @@ export function validateConfigurationShape(configuration) {
       code: "SUPABASE_BOOTSTRAP_IDENTITY_MISMATCH",
     });
   }
-  if (!/^sbp_[A-Za-z0-9._-]{16,}$/u.test(configuration.SUPABASE_ACCESS_TOKEN)) {
-    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID"), {
-      code: "SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID",
-    });
-  }
   if (!serviceRoleCredentialKind(configuration.SUPABASE_SERVICE_ROLE_KEY)) {
     throw Object.assign(new Error("SUPABASE_BOOTSTRAP_SERVICE_ROLE_INVALID"), {
       code: "SUPABASE_BOOTSTRAP_SERVICE_ROLE_INVALID",
     });
   }
   return { projectRef };
+}
+
+export function validateConfigurationShape(configuration) {
+  const missingKeys = REQUIRED_SUPABASE_KEYS.filter((key) => !configuration[key]);
+  if (missingKeys.length > 0) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_SOURCE_MISSING"), {
+      code: "SUPABASE_BOOTSTRAP_SOURCE_MISSING",
+      missingKeys,
+    });
+  }
+  const result = validateRuntimeConfigurationShape(configuration);
+  if (!/^sbp_[A-Za-z0-9._-]{16,}$/u.test(configuration.SUPABASE_ACCESS_TOKEN)) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID"), {
+      code: "SUPABASE_BOOTSTRAP_MANAGEMENT_TOKEN_INVALID",
+    });
+  }
+  return result;
 }
 
 function runVercel(args, { input } = {}) {
@@ -230,17 +248,6 @@ export async function discoverProjectRef(configuration) {
 }
 
 async function verifySupabase(configuration, projectRef) {
-  const managementResponse = await fetchWithTimeout(
-    `https://api.supabase.com/v1/projects/${projectRef}`,
-    { headers: { authorization: `Bearer ${configuration.SUPABASE_ACCESS_TOKEN}` } },
-  );
-  const project = await managementResponse.json().catch(() => null);
-  if (!managementResponse.ok || ![project?.id, project?.ref].includes(projectRef)) {
-    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_MANAGEMENT_VERIFICATION_FAILED"), {
-      code: "SUPABASE_BOOTSTRAP_MANAGEMENT_VERIFICATION_FAILED",
-    });
-  }
-
   const serviceRoleResponse = await fetchWithTimeout(
     `${configuration.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/u, "")}/rest/v1/`,
     { headers: serviceRoleHeaders(configuration.SUPABASE_SERVICE_ROLE_KEY) },
@@ -251,6 +258,25 @@ async function verifySupabase(configuration, projectRef) {
       code: "SUPABASE_BOOTSTRAP_SERVICE_ROLE_VERIFICATION_FAILED",
     });
   }
+
+  if (!configuration.SUPABASE_ACCESS_TOKEN) {
+    return { managementVerified: false, managementHttpStatus: null };
+  }
+  const managementResponse = await fetchWithTimeout(
+    `https://api.supabase.com/v1/projects/${projectRef}`,
+    { headers: { authorization: `Bearer ${configuration.SUPABASE_ACCESS_TOKEN}` } },
+  );
+  const project = await managementResponse.json().catch(() => null);
+  if (managementResponse.ok && [project?.id, project?.ref].includes(projectRef)) {
+    return { managementVerified: true, managementHttpStatus: managementResponse.status };
+  }
+  if ([401, 403].includes(managementResponse.status)) {
+    return { managementVerified: false, managementHttpStatus: managementResponse.status };
+  }
+  throw Object.assign(new Error("SUPABASE_BOOTSTRAP_MANAGEMENT_VERIFICATION_FAILED"), {
+    code: "SUPABASE_BOOTSTRAP_MANAGEMENT_VERIFICATION_FAILED",
+    httpStatus: managementResponse.status,
+  });
 }
 
 export async function main() {
@@ -271,7 +297,8 @@ export async function main() {
       scope,
       token,
     });
-    const productionMissing = REQUIRED_SUPABASE_KEYS.filter((key) => !production[key]);
+    const productionMissing = PRODUCTION_RUNTIME_SUPABASE_KEYS
+      .filter((key) => !production[key]);
     let source = {};
     if (productionMissing.length > 0) {
       const preview = await pullEnvironment({
@@ -289,15 +316,26 @@ export async function main() {
         token,
       });
       source = { ...development, ...preview };
-      if (process.env.SUPABASE_ACCESS_TOKEN) {
-        source.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
-      }
+    }
+    if (process.env.SUPABASE_ACCESS_TOKEN) {
+      source.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+    }
+    if (process.env.SUPABASE_PROJECT_REF_FALLBACK) {
+      source.SUPABASE_PROJECT_REF = process.env.SUPABASE_PROJECT_REF_FALLBACK;
     }
     const configuration = mergeProductionWithSource(production, source);
     let projectRef;
     let projectRefDiscovery = "configured";
     try {
-      if (!configuration.SUPABASE_PROJECT_REF && configuration.SUPABASE_ACCESS_TOKEN) {
+      if (
+        configuration.SUPABASE_PROJECT_REF
+        && projectRefFromUrl(configuration.NEXT_PUBLIC_SUPABASE_URL)
+          !== configuration.SUPABASE_PROJECT_REF
+        && source.SUPABASE_PROJECT_REF === configuration.SUPABASE_PROJECT_REF
+      ) {
+        configuration.NEXT_PUBLIC_SUPABASE_URL = `https://${configuration.SUPABASE_PROJECT_REF}.supabase.co`;
+        projectRefDiscovery = "repository_fallback";
+      } else if (!configuration.SUPABASE_PROJECT_REF && configuration.SUPABASE_ACCESS_TOKEN) {
         const discovered = await discoverProjectRef(configuration);
         configuration.SUPABASE_PROJECT_REF = discovered.projectRef;
         projectRefDiscovery = discovered.method;
@@ -305,16 +343,16 @@ export async function main() {
           configuration.NEXT_PUBLIC_SUPABASE_URL = `https://${discovered.projectRef}.supabase.co`;
         }
       }
-      ({ projectRef } = validateConfigurationShape(configuration));
+      ({ projectRef } = validateRuntimeConfigurationShape(configuration));
     } catch (error) {
       error.availableSourceKeys = Object.keys(source)
         .filter((key) => /^(?:SUPABASE|DATABASE|POSTGRES)_/u.test(key))
         .sort();
       throw error;
     }
-    await verifySupabase(configuration, projectRef);
+    const management = await verifySupabase(configuration, projectRef);
 
-    const productionChanges = REQUIRED_SUPABASE_KEYS
+    const productionChanges = PRODUCTION_RUNTIME_SUPABASE_KEYS
       .filter((key) => production[key] !== configuration[key]);
     for (const key of productionChanges) {
       runVercel([
@@ -335,7 +373,7 @@ export async function main() {
       scope,
       token,
     });
-    for (const key of REQUIRED_SUPABASE_KEYS) {
+    for (const key of PRODUCTION_RUNTIME_SUPABASE_KEYS) {
       assert.equal(verified[key], configuration[key], `${key}_PROMOTION_MISMATCH`);
     }
     console.log(JSON.stringify({
@@ -343,10 +381,11 @@ export async function main() {
         ? "production_supabase_env_promoted"
         : "production_supabase_env_already_ready",
       promotedKeys: productionChanges,
-      requiredKeyCount: REQUIRED_SUPABASE_KEYS.length,
+      requiredRuntimeKeyCount: PRODUCTION_RUNTIME_SUPABASE_KEYS.length,
       projectRefSuffix: projectRef.slice(-4),
       projectRefDiscovery,
-      managementVerified: true,
+      managementVerified: management.managementVerified,
+      managementHttpStatus: management.managementHttpStatus,
       serviceRoleVerified: true,
     }));
   } finally {
