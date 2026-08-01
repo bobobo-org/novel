@@ -52,7 +52,8 @@ export function projectRefFromUrl(rawUrl) {
 export function serviceRoleCredentialKind(value) {
   if (/^sb_secret_[A-Za-z0-9._-]{16,}$/u.test(value)) return "secret_key";
   const payload = decodeSupabaseJwt(value);
-  return payload?.role === "service_role" ? "service_role_jwt" : "";
+  if (payload?.role === "service_role") return "service_role_jwt";
+  return /^[^\s]{16,}$/u.test(value) ? "opaque_key" : "";
 }
 
 function decodeSupabaseJwt(value) {
@@ -179,7 +180,7 @@ async function fetchWithTimeout(url, options, timeoutMs = 30_000) {
 
 function serviceRoleHeaders(serviceRoleCredential) {
   const headers = { apikey: serviceRoleCredential };
-  if (serviceRoleCredentialKind(serviceRoleCredential) === "service_role_jwt") {
+  if (String(serviceRoleCredential).split(".").length === 3) {
     headers.authorization = `Bearer ${serviceRoleCredential}`;
   }
   return headers;
@@ -256,6 +257,7 @@ async function verifySupabase(configuration, projectRef) {
   if (!serviceRoleResponse.ok) {
     throw Object.assign(new Error("SUPABASE_BOOTSTRAP_SERVICE_ROLE_VERIFICATION_FAILED"), {
       code: "SUPABASE_BOOTSTRAP_SERVICE_ROLE_VERIFICATION_FAILED",
+      httpStatus: serviceRoleResponse.status,
     });
   }
 

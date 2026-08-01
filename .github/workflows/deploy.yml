@@ -160,7 +160,6 @@ jobs:
 
   production_env_bootstrap:
     name: production env bootstrap
-    needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

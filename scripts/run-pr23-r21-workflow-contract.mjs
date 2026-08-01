@@ -67,7 +67,7 @@ assert.doesNotMatch(previewJob, /vercel\s+alias/u);
 assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 assert.doesNotMatch(previewJob, /SUPABASE_ACCESS_TOKEN/u);
 
-assert.match(productionBootstrapJob, /\n    needs:\s*validate\s*$/mu);
+assert.doesNotMatch(productionBootstrapJob, /\n    needs:/u);
 assert.match(
   productionBootstrapJob,
   /\n    if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\s*$/mu,
