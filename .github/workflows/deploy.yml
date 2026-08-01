@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Recovery operation
+        required: true
+        type: choice
+        options:
+          - restore-known-stable
 
 permissions:
   contents: read
@@ -20,10 +28,13 @@ env:
   VERCEL_SCOPE: lqtechs-projects
   LEGACY_BOOTSTRAP_DEPLOYMENT_ID: dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa
   LEGACY_BOOTSTRAP_COMMIT: d0e80323dc68bf08cb541e46c6b9114a71e05cd9
+  RECOVERY_DEPLOYMENT_ID: dpl_ECbrLCX4RsdhUUjYj7cZrhY27oJV
+  RECOVERY_COMMIT: 5cf5e819a95d9f98d485a2bec1c39ae68c1d4a1f
 
 jobs:
   validate:
     name: validate
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -186,6 +197,34 @@ jobs:
       - name: Verify and recover Production Supabase environment
         run: node scripts/bootstrap-production-supabase-env.mjs
 
+  restore_known_stable:
+    name: restore known stable production aliases
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Restore and verify both production aliases
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ env.RECOVERY_DEPLOYMENT_ID }}
+          PRIMARY_BEFORE_COMMIT: ${{ env.RECOVERY_COMMIT }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ env.RECOVERY_DEPLOYMENT_ID }}
+          MIRROR_BEFORE_COMMIT: ${{ env.RECOVERY_COMMIT }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
+
   deploy:
     name: deploy
     needs: [validate, production_env_bootstrap]
@@ -242,6 +281,7 @@ jobs:
       - name: Verify staged production identity
         if: github.ref == 'refs/heads/main'
         id: staged
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -263,7 +303,9 @@ jobs:
           exit 1
 
       - name: Verify staged encrypted cloud sync runtime
-        if: github.ref == 'refs/heads/main'
+        if: steps.staged.outcome == 'success'
+        id: staged_health
+        continue-on-error: true
         shell: bash
         env:
           STAGED_URL: ${{ steps.production.outputs.url }}
@@ -284,8 +326,17 @@ jobs:
           echo "Staged encrypted cloud sync runtime is not ready; aliases remain unchanged." >&2
           exit 1
 
+      - name: Restore aliases after staged gate rejection
+        if: always() && steps.production.outcome == 'success' && (steps.staged.outcome != 'success' || steps.staged_health.outcome != 'success')
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
+
       - name: Cut over both aliases with atomic compensation
-        if: github.ref == 'refs/heads/main'
+        if: steps.staged.outcome == 'success' && steps.staged_health.outcome == 'success'
         env:
           STAGED_TARGET: ${{ steps.production.outputs.url }}
           STAGED_DEPLOYMENT_ID: ${{ steps.staged.outputs.deployment_id }}
@@ -295,3 +346,9 @@ jobs:
           MIRROR_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
           MIRROR_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
         run: node scripts/vercel-dual-alias-cutover.mjs
+
+      - name: Fail after compensated staged gate rejection
+        if: always() && steps.production.outcome == 'success' && (steps.staged.outcome != 'success' || steps.staged_health.outcome != 'success')
+        run: |
+          echo "Staged production was rejected and both aliases were restored." >&2
+          exit 1

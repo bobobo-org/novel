@@ -13,18 +13,21 @@ const jobsIndex = workflow.indexOf("\njobs:");
 const validateIndex = workflow.indexOf("\n  validate:");
 const previewIndex = workflow.indexOf("\n  preview:");
 const productionBootstrapIndex = workflow.indexOf("\n  production_env_bootstrap:");
+const restoreIndex = workflow.indexOf("\n  restore_known_stable:");
 const deployIndex = workflow.indexOf("\n  deploy:");
 assert.ok(
   jobsIndex > 0
   && validateIndex > jobsIndex
   && previewIndex > validateIndex
   && productionBootstrapIndex > previewIndex
-  && deployIndex > productionBootstrapIndex,
+  && restoreIndex > productionBootstrapIndex
+  && deployIndex > restoreIndex,
 );
 const globalConfiguration = workflow.slice(0, jobsIndex);
 const validateJob = workflow.slice(validateIndex, previewIndex);
 const previewJob = workflow.slice(previewIndex, productionBootstrapIndex);
-const productionBootstrapJob = workflow.slice(productionBootstrapIndex, deployIndex);
+const productionBootstrapJob = workflow.slice(productionBootstrapIndex, restoreIndex);
+const restoreJob = workflow.slice(restoreIndex, deployIndex);
 const deployJob = workflow.slice(deployIndex);
 
 for (const secret of [
@@ -77,6 +80,14 @@ assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
 assert.match(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
 assert.match(productionBootstrapJob, /SUPABASE_PROJECT_REF_FALLBACK:\s*ijjicaiiirkfbewbhepx/u);
 assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
+
+assert.match(
+  restoreJob,
+  /if:\s*github\.event_name == 'workflow_dispatch' && inputs\.operation == 'restore-known-stable'/u,
+);
+assert.match(restoreJob, /vercel-dual-alias-cutover\.mjs restore/u);
+assert.match(restoreJob, /RECOVERY_DEPLOYMENT_ID/u);
+assert.match(restoreJob, /RECOVERY_COMMIT/u);
 
 assert.match(deployJob, /\n    needs:\s*\[validate,\s*production_env_bootstrap\]\s*$/mu);
 assert.match(
@@ -143,6 +154,11 @@ assert.match(
   deployJob,
   /node scripts\/vercel-dual-alias-cutover\.mjs capture/u,
 );
+assert.match(deployJob, /continue-on-error:\s*true/u);
+assert.match(deployJob, /staged_health/u);
+assert.match(deployJob, /Restore aliases after staged gate rejection/u);
+assert.match(deployJob, /vercel-dual-alias-cutover\.mjs restore/u);
+assert.match(deployJob, /Fail after compensated staged gate rejection/u);
 assert.match(rollback, /api\.vercel\.com\/v13\/deployments/u);
 assert.match(rollback, /githubCommitSha/u);
 assert.match(rollback, /VERCEL_CONTROL_PLANE_IDENTITY_INVALID/u);
@@ -204,4 +220,6 @@ console.log(JSON.stringify({
   cleanCheckoutProvenanceBootstrap: true,
   crossPlatformP21Validation: true,
   centralDualAliasRollback: true,
+  stagedGateFailureCompensation: true,
+  manualKnownStableRestore: true,
 }, null, 2));

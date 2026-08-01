@@ -6,6 +6,7 @@ import {
   createVercelControlPlaneReader,
   normalizeVercelControlPlaneIdentity,
   promoteDualAliases,
+  restoreDualAliases,
 } from "./vercel-dual-alias-cutover.mjs";
 
 const PRIMARY = "primary-pr23-r21.invalid";
@@ -98,6 +99,24 @@ assert.equal(successResult.status, "PASS");
 assert.deepEqual(success.current.state.get(PRIMARY), STAGED);
 assert.deepEqual(success.current.state.get(MIRROR), STAGED);
 assert.equal(successResult.rollbackPerformed, false);
+
+const explicitRestore = harness(null);
+explicitRestore.state.set(PRIMARY, STAGED);
+explicitRestore.state.set(MIRROR, STAGED);
+const explicitRestoreResult = await restoreDualAliases({
+  primaryAlias: PRIMARY,
+  mirrorAlias: MIRROR,
+  primaryIdentity: BEFORE_PRIMARY,
+  mirrorIdentity: BEFORE_MIRROR,
+  setAlias: explicitRestore.setAlias,
+  readIdentity: explicitRestore.readIdentity,
+  verifyAttempts: 1,
+  verifyDelayMs: 0,
+  logger: silentLogger,
+});
+assert.equal(explicitRestoreResult.status, "PASS");
+assert.deepEqual(explicitRestore.state.get(PRIMARY), BEFORE_PRIMARY);
+assert.deepEqual(explicitRestore.state.get(MIRROR), BEFORE_MIRROR);
 
 for (const failureMode of [
   "mirror-verification",
@@ -295,4 +314,5 @@ console.log(JSON.stringify({
   tokenExcludedFromChildProcessArguments: true,
   promotionFallbackForbidden: true,
   non404FallbackForbidden: true,
+  explicitDualAliasRestore: true,
 }, null, 2));

@@ -393,6 +393,74 @@ export async function promoteDualAliases({
   }
 }
 
+export async function restoreDualAliases({
+  primaryAlias,
+  mirrorAlias,
+  primaryIdentity,
+  mirrorIdentity,
+  setAlias,
+  readIdentity,
+  verifyAttempts = 30,
+  verifyDelayMs = 2_000,
+  logger = console,
+}) {
+  if (!primaryAlias || !mirrorAlias || primaryAlias === mirrorAlias) {
+    throw cutoverError("DUAL_ALIAS_CONFIGURATION_INVALID");
+  }
+  for (const [alias, identity] of [
+    [primaryAlias, primaryIdentity],
+    [mirrorAlias, mirrorIdentity],
+  ]) {
+    if (
+      !isDeploymentId(identity?.deploymentId)
+      || !isCommitSha(identity?.appCommit)
+    ) {
+      throw cutoverError("RESTORE_ALIAS_IDENTITY_INVALID", { alias });
+    }
+  }
+
+  const failures = [];
+  for (const [target, alias, phase] of [
+    [primaryIdentity.deploymentId, primaryAlias, "restore-primary"],
+    [mirrorIdentity.deploymentId, mirrorAlias, "restore-mirror"],
+  ]) {
+    try {
+      await setAlias(target, alias, phase);
+    } catch (error) {
+      failures.push({ phase, code: error?.code ?? "ALIAS_SET_FAILED" });
+    }
+  }
+  for (const [alias, expected, phase] of [
+    [primaryAlias, primaryIdentity, "verify-rollback-primary"],
+    [mirrorAlias, mirrorIdentity, "verify-rollback-mirror"],
+  ]) {
+    try {
+      await verifyAliasIdentity({
+        alias,
+        expected,
+        phase,
+        readIdentity,
+        attempts: verifyAttempts,
+        delayMs: verifyDelayMs,
+      });
+    } catch (error) {
+      failures.push({
+        phase,
+        code: error?.code ?? "ALIAS_RESTORE_VERIFY_FAILED",
+      });
+    }
+  }
+  if (failures.length > 0) {
+    throw cutoverError("DUAL_ALIAS_RESTORE_FAILED", { failures });
+  }
+  logger.log("DUAL_ALIAS_RESTORE_VERIFIED");
+  return {
+    status: "PASS",
+    primary: primaryIdentity,
+    mirror: mirrorIdentity,
+  };
+}
+
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim();
   if (!value) throw cutoverError(`MISSING_ENVIRONMENT:${name}`);
@@ -469,6 +537,29 @@ async function runCutoverCli() {
   });
 }
 
+async function runRestoreCli() {
+  const primaryAlias = requiredEnvironment("PRIMARY_ALIAS");
+  const mirrorAlias = requiredEnvironment("MIRROR_ALIAS");
+  const primaryIdentity = {
+    deploymentId: requiredEnvironment("PRIMARY_BEFORE_DEPLOYMENT"),
+    appCommit: requiredEnvironment("PRIMARY_BEFORE_COMMIT"),
+  };
+  const mirrorIdentity = {
+    deploymentId: requiredEnvironment("MIRROR_BEFORE_DEPLOYMENT"),
+    appCommit: requiredEnvironment("MIRROR_BEFORE_COMMIT"),
+  };
+  const token = requiredEnvironment("VERCEL_TOKEN");
+  const teamId = requiredEnvironment("VERCEL_ORG_ID");
+  await restoreDualAliases({
+    primaryAlias,
+    mirrorAlias,
+    primaryIdentity,
+    mirrorIdentity,
+    setAlias: createVercelAliasSetter({ token, teamId }),
+    readIdentity: createEnvironmentIdentityReader(),
+  });
+}
+
 async function runCli() {
   const mode = process.argv[2] ?? "cutover";
   if (mode === "capture") {
@@ -477,6 +568,10 @@ async function runCli() {
   }
   if (mode === "cutover") {
     await runCutoverCli();
+    return;
+  }
+  if (mode === "restore") {
+    await runRestoreCli();
     return;
   }
   throw cutoverError("UNKNOWN_CLI_MODE", { mode });
