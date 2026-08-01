@@ -35,6 +35,14 @@ assert.deepEqual(Object.keys(merged), [...REQUIRED_SUPABASE_KEYS]);
 assert.equal(merged.NEXT_PUBLIC_SUPABASE_URL, production.NEXT_PUBLIC_SUPABASE_URL);
 assert.deepEqual(validateConfigurationShape(merged), { projectRef });
 
+const aliasOnly = mergeProductionWithSource({}, {
+  SUPABASE_MANAGEMENT_TOKEN: source.SUPABASE_ACCESS_TOKEN,
+  SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: source.SUPABASE_SERVICE_ROLE_KEY,
+});
+assert.deepEqual(aliasOnly, source);
+assert.deepEqual(validateConfigurationShape(aliasOnly), { projectRef });
+
 assert.throws(
   () => validateConfigurationShape({ ...merged, SUPABASE_PROJECT_REF: "differentprojectref" }),
   (error) => error?.code === "SUPABASE_BOOTSTRAP_IDENTITY_MISMATCH",

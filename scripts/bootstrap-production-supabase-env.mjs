@@ -56,10 +56,31 @@ export function serviceRoleCredentialKind(value) {
 }
 
 export function mergeProductionWithSource(production, source) {
-  return Object.fromEntries(REQUIRED_SUPABASE_KEYS.map((key) => [
-    key,
-    String(production[key] || source[key] || "").trim(),
-  ]));
+  const first = (...values) => String(values.find(Boolean) || "").trim();
+  const url = first(
+    production.NEXT_PUBLIC_SUPABASE_URL,
+    production.SUPABASE_URL,
+    source.NEXT_PUBLIC_SUPABASE_URL,
+    source.SUPABASE_URL,
+  );
+  return {
+    SUPABASE_ACCESS_TOKEN: first(
+      production.SUPABASE_ACCESS_TOKEN,
+      production.SUPABASE_MANAGEMENT_TOKEN,
+      source.SUPABASE_ACCESS_TOKEN,
+      source.SUPABASE_MANAGEMENT_TOKEN,
+    ),
+    SUPABASE_PROJECT_REF: first(
+      production.SUPABASE_PROJECT_REF,
+      source.SUPABASE_PROJECT_REF,
+      projectRefFromUrl(url),
+    ),
+    NEXT_PUBLIC_SUPABASE_URL: url,
+    SUPABASE_SERVICE_ROLE_KEY: first(
+      production.SUPABASE_SERVICE_ROLE_KEY,
+      source.SUPABASE_SERVICE_ROLE_KEY,
+    ),
+  };
 }
 
 export function validateConfigurationShape(configuration) {
@@ -185,7 +206,15 @@ export async function main() {
         })
       : {};
     const configuration = mergeProductionWithSource(production, source);
-    const { projectRef } = validateConfigurationShape(configuration);
+    let projectRef;
+    try {
+      ({ projectRef } = validateConfigurationShape(configuration));
+    } catch (error) {
+      error.availableSourceKeys = Object.keys(source)
+        .filter((key) => /^(?:SUPABASE|DATABASE|POSTGRES)_/u.test(key))
+        .sort();
+      throw error;
+    }
     await verifySupabase(configuration, projectRef);
 
     for (const key of productionMissing) {
@@ -232,6 +261,9 @@ if (entryUrl === import.meta.url) {
       status: "production_supabase_env_bootstrap_failed",
       errorCode: String(error?.code || error?.message || "PRODUCTION_SUPABASE_ENV_BOOTSTRAP_FAILED"),
       missingKeys: Array.isArray(error?.missingKeys) ? error.missingKeys : [],
+      availableSourceKeys: Array.isArray(error?.availableSourceKeys)
+        ? error.availableSourceKeys
+        : [],
     }));
     process.exitCode = 1;
   });
