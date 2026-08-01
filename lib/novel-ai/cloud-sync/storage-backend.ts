@@ -212,7 +212,8 @@ export async function cloudStorageHealth(
     provider: "Supabase" as const,
     storageBackend: "private-object-storage" as const,
     encryption: "client-side-aes-gcm" as const,
-    canonicalAuthority: "IndexedDB" as const,
+    canonicalAuthority: "IndexedDBFallback" as "Supabase" | "IndexedDBFallback",
+    authorityProtocol: "remote-revision-and-ciphertext-hash-v1" as const,
   };
   try {
     const bucket = await gateway.bucketStatus();
@@ -240,6 +241,7 @@ export async function cloudStorageHealth(
     }
     return {
       ...base,
+      canonicalAuthority: "Supabase",
       status: "ready",
       migrationVersion: CLOUD_SYNC_MIGRATION_VERSION,
       retryable: false,
@@ -467,6 +469,23 @@ export async function pushStorageCloudProject(
       502,
       true,
       "雲端同步寫入後驗證失敗。",
+    );
+  }
+  const verifiedSnapshot = await gateway.readJson<StorageSnapshot>(
+    immutableSnapshotPath,
+  );
+  if (
+    !verifiedSnapshot
+    || verifiedSnapshot.revision !== nextRevision
+    || verifiedSnapshot.operationId !== request.operationId
+    || verifiedSnapshot.payloadHash !== payloadHash
+    || verifiedSnapshot.envelope?.ciphertextHash !== payloadHash
+  ) {
+    throw cloudSyncError(
+      "CLOUD_SYNC_STORAGE_VERIFY_FAILED",
+      502,
+      true,
+      "雲端同步快照回讀驗證失敗。",
     );
   }
   return { ...summary(verified), status: "stored" };

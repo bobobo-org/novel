@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   makeRecord,
   optionalValue,
   type Achievement,
   type Chapter,
   type Character,
+  type CharacterPortrait,
+  type CharacterRpgArchetype,
+  type CharacterRpgStatKey,
   type DomainRecord,
   type NovelProject,
   type ProjectBackup,
@@ -28,7 +31,23 @@ import {
   markdownDownload,
   validateBackupPayload,
 } from "@/lib/novel-ai/repository/backup";
+import {
+  CHARACTER_PORTRAIT_CATALOG,
+  CHARACTER_PORTRAIT_THEME_OPTIONS,
+  filterCharacterPortraitCatalog,
+} from "@/lib/novel-ai/character-portraits/catalog";
+import { prepareCharacterPortraitUpload } from "@/lib/novel-ai/character-portraits/upload";
+import {
+  CHARACTER_RPG_ARCHETYPES,
+  CHARACTER_RPG_POINT_BUDGET,
+  CHARACTER_RPG_STAT_LABELS,
+  characterRpgPointTotal,
+  characterRpgStatsForArchetype,
+  createCharacterRpgProfile,
+  suggestCharacterRpgArchetype,
+} from "@/lib/novel-ai/game/character-rpg-profile";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
 
 type Section =
@@ -218,7 +237,7 @@ function SectionBody({
 }) {
   const project = data.project!;
   if (section === "characters") {
-    return <CharacterEditor projectId={project.id} characters={data.characters} onChanged={onChanged} />;
+    return <CharacterEditor projectId={project.id} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />;
   }
   if (section === "world") {
     return (
@@ -274,10 +293,12 @@ function SectionBody({
 function CharacterEditor({
   projectId,
   characters,
+  storyBibles,
   onChanged,
 }: {
   projectId: string;
   characters: Character[];
+  storyBibles: StoryBible[];
   onChanged: () => Promise<void>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -293,8 +314,33 @@ function CharacterEditor({
   const [fear, setFear] = useState("");
   const [secret, setSecret] = useState("");
   const [faction, setFaction] = useState("");
+  const [values, setValues] = useState("");
+  const [capabilities, setCapabilities] = useState("");
+  const [limitations, setLimitations] = useState("");
   const [voiceStyle, setVoiceStyle] = useState<"short" | "mixed" | "long">("mixed");
+  const [portrait, setPortrait] = useState<CharacterPortrait | null>(null);
+  const [portraitDescription, setPortraitDescription] = useState("");
+  const [portraitTraits, setPortraitTraits] = useState("");
+  const [portraitQuery, setPortraitQuery] = useState("");
+  const [portraitTheme, setPortraitTheme] = useState("all");
+  const [portraitPage, setPortraitPage] = useState(0);
+  const [portraitBusy, setPortraitBusy] = useState(false);
+  const [rpgArchetype, setRpgArchetype] = useState<CharacterRpgArchetype>("balanced");
+  const [rpgStats, setRpgStats] = useState(() => characterRpgStatsForArchetype("balanced"));
+  const [isProtagonist, setIsProtagonist] = useState(false);
   const [message, setMessage] = useState("");
+  const portraitPageSize = 12;
+  const filteredPortraits = useMemo(
+    () => filterCharacterPortraitCatalog({ query: portraitQuery, themeId: portraitTheme }),
+    [portraitQuery, portraitTheme],
+  );
+  const portraitPageCount = Math.max(1, Math.ceil(filteredPortraits.length / portraitPageSize));
+  const safePortraitPage = Math.min(portraitPage, portraitPageCount - 1);
+  const visiblePortraits = filteredPortraits.slice(
+    safePortraitPage * portraitPageSize,
+    safePortraitPage * portraitPageSize + portraitPageSize,
+  );
+  const rpgPointTotal = characterRpgPointTotal(rpgStats);
 
   function reset() {
     setEditingId(null);
@@ -310,7 +356,19 @@ function CharacterEditor({
     setFear("");
     setSecret("");
     setFaction("");
+    setValues("");
+    setCapabilities("");
+    setLimitations("");
     setVoiceStyle("mixed");
+    setPortrait(null);
+    setPortraitDescription("");
+    setPortraitTraits("");
+    setPortraitQuery("");
+    setPortraitTheme("all");
+    setPortraitPage(0);
+    setRpgArchetype("balanced");
+    setRpgStats(characterRpgStatsForArchetype("balanced"));
+    setIsProtagonist(false);
   }
 
   function edit(item: Character) {
@@ -327,8 +385,75 @@ function CharacterEditor({
     setFear((item.fears ?? []).join("、"));
     setSecret((item.privateSecrets ?? []).join("、"));
     setFaction((item.factionIds ?? []).join("、"));
+    setValues((item.values ?? []).join("、"));
+    setCapabilities((item.capabilities ?? []).join("、"));
+    setLimitations((item.limitations ?? []).join("、"));
     setVoiceStyle(item.voiceStyle?.sentenceLength ?? "mixed");
+    setPortrait(item.portrait ?? null);
+    setPortraitDescription(item.portrait?.visualDescription ?? "");
+    setPortraitTraits((item.portrait?.traits ?? []).join("、"));
+    setRpgArchetype(item.rpgProfile?.archetype ?? "balanced");
+    setRpgStats(item.rpgProfile?.stats ?? characterRpgStatsForArchetype("balanced"));
+    setIsProtagonist(storyBibles.some((storyBible) => storyBible.protagonistIds.includes(item.id)));
     setMessage(`正在編輯「${item.name}」。`);
+  }
+
+  function selectCatalogPortrait(asset: (typeof CHARACTER_PORTRAIT_CATALOG)[number]) {
+    setPortrait({
+      ...asset,
+      approvedAt: new Date().toISOString(),
+      approvedBy: "user",
+      dataLeftDevice: false,
+    });
+    setPortraitDescription(asset.visualDescription);
+    setPortraitTraits(asset.traits.join("、"));
+    setMessage(`已選擇「${asset.role}」；儲存角色後才會正式綁定。`);
+  }
+
+  function createCharacterDraftFromPortrait() {
+    if (!portrait) {
+      setMessage("請先選擇一位 AI 人像或上傳人物照片。" );
+      return;
+    }
+    setName((current) => current.trim() || `未命名${portrait.role}`);
+    setIdentity((current) => current.trim() || portrait.role);
+    setPersonality((current) => current.trim() || portrait.traits.find((item) => ![portrait.themeLabel, portrait.role, "成人角色", "半身肖像"].includes(item)) || "性格待補");
+    setGoal((current) => current.trim() || `在${portrait.themeLabel}故事中完成自己的核心使命。`);
+    const suggestedArchetype = suggestCharacterRpgArchetype([
+      portrait.themeLabel,
+      portrait.role,
+      ...portrait.traits,
+    ]);
+    setRpgArchetype(suggestedArchetype);
+    setRpgStats(characterRpgStatsForArchetype(suggestedArchetype));
+    setMessage("角色草稿已帶入；請自由修改姓名、背景、能力與目標，再按儲存。" );
+  }
+
+  async function uploadPortrait(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setPortraitBusy(true);
+    try {
+      const asset = await prepareCharacterPortraitUpload({
+        file,
+        visualDescription: portraitDescription,
+        traits: portraitTraits.split(/[、,\n]/u),
+      });
+      setPortrait({
+        ...asset,
+        approvedAt: new Date().toISOString(),
+        approvedBy: "user",
+        dataLeftDevice: false,
+      });
+      setPortraitDescription(asset.visualDescription);
+      setPortraitTraits(asset.traits.join("、"));
+      setMessage("人物照片已在瀏覽器內裁切與壓縮；儲存角色後才會正式綁定。");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "人物照片處理失敗。" );
+    } finally {
+      setPortraitBusy(false);
+    }
   }
 
   async function save(event: React.FormEvent) {
@@ -341,7 +466,11 @@ function CharacterEditor({
       const repo = createNovelRepository();
       const existing = characters.find((item) => item.id === editingId);
       const base = existing ?? makeRecord(projectId);
-      await repo.put<Character>("characters", {
+      const rpgProfile = createCharacterRpgProfile({
+        archetype: rpgArchetype,
+        stats: rpgStats,
+      });
+      const savedCharacter = await repo.put<Character>("characters", {
         ...base,
         name: name.trim(),
         aliases: aliases.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
@@ -355,9 +484,18 @@ function CharacterEditor({
         fears: fear.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
         privateSecrets: secret.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
         factionIds: faction.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
-        values: existing?.values ?? [],
-        capabilities: existing?.capabilities ?? [],
-        limitations: existing?.limitations ?? [],
+        values: values.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
+        capabilities: capabilities.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
+        limitations: limitations.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
+        portrait: portrait ? {
+          ...portrait,
+          visualDescription: portraitDescription.trim() || portrait.visualDescription,
+          traits: portraitTraits.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
+          approvedAt: portrait.approvedAt || new Date().toISOString(),
+          approvedBy: "user",
+          dataLeftDevice: false,
+        } : null,
+        rpgProfile,
         voiceStyle: {
           formality: voiceStyle === "long" ? 75 : voiceStyle === "short" ? 35 : 55,
           directness: voiceStyle === "short" ? 75 : 55,
@@ -366,6 +504,15 @@ function CharacterEditor({
           preferredAddressTerms: existing?.voiceStyle?.preferredAddressTerms ?? [],
         },
       }, existing?.revision);
+      await updateStoryBibleReferences(repo, projectId, (storyBible) => ({
+        ...storyBible,
+        characterIds: storyBible.characterIds.includes(savedCharacter.id)
+          ? storyBible.characterIds
+          : [...storyBible.characterIds, savedCharacter.id],
+        protagonistIds: isProtagonist
+          ? [savedCharacter.id, ...storyBible.protagonistIds.filter((id) => id !== savedCharacter.id)]
+          : storyBible.protagonistIds.filter((id) => id !== savedCharacter.id),
+      }));
       reset();
       setMessage(existing ? "角色修改已保存。" : "角色已建立。");
       await onChanged();
@@ -480,6 +627,7 @@ function CharacterEditor({
         <h3 id="character-editor-heading">{editingId ? "編輯角色" : "建立角色"}</h3>
         <label>角色姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>別名（以頓號分隔）<input value={aliases} onChange={(event) => setAliases(event.target.value)} /></label>
+        <label className="p2Checkbox"><input type="checkbox" checked={isProtagonist} onChange={(event) => setIsProtagonist(event.target.checked)} />設為作品主角與 RPG 玩家角色</label>
         <label>身分<input value={identity} onChange={(event) => setIdentity(event.target.value)} /></label>
         <label>角色目標<input value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
         <label>生存狀態<select value={lifeStatus} onChange={(event) => setLifeStatus(event.target.value as Character["lifeStatus"])}><option value="alive">存活</option><option value="dead">死亡</option><option value="unknown">未知</option></select></label>
@@ -490,7 +638,91 @@ function CharacterEditor({
         <label>恐懼（以頓號分隔）<input value={fear} onChange={(event) => setFear(event.target.value)} /></label>
         <label>私人秘密（以頓號分隔）<input value={secret} onChange={(event) => setSecret(event.target.value)} /></label>
         <label>所屬勢力（以頓號分隔）<input value={faction} onChange={(event) => setFaction(event.target.value)} /></label>
+        <label>核心價值（以頓號分隔）<input value={values} onChange={(event) => setValues(event.target.value)} placeholder="例：守信、自由、家族" /></label>
+        <label>能力（以頓號分隔）<input value={capabilities} onChange={(event) => setCapabilities(event.target.value)} placeholder="例：劍術、談判、醫術" /></label>
+        <label>限制與弱點（以頓號分隔）<input value={limitations} onChange={(event) => setLimitations(event.target.value)} placeholder="例：怕水、不能說謊、舊傷" /></label>
         <label>說話節奏<select value={voiceStyle} onChange={(event) => setVoiceStyle(event.target.value as "short" | "mixed" | "long")}><option value="short">簡短直接</option><option value="mixed">自然混合</option><option value="long">完整慎重</option></select></label>
+        <fieldset className="characterRpgSetup p2WideField">
+          <legend>RPG 初始能力</legend>
+          <label>能力原型<select value={rpgArchetype} onChange={(event) => {
+            const next = event.target.value as CharacterRpgArchetype;
+            setRpgArchetype(next);
+            setRpgStats((current) => characterRpgStatsForArchetype(next, current));
+          }}>{CHARACTER_RPG_ARCHETYPES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <p>{CHARACTER_RPG_ARCHETYPES.find((option) => option.id === rpgArchetype)?.description}</p>
+          <div className="characterRpgStatGrid">
+            {(Object.entries(CHARACTER_RPG_STAT_LABELS) as Array<[CharacterRpgStatKey, string]>).map(([key, label]) => <label key={key}>{label}<input type="number" min="20" max="80" step="1" value={rpgStats[key]} onChange={(event) => {
+              setRpgArchetype("custom");
+              setRpgStats((current) => ({ ...current, [key]: Number(event.target.value) }));
+            }} /></label>)}
+          </div>
+          <strong className="characterRpgBudget" data-valid={rpgPointTotal === CHARACTER_RPG_POINT_BUDGET}>已分配 {rpgPointTotal} / {CHARACTER_RPG_POINT_BUDGET} 點</strong>
+          <small>每項 20–80，總和必須正好 300。RPG 啟用時會以這組核准數值建立主角能力，之後的升級仍走正式公式。</small>
+        </fieldset>
+        <fieldset className="characterPortraitStudio p2WideField">
+          <legend>角色相片與 AI 人像</legend>
+          <div className="characterPortraitSelection">
+            <div className="characterPortraitPreview" data-empty={!portrait}>
+              {portrait
+                ? <CharacterPortraitImage portrait={portrait} />
+                : <span aria-hidden="true">{name.trim().slice(0, 1) || "角"}</span>}
+            </div>
+            <div>
+              <b>{portrait ? portrait.role : "尚未選擇人物相片"}</b>
+              <p>{portrait ? portrait.visualDescription : "可從 100 位 ChatGPT 生成人像中選擇，或上傳自己的參考照片。"}</p>
+              <small>只有核准的外觀描述與特徵標籤會提供給角色 AI；圖片位元不會寫入 AI 提示。</small>
+            </div>
+          </div>
+          <div className="characterPortraitFields">
+            <label>外觀特徵描述<textarea value={portraitDescription} onChange={(event) => setPortraitDescription(event.target.value)} placeholder="例：神情冷靜、黑色長髮、深色戰袍、左眉有淡疤" /></label>
+            <label>特徵標籤（以頓號分隔）<input value={portraitTraits} onChange={(event) => setPortraitTraits(event.target.value)} placeholder="例：冷峻、劍修、黑衣、成年角色" /></label>
+          </div>
+          <div className="characterPortraitActions">
+            <label className="characterPortraitUpload">
+              {portraitBusy ? "正在處理照片…" : "上傳人物照片"}
+              <input type="file" accept="image/png,image/jpeg,image/webp" disabled={portraitBusy} onChange={(event) => void uploadPortrait(event)} />
+            </label>
+            <button type="button" className="secondary" onClick={() => {
+              setPortraitQuery(portraitTraits.trim() || portraitDescription.trim());
+              setPortraitTheme("all");
+              setPortraitPage(0);
+            }}>依特徵尋找候選</button>
+            <button type="button" className="secondary" disabled={!portrait} onClick={createCharacterDraftFromPortrait}>用此人像自創角色草稿</button>
+            {portrait ? <button type="button" className="danger" onClick={() => {
+              setPortrait(null);
+              setMessage("人物相片已從待儲存角色設定中移除。");
+            }}>移除人物相片</button> : null}
+          </div>
+          <details className="characterPortraitCatalog">
+            <summary>開啟 100 位 ChatGPT 人像庫</summary>
+            <div className="characterPortraitFilters">
+              <label>搜尋特徵<input type="search" value={portraitQuery} onChange={(event) => { setPortraitQuery(event.target.value); setPortraitPage(0); }} placeholder="題材、身分或氣質" /></label>
+              <label>題材<select value={portraitTheme} onChange={(event) => { setPortraitTheme(event.target.value); setPortraitPage(0); }}><option value="all">全部題材（100）</option>{CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+            </div>
+            <p className="characterPortraitCount">找到 {filteredPortraits.length} 位；第 {safePortraitPage + 1} / {portraitPageCount} 頁</p>
+            {visiblePortraits.length ? (
+              <div className="characterPortraitGrid" data-testid="character-portrait-catalog">
+                {visiblePortraits.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    className={portrait?.id === candidate.id ? "selected" : ""}
+                    aria-pressed={portrait?.id === candidate.id}
+                    onClick={() => selectCatalogPortrait(candidate)}
+                  >
+                    <CharacterPortraitImage portrait={candidate} />
+                    <b>{candidate.role}</b>
+                    <small>{candidate.themeLabel} · {candidate.traits[2]}</small>
+                  </button>
+                ))}
+              </div>
+            ) : <p>沒有符合全部特徵的候選，請減少搜尋條件。</p>}
+            <div className="characterPortraitPagination">
+              <button type="button" disabled={safePortraitPage <= 0} onClick={() => setPortraitPage((current) => Math.max(0, current - 1))}>上一頁</button>
+              <button type="button" disabled={safePortraitPage >= portraitPageCount - 1} onClick={() => setPortraitPage((current) => Math.min(portraitPageCount - 1, current + 1))}>下一頁</button>
+            </div>
+          </details>
+        </fieldset>
         <div className="p2EditorActions">
           <button type="submit">{editingId ? "儲存修改" : "建立角色"}</button>
           {editingId ? <button type="button" className="secondary" onClick={reset}>取消編輯</button> : null}
@@ -501,12 +733,14 @@ function CharacterEditor({
         <div className="p2DataGrid" data-testid="character-records">
           {characters.map((item) => (
             <article key={item.id} data-record-id={item.id} data-revision={item.revision}>
+              {item.portrait ? <CharacterPortraitImage portrait={item.portrait} className="characterRecordPortrait" /> : null}
               <b>{item.name}</b>
               <span>{item.lifeStatus === "alive" ? "存活" : item.lifeStatus === "dead" ? "死亡" : "未知"}</span>
               <p>{item.goal.value || "尚未設定目標"}</p>
               <small>{item.locationId || "尚未設定位置"}</small>
               {item.personality.value ? <small>{item.personality.value}</small> : null}
               {item.privateSecrets?.length ? <small>含作者私人設定</small> : null}
+              {item.rpgProfile ? <small>RPG：{CHARACTER_RPG_ARCHETYPES.find((option) => option.id === item.rpgProfile?.archetype)?.label ?? "自訂配點"} · {characterRpgPointTotal(item.rpgProfile.stats)} 點</small> : null}
               <div className="p2RecordActions">
                 <button type="button" onClick={() => edit(item)}>編輯</button>
                 <button type="button" className="danger" onClick={() => void remove(item)}>刪除</button>

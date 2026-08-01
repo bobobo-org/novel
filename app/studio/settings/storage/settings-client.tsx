@@ -29,9 +29,16 @@ const CLOUD_STATUS_LABELS: Record<string, string> = {
   synced: "已同步",
   offline: "離線，稍後自動重試",
   configuration_required: "雲端環境尚未設定",
-  migration_required: "雲端資料表尚未建立",
+  migration_required: "雲端儲存尚未完成",
   conflict: "需要你選擇版本",
   degraded: "暫停，作品仍在本機",
+};
+
+const AUTHORITY_LABELS: Record<string, string> = {
+  Supabase: "Supabase（版本與雜湊已驗證）",
+  PendingSync: "待同步（本機安全佇列）",
+  ConflictReview: "版本衝突，等待你確認",
+  IndexedDBFallback: "IndexedDB 本機備援",
 };
 
 function cloudMessage(error: unknown) {
@@ -150,7 +157,7 @@ export default function StorageSettingsClient() {
       <header>
         <Link href="/studio">← 返回創作中心</Link>
         <h1>作品儲存與加密雲端同步</h1>
-        <p>IndexedDB 永遠是正式作品庫；雲端保存的是端對端加密快照，不會在背景取代本機 Canon。</p>
+        <p>同步成功且版本／密文雜湊回讀一致時，由 Supabase 保存正式版本；IndexedDB 是本機工作副本與離線 Outbox。內容仍須經使用者核准才會進入 Canon。</p>
       </header>
 
       <section>
@@ -166,7 +173,7 @@ export default function StorageSettingsClient() {
       <section aria-labelledby="cloud-sync-heading" data-cloud-status={cloud?.status ?? "checking"}>
         <div className="cloudSyncHeading">
           <div>
-            <span className="eyebrow">LOCAL-FIRST · E2EE</span>
+            <span className="eyebrow">CLOUD-VERIFIED · E2EE</span>
             <h2 id="cloud-sync-heading">雲端同步</h2>
           </div>
           <strong className="cloudSyncBadge">{CLOUD_STATUS_LABELS[cloud?.status ?? "checking"]}</strong>
@@ -175,6 +182,8 @@ export default function StorageSettingsClient() {
           <div><dt>同步功能</dt><dd>{cloud?.config.enabled ? "已開啟" : "等待你開啟"}</dd></div>
           <div><dt>雲端後端</dt><dd>{cloud?.health ? CLOUD_STATUS_LABELS[cloud.health.status] : "檢查中"}</dd></div>
           <div><dt>待傳 Outbox</dt><dd>{cloud?.outboxCount ?? 0} 筆</dd></div>
+          <div><dt>目前資料權威</dt><dd>{AUTHORITY_LABELS[cloud?.canonicalAuthority ?? "IndexedDBFallback"]}</dd></div>
+          <div><dt>已驗證雲端作品</dt><dd>{cloud?.verifiedRemoteProjectCount ?? 0} 部</dd></div>
           <div><dt>加密</dt><dd>AES-GCM 256 · 瀏覽器內完成</dd></div>
           <div><dt>不離開裝置</dt><dd>憑證、AUTHOR_ONLY、私人推演與裝置限定資料</dd></div>
         </dl>
@@ -269,7 +278,7 @@ export default function StorageSettingsClient() {
 
       <section>
         <h2>資料安全</h2>
-        <p>同步失敗不阻擋寫作；舊版資料不會在遷移後立刻刪除。套用雲端前會先建立本機安全備份。</p>
+        <p>同步失敗時，新變更會明確標成 PendingSync，不會假裝已提交；舊版資料不會在遷移後立刻刪除。套用雲端前會先建立本機安全備份。</p>
         <Link className="secondaryAction" href="/studio?screen=backup">前往備份中心</Link>
       </section>
     </main>

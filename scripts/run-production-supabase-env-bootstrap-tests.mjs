@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   discoverProjectRef,
+  discoverProjectApiKeyCandidates,
   PRODUCTION_RUNTIME_SUPABASE_KEYS,
   REQUIRED_SUPABASE_KEYS,
   mergeProductionWithSource,
@@ -55,6 +56,31 @@ assert.equal(selectedCredential.kind, "secret_key");
 assert.equal(selectedCredential.restHttpStatus, 200);
 assert.equal(selectedCredential.storageHttpStatus, 200);
 assert.equal(selectedCredential.probes[0].kind, "invalid_shape");
+
+const discoveredApiKeys = await discoverProjectApiKeyCandidates({
+  accessToken: source.SUPABASE_ACCESS_TOKEN,
+  projectRef,
+  fetcher: async (url, options) => {
+    assert.equal(url, `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`);
+    assert.equal(options.headers.authorization, `Bearer ${source.SUPABASE_ACCESS_TOKEN}`);
+    return new Response(JSON.stringify([
+      { name: "anon", api_key: "sb_publishable_public-value" },
+      { name: "service_role", api_key: serviceRoleJwt },
+    ]), { status: 200 });
+  },
+});
+assert.equal(discoveredApiKeys.httpStatus, 200);
+assert.equal(discoveredApiKeys.candidates.length, 1);
+assert.equal(discoveredApiKeys.candidates[0].value, serviceRoleJwt);
+await assert.rejects(
+  () => discoverProjectApiKeyCandidates({
+    accessToken: source.SUPABASE_ACCESS_TOKEN,
+    projectRef,
+    fetcher: async () => new Response(JSON.stringify({ message: "forbidden" }), { status: 403 }),
+  }),
+  (error) => error?.code === "SUPABASE_BOOTSTRAP_API_KEY_DISCOVERY_FAILED"
+    && error?.httpStatus === 403,
+);
 
 const production = { NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL };
 const merged = mergeProductionWithSource(production, source);

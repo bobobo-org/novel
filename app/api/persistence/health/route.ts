@@ -32,6 +32,7 @@ export async function GET() {
       provider: "IndexedDB",
       scope: "client",
       runtimeStatus: "client_probe_required",
+      role: "materialized-replica-and-offline-outbox",
     },
     cloudPersistence: {
       provider: "Supabase",
@@ -50,6 +51,8 @@ export async function GET() {
       syncStorageBackend: sync.storageBackend,
       encryption: sync.encryption,
       canonicalAuthority: sync.canonicalAuthority,
+      authorityProtocol: sync.authorityProtocol,
+      canonApprovalAuthority: "human-approved-transactions",
       writeProbeStatus,
       lastSuccessfulWriteAt: cloud.lastSuccessfulWriteAt,
       errorCategory: sync.status === "ready"

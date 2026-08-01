@@ -659,11 +659,13 @@ test("supabase-degraded-local-flow", "Supabase failure leaves healthy local cano
       lastSuccessfulWriteAt: null,
       errorCategory: "connectivity",
       retryable: true,
+      canonicalAuthority: "IndexedDBFallback",
     }),
   });
   assert.equal(health.mode, "CLOUD_DEGRADED");
   assert.equal(health.localFeaturesAvailable, true);
   assert.equal(health.cloudSyncAvailable, false);
+  assert.equal(health.canonicalAuthority, "IndexedDBFallback");
   assert.equal(health.silentMemoryFallback, false);
   const blocked = await resolvePersistenceRuntimeHealth({
     repository: new UnavailableNovelRepository(),
@@ -675,6 +677,7 @@ test("supabase-degraded-local-flow", "Supabase failure leaves healthy local cano
       lastSuccessfulWriteAt: new Date().toISOString(),
       errorCategory: null,
       retryable: false,
+      canonicalAuthority: "Supabase",
     }),
   });
   assert.equal(blocked.mode, "LOCAL_BLOCKED");

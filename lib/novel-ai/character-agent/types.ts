@@ -95,6 +95,7 @@ export type CharacterAgentProfile = DomainRecord & {
   identity: SourcedCharacterFact<string>;
   factionIds: string[];
   personalityTraits: SourcedCharacterFact<string[]>;
+  appearance?: SourcedCharacterFact<string[]>;
   values: SourcedCharacterFact<string[]>;
   goals: SourcedCharacterFact<string[]>;
   fears: SourcedCharacterFact<string[]>;

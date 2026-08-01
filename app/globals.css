@@ -187,3 +187,40 @@ nav.p2ProjectNav .p2NavLabel{
   .studioChapterManager>div>button{flex:0 0 180px}
   .studioChapterSidebar>nav{display:flex!important;overflow-x:auto}.studioChapterSidebar>nav>*{flex:0 0 auto;white-space:nowrap}
 }
+
+.characterPortraitStudio{display:grid;min-width:0;gap:14px;margin:4px 0 2px;padding:16px;border:1px solid #506b91;border-radius:13px;background:rgba(6,18,34,.72)}
+.characterPortraitStudio>legend{padding:0 8px;color:#f1d694;font-weight:900}
+.characterPortraitSelection{display:grid;grid-template-columns:108px minmax(0,1fr);align-items:center;gap:14px}
+.characterPortraitSelection p{margin:5px 0;color:#b8c6d9;line-height:1.55}
+.characterPortraitSelection small{color:#91a6c0;line-height:1.5}
+.characterPortraitPreview{display:grid;width:108px;aspect-ratio:3/4;place-items:center;overflow:hidden;border:2px solid #7860aa;border-radius:12px;background:linear-gradient(145deg,#241a3c,#0b1a2d);box-shadow:0 12px 30px rgba(0,0,0,.28)}
+.characterPortraitPreview[data-empty="true"] span{color:#e3c47e;font-size:38px;font-weight:900}
+.characterPortraitImage{display:block;width:100%;height:100%;aspect-ratio:3/4;object-fit:cover;background:#07111f}
+.characterPortraitFields{display:grid;grid-template-columns:1.35fr 1fr;gap:12px}
+.characterPortraitFields label{display:grid;gap:7px}.characterPortraitFields textarea{min-height:78px}
+.characterPortraitActions{display:flex;flex-wrap:wrap;gap:8px}
+.p2InlineEditor .characterPortraitActions button,.p2InlineEditor .characterPortraitPagination button{width:auto;min-height:38px;padding:7px 11px;border:1px solid #526b8f;background:#13243b;color:#edf4ff}
+.p2InlineEditor .characterPortraitActions .danger{border-color:#86455a;background:#351522;color:#ffd7e1}
+.characterPortraitUpload{display:inline-flex!important;width:auto;min-height:38px;align-items:center;padding:7px 11px;border:1px solid #4f9c82;border-radius:8px;background:#12352c;color:#c7f6e6!important;font-weight:800;cursor:pointer}
+.characterPortraitUpload input{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}
+.characterPortraitCatalog{min-width:0;padding-top:4px;border-top:1px solid rgba(82,107,143,.55)}
+.characterPortraitCatalog>summary{width:fit-content;padding:8px 0;color:#d9c1ff;font-weight:900;cursor:pointer}
+.characterPortraitFilters{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:10px;margin:8px 0}
+.characterPortraitFilters label{display:grid;gap:6px}
+.characterPortraitCount{margin:8px 0;color:#9fb1ca;font-size:13px}
+.characterPortraitGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.p2InlineEditor .characterPortraitGrid>button{display:grid;min-width:0;min-height:0;gap:6px;padding:7px;border:1px solid #3f587a;border-radius:11px;background:#0b192b;color:#eef4ff;text-align:left;transition:border-color .15s ease,transform .15s ease,box-shadow .15s ease}
+.p2InlineEditor .characterPortraitGrid>button:hover,.p2InlineEditor .characterPortraitGrid>button:focus-visible{border-color:#a984e8;outline:none;transform:translateY(-2px);box-shadow:0 12px 26px rgba(0,0,0,.28)}
+.p2InlineEditor .characterPortraitGrid>button.selected{border-color:#e3bd61;box-shadow:0 0 0 2px rgba(227,189,97,.22)}
+.characterPortraitGrid b,.characterPortraitGrid small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.characterPortraitGrid small{color:#96a9c2}
+.characterPortraitGrid .characterPortraitImage{height:auto;border-radius:7px}
+.characterPortraitPagination{display:flex;justify-content:center;gap:8px;margin-top:12px}
+.characterPortraitPagination button:disabled{cursor:not-allowed;opacity:.45}
+.characterRecordPortrait{height:auto;max-height:220px;border:1px solid #4c6688;border-radius:10px}
+.characterRpgSetup{display:grid;grid-template-columns:minmax(220px,.55fr) minmax(0,1fr);gap:10px 14px;margin:4px 0 2px;padding:16px;border:1px solid #506b91;border-radius:13px;background:rgba(12,27,46,.76)}
+.characterRpgSetup>legend{padding:0 8px;color:#f1d694;font-weight:900}.characterRpgSetup>p{align-self:end;margin:0;color:#9fb1ca;line-height:1.5}.characterRpgSetup>small{grid-column:1/-1;color:#91a6c0;line-height:1.5}
+.characterRpgStatGrid{grid-column:1/-1;display:grid;grid-template-columns:repeat(6,minmax(80px,1fr));gap:8px}.characterRpgStatGrid label{display:grid;gap:6px}.characterRpgStatGrid input{text-align:center}
+.characterRpgBudget{grid-column:1/-1;width:fit-content;padding:7px 10px;border:1px solid #a35e5e;border-radius:8px;background:#381c24;color:#ffc2c2}.characterRpgBudget[data-valid="true"]{border-color:#4d9c81;background:#12352c;color:#c9f7e7}
+@media(max-width:800px){.characterPortraitGrid{grid-template-columns:repeat(3,minmax(0,1fr))}.characterPortraitFields{grid-template-columns:1fr}.characterPortraitSelection{grid-template-columns:82px minmax(0,1fr)}.characterPortraitPreview{width:82px}}
+@media(max-width:800px){.characterRpgStatGrid{grid-template-columns:repeat(3,minmax(80px,1fr))}}
+@media(max-width:520px){.characterPortraitStudio,.characterRpgSetup{padding:12px}.characterRpgSetup{grid-template-columns:1fr}.characterRpgSetup>p{grid-column:1}.characterRpgStatGrid{grid-template-columns:repeat(2,minmax(80px,1fr))}.characterPortraitGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.characterPortraitFilters{grid-template-columns:1fr}.characterPortraitSelection{align-items:start}.characterPortraitSelection small{display:block}.characterPortraitActions{display:grid;grid-template-columns:1fr}.characterPortraitUpload,.characterPortraitActions button{justify-content:center;width:100%!important}}

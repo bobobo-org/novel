@@ -10,6 +10,14 @@ import { createCharacterCanonContext } from "@/lib/novel-ai/character-agent/cano
 import { buildActorPerspectiveContext, buildCharacterActorContext, buildCharacterEvaluatorContext } from "@/lib/novel-ai/character-agent/perspective-context-builder";
 import { falseBelief } from "@/lib/novel-ai/character-agent/belief-engine";
 import { createCharacterRelationshipEdge } from "@/lib/novel-ai/character-agent/relationship-engine";
+import { evaluateMatureNarrativeFormula } from "@/lib/novel-ai/character-agent/mature-narrative-formula";
+import {
+  CHARACTER_PERSONALITY_AXIS_LABELS,
+  approveCharacterDynamicsProfile,
+  buildCharacterDynamicsCandidate,
+  calculateSocialNetworkComplexity,
+  type CharacterDynamicsCandidate,
+} from "@/lib/novel-ai/character-agent/character-dynamics-engine";
 import { planPrivateCharacterArc } from "@/lib/novel-ai/character-agent/private-arc-planner";
 import { CharacterSimulationConcurrencyGuard, createPrivateSimulationBundle, discardCharacterSimulation, transitionSimulation } from "@/lib/novel-ai/character-agent/turn-scheduler";
 import { runCharacterSimulation } from "@/lib/novel-ai/character-agent/simulation-engine";
@@ -29,12 +37,14 @@ import type {
   CharacterProposalEnvelope,
   CharacterRelationshipEdge,
   CharacterRelationshipEvent,
+  RelationshipMetrics,
   CharacterSimulationSession,
   CharacterSimulationTurn,
   CharacterSourceReference,
   SourcedCharacterFact,
 } from "@/lib/novel-ai/character-agent/types";
 import type { KnowledgeScope } from "@/lib/novel-ai/drama-os/knowledge-scope";
+import CharacterPortraitImage from "../character-portrait";
 import ProjectNavigation from "../project-navigation";
 import styles from "./character-ai.module.css";
 
@@ -101,6 +111,9 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
   const [scenario, setScenario] = useState("三位角色在同一場景交換彼此能公開的線索。");
   const [turnBudget, setTurnBudget] = useState("5");
   const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [dynamicsCandidate, setDynamicsCandidate] = useState<CharacterDynamicsCandidate | null>(null);
+  const [explicitConsent, setExplicitConsent] = useState(false);
+  const [boundaryConfirmed, setBoundaryConfirmed] = useState(false);
 
   async function load() {
     const repository = createNovelRepository();
@@ -167,6 +180,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
   }, [canonContext, data, projectId, selectedCharacterId]);
 
   const selectedCharacter = data?.characters.find((character) => character.id === selectedCharacterId) ?? null;
+  const relationshipTargetCharacter = data?.characters.find((character) => character.id === relationshipTarget) ?? null;
   const selectedProfile = data?.profiles.filter((profile) => profile.characterId === selectedCharacterId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
   const selectedState = data?.states.filter((state) => state.characterId === selectedCharacterId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
   const selectedSession = data?.simulations.find((session) => session.sessionId === selectedSessionId) ?? null;
@@ -174,6 +188,104 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
     () => data?.turns.filter((turn) => turn.sessionId === selectedSessionId).sort((a, b) => a.turnNumber - b.turnNumber) ?? [],
     [data, selectedSessionId],
   );
+  const matureNarrativePreview = useMemo(() => {
+    if (!data?.project.adultMode || !selectedCharacter || !relationshipTargetCharacter) return null;
+    const safeNumber = (value: string) => Number.isFinite(Number(value)) ? Math.max(-100, Math.min(100, Number(value))) : 0;
+    return evaluateMatureNarrativeFormula({
+      projectAdultMode: data.project.adultMode,
+      from: selectedCharacter,
+      to: relationshipTargetCharacter,
+      metrics: {
+        trust: safeNumber(trust),
+        affection: safeNumber(affection),
+        attraction: 0,
+        fear: 0,
+        resentment: 0,
+        loyalty: 0,
+        debt: 0,
+        dependency: 0,
+        conflict: 0,
+        powerBalance: 0,
+      },
+      explicitConsent,
+      boundaryConfirmed,
+    });
+  }, [affection, boundaryConfirmed, data, explicitConsent, relationshipTargetCharacter, selectedCharacter, trust]);
+  const socialComplexity = useMemo(() => data ? calculateSocialNetworkComplexity({
+    characterIds: data.characters.map((character) => character.id),
+    edges: data.relationships.map((edge) => ({
+      fromCharacterId: edge.fromCharacterId,
+      toCharacterId: edge.toCharacterId,
+      metrics: {
+        trust: edge.trust,
+        affection: edge.affection,
+        attraction: edge.attraction,
+        fear: edge.fear,
+        resentment: edge.resentment,
+        loyalty: edge.loyalty,
+        debt: edge.debt,
+        dependency: edge.dependency,
+        conflict: edge.conflict,
+        powerBalance: edge.powerBalance,
+      } satisfies RelationshipMetrics,
+    })),
+  }) : null, [data]);
+
+  function generateDynamicsCandidate() {
+    if (!data) return;
+    const candidate = buildCharacterDynamicsCandidate({
+      projectId,
+      characters: data.characters,
+      existingRelationships: data.relationships,
+      playthroughSeed: crypto.randomUUID(),
+    });
+    setDynamicsCandidate(candidate);
+    setMessage(`已產生 ${candidate.profiles.length} 位人物能力／個性與 ${candidate.relationships.length} 條朋友圈候選；Canonical mutation = 0。`);
+  }
+
+  async function approveDynamicsCandidate() {
+    if (!data || !canonContext || !dynamicsCandidate || busy) return;
+    setBusy(true);
+    try {
+      const repository = createNovelRepository();
+      const approvedAt = new Date().toISOString();
+      for (const profileCandidate of dynamicsCandidate.profiles) {
+        const character = data.characters.find((item) => item.id === profileCandidate.characterId);
+        if (!character) continue;
+        const approved = approveCharacterDynamicsProfile(profileCandidate, dynamicsCandidate.playthroughSeed, approvedAt);
+        await repository.put<Character>("characters", {
+          ...character,
+          dynamicsProfile: approved.dynamicsProfile,
+          rpgProfile: character.rpgProfile ?? approved.rpgProfile,
+        }, character.revision);
+      }
+      for (const relationship of dynamicsCandidate.relationships) {
+        const from = data.characters.find((character) => character.id === relationship.fromCharacterId);
+        const to = data.characters.find((character) => character.id === relationship.toCharacterId);
+        if (!from || !to) continue;
+        const edge = createCharacterRelationshipEdge({
+          canonContext,
+          fromCharacterId: from.id,
+          toCharacterId: to.id,
+          relationshipTypes: relationship.relationshipTypes,
+          metrics: relationship.metrics,
+          publicStatus: relationship.relationshipTypes.join("／"),
+          privateStatus: `由角色動態引擎核准：${relationship.rationale}`,
+          knownByCharacterIds: [from.id],
+          sourceReferences: [sourceReference(from, `${from.name}對${to.name}的核准關係候選`)],
+        });
+        await repository.put("characterRelationships", edge);
+      }
+      setDynamicsCandidate(null);
+      await load();
+      setMessage("角色能力、個性與有方向朋友圈已核准；閉端 AI 只會讀取這批已核准資料。既有手動 RPG 數值未被覆蓋。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "角色動態候選核准失敗，正式資料未完整套用。");
+      await load().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function syncProfiles() {
     if (!data || !canonContext || !data.characters.length) return;
@@ -190,7 +302,10 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
           age: character.age ?? null,
           ageVerified: character.ageVerified ?? false,
           factionIds: character.factionIds ?? [],
-          personalityTraits: supported(character.personality.value ? [character.personality.value] : [], character),
+          personalityTraits: supported([
+            ...(character.personality.value ? [character.personality.value] : []),
+            ...(character.dynamicsProfile?.personalityTraits ?? []),
+          ], character),
           values: supported(character.values, character),
           fears: supported(character.fears, character),
           capabilities: supported(character.capabilities, character),
@@ -560,6 +675,8 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
   if (!data || !canonContext) return <main className="p2ProjectShell"><p role="status">{message === "角色只能使用他知道的資訊。" ? "正在載入角色 AI…" : message}</p></main>;
   const points = Object.fromEntries(data.characters.map((character, index) => [character.id, graphPosition(index, data.characters.length)]));
+  const displayedComplexity = dynamicsCandidate?.complexity ?? socialComplexity;
+  const selectedDynamicsCandidate = dynamicsCandidate?.profiles.find((profile) => profile.characterId === selectedCharacterId) ?? null;
 
   return (
     <main className="p2ProjectShell">
@@ -574,14 +691,21 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
         {!data.characters.length ? <section className="characterEmpty"><h2>先建立角色</h2><p>至少建立兩位角色後，就能探索不同視角與關係。</p><Link href={`/studio/project/${projectId}/characters`}>前往建立角色</Link></section> : (
           <>
             <section className="characterSelector" aria-label="選擇角色">
-              {data.characters.map((character) => <button key={character.id} className={selectedCharacterId === character.id ? "active" : ""} onClick={() => setSelectedCharacterId(character.id)}><b>{character.name}</b><small>{character.goal.value || "目標尚未設定"}</small></button>)}
+              {data.characters.map((character) => <button key={character.id} className={selectedCharacterId === character.id ? "active" : ""} onClick={() => setSelectedCharacterId(character.id)}>{character.portrait ? <CharacterPortraitImage portrait={character.portrait} className="characterSelectorPortrait" decorative /> : null}<b>{character.name}</b><small>{character.goal.value || "目標尚未設定"}</small></button>)}
             </section>
 
             <section className="characterOverview">
               <article><small>目前狀態</small><h3>{selectedState?.lifeStatus === "dead" ? "已死亡（不能進行當前行動）" : selectedState?.locationId || selectedCharacter?.locationId || "位置未知"}</h3><p>{selectedProfile ? "角色檔案已同步" : "尚未同步角色 AI 檔案"}</p></article>
               <article><small>角色目標</small><h3>{selectedProfile?.goals.value?.[0] || selectedCharacter?.goal.value || "尚未設定"}</h3><p>只有作者支持的目標會成為硬限制。</p></article>
               <article><small>角色語氣</small><h3>{selectedProfile ? `${selectedProfile.voiceProfile.sentenceLength === "short" ? "簡短" : selectedProfile.voiceProfile.sentenceLength === "long" ? "慎重完整" : "自然混合"}句型` : "尚未建立"}</h3><p>對話會檢查稱謂、正式程度與重複。</p></article>
+              <article><small>核准外觀</small><h3>{selectedCharacter?.portrait?.role || "尚未設定"}</h3><p>{selectedCharacter?.portrait?.visualDescription || "選擇人像後，角色 AI 才會取得外觀特徵文字。"}</p></article>
               <article><small>私人故事線</small><h3>{data.privateArcs.filter((arc) => arc.characterId === selectedCharacterId).length} 條</h3><button disabled={!selectedProfile} onClick={() => void addPrivateArc()}>建立私人故事線</button></article>
+            </section>
+
+            <section className={styles.dynamicsLab} data-testid="character-dynamics-lab">
+              <header><div><small>CLOSED BROWSER CHARACTER ENGINE</small><h2>角色能力、個性與朋友圈運算</h2><p>先產生候選，再由你核准；每次新周目 seed 都會重新排列關係與人物傾向，既有手動能力值不會被覆蓋。</p></div><div><button type="button" disabled={busy || !data.characters.length} onClick={generateDynamicsCandidate}>重新運算候選</button><button type="button" disabled={busy || !dynamicsCandidate} onClick={() => void approveDynamicsCandidate()}>核准能力與朋友圈</button></div></header>
+              {displayedComplexity ? <div className={styles.complexityGrid}><article><small>朋友圈</small><b>{displayedComplexity.label}</b><span>{displayedComplexity.complexityScore}/100</span></article><article><small>方向關係</small><b>{displayedComplexity.directedEdgeCount}</b><span>密度 {displayedComplexity.density}%</span></article><article><small>互惠程度</small><b>{displayedComplexity.reciprocity}%</b><span>三角連結 {displayedComplexity.triangleRatio}%</span></article><article><small>張力／凝聚</small><b>{displayedComplexity.tension}／{displayedComplexity.cohesion}</b><span>分化 {displayedComplexity.polarization}</span></article></div> : null}
+              {selectedDynamicsCandidate ? <article className={styles.dynamicsCandidate}><header><div><small>待核准 · Canonical mutation = {dynamicsCandidate?.canonicalMutation}</small><h3>{selectedCharacter?.name}｜{selectedDynamicsCandidate.archetypeLabel}</h3></div><span>{selectedDynamicsCandidate.socialRole}</span></header><p>{selectedDynamicsCandidate.personalityTraits.join("、")}；需要：{selectedDynamicsCandidate.relationshipNeeds.join("、")}</p><div className={styles.axisGrid}>{Object.entries(selectedDynamicsCandidate.personalityAxes).map(([axis, value]) => <label key={axis}><span>{CHARACTER_PERSONALITY_AXIS_LABELS[axis as keyof typeof CHARACTER_PERSONALITY_AXIS_LABELS]}</span><progress max={100} value={value} /><b>{value}</b></label>)}</div><footer><span>{selectedDynamicsCandidate.preservesApprovedRpgProfile ? "保留既有核准 RPG 數值" : "核准後建立 300 點 RPG 能力"}</span><span>候選關係 {dynamicsCandidate?.relationships.length ?? 0} 條</span></footer></article> : <p className={styles.dynamicsEmpty}>{selectedCharacter?.dynamicsProfile ? `已核准：${selectedCharacter.dynamicsProfile.archetypeLabel}／${selectedCharacter.dynamicsProfile.socialRole}` : "按「重新運算候選」後，這裡會顯示可檢查的能力、個性與朋友圈；尚未核准前正式資料不變。"}</p>}
             </section>
 
             <section className="knowledgeColumns">
@@ -592,7 +716,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
             <section className="setupGrid">
               <form onSubmit={(event) => void addKnowledge(event)}><h2>建立知識邊界</h2><label>資訊內容<textarea value={knowledgeClaim} onChange={(event) => setKnowledgeClaim(event.target.value)} /></label><label>誰可以知道<select value={knowledgeScope} onChange={(event) => setKnowledgeScope(event.target.value as KnowledgeScope)}><option value="PUBLIC">所有角色可知</option><option value="AUTHOR_ONLY">只有作者與檢查器</option><option value="CHARACTER_KNOWN">只有目前角色</option><option value="FACTION_KNOWN">指定勢力</option><option value="READER_KNOWN">只有讀者知道</option><option value="FUTURE_REVEAL">未來條件成立後</option></select></label>{knowledgeScope === "FACTION_KNOWN" ? <label>勢力名稱<input value={knowledgeFaction} onChange={(event) => setKnowledgeFaction(event.target.value)} /></label> : null}{knowledgeScope === "FUTURE_REVEAL" ? <label>揭露條件<input value={revealCondition} onChange={(event) => setRevealCondition(event.target.value)} /></label> : null}<button type="submit">保存知識邊界</button></form>
               <form onSubmit={(event) => void addBelief(event)}><h2>角色信念</h2><p>信念可以是錯的，不會改變正式真相。</p><label>角色目前相信<input value={beliefText} onChange={(event) => setBeliefText(event.target.value)} /></label><button type="submit">保存信念</button><ul>{data.beliefs.filter((belief) => belief.characterId === selectedCharacterId).map((belief) => <li key={belief.beliefId}>{belief.proposition} <small>{belief.beliefStatus}</small></li>)}</ul></form>
-              <form onSubmit={(event) => void addRelationship(event)}><h2>建立有方向的關係</h2><label>從<b>{selectedCharacter?.name}</b></label><label>到<select value={relationshipTarget} onChange={(event) => setRelationshipTarget(event.target.value)}><option value="">選擇角色</option>{data.characters.filter((character) => character.id !== selectedCharacterId).map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label><label>關係類型<input value={relationshipType} onChange={(event) => setRelationshipType(event.target.value)} /></label><label>信任（-100 至 100）<input type="number" min="-100" max="100" value={trust} onChange={(event) => setTrust(event.target.value)} /></label><label>好感（-100 至 100）<input type="number" min="-100" max="100" value={affection} onChange={(event) => setAffection(event.target.value)} /></label><button type="submit">保存方向關係</button></form>
+              <form onSubmit={(event) => void addRelationship(event)}><h2>建立有方向的關係</h2><label>從<b>{selectedCharacter?.name}</b></label><label>到<select value={relationshipTarget} onChange={(event) => setRelationshipTarget(event.target.value)}><option value="">選擇角色</option>{data.characters.filter((character) => character.id !== selectedCharacterId).map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label><label>關係類型<input value={relationshipType} onChange={(event) => setRelationshipType(event.target.value)} /></label><label>信任（-100 至 100）<input type="number" min="-100" max="100" value={trust} onChange={(event) => setTrust(event.target.value)} /></label><label>好感（-100 至 100）<input type="number" min="-100" max="100" value={affection} onChange={(event) => setAffection(event.target.value)} /></label>{data.project.adultMode ? <fieldset className={styles.matureFormula}><legend>成年關係安全公式（選填）</legend><label><input type="checkbox" checked={explicitConsent} onChange={(event) => setExplicitConsent(event.target.checked)} />雙方已明確同意且可撤回</label><label><input type="checkbox" checked={boundaryConfirmed} onChange={(event) => setBoundaryConfirmed(event.target.checked)} />界線與事後影響已確認</label>{matureNarrativePreview ? <p data-eligible={matureNarrativePreview.eligible}>{matureNarrativePreview.eligible ? `可建立非露骨成年關係候選；張力 ${matureNarrativePreview.tension}，安全 ${matureNarrativePreview.boundarySafety}` : `目前只可保留一般關係：${matureNarrativePreview.blockers.join("；")}`}</p> : <p>選擇另一位角色後才會檢查成年、同意、界線、信任與權力差。</p>}</fieldset> : null}<button type="submit">保存方向關係</button></form>
             </section>
 
             <section className="relationshipSection">

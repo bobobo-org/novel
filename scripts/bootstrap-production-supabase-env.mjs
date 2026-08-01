@@ -333,6 +333,34 @@ export async function discoverProjectRef(configuration) {
   });
 }
 
+export async function discoverProjectApiKeyCandidates({
+  accessToken,
+  projectRef,
+  fetcher = fetchWithTimeout,
+}) {
+  if (!accessToken) return { candidates: [], httpStatus: null };
+  const response = await fetcher(
+    `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  const body = await response.json().catch(() => null);
+  const rows = Array.isArray(body) ? body : null;
+  if (!response.ok || !rows) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_API_KEY_DISCOVERY_FAILED"), {
+      code: "SUPABASE_BOOTSTRAP_API_KEY_DISCOVERY_FAILED",
+      httpStatus: response.status,
+      responseShape: Array.isArray(body) ? "array" : typeof body,
+    });
+  }
+  const candidates = rows
+    .map((row, index) => ({
+      source: `management_api_${index + 1}`,
+      value: String(row?.api_key || "").trim(),
+    }))
+    .filter((candidate) => serviceRoleCredentialKind(candidate.value));
+  return { candidates, httpStatus: response.status };
+}
+
 async function verifySupabase(configuration, projectRef) {
   if (!serviceRoleCredentialKind(configuration.SUPABASE_SERVICE_ROLE_KEY)) {
     return {
@@ -455,14 +483,29 @@ export async function main() {
         .sort();
       throw error;
     }
-    const credential = await selectServiceRoleCredential({
-      url: configuration.NEXT_PUBLIC_SUPABASE_URL,
-      candidates: [
-        { source: "production", value: production.SUPABASE_SERVICE_ROLE_KEY },
-        { source: "preview", value: preview.SUPABASE_SERVICE_ROLE_KEY },
-        { source: "development", value: development.SUPABASE_SERVICE_ROLE_KEY },
-      ],
-    });
+    const environmentCandidates = [
+      { source: "production", value: production.SUPABASE_SERVICE_ROLE_KEY },
+      { source: "preview", value: preview.SUPABASE_SERVICE_ROLE_KEY },
+      { source: "development", value: development.SUPABASE_SERVICE_ROLE_KEY },
+    ];
+    let discoveredKeys = { candidates: [], httpStatus: null };
+    let credential;
+    try {
+      credential = await selectServiceRoleCredential({
+        url: configuration.NEXT_PUBLIC_SUPABASE_URL,
+        candidates: environmentCandidates,
+      });
+    } catch (environmentError) {
+      if (!configuration.SUPABASE_ACCESS_TOKEN) throw environmentError;
+      discoveredKeys = await discoverProjectApiKeyCandidates({
+        accessToken: configuration.SUPABASE_ACCESS_TOKEN,
+        projectRef,
+      });
+      credential = await selectServiceRoleCredential({
+        url: configuration.NEXT_PUBLIC_SUPABASE_URL,
+        candidates: [...environmentCandidates, ...discoveredKeys.candidates],
+      });
+    }
     configuration.SUPABASE_SERVICE_ROLE_KEY = credential.value;
     validateRuntimeConfigurationShape(configuration);
     const management = await verifySupabase(configuration, projectRef);
@@ -507,6 +550,8 @@ export async function main() {
       serviceRoleKind: credential.kind,
       serviceRoleRestHttpStatus: credential.restHttpStatus,
       serviceRoleStorageHttpStatus: credential.storageHttpStatus,
+      managementApiKeyDiscoveryHttpStatus: discoveredKeys.httpStatus,
+      managementApiKeyCandidateCount: discoveredKeys.candidates.length,
     }));
   } finally {
     await rm(directory, { recursive: true, force: true });

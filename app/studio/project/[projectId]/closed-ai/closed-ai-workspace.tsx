@@ -499,6 +499,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           .filter(([, value]) => Number.isFinite(value))
           .sort(([left], [right]) => left.localeCompare(right))
           .map(([key, value], index) => `relationship.${index + 1}: ${value}（${key}）`),
+        ...Object.entries(storyState.worldFlags)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value], index) => `worldFlag.${index + 1}: ${String(value)}（${key}）`),
         storyState.money === null ? "" : `money: ${storyState.money}`,
         storyState.reputation === null ? "" : `reputation: ${storyState.reputation}`,
         taskProgress === null ? "" : `任務進度: ${taskProgress}`,
@@ -519,6 +522,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             item.identity.value ? `身分：${item.identity.value}` : "",
             item.personality.value ? `性格：${item.personality.value}` : "",
             item.goal.value ? `目標：${item.goal.value}` : "",
+            item.portrait?.visualDescription ? `核准外觀：${item.portrait.visualDescription}` : "",
+            item.portrait?.traits.length ? `外觀特徵：${item.portrait.traits.join("、")}` : "",
+            item.rpgProfile ? `RPG 初始能力：${Object.entries(item.rpgProfile.stats).map(([key, value]) => `${key}=${value}`).join("、")}` : "",
+            item.dynamicsProfile ? `核准角色動態：${item.dynamicsProfile.archetypeLabel}／${item.dynamicsProfile.socialRole}；特質 ${item.dynamicsProfile.personalityTraits.join("、")}；行動傾向 ${item.dynamicsProfile.behavioralTendencies.join("、")}` : "",
           ].filter(Boolean).join("；")).join("\n")}`
           : "",
         rules.length

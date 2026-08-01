@@ -1,0 +1,165 @@
+import type { CharacterPortraitAsset } from "../domain";
+
+export const CHARACTER_PORTRAIT_CATALOG_VERSION = "character-portraits-v1" as const;
+
+type PortraitTheme = {
+  id: string;
+  label: string;
+  assetUri: string;
+  assetDigest: string;
+  width: number;
+  height: number;
+  roles: string[];
+  moods: string[];
+};
+
+const THEMES: PortraitTheme[] = [
+  {
+    id: "xianxia",
+    label: "仙俠武俠",
+    assetUri: "/character-portraits/atlas-xianxia.png",
+    assetDigest: "77be2e925a75ba3ced7cab6c7d668ba3385d23619780913832bf61814940bc94",
+    width: 1254,
+    height: 1254,
+    roles: ["玄門劍修", "靈花仙子", "白衣宗主", "赤甲女將", "北境俠客", "藥谷傳人", "暗衛統領", "冰湖聖女", "流浪刀客", "王朝貴女", "魔域少主", "山河策士"],
+    moods: ["冷峻", "清雅", "克制", "果決", "滄桑", "溫柔", "沉著", "疏離", "堅毅", "高貴", "神秘", "睿智"],
+  },
+  {
+    id: "modern-mystery",
+    label: "現代懸疑",
+    assetUri: "/character-portraits/atlas-modern-mystery.png",
+    assetDigest: "6e6812b1b5573c797629b93e5e66fb962188177d7fb99bc9e506618233ff03c7",
+    width: 1254,
+    height: 1254,
+    roles: ["刑警", "調查記者", "外科醫師", "律師", "畫家", "企業顧問", "資安專家", "運動員", "主廚", "大學教授", "音樂家", "私家偵探"],
+    moods: ["銳利", "冷靜", "可靠", "自信", "敏感", "幹練", "專注", "堅定", "沉穩", "理性", "內斂", "警覺"],
+  },
+  {
+    id: "western-fantasy",
+    label: "歐美奇幻",
+    assetUri: "/character-portraits/atlas-western-fantasy.png",
+    assetDigest: "0cad61e4eca1666301cbca106ddc116b31e9f50a97d6b1e74352b4fb4be698c7",
+    width: 1254,
+    height: 1254,
+    roles: ["王城騎士", "暗夜法師", "森林遊俠", "聖光治療師", "荒野盜賊", "北境貴族", "王室鍊金師", "吟遊詩人", "傭兵團長", "星象預言家", "古林德魯伊", "皇室近衛"],
+    moods: ["英勇", "神秘", "敏銳", "慈悲", "危險", "驕傲", "專注", "灑脫", "強悍", "深邃", "莊嚴", "忠誠"],
+  },
+  {
+    id: "scifi",
+    label: "科幻未來",
+    assetUri: "/character-portraits/atlas-scifi.png",
+    assetDigest: "cb9eef1a7626e1aead7551e0a5227aa6863e7c04624b084242e3e0b8418a3e9c",
+    width: 1448,
+    height: 1086,
+    roles: ["星艦艦長", "核心工程師", "仿生人", "前線醫官", "星際外交官", "賞金獵人", "殖民地科學家", "試飛員", "反抗軍領袖", "企業特務", "深空探險家", "人工智慧專家"],
+    moods: ["鎮定", "務實", "純粹", "敏捷", "優雅", "不羈", "嚴謹", "果敢", "剛烈", "精算", "孤獨", "聰敏"],
+  },
+  {
+    id: "historical-east-asia",
+    label: "東亞歷史",
+    assetUri: "/character-portraits/atlas-historical-east-asia.png",
+    assetDigest: "b4e4d9a11310c90c8cb193025d9d44897eaab09fcc9e3996fc4bcff36e2c6b8b",
+    width: 1024,
+    height: 1536,
+    roles: ["皇后", "翰林學士", "鎮國將軍", "女醫", "商會主人", "府尹", "工匠", "黑衣策士", "江湖旅人", "邊軍校尉", "世家公子", "客棧掌櫃"],
+    moods: ["威儀", "儒雅", "剛毅", "溫婉", "世故", "公正", "樸實", "深沉", "灑脫", "忠勇", "矜貴", "親切"],
+  },
+  {
+    id: "gothic-mystery",
+    label: "哥德懸疑",
+    assetUri: "/character-portraits/atlas-gothic-mystery.png",
+    assetDigest: "1c8986807316d3a3345d237c98ebed89dda6f0d87aba3d823375ca4912dcca75",
+    width: 1448,
+    height: 1086,
+    roles: ["祕術學者", "夜族貴族", "霧都偵探", "靈媒", "禁書檔案員", "受詛咒繼承人", "藥劑師", "驅魔神父", "古典教授", "神祕圖書館員", "面具義警", "荒原旅者"],
+    moods: ["陰鬱", "危險", "警覺", "幽微", "寡言", "痛苦", "冷靜", "堅守", "執著", "疏離", "決絕", "不安"],
+  },
+  {
+    id: "steampunk",
+    label: "蒸汽龐克",
+    assetUri: "/character-portraits/atlas-steampunk.png",
+    assetDigest: "85cf418ffa2fc7c8aa92ee1b16e127aaf8cb98660d2dbaad911946fe603c1895",
+    width: 1448,
+    height: 1086,
+    roles: ["飛空艇艦長", "動力發明家", "機械師", "遺跡探險家", "新貴族", "情報間諜", "齒輪工程師", "鐘錶匠", "航路領航員", "戰地醫師", "工業反抗者", "自動機設計師"],
+    moods: ["果敢", "執著", "精明", "好奇", "從容", "狡黠", "理性", "細膩", "沉著", "仁厚", "不屈", "狂熱"],
+  },
+  {
+    id: "post-apocalypse",
+    label: "末日生存",
+    assetUri: "/character-portraits/atlas-post-apocalypse.png",
+    assetDigest: "4472a560d84e9abdfadc15eb59318059be34b052838a1dea71fa777bc9c13463",
+    width: 1448,
+    height: 1086,
+    roles: ["聚落領袖", "救援醫護", "荒地斥候", "能源工程師", "復育農人", "物資談判者", "邊境巡守", "車隊技師", "病毒學家", "商隊護衛", "無線電員", "社區建築師"],
+    moods: ["堅韌", "專注", "警戒", "務實", "溫暖", "圓融", "剛毅", "可靠", "嚴謹", "沉著", "敏銳", "希望"],
+  },
+  {
+    id: "warm-contemporary",
+    label: "都會情感",
+    assetUri: "/character-portraits/atlas-warm-contemporary.png",
+    assetDigest: "7dd637afeb5b8581ce6e23b8f0ad44489e17ca93d455978dd96ad5462563778f",
+    width: 1254,
+    height: 1254,
+    roles: ["書店主人", "建築師", "教師", "紀錄片導演", "花藝師", "創業者", "甜點師", "攝影師", "服裝設計師", "心理師", "旅行作家", "社區組織者"],
+    moods: ["溫和", "清爽", "親切", "自信", "明亮", "穩重", "甜美", "自在", "熱情", "睿智", "開朗", "堅定"],
+  },
+];
+
+export const CHARACTER_PORTRAIT_THEME_OPTIONS = THEMES.map(({ id, label }) => ({ id, label }));
+
+function themePortraits(theme: PortraitTheme, themeIndex: number): CharacterPortraitAsset[] {
+  const visibleCount = themeIndex < THEMES.length - 1 ? 11 : 12;
+  return theme.roles.slice(0, visibleCount).map((role, index) => {
+    const mood = theme.moods[index] ?? "鮮明";
+    const number = String(index + 1).padStart(2, "0");
+    return {
+      id: `${theme.id}-${number}`,
+      source: "catalog",
+      assetUri: theme.assetUri,
+      assetDigest: theme.assetDigest,
+      atlas: {
+        width: theme.width,
+        height: theme.height,
+        columns: 4,
+        rows: 3,
+        column: index % 4,
+        row: Math.floor(index / 4),
+      },
+      themeId: theme.id,
+      themeLabel: theme.label,
+      role,
+      visualDescription: `${theme.label}風格的${role}，呈現${mood}氣質的正面半身人物肖像。`,
+      traits: [theme.label, role, mood, "成人角色", "半身肖像"],
+      generatedBy: "openai-image-generation",
+    };
+  });
+}
+export const CHARACTER_PORTRAIT_CATALOG: CharacterPortraitAsset[] = THEMES.flatMap(themePortraits);
+
+if (CHARACTER_PORTRAIT_CATALOG.length !== 100) {
+  throw new Error(`Character portrait catalog must contain exactly 100 entries; received ${CHARACTER_PORTRAIT_CATALOG.length}.`);
+}
+
+export function filterCharacterPortraitCatalog(input: {
+  themeId?: string;
+  query?: string;
+}) {
+  const themeId = input.themeId?.trim() || "all";
+  const terms = (input.query ?? "")
+    .toLocaleLowerCase("zh-TW")
+    .split(/[\s，。！？、；：,.!?;:]+/u)
+    .filter(Boolean);
+  return CHARACTER_PORTRAIT_CATALOG.filter((portrait) => {
+    if (themeId !== "all" && portrait.themeId !== themeId) return false;
+    if (!terms.length) return true;
+    const haystack = [
+      portrait.id,
+      portrait.themeLabel,
+      portrait.role,
+      portrait.visualDescription,
+      ...portrait.traits,
+    ].join(" ").toLocaleLowerCase("zh-TW");
+    return terms.every((term) => haystack.includes(term));
+  });
+}

@@ -15,13 +15,37 @@
 .root :global(.characterEmpty){padding:30px;border:1px dashed #476383;text-align:center}
 .root :global(.characterEmpty) a{color:#f0cc7d}
 .root :global(.characterSelector){display:flex;gap:8px;overflow:auto;padding-bottom:4px}
-.root :global(.characterSelector) button{flex:0 0 190px;display:grid;gap:5px;text-align:left;border-color:#3c5577;background:#0b182b}
+.root :global(.characterSelector) button{flex:0 0 210px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px 9px;text-align:left;border-color:#3c5577;background:#0b182b}
+.root :global(.characterSelector) b,.root :global(.characterSelector) small{grid-column:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.root :global(.characterSelectorPortrait){grid-column:1;grid-row:1/3;width:46px;height:58px;border:1px solid #586f91;border-radius:7px}
 .root :global(.characterSelector) button.active{border-color:#d0a752;background:#342819}
 .root :global(.characterSelector) small{color:#9fb0c7}
 .root :global(.characterOverview){display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .root :global(.characterOverview) article{display:grid;align-content:start;gap:6px;min-width:0;padding:17px;border:1px solid #344d70;background:#0b1729}
 .root :global(.characterOverview) small,.root :global(.characterOverview) p{color:#9fb0c7}
 .root :global(.characterOverview) h3{margin:0;color:#f1d99c;overflow-wrap:anywhere}
+.dynamicsLab{display:grid;gap:13px;padding:20px;border:1px solid #496284;background:linear-gradient(135deg,#0a1d32,#171633 58%,#24192e);box-shadow:0 18px 46px rgba(0,0,0,.22)}
+.dynamicsLab>header{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.dynamicsLab>header small{color:#79ddca;font-weight:900;letter-spacing:.12em}
+.dynamicsLab>header h2{margin:4px 0;color:#f3d994}
+.dynamicsLab>header p{max-width:850px;margin:0;color:#a8b8cc}
+.dynamicsLab>header>div:last-child{display:flex;gap:8px;flex:0 0 auto}
+.dynamicsLab>header button:last-child{border-color:#62cfa6;background:#174b3c;color:#d9fff0}
+.complexityGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.complexityGrid article{display:grid;gap:4px;padding:12px;border:1px solid rgba(115,171,211,.24);background:rgba(5,20,36,.68)}
+.complexityGrid small,.complexityGrid span{color:#91a9c2;font-size:.7rem}
+.complexityGrid b{color:#f1d698;font-size:1.08rem}
+.dynamicsCandidate{display:grid;gap:10px;padding:15px;border-left:3px solid #a780df;background:rgba(9,23,42,.82)}
+.dynamicsCandidate>header,.dynamicsCandidate>footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dynamicsCandidate h3{margin:2px 0;color:#f4dfaa}
+.dynamicsCandidate>header>span{padding:5px 9px;border:1px solid #5d789d;border-radius:999px;color:#b9d7ef}
+.dynamicsCandidate p{margin:0;color:#adbed2}
+.axisGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.axisGrid label{grid-template-columns:54px 1fr 28px;align-items:center;gap:7px;padding:7px 9px;background:#071524;color:#b7c9dd;font-size:.72rem}
+.axisGrid progress{width:100%;height:6px;accent-color:#78d4c4}
+.axisGrid b{color:#f1d698;text-align:right}
+.dynamicsCandidate>footer{color:#80a4bf;font-size:.7rem}
+.dynamicsEmpty{margin:0;padding:16px;border:1px dashed #405d7d;color:#9fb2c8;text-align:center}
 .root :global(.knowledgeColumns){display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .root :global(.knowledgeColumns) article{padding:18px;border:1px solid #355171;background:#0b1729}
 .root :global(.knowledgeColumns) h2{margin-top:0;color:#e6c67d}
@@ -32,6 +56,12 @@
 .root :global(.setupGrid) h2{margin:0;color:#e6c67d;font-size:18px}
 .root :global(.setupGrid) p{color:#9fb0c7}
 .root :global(.setupGrid) ul{padding-left:20px}
+.matureFormula{display:grid;gap:8px;margin:0;padding:11px;border:1px solid #5b4f76}
+.matureFormula legend{padding:0 6px;color:#d7b4f4;font-size:.76rem;font-weight:900}
+.matureFormula label{display:flex;align-items:center;gap:8px;color:#bfcce0;font-size:.72rem}
+.matureFormula input{width:auto}
+.matureFormula p{margin:0;padding:8px;border-left:3px solid #d29865;background:#221b22;color:#e8cdb5!important;font-size:.7rem}
+.matureFormula p[data-eligible="true"]{border-left-color:#61cda4;background:#102920;color:#c5f5df!important}
 .root :global(.relationshipSection),.root :global(.simulationSection),.root :global(.proposalSection){padding:20px;border:1px solid #354e70;background:#0a1628}
 .root :global(.relationshipSection)>header p,.root :global(.simulationSection)>header p,.root :global(.proposalSection)>header p{color:#9fb0c7}
 .root :global(.relationshipGraph){display:block;width:100%;height:290px;margin:8px 0 18px;border:1px solid #2e4666;background:radial-gradient(circle,#152944,#07111f)}
@@ -66,5 +96,5 @@
 .root :global(.proposalWarning){color:#f0a9a9}
 .root :global(.characterTechnical){padding:14px;border:1px solid #304766}
 .root :global(.characterTechnical) p{color:#a8b8cd}
-@media(max-width:980px){.root :global(.characterOverview){grid-template-columns:1fr 1fr}.root :global(.setupGrid){grid-template-columns:1fr}.root :global(.simulationSetup){grid-template-columns:1fr 1fr}.root :global(.simulationSetup)>label:nth-of-type(1){grid-column:1/-1}}
-@media(max-width:600px){.root :global(.characterAgentIntro){display:grid;padding:16px}.root :global(.characterAgentIntro) button{width:100%}.root :global(.characterOverview),.root :global(.knowledgeColumns),.root :global(.simulationSetup){grid-template-columns:1fr}.root :global(.relationshipGraph){display:none}.root :global(.relationshipList){grid-template-columns:1fr}.root :global(.relationshipList) article{padding:14px}.root :global(.simulationSetup)>label:nth-of-type(1){grid-column:auto}.root :global(.simulationSetup)>div,.root :global(.simulationActions),.root :global(.proposalSection) footer{display:grid}.root :global(.simulationSetup) button,.root :global(.simulationActions) button,.root :global(.proposalSection) button{width:100%}.root :global(.proposalSection)>article{grid-template-columns:1fr}.root :global(.simulationTurns) header{display:grid}.root :global(.characterTechnical){overflow-wrap:anywhere}}
+@media(max-width:980px){.root :global(.characterOverview){grid-template-columns:1fr 1fr}.root :global(.setupGrid){grid-template-columns:1fr}.root :global(.simulationSetup){grid-template-columns:1fr 1fr}.root :global(.simulationSetup)>label:nth-of-type(1){grid-column:1/-1}.complexityGrid{grid-template-columns:1fr 1fr}.axisGrid{grid-template-columns:1fr 1fr}.dynamicsLab>header{align-items:stretch;flex-direction:column}.dynamicsLab>header>div:last-child{display:grid;grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.root :global(.characterAgentIntro){display:grid;padding:16px}.root :global(.characterAgentIntro) button{width:100%}.root :global(.characterOverview),.root :global(.knowledgeColumns),.root :global(.simulationSetup){grid-template-columns:1fr}.root :global(.relationshipGraph){display:none}.root :global(.relationshipList){grid-template-columns:1fr}.root :global(.relationshipList) article{padding:14px}.root :global(.simulationSetup)>label:nth-of-type(1){grid-column:auto}.root :global(.simulationSetup)>div,.root :global(.simulationActions),.root :global(.proposalSection) footer{display:grid}.root :global(.simulationSetup) button,.root :global(.simulationActions) button,.root :global(.proposalSection) button{width:100%}.root :global(.proposalSection)>article{grid-template-columns:1fr}.root :global(.simulationTurns) header{display:grid}.root :global(.characterTechnical){overflow-wrap:anywhere}.dynamicsLab{padding:14px}.dynamicsLab>header>div:last-child,.complexityGrid,.axisGrid{grid-template-columns:1fr}.dynamicsCandidate>header,.dynamicsCandidate>footer{align-items:flex-start;flex-direction:column}}

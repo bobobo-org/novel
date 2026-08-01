@@ -13,6 +13,12 @@ export type CloudSyncRuntimeStatus =
   | "conflict"
   | "degraded";
 
+export type CloudCanonicalAuthority =
+  | "Supabase"
+  | "PendingSync"
+  | "ConflictReview"
+  | "IndexedDBFallback";
+
 export type CloudSyncConfig = {
   schemaVersion: typeof CLOUD_SYNC_SCHEMA_VERSION;
   enabled: boolean;
@@ -76,6 +82,8 @@ export type CloudProjectSyncState = {
   conflictRemoteRevision: number | null;
   conflictRemoteHash: string | null;
   lastErrorCode: string | null;
+  canonicalAuthority: CloudCanonicalAuthority;
+  authorityVerifiedAt: string | null;
   updatedAt: string;
 };
 
@@ -85,7 +93,8 @@ export type CloudSyncHealth = {
   provider: "Supabase";
   storageBackend: "private-object-storage";
   encryption: "client-side-aes-gcm";
-  canonicalAuthority: "IndexedDB";
+  canonicalAuthority: "Supabase" | "IndexedDBFallback";
+  authorityProtocol: "remote-revision-and-ciphertext-hash-v1";
   migrationVersion: string | null;
   retryable: boolean;
 };

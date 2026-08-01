@@ -2,7 +2,7 @@ import type { NovelRepository } from "./contracts";
 import { createNovelRepository } from "./index";
 
 export const PERSISTENCE_RUNTIME_HEALTH_SCHEMA_VERSION =
-  "persistence-runtime-health-v1" as const;
+  "persistence-runtime-health-v2" as const;
 
 export type PersistenceRuntimeMode =
   | "LOCAL_ONLY"
@@ -18,6 +18,7 @@ export type CloudPersistenceSnapshot = {
   lastSuccessfulWriteAt: string | null;
   errorCategory: string | null;
   retryable: boolean;
+  canonicalAuthority: "Supabase" | "IndexedDBFallback";
 };
 
 export type PersistenceRuntimeHealth = {
@@ -25,6 +26,7 @@ export type PersistenceRuntimeHealth = {
   mode: PersistenceRuntimeMode;
   localCanonicalStorage: {
     provider: "IndexedDB";
+    role: "materialized-replica-and-offline-outbox";
     status: "ready" | "blocked";
     repositoryKind: NovelRepository["kind"];
     errorCode: string | null;
@@ -32,7 +34,8 @@ export type PersistenceRuntimeHealth = {
   cloudPersistence: CloudPersistenceSnapshot;
   localFeaturesAvailable: boolean;
   cloudSyncAvailable: boolean;
-  canonicalAuthority: "IndexedDB";
+  canonicalAuthority: "Supabase" | "IndexedDBFallback";
+  canonApprovalAuthority: "human-approved-transactions";
   silentMemoryFallback: false;
   checkedAt: string;
 };
@@ -76,6 +79,9 @@ async function readCloudPersistenceHealth(
       lastSuccessfulWriteAt: cloud.lastSuccessfulWriteAt ?? null,
       errorCategory: cloud.errorCategory ?? null,
       retryable: Boolean(cloud.retryable),
+      canonicalAuthority: cloud.canonicalAuthority === "Supabase"
+        ? "Supabase"
+        : "IndexedDBFallback",
     };
   } catch {
     return {
@@ -86,6 +92,7 @@ async function readCloudPersistenceHealth(
       lastSuccessfulWriteAt: null,
       errorCategory: "connectivity",
       retryable: true,
+      canonicalAuthority: "IndexedDBFallback",
     };
   }
 }
@@ -126,6 +133,7 @@ export async function resolvePersistenceRuntimeHealth(options: {
     mode,
     localCanonicalStorage: {
       provider: "IndexedDB",
+      role: "materialized-replica-and-offline-outbox",
       status: localReady ? "ready" : "blocked",
       repositoryKind: repository.kind,
       errorCode: localErrorCode,
@@ -133,7 +141,10 @@ export async function resolvePersistenceRuntimeHealth(options: {
     cloudPersistence: cloud,
     localFeaturesAvailable: localReady,
     cloudSyncAvailable: mode === "LOCAL_PLUS_CLOUD",
-    canonicalAuthority: "IndexedDB",
+    canonicalAuthority: mode === "LOCAL_PLUS_CLOUD"
+      ? "Supabase"
+      : "IndexedDBFallback",
+    canonApprovalAuthority: "human-approved-transactions",
     silentMemoryFallback: false,
     checkedAt: new Date().toISOString(),
   };

@@ -75,7 +75,8 @@ function readyHealth() {
     provider: "Supabase",
     storageBackend: "private-object-storage",
     encryption: "client-side-aes-gcm",
-    canonicalAuthority: "IndexedDB",
+    canonicalAuthority: "Supabase",
+    authorityProtocol: "remote-revision-and-ciphertext-hash-v1",
     migrationVersion: "cloud_sync_e2ee_storage_001",
     retryable: false,
   };
@@ -206,22 +207,48 @@ test("offline failure remains in outbox and later replays successfully", async (
     push: async (_key, request) => {
       if (!online) throw Object.assign(new Error("offline"), { code: "NETWORK_OFFLINE", retryable: true });
       revision += 1;
-      return { status: "stored", projectId: request.projectId, revision, payloadHash: request.envelope.plaintextHash, updatedAt: new Date().toISOString() };
+      return { status: "stored", projectId: request.projectId, revision, payloadHash: request.envelope.ciphertextHash, updatedAt: new Date().toISOString() };
     },
     list: async () => ({ projects: [] }),
   };
   const manager = new CloudSyncManager(repository, store, api);
   await manager.enable();
+  assert.equal((await manager.snapshot()).canonicalAuthority, "IndexedDBFallback");
   await manager.queueProject("project-cloud-1");
+  assert.equal((await manager.snapshot()).canonicalAuthority, "PendingSync");
   await manager.flush();
   assert.equal((await store.listOutbox()).length, 1);
   assert.equal((await store.listOutbox())[0].state, "retry");
+  assert.equal((await manager.snapshot()).canonicalAuthority, "PendingSync");
   const pending = (await store.listOutbox())[0];
   await store.putOutbox({ ...pending, nextAttemptAt: new Date(0).toISOString() });
   online = true;
   await manager.flush();
   assert.equal((await store.listOutbox()).length, 0);
   assert.equal((await store.getProjectState("project-cloud-1")).status, "synced");
+  assert.equal((await store.getProjectState("project-cloud-1")).canonicalAuthority, "Supabase");
+  assert.equal((await manager.snapshot()).canonicalAuthority, "Supabase");
+});
+
+test("a mismatched remote hash never promotes Supabase authority", async () => {
+  const store = new MemoryCloudSyncStore();
+  const manager = new CloudSyncManager(fixtureRepository(), store, {
+    health: async () => readyHealth(),
+    push: async (_key, request) => ({
+      status: "stored",
+      projectId: request.projectId,
+      revision: 1,
+      payloadHash: "f".repeat(64),
+      updatedAt: new Date().toISOString(),
+    }),
+    list: async () => ({ projects: [] }),
+  });
+  await manager.enable();
+  await manager.queueProject("project-cloud-1");
+  await manager.flush();
+  assert.equal((await store.listOutbox()).length, 1);
+  assert.equal((await store.getProjectState("project-cloud-1")).canonicalAuthority, "PendingSync");
+  assert.equal((await manager.snapshot()).canonicalAuthority, "PendingSync");
 });
 
 test("revision conflict never overwrites until keep-local is explicit", async () => {
@@ -232,7 +259,7 @@ test("revision conflict never overwrites until keep-local is explicit", async ()
     health: async () => readyHealth(),
     push: async (_key, request) => conflict
       ? { status: "conflict", projectId: request.projectId, revision: 7, payloadHash: "b".repeat(64), updatedAt: new Date().toISOString() }
-      : { status: "stored", projectId: request.projectId, revision: 8, payloadHash: request.envelope.plaintextHash, updatedAt: new Date().toISOString() },
+      : { status: "stored", projectId: request.projectId, revision: 8, payloadHash: request.envelope.ciphertextHash, updatedAt: new Date().toISOString() },
     list: async () => ({ projects: [] }),
   };
   const manager = new CloudSyncManager(repository, store, api);
@@ -241,11 +268,14 @@ test("revision conflict never overwrites until keep-local is explicit", async ()
   await manager.flush();
   const blocked = await store.getProjectState("project-cloud-1");
   assert.equal(blocked.status, "conflict");
+  assert.equal(blocked.canonicalAuthority, "ConflictReview");
+  assert.equal((await manager.snapshot()).canonicalAuthority, "ConflictReview");
   assert.equal(blocked.conflictRemoteRevision, 7);
   assert.equal((await store.listOutbox())[0].state, "conflict");
   conflict = false;
   await manager.keepLocal("project-cloud-1");
   assert.equal((await store.getProjectState("project-cloud-1")).remoteRevision, 8);
+  assert.equal((await store.getProjectState("project-cloud-1")).canonicalAuthority, "Supabase");
   assert.equal((await store.listOutbox()).length, 0);
 });
 
@@ -312,6 +342,7 @@ test("imported recovery key marks remote projects for explicit review", async ()
   await manager.importRecoveryKey(key);
   const state = await store.getProjectState("project-cloud-1");
   assert.equal(state.status, "conflict");
+  assert.equal(state.canonicalAuthority, "ConflictReview");
   assert.equal(state.conflictRemoteRevision, 4);
   assert.equal(await store.getProjectState("stale-project"), null);
   assert.equal((await store.listOutbox()).length, 0);
@@ -361,7 +392,13 @@ test("private Storage provisioning is gated, server-only and preserves the addit
   assert.match(workflow, /Verify staged encrypted cloud sync runtime/u);
   assert.match(workflow, /cloud_sync_e2ee_storage_001/u);
   assert.match(workflow, /private-object-storage/u);
-  assert.doesNotMatch(workflow, /SUPABASE_ACCESS_TOKEN/u);
+  const bootstrapJob = workflow.slice(
+    workflow.indexOf("  production_env_bootstrap:"),
+    workflow.indexOf("  restore_known_stable:"),
+  );
+  const deployJob = workflow.slice(workflow.indexOf("  deploy:"));
+  assert.match(bootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+  assert.doesNotMatch(deployJob, /SUPABASE_ACCESS_TOKEN/u);
   assert.ok(workflow.indexOf("Verify staged encrypted cloud sync runtime") < workflow.indexOf("Cut over both aliases with atomic compensation"));
 });
 

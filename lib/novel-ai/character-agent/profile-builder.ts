@@ -38,7 +38,7 @@ export function buildCharacterAgentProfile(input: CharacterAgentProfileInput): C
     input.character.id,
     "character",
     input.character.revision,
-    `${input.character.name}；${input.character.identity.value ?? ""}；${input.character.goal.value ?? ""}`,
+    `${input.character.name}；${input.character.identity.value ?? ""}；${input.character.goal.value ?? ""}；${input.character.portrait?.visualDescription ?? ""}`,
   );
   const storyBibleReference = reference(
     input.storyBible.id,
@@ -73,6 +73,17 @@ export function buildCharacterAgentProfile(input: CharacterAgentProfileInput): C
     identity,
     factionIds: [...(input.factionIds ?? [])],
     personalityTraits: normalizeFact(input.personalityTraits),
+    appearance: input.character.portrait
+      ? {
+        value: [
+          input.character.portrait.visualDescription,
+          ...input.character.portrait.traits,
+        ],
+        support: "SUPPORTED",
+        sourceReferences: [characterReference],
+        risk: null,
+      }
+      : unknownStrings(),
     values: normalizeFact(input.values),
     goals: goalFact,
     fears: normalizeFact(input.fears),

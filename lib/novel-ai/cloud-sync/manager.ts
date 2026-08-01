@@ -20,6 +20,7 @@ import {
   type CloudSyncHealth,
   type CloudSyncOutboxEntry,
   type CloudSyncRuntimeStatus,
+  type CloudCanonicalAuthority,
 } from "./types";
 
 export type CloudSyncManagerSnapshot = {
@@ -28,6 +29,14 @@ export type CloudSyncManagerSnapshot = {
   outboxCount: number;
   projects: CloudProjectSyncState[];
   status: CloudSyncRuntimeStatus;
+  canonicalAuthority: CloudCanonicalAuthority;
+  authorityReason:
+    | "cloud_disabled"
+    | "cloud_unavailable"
+    | "local_changes_pending"
+    | "conflict_requires_review"
+    | "remote_revision_and_hash_verified";
+  verifiedRemoteProjectCount: number;
 };
 
 type PullMode = "replace" | "copy";
@@ -42,6 +51,61 @@ function isRetryable(error: unknown) {
 
 function retryDelay(attempts: number) {
   return Math.min(5 * 60_000, 2_000 * 2 ** Math.min(7, attempts));
+}
+
+function authoritySnapshot(input: {
+  enabled: boolean;
+  health: CloudSyncHealth | null;
+  outbox: CloudSyncOutboxEntry[];
+  projects: CloudProjectSyncState[];
+}) {
+  const verifiedRemoteProjectCount = input.projects.filter(
+    (project) => project.canonicalAuthority === "Supabase",
+  ).length;
+  if (!input.enabled) {
+    return {
+      canonicalAuthority: "IndexedDBFallback" as const,
+      authorityReason: "cloud_disabled" as const,
+      verifiedRemoteProjectCount,
+    };
+  }
+  if (
+    input.outbox.some((entry) => entry.state === "conflict")
+    || input.projects.some((project) => project.status === "conflict")
+  ) {
+    return {
+      canonicalAuthority: "ConflictReview" as const,
+      authorityReason: "conflict_requires_review" as const,
+      verifiedRemoteProjectCount,
+    };
+  }
+  if (
+    input.outbox.length > 0
+    || input.projects.some((project) => ["syncing", "offline", "degraded"].includes(project.status))
+  ) {
+    return {
+      canonicalAuthority: "PendingSync" as const,
+      authorityReason: "local_changes_pending" as const,
+      verifiedRemoteProjectCount,
+    };
+  }
+  if (
+    input.health?.status === "ready"
+    && input.health.canonicalAuthority === "Supabase"
+    && input.projects.length > 0
+    && verifiedRemoteProjectCount === input.projects.length
+  ) {
+    return {
+      canonicalAuthority: "Supabase" as const,
+      authorityReason: "remote_revision_and_hash_verified" as const,
+      verifiedRemoteProjectCount,
+    };
+  }
+  return {
+    canonicalAuthority: "IndexedDBFallback" as const,
+    authorityReason: "cloud_unavailable" as const,
+    verifiedRemoteProjectCount,
+  };
 }
 
 export class CloudSyncManager {
@@ -70,6 +134,12 @@ export class CloudSyncManager {
       this.store.listProjectStates(),
     ]);
     const { syncKey, ...publicConfig } = config;
+    const authority = authoritySnapshot({
+      enabled: config.enabled,
+      health: this.healthSnapshot,
+      outbox,
+      projects,
+    });
     return {
       config: {
         ...publicConfig,
@@ -79,6 +149,7 @@ export class CloudSyncManager {
       outboxCount: outbox.length,
       projects,
       status: config.enabled ? this.runtimeStatus : "disabled",
+      ...authority,
     };
   }
 
@@ -104,7 +175,8 @@ export class CloudSyncManager {
         provider: "Supabase",
         storageBackend: "private-object-storage",
         encryption: "client-side-aes-gcm",
-        canonicalAuthority: "IndexedDB",
+        canonicalAuthority: "IndexedDBFallback",
+        authorityProtocol: "remote-revision-and-ciphertext-hash-v1",
         migrationVersion: null,
         retryable: isRetryable(error),
       };
@@ -173,6 +245,8 @@ export class CloudSyncManager {
         conflictRemoteRevision: project.revision,
         conflictRemoteHash: project.payloadHash,
         lastErrorCode: "CLOUD_SYNC_RECOVERY_REVIEW_REQUIRED",
+        canonicalAuthority: "ConflictReview",
+        authorityVerifiedAt: null,
         updatedAt: now,
       });
     }
@@ -223,6 +297,7 @@ export class CloudSyncManager {
       ...currentState,
       status: "syncing",
       lastErrorCode: null,
+      canonicalAuthority: "PendingSync",
       updatedAt: now,
     });
     await this.emit("syncing");
@@ -232,6 +307,13 @@ export class CloudSyncManager {
   scheduleProject(projectId: string) {
     const previous = this.debounceTimers.get(projectId);
     if (previous) clearTimeout(previous);
+    void this.store.getProjectState(projectId).then((state) => this.store.putProjectState({
+      ...(state ?? defaultCloudProjectState(projectId)),
+      status: "syncing",
+      canonicalAuthority: "PendingSync",
+      lastErrorCode: null,
+      updatedAt: new Date().toISOString(),
+    })).then(() => this.emit("syncing")).catch(() => undefined);
     const timer = setTimeout(() => {
       this.debounceTimers.delete(projectId);
       void this.queueProject(projectId)
@@ -300,10 +382,18 @@ export class CloudSyncManager {
             conflictRemoteRevision: result.revision,
             conflictRemoteHash: result.payloadHash,
             lastErrorCode: "CLOUD_SYNC_REVISION_CONFLICT",
+            canonicalAuthority: "ConflictReview",
+            authorityVerifiedAt: null,
             updatedAt: new Date().toISOString(),
           });
           await this.emit("conflict");
           continue;
+        }
+        if (result.payloadHash !== entry.envelope.ciphertextHash) {
+          throw Object.assign(new Error("雲端同步回傳的內容雜湊不一致。"), {
+            code: "CLOUD_SYNC_STORAGE_VERIFY_FAILED",
+            retryable: true,
+          });
         }
         await this.store.deleteOutbox(entry.operationId);
         await this.store.putProjectState({
@@ -316,6 +406,8 @@ export class CloudSyncManager {
           conflictRemoteRevision: null,
           conflictRemoteHash: null,
           lastErrorCode: null,
+          canonicalAuthority: "Supabase",
+          authorityVerifiedAt: result.updatedAt,
           updatedAt: new Date().toISOString(),
         });
       } catch (error) {
@@ -336,6 +428,8 @@ export class CloudSyncManager {
           ...state,
           status: retryable ? "degraded" : "conflict",
           lastErrorCode: code,
+          canonicalAuthority: retryable ? "PendingSync" : "ConflictReview",
+          authorityVerifiedAt: null,
           updatedAt: new Date().toISOString(),
         });
       }
@@ -384,6 +478,8 @@ export class CloudSyncManager {
       conflictRemoteRevision: null,
       conflictRemoteHash: null,
       lastErrorCode: null,
+      canonicalAuthority: "Supabase",
+      authorityVerifiedAt: remote.updatedAt,
       updatedAt: new Date().toISOString(),
     });
     await this.emit("synced");

@@ -48,7 +48,22 @@ export function defaultCloudProjectState(projectId: string): CloudProjectSyncSta
     conflictRemoteRevision: null,
     conflictRemoteHash: null,
     lastErrorCode: null,
+    canonicalAuthority: "IndexedDBFallback",
+    authorityVerifiedAt: null,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeCloudProjectState(
+  state: CloudProjectSyncState,
+): CloudProjectSyncState {
+  return {
+    ...defaultCloudProjectState(state.projectId),
+    ...state,
+    canonicalAuthority: state.canonicalAuthority
+      ?? (state.status === "synced" ? "Supabase" : "IndexedDBFallback"),
+    authorityVerifiedAt: state.authorityVerifiedAt
+      ?? (state.status === "synced" ? state.lastSyncedAt : null),
   };
 }
 
@@ -162,14 +177,18 @@ export class IndexedDbCloudSyncStore implements CloudSyncStore {
 
   async getProjectState(projectId: string) {
     const database = await this.open();
-    return (await idbRequest(
+    const stored = await idbRequest(
       database.transaction(PROJECT_STORE).objectStore(PROJECT_STORE).get(projectId),
-    ) as CloudProjectSyncState | undefined) ?? null;
+    ) as CloudProjectSyncState | undefined;
+    return stored ? normalizeCloudProjectState(stored) : null;
   }
 
   async listProjectStates() {
     const database = await this.open();
-    return idbRequest(database.transaction(PROJECT_STORE).objectStore(PROJECT_STORE).getAll()) as Promise<CloudProjectSyncState[]>;
+    const stored = await idbRequest(
+      database.transaction(PROJECT_STORE).objectStore(PROJECT_STORE).getAll(),
+    ) as CloudProjectSyncState[];
+    return stored.map(normalizeCloudProjectState);
   }
 
   async putProjectState(state: CloudProjectSyncState) {
@@ -201,8 +220,10 @@ export class MemoryCloudSyncStore implements CloudSyncStore {
   }
   async getProjectState(projectId: string) {
     const state = this.projects.get(projectId);
-    return state ? structuredClone(state) : null;
+    return state ? normalizeCloudProjectState(structuredClone(state)) : null;
   }
-  async listProjectStates() { return [...this.projects.values()].map((item) => structuredClone(item)); }
+  async listProjectStates() {
+    return [...this.projects.values()].map((item) => normalizeCloudProjectState(structuredClone(item)));
+  }
   async putProjectState(state: CloudProjectSyncState) { this.projects.set(state.projectId, structuredClone(state)); }
 }

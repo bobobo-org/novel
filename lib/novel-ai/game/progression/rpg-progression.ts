@@ -1,4 +1,14 @@
 import type { StoryChoiceEffect, StoryState } from "../../domain";
+import {
+  generateProceduralPills,
+  type ProceduralPillProfile,
+} from "../procedural-pill-engine";
+import {
+  applyProceduralWorldPulse,
+  buildProceduralEncounter,
+  parseRecentEncounterSignatures,
+  type ProceduralEncounter,
+} from "../procedural-world-director";
 
 export const RPG_FORMULA_VERSION = "novel-rpg-unified-v2" as const;
 
@@ -170,6 +180,7 @@ export type RpgInventoryItem = {
   slot: "weapon" | "armor" | "treasure" | null;
   statBonuses: Partial<Record<RpgStatKey, number>>;
   useEffect?: Record<string, number>;
+  proceduralPill?: ProceduralPillProfile;
 };
 
 export const RPG_ITEM_CATALOG: RpgInventoryItem[] = [
@@ -210,6 +221,13 @@ export type RpgProgressionSnapshot = {
   choiceVariant: number;
   fatePoints: number;
   carryWeight: number;
+  procedural: {
+    runSeed: string;
+    cycle: number;
+    recentEncounterSignatures: string[];
+    currentAspect: string | null;
+    currentLocationVariant: string | null;
+  };
 };
 
 export type RpgChoice = {
@@ -230,6 +248,7 @@ export type RpgChoice = {
   impactLabels: string[];
   effect: StoryChoiceEffect;
   acceptedText: string;
+  encounter: ProceduralEncounter;
 };
 
 export type RpgChoiceResolution = {
@@ -408,6 +427,8 @@ function readInventory(
   resources: Record<string, number>,
   inventory: string[],
   worldFlags: Record<string, boolean | string | number>,
+  runSeed: string,
+  cycle: number,
 ): RpgInventoryStack[] {
   const legacyCounts = inventory.reduce<Record<string, number>>((counts, itemId) => {
     counts[itemId] = (counts[itemId] ?? 0) + 1;
@@ -416,7 +437,8 @@ function readInventory(
   const equipped = new Set(Object.entries(worldFlags)
     .filter(([key, value]) => key.startsWith("rpg.equipped.") && typeof value === "string")
     .map(([, value]) => String(value)));
-  return RPG_ITEM_CATALOG.map((item) => ({
+  const proceduralPills = generateProceduralPills({ runSeed, cycle, count: 6 });
+  return [...RPG_ITEM_CATALOG, ...proceduralPills].map((item) => ({
     ...item,
     quantity: Math.max(0, Math.round(
       resources[`item.${item.itemId}`] ?? legacyCounts[item.itemId] ?? 0,
@@ -503,6 +525,10 @@ export function readRpgProgression(
 ): RpgProgressionSnapshot {
   const resources = storyState.resources ?? {};
   const worldFlags = storyState.worldFlags ?? {};
+  const runSeed = typeof worldFlags["rpg.runSeed"] === "string" && worldFlags["rpg.runSeed"]
+    ? String(worldFlags["rpg.runSeed"])
+    : seed || "default-playthrough";
+  const cycle = Math.max(1, Math.round(numberFrom(worldFlags["rpg.cycle"], 1)));
   const baseStats = readCoreStats(storyState.protagonistStats, seed);
   const bonuses = equipmentBonuses(worldFlags, resources);
   const stats = Object.fromEntries(RPG_STAT_DEFINITIONS.map(({ key }) => [
@@ -524,7 +550,7 @@ export function readRpgProgression(
     focus: clamp(Math.round(numberFrom(resources["status.focus"], 70)), 0, 100),
     actionPoints: clamp(Math.round(numberFrom(resources["game.actionPoints"], RPG_MODE_DEFINITIONS[mode].dailyActionPoints)), 0, 5),
   };
-  const inventory = readInventory(resources, storyState.inventory ?? [], worldFlags);
+  const inventory = readInventory(resources, storyState.inventory ?? [], worldFlags, runSeed, cycle);
   const carryWeight = Math.round(inventory.reduce((sum, item) => sum + item.weight * item.quantity, 0) * 10) / 10;
   return {
     formulaVersion: RPG_FORMULA_VERSION,
@@ -554,6 +580,13 @@ export function readRpgProgression(
     choiceVariant: Math.max(0, Math.round(numberFrom(resources["game.choiceVariant"], 0))),
     fatePoints: Math.max(0, Math.round(numberFrom(resources["game.fatePoints"], 2))),
     carryWeight,
+    procedural: {
+      runSeed,
+      cycle,
+      recentEncounterSignatures: parseRecentEncounterSignatures(worldFlags["rpg.recentEncounterSignatures"]),
+      currentAspect: typeof worldFlags["world.currentAspect"] === "string" ? worldFlags["world.currentAspect"] : null,
+      currentLocationVariant: typeof worldFlags["world.currentLocationVariant"] === "string" ? worldFlags["world.currentLocationVariant"] : null,
+    },
   };
 }
 
@@ -755,7 +788,7 @@ function blueprintToChoice(
     impactLabels: impactLabels(blueprint, xpGain),
     effect,
     acceptedText: `【互動分支 ${key}｜${blueprint.title}】\n\n${protagonist}在「${chapterTitle}」選擇了${blueprint.description}`,
-  } satisfies RpgChoice;
+  } satisfies Omit<RpgChoice, "encounter">;
 }
 
 export function buildRpgChoices(input: {
@@ -785,7 +818,7 @@ export function buildRpgChoices(input: {
       .find((candidate) => !usedPrimaryStats.has(candidate.primaryStat))
       ?? pool[start];
     usedPrimaryStats.add(blueprint.primaryStat);
-    return blueprintToChoice(
+    const baseChoice = blueprintToChoice(
       blueprint,
       (["A", "B", "C"] as const)[index],
       input.progression,
@@ -793,6 +826,20 @@ export function buildRpgChoices(input: {
       protagonist,
       chapterTitle,
     );
+    const encounter = buildProceduralEncounter({
+      runSeed: input.progression.procedural.runSeed,
+      mode,
+      turn: input.progression.turn,
+      strategy,
+      variant: input.variant ?? input.progression.choiceVariant,
+      recentSignatures: input.progression.procedural.recentEncounterSignatures,
+    });
+    return {
+      ...baseChoice,
+      encounter,
+      description: `${baseChoice.description} ${encounter.complication}`,
+      acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,
+    };
   });
 }
 
@@ -835,7 +882,21 @@ export function buildCustomRpgChoice(input: {
     input.protagonist,
     input.chapterTitle,
   );
-  return { ...base, key: "custom" };
+  const encounter = buildProceduralEncounter({
+    runSeed: input.progression.procedural.runSeed,
+    mode: input.progression.mode,
+    turn: input.progression.turn,
+    strategy: "resource",
+    variant: input.progression.choiceVariant + hashText(action),
+    recentSignatures: input.progression.procedural.recentEncounterSignatures,
+  });
+  return {
+    ...base,
+    key: "custom",
+    encounter,
+    description: `${base.description} ${encounter.complication}`,
+    acceptedText: `${base.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,
+  };
 }
 
 function scalePositiveMap(
@@ -851,7 +912,7 @@ function scalePositiveMap(
 
 export function resolveRpgChoice(
   choice: RpgChoice,
-  input: { seed: string; revision: number },
+  input: { seed: string; revision: number; recentEncounterSignatures?: string[]; turn?: number },
 ): RpgChoiceResolution {
   const roll = hashText(`${input.seed}|${input.revision}|${choice.id}|${choice.key}`) % 100 + 1;
   const criticalThreshold = Math.max(5, Math.round(choice.successChance * 0.12));
@@ -869,7 +930,7 @@ export function resolveRpgChoice(
     partial_success: "部分成功",
     failure: "失敗但故事繼續",
   }[outcome];
-  const effect: StoryChoiceEffect = {
+  const scaledEffect: StoryChoiceEffect = {
     ...choice.effect,
     statChanges: scalePositiveMap(choice.effect.statChanges, multiplier),
     relationshipChanges: scalePositiveMap(choice.effect.relationshipChanges, multiplier),
@@ -892,6 +953,14 @@ export function resolveRpgChoice(
     questProgress: scalePositiveMap(choice.effect.questProgress, outcome === "failure" ? 0.2 : multiplier),
     achievementProgress: scalePositiveMap(choice.effect.achievementProgress, outcome === "failure" ? 0.2 : multiplier),
   };
+  const effect = applyProceduralWorldPulse({
+    effect: scaledEffect,
+    encounter: choice.encounter,
+    outcome,
+    strategy: choice.approach,
+    turn: input.turn ?? 0,
+    recentSignatures: input.recentEncounterSignatures,
+  });
   const continuation = {
     critical_success: "局勢比預期更快鬆動。主角不只取得原定成果，還看見一條先前被遮蔽的新路；這份額外優勢也讓下一個選擇更具分量。",
     success: "行動按照計畫產生效果，但新的結果同時改變了人物立場與世界狀態。主角必須根據這次真正留下的變化決定下一步。",
@@ -902,6 +971,8 @@ export function resolveRpgChoice(
     `【互動分支 ${choice.key === "custom" ? "自由行動" : choice.key}｜${choice.title}】`,
     `規則引擎判定：${outcomeLabel}（擲骰 ${roll}／成功率 ${choice.successChance}%）`,
     choice.description,
+    `事件預兆：${choice.encounter.telegraph}`,
+    `世界變化：${choice.encounter.locationShift}／${choice.encounter.worldAspect}`,
     continuation,
     `【本回合結算】${choice.costLabels.join("、")}；${choice.impactLabels.join("、")}。`,
   ].join("\n\n");

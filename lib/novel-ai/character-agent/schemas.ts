@@ -55,6 +55,7 @@ export const characterAgentProfileSchema = domainRecord.extend({
   identity: z.object({ value: z.string().nullable(), support, sourceReferences: z.array(sourceReference), risk: z.string().nullable() }).strict(),
   factionIds: z.array(z.string()),
   personalityTraits: sourcedStrings,
+  appearance: sourcedStrings.optional(),
   values: sourcedStrings,
   goals: sourcedStrings,
   fears: sourcedStrings,

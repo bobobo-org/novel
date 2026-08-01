@@ -20,7 +20,13 @@ import {
   parseRpgCharacterLibrary,
   type RpgCharacterTemplate,
 } from "@/lib/novel-ai/game/character-library";
+import CharacterPortraitImage from "../character-portrait";
 import { applyStoryChoiceEffect } from "@/lib/novel-ai/game/effects";
+import {
+  initialProceduralPillResources,
+  resolveProceduralPillUse,
+  type ProceduralPillItem,
+} from "@/lib/novel-ai/game/procedural-pill-engine";
 import {
   DEFAULT_RPG_RULE_SETTINGS,
   RPG_FORMULA_VERSION,
@@ -42,6 +48,12 @@ import {
   type RpgMode,
   type RpgRuleSettings,
 } from "@/lib/novel-ai/game/progression/rpg-progression";
+import {
+  XIANXIA_RULE_KIND_OPTIONS,
+  generateXianxiaRuleCandidate,
+  type XianxiaRuleCandidate,
+  type XianxiaRuleKind,
+} from "@/lib/novel-ai/game/xianxia-procedural-rule-packs";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   acceptStudioChoice,
@@ -180,6 +192,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [identity, setIdentity] = useState("");
   const [personality, setPersonality] = useState("");
   const [goal, setGoal] = useState("");
+  const [xianxiaRuleKind, setXianxiaRuleKind] = useState<XianxiaRuleKind>("talisman");
+  const [xianxiaRuleVariant, setXianxiaRuleVariant] = useState(0);
 
   const load = useCallback(async () => {
     const repository = createNovelRepository();
@@ -266,6 +280,20 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     [activeMode, conflict, data, progression, protagonist?.name, rules],
   );
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
+  const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
+    if (!data || !progression) return null;
+    const recent = typeof data.storyState.worldFlags["xianxia.recentRuleIds"] === "string"
+      ? String(data.storyState.worldFlags["xianxia.recentRuleIds"]).split(",").filter(Boolean).slice(-8)
+      : [];
+    return generateXianxiaRuleCandidate({
+      runSeed: progression.procedural.runSeed,
+      kind: xianxiaRuleKind,
+      turn: progression.turn,
+      variant: xianxiaRuleVariant,
+      recentRuleIds: recent,
+      adultMode: data.project.adultMode,
+    });
+  }, [data, progression, xianxiaRuleKind, xianxiaRuleVariant]);
 
   function persistCustomLibrary(next: RpgCharacterTemplate[]) {
     setCustomLibrary(next);
@@ -307,8 +335,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     if (!data || busy) return;
     setBusy(true);
     try {
-      const defaults = initialRpgStats(`${data.project.title}|${protagonist?.name ?? ""}`);
-      const resources = initialRpgResources();
+      const defaults = protagonist?.rpgProfile?.formulaVersion === RPG_FORMULA_VERSION
+        ? { ...protagonist.rpgProfile.stats }
+        : initialRpgStats(`${data.project.title}|${protagonist?.name ?? ""}`);
+      const existingSeed = data.storyState.worldFlags["rpg.runSeed"];
+      const runSeed = typeof existingSeed === "string" && existingSeed ? existingSeed : crypto.randomUUID();
+      const cycle = Math.max(1, Number(data.storyState.worldFlags["rpg.cycle"] ?? 1));
+      const resources = {
+        ...initialRpgResources(),
+        ...initialProceduralPillResources(runSeed, cycle, 6),
+      };
       await createNovelRepository().put<StoryState>("storyStates", {
         ...data.storyState,
         protagonistStats: {
@@ -323,14 +359,20 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         timeState: data.storyState.timeState ?? "第 1 日・清晨",
         riskState: data.storyState.riskState ?? "穩定",
         worldFlags: {
+          "rpg.runSeed": runSeed,
+          "rpg.cycle": cycle,
           "rpg.equipped.weapon": "iron-sword",
           "rpg.equipped.armor": "traveler-armor",
           "rpg.equipped.treasure": "contract-seal",
+          ...(protagonist ? {
+            "rpg.protagonistCharacterId": protagonist.id,
+            "rpg.initialStatsSource": protagonist.rpgProfile ? "approved-character-profile" : "seeded-default",
+          } : {}),
           ...data.storyState.worldFlags,
         },
       }, data.storyState.revision);
       await load();
-      setStatus("統合系統已啟用：角色、狀態、背包、貨幣、養成與經營初始資料已建立，正文未被改寫。");
+      setStatus(`統合系統已啟用：${protagonist?.rpgProfile ? "已套用角色核准的 300 點初始能力" : "已套用公式種子能力"}；正文未被改寫。`);
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -360,8 +402,10 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setStatus(`規則引擎正在判定：${choice.key}｜${choice.title}`);
     try {
       const resolution = resolveRpgChoice(choice, {
-        seed: `${data.project.id}|${data.chapter.id}|${progression?.turn ?? 0}`,
+        seed: `${progression?.procedural.runSeed ?? data.project.id}|${data.chapter.id}|${progression?.turn ?? 0}`,
         revision: data.storyState.revision,
+        recentEncounterSignatures: progression?.procedural.recentEncounterSignatures,
+        turn: progression?.turn,
       });
       const repository = createNovelRepository();
       const saved = await persistStudioChoiceCandidate(
@@ -432,12 +476,79 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   async function consumeItem(item: RpgInventoryStack) {
-    if (!item.useEffect || item.quantity < 1) return;
+    if (item.quantity < 1 || !progression) return;
+    if (item.proceduralPill) {
+      const useIndex = Number(data?.storyState.resources[`pill.use.${item.proceduralPill.family}`] ?? 0);
+      const resolution = resolveProceduralPillUse({
+        pill: item as RpgInventoryStack & ProceduralPillItem,
+        runSeed: progression.procedural.runSeed,
+        turn: progression.turn,
+        useIndex,
+        stats: progression.baseStats,
+        health: progression.status.health,
+        stress: progression.status.stress,
+      });
+      await applyDirectEffect(resolution.effect, `${resolution.summary}${resolution.sideEffectTriggered ? " 已記錄副作用，後續事件會保留此結果。" : ""}`);
+      return;
+    }
+    if (!item.useEffect) return;
     const effect = emptyEffect();
     effect.resourceChanges = { [`item.${item.itemId}`]: -1, ...item.useEffect };
     effect.worldFlags = { "rpg.lastItemUsed": item.itemId };
     effect.timelineEvents = [`使用道具：${item.name}`];
     await applyDirectEffect(effect, `已使用「${item.name}」：${item.effectDescription}`);
+  }
+
+  async function approveXianxiaRule() {
+    if (!data || !xianxiaRuleCandidate) return;
+    const previous = typeof data.storyState.worldFlags["xianxia.recentRuleIds"] === "string"
+      ? String(data.storyState.worldFlags["xianxia.recentRuleIds"]).split(",").filter(Boolean)
+      : [];
+    const recent = [...previous.filter((id) => id !== xianxiaRuleCandidate.ruleId), xianxiaRuleCandidate.ruleId].slice(-8);
+    const effect = emptyEffect();
+    effect.resourceChanges = { "xianxia.approvedRuleCount": 1 };
+    effect.worldFlags = {
+      "xianxia.lastApprovedRuleId": xianxiaRuleCandidate.ruleId,
+      "xianxia.lastApprovedRuleTitle": xianxiaRuleCandidate.title,
+      "xianxia.lastApprovedRule": JSON.stringify({
+        kind: xianxiaRuleCandidate.kindLabel,
+        rank: xianxiaRuleCandidate.rank,
+        title: xianxiaRuleCandidate.title,
+        preconditions: xianxiaRuleCandidate.preconditions,
+        costs: xianxiaRuleCandidate.costs,
+        effects: xianxiaRuleCandidate.effects,
+        risks: xianxiaRuleCandidate.risks,
+        counters: xianxiaRuleCandidate.counters,
+        storyHook: xianxiaRuleCandidate.storyHook,
+      }),
+      "xianxia.recentRuleIds": recent.join(","),
+    };
+    effect.timelineEvents = [`核准${xianxiaRuleCandidate.kindLabel}規則：${xianxiaRuleCandidate.title}（${xianxiaRuleCandidate.rank}）`];
+    await applyDirectEffect(effect, `已核准「${xianxiaRuleCandidate.title}」；前置、成本、風險與反制會成為後續閉端 AI 的世界狀態。`);
+    setXianxiaRuleVariant((value) => value + 1);
+  }
+
+  async function beginNewVariationCycle() {
+    if (!data || !progression) return;
+    const runSeed = crypto.randomUUID();
+    const cycle = progression.procedural.cycle + 1;
+    const effect = emptyEffect();
+    effect.resourceChanges = {
+      ...initialProceduralPillResources(runSeed, cycle, 6),
+      "world.instability": 1,
+    };
+    effect.worldFlags = {
+      "rpg.runSeed": runSeed,
+      "rpg.cycle": cycle,
+      "rpg.recentEncounterSignatures": "",
+      "xianxia.recentRuleIds": "",
+      "world.currentAspect": "新周目尚未揭露",
+      "world.currentLocationVariant": "重新排列中",
+    };
+    effect.timelineEvents = [`開啟變化周目 ${cycle}：保留角色養成，重新排列事件、丹藥與世界規則`];
+    setSelectedChoice(null);
+    setLastResolution(null);
+    await applyDirectEffect(effect, `已開啟第 ${cycle} 周目變化：角色養成保留，敵情、事件、丹藥與規則重新排列。`);
   }
 
   async function equipItem(item: RpgInventoryStack) {
@@ -605,11 +716,18 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           <button data-testid="rpg-initialize" type="button" disabled={busy} onClick={() => void initializeProgression()}>啟用完整遊戲系統</button>
         </section>
       ) : (
+        <>
+        <section className={styles.worldRibbon} aria-label="本周目世界脈動">
+          <div className={styles.cycleEmblem}><small>VARIATION CYCLE</small><strong>{progression.procedural.cycle}</strong><span>世界種子 {progression.procedural.runSeed.slice(0, 8)}</span></div>
+          <div><small>目前世界脈動</small><h2>{progression.procedural.currentAspect ?? "事件尚未揭露"}</h2><p>{progression.procedural.currentLocationVariant ?? "你的下一個核准選擇會改變地點、勢力與事件排列。"}</p></div>
+          <div className={styles.ribbonMetrics}><span><b>{data.acceptedChoices.length}</b> 已核准選擇</span><span><b>{progression.procedural.recentEncounterSignatures.length}</b> 近期變化</span><span><b>{progression.inventory.filter((item) => item.rarity === "rare" || item.rarity === "epic").length}</b> 稀有物品</span></div>
+          <button type="button" disabled={busy} onClick={() => void beginNewVariationCycle()}>開啟新變化周目</button>
+        </section>
         <section className={styles.dashboard}>
           <aside className={styles.leftRail}>
             <article className={styles.characterCard}>
-              <div className={styles.avatar}>{(protagonist?.name ?? "主").slice(0, 1)}</div>
-              <div><small>{activeMode === "management" ? "創業者／領導者" : activeMode === "cultivation" ? "成長中的命運者" : "流浪冒險者"}</small><h2>{protagonist?.name ?? "未命名主角"}</h2><p>{data.storyState.locationState ?? "位置尚未設定"} · {data.storyState.riskState ?? "風險未知"}</p></div>
+              <div className={styles.avatar}>{protagonist?.portrait ? <CharacterPortraitImage portrait={protagonist.portrait} className={styles.avatarPortrait} decorative /> : (protagonist?.name ?? "主").slice(0, 1)}</div>
+              <div><small>{activeMode === "management" ? "創業者／領導者" : activeMode === "cultivation" ? "成長中的命運者" : "流浪冒險者"}</small><h2>{protagonist?.name ?? "未命名主角"}</h2><p>{data.storyState.locationState ?? "位置尚未設定"} · {data.storyState.riskState ?? "風險未知"}</p><small>能力來源：{protagonist?.rpgProfile ? "角色核准配點" : "作品公式種子"}</small></div>
             </article>
 
             <div className={styles.statusGrid}>
@@ -676,7 +794,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                     onClick={() => setSelectedChoice(choice)}
                     disabled={busy}
                   >
-                    <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>{choice.strategyLabel}</small><h3>{choice.title}</h3></div></div>
+                    <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>{choice.strategyLabel} · {choice.encounter.worldAspect}</small><h3>{choice.title}</h3></div></div>
+                    <div className={styles.encounterSignal}><span>{choice.encounter.title}</span><p>{choice.encounter.telegraph}</p></div>
                     <p>{choice.description}</p>
                     <dl><div><dt>成功率</dt><dd>{choice.successChance}%</dd></div><div><dt>EXP</dt><dd>+{choice.xpGain}</dd></div><div><dt>風險</dt><dd>{"◆".repeat(choice.risk)}{"◇".repeat(5 - choice.risk)}</dd></div></dl>
                     <div className={styles.choiceTags}>{choice.costLabels.map((label) => <span key={label} data-kind="cost">{label}</span>)}{choice.impactLabels.map((label) => <span key={label}>{label}</span>)}</div>
@@ -722,7 +841,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             ) : (
               <section className={styles.worldCard}>
                 <header><small>WORLD PULSE</small><h3>世界與隊伍</h3></header>
-                <dl><div><dt>所在地</dt><dd>{data.storyState.locationState ?? "未知"}</dd></div><div><dt>危險</dt><dd>{data.storyState.riskState ?? "未知"}</dd></div><div><dt>隊伍信任</dt><dd>{Math.round(data.storyState.relationships["rpg.partyTrust"] ?? 0)}</dd></div><div><dt>主線旗標</dt><dd>{Object.keys(data.storyState.worldFlags).length}</dd></div></dl>
+                <dl><div><dt>所在地</dt><dd>{progression.procedural.currentLocationVariant ?? data.storyState.locationState ?? "未知"}</dd></div><div><dt>世界面向</dt><dd>{progression.procedural.currentAspect ?? "尚未揭露"}</dd></div><div><dt>危險</dt><dd>{data.storyState.riskState ?? "未知"}</dd></div><div><dt>隊伍信任</dt><dd>{Math.round(data.storyState.relationships["rpg.partyTrust"] ?? 0)}</dd></div><div><dt>世界動能</dt><dd>{Math.round(data.storyState.resources["world.momentum"] ?? 0)}</dd></div><div><dt>不穩定度</dt><dd>{Math.round(data.storyState.resources["world.instability"] ?? 0)}</dd></div></dl>
               </section>
             )}
 
@@ -735,6 +854,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             </section>
           </aside>
         </section>
+        </>
       )}
 
       {activated ? (
@@ -758,10 +878,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               <div className={styles.inventoryGrid}>
                 {progression.inventory.map((item) => (
                   <article key={item.itemId} data-rarity={item.rarity}>
-                    <header><span>{item.category} · {item.rarity}</span><b>×{item.quantity}</b></header>
+                    <header><span>{item.proceduralPill ? `${item.proceduralPill.grade}丹藥` : `${item.category} · ${item.rarity}`}</span><b>×{item.quantity}</b></header>
                     <h3>{item.name}{item.equipped ? <em>已裝備</em> : null}</h3>
                     <p>{item.description}</p><strong>{item.effectDescription}</strong>
-                    <footer><span>價值 {item.value ? `${formatNumber(item.value)} 金幣` : "任務限定"} · {item.weight} kg</span><div>{item.useEffect ? <button type="button" disabled={busy} onClick={() => void consumeItem(item)}>使用</button> : null}{item.slot ? <button type="button" disabled={busy || item.equipped} onClick={() => void equipItem(item)}>{item.equipped ? "裝備中" : "裝備"}</button> : null}</div></footer>
+                    {item.proceduralPill ? <dl className={styles.pillMetrics}><div><dt>藥力</dt><dd>{item.proceduralPill.potency}</dd></div><div><dt>穩定</dt><dd>{item.proceduralPill.stability}</dd></div><div><dt>保存</dt><dd>{item.proceduralPill.shelfLife} 日</dd></div></dl> : null}
+                    <footer><span>價值 {item.value ? `${formatNumber(item.value)} 金幣` : "任務限定"} · {item.weight} kg</span><div>{item.useEffect || item.proceduralPill ? <button type="button" disabled={busy} onClick={() => void consumeItem(item)}>使用</button> : null}{item.slot ? <button type="button" disabled={busy || item.equipped} onClick={() => void equipItem(item)}>{item.equipped ? "裝備中" : "裝備"}</button> : null}</div></footer>
                   </article>
                 ))}
               </div>
@@ -796,6 +917,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               <section><small>AUTHOR SETTINGS</small><h2>作者設定</h2><label>成長速度<select value={rules.growthPace} onChange={(event) => updateRules({ ...rules, growthPace: event.target.value as RpgRuleSettings["growthPace"] })}><option value="fast">快速</option><option value="standard">標準</option><option value="realistic">寫實</option></select></label><label>隨機程度<select value={rules.randomness} onChange={(event) => updateRules({ ...rules, randomness: event.target.value as RpgRuleSettings["randomness"] })}><option value="story">劇情型</option><option value="balanced">平衡型</option><option value="high_risk">高風險型</option></select></label><label>後果預覽<select value={rules.choicePreview} onChange={(event) => updateRules({ ...rules, choicePreview: event.target.value as RpgRuleSettings["choicePreview"] })}><option value="partial">保留未知</option><option value="full">完整顯示</option></select></label><label>事件頻率<select value={rules.eventFrequency} onChange={(event) => updateRules({ ...rules, eventFrequency: Number(event.target.value) as 3 | 4 | 5 })}><option value={3}>每 3 回合</option><option value={4}>每 4 回合</option><option value={5}>每 5 回合</option></select></label></section>
               <section><small>PLAYER CHOICE</small><h2>玩家選擇</h2><p>A／B／C 固定代表穩健、關係／資源與冒險三種策略；自由行動也要先轉成同樣可驗證的候選。</p><ul><li>重擲每回合最多一次，消耗 1 命運點。</li><li>失敗產生補救支線，不會因單次亂數直接壞結局。</li><li>只有玩家按下核准後才寫入正式正文與 Canon。</li></ul></section>
               <section><small>SYSTEM LOCK</small><h2>系統鎖定</h2><ul><li>{FORMULA.success}</li><li>{FORMULA.growth}</li><li>{FORMULA.employee}</li><li>{FORMULA.demand}</li><li>{FORMULA.governance}</li></ul><details><summary>查看等級與戰力公式</summary><p>{FORMULA.level}</p><p>{FORMULA.nextLevel}</p><p>{FORMULA.power}</p></details></section>
+              <section className={styles.xianxiaForge}><small>USER-AUTHORED RULE FORGE</small><h2>仙俠規則工坊</h2><p>把你的符籙、陣法、職業、境界、契約與情緒原則轉成可驗證候選；按核准前不會修改 Canon。</p><label>規則類型<select value={xianxiaRuleKind} onChange={(event) => { setXianxiaRuleKind(event.target.value as XianxiaRuleKind); setXianxiaRuleVariant((value) => value + 1); }}>{XIANXIA_RULE_KIND_OPTIONS.map((option) => <option key={option.kind} value={option.kind}>{option.label}</option>)}</select></label>{xianxiaRuleCandidate ? <article><header><span>{xianxiaRuleCandidate.rank} · {xianxiaRuleCandidate.kindLabel}</span><b>Canonical mutation = {xianxiaRuleCandidate.canonicalMutation}</b></header><h3>{xianxiaRuleCandidate.title}</h3><p>{xianxiaRuleCandidate.storyHook}</p><dl><div><dt>前置</dt><dd>{xianxiaRuleCandidate.preconditions.join("、")}</dd></div><div><dt>成本</dt><dd>{xianxiaRuleCandidate.costs.join("、")}</dd></div><div><dt>效果</dt><dd>{xianxiaRuleCandidate.effects.join("、")}</dd></div><div><dt>風險</dt><dd>{xianxiaRuleCandidate.risks.join("、")}</dd></div><div><dt>反制</dt><dd>{xianxiaRuleCandidate.counters.join("、")}</dd></div></dl><footer><button type="button" disabled={busy} onClick={() => setXianxiaRuleVariant((value) => value + 1)}>換一個候選</button><button type="button" disabled={busy} onClick={() => void approveXianxiaRule()}>核准並加入世界狀態</button></footer></article> : null}</section>
             </div>
           ) : null}
 

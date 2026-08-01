@@ -920,6 +920,18 @@ export default function StudioClient({
       // Do not turn a non-blocking cloud notice into a local writing failure.
     }
   }
+  useEffect(() => {
+    if (persistenceMode !== "CLOUD_DEGRADED" || cloudNoticeDismissed) return;
+    const timer = window.setTimeout(() => {
+      setCloudNoticeDismissed(true);
+      try {
+        sessionStorage.setItem(CLOUD_NOTICE_SESSION_KEY, "1");
+      } catch {
+        // The transient notice may still close when session storage is unavailable.
+      }
+    }, 8_000);
+    return () => window.clearTimeout(timer);
+  }, [persistenceMode, cloudNoticeDismissed]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -2666,8 +2678,8 @@ export default function StudioClient({
           <span>
             {storageFailure?.message
               ?? (cloudPersistenceIssue?.errorCategory === "migration"
-                ? "Supabase 雲端同步資料表尚未完成；作品仍安全保存在 IndexedDB。可關閉此提示並繼續本機創作。"
-                : "IndexedDB 仍是 Canonical Authority；Supabase 錯誤不會阻擋本機寫作、閉端 AI、核准或匯出。")}
+                ? "Supabase 雲端同步尚未完成；新變更會保留在 IndexedDB Outbox，修復後自動核對版本與雜湊。"
+                : "Supabase 權威目前無法驗證；新變更標為 PendingSync，本機寫作、閉端 AI、核准與匯出仍可使用。")}
           </span>
           <small>
             模式：{persistenceMode ?? "檢查中"}

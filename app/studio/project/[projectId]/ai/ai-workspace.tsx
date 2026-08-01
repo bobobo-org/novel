@@ -130,6 +130,10 @@ function buildContext(data: WorkspaceData, learnedInstructions: string[]): Studi
         character.identity.value ? `身分：${character.identity.value}` : "",
         character.personality.value ? `性格：${character.personality.value}` : "",
         character.goal.value ? `目標：${character.goal.value}` : "",
+        character.portrait?.visualDescription ? `核准外觀：${character.portrait.visualDescription}` : "",
+        character.portrait?.traits.length ? `外觀特徵：${character.portrait.traits.join("、")}` : "",
+        character.rpgProfile ? `RPG 初始能力：${Object.entries(character.rpgProfile.stats).map(([key, value]) => `${key}=${value}`).join("、")}` : "",
+        character.dynamicsProfile ? `核准角色動態：${character.dynamicsProfile.archetypeLabel}／${character.dynamicsProfile.socialRole}；特質 ${character.dynamicsProfile.personalityTraits.join("、")}；互動需求 ${character.dynamicsProfile.relationshipNeeds.join("、")}` : "",
         `狀態：${character.lifeStatus}`,
       ].filter(Boolean).join("；"),
       visibility: "both",
@@ -162,6 +166,20 @@ function buildContext(data: WorkspaceData, learnedInstructions: string[]): Studi
       data.storyBible.unresolvedThreads.length ? `未解線索：${data.storyBible.unresolvedThreads.join("；")}` : "",
       data.storyBible.forbiddenContradictions.length ? `禁止矛盾：${data.storyBible.forbiddenContradictions.join("；")}` : "",
     ].filter(Boolean).join("\n") || "Story Bible 尚未補充細節。",
+    visibility: "both",
+  });
+  context.push({
+    id: `story-state:${data.storyState.id}`,
+    kind: "canon",
+    learningFacet: "story-bible",
+    text: [
+      "正式 StoryState（只有核准交易可改動）：",
+      `角色數值：${Object.entries(data.storyState.protagonistStats).map(([key, value]) => `${key}=${value}`).join("、") || "尚未建立"}`,
+      `資源：${Object.entries(data.storyState.resources).filter(([, value]) => Number.isFinite(value) && value !== 0).map(([key, value]) => `${key}=${value}`).join("、") || "尚未建立"}`,
+      `方向關係：${Object.entries(data.storyState.relationships).map(([key, value]) => `${key}=${value}`).join("、") || "尚未建立"}`,
+      `世界旗標：${Object.entries(data.storyState.worldFlags).map(([key, value]) => `${key}=${String(value)}`).join("；") || "尚未建立"}`,
+      `位置／時間：${data.storyState.locationState ?? "未知"}／${data.storyState.timeState ?? "未知"}`,
+    ].join("\n"),
     visibility: "both",
   });
   if (learnedInstructions.length) {

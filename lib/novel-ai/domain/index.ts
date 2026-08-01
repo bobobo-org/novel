@@ -45,6 +45,76 @@ export type ProjectCreationDraft = DomainRecord & {
 
 export type Chapter = DomainRecord & { title: string; order: number; content: string; summary: string | null; status: "draft" | "completed" };
 export type Scene = DomainRecord & { chapterId: string; order: number; title: string; content: string; summary: string | null };
+export type CharacterPortraitAtlasCrop = {
+  width: number;
+  height: number;
+  columns: number;
+  rows: number;
+  column: number;
+  row: number;
+};
+export type CharacterPortraitAsset = {
+  id: string;
+  source: "catalog" | "upload";
+  assetUri: string;
+  assetDigest: string;
+  atlas?: CharacterPortraitAtlasCrop;
+  themeId: string;
+  themeLabel: string;
+  role: string;
+  visualDescription: string;
+  traits: string[];
+  generatedBy: "openai-image-generation" | "user-upload";
+};
+export type CharacterPortrait = CharacterPortraitAsset & {
+  approvedAt: string;
+  approvedBy: "user";
+  dataLeftDevice: false;
+};
+export type CharacterRpgStatKey =
+  | "rpg.physique"
+  | "rpg.technique"
+  | "rpg.intellect"
+  | "rpg.charisma"
+  | "rpg.will"
+  | "rpg.creativity";
+export type CharacterRpgArchetype =
+  | "balanced"
+  | "vanguard"
+  | "strategist"
+  | "diplomat"
+  | "mystic"
+  | "creator"
+  | "custom";
+export type CharacterRpgProfile = {
+  schemaVersion: "character-rpg-profile-v1";
+  formulaVersion: "novel-rpg-unified-v2";
+  archetype: CharacterRpgArchetype;
+  stats: Record<CharacterRpgStatKey, number>;
+  pointBudget: 300;
+  approvedAt: string;
+};
+export type CharacterPersonalityAxis =
+  | "curiosity"
+  | "empathy"
+  | "ambition"
+  | "caution"
+  | "loyalty"
+  | "volatility";
+export type CharacterDynamicsProfile = {
+  schemaVersion: "character-dynamics-profile-v1";
+  engineVersion: "browser-character-dynamics-v1";
+  playthroughSeed: string;
+  archetypeId: string;
+  archetypeLabel: string;
+  personalityAxes: Record<CharacterPersonalityAxis, number>;
+  personalityTraits: string[];
+  socialRole: string;
+  relationshipNeeds: string[];
+  behavioralTendencies: string[];
+  approvedAt: string;
+  approvedBy: "user";
+};
 export type Character = DomainRecord & {
   name: string;
   aliases: string[];
@@ -61,6 +131,9 @@ export type Character = DomainRecord & {
   values?: string[];
   capabilities?: string[];
   limitations?: string[];
+  portrait?: CharacterPortrait | null;
+  rpgProfile?: CharacterRpgProfile | null;
+  dynamicsProfile?: CharacterDynamicsProfile | null;
   voiceStyle?: {
     formality: number;
     directness: number;

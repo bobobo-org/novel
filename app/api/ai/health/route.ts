@@ -662,9 +662,10 @@ export async function GET() {
     directStorageBoundaryStatus: "ready",
     silentStorageFallbackBlocked: true,
     ...L0A2E2D_TEST_META,
-    primaryStorage: "INDEXEDDB_BROWSER",
-    canonicalAuthority: "INDEXEDDB_CLIENT",
-    storageAdapterType: "client-canonical-with-optional-supabase-sync",
+    primaryStorage: "SUPABASE_CLOUD_WITH_INDEXEDDB_REPLICA",
+    canonicalAuthority: "SUPABASE_AFTER_REMOTE_REVISION_AND_HASH_VERIFICATION",
+    canonApprovalAuthority: "HUMAN_APPROVED_TRANSACTIONS",
+    storageAdapterType: "supabase-canonical-with-indexeddb-outbox-fallback",
     storageCapabilities: {
       SUPABASE_CLOUD: getStorageCapabilities("SUPABASE_CLOUD"),
       SQLITE_LOCAL: getStorageCapabilities("SQLITE_LOCAL"),
