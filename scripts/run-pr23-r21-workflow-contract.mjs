@@ -77,7 +77,7 @@ assert.match(
 );
 assert.match(productionBootstrapJob, /bootstrap-production-supabase-env\.mjs/u);
 assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
-assert.match(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+assert.doesNotMatch(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN/u);
 assert.match(productionBootstrapJob, /SUPABASE_PROJECT_REF_FALLBACK:\s*ijjicaiiirkfbewbhepx/u);
 assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
 
@@ -103,7 +103,10 @@ for (const secret of [
 ]) {
   assert.match(deployJob, new RegExp(`${secret}:\\s*\\$\\{\\{ secrets\\.`, "u"));
 }
-assert.match(deployJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+assert.doesNotMatch(deployJob, /SUPABASE_ACCESS_TOKEN/u);
+assert.match(deployJob, /provision-cloud-sync-storage\.mjs --env-file \.vercel\/\.env\.production\.local --required/u);
+assert.match(deployJob, /cloud_sync_e2ee_storage_001/u);
+assert.match(deployJob, /private-object-storage/u);
 
 const requiredCommands = [
   "pnpm install --frozen-lockfile",

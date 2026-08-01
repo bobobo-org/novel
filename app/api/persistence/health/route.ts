@@ -47,6 +47,7 @@ export async function GET() {
             : "required_or_unknown",
       syncProtocolStatus: sync.status,
       syncMigrationVersion: sync.migrationVersion,
+      syncStorageBackend: sync.storageBackend,
       encryption: sync.encryption,
       canonicalAuthority: sync.canonicalAuthority,
       writeProbeStatus,

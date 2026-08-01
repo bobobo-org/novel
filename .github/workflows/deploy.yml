@@ -178,7 +178,6 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF_FALLBACK: ijjicaiiirkfbewbhepx
     steps:
       - name: Checkout
@@ -235,7 +234,6 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -259,9 +257,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Apply and verify encrypted cloud sync migration
+      - name: Provision and verify encrypted cloud sync private storage
         if: github.ref == 'refs/heads/main'
-        run: node scripts/apply-cloud-sync-migration.mjs --env-file .vercel/.env.production.local --required --allow-staged-runtime-verification
+        run: node scripts/provision-cloud-sync-storage.mjs --env-file .vercel/.env.production.local --required
 
       - name: Build (production)
         if: github.ref == 'refs/heads/main'
@@ -317,7 +315,8 @@ jobs:
               status="$(jq -r '.status // empty' <<<"$body")"
               migration="$(jq -r '.migrationVersion // empty' <<<"$body")"
               schema="$(jq -r '.schemaVersion // empty' <<<"$body")"
-              if [[ "$status" == "ready" && "$migration" == "cloud_sync_e2ee_025" && "$schema" == "novel-cloud-sync-e2ee-v1" ]]; then
+              backend="$(jq -r '.storageBackend // empty' <<<"$body")"
+              if [[ "$status" == "ready" && "$migration" == "cloud_sync_e2ee_storage_001" && "$schema" == "novel-cloud-sync-e2ee-v1" && "$backend" == "private-object-storage" ]]; then
                 exit 0
               fi
             fi

@@ -11,6 +11,17 @@ import {
   decryptCloudSnapshot,
   encryptCloudSnapshot,
 } from "../lib/novel-ai/cloud-sync/index.ts";
+import {
+  CLOUD_SYNC_STORAGE_MARKER_PATH,
+  cloudStorageHealth,
+  listStorageCloudProjects,
+  pullStorageCloudProject,
+  pushStorageCloudProject,
+} from "../lib/novel-ai/cloud-sync/storage-backend.ts";
+import {
+  CLOUD_SYNC_MIGRATION_VERSION,
+  CLOUD_SYNC_SCHEMA_VERSION,
+} from "../lib/novel-ai/cloud-sync/types.ts";
 import { NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
@@ -62,11 +73,41 @@ function readyHealth() {
     schemaVersion: "novel-cloud-sync-e2ee-v1",
     status: "ready",
     provider: "Supabase",
+    storageBackend: "private-object-storage",
     encryption: "client-side-aes-gcm",
     canonicalAuthority: "IndexedDB",
-    migrationVersion: "cloud_sync_e2ee_025",
+    migrationVersion: "cloud_sync_e2ee_storage_001",
     retryable: false,
   };
+}
+
+class MemoryObjectStorageGateway {
+  constructor() {
+    this.bucket = { exists: true, public: false };
+    this.objects = new Map([[CLOUD_SYNC_STORAGE_MARKER_PATH, {
+      schemaVersion: CLOUD_SYNC_SCHEMA_VERSION,
+      migrationVersion: CLOUD_SYNC_MIGRATION_VERSION,
+      backend: "private-object-storage",
+      public: false,
+    }]]);
+  }
+
+  async bucketStatus() { return structuredClone(this.bucket); }
+  async readJson(path) {
+    return this.objects.has(path) ? structuredClone(this.objects.get(path)) : null;
+  }
+  async writeJson(path, value, options) {
+    if (!options.upsert && this.objects.has(path)) return "exists";
+    this.objects.set(path, structuredClone(value));
+    return "stored";
+  }
+  async list(prefix, limit) {
+    const base = `${prefix}/`;
+    return [...this.objects.keys()]
+      .filter((path) => path.startsWith(base) && !path.slice(base.length).includes("/"))
+      .slice(0, limit)
+      .map((path) => ({ name: path.slice(base.length) }));
+  }
 }
 
 test("recovery keys are random, validated and owner scoped", async () => {
@@ -208,6 +249,44 @@ test("revision conflict never overwrites until keep-local is explicit", async ()
   assert.equal((await store.listOutbox()).length, 0);
 });
 
+test("private object storage provides real health, CAS, idempotency, list and pull", async () => {
+  const gateway = new MemoryObjectStorageGateway();
+  assert.deepEqual(await cloudStorageHealth(gateway), readyHealth());
+  const syncKey = createCloudSyncKey();
+  const ownerId = await cloudSyncOwnerId(syncKey);
+  const { snapshot } = await buildCloudProjectSnapshot(fixtureRepository(), "project-cloud-1");
+  const envelope = await encryptCloudSnapshot(snapshot, syncKey);
+  const firstRequest = {
+    operationId: "sync:operation-storage-1",
+    projectId: "project-cloud-1",
+    expectedRemoteRevision: 0,
+    envelope,
+  };
+  const stored = await pushStorageCloudProject(gateway, ownerId, firstRequest);
+  assert.equal(stored.status, "stored");
+  assert.equal(stored.revision, 1);
+  const replay = await pushStorageCloudProject(gateway, ownerId, firstRequest);
+  assert.equal(replay.status, "idempotent");
+  assert.equal(replay.revision, 1);
+  const stale = await pushStorageCloudProject(gateway, ownerId, {
+    ...firstRequest,
+    operationId: "sync:operation-storage-stale",
+  });
+  assert.equal(stale.status, "conflict");
+  assert.equal(stale.revision, 1);
+  const remote = await listStorageCloudProjects(gateway, ownerId);
+  assert.equal(remote.length, 1);
+  assert.equal(remote[0].projectId, "project-cloud-1");
+  const pulled = await pullStorageCloudProject(gateway, ownerId, "project-cloud-1");
+  assert.equal(pulled.revision, 1);
+  assert.equal(pulled.envelope.ciphertextHash, envelope.ciphertextHash);
+  assert.equal((await decryptCloudSnapshot(pulled.envelope, syncKey)).contentHash, snapshot.contentHash);
+  const serializedStorage = JSON.stringify([...gateway.objects.entries()]);
+  assert.equal(serializedStorage.includes(snapshot.records.chapters[0].content), false);
+  assert.match(serializedStorage, /owners\/[a-f0-9]{64}\/snapshots\/project-cloud-1/u);
+  assert.match(serializedStorage, /owners\/[a-f0-9]{64}\/locks\/project-cloud-1\/0\.json/u);
+});
+
 test("imported recovery key marks remote projects for explicit review", async () => {
   const store = new MemoryCloudSyncStore();
   const key = createCloudSyncKey();
@@ -252,9 +331,11 @@ test("failed recovery-key import preserves the previous key and sync state", asy
   assert.deepEqual(await store.getProjectState("project-cloud-1"), previousState);
 });
 
-test("migration is additive, private and compare-and-swap capable", async () => {
+test("private Storage provisioning is gated, server-only and preserves the additive SQL fallback", async () => {
   const sql = await readFile(new URL("../prisma/migrations/025_cloud_sync_e2ee.sql", import.meta.url), "utf8");
-  const runner = await readFile(new URL("./apply-cloud-sync-migration.mjs", import.meta.url), "utf8");
+  const provisioner = await readFile(new URL("./provision-cloud-sync-storage.mjs", import.meta.url), "utf8");
+  const backend = await readFile(new URL("../lib/novel-ai/cloud-sync/storage-backend.ts", import.meta.url), "utf8");
+  const gateway = await readFile(new URL("../lib/novel-ai/cloud-sync/supabase-storage-gateway.ts", import.meta.url), "utf8");
   const workflow = await readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
   assert.match(sql, /create table if not exists public\.novel_cloud_snapshots/iu);
   assert.match(sql, /enable row level security/iu);
@@ -264,13 +345,23 @@ test("migration is additive, private and compare-and-swap capable", async () => 
   assert.match(sql, /current_revision <> p_expected_revision/iu);
   assert.match(sql, /novel_cloud_sync_operations/iu);
   assert.doesNotMatch(sql, /drop table|truncate|delete from/iu);
-  assert.match(runner, /SUPABASE_ACCESS_TOKEN/u);
-  assert.match(runner, /migration_applied_and_verified/u);
-  assert.doesNotMatch(runner, /console\.(?:log|error)\([^\n]*(?:accessToken|authorization)/u);
-  assert.match(workflow, /apply-cloud-sync-migration\.mjs --env-file \.vercel\/\.env\.production\.local --required/u);
-  assert.ok(workflow.indexOf("Apply and verify encrypted cloud sync migration") < workflow.indexOf("Build (production)"));
+  assert.match(provisioner, /createBucket\(BUCKET/iu);
+  assert.match(provisioner, /public:\s*false/iu);
+  assert.match(provisioner, /allowedMimeTypes:\s*\["application\/json"\]/u);
+  assert.match(provisioner, /storage_provisioned_and_verified/u);
+  assert.doesNotMatch(provisioner, /SUPABASE_ACCESS_TOKEN/u);
+  assert.doesNotMatch(provisioner, /console\.(?:log|error)\([^\n]*(?:serviceRoleKey|authorization)/u);
+  assert.match(backend, /locks\/\$\{projectId\}\/\$\{expectedRevision\}\.json/u);
+  assert.match(backend, /snapshots\/\$\{projectId\}/u);
+  assert.match(backend, /upsert:\s*false/u);
+  assert.match(gateway, /import "server-only"/u);
+  assert.match(gateway, /persistSession:\s*false/u);
+  assert.match(workflow, /provision-cloud-sync-storage\.mjs --env-file \.vercel\/\.env\.production\.local --required/u);
+  assert.ok(workflow.indexOf("Provision and verify encrypted cloud sync private storage") < workflow.indexOf("Build (production)"));
   assert.match(workflow, /Verify staged encrypted cloud sync runtime/u);
-  assert.match(workflow, /cloud_sync_e2ee_025/u);
+  assert.match(workflow, /cloud_sync_e2ee_storage_001/u);
+  assert.match(workflow, /private-object-storage/u);
+  assert.doesNotMatch(workflow, /SUPABASE_ACCESS_TOKEN/u);
   assert.ok(workflow.indexOf("Verify staged encrypted cloud sync runtime") < workflow.indexOf("Cut over both aliases with atomic compensation"));
 });
 

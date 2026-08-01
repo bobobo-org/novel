@@ -21,7 +21,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     throw apiError(
       body.errorCode ?? `CLOUD_SYNC_HTTP_${response.status}`,
-      body.message ?? "雲端同步服務暫時無法使用。",
+      body.message ?? "雲端同步暫時無法完成，本機資料不受影響。",
       response.status,
       response.status >= 500 || response.status === 408 || response.status === 429,
     );
@@ -51,7 +51,7 @@ export class CloudSyncApiClient {
       if (body?.schemaVersion && body.provider === "Supabase") return body;
       throw apiError(
         `CLOUD_SYNC_HTTP_${response.status}`,
-        "雲端同步健康檢查無法完成。",
+        "雲端同步健康檢查回傳了無法辨識的結果。",
         response.status,
         response.status >= 500,
       );

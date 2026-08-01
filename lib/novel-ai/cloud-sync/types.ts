@@ -1,5 +1,5 @@
 export const CLOUD_SYNC_SCHEMA_VERSION = "novel-cloud-sync-e2ee-v1" as const;
-export const CLOUD_SYNC_MIGRATION_VERSION = "cloud_sync_e2ee_025" as const;
+export const CLOUD_SYNC_MIGRATION_VERSION = "cloud_sync_e2ee_storage_001" as const;
 
 export type CloudSyncRuntimeStatus =
   | "disabled"
@@ -83,6 +83,7 @@ export type CloudSyncHealth = {
   schemaVersion: typeof CLOUD_SYNC_SCHEMA_VERSION;
   status: "ready" | "configuration_required" | "migration_required" | "degraded";
   provider: "Supabase";
+  storageBackend: "private-object-storage";
   encryption: "client-side-aes-gcm";
   canonicalAuthority: "IndexedDB";
   migrationVersion: string | null;

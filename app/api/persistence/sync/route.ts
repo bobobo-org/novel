@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 function safeProjectId(value: string | null) {
   const projectId = value?.trim() ?? "";
   if (!/^[A-Za-z0-9_-]{1,160}$/u.test(projectId)) {
-    throw Object.assign(new Error("作品身分格式不正確。"), {
+    throw Object.assign(new Error("作品識別碼格式不正確。"), {
       code: "CLOUD_SYNC_PROJECT_ID_INVALID",
       status: 400,
       retryable: false,
@@ -30,21 +30,23 @@ function errorResponse(error: unknown) {
   };
   const code = String(candidate?.code || "CLOUD_SYNC_SERVER_ERROR");
   const status = Number(candidate?.status || (
-    /NOT_CONFIGURED|MIGRATION|PGRST|HTTP_404/iu.test(String((error as Error)?.message))
+    /NOT_CONFIGURED|MIGRATION|STORAGE_HTTP_404/iu.test(String((error as Error)?.message))
       ? 503
       : 500
   ));
   const messages: Record<string, string> = {
-    CLOUD_SYNC_AUTH_REQUIRED: "請先在作品儲存頁開啟雲端同步。",
-    CLOUD_SYNC_PROJECT_ID_INVALID: "作品身分格式不正確。",
+    CLOUD_SYNC_AUTH_REQUIRED: "請先設定有效的雲端同步復原金鑰。",
+    CLOUD_SYNC_PROJECT_ID_INVALID: "作品識別碼格式不正確。",
     CLOUD_SYNC_PROJECT_NOT_FOUND: "雲端找不到這部作品。",
-    CLOUD_SYNC_ENVELOPE_INVALID: "雲端同步密文格式不正確。",
-    CLOUD_SYNC_OPERATION_INVALID: "同步操作身分不正確。",
-    CLOUD_SYNC_REVISION_INVALID: "同步版本不正確。",
+    CLOUD_SYNC_ENVELOPE_INVALID: "雲端同步加密封包格式不正確。",
+    CLOUD_SYNC_OPERATION_INVALID: "雲端同步操作識別碼不正確。",
+    CLOUD_SYNC_REVISION_INVALID: "雲端同步版本號不正確。",
+    CLOUD_SYNC_WRITE_IN_PROGRESS: "另一個雲端同步操作正在完成，稍後會自動重試。",
+    CLOUD_SYNC_STORAGE_CORRUPT: "雲端同步資料完整性檢查失敗。",
   };
   return NextResponse.json({
     errorCode: code,
-    message: messages[code] ?? "雲端同步服務尚未就緒，作品仍安全保留在本機。",
+    message: messages[code] ?? "雲端同步暫時無法完成，系統會保留本機資料。",
     retryable: Boolean(candidate?.retryable ?? status >= 500),
   }, {
     status: Math.max(400, Math.min(599, status)),
@@ -78,7 +80,7 @@ export async function POST(request: Request) {
     const ownerId = readCloudSyncOwnerId(request);
     const length = Number(request.headers.get("content-length") || 0);
     if (length > 4_200_000) {
-      throw Object.assign(new Error("同步快照超過單次上傳上限。"), {
+      throw Object.assign(new Error("雲端同步資料超過大小限制。"), {
         code: "CLOUD_SYNC_PAYLOAD_TOO_LARGE",
         status: 413,
         retryable: false,

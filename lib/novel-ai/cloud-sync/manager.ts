@@ -102,6 +102,7 @@ export class CloudSyncManager {
         schemaVersion: CLOUD_SYNC_SCHEMA_VERSION,
         status: "degraded",
         provider: "Supabase",
+        storageBackend: "private-object-storage",
         encryption: "client-side-aes-gcm",
         canonicalAuthority: "IndexedDB",
         migrationVersion: null,
@@ -269,7 +270,7 @@ export class CloudSyncManager {
     const config = await this.store.getConfig();
     if (!config.enabled || !config.syncKey) return;
     const health = await this.probe();
-    if (health.status !== "ready") return;
+    if (!health || health.status !== "ready") return;
     const now = Date.now();
     const outbox = (await this.store.listOutbox())
       .filter((entry) => entry.state !== "conflict" && Date.parse(entry.nextAttemptAt) <= now)
