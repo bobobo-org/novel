@@ -25,6 +25,7 @@ import {
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
 import { capabilityStatus, capabilityTruthMatrix, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
+import { listExternalAIProviderStatus } from "@/lib/novel-ai/providers/external/external-provider-runtime";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,7 @@ function deploymentId() {
 }
 
 export async function GET() {
+  const externalAIProviders = listExternalAIProviderStatus();
   const started = Date.now();
   const capabilityCatalog = resolveCapabilityCatalog();
   const meta = providerMeta();
@@ -427,7 +429,9 @@ export async function GET() {
     universalStageGenerationStatus: "ready",
     classificationPackIntegrationStatus: "ready",
     topicGenerationContractStatus: "ready",
-    externalStoryGenerationStatus: "not_implemented",
+    externalStoryGenerationStatus: externalAIProviders.some((provider) => provider.configured) ? "configured" : "implemented_not_configured",
+    externalStoryGenerationModes: ["closed-only", "hybrid", "external-only"],
+    externalStoryProviderStatus: externalAIProviders,
     universalLocalStageGenerationStatus: "ready",
     storyStagePromptRegistryStatus: "ready",
     storyStageRewriteStatus: "ready",

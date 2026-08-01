@@ -46,7 +46,10 @@ function snapshotFromPlatform(
 ): ClosedAIBackendSnapshot {
   const truth = BACKEND_TRUTH[id];
   const browserGenerativeReady = id === "browser-ai"
-    && snapshot.detail === "browser_hybrid_runtime_native_prompt_ready";
+    && [
+      "browser_hybrid_runtime_native_prompt_ready",
+      "browser_hybrid_runtime_webllm_ready",
+    ].includes(snapshot.detail ?? "");
   return {
     id,
     label: truth.label,
@@ -197,7 +200,16 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       throw unavailable(this.id, snapshot.status);
     }
     const request = platformRequest(input);
-    const result = await runBrowserAI(request, lockedDecision(request, snapshot));
+    const result = await runBrowserAI(
+      request,
+      lockedDecision(request, snapshot),
+      (progress) => reportGenerationProgress(
+        input,
+        `瀏覽器 AI 已生成 ${progress.generatedCharacters} 字`,
+        progress.generatedCharacters,
+        Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
+      ),
+    );
     reportGenerationProgress(
       input,
       `瀏覽器模型已產生 ${result.content.length} 字候選`,

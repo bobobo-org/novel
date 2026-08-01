@@ -12,6 +12,16 @@ import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
 } from "../closed/task-profile";
+import {
+  browserWebLLMRuntimeSnapshot,
+  cancelBrowserWebLLMGeneration,
+  generateWithBrowserWebLLM,
+} from "./browser-webllm-runtime";
+import type {
+  BrowserWebLLMCacheBackend,
+  BrowserWebLLMDeviceTier,
+  BrowserWebLLMModelId,
+} from "./webllm-model-registry";
 
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
 export type BrowserAICapability = {
@@ -25,10 +35,20 @@ export type BrowserAICapability = {
   summaryAvailability: string;
   promptAvailability: string;
   generativeModelReady: boolean;
+  generativeRuntime: "webllm-worker" | "chromium-prompt-api" | null;
+  webLlmSupported: boolean;
+  webLlmInstalled: boolean;
+  webLlmStatus: "ready" | "install_required" | "unsupported" | "error";
+  webLlmModelId: BrowserWebLLMModelId | null;
+  webLlmModelDigest: string | null;
+  webLlmDeviceTier: BrowserWebLLMDeviceTier;
+  webLlmCacheBackend: BrowserWebLLMCacheBackend | null;
   modelId:
     | typeof BROWSER_TASK_MODEL.modelId
     | typeof BROWSER_LANGUAGE_MODEL_ID
+    | BrowserWebLLMModelId
     | null;
+  modelDigest: string | null;
 };
 export type BrowserAIInferenceProof = {
   proofVersion: "browser-ai-inference-proof-v1";
@@ -37,7 +57,8 @@ export type BrowserAIInferenceProof = {
   modelId:
     | "chrome-built-in-summarizer"
     | typeof BROWSER_LANGUAGE_MODEL_ID
-    | typeof BROWSER_TASK_MODEL.modelId;
+    | typeof BROWSER_TASK_MODEL.modelId
+    | BrowserWebLLMModelId;
   modelDigest: string;
   verifiedAt: string;
   latencyMs: number;
@@ -45,6 +66,13 @@ export type BrowserAIInferenceProof = {
   outputBytes: number;
   externalRequest: false;
   dataLeftDevice: false;
+};
+
+export type BrowserAIStreamProgress = {
+  generatedCharacters: number;
+  generatedTokenEvents: number;
+  delta: string;
+  elapsedMs: number;
 };
 
 type BrowserSummarizer = {
@@ -210,6 +238,38 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
     });
   }
   const startedAt = performance.now();
+  if (
+    capability.webLlmInstalled
+    && capability.webLlmModelId
+    && capability.webLlmModelDigest
+  ) {
+    try {
+      const result = await generateWithBrowserWebLLM({
+        systemInstruction: "你是裝置內繁體中文小說助理。只輸出一句簡短、自然的測試文字。",
+        prompt: "用繁體中文寫一句：裝置內模型已完成真實推理。",
+        temperature: 0.2,
+        maxTokens: 48,
+        signal,
+      });
+      return recordInferenceProof(
+        result.content,
+        startedAt,
+        result.modelId,
+        result.modelDigest,
+        "generative-model",
+      );
+    } catch (error) {
+      if (isAbortError(error, signal)) throw error;
+      throw Object.assign(
+        new Error("已安裝的 WebLLM 模型未通過真實推理測試。"),
+        {
+          code: "BROWSER_WEBLLM_INFERENCE_FAILED",
+          retryable: true,
+          cause: error,
+        },
+      );
+    }
+  }
   const languageFactory = languageModelFactory();
   const promptAvailability = languageFactory
     ? await browserLanguageModelAvailability(languageFactory)
@@ -340,7 +400,16 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     summaryAvailability: "unavailable",
     promptAvailability: "unavailable",
     generativeModelReady: false,
+    generativeRuntime: null,
+    webLlmSupported: false,
+    webLlmInstalled: false,
+    webLlmStatus: "unsupported",
+    webLlmModelId: null,
+    webLlmModelDigest: null,
+    webLlmDeviceTier: "unsupported",
+    webLlmCacheBackend: null,
     modelId: null,
+    modelDigest: null,
   };
   const webGpu = "gpu" in navigator;
   const wasm = typeof WebAssembly !== "undefined";
@@ -360,8 +429,26 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
   const promptAvailability = languageFactory
     ? await browserLanguageModelAvailability(languageFactory)
     : "unavailable";
-  const generativeModelReady = promptAvailability === "available"
+  const nativeGenerativeReady = promptAvailability === "available"
     || promptAvailability === "readily";
+  const webLlm = await withBrowserDeadline(
+    browserWebLLMRuntimeSnapshot(),
+    BROWSER_CONTROL_TIMEOUT_MS,
+    "BROWSER_WEBLLM_PROBE_TIMEOUT",
+  ).catch(() => null);
+  const selectedWebLlm = webLlm?.models.find((model) => (
+    model.modelId === webLlm.selectedModelId
+  )) ?? null;
+  const webLlmInstalled = selectedWebLlm?.installStatus === "ready"
+    && selectedWebLlm.cacheVerified;
+  const webLlmModelId = webLlmInstalled ? selectedWebLlm.modelId : null;
+  const webLlmModelDigest = webLlmInstalled ? selectedWebLlm.modelDigest : null;
+  const generativeModelReady = webLlmInstalled || nativeGenerativeReady;
+  const generativeRuntime = webLlmInstalled
+    ? "webllm-worker" as const
+    : nativeGenerativeReady
+      ? "chromium-prompt-api" as const
+      : null;
   const ready = summaryAvailability === "available" || summaryAvailability === "readily";
   const downloadable = summaryAvailability === "downloadable" || summaryAvailability === "after-download";
   return {
@@ -371,10 +458,14 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     storageQuota: estimate.quota ?? null,
     storageUsage: estimate.usage ?? null,
     status: "ready",
-    reason: generativeModelReady
-      ? "browser_hybrid_runtime_native_prompt_ready"
+    reason: webLlmInstalled
+      ? "browser_hybrid_runtime_webllm_ready"
+      : nativeGenerativeReady
+        ? "browser_hybrid_runtime_native_prompt_ready"
       : ready
         ? "browser_hybrid_runtime_native_summary_ready"
+        : webLlm?.supported
+          ? "browser_hybrid_runtime_webllm_install_required"
         : languageFactory && (
           promptAvailability === "downloadable"
           || promptAvailability === "downloading"
@@ -389,9 +480,26 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
         : "packaged-task-runtime-ready",
     promptAvailability,
     generativeModelReady,
-    modelId: generativeModelReady
-      ? BROWSER_LANGUAGE_MODEL_ID
-      : BROWSER_TASK_MODEL.modelId,
+    generativeRuntime,
+    webLlmSupported: Boolean(webLlm?.supported),
+    webLlmInstalled,
+    webLlmStatus: webLlmInstalled
+      ? "ready"
+      : webLlm?.supported
+        ? "install_required"
+        : webLlm
+          ? "unsupported"
+          : "error",
+    webLlmModelId,
+    webLlmModelDigest,
+    webLlmDeviceTier: webLlm?.device.tier ?? "unsupported",
+    webLlmCacheBackend: webLlm?.cacheBackend ?? null,
+    modelId: webLlmModelId
+      ?? (nativeGenerativeReady ? BROWSER_LANGUAGE_MODEL_ID : BROWSER_TASK_MODEL.modelId),
+    modelDigest: webLlmModelDigest
+      ?? (nativeGenerativeReady
+        ? BROWSER_MANAGED_MODEL_DIGEST
+        : BROWSER_TASK_MODEL.modelDigest),
   };
 }
 
@@ -400,28 +508,144 @@ export async function browserProviderSnapshot(): Promise<PlatformProviderSnapsho
   return {
     id: "browser-ai",
     status: capability.status,
-    capabilities: ["text", "offline"],
+    capabilities: [
+      "text",
+      "offline",
+      ...(capability.webLlmInstalled ? ["streaming" as const] : []),
+      ...(capability.generativeModelReady ? ["structured" as const] : []),
+    ],
     modelId: capability.modelId,
-    modelDigest: capability.status === "ready"
-      ? capability.generativeModelReady
-        ? BROWSER_MANAGED_MODEL_DIGEST
-        : BROWSER_TASK_MODEL.modelDigest
-      : null,
+    modelDigest: capability.status === "ready" ? capability.modelDigest : null,
     maxContext: capability.status === "ready"
-      ? capability.generativeModelReady
-        ? 8_192
+      ? capability.webLlmInstalled
+        ? 4_096
+        : capability.generativeModelReady
+          ? 8_192
         : 16_384
       : 0,
     local: true,
     requiresInternet: false,
-    taskTypes: BROWSER_LIGHT_TASKS,
+    taskTypes: capability.generativeModelReady ? undefined : BROWSER_LIGHT_TASKS,
     detail: capability.reason,
   };
 }
 
-export async function runBrowserAI(request: PlatformAIRequest, decision: PlatformRouterDecision): Promise<PlatformAIResult> {
+function isAbortError(error: unknown, signal?: AbortSignal) {
+  return Boolean(
+    signal?.aborted
+    || (error instanceof DOMException && error.name === "AbortError")
+    || (error instanceof Error && error.name === "AbortError"),
+  );
+}
+
+export async function runBrowserAI(
+  request: PlatformAIRequest,
+  decision: PlatformRouterDecision,
+  onProgress?: (progress: BrowserAIStreamProgress) => void,
+): Promise<PlatformAIResult> {
   const started = performance.now();
   const sourceText = [...request.context, request.input].join("\n\n");
+  let webLlmFailureWarning: string | null = null;
+  const webLlm = await browserWebLLMRuntimeSnapshot().catch(() => null);
+  const selectedWebLlm = webLlm?.models.find((model) => (
+    model.modelId === webLlm.selectedModelId
+  )) ?? null;
+  const webLlmReady = selectedWebLlm?.installStatus === "ready"
+    && selectedWebLlm.cacheVerified;
+  if (webLlmReady && taskComplexity(request.taskType) !== "heavy") {
+    const profile = getClosedAIModelProfile(request.taskType, "browser-ai");
+    const prompt = buildClosedAIModelPrompt({
+      objective: request.input,
+      context: request.context,
+      profile,
+      qualityPhase: request.qualityPhase,
+      agentPlan: request.agentPlan,
+      toolResults: request.toolResults,
+      workingMaterials: request.workingMaterials,
+    });
+    try {
+      const generated = await generateWithBrowserWebLLM({
+        systemInstruction: profile.systemInstruction,
+        prompt: prompt.prompt,
+        temperature: request.generationOptions?.temperature,
+        topP: request.generationOptions?.topP,
+        maxTokens: request.generationOptions?.maxTokens,
+        repetitionPenalty: request.generationOptions?.repetitionPenalty,
+        seed: request.generationOptions?.seed,
+        signal: request.signal,
+        onToken: (event) => onProgress?.({
+          generatedCharacters: event.content.length,
+          generatedTokenEvents: event.generatedTokenEvents,
+          delta: event.delta,
+          elapsedMs: event.elapsedMs,
+        }),
+      });
+      const normalized = normalizeTraditionalChinesePreservingProperNouns(
+        generated.content,
+        sourceText,
+      );
+      await recordInferenceProof(
+        normalized,
+        started,
+        generated.modelId,
+        generated.modelDigest,
+        "generative-model",
+      );
+      return {
+        requestId: request.requestId,
+        providerId: "browser-ai",
+        modelId: generated.modelId,
+        modelDigest: generated.modelDigest,
+        content: normalized,
+        candidateOnly: true,
+        externalRequest: false,
+        dataLeavesDevice: false,
+        elapsedMs: generated.elapsedMs,
+        provenance: {
+          ...decision,
+          modelId: generated.modelId,
+          modelDigest: generated.modelDigest,
+          warnings: [
+            ...decision.warnings,
+            "WebLLM WebGPU Worker generated this candidate on device.",
+          ],
+        },
+        profileId: profile.profileId,
+        firstTokenMs: generated.firstTokenMs,
+        inputCharacters: generated.inputCharacters,
+        outputCharacters: normalized.length,
+        generatedTokenEvents: generated.generatedTokenEvents,
+        omittedInputCharacters: prompt.omittedCharacters + generated.omittedInputCharacters,
+        runtimeStats: generated.runtimeStats,
+        tokensPerSecond: generated.tokensPerSecond,
+        estimatedMemoryMB: generated.estimatedVramMB,
+        executor: "webllm-worker",
+        performancePolicy: generated.performancePolicy,
+        queueWaitMs: generated.queueWaitMs,
+        engineReused: generated.engineReused,
+      };
+    } catch (error) {
+      cancelBrowserWebLLMGeneration();
+      if (isAbortError(error, request.signal)) throw error;
+      webLlmFailureWarning = "WebLLM generation failed; no rule output was presented as an LLM result.";
+      if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
+        const languageFactory = languageModelFactory();
+        const availability = languageFactory
+          ? await browserLanguageModelAvailability(languageFactory)
+          : "unavailable";
+        if (!languageFactory || !["available", "readily"].includes(availability)) {
+          throw Object.assign(
+            new Error("Browser WebLLM 執行失敗；請重試較小模型或明確升級到 Local Ollama。"),
+            {
+              code: "BROWSER_AI_ESCALATE_LOCAL_OLLAMA",
+              retryable: true,
+              cause: error,
+            },
+          );
+        }
+      }
+    }
+  }
   const languageFactory = languageModelFactory();
   const promptAvailability = languageFactory
     ? await browserLanguageModelAvailability(languageFactory)
@@ -463,6 +687,13 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
         content.trim(),
         sourceText,
       );
+      const elapsedMs = Math.round(performance.now() - started);
+      onProgress?.({
+        generatedCharacters: normalized.length,
+        generatedTokenEvents: 1,
+        delta: normalized,
+        elapsedMs,
+      });
       await recordInferenceProof(
         normalized,
         started,
@@ -479,7 +710,7 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
         candidateOnly: true,
         externalRequest: false,
         dataLeavesDevice: false,
-        elapsedMs: Math.round(performance.now() - started),
+        elapsedMs,
         provenance: {
           ...decision,
           modelId: BROWSER_LANGUAGE_MODEL_ID,
@@ -490,11 +721,12 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
           ],
         },
         profileId: profile.profileId,
-        firstTokenMs: Math.round(performance.now() - started),
+        firstTokenMs: elapsedMs,
         inputCharacters: prompt.inputCharacters,
         outputCharacters: normalized.length,
         generatedTokenEvents: 1,
         omittedInputCharacters: prompt.omittedCharacters,
+        executor: "chromium-prompt-api",
       };
     } catch (error) {
       if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
@@ -520,8 +752,19 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
   const factory = summarizerFactory();
   const runPackagedFallback = async (warning: string): Promise<PlatformAIResult> => {
     const result = runPackagedBrowserTaskModel(request.taskType, sourceText);
-    await recordInferenceProof(
+    const normalized = normalizeTraditionalChinesePreservingProperNouns(
       result.content,
+      sourceText,
+    );
+    const elapsedMs = Math.round(performance.now() - started);
+    onProgress?.({
+      generatedCharacters: normalized.length,
+      generatedTokenEvents: 1,
+      delta: normalized,
+      elapsedMs,
+    });
+    await recordInferenceProof(
+      normalized,
       started,
       result.modelId,
       result.modelDigest,
@@ -531,28 +774,27 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
       providerId: "browser-ai",
       modelId: result.modelId,
       modelDigest: result.modelDigest,
-      content: normalizeTraditionalChinesePreservingProperNouns(
-        result.content,
-        sourceText,
-      ),
+      content: normalized,
       candidateOnly: true,
       externalRequest: false,
       dataLeavesDevice: false,
-      elapsedMs: Math.round(performance.now() - started),
+      elapsedMs,
       provenance: {
         ...decision,
         modelId: result.modelId,
         warnings: [
           ...decision.warnings,
+          ...(webLlmFailureWarning ? [webLlmFailureWarning] : []),
           warning,
         ],
       },
       profileId: "closed-browser-ai-light-task-v2",
-      firstTokenMs: Math.round(performance.now() - started),
+      firstTokenMs: elapsedMs,
       inputCharacters: sourceText.length,
-      outputCharacters: result.content.length,
+      outputCharacters: normalized.length,
       generatedTokenEvents: 1,
       omittedInputCharacters: 0,
+      executor: "browser-task-model",
     };
   };
   if (!isNativeBrowserSummaryTask(request.taskType)) {
@@ -594,26 +836,44 @@ export async function runBrowserAI(request: PlatformAIRequest, decision: Platfor
       "chrome-built-in-summarizer",
       "browser-managed-model-digest-unavailable",
     );
+    const normalized = normalizeTraditionalChinesePreservingProperNouns(
+      content.trim(),
+      sourceText,
+    );
+    const elapsedMs = Math.round(performance.now() - started);
+    onProgress?.({
+      generatedCharacters: normalized.length,
+      generatedTokenEvents: 1,
+      delta: normalized,
+      elapsedMs,
+    });
     return {
       requestId: request.requestId,
       providerId: "browser-ai",
-      modelId: BROWSER_TASK_MODEL.modelId,
-      modelDigest: BROWSER_TASK_MODEL.modelDigest,
-      content: normalizeTraditionalChinesePreservingProperNouns(
-        content.trim(),
-        sourceText,
-      ),
+      modelId: "chrome-built-in-summarizer",
+      modelDigest: "browser-managed-model-digest-unavailable",
+      content: normalized,
       candidateOnly: true,
       externalRequest: false,
       dataLeavesDevice: false,
-      elapsedMs: Math.round(performance.now() - started),
-      provenance: decision,
+      elapsedMs,
+      provenance: {
+        ...decision,
+        modelId: "chrome-built-in-summarizer",
+        modelDigest: "browser-managed-model-digest-unavailable",
+        warnings: [
+          ...decision.warnings,
+          ...(webLlmFailureWarning ? [webLlmFailureWarning] : []),
+          "Chrome/Edge on-device Summarizer used for this light task.",
+        ],
+      },
       profileId: "closed-browser-ai-native-summary-v2",
-      firstTokenMs: Math.round(performance.now() - started),
+      firstTokenMs: elapsedMs,
       inputCharacters: sourceText.length,
-      outputCharacters: content.trim().length,
+      outputCharacters: normalized.length,
       generatedTokenEvents: 1,
       omittedInputCharacters: 0,
+      executor: "chromium-summarizer",
     };
   } catch {
     return runPackagedFallback(

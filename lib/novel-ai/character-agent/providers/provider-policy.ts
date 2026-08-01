@@ -29,7 +29,7 @@ export type CharacterExternalConsent = {
   consentId: string;
   projectId: string;
   requestId: string;
-  providerId: Extract<PlatformProviderId, "openai" | "gemini" | "grok">;
+  providerId: Extract<PlatformProviderId, "openai" | "gemini" | "grok" | "claude">;
   taskType: PlatformTaskType;
   grantedAt: string;
   expiresAt: string;
@@ -79,7 +79,7 @@ export function noSilentExternalFallback(
   fallbackChain: PlatformProviderId[],
   externalConsent: boolean,
 ) {
-  if (!externalConsent && fallbackChain.some((provider) => ["openai", "gemini", "grok"].includes(provider))) {
+  if (!externalConsent && fallbackChain.some((provider) => ["openai", "gemini", "grok", "claude"].includes(provider))) {
     throw new CharacterAgentError("CHARACTER_SILENT_EXTERNAL_FALLBACK_BLOCKED", "未取得單次明確同意，不得切換到外部 AI。");
   }
   return true;

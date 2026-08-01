@@ -172,7 +172,7 @@ function registerProjectionTests() {
     assert.equal(capability?.contractStatus, "ready");
     assert.equal(capability?.runtimeStatus, "client_dependent");
   });
-  test("Private Hub remains not connected", () => assert.equal(CAPABILITY_REGISTRY.find((row) => row.id === "privateAiHub")?.runtimeStatus, "not_connected"));
+  test("Private Hub runtime remains truthfully client dependent", () => assert.equal(CAPABILITY_REGISTRY.find((row) => row.id === "privateAiHub")?.runtimeStatus, "client_dependent"));
   test("Browser AI may handle lightweight Drama classification", () => {
     const decision = resolvePlatformProvider({
       requestId: crypto.randomUUID(), projectId: crypto.randomUUID(), taskType: "drama.sceneClassify",

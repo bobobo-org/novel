@@ -63,7 +63,7 @@ export const CAPABILITY_TRUTH_MATRIX: CapabilityTruthRecord[] = [
   { id: "media.storyboard", status: "implemented", evidence: ["story media candidate package"], limitations: ["Candidate only"] },
   { id: "media.videoPrompt", status: "implemented", evidence: ["video prompt package"], limitations: ["Candidate only"] },
   { id: "media.videoGeneration", status: "contract_only", evidence: ["generic video adapter contract"], limitations: ["No video runtime connected"] },
-  { id: "externalAI", status: "not_configured", evidence: ["external provider requires explicit consent"], limitations: ["Never selected in closed-only mode"] },
+  { id: "externalAI", status: "implemented", evidence: ["OpenAI Responses, Gemini Generate Content, xAI Responses and Claude Messages server adapters", "closed-only, hybrid and external-only execution modes", "single-use explicit consent and candidate-only boundary"], limitations: ["Each provider remains unavailable until its server-side credential is configured", "Never selected in closed-only mode", "No silent fallback between external and closed providers"] },
   { id: "characterAgentCore", status: "verified", evidence: ["P2.4B Character Agent core matrix"], limitations: ["Runtime depends on the client environment"] },
   { id: "characterPerspectiveContext", status: "verified", evidence: ["P2.4B actor/evaluator noninterference matrix"], limitations: ["Runtime depends on client storage"] },
   { id: "knowledgeScopedCharacterContext", status: "verified", evidence: ["P2.4B knowledge scope matrix"], limitations: [] },

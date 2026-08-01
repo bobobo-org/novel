@@ -17,6 +17,11 @@ export async function GET() {
     persistenceHealth(),
     cloudSyncServerHealth(),
   ]);
+  const effectiveCloudStatus = sync.status === "ready"
+    ? "ready"
+    : sync.status === "migration_required"
+      ? "migration_required"
+      : cloud.persistenceStatus;
   const writeProbe = cloud.writeTestStatus;
   const writeProbeStatus = writeProbe && typeof writeProbe === "object"
     ? writeProbe.status
@@ -30,9 +35,11 @@ export async function GET() {
     },
     cloudPersistence: {
       provider: "Supabase",
-      status: sync.status === "ready" ? "ready" : cloud.persistenceStatus,
+      status: effectiveCloudStatus,
       migrationStatus: sync.status === "ready"
         ? "current"
+        : sync.status === "migration_required"
+          ? "sync_required"
         : cloud.migrationVersion
           ? "base_current_sync_required"
           : cloud.persistenceStatus === "not_configured"
@@ -46,7 +53,9 @@ export async function GET() {
       lastSuccessfulWriteAt: cloud.lastSuccessfulWriteAt,
       errorCategory: sync.status === "ready"
         ? null
-        : errorCategory(cloud.persistenceStatus, cloud.databaseStatus),
+        : sync.status === "migration_required"
+          ? "migration"
+          : errorCategory(cloud.persistenceStatus, cloud.databaseStatus),
       retryable: sync.retryable || cloud.databaseStatus === "error",
     },
   }, {

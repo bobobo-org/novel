@@ -1,4 +1,4 @@
-export type PlatformProviderId = "browser-ai" | "local-ollama" | "private-ai-hub" | "deterministic-local" | "openai" | "gemini" | "grok";
+export type PlatformProviderId = "browser-ai" | "local-ollama" | "private-ai-hub" | "deterministic-local" | "openai" | "gemini" | "grok" | "claude";
 export type PrivacyMode = "strict-local" | "private-hub-allowed" | "external-allowed";
 export type ClosedAIPrivacyLevel = "device_only" | "private_infrastructure_only" | "external_allowed";
 export type ClosedAIFallbackPolicy = "none" | "closed-only" | "external-with-consent";
@@ -53,6 +53,10 @@ export type PlatformAIRequest = {
   }>;
   generationOptions?: {
     seed?: number;
+    temperature?: number;
+    topP?: number;
+    maxTokens?: number;
+    repetitionPenalty?: number;
   };
   idempotencyKey?: string;
   cacheNamespace?: ClosedAINamespace;
@@ -77,5 +81,24 @@ export type PlatformAIResult = {
   outputCharacters?: number;
   generatedTokenEvents?: number;
   omittedInputCharacters?: number;
+  runtimeStats?: string;
+  tokensPerSecond?: number | null;
+  estimatedMemoryMB?: number | null;
+  executor?: "webllm-worker" | "chromium-prompt-api" | "browser-task-model" | string;
+  queueWaitMs?: number;
+  engineReused?: boolean;
+  performancePolicy?: {
+    policyVersion: string;
+    tier: string;
+    parameterLabel: string;
+    maxInputCharacters: number;
+    maxOutputTokens: number;
+    temperature: number;
+    topP: number;
+    repetitionPenalty: number;
+    serialGeneration: true;
+    workerExecution: true;
+    reason: string[];
+  };
 };
 import type { ClosedAINamespace } from "../closed-ai-cache";

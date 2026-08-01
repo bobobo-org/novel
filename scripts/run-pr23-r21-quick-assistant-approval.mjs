@@ -498,8 +498,10 @@ assert.match(
 );
 assert.match(
   globalStyles,
-  /\.studioPersistenceBanner\[data-blocked="false"\]\{pointer-events:none\}/,
+  /\.studioPersistenceBanner\[data-blocked="false"\]\{pointer-events:auto\}/,
 );
+assert.match(studioSource, /data-testid="dismiss-cloud-degraded-notice"/);
+assert.match(studioSource, /sessionStorage\.setItem\(CLOUD_NOTICE_SESSION_KEY, "1"\)/);
 
 const quickAssistantRoute = await readFile(
   new URL("../app/studio/quick-assistant/page.tsx", import.meta.url),

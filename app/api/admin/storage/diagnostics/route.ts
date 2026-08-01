@@ -11,6 +11,7 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
+import { listExternalAIProviderStatus } from "@/lib/novel-ai/providers/external/external-provider-runtime";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
   registerStorageAdapter(new MemoryStoryBibleStorageAdapter());
   registerStorageAdapter(new SupabaseStoryBibleStorageAdapter());
   const contract = await runL0AContractTests();
+  const externalAIProviders = listExternalAIProviderStatus();
   let sqliteDiagnostics: Record<string, unknown> = {
     sqliteAdapterRegistered: true,
     sqliteDriver: "node:sqlite",
@@ -343,7 +345,9 @@ export async function GET(req: Request) {
     universalStageGenerationStatus: "ready",
     classificationPackIntegrationStatus: "ready",
     topicGenerationContractStatus: "ready",
-    externalStoryGenerationStatus: "not_implemented",
+    externalStoryGenerationStatus: externalAIProviders.some((provider) => provider.configured) ? "configured" : "implemented_not_configured",
+    externalStoryGenerationModes: ["closed-only", "hybrid", "external-only"],
+    externalStoryProviderStatus: externalAIProviders,
     universalLocalStageGenerationStatus: "ready",
     storyStagePromptRegistryStatus: "ready",
     storyStageRewriteStatus: "ready",

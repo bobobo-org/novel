@@ -15,7 +15,7 @@ const domainRecord = z.object({
   source: z.enum(["user", "ai_candidate", "migration", "system"]),
   provenance: z.object({
     source: z.enum(["user", "ai_candidate", "migration", "system"]),
-    actor: z.enum(["author", "local-rule", "browser-ai", "local-ollama", "private-ai-hub", "migration"]),
+    actor: z.enum(["author", "local-rule", "browser-ai", "local-ollama", "private-ai-hub", "external-ai", "migration"]),
     requestId: z.string().optional(),
     createdAt: z.string().datetime(),
   }).strict(),
@@ -55,7 +55,7 @@ export const dramaProjectSchema = domainRecord.extend({
     retrievalTraceId: z.string().min(1),
     contextCompositionId: z.string().min(1),
     providerRunId: z.string().min(1),
-    providerId: z.enum(["browser-ai", "local-ollama", "private-ai-hub", "deterministic-local", "openai", "gemini", "grok"]),
+    providerId: z.enum(["browser-ai", "local-ollama", "private-ai-hub", "deterministic-local", "openai", "gemini", "grok", "claude"]),
     promptHash: z.string().regex(/^[a-f0-9]{64}$/),
     outputHash: z.string().regex(/^[a-f0-9]{64}$/),
     taintTraceId: z.string().min(1),

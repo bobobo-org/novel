@@ -238,6 +238,101 @@
   background: rgba(18, 43, 70, 0.58);
 }
 
+.browserModelManager {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #365878;
+  border-radius: 9px;
+  background: rgba(5, 15, 27, 0.78);
+}
+
+.browserDeviceSummary {
+  display: grid;
+  gap: 3px;
+}
+
+.browserDeviceSummary > span,
+.browserDeviceSummary > small,
+.browserModelTruth {
+  color: #9fb5d0;
+  line-height: 1.45;
+}
+
+.browserModelTruth {
+  margin: 0;
+  padding: 8px;
+  border-left: 3px solid #c69242;
+  background: rgba(116, 77, 21, 0.13);
+  font-size: 12px;
+}
+
+.browserModelList {
+  display: grid;
+  gap: 8px;
+}
+
+.browserModelCard {
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid #2c4663;
+  border-radius: 8px;
+  background: #081523;
+}
+
+.browserModelCard[data-selected="true"] {
+  border-color: #2c9a77;
+  box-shadow: inset 3px 0 #43c89c;
+}
+
+.browserModelCard > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.browserModelCard > div:first-child span {
+  color: #8de0c4;
+}
+
+.browserModelCard small {
+  color: #9eb3cd;
+  line-height: 1.4;
+}
+
+.browserModelCard code {
+  overflow-wrap: anywhere;
+  color: #b9d8f3;
+  font-size: 11px;
+}
+
+.modelProgress {
+  display: grid;
+  gap: 4px;
+}
+
+.modelProgress progress {
+  width: 100%;
+  accent-color: #47b995;
+}
+
+.modelError {
+  color: #ffb2aa !important;
+}
+
+.modelActions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+}
+
+.modelActions button {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
 .backendList article > div span {
   color: #8fd7c3;
   text-align: right;

@@ -133,6 +133,9 @@
     "test:p24b:rc3-1:preview-parity": "node scripts/verify-p24b-rc3-1-preview-parity.mjs",
     "seal:p24b:rc3-1:evidence": "node scripts/seal-p24b-rc3-1-consumer-activation-evidence.mjs",
     "test:ai:closed:optimization": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization.mjs",
+    "test:ai:external:modes": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-external-ai-modes.mjs",
+    "test:ai:browser:semantic-rag": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-semantic-rag.mjs",
+    "test:ai:browser:performance": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-ai-performance-policy.mjs",
     "test:ai:closed:cloud-sync": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-cloud-sync-e2ee.mjs",
     "migrate:cloud-sync": "node scripts/apply-cloud-sync-migration.mjs --required",
     "test:ai:closed:optimization:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization-real.mjs",
@@ -400,6 +403,8 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.12",
+    "@huggingface/transformers": "4.2.0",
+    "@mlc-ai/web-llm": "0.2.84",
     "ai": "^7.0.22",
     "next": "16.2.10",
     "opencc-js": "^1.4.1",

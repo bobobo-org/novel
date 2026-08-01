@@ -40,6 +40,33 @@ import {
   type BrowserAIInferenceProof,
 } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
 import {
+  browserWebLLMRuntimeSnapshot,
+  deleteBrowserWebLLMModel,
+  installBrowserWebLLMModel,
+  prewarmBrowserWebLLMModel,
+  selectBrowserWebLLMModel,
+  subscribeBrowserWebLLMProgress,
+  type BrowserWebLLMProgress,
+  type BrowserWebLLMRuntimeSnapshot,
+} from "@/lib/novel-ai/providers/browser-ai/browser-webllm-runtime";
+import {
+  BROWSER_WEBLLM_MODELS,
+  type BrowserWebLLMModelId,
+} from "@/lib/novel-ai/providers/browser-ai/webllm-model-registry";
+import {
+  browserSemanticRuntimeSnapshot,
+  deleteBrowserSemanticModel,
+  installBrowserSemanticModel,
+  invalidateBrowserSemanticCache,
+  rankWithBrowserSemanticModel,
+  subscribeBrowserSemanticProgress,
+  type BrowserSemanticProgress,
+  type BrowserSemanticRuntimeSnapshot,
+} from "@/lib/novel-ai/providers/browser-ai/browser-semantic-runtime";
+import {
+  BROWSER_SEMANTIC_MODEL,
+} from "@/lib/novel-ai/providers/browser-ai/browser-semantic-model-registry";
+import {
   configureLocalBridgeClient,
   configureLocalBridgeModel,
   selectAvailableTextModel,
@@ -233,6 +260,10 @@ function runtimeError(error: unknown) {
     DATASET_DUPLICATE_EXAMPLES: "訓練資料集中有重複對照，請移除後再封印。",
     BROWSER_AI_UNSUPPORTED: "此裝置不支援瀏覽器內建 AI；其他閉端後端不受影響。",
     BROWSER_AI_MODEL_NOT_READY: "此裝置可支援瀏覽器 AI，但裝置模型尚未可用。",
+    BROWSER_WEBLLM_DEVICE_GATE_FAILED: "這個模型未通過目前裝置的 WebGPU、記憶體或儲存空間檢查。",
+    BROWSER_WEBLLM_INSTALL_FAILED: "Browser AI 模型未安裝完成；請確認網路與可用空間後重試。",
+    BROWSER_WEBLLM_INFERENCE_FAILED: "已安裝的 Browser AI 模型未通過真實推理，沒有用模板冒充成功。",
+    BROWSER_WEBLLM_MODEL_NOT_INSTALLED: "請先安裝並驗證一個 Browser AI 生成模型。",
   };
   return messages[code] ?? (error instanceof Error ? error.message : "本機執行操作失敗。");
 }
@@ -245,6 +276,18 @@ function saveJson(filename: string, value: unknown) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function formatBytes(bytes: number | null | undefined) {
+  if (!Number.isFinite(bytes) || !bytes) return "未知";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 100 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
 function userMessage(error: unknown) {
@@ -337,6 +380,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [offlineWorkerControlled, setOfflineWorkerControlled] = useState(false);
   const [browserCapability, setBrowserCapability] = useState<BrowserAICapability | null>(null);
   const [browserProof, setBrowserProof] = useState<BrowserAIInferenceProof | null>(null);
+  const [browserWebLlm, setBrowserWebLlm] = useState<BrowserWebLLMRuntimeSnapshot | null>(null);
+  const [browserWebLlmProgress, setBrowserWebLlmProgress] = useState<BrowserWebLLMProgress | null>(null);
+  const browserModelInstallController = useRef<AbortController | null>(null);
+  const [browserModelOperation, setBrowserModelOperation] = useState<"install" | "prewarm" | null>(null);
+  const [browserSemantic, setBrowserSemantic] = useState<BrowserSemanticRuntimeSnapshot | null>(null);
+  const [browserSemanticProgress, setBrowserSemanticProgress] = useState<BrowserSemanticProgress | null>(null);
+  const browserSemanticInstallController = useRef<AbortController | null>(null);
+  const [browserSemanticOperation, setBrowserSemanticOperation] = useState<"install" | null>(null);
   const [localPairing, setLocalPairing] = useState<PairingRequest | null>(null);
   const [localModels, setLocalModels] = useState<LocalTextModel[]>([]);
   const [localModelId, setLocalModelId] = useState("");
@@ -357,6 +408,17 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [hubTelemetry, setHubTelemetry] = useState<RuntimeTelemetry | null>(null);
   const [progressEvents, setProgressEvents] = useState<ClosedAIProgressEvent[]>([]);
   const [contextInventory, setContextInventory] = useState<ContextInventory | null>(null);
+
+  useEffect(() => {
+    const unsubscribeWebLlm = subscribeBrowserWebLLMProgress(setBrowserWebLlmProgress);
+    const unsubscribeSemantic = subscribeBrowserSemanticProgress(setBrowserSemanticProgress);
+    return () => {
+      unsubscribeWebLlm();
+      unsubscribeSemantic();
+      browserModelInstallController.current?.abort();
+      browserSemanticInstallController.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -685,10 +747,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         preferredBackend: backend === "auto" ? undefined : backend,
       },
     });
-    const browserProbe = detectBrowserAI().then((browser) => {
+    const browserProbe = Promise.all([
+      detectBrowserAI(),
+      browserWebLLMRuntimeSnapshot().catch(() => null),
+      browserSemanticRuntimeSnapshot().catch(() => null),
+    ]).then(([browser, webLlm, semantic]) => {
       setBrowserCapability(browser);
+      setBrowserWebLlm(webLlm);
+      setBrowserSemantic(semantic);
       setBrowserProof(getBrowserAIInferenceProof());
-      return browser;
+      return { browser, semantic };
     });
     const localProbe = (async () => {
       const startedAt = performance.now();
@@ -767,11 +835,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         return false;
       }
     })();
-    const [browser, localReady, hubReady] = await Promise.all([
+    const [browserResult, localReady, hubReady] = await Promise.all([
       browserProbe,
       localProbe,
       hubProbe,
     ]);
+    const browser = browserResult.browser;
     const browserState = browser.status === "ready"
       ? getBrowserAIInferenceProof()
         ? "瀏覽器模型已實測"
@@ -780,7 +849,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ? "瀏覽器模型待下載"
         : "此裝置不支援瀏覽器 AI";
     setRuntimeStatus(
-      `${browserState}；Local Bridge ${localReady ? "模型已實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
+      `${browserState}；語意檢索 ${browserResult.semantic?.model.cacheVerified ? "已驗證" : "等待安裝／驗證"}；Local Bridge ${localReady ? "模型已實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
     );
   }, [
     backend,
@@ -850,6 +919,231 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           ? `瀏覽器裝置內生成模型已實際回答，耗時 ${proof.latencyMs} ms；可承擔一般創作工作。`
           : `瀏覽器輕量任務模型已實際回答，耗時 ${proof.latencyMs} ms；它只負責摘要與分類，不會冒充長篇生成模型。`,
       );
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function installBrowserModel(modelId: BrowserWebLLMModelId) {
+    if (runtimeBusy) return;
+    const manifest = BROWSER_WEBLLM_MODELS.find((item) => item.modelId === modelId);
+    if (!manifest) return;
+    const approved = window.confirm(
+      `即將下載 ${manifest.displayName}（約 ${formatBytes(manifest.estimatedDownloadBytes)}）。\n\n`
+      + `授權：${manifest.license}\n版本：${manifest.sourceRevision.slice(0, 12)}…\n\n`
+      + "第一次安裝需要連網；完成快取驗證後，文章推理可留在此裝置。是否繼續？",
+    );
+    if (!approved) return;
+    const controller = new AbortController();
+    browserModelInstallController.current = controller;
+    setBrowserModelOperation("install");
+    setRuntimeBusy(true);
+    setRuntimeStatus(`正在安裝 ${manifest.displayName}；可隨時停止，未完成的模型不會標記為可用。`);
+    try {
+      const snapshot = await installBrowserWebLLMModel(modelId, {
+        signal: controller.signal,
+        onProgress: setBrowserWebLlmProgress,
+      });
+      setBrowserWebLlm(snapshot);
+      setRuntimeStatus(`${manifest.displayName} 已安裝，並完成離線快取驗證。`);
+      await refresh(false);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setRuntimeStatus("已停止 Browser AI 模型安裝；未完成的快取不會冒充可用模型。");
+      } else {
+        setRuntimeStatus(runtimeError(error));
+      }
+      setBrowserWebLlm(await browserWebLLMRuntimeSnapshot().catch(() => null));
+    } finally {
+      if (browserModelInstallController.current === controller) {
+        browserModelInstallController.current = null;
+      }
+      setBrowserModelOperation(null);
+      setRuntimeBusy(false);
+    }
+  }
+
+  function stopBrowserModelInstall() {
+    browserModelInstallController.current?.abort();
+  }
+
+  async function prewarmBrowserModel() {
+    if (runtimeBusy) return;
+    const controller = new AbortController();
+    browserModelInstallController.current = controller;
+    setBrowserModelOperation("prewarm");
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在從離線快取預熱 Browser AI Worker；不會送出作品內容。");
+    try {
+      const warmed = await prewarmBrowserWebLLMModel(controller.signal);
+      setBrowserWebLlm(warmed.snapshot);
+      setRuntimeStatus(
+        warmed.engineReused
+          ? `${warmed.modelId} 已在記憶體中，可直接生成。`
+          : `${warmed.modelId} 已在 ${warmed.warmupMs} ms 內從離線快取完成預熱。`,
+      );
+    } catch (error) {
+      setRuntimeStatus(controller.signal.aborted ? "已停止 Browser AI 預熱。" : runtimeError(error));
+    } finally {
+      if (browserModelInstallController.current === controller) browserModelInstallController.current = null;
+      setBrowserModelOperation(null);
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function chooseBrowserModel(modelId: BrowserWebLLMModelId) {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    try {
+      const snapshot = await selectBrowserWebLLMModel(modelId);
+      setBrowserWebLlm(snapshot);
+      setRuntimeStatus(`已選用 ${BROWSER_WEBLLM_MODELS.find((item) => item.modelId === modelId)?.displayName ?? modelId}。`);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function removeBrowserModel(modelId: BrowserWebLLMModelId) {
+    if (runtimeBusy) return;
+    const manifest = BROWSER_WEBLLM_MODELS.find((item) => item.modelId === modelId);
+    if (!window.confirm(`確定從此裝置刪除 ${manifest?.displayName ?? modelId} 的模型快取？`)) return;
+    setRuntimeBusy(true);
+    try {
+      const snapshot = await deleteBrowserWebLLMModel(modelId);
+      setBrowserWebLlm(snapshot);
+      setBrowserProof(null);
+      setRuntimeStatus(`${manifest?.displayName ?? modelId} 已從此裝置刪除。`);
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function installSemanticModel() {
+    if (runtimeBusy) return;
+    const approved = window.confirm(
+      `即將下載 ${BROWSER_SEMANTIC_MODEL.displayName}（約 ${formatBytes(BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes)}）。\n\n`
+      + `用途：${BROWSER_SEMANTIC_MODEL.purpose}\n授權：${BROWSER_SEMANTIC_MODEL.license}\n版本：${BROWSER_SEMANTIC_MODEL.sourceRevision.slice(0, 12)}…\n\n`
+      + "安裝時會連線 Hugging Face；權重與 tokenizer 會逐一核對 SHA-256，之後檢索可完全留在裝置。是否繼續？",
+    );
+    if (!approved) return;
+    const controller = new AbortController();
+    browserSemanticInstallController.current = controller;
+    setBrowserSemanticOperation("install");
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在安裝與驗證 Browser AI 語意模型；未完成前不會標記為可用。");
+    try {
+      const snapshot = await installBrowserSemanticModel({
+        signal: controller.signal,
+        onProgress: setBrowserSemanticProgress,
+      });
+      setBrowserSemantic(snapshot);
+      setRuntimeStatus("語意模型已完成 SHA-256 與離線載入驗證；小說 RAG 與 Semantic Cache 可用。");
+      await refresh(false);
+    } catch (error) {
+      setRuntimeStatus(controller.signal.aborted
+        ? "已停止語意模型安裝；不完整快取不會被使用。"
+        : runtimeError(error));
+      setBrowserSemantic(await browserSemanticRuntimeSnapshot().catch(() => null));
+    } finally {
+      if (browserSemanticInstallController.current === controller) {
+        browserSemanticInstallController.current = null;
+      }
+      setBrowserSemanticOperation(null);
+      setRuntimeBusy(false);
+    }
+  }
+
+  function stopSemanticModelInstall() {
+    browserSemanticInstallController.current?.abort();
+  }
+
+  async function testSemanticModel() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在以真實向量測試多語語意排序；內容不離開此裝置。");
+    try {
+      const ranked = await rankWithBrowserSemanticModel({
+        namespace: namespaceForBackend("browser-ai"),
+        query: "主角追查失蹤帳冊背後的秘密線索",
+        items: [
+          { id: "related", text: "主角暗中調查帳本由誰交出，逐步逼近被隱藏的真相。", priority: 80 },
+          { id: "unrelated", text: "午後天空晴朗，廚房正在準備一盤新鮮水果。", priority: 80 },
+        ],
+      });
+      if (ranked.scores[0]?.id !== "related") {
+        throw Object.assign(new Error("語意模型未把相關小說線索排在前面。"), {
+          code: "BROWSER_SEMANTIC_RELEVANCE_CHECK_FAILED",
+        });
+      }
+      setBrowserSemantic(await browserSemanticRuntimeSnapshot());
+      setRuntimeStatus(
+        `語意檢索實測通過：${ranked.device.toUpperCase()} · ${ranked.elapsedMs} ms · ${ranked.cacheHit ? "Semantic Cache 命中" : "真實向量推理"} · 資料未離開裝置。`,
+      );
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function testBrowserPipeline() {
+    if (runtimeBusy) return;
+    setRuntimeBusy(true);
+    setRuntimeStatus("正在完整實測 Browser LLM、串流 Worker、分層 RAG 與 Semantic Cache。");
+    try {
+      const proof = await verifyBrowserAI();
+      const selected = browserWebLlm?.models.find((item) => item.selected && item.installStatus === "ready" && item.cacheVerified);
+      if (selected && proof.modelId !== selected.modelId) {
+        throw Object.assign(new Error("實際執行模型與目前選用的 WebLLM 模型不一致。"), {
+          code: "BROWSER_WEBLLM_EXECUTOR_IDENTITY_MISMATCH",
+        });
+      }
+      let semanticDetail = "語意模型未安裝，已略過 RAG 向量實測";
+      if (browserSemantic?.model.cacheVerified) {
+        const ranked = await rankWithBrowserSemanticModel({
+          namespace: namespaceForBackend("browser-ai"),
+          query: "角色為了保護同伴而隱瞞重要真相",
+          items: [
+            { id: "related", text: "她沒有說出密函的內容，只因不願讓同伴捲入危險。", priority: 80 },
+            { id: "unrelated", text: "市場今天新增三種季節水果。", priority: 80 },
+          ],
+        });
+        if (ranked.scores[0]?.id !== "related") {
+          throw Object.assign(new Error("分層 RAG 的語意排序實測失敗。"), {
+            code: "BROWSER_SEMANTIC_RELEVANCE_CHECK_FAILED",
+          });
+        }
+        semanticDetail = `${ranked.device.toUpperCase()} 語意排序 ${ranked.elapsedMs} ms`;
+      }
+      setBrowserProof(proof);
+      setBrowserWebLlm(await browserWebLLMRuntimeSnapshot());
+      setBrowserSemantic(await browserSemanticRuntimeSnapshot());
+      setRuntimeStatus(
+        `Browser AI 完整實測通過：${proof.modelId} 真實推理 ${proof.latencyMs} ms；${semanticDetail}；文章資料未送往外部 API。`,
+      );
+    } catch (error) {
+      setRuntimeStatus(runtimeError(error));
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function removeSemanticModel() {
+    if (runtimeBusy) return;
+    if (!window.confirm(`確定刪除 ${BROWSER_SEMANTIC_MODEL.displayName}、模型快取與其語意排序 Cache？`)) return;
+    setRuntimeBusy(true);
+    try {
+      setBrowserSemantic(await deleteBrowserSemanticModel());
+      setRuntimeStatus("語意模型與專屬 Semantic Cache 已從此裝置刪除；Canon、Memory 與作品內容未受影響。");
       await refresh(false);
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
@@ -1334,11 +1628,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   async function clearProjectCache() {
     setBusy(true);
     try {
-      const result = await os.invalidateCache({ projectId });
+      const [result, semantic] = await Promise.all([
+        os.invalidateCache({ projectId }),
+        invalidateBrowserSemanticCache({ projectId }).catch(() => ({ invalidated: 0, remaining: 0 })),
+      ]);
       const runtimeNote = result.unavailableBackends.length
         ? `；${result.unavailableBackends.length} 個未連線後端由 namespace 隔離阻止舊資料重用`
         : "";
-      setStatus(`已精準清除這個作品的 ${result.totalInvalidated} 筆 AI Cache；其他作品未受影響${runtimeNote}。`);
+      setStatus(`已精準清除這個作品的 ${result.totalInvalidated} 筆 AI Cache 與 ${semantic.invalidated} 筆 Browser 語意排序 Cache；其他作品未受影響${runtimeNote}。`);
       await refresh(false);
     } catch (error) {
       setStatus(userMessage(error));
@@ -1491,6 +1788,154 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                         ? "支援但模型尚未下載"
                         : "此裝置不支援"}
                   </p>
+                  {browserWebLlm ? <div className={styles.browserModelManager} data-testid="browser-webllm-model-manager">
+                    <div className={styles.browserDeviceSummary}>
+                      <strong>WebLLM 離線生成引擎</strong>
+                      <span>裝置等級 {browserWebLlm.device.tier} · {browserWebLlm.cacheBackend.toUpperCase()} 快取</span>
+                      <small>
+                        WebGPU {browserWebLlm.device.webGpu ? "可用" : "不可用"} · 記憶體 {browserWebLlm.device.deviceMemoryGB ? `${browserWebLlm.device.deviceMemoryGB} GB` : "瀏覽器未提供"} · {browserWebLlm.device.hardwareConcurrency ?? "—"} 核心 · 可用空間 {formatBytes(browserWebLlm.device.storageAvailable)}
+                      </small>
+                    </div>
+                    <p className={styles.browserModelTruth}>
+                      第一次安裝會連網；快取驗證後，文章生成可留在裝置。模型來源與執行檔固定版本並驗證雜湊；上游權重分片目前以不可變 revision 鎖定，未宣稱逐分片 SRI。
+                    </p>
+                    {browserWebLlm.models.some((item) => item.selected && item.installStatus === "ready" && item.cacheVerified) ? <div className={styles.modelActions}>
+                      <button type="button" disabled={runtimeBusy} onClick={() => void prewarmBrowserModel()}>
+                        {browserWebLlm.performance.engineWarm ? "模型已預熱" : "從離線快取預熱"}
+                      </button>
+                      {runtimeBusy && browserModelOperation ? <button type="button" onClick={stopBrowserModelInstall}>停止</button> : null}
+                    </div> : null}
+                    <div className={styles.browserModelList}>
+                      {BROWSER_WEBLLM_MODELS.map((manifest) => {
+                        const state = browserWebLlm.models.find((item) => item.modelId === manifest.modelId);
+                        const progress = browserWebLlmProgress?.modelId === manifest.modelId
+                          ? browserWebLlmProgress
+                          : null;
+                        const ready = state?.installStatus === "ready" && state.cacheVerified;
+                        return <div
+                          className={styles.browserModelCard}
+                          data-selected={state?.selected || undefined}
+                          data-testid={`browser-webllm-model-${manifest.parameterLabel}`}
+                          key={manifest.modelId}
+                        >
+                          <div>
+                            <strong>{manifest.displayName}</strong>
+                            <span>{ready ? state?.selected ? "使用中" : "已安裝" : state?.installStatus === "error" ? "需重試" : "未安裝"}</span>
+                          </div>
+                          <small>
+                            約 {formatBytes(manifest.estimatedDownloadBytes)} · 顯存約 {Math.round(manifest.estimatedVramMB)} MB · {manifest.license}
+                          </small>
+                          <code title={manifest.modelDigest}>digest {manifest.modelDigest.slice(0, 16)}…</code>
+                          <small title={manifest.sourceRevision}>版本 {manifest.sourceRevision.slice(0, 12)}… · 4,096 tokens</small>
+                          {state?.generationCount ? <small>
+                            已完成 {state.generationCount} 次 · 平均首字 {state.averageFirstTokenMs ?? "—"} ms · 平均 {state.averageTokensPerSecond?.toFixed(2) ?? "—"} tokens/s
+                          </small> : null}
+                          {progress && progress.phase !== "ready" ? <div className={styles.modelProgress}>
+                            <progress max={1} value={progress.progress} />
+                            <small>{Math.round(progress.progress * 100)}% · {progress.text}</small>
+                          </div> : null}
+                          {state?.lastError ? <small className={styles.modelError}>{state.lastError}</small> : null}
+                          <div className={styles.modelActions}>
+                            {!ready ? <button
+                              type="button"
+                              disabled={runtimeBusy || !state?.allowed}
+                              title={!state?.allowed ? "此模型未通過目前裝置 Gate" : undefined}
+                              onClick={() => void installBrowserModel(manifest.modelId)}
+                            >
+                              {state?.installStatus === "error" ? "重新安裝" : "安裝模型"}
+                            </button> : <>
+                              <button
+                                type="button"
+                                disabled={runtimeBusy || state?.selected || !state?.allowed}
+                                onClick={() => void chooseBrowserModel(manifest.modelId)}
+                              >
+                                {state?.selected ? "目前使用" : "選用"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={runtimeBusy}
+                                onClick={() => void removeBrowserModel(manifest.modelId)}
+                              >刪除</button>
+                            </>}
+                            {runtimeBusy && progress && browserModelOperation === "install" ? <button
+                              type="button"
+                              onClick={stopBrowserModelInstall}
+                            >停止安裝</button> : null}
+                          </div>
+                        </div>;
+                      })}
+                    </div>
+                    {browserWebLlm.lastGeneration ? <p className={styles.runtimeMetrics} data-testid="browser-webllm-last-generation">
+                      最近真實推理：{browserWebLlm.lastGeneration.modelId} · 首字 {browserWebLlm.lastGeneration.firstTokenMs ?? "—"} ms · {browserWebLlm.lastGeneration.tokensPerSecond?.toFixed(2) ?? "—"} tokens/s · 排隊 {browserWebLlm.lastGeneration.queueWaitMs} ms · {browserWebLlm.lastGeneration.engineReused ? "重用預熱引擎" : "新載入引擎"} · 脈絡省略 {browserWebLlm.lastGeneration.omittedInputCharacters} 字 · {Math.round(browserWebLlm.lastGeneration.estimatedVramMB)} MB · 資料未離開裝置
+                    </p> : null}
+                    <p className={styles.runtimeMetrics} data-testid="browser-webllm-performance-policy">
+                      效能策略：Web Worker 單列生成 · 引擎重用 {browserWebLlm.performance.engineReuseCount} 次 · 等待工作 {browserWebLlm.performance.queuedGenerations} · 預熱 {browserWebLlm.performance.warmupCount} 次
+                    </p>
+                  </div> : null}
+                  {browserSemantic ? <div className={styles.browserModelManager} data-testid="browser-semantic-model-manager">
+                    <div className={styles.browserDeviceSummary}>
+                      <strong>Transformers.js 小說語意引擎</strong>
+                      <span>{browserSemantic.device.device?.toUpperCase() ?? "不支援"} · CacheStorage＋IndexedDB</span>
+                      <small>
+                        分層 RAG、Semantic Cache、Story Bible／角色／章節檢索排序；不負責冒充生成式 LLM。
+                      </small>
+                    </div>
+                    <div
+                      className={styles.browserModelCard}
+                      data-selected={browserSemantic.model.cacheVerified || undefined}
+                      data-testid="browser-semantic-model"
+                    >
+                      <div>
+                        <strong>{BROWSER_SEMANTIC_MODEL.displayName}</strong>
+                        <span>{browserSemantic.model.cacheVerified
+                          ? "已驗證"
+                          : browserSemantic.model.installStatus === "error"
+                            ? "需重試"
+                            : browserSemantic.model.installStatus === "installing"
+                              ? "安裝中"
+                              : "未安裝"}</span>
+                      </div>
+                      <small>
+                        約 {formatBytes(BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes)} · {BROWSER_SEMANTIC_MODEL.embeddingDimensions} 維 · {BROWSER_SEMANTIC_MODEL.dtype.toUpperCase()} · {BROWSER_SEMANTIC_MODEL.license}
+                      </small>
+                      <code title={BROWSER_SEMANTIC_MODEL.modelDigest}>digest {BROWSER_SEMANTIC_MODEL.modelDigest.slice(0, 16)}…</code>
+                      <small title={BROWSER_SEMANTIC_MODEL.sourceRevision}>
+                        不可變版本 {BROWSER_SEMANTIC_MODEL.sourceRevision.slice(0, 12)}… · 權重與 tokenizer SHA-256
+                      </small>
+                      {browserSemanticProgress && browserSemanticProgress.phase !== "ready" ? <div className={styles.modelProgress}>
+                        <progress max={1} value={browserSemanticProgress.progress} />
+                        <small>{Math.round(browserSemanticProgress.progress * 100)}% · {browserSemanticProgress.text}</small>
+                      </div> : null}
+                      {browserSemantic.model.lastError ? <small className={styles.modelError}>{browserSemantic.model.lastError}</small> : null}
+                      <div className={styles.modelActions}>
+                        {!browserSemantic.model.cacheVerified ? <button
+                          type="button"
+                          disabled={runtimeBusy || !browserSemantic.supported}
+                          title={!browserSemantic.supported ? browserSemantic.reason : undefined}
+                          onClick={() => void installSemanticModel()}
+                        >
+                          {browserSemantic.model.installStatus === "error" ? "重新安裝" : "安裝語意模型"}
+                        </button> : <>
+                          <button type="button" disabled={runtimeBusy} onClick={() => void testSemanticModel()}>
+                            實際測試語意排序
+                          </button>
+                          <button type="button" disabled={runtimeBusy} onClick={() => void removeSemanticModel()}>
+                            刪除
+                          </button>
+                        </>}
+                        {runtimeBusy && browserSemanticOperation === "install" ? <button
+                          type="button"
+                          onClick={stopSemanticModelInstall}
+                        >停止安裝</button> : null}
+                      </div>
+                      {browserSemantic.lastRanking ? <p className={styles.runtimeMetrics} data-testid="browser-semantic-last-ranking">
+                        最近檢索：{browserSemantic.lastRanking.device.toUpperCase()} · {browserSemantic.lastRanking.elapsedMs} ms · {browserSemantic.lastRanking.items} 筆 · {browserSemantic.lastRanking.cacheHit ? "Cache 命中" : "向量推理"} · 資料未離開裝置
+                      </p> : null}
+                      <small>
+                        Semantic Cache {browserSemantic.cache.entries} 筆；只存分數與雜湊，不存原文，不會寫入 Memory、Learning 或 Canon。
+                      </small>
+                    </div>
+                  </div> : null}
                   {browserProof ? <p className={styles.proof}>
                     {browserProof.inferenceMode === "generative-model"
                       ? "生成模型實測"
@@ -1502,6 +1947,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     onClick={() => void verifyBrowserRuntime()}
                   >
                     實際測試瀏覽器模型
+                  </button>
+                  <button
+                    type="button"
+                    disabled={runtimeBusy || browserCapability?.status !== "ready"}
+                    onClick={() => void testBrowserPipeline()}
+                  >
+                    一鍵實測 Browser AI 全管線
                   </button>
                 </div> : null}
                 {snapshot.id === "local-ollama" ? <div className={styles.runtimeControls}>

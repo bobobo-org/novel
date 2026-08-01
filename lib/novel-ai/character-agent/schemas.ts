@@ -15,7 +15,7 @@ const domainRecord = z.object({
   source: z.enum(["user", "ai_candidate", "migration", "system"]),
   provenance: z.object({
     source: z.enum(["user", "ai_candidate", "migration", "system"]),
-    actor: z.enum(["author", "local-rule", "browser-ai", "local-ollama", "private-ai-hub", "migration"]),
+    actor: z.enum(["author", "local-rule", "browser-ai", "local-ollama", "private-ai-hub", "external-ai", "migration"]),
     requestId: z.string().optional(),
     createdAt: z.string().datetime(),
   }).strict(),

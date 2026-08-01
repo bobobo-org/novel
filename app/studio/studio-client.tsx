@@ -62,6 +62,8 @@ import {
 } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
+import type { ExternalAIProviderId, NovelAIExecutionMode } from "@/lib/novel-ai/providers/external/external-provider-contract";
+import { generateExternalAIStream } from "@/lib/novel-ai/providers/external/external-provider-client";
 
 type Screen =
   | "home"
@@ -78,6 +80,7 @@ type AssistantStatus =
   | "checking"
   | "ollama_ready"
   | "runtime_ready"
+  | "external_ready"
   | "runtime_required"
   | "auth_required";
 type OptionalKey =
@@ -248,7 +251,7 @@ type Candidate = {
   similarityScore?: number;
   sourceChapterId?: string | null;
   sourceRevision?: number | null;
-  candidateKind?: "closed-ai" | "local-writing-aid";
+  candidateKind?: "closed-ai" | "external-ai" | "local-writing-aid";
   usedLocalMemory: boolean;
   externalRequest: boolean;
   proposal?: Partial<Wizard>;
@@ -305,6 +308,7 @@ type StudioState = {
 };
 
 const STORAGE_KEY = "novel_p12_studio_state";
+const CLOUD_NOTICE_SESSION_KEY = "novel_cloud_degraded_notice_dismissed_v1";
 const optionalKeys: OptionalKey[] = [
   "protagonist",
   "identity",
@@ -845,6 +849,8 @@ export default function StudioClient({
     [assistantStatus, setAssistantStatus] =
       useState<AssistantStatus>("checking"),
     [assistantBusy, setAssistantBusy] = useState<string | null>(null),
+    [assistantStreamText, setAssistantStreamText] = useState(""),
+    [assistantStreamEvents, setAssistantStreamEvents] = useState(0),
     [lastRejectedCandidate, setLastRejectedCandidate] =
       useState<NonNullable<Candidate> | null>(null),
     [regenerationError, setRegenerationError] = useState(""),
@@ -854,6 +860,11 @@ export default function StudioClient({
     } | null>(null),
     [persistenceMode, setPersistenceMode] =
       useState<PersistenceRuntimeMode | null>(null),
+    [cloudPersistenceIssue, setCloudPersistenceIssue] = useState<{
+      errorCategory: string | null;
+      migrationStatus: string;
+    } | null>(null),
+    [cloudNoticeDismissed, setCloudNoticeDismissed] = useState(false),
     [canonicalRuntimeGate, setCanonicalRuntimeGate] =
       useState<CanonicalRuntimeGate>({
         canonicalHydrationSucceeded: false,
@@ -868,8 +879,15 @@ export default function StudioClient({
     [legacyMigrationDetails, setLegacyMigrationDetails] = useState(false),
     [legacyMigrationDismissed, setLegacyMigrationDismissed] = useState(false),
     [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false),
-    [legacyMigrationStatus, setLegacyMigrationStatus] = useState("");
+    [legacyMigrationStatus, setLegacyMigrationStatus] = useState(""),
+    [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
+    [studioAiSource, setStudioAiSource] = useState<"closed" | "external">("closed"),
+    [externalProviderId, setExternalProviderId] = useState<ExternalAIProviderId>("openai"),
+    [externalRunConsent, setExternalRunConsent] = useState(false),
+    [aiModeMessage, setAiModeMessage] = useState(""),
+    [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false);
   const repositoryRef = useRef<NovelRepository | null>(null);
+  const assistantControllerRef = useRef<AbortController | null>(null);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
     () =>
@@ -878,6 +896,28 @@ export default function StudioClient({
       null,
     [state.projects, state.activeProjectId],
   );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        setCloudNoticeDismissed(
+          sessionStorage.getItem(CLOUD_NOTICE_SESSION_KEY) === "1",
+        );
+      } catch {
+        // Session storage is optional; the close control still works in memory.
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function dismissCloudNotice() {
+    setCloudNoticeDismissed(true);
+    try {
+      sessionStorage.setItem(CLOUD_NOTICE_SESSION_KEY, "1");
+    } catch {
+      // Do not turn a non-blocking cloud notice into a local writing failure.
+    }
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void (async () => {
@@ -974,6 +1014,10 @@ export default function StudioClient({
       repository: repositoryRef.current ?? undefined,
     }).then((health) => {
       setPersistenceMode(health.mode);
+      setCloudPersistenceIssue({
+        errorCategory: health.cloudPersistence.errorCategory,
+        migrationStatus: health.cloudPersistence.migrationStatus,
+      });
       if (!health.localFeaturesAvailable) {
         setCanonicalRuntimeGate((current) => ({
           ...current,
@@ -1035,24 +1079,58 @@ export default function StudioClient({
   }, []);
   useEffect(() => {
     if (!loaded) return;
+    const timer = window.setTimeout(() => {
+      const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
+      const mode: NovelAIExecutionMode = ["closed-only", "hybrid", "external-only"].includes(saved.executionMode)
+        ? saved.executionMode
+        : saved.privacy === "external-allowed"
+          ? "hybrid"
+          : "closed-only";
+      const provider: ExternalAIProviderId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
+        ? saved.externalProviderId
+        : "openai";
+      setAiExecutionMode(mode);
+      setStudioAiSource(mode === "external-only" ? "external" : "closed");
+      setExternalProviderId(provider);
+      setAiPreferencesLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
+    if (externalSelected) {
+      fetch("/api/ai/external/providers", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((payload: { providers?: Array<{ id: string; configured: boolean }> }) => {
+          const selected = payload.providers?.find((provider) => provider.id === externalProviderId);
+          setAssistantStatus(selected?.configured ? "external_ready" : "runtime_required");
+          setAiModeMessage(selected?.configured ? "外接 AI 已由伺服器設定；每次送出前仍需單次同意。" : "所選外接 AI 尚未設定伺服器金鑰，請到 AI 使用方式查看。" );
+        })
+        .catch(() => {
+          setAssistantStatus("runtime_required");
+          setAiModeMessage("目前無法讀取外接 AI 狀態。");
+        });
+      return;
+    }
     discoverStudioClosedAI()
       .then((snapshot) => {
-        setAssistantStatus(
-          snapshot.status === "browser_ready" ? "runtime_ready" : snapshot.status,
-        );
+        setAssistantStatus(snapshot.status === "browser_ready" ? "runtime_ready" : snapshot.status);
+        setAiModeMessage("");
       })
       .catch(() => setAssistantStatus("runtime_required"));
-  }, [loaded]);
+  }, [aiExecutionMode, externalProviderId, loaded, studioAiSource]);
   useEffect(() => {
     if (
       initialTask
       && loaded
+      && aiPreferencesLoaded
       && project
       && canonicalRuntimeGate.localCanonicalWritable
     ) {
       void runTask(initialTask);
     }
-  }, [loaded, canonicalRuntimeGate.localCanonicalWritable]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, aiPreferencesLoaded, canonicalRuntimeGate.localCanonicalWritable]); // eslint-disable-line react-hooks/exhaustive-deps
   function ensureCanonicalWritable(action: string) {
     if (
       canonicalRuntimeGate.canonicalHydrationSucceeded
@@ -1095,6 +1173,18 @@ export default function StudioClient({
     history.pushState({ screen: value }, "", url);
     setScreen(value);
     setMenuOpen(false);
+  }
+  function persistStudioAISettings(input: { mode?: NovelAIExecutionMode; providerId?: ExternalAIProviderId }) {
+    const mode = input.mode ?? aiExecutionMode;
+    const providerId = input.providerId ?? externalProviderId;
+    const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
+    localStorage.setItem("novel_p2_ai_settings", JSON.stringify({
+      ...saved,
+      executionMode: mode,
+      externalProviderId: providerId,
+      privacy: mode === "closed-only" ? "strict-local" : "external-allowed",
+      external: mode !== "closed-only",
+    }));
   }
   async function createProject() {
     if (!ensureCanonicalWritable("建立作品")) return;
@@ -1571,11 +1661,16 @@ export default function StudioClient({
     if (assistantBusy) return;
     const started = performance.now();
     const regenerationSource = options.regenerateFrom;
+    const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
+    if (externalSelected && !externalRunConsent) {
+      setAiModeMessage("外接 AI 需要本次單次同意；請先勾選寫作頁上方的同意框。");
+      return;
+    }
     let candidate: Candidate = null;
     let sourceChapterId: string | null = null;
     let sourceRevision: number | null = null;
     let currentChapterText = project?.draft ?? "";
-    if (regenerationSource && regenerationSource.candidateKind !== "closed-ai") {
+    if (regenerationSource && regenerationSource.candidateKind === "local-writing-aid") {
       setRegenerationError("只有具備真實模型證明的候選才能換一個版本。");
       return;
     }
@@ -1585,16 +1680,25 @@ export default function StudioClient({
       regenerationSource?.candidateId
       && state.candidate?.candidateId === regenerationSource.candidateId
     ) {
-      try {
-        await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+      if (regenerationSource.candidateKind === "closed-ai") {
+        try {
+          await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+          setState((value) => ({ ...value, candidate: null }));
+          setLastRejectedCandidate(regenerationSource);
+        } catch (error) {
+          console.error("STUDIO_REGENERATION_SOURCE_REJECTION_FAILED", error);
+          setRegenerationError("原候選尚未安全放棄，系統沒有開始重新生成。");
+          return;
+        }
+      } else {
         setState((value) => ({ ...value, candidate: null }));
         setLastRejectedCandidate(regenerationSource);
-      } catch (error) {
-        console.error("STUDIO_REGENERATION_SOURCE_REJECTION_FAILED", error);
-        setRegenerationError("原候選尚未安全放棄，系統沒有開始重新生成。");
-        return;
       }
     }
+    const taskController = new AbortController();
+    assistantControllerRef.current = taskController;
+    setAssistantStreamText("");
+    setAssistantStreamEvents(0);
     setAssistantBusy(regenerationSource ? `regenerate:${task}` : task);
     try {
       if (project) {
@@ -1618,63 +1722,112 @@ export default function StudioClient({
             : task === "continue_story"
               ? 900
               : 700,
+        signal: taskController.signal,
       };
-      const result = regenerationSource
-        ? await regenerateStudioClosedAI(taskInput, {
-          taskId: regenerationSource.taskId,
-          candidateId: regenerationSource.candidateId,
-          content: regenerationSource.content,
-          contentDigest: regenerationSource.contentDigest,
-          regenerationAttempt: regenerationSource.regenerationAttempt,
+      if (externalSelected) {
+        setExternalRunConsent(false);
+        const externalPrompt = [
+          taskInput.input,
+          regenerationSource ? `\n請重新生成真正不同的版本，不得重用以下候選內容：\n${regenerationSource.content}` : "",
+          options.extraRequirement ? `\n本次額外要求：${options.extraRequirement}` : "",
+          regenerationSource ? `\n重新生成識別：${crypto.randomUUID()}` : "",
+        ].filter(Boolean).join("\n");
+        const generated = await generateExternalAIStream({
+          executionMode: aiExecutionMode,
+          providerId: externalProviderId,
+          externalConsent: true,
+          prompt: externalPrompt,
+          maxOutputTokens: taskInput.targetLength ? Math.min(4096, Math.max(512, Math.round(taskInput.targetLength * 1.6))) : 1536,
         }, {
-          extraRequirement: options.extraRequirement,
-        })
-        : await runStudioClosedAI(taskInput);
-      const distinctness = ("distinctness" in result
-        ? result.distinctness
-        : null) as null | {
-          similarityMetric: string;
-          similarityScore: number;
+          signal: taskController.signal,
+          onDelta: (delta, generatedTokenEvents) => {
+            setAssistantStreamText((value) => value + delta);
+            setAssistantStreamEvents(generatedTokenEvents);
+          },
+        });
+        const contentDigest = await sha256Hex(generated.text);
+        if (regenerationSource?.contentDigest === contentDigest) {
+          throw Object.assign(new Error("外接 AI 重新產生了完全相同的內容。"), { code: "REGENERATION_NOT_DISTINCT" });
+        }
+        candidate = {
+          projectId: project?.id ?? null,
+          candidateId: `external:${generated.requestId || crypto.randomUUID()}`,
+          taskId: `external-task:${crypto.randomUUID()}`,
+          task,
+          title: assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
+          content: generated.text,
+          source: `${externalProviderId} 外接 AI`,
+          model: generated.modelId || externalProviderId,
+          provider: externalProviderId,
+          modelId: generated.modelId || externalProviderId,
+          modelDigest: null,
+          contextDigest: await sha256Hex(externalPrompt),
+          contextSourceSummary: "目前章節、作品設定與本次明確指示",
+          contentDigest,
+          actualExecutor: `external-api:${externalProviderId}`,
+          generatedTokenEvents: generated.generatedTokenEvents,
+          dataLeftDevice: true,
+          canonicalMutationCount: 0,
+          regenerationAttempt: regenerationSource ? (regenerationSource.regenerationAttempt || 0) + 1 : undefined,
+          newCandidate: Boolean(regenerationSource),
+          previousContentReused: false,
+          cacheBypassed: Boolean(regenerationSource),
+          sourceChapterId,
+          sourceRevision,
+          candidateKind: "external-ai",
+          usedLocalMemory: Boolean(project),
+          externalRequest: true,
+          createdAt: new Date().toISOString(),
         };
-      candidate = {
-        projectId: project?.id ?? null,
-        candidateId: result.candidateId,
-        taskId: result.taskId,
-        task,
-        title:
-          assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
-        content: result.content,
-        source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
-        model: result.model,
-        provider: result.provider,
-        modelId: result.model,
-        modelDigest: result.modelDigest,
-        contextDigest: result.contextDigest,
-        contextSourceSummary: result.contextSourceSummary,
-        contentDigest: result.contentDigest,
-        actualExecutor: result.actualExecutor,
-        generatedTokenEvents:
-          result.executionReceipt?.generatedTokenEvents ?? 0,
-        dataLeftDevice: result.dataLeftDevice,
-        canonicalMutationCount: result.canonicalMutationCount,
-        regenerationAttempt:
-          result.regeneration?.regenerationAttempt ?? undefined,
-        newCandidate: result.regeneration?.newCandidate ?? undefined,
-        previousContentReused:
-          result.regeneration?.previousContentReused ?? undefined,
-        cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
-        similarityMetric: distinctness?.similarityMetric,
-        similarityScore: distinctness?.similarityScore,
-        sourceChapterId: result.sourceChapterId,
-        sourceRevision: result.sourceRevision,
-        candidateKind: "closed-ai",
-        usedLocalMemory: Boolean(project),
-        externalRequest: Boolean(result.externalRequest),
-        createdAt: new Date().toISOString(),
-      };
-      setAssistantStatus(
-        result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready",
-      );
+        setAssistantStatus("external_ready");
+        setAiModeMessage("外接 AI 已完成候選；核准前正式章節沒有變更。");
+      } else {
+        const result = regenerationSource
+          ? await regenerateStudioClosedAI(taskInput, {
+            taskId: regenerationSource.taskId,
+            candidateId: regenerationSource.candidateId,
+            content: regenerationSource.content,
+            contentDigest: regenerationSource.contentDigest,
+            regenerationAttempt: regenerationSource.regenerationAttempt,
+          }, {
+            extraRequirement: options.extraRequirement,
+          })
+          : await runStudioClosedAI(taskInput);
+        const distinctness = ("distinctness" in result ? result.distinctness : null) as null | { similarityMetric: string; similarityScore: number };
+        candidate = {
+          projectId: project?.id ?? null,
+          candidateId: result.candidateId,
+          taskId: result.taskId,
+          task,
+          title: assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
+          content: result.content,
+          source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
+          model: result.model,
+          provider: result.provider,
+          modelId: result.model,
+          modelDigest: result.modelDigest,
+          contextDigest: result.contextDigest,
+          contextSourceSummary: result.contextSourceSummary,
+          contentDigest: result.contentDigest,
+          actualExecutor: result.actualExecutor,
+          generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
+          dataLeftDevice: result.dataLeftDevice,
+          canonicalMutationCount: result.canonicalMutationCount,
+          regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
+          newCandidate: result.regeneration?.newCandidate ?? undefined,
+          previousContentReused: result.regeneration?.previousContentReused ?? undefined,
+          cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
+          similarityMetric: distinctness?.similarityMetric,
+          similarityScore: distinctness?.similarityScore,
+          sourceChapterId: result.sourceChapterId,
+          sourceRevision: result.sourceRevision,
+          candidateKind: "closed-ai",
+          usedLocalMemory: Boolean(project),
+          externalRequest: Boolean(result.externalRequest),
+          createdAt: new Date().toISOString(),
+        };
+        setAssistantStatus(result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready");
+      }
       setLastRejectedCandidate(null);
     } catch (error) {
       const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
@@ -1688,8 +1841,8 @@ export default function StudioClient({
         });
         setRegenerationError(
           code === "REGENERATION_NOT_DISTINCT"
-            ? "本機模型連續產生相同內容，請調整額外要求或改用其他已安裝模型。"
-            : "本機模型沒有完成不同版本；原候選已放棄，正式故事沒有變更。",
+            ? "模型連續產生相同內容，請調整額外要求或改用其他模型。"
+            : "模型沒有完成不同版本；原候選已放棄，正式故事沒有變更。",
         );
         setState((value) => ({
           ...value,
@@ -1701,12 +1854,21 @@ export default function StudioClient({
               source: "explicit-regeneration",
               model: regenerationSource.model,
               elapsedMs: Math.round(performance.now() - started),
-              externalRequest: false,
+              externalRequest: externalSelected,
               at: new Date().toISOString(),
               status: "failed" as const,
             },
             ...value.executionLogs,
           ].slice(0, 50),
+        }));
+        return;
+      }
+      if (externalSelected) {
+        setAiModeMessage(`${error instanceof Error ? error.message : "外接 AI 沒有完成這次工作。"}（${code}）系統沒有回退到閉端或規則模板。`);
+        setState((value) => ({
+          ...value,
+          candidate: null,
+          executionLogs: [{ id: crypto.randomUUID(), task, source: `${externalProviderId} 外接 AI`, model: externalProviderId, elapsedMs: Math.round(performance.now() - started), externalRequest: true, at: new Date().toISOString(), status: "failed" as const }, ...value.executionLogs].slice(0, 50),
         }));
         return;
       }
@@ -1741,6 +1903,7 @@ export default function StudioClient({
         current === "auth_required" ? current : "runtime_required",
       );
     } finally {
+      if (assistantControllerRef.current === taskController) assistantControllerRef.current = null;
       setAssistantBusy(null);
     }
     const elapsedMs = Math.round(performance.now() - started),
@@ -1764,6 +1927,11 @@ export default function StudioClient({
       ].slice(0, 50),
     }));
     if (screen !== "write") navigate("write");
+  }
+  function stopAssistantTask() {
+    if (!assistantControllerRef.current || !assistantBusy) return;
+    assistantControllerRef.current.abort("USER_CANCELLED");
+    setAiModeMessage("已停止本次生成；未完成內容沒有建立候選，也沒有寫入正式章節。");
   }
   async function acceptCandidate(editedContent?: string) {
     if (!ensureCanonicalWritable("核准候選內容")) return;
@@ -1839,6 +2007,14 @@ export default function StudioClient({
         }
         committed = canonicalResult;
       } else {
+        if (pending.candidateKind === "external-ai" && (
+          !pending.modelId
+          || !pending.contentDigest
+          || !pending.actualExecutor?.startsWith("external-api:")
+          || pending.dataLeftDevice !== true
+        )) {
+          throw Object.assign(new Error("外接 AI 候選缺少執行來源或內容證明，不能核准。"), { code: "STUDIO_EXTERNAL_AI_CANDIDATE_PROOF_MISSING" });
+        }
         committed = await applyWritingAidTransaction({
           repository: repositoryRef.current!,
           projectId: project.id,
@@ -1915,7 +2091,7 @@ export default function StudioClient({
       }
     }
     if (
-      pending.candidateKind === "closed-ai"
+      (pending.candidateKind === "closed-ai" || pending.candidateKind === "external-ai")
       && pending.task !== "branch_choice"
     ) {
       setLastRejectedCandidate(pending);
@@ -2008,7 +2184,13 @@ export default function StudioClient({
     const protagonist = name || "主角",
       scene = world || "目前場景",
       activeConflict = conflict || "尚未解決的問題";
-    if (regenerationSource && regenerationSource.candidateKind !== "closed-ai") {
+    const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
+    if (externalSelected && !externalRunConsent) {
+      setAiModeMessage("外接 AI 需要本次單次同意；請先勾選頁面上方的同意框。");
+      return;
+    }
+    const expectedCandidateKind = externalSelected ? "external-ai" : "closed-ai";
+    if (regenerationSource && regenerationSource.candidateKind !== expectedCandidateKind) {
       setRegenerationError("只有具備真實模型證明的故事候選才能換一個版本。");
       return;
     }
@@ -2016,13 +2198,17 @@ export default function StudioClient({
       regenerationSource?.candidateId
       && state.candidate?.candidateId === regenerationSource.candidateId
     ) {
-      try {
-        await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+      if (regenerationSource.candidateKind === "closed-ai") {
+        try {
+          await rejectStudioClosedAgentCandidate(regenerationSource.candidateId);
+          update({ candidate: null });
+        } catch (error) {
+          console.error("STUDIO_CHOICE_REGENERATION_SOURCE_REJECTION_FAILED", error);
+          setRegenerationError("原故事候選尚未安全放棄，系統沒有開始重新生成。");
+          return;
+        }
+      } else {
         update({ candidate: null });
-      } catch (error) {
-        console.error("STUDIO_CHOICE_REGENERATION_SOURCE_REJECTION_FAILED", error);
-        setRegenerationError("原故事候選尚未安全放棄，系統沒有開始重新生成。");
-        return;
       }
     }
     setRegenerationError("");
@@ -2030,7 +2216,7 @@ export default function StudioClient({
       source = "本機故事建議",
       model = "local-rule",
       providerId = "local-rule",
-      closedAIIdentity: Partial<NonNullable<Candidate>> = {};
+      candidateIdentity: Partial<NonNullable<Candidate>> = {};
     try {
       const canonical = await ensureStudioCanonicalProject(
         repositoryRef.current!,
@@ -2057,72 +2243,121 @@ export default function StudioClient({
         sourceRevision: canonical.chapter.revision,
         signal,
       };
-      const result = regenerationSource
-        ? await regenerateStudioClosedAI(taskInput, {
-          taskId: regenerationSource.taskId,
-          candidateId: regenerationSource.candidateId,
-          content: regenerationSource.content,
-          contentDigest: regenerationSource.contentDigest,
-          regenerationAttempt: regenerationSource.regenerationAttempt,
-        })
-        : await runStudioClosedAI(taskInput);
-      if (!hasVerifiedExecutedStoryOutput(result)) {
-        throw Object.assign(
-          new Error("閉端 AI 回傳內容缺少可驗證的實際執行證明。"),
-          { code: "CLOSED_AI_EXECUTION_PROOF_MISSING" },
-        );
-      }
-      content = result.content;
-      source =
-        result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
-      model = result.model;
-      providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
-      const distinctness = ("distinctness" in result
-        ? result.distinctness
-        : null) as null | {
-          similarityMetric: string;
-          similarityScore: number;
+      if (externalSelected) {
+        setExternalRunConsent(false);
+        const externalPrompt = [
+          taskInput.input,
+          regenerationSource ? `請產生真正不同的後續版本，不得重用以下內容：\n${regenerationSource.content}` : "",
+          regenerationSource ? `重新生成識別：${crypto.randomUUID()}` : "",
+        ].filter(Boolean).join("\n\n");
+        const generated = await generateExternalAIStream({
+          executionMode: aiExecutionMode,
+          providerId: externalProviderId,
+          externalConsent: true,
+          prompt: externalPrompt,
+          maxOutputTokens: 1400,
+        }, { signal });
+        const contentDigest = await sha256Hex(generated.text);
+        if (regenerationSource?.contentDigest === contentDigest) {
+          throw Object.assign(new Error("外接 AI 重新產生了完全相同的內容。"), { code: "REGENERATION_NOT_DISTINCT" });
+        }
+        content = generated.text;
+        source = `${externalProviderId} 外接 AI 劇情發展`;
+        model = generated.modelId;
+        providerId = externalProviderId;
+        candidateIdentity = {
+          candidateId: `external:${generated.requestId}`,
+          taskId: `external-choice:${crypto.randomUUID()}`,
+          provider: externalProviderId,
+          modelId: generated.modelId,
+          modelDigest: null,
+          contextDigest: await sha256Hex(externalPrompt),
+          contentDigest,
+          actualExecutor: `external-api:${externalProviderId}`,
+          generatedTokenEvents: generated.generatedTokenEvents,
+          dataLeftDevice: true,
+          canonicalMutationCount: 0,
+          sourceChapterId: canonical.chapter.id,
+          sourceRevision: canonical.chapter.revision,
+          candidateKind: "external-ai",
+          regenerationAttempt: regenerationSource ? (regenerationSource.regenerationAttempt || 0) + 1 : undefined,
+          newCandidate: Boolean(regenerationSource),
+          previousContentReused: false,
+          cacheBypassed: Boolean(regenerationSource),
         };
-      closedAIIdentity = {
-        candidateId: result.candidateId,
-        taskId: result.taskId,
-        provider: result.provider,
-        modelId: result.model,
-        modelDigest: result.modelDigest,
-        contextDigest: result.contextDigest,
-        contentDigest: result.contentDigest,
-        actualExecutor: result.actualExecutor,
-        generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
-        dataLeftDevice: result.dataLeftDevice,
-        canonicalMutationCount: result.canonicalMutationCount,
-        sourceChapterId: result.sourceChapterId,
-        sourceRevision: result.sourceRevision,
-        candidateKind: "closed-ai",
-        regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
-        newCandidate: result.regeneration?.newCandidate ?? undefined,
-        previousContentReused:
-          result.regeneration?.previousContentReused ?? undefined,
-        cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
-        similarityMetric: distinctness?.similarityMetric,
-        similarityScore: distinctness?.similarityScore,
-        diagnostic: isUsableChineseStoryOutput(result.content)
-          ? undefined
-          : "本機模型已完成推理，但這份候選偏短；你可以重新生成或直接編輯。",
-      };
+        setAssistantStatus("external_ready");
+        setAiModeMessage("外接 AI 已完成互動故事候選；接受前 Canon 與 RPG 數值都沒有變更。");
+      } else {
+        const result = regenerationSource
+          ? await regenerateStudioClosedAI(taskInput, {
+            taskId: regenerationSource.taskId,
+            candidateId: regenerationSource.candidateId,
+            content: regenerationSource.content,
+            contentDigest: regenerationSource.contentDigest,
+            regenerationAttempt: regenerationSource.regenerationAttempt,
+          })
+          : await runStudioClosedAI(taskInput);
+        if (!hasVerifiedExecutedStoryOutput(result)) {
+          throw Object.assign(
+            new Error("閉端 AI 回傳內容缺少可驗證的實際執行證明。"),
+            { code: "CLOSED_AI_EXECUTION_PROOF_MISSING" },
+          );
+        }
+        content = result.content;
+        source = result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
+        model = result.model;
+        providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
+        const distinctness = ("distinctness" in result
+          ? result.distinctness
+          : null) as null | { similarityMetric: string; similarityScore: number };
+        candidateIdentity = {
+          candidateId: result.candidateId,
+          taskId: result.taskId,
+          provider: result.provider,
+          modelId: result.model,
+          modelDigest: result.modelDigest,
+          contextDigest: result.contextDigest,
+          contentDigest: result.contentDigest,
+          actualExecutor: result.actualExecutor,
+          generatedTokenEvents: result.executionReceipt?.generatedTokenEvents ?? 0,
+          dataLeftDevice: result.dataLeftDevice,
+          canonicalMutationCount: result.canonicalMutationCount,
+          sourceChapterId: result.sourceChapterId,
+          sourceRevision: result.sourceRevision,
+          candidateKind: "closed-ai",
+          regenerationAttempt: result.regeneration?.regenerationAttempt ?? undefined,
+          newCandidate: result.regeneration?.newCandidate ?? undefined,
+          previousContentReused: result.regeneration?.previousContentReused ?? undefined,
+          cacheBypassed: result.regeneration?.cacheBypassed ?? undefined,
+          similarityMetric: distinctness?.similarityMetric,
+          similarityScore: distinctness?.similarityScore,
+          diagnostic: isUsableChineseStoryOutput(result.content)
+            ? undefined
+            : "本機模型已完成推理，但這份候選偏短；你可以重新生成或直接編輯。",
+        };
+      }
     } catch (error) {
+      if (signal?.aborted) {
+        setAiModeMessage("已取消互動故事生成；沒有建立候選，也沒有修改 Canon 或 RPG 數值。");
+        return;
+      }
       if (regenerationSource) {
         const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
         console.error("STUDIO_CHOICE_EXPLICIT_REGENERATION_FAILED", { code });
         setRegenerationError(
           code === "REGENERATION_NOT_DISTINCT"
-            ? "本機模型連續產生相同內容，請調整額外要求或改用其他已安裝模型。"
-            : "本機模型沒有完成不同版本；正式故事沒有變更。",
+            ? `${externalSelected ? "外接" : "閉端"}模型連續產生相同內容，請調整要求或改用其他模型。`
+            : `${externalSelected ? "外接" : "閉端"}模型沒有完成不同版本；正式故事沒有變更。`,
         );
         return;
       }
       const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+      if (externalSelected) {
+        setAiModeMessage(`${error instanceof Error ? error.message : "外接 AI 沒有完成互動故事。"}（${code}）系統沒有回退到閉端或規則模板。`);
+        return;
+      }
       console.error("STUDIO_CHOICE_CLOSED_AI_FAILED", { code });
-      closedAIIdentity = {
+      candidateIdentity = {
         actualExecutor: "not_executed",
         diagnostic: `真實閉端模型未完成這次推理，已保留本機規則候選。（${code}）`,
       };
@@ -2172,7 +2407,16 @@ export default function StudioClient({
       };
     let canonicalCandidateId: string;
     try {
-      const saved = await persistStudioChoiceCandidate(repositoryRef.current!, projectSeed(project), { optionKey, text: choiceText, consequence: statChanges.map((change) => change.reason).join("；"), effect, providerId, modelId: model });
+      const saved = await persistStudioChoiceCandidate(repositoryRef.current!, projectSeed(project), {
+        optionKey,
+        text: choiceText,
+        consequence: statChanges.map((change) => change.reason).join("；"),
+        effect,
+        providerId,
+        modelId: model,
+        externalRequest: externalSelected,
+        dataLeftDevice: externalSelected,
+      });
       canonicalCandidateId = saved.candidate.id;
     } catch (error) {
       console.error("CHOICE_CANDIDATE_PERSIST_FAILED", error);
@@ -2182,7 +2426,7 @@ export default function StudioClient({
     setState((value) => ({
       ...value,
       candidate: {
-        ...closedAIIdentity,
+        ...candidateIdentity,
         projectId: project.id,
         canonicalCandidateId,
         task: "branch_choice",
@@ -2191,7 +2435,7 @@ export default function StudioClient({
         source,
         model,
         usedLocalMemory: true,
-        externalRequest: false,
+        externalRequest: externalSelected,
         choiceText,
         impacts: [
           "故事方向：目前衝突進入下一個階段",
@@ -2209,6 +2453,16 @@ export default function StudioClient({
     const candidate = state.candidate,
       currentGame = state.gameStates[project.id] || emptyGameState(),
       old = { at: new Date().toISOString(), title: project.chapterTitle, content: project.draft };
+    if (candidate.candidateKind === "external-ai" && (
+      !candidate.modelId
+      || !candidate.contentDigest
+      || !candidate.actualExecutor?.startsWith("external-api:")
+      || candidate.dataLeftDevice !== true
+      || candidate.canonicalMutationCount !== 0
+    )) {
+      alert("外接 AI 故事候選缺少完整執行證明，正式作品與 RPG 數值都沒有變更。");
+      return;
+    }
     try {
       const result = await acceptStudioChoice(repositoryRef.current!, candidate.canonicalCandidateId!, content, candidate.choiceText),
         branchAt = result.acceptedChoice.acceptedAt,
@@ -2392,10 +2646,13 @@ export default function StudioClient({
           </div>
         </section>
       ) : null}
-      {(storageFailure || persistenceMode === "CLOUD_DEGRADED") ? (
+      {(storageFailure || (
+        persistenceMode === "CLOUD_DEGRADED" && !cloudNoticeDismissed
+      )) ? (
         <section
           className="studioPersistenceBanner"
           data-blocked={Boolean(storageFailure)}
+          data-testid="studio-persistence-banner"
           role={storageFailure ? "alert" : "status"}
         >
           <strong>
@@ -2405,7 +2662,9 @@ export default function StudioClient({
           </strong>
           <span>
             {storageFailure?.message
-              ?? "IndexedDB 仍是 Canonical Authority；Supabase 錯誤不會阻擋本機寫作、閉端 AI、核准或匯出。"}
+              ?? (cloudPersistenceIssue?.errorCategory === "migration"
+                ? "Supabase 雲端同步資料表尚未完成；作品仍安全保存在 IndexedDB。可關閉此提示並繼續本機創作。"
+                : "IndexedDB 仍是 Canonical Authority；Supabase 錯誤不會阻擋本機寫作、閉端 AI、核准或匯出。")}
           </span>
           <small>
             模式：{persistenceMode ?? "檢查中"}
@@ -2427,7 +2686,18 @@ export default function StudioClient({
                 重新檢查 IndexedDB
               </button>
             </>
-          ) : null}
+          ) : (
+            <div className="studioPersistenceActions">
+              <Link href="/studio/settings/storage">查看雲端設定</Link>
+              <button
+                type="button"
+                data-testid="dismiss-cloud-degraded-notice"
+                onClick={dismissCloudNotice}
+              >
+                關閉本次提示
+              </button>
+            </div>
+          )}
         </section>
       ) : null}
       <button
@@ -2488,6 +2758,8 @@ export default function StudioClient({
           <span>
             {assistantStatus === "ollama_ready"
               ? "真實本機 AI 已連線"
+              : assistantStatus === "external_ready"
+                ? `${externalProviderId} 外接 AI 已就緒`
               : assistantStatus === "runtime_ready"
                 ? "瀏覽器輕量 AI 可用"
                 : assistantStatus === "auth_required"
@@ -2495,6 +2767,42 @@ export default function StudioClient({
                   : "真實 AI 尚未連線"}
           </span>
         </header>
+        <section className="studioAiModeBar" data-testid="studio-ai-mode" data-mode={aiExecutionMode}>
+          <label>AI 模式
+            <select value={aiExecutionMode} onChange={(event) => {
+              const mode = event.target.value as NovelAIExecutionMode;
+              setAiExecutionMode(mode);
+              setStudioAiSource(mode === "external-only" ? "external" : "closed");
+              setExternalRunConsent(false);
+              persistStudioAISettings({ mode });
+            }}>
+              <option value="closed-only">全部閉端</option>
+              <option value="hybrid">閉端＋外接共用</option>
+              <option value="external-only">全部外接</option>
+            </select>
+          </label>
+          {aiExecutionMode === "hybrid" && <label>本次來源
+            <select value={studioAiSource} onChange={(event) => { setStudioAiSource(event.target.value as "closed" | "external"); setExternalRunConsent(false); }}>
+              <option value="closed">閉端 AI</option>
+              <option value="external">外接 AI</option>
+            </select>
+          </label>}
+          {(aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external")) && <>
+            <label>外接模型
+              <select value={externalProviderId} onChange={(event) => {
+                const providerId = event.target.value as ExternalAIProviderId;
+                setExternalProviderId(providerId);
+                setExternalRunConsent(false);
+                persistStudioAISettings({ providerId });
+              }}>
+                <option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="claude">Claude</option>
+              </select>
+            </label>
+            <label className="studioExternalConsent"><input type="checkbox" checked={externalRunConsent} onChange={(event) => setExternalRunConsent(event.target.checked)} /><span>同意下一次工作把內容傳給所選外接 AI（只用一次）</span></label>
+          </>}
+          <Link href="/studio/settings/ai">完整 AI 設定</Link>
+          {aiModeMessage && <p role="status">{aiModeMessage}</p>}
+        </section>
         <main className="studioContent">
           {screen === "home" && (
             <HomeScreen project={project} navigate={navigate} />
@@ -2545,6 +2853,9 @@ export default function StudioClient({
                 discard={() => void discardCandidate()}
                 assistantStatus={assistantStatus}
                 assistantBusy={assistantBusy}
+                assistantStreamText={assistantStreamText}
+                assistantStreamEvents={assistantStreamEvents}
+                stopAssistantTask={stopAssistantTask}
                 lastRejectedCandidate={
                   lastRejectedCandidate?.projectId === project?.id
                     ? lastRejectedCandidate
@@ -2598,14 +2909,14 @@ export default function StudioClient({
                 canUndo={state.branches.some(
                   (branch) => branch.projectId === project?.id && branch.reversible,
                 )}
-                regenerate={() =>
+                regenerate={(signal) =>
                   generateChoiceResult(
                     state.candidate?.choiceText ||
                       customChoice ||
                       choices().find((choice) => choice.key === selectedChoice)
                       ?.text ||
                       "",
-                    undefined,
+                    signal,
                     state.candidate?.task === "branch_choice"
                       ? state.candidate
                       : undefined,
@@ -3167,6 +3478,9 @@ function WriteScreen({
   discard,
   assistantStatus,
   assistantBusy,
+  assistantStreamText,
+  assistantStreamEvents,
+  stopAssistantTask,
   lastRejectedCandidate,
   regenerationError,
 }: {
@@ -3183,6 +3497,9 @@ function WriteScreen({
   discard: () => void;
   assistantStatus: AssistantStatus;
   assistantBusy: string | null;
+  assistantStreamText: string;
+  assistantStreamEvents: number;
+  stopAssistantTask: () => void;
   lastRejectedCandidate: NonNullable<Candidate> | null;
   regenerationError: string;
 }) {
@@ -3455,12 +3772,14 @@ function WriteScreen({
             <h2>
               {assistantStatus === "ollama_ready"
                 ? "真實本機 AI 已連線"
+                : assistantStatus === "external_ready"
+                  ? "真實外接 AI 已就緒"
                 : assistantStatus === "runtime_ready"
                   ? "瀏覽器輕量 AI 可用；創作模型未連線"
                   : "真實創作模型尚未連線"}
             </h2>
           </header>
-          {assistantStatus !== "ollama_ready" ? (
+          {assistantStatus !== "ollama_ready" && assistantStatus !== "external_ready" ? (
             <div className="studioAiConnection" role="status">
               <strong>續寫、改寫與對話需要真實生成模型</strong>
               <span>未連線時只會提供清楚標示的離線寫作工具，不會把規則模板冒充 AI。</span>
@@ -3494,11 +3813,25 @@ function WriteScreen({
                 <span>
                   {assistantStatus === "ollama_ready"
                     ? "本機 AI 建議：由本機模型產生候選，再由你決定是否加入"
+                    : assistantStatus === "external_ready"
+                      ? "外接 AI 建議：資料會離開裝置，結果仍須由你核准"
                     : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
                 </span>
               </button>
             ))}
           </div>
+          {assistantBusy && (
+            <section className="studioStreamPreview" data-testid="studio-stream-preview" aria-live="polite">
+              <header>
+                <div>
+                  <strong>{assistantStreamText ? "模型正在寫作" : "正在連接真實模型"}</strong>
+                  <small>{assistantStreamEvents > 0 ? `${assistantStreamEvents} 個串流片段` : "等待第一個文字片段"}</small>
+                </div>
+                <button type="button" onClick={stopAssistantTask}>停止生成</button>
+              </header>
+              {assistantStreamText && <pre>{assistantStreamText}</pre>}
+            </section>
+          )}
           {!candidate && lastRejectedCandidate && (
             <div className="studioRegenerationPrompt" data-testid="studio-rejected-regeneration">
               <strong>原候選已放棄，正式故事沒有變更</strong>
@@ -3589,7 +3922,9 @@ function SuggestionCard({
         <b>
           {candidate.model === "local-rule"
             ? "離線寫作工具（非 AI）"
-            : "真實閉端 AI 候選"}
+            : candidate.candidateKind === "external-ai"
+              ? "真實外接 AI 候選"
+              : "真實閉端 AI 候選"}
         </b>
         <span>這份內容還沒有加入正式故事</span>
       </header>
@@ -4067,7 +4402,7 @@ function ChoiceScreen({
   discard: () => void;
   undo: () => void;
   canUndo: boolean;
-  regenerate: () => Promise<void>;
+  regenerate: (signal?: AbortSignal) => Promise<void>;
   regenerationError: string;
   stats: Record<string, number>;
   history: StatHistory[];
@@ -4099,9 +4434,13 @@ function ChoiceScreen({
     setCancelled(false);
     setLoading(true);
     setProgress(0);
-    await generateChoice(text, controller.current.signal);
-    setLoading(false);
-    setEdited("");
+    try {
+      await generateChoice(text, controller.current.signal);
+      setEdited("");
+    } finally {
+      controller.current = null;
+      setLoading(false);
+    }
   }
   if (!project)
     return (
@@ -4309,18 +4648,29 @@ function ChoiceScreen({
             </button>
             <button onClick={() => setEditing(true)}>修改後接受</button>
             <button
-              disabled={regenerating}
               onClick={() => {
+                if (regenerating) {
+                  controller.current?.abort("USER_CANCELLED");
+                  return;
+                }
+                controller.current = new AbortController();
                 setRegenerating(true);
-                void regenerate().finally(() => setRegenerating(false));
+                void regenerate(controller.current.signal).finally(() => {
+                  controller.current = null;
+                  setRegenerating(false);
+                });
               }}
             >
-              {regenerating ? "正在產生不同版本" : "換一個版本"}
+              {regenerating ? "停止重新生成" : "換一個版本"}
             </button>
             {canUndo && <button onClick={undo}>回到上一個選擇</button>}
             <button data-testid="studio-choice-discard" onClick={discard}>暫時不採用</button>
           </footer>
-          <p className="localPrivacy">這次使用本機故事系統，內容未送出裝置。</p>
+          <p className="localPrivacy">
+            {result.externalRequest
+              ? "這次使用外接 AI，送出的作品脈絡已離開裝置；候選仍須核准才會寫入正式故事。"
+              : "這次使用本機故事系統，內容未送出裝置。"}
+          </p>
           <details>
             <summary>查看技術資訊</summary>
             <dl>

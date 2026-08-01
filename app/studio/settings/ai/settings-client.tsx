@@ -17,10 +17,16 @@ import {
   rejectLocalStoryBibleCandidate,
   type LocalStoryBibleCandidate,
 } from "@/lib/novel-ai/repository/story-bible-approval";
+import type {
+  ExternalAIProviderId,
+  ExternalAIProviderPublicStatus,
+  NovelAIExecutionMode,
+} from "@/lib/novel-ai/providers/external/external-provider-contract";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
 type Status = { browser: string; bridge: string; origin: string; pairing: string; ollama: string; model: string; generation: string; hub: string; privacy: string; external: boolean; error: string; errorCode: string };
 type GenerationStatus = "idle" | "generating" | "cancelling" | "completed" | "cancelled" | "failed";
+type ExternalRunStatus = "idle" | "running" | "completed" | "failed";
 
 const taskOptions = [
   ["summary", "繁體中文摘要"], ["rewrite", "繁體中文改寫"], ["character.extract", "角色資料整理"], ["story.choices", "產生三個劇情選項"],
@@ -87,12 +93,33 @@ export default function AISettingsClient() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [connectionDiagnostics, setConnectionDiagnostics] = useState<Array<{ endpoint: string; reachable: boolean; status: number | null; errorCode: string | null; elapsedMs: number }>>([]);
   const [originCommandCopied, setOriginCommandCopied] = useState(false);
+  const [executionMode, setExecutionMode] = useState<NovelAIExecutionMode>("closed-only");
+  const [externalProviderId, setExternalProviderId] = useState<ExternalAIProviderId>("openai");
+  const [externalProviders, setExternalProviders] = useState<ExternalAIProviderPublicStatus[]>([]);
+  const [externalConsent, setExternalConsent] = useState(false);
+  const [externalPrompt, setExternalPrompt] = useState("請用繁體中文續寫一小段：林昭推開圖書館的門，發現帳冊不見了。");
+  const [externalOutput, setExternalOutput] = useState("");
+  const [externalRunStatus, setExternalRunStatus] = useState<ExternalRunStatus>("idle");
+  const [externalRunMessage, setExternalRunMessage] = useState("");
+  const [externalRunMeta, setExternalRunMeta] = useState<{ modelId: string; elapsedMs: number; inputTokens: number | null; outputTokens: number | null } | null>(null);
   const originEnrollmentCommand = currentOrigin ? buildOriginEnrollmentCommand(currentOrigin) : null;
 
   useEffect(() => {
     const resolved = resolveCurrentStudioOrigin(window.location);
     setCurrentOrigin(resolved.ready ? resolved.origin : null);
   }, []);
+
+  const loadExternalProviders = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ai/external/providers", { cache: "no-store" });
+      const payload = await response.json() as { providers?: ExternalAIProviderPublicStatus[] };
+      setExternalProviders(Array.isArray(payload.providers) ? payload.providers : []);
+    } catch {
+      setExternalProviders([]);
+    }
+  }, []);
+
+  useEffect(() => { void loadExternalProviders(); }, [loadExternalProviders]);
 
   const loadReviewState = useCallback(async (projectId: string) => {
     if (!projectId) { setReviewCandidates([]); return; }
@@ -126,6 +153,16 @@ export default function AISettingsClient() {
   const refresh = useCallback(async () => {
     if (!currentOrigin) return;
     const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
+    const savedMode: NovelAIExecutionMode = saved.executionMode === "external-only" || saved.executionMode === "hybrid" || saved.executionMode === "closed-only"
+      ? saved.executionMode
+      : saved.privacy === "external-allowed"
+        ? "hybrid"
+        : "closed-only";
+    const savedProvider: ExternalAIProviderId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
+      ? saved.externalProviderId
+      : "openai";
+    setExecutionMode(savedMode);
+    setExternalProviderId(savedProvider);
     let healthError: unknown = null;
     const [browser, health, hub] = await Promise.all([
       detectBrowserAI(),
@@ -168,8 +205,8 @@ export default function AISettingsClient() {
           ? "模型已安裝，等待真實推理驗證"
           : "尚未就緒",
       hub: hub.status === "ready" ? "已連線" : "尚未連接執行環境",
-      privacy: saved.privacy || "strict-local",
-      external: Boolean(saved.external),
+      privacy: savedMode === "closed-only" ? (saved.privacy === "private-hub-allowed" ? "private-hub-allowed" : "strict-local") : "external-allowed",
+      external: savedMode !== "closed-only",
       error: healthErrorCode ? (errorGuidance[healthErrorCode] || getLocalBridgeConsumerMessage(healthErrorCode)) : modelError,
       errorCode: healthErrorCode,
     }));
@@ -177,9 +214,79 @@ export default function AISettingsClient() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const savePrivacy = (next: Status) => {
-    setStatus(next);
-    localStorage.setItem("novel_p2_ai_settings", JSON.stringify({ privacy: next.privacy, external: next.external }));
+  const saveExecutionMode = (nextMode: NovelAIExecutionMode) => {
+    setExecutionMode(nextMode);
+    setExternalConsent(false);
+    setExternalRunMessage("");
+    const privacy = nextMode === "closed-only" ? "strict-local" : "external-allowed";
+    setStatus((value) => ({ ...value, privacy, external: nextMode !== "closed-only" }));
+    localStorage.setItem("novel_p2_ai_settings", JSON.stringify({
+      executionMode: nextMode,
+      externalProviderId,
+      privacy,
+      external: nextMode !== "closed-only",
+    }));
+  };
+
+  const saveExternalProvider = (providerId: ExternalAIProviderId) => {
+    setExternalProviderId(providerId);
+    setExternalConsent(false);
+    const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
+    localStorage.setItem("novel_p2_ai_settings", JSON.stringify({ ...saved, executionMode, externalProviderId: providerId }));
+  };
+
+  const runExternalTest = async () => {
+    if (executionMode === "closed-only") {
+      setExternalRunStatus("failed");
+      setExternalRunMessage("全閉端模式禁止呼叫外接 AI。請先切換到混合或全外接模式。");
+      return;
+    }
+    if (!externalConsent) {
+      setExternalRunStatus("failed");
+      setExternalRunMessage("請先勾選本次單次同意；系統不會替你自動同意。");
+      return;
+    }
+    setExternalRunStatus("running");
+    setExternalRunMessage("正在由伺服器安全呼叫外接 AI……");
+    setExternalOutput("");
+    setExternalRunMeta(null);
+    try {
+      const response = await fetch("/api/ai/external/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          executionMode,
+          providerId: externalProviderId,
+          externalConsent: true,
+          prompt: externalPrompt,
+          maxOutputTokens: 768,
+        }),
+      });
+      const payload = await response.json() as {
+        error?: string;
+        code?: string;
+        text?: string;
+        modelId?: string;
+        elapsedMs?: number;
+        usage?: { inputTokens?: number | null; outputTokens?: number | null };
+      };
+      if (!response.ok || !payload.text) throw Object.assign(new Error(payload.error || "外接 AI 沒有回傳文字。"), { code: payload.code });
+      setExternalOutput(payload.text);
+      setExternalRunMeta({
+        modelId: payload.modelId || "unknown",
+        elapsedMs: payload.elapsedMs || 0,
+        inputTokens: payload.usage?.inputTokens ?? null,
+        outputTokens: payload.usage?.outputTokens ?? null,
+      });
+      setExternalRunStatus("completed");
+      setExternalRunMessage("真實外接推理完成；結果仍是候選內容，沒有寫入正式作品。");
+    } catch (error) {
+      const code = String((error as { code?: string })?.code || "");
+      setExternalRunStatus("failed");
+      setExternalRunMessage(`${error instanceof Error ? error.message : "外接 AI 測試失敗。"}${code ? `（${code}）` : ""}`);
+    } finally {
+      setExternalConsent(false);
+    }
   };
 
   const requestPairing = async () => {
@@ -439,11 +546,27 @@ export default function AISettingsClient() {
       <div className="localAiRunStatus" aria-live="polite"><strong>狀態：</strong><span data-testid="generation-status">{{ idle: "尚未開始", generating: "生成中", cancelling: "正在取消", completed: "已完成", cancelled: "已取消", failed: "未完成" }[generationStatus]}</span>{requestId && <><br /><strong>要求編號：</strong><code data-testid="request-id">{requestId}</code></>}{activeModel && <><br /><strong>本次模型：</strong><span data-testid="active-model">{activeModel}</span><br /><strong>執行來源：</strong><span data-testid="selected-provider">local_ollama</span></>}{firstTokenMs !== null && <><br /><strong>首段回應：</strong><span data-testid="first-token-ms">{firstTokenMs} ms</span></>}{elapsedMs !== null && <><br /><strong>耗時：</strong><span data-testid="elapsed-ms">{elapsedMs} ms</span></>}</div>
       <article data-testid="stream-output" className="localAiOutput">{output || "串流內容會顯示在這裡。"}</article>
     </section>
-    <section><h2>隱私模式</h2>
-      <label><input type="radio" checked={status.privacy === "strict-local"} onChange={() => savePrivacy({ ...status, privacy: "strict-local", external: false })} /> 完全留在本機</label>
-      <label><input type="radio" checked={status.privacy === "private-hub-allowed"} onChange={() => savePrivacy({ ...status, privacy: "private-hub-allowed", external: false })} /> 可使用私有 AI 中樞</label>
-      <label><input type="radio" checked={status.privacy === "external-allowed"} onChange={() => savePrivacy({ ...status, privacy: "external-allowed" })} /> 可在確認後使用外部 AI</label>
-      <p>即使選擇外部輔助，每次跨越隱私邊界仍需明確同意，不會無聲回退。</p>
+    <section data-testid="ai-execution-mode"><h2>AI 執行模式</h2><p>模式是硬邊界；失敗時會清楚停止，不會暗中切換到另一類 AI。</p>
+      <div className="aiModeGrid">
+        <label data-selected={executionMode === "closed-only"}><input type="radio" name="execution-mode" checked={executionMode === "closed-only"} onChange={() => saveExecutionMode("closed-only")} /><strong>全部使用閉端 AI</strong><span>Browser AI、Local Ollama、Private Hub；內容不交給第三方模型。</span></label>
+        <label data-selected={executionMode === "hybrid"}><input type="radio" name="execution-mode" checked={executionMode === "hybrid"} onChange={() => saveExecutionMode("hybrid")} /><strong>閉端＋外接共用</strong><span>每次工作明確選擇執行來源；跨出裝置前仍需單次同意。</span></label>
+        <label data-selected={executionMode === "external-only"}><input type="radio" name="execution-mode" checked={executionMode === "external-only"} onChange={() => saveExecutionMode("external-only")} /><strong>全部使用外接 AI</strong><span>不啟動閉端模型；外接失敗時直接停止，不回退成本機模板。</span></label>
+      </div>
+    </section>
+    <section data-testid="external-ai-control" data-mode={executionMode}><div className="externalAiHeading"><div><h2>外接 AI</h2><p>金鑰只讀取伺服器環境變數，瀏覽器不會收到、顯示或保存金鑰。</p></div><button type="button" onClick={() => void loadExternalProviders()}>重新讀取狀態</button></div>
+      <div className="externalProviderGrid">
+        {externalProviders.map((provider) => <label key={provider.id} data-configured={provider.configured} data-selected={externalProviderId === provider.id}>
+          <input type="radio" name="external-provider" disabled={executionMode === "closed-only"} checked={externalProviderId === provider.id} onChange={() => saveExternalProvider(provider.id)} />
+          <strong>{provider.label}</strong><span>{provider.configured ? "已設定，可測試" : "尚未設定"}</span><small>模型：{provider.modelId}<br />介面：{provider.apiStyle}<br />伺服器設定：{provider.keyEnvironmentVariable}</small>
+        </label>)}
+      </div>
+      {externalProviders.length === 0 && <p role="alert">目前無法讀取外接 AI 狀態；閉端 AI 不受影響。</p>}
+      <label>測試內容<textarea rows={5} disabled={executionMode === "closed-only" || externalRunStatus === "running"} value={externalPrompt} onChange={(event) => setExternalPrompt(event.target.value)} /></label>
+      <label className="externalConsent"><input type="checkbox" disabled={executionMode === "closed-only" || externalRunStatus === "running"} checked={externalConsent} onChange={(event) => setExternalConsent(event.target.checked)} /><span>我同意只在本次測試中，將上方內容傳給所選外接 AI。這項同意使用一次後立即清除。</span></label>
+      <button data-testid="external-ai-test" type="button" disabled={executionMode === "closed-only" || externalRunStatus === "running" || !externalPrompt.trim()} onClick={() => void runExternalTest()}>{externalRunStatus === "running" ? "外接 AI 執行中……" : "執行真實外接 AI 測試"}</button>
+      {externalRunMessage && <p role={externalRunStatus === "failed" ? "alert" : "status"}>{externalRunMessage}</p>}
+      {externalRunMeta && <div className="localAiRunStatus"><strong>模型：</strong>{externalRunMeta.modelId}<br /><strong>耗時：</strong>{externalRunMeta.elapsedMs} ms<br /><strong>Token：</strong>{externalRunMeta.inputTokens ?? "未提供"} → {externalRunMeta.outputTokens ?? "未提供"}<br /><strong>資料離開裝置：</strong>是</div>}
+      {externalOutput && <article data-testid="external-ai-output" className="localAiOutput">{externalOutput}</article>}
     </section>
     {taskType === "character.extract" && <section data-testid="story-bible-review">
       <h2>Story Bible 人物事實審核</h2>

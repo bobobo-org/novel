@@ -1,4 +1,4 @@
-export type AiProviderId = "local-rule" | "ollama-local" | "google-gemini" | "openai" | "grok";
+export type AiProviderId = "local-rule" | "ollama-local" | "google-gemini" | "openai" | "grok" | "anthropic-claude";
 
 export type AiTaskType =
   | "task_classification"

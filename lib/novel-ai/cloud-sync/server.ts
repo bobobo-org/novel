@@ -1,5 +1,8 @@
 import "server-only";
-import { supabaseRest } from "../storage/supabase/supabase-rest-client";
+import {
+  isSupabaseConfigured,
+  supabaseRest,
+} from "../storage/supabase/supabase-rest-client";
 import {
   CLOUD_SYNC_MIGRATION_VERSION,
   CLOUD_SYNC_SCHEMA_VERSION,
@@ -22,13 +25,6 @@ type SnapshotRow = {
   updated_at: string;
 };
 
-function configAvailable() {
-  return Boolean(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL)
-    && process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
-}
-
 export function readCloudSyncOwnerId(request: Request) {
   const value = request.headers.get("x-novel-sync-owner")?.trim() ?? "";
   if (!/^[a-f0-9]{64}$/u.test(value)) {
@@ -48,7 +44,7 @@ export async function cloudSyncServerHealth(): Promise<CloudSyncHealth> {
     encryption: "client-side-aes-gcm" as const,
     canonicalAuthority: "IndexedDB" as const,
   };
-  if (!configAvailable()) {
+  if (!isSupabaseConfigured()) {
     return {
       ...base,
       status: "configuration_required",

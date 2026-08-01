@@ -4,7 +4,7 @@ export type RecordSource = "user" | "ai_candidate" | "migration" | "system";
 
 export type Provenance = {
   source: RecordSource;
-  actor: "author" | "local-rule" | "browser-ai" | "local-ollama" | "private-ai-hub" | "migration";
+  actor: "author" | "local-rule" | "browser-ai" | "local-ollama" | "private-ai-hub" | "external-ai" | "migration";
   requestId?: string;
   createdAt: string;
 };

@@ -6,9 +6,10 @@ const PROVIDER_ACTOR = {
   "local-ollama": "local-ollama",
   "private-ai-hub": "private-ai-hub",
   "deterministic-local": "local-rule",
-  openai: "local-rule",
-  gemini: "local-rule",
-  grok: "local-rule",
+  openai: "external-ai",
+  gemini: "external-ai",
+  grok: "external-ai",
+  claude: "external-ai",
 } as const;
 
 export function makeDramaRecord(projectId: string, providerId: PlatformProviderId, requestId: string) {

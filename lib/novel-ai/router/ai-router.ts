@@ -1,4 +1,4 @@
-import { TASK_POLICIES, providerSupports, type AiProviderCapabilities } from "../providers/provider-capabilities";
+import { TASK_POLICIES, providerSupports } from "../providers/provider-capabilities";
 import { AiProviderError } from "../providers/provider-errors";
 import type { AiProviderId } from "../providers/provider-types";
 import { buildContextPlan } from "./context-budget";
@@ -6,7 +6,7 @@ import type { AiRouterDecision } from "./router-decision";
 import type { AiRouterInput } from "./router-policy";
 import { effectivePrivacyMode, externalAllowed } from "./privacy-policy";
 
-const EXTERNAL_PROVIDERS = new Set<AiProviderId>(["google-gemini", "openai", "grok"]);
+const EXTERNAL_PROVIDERS = new Set<AiProviderId>(["google-gemini", "openai", "grok", "anthropic-claude"]);
 
 function timeoutFor(timeoutClass: string) {
   if (timeoutClass === "short") return 8_000;

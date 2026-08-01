@@ -146,6 +146,8 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
   effect: StoryChoiceEffect;
   providerId: string;
   modelId: string | null;
+  externalRequest?: boolean;
+  dataLeftDevice?: boolean;
 }) {
   const current = await ensureStudioCanonicalProject(repository, input);
   const base = makeRecord(input.id, "ai_candidate");
@@ -163,7 +165,18 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
     chapterRevision: current.chapter.revision,
     storyStateRevision: current.storyState.revision,
     storyBibleRevision: current.storyBible.revision,
-    provenance: { ...base.provenance, actor: candidate.providerId === "ollama" ? "local-ollama" : "local-rule", requestId: base.id, providerId: candidate.providerId, modelId: candidate.modelId, taskType: "interactive_choice", externalRequest: false, dataLeftDevice: false, contextSources: ["project", "chapter", "story_state"], elapsedMs: null },
+    provenance: {
+      ...base.provenance,
+      actor: candidate.externalRequest ? "external-ai" : candidate.providerId === "ollama" ? "local-ollama" : candidate.providerId === "browser-ai" ? "browser-ai" : "local-rule",
+      requestId: base.id,
+      providerId: candidate.providerId,
+      modelId: candidate.modelId,
+      taskType: "interactive_choice",
+      externalRequest: candidate.externalRequest === true,
+      dataLeftDevice: candidate.dataLeftDevice === true,
+      contextSources: ["project", "chapter", "story_state"],
+      elapsedMs: null,
+    },
   };
   const saved = await repository.put("candidates", record);
   return { candidate: saved, current };

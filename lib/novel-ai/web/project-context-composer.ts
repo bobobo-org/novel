@@ -43,7 +43,20 @@ export type ProjectContextComposerInput = {
     revision: string | number;
   }>;
   supplementalContext?: ClosedAIContextItem[];
+  semanticQuery?: string;
+  semanticRanker?: ProjectContextSemanticRanker;
 };
+
+export type ProjectContextSemanticRanker = (input: {
+  query: string;
+  items: Array<{ id: string; text: string; priority: number }>;
+}) => Promise<{
+  scores: Array<{ id: string; score: number }>;
+  modelId: string;
+  modelDigest: string;
+  cacheHit: boolean;
+  dataLeftDevice: false;
+}>;
 
 export type ProjectContextSourceSummary = {
   schemaVersion: typeof PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION;
@@ -54,6 +67,14 @@ export type ProjectContextSourceSummary = {
   estimatedTokens: number;
   tokenBudget: number;
   truncated: boolean;
+  ranking: {
+    mode: "priority" | "semantic";
+    modelId: string | null;
+    modelDigest: string | null;
+    cacheHit: boolean | null;
+    dataLeftDevice: false;
+    fallbackReason: string | null;
+  };
 };
 
 export type ProjectContextComposition = {
@@ -64,6 +85,7 @@ export type ProjectContextComposition = {
 
 type PrioritizedContext = {
   priority: number;
+  semanticScore?: number;
   item: ClosedAIContextItem;
 };
 
@@ -153,8 +175,16 @@ function applyBudget(
   entries: PrioritizedContext[],
   tokenBudget: number,
 ) {
+  const effectivePriority = (entry: PrioritizedContext) => {
+    if (entry.priority >= 90) {
+      return entry.priority * 100 + (entry.semanticScore ?? 0);
+    }
+    return entry.priority + (entry.semanticScore ?? 0) * 12;
+  };
   const sorted = [...entries].sort((left, right) =>
-    right.priority - left.priority || left.item.id.localeCompare(right.item.id));
+    effectivePriority(right) - effectivePriority(left)
+    || right.priority - left.priority
+    || left.item.id.localeCompare(right.item.id));
   const selected: ClosedAIContextItem[] = [];
   let remainingCharacters = Math.max(512, tokenBudget * 2);
   let truncated = false;
@@ -745,6 +775,52 @@ export async function composeProjectContext(
     entries.push({ priority: 99, item: structuredClone(item) });
   }
 
+  let ranking: ProjectContextSourceSummary["ranking"] = {
+    mode: "priority",
+    modelId: null,
+    modelDigest: null,
+    cacheHit: null,
+    dataLeftDevice: false,
+    fallbackReason: input.semanticRanker ? "semantic_ranker_not_run" : "semantic_model_not_configured",
+  };
+  const semanticQuery = input.semanticQuery?.trim();
+  if (input.semanticRanker && semanticQuery && entries.length) {
+    try {
+      const result = await input.semanticRanker({
+        query: semanticQuery,
+        items: entries.map((entry) => ({
+          id: entry.item.id,
+          text: entry.item.text,
+          priority: entry.priority,
+        })),
+      });
+      const scores = new Map(result.scores.map((score) => [score.id, score.score]));
+      for (const entry of entries) {
+        const score = scores.get(entry.item.id);
+        if (typeof score === "number" && Number.isFinite(score)) {
+          entry.semanticScore = Math.max(-1, Math.min(1, score));
+        }
+      }
+      ranking = {
+        mode: "semantic",
+        modelId: result.modelId,
+        modelDigest: result.modelDigest,
+        cacheHit: result.cacheHit,
+        dataLeftDevice: result.dataLeftDevice,
+        fallbackReason: null,
+      };
+    } catch (error) {
+      ranking = {
+        ...ranking,
+        fallbackReason: typeof error === "object" && error && "code" in error
+          ? String((error as { code?: unknown }).code ?? "semantic_ranker_failed")
+          : "semantic_ranker_failed",
+      };
+    }
+  } else if (input.semanticRanker && !semanticQuery) {
+    ranking.fallbackReason = "semantic_query_empty";
+  }
+
   const budgeted = applyBudget(entries, tokenBudget);
   const counts: Record<string, number> = {
     project: 1,
@@ -785,6 +861,7 @@ export async function composeProjectContext(
     estimatedTokens: budgeted.estimatedTokens,
     tokenBudget,
     truncated: budgeted.truncated,
+    ranking,
   };
   const contextDigest = await sha256Hex(stableStringify({
     schemaVersion: PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION,

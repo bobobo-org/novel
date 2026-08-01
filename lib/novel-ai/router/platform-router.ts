@@ -1,9 +1,9 @@
 import type { PlatformAIRequest, PlatformProviderCapability, PlatformProviderId, PlatformProviderSnapshot, PlatformRouterDecision } from "./platform-types";
 
-const external = new Set<PlatformProviderId>(["openai", "gemini", "grok"]);
+const external = new Set<PlatformProviderId>(["openai", "gemini", "grok", "claude"]);
 const privateHub = new Set<PlatformProviderId>(["private-ai-hub"]);
 const modelBackedClosed = new Set<PlatformProviderId>(["browser-ai", "local-ollama", "private-ai-hub"]);
-const defaultOrder: PlatformProviderId[] = ["browser-ai", "local-ollama", "private-ai-hub", "deterministic-local", "gemini", "openai", "grok"];
+const defaultOrder: PlatformProviderId[] = ["browser-ai", "local-ollama", "private-ai-hub", "deterministic-local", "gemini", "openai", "claude", "grok"];
 
 export class PlatformRouterError extends Error {
   code: string;

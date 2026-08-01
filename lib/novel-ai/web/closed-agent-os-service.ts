@@ -138,6 +138,20 @@ export async function executeStudioClosedAgent(
       tokenBudget: input.contextTokenBudget,
       audience: "actor",
       supplementalContext,
+      semanticQuery: input.objective,
+      semanticRanker: typeof window === "undefined"
+        ? undefined
+        : async ({ query, items }) => {
+          const { rankWithBrowserSemanticModel } = await import(
+            "../providers/browser-ai/browser-semantic-runtime"
+          );
+          return rankWithBrowserSemanticModel({
+            namespace,
+            query,
+            items,
+            signal: input.signal,
+          });
+        },
     });
 
     const result = await os.execute({
