@@ -7,6 +7,7 @@ import {
   parseEnvFile,
   projectRefFromUrl,
   projectRefFromServiceRole,
+  selectServiceRoleCredential,
   serviceRoleCredentialKind,
   validateBootstrapConfigurationShape,
   validateConfigurationShape,
@@ -33,8 +34,27 @@ assert.equal(projectRefFromUrl("https://example.com"), "");
 assert.equal(serviceRoleCredentialKind(serviceRoleJwt), "service_role_jwt");
 assert.equal(projectRefFromServiceRole(serviceRoleJwt), projectRef);
 assert.equal(serviceRoleCredentialKind("sb_secret_abcdefghijklmnopqrstuvwxyz"), "secret_key");
-assert.equal(serviceRoleCredentialKind("opaque-service-role-value"), "opaque_key");
+assert.equal(serviceRoleCredentialKind("opaque-service-role-value"), "");
 assert.equal(serviceRoleCredentialKind("short"), "");
+
+const selectedCredential = await selectServiceRoleCredential({
+  url: source.NEXT_PUBLIC_SUPABASE_URL,
+  candidates: [
+    { source: "production", value: "[REDACTED]" },
+    { source: "preview", value: "sb_secret_abcdefghijklmnopqrstuvwxyz" },
+  ],
+  fetcher: async (url, options) => {
+    assert.equal(options.headers.apikey, "sb_secret_abcdefghijklmnopqrstuvwxyz");
+    assert.equal("authorization" in options.headers, false);
+    assert.match(url, /\/(?:rest|storage)\/v1\//u);
+    return new Response("[]", { status: 200 });
+  },
+});
+assert.equal(selectedCredential.source, "preview");
+assert.equal(selectedCredential.kind, "secret_key");
+assert.equal(selectedCredential.restHttpStatus, 200);
+assert.equal(selectedCredential.storageHttpStatus, 200);
+assert.equal(selectedCredential.probes[0].kind, "invalid_shape");
 
 const production = { NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL };
 const merged = mergeProductionWithSource(production, source);

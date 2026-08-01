@@ -53,7 +53,7 @@ export function serviceRoleCredentialKind(value) {
   if (/^sb_secret_[A-Za-z0-9._-]{16,}$/u.test(value)) return "secret_key";
   const payload = decodeSupabaseJwt(value);
   if (payload?.role === "service_role") return "service_role_jwt";
-  return /^[^\s]{16,}$/u.test(value) ? "opaque_key" : "";
+  return "";
 }
 
 function decodeSupabaseJwt(value) {
@@ -203,6 +203,74 @@ function serviceRoleHeaders(serviceRoleCredential) {
   return headers;
 }
 
+export async function selectServiceRoleCredential({
+  url,
+  candidates,
+  fetcher = fetchWithTimeout,
+}) {
+  const normalizedUrl = String(url || "").replace(/\/$/u, "");
+  const unique = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const value = String(candidate?.value || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    unique.push({ source: String(candidate?.source || "unknown"), value });
+  }
+
+  const probes = [];
+  for (const candidate of unique) {
+    const kind = serviceRoleCredentialKind(candidate.value);
+    if (!kind) {
+      probes.push({
+        source: candidate.source,
+        kind: "invalid_shape",
+        restHttpStatus: null,
+        storageHttpStatus: null,
+      });
+      continue;
+    }
+    const headers = serviceRoleHeaders(candidate.value);
+    let restHttpStatus = null;
+    let storageHttpStatus = null;
+    try {
+      const restResponse = await fetcher(`${normalizedUrl}/rest/v1/`, { headers });
+      restHttpStatus = restResponse.status;
+      await restResponse.body?.cancel().catch(() => undefined);
+      if (restResponse.ok) {
+        const storageResponse = await fetcher(`${normalizedUrl}/storage/v1/bucket`, {
+          headers: { ...headers, accept: "application/json" },
+        });
+        storageHttpStatus = storageResponse.status;
+        await storageResponse.body?.cancel().catch(() => undefined);
+        if (storageResponse.ok) {
+          return {
+            value: candidate.value,
+            source: candidate.source,
+            kind,
+            restHttpStatus,
+            storageHttpStatus,
+            probes,
+          };
+        }
+      }
+    } catch {
+      // The sanitized probe summary below is sufficient; credentials are never logged.
+    }
+    probes.push({
+      source: candidate.source,
+      kind,
+      restHttpStatus,
+      storageHttpStatus,
+    });
+  }
+
+  throw Object.assign(new Error("SUPABASE_BOOTSTRAP_NO_VALID_SERVICE_ROLE_CREDENTIAL"), {
+    code: "SUPABASE_BOOTSTRAP_NO_VALID_SERVICE_ROLE_CREDENTIAL",
+    credentialProbes: probes,
+  });
+}
+
 export async function discoverProjectRef(configuration) {
   const response = await fetchWithTimeout("https://api.supabase.com/v1/projects", {
     headers: { authorization: `Bearer ${configuration.SUPABASE_ACCESS_TOKEN}` },
@@ -339,26 +407,21 @@ export async function main() {
       scope,
       token,
     });
-    const productionMissing = PRODUCTION_RUNTIME_SUPABASE_KEYS
-      .filter((key) => !production[key]);
-    let source = {};
-    if (productionMissing.length > 0) {
-      const preview = await pullEnvironment({
-        filename: previewFile,
-        environment: "preview",
-        projectId,
-        scope,
-        token,
-      });
-      const development = await pullEnvironment({
-        filename: developmentFile,
-        environment: "development",
-        projectId,
-        scope,
-        token,
-      });
-      source = { ...development, ...preview };
-    }
+    const preview = await pullEnvironment({
+      filename: previewFile,
+      environment: "preview",
+      projectId,
+      scope,
+      token,
+    });
+    const development = await pullEnvironment({
+      filename: developmentFile,
+      environment: "development",
+      projectId,
+      scope,
+      token,
+    });
+    const source = { ...development, ...preview };
     if (process.env.SUPABASE_ACCESS_TOKEN) {
       source.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
     }
@@ -392,6 +455,16 @@ export async function main() {
         .sort();
       throw error;
     }
+    const credential = await selectServiceRoleCredential({
+      url: configuration.NEXT_PUBLIC_SUPABASE_URL,
+      candidates: [
+        { source: "production", value: production.SUPABASE_SERVICE_ROLE_KEY },
+        { source: "preview", value: preview.SUPABASE_SERVICE_ROLE_KEY },
+        { source: "development", value: development.SUPABASE_SERVICE_ROLE_KEY },
+      ],
+    });
+    configuration.SUPABASE_SERVICE_ROLE_KEY = credential.value;
+    validateRuntimeConfigurationShape(configuration);
     const management = await verifySupabase(configuration, projectRef);
 
     const productionChanges = PRODUCTION_RUNTIME_SUPABASE_KEYS
@@ -430,6 +503,10 @@ export async function main() {
       managementHttpStatus: management.managementHttpStatus,
       serviceRoleVerified: management.serviceRoleVerified,
       serviceRoleVerification: management.serviceRoleVerification,
+      serviceRoleSource: credential.source,
+      serviceRoleKind: credential.kind,
+      serviceRoleRestHttpStatus: credential.restHttpStatus,
+      serviceRoleStorageHttpStatus: credential.storageHttpStatus,
     }));
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -448,6 +525,9 @@ if (entryUrl === import.meta.url) {
         : [],
       httpStatus: Number.isInteger(error?.httpStatus) ? error.httpStatus : null,
       responseShape: typeof error?.responseShape === "string" ? error.responseShape : null,
+      credentialProbes: Array.isArray(error?.credentialProbes)
+        ? error.credentialProbes
+        : [],
     }));
     process.exitCode = 1;
   });
