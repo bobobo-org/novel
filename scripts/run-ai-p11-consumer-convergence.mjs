@@ -7,7 +7,9 @@ const check = (name, condition, details = null) => {
 };
 
 const rootPage = read("app/page.tsx");
+const frontdoorClient = read("app/frontdoor-client.tsx");
 const studioPage = read("app/studio/page.tsx");
+const studioClient = read("app/studio/studio-client.tsx");
 const professionalPage = read("app/professional/page.tsx");
 const adapter = read("lib/professional-frontdoor.ts");
 const config = read("next.config.ts");
@@ -15,15 +17,14 @@ const legacy = read("public/legacy/novel-system.html");
 const publicHealth = read("app/api/ai/health/route.ts");
 const adminHealth = read("app/api/admin/persistence/route.ts");
 
-for (const [route, source] of [
-  ["/studio", studioPage],
-  ["/professional", professionalPage],
-]) {
-  check(`${route} uses the shared Professional adapter`, source.includes("buildProfessionalFrontdoorUrl"));
-  check(`${route} redirects before rendering a competing shell`, source.includes("redirect(") && !source.includes("<main"));
-}
-
-check("root redirects to the Legacy consumer frontdoor", rootPage.includes('redirect("/legacy/novel-system.html?screen=home")'));
+check("root renders the modern consumer frontdoor", rootPage.includes("<FrontdoorClient"));
+check("modern frontdoor exposes a stable marker", frontdoorClient.includes('data-testid="modern-consumer-frontdoor"'));
+check("root does not redirect to Legacy", !rootPage.includes("redirect("));
+check("/studio renders the modern Studio workspace", studioPage.includes("<StudioClient"));
+check("/studio does not redirect to Legacy", !studioPage.includes("redirect("));
+check("modern Studio exposes Legacy as an explicit fallback", studioClient.includes('href="/legacy/novel-system.html"'));
+check("/professional uses the shared Professional adapter", professionalPage.includes("buildProfessionalFrontdoorUrl"));
+check("/professional redirects before rendering a competing shell", professionalPage.includes("redirect(") && !professionalPage.includes("<main"));
 check("adapter targets only the Legacy Professional document", adapter.includes('"/legacy/novel-system.html"'));
 check("adapter forces Professional mode", adapter.includes('query.set("mode", "professional")'));
 check("adapter preserves safe query values", adapter.includes("query.append(key, value)"));

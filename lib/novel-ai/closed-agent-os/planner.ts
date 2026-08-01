@@ -37,6 +37,12 @@ export async function createClosedAgentPlan(input: {
     input.backendId,
     input.complexity,
   );
+  for (const role of taskSpecialists(input.request.taskType, qualityMode)) {
+    if (!roles.includes(role)) {
+      const evaluatorIndex = roles.indexOf("evaluator");
+      roles.splice(evaluatorIndex < 0 ? roles.length : evaluatorIndex, 0, role);
+    }
+  }
   const steps = roles.map((role, index) => ({
     index,
     role,
@@ -65,6 +71,29 @@ export async function createClosedAgentPlan(input: {
     })),
     planDigest: await sha256Hex(stableStringify(body)),
   };
+}
+
+function taskSpecialists(
+  taskType: ClosedAgentTaskRequest["taskType"],
+  qualityMode: ClosedAIQualityMode,
+): ClosedAgentRole[] {
+  const roles: ClosedAgentRole[] = [];
+  if (taskType.startsWith("character.")) roles.push("character-agent");
+  if (taskType.startsWith("world.")) roles.push("world-agent");
+  if (
+    taskType.includes("consistency")
+    || taskType.includes("timeline")
+    || taskType.includes("foreshadow")
+    || taskType.includes("Review")
+  ) roles.push("continuity-agent");
+  if (
+    taskType.startsWith("chapter.")
+    || taskType.includes("plot")
+    || taskType.includes("ending")
+    || taskType.includes("pacing")
+  ) roles.push("story-architect");
+  if (qualityMode === "deep") roles.push("critic");
+  return [...new Set(roles)];
 }
 
 export function resolveQualityMode(
@@ -97,14 +126,14 @@ function learnedRoles(base: ClosedAgentRole[], strategy: string) {
 
 function roleObjective(role: ClosedAgentRole, objective: string) {
   const prefix: Record<ClosedAgentRole, string> = {
-    planner: "拆解任務並界定完成條件",
+    planner: "拆解任務、列出可驗證完成條件並安排最小必要工具",
     "story-architect": "檢查敘事結構與故事聖經",
-    actor: "產生候選內容",
+    actor: "依核准脈絡產生候選內容，不把推測寫成 Canon",
     "character-agent": "維持角色知識與動機邊界",
     "world-agent": "維持世界規則一致",
     "continuity-agent": "檢查時間線與前後連續性",
-    critic: "找出候選中的反例與風險",
-    evaluator: "依核准事實與驗收條件評估候選",
+    critic: "以反方視角找出遺漏、重複、矛盾、廉價轉折與不可逆風險",
+    evaluator: "依核准事實、完成條件、安全邊界與結構品質評估候選",
   };
   return `${prefix[role]}：${objective}`;
 }

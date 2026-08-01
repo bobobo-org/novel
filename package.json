@@ -133,6 +133,8 @@
     "test:p24b:rc3-1:preview-parity": "node scripts/verify-p24b-rc3-1-preview-parity.mjs",
     "seal:p24b:rc3-1:evidence": "node scripts/seal-p24b-rc3-1-consumer-activation-evidence.mjs",
     "test:ai:closed:optimization": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization.mjs",
+    "test:ai:closed:cloud-sync": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-cloud-sync-e2ee.mjs",
+    "migrate:cloud-sync": "node scripts/apply-cloud-sync-migration.mjs --required",
     "test:ai:closed:optimization:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization-real.mjs",
     "test:ai:closed:model-verification-timeout": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-model-verification-timeout.mjs",
     "test:ai:closed:web-operability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-web-operability.mjs",

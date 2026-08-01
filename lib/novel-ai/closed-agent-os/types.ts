@@ -234,6 +234,13 @@ export type ClosedAgentEvaluation = {
   blockingCodes: string[];
   warningCodes: string[];
   evaluatorInputDigest: string;
+  rubric: {
+    safety: number;
+    objectiveCoverage: number;
+    structure: number;
+    specificity: number;
+    repetitionPenalty: number;
+  };
   rawChainOfThoughtStored: false;
 };
 

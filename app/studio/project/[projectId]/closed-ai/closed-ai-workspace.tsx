@@ -126,21 +126,22 @@ const TASKS: ClosedAITaskOption[] = [
   { id: "chapter.continue", label: "小說續寫", complexity: "standard", hint: "可核准套用章節", group: "writing", defaultObjective: "續寫一段約三百字的繁體中文小說場景，讓人物以行動面對新的選擇與代價。" },
   { id: "chapter.rewrite", label: "段落改寫", complexity: "standard", hint: "可核准取代章節", group: "writing", defaultObjective: "在不改變既有事實與角色意圖的前提下，重寫目前章節，使動作、感官與潛台詞更有張力。" },
   { id: "chapter.expand", label: "場景擴寫", complexity: "standard", hint: "可核准追加章節", group: "writing", defaultObjective: "把目前片段擴寫成完整場景，補足空間、感官、行動、對話潛台詞與可見後果。" },
+  { id: "chapter.compress", label: "章節精簡", complexity: "light", hint: "瀏覽器 AI 可離線執行", group: "writing", defaultObjective: "刪除重複、空泛與不推進場景的文字，保留必要事件、角色聲音、因果、伏筆與情緒轉折，產生可核准的精簡候選。" },
   { id: "chapter.outline", label: "章節大綱", complexity: "standard", hint: "場景節拍與章尾鉤子", group: "writing", defaultObjective: "規劃下一章的可執行大綱，包含開場狀態、場景節拍、衝突升級、選擇、代價與章尾鉤子。" },
   { id: "story.plotCandidate", label: "三條劇情分支", complexity: "standard", hint: "互斥候選與長期代價", group: "writing", defaultObjective: "提出三個都符合 Canon、但彼此互斥的後續分支，說明觸發事件、短期結果、長期代價與回接主線方式。" },
   { id: "story.endingPlan", label: "結局規劃", complexity: "standard", hint: "衝突、弧線與伏筆", group: "writing", defaultObjective: "提出一份可執行的結局方案，處理核心衝突、角色弧線、伏筆、主題回聲與最後代價。" },
   { id: "drama.episodePlan", label: "短劇深度改編", complexity: "heavy", hint: "Private Hub 多階段規劃", group: "writing", defaultObjective: "把目前作品整理成可執行的短劇單集規劃，逐集列出開場 Hook、衝突、人物選擇、轉折、代價、連續性與結尾懸念。" },
   { id: "story.summary", label: "章節摘要", complexity: "light", hint: "瀏覽器 AI 可離線執行", group: "analysis", defaultObjective: "摘要目前章節，保留人物、事件、地點、衝突、因果、選擇、代價與未解線索。" },
-  { id: "story.chapterReview", label: "完整章節審稿", complexity: "standard", hint: "編輯級檢查", group: "analysis", defaultObjective: "完整審查目前章節：摘要、亮點、一致性、角色、節奏、敘事視角、語言問題與優先修訂清單。" },
-  { id: "story.consistencyCheck", label: "全書一致性檢查", complexity: "standard", hint: "設定、因果與物件狀態", group: "analysis", defaultObjective: "檢查已核准資料的設定、因果、時序、物件狀態與視角矛盾；逐項附證據、影響與最小修法。" },
-  { id: "story.timelineCheck", label: "時間線檢查", complexity: "standard", hint: "順序、跨度與旅行時間", group: "analysis", defaultObjective: "重建並檢查事件順序、時間跨度、先後關係、旅行時間與章節連結；不確定處標示待確認。" },
-  { id: "story.characterCheck", label: "角色一致性檢查", complexity: "standard", hint: "動機、知識與語氣", group: "analysis", defaultObjective: "逐角檢查目標、知識邊界、能力、情緒、語氣與行為因果，列出偏離證據與最小修法。" },
-  { id: "story.worldRuleCheck", label: "世界規則檢查", complexity: "standard", hint: "逐條比對 Canon", group: "analysis", defaultObjective: "逐條對照世界規則與正文，區分明確違反、可能衝突與資訊不足，提出不改規則的修正候選。" },
-  { id: "story.foreshadowingCheck", label: "伏筆回收檢查", complexity: "standard", hint: "埋設、窗口與逾期風險", group: "analysis", defaultObjective: "盤點伏筆的已知證據、預期回收窗口、逾期風險與不劇透的回收候選。" },
-  { id: "story.plotAnalysis", label: "劇情因果分析", complexity: "standard", hint: "斷鏈與轉折", group: "analysis", defaultObjective: "拆解目前劇情的因果鏈、動機、阻力、升級、轉折、高潮與結果，指出斷鏈與候選修法。" },
-  { id: "story.pacingCheck", label: "節奏檢查", complexity: "standard", hint: "場景功能與資訊密度", group: "analysis", defaultObjective: "逐場景檢查功能、資訊密度、速度、重複與停滯，提出精準的刪減、擴寫、換序或增壓建議。" },
+  { id: "story.chapterReview", label: "完整章節審稿", complexity: "light", hint: "瀏覽器 AI 可離線審稿", group: "analysis", defaultObjective: "完整審查目前章節：摘要、亮點、一致性、角色、節奏、敘事視角、語言問題與優先修訂清單。" },
+  { id: "story.consistencyCheck", label: "全書一致性檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "檢查已核准資料的設定、因果、時序、物件狀態與視角矛盾；逐項附證據、影響與最小修法。" },
+  { id: "story.timelineCheck", label: "時間線檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "重建並檢查事件順序、時間跨度、先後關係、旅行時間與章節連結；不確定處標示待確認。" },
+  { id: "story.characterCheck", label: "角色一致性檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "逐角檢查目標、知識邊界、能力、情緒、語氣與行為因果，列出偏離證據與最小修法。" },
+  { id: "story.worldRuleCheck", label: "世界規則檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "逐條對照世界規則與正文，區分明確違反、可能衝突與資訊不足，提出不改規則的修正候選。" },
+  { id: "story.foreshadowingCheck", label: "伏筆回收檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "盤點伏筆的已知證據、預期回收窗口、逾期風險與不劇透的回收候選。" },
+  { id: "story.plotAnalysis", label: "劇情因果分析", complexity: "light", hint: "瀏覽器 AI 可離線分析", group: "analysis", defaultObjective: "拆解目前劇情的因果鏈、動機、阻力、升級、轉折、高潮與結果，指出斷鏈與候選修法。" },
+  { id: "story.pacingCheck", label: "節奏檢查", complexity: "light", hint: "瀏覽器 AI 可離線分析", group: "analysis", defaultObjective: "逐場景檢查功能、資訊密度、速度、重複與停滯，提出精準的刪減、擴寫、換序或增壓建議。" },
   { id: "story.themeAnalysis", label: "主題與母題分析", complexity: "standard", hint: "證據與推測分離", group: "analysis", defaultObjective: "從已核准內容分析主題、母題、價值衝突與人物弧線呼應，清楚區分文字證據與推測。" },
-  { id: "story.originalityCheck", label: "原創性自檢", complexity: "standard", hint: "不是網路抄襲比對", group: "analysis", defaultObjective: "檢查目前內容內部的套路重複、表達相似與辨識度，提出保留核心但改變機制、視角、代價與意象的方案。" },
+  { id: "story.originalityCheck", label: "原創性自檢", complexity: "light", hint: "瀏覽器 AI 內部相似度掃描", group: "analysis", defaultObjective: "檢查目前內容內部的套路重複、表達相似與辨識度，提出保留核心但改變機制、視角、代價與意象的方案。" },
   { id: "character.create", label: "角色候選", complexity: "standard", hint: "身分、矛盾與劇情功能", group: "character", defaultObjective: "建立一名適合目前作品的角色候選，包含目標、需求、能力、限制、恐懼、矛盾、語氣、關係鉤子與劇情功能。" },
   { id: "character.dialogue", label: "角色對話生成", complexity: "standard", hint: "可核准追加章節", group: "character", defaultObjective: "根據角色知識邊界、目標、語氣與關係狀態，產生一段以動作和停頓呈現潛台詞的候選對話。" },
   { id: "character.dialogueConsistency", label: "角色對話檢查", complexity: "light", hint: "裝置內輕量檢查", group: "character", defaultObjective: "比較目前對話與角色聲音基準，列出一致與偏離證據；沒有足夠資料時明確標示。" },
@@ -196,6 +197,7 @@ const CHAPTER_COMMIT_TASKS = new Set<PlatformTaskType>([
   "chapter.continue",
   "chapter.rewrite",
   "chapter.expand",
+  "chapter.compress",
   "character.dialogue",
 ]);
 
@@ -1250,7 +1252,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             content: candidate.content,
             mode: taskType === "story.summary"
               ? "summary"
-              : taskType === "chapter.rewrite" || taskType === "assistant.transform"
+              : taskType === "chapter.rewrite" || taskType === "chapter.compress" || taskType === "assistant.transform"
                 ? "replace"
                 : "append",
           });
