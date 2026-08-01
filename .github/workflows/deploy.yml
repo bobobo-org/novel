@@ -80,6 +80,7 @@ jobs:
           pnpm test:ai:p24b:secret-scan
           pnpm test:ci:companion-zip-content
           pnpm test:ci:evidence-schema
+          pnpm test:ci:production-supabase-bootstrap
 
       - name: Typecheck
         run: pnpm exec tsc --noEmit
@@ -157,9 +158,36 @@ jobs:
           echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
           exit 1
 
+  production_env_bootstrap:
+    name: production env bootstrap
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install Vercel environment tooling
+        run: npm install --global vercel@56.3.2
+
+      - name: Verify and recover Production Supabase environment
+        run: node scripts/bootstrap-production-supabase-env.mjs
+
   deploy:
     name: deploy
-    needs: validate
+    needs: [validate, production_env_bootstrap]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45

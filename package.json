@@ -165,6 +165,7 @@
     "test:ci:evidence-schema": "node scripts/run-pr23-r21-ci-integrity-gates.mjs evidence-schema",
     "test:ci:dual-alias-rollback": "node scripts/run-pr23-r21-dual-alias-rollback.mjs",
     "test:ci:workflow-contract": "node scripts/run-pr23-r21-workflow-contract.mjs",
+    "test:ci:production-supabase-bootstrap": "node scripts/run-production-supabase-env-bootstrap-tests.mjs",
     "test:ai:closed-ai-user-e2e": "node scripts/run-closed-ai-user-e2e.mjs",
     "test:ai:closed-ai-mobile-e2e": "node scripts/run-closed-ai-user-e2e.mjs --mobile",
     "test:ai:closed:live-training-evidence": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-live-training-evidence.mjs",

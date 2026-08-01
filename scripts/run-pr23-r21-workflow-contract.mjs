@@ -12,16 +12,19 @@ const packageScripts = JSON.parse(packageText).scripts;
 const jobsIndex = workflow.indexOf("\njobs:");
 const validateIndex = workflow.indexOf("\n  validate:");
 const previewIndex = workflow.indexOf("\n  preview:");
+const productionBootstrapIndex = workflow.indexOf("\n  production_env_bootstrap:");
 const deployIndex = workflow.indexOf("\n  deploy:");
 assert.ok(
   jobsIndex > 0
   && validateIndex > jobsIndex
   && previewIndex > validateIndex
-  && deployIndex > previewIndex,
+  && productionBootstrapIndex > previewIndex
+  && deployIndex > productionBootstrapIndex,
 );
 const globalConfiguration = workflow.slice(0, jobsIndex);
 const validateJob = workflow.slice(validateIndex, previewIndex);
-const previewJob = workflow.slice(previewIndex, deployIndex);
+const previewJob = workflow.slice(previewIndex, productionBootstrapIndex);
+const productionBootstrapJob = workflow.slice(productionBootstrapIndex, deployIndex);
 const deployJob = workflow.slice(deployIndex);
 
 for (const secret of [
@@ -63,7 +66,16 @@ assert.doesNotMatch(previewJob, /--prod/u);
 assert.doesNotMatch(previewJob, /vercel\s+alias/u);
 assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 
-assert.match(deployJob, /\n    needs:\s*validate\s*$/mu);
+assert.match(productionBootstrapJob, /\n    needs:\s*validate\s*$/mu);
+assert.match(
+  productionBootstrapJob,
+  /\n    if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\s*$/mu,
+);
+assert.match(productionBootstrapJob, /bootstrap-production-supabase-env\.mjs/u);
+assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
+assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
+
+assert.match(deployJob, /\n    needs:\s*\[validate,\s*production_env_bootstrap\]\s*$/mu);
 assert.match(
   deployJob,
   /\n    if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\s*$/mu,
@@ -101,6 +113,7 @@ const requiredCommands = [
   "pnpm test:ai:p24b:secret-scan",
   "pnpm test:ci:companion-zip-content",
   "pnpm test:ci:evidence-schema",
+  "pnpm test:ci:production-supabase-bootstrap",
   "pnpm exec tsc --noEmit",
   "pnpm lint",
   "pnpm build",
@@ -172,7 +185,7 @@ assert.match(p21ThreeHigh, /fileURLToPath\(prePath\)/u);
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v1",
   status: "PASS",
-  jobs: ["validate", "preview", "deploy"],
+  jobs: ["validate", "preview", "production_env_bootstrap", "deploy"],
   deployNeedsValidate: true,
   deployTrustedPushOnly: true,
   trustedPullRequestPreviewDeploy: true,
