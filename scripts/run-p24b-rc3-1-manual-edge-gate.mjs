@@ -422,9 +422,17 @@ async function main() {
     await pairingInput.fill(String(pairing.code));
     pairing.code = undefined;
     await page.getByTestId("local-ai-confirm-pairing").click();
-    await page.getByTestId("local-ai-model-proof").waitFor({ state: "visible", timeout: 240_000 });
-    const modelProofText = (await page.getByTestId("local-ai-model-proof").textContent()) || "";
-    if (!modelProofText.includes("qwen2.5:3b")) throw new Error("QWEN_MODEL_PROOF_MISSING");
+    const modelProof = page.getByTestId("local-ai-model-proof");
+    await modelProof.waitFor({ state: "visible", timeout: 240_000 });
+    const modelProofText = (await modelProof.textContent()) || "";
+    const verifiedModelId = await page.getByLabel("Ollama 文字模型").inputValue();
+    if (
+      verifiedModelId !== "qwen2.5:3b"
+      || !modelProofText.includes("模型已實際回覆")
+      || !modelProofText.includes("資料未離開這台裝置")
+    ) {
+      throw new Error("QWEN_MODEL_PROOF_MISSING");
+    }
     await page.getByRole("link", { name: "回到原本的創作畫面" }).last().click();
     await writing.waitFor({ state: "visible", timeout: 60_000 });
 
