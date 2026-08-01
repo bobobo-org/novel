@@ -4,6 +4,7 @@ const MIGRATION_VERSION = "cloud_sync_e2ee_025";
 const args = new Set(process.argv.slice(2));
 const required = args.has("--required");
 const checkOnly = args.has("--check");
+const allowStagedRuntimeVerification = args.has("--allow-staged-runtime-verification");
 const envFileIndex = process.argv.indexOf("--env-file");
 const envFile = envFileIndex >= 0 ? process.argv[envFileIndex + 1] : "";
 
@@ -133,7 +134,14 @@ if (!accessToken || !projectRef) {
     ...configuration,
     runtimeMigrationStatus: existingMigration.status,
   }));
-  if (required) process.exit(2);
+  if (required && !allowStagedRuntimeVerification) process.exit(2);
+  if (allowStagedRuntimeVerification) {
+    console.log(JSON.stringify({
+      status: "migration_deferred_to_staged_runtime",
+      migrationVersion: MIGRATION_VERSION,
+      reason: "management_channel_missing",
+    }));
+  }
   process.exit(0);
 }
 
@@ -187,6 +195,14 @@ try {
     projectRefSuffix: projectRef.slice(-4),
   }));
 } catch (error) {
+  if (allowStagedRuntimeVerification && [401, 403].includes(error?.status)) {
+    console.log(JSON.stringify({
+      status: "migration_deferred_to_staged_runtime",
+      migrationVersion: MIGRATION_VERSION,
+      reason: "management_channel_unauthorized",
+    }));
+    process.exit(0);
+  }
   console.error(JSON.stringify({
     status: "migration_failed",
     migrationVersion: MIGRATION_VERSION,

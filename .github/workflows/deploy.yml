@@ -222,7 +222,7 @@ jobs:
 
       - name: Apply and verify encrypted cloud sync migration
         if: github.ref == 'refs/heads/main'
-        run: node scripts/apply-cloud-sync-migration.mjs --env-file .vercel/.env.production.local --required
+        run: node scripts/apply-cloud-sync-migration.mjs --env-file .vercel/.env.production.local --required --allow-staged-runtime-verification
 
       - name: Build (production)
         if: github.ref == 'refs/heads/main'

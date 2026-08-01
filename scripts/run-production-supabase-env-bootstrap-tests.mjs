@@ -8,6 +8,7 @@ import {
   projectRefFromUrl,
   projectRefFromServiceRole,
   serviceRoleCredentialKind,
+  validateBootstrapConfigurationShape,
   validateConfigurationShape,
   validateRuntimeConfigurationShape,
 } from "./bootstrap-production-supabase-env.mjs";
@@ -44,6 +45,11 @@ assert.deepEqual(validateRuntimeConfigurationShape({
   SUPABASE_PROJECT_REF: projectRef,
   NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY: source.SUPABASE_SERVICE_ROLE_KEY,
+}), { projectRef });
+assert.deepEqual(validateBootstrapConfigurationShape({
+  SUPABASE_PROJECT_REF: projectRef,
+  NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: "[REDACTED]",
 }), { projectRef });
 assert.deepEqual(PRODUCTION_RUNTIME_SUPABASE_KEYS, [
   "SUPABASE_PROJECT_REF",
