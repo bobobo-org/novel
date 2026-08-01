@@ -13,13 +13,19 @@ import {
   applyStoryChoiceEffect,
 } from "../lib/novel-ai/game/effects/index.ts";
 import {
+  RPG_ITEM_CATALOG,
+  RPG_MODE_DEFINITIONS,
+  buildCustomRpgChoice,
+  buildManagementSettlementEffect,
   buildRpgChoices,
   computePowerScore,
   computeSuccessChance,
   experienceForLevel,
+  initialRpgResources,
   initialRpgStats,
   levelFromExperience,
   readRpgProgression,
+  resolveRpgChoice,
 } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
   BUILTIN_RPG_CHARACTERS,
@@ -239,6 +245,133 @@ await test("RPG three-choice engine produces distinct governed effects", () => {
     successChance,
     xpGain,
   }));
+});
+
+await test("unified RPG, cultivation and management modes share one governed state", () => {
+  const protagonistStats = { ...initialRpgStats("unified-seed"), "rpg.xp": 1_600 };
+  const resources = initialRpgResources();
+  const storyState = {
+    protagonistStats,
+    resources,
+    money: 1_200,
+    inventory: [],
+    worldFlags: {
+      "rpg.equipped.weapon": "iron-sword",
+      "rpg.equipped.armor": "traveler-armor",
+      "rpg.equipped.treasure": "contract-seal",
+    },
+  };
+  const modeResults = Object.keys(RPG_MODE_DEFINITIONS).map((mode) => {
+    const progression = readRpgProgression(storyState, "unified-seed", mode);
+    const choices = buildRpgChoices({
+      progression,
+      protagonist: "燼星",
+      chapterTitle: "統合測試",
+      conflict: "有限資源下必須做出取捨",
+      mode,
+      seed: "unified-choice-seed",
+    });
+    assert.deepEqual(choices.map((choice) => choice.key), ["A", "B", "C"]);
+    assert.deepEqual(choices.map((choice) => choice.approach), ["steady", "resource", "bold"]);
+    assert.equal(new Set(choices.map((choice) => choice.id)).size, 3);
+    assert.ok(choices.every((choice) => choice.costLabels.length > 0));
+    return { mode, choices: choices.map(({ id, title }) => ({ id, title })) };
+  });
+  assert.equal(modeResults.length, 3);
+  return modeResults;
+});
+
+await test("reroll variants and free actions create different verifiable candidates", () => {
+  const progression = readRpgProgression({
+    protagonistStats: { ...initialRpgStats("reroll"), "rpg.xp": 100 },
+    resources: initialRpgResources(),
+    money: 1_200,
+    inventory: [],
+    worldFlags: {},
+  }, "reroll", "adventure");
+  const input = {
+    progression,
+    protagonist: "燼星",
+    chapterTitle: "城門",
+    conflict: "日落前進城",
+    mode: "adventure",
+    seed: "reroll-seed",
+  };
+  const first = buildRpgChoices({ ...input, variant: 0 });
+  const second = buildRpgChoices({ ...input, variant: 1 });
+  assert.notDeepEqual(first.map((choice) => choice.id), second.map((choice) => choice.id));
+  const custom = buildCustomRpgChoice({
+    progression,
+    action: "假裝撤退並觀察守衛換班",
+    protagonist: "燼星",
+    chapterTitle: "城門",
+    conflict: "日落前進城",
+  });
+  assert.equal(custom.key, "custom");
+  assert.ok(custom.successChance >= 5 && custom.successChance <= 95);
+  assert.ok(custom.effect.statChanges["rpg.xp"] > 0);
+  return {
+    first: first.map((choice) => choice.id),
+    rerolled: second.map((choice) => choice.id),
+    custom: custom.id,
+  };
+});
+
+await test("choice resolution is deterministic, graded and writes real continuation", () => {
+  const progression = readRpgProgression({
+    protagonistStats: { ...initialRpgStats("resolve"), "rpg.xp": 400 },
+    resources: initialRpgResources(),
+    money: 1_200,
+    inventory: [],
+    worldFlags: {},
+  }, "resolve", "cultivation");
+  const choice = buildRpgChoices({
+    progression,
+    protagonist: "墨衡",
+    chapterTitle: "破境之夜",
+    conflict: "心魔與疲勞同時逼近",
+    mode: "cultivation",
+    seed: "resolution-seed",
+  })[2];
+  const first = resolveRpgChoice(choice, { seed: "project-state", revision: 7 });
+  const replay = resolveRpgChoice(choice, { seed: "project-state", revision: 7 });
+  assert.deepEqual(first, replay);
+  assert.match(first.acceptedText, /規則引擎判定/u);
+  assert.match(first.acceptedText, /下一步|故事/u);
+  assert.equal(first.effect.worldFlags["rpg.lastOutcome"], first.outcome);
+  assert.ok(first.effect.resourceChanges["game.turn"] === 1);
+  return { outcome: first.outcome, roll: first.roll, chance: first.successChance };
+});
+
+await test("inventory, equipment, currency and management formulas are actionable", () => {
+  const resources = initialRpgResources();
+  const storyState = {
+    protagonistStats: { ...initialRpgStats("economy"), "rpg.xp": 900 },
+    resources,
+    money: 1_200,
+    inventory: [],
+    worldFlags: {
+      "rpg.equipped.weapon": "iron-sword",
+      "rpg.equipped.armor": "traveler-armor",
+      "rpg.equipped.treasure": "contract-seal",
+    },
+  };
+  const snapshot = readRpgProgression(storyState, "economy", "management");
+  assert.ok(snapshot.inventory.length >= 6);
+  assert.equal(snapshot.inventory.find((item) => item.itemId === "healing-potion")?.quantity, 3);
+  assert.ok(Object.values(snapshot.equipmentBonuses).some((value) => value > 0));
+  assert.equal(RPG_ITEM_CATALOG.find((item) => item.itemId === "contract-seal")?.value, 4_800);
+  assert.ok(snapshot.management.employeeEfficiency >= 0 && snapshot.management.employeeEfficiency <= 100);
+  assert.ok(Number.isFinite(snapshot.management.expectedNetProfit));
+  const settlement = buildManagementSettlementEffect(snapshot);
+  assert.equal(settlement.resourceChanges["management.lastRevenue"], snapshot.management.expectedRevenue);
+  assert.equal(settlement.resourceChanges["game.day"], 1);
+  return {
+    items: snapshot.inventory.length,
+    carryWeight: snapshot.carryWeight,
+    employeeEfficiency: snapshot.management.employeeEfficiency,
+    expectedNetProfit: snapshot.management.expectedNetProfit,
+  };
 });
 
 await test("RPG state application clamps stats and accumulates progress", () => {

@@ -1,6 +1,15 @@
 import { WebLocalRuntimeClient } from "../lib/novel-ai/web/local-runtime-client.ts";
 import { WebLocalRuntimeError } from "../lib/novel-ai/web/local-runtime-errors.ts";
-import { discoverStudioClosedAI, runStudioClosedAI, studioPlatformTaskType } from "../lib/novel-ai/web/studio-closed-ai.ts";
+import {
+  discoverStudioClosedAI,
+  runStudioClosedAI,
+  studioPlatformTaskType,
+  studioPromptProfileVersion,
+} from "../lib/novel-ai/web/studio-closed-ai.ts";
+import {
+  HUMANIZED_SERIAL_FICTION_PROFILE_VERSION,
+  humanizedSerialFictionInstruction,
+} from "../lib/novel-ai/web/humanized-serial-fiction-profile.ts";
 import { createHarness, goodPublicHealth, goodSessionHealth, mockFetch } from "./run-ai-h2w1-test-utils.mjs";
 
 const t = createHarness("H2W1 runtime-client");
@@ -153,6 +162,21 @@ t.equal(failedPostCalls, 1, "task POST is never automatically retried");
 t.equal(studioPlatformTaskType("branch_choice"), "chapter.continue", "branch choice maps to closed chapter continuation");
 t.equal(studioPlatformTaskType("dialogue_boost"), "character.dialogue", "dialogue helper maps to character dialogue");
 t.equal(studioPlatformTaskType("topic_recommendation"), "creation.genreSuggestions", "topic helper maps to genre suggestions");
+t.includes(
+  humanizedSerialFictionInstruction("character.dialogue", 500),
+  "潛台詞",
+  "humanized profile gives dialogue a character-specific subtext rule",
+);
+t.equal(
+  humanizedSerialFictionInstruction("knowledge.ruleExtraction", 500),
+  "",
+  "humanized prose rules never contaminate knowledge extraction",
+);
+t.includes(
+  studioPromptProfileVersion(),
+  HUMANIZED_SERIAL_FICTION_PROFILE_VERSION,
+  "prompt profile version invalidates pre-humanization cache entries",
+);
 
 const providerFixture = (id, status, modelId = null) => ({
   id,
@@ -217,6 +241,8 @@ t.equal(routedRequest.closedOnly, true, "Studio task is closed-provider-only");
 t.equal(routedRequest.externalConsent, false, "Studio never grants external consent");
 t.equal(routedRequest.preferredProvider, "local-ollama", "Studio prefers paired local Ollama");
 t.includes(routedRequest.input, "500", "target length reaches closed provider request");
+t.includes(routedRequest.input, "作者的明確指令", "humanized serial-fiction profile reaches the closed provider request");
+t.includes(routedRequest.input, "不複製既有小說句子", "originality boundary reaches the closed provider request");
 t.equal(unifiedResult.content, "本機候選正文", "unified Studio route returns local candidate");
 t.equal(unifiedResult.dataLeftDevice, false, "unified Studio result stays on device");
 

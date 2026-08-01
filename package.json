@@ -18,6 +18,8 @@
     "test:mobile-frontdoor-usability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs mobile-frontdoor-usability",
     "test:rc3:supabase-repair-plan": "node scripts/run-p24b-rc3-supabase-audit.mjs",
     "test:rc3:consumer-activation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs all && node scripts/run-p24b-rc3-supabase-audit.mjs",
+    "test:studio:chapter-isolation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-studio-chapter-isolation.mjs",
+    "test:studio:chapter-browser": "node scripts/run-studio-chapter-browser.mjs",
     "check:legacy-build-truth": "node scripts/check-legacy-build-truth.mjs",
     "test:ai:p21r4:legacy-provenance": "node scripts/generate-release-provenance.mjs && node scripts/run-p21-legacy-build-provenance-regression.mjs",
     "test:ai:closed:phase1-1r4": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-phase1-1r4.mjs",
