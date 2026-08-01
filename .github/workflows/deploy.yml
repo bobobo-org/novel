@@ -57,6 +57,7 @@ jobs:
           pnpm test:ai:closed:controlled-learning-runtime
           pnpm test:ai:closed-ai-runtime-r2
           pnpm test:p12
+          pnpm test:studio:chapter-isolation
           pnpm test:ai:p15:consumer-platform
           pnpm test:ai:p21:three-high
 

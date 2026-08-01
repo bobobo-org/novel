@@ -8,8 +8,10 @@ const read = (file) => fs.readFileSync(file, "utf8"),
   health = read("app/api/ai/health/route.ts"),
   professional = read("app/professional/professional-client.tsx"),
   closedAI = read("lib/novel-ai/web/studio-closed-ai.ts"),
+  chapterLifecycle = read("lib/novel-ai/repository/studio-canonical.ts"),
   legacy = read("public/legacy/novel-system.html"),
   compactStudio = studio.replace(/\s+/g, ""),
+  compactChapterLifecycle = chapterLifecycle.replace(/\s+/g, ""),
   consumerVisibleStudio = studio.replace(/<details>[\s\S]*?<\/details>/gu, "");
 const results = [];
 function test(name, fn) {
@@ -183,7 +185,10 @@ test("每日備份每作品每日一次", () =>
   studio.includes('state.autoBackup !== "daily"'));
 test("章節完成事件可觸發自動備份", () =>
   studio.includes('task: "chapter_completed"') &&
-  studio.includes('value.autoBackup === "chapter_complete"'));
+  studio.includes("completeCanonicalStudioChapter") &&
+  compactChapterLifecycle.includes('input.createFullBackup?awaitcreateProjectBackup(repository,input.projectId,"full",input.release):null') &&
+  compactChapterLifecycle.indexOf("constbackup=") < compactChapterLifecycle.indexOf("constnextChapter=") &&
+  compactStudio.includes('makeBackupRecord(completedProject,"full",backupState)'));
 test("舊版作品備份可轉換", () =>
   studio.includes("function coerceBackupPackage") &&
   studio.includes("source.currentProject") && studio.includes("source.novel"));
