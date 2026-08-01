@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import vm from "node:vm";
+import { isUsableChineseStoryOutput } from "../lib/novel-ai/web/story-output-quality.ts";
 
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
@@ -124,6 +125,26 @@ async function frontdoorProjectRouting() {
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
   assert.match(wizard, /href=\{returnTo\}/);
+}
+
+async function interactiveStoryOutputAcceptance() {
+  assert.equal(
+    isUsableChineseStoryOutput(
+      "林昭推開門，冷風從走廊灌入。她握緊帳冊，知道這一步會改變所有人的選擇。",
+    ),
+    true,
+    "punctuated Traditional Chinese prose must remain a real-model result",
+  );
+  assert.equal(
+    isUsableChineseStoryOutput("故事太短。"),
+    false,
+    "short placeholder output must not be accepted as a full story result",
+  );
+  assert.equal(
+    isUsableChineseStoryOutput("This is an English fallback without story prose."),
+    false,
+    "non-Chinese fallback output must not be accepted",
+  );
 }
 
 class StorageStub {
@@ -319,6 +340,7 @@ const runners = {
   "legacy-explicit-only": legacyExplicitOnly,
   "frontdoor-ai-setup-discovery": frontdoorAISetupDiscovery,
   "frontdoor-project-routing": frontdoorProjectRouting,
+  "interactive-story-output-acceptance": interactiveStoryOutputAcceptance,
   "legacy-indexeddb-migration-preview": legacyIndexedDbMigrationPreview,
   "service-worker-frontdoor-upgrade": serviceWorkerFrontdoorUpgrade,
   "rc3-release-identity": rc3ReleaseIdentity,

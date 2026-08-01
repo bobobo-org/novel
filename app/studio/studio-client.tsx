@@ -21,6 +21,7 @@ import {
   regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
+import { isUsableChineseStoryOutput } from "@/lib/novel-ai/web/story-output-quality";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
 import {
   approveStudioClosedAgentCandidate,
@@ -1913,7 +1914,7 @@ export default function StudioClient({
           regenerationAttempt: regenerationSource.regenerationAttempt,
         })
         : await runStudioClosedAI(taskInput);
-      if (/[\u4e00-\u9fff]{20}/.test(result.content)) {
+      if (isUsableChineseStoryOutput(result.content)) {
         content = result.content;
         source =
           result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
