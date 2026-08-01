@@ -59,6 +59,7 @@ import {
   installBrowserSemanticModel,
   invalidateBrowserSemanticCache,
   rankWithBrowserSemanticModel,
+  repairStaleBrowserSemanticRuntime,
   subscribeBrowserSemanticProgress,
   type BrowserSemanticProgress,
   type BrowserSemanticRuntimeSnapshot,
@@ -803,7 +804,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     const browserProbe = Promise.all([
       detectBrowserAI(),
       browserWebLLMRuntimeSnapshot().catch(() => null),
-      browserSemanticRuntimeSnapshot().catch(() => null),
+      repairStaleBrowserSemanticRuntime({
+        onProgress: setBrowserSemanticProgress,
+      }).catch(() => browserSemanticRuntimeSnapshot().catch(() => null)),
     ]).then(([browser, webLlm, semantic]) => {
       setBrowserCapability(browser);
       setBrowserWebLlm(webLlm);
@@ -2033,7 +2036,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                           title={!browserSemantic.supported ? browserSemantic.reason : undefined}
                           onClick={() => void installSemanticModel()}
                         >
-                          {browserSemantic.model.installStatus === "error" ? "重新安裝" : "安裝語意模型"}
+                          {browserSemantic.model.installStatus === "error" ? "清除快取並重新安裝" : "安裝語意模型"}
                         </button> : <>
                           <button type="button" disabled={runtimeBusy} onClick={() => void testSemanticModel()}>
                             實際測試語意排序

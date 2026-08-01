@@ -103,6 +103,10 @@ const workerSource = fs.readFileSync(
   new URL("../lib/novel-ai/providers/browser-ai/browser-semantic-worker.ts", import.meta.url),
   "utf8",
 );
+const workspaceSource = fs.readFileSync(
+  new URL("../app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx", import.meta.url),
+  "utf8",
+);
 assert.match(workerSource, /local_files_only:\s*!allowRemote/u);
 assert.match(workerSource, /env\.allowLocalModels\s*=\s*!allowRemote/u);
 assert.match(workerSource, /env\.allowRemoteModels\s*=\s*allowRemote/u);
@@ -115,6 +119,14 @@ assert.match(runtimeSource, /validateSemanticInference/u);
 assert.match(runtimeSource, /embedWithDeviceFallback/u);
 assert.match(runtimeSource, /WebGPU 推理不相容，已自動切換 WASM/u);
 assert.match(runtimeSource, /progress\.status === "ready"/u);
+assert.match(runtimeSource, /BROWSER_SEMANTIC_RUNTIME_REVISION/u);
+assert.match(runtimeSource, /clearSemanticModelCacheFiles/u);
+assert.match(runtimeSource, /repairStaleBrowserSemanticRuntime/u);
+assert.match(runtimeSource, /舊版或失敗快取檔/u);
+assert.match(runtimeSource, /首次載入失敗，已自動清除/u);
+assert.match(runtimeSource, /lastErrorCode/u);
+assert.match(workspaceSource, /repairStaleBrowserSemanticRuntime/u);
+assert.match(workspaceSource, /清除快取並重新安裝/u);
 assert.match(runtimeSource, /rawTextStored:\s*false/u);
 assert.match(runtimeSource, /candidateOnly:\s*true/u);
 assert.match(runtimeSource, /canonicalMutation:\s*false/u);

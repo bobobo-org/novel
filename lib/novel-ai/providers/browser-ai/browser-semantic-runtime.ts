@@ -14,6 +14,7 @@ const METADATA_STORE = "runtime-records";
 const RANK_CACHE_STORE = "rank-cache";
 const MODEL_RECORD_KEY = "semantic-model";
 const DEFAULT_RANK_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const BROWSER_SEMANTIC_RUNTIME_REVISION = "browser-semantic-runtime-v3";
 
 export type BrowserSemanticInstallStatus =
   | "not_installed"
@@ -23,6 +24,7 @@ export type BrowserSemanticInstallStatus =
 
 type BrowserSemanticModelRecord = {
   key: typeof MODEL_RECORD_KEY;
+  runtimeRevision?: string;
   installStatus: BrowserSemanticInstallStatus;
   modelId: typeof BROWSER_SEMANTIC_MODEL.modelId;
   modelDigest: typeof BROWSER_SEMANTIC_MODEL.modelDigest;
@@ -31,6 +33,7 @@ type BrowserSemanticModelRecord = {
   cacheVerified: boolean;
   installedAt: string | null;
   lastUsedAt: string | null;
+  lastErrorCode?: string | null;
   lastError: string | null;
 };
 
@@ -69,12 +72,15 @@ export type BrowserSemanticRuntimeSnapshot = {
     modelId: typeof BROWSER_SEMANTIC_MODEL.modelId;
     modelDigest: typeof BROWSER_SEMANTIC_MODEL.modelDigest;
     sourceRevision: typeof BROWSER_SEMANTIC_MODEL.sourceRevision;
+    runtimeRevision: string | null;
+    repairRequired: boolean;
     installStatus: BrowserSemanticInstallStatus;
     device: BrowserSemanticDevice | null;
     cacheVerified: boolean;
     active: boolean;
     installedAt: string | null;
     lastUsedAt: string | null;
+    lastErrorCode: string | null;
     lastError: string | null;
   };
   cache: {
@@ -488,6 +494,15 @@ async function verifyModelCache() {
   return { ok: results.every((result) => result.ok), results };
 }
 
+async function clearSemanticModelCacheFiles() {
+  if (typeof caches === "undefined") return 0;
+  const cache = await caches.open(BROWSER_SEMANTIC_CACHE_KEY);
+  const marker = `/${BROWSER_SEMANTIC_MODEL.modelId}/resolve/${BROWSER_SEMANTIC_MODEL.sourceRevision}/`;
+  const requests = (await cache.keys()).filter((request) => request.url.includes(marker));
+  const deleted = await Promise.all(requests.map((request) => cache.delete(request)));
+  return deleted.filter(Boolean).length;
+}
+
 function recordMatchesNamespace(
   namespace: ClosedAINamespace,
   filter: Partial<ClosedAINamespace>,
@@ -548,6 +563,11 @@ export async function browserSemanticRuntimeSnapshot(): Promise<BrowserSemanticR
   const identityValid = record?.modelId === BROWSER_SEMANTIC_MODEL.modelId
     && record.modelDigest === BROWSER_SEMANTIC_MODEL.modelDigest
     && record.sourceRevision === BROWSER_SEMANTIC_MODEL.sourceRevision;
+  const runtimeValid = Boolean(
+    identityValid
+    && record?.runtimeRevision === BROWSER_SEMANTIC_RUNTIME_REVISION,
+  );
+  const repairRequired = Boolean(identityValid && record && !runtimeValid);
   return {
     runtime: "transformers-js-worker",
     supported: device.supported,
@@ -557,13 +577,28 @@ export async function browserSemanticRuntimeSnapshot(): Promise<BrowserSemanticR
       modelId: BROWSER_SEMANTIC_MODEL.modelId,
       modelDigest: BROWSER_SEMANTIC_MODEL.modelDigest,
       sourceRevision: BROWSER_SEMANTIC_MODEL.sourceRevision,
-      installStatus: identityValid ? record!.installStatus : "not_installed",
+      runtimeRevision: identityValid ? record!.runtimeRevision ?? null : null,
+      repairRequired,
+      installStatus: runtimeValid
+        ? record!.installStatus
+        : repairRequired
+          ? "error"
+          : "not_installed",
       device: identityValid ? record!.device : null,
-      cacheVerified: Boolean(identityValid && record?.cacheVerified),
+      cacheVerified: Boolean(runtimeValid && record?.cacheVerified),
       active: activeWorker !== null,
       installedAt: identityValid ? record!.installedAt : null,
       lastUsedAt: identityValid ? record!.lastUsedAt : null,
-      lastError: identityValid ? record!.lastError : null,
+      lastErrorCode: repairRequired
+        ? "BROWSER_SEMANTIC_RUNTIME_UPGRADE_REQUIRED"
+        : runtimeValid
+          ? record!.lastErrorCode ?? null
+          : null,
+      lastError: repairRequired
+        ? "偵測到舊版失敗快取，系統會自動清除並重建語意模型。"
+        : runtimeValid
+          ? record!.lastError
+          : null,
     },
     cache: {
       backend: "CacheStorage+IndexedDB",
@@ -587,8 +622,23 @@ export async function installBrowserSemanticModel(options: {
       `此裝置未通過語意模型 Gate：${device.reason}`,
     );
   }
+  const previous = await getRecord<BrowserSemanticModelRecord>(
+    METADATA_STORE,
+    MODEL_RECORD_KEY,
+  ).catch(() => null);
+  const previousIdentityValid = previous?.modelId === BROWSER_SEMANTIC_MODEL.modelId
+    && previous.modelDigest === BROWSER_SEMANTIC_MODEL.modelDigest
+    && previous.sourceRevision === BROWSER_SEMANTIC_MODEL.sourceRevision;
+  const rebuildFailedCache = Boolean(
+    previousIdentityValid
+    && (
+      previous?.installStatus === "error"
+      || previous?.runtimeRevision !== BROWSER_SEMANTIC_RUNTIME_REVISION
+    ),
+  );
   const installing: BrowserSemanticModelRecord = {
     key: MODEL_RECORD_KEY,
+    runtimeRevision: BROWSER_SEMANTIC_RUNTIME_REVISION,
     installStatus: "installing",
     modelId: BROWSER_SEMANTIC_MODEL.modelId,
     modelDigest: BROWSER_SEMANTIC_MODEL.modelDigest,
@@ -597,6 +647,7 @@ export async function installBrowserSemanticModel(options: {
     cacheVerified: false,
     installedAt: null,
     lastUsedAt: null,
+    lastErrorCode: null,
     lastError: null,
   };
   await putRecord(METADATA_STORE, installing);
@@ -607,51 +658,82 @@ export async function installBrowserSemanticModel(options: {
     loadedBytes: 0,
     totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
   });
+  let cacheRebuilt = false;
+  if (rebuildFailedCache) {
+    releaseWorker();
+    const deletedFiles = await clearSemanticModelCacheFiles();
+    cacheRebuilt = true;
+    publishProgress({
+      phase: "checking",
+      progress: 0.005,
+      text: `已清除 ${deletedFiles} 個舊版或失敗快取檔，正在重新下載固定版本`,
+      loadedBytes: 0,
+      totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+    });
+  }
   let selectedDevice: BrowserSemanticDevice | null = null;
   try {
     const candidates = semanticDeviceCandidates(device);
-    let integrityVerified = false;
     let latestError: unknown = null;
-    for (let index = 0; index < candidates.length; index += 1) {
-      const candidate = candidates[index];
-      try {
-        publishProgress({
-          phase: "checking",
-          progress: 0.01,
-          text: `正在以 ${candidate.toUpperCase()} 載入固定版本模型`,
-          loadedBytes: 0,
-          totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
-        });
-        await loadWorkerModel(candidate, true, options);
-        if (!integrityVerified) {
-          const verification = await verifyModelCache();
-          if (!verification.ok) {
-            throw runtimeError(
-              "BROWSER_SEMANTIC_INTEGRITY_FAILED",
-              `模型完整性驗證失敗：${verification.results.filter((item) => !item.ok).map((item) => `${item.path}:${item.reason}`).join(", ")}`,
-            );
-          }
-          integrityVerified = true;
-        }
-        releaseWorker();
-        await loadWorkerModel(candidate, false, options);
-        await validateSemanticInference(candidate, options.signal);
-        selectedDevice = candidate;
-        break;
-      } catch (error) {
-        latestError = error;
-        releaseWorker();
-        const code = String((error as { code?: string })?.code ?? "");
-        if (code === "BROWSER_SEMANTIC_INTEGRITY_FAILED") throw error;
-        if (index < candidates.length - 1) {
+    const passes = cacheRebuilt ? 1 : 2;
+    for (let pass = 0; pass < passes && !selectedDevice; pass += 1) {
+      let integrityVerified = false;
+      for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index];
+        try {
           publishProgress({
             phase: "checking",
             progress: 0.01,
-            text: `${candidate.toUpperCase()} 不相容，正在切換 ${candidates[index + 1].toUpperCase()}`,
-            loadedBytes: null,
+            text: `正在以 ${candidate.toUpperCase()} 載入固定版本模型`,
+            loadedBytes: 0,
             totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
           });
+          await loadWorkerModel(candidate, true, options);
+          if (!integrityVerified) {
+            const verification = await verifyModelCache();
+            if (!verification.ok) {
+              throw runtimeError(
+                "BROWSER_SEMANTIC_INTEGRITY_FAILED",
+                `模型完整性驗證失敗：${verification.results.filter((item) => !item.ok).map((item) => `${item.path}:${item.reason}`).join(", ")}`,
+              );
+            }
+            integrityVerified = true;
+          }
+          releaseWorker();
+          await loadWorkerModel(candidate, false, options);
+          await validateSemanticInference(candidate, options.signal);
+          selectedDevice = candidate;
+          break;
+        } catch (error) {
+          latestError = error;
+          releaseWorker();
+          if (
+            options.signal?.aborted
+            || (error instanceof DOMException && error.name === "AbortError")
+          ) throw error;
+          const code = String((error as { code?: string })?.code ?? "");
+          if (code === "BROWSER_SEMANTIC_INTEGRITY_FAILED") break;
+          if (index < candidates.length - 1) {
+            publishProgress({
+              phase: "checking",
+              progress: 0.01,
+              text: `${candidate.toUpperCase()} 不相容，正在切換 ${candidates[index + 1].toUpperCase()}`,
+              loadedBytes: null,
+              totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+            });
+          }
         }
+      }
+      if (!selectedDevice && !cacheRebuilt) {
+        const deletedFiles = await clearSemanticModelCacheFiles();
+        cacheRebuilt = true;
+        publishProgress({
+          phase: "checking",
+          progress: 0.005,
+          text: `首次載入失敗，已自動清除 ${deletedFiles} 個快取檔並完整重試`,
+          loadedBytes: 0,
+          totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+        });
       }
     }
     if (!selectedDevice) throw latestError ?? runtimeError(
@@ -677,16 +759,21 @@ export async function installBrowserSemanticModel(options: {
   } catch (error) {
     releaseWorker();
     const message = error instanceof Error ? error.message : String(error);
+    const errorCode = String(
+      (error as { code?: string } | null)?.code
+      ?? "BROWSER_SEMANTIC_INSTALL_FAILED",
+    );
     await putRecord(METADATA_STORE, {
       ...installing,
       device: selectedDevice ?? installing.device,
       installStatus: "error",
-      lastError: message.slice(0, 500),
+      lastErrorCode: errorCode,
+      lastError: `${errorCode}: ${message}`.slice(0, 500),
     } satisfies BrowserSemanticModelRecord);
     publishProgress({
       phase: "error",
       progress: 0,
-      text: message,
+      text: `${errorCode}: ${message}`,
       loadedBytes: null,
       totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
     });
@@ -694,16 +781,18 @@ export async function installBrowserSemanticModel(options: {
   }
 }
 
+export async function repairStaleBrowserSemanticRuntime(options: {
+  signal?: AbortSignal;
+  onProgress?: (progress: BrowserSemanticProgress) => void;
+} = {}) {
+  const snapshot = await browserSemanticRuntimeSnapshot();
+  if (!snapshot.model.repairRequired) return snapshot;
+  return installBrowserSemanticModel(options);
+}
+
 export async function deleteBrowserSemanticModel() {
   releaseWorker();
-  if (typeof caches !== "undefined") {
-    const cache = await caches.open(BROWSER_SEMANTIC_CACHE_KEY);
-    const marker = `/${BROWSER_SEMANTIC_MODEL.modelId}/resolve/${BROWSER_SEMANTIC_MODEL.sourceRevision}/`;
-    const requests = await cache.keys();
-    await Promise.all(requests
-      .filter((request) => request.url.includes(marker))
-      .map((request) => cache.delete(request)));
-  }
+  await clearSemanticModelCacheFiles();
   await deleteRecords(METADATA_STORE, [MODEL_RECORD_KEY]).catch(() => undefined);
   const rankRecords = await getAllRecords<BrowserSemanticRankCacheRecord>(RANK_CACHE_STORE).catch(() => []);
   await deleteRecords(RANK_CACHE_STORE, rankRecords.map((item) => item.key)).catch(() => undefined);
