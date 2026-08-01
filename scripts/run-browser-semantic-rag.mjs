@@ -90,7 +90,7 @@ assert.equal(
 assert.ok(fallback.context.length > 0, "priority fallback must keep the local writing flow usable");
 
 assert.equal(BROWSER_SEMANTIC_MODEL.sourceRevision.length, 40);
-assert.equal(BROWSER_SEMANTIC_MODEL.files.length, 2);
+assert.equal(BROWSER_SEMANTIC_MODEL.files.length, 4);
 assert.ok(BROWSER_SEMANTIC_MODEL.files.every((file) => /^[a-f0-9]{64}$/u.test(file.sha256)));
 assert.equal(BROWSER_SEMANTIC_MODEL.integrityScope.weightSha256, true);
 assert.equal(BROWSER_SEMANTIC_MODEL.integrityScope.tokenizerSha256, true);
@@ -104,6 +104,17 @@ const workerSource = fs.readFileSync(
   "utf8",
 );
 assert.match(workerSource, /local_files_only:\s*!allowRemote/u);
+assert.match(workerSource, /env\.allowLocalModels\s*=\s*!allowRemote/u);
+assert.match(workerSource, /env\.allowRemoteModels\s*=\s*allowRemote/u);
+assert.match(workerSource, /ensureTokenizerCallability/u);
+assert.match(workerSource, /new BertTokenizer/u);
+assert.match(workerSource, /loadPinnedJson\("tokenizer_config\.json"/u);
+assert.match(workerSource, /explicit_callability_restored/u);
+assert.match(runtimeSource, /semanticDeviceCandidates/u);
+assert.match(runtimeSource, /validateSemanticInference/u);
+assert.match(runtimeSource, /embedWithDeviceFallback/u);
+assert.match(runtimeSource, /WebGPU 推理不相容，已自動切換 WASM/u);
+assert.match(runtimeSource, /progress\.status === "ready"/u);
 assert.match(runtimeSource, /rawTextStored:\s*false/u);
 assert.match(runtimeSource, /candidateOnly:\s*true/u);
 assert.match(runtimeSource, /canonicalMutation:\s*false/u);

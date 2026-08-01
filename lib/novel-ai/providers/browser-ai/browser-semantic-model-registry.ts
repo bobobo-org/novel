@@ -8,9 +8,14 @@ export const BROWSER_SEMANTIC_MODEL = {
   license: "Apache-2.0",
   dtype: "q8",
   embeddingDimensions: 384,
-  estimatedDownloadBytes: 135_391_039,
+  estimatedDownloadBytes: 135_392_208,
   modelDigest: "4756329f24d3fa38bbf832ab5c6a67d7e221bbf4440064fc850f2a3352842d74",
   files: [
+    {
+      path: "config.json",
+      sizeBytes: 673,
+      sha256: "05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7",
+    },
     {
       path: "onnx/model_quantized.onnx",
       sizeBytes: 118_308_126,
@@ -20,6 +25,11 @@ export const BROWSER_SEMANTIC_MODEL = {
       path: "tokenizer.json",
       sizeBytes: 17_082_913,
       sha256: "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441",
+    },
+    {
+      path: "tokenizer_config.json",
+      sizeBytes: 496,
+      sha256: "3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2",
     },
   ],
   integrityScope: {
@@ -71,7 +81,10 @@ export async function detectBrowserSemanticDevice(): Promise<BrowserSemanticDevi
   }
 
   const current = navigator as SemanticNavigator;
-  const webGpu = Boolean(current.gpu?.requestAdapter);
+  const webGpuApi = Boolean(current.gpu?.requestAdapter);
+  const webGpu = webGpuApi
+    ? Boolean(await current.gpu!.requestAdapter().catch(() => null))
+    : false;
   const wasm = typeof WebAssembly !== "undefined";
   const worker = typeof Worker !== "undefined";
   const indexedDb = typeof indexedDB !== "undefined";

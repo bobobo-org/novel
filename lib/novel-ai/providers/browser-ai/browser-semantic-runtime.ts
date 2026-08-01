@@ -70,6 +70,7 @@ export type BrowserSemanticRuntimeSnapshot = {
     modelDigest: typeof BROWSER_SEMANTIC_MODEL.modelDigest;
     sourceRevision: typeof BROWSER_SEMANTIC_MODEL.sourceRevision;
     installStatus: BrowserSemanticInstallStatus;
+    device: BrowserSemanticDevice | null;
     cacheVerified: boolean;
     active: boolean;
     installedAt: string | null;
@@ -240,11 +241,12 @@ function transformerProgress(value: unknown): BrowserSemanticProgress {
   };
   const raw = Number(progress.progress ?? 0);
   const normalized = raw > 1 ? raw / 100 : raw;
+  const ready = progress.status === "ready";
   const downloading = progress.status === "download" || progress.status === "progress"
     || progress.status === "progress_total";
   return {
-    phase: downloading ? "downloading" : "loading",
-    progress: Math.max(0, Math.min(0.94, normalized * 0.94)),
+    phase: ready ? "ready" : downloading ? "downloading" : "loading",
+    progress: ready ? 1 : Math.max(0, Math.min(0.94, normalized * 0.94)),
     text: progress.file
       ? `${progress.status ?? "loading"}: ${progress.file}`
       : progress.status ?? "loading",
@@ -253,12 +255,15 @@ function transformerProgress(value: unknown): BrowserSemanticProgress {
   };
 }
 
-function releaseWorker(reason = "BROWSER_SEMANTIC_WORKER_RELEASED") {
+function releaseWorker(
+  reason = "BROWSER_SEMANTIC_WORKER_RELEASED",
+  message = "Browser AI 語意工作已停止。",
+) {
   activeWorker?.terminate();
   activeWorker = null;
   activeDevice = null;
   for (const operation of pending.values()) {
-    operation.reject(runtimeError(reason, "Browser AI 語意工作已停止。"));
+    operation.reject(runtimeError(reason, message));
   }
   pending.clear();
 }
@@ -282,15 +287,27 @@ function ensureWorker(device: BrowserSemanticDevice) {
     }
     pending.delete(id);
     if (event.data.type === "error") {
+      const message = String(
+        event.data.message
+        ?? event.data.code
+        ?? "Browser AI 語意模型執行失敗。",
+      );
       operation.reject(runtimeError(
         String(event.data.code ?? "BROWSER_SEMANTIC_WORKER_FAILED"),
-        "Browser AI 語意模型執行失敗。",
+        message,
       ));
       return;
     }
     operation.resolve(event.data);
   };
-  worker.onerror = () => releaseWorker("BROWSER_SEMANTIC_WORKER_CRASHED");
+  worker.onerror = (event) => releaseWorker(
+    "BROWSER_SEMANTIC_WORKER_CRASHED",
+    event.message || "Browser AI 語意 Worker 發生未處理錯誤。",
+  );
+  worker.onmessageerror = () => releaseWorker(
+    "BROWSER_SEMANTIC_WORKER_MESSAGE_FAILED",
+    "Browser AI 語意 Worker 回傳了無法解析的訊息。",
+  );
   activeWorker = worker;
   activeDevice = device;
   return worker;
@@ -340,6 +357,97 @@ async function loadWorkerModel(
   } = {},
 ) {
   return requestWorker(device, { type: "load", allowRemote, device }, options);
+}
+
+function semanticDeviceCandidates(
+  profile: BrowserSemanticDeviceProfile,
+  preferred: BrowserSemanticDevice | null = profile.device,
+) {
+  const candidates: BrowserSemanticDevice[] = [];
+  const add = (device: BrowserSemanticDevice | null) => {
+    if (!device || candidates.includes(device)) return;
+    if (device === "webgpu" && !profile.webGpu) return;
+    if (device === "wasm" && !profile.wasm) return;
+    candidates.push(device);
+  };
+  add(preferred);
+  add(profile.device);
+  add(profile.webGpu ? "webgpu" : null);
+  // Q8 is the Transformers.js default for WASM. Keep it as the deterministic
+  // fallback when a WebGPU adapter exists but cannot execute this ONNX graph.
+  add(profile.wasm ? "wasm" : null);
+  return candidates;
+}
+
+async function validateSemanticInference(
+  device: BrowserSemanticDevice,
+  signal?: AbortSignal,
+) {
+  const response = await requestWorker(device, {
+    type: "embed",
+    texts: [
+      "主角追查失蹤帳冊背後的秘密線索",
+      "午後天空晴朗，廚房正在準備水果。",
+    ],
+  }, { signal });
+  const vectors = response.vectors as unknown;
+  const dimensions = Number(response.dimensions ?? 0);
+  if (
+    !Array.isArray(vectors)
+    || vectors.length !== 2
+    || dimensions !== BROWSER_SEMANTIC_MODEL.embeddingDimensions
+    || vectors.some((vector) =>
+      !Array.isArray(vector)
+      || vector.length !== dimensions
+      || vector.some((value) => !Number.isFinite(value)))
+  ) {
+    throw runtimeError(
+      "BROWSER_SEMANTIC_SELF_TEST_FAILED",
+      "語意模型雖已載入，但真實向量推理未通過維度與有限值檢查。",
+    );
+  }
+}
+
+async function persistModelDevice(device: BrowserSemanticDevice) {
+  const record = await getRecord<BrowserSemanticModelRecord>(
+    METADATA_STORE,
+    MODEL_RECORD_KEY,
+  ).catch(() => null);
+  if (
+    record?.modelId !== BROWSER_SEMANTIC_MODEL.modelId
+    || record.modelDigest !== BROWSER_SEMANTIC_MODEL.modelDigest
+    || record.sourceRevision !== BROWSER_SEMANTIC_MODEL.sourceRevision
+  ) return;
+  await putRecord(METADATA_STORE, {
+    ...record,
+    device,
+    lastError: null,
+  } satisfies BrowserSemanticModelRecord);
+}
+
+async function embedWithDeviceFallback(
+  device: BrowserSemanticDevice,
+  texts: string[],
+  signal?: AbortSignal,
+) {
+  try {
+    const response = await requestWorker(device, { type: "embed", texts }, { signal });
+    return { device, response };
+  } catch (error) {
+    if (device !== "webgpu" || typeof WebAssembly === "undefined") throw error;
+    releaseWorker();
+    publishProgress({
+      phase: "loading",
+      progress: 0.98,
+      text: "WebGPU 推理不相容，已自動切換 WASM",
+      loadedBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+      totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+    });
+    await loadWorkerModel("wasm", false, { signal });
+    const response = await requestWorker("wasm", { type: "embed", texts }, { signal });
+    await persistModelDevice("wasm");
+    return { device: "wasm" as const, response };
+  }
 }
 
 function bytesToHex(bytes: ArrayBuffer) {
@@ -450,6 +558,7 @@ export async function browserSemanticRuntimeSnapshot(): Promise<BrowserSemanticR
       modelDigest: BROWSER_SEMANTIC_MODEL.modelDigest,
       sourceRevision: BROWSER_SEMANTIC_MODEL.sourceRevision,
       installStatus: identityValid ? record!.installStatus : "not_installed",
+      device: identityValid ? record!.device : null,
       cacheVerified: Boolean(identityValid && record?.cacheVerified),
       active: activeWorker !== null,
       installedAt: identityValid ? record!.installedAt : null,
@@ -498,20 +607,61 @@ export async function installBrowserSemanticModel(options: {
     loadedBytes: 0,
     totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
   });
+  let selectedDevice: BrowserSemanticDevice | null = null;
   try {
-    await loadWorkerModel(device.device, true, options);
-    const verification = await verifyModelCache();
-    if (!verification.ok) {
-      throw runtimeError(
-        "BROWSER_SEMANTIC_INTEGRITY_FAILED",
-        `模型完整性驗證失敗：${verification.results.filter((item) => !item.ok).map((item) => `${item.path}:${item.reason}`).join(", ")}`,
-      );
+    const candidates = semanticDeviceCandidates(device);
+    let integrityVerified = false;
+    let latestError: unknown = null;
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      try {
+        publishProgress({
+          phase: "checking",
+          progress: 0.01,
+          text: `正在以 ${candidate.toUpperCase()} 載入固定版本模型`,
+          loadedBytes: 0,
+          totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+        });
+        await loadWorkerModel(candidate, true, options);
+        if (!integrityVerified) {
+          const verification = await verifyModelCache();
+          if (!verification.ok) {
+            throw runtimeError(
+              "BROWSER_SEMANTIC_INTEGRITY_FAILED",
+              `模型完整性驗證失敗：${verification.results.filter((item) => !item.ok).map((item) => `${item.path}:${item.reason}`).join(", ")}`,
+            );
+          }
+          integrityVerified = true;
+        }
+        releaseWorker();
+        await loadWorkerModel(candidate, false, options);
+        await validateSemanticInference(candidate, options.signal);
+        selectedDevice = candidate;
+        break;
+      } catch (error) {
+        latestError = error;
+        releaseWorker();
+        const code = String((error as { code?: string })?.code ?? "");
+        if (code === "BROWSER_SEMANTIC_INTEGRITY_FAILED") throw error;
+        if (index < candidates.length - 1) {
+          publishProgress({
+            phase: "checking",
+            progress: 0.01,
+            text: `${candidate.toUpperCase()} 不相容，正在切換 ${candidates[index + 1].toUpperCase()}`,
+            loadedBytes: null,
+            totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
+          });
+        }
+      }
     }
-    releaseWorker();
-    await loadWorkerModel(device.device, false, options);
+    if (!selectedDevice) throw latestError ?? runtimeError(
+      "BROWSER_SEMANTIC_NO_EXECUTION_DEVICE",
+      "WebGPU 與 WASM 都無法執行此語意模型。",
+    );
     const installedAt = new Date().toISOString();
     await putRecord(METADATA_STORE, {
       ...installing,
+      device: selectedDevice,
       installStatus: "ready",
       cacheVerified: true,
       installedAt,
@@ -519,7 +669,7 @@ export async function installBrowserSemanticModel(options: {
     publishProgress({
       phase: "ready",
       progress: 1,
-      text: "語意模型已安裝、雜湊已驗證，離線載入通過",
+      text: `語意模型已安裝、雜湊已驗證，${selectedDevice.toUpperCase()} 離線推理通過`,
       loadedBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
       totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
     });
@@ -529,8 +679,9 @@ export async function installBrowserSemanticModel(options: {
     const message = error instanceof Error ? error.message : String(error);
     await putRecord(METADATA_STORE, {
       ...installing,
+      device: selectedDevice ?? installing.device,
       installStatus: "error",
-      lastError: message.slice(0, 300),
+      lastError: message.slice(0, 500),
     } satisfies BrowserSemanticModelRecord);
     publishProgress({
       phase: "error",
@@ -539,7 +690,7 @@ export async function installBrowserSemanticModel(options: {
       loadedBytes: null,
       totalBytes: BROWSER_SEMANTIC_MODEL.estimatedDownloadBytes,
     });
-    throw runtimeError("BROWSER_SEMANTIC_INSTALL_FAILED", "Browser 語意模型安裝失敗。", error);
+    throw runtimeError("BROWSER_SEMANTIC_INSTALL_FAILED", message, error);
   }
 }
 
@@ -577,8 +728,22 @@ async function readySemanticModel(signal?: AbortSignal) {
       "請先在閉端 AI 指揮中心明確安裝並驗證語意模型。",
     );
   }
-  await loadWorkerModel(snapshot.device.device, false, { signal });
-  return snapshot.device.device;
+  const candidates = semanticDeviceCandidates(snapshot.device, snapshot.model.device);
+  let latestError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      await loadWorkerModel(candidate, false, { signal });
+      if (candidate !== snapshot.model.device) await persistModelDevice(candidate);
+      return candidate;
+    } catch (error) {
+      latestError = error;
+      releaseWorker();
+    }
+  }
+  throw latestError ?? runtimeError(
+    "BROWSER_SEMANTIC_OFFLINE_LOAD_FAILED",
+    "已驗證的語意模型快取無法離線載入。",
+  );
 }
 
 export async function rankWithBrowserSemanticModel(
@@ -597,7 +762,8 @@ export async function rankWithBrowserSemanticModel(
   ).catch(() => null);
   if (cached && Date.parse(cached.expiresAt) > Date.now()) {
     await putRecord(RANK_CACHE_STORE, { ...cached, hitCount: cached.hitCount + 1 });
-    const device = (await detectBrowserSemanticDevice()).device ?? "wasm";
+    const snapshot = await browserSemanticRuntimeSnapshot();
+    const device = snapshot.model.device ?? snapshot.device.device ?? "wasm";
     const elapsedMs = Math.round(performance.now() - started);
     lastRanking = {
       completedAt: new Date().toISOString(),
@@ -626,14 +792,17 @@ export async function rankWithBrowserSemanticModel(
     };
   }
 
-  const device = await readySemanticModel(input.signal);
+  let device = await readySemanticModel(input.signal);
   const scores: Array<{ id: string; score: number; priority: number }> = [];
   for (let offset = 0; offset < items.length; offset += 48) {
     const chunk = items.slice(offset, offset + 48);
-    const response = await requestWorker(device, {
-      type: "embed",
-      texts: [query, ...chunk.map((item) => item.text)],
-    }, { signal: input.signal });
+    const embedded = await embedWithDeviceFallback(
+      device,
+      [query, ...chunk.map((item) => item.text)],
+      input.signal,
+    );
+    device = embedded.device;
+    const response = embedded.response;
     const vectors = response.vectors as number[][];
     const queryVector = vectors[0];
     if (!queryVector || vectors.length !== chunk.length + 1) {

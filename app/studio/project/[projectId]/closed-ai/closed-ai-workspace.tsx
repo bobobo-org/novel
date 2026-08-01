@@ -1994,7 +1994,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   {browserSemantic ? <div className={styles.browserModelManager} data-testid="browser-semantic-model-manager">
                     <div className={styles.browserDeviceSummary}>
                       <strong>Transformers.js 小說語意引擎</strong>
-                      <span>{browserSemantic.device.device?.toUpperCase() ?? "不支援"} · CacheStorage＋IndexedDB</span>
+                      <span>{(browserSemantic.model.device ?? browserSemantic.device.device)?.toUpperCase() ?? "不支援"} · CacheStorage＋IndexedDB</span>
                       <small>
                         分層 RAG、Semantic Cache、Story Bible／角色／章節檢索排序；不負責冒充生成式 LLM。
                       </small>

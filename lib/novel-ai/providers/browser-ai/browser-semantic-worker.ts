@@ -1,7 +1,8 @@
-import { env, pipeline } from "@huggingface/transformers";
+import { BertTokenizer, env, pipeline } from "@huggingface/transformers";
 import {
   BROWSER_SEMANTIC_CACHE_KEY,
   BROWSER_SEMANTIC_MODEL,
+  semanticModelFileUrl,
   type BrowserSemanticDevice,
 } from "./browser-semantic-model-registry";
 
@@ -37,6 +38,57 @@ async function disposeExtractor() {
   await current?.dispose().catch(() => undefined);
 }
 
+async function loadPinnedJson(path: string, allowRemote: boolean) {
+  const url = semanticModelFileUrl(path);
+  const cache = await caches.open(BROWSER_SEMANTIC_CACHE_KEY);
+  let response = await cache.match(url);
+  if (!response && allowRemote) {
+    const remote = await fetch(url);
+    if (!remote.ok) {
+      throw new Error(`SEMANTIC_PINNED_FILE_DOWNLOAD_FAILED:${path}:${remote.status}`);
+    }
+    await cache.put(url, remote.clone());
+    response = remote;
+  }
+  if (!response) throw new Error(`SEMANTIC_OFFLINE_FILE_MISSING:${path}`);
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
+async function ensureTokenizerCallability(
+  loaded: unknown,
+  allowRemote: boolean,
+) {
+  const semanticPipeline = loaded as {
+    tokenizer?: unknown;
+  };
+  if (typeof semanticPipeline.tokenizer === "function") return "native" as const;
+  let tokenizer = semanticPipeline.tokenizer as {
+    _call?: (...args: unknown[]) => unknown;
+  } | null | undefined;
+  if (typeof tokenizer?._call !== "function") {
+    // Transformers.js 4.x can omit the tokenizer from a pipeline when its
+    // metadata preflight does not recognise an older Xenova repository. Load
+    // the pinned tokenizer explicitly; it uses the same verified cache and
+    // the same offline-only policy as the model.
+    const [tokenizerJson, tokenizerConfig] = await Promise.all([
+      loadPinnedJson("tokenizer.json", allowRemote),
+      loadPinnedJson("tokenizer_config.json", allowRemote),
+    ]);
+    tokenizer = new BertTokenizer(tokenizerJson, tokenizerConfig) as unknown as typeof tokenizer;
+    semanticPipeline.tokenizer = tokenizer;
+  }
+  if (typeof semanticPipeline.tokenizer === "function") return "explicit" as const;
+  if (typeof tokenizer?._call !== "function") {
+    throw new Error("SEMANTIC_TOKENIZER_NOT_CALLABLE");
+  }
+  // Some bundlers preserve the Transformers.js tokenizer instance but lose
+  // the callable function returned by its constructor. FeatureExtractionPipeline
+  // only needs the public call operation, so restore it without changing the
+  // tokenizer implementation or model data.
+  semanticPipeline.tokenizer = (...args: unknown[]) => tokenizer._call!(...args);
+  return "explicit_callability_restored" as const;
+}
+
 async function loadExtractor(
   id: string,
   allowRemote: boolean,
@@ -47,7 +99,12 @@ async function loadExtractor(
     return;
   }
   await disposeExtractor();
-  env.allowLocalModels = false;
+  // Transformers.js 4.x rejects `local_files_only=true` while local models are
+  // disabled before it gets a chance to inspect CacheStorage. During the
+  // verified offline reload we therefore enable the local/cache lookup but
+  // disable remote models. A cache miss can only fall back to the same-origin
+  // local path and then fails closed; it cannot contact Hugging Face.
+  env.allowLocalModels = !allowRemote;
   env.allowRemoteModels = allowRemote;
   env.useBrowserCache = true;
   env.cacheKey = BROWSER_SEMANTIC_CACHE_KEY;
@@ -64,9 +121,15 @@ async function loadExtractor(
       },
     },
   );
+  const tokenizerCompatibility = await ensureTokenizerCallability(loaded, allowRemote);
   extractor = loaded as unknown as SemanticExtractor;
   activeDevice = device;
-  respond(id, { type: "loaded", device, reused: false });
+  respond(id, {
+    type: "loaded",
+    device,
+    reused: false,
+    tokenizerCompatibility,
+  });
 }
 
 async function embed(id: string, texts: string[]) {
@@ -95,9 +158,16 @@ globalThis.onmessage = (event: MessageEvent<WorkerRequest>) => {
         respond(request.id, { type: "disposed" });
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       respond(request.id, {
         type: "error",
-        code: error instanceof Error ? error.message : "SEMANTIC_WORKER_FAILED",
+        code: message.includes("local_files_only")
+          ? "BROWSER_SEMANTIC_OFFLINE_CACHE_MISS"
+          : message.includes("Invalid configuration detected")
+            ? "BROWSER_SEMANTIC_CACHE_CONFIGURATION_INVALID"
+            : "BROWSER_SEMANTIC_WORKER_FAILED",
+        message,
+        device: request.type === "load" ? request.device : activeDevice,
       });
     }
   })();
