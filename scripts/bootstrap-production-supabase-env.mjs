@@ -18,6 +18,12 @@ export const PRODUCTION_RUNTIME_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_SERVICE_ROLE_KEY",
 ]);
 
+export const SUPABASE_SERVER_CREDENTIAL_KEYS = Object.freeze([
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SECRET_KEY",
+  "SUPABASE_SERVICE_KEY",
+]);
+
 export function parseEnvFile(source) {
   const parsed = {};
   for (const rawLine of source.split(/\r?\n/u)) {
@@ -72,6 +78,22 @@ export function projectRefFromServiceRole(value) {
   return /^[a-z0-9]{8,32}$/u.test(projectRef) ? projectRef : "";
 }
 
+function preferredServerCredential(environment = {}) {
+  const values = SUPABASE_SERVER_CREDENTIAL_KEYS
+    .map((key) => String(environment[key] || "").trim())
+    .filter(Boolean);
+  return values.find((value) => serviceRoleCredentialKind(value)) || values[0] || "";
+}
+
+export function collectEnvironmentServiceRoleCandidates(environments = {}) {
+  return Object.entries(environments).flatMap(([environmentName, environment]) =>
+    SUPABASE_SERVER_CREDENTIAL_KEYS.map((key) => ({
+      source: `${environmentName}:${key}`,
+      value: String(environment?.[key] || "").trim(),
+    })),
+  );
+}
+
 export function mergeProductionWithSource(production, source) {
   const first = (...values) => String(values.find(Boolean) || "").trim();
   const url = first(
@@ -81,8 +103,8 @@ export function mergeProductionWithSource(production, source) {
     source.SUPABASE_URL,
   );
   const serviceRole = first(
-    production.SUPABASE_SERVICE_ROLE_KEY,
-    source.SUPABASE_SERVICE_ROLE_KEY,
+    preferredServerCredential(production),
+    preferredServerCredential(source),
   );
   return {
     SUPABASE_ACCESS_TOKEN: first(
@@ -483,11 +505,12 @@ export async function main() {
         .sort();
       throw error;
     }
-    const environmentCandidates = [
-      { source: "production", value: production.SUPABASE_SERVICE_ROLE_KEY },
-      { source: "preview", value: preview.SUPABASE_SERVICE_ROLE_KEY },
-      { source: "development", value: development.SUPABASE_SERVICE_ROLE_KEY },
-    ];
+    const environments = { production, preview, development };
+    const environmentCandidates = collectEnvironmentServiceRoleCandidates(environments);
+    const availableSourceKeys = [...new Set(Object.values(environments)
+      .flatMap((environment) => Object.keys(environment))
+      .filter((key) => /^(?:SUPABASE|DATABASE|POSTGRES)_/u.test(key)))]
+      .sort();
     let discoveredKeys = { candidates: [], httpStatus: null };
     let credential;
     try {
@@ -496,15 +519,29 @@ export async function main() {
         candidates: environmentCandidates,
       });
     } catch (environmentError) {
-      if (!configuration.SUPABASE_ACCESS_TOKEN) throw environmentError;
-      discoveredKeys = await discoverProjectApiKeyCandidates({
-        accessToken: configuration.SUPABASE_ACCESS_TOKEN,
-        projectRef,
-      });
-      credential = await selectServiceRoleCredential({
-        url: configuration.NEXT_PUBLIC_SUPABASE_URL,
-        candidates: [...environmentCandidates, ...discoveredKeys.candidates],
-      });
+      if (!configuration.SUPABASE_ACCESS_TOKEN) {
+        environmentError.availableSourceKeys = availableSourceKeys;
+        throw environmentError;
+      }
+      try {
+        discoveredKeys = await discoverProjectApiKeyCandidates({
+          accessToken: configuration.SUPABASE_ACCESS_TOKEN,
+          projectRef,
+        });
+      } catch (discoveryError) {
+        discoveryError.availableSourceKeys = availableSourceKeys;
+        discoveryError.credentialProbes = environmentError.credentialProbes || [];
+        throw discoveryError;
+      }
+      try {
+        credential = await selectServiceRoleCredential({
+          url: configuration.NEXT_PUBLIC_SUPABASE_URL,
+          candidates: [...environmentCandidates, ...discoveredKeys.candidates],
+        });
+      } catch (selectionError) {
+        selectionError.availableSourceKeys = availableSourceKeys;
+        throw selectionError;
+      }
     }
     configuration.SUPABASE_SERVICE_ROLE_KEY = credential.value;
     validateRuntimeConfigurationShape(configuration);

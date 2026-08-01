@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  collectEnvironmentServiceRoleCandidates,
   discoverProjectRef,
   discoverProjectApiKeyCandidates,
   PRODUCTION_RUNTIME_SUPABASE_KEYS,
   REQUIRED_SUPABASE_KEYS,
+  SUPABASE_SERVER_CREDENTIAL_KEYS,
   mergeProductionWithSource,
   parseEnvFile,
   projectRefFromUrl,
@@ -37,6 +39,24 @@ assert.equal(projectRefFromServiceRole(serviceRoleJwt), projectRef);
 assert.equal(serviceRoleCredentialKind("sb_secret_abcdefghijklmnopqrstuvwxyz"), "secret_key");
 assert.equal(serviceRoleCredentialKind("opaque-service-role-value"), "");
 assert.equal(serviceRoleCredentialKind("short"), "");
+
+assert.deepEqual(SUPABASE_SERVER_CREDENTIAL_KEYS, [
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SECRET_KEY",
+  "SUPABASE_SERVICE_KEY",
+]);
+const aliasCandidates = collectEnvironmentServiceRoleCandidates({
+  production: { SUPABASE_SECRET_KEY: "sb_secret_abcdefghijklmnopqrstuvwxyz" },
+  preview: { SUPABASE_SERVICE_KEY: serviceRoleJwt },
+});
+assert.equal(aliasCandidates.length, 6);
+assert.deepEqual(aliasCandidates.filter((candidate) => candidate.value), [
+  {
+    source: "production:SUPABASE_SECRET_KEY",
+    value: "sb_secret_abcdefghijklmnopqrstuvwxyz",
+  },
+  { source: "preview:SUPABASE_SERVICE_KEY", value: serviceRoleJwt },
+]);
 
 const selectedCredential = await selectServiceRoleCredential({
   url: source.NEXT_PUBLIC_SUPABASE_URL,
@@ -110,6 +130,19 @@ const aliasOnly = mergeProductionWithSource({}, {
 });
 assert.deepEqual(aliasOnly, source);
 assert.deepEqual(validateConfigurationShape(aliasOnly), { projectRef });
+
+const modernSecretAlias = mergeProductionWithSource({}, {
+  SUPABASE_ACCESS_TOKEN: source.SUPABASE_ACCESS_TOKEN,
+  SUPABASE_PROJECT_REF: projectRef,
+  NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: "invalid-legacy-value",
+  SUPABASE_SECRET_KEY: "sb_secret_abcdefghijklmnopqrstuvwxyz",
+});
+assert.equal(
+  modernSecretAlias.SUPABASE_SERVICE_ROLE_KEY,
+  "sb_secret_abcdefghijklmnopqrstuvwxyz",
+);
+assert.deepEqual(validateConfigurationShape(modernSecretAlias), { projectRef });
 
 const serviceRoleRefOnly = mergeProductionWithSource({}, {
   SUPABASE_ACCESS_TOKEN: source.SUPABASE_ACCESS_TOKEN,
