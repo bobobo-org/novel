@@ -202,7 +202,7 @@ jobs:
       - name: Verify and recover Production Supabase environment
         run: node scripts/bootstrap-production-supabase-env.mjs
 
-      - name: Verify and promote Production xAI Grok environment
+      - name: Verify optional Production xAI Grok environment
         run: node scripts/bootstrap-production-external-ai-env.mjs
 
   restore_known_stable:
@@ -337,7 +337,7 @@ jobs:
           echo "Staged encrypted cloud sync runtime is not ready; aliases remain unchanged." >&2
           exit 1
 
-      - name: Verify staged ChatGPT and Grok teachers
+      - name: Verify staged ChatGPT and optional Grok teacher
         if: steps.staged.outcome == 'success' && steps.staged_health.outcome == 'success'
         id: staged_teachers
         continue-on-error: true
@@ -350,16 +350,16 @@ jobs:
           for attempt in {1..30}; do
             if body="$(curl --fail --silent --show-error "$providers_url" 2>/dev/null)"; then
               openai_ready="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED")' <<<"$body")"
-              grok_ready="$(jq -r 'any(.providers[]?; .id == "grok" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and (.modelId == "grok-4.5" or .modelId == "grok-4.5-latest"))' <<<"$body")"
+              grok_safe="$(jq -r 'any(.providers[]?; .id == "grok" and ((.configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED") or (.configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and (.modelId == "grok-4.5" or .modelId == "grok-4.5-latest"))))' <<<"$body")"
               credential_mode="$(jq -r '.credentials // empty' <<<"$body")"
               provider_verification="$(jq -r '.verification // empty' <<<"$body")"
-              if [[ "$openai_ready" == "true" && "$grok_ready" == "true" && "$credential_mode" == "server-side-only" && "$provider_verification" == "verified" ]]; then
+              if [[ "$openai_ready" == "true" && "$grok_safe" == "true" && "$credential_mode" == "server-side-only" && ("$provider_verification" == "verified" || "$provider_verification" == "degraded") ]]; then
                 exit 0
               fi
             fi
             sleep 2
           done
-          echo "Staged external teachers are not ready; aliases remain unchanged." >&2
+          echo "Staged external teacher configuration is invalid; aliases remain unchanged." >&2
           exit 1
 
       - name: Restore aliases after staged gate rejection

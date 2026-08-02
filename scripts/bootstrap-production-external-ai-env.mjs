@@ -120,11 +120,23 @@ export async function main() {
       scope,
       token,
     });
-    const configuration = resolveXaiBootstrapConfiguration({
-      githubApiKey: process.env.XAI_API_KEY,
-      githubModelId: process.env.XAI_MODEL_ID,
-      production,
-    });
+    let configuration;
+    try {
+      configuration = resolveXaiBootstrapConfiguration({
+        githubApiKey: process.env.XAI_API_KEY,
+        githubModelId: process.env.XAI_MODEL_ID,
+        production,
+      });
+    } catch (error) {
+      if (error?.code !== "XAI_API_KEY_NOT_CONFIGURED") throw error;
+      console.log(JSON.stringify({
+        status: "production_xai_env_not_configured",
+        modelId: process.env.XAI_MODEL_ID || DEFAULT_XAI_MODEL_ID,
+        modelAvailable: false,
+        credentialExposed: false,
+      }));
+      return;
+    }
     const verification = await verifyXaiCredential(configuration);
 
     if (configuration.credentialSource === "github_secret") {

@@ -80,11 +80,13 @@ assert.match(source, /https:\/\/api\.x\.ai\/v1\/models/u);
 assert.match(source, /env", "pull"/u);
 assert.match(source, /mkdtemp/u);
 assert.match(source, /await rm\(directory/u);
+assert.match(source, /production_xai_env_not_configured/u);
+assert.match(source, /error\?\.code !== "XAI_API_KEY_NOT_CONFIGURED"/u);
 assert.doesNotMatch(source, /console\.log\([^\n]*apiKey/u);
 
 console.log(JSON.stringify({
   status: "PASS",
-  assertions: 25,
+  assertions: 27,
   modelId: DEFAULT_XAI_MODEL_ID,
   credentialExposed: false,
 }, null, 2));
