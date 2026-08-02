@@ -170,6 +170,19 @@ export function classifyBrowserTask(taskType: PlatformTaskType): BrowserComputeT
   return "T3";
 }
 
+export function browserEligibilityContextTokens(input: {
+  rawContextTokens: number;
+  compressedContextTokens: number;
+  objectiveTokens: number;
+}) {
+  const rawContextTokens = Math.max(0, Math.round(input.rawContextTokens));
+  const preparedContextTokens = Math.max(
+    0,
+    Math.round(input.compressedContextTokens) + Math.round(input.objectiveTokens),
+  );
+  return Math.min(rawContextTokens, preparedContextTokens);
+}
+
 export function resolveBrowserTaskEligibility(input: {
   taskType: PlatformTaskType;
   policy?: BrowserComputePolicy;

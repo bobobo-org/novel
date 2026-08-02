@@ -10,6 +10,7 @@ import {
   BROWSER_T1_T2_HYBRID_TASKS,
   BROWSER_T2_TASKS,
   BROWSER_T3_TASKS,
+  browserEligibilityContextTokens,
   classifyBrowserTask,
   resolveBrowserTaskEligibility,
 } from "../lib/novel-ai/providers/browser-ai/browser-task-eligibility.ts";
@@ -771,6 +772,28 @@ test("offload-benchmark", async () => {
   assert.ok(summary.privateHubJobsAvoided / 40 >= 0.75);
   assert.ok(receipts.every((receipt) => receipt.tokensSaved / 2_400 >= 0.45));
   assert.ok(summary.estimatedComputeMinutesSaved > 0);
+});
+
+test("compressed-context-eligibility", () => {
+  const preparedTokens = browserEligibilityContextTokens({
+    rawContextTokens: 5_200,
+    compressedContextTokens: 800,
+    objectiveTokens: 45,
+  });
+  assert.equal(preparedTokens, 845);
+  const route = resolveBrowserTaskEligibility({
+    taskType: "chapter.continue",
+    policy: "browser-first",
+    generativeModelReady: true,
+    generativeRuntime: "webllm-worker",
+    inferenceProofVerified: true,
+    modelParameterLabel: "1.5B",
+    benchmark: { benchmarkPassed: true },
+    contextTokens: preparedTokens,
+    outputTokens: 384,
+  });
+  assert.equal(route.eligible, true);
+  assert.equal(route.reasonCode, "BROWSER_T2_VERIFIED_AND_WITHIN_BUDGET");
 });
 
 test("privacy-isolation", async () => {

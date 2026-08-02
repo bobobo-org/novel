@@ -27,6 +27,7 @@ import {
 } from "./browser-performance-policy";
 import { evaluateBrowserCandidateQuality } from "./browser-quality-gate";
 import {
+  browserEligibilityContextTokens,
   resolveBrowserTaskEligibility,
   type BrowserTaskEligibility,
 } from "./browser-task-eligibility";
@@ -393,6 +394,21 @@ export async function executeBrowserCompute(input: {
     requestedRepetitionPenalty: input.request.generationOptions?.repetitionPenalty,
     previousTokensPerSecond: selected?.averageTokensPerSecond,
   });
+  const sources = await contextSources(
+    input.request,
+    semantic?.model.cacheVerified ?? false,
+  );
+  const contextPack = await composeBrowserContextPack({
+    namespace: input.request.cacheNamespace!,
+    audience: "actor",
+    sources,
+    performancePolicy,
+  });
+  const preparedContextTokens = browserEligibilityContextTokens({
+    rawContextTokens,
+    compressedContextTokens: contextPack.metrics.browserCompressedContextTokens,
+    objectiveTokens: estimateBrowserTokens(input.request.input),
+  });
   const eligibility = resolveBrowserTaskEligibility({
     taskType: input.request.taskType,
     policy,
@@ -406,24 +422,13 @@ export async function executeBrowserCompute(input: {
       && inferenceProofVerified
       ? { benchmarkPassed: true }
       : benchmark,
-    contextTokens: rawContextTokens,
+    contextTokens: preparedContextTokens,
     outputTokens: performancePolicy.reservedOutputTokens,
     qualityPreference: input.request.qualityPreference,
     allowPreAuthorizedClosedEscalation:
       input.request.allowPreAuthorizedClosedEscalation ?? false,
   });
   if (!eligibility.eligible) throw explicitEscalationError(eligibility);
-
-  const sources = await contextSources(
-    input.request,
-    semantic?.model.cacheVerified ?? false,
-  );
-  const contextPack = await composeBrowserContextPack({
-    namespace: input.request.cacheNamespace!,
-    audience: "actor",
-    sources,
-    performancePolicy,
-  });
   const executionRequest: PlatformAIRequest = {
     ...input.request,
     input: input.request.input,
