@@ -353,7 +353,7 @@ jobs:
               grok_safe="$(jq -r 'any(.providers[]?; .id == "grok" and ((.configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED") or (.configured == true and ((.verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and (.modelId == "grok-4.5" or .modelId == "grok-4.5-latest")) or (.verification == "failed" and (.verificationCode | length) > 0 and .verificationCode != "PROBE_REQUIRED")))))' <<<"$body")"
               credential_mode="$(jq -r '.credentials // empty' <<<"$body")"
               provider_verification="$(jq -r '.verification // empty' <<<"$body")"
-              silent_fallback="$(jq -r '.silentFallback // true' <<<"$body")"
+              silent_fallback="$(jq -r 'if has("silentFallback") then .silentFallback else true end' <<<"$body")"
               provider_count="$(jq -r '[.providers[]?] | length' <<<"$body")"
               provider_boundaries="$(jq -r 'all(.providers[]?; .serverSideCredentialOnly == true and .dataLeavesDevice == true)' <<<"$body")"
               if [[ "$openai_safe" == "true" && "$grok_safe" == "true" && "$credential_mode" == "server-side-only" && ("$provider_verification" == "verified" || "$provider_verification" == "degraded") && "$silent_fallback" == "false" && "$provider_count" == "2" && "$provider_boundaries" == "true" ]]; then

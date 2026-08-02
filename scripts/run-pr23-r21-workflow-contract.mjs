@@ -177,6 +177,11 @@ assert.match(deployJob, /grok_safe/u);
 assert.match(deployJob, /\.verification == "not_configured"/u);
 assert.match(deployJob, /\.verification == "failed"/u);
 assert.match(deployJob, /silentFallback/u);
+assert.match(
+  deployJob,
+  /if has\("silentFallback"\) then \.silentFallback else true end/u,
+);
+assert.doesNotMatch(deployJob, /\.silentFallback \/\/ true/u);
 assert.match(deployJob, /serverSideCredentialOnly/u);
 assert.match(deployJob, /grok-4\.5/u);
 assert.match(deployJob, /Restore aliases after staged gate rejection/u);
