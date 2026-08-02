@@ -2,7 +2,9 @@ name: Vercel Deploy
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - agent/browser-sovereign-ai-fabric-rc5
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -110,19 +112,21 @@ jobs:
   preview:
     name: preview
     needs: validate
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/agent/browser-sovereign-ai-fabric-rc5')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Checkout trusted PR head
+      - name: Checkout trusted Preview head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -148,13 +152,13 @@ jobs:
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
-          echo "::notice title=RC4 Preview URL::$deployment_url"
+          echo "::notice title=RC5 Preview URL::$deployment_url"
 
       - name: Verify Preview release identity
         shell: bash
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
-          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_COMMIT: ${{ env.VERCEL_GIT_COMMIT_SHA }}
         run: |
           set -euo pipefail
           identity_url="$PREVIEW_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -164,8 +168,8 @@ jobs:
               environment="$(jq -r '.environment // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
-              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-browser-first-compute-plane-rc5" ]]; then
-                printf '### RC4 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-browser-sovereign-ai-fabric-rc5" ]]; then
+                printf '### RC5 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
             fi

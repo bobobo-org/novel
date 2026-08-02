@@ -52,7 +52,15 @@ for (const secret of [
 assert.match(previewJob, /\n    needs:\s*validate\s*$/mu);
 assert.match(
   previewJob,
-  /\n    if:\s*github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository\s*$/mu,
+  /github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository/u,
+);
+assert.match(
+  previewJob,
+  /github\.event_name == 'push' && github\.ref == 'refs\/heads\/agent\/browser-sovereign-ai-fabric-rc5'/u,
+);
+assert.match(
+  globalConfiguration,
+  /branches:[\s\S]*- main[\s\S]*- agent\/browser-sovereign-ai-fabric-rc5/u,
 );
 for (const secret of [
   "VERCEL_TOKEN",
@@ -61,8 +69,11 @@ for (const secret of [
 ]) {
   assert.match(previewJob, new RegExp(`${secret}:\\s*\\$\\{\\{ secrets\\.`, "u"));
 }
-assert.match(previewJob, /ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
-assert.match(previewJob, /VERCEL_GIT_COMMIT_SHA:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
+assert.match(previewJob, /ref:\s*\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
+assert.match(
+  previewJob,
+  /VERCEL_GIT_COMMIT_SHA:\s*\$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u,
+);
 assert.match(previewJob, /environment=preview/u);
 assert.match(previewJob, /vercel deploy --prebuilt/u);
 assert.match(previewJob, /\/api\/release\/identity/u);
