@@ -216,6 +216,10 @@ test("compute-orchestrator", async () => {
   assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
   assert.doesNotMatch(orchestrator, /id: "user-additional-instruction"/u);
   assert.match(orchestrator, /input: input\.request\.input/u);
+  assert.match(orchestrator, /bounded-same-model-repair/u);
+  assert.match(orchestrator, /BOUNDED_SAME_MODEL_REPAIR_REASONS/u);
+  assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
+  assert.match(orchestrator, /no provider fallback occurred/u);
 });
 
 test("task-eligibility", () => {

@@ -92,6 +92,25 @@ function compactPipelineMaterial(value: string, limit: number) {
   return `${normalized.slice(0, head)}\n[中段已壓縮]\n${normalized.slice(-tail)}`;
 }
 
+const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
+  "chapter.continue",
+  "chapter.expand",
+]);
+
+const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
+  "QUALITY_NARRATIVE_TOO_SHORT",
+  "QUALITY_CONTEXT_COPY_EXCESSIVE",
+  "QUALITY_NARRATIVE_PROGRESS_MISSING",
+]);
+
+function minimumCandidateTokens(
+  taskType: PlatformAIRequest["taskType"],
+  tier: BrowserTaskEligibility["tier"],
+) {
+  if (BOUNDED_SAME_MODEL_REPAIR_TASKS.has(taskType)) return 140;
+  return tier === "T1" ? 6 : 24;
+}
+
 // Retained as a legacy receipt decoder reference. RC5 executes one model pass
 // per Closed Agent OS node and never invokes this nested quality pipeline.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -448,9 +467,10 @@ export async function executeBrowserCompute(input: {
     );
   }
   // Closed Agent OS owns planning, critique and revision. A browser task node
-  // therefore performs one model pass only; nesting the old 3B quality loop
-  // here made a single UI action run the same quality pipeline repeatedly.
-  const result = await runBrowserAI(
+  // normally performs one model pass. Direct continuation tasks may run one
+  // bounded repair on the same verified executor when the first output ends
+  // early or merely copies context; this never switches providers or mutates Canon.
+  let result = await runBrowserAI(
     executionRequest,
     input.decision,
     input.onProgress,
@@ -459,18 +479,110 @@ export async function executeBrowserCompute(input: {
       requiredGenerativeExecutor,
     },
   );
-  const quality = evaluateBrowserCandidateQuality({
+  const expectedMinTokens = minimumCandidateTokens(
+    input.request.taskType,
+    eligibility.tier,
+  );
+  let quality = evaluateBrowserCandidateQuality({
     taskType: input.request.taskType,
     content: result.content,
-    expectedMinTokens: input.request.taskType === "chapter.continue"
-      || input.request.taskType === "chapter.expand"
-      ? 140
-      : eligibility.tier === "T1" ? 6 : 24,
+    expectedMinTokens,
     expectedMaxTokens: performancePolicy.reservedOutputTokens,
     requiresStructuredOutput: input.request.requiresStructured,
     approvedContext: executionRequest.context,
     threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
   });
+  const repairReasonCodes = quality.reasonCodes.filter((reason) =>
+    BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason));
+  if (
+    requiredGenerativeExecutor
+    && BOUNDED_SAME_MODEL_REPAIR_TASKS.has(input.request.taskType)
+    && repairReasonCodes.length > 0
+  ) {
+    const initialResult = result;
+    const initialDigest = await sha256Hex(initialResult.content);
+    const repairResult = await runBrowserAI(
+      {
+        ...executionRequest,
+        requestId: `${input.request.requestId}:bounded-same-model-repair`,
+        input: [
+          input.request.input,
+          "前一版未通過續寫品質檢查，請重新輸出一份完整替代正文。",
+          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；使用既有人物與場景，至少推進一個新事件並造成一項新後果；輸出二百二十至三百六十個繁體中文字。",
+        ].join("\n"),
+        qualityPhase: "revision",
+        workingMaterials: [{
+          kind: "draft",
+          text: compactPipelineMaterial(initialResult.content, 1_200),
+          digest: initialDigest,
+        }],
+        generationOptions: {
+          ...input.request.generationOptions,
+          seed: passSeed(input.request.generationOptions?.seed, 97),
+          temperature: Math.max(
+            input.request.generationOptions?.temperature ?? 0.72,
+            0.78,
+          ),
+          topP: Math.max(input.request.generationOptions?.topP ?? 0.9, 0.92),
+          maxTokens: Math.max(
+            input.request.generationOptions?.maxTokens ?? 0,
+            420,
+          ),
+          repetitionPenalty: Math.max(
+            input.request.generationOptions?.repetitionPenalty ?? 1.08,
+            1.15,
+          ),
+        },
+      },
+      input.decision,
+      input.onProgress,
+      {
+        preferLightweightRuntime: false,
+        requiredGenerativeExecutor,
+      },
+    );
+    assertVerifiedExecutor(repairResult, requiredGenerativeExecutor);
+    result = {
+      ...repairResult,
+      requestId: input.request.requestId,
+      elapsedMs: (initialResult.elapsedMs ?? 0) + (repairResult.elapsedMs ?? 0),
+      firstTokenMs: (initialResult.elapsedMs ?? 0) + (repairResult.firstTokenMs ?? 0),
+      inputCharacters:
+        (initialResult.inputCharacters ?? 0) + (repairResult.inputCharacters ?? 0),
+      outputCharacters: repairResult.content.length,
+      generatedTokenEvents:
+        (initialResult.generatedTokenEvents ?? 0)
+        + (repairResult.generatedTokenEvents ?? 0),
+      omittedInputCharacters:
+        (initialResult.omittedInputCharacters ?? 0)
+        + (repairResult.omittedInputCharacters ?? 0),
+      queueWaitMs:
+        (initialResult.queueWaitMs ?? 0) + (repairResult.queueWaitMs ?? 0),
+      runtimeStats: [
+        repairResult.runtimeStats,
+        "bounded-same-model-repair=1",
+        `initial-output-digest=${initialDigest}`,
+        `initial-quality-reasons=${repairReasonCodes.join(",")}`,
+        "intermediate-content=pipeline-memory-only",
+      ].filter(Boolean).join("; "),
+      provenance: {
+        ...repairResult.provenance,
+        warnings: [
+          ...repairResult.provenance.warnings,
+          "One bounded repair pass ran on the same verified Browser executor; the rejected draft was not persisted and no provider fallback occurred.",
+        ],
+      },
+    };
+    quality = evaluateBrowserCandidateQuality({
+      taskType: input.request.taskType,
+      content: result.content,
+      expectedMinTokens,
+      expectedMaxTokens: performancePolicy.reservedOutputTokens,
+      requiresStructuredOutput: input.request.requiresStructured,
+      approvedContext: executionRequest.context,
+      threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+    });
+  }
   const actualExecutor = result.executor ?? "browser-task-model";
   if (requiredGenerativeExecutor) {
     assertVerifiedExecutor(result, requiredGenerativeExecutor);
