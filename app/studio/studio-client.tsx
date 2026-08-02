@@ -1929,8 +1929,23 @@ export default function StudioClient({
     };
   }
   async function runTask(task: string, options: RunTaskOptions = {}) {
-    if (!ensureCanonicalWritable("執行會產生候選的助手工作")) return;
-    if (assistantBusy) return;
+    const regenerationSource = options.regenerateFrom;
+    if (!ensureCanonicalWritable("執行會產生候選的助手工作")) {
+      if (regenerationSource) {
+        setRegenerationError(
+          "本機作品資料仍在準備中，重新生成尚未啟動。（LOCAL_CANONICAL_WRITE_BLOCKED）",
+        );
+      }
+      return;
+    }
+    if (assistantBusy) {
+      if (regenerationSource) {
+        setRegenerationError(
+          "上一個 AI 工作仍在結束中，重新生成尚未啟動。（STUDIO_AI_BUSY）",
+        );
+      }
+      return;
+    }
     const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
     const started = performance.now();
     const executionProfile = studioTaskExecutionProfile(
@@ -1938,7 +1953,6 @@ export default function StudioClient({
       closedComputePolicy,
       externalSelected,
     );
-    const regenerationSource = options.regenerateFrom;
     if (externalSelected && !externalRunConsent) {
       setAiModeMessage("外接 AI 需要本次單次同意；請先勾選寫作頁上方的同意框。");
       return;
@@ -2148,6 +2162,7 @@ export default function StudioClient({
             ? "模型連續產生相同內容，請調整額外要求或改用其他模型。"
             : "模型沒有完成不同版本；原候選已放棄，正式故事沒有變更。",
         );
+        setRegenerationError((current) => `${current}（${code}）`);
         setState((value) => ({
           ...value,
           candidate: null,

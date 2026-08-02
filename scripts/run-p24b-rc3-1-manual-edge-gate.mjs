@@ -237,16 +237,39 @@ async function assertNoOverflow(page, label, rows) {
 async function waitCandidate(page, timeout = 300_000) {
   const candidate = page.getByTestId("studio-candidate");
   const failure = page.getByTestId("studio-assistant-failure");
-  const outcome = await Promise.race([
-    candidate.waitFor({ state: "visible", timeout }).then(() => "candidate"),
-    failure.waitFor({ state: "visible", timeout }).then(() => "failure"),
-  ]);
-  if (outcome === "failure") {
-    const message = ((await failure.innerText()) || "")
+  const regenerationFailure = page.getByTestId("studio-regeneration-error");
+  const deadline = Date.now() + timeout;
+  let outcome = null;
+  while (Date.now() < deadline) {
+    if (await candidate.isVisible().catch(() => false)) {
+      outcome = "candidate";
+      break;
+    }
+    if (await failure.isVisible().catch(() => false)) {
+      outcome = "failure";
+      break;
+    }
+    if (await regenerationFailure.isVisible().catch(() => false)) {
+      outcome = "regeneration-failure";
+      break;
+    }
+    await page.waitForTimeout(250);
+  }
+  if (!outcome) {
+    throw Object.assign(
+      new Error("STUDIO_CANDIDATE_WAIT_TIMEOUT"),
+      { code: "STUDIO_CANDIDATE_WAIT_TIMEOUT" },
+    );
+  }
+  if (outcome !== "candidate") {
+    const source = outcome === "failure" ? failure : regenerationFailure;
+    const message = ((await source.innerText()) || "")
       .replace(/\s+/gu, " ")
       .slice(0, 1_000);
     const code = message.match(/[（(]([A-Z][A-Z0-9_]+)[）)]/u)?.[1]
-      ?? "STUDIO_ASSISTANT_FAILED";
+      ?? (outcome === "failure"
+        ? "STUDIO_ASSISTANT_FAILED"
+        : "STUDIO_REGENERATION_FAILED");
     throw Object.assign(
       new Error(`STUDIO_ASSISTANT_FAILURE:${code}`),
       { code },
@@ -490,6 +513,13 @@ async function main() {
     const firstRecord = firstRecords.at(-1);
     if (!firstRecord || firstRecord.actualExecutor !== "local-ollama") {
       throw new Error("FIRST_CANDIDATE_EXECUTOR_MISMATCH");
+    }
+    if (
+      !firstRecord.id
+      || !firstRecord.taskId
+      || !/^[a-f0-9]{64}$/iu.test(String(firstRecord.contentDigest || ""))
+    ) {
+      throw new Error("FIRST_CANDIDATE_REGENERATION_SOURCE_INVALID");
     }
     if (digest(await canonSnapshot(page, projectId)) !== canonBeforeHash) {
       throw new Error("FIRST_CANDIDATE_MUTATED_CANON");
