@@ -1,4 +1,8 @@
 import type { PlatformTaskType } from "../../router/platform-types";
+import {
+  currentChapterContext,
+  extractNarrativeCharacterAnchors,
+} from "./continuity-anchors";
 
 export type ClosedModelBackendId =
   | "browser-ai"
@@ -239,8 +243,6 @@ function compactText(value: string, limit: number) {
   return `${normalized.slice(0, head)}${marker}${normalized.slice(-(available - head))}`;
 }
 
-const CURRENT_CHAPTER_CONTEXT_MARKER = /^\s*(?:\[current-chapter\]|【目前章節[：:])/iu;
-
 function directProseContinuityAnchor(input: {
   taskType: PlatformTaskType;
   phase: "draft" | "critic" | "revision";
@@ -249,18 +251,19 @@ function directProseContinuityAnchor(input: {
   if (input.phase === "critic" || !DIRECT_PROSE_TASKS.has(input.taskType)) {
     return null;
   }
-  const currentChapter = input.context.find((item) =>
-    CURRENT_CHAPTER_CONTEXT_MARKER.test(item));
-  if (!currentChapter) return null;
-  const chapterText = currentChapter
-    .replace(/^\s*\[current-chapter\]\s*/iu, "")
-    .trim();
+  const chapterText = currentChapterContext(input.context);
   if (!chapterText) return null;
+  const characterAnchors = extractNarrativeCharacterAnchors(chapterText);
   return [
     "<直接續寫依據>",
     compactText(chapterText, 1_600),
     "</直接續寫依據>",
     "必須沿用上方已出現的人物、地點、物件與當前衝突；禁止改用另一篇故事的人物、年代、戰爭或背景。",
+    ...(characterAnchors.length
+      ? [
+        `角色姓名硬錨點：${characterAnchors.join("、")}。正文前八十字內必須原樣出現至少一名既有角色；禁止用新姓名替換主角。`,
+      ]
+      : []),
     "上方內容只用來定位續寫起點，不得摘錄、重排、縮寫或改述；必須從最後一句之後產生新的行動與後果。",
   ].join("\n");
 }

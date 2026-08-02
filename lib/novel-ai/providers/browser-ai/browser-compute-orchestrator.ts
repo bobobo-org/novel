@@ -5,6 +5,10 @@ import type {
 } from "../../router/platform-types";
 import { sha256Hex } from "../../closed-ai-cache";
 import {
+  currentChapterContext,
+  extractNarrativeCharacterAnchors,
+} from "../closed/continuity-anchors";
+import {
   BROWSER_LANGUAGE_MODEL_ID,
   detectBrowserAI,
   getBrowserAIInferenceProof,
@@ -101,6 +105,8 @@ const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
   "QUALITY_NARRATIVE_TOO_SHORT",
   "QUALITY_CONTEXT_COPY_EXCESSIVE",
   "QUALITY_NARRATIVE_PROGRESS_MISSING",
+  "QUALITY_CONTEXT_CHARACTER_MISSING",
+  "QUALITY_OUTPUT_TRUNCATED",
 ]);
 
 function minimumCandidateTokens(
@@ -501,6 +507,12 @@ export async function executeBrowserCompute(input: {
   ) {
     const initialResult = result;
     const initialDigest = await sha256Hex(initialResult.content);
+    const characterAnchors = extractNarrativeCharacterAnchors(
+      currentChapterContext(executionRequest.context) ?? "",
+    );
+    const characterAnchorRequirement = characterAnchors.length
+      ? `角色姓名硬錨點：${characterAnchors.join("、")}。正文前八十字內必須原樣出現至少一名，且不得用新姓名替換主角。`
+      : "必須原樣保留目前章節既有的人物、地點或核心物件，不得切換成另一篇故事。";
     const repairResult = await runBrowserAI(
       {
         ...executionRequest,
@@ -508,29 +520,26 @@ export async function executeBrowserCompute(input: {
         input: [
           input.request.input,
           "前一版未通過續寫品質檢查，請重新輸出一份完整替代正文。",
-          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；使用既有人物與場景，至少推進一個新事件並造成一項新後果；輸出二百二十至三百六十個繁體中文字。",
+          characterAnchorRequirement,
+          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；使用既有人物與場景，至少推進一個新事件並造成一項新後果；輸出二百二十至三百二十個繁體中文字，並以完整句號或引號收尾。",
         ].join("\n"),
         qualityPhase: "revision",
-        workingMaterials: [{
-          kind: "draft",
-          text: compactPipelineMaterial(initialResult.content, 1_200),
-          digest: initialDigest,
-        }],
+        workingMaterials: [],
         generationOptions: {
           ...input.request.generationOptions,
           seed: passSeed(input.request.generationOptions?.seed, 97),
-          temperature: Math.max(
-            input.request.generationOptions?.temperature ?? 0.72,
-            0.78,
+          temperature: Math.min(
+            Math.max(input.request.generationOptions?.temperature ?? 0.68, 0.66),
+            0.74,
           ),
-          topP: Math.max(input.request.generationOptions?.topP ?? 0.9, 0.92),
-          maxTokens: Math.max(
-            input.request.generationOptions?.maxTokens ?? 0,
-            420,
+          topP: Math.min(
+            Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
+            0.92,
           ),
+          maxTokens: 360,
           repetitionPenalty: Math.max(
             input.request.generationOptions?.repetitionPenalty ?? 1.08,
-            1.15,
+            1.12,
           ),
         },
       },

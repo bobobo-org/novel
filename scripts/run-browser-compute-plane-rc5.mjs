@@ -43,6 +43,9 @@ import {
   getClosedAIModelProfile,
 } from "../lib/novel-ai/providers/closed/task-profile.ts";
 import {
+  extractNarrativeCharacterAnchors,
+} from "../lib/novel-ai/providers/closed/continuity-anchors.ts";
+import {
   createBrowserExecutionReceipt,
   summarizeBrowserOffload,
 } from "../lib/novel-ai/providers/browser-ai/browser-offload-metrics.ts";
@@ -218,6 +221,10 @@ test("compute-orchestrator", async () => {
   assert.match(orchestrator, /input: input\.request\.input/u);
   assert.match(orchestrator, /bounded-same-model-repair/u);
   assert.match(orchestrator, /BOUNDED_SAME_MODEL_REPAIR_REASONS/u);
+  assert.match(orchestrator, /角色姓名硬錨點/u);
+  assert.match(orchestrator, /workingMaterials: \[\]/u);
+  assert.doesNotMatch(orchestrator, /text: compactPipelineMaterial\(initialResult\.content/u);
+  assert.match(orchestrator, /maxTokens: 360/u);
   assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
   assert.match(orchestrator, /no provider fallback occurred/u);
 });
@@ -477,6 +484,33 @@ test("quality-gate", () => {
   assert.ok(continuityDrift.reasonCodes.includes("QUALITY_TASK_FORM_MISMATCH"));
   assert.ok(continuityDrift.reasonCodes.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
   assert.equal(continuityDrift.canonicalMutationCount, 0);
+  assert.deepEqual(
+    extractNarrativeCharacterAnchors(
+      "少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。",
+    ),
+    ["陸沉", "阿璃"],
+  );
+  const observedNamedStoryDrift = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    expectedMinTokens: 80,
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台，審夢官抬頭認出了陸沉手中的斷劍。",
+    ],
+    content: "在熟悉的街道上，林飛收到老朋友蔥蔥的來信，便趕往她位於廣東的住處。屋內窗戶破碎，牆面也遭到破壞，他立刻打電話通知父母，再獨自搜索房間。蔥蔥隨後來電，說身邊有人陷入危險，卻沒有交代更多細節。林飛決定留在原地等待下一通電話，同時把門窗重新鎖好。",
+  });
+  assert.equal(observedNamedStoryDrift.decision, "block");
+  assert.ok(observedNamedStoryDrift.reasonCodes.includes("QUALITY_CONTEXT_CHARACTER_MISSING"));
+  assert.equal(observedNamedStoryDrift.canonicalMutationCount, 0);
+  const truncatedContinuation = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    expectedMinTokens: 24,
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。審夢官已認出他。",
+    ],
+    content: "陸沉握緊斷劍擋在阿璃身前，審夢官則命人封住街口。他趁警鐘響起時踏進暗門，卻在門後看見一封仍未寫完的",
+  });
+  assert.equal(truncatedContinuation.decision, "block");
+  assert.ok(truncatedContinuation.reasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"));
   const copiedContextInsteadOfContinuation = evaluateBrowserCandidateQuality({
     taskType: "chapter.continue",
     expectedMinTokens: 140,

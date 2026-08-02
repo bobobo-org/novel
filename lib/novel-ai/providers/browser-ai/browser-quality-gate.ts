@@ -1,7 +1,11 @@
 import type { PlatformTaskType } from "../../router/platform-types";
+import {
+  currentChapterContext,
+  extractNarrativeCharacterAnchors,
+} from "../closed/continuity-anchors";
 import { estimateBrowserTokens } from "./browser-performance-policy";
 
-export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v4" as const;
+export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v5" as const;
 
 export type BrowserQualityGateResult = {
   schemaVersion: typeof BROWSER_QUALITY_GATE_VERSION;
@@ -97,6 +101,8 @@ const CONTEXT_BIGRAM_STOP_WORDS = new Set([
   "一個", "這個", "那個", "自己", "他們", "她們", "沒有", "不是", "可以",
   "已經", "仍然", "如果", "因為", "所以", "但是", "然而", "現在", "開始",
   "最後", "可能", "需要", "必須", "主角", "故事", "人物", "目前", "其中",
+  "聲音", "事情", "危險", "家人", "時間", "今天", "發生", "立刻", "一樣",
+  "地方", "知道", "感到", "發現", "回家", "收到",
 ]);
 
 const CONTEXT_TRIGRAM_STOP_WORDS = new Set([
@@ -104,14 +110,6 @@ const CONTEXT_TRIGRAM_STOP_WORDS = new Set([
   "不知道", "不可能", "有一天", "這一天", "就在這", "這時候", "那時候",
   "故事中", "主角的", "目前的", "最後的", "開始了", "決定要", "必須要",
 ]);
-
-function markedCurrentChapter(approvedContext: string[] | undefined) {
-  const marked = approvedContext?.find((item) =>
-    /^\s*(?:\[current-chapter\]|【目前章節[：:])/iu.test(item));
-  return marked
-    ?.replace(/^\s*\[current-chapter\]\s*/iu, "")
-    .trim() ?? null;
-}
 
 function hanSegments(value: string) {
   return value.match(/[\p{Script=Han}]{2,}/gu) ?? [];
@@ -123,7 +121,7 @@ function contextAnchorMissing(input: {
   approvedContext?: string[];
 }) {
   if (!DIRECT_NARRATIVE_TASKS.has(input.taskType)) return false;
-  const currentChapter = markedCurrentChapter(input.approvedContext);
+  const currentChapter = currentChapterContext(input.approvedContext);
   if (!currentChapter || currentChapter.length < 60) return false;
 
   const bigramCounts = new Map<string, number>();
@@ -145,6 +143,32 @@ function contextAnchorMissing(input: {
   const carriesRepeatedAnchor = repeatedBigrams.some((gram) => candidate.includes(gram));
   const carriesSpecificAnchor = [...trigrams].some((gram) => candidate.includes(gram));
   return !carriesRepeatedAnchor && !carriesSpecificAnchor;
+}
+
+function contextCharacterAnchorMissing(input: {
+  taskType: PlatformTaskType;
+  content: string;
+  approvedContext?: string[];
+}) {
+  if (!DIRECT_NARRATIVE_TASKS.has(input.taskType)) return false;
+  const currentChapter = currentChapterContext(input.approvedContext);
+  if (!currentChapter) return false;
+  const anchors = extractNarrativeCharacterAnchors(currentChapter);
+  if (!anchors.length) return false;
+  const normalized = input.content.replace(/\s+/gu, "");
+  const firstMatch = anchors.reduce((earliest, anchor) => {
+    const index = normalized.indexOf(anchor);
+    return index < 0 ? earliest : Math.min(earliest, index);
+  }, Number.POSITIVE_INFINITY);
+  return !Number.isFinite(firstMatch)
+    || firstMatch > Math.max(80, Math.floor(normalized.length * 0.35));
+}
+
+function outputAppearsTruncated(taskType: PlatformTaskType, content: string) {
+  if (!DIRECT_NARRATIVE_TASKS.has(taskType)) return false;
+  const normalized = content.trim();
+  if (normalized.length < 40) return false;
+  return !/[。！？…」』）】]$/u.test(normalized);
 }
 
 const CONTINUATION_TASKS = new Set<PlatformTaskType>([
@@ -169,7 +193,7 @@ function contextNovelty(input: {
       novelTrigramCount: 0,
     };
   }
-  const currentChapter = markedCurrentChapter(input.approvedContext);
+  const currentChapter = currentChapterContext(input.approvedContext);
   const chapterHan = normalizedHan(currentChapter ?? "");
   const candidateHan = normalizedHan(input.content);
   if (chapterHan.length < 60 || candidateHan.length < 3) {
@@ -249,6 +273,12 @@ export function evaluateBrowserCandidateQuality(input: {
     content,
     approvedContext: input.approvedContext,
   });
+  const missingContextCharacter = contextCharacterAnchorMissing({
+    taskType: input.taskType,
+    content,
+    approvedContext: input.approvedContext,
+  });
+  const truncatedOutput = outputAppearsTruncated(input.taskType, content);
   const narrativeTooShort = CONTINUATION_TASKS.has(input.taskType)
     && tokenCount < expectedMin;
   const novelty = contextNovelty({
@@ -260,7 +290,7 @@ export function evaluateBrowserCandidateQuality(input: {
     traditionalChinese: traditionalChineseScore(content),
     canonCompliance: clamp(1 - (input.canonConflictCount ?? 0) * 0.34),
     characterVoice: clamp(input.characterVoiceScore ?? 0.82),
-    continuity: missingContextAnchor
+    continuity: missingContextAnchor || missingContextCharacter
       ? 0.15
       : clamp(1 - (input.continuityIssueCount ?? 0) * 0.25),
     specificity: specificityScore(content),
@@ -272,6 +302,7 @@ export function evaluateBrowserCandidateQuality(input: {
     taskUsefulness: taskFormMismatch
       || novelty.excessiveReuse
       || novelty.missingProgress
+      || truncatedOutput
       ? 0.05
       : usefulnessScore(content),
     lengthCompliance: tokenCount >= expectedMin && tokenCount <= expectedMax
@@ -303,6 +334,10 @@ export function evaluateBrowserCandidateQuality(input: {
   if (!content) reasonCodes.push("QUALITY_EMPTY_CANDIDATE");
   if (taskFormMismatch) reasonCodes.push("QUALITY_TASK_FORM_MISMATCH");
   if (missingContextAnchor) reasonCodes.push("QUALITY_CONTEXT_ANCHOR_MISSING");
+  if (missingContextCharacter) {
+    reasonCodes.push("QUALITY_CONTEXT_CHARACTER_MISSING");
+  }
+  if (truncatedOutput) reasonCodes.push("QUALITY_OUTPUT_TRUNCATED");
   if (narrativeTooShort) reasonCodes.push("QUALITY_NARRATIVE_TOO_SHORT");
   if (novelty.excessiveReuse) {
     reasonCodes.push("QUALITY_CONTEXT_COPY_EXCESSIVE");
@@ -317,6 +352,8 @@ export function evaluateBrowserCandidateQuality(input: {
     || characterBoundaryLeakCount > 0
     || taskFormMismatch
     || missingContextAnchor
+    || missingContextCharacter
+    || truncatedOutput
     || narrativeTooShort
     || novelty.excessiveReuse
     || novelty.missingProgress
