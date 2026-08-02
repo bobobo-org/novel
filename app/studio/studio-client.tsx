@@ -32,6 +32,7 @@ import {
 } from "@/lib/novel-data/creation-guide";
 import {
   discoverStudioClosedAI,
+  prewarmStudioInteractiveChoiceAI,
   regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
@@ -40,6 +41,7 @@ import {
   isUsableChineseStoryOutput,
 } from "@/lib/novel-ai/web/story-output-quality";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
+import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import {
   approveStudioClosedAgentCandidate,
   rejectStudioClosedAgentCandidate,
@@ -2184,6 +2186,7 @@ export default function StudioClient({
     choiceText: string,
     signal?: AbortSignal,
     regenerationSource?: NonNullable<Candidate>,
+    onProgress?: (event: ClosedAIProgressEvent) => void,
   ) {
     if (!ensureCanonicalWritable("建立互動候選")) return;
     if (!project) return;
@@ -2261,21 +2264,29 @@ export default function StudioClient({
         task: "branch_choice",
         input: JSON.stringify({
           instruction:
-            "請使用繁體中文，根據作品資料與作者選擇產生兩到四段具體後續劇情。不得輸出工程說明或英文模板。",
+            "請使用繁體中文，根據作品資料與作者選擇，直接產生一到三段精煉、具體、可接續的即時後果。用行動、反應與新問題推進，不得重述前情、輸出工程說明或英文模板。",
           selectedAction: choiceText,
           protagonist,
           conflict: activeConflict,
           scene,
           worldRule: optionalValue(fields, "worldRule") || null,
-          recentText: project.draft.slice(-1200),
+          recentText: project.draft.slice(-700),
           branchNumber:
             state.branches.filter((branch) => branch.projectId === project.id)
               .length + 1,
         }),
-        targetLength: 650,
+        targetLength: 260,
         sourceChapterId: canonical.chapter.id,
         sourceRevision: canonical.chapter.revision,
+        qualityMode: "fast" as const,
+        generationOptions: {
+          maxTokens: 144,
+          temperature: 0.68,
+          topP: 0.9,
+          repetitionPenalty: 1.1,
+        },
         signal,
+        onProgress,
       };
       if (externalSelected) {
         setExternalRunConsent(false);
@@ -2289,7 +2300,7 @@ export default function StudioClient({
           providerId: externalConnectorId,
           externalConsent: true,
           prompt: externalPrompt,
-          maxOutputTokens: 1400,
+          maxOutputTokens: 384,
         }, { signal });
         const contentDigest = await sha256Hex(generated.text);
         if (regenerationSource?.contentDigest === contentDigest) {
@@ -2931,7 +2942,14 @@ export default function StudioClient({
                 setSelected={setSelectedChoice}
                 custom={customChoice}
                 setCustom={setCustomChoice}
-                generateChoice={generateChoiceResult}
+                generateChoice={(choiceText, signal, onProgress) =>
+                  generateChoiceResult(
+                    choiceText,
+                    signal,
+                    undefined,
+                    onProgress,
+                  )
+                }
                 result={
                   state.candidate?.task === "branch_choice"
                     ? state.candidate
@@ -2943,7 +2961,7 @@ export default function StudioClient({
                 canUndo={state.branches.some(
                   (branch) => branch.projectId === project?.id && branch.reversible,
                 )}
-                regenerate={(signal) =>
+                regenerate={(signal, onProgress) =>
                   generateChoiceResult(
                     state.candidate?.choiceText ||
                       customChoice ||
@@ -2954,6 +2972,7 @@ export default function StudioClient({
                     state.candidate?.task === "branch_choice"
                       ? state.candidate
                       : undefined,
+                    onProgress,
                   )
                 }
                 regenerationError={regenerationError}
@@ -4627,32 +4646,44 @@ function ChoiceScreen({
   setSelected: (value: string) => void;
   custom: string;
   setCustom: (value: string) => void;
-  generateChoice: (choice: string, signal?: AbortSignal) => Promise<void>;
+  generateChoice: (
+    choice: string,
+    signal?: AbortSignal,
+    onProgress?: (event: ClosedAIProgressEvent) => void,
+  ) => Promise<void>;
   result: Candidate;
   accept: (content: string) => void;
   discard: () => void;
   undo: () => void;
   canUndo: boolean;
-  regenerate: (signal?: AbortSignal) => Promise<void>;
+  regenerate: (
+    signal?: AbortSignal,
+    onProgress?: (event: ClosedAIProgressEvent) => void,
+  ) => Promise<void>;
   regenerationError: string;
   stats: Record<string, number>;
   history: StatHistory[];
 }) {
   const [loading, setLoading] = useState(false),
     [cancelled, setCancelled] = useState(false),
-    [progress, setProgress] = useState(0),
+    [progressEvent, setProgressEvent] = useState<ClosedAIProgressEvent | null>(null),
+    [elapsedMs, setElapsedMs] = useState(0),
     [editing, setEditing] = useState(false),
     [edited, setEdited] = useState(""),
     [regenerating, setRegenerating] = useState(false),
-    controller = useRef<AbortController | null>(null);
+    controller = useRef<AbortController | null>(null),
+    projectId = project?.id;
+  useEffect(() => {
+    if (!projectId) return;
+    const warmupController = new AbortController();
+    void prewarmStudioInteractiveChoiceAI(warmupController.signal);
+    return () => warmupController.abort("CHOICE_SCREEN_UNMOUNTED");
+  }, [projectId]);
   useEffect(() => {
     if (!loading) return;
     const timer = setInterval(
-      () =>
-        setProgress((value) =>
-          Math.min(choiceProgressSteps.length - 1, value + 1),
-        ),
-      650,
+      () => setElapsedMs((value) => value + 250),
+      250,
     );
     return () => clearInterval(timer);
   }, [loading]);
@@ -4664,9 +4695,14 @@ function ChoiceScreen({
     controller.current = new AbortController();
     setCancelled(false);
     setLoading(true);
-    setProgress(0);
+    setProgressEvent(null);
+    setElapsedMs(0);
     try {
-      await generateChoice(text, controller.current.signal);
+      await generateChoice(
+        text,
+        controller.current.signal,
+        (event) => setProgressEvent(event),
+      );
       setEdited("");
     } finally {
       controller.current = null;
@@ -4693,6 +4729,14 @@ function ChoiceScreen({
     turns: "回合",
     questProgress: "任務進度",
   };
+  const progressPercent = Math.max(
+    3,
+    Math.min(100, progressEvent?.percent ?? 3),
+  );
+  const progressStage = Math.min(
+    choiceProgressSteps.length - 1,
+    Math.floor(progressPercent / 25),
+  );
   return (
     <section
       className={`studioChoice gameTheme-${project.selectedPlayModeId || "general"}`}
@@ -4794,16 +4838,31 @@ function ChoiceScreen({
       )}
       {loading && !cancelled && (
         <div className="choiceProgress" role="status">
-          <h2>已選擇的行動</h2>
+          <h2>已收到你的選擇</h2>
           <p>
             {custom.trim() ||
               choices.find((choice) => choice.key === selected)?.text}
           </p>
+          <div className="choiceProgressMeter">
+            <span>{progressEvent?.label ?? "正在喚醒本機模型……"}</span>
+            <b>{progressPercent}%</b>
+            <progress max="100" value={progressPercent} />
+            <small>
+              {progressEvent?.generatedCharacters
+                ? `已產生 ${progressEvent.generatedCharacters} 字 · `
+                : ""}
+              已等待 {(elapsedMs / 1_000).toFixed(1)} 秒
+            </small>
+          </div>
           <ol>
             {choiceProgressSteps.map((step, index) => (
               <li
                 className={
-                  index < progress ? "done" : index === progress ? "active" : ""
+                  index < progressStage
+                    ? "done"
+                    : index === progressStage
+                      ? "active"
+                      : ""
                 }
                 key={step}
               >
@@ -4886,7 +4945,11 @@ function ChoiceScreen({
                 }
                 controller.current = new AbortController();
                 setRegenerating(true);
-                void regenerate(controller.current.signal).finally(() => {
+                setProgressEvent(null);
+                void regenerate(
+                  controller.current.signal,
+                  (event) => setProgressEvent(event),
+                ).finally(() => {
                   controller.current = null;
                   setRegenerating(false);
                 });

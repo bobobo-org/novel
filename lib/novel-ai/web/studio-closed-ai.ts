@@ -2,6 +2,8 @@ import { localProviderSnapshots } from "../router/platform-executor";
 import type {
   ClosedAIBackendId,
   ClosedAIExecutionReceipt,
+  ClosedAIProgressEvent,
+  ClosedAIQualityMode,
   ClosedAIRegenerationContract,
 } from "../closed-agent-os";
 import type {
@@ -28,6 +30,7 @@ import {
 } from "./humanized-serial-fiction-profile";
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "../providers/local-ollama/companion-release";
+import { getConfiguredLocalBridgeModel } from "../providers/local-ollama/local-bridge-client";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -56,11 +59,53 @@ export type StudioClosedAITaskInput = {
   sourceChapterId?: string;
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
+  qualityMode?: ClosedAIQualityMode;
+  generationOptions?: PlatformAIRequest["generationOptions"];
   signal?: AbortSignal;
+  onProgress?: (event: ClosedAIProgressEvent) => void;
 };
 
 type SnapshotReader = (signal?: AbortSignal) => Promise<PlatformProviderSnapshot[]>;
 type PlatformExecutor = (request: PlatformAIRequest) => Promise<PlatformAIResult>;
+
+const INTERACTIVE_CHOICE_WARM_TTL_MS = 8 * 60 * 1_000;
+let interactiveChoiceWarmModelId: string | null = null;
+let interactiveChoiceWarmedAt = 0;
+let interactiveChoiceWarmPromise: Promise<boolean> | null = null;
+
+/**
+ * Starts a tiny verified inference while the author is reading the choices.
+ * This is best-effort only: it never changes routing truth or turns a failed
+ * runtime into a ready runtime.
+ */
+export function prewarmStudioInteractiveChoiceAI(signal?: AbortSignal) {
+  const modelId = getConfiguredLocalBridgeModel();
+  if (!modelId || signal?.aborted) return Promise.resolve(false);
+  if (
+    interactiveChoiceWarmModelId === modelId
+    && Date.now() - interactiveChoiceWarmedAt < INTERACTIVE_CHOICE_WARM_TTL_MS
+  ) {
+    return Promise.resolve(true);
+  }
+  if (interactiveChoiceWarmPromise && interactiveChoiceWarmModelId === modelId) {
+    return interactiveChoiceWarmPromise;
+  }
+  interactiveChoiceWarmModelId = modelId;
+  const operation = getStudioClosedAIRuntimeCoordinator().localClient
+    .verifyModel(modelId, signal)
+    .then(() => {
+      interactiveChoiceWarmedAt = Date.now();
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => {
+      if (interactiveChoiceWarmPromise === operation) {
+        interactiveChoiceWarmPromise = null;
+      }
+    });
+  interactiveChoiceWarmPromise = operation;
+  return operation;
+}
 
 async function digestText(value: string) {
   return crypto.subtle.digest(
@@ -235,6 +280,9 @@ export async function runStudioClosedAI(
       sourceRevision: input.sourceRevision,
       preferredBackend: input.regeneration ? "local-ollama" : undefined,
       regeneration: input.regeneration,
+      qualityMode: input.qualityMode,
+      generationOptions: input.generationOptions,
+      onProgress: input.onProgress,
     });
     if (
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
@@ -295,9 +343,15 @@ export async function runStudioClosedAI(
     closedOnly: true,
     offlineRequired: false,
     estimatedContextSize: Math.ceil(input.input.length / 2.5),
-    generationOptions: input.regeneration
-      ? { seed: input.regeneration.modelSeed }
-      : undefined,
+    qualityPreference: input.qualityMode === "deep"
+      ? "high"
+      : input.qualityMode,
+    generationOptions: {
+      ...(input.generationOptions ?? {}),
+      ...(input.regeneration
+        ? { seed: input.regeneration.modelSeed }
+        : {}),
+    },
     idempotencyKey: requestId,
     signal: input.signal,
   });

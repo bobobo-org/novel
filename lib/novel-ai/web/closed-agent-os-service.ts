@@ -9,7 +9,10 @@ import {
   type ClosedAgentExecutionResult,
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
-import type { PlatformTaskType } from "../router/platform-types";
+import type {
+  PlatformAIRequest,
+  PlatformTaskType,
+} from "../router/platform-types";
 import { createNovelRepository } from "../repository";
 import {
   createStudioClosedAgentToolRegistry,
@@ -85,6 +88,7 @@ export type ExecuteStudioClosedAgentInput = {
   sourceChapterId?: string;
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
+  generationOptions?: PlatformAIRequest["generationOptions"];
   taskId?: string;
   contextTokenBudget?: number;
   signal?: AbortSignal;
@@ -165,6 +169,7 @@ export async function executeStudioClosedAgent(
       sourceChapterId: input.sourceChapterId,
       sourceRevision: input.sourceRevision,
       regeneration: input.regeneration,
+      generationOptions: input.generationOptions,
       complexity,
       qualityMode: input.qualityMode,
       preferredBackend: input.preferredBackend,

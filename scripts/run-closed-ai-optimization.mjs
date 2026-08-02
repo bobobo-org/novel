@@ -36,6 +36,9 @@ import {
 import {
   createStudioClosedAgentToolRegistry,
 } from "../lib/novel-ai/web/studio-closed-agent-tools.ts";
+import {
+  runStudioClosedAI,
+} from "../lib/novel-ai/web/studio-closed-ai.ts";
 
 const tests = [];
 const results = [];
@@ -100,6 +103,8 @@ class OptimizationBackend {
 
   async execute(input) {
     this.calls.executions += 1;
+    this.calls.lastGenerationOptions = input.request.generationOptions ?? null;
+    this.calls.lastQualityMode = input.plan.qualityMode;
     input.request.onProgress?.({
       taskId: input.request.taskId,
       phase: "generating",
@@ -136,7 +141,12 @@ class OptimizationBackend {
 }
 
 function createOS() {
-  const calls = { snapshots: 0, executions: 0 };
+  const calls = {
+    snapshots: 0,
+    executions: 0,
+    lastGenerationOptions: null,
+    lastQualityMode: null,
+  };
   const os = new ClosedAgentOS({
     backends: [
       new OptimizationBackend("browser-ai", "light", calls),
@@ -247,6 +257,86 @@ test("A/B/C profile is concise and requires one strict three-line contract", () 
   assert.match(profile.systemInstruction, /不得加入前言/u);
   assert(profile.options.num_predict <= 512);
   assert(profile.options.temperature <= 0.45);
+});
+
+test("Interactive choice requests use a bounded fast single-pass policy", async () => {
+  let routedRequest = null;
+  const result = await runStudioClosedAI({
+    projectId: "project-interactive-choice",
+    task: "branch_choice",
+    input: "主角選擇公開證據，請產生立即後果。",
+    targetLength: 260,
+    qualityMode: "fast",
+    generationOptions: {
+      maxTokens: 144,
+      temperature: 0.68,
+      topP: 0.9,
+      repetitionPenalty: 1.1,
+    },
+  }, async (request) => {
+    routedRequest = request;
+    return {
+      requestId: request.requestId,
+      providerId: "local-ollama",
+      modelId: "qwen2.5:3b",
+      modelDigest: "interactive-model-digest",
+      content: "林昭把帳冊推到眾人面前，守門人臉色驟變。人群尚未反應，後門已傳來落鎖聲，他必須立刻決定保住證人，還是追上帶走缺頁的人。",
+      candidateOnly: true,
+      externalRequest: false,
+      dataLeavesDevice: false,
+      elapsedMs: 12,
+      generatedTokenEvents: 12,
+      outputCharacters: 68,
+      provenance: {
+        providerId: "local-ollama",
+        modelId: "qwen2.5:3b",
+        modelDigest: "interactive-model-digest",
+        privacyMode: "strict-local",
+        reason: "interactive-choice-test",
+        contextSources: [],
+        externalRequest: false,
+        dataLeavesDevice: false,
+        fallbackChain: [],
+        warnings: [],
+      },
+    };
+  });
+  assert.equal(routedRequest.taskType, "chapter.continue");
+  assert.equal(routedRequest.qualityPreference, "fast");
+  assert.deepEqual(routedRequest.generationOptions, {
+    maxTokens: 144,
+    temperature: 0.68,
+    topP: 0.9,
+    repetitionPenalty: 1.1,
+  });
+  assert.match(routedRequest.input, /260 個中文字以內/u);
+  assert.equal(result.provider, "local-ollama");
+
+  const { os, calls } = createOS();
+  await os.execute({
+    taskId: "optimization-interactive-choice-task",
+    namespace: namespace({ projectId: "project-interactive-choice-os" }),
+    taskType: "chapter.continue",
+    objective: "依選擇產生精煉的立即後果。",
+    context: [],
+    complexity: "standard",
+    qualityMode: "fast",
+    generationOptions: routedRequest.generationOptions,
+    preferredBackend: "local-ollama",
+    allowedToolIds: [],
+    permissionScopes: [
+      "story:read",
+      "story-bible:read",
+      "candidate:write",
+      "candidate:read",
+      "evaluation:write",
+      "character:read",
+      "world:read",
+    ],
+  });
+  assert.equal(calls.executions, 1);
+  assert.equal(calls.lastQualityMode, "fast");
+  assert.deepEqual(calls.lastGenerationOptions, routedRequest.generationOptions);
 });
 
 test("A/B/C normalization preserves three real model choices across common formats", () => {
@@ -677,6 +767,10 @@ test("Studio exposes readiness, progress, telemetry and no-silent-fallback truth
     path.join(root, "local-ai/private-hub/server.mjs"),
     "utf8",
   );
+  const quickAssistant = fs.readFileSync(
+    path.join(root, "app/studio/studio-client.tsx"),
+    "utf8",
+  );
   assert.match(ui, /onProgress: recordProgress/u);
   assert.match(ui, /progressEvents/u);
   assert.match(ui, /executionReady/u);
@@ -686,7 +780,12 @@ test("Studio exposes readiness, progress, telemetry and no-silent-fallback truth
   assert.match(css, /\.progressPanel/u);
   assert.match(css, /\.executionReadiness/u);
   assert.match(localServer, /workload: \{ active: work\.active/u);
+  assert.match(localServer, /keep_alive: "30m"/u);
   assert.match(hubServer, /workload: \{/u);
+  assert.match(quickAssistant, /maxTokens: 144/u);
+  assert.match(quickAssistant, /qualityMode: "fast"/u);
+  assert.match(quickAssistant, /prewarmStudioInteractiveChoiceAI/u);
+  assert.match(quickAssistant, /choiceProgressMeter/u);
 });
 
 for (const item of tests) {

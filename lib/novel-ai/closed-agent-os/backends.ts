@@ -96,6 +96,12 @@ function reportGenerationProgress(
 
 function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest {
   const { request } = input;
+  const generationOptions = {
+    ...(request.generationOptions ?? {}),
+    ...(request.regeneration
+      ? { seed: request.regeneration.modelSeed }
+      : {}),
+  };
   const controlledLearningConfiguration = Object.fromEntries(
     Object.entries(request.learningConfiguration ?? {})
       .sort(([left], [right]) => left.localeCompare(right)),
@@ -138,8 +144,8 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     },
     toolResults: structuredClone(input.toolResults),
     workingMaterials: structuredClone(input.workingMaterials),
-    generationOptions: request.regeneration
-      ? { seed: request.regeneration.modelSeed }
+    generationOptions: Object.keys(generationOptions).length
+      ? generationOptions
       : undefined,
     externalConsent: false,
     requiredCapabilities: ["text"],

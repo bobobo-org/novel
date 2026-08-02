@@ -97,6 +97,32 @@ export async function runLocalOllama(
         ? 640
         : 448
       : profile.options.num_predict;
+  const requestedMaxTokens = request.generationOptions?.maxTokens;
+  const requestedOutputTokenCap = typeof requestedMaxTokens === "number"
+    && Number.isFinite(requestedMaxTokens)
+    ? Math.max(
+      32,
+      Math.min(4_096, Math.floor(requestedMaxTokens)),
+    )
+    : Number.POSITIVE_INFINITY;
+  const requestedTemperatureOption = request.generationOptions?.temperature;
+  const requestedTemperature = typeof requestedTemperatureOption === "number"
+    && Number.isFinite(requestedTemperatureOption)
+    ? Math.max(0, Math.min(2, requestedTemperatureOption))
+    : profile.options.temperature;
+  const requestedTopPOption = request.generationOptions?.topP;
+  const requestedTopP = typeof requestedTopPOption === "number"
+    && Number.isFinite(requestedTopPOption)
+    ? Math.max(0.05, Math.min(1, requestedTopPOption))
+    : profile.options.top_p;
+  const requestedRepetitionPenaltyOption = request.generationOptions?.repetitionPenalty;
+  const requestedRepetitionPenalty = typeof requestedRepetitionPenaltyOption === "number"
+    && Number.isFinite(requestedRepetitionPenaltyOption)
+    ? Math.max(
+      0.5,
+      Math.min(2, requestedRepetitionPenaltyOption),
+    )
+    : profile.options.repeat_penalty;
   const effectiveProfile = {
     ...profile,
     maxInputCharacters: smallLocalModel
@@ -107,7 +133,14 @@ export async function runLocalOllama(
       : profile.maxInputCharacters,
     options: {
       ...profile.options,
-      num_predict: Math.min(profile.options.num_predict, outputTokenCap),
+      num_predict: Math.min(
+        profile.options.num_predict,
+        outputTokenCap,
+        requestedOutputTokenCap,
+      ),
+      temperature: requestedTemperature,
+      top_p: requestedTopP,
+      repeat_penalty: requestedRepetitionPenalty,
       ...(request.generationOptions?.seed == null
         ? {}
         : { seed: request.generationOptions.seed }),

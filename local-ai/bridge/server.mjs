@@ -451,7 +451,7 @@ export function createBridgeServer(options = {}) {
         let status = "failed";
         try {
           const format = body.taskType === "character.extract" ? characterExtractionFormat : undefined;
-          const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, format, options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
+          const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, format, keep_alive: "30m", options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
           response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Access-Control-Allow-Origin": origin, Vary: "Origin", "X-Content-Type-Options": "nosniff" });
           response.write(`${JSON.stringify({ type: "started", requestId, modelId })}\n`);
           const reader = upstream.body?.getReader();

@@ -3,7 +3,10 @@ import type {
   ClosedAINamespace,
   ClosedAIPrivacyLevel,
 } from "../closed-ai-cache";
-import type { PlatformTaskType } from "../router/platform-types";
+import type {
+  PlatformAIRequest,
+  PlatformTaskType,
+} from "../router/platform-types";
 
 export const CLOSED_AGENT_OS_SCHEMA_VERSION = "closed-agent-os-v1" as const;
 
@@ -130,6 +133,7 @@ export type ClosedAgentTaskRequest = {
   sourceChapterId?: string;
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
+  generationOptions?: PlatformAIRequest["generationOptions"];
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
