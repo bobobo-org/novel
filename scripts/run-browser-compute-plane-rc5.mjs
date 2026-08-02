@@ -64,6 +64,11 @@ import {
   assessRegenerationDistinctness,
   createExplicitRegenerationContract,
 } from "../lib/novel-ai/web/explicit-regeneration.ts";
+import {
+  hasExplicitLocalComputeAuthorization,
+  readStudioClosedComputePolicy,
+  resolveStudioClosedComputePolicy,
+} from "../lib/novel-ai/web/studio-closed-compute-policy.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const mode = process.argv[2] ?? "all";
@@ -718,6 +723,19 @@ test("explicit-escalation", () => {
   assert.equal(disclosedPlan.executionStatus, "routable");
   assert.equal(disclosedPlan.backend.id, "local-ollama");
   assert.equal(disclosedPlan.fallbackAttempted, false);
+});
+
+test("studio-explicit-local-compute-selection", () => {
+  const storage = {
+    getItem() {
+      return JSON.stringify({ closedComputePolicy: "quality-first" });
+    },
+  };
+  assert.equal(readStudioClosedComputePolicy(storage), "quality-first");
+  assert.equal(resolveStudioClosedComputePolicy("browser-first"), "browser-first");
+  assert.equal(hasExplicitLocalComputeAuthorization("quality-first"), true);
+  assert.equal(hasExplicitLocalComputeAuthorization("browser-first"), false);
+  assert.equal(readStudioClosedComputePolicy({ getItem: () => "not-json" }), "browser-first");
 });
 
 test("no-silent-fallback", () => {

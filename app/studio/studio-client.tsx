@@ -36,6 +36,11 @@ import {
   regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
+import {
+  normalizeStudioClosedComputePolicy,
+  STUDIO_AI_SETTINGS_KEY,
+  type StudioClosedComputePolicy,
+} from "@/lib/novel-ai/web/studio-closed-compute-policy";
 import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
   hasVerifiedExecutedStoryOutput,
@@ -954,6 +959,8 @@ export default function StudioClient({
     [legacyMigrationStatus, setLegacyMigrationStatus] = useState(""),
     [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
     [studioAiSource, setStudioAiSource] = useState<"closed" | "external">("closed"),
+    [closedComputePolicy, setClosedComputePolicy] =
+      useState<StudioClosedComputePolicy>("browser-first"),
     [externalConnectorId, setExternalConnectorId] = useState<ExternalAIConnectorId>("openai"),
     [externalRunConsent, setExternalRunConsent] = useState(false),
     [aiModeMessage, setAiModeMessage] = useState(""),
@@ -1194,7 +1201,9 @@ export default function StudioClient({
   useEffect(() => {
     if (!loaded) return;
     const timer = window.setTimeout(() => {
-      const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
+      const saved = JSON.parse(
+        localStorage.getItem(STUDIO_AI_SETTINGS_KEY) || "null",
+      ) || {};
       const mode: NovelAIExecutionMode = ["closed-only", "hybrid", "external-only"].includes(saved.executionMode)
         ? saved.executionMode
         : saved.privacy === "external-allowed"
@@ -1205,6 +1214,9 @@ export default function StudioClient({
         : "openai";
       setAiExecutionMode(mode);
       setStudioAiSource(mode === "external-only" ? "external" : "closed");
+      setClosedComputePolicy(
+        normalizeStudioClosedComputePolicy(saved.closedComputePolicy),
+      );
       setExternalConnectorId(provider);
       setAiPreferencesLoaded(true);
     }, 0);
@@ -1398,14 +1410,23 @@ export default function StudioClient({
     clearStudioTaskHandoff();
     setTaskHandoff(null);
   }
-  function persistStudioAISettings(input: { mode?: NovelAIExecutionMode; providerId?: ExternalAIConnectorId }) {
+  function persistStudioAISettings(input: {
+    mode?: NovelAIExecutionMode;
+    providerId?: ExternalAIConnectorId;
+    closedComputePolicy?: StudioClosedComputePolicy;
+  }) {
     const mode = input.mode ?? aiExecutionMode;
     const providerId = input.providerId ?? externalConnectorId;
-    const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") || {};
-    localStorage.setItem("novel_p2_ai_settings", JSON.stringify({
+    const nextClosedComputePolicy = input.closedComputePolicy
+      ?? closedComputePolicy;
+    const saved = JSON.parse(
+      localStorage.getItem(STUDIO_AI_SETTINGS_KEY) || "null",
+    ) || {};
+    localStorage.setItem(STUDIO_AI_SETTINGS_KEY, JSON.stringify({
       ...saved,
       executionMode: mode,
       externalProviderId: providerId,
+      closedComputePolicy: nextClosedComputePolicy,
       privacy: mode === "closed-only" ? "strict-local" : "external-allowed",
       external: mode !== "closed-only",
     }));
@@ -1968,6 +1989,7 @@ export default function StudioClient({
         sourceRevision: sourceRevision ?? undefined,
         targetLength: executionProfile.targetLength,
         qualityMode: executionProfile.qualityMode,
+        browserComputePolicy: closedComputePolicy,
         generationOptions: {
           maxTokens: executionProfile.maxTokens,
           temperature: regenerationSource ? 0.9 : 0.76,
@@ -2506,6 +2528,7 @@ export default function StudioClient({
         sourceChapterId: canonical.chapter.id,
         sourceRevision: canonical.chapter.revision,
         qualityMode: "fast" as const,
+        browserComputePolicy: closedComputePolicy,
         generationOptions: {
           maxTokens: 144,
           temperature: 0.68,
@@ -3058,6 +3081,30 @@ export default function StudioClient({
               <option value="external">外接 AI</option>
             </select>
           </label>}
+          {(aiExecutionMode === "closed-only"
+            || (aiExecutionMode === "hybrid" && studioAiSource === "closed")) && (
+            <label>閉端引擎
+              <select
+                data-testid="studio-closed-compute-policy"
+                value={closedComputePolicy}
+                onChange={(event) => {
+                  const policy = normalizeStudioClosedComputePolicy(
+                    event.target.value,
+                  );
+                  setClosedComputePolicy(policy);
+                  persistStudioAISettings({ closedComputePolicy: policy });
+                  setAiModeMessage(
+                    policy === "quality-first"
+                      ? "已明確選擇本機 Ollama；後續閉端任務會使用已配對且驗證通過的本機模型。"
+                      : "已選擇 Browser AI 優先；瀏覽器模型無法完成時不會暗中轉交。",
+                  );
+                }}
+              >
+                <option value="browser-first">Browser AI 優先</option>
+                <option value="quality-first">本機 Ollama 優先</option>
+              </select>
+            </label>
+          )}
           {(aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external")) && <>
             <label>外接模型
               <select value={externalConnectorId} onChange={(event) => {

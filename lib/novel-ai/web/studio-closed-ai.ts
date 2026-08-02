@@ -31,6 +31,10 @@ import {
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
 import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "../providers/local-ollama/companion-release";
 import { getConfiguredLocalBridgeModel } from "../providers/local-ollama/local-bridge-client";
+import {
+  hasExplicitLocalComputeAuthorization,
+  resolveStudioClosedComputePolicy,
+} from "./studio-closed-compute-policy";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -268,6 +272,11 @@ export async function runStudioClosedAI(
     input.targetLength,
   );
   const objective = `${input.input}${targetInstruction}${humanizedInstruction}${regenerationInstruction}`;
+  const browserComputePolicy = resolveStudioClosedComputePolicy(
+    input.browserComputePolicy,
+  );
+  const allowPreAuthorizedClosedEscalation =
+    hasExplicitLocalComputeAuthorization(browserComputePolicy);
 
   if (!execute) {
     const result = await executeStudioClosedAgent({
@@ -281,8 +290,8 @@ export async function runStudioClosedAI(
       sourceRevision: input.sourceRevision,
       regeneration: input.regeneration,
       qualityMode: input.qualityMode,
-      browserComputePolicy: input.browserComputePolicy ?? "browser-first",
-      allowPreAuthorizedClosedEscalation: false,
+      browserComputePolicy,
+      allowPreAuthorizedClosedEscalation,
       generationOptions: input.generationOptions,
       onProgress: input.onProgress,
     });
@@ -337,8 +346,8 @@ export async function runStudioClosedAI(
     privacyMode: "strict-local",
     privacyLevel: "device_only",
     fallbackPolicy: "closed-only",
-    browserComputePolicy: input.browserComputePolicy ?? "browser-first",
-    allowPreAuthorizedClosedEscalation: false,
+    browserComputePolicy,
+    allowPreAuthorizedClosedEscalation,
     input: objective,
     context: [],
     externalConsent: false,

@@ -236,7 +236,22 @@ async function assertNoOverflow(page, label, rows) {
 
 async function waitCandidate(page, timeout = 300_000) {
   const candidate = page.getByTestId("studio-candidate");
-  await candidate.waitFor({ state: "visible", timeout });
+  const failure = page.getByTestId("studio-assistant-failure");
+  const outcome = await Promise.race([
+    candidate.waitFor({ state: "visible", timeout }).then(() => "candidate"),
+    failure.waitFor({ state: "visible", timeout }).then(() => "failure"),
+  ]);
+  if (outcome === "failure") {
+    const message = ((await failure.innerText()) || "")
+      .replace(/\s+/gu, " ")
+      .slice(0, 1_000);
+    const code = message.match(/\(([A-Z][A-Z0-9_]+)\)/u)?.[1]
+      ?? "STUDIO_ASSISTANT_FAILED";
+    throw Object.assign(
+      new Error(`STUDIO_ASSISTANT_FAILURE:${code}`),
+      { code },
+    );
+  }
   await candidate.getByText("真實閉端 AI 候選").waitFor({ state: "visible", timeout });
   return candidate;
 }
@@ -430,6 +445,7 @@ async function main() {
       nativeDecisionMethod: "HUMAN_OPERATOR",
     };
 
+    gateStage = "local-ai-pairing-start";
     await page.getByTestId("local-ai-start-pairing").click();
     const pairingInput = page.getByTestId("local-ai-pairing-code");
     await pairingInput.waitFor({ state: "visible", timeout: 30_000 });
@@ -439,8 +455,10 @@ async function main() {
     }
     await pairingInput.fill(String(pairing.code));
     pairing.code = undefined;
+    gateStage = "local-ai-pairing-confirm";
     await page.getByTestId("local-ai-confirm-pairing").click();
     const modelProof = page.getByTestId("local-ai-model-proof");
+    gateStage = "local-ai-model-verification";
     await modelProof.waitFor({ state: "visible", timeout: 240_000 });
     const modelProofText = (await modelProof.textContent()) || "";
     const verifiedModelId = await page.getByLabel("Ollama 文字模型").inputValue();
@@ -453,11 +471,19 @@ async function main() {
     }
     await page.getByRole("link", { name: "回到原本的創作畫面" }).last().click();
     await writing.waitFor({ state: "visible", timeout: 60_000 });
+    gateStage = "explicit-local-compute-selection";
+    const computePolicy = page.getByTestId("studio-closed-compute-policy");
+    await computePolicy.selectOption("quality-first");
+    if (await computePolicy.inputValue() !== "quality-first") {
+      throw new Error("LOCAL_COMPUTE_POLICY_NOT_SELECTED");
+    }
 
     const canonBefore = await canonSnapshot(page, projectId);
     const canonBeforeHash = digest(canonBefore);
     const chapterBefore = canonBefore.chapters[0];
+    gateStage = "first-local-candidate-trigger";
     await page.getByRole("button", { name: "續寫下一章" }).click();
+    gateStage = "first-local-candidate-wait";
     let candidate = await waitCandidate(page);
     const firstContent = (await candidate.locator("pre").first().textContent()) || "";
     const firstRecords = await closedAgentCandidates(page, projectId);
@@ -473,7 +499,9 @@ async function main() {
     if (digest(await canonSnapshot(page, projectId)) !== canonBeforeHash) {
       throw new Error("DISCARD_MUTATED_CANON");
     }
+    gateStage = "regeneration-trigger";
     await page.getByTestId("studio-candidate-regenerate").click();
+    gateStage = "regeneration-wait";
     candidate = await waitCandidate(page);
     const secondContent = (await candidate.locator("pre").first().textContent()) || "";
     const allRecords = await closedAgentCandidates(page, projectId);
@@ -644,6 +672,8 @@ async function main() {
         status: "PASS",
         modelId: "qwen2.5:3b",
         actualExecutor: "local-ollama",
+        explicitComputePolicy: "quality-first",
+        silentEscalationUsed: false,
         dataLeftDevice: false,
         externalRequest: false,
         pairingCodePersisted: false,
@@ -733,9 +763,12 @@ async function main() {
   }
 
   if (gateError || !evidence) {
+    const rootErrorCode = String(
+      gateError?.code || gateError?.message || "EDGE_GATE_FAILED",
+    ).split(":")[0];
     await writeJson(artifactRoot, "manual-edge-results.json", {
       status: "BLOCKED",
-      errorCode: String(gateError?.message || "EDGE_GATE_FAILED").split(":")[0],
+      errorCode: rootErrorCode,
       failureStage: gateStage,
       failureRoute: page?.url() ? safeRoute(page.url()) : null,
       observedPermission,
@@ -785,7 +818,7 @@ async function main() {
 main().catch((error) => {
   process.stderr.write(`${JSON.stringify({
     status: "FAIL",
-    errorCode: String(error?.message || error).split(":")[0],
+    errorCode: String(error?.code || error?.message || error).split(":")[0],
   })}\n`);
   process.exitCode = 1;
 });
