@@ -275,6 +275,12 @@ export async function runStudioClosedAI(
   const browserComputePolicy = resolveStudioClosedComputePolicy(
     input.browserComputePolicy,
   );
+  // Explicit regeneration is a user-requested, cache-bypassing operation whose
+  // Closed Agent contract requires the paired Local Ollama runtime. Lock the
+  // route here so a browser-first preference cannot reject the contract or
+  // silently substitute a browser/template/external executor.
+  const preferredRegenerationBackend: ClosedAIBackendId | undefined =
+    input.regeneration ? "local-ollama" : undefined;
   const allowPreAuthorizedClosedEscalation =
     hasExplicitLocalComputeAuthorization(browserComputePolicy);
 
@@ -292,6 +298,7 @@ export async function runStudioClosedAI(
       qualityMode: input.qualityMode,
       browserComputePolicy,
       allowPreAuthorizedClosedEscalation,
+      preferredBackend: preferredRegenerationBackend,
       generationOptions: input.generationOptions,
       onProgress: input.onProgress,
     });
@@ -299,7 +306,7 @@ export async function runStudioClosedAI(
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0
       || (input.regeneration && (
-        !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
+        result.candidate.backendId !== "local-ollama"
         || result.candidate.actualExecutor === "not_executed"
         || result.candidate.externalRequest
         || result.candidate.dataLeftDevice
@@ -350,6 +357,7 @@ export async function runStudioClosedAI(
     allowPreAuthorizedClosedEscalation,
     input: objective,
     context: [],
+    preferredProvider: preferredRegenerationBackend,
     externalConsent: false,
     requiredCapabilities: ["text"],
     closedOnly: true,
@@ -372,7 +380,7 @@ export async function runStudioClosedAI(
     !["browser-ai", "local-ollama"].includes(result.providerId)
     || result.externalRequest
     || result.dataLeavesDevice
-    || (input.regeneration && !["browser-ai", "local-ollama"].includes(result.providerId))
+    || (input.regeneration && result.providerId !== "local-ollama")
   ) {
     throw Object.assign(
       new Error("Closed AI provider returned a result outside the device-only boundary."),

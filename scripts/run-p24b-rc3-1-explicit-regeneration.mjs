@@ -19,6 +19,7 @@ import {
   createExplicitRegenerationContract,
   explicitRegenerationInstruction,
 } from "../lib/novel-ai/web/explicit-regeneration.ts";
+import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 
 const mode = process.argv[2] || "all";
 const tests = [];
@@ -313,6 +314,72 @@ test("regeneration-no-external-fallback", async () => {
       && error?.fallbackAttempted === false,
   );
   assert.equal(unavailable.calls.length, 0);
+});
+
+test("studio-regeneration-locks-local-ollama", async () => {
+  const contract = createExplicitRegenerationContract({
+    previousCandidateDigest: "b".repeat(64),
+    regenerationAttempt: 2,
+  });
+  const observedRequests = [];
+  const execute = async (request) => {
+    observedRequests.push(request);
+    return {
+      requestId: request.requestId,
+      providerId: "local-ollama",
+      modelId: "qwen2.5:3b",
+      modelDigest: "c".repeat(64),
+      content: "新的候選沿著上一版未解決的衝突前進，並以不同場景與後果展開。",
+      candidateOnly: true,
+      externalRequest: false,
+      dataLeavesDevice: false,
+      elapsedMs: 12,
+      outputCharacters: 31,
+      generatedTokenEvents: 8,
+      executor: "local-ollama",
+      provenance: {
+        providerId: "local-ollama",
+        modelId: "qwen2.5:3b",
+        modelDigest: "c".repeat(64),
+        privacyMode: "strict-local",
+        reason: "explicit regeneration local lock",
+        contextSources: [],
+        externalRequest: false,
+        dataLeavesDevice: false,
+        fallbackChain: [],
+        warnings: [],
+      },
+    };
+  };
+  const result = await runStudioClosedAI({
+    projectId: "project-regeneration-route",
+    task: "continue",
+    input: "延續目前章節，但不要重複上一個候選。",
+    browserComputePolicy: "browser-first",
+    regeneration: contract,
+  }, execute);
+
+  assert.equal(observedRequests.length, 1);
+  assert.equal(observedRequests[0].preferredProvider, "local-ollama");
+  assert.equal(observedRequests[0].browserComputePolicy, "browser-first");
+  assert.equal(observedRequests[0].generationOptions.seed, contract.modelSeed);
+  assert.equal(result.provider, "local-ollama");
+  assert.equal(result.externalRequest, false);
+  assert.equal(result.dataLeftDevice, false);
+
+  await assert.rejects(
+    () => runStudioClosedAI({
+      projectId: "project-regeneration-route",
+      task: "continue",
+      input: "延續目前章節，但不要重複上一個候選。",
+      regeneration: contract,
+    }, async (request) => ({
+      ...(await execute(request)),
+      providerId: "browser-ai",
+      executor: "browser-task-model",
+    })),
+    (error) => error?.code === "CLOSED_AI_BOUNDARY_VIOLATION",
+  );
 });
 
 const selected = mode === "all"
