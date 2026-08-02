@@ -49,6 +49,13 @@ try {
     assert.equal(await page.getByTestId("studio-create-submit").isEnabled(), true);
     await page.getByTestId("studio-create-submit").click();
     await page.getByTestId("studio-story-starter").waitFor({ state: "visible", timeout: 60_000 });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const rpgButtonHitTarget = await page.getByTestId("studio-writing-open-rpg").evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const target = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+      return target === button || Boolean(target && button.contains(target));
+    });
+    assert.equal(rpgButtonHitTarget, true, "the visible RPG action must not be covered by the assistant column");
     await page.getByTestId("studio-writing-open-rpg").click();
     await page.getByTestId("studio-task-handoff").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByTestId("studio-task-handoff-continue").click();

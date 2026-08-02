@@ -226,6 +226,28 @@ await test("interactive story performs zero inference until the story foundation
   assert.equal(readyFromConflict.ready, true);
 });
 
+await test("an accepted creation conflict becomes the first canonical unresolved RPG thread", async () => {
+  const repository = new MemoryNovelRepository();
+  const conflict = "失落星港的航海記憶正在被人逐頁竄改，守書人必須在黎明前找出內應。";
+  const seeded = await ensureStudioCanonicalProject(repository, {
+    id: "guided-rpg-project",
+    title: "失落星港",
+    chapterTitle: "第一章",
+    draft: "",
+    coreIdea: "守住城市最後一份真實記憶",
+    protagonist: "黎安",
+    world: "以記憶作為航標的漂浮星港",
+    conflict,
+  });
+  assert.deepEqual(seeded.storyBible.unresolvedThreads, [conflict]);
+  assert.equal(inspectRpgFoundation({
+    protagonistName: "黎安",
+    coreIdea: seeded.project.coreIdea.value,
+    chapterContent: seeded.chapter.content,
+    unresolvedThreadCount: seeded.storyBible.unresolvedThreads.length,
+  }).ready, true);
+});
+
 await test("AI director requires three distinct contextual strategies while preserving formula effects", () => {
   const payload = JSON.stringify({ choices: [
     { key: "A", title: "查驗密道回聲", description: "主角先比對牆後腳步與舊地圖，避開正在換防的巡守。", consequence: "時機可能縮短，但可找出安全退路。", continuityReason: "承接上一段提到的牆後回聲與失蹤地圖。" },
