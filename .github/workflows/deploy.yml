@@ -146,7 +146,7 @@ jobs:
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
-          echo "::notice title=RC3 Preview URL::$deployment_url"
+          echo "::notice title=RC4 Preview URL::$deployment_url"
 
       - name: Verify Preview release identity
         shell: bash
@@ -162,8 +162,8 @@ jobs:
               environment="$(jq -r '.environment // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
-              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-runtime-consumer-activation-rc3" ]]; then
-                printf '### RC3 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-unified-sovereign-creative-runtime-rc4" ]]; then
+                printf '### RC4 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
             fi

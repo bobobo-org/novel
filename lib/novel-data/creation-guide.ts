@@ -7,6 +7,7 @@ import {
   setOptional,
   type OptionalField,
 } from "./story-library-types";
+import type { AdultExperienceProfile } from "./adult-experience-profile";
 
 export type CreationEntryMode = "quick" | "guided" | "explore";
 export type CreationMethod = "" | "topic" | "idea" | "recommend" | "random" | "blank";
@@ -39,6 +40,7 @@ export type CreationWizard = {
   optionalFields: Record<CreationOptionalKey, OptionalField>;
   adultMode: boolean;
   ageConfirmed: boolean;
+  adultExperienceProfile: AdultExperienceProfile;
 };
 
 export type CreationFoundationItem = {

@@ -337,7 +337,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   }, []);
 
   useEffect(() => {
-    void refreshExternalProviders(false);
+    void Promise.resolve().then(() => refreshExternalProviders(false));
   }, [refreshExternalProviders]);
 
   useEffect(() => {

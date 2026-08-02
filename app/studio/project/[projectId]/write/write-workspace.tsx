@@ -66,8 +66,8 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const [saving, setSaving] = useState(false);
   const [guideOpen, setGuideOpen] = useState(true);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [editHistory, setEditHistory] = useState<string[]>([]);
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const editHistoryRef = useRef<string[]>([]);
   const saveQueueRef = useRef<Promise<Chapter | null>>(Promise.resolve(null));
   const latestRef = useRef<EditorSnapshot>({
     chapter: null,
@@ -79,8 +79,11 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   });
 
   const currentSnapshot: EditorSnapshot = { chapter, project, title, content, summary, chapterStatus };
-  latestRef.current = currentSnapshot;
   const dirty = snapshotIsDirty(currentSnapshot);
+
+  useEffect(() => {
+    latestRef.current = { chapter, project, title, content, summary, chapterStatus };
+  }, [chapter, chapterStatus, content, project, summary, title]);
 
   function applyChapter(next: Chapter) {
     setChapter(next);
@@ -353,7 +356,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
 
   function applyContentTransform(nextContent: string, caret: number) {
     if (nextContent === content) return;
-    editHistoryRef.current = [...editHistoryRef.current.slice(-19), content];
+    setEditHistory((items) => [...items.slice(-19), content]);
     setContent(nextContent);
     setSelection({ start: caret, end: caret });
     window.requestAnimationFrame(() => {
@@ -384,8 +387,9 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   }
 
   function undoToolEdit() {
-    const previous = editHistoryRef.current.pop();
+    const previous = editHistory.at(-1);
     if (previous == null) return;
+    setEditHistory((items) => items.slice(0, -1));
     setContent(previous);
     const caret = Math.min(previous.length, selection.start);
     setSelection({ start: caret, end: caret });
@@ -503,7 +507,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
             <button type="button" disabled={busy} onClick={() => insertAtSelection("\n\n")}>在游標處分段</button>
             <button type="button" disabled={busy} onClick={() => insertAtSelection("\n\n＊　＊　＊\n\n")}>插入場景分隔</button>
             <button type="button" className="danger" disabled={busy || !content} onClick={deleteCurrentParagraph}>刪除選取／本段</button>
-            <button type="button" disabled={busy || editHistoryRef.current.length === 0} onClick={undoToolEdit}>復原工具操作</button>
+            <button type="button" disabled={busy || editHistory.length === 0} onClick={undoToolEdit}>復原工具操作</button>
           </div>
           <button type="button" onClick={() => void navigateSafely(`/studio/read/${projectId}`, "閱讀預覽")}>閱讀預覽</button>
           <button type="button" onClick={() => void navigateSafely(`/studio/project/${projectId}/ai`, "進階候選與評估")}>進階候選與評估</button>

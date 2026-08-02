@@ -2,6 +2,7 @@ import { buildProjectBundle, createDraft } from "../domain/creation";
 import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
 import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
+import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
 
 export type StudioProjectSeed = {
   id: string;
@@ -20,6 +21,8 @@ export type StudioProjectSeed = {
   conflict?: string | null;
   style?: string | null;
   enabledStats?: string[];
+  adultMode?: boolean;
+  adultExperienceProfile?: AdultExperienceProfile | null;
 };
 
 export type StudioCanonicalSnapshot = {
@@ -50,8 +53,22 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     draft.answers.worldRule = value(input.worldRule || input.world);
     draft.answers.obstacle = value(input.conflict);
     const bundle = buildProjectBundle(draft);
+    bundle.project.adultMode = input.adultMode === true;
+    bundle.project.adultExperienceProfile = input.adultMode ? input.adultExperienceProfile ?? null : null;
     await repository.createProject(bundle, `studio-project:${input.id}`);
     project = bundle.project;
+  }
+  const nextAdultMode = input.adultMode ?? project.adultMode;
+  const nextAdultProfile = nextAdultMode ? input.adultExperienceProfile ?? project.adultExperienceProfile ?? null : null;
+  if (
+    project.adultMode !== nextAdultMode
+    || JSON.stringify(project.adultExperienceProfile ?? null) !== JSON.stringify(nextAdultProfile)
+  ) {
+    project = await repository.put("projects", {
+      ...project,
+      adultMode: nextAdultMode,
+      adultExperienceProfile: nextAdultProfile,
+    }, project.revision);
   }
   let chapter = input.chapterId
     ? await repository.get<Chapter>("chapters", input.chapterId)

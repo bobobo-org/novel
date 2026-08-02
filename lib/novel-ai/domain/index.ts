@@ -1,4 +1,5 @@
 import type { DomainRecord, OptionalValue, Provenance } from "./common";
+import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
 export * from "./common";
 
 export type ProjectSeed = DomainRecord & {
@@ -24,6 +25,7 @@ export type NovelProject = DomainRecord & {
   coreIdea: OptionalValue<string>;
   narrativeStyle: OptionalValue<string>;
   adultMode: boolean;
+  adultExperienceProfile?: AdultExperienceProfile | null;
   activeChapterId: string | null;
   storyBibleId: string;
   storyStateId: string;

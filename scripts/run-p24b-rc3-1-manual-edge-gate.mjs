@@ -6,8 +6,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const RELEASE_TAG = "novel-ai-p24b-runtime-consumer-activation-rc3";
-const CONSUMER_RELEASE = "p2.4b-runtime-consumer-activation-rc3";
+const RELEASE_TAG = "novel-ai-p24b-unified-sovereign-creative-runtime-rc4";
+const CONSUMER_RELEASE = "p2.4b-unified-sovereign-creative-runtime-rc4";
 const PRODUCTION_ORIGINS = new Set([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",
@@ -115,8 +115,8 @@ async function releaseIdentity(origin, expectedCommit) {
   if (!response.ok) throw new Error(`RELEASE_IDENTITY_HTTP_${response.status}`);
   const body = await response.json();
   const identity = body.releaseIdentity || body;
-  if (identity.releaseTag !== RELEASE_TAG) throw new Error("RC3_RELEASE_TAG_MISMATCH");
-  if (identity.consumerRelease !== CONSUMER_RELEASE) throw new Error("RC3_CONSUMER_RELEASE_MISMATCH");
+  if (identity.releaseTag !== RELEASE_TAG) throw new Error("RC4_RELEASE_TAG_MISMATCH");
+  if (identity.consumerRelease !== CONSUMER_RELEASE) throw new Error("RC4_CONSUMER_RELEASE_MISMATCH");
   if (identity.provenanceStatus !== "verified") throw new Error("RC3_PROVENANCE_NOT_VERIFIED");
   if (identity.appCommit !== expectedCommit) throw new Error("PRODUCT_PREVIEW_COMMIT_MISMATCH");
   if (identity.environment !== "preview") throw new Error("PRODUCT_PREVIEW_ENVIRONMENT_MISMATCH");

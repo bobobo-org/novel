@@ -17,6 +17,11 @@ import {
 } from "@/lib/novel-data/story-library-types";
 import { migrateStorySelection } from "@/lib/novel-data/story-library-migration";
 import {
+  createAdultExperienceProfile,
+  normalizeAdultExperienceProfile,
+  type AdultExperienceProfile,
+} from "@/lib/novel-data/adult-experience-profile";
+import {
   buildLocalCreationGuide,
   creationFoundationChecklist,
   creationFoundationMissing,
@@ -113,6 +118,7 @@ type Project = {
   selectedPlayModeId: string | null;
   enabledStats: string[];
   adultMode: boolean;
+  adultExperienceProfile: AdultExperienceProfile | null;
   optionalFields: Record<OptionalKey, OptionalField>;
   storyLibrarySchemaVersion: string;
   chapterTitle: string;
@@ -338,6 +344,7 @@ const emptyWizard: Wizard = {
   optionalFields: emptyOptional(),
   adultMode: false,
   ageConfirmed: false,
+  adultExperienceProfile: createAdultExperienceProfile(),
 };
 const initialState: StudioState = {
   schemaVersion: 3,
@@ -618,6 +625,9 @@ function migrateProject(raw: Record<string, unknown>): Project {
     selectedPlayModeId: selection.selectedPlayModeId,
     enabledStats: selection.enabledStats,
     adultMode: raw.adultMode === true,
+    adultExperienceProfile: raw.adultMode === true
+      ? normalizeAdultExperienceProfile(raw.adultExperienceProfile)
+      : null,
     optionalFields,
     storyLibrarySchemaVersion: selection.storyLibrarySchemaVersion,
     chapterTitle: String(raw.chapterTitle || "第一章"),
@@ -656,6 +666,7 @@ function migrate(): StudioState {
             playModeId: selection.selectedPlayModeId || "",
             coreIdea: String(wizardRaw.coreIdea ?? wizardRaw.synopsis ?? ""),
             optionalFields: normalizeOptional(wizardRaw.optionalFields),
+            adultExperienceProfile: normalizeAdultExperienceProfile(wizardRaw.adultExperienceProfile),
           },
           gameStates: Object.fromEntries(
             Object.entries(
@@ -709,6 +720,8 @@ function projectSeed(project: Project): StudioProjectSeed {
     conflict: optionalValue(project.optionalFields, "conflict"),
     style: optionalValue(project.optionalFields, "style"),
     enabledStats: project.enabledStats,
+    adultMode: project.adultMode,
+    adultExperienceProfile: project.adultExperienceProfile,
   };
 }
 
@@ -759,13 +772,15 @@ function projectFromCanonical(project: NovelProject, seed: ProjectSeed | null, e
     ...(existing ?? {
       id: project.id, title: project.title, consumerGroupId: null, packId: project.genrePackId, topicId: project.genreId,
       topicName: null, subCategory: project.subgenreId, coreIdea: project.coreIdea as OptionalField, selectedPlayModeId: null,
-      enabledStats: [], adultMode: project.adultMode, optionalFields: fields, storyLibrarySchemaVersion: STORY_LIBRARY.schemaVersion,
+      enabledStats: [], adultMode: project.adultMode, adultExperienceProfile: project.adultExperienceProfile ?? null, optionalFields: fields, storyLibrarySchemaVersion: STORY_LIBRARY.schemaVersion,
       activeChapterId: project.activeChapterId, chapterTitle: "第一章", draft: "", updatedAt: project.updatedAt, versions: [],
     }),
     id: project.id,
     title: project.title,
     activeChapterId: project.activeChapterId,
     coreIdea: project.coreIdea as OptionalField,
+    adultMode: project.adultMode,
+    adultExperienceProfile: project.adultExperienceProfile ?? existing?.adultExperienceProfile ?? null,
     optionalFields: fields,
     updatedAt: project.updatedAt,
   };
@@ -1191,6 +1206,10 @@ export default function StudioClient({
       alert("成人模式需要先完成年齡確認。");
       return;
     }
+    if (w.adultMode && !w.adultExperienceProfile.fictionalAdultsConfirmed) {
+      alert("成人模式只接受明確成年、虛構且可撤回同意的角色；請先完成角色安全確認。");
+      return;
+    }
     const missingFoundation = creationFoundationMissing(w);
     if (missingFoundation.length) {
       alert(
@@ -1216,6 +1235,9 @@ export default function StudioClient({
       selectedPlayModeId: w.playModeId || null,
       enabledStats: w.playModeId ? w.enabledStats : [],
       adultMode: Boolean(w.adultMode && w.ageConfirmed),
+      adultExperienceProfile: w.adultMode && w.ageConfirmed
+        ? normalizeAdultExperienceProfile(w.adultExperienceProfile)
+        : null,
       optionalFields: w.optionalFields,
       storyLibrarySchemaVersion: STORY_LIBRARY.schemaVersion,
       chapterTitle: "第一章",
@@ -3062,6 +3084,10 @@ function CreateScreen({
 }) {
   const w = state.wizard,
     step = state.wizardStep;
+  const adultProfile = w.adultExperienceProfile;
+  const updateAdultProfile = (partial: Partial<AdultExperienceProfile>) => updateWizard({
+    adultExperienceProfile: normalizeAdultExperienceProfile({ ...adultProfile, ...partial }),
+  });
   const gameMode = isStructuredGameMode(w.playModeId);
   const structuredStart = w.creationMethod !== "blank" || gameMode;
   const foundation = creationFoundationChecklist(w);
@@ -3447,6 +3473,110 @@ function CreateScreen({
                 />{" "}
                 主動開啟成人模式
               </label>
+              {w.adultMode && w.ageConfirmed ? (
+                <section className="studioAdultDirector" data-testid="studio-adult-character-director">
+                  <header>
+                    <div>
+                      <small>成年角色導演</small>
+                      <h3>從一句設定到可持續互動的角色</h3>
+                    </div>
+                    <span>外觀・個性・聲音・關係・記憶・群像</span>
+                  </header>
+                  <p>
+                    先給少量設定即可開始，之後可在角色 AI 中繼續補人物與關係。角色記憶、關係與視覺規格會分開保存，避免每次生成變成不同人物。
+                  </p>
+                  <fieldset>
+                    <legend>視覺呈現</legend>
+                    <div className="studioAdultChoiceRow">
+                      {([
+                        ["realistic", "寫實"],
+                        ["anime", "動畫"],
+                        ["illustrated", "小說插畫"],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          type="button"
+                          key={value}
+                          className={adultProfile.visualStyle === value ? "active" : ""}
+                          onClick={() => updateAdultProfile({ visualStyle: value })}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div className="studioForm studioAdultForm">
+                    <label>
+                      性別呈現
+                      <select value={adultProfile.genderPresentation} onChange={(event) => updateAdultProfile({ genderPresentation: event.target.value as AdultExperienceProfile["genderPresentation"] })}>
+                        <option value="woman">女性</option>
+                        <option value="man">男性</option>
+                        <option value="trans">跨性別</option>
+                        <option value="nonbinary">非二元</option>
+                        <option value="custom">自訂／故事決定</option>
+                      </select>
+                    </label>
+                    <label>
+                      互動形式
+                      <select value={adultProfile.interactionMode} onChange={(event) => updateAdultProfile({ interactionMode: event.target.value as AdultExperienceProfile["interactionMode"] })}>
+                        <option value="one_to_one">單一角色關係</option>
+                        <option value="ensemble">群像與多角色關係網</option>
+                      </select>
+                    </label>
+                    <label>
+                      個性與說話方式
+                      <input value={adultProfile.personality} onChange={(event) => updateAdultProfile({ personality: event.target.value })} placeholder="例如：冷靜、嘴硬心軟、慢熱但記仇" />
+                    </label>
+                    <label>
+                      聲音風格
+                      <input value={adultProfile.voiceStyle} onChange={(event) => updateAdultProfile({ voiceStyle: event.target.value })} placeholder="例如：低沉克制、明亮俐落" />
+                    </label>
+                    <label>
+                      身分／職業
+                      <input value={adultProfile.occupation} onChange={(event) => updateAdultProfile({ occupation: event.target.value })} placeholder="角色在世界中的工作與位置" />
+                    </label>
+                    <label>
+                      關係動態
+                      <input value={adultProfile.relationshipDynamic} onChange={(event) => updateAdultProfile({ relationshipDynamic: event.target.value })} placeholder="例如：宿敵到知己、重逢舊識、互相試探" />
+                    </label>
+                    <label>
+                      外觀一致性描述
+                      <textarea value={adultProfile.appearancePrompt} onChange={(event) => updateAdultProfile({ appearancePrompt: event.target.value })} placeholder="只描述虛構角色的固定辨識特徵、服裝風格與氣質；不接受真人仿貌。" />
+                    </label>
+                    <label>
+                      背景與第一幕
+                      <textarea value={adultProfile.backstory} onChange={(event) => updateAdultProfile({ backstory: event.target.value })} placeholder="角色過去、當前渴望、不能輕易說出的矛盾" />
+                    </label>
+                    <label>
+                      初次登場台詞
+                      <textarea value={adultProfile.openingMessage} onChange={(event) => updateAdultProfile({ openingMessage: event.target.value })} placeholder="角色第一次出場時會說什麼、做什麼" />
+                    </label>
+                    <label>
+                      釘選記憶 <small>每行一項</small>
+                      <textarea
+                        value={adultProfile.pinnedMemories.join("\n")}
+                        onChange={(event) => updateAdultProfile({ pinnedMemories: event.target.value.split(/\r?\n/u) })}
+                        placeholder={"必須記得的承諾\n共同經歷的重要事件\n不能跨越的界線"}
+                      />
+                    </label>
+                  </div>
+                  <div className="studioAdultSafety">
+                    <label>
+                      <input type="checkbox" checked={adultProfile.mediaContinuity} onChange={(event) => updateAdultProfile({ mediaContinuity: event.target.checked })} />
+                      人像、場景與短片沿用同一角色識別規格
+                    </label>
+                    <label>
+                      <input
+                        data-testid="studio-adult-fictional-confirmation"
+                        type="checkbox"
+                        checked={adultProfile.fictionalAdultsConfirmed}
+                        onChange={(event) => updateAdultProfile({ fictionalAdultsConfirmed: event.target.checked })}
+                      />
+                      我確認相關人物均為明確成年虛構角色，互動同意可隨時撤回
+                    </label>
+                    <small>成人資料使用獨立命名空間；禁止未成年內容、真人仿貌與未經同意的私密素材。</small>
+                  </div>
+                </section>
+              ) : null}
             </details>
           </>
         )}
@@ -3477,6 +3607,12 @@ function CreateScreen({
                 <dt>成人模式</dt>
                 <dd>{w.adultMode && w.ageConfirmed ? "已主動開啟" : "關閉"}</dd>
               </div>
+              {w.adultMode && w.ageConfirmed ? (
+                <div>
+                  <dt>成年角色導演</dt>
+                  <dd>{adultProfile.personality || adultProfile.relationshipDynamic || "可建立後逐步補充"}・{adultProfile.interactionMode === "ensemble" ? "群像" : "單一角色"}</dd>
+                </div>
+              ) : null}
             </dl>
             <p>
               空白欄位會原樣保存，不會被填入假值。稍後可在故事發展中逐步補充。
