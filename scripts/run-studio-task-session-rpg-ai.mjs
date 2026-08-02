@@ -307,6 +307,23 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /canonicalMutationCount !== 0/);
 });
 
+await test("consumer home presents a compact luxury world dashboard with truthful project facts", async () => {
+  const [studio, styles] = await Promise.all([
+    readFile("app/studio/studio-client.tsx", "utf8"),
+    readFile("app/globals.css", "utf8"),
+  ]);
+  assert.match(studio, /studioRealmObservatory/);
+  assert.match(studio, /studioWorldLedger/);
+  assert.match(studio, /studioRecentFacts/);
+  assert.match(studio, /studioHomeCompass/);
+  assert.match(studio, /projectWordCount = project \? words\(project\.draft\) : 0/);
+  assert.match(studio, /projectVersionCount = project\?\.versions\.length \?\? 0/);
+  assert.match(studio, /formatTime\(project\.updatedAt\)/);
+  assert.match(styles, /\.studioHomeLower\{display:grid/);
+  assert.match(styles, /\.studioHomeCompass\{position:relative/);
+  assert.match(styles, /\.studioRecentFacts\{display:grid/);
+});
+
 const failed = cases.filter((entry) => entry.status === "FAIL");
 console.log(JSON.stringify({
   schemaVersion: "studio-task-session-rpg-ai-v2",

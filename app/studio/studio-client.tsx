@@ -3342,10 +3342,13 @@ function HomeScreen({
   continueTaskHandoff: () => void;
   dismissTaskHandoff: () => void;
 }) {
+  const projectWordCount = project ? words(project.draft) : 0;
+  const projectVersionCount = project?.versions.length ?? 0;
   return (
     <section className="studioHome">
       {taskHandoff ? (
         <section className="studioTaskHandoff" data-testid="studio-task-handoff" role="status">
+          <span className="studioTaskHandoffSeal" aria-hidden="true">✓</span>
           <div>
             <small>目前工作已安全儲存</small>
             <h2>已從「{taskHandoff.sourceLabel}」回到首頁</h2>
@@ -3378,53 +3381,81 @@ function HomeScreen({
             <button type="button" onClick={() => navigate("library")}>走進我的書庫</button>
           </div>
         </div>
-        <div className="studioRealmOrb" aria-hidden="true">
-          <i /><i /><i />
-          <div><small>STORY REALM</small><b>{project ? "續" : "始"}</b><span>{project?.topicName || "等待命名的世界"}</span></div>
-        </div>
+        <aside className="studioRealmObservatory" aria-label="目前世界狀態">
+          <div className="studioRealmOrb" aria-hidden="true">
+            <i /><i /><i />
+            <div><small>STORY REALM</small><b>{project ? "續" : "始"}</b><span>{project?.topicName || "等待命名的世界"}</span></div>
+          </div>
+          <div className="studioWorldLedger">
+            <small>WORLD STATUS · 世界觀測</small>
+            <strong>{project?.title || "尚未開啟第一個世界"}</strong>
+            <div>
+              <span><small>當前篇章</small><b>{project?.chapterTitle || "等待落筆"}</b></span>
+              <span><small>正文規模</small><b>{project ? `${projectWordCount} 字` : "—"}</b></span>
+              <span><small>版本留痕</small><b>{project ? `${projectVersionCount} 筆` : "—"}</b></span>
+            </div>
+          </div>
+        </aside>
       </section>
 
       <section className="studioHomePortals" aria-label="快速入口">
-        <Link href="/studio/create"><small>01 · CREATE</small><b>建立新作品</b><span>由引導精靈陪你完成世界與人物</span></Link>
-        <button type="button" disabled={!project} onClick={() => navigate("write")}><small>02 · WRITE</small><b>章節寫作</b><span>回到上次游標與六層 AI Cache</span></button>
-        <button type="button" disabled={!project} onClick={() => project && window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}><small>03 · PLAY</small><b>互動故事／RPG</b><span>讓選擇真正改變正文、關係與數值</span></button>
-        <Link href={project ? `/studio/project/${encodeURIComponent(project.id)}/closed-ai` : "/settings/local-ai"}><small>04 · INTELLIGENCE</small><b>閉端 AI 中樞</b><span>查看真實模型、裝置與執行證明</span></Link>
+        <Link href="/studio/create"><i className="studioPortalGlyph" aria-hidden="true">創</i><small>01 · CREATE</small><b>建立新作品</b><span>由引導精靈陪你完成世界與人物</span></Link>
+        <button type="button" disabled={!project} onClick={() => navigate("write")}><i className="studioPortalGlyph" aria-hidden="true">章</i><small>02 · WRITE</small><b>章節寫作</b><span>回到上次游標與六層 AI Cache</span></button>
+        <button type="button" disabled={!project} onClick={() => project && window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}><i className="studioPortalGlyph" aria-hidden="true">遊</i><small>03 · PLAY</small><b>互動故事／RPG</b><span>讓選擇真正改變正文、關係與數值</span></button>
+        <Link href={project ? `/studio/project/${encodeURIComponent(project.id)}/closed-ai` : "/settings/local-ai"}><i className="studioPortalGlyph" aria-hidden="true">智</i><small>04 · INTELLIGENCE</small><b>閉端 AI 中樞</b><span>查看真實模型、裝置與執行證明</span></Link>
       </section>
 
-      <div className="studioHomeSectionTitle"><div><small>YOUR LATEST WORLD</small><h2>最近作品</h2></div><span>{project ? "旅程仍在延續" : "第一個世界正等待你"}</span></div>
-      {project ? (
-        <article className="studioRecent">
-          <div className="studioBookCover" aria-hidden="true">
-            <small>{project.topicName || "原創小說"}</small>
-            <b>{(project.title || "書").slice(0, 1)}</b>
-            <span>諸天萬界典藏</span>
-          </div>
-          <section>
-            <small>{project.topicName || "題材尚未設定"}</small>
-            <h3>{project.title}</h3>
-            <p>
-              {project.chapterTitle}・{words(project.draft)} 字・
-              {formatTime(project.updatedAt)}
-            </p>
-            <div className="recentActions">
-              <button className="gold" onClick={() => navigate("write")}>繼續創作</button>
-              <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-              <button
-                data-testid="studio-open-rpg-dashboard"
-                onClick={() => window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}
-              >
-                開啟完整 RPG 儀表板
-              </button>
+      <section className="studioHomeLower">
+        <div className="studioLatestWorld">
+          <div className="studioHomeSectionTitle"><div><small>YOUR LATEST WORLD</small><h2>最近作品</h2></div><span>{project ? "旅程仍在延續" : "第一個世界正等待你"}</span></div>
+          {project ? (
+            <article className="studioRecent">
+              <div className="studioBookCover" aria-hidden="true">
+                <small>{project.topicName || "原創小說"}</small>
+                <b>{(project.title || "書").slice(0, 1)}</b>
+                <span>諸天萬界典藏</span>
+              </div>
+              <section>
+                <small>{project.topicName || "題材尚未設定"}</small>
+                <h3>{project.title}</h3>
+                <div className="studioRecentFacts" aria-label="作品進度">
+                  <span><small>目前章節</small><b>{project.chapterTitle}</b></span>
+                  <span><small>正文字數</small><b>{projectWordCount} 字</b></span>
+                  <span><small>版本紀錄</small><b>{projectVersionCount} 筆</b></span>
+                  <span><small>最近保存</small><b>{formatTime(project.updatedAt)}</b></span>
+                </div>
+                <div className="recentActions">
+                  <button className="gold" onClick={() => navigate("write")}>繼續創作</button>
+                  <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
+                  <button
+                    data-testid="studio-open-rpg-dashboard"
+                    onClick={() => window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}
+                  >
+                    開啟完整 RPG 儀表板
+                  </button>
+                </div>
+              </section>
+            </article>
+          ) : (
+            <div className="studioEmpty">
+              <b>尚未建立作品</b>
+              <p>不用先填完整設定，邊寫邊補也可以。</p>
+              <Link className="studioLinkButton" href="/studio/create">建立第一部小說</Link>
             </div>
-          </section>
-        </article>
-      ) : (
-        <div className="studioEmpty">
-          <b>尚未建立作品</b>
-          <p>不用先填完整設定，邊寫邊補也可以。</p>
-          <Link className="studioLinkButton" href="/studio/create">建立第一部小說</Link>
+          )}
         </div>
-      )}
+        <aside className="studioHomeCompass">
+          <small>CREATOR&apos;S COMPASS</small>
+          <h2>創作羅盤</h2>
+          <p>{project ? "從保存的位置繼續，章節、世界與檢查各自清楚分流。" : "先開啟世界，再依序建立人物、篇章與正式故事。"}</p>
+          <nav aria-label="創作下一步">
+            <Link href="/studio/create"><span>01</span><div><b>建立新世界</b><small>由引導精靈開始</small></div></Link>
+            <button type="button" disabled={!project} onClick={() => navigate("write")}><span>02</span><div><b>續寫目前篇章</b><small>{project?.chapterTitle || "建立作品後開放"}</small></div></button>
+            <button type="button" disabled={!project} onClick={() => navigate("world")}><span>03</span><div><b>整理角色與世界</b><small>補齊設定與伏筆</small></div></button>
+            <button type="button" disabled={!project} onClick={() => navigate("inspect")}><span>04</span><div><b>檢查作品</b><small>確認故事一致性</small></div></button>
+          </nav>
+        </aside>
+      </section>
     </section>
   );
 }
