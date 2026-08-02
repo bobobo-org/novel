@@ -1,5 +1,5 @@
 const CURRENT_CHAPTER_CONTEXT_MARKER =
-  /^\s*(?:\[current-chapter\]|【目前章節[：:])/iu;
+  /(?:^|\n)\s*(?:\[current-chapter\]|【目前章節[：:])/iu;
 
 const ROLE_PREFIXES = [
   "鑄劍師",
@@ -101,11 +101,19 @@ const roleNamePattern = new RegExp(
 );
 
 export function currentChapterContext(context: string[] | undefined) {
-  const marked = context?.find((item) =>
-    CURRENT_CHAPTER_CONTEXT_MARKER.test(item));
-  return marked
-    ?.replace(/^\s*\[current-chapter\]\s*/iu, "")
-    .trim() ?? null;
+  for (const item of context ?? []) {
+    const match = CURRENT_CHAPTER_CONTEXT_MARKER.exec(item);
+    if (!match || match.index < 0) continue;
+    const markerOffset = match[0].search(/(?:\[current-chapter\]|【目前章節[：:])/iu);
+    const chapterStart = markerOffset < 0
+      ? match.index
+      : match.index + markerOffset;
+    return item
+      .slice(chapterStart)
+      .replace(/^\s*\[current-chapter\]\s*/iu, "")
+      .trim();
+  }
+  return null;
 }
 
 export function extractNarrativeCharacterAnchors(chapterText: string) {

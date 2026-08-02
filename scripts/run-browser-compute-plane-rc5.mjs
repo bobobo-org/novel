@@ -43,6 +43,7 @@ import {
   getClosedAIModelProfile,
 } from "../lib/novel-ai/providers/closed/task-profile.ts";
 import {
+  currentChapterContext,
   extractNarrativeCharacterAnchors,
 } from "../lib/novel-ai/providers/closed/continuity-anchors.ts";
 import {
@@ -490,6 +491,27 @@ test("quality-gate", () => {
     ),
     ["陸沉", "阿璃"],
   );
+  assert.match(
+    currentChapterContext([
+      "[canon-authority]\n【目前章節：第一章 斷劍中的聲音】少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。",
+    ]),
+    /陸沉[\s\S]*阿璃/u,
+  );
+  const wrappedObservedNamedStoryDrift = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    expectedMinTokens: 80,
+    approvedContext: [
+      "[canon-authority]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台。",
+    ],
+    content: "盡管如此，阿成心中仍存著一股無法被冷靜思考的力量。他突然想起那句經典的話，知道這將會是他的最終選擇。當夜空再次沉寂，阿成緊握刀鞘，僅憑對生存的渴望和對家族的忠誠踏上道路，即便前方充滿未知與風險，他也只願成為最後一個盟友。",
+  });
+  assert.equal(wrappedObservedNamedStoryDrift.decision, "block");
+  assert.ok(
+    wrappedObservedNamedStoryDrift.reasonCodes.includes(
+      "QUALITY_CONTEXT_CHARACTER_MISSING",
+    ),
+  );
+  assert.equal(wrappedObservedNamedStoryDrift.canonicalMutationCount, 0);
   const observedNamedStoryDrift = evaluateBrowserCandidateQuality({
     taskType: "chapter.continue",
     expectedMinTokens: 80,
