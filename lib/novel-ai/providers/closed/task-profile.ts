@@ -105,6 +105,14 @@ const HEAVY_TASKS = new Set<PlatformTaskType>([
   "story.storyBibleCandidate",
 ]);
 
+const DIRECT_PROSE_TASKS = new Set<PlatformTaskType>([
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
 const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "assistant.general": "直接完成作者提出的小說相關工作。先回答核心問題，再提供可立即採用的做法；作者要求的數量、比較維度、風險、代價與格式都必須逐項明確輸出。資料不足時保留該欄位並標示缺口，不可省略或假裝知道。",
   "assistant.brainstorm": "提出至少三個彼此真正不同的創意方向；每個方向列出核心衝突、人物選擇、代價與可能風險，最後給一個綜合建議。",
@@ -124,7 +132,7 @@ const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "story.plotCandidate": "產生三個互斥但都符合 Canon 的後續分支；各列觸發事件、人物選擇、短期結果、長期代價與回接主線方式。",
   "story.endingPlan": "提出結局方案，逐一處理核心衝突、角色弧線、伏筆、主題回聲與最後代價；標出仍未解決的線索。",
   "chapter.outline": "建立可執行章節大綱：開場狀態、場景節拍、衝突升級、關鍵選擇、代價、章尾鉤子與下一章接口。",
-  "chapter.continue": "直接續寫正文；承接最後可見動作與語氣，以人物選擇和代價推進，不重述已有內容，不解說創作方法。",
+  "chapter.continue": "直接續寫小說正文；第一句承接最後可見動作、場景或人物反應，以人物選擇和代價推進，不重述已有內容。只准輸出敘事正文，禁止輸出提問、分析、建議、爭議環節、條列清單、標題或創作方法。",
   "chapter.rewrite": "保留必要事實、角色意圖與因果，依作者目標完整改寫指定文字；只輸出可替換正文。",
   "chapter.expand": "把指定片段擴成完整場景，增加可見動作、感官、空間、對話潛台詞與後果，但不新增未核准設定。",
   "chapter.abcChoices": "只輸出恰好三個彼此不同、都符合 Canon 的後續選項。每項必須包含角色可執行的行動與明確代價，並嚴格使用三行格式：「A. …」、「B. …」、「C. …」。不得加入前言、結語、第四個選項、JSON 或 Markdown 程式碼區塊。",
@@ -231,6 +239,31 @@ function compactText(value: string, limit: number) {
   return `${normalized.slice(0, head)}${marker}${normalized.slice(-(available - head))}`;
 }
 
+function outputContract(
+  taskType: PlatformTaskType,
+  phase: "draft" | "critic" | "revision",
+) {
+  if (phase === "critic") return null;
+  if (taskType === "chapter.continue") {
+    return [
+      "<最終輸出契約>",
+      "只輸出可直接接在目前章節末尾的繁體中文小說正文。",
+      "第一句必須承接已核准資料中的最後可見動作、場景或人物反應；內容必須包含具體行動、感官變化，以及一次有後果的選擇或代價。",
+      "禁止輸出問題清單、分析、建議、爭議環節、摘要、標題、編號、Markdown 或任何對作者說明。不得反問作者。",
+      "若資料不足，仍以不違反既有資料的可見行動推進場景，不得改成評論。",
+      "</最終輸出契約>",
+    ].join("\n");
+  }
+  if (DIRECT_PROSE_TASKS.has(taskType)) {
+    return [
+      "<最終輸出契約>",
+      "只輸出可直接採用的繁體中文小說正文。禁止輸出問題清單、分析、建議、標題、編號、Markdown 或創作說明。",
+      "</最終輸出契約>",
+    ].join("\n");
+  }
+  return null;
+}
+
 export function buildClosedAIModelPrompt(input: {
   objective: string;
   context: string[];
@@ -251,8 +284,13 @@ export function buildClosedAIModelPrompt(input: {
   const phase = input.qualityPhase ?? "draft";
   const toolSources = (input.toolResults ?? []).map((item) =>
     `${item.toolId}：${JSON.stringify(item.value)}`);
+  const promptPlanRoles = phase === "critic"
+    ? new Set(["critic", "evaluator"])
+    : new Set(["actor"]);
   const planSources = input.agentPlan
-    ? input.agentPlan.steps.map((step) => `${step.role}：${step.objective}`)
+    ? input.agentPlan.steps
+      .filter((step) => promptPlanRoles.has(step.role))
+      .map((step) => `${step.role}：${step.objective}`)
     : [];
   const workingSources = (input.workingMaterials ?? []).map((item) => item.text);
   const sourceCharacters = input.objective.length
@@ -306,6 +344,7 @@ export function buildClosedAIModelPrompt(input: {
     : phase === "revision"
       ? "吸收檢查結果後，只輸出完整、可直接審核的最終候選。不要提及草稿、批評、代理流程或內部推理。"
       : "直接產生第一版完整候選；輸出前逐項核對作者要求，但不要描述內部推理。";
+  const finalOutputContract = outputContract(input.profile.taskType, phase);
   const prompt = [
     `<工作類型>${input.profile.taskType}</工作類型>`,
     `<品質階段>${phase}</品質階段>`,
@@ -336,6 +375,7 @@ export function buildClosedAIModelPrompt(input: {
     objective,
     "</作者目標>",
     phaseInstruction,
+    ...(finalOutputContract ? [finalOutputContract] : []),
   ].join("\n");
   return {
     prompt,

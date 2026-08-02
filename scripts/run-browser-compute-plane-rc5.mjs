@@ -39,6 +39,10 @@ import {
   evaluateBrowserCandidateQuality,
 } from "../lib/novel-ai/providers/browser-ai/browser-quality-gate.ts";
 import {
+  buildClosedAIModelPrompt,
+  getClosedAIModelProfile,
+} from "../lib/novel-ai/providers/closed/task-profile.ts";
+import {
   createBrowserExecutionReceipt,
   summarizeBrowserOffload,
 } from "../lib/novel-ai/providers/browser-ai/browser-offload-metrics.ts";
@@ -451,6 +455,39 @@ test("quality-gate", () => {
   });
   assert.equal(blocked.decision, "block");
   assert.equal(blocked.canonicalMutationCount, 0);
+  const editorialInsteadOfProse = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    content: "爭議環節：1. 禁劍如何製作？ 2. 主角是否有其他出路？ 3. 是否能透過法律修改？ 4. 還有哪些問題需要分析？",
+  });
+  assert.equal(editorialInsteadOfProse.decision, "block");
+  assert.ok(editorialInsteadOfProse.reasonCodes.includes("QUALITY_TASK_FORM_MISMATCH"));
+  assert.equal(editorialInsteadOfProse.canonicalMutationCount, 0);
+});
+
+test("creative-output-contract", () => {
+  const profile = getClosedAIModelProfile("chapter.continue", "browser-ai");
+  const prompt = buildClosedAIModelPrompt({
+    objective: "續寫約三百字",
+    context: ["主角握住斷劍，審夢官已認出他。"],
+    profile,
+    qualityPhase: "draft",
+    agentPlan: {
+      planDigest: "plan-digest",
+      roles: ["planner", "actor", "critic", "evaluator"],
+      steps: [
+        { role: "planner", objective: "列出完成條件" },
+        { role: "actor", objective: "產生候選正文" },
+        { role: "critic", objective: "列出缺陷" },
+        { role: "evaluator", objective: "分析候選" },
+      ],
+    },
+  });
+  assert.match(profile.systemInstruction, /只准輸出敘事正文/u);
+  assert.match(prompt.prompt, /只輸出可直接接在目前章節末尾/u);
+  assert.match(prompt.prompt, /actor：產生候選正文/u);
+  assert.doesNotMatch(prompt.prompt, /critic：列出缺陷/u);
+  assert.doesNotMatch(prompt.prompt, /evaluator：分析候選/u);
+  assert.match(prompt.prompt, /不得反問作者/u);
 });
 
 test("offload-routing", () => {

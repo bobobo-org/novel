@@ -69,6 +69,25 @@ function usefulnessScore(content: string) {
   return clamp(0.45 + clauses.length / 12);
 }
 
+const DIRECT_NARRATIVE_TASKS = new Set<PlatformTaskType>([
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
+function narrativeTaskFormMismatch(
+  taskType: PlatformTaskType,
+  content: string,
+) {
+  if (!DIRECT_NARRATIVE_TASKS.has(taskType)) return false;
+  const numberedItems = content.match(/(?:^|[\n\r]|\s)\d{1,2}[.．、)]\s*/gu)?.length ?? 0;
+  const questions = content.match(/[？?]/gu)?.length ?? 0;
+  const explicitEditorialFrame = /(?:爭議環節|問題清單|以下(?:問題|分析|建議)|請(?:提問|分析)|創作建議|修訂建議)/u.test(content);
+  return explicitEditorialFrame || (numberedItems >= 3 && questions >= 3);
+}
+
 function traditionalChineseScore(content: string) {
   const markers = content.match(SIMPLIFIED_ONLY_MARKERS)?.length ?? 0;
   return clamp(1 - markers / Math.max(8, content.length * 0.06));
@@ -108,6 +127,7 @@ export function evaluateBrowserCandidateQuality(input: {
     0,
     input.characterBoundaryLeakCount ?? 0,
   );
+  const taskFormMismatch = narrativeTaskFormMismatch(input.taskType, content);
   const scores = {
     traditionalChinese: traditionalChineseScore(content),
     canonCompliance: clamp(1 - (input.canonConflictCount ?? 0) * 0.34),
@@ -119,7 +139,7 @@ export function evaluateBrowserCandidateQuality(input: {
       content,
       Boolean(input.requiresStructuredOutput),
     ),
-    taskUsefulness: usefulnessScore(content),
+    taskUsefulness: taskFormMismatch ? 0.05 : usefulnessScore(content),
     lengthCompliance: tokenCount >= expectedMin && tokenCount <= expectedMax
       ? 1
       : tokenCount < expectedMin
@@ -147,11 +167,13 @@ export function evaluateBrowserCandidateQuality(input: {
     if (value < 0.65) reasonCodes.push(`QUALITY_${name.toUpperCase()}_LOW`);
   }
   if (!content) reasonCodes.push("QUALITY_EMPTY_CANDIDATE");
+  if (taskFormMismatch) reasonCodes.push("QUALITY_TASK_FORM_MISMATCH");
   if (characterBoundaryLeakCount > 0) {
     reasonCodes.push("CHARACTER_KNOWLEDGE_BOUNDARY_LEAK");
   }
   const block = !content
     || characterBoundaryLeakCount > 0
+    || taskFormMismatch
     || scores.structuredOutput === 0
     || scores.canonCompliance < 0.5;
   const decision = block
