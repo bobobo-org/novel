@@ -32,6 +32,12 @@ export type BrowserSovereignFabricExecution = BrowserComputeExecution & {
   };
 };
 
+export function isBrowserFabricQualityReviewable(
+  decision: BrowserComputeExecution["quality"]["decision"],
+): decision is "pass" | "revise" {
+  return decision === "pass" || decision === "revise";
+}
+
 function fabricTask(request: PlatformAIRequest): BrowserFabricTask {
   if (!request.cacheNamespace) {
     throw Object.assign(new Error("Browser Sovereign Fabric requires a complete namespace."), {
@@ -171,13 +177,22 @@ export async function executeBrowserSovereignFabric(input: {
         return { value: { candidateOnly: true, preApprovalMutation: 0, authorityRetained: true }, engineId: "deterministic-js-wasm" };
       case "QUALITY_GATE": {
         const quality = state.values.get("CRITIC") as BrowserComputeExecution["quality"];
-        if (quality.decision !== "pass") {
+        if (!isBrowserFabricQualityReviewable(quality.decision)) {
           throw Object.assign(new Error("Browser candidate failed the Fabric quality gate."), {
             code: "BROWSER_AI_QUALITY_INSUFFICIENT",
             reasonCodes: quality.reasonCodes,
+            qualityReasonCodes: quality.reasonCodes,
           });
         }
-        return { value: { decision: "pass", score: quality.score }, engineId: "deterministic-js-wasm" };
+        return {
+          value: {
+            decision: quality.decision,
+            score: quality.score,
+            needsHumanReview: quality.decision === "revise",
+            reasonCodes: quality.reasonCodes,
+          },
+          engineId: "deterministic-js-wasm",
+        };
       }
       case "CANDIDATE":
         if (!computeRef.current) throw Object.assign(new Error("Generation result missing."), { code: "BROWSER_FABRIC_GENERATION_MISSING" });

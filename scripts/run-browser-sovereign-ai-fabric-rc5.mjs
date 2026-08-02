@@ -22,6 +22,7 @@ import {
   executeBrowserFabricTaskGraph,
   flattenNarrativeMemory,
   hybridRetrieve,
+  isBrowserFabricQualityReviewable,
   lateChunkText,
   planBrowserContextCompression,
   planIncrementalSemanticIndex,
@@ -162,6 +163,12 @@ test("fabric-orchestrator", async () => {
   assert.match(source, /value: computeRef\.current\.quality/u);
   assert.doesNotMatch(source, /evaluateBrowserCandidateQuality/u);
   assert.doesNotMatch(source, /model:\s*["']local-rule["']/u);
+  assert.equal(isBrowserFabricQualityReviewable("pass"), true);
+  assert.equal(isBrowserFabricQualityReviewable("revise"), true);
+  assert.equal(isBrowserFabricQualityReviewable("block"), false);
+  assert.equal(isBrowserFabricQualityReviewable("escalate"), false);
+  assert.match(source, /needsHumanReview:\s*quality\.decision === "revise"/u);
+  assert.match(source, /qualityReasonCodes:\s*quality\.reasonCodes/u);
   assert.deepEqual(BROWSER_FABRIC_NODE_KINDS, [
     "LOAD_AUTHORITY", "BUILD_MEMORY_VIEW", "RETRIEVE", "RERANK", "COMPRESS",
     "PLAN", "GENERATE", "CRITIC", "REVISE", "STRUCTURE_REPAIR",
