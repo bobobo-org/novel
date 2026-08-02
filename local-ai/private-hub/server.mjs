@@ -32,9 +32,12 @@ import {
 import {
   EncryptedPrivateHubCacheStore,
 } from "../cache/encrypted-cache-store.mjs";
+import {
+  LearningExperienceLedger,
+} from "./learning-experience-ledger.mjs";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
-export const PRIVATE_HUB_VERSION = "1.1.0-origin-auto-connect";
+export const PRIVATE_HUB_VERSION = "1.2.0-autonomous-learning-ledger";
 export const PRIVATE_HUB_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
 export const PRIVATE_HUB_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 const DEFAULT_PORT = 3227;
@@ -46,6 +49,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxTimeoutMs: 240_000,
   rateLimitPerMinute: 30,
   maxTrainingBytes: 1_572_864,
+  maxLearningExperienceBytes: 12_000,
 });
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -145,6 +149,16 @@ function cacheRequestError(error) {
     code,
     error instanceof Error ? error.message : "Closed AI cache request failed.",
     clientError ? 400 : 500,
+    false,
+  );
+}
+
+function learningLedgerRequestError(error) {
+  if (error instanceof BridgeError) return error;
+  return new BridgeError(
+    String(error?.code || "LEARNING_LEDGER_REQUEST_FAILED"),
+    error instanceof Error ? error.message : "Learning experience ledger request failed.",
+    Number(error?.status) || 500,
     false,
   );
 }
@@ -287,12 +301,18 @@ export function createPrivateHubServer(options = {}) {
       || process.env.NOVEL_PRIVATE_HUB_CACHE_KEY_FILE
       || path.join(runtimeDir, "cache", "cache.key"),
   });
+  const learningExperienceLedger = options.learningExperienceLedger ?? new LearningExperienceLedger({
+    directory: options.learningExperienceDirectory
+      || process.env.NOVEL_PRIVATE_HUB_LEARNING_DIR
+      || path.join(runtimeDir, "learning-experiences"),
+  });
   const logs = [];
   const accessLogs = [];
 
   async function ensureRuntime() {
     await mkdir(modelRoot, { recursive: true });
     await cache.initialize();
+    await learningExperienceLedger.initialize();
   }
 
   async function publishPairingCode(pending, origin) {
@@ -535,6 +555,7 @@ export function createPrivateHubServer(options = {}) {
             "rollback",
             "cache-stats",
             "targeted-cache-invalidation",
+            "append-only-learning-experience-ledger",
           ],
           streamingSupport: true,
           cancellationSupport: true,
@@ -553,6 +574,7 @@ export function createPrivateHubServer(options = {}) {
           externalRequest: false,
           dataLeftDevice: false,
           cache: await cache.stats(),
+          learningExperienceLedger: learningExperienceLedger.stats(),
           workload: {
             active: work.active,
             queued: work.queue.length,
@@ -649,6 +671,18 @@ export function createPrivateHubServer(options = {}) {
           invalidatedEntries,
           canonicalMutationCount: 0,
         }, origin);
+      }
+
+      if (request.method === "POST" && url.pathname === "/learning/experiences") {
+        authenticate(request, origin);
+        const body = await readJson(request, limits.maxLearningExperienceBytes);
+        let receipt;
+        try {
+          receipt = await learningExperienceLedger.append(body);
+        } catch (error) {
+          throw learningLedgerRequestError(error);
+        }
+        return sendJson(response, receipt.deduplicated ? 200 : 201, receipt, origin);
       }
 
       if (request.method === "GET" && url.pathname === "/models") {
@@ -1288,6 +1322,7 @@ export function createPrivateHubServer(options = {}) {
     },
     pairing,
     cache,
+    learningExperienceLedger,
     logs,
     accessLogs,
     active,

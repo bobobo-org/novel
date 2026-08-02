@@ -22,6 +22,11 @@ import {
   splitForDeepExtraction,
 } from "./rule-extractor";
 import {
+  CONTROLLED_WEB_KNOWLEDGE_VERSION,
+  distilledWebKnowledgePayload,
+  type DistilledWebKnowledgeBundle,
+} from "./web-knowledge-contract";
+import {
   SOVEREIGN_LEARNING_SCHEMA_VERSION,
   SOVEREIGN_LEARNING_SNAPSHOT_VERSION,
   type DeepRuleExtractor,
@@ -357,6 +362,10 @@ export async function ingestLearningSource(
     deepExtractionAttempted: Boolean(input.deepExtractor),
     deepExtractionProvider,
     deepExtractionModel,
+    dataLeftDevice: false,
+    externalRequestCount: 0,
+    webProvenance: null,
+    teacherEvidence: [],
     createdAt,
     updatedAt: createdAt,
     revision: 1,
@@ -392,6 +401,256 @@ export async function ingestLearningSource(
     rawContentRetained: false,
     externalRequestCount: 0,
     dataLeftDevice: false,
+  };
+}
+
+const WEB_RULE_FAMILIES = new Set([
+  "structure",
+  "pacing",
+  "character",
+  "relationship",
+  "dialogue",
+  "style",
+  "foreshadowing",
+  "worldbuilding",
+  "revision",
+]);
+
+const WEB_RULE_DIMENSIONS = new Set([
+  "viewpoint",
+  "sentence_rhythm",
+  "paragraph_rhythm",
+  "dialogue_density",
+  "opening_hook",
+  "conflict_escalation",
+  "reveal_cadence",
+  "scene_transition",
+  "ending_hook",
+  "character_pressure",
+  "relationship_movement",
+  "world_rule_delivery",
+  "foreshadow_payoff",
+  "information_control",
+  "tone",
+  "other",
+]);
+
+function validateDistilledWebRules(bundle: DistilledWebKnowledgeBundle) {
+  if (!Array.isArray(bundle.rules) || bundle.rules.length < 1 || bundle.rules.length > 16) {
+    throw learningError("WEB_DISTILLATION_RULE_COUNT_INVALID", "受控蒸餾規則數量無效。");
+  }
+  const combined = bundle.rules.map((rule) => [
+    rule.statement,
+    rule.recipe?.when,
+    rule.recipe?.operation,
+    rule.recipe?.constraint,
+    rule.recipe?.evaluate,
+  ].join(" ")).join("\n");
+  const credentialCodes = scanCredentialCodes(combined);
+  if (credentialCodes.length) {
+    throw Object.assign(new Error("教師規則疑似含有憑證，已阻止匯入。"), {
+      code: "WEB_DISTILLATION_CREDENTIAL_OUTPUT_BLOCKED",
+      detailCodes: credentialCodes,
+    });
+  }
+  const boundary = sanitizeRetrievedKnowledge(combined, { sourceType: "web_content" });
+  if (boundary.sanitizationStatus === "quarantined") {
+    throw learningError("WEB_DISTILLATION_TEACHER_OUTPUT_QUARANTINED", "教師規則含有高風險指令，已阻止匯入。");
+  }
+  for (const rule of bundle.rules) {
+    const recipe = rule.recipe;
+    if (
+      !WEB_RULE_FAMILIES.has(rule.family)
+      || !WEB_RULE_DIMENSIONS.has(rule.dimension)
+      || rule.extractorKind !== "external_teacher_ai"
+      || !rule.statement?.trim()
+      || !recipe
+      || [recipe.when, recipe.operation, recipe.constraint, recipe.evaluate].some((value) => !value?.trim())
+      || rule.longestSourceMatch >= 18
+      || rule.sourceOverlapScore >= 0.14
+      || rule.abstractionScore < 0.55
+    ) {
+      throw learningError("WEB_DISTILLATION_RULE_CONTRACT_INVALID", "教師規則未通過非抄寫或結構契約。");
+    }
+  }
+}
+
+export async function ingestDistilledWebKnowledge(
+  repository: SovereignLearningRepository,
+  input: {
+    projectId: string;
+    bundle: DistilledWebKnowledgeBundle;
+    rightsBasis: LearningRightsBasis;
+    rightsEvidence: string;
+    userConfirmedRights: boolean;
+    externalConsent: boolean;
+  },
+) {
+  if (!input.projectId.trim()) throw learningError("LEARNING_SOURCE_IDENTITY_REQUIRED");
+  if (!input.externalConsent) {
+    throw learningError("WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED", "必須明確同意清理後的來源送往教師 AI。");
+  }
+  validateRights({
+    sourceKind: "web_research",
+    rightsBasis: input.rightsBasis,
+    rightsEvidence: input.rightsEvidence,
+    userConfirmedRights: input.userConfirmedRights,
+  });
+  if (!input.rightsEvidence.trim()) {
+    throw learningError("LEARNING_RIGHTS_EVIDENCE_REQUIRED", "網路來源必須填寫授權、來源或合法私人分析依據。");
+  }
+  const bundle = input.bundle;
+  if (
+    bundle.schemaVersion !== CONTROLLED_WEB_KNOWLEDGE_VERSION
+    || bundle.source.rawContentRetained !== false
+    || bundle.privacy.rawSourceRetained !== false
+    || bundle.privacy.rawTeacherResponseRetained !== false
+    || bundle.privacy.candidateOnly !== true
+    || bundle.privacy.canonicalMutationCount !== 0
+    || bundle.privacy.dataLeftDevice !== true
+    || !bundle.teachers.length
+    || bundle.teachers.some((teacher) =>
+      teacher.candidateOnly !== true
+      || teacher.rawResponseRetained !== false
+      || !["openai", "grok"].includes(teacher.provider))
+  ) {
+    throw learningError("WEB_DISTILLATION_BUNDLE_INVALID", "受控蒸餾封包的隱私或候選邊界無效。");
+  }
+  const expectedDigest = await sha256Hex(stableStringify(distilledWebKnowledgePayload(bundle)));
+  if (expectedDigest !== bundle.immutableDigest) {
+    throw learningError("WEB_DISTILLATION_BUNDLE_HASH_MISMATCH", "受控蒸餾封包完整性驗證失敗。");
+  }
+  let finalUrl: URL;
+  try {
+    finalUrl = new URL(bundle.source.finalUrl);
+  } catch {
+    throw learningError("WEB_DISTILLATION_SOURCE_URL_INVALID");
+  }
+  if (finalUrl.protocol !== "https:") throw learningError("WEB_DISTILLATION_SOURCE_URL_INVALID");
+  validateDistilledWebRules(bundle);
+
+  const existingSources = await repository.listSources(input.projectId);
+  const duplicate = existingSources.find((source) =>
+    source.contentHash === bundle.source.sourceDigest && source.status !== "revoked");
+  if (duplicate) {
+    const rules = (await repository.listRules(input.projectId)).filter((rule) => rule.sourceId === duplicate.id);
+    await repository.commit({
+      audit: [auditRecord({
+        projectId: input.projectId,
+        action: "source_duplicate",
+        sourceId: duplicate.id,
+        detailCodes: ["CONTROLLED_WEB_DIGEST_MATCH"],
+      })],
+    });
+    return {
+      duplicate: true,
+      source: duplicate,
+      rules,
+      externalRequestCount: duplicate.externalRequestCount ?? 0,
+      dataLeftDevice: duplicate.dataLeftDevice ?? false,
+      rawContentRetained: false,
+    };
+  }
+  const [rightsEvidenceHash] = await Promise.all([
+    sha256Hex(input.rightsEvidence.trim()),
+  ]);
+  const sourceId = shortStableId(
+    "learning-source",
+    `${input.projectId}|${bundle.source.sourceDigest}|web_research`,
+  );
+  const createdAt = now();
+  const providers = [...new Set(bundle.teachers.map((teacher) => teacher.provider))];
+  const models = [...new Set(bundle.teachers.map((teacher) => teacher.model))];
+  const source: LearningSourceRecord = {
+    schemaVersion: SOVEREIGN_LEARNING_SCHEMA_VERSION,
+    id: sourceId,
+    projectId: input.projectId,
+    title: bundle.source.title.trim().slice(0, 180) || finalUrl.hostname,
+    author: null,
+    sourceReference: finalUrl.toString().slice(0, 500),
+    sourceKind: "web_research",
+    rightsBasis: input.rightsBasis,
+    rightsEvidenceHash,
+    userConfirmedRights: true,
+    localAnalysisOnly: false,
+    rawContentRetained: false,
+    contentHash: bundle.source.sourceDigest,
+    fingerprint: bundle.source.fingerprint,
+    language: "unknown",
+    status: "active",
+    sanitizationStatus: bundle.source.sanitizationStatus,
+    warningCodes: [...new Set([
+      ...bundle.source.warningCodes,
+      "CONTROLLED_EXTERNAL_TEACHER_CANDIDATE_ONLY",
+      "RAW_SOURCE_NOT_RETAINED",
+      "RAW_TEACHER_RESPONSE_NOT_RETAINED",
+    ])],
+    trustScore: scoreSourceTrust({
+      sourceType: "web_content",
+      userApproved: true,
+      canonical: false,
+      citationValid: true,
+      identityVerified: false,
+    }),
+    deepExtractionAttempted: true,
+    deepExtractionProvider: providers.join("+"),
+    deepExtractionModel: models.join("+").slice(0, 240),
+    dataLeftDevice: true,
+    externalRequestCount: bundle.privacy.externalRequestCount,
+    webProvenance: {
+      requestedUrl: bundle.source.requestedUrl,
+      finalUrl: bundle.source.finalUrl,
+      fetchedAt: bundle.source.fetchedAt,
+      contentType: bundle.source.contentType,
+      robotsPolicy: bundle.source.robotsPolicy,
+      redirects: bundle.source.redirects,
+      sourceDigest: bundle.source.sourceDigest,
+      rawContentRetained: false,
+    },
+    teacherEvidence: bundle.teachers.map((teacher) => ({
+      provider: teacher.provider,
+      model: teacher.model,
+      responseDigest: teacher.responseDigest,
+      acceptedRuleCount: teacher.acceptedRuleCount,
+      candidateOnly: true,
+      rawResponseRetained: false,
+    })),
+    createdAt,
+    updatedAt: createdAt,
+    revision: 1,
+  };
+  const existingRules = await repository.listRules(input.projectId);
+  const rules = toLearnedRules({
+    projectId: input.projectId,
+    sourceId,
+    drafts: bundle.rules,
+    quarantined: false,
+    existingRules,
+  });
+  await repository.commit({
+    sources: [source],
+    rules,
+    audit: [auditRecord({
+      projectId: input.projectId,
+      action: "source_ingested",
+      sourceId,
+      detailCodes: [
+        "CONTROLLED_WEB_RESEARCH",
+        "EXTERNAL_TEACHER_CANDIDATE_ONLY",
+        `EXTERNAL_REQUEST_COUNT_${bundle.privacy.externalRequestCount}`,
+        `RULE_COUNT_${rules.length}`,
+        `CROSS_TEACHER_RULE_COUNT_${bundle.teacherAgreement.crossTeacherRuleCount}`,
+        `BUNDLE_DIGEST_${bundle.immutableDigest}`,
+      ],
+    })],
+  });
+  return {
+    duplicate: false,
+    source,
+    rules,
+    externalRequestCount: bundle.privacy.externalRequestCount,
+    dataLeftDevice: true,
+    rawContentRetained: false,
   };
 }
 
@@ -734,8 +993,11 @@ export async function getSovereignLearningDashboard(
     privacy: {
       rawSourceContentStored: false,
       rawOutputStored: false,
-      externalRequestCount: 0,
-      dataLeftDevice: false,
+      externalRequestCount: sources.reduce(
+        (total, source) => total + (source.externalRequestCount ?? 0),
+        0,
+      ),
+      dataLeftDevice: sources.some((source) => source.dataLeftDevice === true),
     },
   };
 }
@@ -828,6 +1090,9 @@ export const SOVEREIGN_LEARNING_HEALTH = {
   originalityGuardStatus: "ready",
   combinationEngineStatus: "ready",
   localDeepExtractionStatus: "runtime_required",
+  controlledWebResearchStatus: "ready_with_explicit_rights_and_consent",
+  externalTeacherDistillationStatus: "server_credentials_required",
+  teacherOutputPromotionStatus: "candidate_only_human_approval_required",
   rawSourceRetention: false,
   externalRequestCount: 0,
   dataLeftDevice: false,

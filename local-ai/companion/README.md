@@ -1,4 +1,4 @@
-# Novel Local AI Companion 1.2.0
+# Novel Local AI Companion 1.3.0
 
 This package runs only on the user's Windows computer. It connects the Novel
 Studio web page to an existing Ollama installation through loopback:
@@ -10,6 +10,7 @@ Studio web page to an existing Ollama installation through loopback:
 - telemetry: disabled
 - firewall modification: none
 - software installation: none
+- autonomous-learning experience ledger: append-only, hash-chained, and raw-content-free
 
 ## Requirements
 
@@ -72,7 +73,7 @@ installs software or overrides Windows or organization policy.
 The setup page publishes the SHA-256 of the exact ZIP. In PowerShell:
 
 ```powershell
-Get-FileHash .\novel-local-ai-companion-v1.2.0.zip -Algorithm SHA256
+Get-FileHash .\novel-local-ai-companion-v1.3.0.zip -Algorithm SHA256
 ```
 
 Compare the full value before extracting. This release is checksum-verifiable

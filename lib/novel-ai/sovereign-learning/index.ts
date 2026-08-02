@@ -5,3 +5,6 @@ export * from "./repository";
 export * from "./combination-engine";
 export * from "./originality-guard";
 export * from "./service";
+export * from "./web-knowledge-contract";
+export * from "./capability-evaluator";
+export * from "./autonomous-practice";

@@ -7,7 +7,8 @@ export type LearningSourceKind =
   | "ai_output"
   | "personal_note"
   | "public_domain_work"
-  | "licensed_material";
+  | "licensed_material"
+  | "web_research";
 
 export type LearningRightsBasis =
   | "owned_by_user"
@@ -68,7 +69,7 @@ export type LearningSourceRecord = {
   rightsBasis: LearningRightsBasis;
   rightsEvidenceHash: string;
   userConfirmedRights: true;
-  localAnalysisOnly: true;
+  localAnalysisOnly: boolean;
   rawContentRetained: false;
   contentHash: string;
   fingerprint: TextFingerprint;
@@ -80,6 +81,26 @@ export type LearningSourceRecord = {
   deepExtractionAttempted: boolean;
   deepExtractionProvider: string | null;
   deepExtractionModel: string | null;
+  dataLeftDevice?: boolean;
+  externalRequestCount?: number;
+  webProvenance?: {
+    requestedUrl: string;
+    finalUrl: string;
+    fetchedAt: string;
+    contentType: string;
+    robotsPolicy: "allowed" | "not_present";
+    redirects: number;
+    sourceDigest: string;
+    rawContentRetained: false;
+  } | null;
+  teacherEvidence?: Array<{
+    provider: "openai" | "grok";
+    model: string;
+    responseDigest: string;
+    acceptedRuleCount: number;
+    candidateOnly: true;
+    rawResponseRetained: false;
+  }>;
   createdAt: string;
   updatedAt: string;
   revision: number;
@@ -100,7 +121,7 @@ export type LearningRuleDraft = {
   parameters: Record<string, string | number | boolean>;
   recipe: LearningRuleRecipe;
   confidence: number;
-  extractorKind: "deterministic_pattern" | "local_closed_ai";
+  extractorKind: "deterministic_pattern" | "local_closed_ai" | "external_teacher_ai";
   extractorProvider: string;
   extractorModel: string | null;
   sourceOverlapScore: number;

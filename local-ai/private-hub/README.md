@@ -69,3 +69,19 @@ Paired clients can inspect `/cache/stats` and perform targeted
 `/cache/invalidate`. Cache data never becomes Memory, Learning or Canon
 without the separate evaluator, human approval and signed approval
 transaction.
+
+## Autonomous learning experience ledger
+
+When the user enables controlled autonomous practice and experience sync,
+Studio may submit only the sealed `controlled-autonomous-practice-v1` summary
+to `/learning/experiences`. The Hub rejects unknown fields, raw prompts,
+story text, model output, credentials, AUTHOR_ONLY data, chain-of-thought, or
+any claimed Canon, Memory, or model-weight mutation.
+
+Accepted summaries are deduplicated and appended to an owner-local JSONL
+ledger. Every record commits to the previous record hash, its sequence,
+receipt time, and the complete de-identified experience digest. The full hash
+chain is verified whenever the Hub starts; corruption stops the runtime
+instead of silently accepting the ledger. These summaries remain learning
+candidates and cannot activate an adapter without the existing dataset,
+evaluation, approval, activation, and rollback gates.

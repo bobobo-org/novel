@@ -36,6 +36,9 @@ import {
   evaluateLocalAIRuntimeVersion,
   LOCAL_AI_COMPANION_RELEASE,
 } from "../local-ollama/companion-release";
+import type {
+  AutonomousPracticeExperience,
+} from "../../sovereign-learning/autonomous-practice";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
@@ -73,6 +76,20 @@ export type PrivateHubAutomaticConnection = {
   session: { instanceId: string; expiresAt: string };
   model: LocalTextModel;
   proof: PrivateHubInferenceProof;
+};
+
+export type PrivateHubLearningExperienceReceipt = {
+  status: "durably_recorded";
+  durable: true;
+  deduplicated: boolean;
+  sequence: number;
+  receivedAt: string;
+  experienceDigest: string;
+  receiptDigest: string;
+  ledgerHead: string;
+  rawContentStored: false;
+  canonicalMutationCount: 0;
+  modelWeightMutationCount: 0;
 };
 
 export type OfflinePreferenceModelArtifact = {
@@ -147,6 +164,15 @@ type PrivateHubBody = Record<string, unknown> & {
   evalCount?: number | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  durable?: boolean;
+  deduplicated?: boolean;
+  sequence?: number;
+  experienceDigest?: string;
+  receiptDigest?: string;
+  ledgerHead?: string;
+  rawContentStored?: boolean;
+  canonicalMutationCount?: number;
+  modelWeightMutationCount?: number;
   automaticConnection?: boolean;
   automaticSessionSupported?: boolean;
   sessionKind?: string;
@@ -335,7 +361,7 @@ export class PrivateHubClient {
     }, this.tabStorage);
   }
 
-  async restoreRememberedSession(signal?: AbortSignal) {
+  async restoreRememberedControlSession(signal?: AbortSignal) {
     const remembered = readClosedAITabSession({
       backend: "private-ai-hub",
       protocolVersion: PRIVATE_HUB_PROTOCOL,
@@ -362,6 +388,22 @@ export class PrivateHubClient {
           { retryable: false, stage: "private-session-recovery" },
         );
       }
+      return {
+        remembered,
+        session: this.getSessionMetadata(),
+      };
+    } catch (error) {
+      this.setSession(null);
+      this.clearRememberedSession();
+      throw error;
+    }
+  }
+
+  async restoreRememberedSession(signal?: AbortSignal) {
+    const restored = await this.restoreRememberedControlSession(signal);
+    if (!restored) return null;
+    const { remembered } = restored;
+    try {
       const modelResponse = await this.models(signal);
       const models = modelResponse.models ?? [];
       const selected = models.find((model) =>
@@ -508,6 +550,87 @@ export class PrivateHubClient {
     ));
     this.clearControlPlaneCache();
     return result;
+  }
+
+  async connectControlAutomatically(signal?: AbortSignal) {
+    const health = await this.health(
+      signal ?? AbortSignal.timeout(PRIVATE_HUB_CONTROL_TIMEOUT_MS),
+    );
+    const versionStatus = evaluateLocalAIRuntimeVersion({
+      reportedVersion: health.hubVersion,
+      minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumPrivateHubVersion,
+      recommendedVersion: LOCAL_AI_COMPANION_RELEASE.recommendedPrivateHubVersion,
+    });
+    if (versionStatus === "unknown" || versionStatus === "incompatible") {
+      throw new AiProviderError(
+        "LOCAL_PROVIDER_NOT_READY",
+        `Private Hub ${String(health.hubVersion ?? "unknown")} is not compatible with the current Studio release.`,
+        { retryable: false, stage: "private-control-auto-session" },
+      );
+    }
+    if (
+      this.session
+      && (
+        this.session.instanceId !== health.instanceId
+        || Date.parse(this.session.expiresAt) <= Date.now()
+      )
+    ) {
+      this.setSession(null);
+      this.clearRememberedSession();
+    }
+    if (this.session) {
+      return {
+        state: "connected" as const,
+        mode: "existing-session" as const,
+        session: this.getSessionMetadata()!,
+      };
+    }
+    if (health.automaticSessionSupported !== true) {
+      throw new AiProviderError(
+        "LOCAL_PROVIDER_NOT_READY",
+        "This Private Hub does not support trusted-origin automatic sessions.",
+        { retryable: false, stage: "private-control-auto-session" },
+      );
+    }
+    const body = await this.parse(await this.fetchHub(
+      "/session/auto",
+      {
+        method: "POST",
+        headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "closed-ai-connect" }),
+      },
+      signal,
+    ));
+    if (
+      typeof body.token !== "string"
+      || body.token.length < 32
+      || typeof body.csrf !== "string"
+      || body.csrf.length < 24
+      || typeof body.instanceId !== "string"
+      || !body.instanceId
+      || typeof body.expiresAt !== "string"
+      || Date.parse(body.expiresAt) <= Date.now()
+      || body.automaticConnection !== true
+      || body.sessionKind !== "trusted_origin_auto"
+    ) {
+      throw new AiProviderError(
+        "OLLAMA_INVALID_RESPONSE",
+        "Private Hub did not return a valid origin-bound control session.",
+        { retryable: true, stage: "private-control-auto-session" },
+      );
+    }
+    this.setSession({
+      token: body.token,
+      csrf: body.csrf,
+      instanceId: body.instanceId,
+      expiresAt: body.expiresAt,
+    });
+    this.saveRememberedSession();
+    return {
+      state: "connected" as const,
+      mode: "trusted-origin-auto" as const,
+      session: this.getSessionMetadata()!,
+    };
   }
 
   async connectAutomatically(
@@ -901,6 +1024,41 @@ export class PrivateHubClient {
       },
       signal,
     ));
+  }
+
+  async storeLearningExperience(
+    experience: AutonomousPracticeExperience,
+    signal?: AbortSignal,
+  ): Promise<PrivateHubLearningExperienceReceipt> {
+    const body = await this.parse(await this.fetchHub(
+      "/learning/experiences",
+      {
+        method: "POST",
+        headers: { ...this.headers(true, true), "Content-Type": "application/json" },
+        body: JSON.stringify(experience),
+      },
+      signal,
+    ));
+    if (
+      body.status !== "durably_recorded"
+      || body.durable !== true
+      || typeof body.deduplicated !== "boolean"
+      || !Number.isInteger(body.sequence)
+      || typeof body.receivedAt !== "string"
+      || body.experienceDigest !== experience.experienceDigest
+      || !/^[a-f0-9]{64}$/iu.test(String(body.receiptDigest || ""))
+      || !/^[a-f0-9]{64}$/iu.test(String(body.ledgerHead || ""))
+      || body.rawContentStored !== false
+      || body.canonicalMutationCount !== 0
+      || body.modelWeightMutationCount !== 0
+    ) {
+      throw new AiProviderError(
+        "AI_PROVIDER_INVALID_RESPONSE",
+        "Private Hub learning ledger returned an invalid receipt.",
+        { retryable: false, stage: "private-learning-ledger" },
+      );
+    }
+    return body as PrivateHubBody & PrivateHubLearningExperienceReceipt;
   }
 
   async *generate(input: {

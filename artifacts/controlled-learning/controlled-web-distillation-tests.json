@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "checks": 39,
+  "expectedFailures": [
+    "WEB_RESEARCH_ROBOTS_DISALLOWED",
+    "WEB_RESEARCH_DNS_PRIVATE_ADDRESS_BLOCKED",
+    "WEB_RESEARCH_PROMPT_INJECTION_BLOCKED",
+    "WEB_RESEARCH_PRIVATE_ADDRESS_BLOCKED"
+  ],
+  "teacherCount": 2,
+  "ruleCount": 2,
+  "crossTeacherRuleCount": 1,
+  "capabilityStatus": "passed",
+  "capabilityDelta": 100,
+  "autonomousPracticeOutcome": "practice_passed",
+  "rollbackSelectedRuleCount": 0,
+  "rollbackCapabilityDelta": 0,
+  "rawSourceRetained": false,
+  "rawTeacherResponseRetained": false,
+  "canonicalMutationCount": 0
+}

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.2.0"
+  [string]$Version = "1.3.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,6 +9,7 @@ $packageName = "novel-local-ai-companion-v$Version"
 $stageRoot = Join-Path $temporaryRoot $packageName
 $outputDirectory = Join-Path $repositoryRoot "public\downloads"
 $outputPath = Join-Path $outputDirectory "$packageName.zip"
+$checksumPath = Join-Path $outputDirectory "$packageName.sha256"
 
 $resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot)
 $systemTemporaryRoot = [System.IO.Path]::GetFullPath(
@@ -60,6 +61,7 @@ $privateHubFiles = @(
   "launcher.mjs",
   "novel-private-hub.ps1",
   "preference-model.mjs",
+  "learning-experience-ledger.mjs",
   "README.md",
   "server.mjs"
 )
@@ -82,10 +84,17 @@ Compress-Archive -LiteralPath $stageRoot -DestinationPath $outputPath `
   -CompressionLevel Optimal
 
 $hash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash
+$utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText(
+  $checksumPath,
+  "$hash  $packageName.zip`n",
+  $utf8WithoutBom
+)
 [pscustomobject]@{
   version = $Version
   package = $packageName
   outputPath = $outputPath
+  checksumPath = $checksumPath
   sha256 = $hash
   signed = $false
 } | ConvertTo-Json -Depth 4

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -6,6 +7,10 @@ import {
   PRIVATE_HUB_PROTOCOL,
   createPrivateHubServer,
 } from "../local-ai/private-hub/server.mjs";
+import {
+  LearningExperienceLedger,
+  stableLearningValue,
+} from "../local-ai/private-hub/learning-experience-ledger.mjs";
 
 const origin = "https://novel-orcin.vercel.app";
 const port = 3238;
@@ -26,13 +31,14 @@ const read = async (response) => ({
   status: response.status,
   body: await response.json().catch(() => ({})),
 });
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 try {
   await hub.start();
   const health = await read(await fetch(`${base}/health`, { headers: headers() }));
   assert.equal(health.status, 200);
   assert.equal(health.body.automaticSessionSupported, true);
-  assert.match(health.body.hubVersion, /^1\.1\.0/u);
+  assert.match(health.body.hubVersion, /^1\.2\.0/u);
 
   const connected = await read(await fetch(`${base}/session/auto`, {
     method: "POST",
@@ -50,6 +56,87 @@ try {
   }));
   assert.equal(stats.status, 200);
   assert.equal(stats.body.cache.encryptedAtRest, true);
+
+  const experienceBody = {
+    schemaVersion: "controlled-autonomous-practice-v1",
+    projectDigest: sha256("project"),
+    installationDigest: sha256("installation"),
+    consentDigest: sha256("consent"),
+    practiceKind: "approved-rule-sandbox-rehearsal",
+    capabilityEvidenceDigest: sha256("capability"),
+    approvedRuleSetDigest: sha256("rules"),
+    approvedRuleCount: 4,
+    selectedRuleCount: 4,
+    taskCount: 5,
+    treatmentRecipeCount: 15,
+    completeRecipeCount: 15,
+    scores: {
+      control: 0,
+      treatment: 92,
+      capabilityDelta: 92,
+      taskCoverage: 1,
+      lineageCoverage: 1,
+      recipeCompleteness: 1,
+    },
+    outcome: "practice_passed",
+    recommendedNextStep: "retain_current_version",
+    privacy: {
+      rawPromptIncluded: false,
+      rawStoryIncluded: false,
+      rawOutputIncluded: false,
+      rawChainOfThoughtIncluded: false,
+      credentialIncluded: false,
+      authorOnlyIncluded: false,
+      canonicalMutationCount: 0,
+      memoryMutationCount: 0,
+      modelWeightMutationCount: 0,
+    },
+    createdAt: "2026-08-02T00:00:00.000Z",
+  };
+  const experience = {
+    ...experienceBody,
+    experienceDigest: sha256(stableLearningValue(experienceBody)),
+  };
+  const learningHeaders = headers({
+    Authorization: `Bearer ${connected.body.token}`,
+    "X-Hub-CSRF": connected.body.csrf,
+    "Content-Type": "application/json",
+  });
+  const recorded = await read(await fetch(`${base}/learning/experiences`, {
+    method: "POST",
+    headers: learningHeaders,
+    body: JSON.stringify(experience),
+  }));
+  assert.equal(recorded.status, 201);
+  assert.equal(recorded.body.durable, true);
+  assert.equal(recorded.body.rawContentStored, false);
+  assert.equal(recorded.body.canonicalMutationCount, 0);
+  assert.equal(recorded.body.modelWeightMutationCount, 0);
+  assert.equal(recorded.body.experienceDigest, experience.experienceDigest);
+
+  const deduplicated = await read(await fetch(`${base}/learning/experiences`, {
+    method: "POST",
+    headers: learningHeaders,
+    body: JSON.stringify(experience),
+  }));
+  assert.equal(deduplicated.status, 200);
+  assert.equal(deduplicated.body.deduplicated, true);
+  assert.equal(deduplicated.body.sequence, recorded.body.sequence);
+
+  const rawFieldRejected = await read(await fetch(`${base}/learning/experiences`, {
+    method: "POST",
+    headers: learningHeaders,
+    body: JSON.stringify({ ...experience, rawStory: "must never be accepted" }),
+  }));
+  assert.equal(rawFieldRejected.status, 400);
+  assert.equal(rawFieldRejected.body.errorCode, "LEARNING_EXPERIENCE_CONTRACT_INVALID");
+
+  const reopenedLedger = new LearningExperienceLedger({
+    directory: path.join(runtimeDir, "learning-experiences"),
+  });
+  await reopenedLedger.initialize();
+  assert.equal(reopenedLedger.stats().records, 1);
+  assert.equal(reopenedLedger.stats().ledgerHead, recorded.body.ledgerHead);
 
   const revoked = await read(await fetch(`${base}/pair/revoke`, {
     method: "POST",
@@ -88,6 +175,14 @@ try {
     exactOriginEnforced: true,
     revocationEnforced: true,
     encryptedCache: true,
+    autonomousLearningLedger: {
+      durable: true,
+      appendOnly: true,
+      deduplicated: true,
+      restartIntegrityVerified: true,
+      rawContentStored: false,
+      canonicalMutationCount: 0,
+    },
   }, null, 2)}\n`);
 } finally {
   await hub.stop().catch(() => undefined);

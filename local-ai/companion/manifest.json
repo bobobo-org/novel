@@ -1,6 +1,6 @@
 {
   "schemaVersion": "novel-local-ai-companion-manifest-v1",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minimumNodeMajor": 22,
   "bindAddress": "127.0.0.1",
   "bridgePort": 3217,
@@ -13,6 +13,7 @@
   "signed": false,
   "automaticOriginSession": true,
   "versionHealthCheck": true,
+  "autonomousLearningLedger": true,
   "entrypoint": "bridge/novel-local-ai.ps1",
   "privateHubEntrypoint": "private-hub/novel-private-hub.ps1"
 }

@@ -136,6 +136,7 @@
     "seal:p24b:rc3-1:evidence": "node scripts/seal-p24b-rc3-1-consumer-activation-evidence.mjs",
     "test:ai:closed:optimization": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization.mjs",
     "test:ai:external:modes": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-external-ai-modes.mjs",
+    "test:ai:controlled-web-distillation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-controlled-web-distillation.mjs",
     "test:ai:browser:semantic-rag": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-semantic-rag.mjs",
     "test:ai:browser:performance": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-ai-performance-policy.mjs",
     "test:ai:closed:cloud-sync": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-cloud-sync-e2ee.mjs",
