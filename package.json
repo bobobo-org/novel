@@ -19,6 +19,7 @@
     "test:rc3:supabase-repair-plan": "node scripts/run-p24b-rc3-supabase-audit.mjs",
     "test:rc3:consumer-activation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs all && node scripts/run-p24b-rc3-supabase-audit.mjs",
     "test:studio:chapter-isolation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-studio-chapter-isolation.mjs",
+    "test:studio:task-session-rpg-ai": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-studio-task-session-rpg-ai.mjs",
     "test:studio:writing-flow": "node scripts/run-writing-flow-ux.mjs",
     "test:studio:adult-experience": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-adult-experience-director.mjs",
     "test:studio:chapter-browser": "node scripts/run-studio-chapter-browser.mjs",

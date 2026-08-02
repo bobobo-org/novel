@@ -1,17 +1,20 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   makeRecord,
   optionalValue,
   type AcceptedChoice,
   type Chapter,
   type Character,
+  type CharacterRelationship,
+  type LoreEntry,
   type NovelProject,
   type StoryBible,
   type StoryChoiceEffect,
   type StoryState,
+  type TimelineEvent,
+  type WorldRule,
 } from "@/lib/novel-ai/domain";
 import {
   RPG_CHARACTER_LIBRARY_STORAGE_KEY,
@@ -66,16 +69,54 @@ import {
   persistStudioChoiceCandidate,
   type StudioProjectSeed,
 } from "@/lib/novel-ai/repository/studio-canonical";
+import {
+  prewarmStudioInteractiveChoiceAI,
+  regenerateStudioClosedAI,
+  runStudioClosedAI,
+} from "@/lib/novel-ai/web/studio-closed-ai";
+import {
+  approveStudioClosedAgentCandidate,
+  prewarmStudioProjectAIState,
+  rejectStudioClosedAgentCandidate,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
+import { hasVerifiedExecutedStoryOutput } from "@/lib/novel-ai/web/story-output-quality";
+import {
+  buildRpgChoiceDirectorPrompt,
+  buildRpgResolutionDirectorPrompt,
+  cleanRpgContinuation,
+  mergeRpgChoiceDirection,
+  parseRpgChoiceDirectorOutput,
+  type RpgDirectedChoice,
+} from "@/lib/novel-ai/web/rpg-closed-ai-director";
+import {
+  stageStudioTaskHandoff,
+  studioHomeHref,
+} from "@/lib/novel-ai/web/studio-task-session";
 import ProjectNavigation from "../project-navigation";
 import styles from "./rpg.module.css";
 
 type WorkspaceData = {
   project: NovelProject;
   chapter: Chapter;
+  chapters: Chapter[];
   storyState: StoryState;
   storyBible: StoryBible;
   characters: Character[];
+  relationships: CharacterRelationship[];
+  worldRules: WorldRule[];
+  lore: LoreEntry[];
+  timeline: TimelineEvent[];
   acceptedChoices: AcceptedChoice[];
+};
+
+type RpgAiChoicePlan = {
+  contextKey: string;
+  choices: RpgDirectedChoice[];
+  taskId: string;
+  candidateId: string;
+  model: string;
+  modelDigest: string;
+  actualExecutor: string;
 };
 
 type DetailPanel = "inventory" | "quests" | "relationships" | "log" | "rules" | "characters";
@@ -132,6 +173,7 @@ function studioSeed(data: WorkspaceData): StudioProjectSeed {
   return {
     id: data.project.id,
     title: data.project.title,
+    chapterId: data.chapter.id,
     chapterTitle: data.chapter.title,
     draft: data.chapter.content,
     packId: data.project.genrePackId,
@@ -200,17 +242,38 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [goal, setGoal] = useState("");
   const [xianxiaRuleKind, setXianxiaRuleKind] = useState<XianxiaRuleKind>("talisman");
   const [xianxiaRuleVariant, setXianxiaRuleVariant] = useState(0);
+  const [aiChoicePlan, setAiChoicePlan] = useState<RpgAiChoicePlan | null>(null);
+  const [aiChoiceStatus, setAiChoiceStatus] = useState("等待故事與 RPG 狀態完成同步。 ");
+  const [aiChoiceRetry, setAiChoiceRetry] = useState(0);
+  const aiChoiceControllerRef = useRef<AbortController | null>(null);
+  const aiChoiceCandidateRef = useRef<string | null>(null);
+
+  function leaveRpg(href: string, label: string) {
+    stageStudioTaskHandoff({
+      projectId,
+      sourceLabel: "完整 RPG 儀表板",
+      destinationLabel: label,
+      destinationHref: href,
+      chapterId: data?.chapter.id ?? null,
+      chapterTitle: data?.chapter.title ?? null,
+    });
+    window.location.assign(studioHomeHref(projectId));
+  }
 
   const load = useCallback(async () => {
     const repository = createNovelRepository();
     const loadedProject = await repository.get<NovelProject>("projects", projectId);
     if (!loadedProject) throw new Error("找不到這個作品。");
     let project: NovelProject = loadedProject;
-    const [chapters, states, bibles, characters, acceptedChoices] = await Promise.all([
+    const [chapters, states, bibles, characters, relationships, worldRules, lore, timeline, acceptedChoices] = await Promise.all([
       repository.list<Chapter>("chapters", projectId),
       repository.list<StoryState>("storyStates", projectId),
       repository.list<StoryBible>("storyBibles", projectId),
       repository.list<Character>("characters", projectId),
+      repository.list<CharacterRelationship>("relationships", projectId),
+      repository.list<WorldRule>("worldRules", projectId),
+      repository.list<LoreEntry>("lore", projectId),
+      repository.list<TimelineEvent>("timeline", projectId),
       repository.listAcceptedChoices(projectId),
     ]);
     let chapter = chapters.find((item) => item.id === project.activeChapterId)
@@ -238,12 +301,27 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setData({
       project,
       chapter,
+      chapters: (chapters.some((item) => item.id === chapter.id) ? [...chapters] : [...chapters, chapter])
+        .sort((left, right) => left.order - right.order),
       storyState,
       storyBible,
       characters,
+      relationships,
+      worldRules,
+      lore,
+      timeline,
       acceptedChoices: [...acceptedChoices].sort((left, right) => right.acceptedAt.localeCompare(left.acceptedAt)),
     });
     setStatus("RPG、養成、經營規則引擎與正式故事狀態已同步。");
+    void Promise.allSettled([
+      prewarmStudioProjectAIState({
+        projectId,
+        taskTypes: ["chapter.abcChoices", "chapter.continue"],
+        sourceChapterId: chapter.id,
+        sourceRevision: chapter.revision,
+      }),
+      prewarmStudioInteractiveChoiceAI(),
+    ]);
   }, [projectId]);
 
   useEffect(() => {
@@ -266,11 +344,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     [activeMode, data, protagonist?.name],
   );
   const activated = Boolean(data?.storyState.protagonistStats["rpg.xp"] !== undefined);
-  const conflict = data?.project.coreIdea.value
-    ?? data?.chapter.summary
-    ?? data?.chapter.content.slice(-180)
-    ?? "目前局勢";
-  const choices = useMemo(
+  const conflict = data?.chapter.content.slice(-360).trim()
+    || data?.chapter.summary?.trim()
+    || data?.storyBible.unresolvedThreads.at(-1)?.trim()
+    || data?.project.coreIdea.value?.trim()
+    || "目前局勢";
+  const ruleChoices = useMemo(
     () => data && progression
       ? buildRpgChoices({
         progression,
@@ -285,6 +364,204 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       : [],
     [activeMode, conflict, data, progression, protagonist?.name, rules],
   );
+  const aiContextKey = data && progression
+    ? [
+      data.project.id,
+      data.chapter.id,
+      data.chapter.revision,
+      data.storyState.revision,
+      data.storyBible.revision,
+      activeMode,
+      progression.turn,
+      progression.choiceVariant,
+      aiChoiceRetry,
+    ].join(":")
+    : "not-ready";
+  const aiDirectorContext = useMemo(() => {
+    if (!data || !progression) return null;
+    const relevantChapters = data.chapters
+      .filter((item) => item.order <= data.chapter.order)
+      .slice(-3)
+      .map((item) => ({
+        id: item.id,
+        order: item.order,
+        title: item.title,
+        status: item.status,
+        recentText: item.content.slice(-1_100),
+      }));
+    const nameById = new Map(data.characters.map((character) => [character.id, character.name]));
+    return {
+      project: {
+        title: data.project.title,
+        coreIdea: data.project.coreIdea.value,
+        genre: data.project.genreId,
+        narrativeStyle: data.project.narrativeStyle.value,
+      },
+      currentChapter: {
+        id: data.chapter.id,
+        title: data.chapter.title,
+        order: data.chapter.order,
+        revision: data.chapter.revision,
+        recentText: sceneExcerpt(data.chapter.content),
+      },
+      previousChapters: relevantChapters,
+      storyBible: {
+        theme: data.storyBible.theme.value,
+        style: data.storyBible.style.value,
+        foreshadowing: data.storyBible.foreshadowing.slice(-8),
+        unresolvedThreads: data.storyBible.unresolvedThreads.slice(-10),
+        forbiddenContradictions: data.storyBible.forbiddenContradictions.slice(-10),
+        authorPreferences: data.storyBible.authorPreferences.slice(-8),
+      },
+      protagonist: protagonist ? {
+        name: protagonist.name,
+        identity: protagonist.identity.value,
+        personality: protagonist.personality.value,
+        goal: protagonist.goal.value,
+        values: protagonist.values ?? [],
+        capabilities: protagonist.capabilities ?? [],
+        limitations: protagonist.limitations ?? [],
+      } : null,
+      supportingCharacters: data.characters
+        .filter((character) => character.id !== protagonist?.id)
+        .slice(0, 10)
+        .map((character) => ({
+          name: character.name,
+          identity: character.identity.value,
+          personality: character.personality.value,
+          goal: character.goal.value,
+        })),
+      relationships: data.relationships.slice(-16).map((relationship) => ({
+        from: nameById.get(relationship.fromCharacterId) ?? relationship.fromCharacterId,
+        to: nameById.get(relationship.toCharacterId) ?? relationship.toCharacterId,
+        kind: relationship.kind,
+        summary: relationship.summary,
+        trust: relationship.trust,
+      })),
+      worldRules: data.worldRules.map((rule) => ({
+        title: rule.title,
+        description: rule.description,
+        immutable: rule.immutable,
+      })),
+      lore: data.lore.slice(-12).map((entry) => ({ kind: entry.kind, title: entry.title, content: entry.content })),
+      timeline: data.timeline.slice(-12).map((event) => ({
+        storyTime: event.storyTime,
+        title: event.title,
+        summary: event.summary,
+      })),
+      recentAcceptedChoices: data.acceptedChoices.slice(0, 8).map((choice) => ({
+        label: choice.choiceLabel,
+        text: choice.acceptedText.slice(0, 520),
+      })),
+      lockedStoryState: {
+        time: data.storyState.timeState,
+        location: data.storyState.locationState,
+        risk: data.storyState.riskState,
+        money: data.storyState.money,
+        reputation: data.storyState.reputation,
+        stats: progression.stats,
+        status: progression.status,
+        currencies: progression.currencies,
+        inventory: progression.inventory.filter((item) => item.quantity > 0).map((item) => ({ name: item.name, quantity: item.quantity, effect: item.effectDescription })),
+        quests: data.storyState.questStates,
+        relationships: data.storyState.relationships,
+        day: progression.day,
+        turn: progression.turn,
+        mode: activeMode,
+      },
+    };
+  }, [activeMode, data, progression, protagonist]);
+  const choices = aiChoicePlan?.contextKey === aiContextKey
+    ? aiChoicePlan.choices
+    : ruleChoices;
+  const aiChoicesReady = Boolean(aiChoicePlan?.contextKey === aiContextKey);
+
+  useEffect(() => {
+    if (!activated || !data || !progression || !aiDirectorContext || ruleChoices.length !== 3) {
+      const resetTimer = window.setTimeout(() => setAiChoicePlan(null), 0);
+      return () => window.clearTimeout(resetTimer);
+    }
+    const controller = new AbortController();
+    aiChoiceControllerRef.current?.abort();
+    aiChoiceControllerRef.current = controller;
+    const resetTimer = window.setTimeout(() => {
+      setSelectedChoice(null);
+      setAiChoicePlan(null);
+      setAiChoiceStatus("閉端 AI 正在閱讀目前章節、人物關係、世界規則與最近回合，規劃三條不同路線……");
+    }, 0);
+    const previousCandidateId = aiChoiceCandidateRef.current;
+    aiChoiceCandidateRef.current = null;
+    if (previousCandidateId) void rejectStudioClosedAgentCandidate(previousCandidateId).catch(() => undefined);
+
+    void Promise.resolve()
+      .then(() => prewarmStudioInteractiveChoiceAI(controller.signal))
+      .then(async () => {
+        const taskInput = {
+          projectId: data.project.id,
+          task: "three_choices",
+          input: buildRpgChoiceDirectorPrompt({ context: aiDirectorContext, baseChoices: ruleChoices }),
+          sourceChapterId: data.chapter.id,
+          sourceRevision: data.chapter.revision,
+          qualityMode: "balanced" as const,
+          generationOptions: {
+            maxTokens: 720,
+            temperature: 0.82,
+            topP: 0.94,
+            repetitionPenalty: 1.16,
+            seed: (data.storyState.revision * 997 + progression.turn * 131 + progression.choiceVariant * 17 + aiChoiceRetry) >>> 0,
+          },
+          signal: controller.signal,
+        };
+        let result = await runStudioClosedAI(taskInput);
+        let directed;
+        try {
+          directed = parseRpgChoiceDirectorOutput(result.content);
+        } catch {
+          result = await regenerateStudioClosedAI(taskInput, {
+            taskId: result.taskId,
+            candidateId: result.candidateId,
+            content: result.content,
+            contentDigest: result.contentDigest,
+            regenerationAttempt: result.regeneration?.regenerationAttempt ?? 0,
+          }, {
+            extraRequirement: "前一版不是完整且彼此不同的 A/B/C JSON。請嚴格依 outputSchema 重做，三條策略不可同義。",
+            maximumAttempts: 2,
+          });
+          directed = parseRpgChoiceDirectorOutput(result.content);
+        }
+        if (
+          !hasVerifiedExecutedStoryOutput(result)
+          || !result.candidateId
+          || !result.modelDigest
+          || result.sourceChapterId !== data.chapter.id
+          || result.sourceRevision !== data.chapter.revision
+          || result.canonicalMutationCount !== 0
+        ) {
+          throw Object.assign(new Error("閉端 AI 選項缺少真實模型或來源章節證明。"), { code: "RPG_AI_CHOICE_PROOF_MISSING" });
+        }
+        if (controller.signal.aborted) return;
+        aiChoiceCandidateRef.current = result.candidateId;
+        setAiChoicePlan({
+          contextKey: aiContextKey,
+          choices: mergeRpgChoiceDirection(ruleChoices, directed),
+          taskId: result.taskId,
+          candidateId: result.candidateId,
+          model: result.model,
+          modelDigest: result.modelDigest,
+          actualExecutor: result.actualExecutor,
+        });
+        setAiChoiceStatus(`閉端 AI 已完成本回合規劃：${result.model}；A／B／C 分別採用穩健、關係資源與高風險策略。`);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        console.warn("RPG_CLOSED_AI_CHOICE_PLANNING_FAILED", error);
+        setAiChoiceStatus(`真實閉端 AI 尚未完成本回合規劃（${String((error as { code?: string })?.code ?? "MODEL_NOT_READY")}）。下方只顯示公式預覽，不能寫入故事。`);
+      });
+    return () => {
+      window.clearTimeout(resetTimer);
+      controller.abort();
+    };
+  }, [activated, aiChoiceRetry, aiContextKey, aiDirectorContext, data, progression, ruleChoices]);
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
   const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
     if (!data || !progression) return null;
@@ -403,40 +680,126 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   async function acceptChoice(choice: RpgChoice) {
-    if (!data || busy || !activated) return;
+    if (!data || busy || !activated || !progression || !aiDirectorContext) return;
+    if (choice.key !== "custom" && !aiChoicesReady) {
+      setStatus("這三個選項目前只是公式預覽，尚未經真實閉端 AI 讀取上下文；請先重試 AI 規劃，系統不會把模板寫入故事。");
+      return;
+    }
     setBusy(true);
-    setStatus(`規則引擎正在判定：${choice.key}｜${choice.title}`);
+    setStatus(`閉端 AI 正在依照規則判定與目前章節，撰寫「${choice.key}｜${choice.title}」造成的下一回合……`);
     try {
       const resolution = resolveRpgChoice(choice, {
-        seed: `${progression?.procedural.runSeed ?? data.project.id}|${data.chapter.id}|${progression?.turn ?? 0}`,
+        seed: `${progression.procedural.runSeed}|${data.chapter.id}|${progression.turn}`,
         revision: data.storyState.revision,
-        recentEncounterSignatures: progression?.procedural.recentEncounterSignatures,
-        turn: progression?.turn,
+        recentEncounterSignatures: progression.procedural.recentEncounterSignatures,
+        turn: progression.turn,
       });
       const repository = createNovelRepository();
+      const settlement = [...choice.costLabels, ...choice.impactLabels, `${resolution.outcomeLabel} ${resolution.roll}/${resolution.successChance}`];
+      const taskInput = {
+        projectId: data.project.id,
+        task: "branch_choice",
+        input: buildRpgResolutionDirectorPrompt({
+          context: aiDirectorContext,
+          choice,
+          resolution: {
+            outcomeLabel: resolution.outcomeLabel,
+            roll: resolution.roll,
+            successChance: resolution.successChance,
+            settlement,
+          },
+        }),
+        targetLength: 760,
+        sourceChapterId: data.chapter.id,
+        sourceRevision: data.chapter.revision,
+        qualityMode: "deep" as const,
+        generationOptions: {
+          maxTokens: 760,
+          temperature: 0.84,
+          topP: 0.94,
+          repetitionPenalty: 1.18,
+          seed: (data.storyState.revision * 1009 + progression.turn * 149 + resolution.roll * 23) >>> 0,
+        },
+      };
+      let generated = await runStudioClosedAI(taskInput);
+      if (!generated.candidateId) {
+        throw Object.assign(new Error("閉端 AI 沒有建立可核准的本回合候選。"), { code: "RPG_AI_RESULT_CANDIDATE_MISSING" });
+      }
+      const recentAcceptedTexts = data.acceptedChoices.slice(0, 8).map((item) => item.acceptedText);
+      let continuation: string;
+      try {
+        continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts);
+      } catch {
+        generated = await regenerateStudioClosedAI(taskInput, {
+          taskId: generated.taskId,
+          candidateId: generated.candidateId,
+          content: generated.content,
+          contentDigest: generated.contentDigest,
+          regenerationAttempt: generated.regeneration?.regenerationAttempt ?? 0,
+        }, {
+          extraRequirement: "前一版過短、像摘要或與最近回合太相似。請換掉事件機制、人物反應與句型，寫出真正不同且可接到章末的正文。",
+          maximumAttempts: 2,
+        });
+        continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts);
+      }
+      if (
+        !hasVerifiedExecutedStoryOutput(generated)
+        || !generated.candidateId
+        || !generated.modelDigest
+        || generated.sourceChapterId !== data.chapter.id
+        || generated.sourceRevision !== data.chapter.revision
+        || generated.canonicalMutationCount !== 0
+      ) {
+        throw Object.assign(new Error("閉端 AI 本回合內容缺少模型、章節或執行證明。"), { code: "RPG_AI_RESULT_PROOF_MISSING" });
+      }
+      const acceptedText = `${continuation}\n\n【本回合結算】${settlement.join("；")}。`;
       const saved = await persistStudioChoiceCandidate(
         repository,
         studioSeed(data),
         {
           optionKey: choice.key,
-          text: choice.title,
+          text: `${choice.title}｜${choice.description}`,
           consequence: `${choice.consequence}；${resolution.outcomeLabel}；擲骰 ${resolution.roll}／${resolution.successChance}`,
           effect: resolution.effect,
-          providerId: "deterministic-local",
-          modelId: RPG_FORMULA_VERSION,
+          providerId: generated.provider === "local-ollama" ? "ollama" : generated.provider,
+          modelId: generated.model,
         },
       );
-      await acceptStudioChoice(
-        repository,
-        saved.candidate.id,
-        resolution.acceptedText,
-        `${choice.key === "custom" ? "自由行動" : choice.key}｜${choice.title}｜${resolution.outcomeLabel}`,
-      );
+      let transaction: Awaited<ReturnType<typeof acceptStudioChoice>> | null = null;
+      const approved = await approveStudioClosedAgentCandidate({
+        candidateId: generated.candidateId,
+        canonicalCommit: async ({ candidate }) => {
+          if (
+            candidate.taskId !== generated.taskId
+            || candidate.contentDigest !== generated.contentDigest
+            || candidate.modelId !== generated.model
+            || candidate.modelDigest !== generated.modelDigest
+            || candidate.sourceChapterId !== data.chapter.id
+            || candidate.sourceRevision !== data.chapter.revision
+          ) {
+            throw Object.assign(new Error("RPG 候選與閉端 AI 執行證明不一致。"), { code: "RPG_AI_RESULT_IDENTITY_MISMATCH" });
+          }
+          transaction = await acceptStudioChoice(
+            repository,
+            saved.candidate.id,
+            acceptedText,
+            `${choice.key === "custom" ? "自由行動" : choice.key}｜${choice.title}｜${resolution.outcomeLabel}`,
+          );
+          return { commitId: transaction.acceptedChoice.effectOperationId };
+        },
+      });
+      if (!transaction || approved.canonicalMutationCount !== 1) {
+        throw Object.assign(new Error("閉端 AI 本回合沒有完成唯一一次正式故事交易。"), { code: "RPG_AI_CANONICAL_COMMIT_MISSING" });
+      }
+      if (aiChoiceCandidateRef.current) {
+        await rejectStudioClosedAgentCandidate(aiChoiceCandidateRef.current).catch(() => undefined);
+        aiChoiceCandidateRef.current = null;
+      }
       setSelectedChoice(null);
       setCustomAction("");
       setLastResolution(resolution);
       await load();
-      setStatus(`已核准：${resolution.summary}。正文、數值、任務、成就與分支已在同一筆交易更新。`);
+      setStatus(`已核准：${resolution.summary}。${generated.model} 產生的後續正文與公式數值已在同一筆交易寫入目前章節；下一回合會重新讀取新上下文。`);
     } catch (error) {
       setStatus(errorMessage(error));
       await load().catch(() => undefined);
@@ -478,6 +841,10 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     effect.worldFlags = { "rpg.rerollTurn": progression.turn };
     effect.timelineEvents = [`第 ${progression.day} 日：消耗命運點重擲選項`];
     setSelectedChoice(null);
+    if (aiChoiceCandidateRef.current) {
+      await rejectStudioClosedAgentCandidate(aiChoiceCandidateRef.current).catch(() => undefined);
+      aiChoiceCandidateRef.current = null;
+    }
     await applyDirectEffect(effect, "已消耗 1 命運點，從至少 6 個合法候選中重新選出三種不同策略。");
   }
 
@@ -696,7 +1063,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           <p>同一個角色、同一套 Canon：冒險、養成與經營共用規則引擎，但各自保留清楚的玩法與儀表板。</p>
         </div>
         <div className={styles.headerActions}>
-          <Link href={`/studio/project/${projectId}/closed-ai`}>閉端 AI 任務設計</Link>
+          <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/closed-ai`, "閉端 AI 任務設計")}>閉端 AI 任務設計</button>
           <div className={styles.levelBadge}><span>LV.</span><strong>{progression.level}</strong><small>戰力 {progression.powerScore}</small></div>
         </div>
       </header>
@@ -745,7 +1112,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           </div>
           <div className={styles.activationAction}>
             <button data-testid="rpg-initialize" type="button" disabled={busy} onClick={() => void initializeProgression()}>{busy ? "正在建立第一回合…" : "開始第一回合"}</button>
-            <Link href={`/studio/project/${projectId}/write`}>先回正文寫作</Link>
+            <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/write`, "章節寫作")}>先回正文寫作</button>
           </div>
         </section>
       ) : (
@@ -753,7 +1120,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         <section className={styles.playGuide} data-testid="rpg-play-guide">
           <div><small>第一次玩，只看這一列</small><strong>選行動 → 看預計影響 → 確認寫入故事</strong></div>
           <ol><li><b>1</b> 在 A／B／C 選一張</li><li><b>2</b> 檢查代價與成功率</li><li><b>3</b> 按「確認選擇並寫入故事」</li></ol>
-          <div><a href="#rpg-next-action">直接選下一步</a><Link href={`/studio/project/${projectId}/write`}>查看／續寫正文</Link></div>
+          <div><a href="#rpg-next-action">直接選下一步</a><button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/write`, "查看／續寫正文")}>查看／續寫正文</button></div>
         </section>
         <section className={styles.worldRibbon} aria-label="本周目世界脈動">
           <div className={styles.cycleEmblem}><small>VARIATION CYCLE</small><strong>{progression.procedural.cycle}</strong><span>世界種子 {progression.procedural.runSeed.slice(0, 8)}</span></div>
@@ -819,9 +1186,17 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
             <section className={styles.choiceSection} id="rpg-next-action">
               <header>
-                <div><small>ROUND {progression.turn + 1} · DYNAMIC CHOICE POOL</small><h2>接下來要怎麼做？</h2></div>
-                <button type="button" disabled={busy || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲選項（命運點 -1）</button>
+                <div><small>ROUND {progression.turn + 1} · CLOSED AI STORY DIRECTOR</small><h2>接下來要怎麼做？</h2></div>
+                <div>
+                  <button type="button" disabled={busy} onClick={() => setAiChoiceRetry((value) => value + 1)}>重新請 AI 規劃</button>
+                  <button type="button" disabled={busy || !aiChoicesReady || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲規則池（命運點 -1）</button>
+                </div>
               </header>
+              <p className={styles.aiChoiceStatus} data-ready={aiChoicesReady} data-testid="rpg-ai-choice-status">
+                <b>{aiChoicesReady ? "真實閉端 AI 已完成上下文規劃" : "等待真實閉端 AI"}</b>
+                <span>{aiChoiceStatus}</span>
+                {aiChoicePlan?.contextKey === aiContextKey ? <small>執行者 {aiChoicePlan.actualExecutor} · 模型 {aiChoicePlan.model} · 章節 {data.chapter.title} r{data.chapter.revision}</small> : null}
+              </p>
               <div className={styles.choiceGrid}>
                 {choices.map((choice) => (
                   <button
@@ -830,11 +1205,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                     type="button"
                     className={selectedChoice?.key === choice.key ? styles.selected : ""}
                     onClick={() => setSelectedChoice(choice)}
-                    disabled={busy}
+                    disabled={busy || !aiChoicesReady}
                   >
                     <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>{choice.strategyLabel} · {choice.encounter.worldAspect}</small><h3>{choice.title}</h3></div></div>
                     <div className={styles.encounterSignal}><span>{choice.encounter.title}</span><p>{choice.encounter.telegraph}</p></div>
                     <p>{choice.description}</p>
+                    {"aiContinuityReason" in choice ? <p className={styles.continuityReason}><b>承接依據</b>{String(choice.aiContinuityReason)}</p> : null}
                     <dl><div><dt>成功率</dt><dd>{choice.successChance}%</dd></div><div><dt>EXP</dt><dd>+{choice.xpGain}</dd></div><div><dt>風險</dt><dd>{"◆".repeat(choice.risk)}{"◇".repeat(5 - choice.risk)}</dd></div></dl>
                     <div className={styles.choiceTags}>{choice.costLabels.map((label) => <span key={label} data-kind="cost">{label}</span>)}{choice.impactLabels.map((label) => <span key={label}>{label}</span>)}</div>
                     <small className={styles.consequence}>{rules.choicePreview === "full" ? choice.consequence : "部分後果保持未知；規則與資源代價不隱藏。"}</small>
@@ -851,7 +1227,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               {selectedChoice ? (
                 <aside className={styles.confirmChoice}>
                   <div><span>待核准分支</span><h3>{selectedChoice.key === "custom" ? "自由行動" : selectedChoice.key}｜{selectedChoice.title}</h3><p>{selectedChoice.consequence}</p><small>主能力：{statLabel(selectedChoice.primaryStat, activeMode)} · 副能力：{statLabel(selectedChoice.secondaryStat, activeMode)}</small></div>
-                  <div><b>預計影響</b>{selectedChoice.costLabels.map((label) => <span key={label} data-cost="true">{label}</span>)}{selectedChoice.impactLabels.map((label) => <span key={label}>{label}</span>)}<button data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void acceptChoice(selectedChoice)}>確認選擇並寫入故事</button></div>
+                  <div><b>預計影響</b>{selectedChoice.costLabels.map((label) => <span key={label} data-cost="true">{label}</span>)}{selectedChoice.impactLabels.map((label) => <span key={label}>{label}</span>)}<button data-testid="rpg-accept-choice" type="button" disabled={busy || (selectedChoice.key !== "custom" && !aiChoicesReady)} onClick={() => void acceptChoice(selectedChoice)}>{busy ? "閉端 AI 正在撰寫本回合…" : "確認選擇並寫入故事"}</button></div>
                 </aside>
               ) : null}
             </section>

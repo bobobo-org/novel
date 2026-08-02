@@ -761,6 +761,34 @@
   font-size: 0.72rem;
 }
 
+.choiceSection > header > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.aiChoiceStatus {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 177, 91, 0.4);
+  border-radius: 10px;
+  color: #d6c6ad;
+  background: rgba(75, 43, 14, 0.3);
+}
+
+.aiChoiceStatus[data-ready="true"] {
+  border-color: rgba(97, 221, 176, 0.46);
+  color: #bff6df;
+  background: rgba(12, 69, 58, 0.28);
+}
+
+.aiChoiceStatus b { font-size: .78rem; }
+.aiChoiceStatus span { line-height: 1.55; font-size: .72rem; }
+.aiChoiceStatus small { color: #89a4bc; font-size: .62rem; }
+
 .choiceGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -786,6 +814,13 @@
 .choiceGrid > button:hover {
   transform: translateY(-2px);
   border-color: var(--line-strong);
+}
+
+.choiceGrid > button:disabled {
+  cursor: not-allowed;
+  opacity: .68;
+  filter: saturate(.7);
+  transform: none;
 }
 
 .choiceGrid > .selected {
@@ -837,6 +872,20 @@
   color: #b9cbe0;
   font-size: 0.75rem;
   line-height: 1.65;
+}
+
+.choiceGrid .continuityReason {
+  padding: 8px;
+  border-left: 2px solid rgba(97, 214, 232, .52);
+  color: #9fc8d0;
+  background: rgba(5, 25, 42, .55);
+  font-size: .67rem;
+}
+
+.choiceGrid .continuityReason b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--cyan);
 }
 
 .choiceGrid dl {

@@ -10,6 +10,16 @@ import {
   createSovereignLearningRepository,
   ingestFirstPartyProjectKnowledge,
 } from "@/lib/novel-ai/sovereign-learning";
+import {
+  stageStudioTaskHandoff,
+  studioHomeHref,
+} from "@/lib/novel-ai/web/studio-task-session";
+import { prewarmStudioInteractiveChoiceAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import { prewarmStudioProjectAIState } from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  readStudioWritingResume,
+  writeStudioWritingResume,
+} from "@/lib/novel-ai/web/studio-writing-resume";
 import ProjectNavigation from "../project-navigation";
 
 function closedAIHref(projectId: string, task: string, objective: string) {
@@ -64,11 +74,15 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aiCacheStatus, setAiCacheStatus] = useState("正在準備本作品的閉端 AI 脈絡…");
   const [guideOpen, setGuideOpen] = useState(true);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [editHistory, setEditHistory] = useState<string[]>([]);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const saveQueueRef = useRef<Promise<Chapter | null>>(Promise.resolve(null));
+  const cacheWarmTimerRef = useRef<number | null>(null);
+  const cacheWarmControllerRef = useRef<AbortController | null>(null);
+  const resumeTimerRef = useRef<number | null>(null);
   const latestRef = useRef<EditorSnapshot>({
     chapter: null,
     project: null,
@@ -92,6 +106,70 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     setSummary(next.summary ?? "");
     setChapterStatus(next.status);
   }
+
+  const restoreEditorPosition = useCallback((chapterId: string) => {
+    const marker = readStudioWritingResume(projectId);
+    if (!marker || marker.chapterId !== chapterId) return;
+    window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const start = Math.min(marker.selectionStart, editor.value.length);
+      const end = Math.min(Math.max(start, marker.selectionEnd), editor.value.length);
+      editor.setSelectionRange(start, end);
+      editor.scrollTop = marker.scrollTop;
+      setSelection({ start, end });
+      setStatus("已恢復上次保存的章節與編輯位置");
+    }, 0);
+  }, [projectId]);
+
+  const rememberEditorPosition = useCallback((editor: HTMLTextAreaElement, chapterId = chapter?.id) => {
+    if (!chapterId) return;
+    if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
+    const snapshot = {
+      projectId,
+      chapterId,
+      selectionStart: editor.selectionStart,
+      selectionEnd: editor.selectionEnd,
+      scrollTop: editor.scrollTop,
+    };
+    resumeTimerRef.current = window.setTimeout(() => {
+      writeStudioWritingResume(snapshot);
+      resumeTimerRef.current = null;
+    }, 180);
+  }, [chapter?.id, projectId]);
+
+  const scheduleAICacheWarm = useCallback((target: Chapter, delay = 0) => {
+    if (cacheWarmTimerRef.current !== null) window.clearTimeout(cacheWarmTimerRef.current);
+    cacheWarmControllerRef.current?.abort("AI_CACHE_CONTEXT_REPLACED");
+    const controller = new AbortController();
+    cacheWarmControllerRef.current = controller;
+    setAiCacheStatus("正在把目前章節與作品記憶預載到六層 AI Cache…");
+    cacheWarmTimerRef.current = window.setTimeout(() => {
+      cacheWarmTimerRef.current = null;
+      void Promise.allSettled([
+        prewarmStudioProjectAIState({
+          projectId,
+          taskTypes: ["chapter.continue"],
+          sourceChapterId: target.id,
+          sourceRevision: target.revision,
+          signal: controller.signal,
+        }),
+        prewarmStudioInteractiveChoiceAI(controller.signal),
+      ]).then(([cacheResult]) => {
+        if (controller.signal.aborted) return;
+        const warmed = cacheResult.status === "fulfilled" ? cacheResult.value[0] : null;
+        setAiCacheStatus(warmed
+          ? `六層 AI Cache 已就緒｜${target.title} r${target.revision}｜閉端 AI 可立即承接`
+          : "章節已安全保存；閉端模型連線後會自動重建 AI Cache");
+      });
+    }, delay);
+  }, [projectId]);
+
+  useEffect(() => () => {
+    if (cacheWarmTimerRef.current !== null) window.clearTimeout(cacheWarmTimerRef.current);
+    if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
+    cacheWarmControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -127,13 +205,15 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       }
       setChapters(ordered);
       applyChapter(active);
-      setStatus("已載入");
+      setStatus(`已載入上次保存的「${active.title}」`);
+      restoreEditorPosition(active.id);
+      scheduleAICacheWarm(active);
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "讀取失敗");
     } finally {
       setLoaded(true);
     }
-  }, [projectId]);
+  }, [projectId, restoreEditorPosition, scheduleAICacheWarm]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -173,14 +253,10 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           summary: snapshot.summary.trim() || null,
           status: snapshot.chapterStatus,
         }, snapshot.chapter.revision);
-        let nextProject = snapshot.project;
-        if (nextProject && nextProject.activeChapterId !== saved.id) {
-          nextProject = await repo.put<NovelProject>("projects", {
-            ...nextProject,
-            activeChapterId: saved.id,
-          }, nextProject.revision);
-          setProject(nextProject);
-        }
+        // Saving content must never select a chapter. Chapter selection is a
+        // separate operation, otherwise a slower autosave can pull the editor
+        // back from chapter five to chapter one.
+        const nextProject = snapshot.project;
         setChapters((items) => items
           .map((item) => item.id === saved.id ? saved : item)
           .sort((left, right) => left.order - right.order));
@@ -192,6 +268,9 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         };
         mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
         void syncChapterKnowledge(projectId, saved).catch(() => undefined);
+        scheduleAICacheWarm(saved, 900);
+        const editor = editorRef.current;
+        if (editor) rememberEditorPosition(editor, saved.id);
         setStatus(`${announce ? "已儲存" : "已自動儲存"} ${new Date().toLocaleTimeString("zh-TW")}`);
         return saved;
       })
@@ -202,7 +281,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       .finally(() => setSaving(false));
     saveQueueRef.current = operation;
     return operation;
-  }, [projectId]);
+  }, [projectId, rememberEditorPosition, scheduleAICacheWarm]);
 
   useEffect(() => {
     if (!loaded || busy || saving || !dirty || !title.trim()) return;
@@ -245,7 +324,19 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         href: `/studio/project/${projectId}/write`,
         savedAt: new Date().toISOString(),
       }));
-      router.push(href);
+      if (href === studioHomeHref(projectId) || href === "/studio") {
+        router.push(studioHomeHref(projectId));
+        return;
+      }
+      stageStudioTaskHandoff({
+        projectId,
+        sourceLabel: "章節寫作",
+        destinationLabel: destination,
+        destinationHref: href,
+        chapterId: latestRef.current.chapter?.id ?? null,
+        chapterTitle: latestRef.current.title,
+      });
+      router.push(studioHomeHref(projectId));
     } finally {
       setBusy(false);
     }
@@ -257,7 +348,14 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     try {
       if (!await allowTransitionAfterSave(next.title)) return;
       const repo = createNovelRepository();
-      let nextProject = project;
+      const [freshProject, freshTarget] = await Promise.all([
+        repo.get<NovelProject>("projects", projectId),
+        repo.get<Chapter>("chapters", next.id),
+      ]);
+      if (!freshProject || !freshTarget || freshTarget.projectId !== projectId) {
+        throw new Error("找不到要切換的章節；目前章節保持不變。");
+      }
+      let nextProject = freshProject;
       if (nextProject && nextProject.activeChapterId !== next.id) {
         nextProject = await repo.put<NovelProject>("projects", {
           ...nextProject,
@@ -265,9 +363,11 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         }, nextProject.revision);
         setProject(nextProject);
       }
-      applyChapter(next);
-      mirrorChapterToLegacyStudio(projectId, next.title, next.content);
-      setStatus(`已切換到 ${next.title}`);
+      applyChapter(freshTarget);
+      mirrorChapterToLegacyStudio(projectId, freshTarget.title, freshTarget.content);
+      setStatus(`已叫出 ${freshTarget.title} 的獨立內容`);
+      restoreEditorPosition(freshTarget.id);
+      scheduleAICacheWarm(freshTarget);
     } catch (cause) {
       setStatus(`切換失敗：${cause instanceof Error ? cause.message : "請重試"}`);
     } finally {
@@ -436,6 +536,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         active="write"
         onNavigate={(href, label) => void navigateSafely(href, label)}
       />
+      <p className="p2WritingCacheStatus" role="status">{aiCacheStatus}</p>
       <section className="p2WritingFlow" aria-label="創作流程">
         <div>
           <span className="p2WritingGuideAvatar" aria-hidden="true">✦</span>
@@ -479,7 +580,11 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
             readOnly={busy}
             value={content}
             onChange={(event) => setContent(event.target.value)}
-            onSelect={(event) => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })}
+            onSelect={(event) => {
+              setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd });
+              rememberEditorPosition(event.currentTarget);
+            }}
+            onScroll={(event) => rememberEditorPosition(event.currentTarget)}
             placeholder="從這裡開始寫你的故事…"
           />
           <label className="p2ChapterSummary">

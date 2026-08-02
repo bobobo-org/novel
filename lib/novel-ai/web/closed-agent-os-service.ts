@@ -20,6 +20,10 @@ import {
 } from "./studio-closed-agent-tools";
 import { ClosedAIRuntimeCoordinator } from "./closed-ai-runtime-coordinator";
 import { composeProjectContext } from "./project-context-composer";
+import {
+  prewarmStudioProjectAICache,
+  readPrewarmedStudioProjectContext,
+} from "./studio-project-ai-cache";
 
 export const STUDIO_CLOSED_AGENT_PERMISSION_SCOPES = [
   "story:read",
@@ -41,6 +45,34 @@ export function getStudioClosedAgentOS() {
     tools: createStudioClosedAgentToolRegistry(),
   });
   return studioClosedAgentOS;
+}
+
+export async function prewarmStudioProjectAIState(input: {
+  projectId: string;
+  taskTypes?: PlatformTaskType[];
+  sourceChapterId?: string;
+  sourceRevision?: number;
+  signal?: AbortSignal;
+}) {
+  if (input.signal?.aborted) return [];
+  const os = getStudioClosedAgentOS();
+  const repository = createNovelRepository();
+  const taskTypes = [...new Set(input.taskTypes ?? ["chapter.continue"])] as PlatformTaskType[];
+  const results = [];
+  for (const taskType of taskTypes) {
+    if (input.signal?.aborted) break;
+    const result = await prewarmStudioProjectAICache({
+      cache: os.cache,
+      repository,
+      projectId: input.projectId,
+      taskType,
+      sourceChapterId: input.sourceChapterId,
+      sourceRevision: input.sourceRevision,
+      privacyLevel: "device_only",
+    });
+    if (result) results.push(result);
+  }
+  return results;
 }
 
 export function getStudioClosedAIRuntimeCoordinator(
@@ -129,8 +161,20 @@ export async function executeStudioClosedAgent(
     approved: item.approved ?? true,
   }));
   try {
-    const composed = await composeProjectContext({
-      repository: createNovelRepository(),
+    const repository = createNovelRepository();
+    const prewarmed = supplementalContext.length === 0
+      ? await readPrewarmedStudioProjectContext({
+        cache: os.cache,
+        repository,
+        projectId: input.projectId,
+        taskType: input.taskType,
+        sourceChapterId: input.sourceChapterId,
+        sourceRevision: input.sourceRevision,
+        privacyLevel,
+      })
+      : null;
+    const composed = prewarmed ?? await composeProjectContext({
+      repository,
       taskType: input.taskType,
       projectId: input.projectId,
       storyId: input.storyId,

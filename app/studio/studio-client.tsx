@@ -40,12 +40,23 @@ import {
   hasVerifiedExecutedStoryOutput,
   isUsableChineseStoryOutput,
 } from "@/lib/novel-ai/web/story-output-quality";
+import {
+  clearStudioTaskHandoff,
+  readStudioTaskHandoff,
+  stageStudioTaskHandoff,
+  type StudioTaskHandoff,
+} from "@/lib/novel-ai/web/studio-task-session";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
 import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import {
   approveStudioClosedAgentCandidate,
+  prewarmStudioProjectAIState,
   rejectStudioClosedAgentCandidate,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  readStudioWritingResume,
+  writeStudioWritingResume,
+} from "@/lib/novel-ai/web/studio-writing-resume";
 import {
   applyWritingAidTransaction,
   commitStudioCandidateToChapter,
@@ -102,6 +113,18 @@ type AssistantStatus =
   | "runtime_required"
   | "auth_required";
 const STUDIO_SCREENS: Screen[] = ["home", "create", "write", "choice", "inspect", "library", "world", "dashboard", "backup"];
+const STUDIO_TASK_SCREENS: Screen[] = ["write", "choice", "inspect", "world", "dashboard", "backup"];
+const STUDIO_SCREEN_LABELS: Record<Screen, string> = {
+  home: "首頁",
+  create: "開始創作",
+  write: "章節寫作",
+  choice: "互動故事",
+  inspect: "作品檢查",
+  library: "我的作品",
+  world: "角色與世界",
+  dashboard: "任務與成就",
+  backup: "存檔與備份",
+};
 
 function resolveStudioScreen(value: string | null): Screen {
   if (value === "interactive") return "choice";
@@ -883,9 +906,12 @@ export default function StudioClient({
     [externalConnectorId, setExternalConnectorId] = useState<ExternalAIConnectorId>("openai"),
     [externalRunConsent, setExternalRunConsent] = useState(false),
     [aiModeMessage, setAiModeMessage] = useState(""),
-    [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false);
+    [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false),
+    [taskHandoff, setTaskHandoff] = useState<StudioTaskHandoff | null>(null);
   const repositoryRef = useRef<NovelRepository | null>(null);
   const assistantControllerRef = useRef<AbortController | null>(null);
+  const writerSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const navigationBusyRef = useRef(false);
   if (!repositoryRef.current) repositoryRef.current = createNovelRepository();
   const project = useMemo(
     () =>
@@ -906,6 +932,21 @@ export default function StudioClient({
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!loaded || screen !== "home") return;
+    const timer = window.setTimeout(() => {
+      setTaskHandoff(readStudioTaskHandoff());
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loaded, screen]);
+
+  useEffect(() => {
+    if (!loaded || screen !== "choice" || !project) return;
+    // The former lightweight single-choice page hid the real RPG dashboard.
+    // Keep old bookmarks compatible, but always land on the unified HUD.
+    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+  }, [loaded, project, screen]);
 
   function dismissCloudNotice() {
     setCloudNoticeDismissed(true);
@@ -1082,11 +1123,11 @@ export default function StudioClient({
   useEffect(() => {
     const onPopState = () => {
       const requested = new URL(location.href).searchParams.get("screen");
-      setScreen(resolveStudioScreen(requested));
+      void requestScreenNavigation(resolveStudioScreen(requested), true);
     };
     addEventListener("popstate", onPopState);
     return () => removeEventListener("popstate", onPopState);
-  }, []);
+  }, [screen, project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded) return;
     const timer = window.setTimeout(() => {
@@ -1178,12 +1219,119 @@ export default function StudioClient({
       },
     });
   }
-  function navigate(value: Screen) {
+  function commitScreen(value: Screen, replace = false) {
     const url = new URL(location.href);
+    url.pathname = "/studio";
     url.searchParams.set("screen", value);
-    history.pushState({ screen: value }, "", url);
+    if (project?.id) url.searchParams.set("projectId", project.id);
+    const method = replace ? "replaceState" : "pushState";
+    history[method]({ screen: value }, "", url);
     setScreen(value);
     setMenuOpen(false);
+  }
+
+  function screenDestination(value: Screen) {
+    if (!project) return `/studio?screen=${encodeURIComponent(value)}`;
+    if (value === "choice") {
+      return `/studio/project/${encodeURIComponent(project.id)}/rpg`;
+    }
+    return `/studio?screen=${encodeURIComponent(value)}&projectId=${encodeURIComponent(project.id)}`;
+  }
+
+  async function leaveCurrentTask(
+    destinationHref: string,
+    destinationLabel: string,
+    replace = false,
+  ) {
+    if (!project || navigationBusyRef.current) return;
+    navigationBusyRef.current = true;
+    try {
+      if (screen === "write" && writerSaveRef.current) {
+        await writerSaveRef.current();
+      }
+      const handoff = stageStudioTaskHandoff({
+        projectId: project.id,
+        sourceLabel: STUDIO_SCREEN_LABELS[screen],
+        destinationLabel,
+        destinationHref,
+        chapterId: project.activeChapterId,
+        chapterTitle: project.chapterTitle,
+      });
+      setTaskHandoff(handoff);
+      commitScreen("home", replace);
+    } catch (error) {
+      alert(`${error instanceof Error ? error.message : "目前內容尚未安全儲存"}\n\n系統已留在原頁，沒有跳到其他任務。`);
+    } finally {
+      navigationBusyRef.current = false;
+    }
+  }
+
+  async function requestScreenNavigation(value: Screen, replace = false) {
+    if (value === screen) return;
+    if (STUDIO_TASK_SCREENS.includes(screen) && project) {
+      if (value === "home") {
+        if (navigationBusyRef.current) return;
+        navigationBusyRef.current = true;
+        try {
+          if (screen === "write" && writerSaveRef.current) await writerSaveRef.current();
+          clearStudioTaskHandoff();
+          setTaskHandoff(null);
+          commitScreen("home", replace);
+        } catch (error) {
+          alert(`${error instanceof Error ? error.message : "目前內容尚未安全儲存"}\n\n系統已留在原頁。`);
+        } finally {
+          navigationBusyRef.current = false;
+        }
+        return;
+      }
+      await leaveCurrentTask(screenDestination(value), STUDIO_SCREEN_LABELS[value], replace);
+      return;
+    }
+    if (screen === "home" && value === "choice" && project) {
+      clearStudioTaskHandoff();
+      setTaskHandoff(null);
+      window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+      return;
+    }
+    if (screen === "home") {
+      clearStudioTaskHandoff();
+      setTaskHandoff(null);
+    }
+    commitScreen(value, replace);
+  }
+
+  function navigate(value: Screen) {
+    void requestScreenNavigation(value);
+  }
+
+  function requestTaskHref(href: string, label: string) {
+    if (!project) return;
+    if (screen === "home") {
+      clearStudioTaskHandoff();
+      setTaskHandoff(null);
+      window.location.assign(href);
+      return;
+    }
+    void leaveCurrentTask(href, label);
+  }
+
+  function continueTaskHandoff() {
+    if (!taskHandoff) return;
+    const target = taskHandoff;
+    clearStudioTaskHandoff();
+    setTaskHandoff(null);
+    setState((value) => ({ ...value, activeProjectId: target.projectId }));
+    const parsed = new URL(target.destinationHref, location.origin);
+    if (parsed.pathname === "/studio") {
+      commitScreen(resolveStudioScreen(parsed.searchParams.get("screen")));
+      return;
+    }
+    window.location.assign(target.destinationHref);
+  }
+
+  function dismissTaskHandoff() {
+    clearStudioTaskHandoff();
+    setTaskHandoff(null);
   }
   function persistStudioAISettings(input: { mode?: NovelAIExecutionMode; providerId?: ExternalAIConnectorId }) {
     const mode = input.mode ?? aiExecutionMode;
@@ -1270,25 +1418,26 @@ export default function StudioClient({
     });
     navigate("write");
   }
-  async function saveDraft(title: string, draft: string) {
+  async function saveDraft(chapterId: string, title: string, draft: string) {
     if (!ensureCanonicalWritable("儲存草稿")) return;
     if (!project) return;
+    if (!chapterId) throw new Error("目前章節缺少識別碼，內容未儲存到其他章節。");
     try {
       const canonical = await saveStudioChapter(
         repositoryRef.current!,
-        projectSeed({ ...project, chapterTitle: title, draft }),
+        { ...projectSeed({ ...project, chapterTitle: title, draft }), chapterId },
       );
       setState((value) => ({
         ...value,
         projects: value.projects.map((item) =>
           item.id === project.id
-            ? {
+            ? item.activeChapterId === canonical.chapter.id ? {
                 ...item,
-                activeChapterId: canonical.chapter.id,
                 chapterTitle: canonical.chapter.title,
                 draft: canonical.chapter.content,
                 updatedAt: canonical.chapter.updatedAt,
               }
+              : item
             : item,
         ),
       }));
@@ -2621,7 +2770,7 @@ export default function StudioClient({
     ["backup", "存檔與備份"],
     ["library", "我的作品"],
     ["inspect", "檢查作品"],
-    ["choice", "互動故事"],
+    ["choice", "互動故事／RPG"],
   ];
   return (
     <div
@@ -2798,7 +2947,7 @@ export default function StudioClient({
             <button onClick={() => navigate("home")}>首頁</button>
             <button onClick={() => navigate("create")}>創作</button>
             <button onClick={() => navigate("write")}>閉端創作助手</button>
-            <button onClick={() => navigate("choice")}>互動故事</button>
+            <button onClick={() => navigate("choice")}>互動故事／RPG</button>
           </nav>
           <span>
             {assistantStatus === "ollama_ready"
@@ -2850,7 +2999,13 @@ export default function StudioClient({
         </section>
         <main className="studioContent">
           {screen === "home" && (
-            <HomeScreen project={project} navigate={navigate} />
+            <HomeScreen
+              project={project}
+              navigate={navigate}
+              taskHandoff={taskHandoff}
+              continueTaskHandoff={continueTaskHandoff}
+              dismissTaskHandoff={dismissTaskHandoff}
+            />
           )}{" "}
           {screen === "create" && (
             <fieldset
@@ -2888,6 +3043,8 @@ export default function StudioClient({
                     : state.candidate
                 }
                 navigate={navigate}
+                requestTaskHref={requestTaskHref}
+                registerSaveHandler={(handler) => { writerSaveRef.current = handler; }}
                 saveDraft={saveDraft}
                 activateChapter={activateStudioChapter}
                 createChapter={createStudioChapter}
@@ -3021,12 +3178,36 @@ export default function StudioClient({
 function HomeScreen({
   project,
   navigate,
+  taskHandoff,
+  continueTaskHandoff,
+  dismissTaskHandoff,
 }: {
   project: Project | null;
   navigate: (screen: Screen) => void;
+  taskHandoff: StudioTaskHandoff | null;
+  continueTaskHandoff: () => void;
+  dismissTaskHandoff: () => void;
 }) {
   return (
     <section className="studioHome">
+      {taskHandoff ? (
+        <section className="studioTaskHandoff" data-testid="studio-task-handoff" role="status">
+          <div>
+            <small>目前工作已安全儲存</small>
+            <h2>已從「{taskHandoff.sourceLabel}」回到首頁</h2>
+            <p>
+              {taskHandoff.chapterTitle ? `「${taskHandoff.chapterTitle}」已按原章節保存。` : "目前資料已保存。"}
+              現在可再進入「{taskHandoff.destinationLabel}」，不會把兩個任務或章節混在一起。
+            </p>
+          </div>
+          <div>
+            <button type="button" className="gold" data-testid="studio-task-handoff-continue" onClick={continueTaskHandoff}>
+              繼續前往{taskHandoff.destinationLabel}
+            </button>
+            <button type="button" onClick={dismissTaskHandoff}>留在首頁</button>
+          </div>
+        </section>
+      ) : null}
       <div className="studioWelcome">
         <div>
           <span>完整故事庫已連線</span>
@@ -3058,10 +3239,12 @@ function HomeScreen({
             <div className="recentActions">
               <button onClick={() => navigate("write")}>繼續創作</button>
               <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-              {project.selectedPlayModeId &&
-                project.selectedPlayModeId !== "general" && (
-                  <button onClick={() => navigate("choice")}>進入故事</button>
-                )}
+              <button
+                data-testid="studio-open-rpg-dashboard"
+                onClick={() => window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}
+              >
+                開啟完整 RPG 儀表板
+              </button>
             </div>
           </section>
         </article>
@@ -3690,6 +3873,8 @@ function WriteScreen({
   project,
   candidate,
   navigate,
+  requestTaskHref,
+  registerSaveHandler,
   saveDraft,
   activateChapter,
   createChapter,
@@ -3709,7 +3894,9 @@ function WriteScreen({
   project: Project | null;
   candidate: Candidate;
   navigate: (screen: Screen) => void;
-  saveDraft: (title: string, draft: string) => Promise<void>;
+  requestTaskHref: (href: string, label: string) => void;
+  registerSaveHandler: (handler: (() => Promise<void>) | null) => void;
+  saveDraft: (chapterId: string, title: string, draft: string) => Promise<void>;
   activateChapter: (chapterId: string) => Promise<Chapter>;
   createChapter: () => Promise<Chapter>;
   deleteChapter: (chapterId: string) => Promise<Chapter>;
@@ -3732,7 +3919,8 @@ function WriteScreen({
     [regenerationExtra, setRegenerationExtra] = useState(""),
     [chapters, setChapters] = useState<Chapter[]>([]),
     [chapterBusy, setChapterBusy] = useState(false),
-    [chapterMessage, setChapterMessage] = useState("章節彼此獨立保存");
+    [chapterMessage, setChapterMessage] = useState("章節彼此獨立保存"),
+    [aiCacheStatus, setAiCacheStatus] = useState("正在準備本作品的閉端 AI 脈絡…");
   const lastSubmitted = useRef<{
     chapterId: string | null;
     title: string;
@@ -3743,11 +3931,79 @@ function WriteScreen({
   const titleRef = useRef(title);
   const draftRef = useRef(draft);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const chapterSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const resumeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     titleRef.current = title;
     draftRef.current = draft;
   }, [title, draft]);
+
+  useEffect(() => {
+    if (!project?.id || !project.activeChapterId) return;
+    const marker = readStudioWritingResume(project.id);
+    if (!marker || marker.chapterId !== project.activeChapterId) return;
+    const timer = window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const start = Math.min(marker.selectionStart, editor.value.length);
+      const end = Math.min(Math.max(start, marker.selectionEnd), editor.value.length);
+      editor.setSelectionRange(start, end);
+      editor.scrollTop = marker.scrollTop;
+      setChapterMessage(`已恢復「${project.chapterTitle}」上次保存的編輯位置`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [project?.activeChapterId, project?.chapterTitle, project?.id]);
+
+  useEffect(() => {
+    if (!project?.id || !project.activeChapterId) return;
+    const controller = new AbortController();
+    const statusTimer = window.setTimeout(() => {
+      setAiCacheStatus("正在把目前章節與作品記憶預載到六層 AI Cache…");
+    }, 0);
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([
+        prewarmStudioProjectAIState({
+          projectId: project.id,
+          taskTypes: ["chapter.continue"],
+          sourceChapterId: project.activeChapterId ?? undefined,
+          signal: controller.signal,
+        }),
+        prewarmStudioInteractiveChoiceAI(controller.signal),
+      ]).then(([cacheResult]) => {
+        if (controller.signal.aborted) return;
+        const warmed = cacheResult.status === "fulfilled" ? cacheResult.value[0] : null;
+        setAiCacheStatus(warmed
+          ? `六層 AI Cache 已就緒｜${project.chapterTitle} r${warmed.chapterRevision}｜閉端 AI 可立即承接`
+          : "章節已安全保存；閉端模型連線後會自動重建 AI Cache");
+      });
+    }, 650);
+    return () => {
+      window.clearTimeout(statusTimer);
+      window.clearTimeout(timer);
+      controller.abort("STUDIO_WRITING_CONTEXT_REPLACED");
+    };
+  }, [project?.activeChapterId, project?.chapterTitle, project?.id, project?.updatedAt]);
+
+  function rememberCurrentEditorPosition(editor: HTMLTextAreaElement) {
+    if (!project?.id || !project.activeChapterId) return;
+    if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
+    const marker = {
+      projectId: project.id,
+      chapterId: project.activeChapterId,
+      selectionStart: editor.selectionStart,
+      selectionEnd: editor.selectionEnd,
+      scrollTop: editor.scrollTop,
+    };
+    resumeTimerRef.current = window.setTimeout(() => {
+      writeStudioWritingResume(marker);
+      resumeTimerRef.current = null;
+    }, 180);
+  }
+
+  useEffect(() => () => {
+    if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!project) return;
@@ -3785,6 +4041,9 @@ function WriteScreen({
 
   async function persistCurrentChapter() {
     if (!project) return;
+    if (!project.activeChapterId) {
+      throw new Error("目前章節缺少識別碼，系統沒有把內容寫到其他章節。");
+    }
     const payload = {
       chapterId: project.activeChapterId,
       title: titleRef.current,
@@ -3792,18 +4051,31 @@ function WriteScreen({
     };
     lastSubmitted.current = payload;
     setChapterMessage("正在保存目前章節……");
-    try {
-      await saveDraft(payload.title, payload.draft);
-      setChapters((rows) => rows.map((item) => item.id === payload.chapterId
-        ? { ...item, title: payload.title, content: payload.draft }
-        : item));
-      setChapterMessage("目前章節已獨立保存");
-    } catch (error) {
-      lastSubmitted.current = null;
-      setChapterMessage(error instanceof Error ? error.message : "章節保存失敗");
-      throw error;
-    }
+    const operation = chapterSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await saveDraft(payload.chapterId, payload.title, payload.draft);
+        setChapters((rows) => rows.map((item) => item.id === payload.chapterId
+          ? { ...item, title: payload.title, content: payload.draft }
+          : item));
+        setChapterMessage(`「${payload.title || "目前章節"}」已按章節 ID 獨立保存`);
+        const editor = editorRef.current;
+        if (editor) rememberCurrentEditorPosition(editor);
+      })
+      .catch((error) => {
+        lastSubmitted.current = null;
+        setChapterMessage(error instanceof Error ? error.message : "章節保存失敗");
+        throw error;
+      });
+    chapterSaveQueueRef.current = operation.catch(() => undefined);
+    return operation;
   }
+
+  useEffect(() => {
+    const handler = () => persistCurrentChapter();
+    registerSaveHandler(handler);
+    return () => registerSaveHandler(null);
+  });
 
   async function selectChapter(next: Chapter) {
     if (!project || next.id === project.activeChapterId || chapterBusy) return;
@@ -3941,7 +4213,7 @@ function WriteScreen({
             </footer>
           </section>
           <nav>
-            <Link href={`/studio/read/${project.id}`} onClick={() => void persistCurrentChapter()}>閱讀作品</Link>
+            <button type="button" onClick={() => requestTaskHref(`/studio/read/${project.id}`, "閱讀作品")}>閱讀作品</button>
             <button onClick={() => navigate("create")}>故事設定</button>
             <button onClick={() => navigate("world")}>主要角色</button>
             <button onClick={() => navigate("world")}>世界設定</button>
@@ -3961,6 +4233,7 @@ function WriteScreen({
           </label>
           <span>{chapterMessage}</span>
         </header>
+        <small className="studioWritingCacheStatus" role="status">{aiCacheStatus}</small>
         {!draft.trim() && !candidate ? (
           <section className="studioStoryStarter" data-testid="studio-story-starter">
             <div>
@@ -3980,9 +4253,7 @@ function WriteScreen({
               <button type="button" onClick={() => editorRef.current?.focus()}>
                 我自己寫第一幕
               </button>
-              {isStructuredGameMode(project.selectedPlayModeId) ? (
-                <Link href={`/studio/project/${project.id}/rpg`}>進入第一個遊戲回合</Link>
-              ) : null}
+              <button type="button" data-testid="studio-writing-open-rpg" onClick={() => requestTaskHref(`/studio/project/${project.id}/rpg`, "完整 RPG 儀表板")}>進入第一個遊戲回合</button>
               <button type="button" onClick={() => navigate("world")}>先調整人物與世界</button>
             </div>
           </section>
@@ -3992,6 +4263,8 @@ function WriteScreen({
           aria-label="正文編輯器"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onSelect={(event) => rememberCurrentEditorPosition(event.currentTarget)}
+          onScroll={(event) => rememberCurrentEditorPosition(event.currentTarget)}
           placeholder="從這裡開始寫你的故事……"
         />
         <footer>
@@ -4005,7 +4278,7 @@ function WriteScreen({
             <button onClick={() => setFocus(!focus)}>
               {focus ? "離開專注模式" : "專注寫作"}
             </button>
-            <Link href={`/studio/read/${project.id}`} onClick={() => void persistCurrentChapter()}>閱讀作品</Link>
+            <button type="button" onClick={() => requestTaskHref(`/studio/read/${project.id}`, "閱讀作品")}>閱讀作品</button>
             <button disabled={chapterBusy} onClick={() => void finishCurrentChapter()}>
               {chapterBusy ? "正在完成本章……" : "完成本章並建立下一章"}
             </button>

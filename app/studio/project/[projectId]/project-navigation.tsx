@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import {
+  stageStudioTaskHandoff,
+  studioHomeHref,
+} from "@/lib/novel-ai/web/studio-task-session";
 
 // 保留既有的二欄導覽契約；顯示細節另外附加，避免新增介面破壞舊版驗證。
 const PROJECT_LINKS = [
@@ -47,15 +51,23 @@ export default function ProjectNavigation({
 }: {
   projectId: string;
   active: string;
-  onNavigate?: (href: string, label: string) => void;
+  onNavigate?: (href: string, label: string) => void | Promise<void>;
 }) {
   function guardedLink(href: string, label: string) {
-    return onNavigate
-      ? { onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
-        event.preventDefault();
-        onNavigate(href, label);
-      } }
-      : {};
+    return { onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
+      event.preventDefault();
+      if (onNavigate) {
+        void onNavigate(href, label);
+        return;
+      }
+      stageStudioTaskHandoff({
+        projectId,
+        sourceLabel: PROJECT_LINKS.find(([path]) => path === active)?.[1] ?? "作品功能",
+        destinationLabel: label,
+        destinationHref: href,
+      });
+      window.location.assign(studioHomeHref(projectId));
+    } };
   }
 
   return (
@@ -77,7 +89,7 @@ export default function ProjectNavigation({
             className={active === path ? "active" : ""}
             href={`/studio/project/${projectId}/${path}`}
             aria-current={active === path ? "page" : undefined}
-            {...guardedLink(`/studio/project/${projectId}/${path}`, label)}
+            {...(active === path ? {} : guardedLink(`/studio/project/${projectId}/${path}`, label))}
           >
             <span className="p2NavIcon" aria-hidden="true">{icon}</span>
             <span className="p2NavLabel">{label}</span>

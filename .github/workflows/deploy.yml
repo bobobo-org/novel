@@ -72,6 +72,8 @@ jobs:
           pnpm test:ai:closed-ai-runtime-r2
           pnpm test:p12
           pnpm test:studio:chapter-isolation
+          pnpm test:studio:writing-flow
+          pnpm test:studio:task-session-rpg-ai
           pnpm test:ai:p15:consumer-platform
           pnpm test:ai:p21:three-high
 

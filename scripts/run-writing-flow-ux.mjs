@@ -38,15 +38,17 @@ check("dirty chapters autosave and protect browser close", () => {
 check("navigation saves first and only explicit confirmation can abandon edits", () => {
   assert.match(writing, /allowTransitionAfterSave/u);
   assert.match(writing, /只有按下「確定」才會放棄本次未保存修改/u);
-  assert.match(writing, /router\.push\(href\)/u);
-  assert.match(navigation, /onNavigate\?: \(href: string, label: string\) => void/u);
+  assert.match(writing, /stageStudioTaskHandoff/u);
+  assert.match(writing, /router\.push\(studioHomeHref\(projectId\)\)/u);
+  assert.match(navigation, /onNavigate\?: \(href: string, label: string\) => void \| Promise<void>/u);
+  assert.match(navigation, /window\.location\.assign\(studioHomeHref\(projectId\)\)/u);
   assert.doesNotMatch(navigation, /<a\s/u);
 });
 
 check("chapter changes stay explicit and chapter scoped", () => {
   assert.match(writing, /async function selectChapter/u);
   assert.match(writing, /activeChapterId: next\.id/u);
-  assert.match(writing, /sourceKey: `chapter:\$\{chapter\.id\}`/u);
+  assert.match(writing, /sourceKey = `chapter:\$\{chapter\?\.id \|\| "missing"\}`/u);
 });
 
 check("writing elf guides setup, drafting, AI candidate and reading", () => {
