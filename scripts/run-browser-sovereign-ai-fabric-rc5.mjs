@@ -159,6 +159,8 @@ test("fabric-orchestrator", async () => {
   const source = readFileSync(resolve(root, "lib/novel-ai/browser-fabric/orchestrator.ts"), "utf8");
   assert.match(source, /executeBrowserFabricTaskGraph/u);
   assert.match(source, /executeBrowserCompute/u);
+  assert.match(source, /value: computeRef\.current\.quality/u);
+  assert.doesNotMatch(source, /evaluateBrowserCandidateQuality/u);
   assert.doesNotMatch(source, /model:\s*["']local-rule["']/u);
   assert.deepEqual(BROWSER_FABRIC_NODE_KINDS, [
     "LOAD_AUTHORITY", "BUILD_MEMORY_VIEW", "RETRIEVE", "RERANK", "COMPRESS",

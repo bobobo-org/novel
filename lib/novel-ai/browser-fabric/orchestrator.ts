@@ -5,7 +5,6 @@ import {
   type BrowserComputeExecution,
 } from "../providers/browser-ai/browser-compute-orchestrator";
 import { rankWithBrowserSemanticModel } from "../providers/browser-ai/browser-semantic-runtime";
-import { evaluateBrowserCandidateQuality } from "../providers/browser-ai/browser-quality-gate";
 import { qualifyBrowserDevice } from "./capability-profile";
 import { resolveBrowserFabricComputePolicy } from "./compute-policy";
 import { planBrowserContextCompression } from "./context-compression";
@@ -154,15 +153,7 @@ export async function executeBrowserSovereignFabric(input: {
       }
       case "CRITIC": {
         if (!computeRef.current) throw Object.assign(new Error("Generation result missing."), { code: "BROWSER_FABRIC_GENERATION_MISSING" });
-        const quality = evaluateBrowserCandidateQuality({
-          taskType: input.request.taskType,
-          content: computeRef.current.result.content,
-          expectedMinTokens: 12,
-          expectedMaxTokens: input.request.generationOptions?.maxTokens ?? 1_024,
-          requiresStructuredOutput: input.request.requiresStructured,
-          threshold: 0.68,
-        });
-        return { value: quality, engineId: "deterministic-js-wasm" };
+        return { value: computeRef.current.quality, engineId: "deterministic-js-wasm" };
       }
       case "REVISE":
         return { value: { revisedByVerifiedBrowserPipeline: true }, engineId: "deterministic-js-wasm" };
@@ -179,7 +170,7 @@ export async function executeBrowserSovereignFabric(input: {
       case "CANON_CHECK":
         return { value: { candidateOnly: true, preApprovalMutation: 0, authorityRetained: true }, engineId: "deterministic-js-wasm" };
       case "QUALITY_GATE": {
-        const quality = state.values.get("CRITIC") as ReturnType<typeof evaluateBrowserCandidateQuality>;
+        const quality = state.values.get("CRITIC") as BrowserComputeExecution["quality"];
         if (quality.decision !== "pass") {
           throw Object.assign(new Error("Browser candidate failed the Fabric quality gate."), {
             code: "BROWSER_AI_QUALITY_INSUFFICIENT",

@@ -254,17 +254,22 @@ function directProseContinuityAnchor(input: {
   const chapterText = currentChapterContext(input.context);
   if (!chapterText) return null;
   const characterAnchors = extractNarrativeCharacterAnchors(chapterText);
+  const chapterTail = chapterText.replace(/\s+/gu, " ").trim().slice(-320);
   return [
-    "<直接續寫依據>",
+    "<既有章節（僅供辨識，禁止輸出）>",
     compactText(chapterText, 1_600),
-    "</直接續寫依據>",
+    "</既有章節（僅供辨識，禁止輸出）>",
+    "<續寫起點（只承接，不得重寫）>",
+    chapterTail,
+    "</續寫起點（只承接，不得重寫）>",
     "必須沿用上方已出現的人物、地點、物件與當前衝突；禁止改用另一篇故事的人物、年代、戰爭或背景。",
     ...(characterAnchors.length
       ? [
         `角色姓名硬錨點：${characterAnchors.join("、")}。正文前八十字內必須原樣出現至少一名既有角色；禁止用新姓名替換主角。`,
       ]
       : []),
-    "上方內容只用來定位續寫起點，不得摘錄、重排、縮寫或改述；必須從最後一句之後產生新的行動與後果。",
+    "第一句必須回應續寫起點的最後可見動作或人物反應，不得重寫章節開頭。",
+    "不得新增原章節未出現的時代技術、交通、職業制度或地名。上方內容只用來定位續寫起點，不得摘錄、重排、縮寫或改述；必須從最後一句之後產生新的行動與後果。",
   ].join("\n");
 }
 

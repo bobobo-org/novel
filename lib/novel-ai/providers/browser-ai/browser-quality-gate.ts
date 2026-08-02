@@ -5,7 +5,7 @@ import {
 } from "../closed/continuity-anchors";
 import { estimateBrowserTokens } from "./browser-performance-policy";
 
-export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v5" as const;
+export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v6" as const;
 
 export type BrowserQualityGateResult = {
   schemaVersion: typeof BROWSER_QUALITY_GATE_VERSION;
@@ -227,6 +227,35 @@ function contextNovelty(input: {
   };
 }
 
+const FANTASY_WORLD_SIGNALS = [
+  "夢稅", "浮空城", "審夢司", "斷劍", "劍脊", "琉璃匣", "通行印",
+  "靈石", "仙門", "宗門", "丹藥", "符籙", "陣法", "御劍", "秘境",
+] as const;
+
+const MODERN_WORLD_SIGNALS = [
+  "電車站", "工作日", "班車", "公司", "辦公室", "手機", "電話", "簡訊",
+  "電腦", "網路", "汽車", "公車", "地鐵", "警察", "醫院", "學校",
+] as const;
+
+function worldRegisterDrift(input: {
+  taskType: PlatformTaskType;
+  content: string;
+  approvedContext?: string[];
+}) {
+  if (!DIRECT_NARRATIVE_TASKS.has(input.taskType)) return false;
+  const currentChapter = currentChapterContext(input.approvedContext);
+  if (!currentChapter) return false;
+  const fantasySignals = FANTASY_WORLD_SIGNALS.filter((signal) =>
+    currentChapter.includes(signal));
+  const existingModernSignals = MODERN_WORLD_SIGNALS.filter((signal) =>
+    currentChapter.includes(signal));
+  const introducedModernSignals = MODERN_WORLD_SIGNALS.filter((signal) =>
+    !currentChapter.includes(signal) && input.content.includes(signal));
+  return fantasySignals.length >= 2
+    && existingModernSignals.length === 0
+    && introducedModernSignals.length >= 2;
+}
+
 function traditionalChineseScore(content: string) {
   const markers = content.match(SIMPLIFIED_ONLY_MARKERS)?.length ?? 0;
   return clamp(1 - markers / Math.max(8, content.length * 0.06));
@@ -286,11 +315,16 @@ export function evaluateBrowserCandidateQuality(input: {
     content,
     approvedContext: input.approvedContext,
   });
+  const registerDrift = worldRegisterDrift({
+    taskType: input.taskType,
+    content,
+    approvedContext: input.approvedContext,
+  });
   const scores = {
     traditionalChinese: traditionalChineseScore(content),
     canonCompliance: clamp(1 - (input.canonConflictCount ?? 0) * 0.34),
     characterVoice: clamp(input.characterVoiceScore ?? 0.82),
-    continuity: missingContextAnchor || missingContextCharacter
+    continuity: missingContextAnchor || missingContextCharacter || registerDrift
       ? 0.15
       : clamp(1 - (input.continuityIssueCount ?? 0) * 0.25),
     specificity: specificityScore(content),
@@ -302,6 +336,7 @@ export function evaluateBrowserCandidateQuality(input: {
     taskUsefulness: taskFormMismatch
       || novelty.excessiveReuse
       || novelty.missingProgress
+      || registerDrift
       || truncatedOutput
       ? 0.05
       : usefulnessScore(content),
@@ -345,6 +380,7 @@ export function evaluateBrowserCandidateQuality(input: {
   if (novelty.missingProgress) {
     reasonCodes.push("QUALITY_NARRATIVE_PROGRESS_MISSING");
   }
+  if (registerDrift) reasonCodes.push("QUALITY_WORLD_REGISTER_DRIFT");
   if (characterBoundaryLeakCount > 0) {
     reasonCodes.push("CHARACTER_KNOWLEDGE_BOUNDARY_LEAK");
   }
@@ -357,6 +393,7 @@ export function evaluateBrowserCandidateQuality(input: {
     || narrativeTooShort
     || novelty.excessiveReuse
     || novelty.missingProgress
+    || registerDrift
     || scores.structuredOutput === 0
     || scores.canonCompliance < 0.5;
   const decision = block

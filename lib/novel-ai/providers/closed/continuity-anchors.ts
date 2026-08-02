@@ -1,5 +1,80 @@
+import type { PlatformTaskType } from "../../router/platform-types";
+
 const CURRENT_CHAPTER_CONTEXT_MARKER =
-  /(?:^|\n)\s*(?:\[current-chapter\]|【目前章節[：:])/iu;
+  /(?:^|\n)\s*(?:\[current-chapter\]|\[active[_-]chapter\]|【目前章節[：:])/iu;
+
+const DIRECT_NARRATIVE_TASKS = new Set<PlatformTaskType>([
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
+type ActorContextIdentity = {
+  id: string;
+  kind: string;
+  text: string;
+};
+
+function isStrongActiveChapter(item: ActorContextIdentity) {
+  return item.id.startsWith("chapter-active:")
+    || /^\s*\[active[_-]chapter\]/iu.test(item.text);
+}
+
+function isCurrentChapterCandidate(item: ActorContextIdentity) {
+  return isStrongActiveChapter(item)
+    || CURRENT_CHAPTER_CONTEXT_MARKER.test(item.text);
+}
+
+function readableActiveChapter(value: string) {
+  const normalized = value.replace(/\r\n?/gu, "\n").trim();
+  const tagged = normalized.match(/^\[active[_-]chapter\]\s*([\s\S]+)$/iu);
+  if (!tagged?.[1]) {
+    return normalized.replace(/^\[current-chapter\]\s*/iu, "").trim();
+  }
+  try {
+    const record = JSON.parse(tagged[1]) as {
+      title?: unknown;
+      content?: unknown;
+      summary?: unknown;
+    };
+    const title = typeof record.title === "string" ? record.title.trim() : "";
+    const content = typeof record.content === "string" ? record.content.trim() : "";
+    const summary = typeof record.summary === "string" ? record.summary.trim() : "";
+    if (content || summary) {
+      return [
+        title ? `【目前章節：${title}】` : "【目前章節】",
+        content,
+        summary && !content.includes(summary) ? `【章節摘要】${summary}` : "",
+      ].filter(Boolean).join("\n");
+    }
+  } catch {
+    // The tagged context remains usable as text if an older record is not JSON.
+  }
+  return normalized.replace(/^\[active[_-]chapter\]\s*/iu, "").trim();
+}
+
+export function serializeClosedActorContext(
+  context: ActorContextIdentity[],
+  taskType: PlatformTaskType,
+) {
+  const narrativeTask = DIRECT_NARRATIVE_TASKS.has(taskType);
+  const strongIndex = narrativeTask
+    ? context.findIndex(isStrongActiveChapter)
+    : -1;
+  const activeIndex = strongIndex >= 0
+    ? strongIndex
+    : narrativeTask
+      ? context.findIndex(isCurrentChapterCandidate)
+      : -1;
+  return context
+    .map((item, index) => ({ item, index, active: index === activeIndex }))
+    .sort((left, right) => Number(right.active) - Number(left.active) || left.index - right.index)
+    .map(({ item, active }) => active
+      ? `[current-chapter]\n${readableActiveChapter(item.text)}`
+      : `[${item.kind}]\n${item.text.replace(/\r\n?/gu, "\n").trim()}`);
+}
 
 const ROLE_PREFIXES = [
   "鑄劍師",
@@ -104,13 +179,15 @@ export function currentChapterContext(context: string[] | undefined) {
   for (const item of context ?? []) {
     const match = CURRENT_CHAPTER_CONTEXT_MARKER.exec(item);
     if (!match || match.index < 0) continue;
-    const markerOffset = match[0].search(/(?:\[current-chapter\]|【目前章節[：:])/iu);
+    const markerOffset = match[0].search(
+      /(?:\[current-chapter\]|\[active[_-]chapter\]|【目前章節[：:])/iu,
+    );
     const chapterStart = markerOffset < 0
       ? match.index
       : match.index + markerOffset;
     return item
       .slice(chapterStart)
-      .replace(/^\s*\[current-chapter\]\s*/iu, "")
+      .replace(/^\s*\[(?:current-chapter|active[_-]chapter)\]\s*/iu, "")
       .trim();
   }
   return null;

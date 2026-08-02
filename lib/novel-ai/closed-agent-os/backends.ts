@@ -19,6 +19,7 @@ import {
 import { getConfiguredLocalBridgeClient } from "../providers/local-ollama/local-bridge-client";
 import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
 import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
+import { serializeClosedActorContext } from "../providers/closed/continuity-anchors";
 import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
@@ -156,7 +157,7 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     preferredProvider: input.plan.backendId,
     input: request.objective,
     context: [
-      ...input.actorContext.map((item) => item.text),
+      ...serializeClosedActorContext(input.actorContext, request.taskType),
       ...controlledLearningContext,
     ],
     qualityPreference: input.plan.qualityMode === "deep"

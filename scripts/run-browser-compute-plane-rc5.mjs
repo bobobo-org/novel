@@ -45,6 +45,7 @@ import {
 import {
   currentChapterContext,
   extractNarrativeCharacterAnchors,
+  serializeClosedActorContext,
 } from "../lib/novel-ai/providers/closed/continuity-anchors.ts";
 import {
   createBrowserExecutionReceipt,
@@ -497,6 +498,21 @@ test("quality-gate", () => {
     ]),
     /陸沉[\s\S]*阿璃/u,
   );
+  const serializedContext = serializeClosedActorContext([
+    {
+      id: "story-bible:1",
+      kind: "story-bible",
+      text: "[APPROVED_STORY_BIBLE]\n{\"theme\":\"記憶與代價\"}",
+    },
+    {
+      id: "chapter-active:chapter-1",
+      kind: "canon",
+      text: "[ACTIVE_CHAPTER]\n{\"title\":\"第一章 斷劍中的聲音\",\"content\":\"少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。\"}",
+    },
+  ], "chapter.continue");
+  assert.match(serializedContext[0], /^\[current-chapter\][\s\S]*陸沉[\s\S]*阿璃/u);
+  assert.doesNotMatch(serializedContext[0], /\[ACTIVE_CHAPTER\]/u);
+  assert.match(serializedContext[1], /^\[story-bible\]/u);
   const wrappedObservedNamedStoryDrift = evaluateBrowserCandidateQuality({
     taskType: "chapter.continue",
     expectedMinTokens: 80,
@@ -546,6 +562,18 @@ test("quality-gate", () => {
   assert.ok(copiedContextInsteadOfContinuation.reasonCodes.includes("QUALITY_CONTEXT_COPY_EXCESSIVE"));
   assert.ok(copiedContextInsteadOfContinuation.reasonCodes.includes("QUALITY_NARRATIVE_PROGRESS_MISSING"));
   assert.equal(copiedContextInsteadOfContinuation.canonicalMutationCount, 0);
+  const copiedContextAndModernDrift = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    expectedMinTokens: 140,
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻了上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台，審夢官認出了陸沉手中的斷劍。",
+    ],
+    content: "夢稅鐘敲到第七響時，浮空城的霧從橋底翻了上來。少年鑄劍師陸沉握著銅鋤，仍想著阿璃留下的聲音。他趕往電車站，盼望在工作日結束前搭上最後一班班車，再向陌生人詢問妹妹的下落。陸沉握緊車票排在月台邊，決定等列車進站後才採取下一步行動。",
+  });
+  assert.equal(copiedContextAndModernDrift.decision, "block");
+  assert.ok(copiedContextAndModernDrift.reasonCodes.includes("QUALITY_CONTEXT_COPY_EXCESSIVE"));
+  assert.ok(copiedContextAndModernDrift.reasonCodes.includes("QUALITY_WORLD_REGISTER_DRIFT"));
+  assert.equal(copiedContextAndModernDrift.canonicalMutationCount, 0);
   const anchoredContinuation = evaluateBrowserCandidateQuality({
     taskType: "chapter.continue",
     approvedContext: [
@@ -585,9 +613,11 @@ test("creative-output-contract", () => {
   assert.doesNotMatch(prompt.prompt, /critic：列出缺陷/u);
   assert.doesNotMatch(prompt.prompt, /evaluator：分析候選/u);
   assert.match(prompt.prompt, /不得反問作者/u);
-  assert.match(prompt.prompt, /<直接續寫依據>[\s\S]*陸沉[\s\S]*<\/直接續寫依據>/u);
-  assert.ok(prompt.prompt.indexOf("<直接續寫依據>") > prompt.prompt.indexOf("</作者目標>"));
-  assert.ok(prompt.prompt.indexOf("<直接續寫依據>") < prompt.prompt.indexOf("<最終輸出契約>"));
+  assert.match(prompt.prompt, /<既有章節（僅供辨識，禁止輸出）>[\s\S]*陸沉[\s\S]*<\/既有章節（僅供辨識，禁止輸出）>/u);
+  assert.match(prompt.prompt, /<續寫起點（只承接，不得重寫）>[\s\S]*審夢官[\s\S]*<\/續寫起點（只承接，不得重寫）>/u);
+  assert.match(prompt.prompt, /不得新增原章節未出現的時代技術/u);
+  assert.ok(prompt.prompt.indexOf("<既有章節（僅供辨識，禁止輸出）>") > prompt.prompt.indexOf("</作者目標>"));
+  assert.ok(prompt.prompt.indexOf("<續寫起點（只承接，不得重寫）>") < prompt.prompt.indexOf("<最終輸出契約>"));
 });
 
 test("offload-routing", () => {

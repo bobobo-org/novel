@@ -106,6 +106,7 @@ const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
   "QUALITY_CONTEXT_COPY_EXCESSIVE",
   "QUALITY_NARRATIVE_PROGRESS_MISSING",
   "QUALITY_CONTEXT_CHARACTER_MISSING",
+  "QUALITY_WORLD_REGISTER_DRIFT",
   "QUALITY_OUTPUT_TRUNCATED",
 ]);
 
@@ -314,17 +315,24 @@ async function contextSources(
       code: "BROWSER_COMPUTE_NAMESPACE_REQUIRED",
     });
   }
-  const base: BrowserContextSource[] = request.context.map((text, index) => ({
-    id: `context-${index + 1}`,
-    kind: index === 0 ? "canon-authority" : "story-bible",
-    text,
-    namespace: structuredClone(request.cacheNamespace!),
-    visibility: "both",
-    approved: true,
-    revision: request.cacheNamespace!.storyBibleRevision,
-    authority: index === 0 ? 1 : 0.65,
-    relevance: 0.65,
-  }));
+  const base: BrowserContextSource[] = request.context.map((text, index) => {
+    const currentChapter = /^\s*\[current-chapter\]/iu.test(text);
+    return {
+      id: `context-${index + 1}`,
+      kind: currentChapter
+        ? "current-chapter"
+        : index === 0
+          ? "canon-authority"
+          : "story-bible",
+      text,
+      namespace: structuredClone(request.cacheNamespace!),
+      visibility: "both",
+      approved: true,
+      revision: request.cacheNamespace!.storyBibleRevision,
+      authority: currentChapter || index === 0 ? 1 : 0.65,
+      relevance: currentChapter ? 1 : 0.65,
+    };
+  });
   if (!semanticReady || !request.context.length) return base;
   try {
     const ranked = await rankWithBrowserSemanticModel({
@@ -521,7 +529,7 @@ export async function executeBrowserCompute(input: {
           input.request.input,
           "前一版未通過續寫品質檢查，請重新輸出一份完整替代正文。",
           characterAnchorRequirement,
-          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；使用既有人物與場景，至少推進一個新事件並造成一項新後果；輸出二百二十至三百二十個繁體中文字，並以完整句號或引號收尾。",
+          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；不得新增原章節未出現的時代技術、交通、職業制度或地名；使用既有人物與場景，至少推進一個新事件並造成一項新後果；第一句不得重寫章節開頭；輸出二百二十至三百二十個繁體中文字，並以完整句號或引號收尾。",
         ].join("\n"),
         qualityPhase: "revision",
         workingMaterials: [],
