@@ -191,6 +191,7 @@ await check("route refresh is planning, not execution", async () => {
   const before = await runtime.refresh({
     projectId: "project-planned",
     taskType: "chapter.continue",
+    policy: { preferredBackend: "local-ollama" },
   });
   assert.equal(before.routeStatus, "routable");
   assert.equal(before.plannedBackend, "local-ollama");
@@ -227,6 +228,7 @@ await check("validated receipt is the only coordinator execution proof", async (
   const after = await runtime.refresh({
     projectId: "project-local",
     taskType: "chapter.continue",
+    policy: { preferredBackend: "local-ollama" },
   });
   assert.equal(after.plannedBackend, "local-ollama");
   assert.equal(after.actualExecutor, "local-ollama");
@@ -235,6 +237,7 @@ await check("validated receipt is the only coordinator execution proof", async (
   const cleared = await runtime.refresh({
     projectId: "project-local",
     taskType: "chapter.continue",
+    policy: { preferredBackend: "local-ollama" },
   });
   assert.equal(cleared.actualExecutor, "not_executed");
   assert.equal(cleared.executionReceipt, null);
