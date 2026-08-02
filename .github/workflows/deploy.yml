@@ -8,10 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Recovery operation
+        description: Release operation
         required: true
         type: choice
         options:
+          - deploy-preview
           - restore-known-stable
 
 permissions:
@@ -34,7 +35,7 @@ env:
 jobs:
   validate:
     name: validate
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy-preview'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -110,19 +111,19 @@ jobs:
   preview:
     name: preview
     needs: validate
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-preview')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Checkout trusted PR head
+      - name: Checkout trusted preview source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -154,7 +155,7 @@ jobs:
         shell: bash
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
-          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           identity_url="$PREVIEW_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -171,7 +172,7 @@ jobs:
             fi
             sleep 2
           done
-          echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
+          echo "Preview release identity did not match trusted source $EXPECTED_COMMIT." >&2
           exit 1
 
   production_env_bootstrap:
