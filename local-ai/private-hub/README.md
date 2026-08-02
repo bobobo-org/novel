@@ -85,3 +85,10 @@ chain is verified whenever the Hub starts; corruption stops the runtime
 instead of silently accepting the ledger. These summaries remain learning
 candidates and cannot activate an adapter without the existing dataset,
 evaluation, approval, activation, and rollback gates.
+
+While Private Hub remains running, the continuous-learning coordinator checks
+the verified experience ledger every five minutes and immediately after a new
+experience is accepted. It creates a new append-only strategy candidate only
+when the ledger head changes. Candidates contain aggregate scores and outcome
+counts, never prompts, story text, model output, credentials, or chain-of-thought.
+The coordinator cannot mutate Canon, Memory, adapters, or model weights.

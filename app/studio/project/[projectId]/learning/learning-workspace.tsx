@@ -22,8 +22,10 @@ import {
   runAutonomousLearningPractice,
   revokeLearningSource,
   type AutonomousPracticeExperience,
+  type LearningEngagementMetric,
   type LearningRightsBasis,
   type LearningSourceKind,
+  type LearningWebSourceChannel,
   type ControlledTeacherProvider,
   type DistilledWebKnowledgeBundle,
   type SovereignLearningSnapshot,
@@ -52,7 +54,8 @@ type AutonomousSettings = {
   lastOutcome: string | null;
 };
 
-const AUTONOMOUS_SETTINGS_PREFIX = "novel-autonomous-learning-settings-v1";
+const AUTONOMOUS_SETTINGS_PREFIX = "novel-autonomous-learning-settings-v2";
+const LEGACY_AUTONOMOUS_SETTINGS_PREFIX = "novel-autonomous-learning-settings-v1";
 const AUTONOMOUS_QUEUE_KEY = "novel-autonomous-learning-queue-v1";
 
 const sourceKindOptions: Array<[LearningSourceKind, string]> = [
@@ -62,6 +65,9 @@ const sourceKindOptions: Array<[LearningSourceKind, string]> = [
   ["personal_note", "自己的筆記"],
   ["public_domain_work", "公版作品"],
   ["licensed_material", "已授權資料"],
+  ["video_transcript", "自有／已授權影片字幕"],
+  ["novel_app_export", "自有／已授權小說 App 匯出"],
+  ["classical_chinese_public_domain", "公版中文典籍／詩詞書畫題跋"],
 ];
 
 const rightsOptions: Array<[LearningRightsBasis, string]> = [
@@ -91,14 +97,14 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "操作失敗，請稍後重試。";
 }
 
-function autonomousSettingsKey(projectId: string) {
-  return `${AUTONOMOUS_SETTINGS_PREFIX}:${projectId}`;
+function autonomousSettingsKey(projectId: string, prefix = AUTONOMOUS_SETTINGS_PREFIX) {
+  return `${prefix}:${projectId}`;
 }
 
 function defaultAutonomousSettings(): AutonomousSettings {
   return {
-    enabled: false,
-    syncEnabled: false,
+    enabled: true,
+    syncEnabled: true,
     intervalMinutes: 30,
     installationId: crypto.randomUUID(),
     consentId: crypto.randomUUID(),
@@ -140,6 +146,10 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [recipeSeed, setRecipeSeed] = useState("第一組");
   const [recipes, setRecipes] = useState<RecipeResult | null>(null);
   const [webUrl, setWebUrl] = useState("");
+  const [webSourceChannel, setWebSourceChannel] = useState<LearningWebSourceChannel>("article");
+  const [webEngagementMetric, setWebEngagementMetric] = useState<LearningEngagementMetric>("views");
+  const [webEngagementCount, setWebEngagementCount] = useState("");
+  const [webEngagementEvidence, setWebEngagementEvidence] = useState("");
   const [webRightsBasis, setWebRightsBasis] = useState<LearningRightsBasis>("lawful_private_reference");
   const [webRightsEvidence, setWebRightsEvidence] = useState("");
   const [webRightsConfirmed, setWebRightsConfirmed] = useState(false);
@@ -150,9 +160,12 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings | null>(null);
   const [autonomousBusy, setAutonomousBusy] = useState(false);
   const [practiceQueueCount, setPracticeQueueCount] = useState(0);
-  const [autonomousStatus, setAutonomousStatus] = useState("自動練習尚未啟用。");
+  const [autonomousStatus, setAutonomousStatus] = useState("正在啟動全自動練習與安全經驗回傳。");
   const autonomousRunningRef = useRef(false);
+  const autonomousSyncRunningRef = useRef(false);
   const autonomousExecuteRef = useRef<(announce?: boolean) => Promise<void>>(async () => undefined);
+  const autonomousRetryRef = useRef<() => Promise<void>>(async () => undefined);
+  const webRequiresEngagement = webSourceChannel !== "article" && webSourceChannel !== "classical_chinese";
 
   const load = useCallback(async (announce = true) => {
     const next = await getSovereignLearningDashboard(learningRepository, projectId);
@@ -204,19 +217,26 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     const timer = window.setTimeout(() => {
       try {
         const fallback = defaultAutonomousSettings();
-        const stored = JSON.parse(localStorage.getItem(autonomousSettingsKey(projectId)) || "null") as Partial<AutonomousSettings> | null;
+        const currentRaw = localStorage.getItem(autonomousSettingsKey(projectId));
+        const legacyKey = autonomousSettingsKey(projectId, LEGACY_AUTONOMOUS_SETTINGS_PREFIX);
+        const legacyRaw = currentRaw ? null : localStorage.getItem(legacyKey);
+        const stored = JSON.parse(currentRaw || legacyRaw || "null") as Partial<AutonomousSettings> | null;
+        const migratingLegacySettings = !currentRaw && Boolean(legacyRaw);
         const settings: AutonomousSettings = {
           ...fallback,
           ...(stored ?? {}),
+          enabled: currentRaw ? stored?.enabled !== false : true,
+          syncEnabled: currentRaw ? stored?.syncEnabled !== false : true,
           intervalMinutes: Math.max(15, Math.min(1_440, Number(stored?.intervalMinutes) || 30)),
           installationId: stored?.installationId || fallback.installationId,
-          consentId: stored?.consentId || fallback.consentId,
+          consentId: migratingLegacySettings ? crypto.randomUUID() : stored?.consentId || fallback.consentId,
         };
+        if (migratingLegacySettings) localStorage.removeItem(legacyKey);
         setAutonomousSettings(settings);
         setPracticeQueueCount(readPracticeQueue().length);
-        setAutonomousStatus(settings.enabled
-          ? "自動練習已啟用；網頁開啟期間會定期執行，重新開啟時會補跑逾期工作。"
-          : "自動練習尚未啟用。");
+        setAutonomousStatus(settings.enabled && settings.syncEnabled
+          ? "全自動模式已啟用；進入作品後會練習、排程補跑並自動回傳安全摘要。"
+          : "全自動模式已由使用者暫停；正式作品與待傳摘要均保持不變。");
       } catch {
         const settings = defaultAutonomousSettings();
         setAutonomousSettings(settings);
@@ -233,6 +253,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
 
   useEffect(() => {
     autonomousExecuteRef.current = executeAutonomousPractice;
+    autonomousRetryRef.current = retryPracticeQueue;
   });
 
   useEffect(() => {
@@ -241,12 +262,23 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       const last = autonomousSettings.lastRunAt ? Date.parse(autonomousSettings.lastRunAt) : 0;
       return !last || Date.now() - last >= autonomousSettings.intervalMinutes * 60_000;
     };
-    if (due()) void autonomousExecuteRef.current(false);
+    const tick = () => {
+      if (due()) {
+        void autonomousExecuteRef.current(false);
+      } else if (autonomousSettings.syncEnabled && readPracticeQueue().length > 0) {
+        void autonomousRetryRef.current();
+      }
+    };
+    tick();
     const timer = window.setInterval(() => {
-      if (due()) void autonomousExecuteRef.current(false);
+      tick();
     }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [autonomousSettings?.enabled, autonomousSettings?.intervalMinutes, autonomousSettings?.lastRunAt]);
+    window.addEventListener("online", tick);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", tick);
+    };
+  }, [autonomousSettings?.enabled, autonomousSettings?.syncEnabled, autonomousSettings?.intervalMinutes, autonomousSettings?.lastRunAt]);
 
   async function analyze() {
     if (busy) return;
@@ -321,6 +353,10 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           userConfirmedRights: webRightsConfirmed,
           externalConsent,
           providerIds: teacherProviders,
+          sourceChannel: webSourceChannel,
+          engagementMetric: webEngagementMetric,
+          engagementCount: webRequiresEngagement ? Number(webEngagementCount) : null,
+          engagementEvidence: webRequiresEngagement ? webEngagementEvidence : null,
         }),
       });
       const payload = await response.json() as DistilledWebKnowledgeBundle & {
@@ -349,6 +385,8 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           : `受控研究完成：${result.externalRequestCount} 個教師建立 ${result.rules.length} 條候選。原文與教師完整輸出均未保存；正式能力尚未變更。`,
       );
       setWebUrl("");
+      setWebEngagementCount("");
+      setWebEngagementEvidence("");
       setWebRightsConfirmed(false);
       setExternalConsent(false);
       setCapabilityReport(null);
@@ -450,6 +488,8 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   }
 
   async function retryPracticeQueue() {
+    if (autonomousSyncRunningRef.current || autonomousRunningRef.current) return;
+    autonomousSyncRunningRef.current = true;
     setAutonomousBusy(true);
     setAutonomousStatus("正在驗證去識別化摘要並嘗試交付 Private Hub。");
     try {
@@ -466,6 +506,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     } catch (error) {
       setAutonomousStatus(errorMessage(error));
     } finally {
+      autonomousSyncRunningRef.current = false;
       setAutonomousBusy(false);
     }
   }
@@ -506,16 +547,17 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
-  function setAutonomousEnabled(enabled: boolean) {
+  function setFullAutomationEnabled(enabled: boolean) {
     setAutonomousSettings((current) => current ? {
       ...current,
       enabled,
+      syncEnabled: enabled,
       consentId: enabled ? crypto.randomUUID() : current.consentId,
       lastRunAt: enabled ? null : current.lastRunAt,
     } : current);
     setAutonomousStatus(enabled
-      ? "已建立本機持續同意；即將開始第一輪自動練習。"
-      : "自動練習已停止；既有安全摘要仍可由你保留或清除。");
+      ? "全自動模式已恢復；即將開始第一輪練習並自動回傳安全摘要。"
+      : "全自動模式已暫停；既有安全摘要仍可由你保留或清除。");
   }
 
   function clearPracticeQueue() {
@@ -713,6 +755,41 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
               <input type="url" value={webUrl} onChange={(event) => setWebUrl(event.target.value)} placeholder="https://example.com/你有權分析的文章" />
             </label>
             <div className={styles.twoColumns}>
+              <label>學習通道
+                <select value={webSourceChannel} onChange={(event) => {
+                  const channel = event.target.value as LearningWebSourceChannel;
+                  setWebSourceChannel(channel);
+                  if (channel === "classical_chinese") setWebRightsBasis("public_domain");
+                }}>
+                  <option value="article">一般文章／研究資料</option>
+                  <option value="youtube">YouTube 熱門影片</option>
+                  <option value="novel_app">小說 App／閱讀產品</option>
+                  <option value="popular_web">10 萬以上熱門網頁</option>
+                  <option value="classical_chinese">公版中文典籍／詩詞書畫</option>
+                </select>
+              </label>
+              {webRequiresEngagement ? <label>人氣指標
+                <select value={webEngagementMetric} onChange={(event) => setWebEngagementMetric(event.target.value as LearningEngagementMetric)}>
+                  <option value="views">觀看次數</option>
+                  <option value="reads">閱讀次數</option>
+                  <option value="installs">安裝次數</option>
+                  <option value="ratings">評分數</option>
+                  <option value="followers">追蹤數</option>
+                  <option value="monthly_visits">月造訪數</option>
+                </select>
+              </label> : <label>抽象目標
+                <input readOnly value={webSourceChannel === "classical_chinese" ? "格律、意象、用典、章法與古典語氣" : "敘事、節奏、角色、關係與修訂規則"} />
+              </label>}
+            </div>
+            {webRequiresEngagement ? <div className={styles.twoColumns}>
+              <label>公開數值（至少 100,000）
+                <input type="number" min="100000" step="1" value={webEngagementCount} onChange={(event) => setWebEngagementCount(event.target.value)} placeholder="100000" />
+              </label>
+              <label>人氣證據
+                <input value={webEngagementEvidence} onChange={(event) => setWebEngagementEvidence(event.target.value)} placeholder="平台公開計數、統計頁或查核說明" />
+              </label>
+            </div> : null}
+            <div className={styles.twoColumns}>
               <label>權利依據
                 <select value={webRightsBasis} onChange={(event) => setWebRightsBasis(event.target.value as LearningRightsBasis)}>
                   {rightsOptions.filter(([value]) => value !== "ai_output_authorized").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -757,13 +834,14 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
             || !webRightsEvidence.trim()
             || !webRightsConfirmed
             || !externalConsent
+            || (webRequiresEngagement && (Number(webEngagementCount) < 100_000 || !webEngagementEvidence.trim()))
             || !teacherProviders.some((id) => providerStatuses.some((provider) => provider.id === id && provider.configured))
           }
           onClick={() => void researchWeb()}
         >
           {busy ? "處理中…" : "安全抓取並建立規則候選"}
         </button>
-        <p className={styles.note}>這不是「把全網灌進模型」：每次只處理你指定且有權分析的來源，抽象後仍須逐條核准，並可隨時撤銷回滾。</p>
+        <p className={styles.note}>這不是「把全網灌進模型」：每次只處理你指定且有權分析的來源。熱門數值目前記錄為操作者提出的可稽核證據，不冒充平台 API 核驗；YouTube 任意字幕仍受官方 OAuth／權利限制，可改用下方「自有／已授權影片字幕」匯入。抽象後仍須核准並可撤銷回滾。</p>
       </section>
 
       <div className={styles.columns}>
@@ -901,10 +979,12 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         </div>
         {autonomousSettings ? <>
           <div className={styles.autonomousGrid}>
-            <label className={styles.check}>
-              <input type="checkbox" checked={autonomousSettings.enabled} onChange={(event) => setAutonomousEnabled(event.target.checked)} />
-              開啟自動練習模式（啟用一次後，不必逐次手動啟動）
-            </label>
+            <div className={styles.automationState} data-active={autonomousSettings.enabled && autonomousSettings.syncEnabled}>
+              <strong>{autonomousSettings.enabled && autonomousSettings.syncEnabled ? "全自動運作中" : "全自動已暫停"}</strong>
+              <span>{autonomousSettings.enabled && autonomousSettings.syncEnabled
+                ? "進入作品即自動練習；安全摘要會自動送往可用的 Private Hub，失敗則保留在本機重試。"
+                : "不會執行新練習或回傳；可隨時一鍵恢復。"}</span>
+            </div>
             <label>練習間隔
               <select value={autonomousSettings.intervalMinutes} onChange={(event) => setAutonomousSettings((current) => current ? {
                 ...current,
@@ -917,13 +997,6 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
                 <option value={1440}>每天</option>
               </select>
             </label>
-            <label className={styles.check}>
-              <input type="checkbox" checked={autonomousSettings.syncEnabled} onChange={(event) => setAutonomousSettings((current) => current ? {
-                ...current,
-                syncEnabled: event.target.checked,
-              } : current)} />
-              同意把去識別化練習指標回傳應用伺服器／Private Hub
-            </label>
             <div className={styles.practiceStats}>
               <span>上次：{autonomousSettings.lastRunAt ? new Date(autonomousSettings.lastRunAt).toLocaleString("zh-TW") : "尚未執行"}</span>
               <span>結果：{autonomousSettings.lastOutcome ?? "—"}</span>
@@ -932,11 +1005,15 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           </div>
           <p className={styles.status} role="status">{autonomousStatus}</p>
           <div className={styles.actions}>
+            <button type="button" className={autonomousSettings.enabled && autonomousSettings.syncEnabled ? styles.secondary : undefined} disabled={autonomousBusy} onClick={() => setFullAutomationEnabled(!(autonomousSettings.enabled && autonomousSettings.syncEnabled))}>
+              {autonomousSettings.enabled && autonomousSettings.syncEnabled ? "暫停全自動" : "恢復全自動"}
+            </button>
             <button type="button" disabled={autonomousBusy} onClick={() => void executeAutonomousPractice(true)}>{autonomousBusy ? "練習中…" : "立即執行一輪"}</button>
             <button type="button" className={styles.secondary} disabled={autonomousBusy || !autonomousSettings.syncEnabled || practiceQueueCount === 0} onClick={() => void retryPracticeQueue()}>重試回傳佇列</button>
             <button type="button" className={styles.secondary} disabled={autonomousBusy || practiceQueueCount === 0} onClick={clearPracticeQueue}>清除待傳摘要</button>
           </div>
           <ul className={styles.truthList}>
+            <li>全自動模式預設開啟，不再要求先切換兩個開關；頁面載入、排程到期或網路恢復時會自動處理，並保留一鍵暫停。</li>
             <li>自動練習只使用已核准規則，在沙盒中比較 Control／Treatment；未核准候選不參與。</li>
             <li>回傳內容只有雜湊、規則數、任務覆蓋與評分；不含作品原文、提示、生成全文、AUTHOR_ONLY、憑證或 chain-of-thought。</li>
             <li>Private Hub 執行中時會以正式站精確 Origin 自動建立短期工作階段，摘要優先寫入本機追加式雜湊鏈帳本，不要求密碼或配對碼。</li>

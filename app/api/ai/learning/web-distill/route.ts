@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchControlledWebResearch } from "@/lib/novel-ai/sovereign-learning/safe-web-research.server";
 import { distillControlledWebKnowledge } from "@/lib/novel-ai/sovereign-learning/web-knowledge-distillation.server";
-import type { ControlledTeacherProvider } from "@/lib/novel-ai/sovereign-learning/web-knowledge-contract";
+import {
+  normalizeControlledWebSourceProfile,
+  type ControlledTeacherProvider,
+} from "@/lib/novel-ai/sovereign-learning/web-knowledge-contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,7 +114,30 @@ export async function POST(request: NextRequest) {
     if (!providers.length || providers.length > 2) {
       return json({ code: "WEB_DISTILLATION_TEACHER_REQUIRED", error: "請選擇 OpenAI、Grok 或兩者。" }, 400);
     }
-    const research = await fetchControlledWebResearch(url);
+    let sourceProfile;
+    try {
+      sourceProfile = normalizeControlledWebSourceProfile({
+        sourceChannel: body.sourceChannel,
+        engagementMetric: body.engagementMetric,
+        engagementCount: body.engagementCount,
+        engagementEvidence: body.engagementEvidence,
+        observedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const row = error as { code?: string; message?: string };
+      return json({ code: row.code || "POPULAR_SOURCE_PROFILE_INVALID", error: row.message || "熱門來源證據無效。" }, 400);
+    }
+    if (sourceProfile.channel === "youtube") {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase();
+        if (hostname !== "youtu.be" && hostname !== "youtube.com" && !hostname.endsWith(".youtube.com")) {
+          return json({ code: "YOUTUBE_SOURCE_URL_REQUIRED", error: "YouTube 來源類型必須使用官方 youtube.com 或 youtu.be 網址。" }, 400);
+        }
+      } catch {
+        return json({ code: "WEB_RESEARCH_URL_INVALID", error: "來源網址格式無效。" }, 400);
+      }
+    }
+    const research = await fetchControlledWebResearch(url, { sourceProfile });
     const bundle = await distillControlledWebKnowledge({ research, providers });
     return json(bundle);
   } catch (error) {

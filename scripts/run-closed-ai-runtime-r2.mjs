@@ -693,7 +693,7 @@ test("automatic-local-connection", "official origin connects without password or
   assert.equal(evaluateLocalAIRuntimeVersion({
     reportedVersion: "1.2.0",
     minimumVersion: "1.2.0",
-    recommendedVersion: "1.3.0",
+    recommendedVersion: "1.4.0",
   }), "update_available");
   return {
     automaticSessionRequests: 2,

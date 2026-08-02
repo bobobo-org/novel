@@ -508,6 +508,13 @@ export async function ingestDistilledWebKnowledge(
     || bundle.privacy.candidateOnly !== true
     || bundle.privacy.canonicalMutationCount !== 0
     || bundle.privacy.dataLeftDevice !== true
+    || !bundle.source.sourceProfile
+    || (!["article", "classical_chinese"].includes(bundle.source.sourceProfile.channel) && (
+      !bundle.source.sourceProfile.engagement
+      || bundle.source.sourceProfile.engagement.thresholdPassed !== true
+      || bundle.source.sourceProfile.engagement.minimumRequired !== 100_000
+      || bundle.source.sourceProfile.engagement.observedCount < 100_000
+    ))
     || !bundle.teachers.length
     || bundle.teachers.some((teacher) =>
       teacher.candidateOnly !== true
@@ -584,6 +591,11 @@ export async function ingestDistilledWebKnowledge(
       "CONTROLLED_EXTERNAL_TEACHER_CANDIDATE_ONLY",
       "RAW_SOURCE_NOT_RETAINED",
       "RAW_TEACHER_RESPONSE_NOT_RETAINED",
+      `SOURCE_CHANNEL_${bundle.source.sourceProfile.channel.toUpperCase()}`,
+      ...(bundle.source.sourceProfile.engagement ? [
+        `POPULAR_SOURCE_${bundle.source.sourceProfile.engagement.metric.toUpperCase()}_${bundle.source.sourceProfile.engagement.observedCount}`,
+        "POPULAR_SOURCE_OPERATOR_ATTESTED",
+      ] : []),
     ])],
     trustScore: scoreSourceTrust({
       sourceType: "web_content",
@@ -605,6 +617,7 @@ export async function ingestDistilledWebKnowledge(
       robotsPolicy: bundle.source.robotsPolicy,
       redirects: bundle.source.redirects,
       sourceDigest: bundle.source.sourceDigest,
+      sourceProfile: bundle.source.sourceProfile,
       rawContentRetained: false,
     },
     teacherEvidence: bundle.teachers.map((teacher) => ({
@@ -640,6 +653,7 @@ export async function ingestDistilledWebKnowledge(
         `EXTERNAL_REQUEST_COUNT_${bundle.privacy.externalRequestCount}`,
         `RULE_COUNT_${rules.length}`,
         `CROSS_TEACHER_RULE_COUNT_${bundle.teacherAgreement.crossTeacherRuleCount}`,
+        `SOURCE_CHANNEL_${bundle.source.sourceProfile.channel.toUpperCase()}`,
         `BUNDLE_DIGEST_${bundle.immutableDigest}`,
       ],
     })],

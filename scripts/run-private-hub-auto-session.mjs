@@ -11,6 +11,9 @@ import {
   LearningExperienceLedger,
   stableLearningValue,
 } from "../local-ai/private-hub/learning-experience-ledger.mjs";
+import {
+  ContinuousLearningCoordinator,
+} from "../local-ai/private-hub/continuous-learning-coordinator.mjs";
 
 const origin = "https://novel-orcin.vercel.app";
 const port = 3238;
@@ -38,7 +41,8 @@ try {
   const health = await read(await fetch(`${base}/health`, { headers: headers() }));
   assert.equal(health.status, 200);
   assert.equal(health.body.automaticSessionSupported, true);
-  assert.match(health.body.hubVersion, /^1\.2\.0/u);
+  assert.match(health.body.hubVersion, /^1\.4\.0/u);
+  assert.equal(health.body.continuousLearning.backgroundActive, true);
 
   const connected = await read(await fetch(`${base}/session/auto`, {
     method: "POST",
@@ -113,6 +117,8 @@ try {
   assert.equal(recorded.body.canonicalMutationCount, 0);
   assert.equal(recorded.body.modelWeightMutationCount, 0);
   assert.equal(recorded.body.experienceDigest, experience.experienceDigest);
+  assert.equal(hub.continuousLearning.stats().strategyCandidates, 1);
+  assert.equal(hub.continuousLearning.stats().adoptionMode, "candidate_only");
 
   const deduplicated = await read(await fetch(`${base}/learning/experiences`, {
     method: "POST",
@@ -137,6 +143,13 @@ try {
   await reopenedLedger.initialize();
   assert.equal(reopenedLedger.stats().records, 1);
   assert.equal(reopenedLedger.stats().ledgerHead, recorded.body.ledgerHead);
+  const reopenedCoordinator = new ContinuousLearningCoordinator({
+    experienceLedger: reopenedLedger,
+    directory: path.join(runtimeDir, "continuous-learning"),
+  });
+  await reopenedCoordinator.initialize();
+  assert.equal(reopenedCoordinator.stats().strategyCandidates, 1);
+  assert.equal(reopenedCoordinator.stats().rawContentStored, false);
 
   const revoked = await read(await fetch(`${base}/pair/revoke`, {
     method: "POST",
@@ -182,6 +195,8 @@ try {
       restartIntegrityVerified: true,
       rawContentStored: false,
       canonicalMutationCount: 0,
+      continuousCoordinator: true,
+      strategyCandidates: hub.continuousLearning.stats().strategyCandidates,
     },
   }, null, 2)}\n`);
 } finally {

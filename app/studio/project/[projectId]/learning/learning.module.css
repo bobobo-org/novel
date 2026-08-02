@@ -398,6 +398,27 @@
   align-items: center;
 }
 
+.automationState {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #775c2a;
+  border-radius: 12px;
+  color: #e8d4ac;
+  background: #20180d;
+}
+
+.automationState[data-active="true"] {
+  border-color: #2c8f78;
+  color: #b9f2df;
+  background: #0a211e;
+}
+
+.automationState span {
+  color: inherit;
+  opacity: 0.86;
+}
+
 .practiceStats {
   display: flex;
   flex-wrap: wrap;

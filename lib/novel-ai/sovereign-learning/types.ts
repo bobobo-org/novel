@@ -8,7 +8,35 @@ export type LearningSourceKind =
   | "personal_note"
   | "public_domain_work"
   | "licensed_material"
+  | "video_transcript"
+  | "novel_app_export"
+  | "classical_chinese_public_domain"
   | "web_research";
+
+export type LearningWebSourceChannel = "article" | "youtube" | "novel_app" | "popular_web" | "classical_chinese";
+
+export type LearningEngagementMetric =
+  | "views"
+  | "reads"
+  | "installs"
+  | "ratings"
+  | "followers"
+  | "monthly_visits";
+
+export type LearningEngagementEvidence = {
+  metric: LearningEngagementMetric;
+  observedCount: number;
+  minimumRequired: 100_000;
+  thresholdPassed: true;
+  verification: "operator_attested";
+  evidenceReference: string;
+  observedAt: string;
+};
+
+export type LearningWebSourceProfile = {
+  channel: LearningWebSourceChannel;
+  engagement: LearningEngagementEvidence | null;
+};
 
 export type LearningRightsBasis =
   | "owned_by_user"
@@ -91,6 +119,7 @@ export type LearningSourceRecord = {
     robotsPolicy: "allowed" | "not_present";
     redirects: number;
     sourceDigest: string;
+    sourceProfile: LearningWebSourceProfile;
     rawContentRetained: false;
   } | null;
   teacherEvidence?: Array<{

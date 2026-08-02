@@ -35,9 +35,12 @@ import {
 import {
   LearningExperienceLedger,
 } from "./learning-experience-ledger.mjs";
+import {
+  ContinuousLearningCoordinator,
+} from "./continuous-learning-coordinator.mjs";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
-export const PRIVATE_HUB_VERSION = "1.2.0-autonomous-learning-ledger";
+export const PRIVATE_HUB_VERSION = "1.4.0-continuous-learning-loop";
 export const PRIVATE_HUB_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
 export const PRIVATE_HUB_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 const DEFAULT_PORT = 3227;
@@ -306,6 +309,14 @@ export function createPrivateHubServer(options = {}) {
       || process.env.NOVEL_PRIVATE_HUB_LEARNING_DIR
       || path.join(runtimeDir, "learning-experiences"),
   });
+  const continuousLearning = options.continuousLearningCoordinator ?? new ContinuousLearningCoordinator({
+    experienceLedger: learningExperienceLedger,
+    directory: options.continuousLearningDirectory
+      || process.env.NOVEL_PRIVATE_HUB_CONTINUOUS_LEARNING_DIR
+      || path.join(runtimeDir, "continuous-learning"),
+    intervalMs: options.continuousLearningIntervalMs
+      || process.env.NOVEL_PRIVATE_HUB_CONTINUOUS_LEARNING_INTERVAL_MS,
+  });
   const logs = [];
   const accessLogs = [];
 
@@ -313,6 +324,7 @@ export function createPrivateHubServer(options = {}) {
     await mkdir(modelRoot, { recursive: true });
     await cache.initialize();
     await learningExperienceLedger.initialize();
+    await continuousLearning.start();
   }
 
   async function publishPairingCode(pending, origin) {
@@ -556,6 +568,7 @@ export function createPrivateHubServer(options = {}) {
             "cache-stats",
             "targeted-cache-invalidation",
             "append-only-learning-experience-ledger",
+            "continuous-learning-candidate-coordinator",
           ],
           streamingSupport: true,
           cancellationSupport: true,
@@ -575,6 +588,7 @@ export function createPrivateHubServer(options = {}) {
           dataLeftDevice: false,
           cache: await cache.stats(),
           learningExperienceLedger: learningExperienceLedger.stats(),
+          continuousLearning: continuousLearning.stats(),
           workload: {
             active: work.active,
             queued: work.queue.length,
@@ -679,6 +693,7 @@ export function createPrivateHubServer(options = {}) {
         let receipt;
         try {
           receipt = await learningExperienceLedger.append(body);
+          await continuousLearning.runOnce();
         } catch (error) {
           throw learningLedgerRequestError(error);
         }
@@ -1323,6 +1338,7 @@ export function createPrivateHubServer(options = {}) {
     pairing,
     cache,
     learningExperienceLedger,
+    continuousLearning,
     logs,
     accessLogs,
     active,
@@ -1340,6 +1356,7 @@ export function createPrivateHubServer(options = {}) {
     },
     async stop() {
       for (const controller of active.values()) controller.abort("cancelled");
+      continuousLearning.stop();
       await clearPairingCode();
       server.closeIdleConnections?.();
       await new Promise((resolve) => server.close(resolve));

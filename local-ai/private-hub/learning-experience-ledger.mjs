@@ -234,4 +234,10 @@ export class LearningExperienceLedger {
       rawContentStored: false,
     };
   }
+
+  listExperiences() {
+    return [...this.records.values()]
+      .sort((left, right) => left.sequence - right.sequence)
+      .map((record) => structuredClone(record.experience));
+  }
 }

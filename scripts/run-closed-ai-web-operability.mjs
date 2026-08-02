@@ -647,7 +647,7 @@ await test("official production UI auto-connects local runtimes and exposes vers
     assert.ok(companionReleaseSource.includes(origin), origin);
   }
   assert.ok(companionReleaseSource.includes("evaluateLocalAIRuntimeVersion"));
-  assert.ok(companionReleaseSource.includes('version: "1.3.0"'));
+  assert.ok(companionReleaseSource.includes('version: "1.4.0"'));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {

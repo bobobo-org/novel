@@ -28,6 +28,7 @@ import {
   resolveRpgChoice,
 } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
+  BUILTIN_MATURE_RPG_CHARACTERS,
   BUILTIN_RPG_CHARACTERS,
   RPG_CHARACTER_LIBRARY_SCHEMA,
   mergeCharacterLibrary,
@@ -458,6 +459,27 @@ await test("character library rejects malformed rows and keeps reusable custom c
   assert.equal(merged.length, BUILTIN_RPG_CHARACTERS.length + 1);
   assert.equal(merged.at(-1)?.name, "我的角色");
   return { builtin: BUILTIN_RPG_CHARACTERS.length, custom: parsed.length };
+});
+
+await test("mature character vault contains ten women and ten men with valid RPG profiles", () => {
+  const women = BUILTIN_MATURE_RPG_CHARACTERS.filter((character) => character.gender === "woman");
+  const men = BUILTIN_MATURE_RPG_CHARACTERS.filter((character) => character.gender === "man");
+  const ids = new Set(BUILTIN_MATURE_RPG_CHARACTERS.map((character) => character.templateId));
+  assert.equal(BUILTIN_MATURE_RPG_CHARACTERS.length, 20);
+  assert.equal(women.length, 10);
+  assert.equal(men.length, 10);
+  assert.equal(ids.size, 20);
+  assert.ok(BUILTIN_MATURE_RPG_CHARACTERS.every((character) => character.matureTheme === true));
+  assert.ok(BUILTIN_MATURE_RPG_CHARACTERS.every((character) => Number(character.age) >= 21));
+  assert.ok(BUILTIN_MATURE_RPG_CHARACTERS.every((character) => Boolean(character.rpgArchetype)));
+  assert.ok(BUILTIN_MATURE_RPG_CHARACTERS.every((character) => (character.relationshipHooks?.length ?? 0) >= 2));
+  assert.ok(BUILTIN_MATURE_RPG_CHARACTERS.every((character) => (character.boundaries?.length ?? 0) >= 2));
+  return {
+    total: BUILTIN_MATURE_RPG_CHARACTERS.length,
+    women: women.length,
+    men: men.length,
+    minimumAge: Math.min(...BUILTIN_MATURE_RPG_CHARACTERS.map((character) => Number(character.age))),
+  };
 });
 
 await test("responsive navigation exposes RPG and offline updates cannot pin stale UI", async () => {

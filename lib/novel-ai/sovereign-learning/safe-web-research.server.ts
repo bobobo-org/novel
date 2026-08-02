@@ -7,6 +7,7 @@ import {
   sha256Hex,
 } from "./hashing";
 import type { ControlledWebSourceEvidence } from "./web-knowledge-contract";
+import type { LearningWebSourceProfile } from "./types";
 
 const USER_AGENT = "NovelControlledLearningBot/1.0";
 const MAX_REDIRECTS = 3;
@@ -23,6 +24,7 @@ export type ControlledWebFetchDependencies = {
   fetchImpl?: FetchLike;
   resolveHost?: ResolveHost;
   now?: () => string;
+  sourceProfile?: LearningWebSourceProfile;
 };
 
 export type ControlledWebResearchResult = {
@@ -376,6 +378,7 @@ export async function fetchControlledWebResearch(
       redirects: result.redirects,
       robotsPolicy,
       sourceDigest,
+      sourceProfile: dependencies.sourceProfile ?? { channel: "article", engagement: null },
       fingerprint: createTextFingerprint(sanitizedText),
       sanitizationStatus: boundary.findings.length ? "sanitized" : "unchanged",
       warningCodes: [...new Set(boundary.findings.map((finding) =>

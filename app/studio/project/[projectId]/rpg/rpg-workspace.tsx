@@ -20,6 +20,11 @@ import {
   parseRpgCharacterLibrary,
   type RpgCharacterTemplate,
 } from "@/lib/novel-ai/game/character-library";
+import {
+  CHARACTER_RPG_ARCHETYPES,
+  characterRpgStatsForArchetype,
+  createCharacterRpgProfile,
+} from "@/lib/novel-ai/game/character-rpg-profile";
 import CharacterPortraitImage from "../character-portrait";
 import { applyStoryChoiceEffect } from "@/lib/novel-ai/game/effects";
 import {
@@ -624,12 +629,26 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         goal: optionalValue(template.goal, template.goal ? "user_defined" : "deferred"),
         lifeStatus: "alive",
         locationId: null,
+        age: template.age ?? null,
+        ageVerified: typeof template.age === "number" && template.age >= 18,
         fears: template.fears,
         privateSecrets: [],
         factionIds: [],
-        values: template.values,
+        values: [
+          ...template.values,
+          ...(template.boundaries ?? []).map((boundary) => `關係界線：${boundary}`),
+        ],
         capabilities: template.capabilities,
-        limitations: template.limitations,
+        limitations: [
+          ...template.limitations,
+          ...(template.relationshipHooks ?? []).map((hook) => `關係鉤子：${hook}`),
+        ],
+        rpgProfile: template.rpgArchetype
+          ? createCharacterRpgProfile({
+            archetype: template.rpgArchetype,
+            stats: characterRpgStatsForArchetype(template.rpgArchetype),
+          })
+          : null,
         voiceStyle: {
           formality: 50,
           directness: 55,
@@ -986,7 +1005,26 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               <header><div><small>CHARACTER VAULT</small><h2>我喜歡的人物庫</h2></div><p>內建角色可直接加入作品；自創角色保存在這台裝置，加入作品後才進入專案資料。</p></header>
               <div className={styles.libraryLayout}>
                 <form onSubmit={(event) => { event.preventDefault(); saveTemplate(); }}><h3>創造自己的角色</h3><label>姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label><label>角色原型<input value={archetype} onChange={(event) => setArchetype(event.target.value)} placeholder="例：被放逐的星艦領航員" /></label><label>身分<input value={identity} onChange={(event) => setIdentity(event.target.value)} /></label><label>性格<textarea rows={3} value={personality} onChange={(event) => setPersonality(event.target.value)} /></label><label>目標<textarea rows={3} value={goal} onChange={(event) => setGoal(event.target.value)} /></label><button type="submit">加入我的人物庫</button></form>
-                <div className={styles.characterGrid}>{library.map((template) => <article key={template.templateId}><div><span>{template.builtin ? "內建" : "我的角色"}</span><h3>{template.name}</h3><small>{template.archetype}</small></div><p>{template.personality || template.identity || "等待你補上更多角色設定。"}</p><b>目標：{template.goal || "尚未設定"}</b><footer><button type="button" disabled={busy} onClick={() => void addCharacterToProject(template)}>加入目前作品</button>{!template.builtin ? <button type="button" className={styles.danger} onClick={() => removeTemplate(template)}>移除人物庫</button> : null}</footer></article>)}</div>
+                <div className={styles.characterGrid}>{library.map((template) => (
+                  <article key={template.templateId}>
+                    <div>
+                      <span>{template.builtin ? "內建" : "我的角色"}{template.matureTheme ? " · 成熟題材" : ""}</span>
+                      <h3>{template.name}</h3>
+                      <small>
+                        {template.gender === "woman" ? "女性" : template.gender === "man" ? "男性" : "角色"}
+                        {template.age ? ` · ${template.age} 歲` : ""}
+                        {template.rpgArchetype ? ` · ${CHARACTER_RPG_ARCHETYPES.find((option) => option.id === template.rpgArchetype)?.label ?? "RPG 角色"}` : ""}
+                      </small>
+                      <small>{template.archetype}</small>
+                    </div>
+                    <p>{template.personality || template.identity || "等待你補上更多角色設定。"}</p>
+                    <b>目標：{template.goal || "尚未設定"}</b>
+                    <footer>
+                      <button type="button" disabled={busy} onClick={() => void addCharacterToProject(template)}>加入目前作品</button>
+                      {!template.builtin ? <button type="button" className={styles.danger} onClick={() => removeTemplate(template)}>移除人物庫</button> : null}
+                    </footer>
+                  </article>
+                ))}</div>
               </div>
               <p className={styles.projectCast}>目前作品角色：{data.characters.length ? data.characters.map((character) => character.name).join("、") : "尚未建立角色"}</p>
             </div>

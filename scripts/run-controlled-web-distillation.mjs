@@ -8,6 +8,7 @@ import {
   parseControlledWebUrl,
 } from "../lib/novel-ai/sovereign-learning/safe-web-research.server.ts";
 import { distillControlledWebKnowledge } from "../lib/novel-ai/sovereign-learning/web-knowledge-distillation.server.ts";
+import { normalizeControlledWebSourceProfile } from "../lib/novel-ai/sovereign-learning/web-knowledge-contract.ts";
 import {
   approveLearningRule,
   evaluateApprovedLearningCapability,
@@ -43,6 +44,22 @@ assert.equal(isPublicInternetAddress("2606:4700:4700::1111"), true);
 assert.equal(isPathAllowedByRobots("User-agent: *\nDisallow: /private\nAllow: /private/public", "/private/public/page"), true);
 assert.equal(isPathAllowedByRobots("User-agent: *\nDisallow: /private", "/private/page"), false);
 
+assert.deepEqual(normalizeControlledWebSourceProfile({ sourceChannel: "classical_chinese" }), {
+  channel: "classical_chinese",
+  engagement: null,
+});
+assert.throws(
+  () => normalizeControlledWebSourceProfile({ sourceChannel: "youtube", engagementMetric: "views", engagementCount: 99_999, engagementEvidence: "公開頁面" }),
+  (error) => error.code === "POPULAR_SOURCE_THRESHOLD_NOT_MET",
+);
+const popularSourceProfile = normalizeControlledWebSourceProfile({
+  sourceChannel: "popular_web",
+  engagementMetric: "views",
+  engagementCount: 250_000,
+  engagementEvidence: "來源頁面公開顯示 250,000 次瀏覽",
+  observedAt: "2026-08-02T00:00:00.000Z",
+});
+
 const sourceParagraph = "一個可靠的長篇故事會讓每個場景都有清楚目標、可見阻力與不可忽略的後果。角色面臨壓力時，選擇必須改變關係、資源或資訊狀態；章末留下的問題也要能推動下一個行動，而不是只靠突然中斷。世界規則應透過代價和結果被讀者理解，重要伏筆則需要在揭露前提供可回看的線索。";
 const sourceHtml = `<!doctype html><html><head><title>合法敘事研究</title><script>doBadThing()</script></head><body><article>${sourceParagraph.repeat(5)}</article></body></html>`;
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
@@ -55,11 +72,13 @@ const research = await fetchControlledWebResearch("https://example.com/research"
   fetchImpl: fetchAllowed,
   resolveHost: publicDns,
   now: () => "2026-08-02T00:00:00.000Z",
+  sourceProfile: popularSourceProfile,
 });
 assert.equal(research.evidence.title, "合法敘事研究");
 assert.equal(research.evidence.rawContentRetained, false);
 assert.equal(research.transientSanitizedText.includes("doBadThing"), false);
 assert.match(research.evidence.sourceDigest, /^[a-f0-9]{64}$/u);
+assert.equal(research.evidence.sourceProfile.engagement.observedCount, 250_000);
 
 await rejectsCode(
   () => fetchControlledWebResearch("https://example.com/private", {
@@ -171,6 +190,7 @@ assert.equal(bundle.teachers.length, 2);
 assert.equal(bundle.privacy.rawSourceRetained, false);
 assert.equal(bundle.privacy.rawTeacherResponseRetained, false);
 assert.equal(bundle.privacy.canonicalMutationCount, 0);
+assert.equal(bundle.source.sourceProfile.channel, "popular_web");
 assert.ok(bundle.teacherAgreement.crossTeacherRuleCount >= 1);
 assert.match(bundle.immutableDigest, /^[a-f0-9]{64}$/u);
 
@@ -186,6 +206,7 @@ const ingested = await ingestDistilledWebKnowledge(repository, {
 assert.equal(ingested.source.localAnalysisOnly, false);
 assert.equal(ingested.source.rawContentRetained, false);
 assert.equal(ingested.source.dataLeftDevice, true);
+assert.equal(ingested.source.webProvenance.sourceProfile.engagement.thresholdPassed, true);
 assert.equal(ingested.rules.every((rule) => rule.status === "candidate"), true);
 assert.equal(JSON.stringify(ingested).includes(sourceParagraph), false);
 
@@ -223,7 +244,7 @@ assert.equal(dashboard.counts.approvedRules, 0);
 
 const report = {
   status: "PASS",
-  checks: 39,
+  checks: 45,
   expectedFailures,
   teacherCount: bundle.teachers.length,
   ruleCount: bundle.rules.length,
@@ -236,6 +257,8 @@ const report = {
   rawSourceRetained: false,
   rawTeacherResponseRetained: false,
   canonicalMutationCount: 0,
+  popularSourceChannel: bundle.source.sourceProfile.channel,
+  popularSourceObservedCount: bundle.source.sourceProfile.engagement.observedCount,
 };
 const serialized = `${JSON.stringify(report, null, 2)}\n`;
 const artifactDirectory = new URL("../artifacts/controlled-learning/", import.meta.url);

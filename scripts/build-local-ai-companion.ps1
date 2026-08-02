@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.3.0"
+  [string]$Version = "1.4.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,6 +62,7 @@ $privateHubFiles = @(
   "novel-private-hub.ps1",
   "preference-model.mjs",
   "learning-experience-ledger.mjs",
+  "continuous-learning-coordinator.mjs",
   "README.md",
   "server.mjs"
 )
