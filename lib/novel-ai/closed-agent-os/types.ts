@@ -4,6 +4,7 @@ import type {
   ClosedAIPrivacyLevel,
 } from "../closed-ai-cache";
 import type {
+  BrowserComputePolicy,
   PlatformAIRequest,
   PlatformTaskType,
 } from "../router/platform-types";
@@ -51,6 +52,7 @@ export type ClosedAIBackendSnapshot = {
   detailCode: string;
   maxContext?: number;
   controlLatencyMs?: number | null;
+  qualityClass?: "fast" | "balanced" | "quality_local_browser" | "standard" | "heavy";
 };
 
 export type ClosedAIProgressPhase =
@@ -124,6 +126,8 @@ export type ClosedAgentTaskRequest = {
   context: ClosedAIContextItem[];
   complexity?: ClosedAITaskComplexity;
   qualityMode?: ClosedAIQualityMode;
+  browserComputePolicy?: BrowserComputePolicy;
+  allowPreAuthorizedClosedEscalation?: boolean;
   preferredBackend?: ClosedAIBackendId;
   allowedToolIds: string[];
   permissionScopes: string[];
@@ -217,6 +221,11 @@ export type ClosedBackendExecutionResult = {
   qualityPasses: number;
   draftDigest: string | null;
   criticDigest: string | null;
+  actualExecutor?: string;
+  browserComputeReceiptId?: string;
+  browserContextTokensBefore?: number;
+  browserContextTokensAfter?: number;
+  browserTokensSaved?: number;
 };
 
 export interface ClosedAIBackendAdapter {
@@ -262,6 +271,11 @@ export type ClosedAIExecutionReceipt = {
   proofState: "verified";
   dataLeftDevice: boolean;
   externalRequest: boolean;
+  actualExecutor?: string;
+  browserComputeReceiptId?: string;
+  contextTokensBefore?: number;
+  contextTokensAfter?: number;
+  tokensSaved?: number;
 };
 
 export type ClosedAgentCandidate = {
@@ -280,7 +294,7 @@ export type ClosedAgentCandidate = {
   contentDigest: string;
   sourceChapterId: string | null;
   sourceRevision: number | null;
-  actualExecutor: ClosedAIBackendId | "not_executed";
+  actualExecutor: string | "not_executed";
   executionReceipt: ClosedAIExecutionReceipt | null;
   contextDigest?: string;
   contextSourceSummary?: string;
@@ -304,6 +318,10 @@ export type ClosedAgentCandidate = {
     qualityPasses: number;
     draftDigest: string | null;
     criticDigest: string | null;
+    browserComputeReceiptId?: string;
+    contextTokensBefore?: number;
+    contextTokensAfter?: number;
+    tokensSaved?: number;
   };
   createdAt: string;
   updatedAt: string;

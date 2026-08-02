@@ -60,6 +60,7 @@ export type StudioClosedAITaskInput = {
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
   qualityMode?: ClosedAIQualityMode;
+  browserComputePolicy?: PlatformAIRequest["browserComputePolicy"];
   generationOptions?: PlatformAIRequest["generationOptions"];
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
@@ -278,9 +279,10 @@ export async function runStudioClosedAI(
       promptProfileVersion: studioPromptProfileVersion(Boolean(input.regeneration)),
       sourceChapterId: input.sourceChapterId,
       sourceRevision: input.sourceRevision,
-      preferredBackend: input.regeneration ? "local-ollama" : undefined,
       regeneration: input.regeneration,
       qualityMode: input.qualityMode,
+      browserComputePolicy: input.browserComputePolicy ?? "browser-first",
+      allowPreAuthorizedClosedEscalation: false,
       generationOptions: input.generationOptions,
       onProgress: input.onProgress,
     });
@@ -288,8 +290,8 @@ export async function runStudioClosedAI(
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0
       || (input.regeneration && (
-        result.candidate.backendId !== "local-ollama"
-        || result.candidate.actualExecutor !== "local-ollama"
+        !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
+        || result.candidate.actualExecutor === "not_executed"
         || result.candidate.externalRequest
         || result.candidate.dataLeftDevice
         || result.cache.candidateHit
@@ -335,7 +337,8 @@ export async function runStudioClosedAI(
     privacyMode: "strict-local",
     privacyLevel: "device_only",
     fallbackPolicy: "closed-only",
-    preferredProvider: "local-ollama",
+    browserComputePolicy: input.browserComputePolicy ?? "browser-first",
+    allowPreAuthorizedClosedEscalation: false,
     input: objective,
     context: [],
     externalConsent: false,
@@ -360,7 +363,7 @@ export async function runStudioClosedAI(
     !["browser-ai", "local-ollama"].includes(result.providerId)
     || result.externalRequest
     || result.dataLeavesDevice
-    || (input.regeneration && result.providerId !== "local-ollama")
+    || (input.regeneration && !["browser-ai", "local-ollama"].includes(result.providerId))
   ) {
     throw Object.assign(
       new Error("Closed AI provider returned a result outside the device-only boundary."),
@@ -390,6 +393,11 @@ export async function runStudioClosedAI(
         proofState: "verified",
         dataLeftDevice: result.dataLeavesDevice,
         externalRequest: result.externalRequest,
+        actualExecutor: result.browserCompute?.actualExecutor ?? result.executor,
+        browserComputeReceiptId: result.browserCompute?.receiptId,
+        contextTokensBefore: result.browserCompute?.contextTokensBefore,
+        contextTokensAfter: result.browserCompute?.contextTokensAfter,
+        tokensSaved: result.browserCompute?.tokensSaved,
       }
       : null;
   return {
@@ -401,7 +409,10 @@ export async function runStudioClosedAI(
     modelDigest: result.modelDigest ?? null,
     content: result.content,
     contentDigest,
-    actualExecutor: executionReceipt?.backendId ?? "not_executed",
+    actualExecutor: result.browserCompute?.actualExecutor
+      ?? result.executor
+      ?? executionReceipt?.backendId
+      ?? "not_executed",
     executionReceipt,
     contextDigest,
     sourceChapterId: input.sourceChapterId ?? null,
@@ -477,8 +488,8 @@ export async function regenerateStudioClosedAI(
       lastDistinctness.distinct
       && taskIdentityChanged
       && candidateIdentityChanged
-      && result.provider === "local-ollama"
-      && result.actualExecutor === "local-ollama"
+      && ["browser-ai", "local-ollama"].includes(result.provider)
+      && result.actualExecutor !== "not_executed"
       && !result.externalRequest
       && !result.dataLeftDevice
       && result.canonicalMutationCount === 0
@@ -496,7 +507,7 @@ export async function regenerateStudioClosedAI(
   }
 
   throw Object.assign(
-    new Error("Local model repeatedly returned the previous candidate."),
+    new Error("Closed browser/local model repeatedly returned the previous candidate."),
     {
       code: "REGENERATION_NOT_DISTINCT",
       normalizedDigestDifferent: lastDistinctness.normalizedDigestDifferent,

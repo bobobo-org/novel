@@ -10,9 +10,9 @@ import {
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
-  releaseTag: "novel-ai-p24b-unified-sovereign-creative-runtime-rc4",
-  releaseName: "P2.4B Unified Sovereign AI and Creative Studio RC4",
-  consumerRelease: "p2.4b-unified-sovereign-creative-runtime-rc4",
+  releaseTag: "novel-ai-p24b-browser-first-compute-plane-rc5",
+  releaseName: "P2.4B Browser-First Sovereign Compute Plane RC5",
+  consumerRelease: "p2.4b-browser-first-compute-plane-rc5",
   architectureStage: "P2.4B RC",
 };
 const cases = [];

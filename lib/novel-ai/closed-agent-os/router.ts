@@ -1,4 +1,4 @@
-import { BROWSER_AI_LIGHT_TASKS, taskComplexity } from "./backend-manifest";
+import { taskComplexity } from "./backend-manifest";
 import { learningPreferredBackend } from "../controlled-learning-os";
 import type {
   ClosedAIBackendId,
@@ -78,14 +78,21 @@ export type ClosedAIRouteResolution =
     fallbackAttempted: false;
   };
 
-function routeOrder(complexity: ClosedAITaskComplexity) {
+function routeOrder(
+  complexity: ClosedAITaskComplexity,
+  policy: ClosedAgentTaskRequest["browserComputePolicy"] = "browser-first",
+  allowPreAuthorizedClosedEscalation = false,
+) {
   if (complexity === "heavy") {
     return ["private-ai-hub"] as const;
   }
-  if (complexity === "standard") {
-    return ["local-ollama", "browser-ai"] as const;
+  if (
+    policy === "quality-first"
+    || (policy === "balanced" && allowPreAuthorizedClosedEscalation)
+  ) {
+    return ["local-ollama"] as const;
   }
-  return ["browser-ai", "local-ollama"] as const;
+  return ["browser-ai"] as const;
 }
 
 function requiredCapability(complexity: ClosedAITaskComplexity) {
@@ -125,13 +132,28 @@ export function resolveClosedAIRoute(
   task: Pick<
     ClosedAgentTaskRequest,
     "taskType" | "namespace" | "complexity" | "learningConfiguration"
+    | "browserComputePolicy" | "allowPreAuthorizedClosedEscalation"
   >,
   snapshots: ClosedAIBackendSnapshot[],
   policy: ClosedAIRoutePolicy = {},
 ): ClosedAIRouteResolution {
   const complexity = task.complexity ?? taskComplexity(task.taskType);
+  const computePolicy = task.browserComputePolicy ?? "browser-first";
   const capability = requiredCapability(complexity);
   const compatible = compatibleBackendIds(snapshots, task, complexity);
+  if (task.browserComputePolicy === "manual" && !policy.preferredBackend) {
+    return {
+      executionStatus: "not_executed",
+      backend: null,
+      complexity,
+      automatic: false,
+      reasonCode: "MANUAL_COMPUTE_PROVIDER_REQUIRED",
+      requiredCapability: capability,
+      recommendedNextAction: nextAction(snapshots, complexity),
+      compatibleBackendIds: compatible,
+      fallbackAttempted: false,
+    };
+  }
   if (policy.preferredBackend) {
     const selected = snapshots.find(
       (snapshot) => snapshot.id === policy.preferredBackend,
@@ -163,9 +185,13 @@ export function resolveClosedAIRoute(
     };
   }
 
-  const learnedBackendId = learningPreferredBackend(
+  const learnedCandidate = learningPreferredBackend(
     task.learningConfiguration,
   );
+  const learnedBackendId = learnedCandidate === "browser-ai"
+    || (computePolicy === "quality-first" && learnedCandidate === "local-ollama")
+    ? learnedCandidate
+    : null;
   if (learnedBackendId) {
     const learned = snapshots.find(
       (snapshot) => snapshot.id === learnedBackendId,
@@ -187,10 +213,11 @@ export function resolveClosedAIRoute(
     }
   }
 
-  const order = complexity === "light"
-      && !BROWSER_AI_LIGHT_TASKS.includes(task.taskType)
-    ? ["local-ollama", "browser-ai"] as const
-    : routeOrder(complexity);
+  const order = routeOrder(
+    complexity,
+    computePolicy,
+    task.allowPreAuthorizedClosedEscalation ?? false,
+  );
   const selected = order
     .map((backendId) => snapshots.find((snapshot) => snapshot.id === backendId))
     .find((snapshot) => snapshot && supports(snapshot, task, complexity));

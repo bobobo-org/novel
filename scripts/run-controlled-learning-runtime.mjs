@@ -470,6 +470,7 @@ test("adopted L0/L1 policy changes router, planner, cache, retrieval and tool be
     objective: "建立候選摘要",
     context: [],
     complexity: "light",
+    browserComputePolicy: "quality-first",
     allowedToolIds: [],
     permissionScopes: [
       "story:read",

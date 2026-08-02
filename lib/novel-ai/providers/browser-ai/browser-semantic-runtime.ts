@@ -123,6 +123,17 @@ export type BrowserSemanticRankResult = {
   canonicalMutation: false;
 };
 
+export type BrowserSemanticEmbeddingResult = {
+  vectors: number[][];
+  dimensions: number;
+  modelId: typeof BROWSER_SEMANTIC_MODEL.modelId;
+  modelDigest: typeof BROWSER_SEMANTIC_MODEL.modelDigest;
+  device: BrowserSemanticDevice;
+  externalRequest: false;
+  dataLeftDevice: false;
+  rawTextStored: false;
+};
+
 type WorkerPending = {
   resolve: (value: Record<string, unknown>) => void;
   reject: (reason: Error) => void;
@@ -833,6 +844,46 @@ async function readySemanticModel(signal?: AbortSignal) {
     "BROWSER_SEMANTIC_OFFLINE_LOAD_FAILED",
     "已驗證的語意模型快取無法離線載入。",
   );
+}
+
+export async function embedWithBrowserSemanticModel(
+  texts: string[],
+  signal?: AbortSignal,
+): Promise<BrowserSemanticEmbeddingResult> {
+  const normalized = texts.map((text) => text.trim()).filter(Boolean);
+  if (!normalized.length) {
+    throw runtimeError("BROWSER_SEMANTIC_INPUT_EMPTY", "語意向量工作缺少內容。");
+  }
+  let device = await readySemanticModel(signal);
+  const embedded = await embedWithDeviceFallback(device, normalized, signal);
+  device = embedded.device;
+  const vectors = embedded.response.vectors as number[][];
+  const dimensions = Number(embedded.response.dimensions ?? 0);
+  if (
+    !Array.isArray(vectors)
+    || vectors.length !== normalized.length
+    || dimensions !== BROWSER_SEMANTIC_MODEL.embeddingDimensions
+    || vectors.some((vector) => (
+      !Array.isArray(vector)
+      || vector.length !== dimensions
+      || vector.some((value) => !Number.isFinite(value))
+    ))
+  ) {
+    throw runtimeError(
+      "BROWSER_SEMANTIC_VECTOR_INVALID",
+      "語意模型回傳的向量維度或有限值驗證失敗。",
+    );
+  }
+  return {
+    vectors,
+    dimensions,
+    modelId: BROWSER_SEMANTIC_MODEL.modelId,
+    modelDigest: BROWSER_SEMANTIC_MODEL.modelDigest,
+    device,
+    externalRequest: false,
+    dataLeftDevice: false,
+    rawTextStored: false,
+  };
 }
 
 export async function rankWithBrowserSemanticModel(

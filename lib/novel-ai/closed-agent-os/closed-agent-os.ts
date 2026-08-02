@@ -594,6 +594,11 @@ export class ClosedAgentOS {
             proofState: "verified",
             dataLeftDevice: execution.dataLeftDevice,
             externalRequest: execution.externalRequest,
+            actualExecutor: execution.actualExecutor ?? execution.backendId,
+            browserComputeReceiptId: execution.browserComputeReceiptId,
+            contextTokensBefore: execution.browserContextTokensBefore,
+            contextTokensAfter: execution.browserContextTokensAfter,
+            tokensSaved: execution.browserTokensSaved,
           }
           : null;
       this.emitProgress(
@@ -639,7 +644,9 @@ export class ClosedAgentOS {
           qualityPasses: execution.qualityPasses,
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
-          actualExecutor: executionReceipt?.backendId ?? "not_executed",
+          actualExecutor: executionReceipt?.actualExecutor
+            ?? executionReceipt?.backendId
+            ?? "not_executed",
           executionReceipt,
           regeneration: request.regeneration
             ? {
@@ -718,7 +725,9 @@ export class ClosedAgentOS {
         contentDigest,
         sourceChapterId: request.sourceChapterId ?? null,
         sourceRevision: request.sourceRevision ?? null,
-        actualExecutor: executionReceipt?.backendId ?? "not_executed",
+        actualExecutor: executionReceipt?.actualExecutor
+          ?? executionReceipt?.backendId
+          ?? "not_executed",
         executionReceipt,
         contextDigest,
         contextSourceSummary: request.contextSourceSummary ?? stableStringify(
@@ -761,6 +770,10 @@ export class ClosedAgentOS {
           qualityPasses: execution.qualityPasses,
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
+          browserComputeReceiptId: execution.browserComputeReceiptId,
+          contextTokensBefore: execution.browserContextTokensBefore,
+          contextTokensAfter: execution.browserContextTokensAfter,
+          tokensSaved: execution.browserTokensSaved,
         },
         createdAt: updatedAt,
         updatedAt,

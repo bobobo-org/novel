@@ -6,8 +6,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const RELEASE_TAG = "novel-ai-p24b-unified-sovereign-creative-runtime-rc4";
-const CONSUMER_RELEASE = "p2.4b-unified-sovereign-creative-runtime-rc4";
+const RELEASE_TAG = "novel-ai-p24b-browser-first-compute-plane-rc5";
+const CONSUMER_RELEASE = "p2.4b-browser-first-compute-plane-rc5";
 const PRODUCTION_ORIGINS = new Set([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",
@@ -81,8 +81,8 @@ async function releaseIdentity(origin) {
   if (!response.ok) throw new Error(`RELEASE_IDENTITY_HTTP_${response.status}`);
   const body = await response.json();
   const identity = body.releaseIdentity || body;
-  if (identity.releaseTag !== RELEASE_TAG) throw new Error("RC4_RELEASE_TAG_MISMATCH");
-  if (identity.consumerRelease !== CONSUMER_RELEASE) throw new Error("RC4_CONSUMER_RELEASE_MISMATCH");
+  if (identity.releaseTag !== RELEASE_TAG) throw new Error("RC5_RELEASE_TAG_MISMATCH");
+  if (identity.consumerRelease !== CONSUMER_RELEASE) throw new Error("RC5_CONSUMER_RELEASE_MISMATCH");
   if (identity.provenanceStatus !== "verified") throw new Error("RC3_PROVENANCE_NOT_VERIFIED");
   if (!/^[0-9a-f]{40}$/i.test(String(identity.appCommit || ""))) throw new Error("APP_COMMIT_NOT_BUILD_SEALED");
   return identity;
@@ -175,7 +175,7 @@ async function main() {
   const externalAiRows = [];
   const findings = [];
   const testStory = {
-    title: "RC4 Preview 驗收故事",
+    title: "RC5 Preview 驗收故事",
     idea: "一名守燈人發現城市的夜空正在遺忘星星。",
     protagonist: "沈曜",
     world: "每座城市由一盞記憶之燈維持歷史。",

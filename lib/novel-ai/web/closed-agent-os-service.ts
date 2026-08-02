@@ -10,6 +10,7 @@ import {
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
 import type {
+  BrowserComputePolicy,
   PlatformAIRequest,
   PlatformTaskType,
 } from "../router/platform-types";
@@ -109,6 +110,8 @@ export type ExecuteStudioClosedAgentInput = {
   context?: StudioClosedAgentContext[];
   preferredBackend?: ClosedAIBackendId;
   qualityMode?: ClosedAIQualityMode;
+  browserComputePolicy?: BrowserComputePolicy;
+  allowPreAuthorizedClosedEscalation?: boolean;
   storyId?: string;
   canonId?: string;
   branchId?: string;
@@ -216,6 +219,9 @@ export async function executeStudioClosedAgent(
       generationOptions: input.generationOptions,
       complexity,
       qualityMode: input.qualityMode,
+      browserComputePolicy: input.browserComputePolicy ?? "browser-first",
+      allowPreAuthorizedClosedEscalation:
+        input.allowPreAuthorizedClosedEscalation ?? false,
       preferredBackend: input.preferredBackend,
       allowedToolIds: [...STUDIO_CLOSED_AGENT_TOOL_IDS],
       permissionScopes: [...STUDIO_CLOSED_AGENT_PERMISSION_SCOPES],

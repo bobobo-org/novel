@@ -4,8 +4,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const RC3 = {
-  releaseTag: "novel-ai-p24b-unified-sovereign-creative-runtime-rc4",
-  consumerRelease: "p2.4b-unified-sovereign-creative-runtime-rc4",
+  releaseTag: "novel-ai-p24b-browser-first-compute-plane-rc5",
+  consumerRelease: "p2.4b-browser-first-compute-plane-rc5",
   architectureStage: "P2.4B RC",
 };
 const PRODUCTION_ORIGINS = new Set([

@@ -2,6 +2,7 @@ export type PlatformProviderId = "browser-ai" | "local-ollama" | "private-ai-hub
 export type PrivacyMode = "strict-local" | "private-hub-allowed" | "external-allowed";
 export type ClosedAIPrivacyLevel = "device_only" | "private_infrastructure_only" | "external_allowed";
 export type ClosedAIFallbackPolicy = "none" | "closed-only" | "external-with-consent";
+export type BrowserComputePolicy = "browser-first" | "balanced" | "quality-first" | "manual";
 export type PlatformTaskType =
   | "assistant.general" | "assistant.brainstorm" | "assistant.critique" | "assistant.transform"
   | "creation.genreSuggestions" | "creation.titleCandidates" | "creation.coreIdeaCandidates" | "creation.protagonistCandidates" | "creation.worldCandidates" | "creation.conflictCandidates" | "creation.storySeed" | "creation.guidedChoices"
@@ -39,6 +40,8 @@ export type PlatformAIRequest = {
   estimatedContextSize?: number;
   latencyPreference?: "low" | "balanced" | "quality";
   qualityPreference?: "fast" | "balanced" | "high";
+  browserComputePolicy?: BrowserComputePolicy;
+  allowPreAuthorizedClosedEscalation?: boolean;
   qualityPhase?: "draft" | "critic" | "revision";
   agentPlan?: {
     planDigest: string;
@@ -99,6 +102,31 @@ export type PlatformAIResult = {
     serialGeneration: true;
     workerExecution: true;
     reason: string[];
+    mode?: "ECO" | "BALANCED" | "QUALITY";
+    estimatedInputTokens?: number;
+    inputBudgetTokens?: number;
+    reservedOutputTokens?: number;
+    modelContextWindow?: number;
+    safetyMarginTokens?: number;
+    retrievalBudgetTokens?: number;
+    canonBudgetTokens?: number;
+    recentChapterBudgetTokens?: number;
+    characterBudgetTokens?: number;
+    worldBudgetTokens?: number;
+  };
+  browserCompute?: {
+    policy: BrowserComputePolicy;
+    tier: "T0" | "T1" | "T2" | "T3";
+    plannedPipeline: string[];
+    actualExecutor: string;
+    qualityDecision: "pass" | "revise" | "escalate" | "block";
+    qualityScore: number;
+    contextTokensBefore: number;
+    contextTokensAfter: number;
+    tokensSaved: number;
+    receiptId: string;
+    inferenceProof: "verified" | "not_required";
+    canonicalMutationCount: 0;
   };
 };
 import type { ClosedAINamespace } from "../closed-ai-cache";

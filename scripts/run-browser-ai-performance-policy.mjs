@@ -47,13 +47,14 @@ assert.equal(highPolicy.maxInputCharacters, 3_100);
 assert.ok(highPolicy.reason.includes("device:high"));
 
 const mobilePolicy = resolveBrowserAIPerformancePolicy({ device: profile("low", { mobile: true }), model: small });
-assert.equal(mobilePolicy.maxInputCharacters, 1_600);
+assert.equal(mobilePolicy.inputBudgetTokens, 800);
+assert.equal(mobilePolicy.maxInputCharacters, 2_000);
 assert.equal(mobilePolicy.maxOutputTokens, 320);
-assert.ok(mobilePolicy.reason.includes("mobile_budget"));
+assert.ok(mobilePolicy.reason.includes("mobile_forced_eco"));
 
 const slowPolicy = resolveBrowserAIPerformancePolicy({ device: profile("standard"), model: standard, previousTokensPerSecond: 2.4 });
-assert.equal(slowPolicy.maxOutputTokens, 320);
-assert.ok(slowPolicy.reason.includes("previous_throughput_below_3_tps"));
+assert.equal(slowPolicy.maxOutputTokens, 384);
+assert.ok(slowPolicy.reason.includes("throughput_forced_eco"));
 
 const source = `正式設定：主角不得知道作者秘密。\n${"中段事件。".repeat(1_000)}\n最近章節：主角看見門後的光。`;
 const fitted = fitBrowserPromptToBudget(source, 1_200);
@@ -67,10 +68,10 @@ assert.equal(full.strategy, "full");
 assert.equal(full.omittedCharacters, 0);
 
 const runtimeSource = await readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts", import.meta.url), "utf8");
-assert.match(runtimeSource, /generationTail/);
+assert.match(runtimeSource, /gpuQueue\.enqueue/);
 assert.match(runtimeSource, /prewarmBrowserWebLLMModel/);
 assert.match(runtimeSource, /engineReuseCount/);
-assert.match(runtimeSource, /fitBrowserPromptToBudget/);
+assert.match(runtimeSource, /fitBrowserPromptToTokenBudget/);
 const workerSource = await readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-webllm-worker.ts", import.meta.url), "utf8");
 assert.match(workerSource, /WebWorkerMLCEngineHandler/);
 

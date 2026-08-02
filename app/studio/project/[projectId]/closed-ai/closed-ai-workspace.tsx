@@ -14,11 +14,14 @@ import {
   type ClosedAgentExecutionResult,
 } from "@/lib/novel-ai/closed-agent-os";
 import type {
+  AcceptedChoice,
   Achievement,
   Chapter,
   Character,
+  CharacterRelationship,
   NovelProject,
   StoryBible,
+  StoryBranch,
   StoryState,
   TimelineEvent,
   WorldRule,
@@ -53,6 +56,7 @@ import {
   BROWSER_WEBLLM_MODELS,
   type BrowserWebLLMModelId,
 } from "@/lib/novel-ai/providers/browser-ai/webllm-model-registry";
+import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
   browserSemanticRuntimeSnapshot,
   deleteBrowserSemanticModel,
@@ -65,8 +69,18 @@ import {
   type BrowserSemanticRuntimeSnapshot,
 } from "@/lib/novel-ai/providers/browser-ai/browser-semantic-runtime";
 import {
+  updateBrowserSemanticIndex,
+  type BrowserSemanticIndexResult,
+} from "@/lib/novel-ai/providers/browser-ai/browser-semantic-index";
+import { buildBrowserSemanticProjectSources } from "@/lib/novel-ai/providers/browser-ai/browser-semantic-project-index";
+import {
   BROWSER_SEMANTIC_MODEL,
 } from "@/lib/novel-ai/providers/browser-ai/browser-semantic-model-registry";
+import {
+  readBrowserExecutionReceipts,
+  summarizeBrowserOffload,
+  type BrowserOffloadSummary,
+} from "@/lib/novel-ai/providers/browser-ai/browser-offload-metrics";
 import {
   configureLocalBridgeClient,
   configureLocalBridgeModel,
@@ -87,13 +101,17 @@ import {
   type OfflinePreferenceModelArtifact,
   type PrivateHubInferenceProof,
 } from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
-import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
+import type {
+  BrowserComputePolicy,
+  PlatformTaskType,
+} from "@/lib/novel-ai/router/platform-types";
 import {
   describePrivateModelRole,
   rankPrivateModels,
   type PrivateModelFleetProfile,
 } from "@/lib/novel-ai/model-orchestration/private-model-fleet";
 import { RECOMMENDED_LOCAL_WRITER_MODEL } from "@/lib/novel-ai/model-orchestration/recommended-models";
+import { createSovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import {
   sealFormalPreferenceDataset,
   verifyFormalPreferenceDataset,
@@ -389,6 +407,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
   const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("auto");
+  const [computePolicy, setComputePolicy] = useState<BrowserComputePolicy>(
+    "browser-first",
+  );
   const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
   const [objective, setObjective] = useState(
     TASKS.find((task) => task.id === "chapter.continue")!.defaultObjective,
@@ -416,6 +437,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [browserSemanticProgress, setBrowserSemanticProgress] = useState<BrowserSemanticProgress | null>(null);
   const browserSemanticInstallController = useRef<AbortController | null>(null);
   const [browserSemanticOperation, setBrowserSemanticOperation] = useState<"install" | null>(null);
+  const [browserSemanticIndex, setBrowserSemanticIndex] = useState<BrowserSemanticIndexResult | null>(null);
+  const [browserSemanticIndexError, setBrowserSemanticIndexError] = useState<string | null>(null);
+  const [browserSemanticIndexRefresh, setBrowserSemanticIndexRefresh] = useState(0);
+  const [browserOffload, setBrowserOffload] = useState<BrowserOffloadSummary | null>(null);
   const [localPairing, setLocalPairing] = useState<PairingRequest | null>(null);
   const [localModels, setLocalModels] = useState<LocalTextModel[]>([]);
   const [localModelId, setLocalModelId] = useState("");
@@ -441,6 +466,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const automaticConnectionOrigin = useRef<string | null>(null);
   const automaticConnectionRunning = useRef(false);
   const automaticConnectionCheckedAt = useRef(0);
+  const selectedBrowserModel = browserWebLlm?.models.find((item) => item.selected);
+  const browserPrewarmKey = selectedBrowserModel?.installStatus === "ready"
+    && selectedBrowserModel.cacheVerified
+    && selectedBrowserModel.shardIntegrityVerified
+    ? `${selectedBrowserModel.modelId}:${selectedBrowserModel.modelDigest}`
+    : null;
 
   useEffect(() => {
     const unsubscribeWebLlm = subscribeBrowserWebLLMProgress(setBrowserWebLlmProgress);
@@ -454,9 +485,29 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   }, []);
 
   useEffect(() => {
+    if (!browserPrewarmKey) return;
+    const controller = new AbortController();
+    let cancelScheduled = () => {};
+    void scheduleBrowserModelPrewarm({
+      policy: computePolicy,
+      powerMode: "normal",
+      signal: controller.signal,
+    }).then((decision) => {
+      if (controller.signal.aborted) decision.cancel();
+      else cancelScheduled = decision.cancel;
+    }).catch(() => undefined);
+    return () => {
+      controller.abort();
+      cancelScheduled();
+    };
+  }, [browserPrewarmKey, computePolicy]);
+
+  useEffect(() => {
     let cancelled = false;
+    const semanticIndexController = new AbortController();
     void (async () => {
       const repository = createNovelRepository();
+      const learningRepository = createSovereignLearningRepository();
       const [
         project,
         chapters,
@@ -467,6 +518,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         storyStates,
         writingTasks,
         achievements,
+        relationships,
+        acceptedChoices,
+        storyBranches,
+        learningRules,
       ] = await Promise.all([
         repository.get<NovelProject>("projects", projectId),
         repository.list<Chapter>("chapters", projectId),
@@ -477,6 +532,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         repository.list<StoryState>("storyStates", projectId),
         repository.list<WritingTask>("tasks", projectId),
         repository.list<Achievement>("achievements", projectId),
+        repository.list<CharacterRelationship>("relationships", projectId),
+        repository.listAcceptedChoices(projectId),
+        repository.listStoryBranches(projectId),
+        learningRepository.listRules(projectId).catch(() => []),
       ]);
       if (cancelled) return;
       const referencedStoryState = project?.storyStateId
@@ -500,7 +559,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         achievements: achievements.length,
       });
       const activeChapter = chapters.find((item) => item.id === project?.activeChapterId)
-        ?? chapters.sort((left, right) => left.order - right.order).at(-1)
+        ?? [...chapters].sort((left, right) => left.order - right.order).at(-1)
         ?? null;
       const taskProgress = writingTasks.length
         ? Math.round(
@@ -597,8 +656,73 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ...storyStates.map((item) => item.revision),
         ...writingTasks.map((item) => item.revision),
         ...achievements.map((item) => item.revision),
+        ...relationships.map((item) => item.revision),
+        ...acceptedChoices.map((item: AcceptedChoice) => item.revision),
+        ...storyBranches.map((item: StoryBranch) => item.revision),
+        ...learningRules.map((item) => item.revision),
       );
       setKnowledgeScopeRevision(String(maximumRevision));
+
+      void (async () => {
+        const semanticRuntime = await browserSemanticRuntimeSnapshot().catch(() => null);
+        if (cancelled) return;
+        if (!project) {
+          setBrowserSemanticIndex(null);
+          setBrowserSemanticIndexError("BROWSER_SEMANTIC_INDEX_PROJECT_NOT_FOUND");
+          return;
+        }
+        if (!semanticRuntime?.model.cacheVerified) {
+          setBrowserSemanticIndex(null);
+          setBrowserSemanticIndexError("BROWSER_SEMANTIC_MODEL_NOT_READY");
+          return;
+        }
+        const activeBranch = [...storyBranches]
+          .filter((item) => item.status === "active")
+          .sort((left, right) => right.revision - left.revision)[0];
+        const indexed = await updateBrowserSemanticIndex({
+          namespace: {
+            tenantId: "local-tenant",
+            userId: "local-author",
+            projectId,
+            storyId: projectId,
+            canonId: `canon:${projectId}`,
+            branchId: activeBranch?.branchId ?? "main",
+            characterId: "shared",
+            agentRole: "closed-agent-os",
+            modelId: BROWSER_SEMANTIC_MODEL.modelId,
+            modelDigest: BROWSER_SEMANTIC_MODEL.modelDigest,
+            promptProfileVersion: "browser-semantic-index-rc5",
+            storyBibleRevision: String(storyBible?.revision ?? "none"),
+            knowledgeScopeRevision: String(maximumRevision),
+            privacyLevel: "device_only",
+          },
+          sources: buildBrowserSemanticProjectSources({
+            project,
+            chapters,
+            characters,
+            relationships,
+            worldRules: rules,
+            timeline,
+            storyBibles,
+            storyStates,
+            acceptedChoices,
+            storyBranches,
+            writingTasks,
+            achievements,
+            approvedLearningRules: learningRules.filter((item) => item.status === "approved"),
+          }),
+          signal: semanticIndexController.signal,
+        });
+        if (cancelled) return;
+        setBrowserSemanticIndex(indexed);
+        setBrowserSemanticIndexError(indexed.errorCode);
+      })().catch((error) => {
+        if (cancelled) return;
+        setBrowserSemanticIndex(null);
+        setBrowserSemanticIndexError(String(
+          (error as { code?: unknown } | null)?.code ?? "BROWSER_SEMANTIC_INDEX_FAILED",
+        ));
+      });
 
       const query = new URL(location.href).searchParams;
       const requestedTask = query.get("task") as PlatformTaskType | null;
@@ -647,12 +771,17 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         }
       }
     })().catch((error) => {
-      if (!cancelled) setStatus(`作品脈絡載入失敗：${runtimeError(error)}`);
+      if (!cancelled) {
+        setBrowserSemanticIndex(null);
+        setBrowserSemanticIndexError(String((error as { code?: unknown } | null)?.code ?? "BROWSER_SEMANTIC_INDEX_FAILED"));
+        setStatus(`作品脈絡載入失敗：${runtimeError(error)}`);
+      }
     });
     return () => {
       cancelled = true;
+      semanticIndexController.abort();
     };
-  }, [projectId]);
+  }, [browserSemanticIndexRefresh, projectId]);
 
   useEffect(() => {
     const resolved = resolveCurrentStudioOrigin(window.location);
@@ -710,12 +839,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     const backendId = backend === "auto"
       ? task?.complexity === "heavy"
         ? "private-ai-hub"
-        : task?.complexity === "standard"
+        : computePolicy === "quality-first"
           ? "local-ollama"
           : "browser-ai"
       : backend;
     return namespaceForBackend(backendId);
-  }, [backend, namespaceForBackend, taskType]);
+  }, [backend, computePolicy, namespaceForBackend, taskType]);
 
   const selectedTask = useMemo(
     () => TASKS.find((item) => item.id === taskType),
@@ -737,9 +866,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     taskType,
     namespace: routingNamespace,
     complexity: selectedTask?.complexity,
+    browserComputePolicy: computePolicy,
   }, snapshots, {
     preferredBackend: backend === "auto" ? undefined : backend,
-  }), [backend, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
+  }), [backend, computePolicy, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
   const executionBackendId: ClosedAIBackendId =
     runtimeRoute.executionStatus === "routable"
       ? runtimeRoute.backend.id
@@ -747,7 +877,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ? backend
         : selectedTask?.complexity === "heavy"
           ? "private-ai-hub"
-          : selectedTask?.complexity === "standard"
+          : computePolicy === "quality-first"
             ? "local-ollama"
             : "browser-ai";
   const executionSnapshot = snapshots.find(
@@ -944,9 +1074,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       },
     });
     const nextSnapshots = runtime.backends;
-    const nextDashboard = await os.dashboard(projectId, nextSnapshots);
+    const [nextDashboard, receipts] = await Promise.all([
+      os.dashboard(projectId, nextSnapshots),
+      readBrowserExecutionReceipts().catch(() => []),
+    ]);
     setSnapshots(nextSnapshots);
     setDashboard(nextDashboard);
+    setBrowserOffload(summarizeBrowserOffload(receipts));
     if (announce) {
       setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
     }
@@ -1166,6 +1300,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         onProgress: setBrowserSemanticProgress,
       });
       setBrowserSemantic(snapshot);
+      setBrowserSemanticIndexRefresh((current) => current + 1);
       setRuntimeStatus("語意模型已完成 SHA-256 與離線載入驗證；小說 RAG 與 Semantic Cache 可用。");
       await refresh(false);
     } catch (error) {
@@ -1263,6 +1398,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeBusy(true);
     try {
       setBrowserSemantic(await deleteBrowserSemanticModel());
+      setBrowserSemanticIndex(null);
+      setBrowserSemanticIndexError("BROWSER_SEMANTIC_MODEL_NOT_READY");
       setRuntimeStatus("語意模型與專屬 Semantic Cache 已從此裝置刪除；Canon、Memory 與作品內容未受影響。");
       await refresh(false);
     } catch (error) {
@@ -1613,6 +1750,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           }]
           : [],
         qualityMode: qualityMode === "auto" ? undefined : qualityMode,
+        browserComputePolicy: computePolicy,
+        allowPreAuthorizedClosedEscalation: false,
         preferredBackend: backend === "auto" ? undefined : backend,
         storyBibleRevision,
         knowledgeScopeRevision,
@@ -1691,6 +1830,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           ? "核准已簽章，候選已寫入目前章節並建立可驗證 Canon commit。"
           : "核准已簽章並寫入核准記憶；本頁未修改 Canon。",
       );
+      if (applyToChapter) setBrowserSemanticIndexRefresh((current) => current + 1);
       await refresh(false);
     } catch (error) {
       setStatus(userMessage(error));
@@ -1865,6 +2005,60 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         aria-live="polite"
       >{runtimeStatus}</p>
 
+      <section className={styles.panel} data-testid="browser-offload-dashboard">
+        <div className={styles.panelHeading}>
+          <div>
+            <small>BROWSER OFFLOAD DASHBOARD · DIGEST/COUNT ONLY</small>
+            <h2>Browser-First Sovereign Compute Plane</h2>
+          </div>
+          <span>{computePolicy} · 不允許靜默升級</span>
+        </div>
+        <div className={styles.metricGrid}>
+          <article>
+            <small>Browser AI</small>
+            <strong>{snapshots.find((item) => item.id === "browser-ai")?.status === "ready" ? "READY" : "RUNTIME"}</strong>
+            <span>{browserWebLlm?.models.find((item) => item.selected)?.modelId ?? browserCapability?.generativeRuntime ?? browserCapability?.modelId ?? "等待裝置偵測"}</span>
+          </article>
+          <article>
+            <small>GPU／模型完整性</small>
+            <strong>{browserWebLlm?.device.webGpu ? "WebGPU" : "WASM／規則"}</strong>
+            <span>{browserWebLlm?.models.find((item) => item.selected)?.shardIntegrityVerified ? "所有權重分片 SHA-256 已驗證" : "等待安裝與逐片驗證"}</span>
+          </article>
+          <article>
+            <small>Semantic Index</small>
+            <strong>{browserSemanticIndex?.status === "ready" ? "READY" : browserSemanticIndexError ? "WAITING" : "NOT BUILT"}</strong>
+            <span>{browserSemanticIndex?.status === "ready"
+              ? `${browserSemanticIndex.documentCount} 筆 · IndexedDB metadata · OPFS vectors`
+              : browserSemanticIndexError ?? "等待完整作品索引"}</span>
+          </article>
+          <article>
+            <small>GPU Queue</small>
+            <strong>{browserWebLlm?.performance.activeGeneration ? "ACTIVE" : "IDLE"}</strong>
+            <span>等待 {browserWebLlm?.performance.queuedGenerations ?? 0} · Worker 重啟 {browserWebLlm?.performance.workerRestartCount ?? 0} · Device lost {browserWebLlm?.performance.gpuDeviceLostCount ?? 0}</span>
+          </article>
+          <article>
+            <small>Browser Offload</small>
+            <strong>{Math.round((browserOffload?.browserOffloadRatio ?? 0) * 100)}%</strong>
+            <span>{browserOffload?.browserExecutedCount ?? 0}/{browserOffload?.eligibleTaskCount ?? 0} 筆已記錄任務</span>
+          </article>
+          <article>
+            <small>模型工作節省</small>
+            <strong>{(browserOffload?.estimatedTokensSaved ?? 0).toLocaleString()} tokens</strong>
+            <span>Local 避免 {browserOffload?.localOllamaCallsAvoided ?? 0} · Hub 避免 {browserOffload?.privateHubJobsAvoided ?? 0}</span>
+          </article>
+          <article>
+            <small>最近實際執行器</small>
+            <strong>{result?.candidate.actualExecutor ?? "not_executed"}</strong>
+            <span>{result?.candidate.dataLeftDevice ? "資料離開裝置" : "資料留在裝置／尚未執行"}</span>
+          </article>
+          <article>
+            <small>核准邊界</small>
+            <strong>{result?.candidate.canonicalMutationCount ?? 0}</strong>
+            <span>未核准候選 Canon mutation</span>
+          </article>
+        </div>
+      </section>
+
       <div className={styles.workspace}>
         <section className={styles.panel} aria-labelledby="backend-title">
           <div className={styles.panelHeading}>
@@ -1925,7 +2119,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       </small>
                     </div>
                     <p className={styles.browserModelTruth}>
-                      第一次安裝會連網；快取驗證後，文章生成可留在裝置。模型來源與執行檔固定版本並驗證雜湊；上游權重分片目前以不可變 revision 鎖定，未宣稱逐分片 SRI。
+                      第一次安裝會連網且只由你明確啟動；完成後會逐一核對每個權重分片的大小與 SHA-256。任一分片不符即刪除並禁止啟用，驗證完成後推理可留在裝置。
                     </p>
                     {browserWebLlm.models.some((item) => item.selected && item.installStatus === "ready" && item.cacheVerified) ? <div className={styles.modelActions}>
                       <button type="button" disabled={runtimeBusy} onClick={() => void prewarmBrowserModel()}>
@@ -1955,6 +2149,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                           </small>
                           <code title={manifest.modelDigest}>digest {manifest.modelDigest.slice(0, 16)}…</code>
                           <small title={manifest.sourceRevision}>版本 {manifest.sourceRevision.slice(0, 12)}… · 4,096 tokens</small>
+                          <small>
+                            分片完整性：{state?.shardIntegrityVerified
+                              ? `${state.verifiedShardCount} 個分片已驗證`
+                              : "尚未驗證"}
+                          </small>
                           {state?.generationCount ? <small>
                             已完成 {state.generationCount} 次 · 平均首字 {state.averageFirstTokenMs ?? "—"} ms · 平均 {state.averageTokensPerSecond?.toFixed(2) ?? "—"} tokens/s
                           </small> : null}
@@ -1996,6 +2195,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     {browserWebLlm.lastGeneration ? <p className={styles.runtimeMetrics} data-testid="browser-webllm-last-generation">
                       最近真實推理：{browserWebLlm.lastGeneration.modelId} · 首字 {browserWebLlm.lastGeneration.firstTokenMs ?? "—"} ms · {browserWebLlm.lastGeneration.tokensPerSecond?.toFixed(2) ?? "—"} tokens/s · 排隊 {browserWebLlm.lastGeneration.queueWaitMs} ms · {browserWebLlm.lastGeneration.engineReused ? "重用預熱引擎" : "新載入引擎"} · 脈絡省略 {browserWebLlm.lastGeneration.omittedInputCharacters} 字 · {Math.round(browserWebLlm.lastGeneration.estimatedVramMB)} MB · 資料未離開裝置
                     </p> : null}
+                    <p className={styles.runtimeMetrics} data-testid="browser-gpu-queue-status">
+                      GPU Queue：{browserWebLlm.performance.activeGeneration ? "執行中" : "閒置"} · 等待 {browserWebLlm.performance.queuedGenerations} · Worker 重啟 {browserWebLlm.performance.workerRestartCount} · Device lost {browserWebLlm.performance.gpuDeviceLostCount}
+                    </p>
                     <p className={styles.runtimeMetrics} data-testid="browser-webllm-performance-policy">
                       效能策略：Web Worker 單列生成 · 引擎重用 {browserWebLlm.performance.engineReuseCount} 次 · 等待工作 {browserWebLlm.performance.queuedGenerations} · 預熱 {browserWebLlm.performance.warmupCount} 次
                     </p>
@@ -2318,8 +2520,28 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 ))}
               </select>
             </label>
+            <label>算力政策
+              <select
+                data-testid="browser-compute-policy"
+                value={computePolicy}
+                onChange={(event) => {
+                  const next = event.target.value as BrowserComputePolicy;
+                  setComputePolicy(next);
+                  if (next !== "manual") setBackend("auto");
+                }}
+              >
+                <option value="browser-first">瀏覽器優先（預設）</option>
+                <option value="balanced">平衡模式</option>
+                <option value="quality-first">本機高品質</option>
+                <option value="manual">手動指定</option>
+              </select>
+            </label>
             <label>執行後端
-              <select data-testid="closed-ai-backend" value={backend} onChange={(event) => setBackend(event.target.value as ClosedAIBackendId | "auto")}>
+              <select data-testid="closed-ai-backend" value={backend} onChange={(event) => {
+                const next = event.target.value as ClosedAIBackendId | "auto";
+                setBackend(next);
+                if (next !== "auto") setComputePolicy("manual");
+              }}>
                 {Object.entries(BACKEND_LABELS).map(([value, label]) => {
                   const backendId = value as ClosedAIBackendId | "auto";
                   const snapshot = backendId === "auto"
@@ -2357,11 +2579,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               </span>
             </div>
             <p>{executionReady
-              ? "按下執行後才會鎖定這個已就緒後端；執行途中失敗不會偷換模型。"
+              ? computePolicy === "browser-first"
+                ? "可在此裝置完成的分析與短篇生成會優先在瀏覽器執行，以降低其他模型負擔；資料不離開裝置。執行失敗不會偷換模型。"
+                : "按下執行後才會鎖定這個已就緒後端；執行途中失敗不會偷換模型。"
               : selectedTask?.complexity === "heavy"
                 ? "這是重型工作，請先配對並實測 Private Hub。"
                 : selectedTask?.complexity === "standard"
-                  ? "續寫與一般代理工作需要配對 Local Ollama；若桌面瀏覽器有 Prompt API，系統也會自動採用其裝置內生成模型。"
+                  ? "請先安裝、驗證並實測 Browser AI；若工作超過瀏覽器能力，系統會先詢問，不會暗中切換 Local Ollama。"
                   : "請先完成可執行後端的實際模型測試。"}</p>
             {!executionReady ? <button
               type="button"
@@ -2481,6 +2705,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     <div><dt>真實生成事件</dt><dd data-testid="closed-ai-generated-token-events">{result.candidate.generationTelemetry.generatedTokenEvents}</dd></div>
                     <div><dt>輸入／輸出</dt><dd>{result.candidate.generationTelemetry.inputCharacters}／{result.candidate.generationTelemetry.outputCharacters} 字</dd></div>
                     <div><dt>預算省略</dt><dd>{result.candidate.generationTelemetry.omittedInputCharacters} 字</dd></div>
+                    {result.candidate.generationTelemetry.browserComputeReceiptId ? <>
+                      <div><dt>Browser Receipt</dt><dd>{result.candidate.generationTelemetry.browserComputeReceiptId}</dd></div>
+                      <div><dt>脈絡 Token</dt><dd>{result.candidate.generationTelemetry.contextTokensBefore ?? 0} → {result.candidate.generationTelemetry.contextTokensAfter ?? 0}</dd></div>
+                      <div><dt>節省 Token</dt><dd>{result.candidate.generationTelemetry.tokensSaved ?? 0}</dd></div>
+                    </> : null}
                     {result.candidate.generationTelemetry.draftDigest ? <div><dt>暫存草稿雜湊</dt><dd>{result.candidate.generationTelemetry.draftDigest}</dd></div> : null}
                     {result.candidate.generationTelemetry.criticDigest ? <div><dt>反方檢查雜湊</dt><dd>{result.candidate.generationTelemetry.criticDigest}</dd></div> : null}
                   </> : null}

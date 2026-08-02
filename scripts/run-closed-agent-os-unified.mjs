@@ -548,10 +548,15 @@ test("ledger detects tampered immutable block", async () => {
   assert(verification.errorCodes.some((code) => code.startsWith("LEDGER_BLOCK_HASH_INVALID")));
 });
 
-test("automatic light, standard and heavy routing use the three distinct backends", async () => {
+test("policy-aware light, quality-first standard and heavy routing use the three distinct backends", async () => {
   const { os, calls } = createMockOS();
   const light = await os.execute(request("task-light", "story.summary", "light"));
-  const standard = await os.execute(request("task-standard", "chapter.continue", "standard"));
+  const standard = await os.execute(request(
+    "task-standard",
+    "chapter.continue",
+    "standard",
+    { browserComputePolicy: "quality-first" },
+  ));
   const heavy = await os.execute(request(
     "task-heavy",
     "character.multiAgentSimulation",
@@ -770,7 +775,12 @@ test("actor never receives evaluator-only or author-only context", async () => {
 
 test("candidate approval is signed before memory and optional canonical commit", async () => {
   const { os } = createMockOS();
-  const result = await os.execute(request("task-approval", "chapter.continue", "standard"));
+  const result = await os.execute(request(
+    "task-approval",
+    "chapter.continue",
+    "standard",
+    { browserComputePolicy: "quality-first" },
+  ));
   await assert.rejects(
     () => os.approveCandidate({
       candidateId: result.candidate.id,
@@ -801,6 +811,7 @@ test("concurrent approval attempts serialize to one signed state transition", as
     "task-concurrent-approval",
     "chapter.continue",
     "standard",
+    { browserComputePolicy: "quality-first" },
   ));
   const attempts = await Promise.allSettled([
     os.approveCandidate({
@@ -876,6 +887,7 @@ test("shared Agent OS applies adopted learning and records only consented outcom
     "task-learning-integrated",
     "chapter.continue",
     "standard",
+    { browserComputePolicy: "quality-first" },
   ));
   assert.equal(first.learning.applied, true);
   assert.equal(calls[0].learningConfiguration.pacingWeight, 0.35);
@@ -891,6 +903,7 @@ test("shared Agent OS applies adopted learning and records only consented outcom
     "task-learning-rejected",
     "chapter.continue",
     "standard",
+    { browserComputePolicy: "quality-first" },
   ));
   await os.rejectCandidate(second.candidate.id);
   const dashboard = await os.learning.dashboard("project-a");
@@ -910,6 +923,7 @@ test("shared Agent OS applies adopted learning and records only consented outcom
     "task-learning-no-consent",
     "chapter.continue",
     "standard",
+    { browserComputePolicy: "quality-first" },
   ));
   assert.equal(noConsent.learning.applied, false);
   const noConsentApproval = await noConsentOS.approveCandidate({

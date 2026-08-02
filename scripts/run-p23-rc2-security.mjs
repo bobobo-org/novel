@@ -477,7 +477,15 @@ test("capability truth matrix requires evidence and preserves remaining contract
   assert.equal(matrix.capabilities["training.model"].status, "started");
   assert(matrix.capabilities["training.model"].evidence.length >= 2);
   assert.equal(matrix.capabilities["media.videoGeneration"].status, "contract_only");
-  assert.equal(matrix.capabilities.externalAI.status, "not_configured");
+  assert.equal(matrix.capabilities.externalAI.status, "implemented");
+  assert(
+    matrix.capabilities.externalAI.evidence.some((item) =>
+      item.includes("server adapters")),
+  );
+  assert(
+    matrix.capabilities.externalAI.limitations.some((item) =>
+      item.includes("server-side credential")),
+  );
 });
 
 for (const entry of tests) {

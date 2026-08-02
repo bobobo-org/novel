@@ -33,6 +33,7 @@ try {
   await page.getByTestId("studio-create-wizard").waitFor({ state: "visible" });
   await page.getByTestId("studio-project-title").fill("章節瀏覽器驗收");
   await page.getByLabel(/核心想法/).fill("兩個章節必須永遠分開保存。");
+  await page.getByTestId("studio-guide-autofill").click();
   await page.getByTestId("studio-create-next").click();
   await page.getByTestId("studio-create-next").click();
   await page.getByTestId("studio-optional-protagonist").fill("林昭");
@@ -48,7 +49,7 @@ try {
   await check("first chapter saves independently", async () => {
     await editor.fill("第一章唯一內容：紅色票根。");
     await page.getByRole("button", { name: "儲存草稿" }).click();
-    await manager.getByText("目前章節已獨立保存", { exact: true }).waitFor({ state: "visible" });
+    await manager.getByText(/已按章節 ID 獨立保存$/u).waitFor({ state: "visible" });
   });
 
   await check("new chapter starts blank and becomes active", async () => {
@@ -57,7 +58,7 @@ try {
     assert.equal(await editor.inputValue(), "");
     await editor.fill("第二章唯一內容：藍色鑰匙。");
     await page.getByRole("button", { name: "儲存草稿" }).click();
-    await manager.getByText("目前章節已獨立保存", { exact: true }).waitFor({ state: "visible" });
+    await manager.getByText(/已按章節 ID 獨立保存$/u).waitFor({ state: "visible" });
   });
 
   await check("switching chapters never mixes their text", async () => {

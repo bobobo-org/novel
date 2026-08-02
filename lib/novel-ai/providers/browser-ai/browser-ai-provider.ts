@@ -22,6 +22,11 @@ import type {
   BrowserWebLLMDeviceTier,
   BrowserWebLLMModelId,
 } from "./webllm-model-registry";
+import { browserWebLLMModel } from "./webllm-model-registry";
+import {
+  evaluateBrowserDeviceBenchmark,
+  persistBrowserDeviceBenchmark,
+} from "./browser-device-benchmark";
 
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
 export type BrowserAICapability = {
@@ -74,6 +79,30 @@ export type BrowserAIStreamProgress = {
   delta: string;
   elapsedMs: number;
 };
+
+export type BrowserAIExecutionOptions = {
+  /** Keep T1 work on semantic/summarizer/packaged runtimes instead of WebLLM. */
+  preferLightweightRuntime?: boolean;
+  /**
+   * T2 uses exactly the executor selected by eligibility. When set, failure or
+   * unavailability is surfaced to the caller and can never become a packaged
+   * task-model result.
+   */
+  requiredGenerativeExecutor?: "webllm-worker" | "chromium-prompt-api";
+};
+
+function validStructuredBenchmarkOutput(content: string) {
+  const normalized = content
+    .trim()
+    .replace(/^```(?:json)?\s*/iu, "")
+    .replace(/\s*```$/u, "");
+  try {
+    const parsed = JSON.parse(normalized) as { status?: unknown };
+    return typeof parsed.status === "string" && parsed.status.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
 
 type BrowserSummarizer = {
   summarize(text: string, options?: { context?: string; signal?: AbortSignal }): Promise<string>;
@@ -224,6 +253,7 @@ export function getBrowserAIInferenceProof() {
 }
 
 export async function verifyBrowserAI(signal?: AbortSignal) {
+  browserInferenceProof = null;
   const capability = await detectBrowserAI();
   if (capability.status !== "ready") {
     throw Object.assign(new Error(
@@ -245,12 +275,45 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
   ) {
     try {
       const result = await generateWithBrowserWebLLM({
-        systemInstruction: "你是裝置內繁體中文小說助理。只輸出一句簡短、自然的測試文字。",
-        prompt: "用繁體中文寫一句：裝置內模型已完成真實推理。",
+        systemInstruction: "你是裝置內繁體中文小說助理。只輸出有效 JSON，不要 Markdown。",
+        prompt: "只回覆這個結構並填入繁體中文短句：{\"status\":\"...\"}",
         temperature: 0.2,
-        maxTokens: 48,
+        maxTokens: 64,
         signal,
       });
+      const runtime = await browserWebLLMRuntimeSnapshot();
+      const model = browserWebLLMModel(result.modelId);
+      if (model) {
+        const queue = runtime.performance;
+        const benchmark = evaluateBrowserDeviceBenchmark({
+          model,
+          device: runtime.device,
+          samples: [{
+            initializationMs: result.engineReused
+              ? 0
+              : result.firstTokenMs ?? result.elapsedMs,
+            firstTokenMs: result.firstTokenMs ?? result.elapsedMs,
+            tokensPerSecond: result.tokensPerSecond ?? 0,
+            peakEstimatedMemoryMB: result.estimatedVramMB,
+            workerCrashCount: queue.workerRestartCount,
+            gpuDeviceLostCount: queue.gpuDeviceLostCount,
+            outputFailureRate: result.content.trim() ? 0 : 1,
+            structuredOutputSuccessRate:
+              validStructuredBenchmarkOutput(result.content) ? 1 : 0,
+            completedAt: new Date().toISOString(),
+          }],
+        });
+        await persistBrowserDeviceBenchmark(benchmark);
+        if (!benchmark.benchmarkPassed) {
+          throw Object.assign(
+            new Error("WebLLM 真實裝置 Benchmark 未達到此模型的執行門檻。"),
+            {
+              code: "BROWSER_WEBLLM_BENCHMARK_FAILED",
+              failureReasons: benchmark.failureReasons,
+            },
+          );
+        }
+      }
       return recordInferenceProof(
         result.content,
         startedAt,
@@ -260,6 +323,9 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
       );
     } catch (error) {
       if (isAbortError(error, signal)) throw error;
+      if ((error as { code?: unknown } | null)?.code === "BROWSER_WEBLLM_BENCHMARK_FAILED") {
+        throw error;
+      }
       throw Object.assign(
         new Error("已安裝的 WebLLM 模型未通過真實推理測試。"),
         {
@@ -542,6 +608,7 @@ export async function runBrowserAI(
   request: PlatformAIRequest,
   decision: PlatformRouterDecision,
   onProgress?: (progress: BrowserAIStreamProgress) => void,
+  options: BrowserAIExecutionOptions = {},
 ): Promise<PlatformAIResult> {
   const started = performance.now();
   const sourceText = [...request.context, request.input].join("\n\n");
@@ -552,7 +619,23 @@ export async function runBrowserAI(
   )) ?? null;
   const webLlmReady = selectedWebLlm?.installStatus === "ready"
     && selectedWebLlm.cacheVerified;
-  if (webLlmReady && taskComplexity(request.taskType) !== "heavy") {
+  if (options.requiredGenerativeExecutor === "webllm-worker" && !webLlmReady) {
+    throw Object.assign(
+      new Error("The verified WebLLM worker selected for this T2 task is unavailable."),
+      {
+        code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
+        requiredExecutor: options.requiredGenerativeExecutor,
+        fallbackAttempted: false,
+      },
+    );
+  }
+  if (
+    !options.preferLightweightRuntime
+    && webLlmReady
+    && (!options.requiredGenerativeExecutor
+      || options.requiredGenerativeExecutor === "webllm-worker")
+    && taskComplexity(request.taskType) !== "heavy"
+  ) {
     const profile = getClosedAIModelProfile(request.taskType, "browser-ai");
     const prompt = buildClosedAIModelPrompt({
       objective: request.input,
@@ -627,6 +710,17 @@ export async function runBrowserAI(
     } catch (error) {
       cancelBrowserWebLLMGeneration();
       if (isAbortError(error, request.signal)) throw error;
+      if (options.requiredGenerativeExecutor === "webllm-worker") {
+        throw Object.assign(
+          new Error("The required WebLLM worker failed; no alternate executor was used."),
+          {
+            code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+            requiredExecutor: options.requiredGenerativeExecutor,
+            fallbackAttempted: false,
+            cause: error,
+          },
+        );
+      }
       webLlmFailureWarning = "WebLLM generation failed; no rule output was presented as an LLM result.";
       if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
         const languageFactory = languageModelFactory();
@@ -654,7 +748,26 @@ export async function runBrowserAI(
     languageFactory
     && (promptAvailability === "available" || promptAvailability === "readily"),
   );
-  if (nativeGenerativeReady && taskComplexity(request.taskType) !== "heavy") {
+  if (
+    options.requiredGenerativeExecutor === "chromium-prompt-api"
+    && !nativeGenerativeReady
+  ) {
+    throw Object.assign(
+      new Error("The verified Chromium Prompt API selected for this T2 task is unavailable."),
+      {
+        code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
+        requiredExecutor: options.requiredGenerativeExecutor,
+        fallbackAttempted: false,
+      },
+    );
+  }
+  if (
+    !options.preferLightweightRuntime
+    && nativeGenerativeReady
+    && (!options.requiredGenerativeExecutor
+      || options.requiredGenerativeExecutor === "chromium-prompt-api")
+    && taskComplexity(request.taskType) !== "heavy"
+  ) {
     const profile = getClosedAIModelProfile(request.taskType, "browser-ai");
     const prompt = buildClosedAIModelPrompt({
       objective: request.input,
@@ -729,6 +842,17 @@ export async function runBrowserAI(
         executor: "chromium-prompt-api",
       };
     } catch (error) {
+      if (options.requiredGenerativeExecutor === "chromium-prompt-api") {
+        throw Object.assign(
+          new Error("The required Chromium Prompt API failed; no alternate executor was used."),
+          {
+            code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+            requiredExecutor: options.requiredGenerativeExecutor,
+            fallbackAttempted: false,
+            cause: error,
+          },
+        );
+      }
       if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
         throw Object.assign(
           new Error("瀏覽器內建生成模型執行失敗，沒有改用規則模板冒充生成結果。"),
@@ -742,6 +866,16 @@ export async function runBrowserAI(
     } finally {
       session?.destroy?.();
     }
+  }
+  if (options.requiredGenerativeExecutor) {
+    throw Object.assign(
+      new Error("The required T2 generative executor did not produce a candidate."),
+      {
+        code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+        requiredExecutor: options.requiredGenerativeExecutor,
+        fallbackAttempted: false,
+      },
+    );
   }
   if (!BROWSER_LIGHT_TASKS.includes(request.taskType)) {
     throw Object.assign(

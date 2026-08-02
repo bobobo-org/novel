@@ -33,7 +33,7 @@ export type BrowserWebLLMModelManifest = {
     configSRI: true;
     tokenizerSRI: true;
     modelLibSRI: true;
-    perWeightShardSRI: false;
+    perWeightShardSRI: true;
   };
 };
 
@@ -67,7 +67,7 @@ export const BROWSER_WEBLLM_MODELS = [
       configSRI: true,
       tokenizerSRI: true,
       modelLibSRI: true,
-      perWeightShardSRI: false,
+      perWeightShardSRI: true,
     },
   },
   {
@@ -96,7 +96,7 @@ export const BROWSER_WEBLLM_MODELS = [
       configSRI: true,
       tokenizerSRI: true,
       modelLibSRI: true,
-      perWeightShardSRI: false,
+      perWeightShardSRI: true,
     },
   },
   {
@@ -110,7 +110,7 @@ export const BROWSER_WEBLLM_MODELS = [
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-3B-Instruct-q4f16_1-MLC/resolve/7690aaaa46df36b1be0fe93b9c9abac0497eff6c/",
     modelLibRevision: MODEL_LIB_REVISION,
     modelLibUrl: `https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/${MODEL_LIB_REVISION}/web-llm-models/v0_2_84/base/Qwen2.5-3B-Instruct-q4f16_1_cs1k-webgpu.wasm`,
-    estimatedDownloadBytes: 1_309_814_944,
+    estimatedDownloadBytes: 1_753_300_000,
     estimatedVramMB: 2504.76,
     contextWindow: 4096,
     modelDigest: "d9eac2dddca497d38595365d3c02131cf9b09a709a75b54b33125eb5c79d4e61",
@@ -125,7 +125,7 @@ export const BROWSER_WEBLLM_MODELS = [
       configSRI: true,
       tokenizerSRI: true,
       modelLibSRI: true,
-      perWeightShardSRI: false,
+      perWeightShardSRI: true,
     },
   },
 ] as const satisfies readonly BrowserWebLLMModelManifest[];
@@ -323,9 +323,10 @@ export async function detectBrowserWebLLMDevice(): Promise<BrowserWebLLMDevicePr
 }
 
 export function chooseBrowserWebLLMCacheBackend(
-  profile: Pick<BrowserWebLLMDeviceProfile, "opfs" | "indexedDb">,
+  _profile: Pick<BrowserWebLLMDeviceProfile, "opfs" | "indexedDb">,
 ): BrowserWebLLMCacheBackend {
-  if (profile.opfs) return "opfs";
-  if (profile.indexedDb) return "indexeddb";
+  void _profile;
+  // CacheStorage exposes every immutable weight shard for post-download
+  // SHA-256 verification. The general Service Worker does not own this scope.
   return "cache";
 }

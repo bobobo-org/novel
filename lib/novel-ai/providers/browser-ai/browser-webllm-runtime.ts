@@ -13,10 +13,13 @@ import {
   type BrowserWebLLMModelId,
 } from "./webllm-model-registry";
 import {
-  fitBrowserPromptToBudget,
+  estimateBrowserTokens,
+  fitBrowserPromptToTokenBudget,
   resolveBrowserAIPerformancePolicy,
   type BrowserAIPerformancePolicy,
 } from "./browser-performance-policy";
+import { verifyBrowserModelShards } from "./browser-model-installer";
+import { BrowserGPUQueue } from "./browser-gpu-queue";
 
 const METADATA_DB = "novel-browser-webllm-v1";
 const METADATA_STORE = "runtime-records";
@@ -37,6 +40,10 @@ export type BrowserWebLLMModelMetadata = {
   cacheBackend: BrowserWebLLMCacheBackend;
   installStatus: BrowserWebLLMInstallStatus;
   cacheVerified: boolean;
+  shardIntegrityVerified: boolean;
+  shardManifestDigest: string | null;
+  shardVerifiedAt: string | null;
+  verifiedShardCount: number;
   installedAt: string | null;
   lastUsedAt: string | null;
   lastError: string | null;
@@ -55,7 +62,7 @@ type MetadataRecord = BrowserWebLLMModelMetadata | SelectedModelRecord;
 
 export type BrowserWebLLMProgress = {
   modelId: BrowserWebLLMModelId;
-  phase: "checking" | "downloading" | "loading" | "ready" | "error";
+  phase: "checking" | "downloading" | "loading" | "verifying" | "ready" | "error";
   progress: number;
   text: string;
 };
@@ -98,12 +105,20 @@ export type BrowserWebLLMRuntimeSnapshot = {
     lastWarmupMs: number | null;
     workerExecution: true;
     serialGeneration: true;
+    workerRestartCount: number;
+    gpuDeviceLostCount: number;
+    rejectedForBackpressure: number;
+    activeMemoryBudgetMB: number;
   };
   models: Array<{
     modelId: BrowserWebLLMModelId;
     modelDigest: string;
     installStatus: BrowserWebLLMInstallStatus;
     cacheVerified: boolean;
+    shardIntegrityVerified: boolean;
+    shardManifestDigest: string | null;
+    shardVerifiedAt: string | null;
+    verifiedShardCount: number;
     selected: boolean;
     allowed: boolean;
     installedAt: string | null;
@@ -159,9 +174,7 @@ let activeModelId: BrowserWebLLMModelId | null = null;
 let activeCacheBackend: BrowserWebLLMCacheBackend | null = null;
 let currentProgress: BrowserWebLLMProgress | null = null;
 let lastGeneration: BrowserWebLLMRuntimeSnapshot["lastGeneration"] = null;
-let generationTail: Promise<void> = Promise.resolve();
 let activeGeneration = false;
-let queuedGenerations = 0;
 let engineReuseCount = 0;
 let warmupCount = 0;
 let lastWarmupAt: string | null = null;
@@ -281,6 +294,18 @@ async function releaseActiveEngine() {
   }
 }
 
+function createGPUQueue() {
+  return new BrowserGPUQueue({
+    maxQueuedJobs: 8,
+    maxMemoryMB: 4_096,
+    idleReleaseMs: 120_000,
+    onRecover: releaseActiveEngine,
+    onIdleRelease: releaseActiveEngine,
+  });
+}
+
+let gpuQueue = createGPUQueue();
+
 async function createEngine(
   modelId: BrowserWebLLMModelId,
   cacheBackend: BrowserWebLLMCacheBackend,
@@ -382,6 +407,7 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
       .filter((record): record is BrowserWebLLMModelMetadata => record.kind === "model")
       .map((record) => [record.modelId, record]),
   );
+  const queue = gpuQueue.snapshot();
   return {
     runtime: "webllm-worker",
     supported: device.supported,
@@ -393,22 +419,42 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
     lastGeneration: lastGeneration ? { ...lastGeneration } : null,
     performance: {
       engineWarm: Boolean(activeEngine && activeModelId),
-      activeGeneration,
-      queuedGenerations,
+      activeGeneration: Boolean(queue.activeJobId) || activeGeneration,
+      queuedGenerations: queue.queuedJobs,
       engineReuseCount,
       warmupCount,
       lastWarmupAt,
       lastWarmupMs,
       workerExecution: true,
       serialGeneration: true,
+      workerRestartCount: queue.workerRestartCount,
+      gpuDeviceLostCount: queue.gpuDeviceLostCount,
+      rejectedForBackpressure: queue.rejectedForBackpressure,
+      activeMemoryBudgetMB: queue.activeMemoryBudgetMB,
     },
     models: BROWSER_WEBLLM_MODELS.map((model) => {
       const record = modelRecords.get(model.modelId);
+      const verifiedForCurrentCache = Boolean(
+        record?.cacheVerified
+        && record.cacheBackend === cacheBackend
+        && record.shardIntegrityVerified,
+      );
       return {
         modelId: model.modelId,
         modelDigest: model.modelDigest,
-        installStatus: record?.installStatus ?? "not_installed",
-        cacheVerified: Boolean(record?.cacheVerified),
+        installStatus: record?.installStatus === "ready"
+          && verifiedForCurrentCache
+          ? "ready"
+          : record?.installStatus === "installing"
+            ? "installing"
+            : record?.installStatus === "error"
+              ? "error"
+              : "not_installed",
+        cacheVerified: verifiedForCurrentCache,
+        shardIntegrityVerified: Boolean(record?.shardIntegrityVerified),
+        shardManifestDigest: record?.shardManifestDigest ?? null,
+        shardVerifiedAt: record?.shardVerifiedAt ?? null,
+        verifiedShardCount: record?.verifiedShardCount ?? 0,
         selected: selectedModelId === model.modelId,
         allowed: device.allowedModelIds.includes(model.modelId),
         installedAt: record?.installedAt ?? null,
@@ -456,6 +502,10 @@ export async function installBrowserWebLLMModel(
     cacheBackend,
     installStatus: "installing",
     cacheVerified: false,
+    shardIntegrityVerified: false,
+    shardManifestDigest: null,
+    shardVerifiedAt: null,
+    verifiedShardCount: 0,
     installedAt: null,
     lastUsedAt: null,
     lastError: null,
@@ -489,11 +539,55 @@ export async function installBrowserWebLLMModel(
         "模型已載入，但離線權重快取尚未完整，未標記為可離線使用。",
       );
     }
+    reportProgress({
+      modelId,
+      phase: "verifying",
+      progress: 0.96,
+      text: "正在逐一驗證不可變模型權重分片。",
+    });
+    const shardVerification = await verifyBrowserModelShards({
+      modelId,
+      signal: options.signal,
+      onProgress: (progress) => {
+        const update: BrowserWebLLMProgress = {
+          modelId,
+          phase: "verifying",
+          progress: Math.min(
+            0.999,
+            0.96 + (progress.verifiedShardCount / progress.shardCount) * 0.039,
+          ),
+          text: `驗證 ${progress.shardPath}（${progress.verifiedShardCount}/${progress.shardCount}）`,
+        };
+        reportProgress(update);
+        options.onProgress?.(update);
+      },
+    });
+    if (!shardVerification.verified) {
+      await releaseActiveEngine();
+      await webllm.deleteModelAllInfoInCache(
+        modelId,
+        browserWebLLMAppConfig(cacheBackend),
+      );
+      throw Object.assign(
+        new Error("模型權重分片完整性驗證失敗，失敗快取已隔離並刪除。"),
+        {
+          code: "MODEL_INTEGRITY_FAILED",
+          failures: shardVerification.failures.map((failure) => ({
+            path: failure.path,
+            reason: failure.reason,
+          })),
+        },
+      );
+    }
     const installedAt = new Date().toISOString();
     await putMetadataRecord({
       ...installing,
       installStatus: "ready",
       cacheVerified: true,
+      shardIntegrityVerified: true,
+      shardManifestDigest: shardVerification.manifestDigest,
+      shardVerifiedAt: shardVerification.verifiedAt,
+      verifiedShardCount: shardVerification.verifiedShardCount,
       installedAt,
     });
     await putMetadataRecord({ key: SELECTED_MODEL_KEY, kind: "setting", modelId });
@@ -507,6 +601,9 @@ export async function installBrowserWebLLMModel(
       lastError: message.slice(0, 300),
     });
     reportProgress({ modelId, phase: "error", progress: 0, text: message });
+    if ((error as { code?: unknown } | null)?.code === "MODEL_INTEGRITY_FAILED") {
+      throw error;
+    }
     throw runtimeError("BROWSER_WEBLLM_INSTALL_FAILED", "Browser AI 模型安裝失敗。", error);
   }
 }
@@ -538,7 +635,12 @@ async function readyModel(signal?: AbortSignal) {
   const snapshot = await browserWebLLMRuntimeSnapshot();
   const modelId = snapshot.selectedModelId;
   const state = snapshot.models.find((model) => model.modelId === modelId);
-  if (!modelId || state?.installStatus !== "ready" || !state.cacheVerified) {
+  if (
+    !modelId
+    || state?.installStatus !== "ready"
+    || !state.cacheVerified
+    || !state.shardIntegrityVerified
+  ) {
     throw runtimeError(
       "BROWSER_WEBLLM_MODEL_NOT_INSTALLED",
       "尚未安裝可離線使用的 Browser AI 生成模型。",
@@ -582,15 +684,21 @@ async function runBrowserWebLLMGeneration(
   const performancePolicy = resolveBrowserAIPerformancePolicy({
     device: snapshot.device,
     model,
+    mode: typeof document !== "undefined" && document.visibilityState === "hidden"
+      ? "ECO"
+      : undefined,
     requestedMaxTokens: input.maxTokens,
     requestedTemperature: input.temperature,
     requestedTopP: input.topP,
     requestedRepetitionPenalty: input.repetitionPenalty,
     previousTokensPerSecond: previousTelemetry?.averageTokensPerSecond,
   });
-  const systemCharacters = input.systemInstruction.length;
-  const promptBudget = Math.max(600, performancePolicy.maxInputCharacters - systemCharacters);
-  const fittedPrompt = fitBrowserPromptToBudget(input.prompt, promptBudget);
+  const systemTokens = estimateBrowserTokens(input.systemInstruction);
+  const promptBudget = Math.max(
+    128,
+    performancePolicy.inputBudgetTokens - systemTokens,
+  );
+  const fittedPrompt = fitBrowserPromptToTokenBudget(input.prompt, promptBudget);
   const interrupt = () => engine.interruptGenerate();
   input.signal?.addEventListener("abort", interrupt, { once: true });
   let content = "";
@@ -667,7 +775,7 @@ async function runBrowserWebLLMGeneration(
       tokensPerSecond: parseTokensPerSecond(runtimeStats),
       gpuVendor: gpuVendor || null,
       estimatedVramMB: model.estimatedVramMB,
-      inputCharacters: systemCharacters + fittedPrompt.prompt.length,
+      inputCharacters: input.systemInstruction.length + fittedPrompt.prompt.length,
       outputCharacters: trimmed.length,
       omittedInputCharacters: fittedPrompt.omittedCharacters,
       queueWaitMs,
@@ -702,35 +810,53 @@ async function runBrowserWebLLMGeneration(
   }
 }
 
-export function generateWithBrowserWebLLM(
+export async function generateWithBrowserWebLLM(
   input: BrowserWebLLMGenerationInput,
 ): Promise<BrowserWebLLMGenerationResult> {
   const enqueuedAt = performance.now();
-  queuedGenerations += 1;
-  const operation = generationTail.then(async () => {
-    queuedGenerations = Math.max(0, queuedGenerations - 1);
-    activeGeneration = true;
-    try {
-      if (input.signal?.aborted) throw new DOMException("已取消生成。", "AbortError");
-      return await runBrowserWebLLMGeneration(
-        input,
-        Math.round(performance.now() - enqueuedAt),
-      );
-    } finally {
-      activeGeneration = false;
-    }
+  const snapshot = await browserWebLLMRuntimeSnapshot();
+  const selected = BROWSER_WEBLLM_MODELS.find(
+    (model) => model.modelId === snapshot.selectedModelId,
+  );
+  if (!selected) {
+    throw runtimeError(
+      "BROWSER_WEBLLM_MODEL_NOT_SELECTED",
+      "尚未選擇可執行的 Browser AI 模型。",
+    );
+  }
+  return gpuQueue.enqueue({
+    id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `browser-generation-${Date.now()}`,
+    priority: typeof document !== "undefined" && document.visibilityState === "hidden"
+      ? "background"
+      : "interactive",
+    timeoutMs: 180_000,
+    memoryBudgetMB: selected.estimatedVramMB,
+    signal: input.signal,
+    execute: async ({ signal }) => {
+      activeGeneration = true;
+      try {
+        if (signal.aborted) {
+          throw new DOMException("已取消生成。", "AbortError");
+        }
+        return await runBrowserWebLLMGeneration(
+          { ...input, signal },
+          Math.round(performance.now() - enqueuedAt),
+        );
+      } finally {
+        activeGeneration = false;
+      }
+    },
   });
-  generationTail = operation.then(() => undefined, () => undefined);
-  return operation;
 }
 
 export async function resetBrowserWebLLMForTests() {
   await releaseActiveEngine();
   currentProgress = null;
   lastGeneration = null;
-  generationTail = Promise.resolve();
+  gpuQueue = createGPUQueue();
   activeGeneration = false;
-  queuedGenerations = 0;
   engineReuseCount = 0;
   warmupCount = 0;
   lastWarmupAt = null;

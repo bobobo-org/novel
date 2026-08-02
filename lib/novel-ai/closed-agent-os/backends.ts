@@ -1,7 +1,17 @@
 import {
   browserProviderSnapshot,
-  runBrowserAI,
 } from "../providers/browser-ai/browser-ai-provider";
+import { executeBrowserCompute } from "../providers/browser-ai/browser-compute-orchestrator";
+import {
+  finalizeBrowserAssistedBackendResult,
+  prepareBrowserAssistedBackendInput,
+} from "../providers/browser-ai/browser-assisted-postprocessor";
+import {
+  BROWSER_T1_TASKS,
+  BROWSER_T1_T2_HYBRID_TASKS,
+  BROWSER_T2_TASKS,
+} from "../providers/browser-ai/browser-task-eligibility";
+import { browserWebLLMModel } from "../providers/browser-ai/webllm-model-registry";
 import {
   probeLocalOllama,
   runLocalOllama,
@@ -50,6 +60,9 @@ function snapshotFromPlatform(
       "browser_hybrid_runtime_native_prompt_ready",
       "browser_hybrid_runtime_webllm_ready",
     ].includes(snapshot.detail ?? "");
+  const browserModel = id === "browser-ai"
+    ? browserWebLLMModel(snapshot.modelId)
+    : null;
   return {
     id,
     label: truth.label,
@@ -64,12 +77,25 @@ function snapshotFromPlatform(
     capabilities: snapshot.capabilities,
     supportedTaskTypes: id === "browser-ai"
       ? browserGenerativeReady
-        ? "all"
+        ? [...new Set([
+          ...BROWSER_T1_TASKS,
+          ...BROWSER_T1_T2_HYBRID_TASKS,
+          ...BROWSER_T2_TASKS,
+        ])]
         : snapshot.taskTypes ?? BROWSER_AI_LIGHT_TASKS
       : "all",
     detailCode: snapshot.detail ?? snapshot.status,
     maxContext: snapshot.maxContext,
     controlLatencyMs: snapshot.latencyMs ?? null,
+    qualityClass: id === "browser-ai"
+      ? browserModel?.parameterLabel === "3B"
+        ? "quality_local_browser"
+        : browserModel?.parameterLabel === "1.5B"
+          ? "balanced"
+          : "fast"
+      : id === "private-ai-hub"
+        ? "heavy"
+        : "standard",
   };
 }
 
@@ -133,6 +159,9 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     qualityPreference: input.plan.qualityMode === "deep"
       ? "high"
       : input.plan.qualityMode,
+    browserComputePolicy: request.browserComputePolicy ?? "browser-first",
+    allowPreAuthorizedClosedEscalation:
+      request.allowPreAuthorizedClosedEscalation ?? false,
     qualityPhase: input.qualityPhase,
     agentPlan: {
       planDigest: input.plan.planDigest,
@@ -206,16 +235,17 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       throw unavailable(this.id, snapshot.status);
     }
     const request = platformRequest(input);
-    const result = await runBrowserAI(
+    const compute = await executeBrowserCompute({
       request,
-      lockedDecision(request, snapshot),
-      (progress) => reportGenerationProgress(
+      decision: lockedDecision(request, snapshot),
+      onProgress: (progress) => reportGenerationProgress(
         input,
         `瀏覽器 AI 已生成 ${progress.generatedCharacters} 字`,
         progress.generatedCharacters,
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
       ),
-    );
+    });
+    const result = compute.result;
     reportGenerationProgress(
       input,
       `瀏覽器模型已產生 ${result.content.length} 字候選`,
@@ -241,6 +271,11 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       qualityPasses: 1,
       draftDigest: null,
       criticDigest: null,
+      actualExecutor: result.browserCompute?.actualExecutor ?? result.executor,
+      browserComputeReceiptId: result.browserCompute?.receiptId,
+      browserContextTokensBefore: result.browserCompute?.contextTokensBefore,
+      browserContextTokensAfter: result.browserCompute?.contextTokensAfter,
+      browserTokensSaved: result.browserCompute?.tokensSaved,
     };
   }
 }
@@ -270,7 +305,8 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
     if (snapshot.status !== "ready" || !snapshot.modelId) {
       throw unavailable(this.id, snapshot.status);
     }
-    const request = platformRequest(input);
+    const browserAssisted = await prepareBrowserAssistedBackendInput(input);
+    const request = platformRequest(browserAssisted.input);
     const result = await runLocalOllama(
       request,
       lockedDecision(request, snapshot),
@@ -282,7 +318,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
       ),
     );
-    return {
+    const execution: ClosedBackendExecutionResult = {
       backendId: this.id,
       modelId: result.modelId ?? "unknown-local-model",
       modelDigest: result.modelDigest ?? "unknown-local-digest",
@@ -301,6 +337,20 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
       qualityPasses: 1,
       draftDigest: null,
       criticDigest: null,
+      actualExecutor: this.id,
+    };
+    const assisted = await finalizeBrowserAssistedBackendResult({
+      preparation: browserAssisted,
+      result: execution,
+      executor: this.id,
+    });
+    return {
+      ...execution,
+      browserComputeReceiptId: assisted.receipt.receiptId,
+      browserContextTokensBefore: assisted.contextMetrics.originalContextTokens,
+      browserContextTokensAfter:
+        assisted.contextMetrics.browserCompressedContextTokens,
+      browserTokensSaved: assisted.contextMetrics.tokensSaved,
     };
   }
 
@@ -348,13 +398,27 @@ export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
     if (!this.transport) {
       throw unavailable(this.id, "contract_ready_runtime_not_connected");
     }
-    const result = await this.transport.execute(input);
+    const browserAssisted = await prepareBrowserAssistedBackendInput(input);
+    const result = await this.transport.execute(browserAssisted.input);
     if (result.backendId !== this.id) {
       throw Object.assign(new Error("Private Hub returned the wrong backend identity."), {
         code: "CLOSED_AI_BACKEND_IDENTITY_MISMATCH",
       });
     }
-    return result;
+    const assisted = await finalizeBrowserAssistedBackendResult({
+      preparation: browserAssisted,
+      result,
+      executor: this.id,
+    });
+    return {
+      ...result,
+      actualExecutor: this.id,
+      browserComputeReceiptId: assisted.receipt.receiptId,
+      browserContextTokensBefore: assisted.contextMetrics.originalContextTokens,
+      browserContextTokensAfter:
+        assisted.contextMetrics.browserCompressedContextTokens,
+      browserTokensSaved: assisted.contextMetrics.tokensSaved,
+    };
   }
 
   async invalidateCache(
