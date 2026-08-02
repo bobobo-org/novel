@@ -261,6 +261,7 @@ export type BrowserFabricEphemeralState = {
 export type BrowserFabricNodeHandler = (
   node: BrowserFabricTaskNode,
   state: BrowserFabricEphemeralState,
+  signal: AbortSignal,
 ) => Promise<BrowserFabricNodeValue>;
 
 export type BrowserFabricExecutionResult<TCandidate = unknown> = {

@@ -95,7 +95,7 @@ export async function executeBrowserSovereignFabric(input: {
   const computeRef: { current: BrowserComputeExecution | null } = { current: null };
   let ranked: BrowserHybridRagResult[] = [];
 
-  const handler: BrowserFabricNodeHandler = async (node, state) => {
+  const handler: BrowserFabricNodeHandler = async (node, state, nodeSignal) => {
     switch (node.kind) {
       case "LOAD_AUTHORITY":
         return { value: task.context.filter((item) => item.approved), engineId: "deterministic-js-wasm" };
@@ -114,7 +114,7 @@ export async function executeBrowserSovereignFabric(input: {
             namespace: task.namespace,
             query: task.objective,
             items: ranked.map((item) => ({ id: item.item.id, text: item.item.text })),
-            signal: task.signal,
+            signal: nodeSignal,
           });
           const scores = Object.fromEntries(semantic.scores.map((score) => [score.id, score.score]));
           ranked = hybridRetrieve({
@@ -145,9 +145,10 @@ export async function executeBrowserSovereignFabric(input: {
         return { value: { sections: Object.keys(assembled.sections), promptDigestOnly: true }, engineId: "deterministic-js-wasm" };
       }
       case "GENERATE": {
+        const nodeRequest = { ...input.request, signal: nodeSignal };
         computeRef.current = await withBrowserGpuLock({
-          signal: task.signal,
-          run: () => executeBrowserCompute(input),
+          signal: nodeSignal,
+          run: () => executeBrowserCompute({ ...input, request: nodeRequest }),
         });
         return {
           value: { content: computeRef.current.result.content, quality: computeRef.current.quality },

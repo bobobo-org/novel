@@ -24,6 +24,7 @@ import {
   ClosedAgentOS,
   ClosedAgentToolRegistry,
   MemoryClosedAgentStateRepository,
+  closedAgentQualityReasonCodes,
   selectClosedAIBackend,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
 import {
@@ -34,6 +35,24 @@ import {
 const tests = [];
 const results = [];
 const test = (name, run) => tests.push({ name, run });
+
+test("quality failure reasons expose only safe deterministic codes", () => {
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    qualityReasonCodes: [
+      "QUALITY_CONTEXT_ANCHOR_MISSING",
+      "QUALITY_CONTEXT_ANCHOR_MISSING",
+      "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+      "secret-value",
+      42,
+    ],
+  }), [
+    "QUALITY_CONTEXT_ANCHOR_MISSING",
+    "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+  ]);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    reasonCodes: ["QUALITY_WORLD_REGISTER_DRIFT"],
+  }), ["QUALITY_WORLD_REGISTER_DRIFT"]);
+});
 
 function namespace(overrides = {}) {
   return {

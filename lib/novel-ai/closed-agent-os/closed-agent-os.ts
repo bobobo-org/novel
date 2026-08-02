@@ -82,6 +82,24 @@ function osError(code: string, message = code, details: Record<string, unknown> 
   return Object.assign(new Error(message), { code, ...details });
 }
 
+export function closedAgentQualityReasonCodes(error: unknown): string[] {
+  if (!error || typeof error !== "object") return [];
+  const candidate = error as {
+    qualityReasonCodes?: unknown;
+    reasonCodes?: unknown;
+  };
+  const values = Array.isArray(candidate.qualityReasonCodes)
+    ? candidate.qualityReasonCodes
+    : Array.isArray(candidate.reasonCodes)
+      ? candidate.reasonCodes
+      : [];
+  return [...new Set(values
+    .filter((value): value is string => typeof value === "string")
+    .filter((value) => /^QUALITY_[A-Z0-9_]+$/u.test(value)
+      || value === "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK"))]
+    .slice(0, 8);
+}
+
 const CLOSED_AI_BACKEND_PROBE_TIMEOUT_MS = 15_000;
 
 function unavailableBackendSnapshot(
@@ -893,6 +911,10 @@ export class ClosedAgentOS {
       };
     } catch (cause) {
       const code = String((cause as { code?: string })?.code || "CLOSED_AGENT_TASK_FAILED");
+      const qualityReasonCodes = closedAgentQualityReasonCodes(cause);
+      const qualityReasonSummary = qualityReasonCodes.length
+        ? `：${qualityReasonCodes.join("、")}`
+        : "";
       task = {
         ...task,
         state: request.signal?.aborted
@@ -909,7 +931,7 @@ export class ClosedAgentOS {
         task.state === "cancelled" ? "cancelled" : "failed",
         task.state === "cancelled"
           ? "工作已取消，未修改 Memory 或 Canon"
-          : `工作安全停止（${code}）`,
+          : `工作安全停止（${code}${qualityReasonSummary}）`,
         100,
         task.backendId ? { backendId: task.backendId } : {},
       );

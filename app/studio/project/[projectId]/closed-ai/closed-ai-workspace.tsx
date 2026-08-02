@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOSED_AI_BACKEND_IDS,
+  closedAgentQualityReasonCodes,
   resolveClosedAIRoute,
   type ClosedAgentOS,
   type ClosedAIBackendId,
@@ -350,6 +351,7 @@ function formatBytes(bytes: number | null | undefined) {
 
 function userMessage(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
+  const qualityReasonCodes = closedAgentQualityReasonCodes(error);
   const recommendedBackendId = (error as { recommendedBackendId?: ClosedAIBackendId | null })
     ?.recommendedBackendId;
   const messages: Record<string, string> = {
@@ -359,11 +361,15 @@ function userMessage(error: unknown) {
     CLOSED_AGENT_EVALUATION_BLOCKED: "候選未通過安全與品質評估，沒有進入核准區。",
     CONTROLLED_LEARNING_CONSENT_REQUIRED: "請先開啟這個作品的可控學習同意。",
     CONTROLLED_LEARNING_KILL_SWITCH_ENGAGED: "可控學習緊急停止目前已開啟。",
+    BROWSER_AI_QUALITY_INSUFFICIENT: "真實瀏覽器模型已完成生成，但內容未通過小說品質檢查；沒有建立候選或修改 Canon。",
   };
   const message = messages[code] ?? (error instanceof Error ? error.message : "操作失敗。");
-  return recommendedBackendId
+  const routedMessage = recommendedBackendId
     ? `${message} 可由你手動改選：${BACKEND_LABELS[recommendedBackendId]}。`
     : message;
+  return qualityReasonCodes.length
+    ? `${routedMessage} 品質原因：${qualityReasonCodes.join("、")}。`
+    : routedMessage;
 }
 
 function runtimeTelemetry(

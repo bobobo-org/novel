@@ -13,6 +13,7 @@ import {
   assertDistinctRegeneration,
   benchmarkBrowserFabricDevice,
   browserFabricEngineRegistry,
+  browserFabricNodeTimeoutMs,
   buildNarrativeMemoryPyramid,
   classifyBrowserFabricFailure,
   compactBrowserSession,
@@ -216,9 +217,45 @@ test("task-graph", async () => {
     }),
   });
   assert.equal(plan.nodes.length, 13);
+  assert.equal(
+    plan.nodes.find((node) => node.kind === "GENERATE").timeoutMs,
+    browserFabricNodeTimeoutMs({ kind: "GENERATE", expectedOutputTokens: 320 }),
+  );
+  assert.ok(plan.nodes.find((node) => node.kind === "GENERATE").timeoutMs > 180_000);
   assert.equal(result.receipt.completedNodeCount, 13);
   assert.equal(result.receipt.preApprovalMutation, 0);
   assert.equal(result.receipt.rawPromptPersisted, false);
+});
+
+test("node-timeout-aborts-active-browser-worker", async () => {
+  const t = task({ taskId: "fabric-timeout-task" });
+  const decision = {
+    policy: "BROWSER_FIRST",
+    allowedModelTiers: ["FAST"],
+    generationEngineId: "webllm",
+    preAuthorizedClosedRefinement: false,
+    externalFallbackAllowed: false,
+    reasonCodes: ["fixture"],
+  };
+  const plan = await createBrowserFabricExecutionPlan({ task: t, decision });
+  plan.nodes[0] = { ...plan.nodes[0], timeoutMs: 5 };
+  let aborted = false;
+  await assert.rejects(
+    executeBrowserFabricTaskGraph({
+      task: t,
+      plan,
+      handler: async (_node, _state, signal) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ value: "late" }), 1_000);
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          clearTimeout(timer);
+          reject(signal.reason);
+        }, { once: true });
+      }),
+    }),
+    (error) => error?.code === "BROWSER_FABRIC_NODE_TIMEOUT",
+  );
+  assert.equal(aborted, true);
 });
 
 test("device-qualification", async () => {

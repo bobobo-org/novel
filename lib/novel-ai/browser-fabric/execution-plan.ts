@@ -14,14 +14,33 @@ const TIMEOUTS: Record<BrowserFabricNodeKind, number> = {
   RERANK: 20_000,
   COMPRESS: 12_000,
   PLAN: 30_000,
-  GENERATE: 180_000,
+  GENERATE: 240_000,
   CRITIC: 30_000,
-  REVISE: 60_000,
+  REVISE: 180_000,
   STRUCTURE_REPAIR: 10_000,
   CANON_CHECK: 10_000,
   QUALITY_GATE: 10_000,
   CANDIDATE: 5_000,
 };
+
+export function browserFabricNodeTimeoutMs(input: {
+  kind: BrowserFabricNodeKind;
+  expectedOutputTokens?: number;
+}) {
+  if (input.kind !== "GENERATE") return TIMEOUTS[input.kind];
+
+  // GENERATE can include one bounded, same-model repair pass. Budget from the
+  // requested output instead of assuming cloud-model speed: a verified 1.5B
+  // WebLLM model commonly decodes around 2-3 tokens/s on an ordinary laptop.
+  const outputTokens = Math.max(
+    160,
+    Math.min(720, Math.round(input.expectedOutputTokens ?? 512)),
+  );
+  return Math.min(
+    480_000,
+    Math.max(TIMEOUTS.GENERATE, 90_000 + outputTokens * 650),
+  );
+}
 
 export async function createBrowserFabricExecutionPlan(input: {
   task: BrowserFabricTask;
@@ -64,7 +83,10 @@ export async function createBrowserFabricExecutionPlan(input: {
           : null,
       modelId: engineId === input.decision.generationEngineId ? input.modelId ?? null : null,
       modelDigest: engineId === input.decision.generationEngineId ? input.modelDigest ?? null : null,
-      timeoutMs: TIMEOUTS[kind],
+      timeoutMs: browserFabricNodeTimeoutMs({
+        kind,
+        expectedOutputTokens: input.task.expectedOutputTokens,
+      }),
       cachePolicy: input.task.regeneration && ["PLAN", "GENERATE", "CRITIC", "REVISE"].includes(kind)
         ? "bypass"
         : ["LOAD_AUTHORITY", "CANON_CHECK", "CANDIDATE"].includes(kind)

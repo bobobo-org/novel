@@ -17,30 +17,52 @@ import type {
 } from "./types";
 
 function deadline<T>(
-  promise: Promise<T>,
+  run: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(Object.assign(new DOMException("Aborted", "AbortError"), {
+    const controller = new AbortController();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const resolveOnce = (value: T) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      const error = Object.assign(new DOMException("Aborted", "AbortError"), {
         code: "BROWSER_FABRIC_CANCELLED",
-      }));
+      });
+      controller.abort(signal?.reason ?? error);
+      rejectOnce(error);
+    };
+    if (signal?.aborted) {
+      onAbort();
       return;
     }
-    const timer = setTimeout(() => {
-      reject(Object.assign(new Error("Browser Fabric node timed out"), {
+    timer = setTimeout(() => {
+      const error = Object.assign(new Error("Browser Fabric node timed out"), {
         code: "BROWSER_FABRIC_NODE_TIMEOUT",
-      }));
+      });
+      controller.abort(error);
+      rejectOnce(error);
     }, timeoutMs);
-    const onAbort = () => reject(Object.assign(new DOMException("Aborted", "AbortError"), {
-      code: "BROWSER_FABRIC_CANCELLED",
-    }));
     signal?.addEventListener("abort", onAbort, { once: true });
-    promise.then(resolve, reject).finally(() => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    });
+    Promise.resolve()
+      .then(() => run(controller.signal))
+      .then(resolveOnce, rejectOnce);
   });
 }
 
@@ -71,7 +93,7 @@ export async function executeBrowserFabricTaskGraph<TCandidate>(input: {
     receipt = { ...receipt, status: "running", startedAt: new Date().toISOString() };
     try {
       const result = await deadline(
-        input.handler(node, state),
+        (nodeSignal) => input.handler(node, state, nodeSignal),
         node.timeoutMs,
         input.task.signal,
       );
