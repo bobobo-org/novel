@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ExternalAIGenerationRequest,
   ExternalAIGenerationResult,
@@ -9,12 +10,24 @@ import type {
 const DEFAULT_SYSTEM_INSTRUCTION =
   "你是諸天萬界小說生成系統的外接寫作模型。請使用繁體中文，遵守作品設定、角色知識邊界與使用者指定章節。輸出只是一筆候選內容；未經作者核准不得宣稱已寫入 Canon、Memory 或 Learning。";
 const EXTERNAL_AI_TIMEOUT_MS = 90_000;
+const EXTERNAL_AI_VERIFICATION_TIMEOUT_MS = 8_000;
+const EXTERNAL_AI_STREAM_BUFFER_LIMIT = 1_048_576;
+const EXTERNAL_AI_GENERATED_TEXT_LIMIT = 2_000_000;
+const VERIFIED_STATUS_TTL_MS = 5 * 60 * 1_000;
+const FAILED_STATUS_TTL_MS = 15_000;
 
 type ProviderConfig = ExternalAIProviderPublicStatus & { apiKey: string };
 type JsonRecord = Record<string, unknown>;
 type Usage = ExternalAIGenerationResult["usage"];
 type Generated = { text: string; usage: Usage; generatedTokenEvents: number };
 type StreamEmitter = (event: ExternalAIStreamEvent) => void | Promise<void>;
+type VerificationCacheEntry = { expiresAt: number; status: ExternalAIProviderPublicStatus };
+type VerificationGlobal = typeof globalThis & {
+  __novelExternalAIProviderVerification?: {
+    cache: Map<string, VerificationCacheEntry>;
+    pending: Map<string, Promise<ExternalAIProviderPublicStatus>>;
+  };
+};
 
 export class ExternalAIProviderError extends Error {
   readonly code: string;
@@ -43,6 +56,10 @@ function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
       id: "openai",
       label: "OpenAI API（ChatGPT 系列）",
       configured: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      verification: process.env.OPENAI_API_KEY?.trim() ? "configured_unverified" : "not_configured",
+      verificationCode: process.env.OPENAI_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      verifiedAt: null,
+      checkedAt: null,
       modelId: process.env.OPENAI_MODEL_ID?.trim() || "gpt-5.6-sol",
       keyEnvironmentVariable: "OPENAI_API_KEY",
       modelEnvironmentVariable: "OPENAI_MODEL_ID",
@@ -55,6 +72,10 @@ function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
       id: "gemini",
       label: "Google Gemini",
       configured: Boolean(geminiKey),
+      verification: geminiKey ? "configured_unverified" : "not_configured",
+      verificationCode: geminiKey ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      verifiedAt: null,
+      checkedAt: null,
       modelId: process.env.GEMINI_MODEL_ID?.trim() || "gemini-3.6-flash",
       keyEnvironmentVariable: "GEMINI_API_KEY（亦接受 GOOGLE_GENERATIVE_AI_API_KEY）",
       modelEnvironmentVariable: "GEMINI_MODEL_ID",
@@ -67,6 +88,10 @@ function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
       id: "grok",
       label: "xAI Grok",
       configured: Boolean(process.env.XAI_API_KEY?.trim()),
+      verification: process.env.XAI_API_KEY?.trim() ? "configured_unverified" : "not_configured",
+      verificationCode: process.env.XAI_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      verifiedAt: null,
+      checkedAt: null,
       modelId: process.env.XAI_MODEL_ID?.trim() || "grok-4.5",
       keyEnvironmentVariable: "XAI_API_KEY",
       modelEnvironmentVariable: "XAI_MODEL_ID",
@@ -79,6 +104,10 @@ function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
       id: "claude",
       label: "Anthropic Claude",
       configured: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+      verification: process.env.ANTHROPIC_API_KEY?.trim() ? "configured_unverified" : "not_configured",
+      verificationCode: process.env.ANTHROPIC_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      verifiedAt: null,
+      checkedAt: null,
       modelId: process.env.ANTHROPIC_MODEL_ID?.trim() || "claude-sonnet-5",
       keyEnvironmentVariable: "ANTHROPIC_API_KEY",
       modelEnvironmentVariable: "ANTHROPIC_MODEL_ID",
@@ -156,12 +185,44 @@ function normalizeProviderFailure(error: unknown, controller: AbortController) {
   return new ExternalAIProviderError("EXTERNAL_AI_NETWORK_FAILED", "無法連線到外接 AI。請檢查伺服器網路後重試。", 502);
 }
 
-function createLinkedController(signal?: AbortSignal) {
+function providerHttpError(status: number, operation: "generation" | "stream" | "verification") {
+  const action = operation === "verification" ? "驗證" : operation === "stream" ? "串流生成" : "生成";
+  if (status === 401 || status === 403) {
+    return new ExternalAIProviderError(
+      "EXTERNAL_PROVIDER_AUTH_FAILED",
+      `外接 AI ${action}未通過提供者授權；請由管理者更新伺服器憑證。`,
+      502,
+    );
+  }
+  if (status === 404) {
+    return new ExternalAIProviderError(
+      "EXTERNAL_PROVIDER_MODEL_UNAVAILABLE",
+      `外接 AI ${action}找不到指定模型，請由管理者確認模型 ID 與帳號權限。`,
+      502,
+    );
+  }
+  if (status === 408) {
+    return new ExternalAIProviderError("EXTERNAL_PROVIDER_TIMEOUT", `外接 AI ${action}逾時，請稍後重試。`, 504);
+  }
+  if (status === 429) {
+    return new ExternalAIProviderError("EXTERNAL_PROVIDER_RATE_LIMITED", `外接 AI ${action}已達提供者額度或速率上限，請稍後重試。`, 429);
+  }
+  if (status >= 500) {
+    return new ExternalAIProviderError("EXTERNAL_PROVIDER_UNAVAILABLE", `外接 AI ${action}服務暫時不可用，請稍後重試。`, 503);
+  }
+  return new ExternalAIProviderError(
+    "EXTERNAL_PROVIDER_REJECTED",
+    `外接 AI 拒絕${action}要求；正式作品沒有變更。`,
+    502,
+  );
+}
+
+function createLinkedController(signal?: AbortSignal, timeoutMs = EXTERNAL_AI_TIMEOUT_MS) {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason || "EXTERNAL_AI_CANCELLED");
   if (signal?.aborted) abort();
   else signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => controller.abort("EXTERNAL_AI_TIMEOUT"), EXTERNAL_AI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort("EXTERNAL_AI_TIMEOUT"), timeoutMs);
   return {
     controller,
     cleanup() {
@@ -171,17 +232,144 @@ function createLinkedController(signal?: AbortSignal) {
   };
 }
 
+function publicProviderStatus(
+  config: ProviderConfig,
+  overrides: Partial<ExternalAIProviderPublicStatus> = {},
+): ExternalAIProviderPublicStatus {
+  const { apiKey, ...status } = config;
+  void apiKey;
+  return { ...status, ...overrides };
+}
+
+function providerVerificationState() {
+  const target = globalThis as VerificationGlobal;
+  target.__novelExternalAIProviderVerification ??= {
+    cache: new Map(),
+    pending: new Map(),
+  };
+  return target.__novelExternalAIProviderVerification;
+}
+
+function providerVerificationKey(config: ProviderConfig) {
+  const credentialDigest = createHash("sha256").update(config.apiKey).digest("hex");
+  return `${config.id}:${config.modelId}:${credentialDigest}`;
+}
+
+function providerVerificationRequest(config: ProviderConfig): { url: string; headers: HeadersInit } {
+  if (config.id === "openai") {
+    return {
+      url: `https://api.openai.com/v1/models/${encodeURIComponent(config.modelId)}`,
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+    };
+  }
+  if (config.id === "grok") {
+    return {
+      url: `https://api.x.ai/v1/models/${encodeURIComponent(config.modelId)}`,
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+    };
+  }
+  if (config.id === "gemini") {
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.modelId)}`,
+      headers: { "x-goog-api-key": config.apiKey },
+    };
+  }
+  return {
+    url: `https://api.anthropic.com/v1/models/${encodeURIComponent(config.modelId)}`,
+    headers: { "x-api-key": config.apiKey, "anthropic-version": "2023-06-01" },
+  };
+}
+
+function verifiedModelIdentifier(config: ProviderConfig, payload: JsonRecord) {
+  if (config.id === "gemini") {
+    const supported = Array.isArray(payload.supportedGenerationMethods)
+      ? payload.supportedGenerationMethods
+      : [];
+    if (!supported.includes("generateContent")) return "";
+    return typeof payload.name === "string" ? payload.name : "";
+  }
+  return typeof payload.id === "string" ? payload.id : "";
+}
+
+async function verifyProvider(config: ProviderConfig): Promise<ExternalAIProviderPublicStatus> {
+  const checkedAt = new Date().toISOString();
+  const linked = createLinkedController(undefined, EXTERNAL_AI_VERIFICATION_TIMEOUT_MS);
+  try {
+    const request = providerVerificationRequest(config);
+    const response = await fetch(request.url, {
+      method: "GET",
+      headers: request.headers,
+      signal: linked.controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) throw providerHttpError(response.status, "verification");
+    const payload = await response.json().catch(() => null) as JsonRecord | null;
+    if (!payload || typeof payload !== "object" || !verifiedModelIdentifier(config, payload)) {
+      throw new ExternalAIProviderError(
+        "EXTERNAL_PROVIDER_VERIFICATION_INVALID_RESPONSE",
+        "外接 AI 模型驗證回應不完整。",
+        502,
+      );
+    }
+    return publicProviderStatus(config, {
+      verification: "verified",
+      verificationCode: "MODEL_ACCESS_VERIFIED",
+      verifiedAt: checkedAt,
+      checkedAt,
+    });
+  } catch (error) {
+    const normalized = normalizeProviderFailure(error, linked.controller);
+    return publicProviderStatus(config, {
+      verification: "failed",
+      verificationCode: normalized.code === "EXTERNAL_AI_TIMEOUT"
+        ? "EXTERNAL_PROVIDER_VERIFICATION_TIMEOUT"
+        : normalized.code,
+      verifiedAt: null,
+      checkedAt,
+    });
+  } finally {
+    linked.cleanup();
+  }
+}
+
+export async function verifyExternalAIProviderStatus(
+  providerIds: ExternalAIProviderId[] = ["openai", "gemini", "grok", "claude"],
+): Promise<ExternalAIProviderPublicStatus[]> {
+  const selected = new Set(providerIds);
+  const current = providerVerificationState();
+  const configs = Object.values(providerConfigs()).filter((config) => selected.has(config.id));
+  return Promise.all(configs.map(async (config) => {
+    if (!config.apiKey) return publicProviderStatus(config);
+    const key = providerVerificationKey(config);
+    const cached = current.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.status;
+    const alreadyPending = current.pending.get(key);
+    if (alreadyPending) return alreadyPending;
+    const pending = verifyProvider(config).then((status) => {
+      current.cache.set(key, {
+        status,
+        expiresAt: Date.now() + (status.verification === "verified" ? VERIFIED_STATUS_TTL_MS : FAILED_STATUS_TTL_MS),
+      });
+      return status;
+    }).finally(() => current.pending.delete(key));
+    current.pending.set(key, pending);
+    return pending;
+  }));
+}
+
+export function resetExternalAIProviderVerificationCacheForTests() {
+  const target = globalThis as VerificationGlobal;
+  delete target.__novelExternalAIProviderVerification;
+}
+
 async function postJson(url: string, init: RequestInit, signal?: AbortSignal) {
   const linked = createLinkedController(signal);
   try {
     const response = await fetch(url, { ...init, signal: linked.controller.signal, cache: "no-store" });
-    const payload = await response.json().catch(() => ({})) as JsonRecord;
-    if (!response.ok) {
-      throw new ExternalAIProviderError(
-        "EXTERNAL_PROVIDER_REJECTED",
-        `外接 AI 拒絕要求（HTTP ${response.status}）。請檢查該提供者的金鑰、模型權限與額度。`,
-        502,
-      );
+    if (!response.ok) throw providerHttpError(response.status, "generation");
+    const payload = await response.json().catch(() => null) as JsonRecord | null;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new ExternalAIProviderError("EXTERNAL_PROVIDER_INVALID_RESPONSE", "外接 AI 回傳格式不完整，正式作品沒有變更。", 502);
     }
     return payload;
   } catch (error) {
@@ -201,15 +389,13 @@ async function postEventStream(
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   try {
     const response = await fetch(url, { ...init, signal: linked.controller.signal, cache: "no-store" });
-    if (!response.ok) {
-      throw new ExternalAIProviderError(
-        "EXTERNAL_PROVIDER_REJECTED",
-        `外接 AI 拒絕串流要求（HTTP ${response.status}）。請檢查該提供者的金鑰、模型權限與額度。`,
-        502,
-      );
-    }
+    if (!response.ok) throw providerHttpError(response.status, "stream");
     if (!response.body) {
       throw new ExternalAIProviderError("EXTERNAL_AI_STREAM_UNAVAILABLE", "外接 AI 沒有提供可讀取的串流。", 502);
+    }
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    if (contentType && !contentType.includes("text/event-stream")) {
+      throw new ExternalAIProviderError("EXTERNAL_AI_STREAM_INVALID", "外接 AI 沒有回傳有效的事件串流。", 502);
     }
     reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -236,6 +422,9 @@ async function postEventStream(
       if (linked.controller.signal.aborted) throw linked.controller.signal.reason;
       const { done, value } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
+      if (buffer.length > EXTERNAL_AI_STREAM_BUFFER_LIMIT) {
+        throw new ExternalAIProviderError("EXTERNAL_AI_STREAM_TOO_LARGE", "外接 AI 串流框架超過安全上限，已停止本次工作。", 502);
+      }
       const frames = buffer.split(/\r?\n\r?\n/);
       buffer = frames.pop() || "";
       for (const frame of frames) await processFrame(frame);
@@ -260,6 +449,9 @@ async function runResponsesProvider(config: ProviderConfig, request: ExternalAIG
       input: [{ role: "user", content: request.prompt }],
       store: false,
       max_output_tokens: request.maxOutputTokens,
+      ...(config.id === "openai" && request.safetyIdentifier
+        ? { safety_identifier: request.safetyIdentifier }
+        : {}),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
     }),
   }, request.signal);
@@ -353,6 +545,10 @@ function normalizedExternalRequest(request: ExternalAIGenerationRequest) {
     request: {
       ...request,
       prompt,
+      requestId: request.requestId?.trim().slice(0, 128) || undefined,
+      safetyIdentifier: request.safetyIdentifier
+        ?.replace(/[^A-Za-z0-9_.:-]/gu, "_")
+        .slice(0, 64),
       maxOutputTokens: Math.max(64, Math.min(8192, Math.round(request.maxOutputTokens || 2048))),
       temperature: request.temperature === undefined ? undefined : Math.max(0, Math.min(2, request.temperature)),
     },
@@ -369,6 +565,9 @@ function buildResult(
   const text = generated.text.trim();
   if (!text) {
     throw new ExternalAIProviderError("EXTERNAL_AI_EMPTY_RESPONSE", "外接 AI 沒有回傳可用文字，正式作品沒有變更。", 502);
+  }
+  if (text.length > EXTERNAL_AI_GENERATED_TEXT_LIMIT) {
+    throw new ExternalAIProviderError("EXTERNAL_AI_OUTPUT_TOO_LARGE", "外接 AI 輸出超過安全上限，正式作品沒有變更。", 502);
   }
   return {
     requestId,
@@ -395,7 +594,7 @@ export async function generateExternalAICandidate(request: ExternalAIGenerationR
       : request.providerId === "gemini"
         ? await runGemini(normalized.config, normalized.request)
         : await runClaude(normalized.config, normalized.request);
-  return buildResult(normalized.request, normalized.config, generated, request.requestId || crypto.randomUUID(), startedAt);
+  return buildResult(normalized.request, normalized.config, generated, normalized.request.requestId || crypto.randomUUID(), startedAt);
 }
 
 async function emitDelta(
@@ -404,6 +603,9 @@ async function emitDelta(
   emit: StreamEmitter,
 ) {
   if (!delta) return;
+  if (state.text.length + delta.length > EXTERNAL_AI_GENERATED_TEXT_LIMIT) {
+    throw new ExternalAIProviderError("EXTERNAL_AI_OUTPUT_TOO_LARGE", "外接 AI 輸出超過安全上限，已停止本次工作。", 502);
+  }
   state.text += delta;
   state.generatedTokenEvents += 1;
   await emit({ type: "delta", delta, generatedTokenEvents: state.generatedTokenEvents });
@@ -426,6 +628,7 @@ async function streamOpenAI(
       store: false,
       stream: true,
       max_output_tokens: request.maxOutputTokens,
+      ...(request.safetyIdentifier ? { safety_identifier: request.safetyIdentifier } : {}),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
     }),
   }, request.signal, async (_eventName, payload) => {
@@ -563,7 +766,7 @@ export async function streamExternalAICandidate(
   emit: StreamEmitter,
 ): Promise<ExternalAIGenerationResult> {
   const normalized = normalizedExternalRequest(request);
-  const requestId = request.requestId || crypto.randomUUID();
+  const requestId = normalized.request.requestId || crypto.randomUUID();
   const startedAt = Date.now();
   await emit({ type: "start", requestId, providerId: request.providerId, modelId: normalized.config.modelId });
   const generated = request.providerId === "openai"

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   fetchControlledWebResearch,
   isPathAllowedByRobots,
@@ -14,6 +14,7 @@ import {
   evaluateApprovedLearningCapability,
   getSovereignLearningDashboard,
   ingestDistilledWebKnowledge,
+  ingestFirstPartyProjectKnowledge,
   MemorySovereignLearningRepository,
   runAutonomousLearningPractice,
   revokeLearningSource,
@@ -61,6 +62,70 @@ const popularSourceProfile = normalizeControlledWebSourceProfile({
 });
 
 const sourceParagraph = "一個可靠的長篇故事會讓每個場景都有清楚目標、可見阻力與不可忽略的後果。角色面臨壓力時，選擇必須改變關係、資源或資訊狀態；章末留下的問題也要能推動下一個行動，而不是只靠突然中斷。世界規則應透過代價和結果被讀者理解，重要伏筆則需要在揭露前提供可回看的線索。";
+
+const firstPartyRepository = new MemorySovereignLearningRepository();
+const firstPartyV1 = await ingestFirstPartyProjectKnowledge(firstPartyRepository, {
+  projectId: "first-party-project",
+  sourceKey: "chapter:one",
+  title: "第一章／作品內創作",
+  content: sourceParagraph.repeat(5),
+});
+assert.equal(firstPartyV1.status, "synced");
+assert.equal(firstPartyV1.source.sourceKind, "project_creation");
+assert.equal(firstPartyV1.source.rightsBasis, "owned_by_user");
+assert.equal(firstPartyV1.source.rawContentRetained, false);
+assert.equal(firstPartyV1.dataLeftDevice, false);
+assert.equal(firstPartyV1.externalRequestCount, 0);
+assert.ok(firstPartyV1.approvedRuleIds.length > 0);
+assert.equal(firstPartyV1.rules.some((rule) => rule.status === "approved"), true);
+assert.equal(JSON.stringify(firstPartyV1).includes(sourceParagraph), false);
+
+const firstPartyDuplicate = await ingestFirstPartyProjectKnowledge(firstPartyRepository, {
+  projectId: "first-party-project",
+  sourceKey: "chapter:one",
+  title: "第一章／作品內創作",
+  content: sourceParagraph.repeat(5),
+});
+assert.equal(firstPartyDuplicate.status, "unchanged");
+assert.equal(firstPartyDuplicate.source.id, firstPartyV1.source.id);
+
+const revisedParagraph = "修訂後的章節會先揭示角色正在追求的目標，再以具體阻礙迫使人物付出代價。每次選擇都改變信任、資源或世界狀態，章末留下能導向下一步的未解問題；伏筆必須能在後文由因果回收。";
+const firstPartyV2 = await ingestFirstPartyProjectKnowledge(firstPartyRepository, {
+  projectId: "first-party-project",
+  sourceKey: "chapter:one",
+  title: "第一章／修訂版",
+  content: revisedParagraph.repeat(6),
+});
+assert.equal(firstPartyV2.status, "synced");
+assert.notEqual(firstPartyV2.source.id, firstPartyV1.source.id);
+assert.deepEqual(firstPartyV2.revokedSourceIds, [firstPartyV1.source.id]);
+assert.equal((await firstPartyRepository.getSource(firstPartyV1.source.id)).status, "revoked");
+assert.equal((await firstPartyRepository.listRules("first-party-project"))
+  .filter((rule) => rule.sourceId === firstPartyV1.source.id)
+  .every((rule) => rule.status === "revoked"), true);
+
+const firstPartyCleared = await ingestFirstPartyProjectKnowledge(firstPartyRepository, {
+  projectId: "first-party-project",
+  sourceKey: "chapter:one",
+  title: "第一章／已清空",
+  content: "",
+});
+assert.equal(firstPartyCleared.status, "cleared");
+assert.deepEqual(firstPartyCleared.revokedSourceIds, [firstPartyV2.source.id]);
+assert.equal((await firstPartyRepository.getSource(firstPartyV2.source.id)).status, "revoked");
+
+const [learningWorkspaceSource, writeWorkspaceSource] = await Promise.all([
+  readFile(new URL("../app/studio/project/[projectId]/learning/learning-workspace.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
+]);
+assert.match(learningWorkspaceSource, /作品內容自動成為受控知識/u);
+assert.match(learningWorkspaceSource, /ingestFirstPartyProjectKnowledge/u);
+assert.match(learningWorkspaceSource, /外接教師自動接通/u);
+assert.doesNotMatch(learningWorkspaceSource, /toggleTeacher/u);
+assert.doesNotMatch(learningWorkspaceSource, /checked=\{externalConsent\}/u);
+assert.match(writeWorkspaceSource, /syncChapterKnowledge\(projectId, saved\)/u);
+assert.match(writeWorkspaceSource, /sourceKey: `chapter:\$\{chapter\.id\}`/u);
+
 const sourceHtml = `<!doctype html><html><head><title>合法敘事研究</title><script>doBadThing()</script></head><body><article>${sourceParagraph.repeat(5)}</article></body></html>`;
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
 const fetchAllowed = async (input) => {
@@ -244,7 +309,7 @@ assert.equal(dashboard.counts.approvedRules, 0);
 
 const report = {
   status: "PASS",
-  checks: 45,
+  checks: 71,
   expectedFailures,
   teacherCount: bundle.teachers.length,
   ruleCount: bundle.rules.length,
@@ -258,6 +323,8 @@ const report = {
   rawTeacherResponseRetained: false,
   canonicalMutationCount: 0,
   popularSourceChannel: bundle.source.sourceProfile.channel,
+  firstPartyAutoApproval: firstPartyV1.approvedRuleIds.length,
+  firstPartyTargetedRevocation: firstPartyV2.revokedSourceIds.length,
   popularSourceObservedCount: bundle.source.sourceProfile.engagement.observedCount,
 };
 const serialized = `${JSON.stringify(report, null, 2)}\n`;

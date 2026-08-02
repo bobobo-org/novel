@@ -27,6 +27,7 @@ import {
   humanizedSerialFictionInstruction,
 } from "./humanized-serial-fiction-profile";
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
+import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "../providers/local-ollama/companion-release";
 
 export type StudioClosedAIStatus =
   | "ollama_ready"
@@ -101,7 +102,13 @@ export async function discoverStudioClosedAI(
   readSnapshots: SnapshotReader = localProviderSnapshots,
 ): Promise<StudioClosedAISnapshot> {
   if (readSnapshots === localProviderSnapshots) {
-    const runtime = await getStudioClosedAIRuntimeCoordinator().refresh({
+    const coordinator = getStudioClosedAIRuntimeCoordinator();
+    if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+      coordinator.localClient.origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+    )) {
+      await coordinator.connectAutomatically(signal).catch(() => null);
+    }
+    const runtime = await coordinator.refresh({
       projectId: "studio-discovery",
       taskType: "chapter.continue",
       signal,

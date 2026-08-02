@@ -2,6 +2,7 @@ export const SOVEREIGN_LEARNING_SCHEMA_VERSION = "closed-ai-sovereign-learning-v
 export const SOVEREIGN_LEARNING_SNAPSHOT_VERSION = "closed-ai-sovereign-learning-snapshot-v1" as const;
 
 export type LearningSourceKind =
+  | "project_creation"
   | "article"
   | "book_excerpt"
   | "ai_output"

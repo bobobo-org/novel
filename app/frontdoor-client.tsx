@@ -6,6 +6,7 @@ import {
   EXPLICIT_LEGACY_STUDIO_KEYS,
   previewLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import { getStudioClosedAIRuntimeCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
 
 type FrontdoorProps = {
@@ -70,15 +71,40 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
-      const recent = recentProjectFromShell();
-      const preview = previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS);
-      const coordinator = getStudioClosedAIRuntimeCoordinator(window.location.origin);
-      const session = coordinator.localClient.getSessionMetadata();
-      const proof = coordinator.localClient.getModelVerification();
-      if (!active) return;
-      setRecentProject(recent);
-      setLegacyPreview(preview);
-      setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
+      void (async () => {
+        const recent = recentProjectFromShell();
+        const preview = previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS);
+        const origin = window.location.origin;
+        const coordinator = getStudioClosedAIRuntimeCoordinator(origin);
+        const session = coordinator.localClient.getSessionMetadata();
+        const proof = coordinator.localClient.getModelVerification();
+        if (!active) return;
+        setRecentProject(recent);
+        setLegacyPreview(preview);
+        setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
+        if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+          origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+        )) {
+          try {
+            const result = await coordinator.connectAutomatically();
+            if (!active) return;
+            const ready = result.localOllama.status === "fulfilled"
+              || result.privateHub.status === "fulfilled";
+            const hasSession = Boolean(
+              coordinator.localClient.getSessionMetadata()
+              || coordinator.privateHubClient.getSessionMetadata(),
+            );
+            setClosedAI(ready ? "已就緒" : hasSession ? "等待配對" : "未設定");
+          } catch {
+            if (!active) return;
+            const hasSession = Boolean(
+              coordinator.localClient.getSessionMetadata()
+              || coordinator.privateHubClient.getSessionMetadata(),
+            );
+            setClosedAI(hasSession ? "等待配對" : "未設定");
+          }
+        }
+      })();
       void fetch(`/api/persistence/health?frontdoor=${Date.now()}`, {
         cache: "no-store",
       })
@@ -122,7 +148,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     ["角色", "整理人物設定、關係與角色弧線。", "/studio?screen=world", "角"],
     ["世界／Story Bible", "管理世界規則、衝突與正式故事真相。", "/studio?screen=world", "界"],
     ["我的作品", "查看作品、版本、存檔與備份。", "/studio?screen=library", "冊"],
-    ["本機 AI 設定", "用五個清楚步驟連接 Local Bridge 與已安裝模型。", localAIHref, "⌁"],
+    ["本機 AI 設定", "正式網址會直接連接；也可查看 Local Bridge、Private Hub 與模型實測狀態。", localAIHref, "⌁"],
     ["進階工具", "開啟 Legacy 完整工具與技術診斷。", "/professional", "⚙"],
   ] as const;
 

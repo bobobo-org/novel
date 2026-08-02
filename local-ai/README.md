@@ -1,32 +1,56 @@
-# Novel Local AI Service
+# Novel Closed AI local runtimes
 
-本目錄提供「諸天萬界小說生成系統」的本機橋接與訓練服務骨架。
+This directory contains the device-local members of the unified Closed Agent
+OS. They are separate runtimes with one shared task, candidate, approval,
+cache, learning and capability-truth contract; they are not independent copies
+of the product.
 
-目前完成：
+## Runtime map
 
-- FastAPI 服務
-- 硬體檢查
-- 訓練資料集 JSONL 建立與驗證
-- 訓練狀態、日誌、Adapter 管理端點
-- LoRA/QLoRA 啟動前安全檢查
+- `bridge/`: authenticated loopback bridge from Studio to the user's Ollama
+  runtime for long-form generation and revision.
+- `private-hub/`: authenticated heavy-task queue, encrypted cache, controlled
+  learning ledger and reversible preference adapter.
+- `training/`: operator-authorized local training and distillation runtime.
+- `companion/`: packaged Windows companion and update metadata.
 
-目前尚未完成：
+Browser AI runs inside Studio rather than this directory. It uses a WebLLM
+worker when an installed WebGPU model is available, Transformers.js for
+semantic retrieval, and a packaged extractive model only as an explicitly
+labelled light-task fallback.
 
-- 真正執行 PyTorch/PEFT LoRA 訓練
-- Adapter 推理載入與 A/B 測試
+## Verified capability boundary
 
-啟動方式：
+- Local Ollama and Private Hub perform real model inference when their local
+  processes and selected models are available.
+- The training runtime has produced a real PEFT LoRA candidate, immutable
+  digests and a post-training inference proof.
+- The preference trainer produces a real, reversible local style adapter.
+- LoRA artifacts remain candidates. Activation, merge, export, promotion or
+  sharing requires a separate approval transaction.
+- QLoRA remains blocked on devices without compatible CUDA and sufficient
+  VRAM. CPU LoRA is never relabelled as QLoRA.
+- Cache, Memory, Learning and Canon remain separate. A runtime result cannot
+  become Canon merely because it was generated or cached.
+- No runtime silently downloads a model, opens a LAN listener, changes the
+  firewall, or sends private story content to an external provider.
 
-```powershell
-cd "C:\Users\user\OneDrive\文件\New project\novel\local-ai"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn server.main:app --host 127.0.0.1 --port 8765
-```
+## Start and diagnose
 
-前端預設呼叫：
+Use the component instructions:
 
-```text
-http://localhost:8765
-```
+- [Local Bridge](./bridge/README.md)
+- [Private Hub](./private-hub/README.md)
+- [Live training](./training/README.md)
+- [Windows companion](./companion/README.md)
+
+The normal listeners are loopback-only (`127.0.0.1`). The two official
+Production origins can request a short-lived exact-origin session
+automatically; the browser may still require the user to approve its native
+local-network permission once. Preview and custom origins remain explicit and
+must be enrolled and revoked by exact origin.
+
+Model and training artifacts are stored outside the repository under the
+user's local application-data directory. Logs contain bounded operational
+metadata and digests, not prompts, story text, model output, credentials or
+chain-of-thought.

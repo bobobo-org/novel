@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { NovelProject } from "@/lib/novel-ai/domain";
+import type { Chapter, NovelProject, StoryBible } from "@/lib/novel-ai/domain";
 import { PrivateHubClient } from "@/lib/novel-ai/providers/private-ai-hub/private-hub-client";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
@@ -15,6 +15,7 @@ import {
   generateNarrativeRecipes,
   getSovereignLearningDashboard,
   ingestDistilledWebKnowledge,
+  ingestFirstPartyProjectKnowledge,
   ingestLearningSource,
   rejectLearningRule,
   replaceLearningRule,
@@ -41,6 +42,8 @@ type ExternalProviderStatus = {
   id: string;
   label: string;
   configured: boolean;
+  verification: "not_configured" | "configured_unverified" | "verified" | "failed";
+  verificationCode: string;
   modelId: string;
 };
 
@@ -126,6 +129,29 @@ function writePracticeQueue(queue: AutonomousPracticeExperience[]) {
   localStorage.setItem(AUTONOMOUS_QUEUE_KEY, JSON.stringify(queue.slice(-100)));
 }
 
+function projectKnowledgeText(project: NovelProject, storyBible: StoryBible | null) {
+  return [
+    `作品標題：${project.title}`,
+    project.coreIdea.value ? `核心構想：${project.coreIdea.value}` : "",
+    project.narrativeStyle.value ? `敘事風格：${project.narrativeStyle.value}` : "",
+    storyBible?.theme.value ? `主題：${storyBible.theme.value}` : "",
+    storyBible?.style.value ? `作品風格：${storyBible.style.value}` : "",
+    storyBible?.foreshadowing.length ? `伏筆：${storyBible.foreshadowing.join("；")}` : "",
+    storyBible?.unresolvedThreads.length ? `未完線索：${storyBible.unresolvedThreads.join("；")}` : "",
+    storyBible?.forbiddenContradictions.length ? `不可矛盾：${storyBible.forbiddenContradictions.join("；")}` : "",
+    storyBible?.authorPreferences.length ? `作者偏好：${storyBible.authorPreferences.join("；")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function chapterKnowledgeText(chapter: Chapter) {
+  return [
+    `章節：${chapter.order}. ${chapter.title}`,
+    `章節狀態：${chapter.status === "completed" ? "已完成" : "草稿"}`,
+    chapter.summary ? `作者摘要：${chapter.summary}` : "",
+    chapter.content,
+  ].filter(Boolean).join("\n");
+}
+
 export default function LearningWorkspace({ projectId }: { projectId: string }) {
   const learningRepository = useMemo(() => createSovereignLearningRepository(), []);
   const projectRepository = useMemo(() => createNovelRepository(), []);
@@ -153,9 +179,9 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [webRightsBasis, setWebRightsBasis] = useState<LearningRightsBasis>("lawful_private_reference");
   const [webRightsEvidence, setWebRightsEvidence] = useState("");
   const [webRightsConfirmed, setWebRightsConfirmed] = useState(false);
-  const [externalConsent, setExternalConsent] = useState(false);
-  const [teacherProviders, setTeacherProviders] = useState<ControlledTeacherProvider[]>(["openai", "grok"]);
   const [providerStatuses, setProviderStatuses] = useState<ExternalProviderStatus[]>([]);
+  const [firstPartyStatus, setFirstPartyStatus] = useState("正在同步本作品的創作知識。");
+  const [firstPartyBusy, setFirstPartyBusy] = useState(false);
   const [capabilityReport, setCapabilityReport] = useState<CapabilityReport | null>(null);
   const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings | null>(null);
   const [autonomousBusy, setAutonomousBusy] = useState(false);
@@ -165,13 +191,73 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const autonomousSyncRunningRef = useRef(false);
   const autonomousExecuteRef = useRef<(announce?: boolean) => Promise<void>>(async () => undefined);
   const autonomousRetryRef = useRef<() => Promise<void>>(async () => undefined);
+  const firstPartySyncRunningRef = useRef(false);
   const webRequiresEngagement = webSourceChannel !== "article" && webSourceChannel !== "classical_chinese";
+  const teacherProviders = useMemo(
+    () => providerStatuses
+      .filter((provider) => provider.configured && provider.verification === "verified" && (provider.id === "openai" || provider.id === "grok"))
+      .map((provider) => provider.id as ControlledTeacherProvider),
+    [providerStatuses],
+  );
 
   const load = useCallback(async (announce = true) => {
     const next = await getSovereignLearningDashboard(learningRepository, projectId);
     setDashboard(next);
     if (announce) setStatus("本機學習庫已就緒。");
   }, [learningRepository, projectId]);
+
+  const syncFirstPartyKnowledge = useCallback(async (announce = false) => {
+    if (firstPartySyncRunningRef.current) return;
+    firstPartySyncRunningRef.current = true;
+    setFirstPartyBusy(true);
+    if (announce) setFirstPartyStatus("正在把作品設定與章節抽象成可回滾知識。");
+    try {
+      const [project, chapters, storyBibles] = await Promise.all([
+        projectRepository.get<NovelProject>("projects", projectId),
+        projectRepository.list<Chapter>("chapters", projectId),
+        projectRepository.list<StoryBible>("storyBibles", projectId),
+      ]);
+      if (!project) throw new Error("找不到目前作品，無法同步創作知識。");
+      const storyBible = storyBibles.find((candidate) => candidate.id === project.storyBibleId) ?? storyBibles[0] ?? null;
+      const inputs = [
+        {
+          sourceKey: "project-profile",
+          title: `${project.title}／作品設定`,
+          content: projectKnowledgeText(project, storyBible),
+        },
+        ...chapters
+          .sort((left, right) => left.order - right.order)
+          .map((chapter) => ({
+            sourceKey: `chapter:${chapter.id}`,
+            title: `${project.title}／${chapter.title}`,
+            content: chapterKnowledgeText(chapter),
+          })),
+      ];
+      let approved = 0;
+      let pending = 0;
+      let changed = 0;
+      for (const input of inputs) {
+        const result = await ingestFirstPartyProjectKnowledge(learningRepository, {
+          projectId,
+          ...input,
+        });
+        approved += result.approvedRuleIds.length;
+        pending += result.pendingRuleIds.length;
+        if (result.status !== "unchanged") changed += 1;
+      }
+      setFirstPartyStatus(
+        changed > 0
+          ? `已自動同步 ${inputs.length} 個作品來源；${approved} 條規則已生效${pending ? `，${pending} 條衝突候選等待處理` : ""}。原文未寫入學習庫。`
+          : `作品知識已是最新版本；目前 ${approved} 條自有規則可用。`,
+      );
+      await load(false);
+    } catch (error) {
+      setFirstPartyStatus(`自動同步暫未完成：${errorMessage(error)}`);
+    } finally {
+      firstPartySyncRunningRef.current = false;
+      setFirstPartyBusy(false);
+    }
+  }, [learningRepository, load, projectId, projectRepository]);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,17 +269,28 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       setDashboard(next);
       setStatus("本機學習庫已就緒。");
       if (project?.title) setProjectTitle(project.title);
+      void syncFirstPartyKnowledge(false);
     }).catch((error) => {
       if (!cancelled) setStatus(errorMessage(error));
     });
     return () => {
       cancelled = true;
     };
-  }, [learningRepository, projectId, projectRepository]);
+  }, [learningRepository, projectId, projectRepository, syncFirstPartyKnowledge]);
+
+  useEffect(() => {
+    const sync = () => void syncFirstPartyKnowledge(false);
+    const timer = window.setInterval(sync, 60_000);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", sync);
+    };
+  }, [syncFirstPartyKnowledge]);
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/ai/external/providers", { cache: "no-store" })
+    void fetch("/api/ai/external/providers?probe=1&providers=openai,grok", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("無法讀取外接教師狀態。");
         return response.json() as Promise<{ providers?: ExternalProviderStatus[] }>;
@@ -202,8 +299,6 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         if (cancelled) return;
         const supported = (payload.providers ?? []).filter((provider) => provider.id === "openai" || provider.id === "grok");
         setProviderStatuses(supported);
-        const configured = supported.filter((provider) => provider.configured).map((provider) => provider.id as ControlledTeacherProvider);
-        if (configured.length) setTeacherProviders(configured);
       })
       .catch(() => {
         if (!cancelled) setProviderStatuses([]);
@@ -351,7 +446,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           rightsBasis: webRightsBasis,
           rightsEvidence: webRightsEvidence,
           userConfirmedRights: webRightsConfirmed,
-          externalConsent,
+          externalConsent: true,
           providerIds: teacherProviders,
           sourceChannel: webSourceChannel,
           engagementMetric: webEngagementMetric,
@@ -377,7 +472,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         rightsBasis: webRightsBasis,
         rightsEvidence: webRightsEvidence,
         userConfirmedRights: webRightsConfirmed,
-        externalConsent,
+        externalConsent: true,
       });
       setStatus(
         result.duplicate
@@ -388,7 +483,6 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       setWebEngagementCount("");
       setWebEngagementEvidence("");
       setWebRightsConfirmed(false);
-      setExternalConsent(false);
       setCapabilityReport(null);
       await load(false);
     } catch (error) {
@@ -566,12 +660,6 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     setAutonomousStatus("尚未回傳的自動練習摘要已從本機清除。");
   }
 
-  function toggleTeacher(provider: ControlledTeacherProvider, checked: boolean) {
-    setTeacherProviders((current) => checked
-      ? [...new Set([...current, provider])]
-      : current.filter((value) => value !== provider));
-  }
-
   async function approve(ruleId: string) {
     setBusy(true);
     try {
@@ -746,7 +834,19 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
 
       <section className={styles.panel}>
         <div className={styles.panelHeading}>
-          <div><small>受控知識蒸餾</small><h2>從指定公開來源抽象方法，不複製內容</h2></div>
+          <div><small>軟體內創作</small><h2>作品內容自動成為受控知識</h2></div>
+          <span>免填授權證明／本機抽象／版本可回滾</span>
+        </div>
+        <p>{firstPartyStatus}</p>
+        <button type="button" disabled={firstPartyBusy} onClick={() => void syncFirstPartyKnowledge(true)}>
+          {firstPartyBusy ? "同步中…" : "立即檢查作品知識"}
+        </button>
+        <p className={styles.note}>章節與作品設定在儲存後會自動抽象成規則；原文不會寫入學習庫，也不會由此流程送給外接教師。內容修改或刪除時，舊規則會精準撤銷。</p>
+      </section>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeading}>
+          <div><small>外部來源研究</small><h2>從指定公開來源抽象方法，不複製內容</h2></div>
           <span>HTTPS／SSRF／robots／提示注入防護</span>
         </div>
         <div className={styles.webResearchGrid}>
@@ -801,30 +901,21 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
             </div>
           </div>
           <div className={styles.teacherBox}>
-            <strong>選擇外接教師</strong>
+            <strong>外接教師自動接通</strong>
             {(["openai", "grok"] as const).map((providerId) => {
               const provider = providerStatuses.find((item) => item.id === providerId);
-              return <label className={styles.check} key={providerId}>
-                <input
-                  type="checkbox"
-                  checked={teacherProviders.includes(providerId)}
-                  disabled={!provider?.configured}
-                  onChange={(event) => toggleTeacher(providerId, event.target.checked)}
-                />
+              return <div className={styles.check} key={providerId}>
+                <span aria-hidden="true">{provider?.verification === "verified" ? "●" : "○"}</span>
                 {provider?.label ?? (providerId === "openai" ? "OpenAI（ChatGPT 系列）" : "xAI Grok")}
-                <span>{provider?.configured ? `${provider.modelId} · 已設定` : "伺服器尚未設定"}</span>
-              </label>;
+                <span>{provider?.verification === "verified" ? `${provider.modelId} · 已實測並自動接通` : provider?.configured ? `尚未通過實測（${provider.verificationCode}）` : "伺服器尚未設定"}</span>
+              </div>;
             })}
-            <p className={styles.note}>雙教師會交叉比對；單一教師也可執行。教師只能提出候選，不能自行核准。</p>
+            <p className={styles.note}>所有通過金鑰與模型實測的教師會自動交叉比對，不需勾選。外接教師只能提出候選，不能自行修改 Canon。</p>
           </div>
         </div>
         <label className={styles.check}>
           <input type="checkbox" checked={webRightsConfirmed} onChange={(event) => setWebRightsConfirmed(event.target.checked)} />
           我確認有權分析這個指定來源；系統不會自行遍歷整個網站，也不會保存來源原文
-        </label>
-        <label className={styles.check}>
-          <input type="checkbox" checked={externalConsent} onChange={(event) => setExternalConsent(event.target.checked)} />
-          我同意把安全清理後的來源暫時送給所選教師 AI；原文、教師完整回覆與憑證不會寫入學習庫
         </label>
         <button
           type="button"
@@ -833,15 +924,14 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
             || !webUrl.trim()
             || !webRightsEvidence.trim()
             || !webRightsConfirmed
-            || !externalConsent
             || (webRequiresEngagement && (Number(webEngagementCount) < 100_000 || !webEngagementEvidence.trim()))
-            || !teacherProviders.some((id) => providerStatuses.some((provider) => provider.id === id && provider.configured))
+            || !teacherProviders.some((id) => providerStatuses.some((provider) => provider.id === id && provider.verification === "verified"))
           }
           onClick={() => void researchWeb()}
         >
           {busy ? "處理中…" : "安全抓取並建立規則候選"}
         </button>
-        <p className={styles.note}>這不是「把全網灌進模型」：每次只處理你指定且有權分析的來源。熱門數值目前記錄為操作者提出的可稽核證據，不冒充平台 API 核驗；YouTube 任意字幕仍受官方 OAuth／權利限制，可改用下方「自有／已授權影片字幕」匯入。抽象後仍須核准並可撤銷回滾。</p>
+        <p className={styles.note}>外部教師連線已屬此功能的固定執行方式；只有按下研究按鈕後，安全清理過的指定來源才會暫時送出。原文、教師完整回覆與憑證不寫入學習庫。熱門數值目前是可稽核的操作者證據，不冒充平台 API 核驗。</p>
       </section>
 
       <div className={styles.columns}>

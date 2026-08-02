@@ -1,6 +1,6 @@
 export type FeatureFlag = "browserAIRuntime" | "privateAIHubRuntime" | "advancedImport" | "legacyMigration" | "gameEffects" | "experimentalLongContext";
 export type FeatureFlagState = "disabled" | "internal" | "preview" | "enabled";
-const defaults: Record<FeatureFlag, FeatureFlagState> = { browserAIRuntime: "disabled", privateAIHubRuntime: "disabled", advancedImport: "enabled", legacyMigration: "preview", gameEffects: "preview", experimentalLongContext: "preview" };
+const defaults: Record<FeatureFlag, FeatureFlagState> = { browserAIRuntime: "enabled", privateAIHubRuntime: "enabled", advancedImport: "enabled", legacyMigration: "preview", gameEffects: "enabled", experimentalLongContext: "preview" };
 export function featureFlags(): Record<FeatureFlag, FeatureFlagState> {
   const raw = process.env.NOVEL_FEATURE_FLAGS;
   if (!raw) return { ...defaults };

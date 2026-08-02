@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "checks": 45,
+  "checks": 71,
   "expectedFailures": [
     "WEB_RESEARCH_ROBOTS_DISALLOWED",
     "WEB_RESEARCH_DNS_PRIVATE_ADDRESS_BLOCKED",
@@ -19,5 +19,7 @@
   "rawTeacherResponseRetained": false,
   "canonicalMutationCount": 0,
   "popularSourceChannel": "popular_web",
+  "firstPartyAutoApproval": 8,
+  "firstPartyTargetedRevocation": 1,
   "popularSourceObservedCount": 250000
 }

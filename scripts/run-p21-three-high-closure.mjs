@@ -76,10 +76,10 @@ await test("31 Packaged Browser light runtime does not imply a generative browse
     "client_dependent",
   );
   assert.equal(catalog["browser.aiRuntime"].effectiveStatus, "ready");
-  assert.match(
-    catalog["browser.aiRuntime"].limitations.join(" "),
-    /light extractive tasks|generative Browser AI remains device-dependent/i,
-  );
+  const browserLimitations = catalog["browser.aiRuntime"].limitations.join(" ");
+  assert.match(browserLimitations, /generative Browser AI/i);
+  assert.match(browserLimitations, /WebGPU|device memory|installed model/i);
+  assert.match(browserLimitations, /fallback.*never labeled as an LLM/i);
 });
 await test("32 Studio A/B/C acceptance", async () => { assert.match(studioSource, /choice\.key/); assert.match(studioSource, /acceptStudioChoice/); });
 await test("33 Studio abandon candidate", async () => { assert.match(studioSource, /暫時不採用/); assert.match(studioSource, /discard/); });

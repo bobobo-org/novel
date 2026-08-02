@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { detectBrowserAI } from "@/lib/novel-ai/providers/browser-ai/browser-ai-provider";
-import { LocalBridgeClient, configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest, type LocalModelInferenceProof } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
+import { configureLocalBridgeClient, configureLocalBridgeModel, selectAvailableTextModel, snapshotLocalModelForRequest, type LocalModelInferenceProof } from "@/lib/novel-ai/providers/local-ollama/local-bridge-client";
 import { getLocalBridgeConsumerMessage } from "@/lib/novel-ai/providers/local-ollama/local-bridge-consumer-errors";
 import { assertEnrollmentCommandMatchesPage, buildOriginEnrollmentCommand, resolveCurrentStudioOrigin } from "@/lib/novel-ai/providers/local-ollama/studio-origin";
+import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import { LOCAL_MODEL_OUTPUT_UNRELIABLE, buildExtractionFingerprint, taskSystemInstruction, validateStudioTaskOutput } from "@/lib/novel-ai/providers/local-ollama/local-quality-guard";
 import { LOCAL_MODEL_INSUFFICIENT_FOR_TASK, runLocalExtractionWithRetry } from "@/lib/novel-ai/providers/local-ollama/local-extraction-runtime";
 import type { Chapter, NovelProject } from "@/lib/novel-ai/domain/index";
@@ -22,6 +23,7 @@ import type {
   ExternalAIProviderPublicStatus,
   NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
+import { getStudioClosedAIRuntimeCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
 type Status = { browser: string; bridge: string; origin: string; pairing: string; ollama: string; model: string; generation: string; hub: string; privacy: string; external: boolean; error: string; errorCode: string };
@@ -65,7 +67,14 @@ const initial: Status = { browser: "檢查中", bridge: "檢查中", origin: "�
 
 export default function AISettingsClient() {
   const [currentOrigin, setCurrentOrigin] = useState<string | null>(null);
-  const client = useMemo(() => new LocalBridgeClient({ origin: currentOrigin ?? "https://novel-orcin.vercel.app" }), [currentOrigin]);
+  const runtimeCoordinator = useMemo(
+    () => getStudioClosedAIRuntimeCoordinator(
+      currentOrigin ?? "https://novel-orcin.vercel.app",
+    ),
+    [currentOrigin],
+  );
+  const client = runtimeCoordinator.localClient;
+  const hubClient = runtimeCoordinator.privateHubClient;
   const repository = useMemo(() => createNovelRepository(), []);
   const [status, setStatus] = useState<Status>(initial);
   const [pairingId, setPairingId] = useState("");
@@ -103,15 +112,21 @@ export default function AISettingsClient() {
   const [externalRunMessage, setExternalRunMessage] = useState("");
   const [externalRunMeta, setExternalRunMeta] = useState<{ modelId: string; elapsedMs: number; inputTokens: number | null; outputTokens: number | null } | null>(null);
   const originEnrollmentCommand = currentOrigin ? buildOriginEnrollmentCommand(currentOrigin) : null;
+  const passwordlessConnectionEnabled = Boolean(
+    currentOrigin
+    && PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+      currentOrigin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+    ),
+  );
 
   useEffect(() => {
     const resolved = resolveCurrentStudioOrigin(window.location);
     setCurrentOrigin(resolved.ready ? resolved.origin : null);
   }, []);
 
-  const loadExternalProviders = useCallback(async () => {
+  const loadExternalProviders = useCallback(async (probe = false) => {
     try {
-      const response = await fetch("/api/ai/external/providers", { cache: "no-store" });
+      const response = await fetch(`/api/ai/external/providers${probe ? "?probe=1" : ""}`, { cache: "no-store" });
       const payload = await response.json() as { providers?: ExternalAIProviderPublicStatus[] };
       setExternalProviders(Array.isArray(payload.providers) ? payload.providers : []);
     } catch {
@@ -119,7 +134,7 @@ export default function AISettingsClient() {
     }
   }, []);
 
-  useEffect(() => { void loadExternalProviders(); }, [loadExternalProviders]);
+  useEffect(() => { void loadExternalProviders(false); }, [loadExternalProviders]);
 
   const loadReviewState = useCallback(async (projectId: string) => {
     if (!projectId) { setReviewCandidates([]); return; }
@@ -164,10 +179,13 @@ export default function AISettingsClient() {
     setExecutionMode(savedMode);
     setExternalProviderId(savedProvider);
     let healthError: unknown = null;
+    if (passwordlessConnectionEnabled) {
+      await runtimeCoordinator.connectAutomatically().catch(() => null);
+    }
     const [browser, health, hub] = await Promise.all([
       detectBrowserAI(),
       client.health().catch((error) => { healthError = error; return null; }),
-      fetch("/api/private-ai/health", { cache: "no-store" }).then((response) => response.json()).catch(() => ({ status: "unavailable" })),
+      hubClient.health().catch(() => null),
     ]);
     const healthErrorCode = String((healthError as { code?: string })?.code || "");
     const diagnostic = health ? null : await client.diagnoseConnectivity().catch(() => null);
@@ -191,9 +209,17 @@ export default function AISettingsClient() {
         modelError = errorGuidance[code] || "目前無法讀取本機模型，請重新檢查 Ollama。";
       }
     }
+    const browserStatus = browser.status !== "ready"
+      ? "此瀏覽器環境目前無法執行裝置內 AI"
+      : browser.generativeModelReady
+        ? `裝置內生成模型已就緒（${browser.generativeRuntime === "webllm-worker" ? "WebLLM" : "Chromium Prompt API"}）`
+        : browser.webLlmSupported
+          ? "輕量摘要與檢索可用；生成模型尚未安裝"
+          : "輕量摘要與檢索可用；此裝置未提供生成模型";
+    const hubProof = hubClient.getModelVerification();
     setStatus((value) => ({
       ...value,
-      browser: browser.status === "runtime_not_installed" ? "裝置可支援，模型尚未安裝" : "目前裝置不支援",
+      browser: browserStatus,
       bridge: health?.bridgeProcessAlive ? "本機橋接服務已啟動" : "本機橋接服務尚未啟動",
       origin: health?.configuredOrigins?.includes(currentOrigin) ? "目前網站已授權" : health ? "目前網站尚未授權" : "無法確認授權狀態",
       pairing: health?.pairingState === "paired" && client.getSessionMetadata() ? "已配對" : health?.pairingState === "paired" ? "頁面已重新載入，請重新配對" : "尚未配對",
@@ -204,13 +230,17 @@ export default function AISettingsClient() {
         : refreshedModel
           ? "模型已安裝，等待真實推理驗證"
           : "尚未就緒",
-      hub: hub.status === "ready" ? "已連線" : "尚未連接執行環境",
+      hub: hubProof
+        ? `模型已實際回答，可以生成（${hubProof.modelId}）`
+        : hub?.hubProcessAlive
+          ? "Private Hub 已啟動，等待模型實測"
+          : "Private Hub 尚未啟動",
       privacy: savedMode === "closed-only" ? (saved.privacy === "private-hub-allowed" ? "private-hub-allowed" : "strict-local") : "external-allowed",
       external: savedMode !== "closed-only",
       error: healthErrorCode ? (errorGuidance[healthErrorCode] || getLocalBridgeConsumerMessage(healthErrorCode)) : modelError,
       errorCode: healthErrorCode,
     }));
-  }, [client, currentOrigin]);
+  }, [client, currentOrigin, hubClient, passwordlessConnectionEnabled, runtimeCoordinator]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -525,11 +555,13 @@ export default function AISettingsClient() {
     <section data-testid="local-ai-status"><h2>目前可用狀態</h2><dl>
       <div><dt>瀏覽器本機 AI</dt><dd>{status.browser}</dd></div><div><dt>Bridge process reachable</dt><dd>{status.bridge}</dd></div><div><dt>Origin authorized</dt><dd>{status.origin}</dd></div><div><dt>Bridge paired</dt><dd>{status.pairing}</dd></div><div><dt>Ollama reachable</dt><dd>{status.ollama}</dd></div><div><dt>Model available</dt><dd>{status.model}</dd></div><div><dt>Generation ready</dt><dd>{status.generation}</dd></div><div><dt>私有 AI 中樞</dt><dd>{status.hub}</dd></div>
     </dl>{status.error && <><p role="alert">{status.error}</p>{status.errorCode && <details><summary>查看連線分類</summary><code>{status.errorCode}</code></details>}</>}<button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button></section>
-    <section><h2>連接我的電腦 AI</h2><p>先在這台電腦啟動 Local Bridge。配對碼只會顯示在本機 Bridge 視窗，授權不會寫入網址或瀏覽器儲存空間。</p>
-      {status.origin !== "目前網站已授權" && <div data-testid="origin-enrollment-help"><ol><li>確認 Bridge 已啟動。</li><li>確認目前網站 origin 已獲授權。</li><li>複製下方安全授權指令。</li><li>在本機 Launcher 明確確認完整網址。</li><li>回到這裡重新檢查。</li></ol>{currentOrigin && originEnrollmentCommand ? <><p>目前網站：<code data-testid="current-studio-origin">{currentOrigin}</code></p><code data-testid="origin-enrollment-command">{originEnrollmentCommand}</code><button type="button" onClick={() => { try { const exactOrigin = assertEnrollmentCommandMatchesPage(currentOrigin, window.location.origin); const command = buildOriginEnrollmentCommand(exactOrigin); void navigator.clipboard.writeText(command).then(() => setOriginCommandCopied(true)).catch(() => setStatus((value) => ({ ...value, error: "無法自動複製，請手動選取指令。" }))); } catch { setStatus((value) => ({ ...value, error: "授權網址與目前網站不一致，請重新整理後再試。", errorCode: "ORIGIN_COMMAND_MISMATCH" })); } }}>{originCommandCopied ? "已複製" : "複製安全授權指令"}</button></> : <p data-testid="origin-hydration-pending">正在確認目前網站網址，確認完成前不會產生授權指令。</p>}<p>系統不會自動授權 Preview、不會開放區域網路，也不會要求關閉瀏覽器安全功能。</p></div>}
+    <section><h2>連接我的電腦 AI</h2><p>{passwordlessConnectionEnabled ? "正式網址會直接要求短期、精確來源的本機工作階段，再實測模型；不需要網站密碼或配對碼。" : "先在這台電腦啟動 Local Bridge。配對碼只會顯示在本機 Bridge 視窗，授權不會寫入網址或瀏覽器儲存空間。"}</p>
+      {status.origin !== "目前網站已授權" && passwordlessConnectionEnabled && <p data-testid="official-origin-auto-help">請確認 Local AI Companion 已更新並正在執行；瀏覽器首次連接時仍可能要求你允許本機網路存取。</p>}
+      {status.origin !== "目前網站已授權" && !passwordlessConnectionEnabled && <div data-testid="origin-enrollment-help"><ol><li>確認 Bridge 已啟動。</li><li>確認目前網站 origin 已獲授權。</li><li>複製下方安全授權指令。</li><li>在本機 Launcher 明確確認完整網址。</li><li>回到這裡重新檢查。</li></ol>{currentOrigin && originEnrollmentCommand ? <><p>目前網站：<code data-testid="current-studio-origin">{currentOrigin}</code></p><code data-testid="origin-enrollment-command">{originEnrollmentCommand}</code><button type="button" onClick={() => { try { const exactOrigin = assertEnrollmentCommandMatchesPage(currentOrigin, window.location.origin); const command = buildOriginEnrollmentCommand(exactOrigin); void navigator.clipboard.writeText(command).then(() => setOriginCommandCopied(true)).catch(() => setStatus((value) => ({ ...value, error: "無法自動複製，請手動選取指令。" }))); } catch { setStatus((value) => ({ ...value, error: "授權網址與目前網站不一致，請重新整理後再試。", errorCode: "ORIGIN_COMMAND_MISMATCH" })); } }}>{originCommandCopied ? "已複製" : "複製安全授權指令"}</button></> : <p data-testid="origin-hydration-pending">正在確認目前網站網址，確認完成前不會產生授權指令。</p>}<p>系統不會自動授權 Preview、不會開放區域網路，也不會要求關閉瀏覽器安全功能。</p></div>}
       {connectionDiagnostics.length > 0 && <details><summary>查看 loopback 偵測結果</summary><ul>{connectionDiagnostics.map((row) => <li key={row.endpoint}><code>{row.endpoint}</code>：{row.reachable ? `可連線（HTTP ${row.status}）` : `未連線（${row.errorCode || "未知原因"}）`}，{row.elapsedMs} ms</li>)}</ul></details>}
-      {!pairingId && <button data-testid="pair-start" type="button" disabled={busy} onClick={() => void requestPairing()}>開始安全配對</button>}
-      {pairingId && status.pairing !== "已配對" && <><label>本機配對碼<input data-testid="pair-code" value={pairingCode} inputMode="numeric" autoComplete="off" onChange={(event) => setPairingCode(event.target.value)} /></label><button data-testid="pair-confirm" type="button" disabled={busy || pairingCode.length !== 6} onClick={() => void confirmPairing()}>確認配對</button></>}
+      {passwordlessConnectionEnabled && status.pairing !== "已配對" && <button data-testid="pair-auto-retry" type="button" disabled={busy} onClick={() => void refresh()}>重新直接連線</button>}
+      {!passwordlessConnectionEnabled && !pairingId && <button data-testid="pair-start" type="button" disabled={busy} onClick={() => void requestPairing()}>開始安全配對</button>}
+      {!passwordlessConnectionEnabled && pairingId && status.pairing !== "已配對" && <><label>本機配對碼<input data-testid="pair-code" value={pairingCode} inputMode="numeric" autoComplete="off" onChange={(event) => setPairingCode(event.target.value)} /></label><button data-testid="pair-confirm" type="button" disabled={busy || pairingCode.length !== 6} onClick={() => void confirmPairing()}>確認配對</button></>}
       {status.pairing === "已配對" && <button type="button" disabled={busy} onClick={() => void revoke()}>撤銷配對</button>}
       {models.length > 0 && <label>本機模型<select data-testid="model-select" value={status.model} disabled={busy} onChange={(event) => void selectAndVerifyModel(event.target.value)}>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.modelId} {model.parameterSize?.value || ""} {model.quantization?.value || ""}</option>)}</select></label>}
       {modelProof && <p data-testid="model-inference-proof"><strong>真實推理已通過：</strong>{new Date(modelProof.verifiedAt).toLocaleString("zh-TW")} · {modelProof.latencyMs} ms · 輸出證明 <code>{modelProof.outputDigest.slice(0, 16)}…</code></p>}
@@ -553,11 +585,11 @@ export default function AISettingsClient() {
         <label data-selected={executionMode === "external-only"}><input type="radio" name="execution-mode" checked={executionMode === "external-only"} onChange={() => saveExecutionMode("external-only")} /><strong>全部使用外接 AI</strong><span>不啟動閉端模型；外接失敗時直接停止，不回退成本機模板。</span></label>
       </div>
     </section>
-    <section data-testid="external-ai-control" data-mode={executionMode}><div className="externalAiHeading"><div><h2>外接 AI</h2><p>金鑰只讀取伺服器環境變數，瀏覽器不會收到、顯示或保存金鑰。</p></div><button type="button" onClick={() => void loadExternalProviders()}>重新讀取狀態</button></div>
+    <section data-testid="external-ai-control" data-mode={executionMode}><div className="externalAiHeading"><div><h2>外接 AI</h2><p>金鑰只讀取伺服器環境變數，瀏覽器不會收到、顯示或保存金鑰。</p></div><button type="button" onClick={() => void loadExternalProviders(true)}>實測金鑰與模型</button></div>
       <div className="externalProviderGrid">
-        {externalProviders.map((provider) => <label key={provider.id} data-configured={provider.configured} data-selected={externalProviderId === provider.id}>
+        {externalProviders.map((provider) => <label key={provider.id} data-configured={provider.configured} data-verification={provider.verification} data-selected={externalProviderId === provider.id}>
           <input type="radio" name="external-provider" disabled={executionMode === "closed-only"} checked={externalProviderId === provider.id} onChange={() => saveExternalProvider(provider.id)} />
-          <strong>{provider.label}</strong><span>{provider.configured ? "已設定，可測試" : "尚未設定"}</span><small>模型：{provider.modelId}<br />介面：{provider.apiStyle}<br />伺服器設定：{provider.keyEnvironmentVariable}</small>
+          <strong>{provider.label}</strong><span>{provider.verification === "verified" ? "金鑰與模型已實測可用" : provider.verification === "failed" ? `實測未通過（${provider.verificationCode}）` : provider.configured ? "已設定，尚未實測" : "尚未設定"}</span><small>模型：{provider.modelId}<br />介面：{provider.apiStyle}<br />伺服器設定：{provider.keyEnvironmentVariable}</small>
         </label>)}
       </div>
       {externalProviders.length === 0 && <p role="alert">目前無法讀取外接 AI 狀態；閉端 AI 不受影響。</p>}

@@ -4,6 +4,12 @@ import type {
   ExternalAIGenerationRequest,
   ExternalAIGenerationResult,
 } from "./external-provider-contract";
+import {
+  isExternalAIGenerationResult,
+  isExternalAIProviderId,
+} from "./external-provider-contract";
+
+const EXTERNAL_AI_CLIENT_STREAM_BUFFER_LIMIT = 1_048_576;
 
 type ClientRequest = Omit<ExternalAIGenerationRequest, "signal">;
 type StreamOptions = {
@@ -45,6 +51,10 @@ export async function generateExternalAIStream(
     const payload = await response.json().catch(() => ({})) as { error?: string; code?: string };
     throw new ExternalAIClientError(payload.code || "EXTERNAL_AI_FAILED", payload.error || "外接 AI 沒有完成這次工作。");
   }
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  if (!contentType.includes("text/event-stream")) {
+    throw new ExternalAIClientError("EXTERNAL_AI_STREAM_INVALID", "外接 AI 沒有回傳有效的事件串流。");
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -65,16 +75,28 @@ export async function generateExternalAIStream(
       throw new ExternalAIClientError("EXTERNAL_AI_STREAM_INVALID", "外接 AI 串流內容無法解析。");
     }
     if (eventName === "start") {
+      if (
+        typeof payload.requestId !== "string"
+        || !payload.requestId
+        || !isExternalAIProviderId(payload.providerId)
+        || typeof payload.modelId !== "string"
+        || !payload.modelId
+      ) {
+        throw new ExternalAIClientError("EXTERNAL_AI_STREAM_INVALID", "外接 AI 串流起始資料不完整。");
+      }
       options.onStart?.({
-        requestId: String(payload.requestId || ""),
-        providerId: String(payload.providerId || ""),
-        modelId: String(payload.modelId || ""),
+        requestId: payload.requestId,
+        providerId: payload.providerId,
+        modelId: payload.modelId,
       });
     } else if (eventName === "delta") {
       const delta = typeof payload.delta === "string" ? payload.delta : "";
       if (delta) options.onDelta?.(delta, Number(payload.generatedTokenEvents || 0));
     } else if (eventName === "complete") {
-      result = payload as unknown as ExternalAIGenerationResult;
+      if (!isExternalAIGenerationResult(payload)) {
+        throw new ExternalAIClientError("EXTERNAL_AI_STREAM_INVALID", "外接 AI 完成資料不完整，沒有建立候選。");
+      }
+      result = payload;
     } else if (eventName === "error") {
       throw new ExternalAIClientError(String(payload.code || "EXTERNAL_AI_FAILED"), String(payload.error || "外接 AI 沒有完成這次工作。"));
     }
@@ -84,6 +106,9 @@ export async function generateExternalAIStream(
       if (options.signal?.aborted) throw new ExternalAIClientError("EXTERNAL_AI_CANCELLED", "外接 AI 已由使用者取消，沒有建立候選。");
       const { done, value } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
+      if (buffer.length > EXTERNAL_AI_CLIENT_STREAM_BUFFER_LIMIT) {
+        throw new ExternalAIClientError("EXTERNAL_AI_STREAM_TOO_LARGE", "外接 AI 串流框架超過安全上限，已停止本次工作。");
+      }
       const frames = buffer.split(/\r?\n\r?\n/);
       buffer = frames.pop() || "";
       for (const frame of frames) processFrame(frame);

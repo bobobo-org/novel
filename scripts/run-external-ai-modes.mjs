@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import {
+  ExternalAIClientError,
+  generateExternalAIStream,
+} from "../lib/novel-ai/providers/external/external-provider-client.ts";
+import {
   ExternalAIProviderError,
   generateExternalAICandidate,
   listExternalAIProviderStatus,
+  resetExternalAIProviderVerificationCacheForTests,
   streamExternalAICandidate,
+  verifyExternalAIProviderStatus,
 } from "../lib/novel-ai/providers/external/external-provider-runtime.ts";
 
 const environmentKeys = [
@@ -38,7 +44,7 @@ try {
   process.env.GEMINI_API_KEY = "gemini-test-secret";
   process.env.XAI_API_KEY = "xai-test-secret";
   process.env.ANTHROPIC_API_KEY = "anthropic-test-secret";
-  globalThis.fetch = async (url, init = {}) => {
+  const generationFetch = async (url, init = {}) => {
     const body = JSON.parse(String(init.body || "{}"));
     calls.push({ url: String(url), init, body });
     if (String(url).includes("generativelanguage.googleapis.com")) {
@@ -49,12 +55,62 @@ try {
     }
     return response({ output: [{ type: "message", content: [{ type: "output_text", text: String(url).includes("api.x.ai") ? "Grok 候選" : "OpenAI 候選" }] }], usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 } });
   };
+  globalThis.fetch = generationFetch;
 
   const status = listExternalAIProviderStatus();
   assert.deepEqual(status.map((provider) => provider.id), ["openai", "gemini", "grok", "claude"]);
   assert.ok(status.every((provider) => provider.configured && provider.serverSideCredentialOnly));
+  assert.ok(status.every((provider) => provider.verification === "configured_unverified"));
   const serializedStatus = JSON.stringify(status);
   assert.equal(serializedStatus.includes("test-secret"), false, "public status must never expose credentials");
+
+  const verificationCalls = [];
+  resetExternalAIProviderVerificationCacheForTests();
+  globalThis.fetch = async (url, init = {}) => {
+    verificationCalls.push({ url: String(url), init });
+    if (String(url).includes("generativelanguage.googleapis.com")) {
+      return response({ name: "models/gemini-3.6-flash", supportedGenerationMethods: ["generateContent"] });
+    }
+    const id = String(url).split("/").pop();
+    return response({ id });
+  };
+  const verified = await verifyExternalAIProviderStatus();
+  assert.equal(verified.length, 4);
+  assert.ok(verified.every((provider) => provider.verification === "verified"));
+  assert.ok(verified.every((provider) => provider.verificationCode === "MODEL_ACCESS_VERIFIED"));
+  assert.ok(verified.every((provider) => provider.checkedAt && provider.verifiedAt));
+  assert.equal(JSON.stringify(verified).includes("test-secret"), false);
+  assert.deepEqual(verificationCalls.map((call) => call.url), [
+    "https://api.openai.com/v1/models/gpt-5.6-sol",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash",
+    "https://api.x.ai/v1/models/grok-4.5",
+    "https://api.anthropic.com/v1/models/claude-sonnet-5",
+  ]);
+  assert.equal(verificationCalls[0].init.headers.Authorization, "Bearer openai-test-secret");
+  assert.equal(verificationCalls[1].init.headers["x-goog-api-key"], "gemini-test-secret");
+  assert.equal(verificationCalls[2].init.headers.Authorization, "Bearer xai-test-secret");
+  assert.equal(verificationCalls[3].init.headers["x-api-key"], "anthropic-test-secret");
+  const verificationCallCount = verificationCalls.length;
+  await verifyExternalAIProviderStatus();
+  assert.equal(verificationCalls.length, verificationCallCount, "verified model metadata must use the bounded verification cache");
+  resetExternalAIProviderVerificationCacheForTests();
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("api.openai.com")) return response({}, 401);
+    if (target.includes("api.x.ai")) return response({}, 404);
+    if (target.includes("generativelanguage.googleapis.com")) return response({}, 429);
+    return response({}, 503);
+  };
+  const failedVerification = await verifyExternalAIProviderStatus();
+  assert.deepEqual(failedVerification.map((provider) => provider.verification), ["failed", "failed", "failed", "failed"]);
+  assert.deepEqual(failedVerification.map((provider) => provider.verificationCode), [
+    "EXTERNAL_PROVIDER_AUTH_FAILED",
+    "EXTERNAL_PROVIDER_RATE_LIMITED",
+    "EXTERNAL_PROVIDER_MODEL_UNAVAILABLE",
+    "EXTERNAL_PROVIDER_UNAVAILABLE",
+  ]);
+  assert.ok(failedVerification.every((provider) => provider.verifiedAt === null && provider.checkedAt));
+  globalThis.fetch = generationFetch;
 
   await assert.rejects(
     generateExternalAICandidate({ executionMode: "closed-only", providerId: "openai", externalConsent: true, prompt: "blocked" }),
@@ -72,7 +128,14 @@ try {
     ["openai", "OpenAI 候選"], ["gemini", "Gemini 候選"], ["grok", "Grok 候選"], ["claude", "Claude 候選"],
   ];
   for (const [providerId, expectedText] of cases) {
-    const result = await generateExternalAICandidate({ executionMode: providerId === "openai" ? "hybrid" : "external-only", providerId, externalConsent: true, prompt: `測試 ${providerId}`, maxOutputTokens: 256 });
+    const result = await generateExternalAICandidate({
+      executionMode: providerId === "openai" ? "hybrid" : "external-only",
+      providerId,
+      externalConsent: true,
+      prompt: `測試 ${providerId}`,
+      maxOutputTokens: 256,
+      ...(providerId === "openai" ? { safetyIdentifier: "novel_test_user" } : {}),
+    });
     assert.equal(result.text, expectedText);
     assert.equal(result.providerId, providerId);
     assert.equal(result.candidateOnly, true);
@@ -83,6 +146,7 @@ try {
   const [openaiCall, geminiCall, grokCall, claudeCall] = calls;
   assert.equal(openaiCall.url, "https://api.openai.com/v1/responses");
   assert.equal(openaiCall.body.store, false);
+  assert.equal(openaiCall.body.safety_identifier, "novel_test_user");
   assert.equal(openaiCall.init.headers.Authorization, "Bearer openai-test-secret");
   assert.match(geminiCall.url, /:generateContent$/);
   assert.equal("store" in geminiCall.body, false, "Gemini request must use the stateless Generate Content schema");
@@ -99,7 +163,7 @@ try {
   };
   await assert.rejects(
     generateExternalAICandidate({ executionMode: "external-only", providerId: "openai", externalConsent: true, prompt: "do not fallback" }),
-    (error) => error instanceof ExternalAIProviderError && error.code === "EXTERNAL_PROVIDER_REJECTED",
+    (error) => error instanceof ExternalAIProviderError && error.code === "EXTERNAL_PROVIDER_RATE_LIMITED",
   );
   assert.equal(calls.length, beforeFailure + 1, "provider failure must not call another external or closed provider");
 
@@ -187,7 +251,52 @@ try {
   assert.deepEqual(cancellationEvents.map((event) => event.type), ["start", "delta"]);
   assert.equal(cancellationEvents.some((event) => event.type === "complete"), false, "cancelled stream must not create a completed candidate");
 
-  console.log(JSON.stringify({ status: "PASS", providers: cases.length, streamingProviders: streamCases.length, assertions: 62, silentFallback: false, cancellationCreatesCandidate: false, credentialLeak: false }, null, 2));
+  const clientResult = {
+    requestId: "client-stream-test",
+    providerId: "openai",
+    modelId: "gpt-5.6-sol",
+    text: "瀏覽器已驗證串流",
+    candidateOnly: true,
+    dataLeavesDevice: true,
+    externalRequest: true,
+    serverStoredByApplication: false,
+    elapsedMs: 42,
+    generatedTokenEvents: 1,
+    usage: { inputTokens: 8, outputTokens: 3, totalTokens: 11 },
+  };
+  globalThis.fetch = async () => streamResponse([
+    `event: start\ndata: ${JSON.stringify({ requestId: clientResult.requestId, providerId: clientResult.providerId, modelId: clientResult.modelId })}`,
+    `event: delta\ndata: ${JSON.stringify({ delta: clientResult.text, generatedTokenEvents: 1 })}`,
+    `event: complete\ndata: ${JSON.stringify(clientResult)}`,
+  ]);
+  const clientDeltas = [];
+  const parsedClientResult = await generateExternalAIStream({
+    executionMode: "external-only",
+    providerId: "openai",
+    externalConsent: true,
+    prompt: "瀏覽器串流驗證",
+  }, { onDelta: (delta) => clientDeltas.push(delta) });
+  assert.deepEqual(parsedClientResult, clientResult);
+  assert.deepEqual(clientDeltas, [clientResult.text]);
+
+  globalThis.fetch = async () => streamResponse([
+    `event: complete\ndata: ${JSON.stringify({ ...clientResult, candidateOnly: false })}`,
+  ]);
+  await assert.rejects(
+    generateExternalAIStream({ executionMode: "external-only", providerId: "openai", externalConsent: true, prompt: "錯誤完成資料" }),
+    (error) => error instanceof ExternalAIClientError && error.code === "EXTERNAL_AI_STREAM_INVALID",
+  );
+
+  globalThis.fetch = async () => new Response("x".repeat(1_048_577), {
+    headers: { "Content-Type": "text/event-stream" },
+  });
+  await assert.rejects(
+    generateExternalAIStream({ executionMode: "external-only", providerId: "openai", externalConsent: true, prompt: "過大串流" }),
+    (error) => error instanceof ExternalAIClientError && error.code === "EXTERNAL_AI_STREAM_TOO_LARGE",
+  );
+
+  console.log(JSON.stringify({ status: "PASS", providers: cases.length, verifiedProviders: verified.length, streamingProviders: streamCases.length, assertions: 90, silentFallback: false, cancellationCreatesCandidate: false, credentialLeak: false, clientStreamValidation: true }, null, 2));
 } finally {
+  resetExternalAIProviderVerificationCacheForTests();
   restore();
 }

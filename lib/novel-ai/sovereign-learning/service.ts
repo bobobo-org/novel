@@ -231,9 +231,16 @@ export async function ingestLearningSource(
       { code: "LEARNING_CREDENTIAL_INPUT_BLOCKED", detailCodes: credentialCodes },
     );
   }
-  const boundary = sanitizeRetrievedKnowledge(normalizedInput, {
+  const retrievedBoundary = sanitizeRetrievedKnowledge(normalizedInput, {
     sourceType: "user_document",
   });
+  const boundary = input.sourceKind === "project_creation"
+    ? {
+      ...retrievedBoundary,
+      sanitizedText: normalizedInput,
+      sanitizationStatus: retrievedBoundary.findings.length ? "sanitized" as const : "unchanged" as const,
+    }
+    : retrievedBoundary;
   const analysisText = normalizeForLearning(stripMarkup(boundary.sanitizedText));
   if (analysisText.length < MIN_SOURCE_CHARACTERS) {
     throw learningError(
@@ -246,8 +253,17 @@ export async function ingestLearningSource(
     sha256Hex(input.rightsEvidence?.trim() || `${input.rightsBasis}:user-confirmed`),
   ]);
   const existingSources = await repository.listSources(input.projectId);
+  const normalizedSourceReference = input.sourceReference?.trim() || null;
   const duplicate = existingSources.find((source) =>
-    source.contentHash === contentHash && source.status !== "revoked");
+    source.contentHash === contentHash
+    && source.status !== "revoked"
+    && (
+      input.sourceKind !== "project_creation"
+      || (
+        source.sourceKind === "project_creation"
+        && source.sourceReference === normalizedSourceReference
+      )
+    ));
   if (duplicate) {
     const existingRules = (await repository.listRules(input.projectId))
       .filter((rule) => rule.sourceId === duplicate.id);
@@ -398,6 +414,128 @@ export async function ingestLearningSource(
     rules,
     warnings: source.warningCodes,
     deepExtractionFailures,
+    rawContentRetained: false,
+    externalRequestCount: 0,
+    dataLeftDevice: false,
+  };
+}
+
+export type FirstPartyProjectKnowledgeInput = {
+  projectId: string;
+  sourceKey: string;
+  title: string;
+  content: string;
+  author?: string;
+};
+
+export type FirstPartyProjectKnowledgeResult = {
+  status: "synced" | "unchanged" | "cleared";
+  source: LearningSourceRecord | null;
+  rules: LearnedNarrativeRule[];
+  approvedRuleIds: string[];
+  pendingRuleIds: string[];
+  revokedSourceIds: string[];
+  rawContentRetained: false;
+  externalRequestCount: 0;
+  dataLeftDevice: false;
+};
+
+function firstPartySourceReference(projectId: string, sourceKey: string) {
+  return `novel://first-party/${encodeURIComponent(projectId)}/${encodeURIComponent(sourceKey)}`;
+}
+
+/**
+ * Converts content authored inside this product into revocable, abstract rules.
+ * The raw story is used transiently, never stored in the learning repository,
+ * and never sent to an external teacher by this path.
+ */
+export async function ingestFirstPartyProjectKnowledge(
+  repository: SovereignLearningRepository,
+  input: FirstPartyProjectKnowledgeInput,
+): Promise<FirstPartyProjectKnowledgeResult> {
+  const projectId = input.projectId.trim();
+  const sourceKey = input.sourceKey.trim();
+  const title = input.title.trim();
+  if (!projectId || !sourceKey || !title) {
+    throw learningError("LEARNING_FIRST_PARTY_IDENTITY_REQUIRED", "作品內知識來源不可空白。");
+  }
+  const sourceReference = firstPartySourceReference(projectId, sourceKey);
+  const activePredecessors = (await repository.listSources(projectId)).filter((source) =>
+    source.sourceKind === "project_creation"
+    && source.sourceReference === sourceReference
+    && source.status !== "revoked");
+  const normalized = normalizeForLearning(input.content);
+
+  if (normalized.length < MIN_SOURCE_CHARACTERS) {
+    const revokedSourceIds: string[] = [];
+    for (const source of activePredecessors) {
+      await revokeLearningSource(repository, projectId, source.id);
+      revokedSourceIds.push(source.id);
+    }
+    return {
+      status: revokedSourceIds.length ? "cleared" : "unchanged",
+      source: null,
+      rules: [],
+      approvedRuleIds: [],
+      pendingRuleIds: [],
+      revokedSourceIds,
+      rawContentRetained: false,
+      externalRequestCount: 0,
+      dataLeftDevice: false,
+    };
+  }
+
+  const ingested = await ingestLearningSource(repository, {
+    projectId,
+    title,
+    author: input.author || "本作品作者",
+    sourceReference,
+    sourceKind: "project_creation",
+    rightsBasis: "owned_by_user",
+    rightsEvidence: `first-party:${projectId}:${sourceKey}`,
+    userConfirmedRights: true,
+    content: normalized,
+  });
+
+  const revokedSourceIds: string[] = [];
+  for (const source of activePredecessors) {
+    if (source.id === ingested.source.id) continue;
+    await revokeLearningSource(repository, projectId, source.id);
+    revokedSourceIds.push(source.id);
+  }
+
+  const currentRules = (await repository.listRules(projectId))
+    .filter((rule) => rule.sourceId === ingested.source.id);
+  const approvedRuleIds: string[] = [];
+  const pendingRuleIds: string[] = [];
+  for (const rule of currentRules) {
+    if (rule.status === "approved") {
+      approvedRuleIds.push(rule.id);
+      continue;
+    }
+    if (rule.status !== "candidate") {
+      pendingRuleIds.push(rule.id);
+      continue;
+    }
+    try {
+      await approveLearningRule(repository, projectId, rule.id);
+      approvedRuleIds.push(rule.id);
+    } catch (error) {
+      if ((error as { code?: string })?.code !== "LEARNING_RULE_CONFLICT_REQUIRES_RESOLUTION") {
+        throw error;
+      }
+      pendingRuleIds.push(rule.id);
+    }
+  }
+  const rules = (await repository.listRules(projectId))
+    .filter((rule) => rule.sourceId === ingested.source.id);
+  return {
+    status: ingested.duplicate && revokedSourceIds.length === 0 ? "unchanged" : "synced",
+    source: ingested.source,
+    rules,
+    approvedRuleIds,
+    pendingRuleIds,
+    revokedSourceIds,
     rawContentRetained: false,
     externalRequestCount: 0,
     dataLeftDevice: false,

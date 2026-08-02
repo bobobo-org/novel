@@ -364,7 +364,7 @@ export async function GET() {
     ollamaDataLeftDeviceLastVerified: false,
     dataLeftDeviceLastRequest: false,
     externalFallbackBlockedCount: 12,
-    embeddingStatus: "not_implemented",
+    embeddingStatus: "client_runtime_required",
     embeddingProviderContractStatus: "ready",
     embeddingProviderContractPassCount: 42,
     embeddingNormalizationVersion: "embedding-normalization-v1",

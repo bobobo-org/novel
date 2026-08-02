@@ -49,6 +49,9 @@ const workspaceSource = read(
   "app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx",
 );
 const localAISetupSource = read("app/settings/local-ai/setup-wizard.tsx");
+const aiSettingsSource = read("app/studio/settings/ai/settings-client.tsx");
+const frontdoorSource = read("app/frontdoor-client.tsx");
+const studioClosedAISource = read("lib/novel-ai/web/studio-closed-ai.ts");
 const companionReleaseSource = read(
   "lib/novel-ai/providers/local-ollama/companion-release.ts",
 );
@@ -648,6 +651,15 @@ await test("official production UI auto-connects local runtimes and exposes vers
   }
   assert.ok(companionReleaseSource.includes("evaluateLocalAIRuntimeVersion"));
   assert.ok(companionReleaseSource.includes('version: "1.4.0"'));
+  for (const marker of [
+    "runtimeCoordinator.connectAutomatically()",
+    'data-testid="pair-auto-retry"',
+    "正式網址會直接要求短期、精確來源的本機工作階段",
+  ]) {
+    assert.ok(aiSettingsSource.includes(marker), `AI settings: ${marker}`);
+  }
+  assert.ok(frontdoorSource.includes("coordinator.connectAutomatically()"));
+  assert.ok(studioClosedAISource.includes("coordinator.connectAutomatically(signal)"));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {

@@ -5,11 +5,30 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { makeRecord, type Chapter, type NovelProject } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import { mirrorChapterToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import {
+  createSovereignLearningRepository,
+  ingestFirstPartyProjectKnowledge,
+} from "@/lib/novel-ai/sovereign-learning";
 import ProjectNavigation from "../project-navigation";
 
 function closedAIHref(projectId: string, task: string, objective: string) {
   const query = new URLSearchParams({ task, objective, source: "writing" });
   return `/studio/project/${encodeURIComponent(projectId)}/closed-ai?${query.toString()}`;
+}
+
+async function syncChapterKnowledge(projectId: string, chapter: Chapter | null) {
+  const sourceKey = `chapter:${chapter?.id || "missing"}`;
+  await ingestFirstPartyProjectKnowledge(createSovereignLearningRepository(), {
+    projectId,
+    sourceKey,
+    title: chapter ? `${chapter.title}／作品內創作` : "已刪除章節",
+    content: chapter ? [
+      `章節：${chapter.order}. ${chapter.title}`,
+      `章節狀態：${chapter.status === "completed" ? "已完成" : "草稿"}`,
+      chapter.summary ? `作者摘要：${chapter.summary}` : "",
+      chapter.content,
+    ].filter(Boolean).join("\n") : "",
+  });
 }
 
 export default function WriteWorkspace({ projectId }: { projectId: string }) {
@@ -125,6 +144,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         .sort((left, right) => left.order - right.order));
       applyChapter(saved);
       mirrorChapterToLegacyStudio(projectId, saved.title, saved.content);
+      void syncChapterKnowledge(projectId, saved).catch(() => undefined);
       setStatus(`已儲存 ${new Date().toLocaleTimeString("zh-TW")}`);
       return saved;
     } catch (cause) {
@@ -214,6 +234,12 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     try {
       const repo = createNovelRepository();
       await repo.remove("chapters", chapter.id);
+      void ingestFirstPartyProjectKnowledge(createSovereignLearningRepository(), {
+        projectId,
+        sourceKey: `chapter:${chapter.id}`,
+        title: `${chapter.title}／已刪除章節`,
+        content: "",
+      }).catch(() => undefined);
       const remaining = chapters.filter((item) => item.id !== chapter.id);
       const next = remaining.find((item) => item.order > chapter.order)
         ?? remaining.at(-1)!;

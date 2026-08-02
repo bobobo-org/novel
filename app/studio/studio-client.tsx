@@ -1093,12 +1093,13 @@ export default function StudioClient({
     if (!loaded) return;
     const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
     if (externalSelected) {
-      fetch("/api/ai/external/providers", { cache: "no-store" })
+      fetch(`/api/ai/external/providers?probe=1&providers=${encodeURIComponent(externalConnectorId)}`, { cache: "no-store" })
         .then((response) => response.json())
-        .then((payload: { providers?: Array<{ id: string; configured: boolean }> }) => {
+        .then((payload: { providers?: Array<{ id: string; configured: boolean; verification: string }> }) => {
           const selected = payload.providers?.find((provider) => provider.id === externalConnectorId);
-          setAssistantStatus(selected?.configured ? "external_ready" : "runtime_required");
-          setAiModeMessage(selected?.configured ? "外接 AI 已由伺服器設定；每次送出前仍需單次同意。" : "所選外接 AI 尚未設定伺服器金鑰，請到 AI 使用方式查看。" );
+          const verified = selected?.configured === true && selected.verification === "verified";
+          setAssistantStatus(verified ? "external_ready" : "runtime_required");
+          setAiModeMessage(verified ? "外接 AI 金鑰與模型已實測可用；每次送出前仍需單次同意。" : "所選外接 AI 尚未通過金鑰與模型實測，請到 AI 使用方式查看。" );
         })
         .catch(() => {
           setAssistantStatus("runtime_required");

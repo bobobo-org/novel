@@ -455,18 +455,27 @@ function registerCompatibilityTests() {
     assert.equal(canAccessKnowledge(rule, { characterId: "character:hero" }), false);
     assert.equal(canAccessKnowledge(rule, { revealedKnowledgeIds: ["secret:ending"] }), true);
   });
-  test("future workbench capabilities remain not implemented", () => {
-    for (const id of ["creationDna", "storyBlueprintWorkbench", "worldWorkbench", "characterWorkbench", "aiBookDiscovery", "authorAnalytics", "translationWorkbench", "coverDirection"]) {
+  test("unbuilt future workbench capabilities remain explicitly not implemented", () => {
+    for (const id of ["creationDna", "storyBlueprintWorkbench", "aiBookDiscovery", "authorAnalytics", "translationWorkbench", "coverDirection"]) {
       const capability = CAPABILITY_REGISTRY.find((row) => row.id === id);
       assert.equal(capability?.contractStatus, "not_implemented");
       assert.notEqual(capability?.runtimeStatus, "ready");
     }
   });
-  test("existing game modes remain partial rather than falsely ready", () => {
+  test("world, character and visual workbenches expose verified client runtimes", () => {
+    for (const id of ["worldWorkbench", "characterWorkbench", "visualCharacterBible"]) {
+      const capability = CAPABILITY_REGISTRY.find((row) => row.id === id);
+      assert.equal(capability?.contractStatus, "ready");
+      assert.equal(capability?.runtimeStatus, "client_dependent");
+      assert.ok((capability?.evidence.length ?? 0) > 0);
+    }
+  });
+  test("governed game modes expose verified client runtimes", () => {
     for (const id of ["rpgMode", "cultivationMode", "managementMode"]) {
       const capability = CAPABILITY_REGISTRY.find((row) => row.id === id);
-      assert.equal(capability?.contractStatus, "partial");
-      assert.equal(capability?.runtimeStatus, "partial");
+      assert.equal(capability?.contractStatus, "ready");
+      assert.equal(capability?.runtimeStatus, "client_dependent");
+      assert.ok((capability?.evidence.length ?? 0) > 0);
     }
   });
   test("RC3-style backup without future references restores", async () => {

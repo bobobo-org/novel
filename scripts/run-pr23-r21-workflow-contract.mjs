@@ -35,6 +35,7 @@ for (const secret of [
   "VERCEL_ORG_ID",
   "VERCEL_PROJECT_ID",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "XAI_API_KEY",
 ]) {
   assert.doesNotMatch(
     globalConfiguration,
@@ -79,6 +80,9 @@ assert.match(productionBootstrapJob, /bootstrap-production-supabase-env\.mjs/u);
 assert.match(productionBootstrapJob, /VERCEL_TOKEN:\s*\$\{\{ secrets\./u);
 assert.match(productionBootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
 assert.match(productionBootstrapJob, /SUPABASE_PROJECT_REF_FALLBACK:\s*iwobncchxuykcztziavw/u);
+assert.match(productionBootstrapJob, /XAI_API_KEY:\s*\$\{\{ secrets\.XAI_API_KEY \}\}/u);
+assert.match(productionBootstrapJob, /XAI_MODEL_ID:\s*grok-4\.5/u);
+assert.match(productionBootstrapJob, /bootstrap-production-external-ai-env\.mjs/u);
 assert.doesNotMatch(productionBootstrapJob, /pull_request/u);
 
 assert.match(
@@ -114,6 +118,8 @@ const requiredCommands = [
   "pnpm test:ai:closed:unified-os",
   "pnpm test:ai:closed:web-operability",
   "pnpm test:ai:closed:optimization",
+  "pnpm test:ai:external:modes",
+  "pnpm test:ai:external:request-guard",
   "pnpm test:ai:closed:super-agent-rpg",
   "pnpm test:ai:closed:cache-runtime",
   "pnpm test:ai:closed:controlled-learning-runtime",
@@ -132,6 +138,7 @@ const requiredCommands = [
   "pnpm test:ci:companion-zip-content",
   "pnpm test:ci:evidence-schema",
   "pnpm test:ci:production-supabase-bootstrap",
+  "pnpm test:ci:production-external-ai-bootstrap",
   "pnpm exec tsc --noEmit",
   "pnpm lint",
   "pnpm build",
@@ -159,6 +166,13 @@ assert.match(
 );
 assert.match(deployJob, /continue-on-error:\s*true/u);
 assert.match(deployJob, /staged_health/u);
+assert.match(deployJob, /staged_teachers/u);
+assert.match(deployJob, /\/api\/ai\/external\/providers/u);
+assert.match(deployJob, /probe=1&providers=openai,grok/u);
+assert.match(deployJob, /server-side-only/u);
+assert.match(deployJob, /MODEL_ACCESS_VERIFIED/u);
+assert.match(deployJob, /\.verification == "verified"/u);
+assert.match(deployJob, /grok-4\.5/u);
 assert.match(deployJob, /Restore aliases after staged gate rejection/u);
 assert.match(deployJob, /vercel-dual-alias-cutover\.mjs restore/u);
 assert.match(deployJob, /Fail after compensated staged gate rejection/u);

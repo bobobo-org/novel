@@ -1755,7 +1755,7 @@ export const CLOSED_AGENT_OS_HEALTH = {
   threeBackendCoexistenceStatus: "ready",
   browserAIAdapterStatus: "ready_runtime_dependent",
   localOllamaAdapterStatus: "ready_runtime_dependent",
-  privateAIHubAdapterStatus: "contract_ready_runtime_not_connected",
+  privateAIHubAdapterStatus: "ready_runtime_dependent",
   routerStatus: "ready",
   plannerStatus: "ready",
   multiPassQualityPipelineStatus: "ready",
