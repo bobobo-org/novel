@@ -13,6 +13,51 @@ function bridgeClient(base?: string) {
   return getConfiguredLocalBridgeClient() ?? new LocalBridgeClient({ endpoint: base });
 }
 
+export type LocalOllamaPerformanceBudget = {
+  smallLocalModel: boolean;
+  maxInputCharacters: number;
+  maxOutputTokens: number;
+};
+
+export function resolveLocalOllamaPerformanceBudget(input: {
+  modelId: string;
+  qualityPreference?: PlatformAIRequest["qualityPreference"];
+  requestedMaxTokens?: number;
+  profileMaxTokens: number;
+  profileMaxInputCharacters: number;
+}): LocalOllamaPerformanceBudget {
+  const smallLocalModel = /(?:^|[:_-])(?:1|2|3|4)b(?:$|[:_-])/iu.test(
+    input.modelId,
+  );
+  const fastLocalMode = input.qualityPreference === "fast";
+  const qualityTokenCap = fastLocalMode
+    ? 160
+    : smallLocalModel
+      ? input.qualityPreference === "high" ? 256 : 192
+      : input.profileMaxTokens;
+  const requestedOutputTokenCap = typeof input.requestedMaxTokens === "number"
+    && Number.isFinite(input.requestedMaxTokens)
+    ? Math.max(32, Math.min(4_096, Math.floor(input.requestedMaxTokens)))
+    : Number.POSITIVE_INFINITY;
+  const smallModelInputCap = fastLocalMode
+    ? 4_000
+    : input.qualityPreference === "high"
+      ? 8_000
+      : 6_000;
+
+  return {
+    smallLocalModel,
+    maxInputCharacters: smallLocalModel
+      ? Math.min(input.profileMaxInputCharacters, smallModelInputCap)
+      : input.profileMaxInputCharacters,
+    maxOutputTokens: Math.min(
+      input.profileMaxTokens,
+      qualityTokenCap,
+      requestedOutputTokenCap,
+    ),
+  };
+}
+
 export async function probeLocalOllama(base?: string, signal?: AbortSignal): Promise<PlatformProviderSnapshot> {
   const started = performance.now();
   if (!base && !getConfiguredLocalBridgeClient()) {
@@ -87,25 +132,13 @@ export async function runLocalOllama(
   const started = performance.now();
   const client = bridgeClient(base);
   const profile = getClosedAIModelProfile(request.taskType, "local-ollama");
-  const smallLocalModel = /(?:^|[:_-])(?:1|2|3|4)b(?:$|[:_-])/iu.test(
-    decision.modelId || "",
-  );
-  const fastLocalMode = request.qualityPreference === "fast";
-  const outputTokenCap = fastLocalMode
-    ? 160
-    : smallLocalModel
-      ? request.qualityPreference === "high"
-        ? 640
-        : 448
-      : profile.options.num_predict;
-  const requestedMaxTokens = request.generationOptions?.maxTokens;
-  const requestedOutputTokenCap = typeof requestedMaxTokens === "number"
-    && Number.isFinite(requestedMaxTokens)
-    ? Math.max(
-      32,
-      Math.min(4_096, Math.floor(requestedMaxTokens)),
-    )
-    : Number.POSITIVE_INFINITY;
+  const performanceBudget = resolveLocalOllamaPerformanceBudget({
+    modelId: decision.modelId || "",
+    qualityPreference: request.qualityPreference,
+    requestedMaxTokens: request.generationOptions?.maxTokens,
+    profileMaxTokens: profile.options.num_predict,
+    profileMaxInputCharacters: profile.maxInputCharacters,
+  });
   const requestedTemperatureOption = request.generationOptions?.temperature;
   const requestedTemperature = typeof requestedTemperatureOption === "number"
     && Number.isFinite(requestedTemperatureOption)
@@ -126,23 +159,14 @@ export async function runLocalOllama(
     : profile.options.repeat_penalty;
   const effectiveProfile = {
     ...profile,
-    maxInputCharacters: smallLocalModel
-      ? Math.min(
-        profile.maxInputCharacters,
-        fastLocalMode ? 4_000 : 10_000,
-      )
-      : profile.maxInputCharacters,
+    maxInputCharacters: performanceBudget.maxInputCharacters,
     options: {
       ...profile.options,
-      num_predict: Math.min(
-        profile.options.num_predict,
-        outputTokenCap,
-        requestedOutputTokenCap,
-      ),
+      num_predict: performanceBudget.maxOutputTokens,
       temperature: requestedTemperature,
       top_p: requestedTopP,
       repeat_penalty: requestedRepetitionPenalty,
-      num_ctx: smallLocalModel && fastLocalMode
+      num_ctx: performanceBudget.smallLocalModel && request.qualityPreference === "fast"
         ? Math.min(profile.options.num_ctx, 4_096)
         : profile.options.num_ctx,
       ...(request.generationOptions?.seed == null

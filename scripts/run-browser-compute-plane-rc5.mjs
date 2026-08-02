@@ -69,6 +69,8 @@ import {
   readStudioClosedComputePolicy,
   resolveStudioClosedComputePolicy,
 } from "../lib/novel-ai/web/studio-closed-compute-policy.ts";
+import { adaptStudioProfileForExplicitLocalCompute } from "../lib/novel-ai/web/studio-local-performance-policy.ts";
+import { resolveLocalOllamaPerformanceBudget } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const mode = process.argv[2] ?? "all";
@@ -736,6 +738,52 @@ test("studio-explicit-local-compute-selection", () => {
   assert.equal(hasExplicitLocalComputeAuthorization("quality-first"), true);
   assert.equal(hasExplicitLocalComputeAuthorization("browser-first"), false);
   assert.equal(readStudioClosedComputePolicy({ getItem: () => "not-json" }), "browser-first");
+
+  const balanced = adaptStudioProfileForExplicitLocalCompute({
+    targetLength: 900,
+    maxTokens: 640,
+    timeoutMs: 180_000,
+    qualityMode: "balanced",
+  }, {
+    browserComputePolicy: "quality-first",
+    externalSelected: false,
+  });
+  assert.deepEqual(balanced, {
+    targetLength: 480,
+    maxTokens: 192,
+    timeoutMs: 250_000,
+    qualityMode: "balanced",
+  });
+  const external = adaptStudioProfileForExplicitLocalCompute({
+    targetLength: 900,
+    maxTokens: 640,
+    timeoutMs: 180_000,
+    qualityMode: "balanced",
+  }, {
+    browserComputePolicy: "quality-first",
+    externalSelected: true,
+  });
+  assert.equal(external.maxTokens, 640);
+
+  const localBudget = resolveLocalOllamaPerformanceBudget({
+    modelId: "qwen2.5:3b",
+    qualityPreference: "balanced",
+    requestedMaxTokens: 640,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  });
+  assert.deepEqual(localBudget, {
+    smallLocalModel: true,
+    maxInputCharacters: 6_000,
+    maxOutputTokens: 192,
+  });
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    modelId: "qwen2.5:14b",
+    qualityPreference: "balanced",
+    requestedMaxTokens: 640,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  }).maxOutputTokens, 640);
 });
 
 test("no-silent-fallback", () => {

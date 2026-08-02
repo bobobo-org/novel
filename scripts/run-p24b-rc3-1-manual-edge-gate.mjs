@@ -245,7 +245,7 @@ async function waitCandidate(page, timeout = 300_000) {
     const message = ((await failure.innerText()) || "")
       .replace(/\s+/gu, " ")
       .slice(0, 1_000);
-    const code = message.match(/\(([A-Z][A-Z0-9_]+)\)/u)?.[1]
+    const code = message.match(/[（(]([A-Z][A-Z0-9_]+)[）)]/u)?.[1]
       ?? "STUDIO_ASSISTANT_FAILED";
     throw Object.assign(
       new Error(`STUDIO_ASSISTANT_FAILURE:${code}`),

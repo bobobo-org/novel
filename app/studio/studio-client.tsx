@@ -41,6 +41,7 @@ import {
   STUDIO_AI_SETTINGS_KEY,
   type StudioClosedComputePolicy,
 } from "@/lib/novel-ai/web/studio-closed-compute-policy";
+import { adaptStudioProfileForExplicitLocalCompute } from "@/lib/novel-ai/web/studio-local-performance-policy";
 import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
   hasVerifiedExecutedStoryOutput,
@@ -437,9 +438,17 @@ const STUDIO_TASK_EXECUTION_PROFILES: Record<string, StudioTaskExecutionProfile>
   three_choices: { targetLength: 360, maxTokens: 256, timeoutMs: 120_000, qualityMode: "fast" },
 };
 
-function studioTaskExecutionProfile(task: string): StudioTaskExecutionProfile {
-  return STUDIO_TASK_EXECUTION_PROFILES[task]
+function studioTaskExecutionProfile(
+  task: string,
+  browserComputePolicy: StudioClosedComputePolicy,
+  externalSelected: boolean,
+): StudioTaskExecutionProfile {
+  const profile = STUDIO_TASK_EXECUTION_PROFILES[task]
     ?? { targetLength: 420, maxTokens: 288, timeoutMs: 120_000, qualityMode: "fast" };
+  return adaptStudioProfileForExplicitLocalCompute(profile, {
+    browserComputePolicy,
+    externalSelected,
+  });
 }
 
 function closedAIRootCauseCode(error: unknown) {
@@ -1922,10 +1931,14 @@ export default function StudioClient({
   async function runTask(task: string, options: RunTaskOptions = {}) {
     if (!ensureCanonicalWritable("執行會產生候選的助手工作")) return;
     if (assistantBusy) return;
-    const started = performance.now();
-    const executionProfile = studioTaskExecutionProfile(task);
-    const regenerationSource = options.regenerateFrom;
     const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
+    const started = performance.now();
+    const executionProfile = studioTaskExecutionProfile(
+      task,
+      closedComputePolicy,
+      externalSelected,
+    );
+    const regenerationSource = options.regenerateFrom;
     if (externalSelected && !externalRunConsent) {
       setAiModeMessage("外接 AI 需要本次單次同意；請先勾選寫作頁上方的同意框。");
       return;
