@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const rightsBasis = typeof body.rightsBasis === "string" ? body.rightsBasis : "";
-    const rightsEvidence = typeof body.rightsEvidence === "string" ? body.rightsEvidence.trim() : "";
+    const teacherMode = typeof body.teacherMode === "string" ? body.teacherMode : "auto";
     const allowedRights = new Set([
       "owned_by_user",
       "public_domain",
@@ -96,23 +96,27 @@ export async function POST(request: NextRequest) {
     if (!projectId || projectId.length > 180) {
       return json({ code: "WEB_DISTILLATION_PROJECT_REQUIRED", error: "缺少有效作品識別資料。" }, 400);
     }
-    if (!allowedRights.has(rightsBasis) || rightsEvidence.length < 4 || body.userConfirmedRights !== true) {
+    if (!allowedRights.has(rightsBasis) || body.userConfirmedRights !== true) {
       return json({
         code: "WEB_DISTILLATION_RIGHTS_CONFIRMATION_REQUIRED",
-        error: "必須填寫來源權利依據並明確確認有權進行私人分析。",
+        error: "必須選擇來源權利依據，並明確確認有權進行私人分析。",
       }, 403);
     }
-    if (body.externalConsent !== true) {
-      return json({
-        code: "WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED",
-        error: "必須明確同意把清理後的來源送給所選教師 AI。",
-      }, 403);
+    if (!["auto", "manual", "local_only"].includes(teacherMode)) {
+      return json({ code: "WEB_DISTILLATION_TEACHER_MODE_INVALID", error: "外接教師模式無效。" }, 400);
     }
-    const providers = Array.isArray(body.providerIds)
+    const requestedProviders = Array.isArray(body.providerIds)
       ? [...new Set(body.providerIds)].filter((value): value is ControlledTeacherProvider => value === "openai" || value === "grok")
       : [];
-    if (!providers.length || providers.length > 2) {
-      return json({ code: "WEB_DISTILLATION_TEACHER_REQUIRED", error: "請選擇 OpenAI、Grok 或兩者。" }, 400);
+    const providers = teacherMode === "local_only" ? [] : requestedProviders;
+    if (teacherMode === "manual" && !providers.length) {
+      return json({ code: "WEB_DISTILLATION_TEACHER_REQUIRED", error: "手動模式至少要選擇一個已驗證教師；也可改用純閉端分析。" }, 400);
+    }
+    if (providers.length > 0 && body.externalConsent !== true) {
+      return json({
+        code: "WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED",
+        error: "使用外接教師時，必須同意把安全清理後的來源暫時送出。",
+      }, 403);
     }
     let sourceProfile;
     try {
@@ -138,7 +142,12 @@ export async function POST(request: NextRequest) {
       }
     }
     const research = await fetchControlledWebResearch(url, { sourceProfile });
-    const bundle = await distillControlledWebKnowledge({ research, providers });
+    const bundle = await distillControlledWebKnowledge({
+      research,
+      providers,
+      forceLocal: teacherMode === "local_only",
+      allowLocalFallback: teacherMode === "auto",
+    });
     return json(bundle);
   } catch (error) {
     const row = error as { code?: string; status?: number; message?: string; detailCodes?: string[] };

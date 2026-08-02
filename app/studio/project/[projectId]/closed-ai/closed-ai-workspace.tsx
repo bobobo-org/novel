@@ -93,6 +93,7 @@ import {
   rankPrivateModels,
   type PrivateModelFleetProfile,
 } from "@/lib/novel-ai/model-orchestration/private-model-fleet";
+import { RECOMMENDED_LOCAL_WRITER_MODEL } from "@/lib/novel-ai/model-orchestration/recommended-models";
 import {
   sealFormalPreferenceDataset,
   verifyFormalPreferenceDataset,
@@ -395,6 +396,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [storyContext, setStoryContext] = useState("");
   const [storyBibleRevision, setStoryBibleRevision] = useState("current");
   const [knowledgeScopeRevision, setKnowledgeScopeRevision] = useState("current");
+  const [returnHref, setReturnHref] = useState<string | null>(null);
   const [result, setResult] = useState<ClosedAgentExecutionResult | null>(null);
   const [status, setStatus] = useState("正在核對三個閉端 AI 與共用系統。");
   const [busy, setBusy] = useState(false);
@@ -608,6 +610,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       }
       const requestedObjective = query.get("objective")?.trim();
       if (requestedObjective) setObjective(requestedObjective.slice(0, 4000));
+      const requestedReturn = query.get("returnTo")?.trim() ?? "";
+      const expectedReturn = `/studio/project/${projectId}/write`;
+      if (requestedReturn === expectedReturn) setReturnHref(expectedReturn);
       const handoffId = query.get("handoff")?.trim() ?? "";
       if (/^[A-Za-z0-9-]{16,128}$/.test(handoffId)) {
         try {
@@ -833,7 +838,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         );
         const selected = selectAvailableTextModel(
           available,
-          localModelId || "qwen2.5:3b",
+          localModelId || RECOMMENDED_LOCAL_WRITER_MODEL,
         ) || "";
         setLocalModels(available);
         setLocalModelId(selected);
@@ -872,7 +877,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         );
         const selected = selectAvailableTextModel(
           available,
-          hubModelId || "qwen2.5:3b",
+          hubModelId || RECOMMENDED_LOCAL_WRITER_MODEL,
         ) || "";
         setHubModels(available);
         setHubModelId(selected);
@@ -1307,7 +1312,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const available = response.models.filter(
         (model) => model.capabilities?.textGeneration?.value === true,
       );
-      const selected = selectAvailableTextModel(available, "qwen2.5:3b") || "";
+      const selected = selectAvailableTextModel(available, RECOMMENDED_LOCAL_WRITER_MODEL) || "";
       setLocalModels(available);
       if (!selected) throw Object.assign(new Error("沒有可生成文字的本機模型。"), {
         code: "OLLAMA_MODEL_NOT_FOUND",
@@ -1399,7 +1404,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const available = response.models.filter(
         (model) => model.capabilities?.textGeneration?.value === true,
       );
-      const selected = selectAvailableTextModel(available, "qwen2.5:3b") || "";
+      const selected = selectAvailableTextModel(available, RECOMMENDED_LOCAL_WRITER_MODEL) || "";
       setHubModels(available);
       if (!selected) throw Object.assign(new Error("Private Hub 沒有可生成文字的模型。"), {
         code: "OLLAMA_MODEL_NOT_FOUND",
@@ -1815,6 +1820,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
+          {returnHref ? <Link href={returnHref}>返回原章寫作</Link> : null}
           <Link href="/settings/local-ai">本機 AI 安裝精靈</Link>
           <button type="button" disabled={busy || runtimeBusy} onClick={() => void connectRuntimesAutomatically()}>
             重新連線／檢查
@@ -2446,6 +2452,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   <button data-testid="closed-ai-reject" className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
                 </> : null}
                 <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportEvidence()}>匯出驗證證據</button>
+                {returnHref && result.candidate.status !== "awaiting-approval" ? <Link className={styles.secondaryLink} href={returnHref}>返回原章查看結果</Link> : null}
               </div>
               <details>
                 <summary>執行證明</summary>

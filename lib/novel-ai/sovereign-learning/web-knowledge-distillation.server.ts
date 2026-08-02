@@ -4,7 +4,7 @@ import {
 } from "../providers/external/external-provider-runtime";
 import type { ExternalAIGenerationResult } from "../providers/external/external-provider-contract";
 import { ruleSimilarity, sha256Hex, stableStringify } from "./hashing";
-import { parseDeepRuleExtraction } from "./rule-extractor";
+import { extractDeterministicNarrativeRules, parseDeepRuleExtraction } from "./rule-extractor";
 import type { LearningRuleDraft } from "./types";
 import {
   CONTROLLED_WEB_KNOWLEDGE_VERSION,
@@ -20,6 +20,8 @@ type TeacherGenerator = typeof generateExternalAICandidate;
 export type ControlledWebDistillationInput = {
   research: ControlledWebResearchResult;
   providers: ControlledTeacherProvider[];
+  forceLocal?: boolean;
+  allowLocalFallback?: boolean;
   generate?: TeacherGenerator;
 };
 
@@ -169,16 +171,34 @@ function mergeTeacherRules(runs: TeacherRun[]) {
   };
 }
 
+function buildLocalRules(research: ControlledWebResearchResult) {
+  return extractDeterministicNarrativeRules(research.transientSanitizedText)
+    .map((rule): LearningRuleDraft => ({
+      ...rule,
+      tags: [...new Set([
+        ...rule.tags,
+        "本機抽象",
+        `來源:${research.evidence.sourceProfile.channel}`,
+        ...(research.evidence.sourceProfile.engagement ? ["人氣門檻:10萬+"] : []),
+      ])].slice(0, 10),
+    }))
+    .slice(0, 12);
+}
+
 export async function distillControlledWebKnowledge(
   input: ControlledWebDistillationInput,
 ): Promise<DistilledWebKnowledgeBundle> {
   const providers = [...new Set(input.providers)].filter((provider): provider is ControlledTeacherProvider =>
     provider === "openai" || provider === "grok");
-  if (!providers.length || providers.length > 2) {
+  if (providers.length > 2) {
     throw distillationError("WEB_DISTILLATION_TEACHER_REQUIRED", "請選擇 OpenAI、Grok 或兩者作為受控教師。");
   }
+  const attemptedProviders = input.forceLocal ? [] : providers;
+  if (!attemptedProviders.length && !input.forceLocal && !input.allowLocalFallback) {
+    throw distillationError("WEB_DISTILLATION_TEACHER_REQUIRED", "請選擇 OpenAI、Grok，或改用純閉端分析。");
+  }
   const generate = input.generate ?? generateExternalAICandidate;
-  const settled = await Promise.allSettled(providers.map((provider) => runTeacher({
+  const settled = await Promise.allSettled(attemptedProviders.map((provider) => runTeacher({
     provider,
     research: input.research,
     generate,
@@ -189,7 +209,7 @@ export async function distillControlledWebKnowledge(
     const reason = item.reason;
     return [reason instanceof ExternalAIProviderError ? reason.code : String(reason?.code || "WEB_DISTILLATION_TEACHER_FAILED")];
   });
-  if (!runs.length) {
+  if (!runs.length && !input.forceLocal && !input.allowLocalFallback) {
     throw distillationError(
       "WEB_DISTILLATION_ALL_TEACHERS_FAILED",
       "選擇的教師 AI 都未能完成蒸餾；沒有建立任何候選，也沒有修改正式作品。",
@@ -198,35 +218,50 @@ export async function distillControlledWebKnowledge(
     );
   }
   const merged = mergeTeacherRules(runs);
-  if (!merged.rules.length) {
+  const localRules = buildLocalRules(input.research);
+  const rules = runs.length
+    ? [
+      ...merged.rules,
+      ...localRules.filter((localRule) => !merged.rules.some((teacherRule) =>
+        teacherRule.family === localRule.family
+        && teacherRule.dimension === localRule.dimension
+        && ruleSimilarity(teacherRule.statement, localRule.statement) >= 0.62)),
+    ].slice(0, 16)
+    : localRules;
+  if (!rules.length) {
     throw distillationError(
       "WEB_DISTILLATION_NO_SAFE_RULES",
-      "教師輸出未通過非抄寫或規則契約檢查，沒有建立候選。",
+      "來源不足以建立通過非抄寫契約的規則候選。",
       422,
       runs.flatMap((run) => run.evidence.rejectionCodes),
     );
   }
+  const analysisMode = runs.length
+    ? localRules.length ? "hybrid" as const : "external_teacher" as const
+    : "local_deterministic" as const;
   const unsealed: Omit<DistilledWebKnowledgeBundle, "immutableDigest"> = {
     schemaVersion: CONTROLLED_WEB_KNOWLEDGE_VERSION,
+    analysisMode,
     source: {
       ...input.research.evidence,
       warningCodes: [...new Set([
         ...input.research.evidence.warningCodes,
         ...failureCodes.map((code) => `TEACHER_WARNING_${code}`),
+        ...(analysisMode === "local_deterministic" ? ["LOCAL_DETERMINISTIC_ANALYSIS"] : []),
       ])],
     },
-    rules: merged.rules,
+    rules,
     teachers: runs.map((run) => run.evidence),
     teacherAgreement: {
-      requestedTeachers: providers.length,
+      requestedTeachers: attemptedProviders.length,
       completedTeachers: runs.length,
       crossTeacherRuleCount: merged.crossTeacherRuleCount,
     },
     privacy: {
       rawSourceRetained: false,
       rawTeacherResponseRetained: false,
-      externalRequestCount: providers.length,
-      dataLeftDevice: true,
+      externalRequestCount: attemptedProviders.length,
+      dataLeftDevice: attemptedProviders.length > 0,
       candidateOnly: true,
       canonicalMutationCount: 0,
     },

@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 // 保留既有的二欄導覽契約；顯示細節另外附加，避免新增介面破壞舊版驗證。
@@ -41,17 +43,32 @@ const PROJECT_LINK_PRESENTATION: Record<(typeof PROJECT_LINKS)[number][0], {
 export default function ProjectNavigation({
   projectId,
   active,
+  onNavigate,
 }: {
   projectId: string;
   active: string;
+  onNavigate?: (href: string, label: string) => void;
 }) {
+  function guardedLink(href: string, label: string) {
+    return onNavigate
+      ? { onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault();
+        onNavigate(href, label);
+      } }
+      : {};
+  }
+
   return (
     <nav className="p2ProjectNav" aria-label="作品功能">
-      <a className="p2NavWorkbench" href={`/professional?projectId=${encodeURIComponent(projectId)}`}>
+      <Link
+        className="p2NavWorkbench"
+        href={`/professional?projectId=${encodeURIComponent(projectId)}`}
+        {...guardedLink(`/professional?projectId=${encodeURIComponent(projectId)}`, "專業工作台")}
+      >
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
         <span className="p2NavLabel">專業工作台</span>
         <span className="p2NavShort">工作台</span>
-      </a>
+      </Link>
       {PROJECT_LINKS.map(([path, label]) => {
         const { icon, short } = PROJECT_LINK_PRESENTATION[path];
         return (
@@ -60,6 +77,7 @@ export default function ProjectNavigation({
             className={active === path ? "active" : ""}
             href={`/studio/project/${projectId}/${path}`}
             aria-current={active === path ? "page" : undefined}
+            {...guardedLink(`/studio/project/${projectId}/${path}`, label)}
           >
             <span className="p2NavIcon" aria-hidden="true">{icon}</span>
             <span className="p2NavLabel">{label}</span>

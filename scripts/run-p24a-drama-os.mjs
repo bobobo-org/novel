@@ -530,7 +530,7 @@ function registerSecurityTests() {
 function registerUiTests() {
   const source = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama-workspace.tsx"), "utf8");
   const css = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama.module.css"), "utf8");
-  const requiredText = ["小說轉短劇", "來源章節", "目標長度", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "互動選項", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
+  const requiredText = ["小說轉短劇", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "下載影片製作包", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
   for (const value of requiredText) test(`UI contains ${value}`, () => assert(source.includes(value)));
   test("technical information is collapsed", () => assert(source.includes("<details className=\"dramaTechnical\">")));
   test("UI displays canonical mutation count", () => assert(source.includes("candidate.canonicalMutation")));
@@ -541,6 +541,8 @@ function registerUiTests() {
   test("emotion graph has stable height", () => assert(css.includes("height:90px")));
   test("grid tracks allow shrinking", () => assert(css.includes("minmax(0,1fr)")));
   test("engineering provider IDs are not visible labels", () => assert(!source.includes(">deterministic-local<")));
+  test("ABC choices render only for interactive playback", () => assert(source.includes('candidatePlaybackMode === "interactive"')));
+  test("video handoff never claims a connected provider", () => assert(source.includes('providerExecution: "not_connected"')));
 }
 
 const registrations = { core: registerCoreTests, projection: registerProjectionTests, pacing: registerPacingTests, branch: registerBranchTests, migration: registerMigrationTests, compatibility: registerCompatibilityTests, security: registerSecurityTests, ui: registerUiTests };

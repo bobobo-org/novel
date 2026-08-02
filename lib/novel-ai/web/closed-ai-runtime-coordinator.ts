@@ -27,6 +27,7 @@ import {
   type PrivateHubAutomaticConnection,
 } from "../providers/private-ai-hub/private-hub-client";
 import type { PlatformTaskType } from "../router/platform-types";
+import { RECOMMENDED_LOCAL_WRITER_MODEL } from "../model-orchestration/recommended-models";
 
 export const CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION =
   "closed-ai-runtime-coordinator-v1" as const;
@@ -408,8 +409,8 @@ export class ClosedAIRuntimeCoordinator {
   ): Promise<ClosedAIAutomaticConnectionResult> {
     await this.restorePairings(signal);
     const [localOllama, privateHub] = await Promise.allSettled([
-      this.localClient.connectAutomatically("qwen2.5:3b", signal),
-      this.privateHubClient.connectAutomatically("qwen2.5:3b", signal),
+      this.localClient.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL, signal),
+      this.privateHubClient.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL, signal),
     ]);
     if (localOllama.status === "fulfilled") {
       configureLocalBridgeClient(this.localClient);

@@ -120,7 +120,10 @@ const [learningWorkspaceSource, writeWorkspaceSource] = await Promise.all([
 ]);
 assert.match(learningWorkspaceSource, /作品內容自動成為受控知識/u);
 assert.match(learningWorkspaceSource, /ingestFirstPartyProjectKnowledge/u);
-assert.match(learningWorkspaceSource, /外接教師自動接通/u);
+assert.match(learningWorkspaceSource, /連線方式/u);
+assert.match(learningWorkspaceSource, /local_only/u);
+assert.match(learningWorkspaceSource, /純閉端/u);
+assert.match(learningWorkspaceSource, /refreshExternalProviders/u);
 assert.doesNotMatch(learningWorkspaceSource, /toggleTeacher/u);
 assert.doesNotMatch(learningWorkspaceSource, /checked=\{externalConsent\}/u);
 assert.match(writeWorkspaceSource, /syncChapterKnowledge\(projectId, saved\)/u);
@@ -252,12 +255,55 @@ const bundle = await distillControlledWebKnowledge({
   generate: mockGenerate,
 });
 assert.equal(bundle.teachers.length, 2);
+assert.equal(bundle.analysisMode, "hybrid");
 assert.equal(bundle.privacy.rawSourceRetained, false);
 assert.equal(bundle.privacy.rawTeacherResponseRetained, false);
 assert.equal(bundle.privacy.canonicalMutationCount, 0);
 assert.equal(bundle.source.sourceProfile.channel, "popular_web");
 assert.ok(bundle.teacherAgreement.crossTeacherRuleCount >= 1);
 assert.match(bundle.immutableDigest, /^[a-f0-9]{64}$/u);
+
+const localOnlyBundle = await distillControlledWebKnowledge({
+  research,
+  providers: [],
+  forceLocal: true,
+});
+assert.equal(localOnlyBundle.analysisMode, "local_deterministic");
+assert.equal(localOnlyBundle.teachers.length, 0);
+assert.equal(localOnlyBundle.teacherAgreement.requestedTeachers, 0);
+assert.equal(localOnlyBundle.privacy.externalRequestCount, 0);
+assert.equal(localOnlyBundle.privacy.dataLeftDevice, false);
+assert.equal(localOnlyBundle.rules.every((rule) => rule.extractorKind === "deterministic_pattern"), true);
+assert.ok(localOnlyBundle.rules.length > 0);
+
+const automaticFallbackBundle = await distillControlledWebKnowledge({
+  research,
+  providers: ["openai"],
+  allowLocalFallback: true,
+  generate: async () => {
+    throw Object.assign(new Error("teacher unavailable"), { code: "EXTERNAL_PROVIDER_AUTH_FAILED" });
+  },
+});
+assert.equal(automaticFallbackBundle.analysisMode, "local_deterministic");
+assert.equal(automaticFallbackBundle.teachers.length, 0);
+assert.equal(automaticFallbackBundle.teacherAgreement.requestedTeachers, 1);
+assert.equal(automaticFallbackBundle.privacy.externalRequestCount, 1);
+assert.equal(automaticFallbackBundle.privacy.dataLeftDevice, true);
+assert.equal(automaticFallbackBundle.source.warningCodes.includes("TEACHER_WARNING_EXTERNAL_PROVIDER_AUTH_FAILED"), true);
+
+const localRepository = new MemorySovereignLearningRepository();
+const localIngested = await ingestDistilledWebKnowledge(localRepository, {
+  projectId: "controlled-web-local-project",
+  bundle: localOnlyBundle,
+  rightsBasis: "lawful_private_reference",
+  rightsEvidence: "Operator-confirmed lawful private analysis of the named public source.",
+  userConfirmedRights: true,
+  externalConsent: false,
+});
+assert.equal(localIngested.source.localAnalysisOnly, true);
+assert.equal(localIngested.source.dataLeftDevice, false);
+assert.equal(localIngested.externalRequestCount, 0);
+assert.equal(localIngested.rules.every((rule) => rule.status === "candidate"), true);
 
 const repository = new MemorySovereignLearningRepository();
 const ingested = await ingestDistilledWebKnowledge(repository, {

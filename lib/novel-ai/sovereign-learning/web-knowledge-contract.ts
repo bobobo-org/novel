@@ -6,10 +6,11 @@ import type {
   TextFingerprint,
 } from "./types";
 
-export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v2" as const;
+export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v3" as const;
 export const POPULAR_SOURCE_MINIMUM_ENGAGEMENT = 100_000 as const;
 
 export type ControlledTeacherProvider = "openai" | "grok";
+export type ControlledWebAnalysisMode = "external_teacher" | "hybrid" | "local_deterministic";
 
 export type ControlledWebTeacherEvidence = {
   provider: ControlledTeacherProvider;
@@ -82,6 +83,7 @@ export function normalizeControlledWebSourceProfile(input: {
 
 export type DistilledWebKnowledgeBundle = {
   schemaVersion: typeof CONTROLLED_WEB_KNOWLEDGE_VERSION;
+  analysisMode: ControlledWebAnalysisMode;
   source: ControlledWebSourceEvidence;
   rules: LearningRuleDraft[];
   teachers: ControlledWebTeacherEvidence[];
@@ -94,7 +96,7 @@ export type DistilledWebKnowledgeBundle = {
     rawSourceRetained: false;
     rawTeacherResponseRetained: false;
     externalRequestCount: number;
-    dataLeftDevice: true;
+    dataLeftDevice: boolean;
     candidateOnly: true;
     canonicalMutationCount: 0;
   };
@@ -104,6 +106,7 @@ export type DistilledWebKnowledgeBundle = {
 export function distilledWebKnowledgePayload(bundle: DistilledWebKnowledgeBundle) {
   return {
     schemaVersion: bundle.schemaVersion,
+    analysisMode: bundle.analysisMode,
     source: bundle.source,
     rules: bundle.rules,
     teachers: bundle.teachers,

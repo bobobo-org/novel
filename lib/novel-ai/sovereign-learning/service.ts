@@ -595,12 +595,17 @@ function validateDistilledWebRules(bundle: DistilledWebKnowledgeBundle) {
   if (boundary.sanitizationStatus === "quarantined") {
     throw learningError("WEB_DISTILLATION_TEACHER_OUTPUT_QUARANTINED", "教師規則含有高風險指令，已阻止匯入。");
   }
+  const allowedExtractorKinds = bundle.analysisMode === "local_deterministic"
+    ? new Set(["deterministic_pattern"])
+    : bundle.analysisMode === "hybrid"
+      ? new Set(["deterministic_pattern", "external_teacher_ai"])
+      : new Set(["external_teacher_ai"]);
   for (const rule of bundle.rules) {
     const recipe = rule.recipe;
     if (
       !WEB_RULE_FAMILIES.has(rule.family)
       || !WEB_RULE_DIMENSIONS.has(rule.dimension)
-      || rule.extractorKind !== "external_teacher_ai"
+      || !allowedExtractorKinds.has(rule.extractorKind)
       || !rule.statement?.trim()
       || !recipe
       || [recipe.when, recipe.operation, recipe.constraint, recipe.evaluate].some((value) => !value?.trim())
@@ -625,7 +630,8 @@ export async function ingestDistilledWebKnowledge(
   },
 ) {
   if (!input.projectId.trim()) throw learningError("LEARNING_SOURCE_IDENTITY_REQUIRED");
-  if (!input.externalConsent) {
+  const bundle = input.bundle;
+  if (bundle.privacy.dataLeftDevice && !input.externalConsent) {
     throw learningError("WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED", "必須明確同意清理後的來源送往教師 AI。");
   }
   validateRights({
@@ -637,15 +643,19 @@ export async function ingestDistilledWebKnowledge(
   if (!input.rightsEvidence.trim()) {
     throw learningError("LEARNING_RIGHTS_EVIDENCE_REQUIRED", "網路來源必須填寫授權、來源或合法私人分析依據。");
   }
-  const bundle = input.bundle;
   if (
     bundle.schemaVersion !== CONTROLLED_WEB_KNOWLEDGE_VERSION
+    || !["external_teacher", "hybrid", "local_deterministic"].includes(bundle.analysisMode)
     || bundle.source.rawContentRetained !== false
     || bundle.privacy.rawSourceRetained !== false
     || bundle.privacy.rawTeacherResponseRetained !== false
     || bundle.privacy.candidateOnly !== true
     || bundle.privacy.canonicalMutationCount !== 0
-    || bundle.privacy.dataLeftDevice !== true
+    || typeof bundle.privacy.dataLeftDevice !== "boolean"
+    || !Number.isSafeInteger(bundle.privacy.externalRequestCount)
+    || bundle.privacy.externalRequestCount < 0
+    || (!bundle.privacy.dataLeftDevice && bundle.privacy.externalRequestCount !== 0)
+    || (bundle.privacy.externalRequestCount > 0 && !bundle.privacy.dataLeftDevice)
     || !bundle.source.sourceProfile
     || (!["article", "classical_chinese"].includes(bundle.source.sourceProfile.channel) && (
       !bundle.source.sourceProfile.engagement
@@ -653,7 +663,9 @@ export async function ingestDistilledWebKnowledge(
       || bundle.source.sourceProfile.engagement.minimumRequired !== 100_000
       || bundle.source.sourceProfile.engagement.observedCount < 100_000
     ))
-    || !bundle.teachers.length
+    || (["external_teacher", "hybrid"].includes(bundle.analysisMode) && !bundle.teachers.length)
+    || (bundle.analysisMode === "local_deterministic" && bundle.teachers.length > 0)
+    || (bundle.teachers.length > bundle.privacy.externalRequestCount)
     || bundle.teachers.some((teacher) =>
       teacher.candidateOnly !== true
       || teacher.rawResponseRetained !== false
@@ -717,7 +729,7 @@ export async function ingestDistilledWebKnowledge(
     rightsBasis: input.rightsBasis,
     rightsEvidenceHash,
     userConfirmedRights: true,
-    localAnalysisOnly: false,
+    localAnalysisOnly: !bundle.privacy.dataLeftDevice,
     rawContentRetained: false,
     contentHash: bundle.source.sourceDigest,
     fingerprint: bundle.source.fingerprint,
@@ -726,7 +738,9 @@ export async function ingestDistilledWebKnowledge(
     sanitizationStatus: bundle.source.sanitizationStatus,
     warningCodes: [...new Set([
       ...bundle.source.warningCodes,
-      "CONTROLLED_EXTERNAL_TEACHER_CANDIDATE_ONLY",
+      ...(bundle.teachers.length
+        ? ["CONTROLLED_EXTERNAL_TEACHER_CANDIDATE_ONLY"]
+        : ["CONTROLLED_LOCAL_DETERMINISTIC_CANDIDATE_ONLY"]),
       "RAW_SOURCE_NOT_RETAINED",
       "RAW_TEACHER_RESPONSE_NOT_RETAINED",
       `SOURCE_CHANNEL_${bundle.source.sourceProfile.channel.toUpperCase()}`,
@@ -743,9 +757,9 @@ export async function ingestDistilledWebKnowledge(
       identityVerified: false,
     }),
     deepExtractionAttempted: true,
-    deepExtractionProvider: providers.join("+"),
-    deepExtractionModel: models.join("+").slice(0, 240),
-    dataLeftDevice: true,
+    deepExtractionProvider: providers.join("+") || "local-pattern-analyzer",
+    deepExtractionModel: models.join("+").slice(0, 240) || null,
+    dataLeftDevice: bundle.privacy.dataLeftDevice,
     externalRequestCount: bundle.privacy.externalRequestCount,
     webProvenance: {
       requestedUrl: bundle.source.requestedUrl,
@@ -787,7 +801,7 @@ export async function ingestDistilledWebKnowledge(
       sourceId,
       detailCodes: [
         "CONTROLLED_WEB_RESEARCH",
-        "EXTERNAL_TEACHER_CANDIDATE_ONLY",
+        bundle.teachers.length ? "EXTERNAL_TEACHER_CANDIDATE_ONLY" : "LOCAL_DETERMINISTIC_CANDIDATE_ONLY",
         `EXTERNAL_REQUEST_COUNT_${bundle.privacy.externalRequestCount}`,
         `RULE_COUNT_${rules.length}`,
         `CROSS_TEACHER_RULE_COUNT_${bundle.teacherAgreement.crossTeacherRuleCount}`,
@@ -801,7 +815,7 @@ export async function ingestDistilledWebKnowledge(
     source,
     rules,
     externalRequestCount: bundle.privacy.externalRequestCount,
-    dataLeftDevice: true,
+    dataLeftDevice: bundle.privacy.dataLeftDevice,
     rawContentRetained: false,
   };
 }

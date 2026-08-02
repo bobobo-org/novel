@@ -170,18 +170,68 @@
   color: #ffe29a;
 }
 
-.teacherBox .check {
-  flex-wrap: wrap;
-  padding: 9px;
-  border-radius: 8px;
+.providerRow {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid #29445f;
+  border-radius: 9px;
   background: #0d2035;
 }
 
-.teacherBox .check span {
-  width: 100%;
+.providerRow[data-ready="true"] {
+  border-color: rgba(78, 191, 155, 0.55);
+}
+
+.providerRow label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
+.providerRow input {
+  width: auto;
+  margin: 0;
+}
+
+.providerRow small {
   padding-left: 24px;
   color: #85a4c8;
-  font-size: 13px;
+}
+
+.teacherActions,
+.researchHelp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+}
+
+.teacherActions {
+  margin-top: 10px;
+}
+
+.teacherActions a {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid #496786;
+  border-radius: 8px;
+  color: #d7e7fa;
+  background: #172943;
+}
+
+.researchHelp {
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.researchHelp p {
+  flex: 1 1 480px;
+  margin: 0;
 }
 
 .check {

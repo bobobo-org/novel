@@ -19,6 +19,11 @@ import {
   modelTierLabel,
 } from "@/lib/novel-ai/model-orchestration/model-tiers";
 import {
+  FAST_LOCAL_WRITER_MODEL,
+  LOCAL_MODEL_INSTALL_CHOICES,
+  RECOMMENDED_LOCAL_WRITER_MODEL,
+} from "@/lib/novel-ai/model-orchestration/recommended-models";
+import {
   getStudioClosedAIRuntimeCoordinator,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import type { ClosedAIRuntimeSnapshot } from "@/lib/novel-ai/web/closed-ai-runtime-coordinator";
@@ -120,7 +125,7 @@ export default function LocalAISetupWizard() {
       let automaticConnectionError: unknown = null;
       if (directConnectionEnabled && !client.getSessionMetadata()) {
         try {
-          const connected = await client.connectAutomatically("qwen2.5:3b");
+          const connected = await client.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL);
           configureLocalBridgeClient(client);
           configureLocalBridgeModel(connected.model.modelId);
           setModels([connected.model]);
@@ -149,7 +154,7 @@ export default function LocalAISetupWizard() {
         );
         const selected = selectAvailableTextModel(
           available,
-          selectedModel || "qwen2.5:3b",
+          selectedModel || RECOMMENDED_LOCAL_WRITER_MODEL,
         ) ?? "";
         setModels(available);
         setSelectedModel(selected);
@@ -224,7 +229,7 @@ export default function LocalAISetupWizard() {
       );
       const selected = selectAvailableTextModel(
         available,
-        "qwen2.5:3b",
+        RECOMMENDED_LOCAL_WRITER_MODEL,
       ) ?? "";
       setModels(available);
       setSelectedModel(selected);
@@ -417,8 +422,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
               />
               <p>
                 需要 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+ 與已啟動的
-                Ollama。快速模型範例：<code>ollama pull qwen2.5:3b</code>。
+                Ollama。16 GB RAM 建議：<code>ollama pull {RECOMMENDED_LOCAL_WRITER_MODEL}</code>；
+                記憶體較少可用 <code>ollama pull {FAST_LOCAL_WRITER_MODEL}</code>。
               </p>
+              <ul className={styles.modelGuide}>
+                {LOCAL_MODEL_INSTALL_CHOICES.map((choice) => <li key={choice.modelId}>
+                  <strong>{choice.label}</strong>
+                  <code>{choice.modelId}</code>
+                  <span>RAM {choice.minimumRamGB} GB 以上 · {choice.useCase}</span>
+                </li>)}
+              </ul>
               <Command
                 label="診斷、啟動與狀態"
                 value={launcher}

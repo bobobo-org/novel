@@ -46,6 +46,7 @@ type ExternalProviderStatus = {
   verificationCode: string;
   modelId: string;
 };
+type TeacherMode = "auto" | "manual" | "local_only";
 
 type AutonomousSettings = {
   enabled: boolean;
@@ -98,6 +99,16 @@ function errorMessage(error: unknown) {
     return "內容中疑似含有登入權杖或 API 金鑰，已安全阻止匯入。請先移除敏感字串。";
   }
   return error instanceof Error ? error.message : "操作失敗，請稍後重試。";
+}
+
+function effectiveWebRightsEvidence(url: string, basis: LearningRightsBasis, note: string) {
+  if (note.trim()) return note.trim();
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return `operator-confirmed:${basis}:${host}`;
+  } catch {
+    return `operator-confirmed:${basis}:invalid-url`;
+  }
 }
 
 function autonomousSettingsKey(projectId: string, prefix = AUTONOMOUS_SETTINGS_PREFIX) {
@@ -180,6 +191,9 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [webRightsEvidence, setWebRightsEvidence] = useState("");
   const [webRightsConfirmed, setWebRightsConfirmed] = useState(false);
   const [providerStatuses, setProviderStatuses] = useState<ExternalProviderStatus[]>([]);
+  const [teacherMode, setTeacherMode] = useState<TeacherMode>("auto");
+  const [manualTeacherProviders, setManualTeacherProviders] = useState<ControlledTeacherProvider[]>([]);
+  const [providerBusy, setProviderBusy] = useState(false);
   const [firstPartyStatus, setFirstPartyStatus] = useState("正在同步本作品的創作知識。");
   const [firstPartyBusy, setFirstPartyBusy] = useState(false);
   const [capabilityReport, setCapabilityReport] = useState<CapabilityReport | null>(null);
@@ -193,12 +207,17 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const autonomousRetryRef = useRef<() => Promise<void>>(async () => undefined);
   const firstPartySyncRunningRef = useRef(false);
   const webRequiresEngagement = webSourceChannel !== "article" && webSourceChannel !== "classical_chinese";
-  const teacherProviders = useMemo(
+  const verifiedTeacherProviders = useMemo(
     () => providerStatuses
       .filter((provider) => provider.configured && provider.verification === "verified" && (provider.id === "openai" || provider.id === "grok"))
       .map((provider) => provider.id as ControlledTeacherProvider),
     [providerStatuses],
   );
+  const teacherProviders = useMemo(() => {
+    if (teacherMode === "local_only") return [];
+    if (teacherMode === "auto") return verifiedTeacherProviders;
+    return manualTeacherProviders.filter((provider) => verifiedTeacherProviders.includes(provider));
+  }, [manualTeacherProviders, teacherMode, verifiedTeacherProviders]);
 
   const load = useCallback(async (announce = true) => {
     const next = await getSovereignLearningDashboard(learningRepository, projectId);
@@ -288,25 +307,38 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     };
   }, [syncFirstPartyKnowledge]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/ai/external/providers?probe=1&providers=openai,grok", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("無法讀取外接教師狀態。");
-        return response.json() as Promise<{ providers?: ExternalProviderStatus[] }>;
-      })
-      .then((payload) => {
-        if (cancelled) return;
-        const supported = (payload.providers ?? []).filter((provider) => provider.id === "openai" || provider.id === "grok");
-        setProviderStatuses(supported);
-      })
-      .catch(() => {
-        if (!cancelled) setProviderStatuses([]);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const refreshExternalProviders = useCallback(async (announce = false) => {
+    setProviderBusy(true);
+    if (announce) setStatus("正在重新實測 OpenAI 與 Grok 外接教師；憑證只留在伺服器端。");
+    try {
+      const response = await fetch("/api/ai/external/providers?probe=1&providers=openai,grok", { cache: "no-store" });
+      if (!response.ok) throw new Error("無法讀取外接教師狀態。");
+      const payload = await response.json() as { providers?: ExternalProviderStatus[] };
+      const supported = (payload.providers ?? []).filter((provider) => provider.id === "openai" || provider.id === "grok");
+      setProviderStatuses(supported);
+      const verified = supported
+        .filter((provider) => provider.configured && provider.verification === "verified")
+        .map((provider) => provider.id as ControlledTeacherProvider);
+      setManualTeacherProviders((current) => current.length
+        ? current.filter((provider) => verified.includes(provider))
+        : verified);
+      if (announce) {
+        setStatus(verified.length
+          ? `外接教師實測完成：${verified.length} 個可用。`
+          : "目前沒有通過實測的外接教師；自動模式會安全改用純閉端分析，不會卡住研究流程。");
+      }
+    } catch (error) {
+      setProviderStatuses([]);
+      setManualTeacherProviders([]);
+      if (announce) setStatus(errorMessage(error));
+    } finally {
+      setProviderBusy(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshExternalProviders(false);
+  }, [refreshExternalProviders]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -436,6 +468,8 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     setStatus("正在驗證 HTTPS、公開 DNS、robots 規則與提示注入風險。");
     try {
+      const rightsEvidence = effectiveWebRightsEvidence(webUrl, webRightsBasis, webRightsEvidence);
+      const externalConsent = teacherMode !== "local_only" && teacherProviders.length > 0;
       const response = await fetch("/api/ai/learning/web-distill", {
         method: "POST",
         cache: "no-store",
@@ -444,9 +478,10 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           projectId,
           url: webUrl,
           rightsBasis: webRightsBasis,
-          rightsEvidence: webRightsEvidence,
+          rightsEvidence,
           userConfirmedRights: webRightsConfirmed,
-          externalConsent: true,
+          teacherMode,
+          externalConsent,
           providerIds: teacherProviders,
           sourceChannel: webSourceChannel,
           engagementMetric: webEngagementMetric,
@@ -470,14 +505,19 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         projectId,
         bundle: payload,
         rightsBasis: webRightsBasis,
-        rightsEvidence: webRightsEvidence,
+        rightsEvidence,
         userConfirmedRights: webRightsConfirmed,
-        externalConsent: true,
+        externalConsent,
       });
+      const modeLabel = payload.analysisMode === "local_deterministic"
+        ? "純閉端抽象"
+        : payload.analysisMode === "hybrid"
+          ? "外接教師＋閉端交叉分析"
+          : "外接教師分析";
       setStatus(
         result.duplicate
           ? `此網路來源已研究過，沿用 ${result.rules.length} 條既有規則。`
-          : `受控研究完成：${result.externalRequestCount} 個教師建立 ${result.rules.length} 條候選。原文與教師完整輸出均未保存；正式能力尚未變更。`,
+          : `${modeLabel}完成：建立 ${result.rules.length} 條候選；外部請求 ${result.externalRequestCount} 次，${result.dataLeftDevice ? "清理後資料曾送往所選教師" : "資料未離開本機流程"}。原文與教師完整輸出均未保存；正式能力尚未變更。`,
       );
       setWebUrl("");
       setWebEngagementCount("");
@@ -895,22 +935,54 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
                   {rightsOptions.filter(([value]) => value !== "ai_output_authorized").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
-              <label>授權／公版／合法私人分析依據
-                <input value={webRightsEvidence} onChange={(event) => setWebRightsEvidence(event.target.value)} placeholder="請填條款、年份、作者授權或取得方式" />
+              <label>來源備註（選填）
+                <input value={webRightsEvidence} onChange={(event) => setWebRightsEvidence(event.target.value)} placeholder="可填條款、年份或授權說明；合法私人分析會自動留下來源證明" />
               </label>
             </div>
           </div>
           <div className={styles.teacherBox}>
-            <strong>外接教師自動接通</strong>
+            <strong>研究引擎</strong>
+            <label>連線方式
+              <select value={teacherMode} onChange={(event) => setTeacherMode(event.target.value as TeacherMode)}>
+                <option value="auto">自動：外接可用就交叉分析，否則閉端完成</option>
+                <option value="manual">手動：只使用我選的已驗證教師</option>
+                <option value="local_only">純閉端：不連 OpenAI／Grok</option>
+              </select>
+            </label>
             {(["openai", "grok"] as const).map((providerId) => {
               const provider = providerStatuses.find((item) => item.id === providerId);
-              return <div className={styles.check} key={providerId}>
-                <span aria-hidden="true">{provider?.verification === "verified" ? "●" : "○"}</span>
-                {provider?.label ?? (providerId === "openai" ? "OpenAI（ChatGPT 系列）" : "xAI Grok")}
-                <span>{provider?.verification === "verified" ? `${provider.modelId} · 已實測並自動接通` : provider?.configured ? `尚未通過實測（${provider.verificationCode}）` : "伺服器尚未設定"}</span>
-              </div>;
+              const verified = provider?.verification === "verified";
+              const checked = teacherMode === "auto"
+                ? verified
+                : teacherMode === "manual" && manualTeacherProviders.includes(providerId);
+              return <article className={styles.providerRow} data-ready={verified} key={providerId}>
+                <label>
+                  <input
+                    type="checkbox"
+                    disabled={teacherMode !== "manual" || !verified}
+                    checked={checked}
+                    onChange={(event) => setManualTeacherProviders((current) => event.target.checked
+                      ? [...new Set([...current, providerId])]
+                      : current.filter((item) => item !== providerId))}
+                  />
+                  <span>{provider?.label ?? (providerId === "openai" ? "OpenAI（ChatGPT 系列）" : "xAI Grok")}</span>
+                </label>
+                <small>{verified ? `${provider.modelId} · 已實測` : provider?.configured ? `未通過實測（${provider.verificationCode}）` : "伺服器尚未設定"}</small>
+              </article>;
             })}
-            <p className={styles.note}>所有通過金鑰與模型實測的教師會自動交叉比對，不需勾選。外接教師只能提出候選，不能自行修改 Canon。</p>
+            <div className={styles.teacherActions}>
+              <button type="button" className={styles.secondary} disabled={providerBusy} onClick={() => void refreshExternalProviders(true)}>
+                {providerBusy ? "實測中…" : "重新實測連線"}
+              </button>
+              <Link href="/studio/settings/ai">外接 AI 設定</Link>
+            </div>
+            <p className={styles.note}>{teacherMode === "local_only"
+              ? "本輪只使用閉端規則分析，來源不會送往 OpenAI 或 Grok。"
+              : teacherMode === "manual"
+                ? "只呼叫你勾選且已通過伺服器實測的教師；若未勾選，研究按鈕會保持停用。"
+                : verifiedTeacherProviders.length
+                  ? `已找到 ${verifiedTeacherProviders.length} 個可用教師；教師失敗時會安全降級為閉端分析。`
+                  : "目前無可用外接教師；仍可由純閉端分析完成，不會再卡住整個流程。"}</p>
           </div>
         </div>
         <label className={styles.check}>
@@ -922,20 +994,22 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           disabled={
             busy
             || !webUrl.trim()
-            || !webRightsEvidence.trim()
             || !webRightsConfirmed
             || (webRequiresEngagement && (Number(webEngagementCount) < 100_000 || !webEngagementEvidence.trim()))
-            || !teacherProviders.some((id) => providerStatuses.some((provider) => provider.id === id && provider.verification === "verified"))
+            || (teacherMode === "manual" && teacherProviders.length === 0)
           }
           onClick={() => void researchWeb()}
         >
           {busy ? "處理中…" : "安全抓取並建立規則候選"}
         </button>
-        <p className={styles.note}>外部教師連線已屬此功能的固定執行方式；只有按下研究按鈕後，安全清理過的指定來源才會暫時送出。原文、教師完整回覆與憑證不寫入學習庫。熱門數值目前是可稽核的操作者證據，不冒充平台 API 核驗。</p>
+        <div className={styles.researchHelp}>
+          <p className={styles.note}>每次只處理你指定的一個公開頁面；受版權保護的小說不會整站下載或保存全文。完整文本僅接受你擁有、獲授權或公版的檔案。網站拒絕自動讀取時，可改用下方本機貼文分析。</p>
+          <button type="button" className={styles.secondary} onClick={() => document.getElementById("manual-source-import")?.scrollIntoView({ behavior: "smooth", block: "start" })}>改用本機貼文／檔案</button>
+        </div>
       </section>
 
       <div className={styles.columns}>
-        <section className={styles.panel}>
+        <section className={styles.panel} id="manual-source-import">
           <div className={styles.panelHeading}>
             <div><small>步驟 1</small><h2>匯入並抽象規則</h2></div>
             <span>原文分析後丟棄</span>

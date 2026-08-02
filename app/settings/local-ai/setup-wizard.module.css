@@ -344,3 +344,28 @@
     grid-template-columns: 1fr;
   }
 }
+.modelGuide {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.modelGuide li {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(120px, auto) 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(84, 112, 151, 0.55);
+  border-radius: 10px;
+  background: rgba(9, 25, 44, 0.7);
+}
+
+.modelGuide span {
+  color: #9fb2ca;
+}
+
+@media (max-width: 720px) {
+  .modelGuide li { grid-template-columns: 1fr; }
+}

@@ -21,6 +21,8 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
   const [bookmarks, setBookmarks] = useState<ReaderBookmark[]>([]);
   const [notice, setNotice] = useState("正在開啟閱讀器…");
   const [noteText, setNoteText] = useState("");
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [directoryQuery, setDirectoryQuery] = useState("");
   const articleRef = useRef<HTMLElement>(null);
   const stateRef = useRef<ReaderState | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -34,7 +36,11 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
       ]);
       const ordered = nextChapters.sort((a, b) => a.order - b.order);
       const current = { ...stateDefaults(projectId), ...(existingState[0] ?? {}) } as ReaderState;
-      if (!current.chapterId && ordered[0]) current.chapterId = ordered[0].id;
+      if (!current.chapterId && ordered[0]) {
+        current.chapterId = ordered.some((chapter) => chapter.id === nextProject?.activeChapterId)
+          ? nextProject?.activeChapterId ?? ordered[0].id
+          : ordered[0].id;
+      }
       if (!existingState[0] || Object.keys(existingState[0]).length < Object.keys(current).length) await repo.put("readerStates", current, existingState[0]?.revision);
       stateRef.current = current; setProject(nextProject); setChapters(ordered); setState(current); setNotes(nextNotes); setBookmarks(nextBookmarks); setNotice("");
     } catch { setNotice("閱讀資料載入失敗，請重新嘗試。"); }
@@ -88,13 +94,23 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
     const bookmark: ReaderBookmark = { ...makeRecord(projectId), chapterId: activeChapter.id, anchor, excerpt: paragraphs[0]?.slice(0, 180) || "", label: activeChapter.title, needsRelocation: false };
     const saved = await repo.put("readerBookmarks", bookmark); setBookmarks((items) => [...items, saved]); setNotice("已加入書籤。");
   }
+  async function switchChapter(chapterId: string) {
+    await saveState({ chapterId, positionType: "ratio", positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0 });
+    setDirectoryOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   if (!project || !state) return <main className="readerEmpty"><p>{notice || "正在載入…"}</p><button onClick={() => void load()}>重新載入</button></main>;
   const bookmarked = bookmarks.some((item) => item.chapterId === activeChapter?.id && item.anchor === state.contentAnchor);
+  const activeIndex = Math.max(0, chapters.findIndex((item) => item.id === activeChapter?.id));
+  const previousChapter = activeIndex > 0 ? chapters[activeIndex - 1] : null;
+  const nextChapter = activeIndex >= 0 && activeIndex < chapters.length - 1 ? chapters[activeIndex + 1] : null;
+  const visibleChapters = chapters.filter((chapter) => !directoryQuery.trim() || chapter.title.toLowerCase().includes(directoryQuery.trim().toLowerCase()));
   return <main className={`readerShell reader-${state.theme}`} style={{ "--reader-size": `${state.fontSize}px`, "--reader-line": state.lineHeight, "--reader-width": `${state.contentWidth}px`, "--reader-space": `${state.paragraphSpacing}px`, fontFamily: state.fontFamily } as React.CSSProperties}>
-    <header className="readerTop"><div><a href={`/professional?projectId=${encodeURIComponent(projectId)}`}>專業工作台</a><Link href={`/studio/project/${projectId}/write`}>返回寫作</Link></div><span>{state.percentage}%</span><div><button onClick={() => window.scrollTo({ top: state.scrollTop })}>回到上次位置</button><button onClick={() => void toggleBookmark()}>{bookmarked ? "移除書籤" : "加入書籤"}</button></div></header>
+    <div className="readerProgress" aria-hidden="true"><span style={{ width: `${state.percentage}%` }} /></div>
+    <header className="readerTop"><div><Link href={`/studio/project/${projectId}/write`}>返回寫作</Link><button onClick={() => setDirectoryOpen(true)}>章節目錄</button></div><span>{activeChapter?.title ?? "尚無章節"} · {state.percentage}%</span><div><button onClick={() => window.scrollTo({ top: state.scrollTop, behavior: "smooth" })}>回到上次位置</button><button onClick={() => void toggleBookmark()}>{bookmarked ? "移除書籤" : "加入書籤"}</button></div></header>
     <section className="readerControls" aria-label="閱讀設定"><label>主題<select value={state.theme} onChange={(event) => void saveState({ theme: event.target.value as Theme })}>{themes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>字級<input type="range" min="16" max="30" value={state.fontSize} onChange={(event) => void saveState({ fontSize: Number(event.target.value) })}/></label><label>行距<input type="range" min="1.4" max="2.5" step=".1" value={state.lineHeight} onChange={(event) => void saveState({ lineHeight: Number(event.target.value) })}/></label><label>內文寬度<input type="range" min="320" max="920" step="20" value={state.contentWidth} onChange={(event) => void saveState({ contentWidth: Number(event.target.value) })}/></label></section>
-    {chapters.length > 1 && <nav className="readerDirectory" aria-label="章節目錄">{chapters.map((chapter) => <button key={chapter.id} className={chapter.id === activeChapter?.id ? "active" : ""} onClick={() => void saveState({ chapterId: chapter.id, positionType: "ratio", positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0 })}>{chapter.title}</button>)}</nav>}
-    <article ref={articleRef} className="readerArticle"><header><small>{project.genreId || "小說"}</small><h1>{project.title}</h1><h2>{activeChapter?.title || "尚未建立章節"}</h2></header>{paragraphs.length ? paragraphs.map((paragraph, index) => <p key={index} data-reader-anchor={anchorFor(paragraph, index)}>{paragraph}</p>) : <p className="readerNoContent">這一章尚未有正文。回到寫作區開始創作。</p>}<section className="readerNote"><label>新增筆記<textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="記下這段文字帶給你的想法"/></label><button onClick={() => void addNote()} disabled={!noteText.trim()}>儲存筆記</button></section><section className="readerNotes"><h2>本書筆記與書籤</h2>{notes.map((note) => <article key={note.id}><b>{note.needsRelocation ? "需要重新定位的筆記" : "筆記"}</b><p>{note.content}</p><button onClick={() => void repo.remove("readerNotes", note.id).then(() => setNotes((items) => items.filter((item) => item.id !== note.id)))}>刪除</button></article>)}{bookmarks.map((bookmark) => <article key={bookmark.id}><b>書籤</b><p>{bookmark.label || "未命名位置"}</p></article>)}</section></article>
+    {directoryOpen ? <><button className="readerDirectoryScrim" aria-label="關閉章節目錄" onClick={() => setDirectoryOpen(false)} /><nav className="readerDirectory" aria-label="章節目錄"><header><div><small>{project.title}</small><h2>章節目錄</h2></div><button onClick={() => setDirectoryOpen(false)}>關閉</button></header><input value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)} placeholder="搜尋章節" />{visibleChapters.map((chapter) => <button key={chapter.id} className={chapter.id === activeChapter?.id ? "active" : ""} onClick={() => void switchChapter(chapter.id)}><b>{chapter.order}. {chapter.title}</b><span>{chapter.content.replace(/\s/g, "").length} 字 · {chapter.status === "completed" ? "已完成" : "草稿"}</span></button>)}</nav></> : null}
+    <article ref={articleRef} className="readerArticle"><header><small>{project.genreId || "小說"}</small><h1>{project.title}</h1><h2>{activeChapter?.title || "尚未建立章節"}</h2></header>{paragraphs.length ? paragraphs.map((paragraph, index) => <p key={index} data-reader-anchor={anchorFor(paragraph, index)}>{paragraph}</p>) : <p className="readerNoContent">這一章尚未有正文。回到寫作區開始創作。</p>}<footer><button disabled={!previousChapter} onClick={() => previousChapter && void switchChapter(previousChapter.id)}>← {previousChapter?.title ?? "已是第一章"}</button><button onClick={() => setDirectoryOpen(true)}>目錄</button><button disabled={!nextChapter} onClick={() => nextChapter && void switchChapter(nextChapter.id)}>{nextChapter?.title ?? "已是最後一章"} →</button></footer><section className="readerNote"><label>新增筆記<textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="記下這段文字帶給你的想法"/></label><button onClick={() => void addNote()} disabled={!noteText.trim()}>儲存筆記</button></section><section className="readerNotes"><h2>本書筆記與書籤</h2>{notes.map((note) => <article key={note.id}><b>{note.needsRelocation ? "需要重新定位的筆記" : "筆記"}</b><p>{note.content}</p><button onClick={() => void repo.remove("readerNotes", note.id).then(() => setNotes((items) => items.filter((item) => item.id !== note.id)))}>刪除</button></article>)}{bookmarks.map((bookmark) => <article key={bookmark.id}><b>書籤</b><p>{bookmark.label || "未命名位置"}</p></article>)}</section></article>
     {notice && <p className="readerNotice" role="status">{notice}</p>}
   </main>;
 }
