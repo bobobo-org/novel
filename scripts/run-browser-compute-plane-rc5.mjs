@@ -70,7 +70,10 @@ import {
   resolveStudioClosedComputePolicy,
 } from "../lib/novel-ai/web/studio-closed-compute-policy.ts";
 import { adaptStudioProfileForExplicitLocalCompute } from "../lib/novel-ai/web/studio-local-performance-policy.ts";
-import { resolveLocalOllamaPerformanceBudget } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
+import {
+  repairLocalProseCompletionBoundary,
+  resolveLocalOllamaPerformanceBudget,
+} from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const mode = process.argv[2] ?? "all";
@@ -620,6 +623,7 @@ test("creative-output-contract", () => {
   assert.doesNotMatch(prompt.prompt, /critic：列出缺陷/u);
   assert.doesNotMatch(prompt.prompt, /evaluator：分析候選/u);
   assert.match(prompt.prompt, /不得反問作者/u);
+  assert.match(prompt.prompt, /預留至少 16 tokens 收束段落/u);
   assert.match(prompt.prompt, /<既有章節（僅供辨識，禁止輸出）>[\s\S]*陸沉[\s\S]*<\/既有章節（僅供辨識，禁止輸出）>/u);
   assert.match(prompt.prompt, /<續寫起點（只承接，不得重寫）>[\s\S]*審夢官[\s\S]*<\/續寫起點（只承接，不得重寫）>/u);
   assert.match(prompt.prompt, /不得新增原章節未出現的時代技術/u);
@@ -784,6 +788,46 @@ test("studio-explicit-local-compute-selection", () => {
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 640);
+});
+
+test("local-prose-completion-boundary", () => {
+  const completed = "沈曜抬起星燈，雨水沿著塔簷落下。他沿著石階追向熄滅的星光，直到鐘聲壓過風聲，才在封閉的城門前停下。守門人舉起長槍，命他交出懷中的密信。";
+  const repaired = repairLocalProseCompletionBoundary({
+    taskType: "chapter.continue",
+    content: `${completed}他伸`,
+    generatedTokenEvents: 192,
+    maxOutputTokens: 192,
+  });
+  assert.deepEqual(repaired, {
+    content: completed,
+    repaired: true,
+    removedCharacters: 2,
+  });
+
+  const underBudget = repairLocalProseCompletionBoundary({
+    taskType: "chapter.continue",
+    content: `${completed}他伸`,
+    generatedTokenEvents: 191,
+    maxOutputTokens: 192,
+  });
+  assert.equal(underBudget.repaired, false);
+  assert.equal(underBudget.content, `${completed}他伸`);
+
+  const nonProse = repairLocalProseCompletionBoundary({
+    taskType: "story.consistencyCheck",
+    content: `${completed}待查`,
+    generatedTokenEvents: 192,
+    maxOutputTokens: 192,
+  });
+  assert.equal(nonProse.repaired, false);
+
+  const noCompletedSentence = repairLocalProseCompletionBoundary({
+    taskType: "chapter.continue",
+    content: "沈曜沿著沒有盡頭的石階追向前方逐漸熄滅的微光",
+    generatedTokenEvents: 192,
+    maxOutputTokens: 192,
+  });
+  assert.equal(noCompletedSentence.repaired, false);
 });
 
 test("no-silent-fallback", () => {

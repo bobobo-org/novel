@@ -19,6 +19,85 @@ export type LocalOllamaPerformanceBudget = {
   maxOutputTokens: number;
 };
 
+const LOCAL_DIRECT_PROSE_TASKS = new Set<PlatformAIRequest["taskType"]>([
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
+const COMPLETE_PROSE_BOUNDARIES = new Set([
+  "。",
+  "！",
+  "？",
+  "…",
+  "」",
+  "』",
+  "）",
+  "】",
+]);
+
+export type LocalProseCompletionBoundary = {
+  content: string;
+  repaired: boolean;
+  removedCharacters: number;
+};
+
+/**
+ * A small local model can consume its entire output budget while beginning one
+ * final sentence. Keep the completed model-authored prose and remove only that
+ * bounded, incomplete tail. This never invents text and intentionally leaves
+ * short or substantially truncated answers untouched so the quality gate can
+ * still reject them.
+ */
+export function repairLocalProseCompletionBoundary(input: {
+  taskType: PlatformAIRequest["taskType"];
+  content: string;
+  generatedTokenEvents: number;
+  maxOutputTokens: number;
+}): LocalProseCompletionBoundary {
+  const content = input.content.trimEnd();
+  if (
+    !LOCAL_DIRECT_PROSE_TASKS.has(input.taskType)
+    || input.generatedTokenEvents < input.maxOutputTokens
+    || !content
+    || COMPLETE_PROSE_BOUNDARIES.has(content.at(-1) ?? "")
+  ) {
+    return { content, repaired: false, removedCharacters: 0 };
+  }
+
+  let boundaryIndex = -1;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    if (COMPLETE_PROSE_BOUNDARIES.has(content[index] ?? "")) {
+      boundaryIndex = index;
+      break;
+    }
+  }
+  if (boundaryIndex < 0) {
+    return { content, repaired: false, removedCharacters: 0 };
+  }
+
+  const completedContent = content.slice(0, boundaryIndex + 1).trimEnd();
+  const removedCharacters = content.length - completedContent.length;
+  const maximumTail = Math.max(48, Math.floor(content.length * 0.25));
+  const retainsSubstantialAnswer = completedContent.length >= 48
+    && completedContent.length / content.length >= 0.55;
+  if (
+    !retainsSubstantialAnswer
+    || removedCharacters <= 0
+    || removedCharacters > maximumTail
+  ) {
+    return { content, repaired: false, removedCharacters: 0 };
+  }
+
+  return {
+    content: completedContent,
+    repaired: true,
+    removedCharacters,
+  };
+}
+
 export function resolveLocalOllamaPerformanceBudget(input: {
   modelId: string;
   qualityPreference?: PlatformAIRequest["qualityPreference"];
@@ -227,15 +306,22 @@ export async function runLocalOllama(
     firstTokenMs,
     tokenEvents,
   });
+  const normalizedContent = normalizeTraditionalChinesePreservingProperNouns(
+    content,
+    [request.input, ...request.context].join("\n"),
+  );
+  const completionBoundary = repairLocalProseCompletionBoundary({
+    taskType: request.taskType,
+    content: normalizedContent,
+    generatedTokenEvents: tokenEvents,
+    maxOutputTokens: effectiveProfile.options.num_predict,
+  });
   return {
     requestId: request.requestId,
     providerId: "local-ollama",
     modelId: decision.modelId,
     modelDigest: decision.modelDigest ?? null,
-    content: normalizeTraditionalChinesePreservingProperNouns(
-      content,
-      [request.input, ...request.context].join("\n"),
-    ),
+    content: completionBoundary.content,
     candidateOnly: true,
     externalRequest: false,
     dataLeavesDevice: false,
@@ -243,10 +329,12 @@ export async function runLocalOllama(
     provenance: decision,
     profileId: `${profile.profileId}:${
       request.qualityPreference ?? "balanced"
-    }-${effectiveProfile.options.num_predict}`,
+    }-${effectiveProfile.options.num_predict}${
+      completionBoundary.repaired ? ":completion-boundary-repaired" : ""
+    }`,
     firstTokenMs,
     inputCharacters: prompt.inputCharacters,
-    outputCharacters: content.length,
+    outputCharacters: completionBoundary.content.length,
     generatedTokenEvents: tokenEvents,
     omittedInputCharacters: prompt.omittedCharacters,
   };

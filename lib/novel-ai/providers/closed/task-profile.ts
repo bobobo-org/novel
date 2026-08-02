@@ -386,6 +386,10 @@ export function buildClosedAIModelPrompt(input: {
     : phase === "revision"
       ? "吸收檢查結果後，只輸出完整、可直接審核的最終候選。不要提及草稿、批評、代理流程或內部推理。"
       : "直接產生第一版完整候選；輸出前逐項核對作者要求，但不要描述內部推理。";
+  const proseCompletionBudget = phase !== "critic"
+    && DIRECT_PROSE_TASKS.has(input.profile.taskType)
+    ? `本輪最多生成 ${input.profile.options.num_predict} tokens。請預留至少 16 tokens 收束段落；寧可提前在完整句結束，也不得在句中截斷，最後一字必須是完整的中文句末標點。`
+    : null;
   const finalOutputContract = outputContract(input.profile.taskType, phase);
   const prompt = [
     `<工作類型>${input.profile.taskType}</工作類型>`,
@@ -417,6 +421,7 @@ export function buildClosedAIModelPrompt(input: {
     objective,
     "</作者目標>",
     phaseInstruction,
+    ...(proseCompletionBudget ? [proseCompletionBudget] : []),
     ...(continuityAnchor ? [continuityAnchor] : []),
     ...(finalOutputContract ? [finalOutputContract] : []),
   ].join("\n");
