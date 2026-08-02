@@ -473,15 +473,30 @@ test("quality-gate", () => {
   assert.ok(continuityDrift.reasonCodes.includes("QUALITY_TASK_FORM_MISMATCH"));
   assert.ok(continuityDrift.reasonCodes.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
   assert.equal(continuityDrift.canonicalMutationCount, 0);
+  const copiedContextInsteadOfContinuation = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    expectedMinTokens: 140,
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻了上來。少年鑄劍師陸沉握著那柄剛從廢爐裡撿出的斷劍，聽見劍脊深處傳來妹妹阿璃的聲音。街口的審夢司已架起銀色的收夢台。每個居民依序把一段記憶放進琉璃匣，換取本月的通行印。輪到陸沉時，斷劍忽然發熱，映出一條不存在於城圖上的下層通道。他若立即追查，便會失去合法身分；若照常繳稅，妹妹最後留下的聲音可能從此消失。審夢官抬起頭，像是已經認出了他手裡的劍。",
+    ],
+    content: "夢稅鐘敲到第七響時，浮空城的霧從橋底翻了上來。少年鑄劍師陸沉握著那柄剛從廢爐裡撿出的劍。他若立即追查，便會失去合法身分；若照常繳稅，妹妹最後留下的聲音可能從此消失。審夢官抬起頭，像是已經認出了他手裡的劍。",
+  });
+  assert.equal(copiedContextInsteadOfContinuation.decision, "block");
+  assert.ok(copiedContextInsteadOfContinuation.reasonCodes.includes("QUALITY_NARRATIVE_TOO_SHORT"));
+  assert.ok(copiedContextInsteadOfContinuation.reasonCodes.includes("QUALITY_CONTEXT_COPY_EXCESSIVE"));
+  assert.ok(copiedContextInsteadOfContinuation.reasonCodes.includes("QUALITY_NARRATIVE_PROGRESS_MISSING"));
+  assert.equal(copiedContextInsteadOfContinuation.canonicalMutationCount, 0);
   const anchoredContinuation = evaluateBrowserCandidateQuality({
     taskType: "chapter.continue",
     approvedContext: [
       "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台，審夢官抬頭認出了陸沉手中的斷劍。",
     ],
-    content: "審夢官的手剛碰到斷劍，劍脊便震出阿璃短促的警告。陸沉順勢打翻收夢台，讓琉璃匣的光霧遮住街口；他沒有逃向上城，反而踏入浮空城圖上不存在的下層通道，也因此失去了本月的合法通行印。",
+    content: "審夢官的手剛碰到斷劍，劍脊便震出阿璃短促的警告。陸沉順勢打翻收夢台，讓琉璃匣的光霧遮住街口；他沒有逃向上城，反而踏入浮空城圖上不存在的下層通道。石階在他身後逐級熄滅，城圖沒有標記的風從地底捲起，帶來與阿璃聲音相同的低語。陸沉扯下通行印卡住追兵的升降索，代價是印記當場碎裂，審夢司的警鐘也在頭頂響起。通道盡頭浮出一扇鑄著陸家劍紋的銅門；他尚未碰門，斷劍便自行嵌入鎖孔。阿璃急促地要他後退，門內卻傳來另一個與她一模一樣的聲音，說真正被收走的不是記憶，而是她醒來的可能。陸沉知道再往前一步便會成為無籍者，仍握住劍柄轉動機關，讓整座下層甦醒。",
   });
   assert.notEqual(anchoredContinuation.decision, "block");
   assert.ok(!anchoredContinuation.reasonCodes.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
+  assert.ok(!anchoredContinuation.reasonCodes.includes("QUALITY_CONTEXT_COPY_EXCESSIVE"));
+  assert.ok(!anchoredContinuation.reasonCodes.includes("QUALITY_NARRATIVE_PROGRESS_MISSING"));
 });
 
 test("creative-output-contract", () => {

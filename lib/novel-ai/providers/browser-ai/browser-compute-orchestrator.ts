@@ -462,7 +462,10 @@ export async function executeBrowserCompute(input: {
   const quality = evaluateBrowserCandidateQuality({
     taskType: input.request.taskType,
     content: result.content,
-    expectedMinTokens: eligibility.tier === "T1" ? 6 : 24,
+    expectedMinTokens: input.request.taskType === "chapter.continue"
+      || input.request.taskType === "chapter.expand"
+      ? 140
+      : eligibility.tier === "T1" ? 6 : 24,
     expectedMaxTokens: performancePolicy.reservedOutputTokens,
     requiresStructuredOutput: input.request.requiresStructured,
     approvedContext: executionRequest.context,

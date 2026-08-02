@@ -1,7 +1,7 @@
 import type { PlatformTaskType } from "../../router/platform-types";
 import { estimateBrowserTokens } from "./browser-performance-policy";
 
-export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v3" as const;
+export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v4" as const;
 
 export type BrowserQualityGateResult = {
   schemaVersion: typeof BROWSER_QUALITY_GATE_VERSION;
@@ -147,6 +147,62 @@ function contextAnchorMissing(input: {
   return !carriesRepeatedAnchor && !carriesSpecificAnchor;
 }
 
+const CONTINUATION_TASKS = new Set<PlatformTaskType>([
+  "chapter.continue",
+  "chapter.expand",
+]);
+
+function normalizedHan(value: string) {
+  return (value.match(/[\p{Script=Han}]/gu) ?? []).join("");
+}
+
+function contextNovelty(input: {
+  taskType: PlatformTaskType;
+  content: string;
+  approvedContext?: string[];
+}) {
+  if (!CONTINUATION_TASKS.has(input.taskType)) {
+    return {
+      excessiveReuse: false,
+      missingProgress: false,
+      reuseRatio: 0,
+      novelTrigramCount: 0,
+    };
+  }
+  const currentChapter = markedCurrentChapter(input.approvedContext);
+  const chapterHan = normalizedHan(currentChapter ?? "");
+  const candidateHan = normalizedHan(input.content);
+  if (chapterHan.length < 60 || candidateHan.length < 3) {
+    return {
+      excessiveReuse: false,
+      missingProgress: false,
+      reuseRatio: 0,
+      novelTrigramCount: 0,
+    };
+  }
+
+  const contextTrigrams = new Set<string>();
+  for (let index = 0; index <= chapterHan.length - 3; index += 1) {
+    contextTrigrams.add(chapterHan.slice(index, index + 3));
+  }
+  let reused = 0;
+  let novel = 0;
+  const candidateTrigramCount = Math.max(0, candidateHan.length - 2);
+  for (let index = 0; index <= candidateHan.length - 3; index += 1) {
+    if (contextTrigrams.has(candidateHan.slice(index, index + 3))) reused += 1;
+    else novel += 1;
+  }
+  const reuseRatio = candidateTrigramCount ? reused / candidateTrigramCount : 0;
+  const leadingSample = candidateHan.slice(0, Math.min(24, candidateHan.length));
+  const leadingCopied = leadingSample.length >= 12 && chapterHan.includes(leadingSample);
+  return {
+    excessiveReuse: reuseRatio >= 0.68 || leadingCopied,
+    missingProgress: novel < 24 || reuseRatio >= 0.78,
+    reuseRatio,
+    novelTrigramCount: novel,
+  };
+}
+
 function traditionalChineseScore(content: string) {
   const markers = content.match(SIMPLIFIED_ONLY_MARKERS)?.length ?? 0;
   return clamp(1 - markers / Math.max(8, content.length * 0.06));
@@ -193,6 +249,13 @@ export function evaluateBrowserCandidateQuality(input: {
     content,
     approvedContext: input.approvedContext,
   });
+  const narrativeTooShort = CONTINUATION_TASKS.has(input.taskType)
+    && tokenCount < expectedMin;
+  const novelty = contextNovelty({
+    taskType: input.taskType,
+    content,
+    approvedContext: input.approvedContext,
+  });
   const scores = {
     traditionalChinese: traditionalChineseScore(content),
     canonCompliance: clamp(1 - (input.canonConflictCount ?? 0) * 0.34),
@@ -206,7 +269,11 @@ export function evaluateBrowserCandidateQuality(input: {
       content,
       Boolean(input.requiresStructuredOutput),
     ),
-    taskUsefulness: taskFormMismatch ? 0.05 : usefulnessScore(content),
+    taskUsefulness: taskFormMismatch
+      || novelty.excessiveReuse
+      || novelty.missingProgress
+      ? 0.05
+      : usefulnessScore(content),
     lengthCompliance: tokenCount >= expectedMin && tokenCount <= expectedMax
       ? 1
       : tokenCount < expectedMin
@@ -236,6 +303,13 @@ export function evaluateBrowserCandidateQuality(input: {
   if (!content) reasonCodes.push("QUALITY_EMPTY_CANDIDATE");
   if (taskFormMismatch) reasonCodes.push("QUALITY_TASK_FORM_MISMATCH");
   if (missingContextAnchor) reasonCodes.push("QUALITY_CONTEXT_ANCHOR_MISSING");
+  if (narrativeTooShort) reasonCodes.push("QUALITY_NARRATIVE_TOO_SHORT");
+  if (novelty.excessiveReuse) {
+    reasonCodes.push("QUALITY_CONTEXT_COPY_EXCESSIVE");
+  }
+  if (novelty.missingProgress) {
+    reasonCodes.push("QUALITY_NARRATIVE_PROGRESS_MISSING");
+  }
   if (characterBoundaryLeakCount > 0) {
     reasonCodes.push("CHARACTER_KNOWLEDGE_BOUNDARY_LEAK");
   }
@@ -243,6 +317,9 @@ export function evaluateBrowserCandidateQuality(input: {
     || characterBoundaryLeakCount > 0
     || taskFormMismatch
     || missingContextAnchor
+    || narrativeTooShort
+    || novelty.excessiveReuse
+    || novelty.missingProgress
     || scores.structuredOutput === 0
     || scores.canonCompliance < 0.5;
   const decision = block
