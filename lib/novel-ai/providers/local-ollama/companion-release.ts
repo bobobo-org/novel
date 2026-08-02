@@ -1,9 +1,9 @@
 export const LOCAL_AI_COMPANION_RELEASE = {
   schemaVersion: "novel-local-ai-companion-release-v1",
-  version: "1.4.1",
-  filename: "novel-local-ai-companion-v1.4.1.zip",
-  downloadPath: "/downloads/novel-local-ai-companion-v1.4.1.zip",
-  sha256: "EC7E492EAC2232065D284861130A98A3B175D7CCA96818252DEC5CC8D0B79F05",
+  version: "1.4.2",
+  filename: "novel-local-ai-companion-v1.4.2.zip",
+  downloadPath: "/downloads/novel-local-ai-companion-v1.4.2.zip",
+  sha256: "EBDE6F88861A17C7C0DE6394F7380AEB20966D8110AC471BDA20313D467AE468",
   signed: false,
   minimumNodeMajor: 22,
   minimumBridgeVersion: "1.2.0",
@@ -11,6 +11,7 @@ export const LOCAL_AI_COMPANION_RELEASE = {
   minimumPrivateHubVersion: "1.1.0",
   recommendedPrivateHubVersion: "1.4.0",
   releaseNotes: [
+    "RC5: separates control-plane and inference rate limits, retries safe failed requests, and caches verified model proofs.",
     "正式站精確 Origin 可免配對碼自動取得短期本機工作階段。",
     "Bridge 或 Private Hub 重啟後可自動恢復連線與模型驗證。",
     "新增版本相容性與更新提示，不相容版本不會執行模型請求。",
