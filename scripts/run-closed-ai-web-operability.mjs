@@ -712,7 +712,14 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(legacyHtmlSource.includes("consumer-app.js?v=p24b-closed-ai-optimization-r2"));
   assert.ok(legacyHtmlSource.includes("consumer-app.css?v=p24b-closed-ai-truth-r2"));
   assert.ok(legacyHtmlSource.includes("sovereign-learning-entry.js?v=closed-ai-sovereign-learning-v2"));
-  assert.ok(serviceWorkerSource.includes("novel-system-unified-closed-ai-20260729-2"));
+  assert.ok(serviceWorkerSource.includes(
+    'const CACHE_VERSION = "novel-system-browser-sovereign-ai-fabric-rc5"',
+  ));
+  assert.equal(
+    serviceWorkerSource.includes("novel-system-unified-closed-ai-20260729-2"),
+    false,
+    "the RC5 worker must not retain the retired unified Closed AI cache identity",
+  );
 });
 
 const failed = results.filter((result) => result.status === "FAIL");
