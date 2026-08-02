@@ -9,6 +9,7 @@ const [
   setupWizard,
   coordinator,
   modelRecommendations,
+  globalStyles,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
@@ -17,6 +18,7 @@ const [
   readFile(new URL("../app/settings/local-ai/setup-wizard.tsx", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/web/closed-ai-runtime-coordinator.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/model-orchestration/recommended-models.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
 ]);
 
 const checks = [];
@@ -43,6 +45,12 @@ check("navigation saves first and only explicit confirmation can abandon edits",
   assert.match(navigation, /onNavigate\?: \(href: string, label: string\) => void \| Promise<void>/u);
   assert.match(navigation, /window\.location\.assign\(studioHomeHref\(projectId\)\)/u);
   assert.doesNotMatch(navigation, /<a\s/u);
+});
+
+check("studio rail scrolls without covering the final RPG command", () => {
+  assert.match(globalStyles, /\.studioRail\{display:flex;box-sizing:border-box;flex-direction:column;overflow:hidden\}/u);
+  assert.match(globalStyles, /\.studioRail nav\{flex:1;min-height:0;[^}]*overflow-y:auto/u);
+  assert.match(globalStyles, /\.studioLocalAI,\.studioProfessional\{position:static/u);
 });
 
 check("chapter changes stay explicit and chapter scoped", () => {

@@ -205,6 +205,13 @@ nav.p2ProjectNav .p2NavLabel{
 .studioWriteGate{min-width:0;margin:0;padding:0;border:0}.studioWriteGate:disabled{opacity:.72}.studioWriteGate:disabled button,.studioWriteGate:disabled input,.studioWriteGate:disabled select,.studioWriteGate:disabled textarea{cursor:not-allowed}.studioCreate[aria-disabled="true"]{cursor:not-allowed;opacity:.58}
 .studioTaskGrid button:disabled{cursor:wait;opacity:.7}
 .studioLocalAI{position:absolute;left:16px;right:16px;bottom:72px;display:block;width:auto;min-height:44px;padding:10px 12px;border:1px solid #3b715f;border-radius:10px;background:#102b26;color:#bdf2df;font-weight:800;text-align:left}
+/* RC5 keeps the rail actions from covering the last project command. Only the
+   menu scrolls; the workspace and the two persistent tools stay put. */
+.studioRail{display:flex;box-sizing:border-box;flex-direction:column;overflow:hidden}
+.studioBrand,.studioCreate{flex:none}
+.studioRail nav{flex:1;min-height:0;padding-right:2px;overflow-y:auto;overscroll-behavior:contain}
+.studioRail nav button{white-space:nowrap}
+.studioLocalAI,.studioProfessional{position:static;flex:none;width:100%;margin-top:8px}
 .frontdoorFooter a{display:inline-flex;min-height:44px;align-items:center}
 .studioLegacyMigration{position:relative;z-index:42;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;margin-left:232px;padding:15px 22px;border-bottom:1px solid #8e6b36;background:#261d0f;color:#f8e4b5}.studioLegacyMigration>div{display:grid;align-content:center;gap:5px}.studioLegacyMigration span,.studioLegacyMigration li{color:#d4dbea;line-height:1.45}.studioLegacyMigration ul{margin:4px 0 0;padding-left:20px}.studioLegacyMigration>div:last-child{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:7px}.studioLegacyMigration button,.studioLegacyMigration a{display:inline-flex;min-height:38px;align-items:center;padding:7px 10px;border:1px solid #5c7190;border-radius:8px;background:#102139;color:#edf4ff;font:inherit}.studioLegacyMigration button:disabled{cursor:wait;opacity:.65}
 @media(max-width:800px){.studioLegacyMigration{grid-template-columns:1fr;margin-left:0;padding:13px 14px}.studioLegacyMigration>div:last-child{justify-content:flex-start}}
