@@ -465,6 +465,7 @@ export async function executeBrowserCompute(input: {
     expectedMinTokens: eligibility.tier === "T1" ? 6 : 24,
     expectedMaxTokens: performancePolicy.reservedOutputTokens,
     requiresStructuredOutput: input.request.requiresStructured,
+    approvedContext: executionRequest.context,
     threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
   });
   const actualExecutor = result.executor ?? "browser-task-model";

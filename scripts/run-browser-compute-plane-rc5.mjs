@@ -462,13 +462,35 @@ test("quality-gate", () => {
   assert.equal(editorialInsteadOfProse.decision, "block");
   assert.ok(editorialInsteadOfProse.reasonCodes.includes("QUALITY_TASK_FORM_MISMATCH"));
   assert.equal(editorialInsteadOfProse.canonicalMutationCount, 0);
+  const continuityDrift = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台，審夢官抬頭認出了陸沉手中的斷劍。",
+    ],
+    content: "我將以高唐煥的選擇為例，繼續他的故事。一天清晨，他被戰鬥聲吵醒，於是向友軍求援。關於破陣的爭議、分析或建議都不適合插入；僅輸出可直接續寫正文的文本內容。",
+  });
+  assert.equal(continuityDrift.decision, "block");
+  assert.ok(continuityDrift.reasonCodes.includes("QUALITY_TASK_FORM_MISMATCH"));
+  assert.ok(continuityDrift.reasonCodes.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
+  assert.equal(continuityDrift.canonicalMutationCount, 0);
+  const anchoredContinuation = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    approvedContext: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】夢稅鐘敲到第七響時，浮空城的霧從橋底翻上來。少年鑄劍師陸沉握著斷劍，聽見妹妹阿璃的聲音。街口審夢司架起收夢台，審夢官抬頭認出了陸沉手中的斷劍。",
+    ],
+    content: "審夢官的手剛碰到斷劍，劍脊便震出阿璃短促的警告。陸沉順勢打翻收夢台，讓琉璃匣的光霧遮住街口；他沒有逃向上城，反而踏入浮空城圖上不存在的下層通道，也因此失去了本月的合法通行印。",
+  });
+  assert.notEqual(anchoredContinuation.decision, "block");
+  assert.ok(!anchoredContinuation.reasonCodes.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
 });
 
 test("creative-output-contract", () => {
   const profile = getClosedAIModelProfile("chapter.continue", "browser-ai");
   const prompt = buildClosedAIModelPrompt({
     objective: "續寫約三百字",
-    context: ["主角握住斷劍，審夢官已認出他。"],
+    context: [
+      "[current-chapter]\n【目前章節：第一章 斷劍中的聲音】主角陸沉握住斷劍，審夢官已認出他。浮空城的霧越過收夢台，妹妹阿璃的聲音再次從劍脊傳出。",
+    ],
     profile,
     qualityPhase: "draft",
     agentPlan: {
@@ -488,6 +510,9 @@ test("creative-output-contract", () => {
   assert.doesNotMatch(prompt.prompt, /critic：列出缺陷/u);
   assert.doesNotMatch(prompt.prompt, /evaluator：分析候選/u);
   assert.match(prompt.prompt, /不得反問作者/u);
+  assert.match(prompt.prompt, /<直接續寫依據>[\s\S]*陸沉[\s\S]*<\/直接續寫依據>/u);
+  assert.ok(prompt.prompt.indexOf("<直接續寫依據>") > prompt.prompt.indexOf("</作者目標>"));
+  assert.ok(prompt.prompt.indexOf("<直接續寫依據>") < prompt.prompt.indexOf("<最終輸出契約>"));
 });
 
 test("offload-routing", () => {

@@ -1,7 +1,7 @@
 import type { PlatformTaskType } from "../../router/platform-types";
 import { estimateBrowserTokens } from "./browser-performance-policy";
 
-export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v2" as const;
+export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v3" as const;
 
 export type BrowserQualityGateResult = {
   schemaVersion: typeof BROWSER_QUALITY_GATE_VERSION;
@@ -85,7 +85,66 @@ function narrativeTaskFormMismatch(
   const numberedItems = content.match(/(?:^|[\n\r]|\s)\d{1,2}[.．、)]\s*/gu)?.length ?? 0;
   const questions = content.match(/[？?]/gu)?.length ?? 0;
   const explicitEditorialFrame = /(?:爭議環節|問題清單|以下(?:問題|分析|建議)|請(?:提問|分析)|創作建議|修訂建議)/u.test(content);
-  return explicitEditorialFrame || (numberedItems >= 3 && questions >= 3);
+  const metaIntroduction = /^(?:我將|以下|接下來)[\s\S]{0,80}(?:續寫|故事|小說|選擇)/u.test(content.trim());
+  const leakedInstruction = /(?:(?:關於|針對)[\s\S]{0,40}(?:爭議|分析|建議)[\s\S]{0,40}(?:不適合|禁止|不應)[\s\S]{0,50}(?:輸出|插入)|(?:僅|只)輸出[\s\S]{0,50}(?:正文|文本))/u.test(content);
+  return explicitEditorialFrame
+    || metaIntroduction
+    || leakedInstruction
+    || (numberedItems >= 3 && questions >= 3);
+}
+
+const CONTEXT_BIGRAM_STOP_WORDS = new Set([
+  "一個", "這個", "那個", "自己", "他們", "她們", "沒有", "不是", "可以",
+  "已經", "仍然", "如果", "因為", "所以", "但是", "然而", "現在", "開始",
+  "最後", "可能", "需要", "必須", "主角", "故事", "人物", "目前", "其中",
+]);
+
+const CONTEXT_TRIGRAM_STOP_WORDS = new Set([
+  "一個人", "這個人", "那個人", "他們的", "她們的", "自己的", "沒有了",
+  "不知道", "不可能", "有一天", "這一天", "就在這", "這時候", "那時候",
+  "故事中", "主角的", "目前的", "最後的", "開始了", "決定要", "必須要",
+]);
+
+function markedCurrentChapter(approvedContext: string[] | undefined) {
+  const marked = approvedContext?.find((item) =>
+    /^\s*(?:\[current-chapter\]|【目前章節[：:])/iu.test(item));
+  return marked
+    ?.replace(/^\s*\[current-chapter\]\s*/iu, "")
+    .trim() ?? null;
+}
+
+function hanSegments(value: string) {
+  return value.match(/[\p{Script=Han}]{2,}/gu) ?? [];
+}
+
+function contextAnchorMissing(input: {
+  taskType: PlatformTaskType;
+  content: string;
+  approvedContext?: string[];
+}) {
+  if (!DIRECT_NARRATIVE_TASKS.has(input.taskType)) return false;
+  const currentChapter = markedCurrentChapter(input.approvedContext);
+  if (!currentChapter || currentChapter.length < 60) return false;
+
+  const bigramCounts = new Map<string, number>();
+  const trigrams = new Set<string>();
+  for (const segment of hanSegments(currentChapter)) {
+    for (let index = 0; index <= segment.length - 2; index += 1) {
+      const gram = segment.slice(index, index + 2);
+      bigramCounts.set(gram, (bigramCounts.get(gram) ?? 0) + 1);
+    }
+    for (let index = 0; index <= segment.length - 3; index += 1) {
+      const gram = segment.slice(index, index + 3);
+      if (!CONTEXT_TRIGRAM_STOP_WORDS.has(gram)) trigrams.add(gram);
+    }
+  }
+  const repeatedBigrams = [...bigramCounts.entries()]
+    .filter(([gram, count]) => count >= 2 && !CONTEXT_BIGRAM_STOP_WORDS.has(gram))
+    .map(([gram]) => gram);
+  const candidate = input.content.replace(/\s+/gu, "");
+  const carriesRepeatedAnchor = repeatedBigrams.some((gram) => candidate.includes(gram));
+  const carriesSpecificAnchor = [...trigrams].some((gram) => candidate.includes(gram));
+  return !carriesRepeatedAnchor && !carriesSpecificAnchor;
 }
 
 function traditionalChineseScore(content: string) {
@@ -117,6 +176,7 @@ export function evaluateBrowserCandidateQuality(input: {
   continuityIssueCount?: number;
   characterBoundaryLeakCount?: number;
   characterVoiceScore?: number;
+  approvedContext?: string[];
   threshold?: number;
 }): BrowserQualityGateResult {
   const content = input.content.trim();
@@ -128,11 +188,18 @@ export function evaluateBrowserCandidateQuality(input: {
     input.characterBoundaryLeakCount ?? 0,
   );
   const taskFormMismatch = narrativeTaskFormMismatch(input.taskType, content);
+  const missingContextAnchor = contextAnchorMissing({
+    taskType: input.taskType,
+    content,
+    approvedContext: input.approvedContext,
+  });
   const scores = {
     traditionalChinese: traditionalChineseScore(content),
     canonCompliance: clamp(1 - (input.canonConflictCount ?? 0) * 0.34),
     characterVoice: clamp(input.characterVoiceScore ?? 0.82),
-    continuity: clamp(1 - (input.continuityIssueCount ?? 0) * 0.25),
+    continuity: missingContextAnchor
+      ? 0.15
+      : clamp(1 - (input.continuityIssueCount ?? 0) * 0.25),
     specificity: specificityScore(content),
     repetition: repetitionScore(content),
     structuredOutput: structuredOutputScore(
@@ -168,12 +235,14 @@ export function evaluateBrowserCandidateQuality(input: {
   }
   if (!content) reasonCodes.push("QUALITY_EMPTY_CANDIDATE");
   if (taskFormMismatch) reasonCodes.push("QUALITY_TASK_FORM_MISMATCH");
+  if (missingContextAnchor) reasonCodes.push("QUALITY_CONTEXT_ANCHOR_MISSING");
   if (characterBoundaryLeakCount > 0) {
     reasonCodes.push("CHARACTER_KNOWLEDGE_BOUNDARY_LEAK");
   }
   const block = !content
     || characterBoundaryLeakCount > 0
     || taskFormMismatch
+    || missingContextAnchor
     || scores.structuredOutput === 0
     || scores.canonCompliance < 0.5;
   const decision = block

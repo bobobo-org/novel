@@ -239,6 +239,31 @@ function compactText(value: string, limit: number) {
   return `${normalized.slice(0, head)}${marker}${normalized.slice(-(available - head))}`;
 }
 
+const CURRENT_CHAPTER_CONTEXT_MARKER = /^\s*(?:\[current-chapter\]|【目前章節[：:])/iu;
+
+function directProseContinuityAnchor(input: {
+  taskType: PlatformTaskType;
+  phase: "draft" | "critic" | "revision";
+  context: string[];
+}) {
+  if (input.phase === "critic" || !DIRECT_PROSE_TASKS.has(input.taskType)) {
+    return null;
+  }
+  const currentChapter = input.context.find((item) =>
+    CURRENT_CHAPTER_CONTEXT_MARKER.test(item));
+  if (!currentChapter) return null;
+  const chapterText = currentChapter
+    .replace(/^\s*\[current-chapter\]\s*/iu, "")
+    .trim();
+  if (!chapterText) return null;
+  return [
+    "<直接續寫依據>",
+    compactText(chapterText, 1_600),
+    "</直接續寫依據>",
+    "必須沿用上方已出現的人物、地點、物件與當前衝突；禁止改用另一篇故事的人物、年代、戰爭或背景。",
+  ].join("\n");
+}
+
 function outputContract(
   taskType: PlatformTaskType,
   phase: "draft" | "critic" | "revision",
@@ -312,7 +337,14 @@ export function buildClosedAIModelPrompt(input: {
       seen.add(key);
       return true;
     });
-  const structuralReserve = 1_050 + objective.length;
+  const continuityAnchor = directProseContinuityAnchor({
+    taskType: input.profile.taskType,
+    phase,
+    context,
+  });
+  const structuralReserve = 1_050
+    + objective.length
+    + (continuityAnchor?.length ?? 0);
   const remaining = Math.max(0, input.profile.maxInputCharacters - structuralReserve);
   const workingBudget = workingSources.length ? Math.floor(remaining * 0.38) : 0;
   const evidenceBudget = toolSources.length || planSources.length
@@ -375,6 +407,7 @@ export function buildClosedAIModelPrompt(input: {
     objective,
     "</作者目標>",
     phaseInstruction,
+    ...(continuityAnchor ? [continuityAnchor] : []),
     ...(finalOutputContract ? [finalOutputContract] : []),
   ].join("\n");
   return {
