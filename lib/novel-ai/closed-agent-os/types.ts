@@ -77,6 +77,9 @@ export type ClosedAIProgressEvent = {
   occurredAt: string;
   backendId?: ClosedAIBackendId;
   generatedCharacters?: number;
+  /** User-visible model output only; never contains prompts or chain-of-thought. */
+  delta?: string;
+  generatedTokenEvents?: number;
   cacheHit?: boolean;
 };
 
@@ -223,6 +226,8 @@ export type ClosedBackendExecutionResult = {
   criticDigest: string | null;
   actualExecutor?: string;
   browserComputeReceiptId?: string;
+  browserFabricReceiptId?: string;
+  browserFabricPlannedGraph?: string[];
   browserContextTokensBefore?: number;
   browserContextTokensAfter?: number;
   browserTokensSaved?: number;
@@ -273,6 +278,8 @@ export type ClosedAIExecutionReceipt = {
   externalRequest: boolean;
   actualExecutor?: string;
   browserComputeReceiptId?: string;
+  browserFabricReceiptId?: string;
+  browserFabricPlannedGraph?: string[];
   contextTokensBefore?: number;
   contextTokensAfter?: number;
   tokensSaved?: number;
@@ -319,6 +326,8 @@ export type ClosedAgentCandidate = {
     draftDigest: string | null;
     criticDigest: string | null;
     browserComputeReceiptId?: string;
+    browserFabricReceiptId?: string;
+    browserFabricPlannedGraph?: string[];
     contextTokensBefore?: number;
     contextTokensAfter?: number;
     tokensSaved?: number;

@@ -15,13 +15,16 @@ function Write-LauncherError([string]$Code, [string]$Message, [string]$NextStep)
 }
 
 $nodeCandidates = @()
-if ($env:NOVEL_NODE_PATH) { $nodeCandidates += $env:NOVEL_NODE_PATH }
-$nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
-if ($nodeCommand) { $nodeCandidates += $nodeCommand.Source }
-$nodeCandidates += @(
-  (Join-Path $env:ProgramFiles 'nodejs\node.exe'),
-  (Join-Path ${env:ProgramFiles(x86)} 'nodejs\node.exe')
-)
+$forceNodeMissing = $env:BRIDGE_TEST_MODE -eq '1' -and $env:NOVEL_BRIDGE_TEST_FORCE_NODE_MISSING -eq '1'
+if (-not $forceNodeMissing) {
+  if ($env:NOVEL_NODE_PATH) { $nodeCandidates += $env:NOVEL_NODE_PATH }
+  $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($nodeCommand) { $nodeCandidates += $nodeCommand.Source }
+  $nodeCandidates += @(
+    (Join-Path $env:ProgramFiles 'nodejs\node.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'nodejs\node.exe')
+  )
+}
 $nodePath = $nodeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
 
 if (-not $nodePath) {

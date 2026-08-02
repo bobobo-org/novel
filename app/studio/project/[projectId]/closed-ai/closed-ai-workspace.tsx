@@ -110,7 +110,10 @@ import {
   rankPrivateModels,
   type PrivateModelFleetProfile,
 } from "@/lib/novel-ai/model-orchestration/private-model-fleet";
-import { RECOMMENDED_LOCAL_WRITER_MODEL } from "@/lib/novel-ai/model-orchestration/recommended-models";
+import {
+  FAST_LOCAL_WRITER_MODEL,
+  RECOMMENDED_LOCAL_WRITER_MODEL,
+} from "@/lib/novel-ai/model-orchestration/recommended-models";
 import { createSovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import {
   sealFormalPreferenceDataset,
@@ -223,6 +226,13 @@ const QUALITY_LABELS: Record<ClosedAIQualityMode | "auto", string> = {
   deep: "深度（草稿＋反方檢查＋修訂）",
 };
 
+const WORKSPACE_PREFERENCE_SCHEMA_VERSION =
+  "closed-ai-workspace-preferences-v1" as const;
+
+function workspacePreferenceKey(projectId: string) {
+  return `novel:closed-ai-workspace-preferences:${projectId}`;
+}
+
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
   if (status === "ready") return "模型運作中";
   if (status === "contract_ready_runtime_not_connected") return "安全契約完成，算力未連線";
@@ -295,6 +305,9 @@ function runtimeError(error: unknown) {
 
 function automaticConnectionFailure(error: unknown, label: string) {
   const code = String((error as { code?: string })?.code ?? "");
+  if (code === "PRIVATE_HUB_DEFERRED") {
+    return `${label} 會在重型任務需要時自動連接，不會與快速本機寫作搶算力。`;
+  }
   if (code === "BRIDGE_PROCESS_UNREACHABLE" || code === "REQUEST_TIMEOUT") {
     return `${label} 尚未在這台電腦啟動`;
   }
@@ -411,6 +424,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     "browser-first",
   );
   const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
+  const [workspacePreferenceHydrated, setWorkspacePreferenceHydrated] =
+    useState(false);
   const [objective, setObjective] = useState(
     TASKS.find((task) => task.id === "chapter.continue")!.defaultObjective,
   );
@@ -472,6 +487,44 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     && selectedBrowserModel.shardIntegrityVerified
     ? `${selectedBrowserModel.modelId}:${selectedBrowserModel.modelDigest}`
     : null;
+
+  useEffect(() => {
+    const restorePreference = window.setTimeout(() => {
+      try {
+        const raw = window.sessionStorage.getItem(workspacePreferenceKey(projectId));
+        const saved = raw
+          ? JSON.parse(raw) as { schemaVersion?: string; backend?: string }
+          : null;
+        if (
+          saved?.schemaVersion === WORKSPACE_PREFERENCE_SCHEMA_VERSION
+          && saved.backend
+          && (saved.backend === "auto"
+            || CLOSED_AI_BACKEND_IDS.includes(saved.backend as ClosedAIBackendId))
+        ) {
+          const restored = saved.backend as ClosedAIBackendId | "auto";
+          setBackend(restored);
+          if (restored !== "auto") setComputePolicy("manual");
+        }
+      } catch {
+        // A corrupt UI preference must not affect Canon, pairing, or execution.
+      } finally {
+        setWorkspacePreferenceHydrated(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(restorePreference);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!workspacePreferenceHydrated) return;
+    try {
+      window.sessionStorage.setItem(workspacePreferenceKey(projectId), JSON.stringify({
+        schemaVersion: WORKSPACE_PREFERENCE_SCHEMA_VERSION,
+        backend,
+      }));
+    } catch {
+      // Session preference persistence is optional; runtime truth is not.
+    }
+  }, [backend, projectId, workspacePreferenceHydrated]);
 
   useEffect(() => {
     const unsubscribeWebLlm = subscribeBrowserWebLLMProgress(setBrowserWebLlmProgress);
@@ -884,6 +937,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     (snapshot) => snapshot.id === executionBackendId,
   );
   const executionReady = runtimeRoute.executionStatus === "routable";
+  const localExecutionSnapshot = snapshots.find(
+    (snapshot) => snapshot.id === "local-ollama",
+  );
+  const explicitLocalEscalationAvailable = backend !== "local-ollama"
+    && selectedTask?.complexity !== "heavy"
+    && backendCanRun(localExecutionSnapshot, selectedTask);
   const fleetRequest = useMemo(() => ({
     taskType,
     complexity: selectedTask?.complexity ?? "light",
@@ -927,15 +986,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const refreshRuntimes = useCallback(async () => {
     if (!currentOrigin) return;
     setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
-    await runtimeCoordinator.refresh({
-      projectId,
-      taskType,
-      storyBibleRevision,
-      knowledgeScopeRevision,
-      policy: {
-        preferredBackend: backend === "auto" ? undefined : backend,
-      },
-    });
     const browserProbe = Promise.all([
       detectBrowserAI(),
       browserWebLLMRuntimeSnapshot().catch(() => null),
@@ -949,26 +999,35 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       setBrowserProof(getBrowserAIInferenceProof());
       return { browser, semantic };
     });
-    const localProbe = (async () => {
+    const localProbe = (async (): Promise<{ ready: boolean; detail: string }> => {
       const startedAt = performance.now();
+      const probeSignal = AbortSignal.timeout(15_000);
       try {
-        const health = await localClient.health();
+        const health = await localClient.health(probeSignal);
         setLocalRuntimeVersion(health.bridgeVersion ?? null);
         setLocalTelemetry(runtimeTelemetry(health, startedAt));
-        if (!health.runtimeReady || !localClient.getSessionMetadata()) {
+        if (!health.runtimeReady) {
           setLocalModels([]);
           setLocalProof(null);
           configureLocalBridgeClient(null);
           configureLocalBridgeModel(null);
-          return false;
+          return { ready: false, detail: "Ollama 尚未啟動或沒有可用模型" };
         }
-        const response = await localClient.models();
+        if (!localClient.getSessionMetadata()) {
+          setLocalModels([]);
+          setLocalProof(null);
+          configureLocalBridgeClient(null);
+          configureLocalBridgeModel(null);
+          return { ready: false, detail: "尚未取得此網站的短期工作階段" };
+        }
+        const response = await localClient.models(probeSignal);
         const available = response.models.filter(
           (model) => model.capabilities?.textGeneration?.value === true,
         );
+        const verifiedModelId = localClient.getModelVerification()?.modelId ?? "";
         const selected = selectAvailableTextModel(
           available,
-          localModelId || RECOMMENDED_LOCAL_WRITER_MODEL,
+          verifiedModelId || localModelId || FAST_LOCAL_WRITER_MODEL,
         ) || "";
         setLocalModels(available);
         setLocalModelId(selected);
@@ -976,21 +1035,32 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         configureLocalBridgeModel(selected || null);
         const proof = selected ? localClient.getModelVerification(selected) : null;
         setLocalProof(proof);
-        return Boolean(proof);
-      } catch {
+        return proof
+          ? { ready: true, detail: `${selected} 已完成真實推理` }
+          : {
+            ready: false,
+            detail: selected
+              ? `${selected} 尚未保留真實推理證明`
+              : "未找到文字生成模型",
+          };
+      } catch (error) {
         setLocalRuntimeVersion(null);
         setLocalModels([]);
         setLocalProof(null);
         setLocalTelemetry(null);
         configureLocalBridgeClient(null);
         configureLocalBridgeModel(null);
-        return false;
+        return {
+          ready: false,
+          detail: automaticConnectionFailure(error, "Local Ollama"),
+        };
       }
     })();
-    const hubProbe = (async () => {
+    const hubProbe = (async (): Promise<{ ready: boolean; detail: string }> => {
       const startedAt = performance.now();
+      const probeSignal = AbortSignal.timeout(10_000);
       try {
-        const health = await hubClient.health();
+        const health = await hubClient.health(probeSignal);
         setHubRuntimeVersion(health.hubVersion ?? null);
         setHubTelemetry(runtimeTelemetry(health, startedAt));
         if (!health.runtimeReady || !hubClient.getSessionMetadata()) {
@@ -999,15 +1069,21 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           setTrainingModels([]);
           configurePrivateHubClient(null);
           configurePrivateHubModel(null);
-          return false;
+          return {
+            ready: false,
+            detail: health.runtimeReady
+              ? "尚未取得此網站的短期工作階段"
+              : "Private Hub 尚未啟動",
+          };
         }
-        const response = await hubClient.models();
+        const response = await hubClient.models(probeSignal);
         const available = response.models.filter(
           (model) => model.capabilities?.textGeneration?.value === true,
         );
+        const verifiedModelId = hubClient.getModelVerification()?.modelId ?? "";
         const selected = selectAvailableTextModel(
           available,
-          hubModelId || RECOMMENDED_LOCAL_WRITER_MODEL,
+          verifiedModelId || hubModelId || RECOMMENDED_LOCAL_WRITER_MODEL,
         ) || "";
         setHubModels(available);
         setHubModelId(selected);
@@ -1016,10 +1092,17 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         configurePrivateHubProject(projectId);
         const proof = selected ? hubClient.getModelVerification(selected) : null;
         setHubProof(proof);
-        const trained = await hubClient.listPreferenceModels(projectId);
+        const trained = await hubClient.listPreferenceModels(projectId, probeSignal);
         setTrainingModels(trained);
-        return Boolean(proof);
-      } catch {
+        return proof
+          ? { ready: true, detail: `${selected} 已完成真實推理` }
+          : {
+            ready: false,
+            detail: selected
+              ? `${selected} 尚未保留真實推理證明`
+              : "未找到文字生成模型",
+          };
+      } catch (error) {
         setHubRuntimeVersion(null);
         setHubModels([]);
         setHubProof(null);
@@ -1027,10 +1110,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setHubTelemetry(null);
         configurePrivateHubClient(null);
         configurePrivateHubModel(null);
-        return false;
+        return {
+          ready: false,
+          detail: automaticConnectionFailure(error, "Private Hub"),
+        };
       }
     })();
-    const [browserResult, localReady, hubReady] = await Promise.all([
+    const [browserResult, localResult, hubResult] = await Promise.all([
       browserProbe,
       localProbe,
       hubProbe,
@@ -1044,22 +1130,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ? "瀏覽器模型待下載"
         : "此裝置不支援瀏覽器 AI";
     setRuntimeStatus(
-      `${browserState}；語意檢索 ${browserResult.semantic?.model.cacheVerified ? "已驗證" : "等待安裝／驗證"}；Local Bridge ${localReady ? "模型已實測" : passwordlessConnectionEnabled ? "等待啟動／自動連線／實測" : "等待啟動／配對／實測"}；Private Hub ${hubReady ? "模型已實測" : passwordlessConnectionEnabled ? "等待啟動／自動連線／實測" : "等待啟動／配對／實測"}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
+      `${browserState}；語意檢索 ${browserResult.semantic?.model.cacheVerified ? "已驗證" : "等待安裝／驗證"}；Local Bridge ${localResult.ready ? "模型已實測" : localResult.detail}；Private Hub ${hubResult.ready ? "模型已實測" : hubResult.detail}；離線殼 ${offlineWorkerControlled ? "已接管" : "首次快取中"}。`,
     );
   }, [
-    backend,
     currentOrigin,
     hubClient,
     hubModelId,
-    knowledgeScopeRevision,
     localClient,
     localModelId,
     offlineWorkerControlled,
-    passwordlessConnectionEnabled,
     projectId,
-    runtimeCoordinator,
-    storyBibleRevision,
-    taskType,
   ]);
 
   const refresh = useCallback(async (announce = true) => {
@@ -1101,26 +1181,92 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeBusy(true);
     setRuntimeStatus("正在直接連接這台電腦的閉端 AI；不需要輸入密碼或配對碼。");
     try {
-      const result = await runtimeCoordinator.connectAutomatically();
       const messages: string[] = [];
-      if (result.localOllama.status === "fulfilled") {
+      const localConnection = runtimeCoordinator.connectLocalAutomatically().then(
+        (value) => ({ status: "fulfilled", value } as const),
+        (reason: unknown) => ({ status: "rejected", reason } as const),
+      );
+      const selectedTask = TASKS.find((task) => task.id === taskType);
+      const shouldConnectPrivateHub = backend === "private-ai-hub"
+        || selectedTask?.complexity === "heavy";
+      const privateHubConnection = shouldConnectPrivateHub
+        ? runtimeCoordinator.connectPrivateHubAutomatically().then(
+          (value) => ({ status: "fulfilled", value } as const),
+          (reason: unknown) => ({ status: "rejected", reason } as const),
+        )
+        : Promise.resolve({
+          status: "rejected",
+          reason: Object.assign(
+            new Error("Private Hub connection deferred until a heavy task requires it."),
+            { code: "PRIVATE_HUB_DEFERRED" },
+          ),
+        } as const);
+      const localResult = await localConnection;
+      if (localResult.status === "fulfilled") {
         setLocalPairing(null);
-        setLocalModelId(result.localOllama.value.model.modelId);
-        setLocalProof(result.localOllama.value.proof);
-        messages.push(`Local Ollama 已直接連線（${result.localOllama.value.model.modelId}）`);
+        setLocalModelId(localResult.value.model.modelId);
+        setLocalProof(localResult.value.proof);
+        // Publish the verified Local route immediately. The full dashboard
+        // refresh also probes an optional Private Hub and must not make a
+        // ready loopback model look unavailable while that probe finishes.
+        setSnapshots((current) => {
+          const previous = current.find((item) => item.id === "local-ollama");
+          const readyLocal: ClosedAIBackendSnapshot = {
+            id: "local-ollama",
+            label: previous?.label ?? "個人本機 Ollama",
+            status: "ready",
+            modelId: localResult.value.model.modelId,
+            modelDigest: localResult.value.proof.modelDigest
+              ?? localResult.value.model.modelDigest
+              ?? null,
+            local: true,
+            dataBoundary: "device",
+            maximumComplexity: "standard",
+            capabilities: ["text", "structured", "streaming", "offline"],
+            supportedTaskTypes: "all",
+            detailCode: "model_inference_verified",
+            maxContext: Number(
+              localResult.value.model.contextLength?.value ?? 0,
+            ),
+            controlLatencyMs: localResult.value.proof.latencyMs,
+            qualityClass: "standard",
+          };
+          return [
+            ...current.filter((item) => item.id !== "local-ollama"),
+            readyLocal,
+          ];
+        });
+        messages.push(`Local Ollama 已直接連線（${localResult.value.model.modelId}）`);
       } else {
-        messages.push(automaticConnectionFailure(result.localOllama.reason, "Local Ollama"));
+        messages.push(automaticConnectionFailure(localResult.reason, "Local Ollama"));
       }
-      if (result.privateHub.status === "fulfilled") {
+      setRuntimeStatus(`${messages.join("；")}。Private Hub 正在背景核對；Local 路由不必等待它。`);
+      try {
+        await refresh(false);
+      } catch (error) {
+        setRuntimeStatus(
+          `${messages.join("；")}。Local 後端真相同步失敗：${runtimeError(error)}`,
+        );
+      }
+
+      const privateHubResult = await privateHubConnection;
+      if (privateHubResult.status === "fulfilled") {
         setHubPairing(null);
-        setHubModelId(result.privateHub.value.model.modelId);
-        setHubProof(result.privateHub.value.proof);
-        messages.push(`Private Hub 已直接連線（${result.privateHub.value.model.modelId}）`);
+        setHubModelId(privateHubResult.value.model.modelId);
+        setHubProof(privateHubResult.value.proof);
+        messages.push(`Private Hub 已直接連線（${privateHubResult.value.model.modelId}）`);
       } else {
-        messages.push(automaticConnectionFailure(result.privateHub.reason, "Private Hub"));
+        messages.push(automaticConnectionFailure(privateHubResult.reason, "Private Hub"));
       }
-      await refresh(false);
-      setRuntimeStatus(`${messages.join("；")}。Browser AI 會依裝置能力直接使用。`);
+      setRuntimeStatus(`${messages.join("；")}。正在同步 Closed Agent OS 後端真相。`);
+      try {
+        await refresh(false);
+        setRuntimeStatus(`${messages.join("；")}。Browser AI 會依裝置能力直接使用。`);
+      } catch (error) {
+        setRuntimeStatus(
+          `${messages.join("；")}。後端真相同步失敗：${runtimeError(error)}`,
+        );
+      }
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
     } finally {
@@ -1128,7 +1274,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       automaticConnectionRunning.current = false;
       setRuntimeBusy(false);
     }
-  }, [refresh, runtimeCoordinator]);
+  }, [backend, refresh, runtimeCoordinator, taskType]);
 
   useEffect(() => {
     runtimeCoordinator.setRememberPairingWithinTab(rememberPairing);
@@ -1143,6 +1289,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }, 0);
     return () => window.clearTimeout(initialization);
   }, [connectRuntimesAutomatically, currentOrigin]);
+
+  useEffect(() => {
+    if (!currentOrigin || hubProof) return;
+    const selectedTask = TASKS.find((task) => task.id === taskType);
+    if (backend !== "private-ai-hub" && selectedTask?.complexity !== "heavy") {
+      return;
+    }
+    const deferredConnection = window.setTimeout(() => {
+      void connectRuntimesAutomatically();
+    }, 0);
+    return () => window.clearTimeout(deferredConnection);
+  }, [backend, connectRuntimesAutomatically, currentOrigin, hubProof, taskType]);
 
   useEffect(() => {
     if (!currentOrigin) return;
@@ -1198,6 +1356,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeStatus(`正在安裝 ${manifest.displayName}；可隨時停止，未完成的模型不會標記為可用。`);
     try {
       const snapshot = await installBrowserWebLLMModel(modelId, {
+        userInitiated: true,
         signal: controller.signal,
         onProgress: setBrowserWebLlmProgress,
       });
@@ -1269,7 +1428,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     if (!window.confirm(`確定從此裝置刪除 ${manifest?.displayName ?? modelId} 的模型快取？`)) return;
     setRuntimeBusy(true);
     try {
-      const snapshot = await deleteBrowserWebLLMModel(modelId);
+      const snapshot = await deleteBrowserWebLLMModel(modelId, { userConfirmed: true });
       setBrowserWebLlm(snapshot);
       setBrowserProof(null);
       setRuntimeStatus(`${manifest?.displayName ?? modelId} 已從此裝置刪除。`);
@@ -1449,7 +1608,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const available = response.models.filter(
         (model) => model.capabilities?.textGeneration?.value === true,
       );
-      const selected = selectAvailableTextModel(available, RECOMMENDED_LOCAL_WRITER_MODEL) || "";
+      const selected = selectAvailableTextModel(available, FAST_LOCAL_WRITER_MODEL) || "";
       setLocalModels(available);
       if (!selected) throw Object.assign(new Error("沒有可生成文字的本機模型。"), {
         code: "OLLAMA_MODEL_NOT_FOUND",
@@ -2587,7 +2746,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 : selectedTask?.complexity === "standard"
                   ? "請先安裝、驗證並實測 Browser AI；若工作超過瀏覽器能力，系統會先詢問，不會暗中切換 Local Ollama。"
                   : "請先完成可執行後端的實際模型測試。"}</p>
-            {!executionReady ? <button
+            {!executionReady && explicitLocalEscalationAvailable ? <button
+              type="button"
+              className={styles.primary}
+              data-testid="closed-ai-use-local-ollama"
+              onClick={() => {
+                setComputePolicy("manual");
+                setBackend("local-ollama");
+                setRuntimeStatus("已由你明確選擇 Local Ollama；後端已鎖定，本次失敗不會偷換模型。");
+              }}
+            >
+              使用已連線的 Local Ollama
+            </button> : !executionReady ? <button
               type="button"
               className={styles.secondary}
               onClick={() => document.getElementById("backend-title")?.scrollIntoView({

@@ -184,9 +184,14 @@ export class RequestLedger {
     const existing = this.records.get(requestId);
     if (existing) {
       if (existing.identityHash !== identityHash) throw new BridgeError("LOCAL_REQUEST_IDENTITY_MISMATCH", "Request ID was reused with different input.", 409);
+      if (["failed", "cancelled"].includes(existing.status)) {
+        this.records.set(requestId, { identityHash, status: "running", updatedAt: now });
+        return { restarted: true, previousStatus: existing.status };
+      }
       throw new BridgeError("LOCAL_DUPLICATE_REQUEST", `Request already ${existing.status}.`, 409, false, { requestStatus: existing.status });
     }
     this.records.set(requestId, { identityHash, status: "running", updatedAt: now });
+    return { restarted: false, previousStatus: null };
   }
   finish(requestId, status) { const record = this.records.get(requestId); if (record) this.records.set(requestId, { ...record, status, updatedAt: Date.now() }); }
 }

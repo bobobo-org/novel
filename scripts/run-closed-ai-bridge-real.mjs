@@ -5,7 +5,8 @@ import { BRIDGE_PROTOCOL } from "../local-ai/bridge/bridge-core.mjs";
 import { createBridgeServer } from "../local-ai/bridge/server.mjs";
 
 const origin = "http://127.0.0.1:3000";
-const base = "http://127.0.0.1:3217";
+const bridgePort = Number(process.env.BRIDGE_TEST_PORT || 33_217);
+const base = `http://127.0.0.1:${bridgePort}`;
 const results = [];
 const timings = [];
 async function test(name, work) { const started = performance.now(); try { const evidence = await work(); results.push({ name, status: "PASS", elapsedMs: Math.round(performance.now() - started), evidence }); } catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); } }
@@ -37,7 +38,7 @@ async function generate(session, body, onEvent) {
   return { text, completed, finalEvent, firstTokenMs, totalMs };
 }
 
-const bridge = createBridgeServer({ testMode: true });
+const bridge = createBridgeServer({ testMode: true, port: bridgePort });
 await bridge.start();
 let session;
 let selectedModel;
@@ -79,7 +80,7 @@ try {
     ["story-bible", `根據這份短篇Story Bible續寫80至140字，不得讓林昭知道館長藏鑰匙，也不得離開圖書館：${fixture}`],
     ["continuity", `只寫一句繁體中文後續。必須保留林昭二十八歲、仍在圖書館、尚不知道鑰匙真相：${fixture}`],
   ];
-  for (const [taskType, prompt] of tasks) await test(`real generation:${taskType}`, async () => { const output = await generate(session, { requestId: `phase1-${taskType}-0001`, model: selectedModel.modelId, prompt, taskType, timeoutMs: 120_000, options: { num_predict: taskType === "story-bible" ? 180 : 100, temperature: 0.2 } }); assert.equal(output.completed, true); assert.ok(output.text.trim().length > 10); assert.match(output.text, /[\u3400-\u9fff]/); if (taskType === "continuity") { assert.match(output.text, /林昭/); assert.match(output.text, /二十八歲/); assert.match(output.text, /圖書館/); assert.match(output.text, /不知|不知道|尚未得知/); assert.doesNotMatch(output.text, /三十五歲|已經離開圖書館|走出圖書館|離開了圖書館/); } return { chars: output.text.length, firstTokenMs: output.firstTokenMs, totalMs: output.totalMs, contentStored: false }; });
+  for (const [taskType, prompt] of tasks) await test(`real generation:${taskType}`, async () => { const output = await generate(session, { requestId: `phase1-${taskType}-0001`, model: selectedModel.modelId, prompt, taskType, timeoutMs: 120_000, options: { num_predict: taskType === "story-bible" ? 180 : 100, temperature: 0.2 } }); assert.equal(output.completed, true); assert.ok(output.text.trim().length > 10); assert.match(output.text, /[\u3400-\u9fff]/); if (taskType === "continuity") { assert.match(output.text, /林昭/); assert.match(output.text, /二十八歲/); assert.match(output.text, /圖書館/); assert.match(output.text, /不知|不知道|尚未得知|未知/); assert.doesNotMatch(output.text, /三十五歲|已經離開圖書館|走出圖書館|離開了圖書館/); } return { chars: output.text.length, firstTokenMs: output.firstTokenMs, totalMs: output.totalMs, contentStored: false }; });
 
   await test("missing model reports explicit error", async () => { const response = await readJson(await fetch(`${base}/generate`, { method: "POST", headers: { ...headers(session, true), "Content-Type": "application/json", "Idempotency-Key": "phase1-missing-model" }, body: JSON.stringify({ requestId: "phase1-missing-model", model: "not-installed:latest", prompt: "test", taskType: "test" }) })); assert.equal(response.body.errorCode, "OLLAMA_MODEL_NOT_FOUND"); return { status: response.status }; });
   await test("duplicate request is not regenerated", async () => { const response = await readJson(await fetch(`${base}/generate`, { method: "POST", headers: { ...headers(session, true), "Content-Type": "application/json", "Idempotency-Key": "phase1-summary-0001" }, body: JSON.stringify({ requestId: "phase1-summary-0001", model: selectedModel.modelId, prompt: tasks[0][1], taskType: "summary" }) })); assert.equal(response.body.errorCode, "LOCAL_DUPLICATE_REQUEST"); return response.body.details; });
@@ -98,7 +99,7 @@ try {
 } finally { await bridge.stop(); }
 
 const firstInstance = session?.instanceId;
-const restarted = createBridgeServer({ testMode: true });
+const restarted = createBridgeServer({ testMode: true, port: bridgePort });
 await restarted.start();
 try {
   await test("bridge restart invalidates old pairing", async () => { const health = await readJson(await fetchRestartHealth()); assert.notEqual(health.body.instanceId, firstInstance); assert.equal(health.body.pairingState, "unpaired"); const models = await readJson(await fetch(`${base}/models`, { headers: headers(session) })); assert.equal(models.body.errorCode, "BRIDGE_NOT_PAIRED"); return { oldInstance: firstInstance, newInstance: health.body.instanceId }; });
@@ -106,7 +107,7 @@ try {
 
 const pass = results.filter((item) => item.status === "PASS").length;
 const fail = results.filter((item) => item.status === "FAIL").length;
-const report = { schemaVersion: "closed-ai-real-runtime-results-v1", generatedAt: new Date().toISOString(), operatingSystem: `${os.platform()} ${os.release()}`, ollamaEndpoint: "http://127.0.0.1:11434", bridgeEndpoint: base, protocolVersion: BRIDGE_PROTOCOL, model: selectedModel ? { modelId: selectedModel.modelId, diskSize: selectedModel.diskSize, quantization: selectedModel.quantization, parameterSize: selectedModel.parameterSize } : null, pass, fail, skip: 0, externalAiCalls: 0, networkDestinations: ["127.0.0.1:3217", "127.0.0.1:11434"], fullPromptOrOutputPersisted: false, timings, results };
+const report = { schemaVersion: "closed-ai-real-runtime-results-v1", generatedAt: new Date().toISOString(), operatingSystem: `${os.platform()} ${os.release()}`, ollamaEndpoint: "http://127.0.0.1:11434", bridgeEndpoint: base, protocolVersion: BRIDGE_PROTOCOL, model: selectedModel ? { modelId: selectedModel.modelId, diskSize: selectedModel.diskSize, quantization: selectedModel.quantization, parameterSize: selectedModel.parameterSize } : null, pass, fail, skip: 0, externalAiCalls: 0, networkDestinations: [`127.0.0.1:${bridgePort}`, "127.0.0.1:11434"], fullPromptOrOutputPersisted: false, timings, results };
 await mkdir(new URL("../artifacts/closed-ai-phase1-ollama/", import.meta.url), { recursive: true });
 await writeFile(new URL("../artifacts/closed-ai-phase1-ollama/real-runtime-tests.json", import.meta.url), JSON.stringify(report, null, 2));
 await writeFile(new URL("../artifacts/closed-ai-phase1-ollama/offline-network-audit.json", import.meta.url), JSON.stringify({ schemaVersion: "closed-ai-offline-network-audit-v1", generatedAt: report.generatedAt, destinations: report.networkDestinations, selectedProvider: "local-ollama", selectedModel: selectedModel?.modelId ?? null, closedOnly: true, externalAiCalls: 0, dataLeftDevice: false }, null, 2));

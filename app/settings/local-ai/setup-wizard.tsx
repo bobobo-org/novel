@@ -53,6 +53,8 @@ function runtimeMessage(error: unknown) {
       "Ollama 目前沒有可生成文字的模型。",
     LOCAL_MODEL_INFERENCE_NOT_VERIFIED:
       "模型存在，但尚未完成真實推理驗證。",
+    REQUEST_TIMEOUT:
+      "快速模型實測超過 45 秒，系統已停止等待；請確認 Ollama 沒有被其他工作占用後重新檢查。",
   };
   return messages[code]
     ?? (error instanceof Error ? error.message : "本機 AI 檢查未完成。");
@@ -125,7 +127,7 @@ export default function LocalAISetupWizard() {
       let automaticConnectionError: unknown = null;
       if (directConnectionEnabled && !client.getSessionMetadata()) {
         try {
-          const connected = await client.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL);
+          const connected = await client.connectAutomatically(FAST_LOCAL_WRITER_MODEL);
           configureLocalBridgeClient(client);
           configureLocalBridgeModel(connected.model.modelId);
           setModels([connected.model]);
@@ -152,9 +154,10 @@ export default function LocalAISetupWizard() {
         const available = response.models.filter(
           (model) => model.capabilities?.textGeneration?.value === true,
         );
+        const verifiedModelId = client.getModelVerification()?.modelId ?? "";
         const selected = selectAvailableTextModel(
           available,
-          selectedModel || RECOMMENDED_LOCAL_WRITER_MODEL,
+          verifiedModelId || selectedModel || FAST_LOCAL_WRITER_MODEL,
         ) ?? "";
         setModels(available);
         setSelectedModel(selected);
@@ -229,7 +232,7 @@ export default function LocalAISetupWizard() {
       );
       const selected = selectAvailableTextModel(
         available,
-        RECOMMENDED_LOCAL_WRITER_MODEL,
+        FAST_LOCAL_WRITER_MODEL,
       ) ?? "";
       setModels(available);
       setSelectedModel(selected);
@@ -341,7 +344,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         <article>
           <span>實際執行器</span>
           <strong data-testid="local-ai-actual-executor">
-            {runtime?.actualExecutor ?? "not_executed"}
+            {proof ? "local-ollama" : runtime?.actualExecutor ?? "not_executed"}
           </strong>
         </article>
       </section>
@@ -424,6 +427,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 需要 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+ 與已啟動的
                 Ollama。16 GB RAM 建議：<code>ollama pull {RECOMMENDED_LOCAL_WRITER_MODEL}</code>；
                 記憶體較少可用 <code>ollama pull {FAST_LOCAL_WRITER_MODEL}</code>。
+                首次自動連線會先用快速 3B 完成真實推理驗證，避免 7B 冷啟動卡住畫面；
+                連線後仍可在下方切換並驗證 7B 品質模型。
               </p>
               <ul className={styles.modelGuide}>
                 {LOCAL_MODEL_INSTALL_CHOICES.map((choice) => <li key={choice.modelId}>

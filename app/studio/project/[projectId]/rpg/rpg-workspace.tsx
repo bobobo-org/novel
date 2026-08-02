@@ -86,8 +86,10 @@ import {
   cleanRpgContinuation,
   mergeRpgChoiceDirection,
   parseRpgChoiceDirectorOutput,
+  rpgTextSimilarity,
   type RpgDirectedChoice,
 } from "@/lib/novel-ai/web/rpg-closed-ai-director";
+import { inspectRpgFoundation } from "@/lib/novel-ai/web/rpg-foundation-gate";
 import {
   stageStudioTaskHandoff,
   studioHomeHref,
@@ -247,6 +249,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [aiChoiceRetry, setAiChoiceRetry] = useState(0);
   const aiChoiceControllerRef = useRef<AbortController | null>(null);
   const aiChoiceCandidateRef = useRef<string | null>(null);
+  const recentAiChoiceSignaturesRef = useRef<string[]>([]);
 
   function leaveRpg(href: string, label: string) {
     stageStudioTaskHandoff({
@@ -475,9 +478,21 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     ? aiChoicePlan.choices
     : ruleChoices;
   const aiChoicesReady = Boolean(aiChoicePlan?.contextKey === aiContextKey);
+  const rpgFoundation = useMemo(() => {
+    if (!data) return { ready: false, issues: [{ code: "STORY_CONTEXT_REQUIRED" as const, label: "作品資料" }] };
+    return inspectRpgFoundation({
+      protagonistName: protagonist?.name,
+      coreIdea: data.project.coreIdea.value,
+      theme: data.storyBible.theme.value,
+      chapterContent: data.chapter.content,
+      unresolvedThreadCount: data.storyBible.unresolvedThreads.length,
+    });
+  }, [data, protagonist?.name]);
+  const rpgFoundationMissing = rpgFoundation.issues.map((issue) => issue.label);
+  const rpgFoundationReady = rpgFoundation.ready;
 
   useEffect(() => {
-    if (!activated || !data || !progression || !aiDirectorContext || ruleChoices.length !== 3) {
+    if (!activated || !rpgFoundationReady || !data || !progression || !aiDirectorContext || ruleChoices.length !== 3) {
       const resetTimer = window.setTimeout(() => setAiChoicePlan(null), 0);
       return () => window.clearTimeout(resetTimer);
     }
@@ -529,6 +544,35 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           });
           directed = parseRpgChoiceDirectorOutput(result.content);
         }
+        const signature = directed
+          .map((choice) => `${choice.key}:${choice.title}:${choice.description}`)
+          .join("|");
+        const repeated = recentAiChoiceSignaturesRef.current.some(
+          (previous) => rpgTextSimilarity(previous, signature) >= 0.82,
+        );
+        if (repeated) {
+          result = await regenerateStudioClosedAI(taskInput, {
+            taskId: result.taskId,
+            candidateId: result.candidateId,
+            content: result.content,
+            contentDigest: result.contentDigest,
+            regenerationAttempt: result.regeneration?.regenerationAttempt ?? 0,
+          }, {
+            extraRequirement: "本輪 A／B／C 與近期選項過度相似。請保留 Canon 與數值規則，但改用三種新的可執行策略、代價與後果；不得同義改寫舊選項。",
+            maximumAttempts: 2,
+          });
+          directed = parseRpgChoiceDirectorOutput(result.content);
+          const regeneratedSignature = directed
+            .map((choice) => `${choice.key}:${choice.title}:${choice.description}`)
+            .join("|");
+          if (recentAiChoiceSignaturesRef.current.some(
+            (previous) => rpgTextSimilarity(previous, regeneratedSignature) >= 0.82,
+          )) {
+            throw Object.assign(new Error("AI 重新規劃後仍重複近期選項。"), {
+              code: "RPG_AI_CHOICES_REPEAT_RECENT_ROUND",
+            });
+          }
+        }
         if (
           !hasVerifiedExecutedStoryOutput(result)
           || !result.candidateId
@@ -550,6 +594,13 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           modelDigest: result.modelDigest,
           actualExecutor: result.actualExecutor,
         });
+        const acceptedSignature = directed
+          .map((choice) => `${choice.key}:${choice.title}:${choice.description}`)
+          .join("|");
+        recentAiChoiceSignaturesRef.current = [
+          ...recentAiChoiceSignaturesRef.current,
+          acceptedSignature,
+        ].slice(-6);
         setAiChoiceStatus(`閉端 AI 已完成本回合規劃：${result.model}；A／B／C 分別採用穩健、關係資源與高風險策略。`);
       })
       .catch((error) => {
@@ -561,7 +612,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       window.clearTimeout(resetTimer);
       controller.abort();
     };
-  }, [activated, aiChoiceRetry, aiContextKey, aiDirectorContext, data, progression, ruleChoices]);
+  }, [activated, aiChoiceRetry, aiContextKey, aiDirectorContext, data, progression, rpgFoundationReady, ruleChoices]);
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
   const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
     if (!data || !progression) return null;
@@ -1046,6 +1097,33 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
   if (!data || !progression) {
     return <main className={styles.shell}><p className={styles.loading} role="status">{status}</p></main>;
+  }
+
+  if (rpgFoundationMissing.length > 0) {
+    return (
+      <main className={styles.shell} data-testid="rpg-foundation-gate">
+        <header className={styles.header}>
+          <div>
+            <small>UNIFIED STORY GAME OS · FOUNDATION GATE</small>
+            <h1>先讓這個世界真正成立</h1>
+            <p>RPG 不會在空白作品上假裝推演。完成最少故事基礎後，閉端 AI 才能依同一份 Canon 建立本回合 A／B／C。</p>
+          </div>
+        </header>
+        <ProjectNavigation projectId={projectId} active="rpg" />
+        <section className={styles.activation}>
+          <div>
+            <small>目前還缺少</small>
+            <h2>{rpgFoundationMissing.join("、")}</h2>
+            <p>補齊前不會建立固定選項、套用數值，或寫入任何故事分支。</p>
+          </div>
+          <div className={styles.activationAction}>
+            <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/write`, "章節寫作")}>先寫一段開場</button>
+            <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/characters`, "角色設定")}>設定主角</button>
+            <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/closed-ai?task=story.storyBibleCandidate&objective=${encodeURIComponent("請依目前作品建立主角、故事核心與第一個可玩的衝突候選；只建立候選，等待作者核准。")}`, "閉端 AI 引導精靈")}>請閉端 AI 引導設定</button>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   const mode = RPG_MODE_DEFINITIONS[activeMode];

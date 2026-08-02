@@ -12,7 +12,10 @@ export type BrowserWebLLMModelManifest = {
   displayName: string;
   parameterLabel: "0.5B" | "1.5B" | "3B";
   tier: Exclude<BrowserWebLLMDeviceTier, "unsupported">;
-  license: "Apache-2.0";
+  license: "Apache-2.0" | "Qwen-Research";
+  licenseUrl: string;
+  usePolicy: "production" | "research-only";
+  productionQualified: boolean;
   sourceModel: string;
   sourceRevision: string;
   modelUrl: string;
@@ -47,6 +50,9 @@ export const BROWSER_WEBLLM_MODELS = [
     parameterLabel: "0.5B",
     tier: "low",
     license: "Apache-2.0",
+    licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/blob/main/LICENSE",
+    usePolicy: "production",
+    productionQualified: true,
     sourceModel: "mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     sourceRevision: "32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad/",
@@ -76,6 +82,9 @@ export const BROWSER_WEBLLM_MODELS = [
     parameterLabel: "1.5B",
     tier: "standard",
     license: "Apache-2.0",
+    licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE",
+    usePolicy: "production",
+    productionQualified: true,
     sourceModel: "mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     sourceRevision: "9bd564b064631febf14deadcac492efb761d60c3",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/9bd564b064631febf14deadcac492efb761d60c3/",
@@ -101,10 +110,13 @@ export const BROWSER_WEBLLM_MODELS = [
   },
   {
     modelId: "Qwen2.5-3B-Instruct-q4f16_1-MLC",
-    displayName: "Qwen2.5 3B · 高品質桌機",
+    displayName: "Qwen2.5 3B · 研究授權（未開放正式使用）",
     parameterLabel: "3B",
     tier: "high",
-    license: "Apache-2.0",
+    license: "Qwen-Research",
+    licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE",
+    usePolicy: "research-only",
+    productionQualified: false,
     sourceModel: "mlc-ai/Qwen2.5-3B-Instruct-q4f16_1-MLC",
     sourceRevision: "7690aaaa46df36b1be0fe93b9c9abac0497eff6c",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-3B-Instruct-q4f16_1-MLC/resolve/7690aaaa46df36b1be0fe93b9c9abac0497eff6c/",
@@ -285,7 +297,8 @@ export async function detectBrowserWebLLMDevice(): Promise<BrowserWebLLMDevicePr
   ) {
     allowedModelIds.push(standard.modelId);
   }
-  const passedHighMemoryGate = !mobile
+  const passedHighMemoryGate = high.productionQualified
+    && !mobile
     && (deviceMemoryGB ?? 0) >= 12
     && (maxStorageBufferBindingSize ?? 0) >= 134_217_728
     && hasStorageFor(storageAvailable, high);

@@ -14,6 +14,7 @@ import { LocalSQLiteCacheStore } from "../cache/sqlite-cache-store.mjs";
 
 export const LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
 export const LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
+export const LOCAL_BRIDGE_MODEL_VERIFICATION_CACHE_TTL_MS = 10 * 60_000;
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, max-age=0" };
 const characterExtractionFormat = {
   type: "object", additionalProperties: false, required: ["schemaVersion", "facts"],
@@ -104,10 +105,15 @@ export function createBridgeServer(options = {}) {
     ...(Number.isFinite(envSessionTtlMs) && envSessionTtlMs > 0 ? { sessionTtlMs: envSessionTtlMs } : {}),
   };
   const pairing = new PairingStore(pairingOptions);
-  const rate = new RateLimiter(limits.rateLimitPerMinute);
+  const inferenceRate = new RateLimiter(limits.rateLimitPerMinute);
+  const controlRate = new RateLimiter(
+    Math.max(limits.rateLimitPerMinute * 8, 240),
+  );
   const ledger = new RequestLedger();
   const work = new WorkLimiter(limits);
   const active = new Map();
+  const modelVerificationCache = new Map();
+  const modelVerificationInFlight = new Map();
   const logs = [];
   const testMode = options.testMode ?? process.env.BRIDGE_TEST_MODE === "1";
   const pairingFile = options.pairingFile ?? process.env.BRIDGE_PAIRING_FILE ?? "";
@@ -210,10 +216,14 @@ export function createBridgeServer(options = {}) {
         accessRecord.cors_decision = "allowed";
         response.end(); return;
       }
-      rate.take(origin);
       assertProtocol(request.headers["x-bridge-protocol"]);
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (url.searchParams.has("token") || url.searchParams.has("authorization")) throw new BridgeError("LOCAL_SECURITY_POLICY_VIOLATION", "Credentials are not accepted in URLs.", 400);
+      const isInferenceRequest = request.method === "POST" && (
+        url.pathname === "/generate" ||
+        url.pathname === "/model/verify"
+      );
+      (isInferenceRequest ? inferenceRate : controlRate).take(origin);
 
       if (request.method === "GET" && url.pathname === "/health") {
         const ollama = await probeOllama();
@@ -315,42 +325,63 @@ export function createBridgeServer(options = {}) {
         if (profile.capabilities.textGeneration.value !== true) {
           throw new BridgeError("OLLAMA_REQUEST_REJECTED", "Selected model cannot generate text.", 400);
         }
-        const startedAt = performance.now();
-        const verifyResponse = await ollamaFetch(ollamaEndpoint, "/api/generate", {
-          method: "POST",
-          body: JSON.stringify({
-            model: modelId,
-            prompt: "這是本機模型啟動驗證。請只回覆四個字：驗證完成",
-            system: "You are a local runtime health verifier. Follow the fixed instruction and do not add explanations.",
-            stream: false,
-            keep_alive: "10m",
-            options: { temperature: 0, seed: 7, num_predict: 16 },
-          }),
-        }, LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS);
-        const verifyBody = await verifyResponse.json().catch(() => null);
-        const output = String(verifyBody?.response || "").trim();
-        if (!output) {
-          throw new BridgeError("LOCAL_MODEL_INFERENCE_NOT_VERIFIED", "Model returned no output during inference verification.", 502, true);
+        const verificationKey = `${pairing.instanceId}\u0000${modelId}\u0000${profile.modelDigest ?? "unknown"}`;
+        const cachedVerification = modelVerificationCache.get(verificationKey);
+        let verification = cachedVerification?.expiresAt > Date.now()
+          ? Promise.resolve(cachedVerification.proof)
+          : modelVerificationInFlight.get(verificationKey);
+        if (!verification) {
+          verification = (async () => {
+            const startedAt = performance.now();
+            const verifyResponse = await ollamaFetch(ollamaEndpoint, "/api/generate", {
+              method: "POST",
+              body: JSON.stringify({
+                model: modelId,
+                prompt: "這是本機模型啟動驗證。請只回覆四個字：驗證完成",
+                system: "You are a local runtime health verifier. Follow the fixed instruction and do not add explanations.",
+                stream: false,
+                keep_alive: "10m",
+                options: { temperature: 0, seed: 7, num_ctx: 512, num_predict: 8 },
+              }),
+            }, LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS);
+            const verifyBody = await verifyResponse.json().catch(() => null);
+            const output = String(verifyBody?.response || "").trim();
+            if (!output) {
+              throw new BridgeError("LOCAL_MODEL_INFERENCE_NOT_VERIFIED", "Model returned no output during inference verification.", 502, true);
+            }
+            const outputDigest = Buffer.from(
+              await crypto.subtle.digest("SHA-256", new TextEncoder().encode(output)),
+            ).toString("hex");
+            const proof = {
+              proofVersion: "local-model-inference-proof-v1",
+              state: "inference_verified",
+              providerKind: "local_ollama",
+              instanceId: pairing.instanceId,
+              modelId,
+              modelDigest: profile.modelDigest,
+              verifiedAt: new Date().toISOString(),
+              latencyMs: Math.round(performance.now() - startedAt),
+              outputDigest,
+              outputBytes: Buffer.byteLength(output, "utf8"),
+              evalCount: Number(verifyBody?.eval_count) || null,
+              externalRequest: false,
+              dataLeftDevice: false,
+            };
+            modelVerificationCache.set(verificationKey, {
+              proof,
+              expiresAt: Date.now() + LOCAL_BRIDGE_MODEL_VERIFICATION_CACHE_TTL_MS,
+            });
+            log({ requestId: `model-verify:${outputDigest.slice(0, 16)}`, taskType: "model.verify", modelId, elapsedMs: proof.latencyMs, status: "completed", errorCode: null });
+            return proof;
+          })();
+          modelVerificationInFlight.set(verificationKey, verification);
+          void verification.finally(() => {
+            if (modelVerificationInFlight.get(verificationKey) === verification) {
+              modelVerificationInFlight.delete(verificationKey);
+            }
+          }).catch(() => undefined);
         }
-        const outputDigest = Buffer.from(
-          await crypto.subtle.digest("SHA-256", new TextEncoder().encode(output)),
-        ).toString("hex");
-        const proof = {
-          proofVersion: "local-model-inference-proof-v1",
-          state: "inference_verified",
-          providerKind: "local_ollama",
-          instanceId: pairing.instanceId,
-          modelId,
-          modelDigest: profile.modelDigest,
-          verifiedAt: new Date().toISOString(),
-          latencyMs: Math.round(performance.now() - startedAt),
-          outputDigest,
-          outputBytes: Buffer.byteLength(output, "utf8"),
-          evalCount: Number(verifyBody?.eval_count) || null,
-          externalRequest: false,
-          dataLeftDevice: false,
-        };
-        log({ requestId: `model-verify:${outputDigest.slice(0, 16)}`, taskType: "model.verify", modelId, elapsedMs: proof.latencyMs, status: "completed", errorCode: null });
+        const proof = await verification;
         return sendJson(response, 200, proof, origin);
       }
 

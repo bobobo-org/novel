@@ -10,9 +10,9 @@ import {
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
-  releaseTag: "novel-ai-p24b-browser-first-compute-plane-rc5",
-  releaseName: "P2.4B Browser-First Sovereign Compute Plane RC5",
-  consumerRelease: "p2.4b-browser-first-compute-plane-rc5",
+  releaseTag: "novel-ai-p24b-browser-sovereign-ai-fabric-rc5",
+  releaseName: "P2.4B Browser Sovereign AI Fabric RC5",
+  consumerRelease: "p2.4b-browser-sovereign-ai-fabric-rc5",
   architectureStage: "P2.4B RC",
 };
 const cases = [];
@@ -171,9 +171,21 @@ async function interactiveStoryOutputAcceptance() {
   const studio = await readFile("app/studio/studio-client.tsx", "utf8");
   const branchChoiceStart = studio.indexOf('task: "branch_choice"');
   const branchChoiceRuntime = studio.slice(branchChoiceStart, branchChoiceStart + 8_000);
-  assert.match(
-    branchChoiceRuntime,
-    /ensureStudioCanonicalProject\([\s\S]*sourceChapterId:\s*canonical\.chapter\.id[\s\S]*sourceRevision:\s*canonical\.chapter\.revision/u,
+  const rpgWorkspace = await readFile(
+    "app/studio/project/[projectId]/rpg/rpg-workspace.tsx",
+    "utf8",
+  );
+  const legacyRuntimeIsRevisionBound =
+    /ensureStudioCanonicalProject\([\s\S]*sourceChapterId:\s*canonical\.chapter\.id[\s\S]*sourceRevision:\s*canonical\.chapter\.revision/u
+      .test(branchChoiceRuntime);
+  const modernRuntimeIsRevisionBound =
+    /sourceChapterId:\s*data\.chapter\.id[\s\S]*sourceRevision:\s*data\.chapter\.revision/u
+      .test(rpgWorkspace)
+    && /result\.sourceChapterId\s*!==\s*data\.chapter\.id[\s\S]*result\.sourceRevision\s*!==\s*data\.chapter\.revision/u
+      .test(rpgWorkspace);
+  assert.equal(
+    legacyRuntimeIsRevisionBound || modernRuntimeIsRevisionBound,
+    true,
     "RPG model execution must be bound to the active canonical chapter revision",
   );
 }

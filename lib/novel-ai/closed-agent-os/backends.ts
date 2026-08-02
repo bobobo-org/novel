@@ -1,7 +1,7 @@
 import {
   browserProviderSnapshot,
 } from "../providers/browser-ai/browser-ai-provider";
-import { executeBrowserCompute } from "../providers/browser-ai/browser-compute-orchestrator";
+import { executeBrowserSovereignFabric } from "../browser-fabric";
 import {
   finalizeBrowserAssistedBackendResult,
   prepareBrowserAssistedBackendInput,
@@ -104,6 +104,7 @@ function reportGenerationProgress(
   label: string,
   generatedCharacters: number,
   percent: number,
+  stream?: { delta?: string; generatedTokenEvents?: number },
 ) {
   try {
     input.request.onProgress?.({
@@ -114,6 +115,8 @@ function reportGenerationProgress(
       occurredAt: new Date().toISOString(),
       backendId: input.plan.backendId,
       generatedCharacters,
+      delta: stream?.delta,
+      generatedTokenEvents: stream?.generatedTokenEvents,
     });
   } catch {
     // UI callbacks are observational and must never alter the model transaction.
@@ -235,7 +238,7 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       throw unavailable(this.id, snapshot.status);
     }
     const request = platformRequest(input);
-    const compute = await executeBrowserCompute({
+    const compute = await executeBrowserSovereignFabric({
       request,
       decision: lockedDecision(request, snapshot),
       onProgress: (progress) => reportGenerationProgress(
@@ -243,6 +246,10 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
         `瀏覽器 AI 已生成 ${progress.generatedCharacters} 字`,
         progress.generatedCharacters,
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
+        {
+          delta: progress.delta,
+          generatedTokenEvents: progress.generatedTokenEvents,
+        },
       ),
     });
     const result = compute.result;
@@ -273,6 +280,8 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       criticDigest: null,
       actualExecutor: result.browserCompute?.actualExecutor ?? result.executor,
       browserComputeReceiptId: result.browserCompute?.receiptId,
+      browserFabricReceiptId: compute.fabric.receipt.receiptId,
+      browserFabricPlannedGraph: compute.fabric.plannedGraph,
       browserContextTokensBefore: result.browserCompute?.contextTokensBefore,
       browserContextTokensAfter: result.browserCompute?.contextTokensAfter,
       browserTokensSaved: result.browserCompute?.tokensSaved,

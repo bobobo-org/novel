@@ -6,8 +6,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const RELEASE_TAG = "novel-ai-p24b-browser-first-compute-plane-rc5";
-const CONSUMER_RELEASE = "p2.4b-browser-first-compute-plane-rc5";
+const RELEASE_TAG = "novel-ai-p24b-browser-sovereign-ai-fabric-rc5";
+const CONSUMER_RELEASE = "p2.4b-browser-sovereign-ai-fabric-rc5";
 const PRODUCTION_ORIGINS = new Set([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",

@@ -19,6 +19,7 @@ export type ClosedAITabSessionRecord = {
   };
   modelId: string | null;
   modelDigest: string | null;
+  modelProof?: Record<string, unknown> | null;
   savedAt: string;
 };
 
@@ -61,7 +62,15 @@ function validRecord(
     && typeof record.session?.csrf === "string"
     && Boolean(record.session.csrf)
     && (record.modelId === null || typeof record.modelId === "string")
-    && (record.modelDigest === null || typeof record.modelDigest === "string");
+    && (record.modelDigest === null || typeof record.modelDigest === "string")
+    && (
+      record.modelProof === undefined
+      || record.modelProof === null
+      || (
+        typeof record.modelProof === "object"
+        && !Array.isArray(record.modelProof)
+      )
+    );
 }
 
 export function saveClosedAITabSession(

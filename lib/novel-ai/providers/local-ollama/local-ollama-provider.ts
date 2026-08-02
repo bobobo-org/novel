@@ -90,8 +90,9 @@ export async function runLocalOllama(
   const smallLocalModel = /(?:^|[:_-])(?:1|2|3|4)b(?:$|[:_-])/iu.test(
     decision.modelId || "",
   );
-  const outputTokenCap = request.qualityPreference === "fast"
-    ? 256
+  const fastLocalMode = request.qualityPreference === "fast";
+  const outputTokenCap = fastLocalMode
+    ? 160
     : smallLocalModel
       ? request.qualityPreference === "high"
         ? 640
@@ -128,7 +129,7 @@ export async function runLocalOllama(
     maxInputCharacters: smallLocalModel
       ? Math.min(
         profile.maxInputCharacters,
-        request.qualityPreference === "fast" ? 6_000 : 10_000,
+        fastLocalMode ? 4_000 : 10_000,
       )
       : profile.maxInputCharacters,
     options: {
@@ -141,6 +142,9 @@ export async function runLocalOllama(
       temperature: requestedTemperature,
       top_p: requestedTopP,
       repeat_penalty: requestedRepetitionPenalty,
+      num_ctx: smallLocalModel && fastLocalMode
+        ? Math.min(profile.options.num_ctx, 4_096)
+        : profile.options.num_ctx,
       ...(request.generationOptions?.seed == null
         ? {}
         : { seed: request.generationOptions.seed }),

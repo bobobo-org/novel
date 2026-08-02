@@ -1,4 +1,4 @@
-const CACHE_VERSION = "novel-system-browser-first-compute-plane-rc5";
+const CACHE_VERSION = "novel-system-browser-sovereign-ai-fabric-rc5";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "./offline.html";
 

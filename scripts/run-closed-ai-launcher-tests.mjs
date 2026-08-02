@@ -11,11 +11,12 @@ const exec = promisify(execFile);
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const launcher = path.join(root, "local-ai", "bridge", "launcher.mjs");
 const artifact = path.join(root, "artifacts", "closed-ai-phase1-1", "launcher-test-results.json");
+const bridgeTestPort = Number(process.env.BRIDGE_TEST_PORT || 33_218);
 const results = [];
 
 async function command(name, runtimeDir, extraEnv = {}) {
   try {
-    const { stdout } = await exec(process.execPath, [launcher, name], { cwd: root, windowsHide: true, env: { ...process.env, NOVEL_BRIDGE_RUNTIME_DIR: runtimeDir, ...extraEnv }, timeout: 20_000 });
+    const { stdout } = await exec(process.execPath, [launcher, name], { cwd: root, windowsHide: true, env: { ...process.env, NOVEL_BRIDGE_RUNTIME_DIR: runtimeDir, BRIDGE_TEST_MODE: "1", BRIDGE_PORT: String(bridgeTestPort), ...extraEnv }, timeout: 20_000 });
     return JSON.parse(stdout.slice(stdout.indexOf("{")));
   } catch (error) {
     const stdout = String(error.stdout || "");
@@ -48,7 +49,7 @@ await test("restart changes bridge instance without stopping Ollama", async () =
 });
 
 await test("occupied port reports actionable error", async () => {
-  const blocker = net.createServer((socket) => socket.destroy()); await new Promise((resolve) => blocker.listen(3217, "127.0.0.1", resolve));
+  const blocker = net.createServer((socket) => socket.destroy()); await new Promise((resolve) => blocker.listen(bridgeTestPort, "127.0.0.1", resolve));
   try { const value = await command("start", await freshDir("occupied")); assert.equal(value.ok, false); assert.equal(value.errorCode, "LAUNCHER_PORT_IN_USE"); return { errorCode: value.errorCode, hasNextStep: Boolean(value.nextStep) }; }
   finally { await new Promise((resolve) => blocker.close(resolve)); }
 });

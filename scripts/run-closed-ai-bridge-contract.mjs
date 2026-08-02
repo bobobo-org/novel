@@ -36,6 +36,13 @@ try {
     const health = await json(await fetch(`${base}/health`, { headers: headers() }));
     assert.equal(health.status, 200);
   });
+  await test("read-only control polling cannot exhaust inference quota", async () => {
+    for (let index = 0; index < 35; index += 1) {
+      const health = await json(await fetch(`${base}/health`, { headers: headers() }));
+      assert.equal(health.status, 200);
+      assert.notEqual(health.body.errorCode, "LOCAL_RATE_LIMITED");
+    }
+  });
   await test("malformed JSON rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: "{" })); assert.equal(result.body.errorCode, "OLLAMA_REQUEST_REJECTED"); });
   await test("oversized request rejected", async () => { const result = await json(await fetch(`${base}/pair/request`, { method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ value: "x".repeat(2_000) }) })); assert.equal(result.body.errorCode, "LOCAL_REQUEST_TOO_LARGE"); });
 
@@ -113,6 +120,19 @@ try {
   }
   await test("fixed local Ollama endpoint accepted", async () => assert.equal(normalizeOllamaEndpoint("http://127.0.0.1:11434"), "http://127.0.0.1:11434"));
   await test("idempotency duplicate rejected", async () => { const ledger = new RequestLedger(); ledger.begin("request-1", "identity-a"); assert.throws(() => ledger.begin("request-1", "identity-a"), (error) => error.code === "LOCAL_DUPLICATE_REQUEST"); });
+  await test("identical failed request can retry without weakening identity", async () => {
+    const ledger = new RequestLedger();
+    ledger.begin("request-retry-1", "identity-a");
+    ledger.finish("request-retry-1", "failed");
+    assert.deepEqual(ledger.begin("request-retry-1", "identity-a"), {
+      restarted: true,
+      previousStatus: "failed",
+    });
+    assert.throws(
+      () => ledger.begin("request-retry-1", "identity-b"),
+      (error) => error.code === "LOCAL_REQUEST_IDENTITY_MISMATCH",
+    );
+  });
   await test("idempotency identity mismatch rejected", async () => { const ledger = new RequestLedger(); ledger.begin("request-1", "identity-a"); assert.throws(() => ledger.begin("request-1", "identity-b"), (error) => error.code === "LOCAL_REQUEST_IDENTITY_MISMATCH"); });
   await test("queue limit enforced", async () => { const limiter = new WorkLimiter({ maxConcurrent: 1, maxQueue: 1 }); const release = await limiter.acquire(); const queued = limiter.acquire(); await assert.rejects(() => limiter.acquire(), (error) => error.code === "LOCAL_CONCURRENCY_LIMIT"); release(); const releaseQueued = await queued; releaseQueued(); });
   await test("required error catalog present", async () => assert.equal(ERROR_CODES.includes("OLLAMA_STREAM_INTERRUPTED") && ERROR_CODES.includes("LOCAL_MODEL_INFERENCE_NOT_VERIFIED") && ERROR_CODES.includes("LOCAL_SECURITY_POLICY_VIOLATION"), true));

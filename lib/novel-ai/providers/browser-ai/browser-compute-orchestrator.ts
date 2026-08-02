@@ -91,6 +91,9 @@ function compactPipelineMaterial(value: string, limit: number) {
   return `${normalized.slice(0, head)}\n[中段已壓縮]\n${normalized.slice(-tail)}`;
 }
 
+// Retained as a legacy receipt decoder reference. RC5 executes one model pass
+// per Closed Agent OS node and never invokes this nested quality pipeline.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function runBrowserThreeBQualityPipeline(input: {
   request: PlatformAIRequest;
   decision: PlatformRouterDecision;
@@ -439,25 +442,18 @@ export async function executeBrowserCompute(input: {
       "BROWSER_AI_T2_EXECUTOR_NOT_VERIFIED",
     );
   }
-  const result = eligibility.tier === "T2"
-    && selectedManifest.parameterLabel === "3B"
-    && requiredGenerativeExecutor
-    ? await runBrowserThreeBQualityPipeline({
-      request: executionRequest,
-      decision: input.decision,
-      requiredExecutor: requiredGenerativeExecutor,
-      onProgress: input.onProgress,
-      started,
-    })
-    : await runBrowserAI(
-      executionRequest,
-      input.decision,
-      input.onProgress,
-      {
-        preferLightweightRuntime: eligibility.tier === "T1",
-        requiredGenerativeExecutor,
-      },
-    );
+  // Closed Agent OS owns planning, critique and revision. A browser task node
+  // therefore performs one model pass only; nesting the old 3B quality loop
+  // here made a single UI action run the same quality pipeline repeatedly.
+  const result = await runBrowserAI(
+    executionRequest,
+    input.decision,
+    input.onProgress,
+    {
+      preferLightweightRuntime: eligibility.tier === "T1",
+      requiredGenerativeExecutor,
+    },
+  );
   const quality = evaluateBrowserCandidateQuality({
     taskType: input.request.taskType,
     content: result.content,

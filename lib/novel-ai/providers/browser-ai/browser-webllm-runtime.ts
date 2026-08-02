@@ -133,6 +133,8 @@ export type BrowserWebLLMRuntimeSnapshot = {
 export type BrowserWebLLMGenerationInput = {
   systemInstruction: string;
   prompt: string;
+  jsonMode?: boolean;
+  jsonSchema?: Record<string, unknown>;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -478,10 +480,17 @@ export async function selectBrowserWebLLMModel(modelId: BrowserWebLLMModelId) {
 export async function installBrowserWebLLMModel(
   modelId: BrowserWebLLMModelId,
   options: {
+    userInitiated: true;
     signal?: AbortSignal;
     onProgress?: (progress: BrowserWebLLMProgress) => void;
-  } = {},
+  },
 ) {
+  if (options.userInitiated !== true) {
+    throw Object.assign(new Error("Browser model installation requires an explicit user action."), {
+      code: "BROWSER_MODEL_EXPLICIT_INSTALL_REQUIRED",
+      automaticDownloadAllowed: false,
+    });
+  }
   const model = browserWebLLMModel(modelId);
   if (!model) throw runtimeError("BROWSER_WEBLLM_MODEL_UNKNOWN", "未知的 Browser AI 模型。");
   const device = await detectBrowserWebLLMDevice();
@@ -608,7 +617,15 @@ export async function installBrowserWebLLMModel(
   }
 }
 
-export async function deleteBrowserWebLLMModel(modelId: BrowserWebLLMModelId) {
+export async function deleteBrowserWebLLMModel(
+  modelId: BrowserWebLLMModelId,
+  options: { userConfirmed: true },
+) {
+  if (options.userConfirmed !== true) {
+    throw Object.assign(new Error("Browser model deletion requires explicit user confirmation."), {
+      code: "BROWSER_MODEL_DELETION_CONFIRMATION_REQUIRED",
+    });
+  }
   const model = browserWebLLMModel(modelId);
   if (!model) throw runtimeError("BROWSER_WEBLLM_MODEL_UNKNOWN", "未知的 Browser AI 模型。");
   const snapshot = await browserWebLLMRuntimeSnapshot();
@@ -705,12 +722,18 @@ async function runBrowserWebLLMGeneration(
   let generatedTokenEvents = 0;
   let firstTokenMs: number | null = null;
   try {
+    const structuredInstruction = input.jsonMode
+      ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
+      : "";
     const chunks = await engine.chat.completions.create({
       model: model.modelId,
       messages: [
-        { role: "system", content: input.systemInstruction },
+        { role: "system", content: `${input.systemInstruction}${structuredInstruction}` },
         { role: "user", content: fittedPrompt.prompt },
       ],
+      response_format: input.jsonMode
+        ? { type: "json_object", schema: JSON.stringify(input.jsonSchema ?? { type: "object" }) }
+        : { type: "text" },
       stream: true,
       stream_options: { include_usage: true },
       temperature: performancePolicy.temperature,
@@ -775,7 +798,7 @@ async function runBrowserWebLLMGeneration(
       tokensPerSecond: parseTokensPerSecond(runtimeStats),
       gpuVendor: gpuVendor || null,
       estimatedVramMB: model.estimatedVramMB,
-      inputCharacters: input.systemInstruction.length + fittedPrompt.prompt.length,
+      inputCharacters: input.systemInstruction.length + structuredInstruction.length + fittedPrompt.prompt.length,
       outputCharacters: trimmed.length,
       omittedInputCharacters: fittedPrompt.omittedCharacters,
       queueWaitMs,

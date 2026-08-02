@@ -25,6 +25,7 @@ import {
   createVerifiableLedgerRepository,
 } from "../verifiable-ledger";
 import { createDefaultClosedAIBackends } from "./backends";
+import { BACKEND_TRUTH } from "./backend-manifest";
 import { evaluateClosedAgentCandidate } from "./evaluator";
 import { createClosedAgentPlan } from "./planner";
 import {
@@ -81,6 +82,71 @@ function osError(code: string, message = code, details: Record<string, unknown> 
   return Object.assign(new Error(message), { code, ...details });
 }
 
+const CLOSED_AI_BACKEND_PROBE_TIMEOUT_MS = 15_000;
+
+function unavailableBackendSnapshot(
+  backend: ClosedAIBackendAdapter,
+  detailCode: "backend_probe_timeout" | "backend_probe_failed",
+): ClosedAIBackendSnapshot {
+  const truth = BACKEND_TRUTH[backend.id];
+  return {
+    id: backend.id,
+    label: truth.label,
+    status: backend.id === "private-ai-hub"
+      ? "contract_ready_runtime_not_connected"
+      : "runtime_required",
+    modelId: null,
+    modelDigest: null,
+    local: backend.id !== "private-ai-hub",
+    dataBoundary: truth.dataBoundary,
+    maximumComplexity: truth.maximumComplexity,
+    capabilities: [],
+    supportedTaskTypes: backend.id === "browser-ai" ? [] : "all",
+    detailCode,
+    controlLatencyMs: CLOSED_AI_BACKEND_PROBE_TIMEOUT_MS,
+  };
+}
+
+async function probeBackendSnapshot(
+  backend: ClosedAIBackendAdapter,
+  signal?: AbortSignal,
+  namespace?: Pick<ClosedAINamespace, "projectId">,
+): Promise<ClosedAIBackendSnapshot> {
+  if (signal?.aborted) {
+    throw signal.reason ?? osError("CLOSED_AGENT_TASK_CANCELLED");
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      const error = osError("CLOSED_AI_BACKEND_PROBE_TIMEOUT");
+      controller.abort(error);
+      reject(error);
+    }, CLOSED_AI_BACKEND_PROBE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([
+      backend.snapshot(controller.signal, namespace),
+      deadline,
+    ]);
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? error;
+    }
+    return unavailableBackendSnapshot(
+      backend,
+      timedOut ? "backend_probe_timeout" : "backend_probe_failed",
+    );
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 export class ClosedAgentOS {
   readonly cache: ClosedAICache;
   readonly learning: ControlledLearningOS;
@@ -117,7 +183,9 @@ export class ClosedAgentOS {
     namespace?: Pick<ClosedAINamespace, "projectId">,
   ) {
     return Promise.all(
-      [...this.backends.values()].map((backend) => backend.snapshot(signal, namespace)),
+      [...this.backends.values()].map((backend) =>
+        probeBackendSnapshot(backend, signal, namespace)
+      ),
     );
   }
 
@@ -596,6 +664,8 @@ export class ClosedAgentOS {
             externalRequest: execution.externalRequest,
             actualExecutor: execution.actualExecutor ?? execution.backendId,
             browserComputeReceiptId: execution.browserComputeReceiptId,
+            browserFabricReceiptId: execution.browserFabricReceiptId,
+            browserFabricPlannedGraph: execution.browserFabricPlannedGraph,
             contextTokensBefore: execution.browserContextTokensBefore,
             contextTokensAfter: execution.browserContextTokensAfter,
             tokensSaved: execution.browserTokensSaved,
@@ -771,6 +841,8 @@ export class ClosedAgentOS {
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
           browserComputeReceiptId: execution.browserComputeReceiptId,
+          browserFabricReceiptId: execution.browserFabricReceiptId,
+          browserFabricPlannedGraph: execution.browserFabricPlannedGraph,
           contextTokensBefore: execution.browserContextTokensBefore,
           contextTokensAfter: execution.browserContextTokensAfter,
           tokensSaved: execution.browserTokensSaved,

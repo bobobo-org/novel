@@ -988,7 +988,9 @@ test("product UI and health expose the unified system truth", () => {
   assert.match(ui, /可控自我學習/);
   assert.match(ui, /區塊鏈式可驗證機制/);
   assert.match(ui, /Private Hub Runtime：\{hubProof \? "self_hosted_private_node_ready"/);
-  assert.match(ui, /等待啟動／配對／實測/);
+  assert.match(ui, /尚未取得此網站的短期工作階段/);
+  assert.match(ui, /Ollama 尚未啟動或沒有可用模型/);
+  assert.match(ui, /automaticConnectionFailure\(error, "Local Ollama"\)/);
   assert.match(ui, /模型運作中/);
   assert.match(navigation, /\["closed-ai","閉端 AI 中心"\]/);
   assert.match(health, /threeClosedAISharedSystemStatus: "ready"/);

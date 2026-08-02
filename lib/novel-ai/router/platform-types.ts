@@ -32,6 +32,7 @@ export type PlatformAIRequest = {
   externalConsent: boolean;
   requiresStreaming?: boolean;
   requiresStructured?: boolean;
+  outputSchema?: Record<string, unknown>;
   requiredCapabilities?: PlatformProviderCapability[];
   closedOnly?: boolean;
   offlineRequired?: boolean;

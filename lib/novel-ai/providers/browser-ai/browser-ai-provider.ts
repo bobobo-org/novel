@@ -650,6 +650,8 @@ export async function runBrowserAI(
       const generated = await generateWithBrowserWebLLM({
         systemInstruction: profile.systemInstruction,
         prompt: prompt.prompt,
+        jsonMode: request.requiresStructured === true,
+        jsonSchema: request.outputSchema,
         temperature: request.generationOptions?.temperature,
         topP: request.generationOptions?.topP,
         maxTokens: request.generationOptions?.maxTokens,
@@ -710,6 +712,10 @@ export async function runBrowserAI(
     } catch (error) {
       cancelBrowserWebLLMGeneration();
       if (isAbortError(error, request.signal)) throw error;
+      const causeCode = String(
+        (error as { code?: unknown } | null)?.code
+        ?? "BROWSER_WEBLLM_GENERATION_FAILED",
+      );
       if (options.requiredGenerativeExecutor === "webllm-worker") {
         throw Object.assign(
           new Error("The required WebLLM worker failed; no alternate executor was used."),
@@ -717,6 +723,7 @@ export async function runBrowserAI(
             code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
             requiredExecutor: options.requiredGenerativeExecutor,
             fallbackAttempted: false,
+            causeCode,
             cause: error,
           },
         );
@@ -733,6 +740,7 @@ export async function runBrowserAI(
             {
               code: "BROWSER_AI_ESCALATE_LOCAL_OLLAMA",
               retryable: true,
+              causeCode,
               cause: error,
             },
           );

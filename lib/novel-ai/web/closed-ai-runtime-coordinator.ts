@@ -27,7 +27,10 @@ import {
   type PrivateHubAutomaticConnection,
 } from "../providers/private-ai-hub/private-hub-client";
 import type { PlatformTaskType } from "../router/platform-types";
-import { RECOMMENDED_LOCAL_WRITER_MODEL } from "../model-orchestration/recommended-models";
+import {
+  FAST_LOCAL_WRITER_MODEL,
+  RECOMMENDED_LOCAL_WRITER_MODEL,
+} from "../model-orchestration/recommended-models";
 
 export const CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION =
   "closed-ai-runtime-coordinator-v1" as const;
@@ -298,8 +301,10 @@ export class ClosedAIRuntimeCoordinator {
   private readonly releaseReader: ReleaseReader;
   private readonly browserCapabilityReader: () => Promise<BrowserAICapability>;
   private readonly executionReceipts = new Map<string, ClosedAIExecutionReceipt>();
-  private recoveryPromise: Promise<void> | null = null;
-  private recoveryError: ReturnType<typeof safeError> | null = null;
+  private localRecoveryPromise: Promise<void> | null = null;
+  private privateHubRecoveryPromise: Promise<void> | null = null;
+  private localRecoveryError: ReturnType<typeof safeError> | null = null;
+  private privateHubRecoveryError: ReturnType<typeof safeError> | null = null;
 
   constructor(options: ClosedAIRuntimeCoordinatorOptions) {
     this.origin = options.origin;
@@ -380,54 +385,124 @@ export class ClosedAIRuntimeCoordinator {
     this.executionReceipts.set(key, structuredClone(receipt));
   }
 
-  private async restorePairings(signal?: AbortSignal) {
-    if (!this.recoveryPromise) {
-      this.recoveryPromise = (async () => {
-        const [local, privateHub] = await Promise.allSettled([
-          this.localClient.restoreRememberedSession(signal),
-          this.privateHubClient.restoreRememberedSession(signal),
-        ]);
-        if (local.status === "fulfilled" && local.value) {
-          configureLocalBridgeClient(this.localClient);
-          configureLocalBridgeModel(local.value.model.modelId);
+  private async restoreLocalPairing(signal?: AbortSignal) {
+    if (!this.localRecoveryPromise) {
+      const recovery = (async () => {
+        try {
+          const local = await this.localClient.restoreRememberedSession(signal);
+          if (local) {
+            configureLocalBridgeClient(this.localClient);
+            configureLocalBridgeModel(local.model.modelId);
+          }
+          this.localRecoveryError = null;
+        } catch (error) {
+          this.localRecoveryError = safeError(error);
+          if (signal?.aborted) {
+            throw signal.reason ?? error;
+          }
+          // A stale tab session is recoverable. The automatic exact-origin
+          // connection below must still get an opportunity to create a new one.
         }
-        if (privateHub.status === "fulfilled" && privateHub.value) {
-          configurePrivateHubClient(this.privateHubClient);
-          configurePrivateHubModel(privateHub.value.model.modelId);
-        }
-        const rejected = [local, privateHub].find(
-          (result): result is PromiseRejectedResult => result.status === "rejected",
-        );
-        this.recoveryError = rejected ? safeError(rejected.reason) : null;
       })();
+      this.localRecoveryPromise = recovery;
     }
-    await this.recoveryPromise;
+    const recovery = this.localRecoveryPromise;
+    try {
+      await recovery;
+    } catch (error) {
+      if (this.localRecoveryPromise === recovery) {
+        this.localRecoveryPromise = null;
+      }
+      throw error;
+    }
+  }
+
+  private async restorePrivateHubPairing(signal?: AbortSignal) {
+    if (!this.privateHubRecoveryPromise) {
+      const recovery = (async () => {
+        try {
+          const privateHub = await this.privateHubClient.restoreRememberedSession(
+            signal,
+          );
+          if (privateHub) {
+            configurePrivateHubClient(this.privateHubClient);
+            configurePrivateHubModel(privateHub.model.modelId);
+          }
+          this.privateHubRecoveryError = null;
+        } catch (error) {
+          this.privateHubRecoveryError = safeError(error);
+          if (signal?.aborted) {
+            throw signal.reason ?? error;
+          }
+          // Private Hub is optional for standard local writing. Its stale
+          // session cannot block Local Ollama or the Browser AI fabric.
+        }
+      })();
+      this.privateHubRecoveryPromise = recovery;
+    }
+    const recovery = this.privateHubRecoveryPromise;
+    try {
+      await recovery;
+    } catch (error) {
+      if (this.privateHubRecoveryPromise === recovery) {
+        this.privateHubRecoveryPromise = null;
+      }
+      throw error;
+    }
   }
 
   async connectAutomatically(
     signal?: AbortSignal,
   ): Promise<ClosedAIAutomaticConnectionResult> {
-    await this.restorePairings(signal);
     const [localOllama, privateHub] = await Promise.allSettled([
-      this.localClient.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL, signal),
-      this.privateHubClient.connectAutomatically(RECOMMENDED_LOCAL_WRITER_MODEL, signal),
+      this.connectLocalAutomatically(signal),
+      this.connectPrivateHubAutomatically(signal),
     ]);
-    if (localOllama.status === "fulfilled") {
-      configureLocalBridgeClient(this.localClient);
-      configureLocalBridgeModel(localOllama.value.model.modelId);
-    }
-    if (privateHub.status === "fulfilled") {
-      configurePrivateHubClient(this.privateHubClient);
-      configurePrivateHubModel(privateHub.value.model.modelId);
-    }
     return { localOllama, privateHub };
+  }
+
+  // A missing Private Hub must never delay a ready Local Ollama route.
+  async connectLocalAutomatically(
+    signal?: AbortSignal,
+  ): Promise<LocalBridgeAutomaticConnection> {
+    await this.restoreLocalPairing(signal);
+    const localOllama = await this.localClient.connectAutomatically(
+      FAST_LOCAL_WRITER_MODEL,
+      signal,
+    );
+    configureLocalBridgeClient(this.localClient);
+    configureLocalBridgeModel(localOllama.model.modelId);
+    return localOllama;
+  }
+
+  async connectPrivateHubAutomatically(
+    signal?: AbortSignal,
+  ): Promise<PrivateHubAutomaticConnection> {
+    await this.restorePrivateHubPairing(signal);
+    const privateHub = await this.privateHubClient.connectAutomatically(
+      RECOMMENDED_LOCAL_WRITER_MODEL,
+      signal,
+    );
+    configurePrivateHubClient(this.privateHubClient);
+    configurePrivateHubModel(privateHub.model.modelId);
+    return privateHub;
   }
 
   async refresh(
     input: ClosedAIRuntimeRefreshInput,
   ): Promise<ClosedAIRuntimeSnapshot> {
-    await this.restorePairings(input.signal);
     configurePrivateHubProject(input.projectId);
+    await this.restoreLocalPairing(input.signal);
+    // Restore the optional heavy-compute backend only when this request can
+    // actually use it. Waking a remembered 7B Hub model during a standard
+    // Local Ollama request can contend for the same CPU/RAM and make the
+    // foreground 3B generation exceed its deadline.
+    const shouldRestorePrivateHub =
+      input.policy?.preferredBackend === "private-ai-hub" ||
+      taskComplexity(input.taskType) === "heavy";
+    if (shouldRestorePrivateHub) {
+      void this.restorePrivateHubPairing(input.signal).catch(() => undefined);
+    }
     const namespace = namespaceForTask(input);
     const [releaseStatus, browserCapability, localNetworkPermission, backends] =
       await Promise.all([
@@ -561,7 +636,11 @@ export class ClosedAIRuntimeCoordinator {
         ? structuredClone(executionReceipt)
         : null,
       plannedDataBoundary: selected?.dataBoundary ?? "none",
-      lastError: this.recoveryError,
+      lastError: selected?.id === "private-ai-hub"
+        ? this.privateHubRecoveryError
+        : selected?.id === "local-ollama"
+          ? this.localRecoveryError
+          : this.localRecoveryError ?? this.privateHubRecoveryError,
       nextAction: route.recommendedNextAction,
       route,
       backends,

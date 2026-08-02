@@ -79,11 +79,28 @@ check("closed AI safely returns to the source writing chapter", () => {
   assert.match(closedAI, /返回原章寫作/u);
 });
 
-check("16 GB devices prefer the 7B local writer while retaining smaller fallback", () => {
+check("first connection verifies the fast model while retaining selectable 7B quality", () => {
   assert.match(modelRecommendations, /RECOMMENDED_LOCAL_WRITER_MODEL = "qwen2\.5:7b"/u);
   assert.match(modelRecommendations, /FAST_LOCAL_WRITER_MODEL = "qwen2\.5:3b"/u);
   assert.match(setupWizard, /RECOMMENDED_LOCAL_WRITER_MODEL/u);
-  assert.match(coordinator, /connectAutomatically\(RECOMMENDED_LOCAL_WRITER_MODEL/u);
+  assert.match(setupWizard, /connectAutomatically\(FAST_LOCAL_WRITER_MODEL/u);
+  assert.match(coordinator, /connectLocalAutomatically/u);
+  assert.match(
+    coordinator,
+    /localClient\.connectAutomatically\(\s*FAST_LOCAL_WRITER_MODEL/u,
+  );
+  assert.match(coordinator, /missing Private Hub must never delay/u);
+  assert.match(closedAI, /PRIVATE_HUB_DEFERRED/u);
+  assert.match(closedAI, /selectedTask\?\.complexity === "heavy"/u);
+  assert.match(setupWizard, /getModelVerification\(\)\?\.modelId/u);
+  assert.match(closedAI, /getModelVerification\(\)\?\.modelId/u);
+});
+
+check("an explicit runtime choice survives a same-tab reload without storing credentials", () => {
+  assert.match(closedAI, /closed-ai-workspace-preferences-v1/u);
+  assert.match(closedAI, /window\.sessionStorage\.setItem\(workspacePreferenceKey\(projectId\)/u);
+  assert.match(closedAI, /setBackend\(restored\)/u);
+  assert.doesNotMatch(closedAI, /workspacePreferenceKey[\s\S]{0,600}(?:token|csrf)/u);
 });
 
 console.log(JSON.stringify({ status: "PASS", checks: checks.length, cases: checks }, null, 2));

@@ -7,7 +7,8 @@ const artifactUrl = new URL("../artifacts/closed-ai-phase1-ollama/real-runtime-t
 const report = JSON.parse(await readFile(artifactUrl, "utf8"));
 const failedNames = new Set(report.results.filter((item) => item.status === "FAIL").map((item) => item.name));
 const origin = "http://127.0.0.1:3000";
-const base = "http://127.0.0.1:3217";
+const base = String(report.bridgeEndpoint || "http://127.0.0.1:33217");
+const bridgePort = Number(new URL(base).port);
 const headers = (session, write = false) => ({ Origin: origin, "X-Bridge-Protocol": BRIDGE_PROTOCOL, ...(session ? { Authorization: `Bearer ${session.token}` } : {}), ...(write && session ? { "X-Bridge-CSRF": session.csrf } : {}) });
 const readJson = async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) });
 const replacements = [];
@@ -26,7 +27,7 @@ async function generate(session, body) {
   return { text, completed };
 }
 
-const bridge = createBridgeServer({ testMode: true });
+const bridge = createBridgeServer({ testMode: true, port: bridgePort });
 await bridge.start();
 let session;
 try {
@@ -39,7 +40,7 @@ try {
 } finally { await bridge.stop(); }
 
 const firstInstance = session.instanceId;
-const restarted = createBridgeServer({ testMode: true });
+const restarted = createBridgeServer({ testMode: true, port: bridgePort });
 await restarted.start();
 try {
   if (failedNames.has("bridge restart invalidates old pairing")) await test("bridge restart invalidates old pairing", async () => { let health; for (let attempt = 0; attempt < 3; attempt += 1) { try { health = await readJson(await fetch(`${base}/health`, { headers: headers() })); break; } catch { await new Promise((resolve) => setTimeout(resolve, 100)); } } assert.ok(health); assert.notEqual(health.body.instanceId, firstInstance); assert.equal(health.body.pairingState, "unpaired"); let models; for (let attempt = 0; attempt < 2; attempt += 1) { try { models = await readJson(await fetch(`${base}/models`, { headers: headers(session) })); break; } catch { await new Promise((resolve) => setTimeout(resolve, 100)); } } assert.equal(models.body.errorCode, "BRIDGE_NOT_PAIRED"); return { instanceChanged: true, oldTokenRejected: true, transientReconnectHandled: true }; });

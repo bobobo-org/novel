@@ -11,6 +11,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const wrapper = path.join(root, "local-ai", "bridge", "novel-local-ai.ps1");
 const artifactDir = path.join(root, "artifacts", "closed-ai-phase1-1r1");
 const runtimeDir = path.join(os.tmpdir(), `novel-clean-shell-${Date.now()}`);
+const bridgeTestPort = Number(process.env.BRIDGE_TEST_PORT || 33_219);
 const shell = `${process.env.SystemRoot || "C:\\Windows"}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
 const results = [];
 
@@ -18,7 +19,7 @@ async function run(name, command, env = {}) {
   try {
     const { stdout, stderr } = await exec(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", wrapper, command], {
       cwd: root, windowsHide: true, timeout: 30_000,
-      env: { ...process.env, PATH: "", NODE_OPTIONS: "", NOVEL_NODE_PATH: "", NOVEL_BRIDGE_RUNTIME_DIR: runtimeDir, ...env },
+      env: { ...process.env, PATH: "", NODE_OPTIONS: "", NOVEL_NODE_PATH: "", NOVEL_BRIDGE_RUNTIME_DIR: runtimeDir, BRIDGE_TEST_MODE: "1", BRIDGE_PORT: String(bridgeTestPort), ...env },
     });
     const parsed = JSON.parse(stdout.slice(stdout.indexOf("{")));
     results.push({ name, status: "PASS", exitCode: 0, output: parsed, stderr: stderr.trim() }); return parsed;
@@ -28,7 +29,7 @@ async function run(name, command, env = {}) {
   }
 }
 
-const missing = await run("missing Node gives actionable JSON", "diagnose", { PATH: "", NOVEL_NODE_PATH: "" });
+const missing = await run("missing Node gives actionable JSON", "diagnose", { PATH: "", NOVEL_NODE_PATH: "", NOVEL_BRIDGE_TEST_FORCE_NODE_MISSING: "1" });
 assert.equal(missing.errorCode, "LAUNCHER_NODE_NOT_FOUND"); assert.match(missing.nextStep, /Node\.js 22/);
 const diagnosed = await run("explicit Node path works without PATH", "diagnose", { PATH: "", NOVEL_NODE_PATH: process.execPath });
 assert.equal(diagnosed.ok, true, JSON.stringify(diagnosed)); assert.equal(diagnosed.diagnostics.nodePath, process.execPath); assert.equal(diagnosed.diagnostics.loopbackOnly, true);

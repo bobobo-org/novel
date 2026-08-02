@@ -227,6 +227,7 @@ function executionRequest(taskId = "runtime-r2-task") {
     context: [],
     complexity: "standard",
     qualityMode: "fast",
+    preferredBackend: "local-ollama",
     allowedToolIds: [],
     permissionScopes: [
       "story:read",
@@ -315,6 +316,7 @@ test("client-runtime-coordinator", "coordinator keeps planned routing separate f
   const snapshot = await coordinator.refresh({
     projectId: "project-r2",
     taskType: "chapter.continue",
+    policy: { preferredBackend: "local-ollama" },
   });
   assert.equal(snapshot.state, "ready_standard");
   assert.equal(snapshot.plannedBackend, "local-ollama");
@@ -329,6 +331,66 @@ test("client-runtime-coordinator", "coordinator keeps planned routing separate f
     plannedBackend: snapshot.plannedBackend,
     actualExecutor: snapshot.actualExecutor,
     apiAvailabilityUsedAsExecutor: false,
+  };
+});
+
+test("client-runtime-coordinator", "ready Local Ollama never waits for optional Private Hub recovery", async () => {
+  let localConnectCalls = 0;
+  let privateRestoreCalls = 0;
+  const preferredModelId = "qwen2.5:3b";
+  const localConnection = {
+    automatic: true,
+    session: {
+      instanceId: "local-fast-path",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+    model: {
+      modelId: preferredModelId,
+      modelDigest: "local-fast-path-digest",
+    },
+    proof: {
+      modelId: preferredModelId,
+      modelDigest: "local-fast-path-digest",
+    },
+  };
+  const localClient = {
+    restoreRememberedSession: async () => null,
+    connectAutomatically: async (modelId) => {
+      localConnectCalls += 1;
+      assert.equal(modelId, preferredModelId);
+      return localConnection;
+    },
+  };
+  const privateHubClient = {
+    restoreRememberedSession: async () => {
+      privateRestoreCalls += 1;
+      return await new Promise(() => undefined);
+    },
+  };
+  const coordinator = new ClosedAIRuntimeCoordinator({
+    origin: "https://preview.example",
+    snapshotReader: async () => [],
+    localClient,
+    privateHubClient,
+  });
+  const result = await Promise.race([
+    coordinator.connectLocalAutomatically().then((value) => ({
+      status: "connected",
+      value,
+    })),
+    new Promise((resolve) => setTimeout(
+      () => resolve({ status: "timed_out", value: null }),
+      250,
+    )),
+  ]);
+  assert.equal(result.status, "connected");
+  assert.equal(result.value.model.modelId, preferredModelId);
+  assert.equal(localConnectCalls, 1);
+  assert.equal(privateRestoreCalls, 0);
+  return {
+    localConnectCalls,
+    privateRestoreCalls,
+    localBlockedByPrivateHub: false,
   };
 });
 
@@ -359,7 +421,7 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
   });
   const checks = [
     ["gemini-ready-closed-unpaired", route("chapter.continue", [browserTask, localUnpaired]).executionStatus === "not_executed"],
-    ["gemini-down-closed-paired", route("chapter.continue", [browserTask, localReady]).backend?.id === "local-ollama"],
+    ["gemini-down-closed-paired", route("chapter.continue", [browserTask, localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
     ["cloud-healthy-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "healthy" }) === "LOCAL_PLUS_CLOUD"],
     ["cloud-down-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "unreachable" }) === "CLOUD_DEGRADED"],
     ["cloud-healthy-indexeddb-blocked", derivePersistenceRuntimeMode({ localReady: false, cloudStatus: "healthy" }) === "LOCAL_BLOCKED"],
@@ -367,15 +429,15 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
     ["browser-native-prompt-ready", route("chapter.continue", [browserGenerative]).backend?.id === "browser-ai"],
     ["bridge-running-unpaired", route("chapter.continue", [localUnpaired]).executionStatus === "not_executed"],
     ["bridge-paired-model-unverified", route("chapter.continue", [localUnverified]).recommendedNextAction === "verify_model"],
-    ["bridge-paired-model-verified", route("chapter.continue", [localReady]).backend?.id === "local-ollama"],
+    ["bridge-paired-model-verified", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
     ["private-hub-unpaired", route("character.privateArc", [privateUnpaired], { namespace: { privacyLevel: "private_infrastructure_only" } }).executionStatus === "not_executed"],
     ["private-hub-paired", route("character.privateArc", [privateReady], { namespace: { privacyLevel: "private_infrastructure_only" } }).backend?.id === "private-ai-hub"],
     ["page-reload", true],
     ["bridge-restart", true],
     ["expired-session", true],
     ["local-network-denied", route("chapter.continue", [backend("local-ollama", { status: "runtime_required", detailCode: "LOCAL_NETWORK_PERMISSION_DENIED" })]).recommendedNextAction === "allow_local_network"],
-    ["local-network-granted", route("chapter.continue", [localReady]).executionStatus === "routable"],
-    ["desktop", route("chapter.continue", [localReady]).executionStatus === "routable"],
+    ["local-network-granted", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
+    ["desktop", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
     ["mobile", route("story.summary", [browserTask]).executionStatus === "routable"],
     ["offline", route("story.summary", [browserTask]).backend?.dataBoundary === "device"],
   ];
@@ -383,7 +445,7 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
   assert.deepEqual(checks.filter(([, passed]) => !passed), []);
   const routed = [
     route("story.summary", [browserTask]),
-    route("chapter.continue", [localReady]),
+    route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }),
     route("character.privateArc", [privateReady], {
       namespace: { privacyLevel: "private_infrastructure_only" },
     }),
@@ -402,7 +464,9 @@ test("route-discovery-execution-parity", "route resolution and execution lock th
     backend("local-ollama"),
     backend("private-ai-hub"),
   ];
-  const discovery = route("chapter.continue", snapshots);
+  const discovery = route("chapter.continue", snapshots, {
+    policy: { preferredBackend: "local-ollama" },
+  });
   assert.equal(discovery.executionStatus, "routable");
   assert.equal(discovery.backend.id, "local-ollama");
   const { os, calls } = createRuntimeOS(snapshots);

@@ -36,6 +36,7 @@ import {
   regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
+import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
   hasVerifiedExecutedStoryOutput,
   isUsableChineseStoryOutput,
@@ -403,6 +404,54 @@ const assistantTasks = [
   ["chapter_hook", "製造章尾懸念"],
   ["three_choices", "產生三個選擇"],
 ] as const;
+
+type StudioTaskExecutionProfile = {
+  targetLength: number;
+  maxTokens: number;
+  timeoutMs: number;
+  qualityMode: "fast" | "balanced" | "deep";
+};
+
+const STUDIO_TASK_EXECUTION_PROFILES: Record<string, StudioTaskExecutionProfile> = {
+  idea_directions: { targetLength: 240, maxTokens: 160, timeoutMs: 90_000, qualityMode: "fast" },
+  topic_recommendation: { targetLength: 220, maxTokens: 144, timeoutMs: 90_000, qualityMode: "fast" },
+  protagonist_recommendation: { targetLength: 260, maxTokens: 176, timeoutMs: 90_000, qualityMode: "fast" },
+  world_recommendation: { targetLength: 280, maxTokens: 192, timeoutMs: 90_000, qualityMode: "fast" },
+  conflict_recommendation: { targetLength: 260, maxTokens: 176, timeoutMs: 90_000, qualityMode: "fast" },
+  mode_recommendation: { targetLength: 220, maxTokens: 144, timeoutMs: 90_000, qualityMode: "fast" },
+  improve_settings: { targetLength: 420, maxTokens: 288, timeoutMs: 120_000, qualityMode: "fast" },
+  story_seed: { targetLength: 520, maxTokens: 352, timeoutMs: 120_000, qualityMode: "fast" },
+  plan_chapter: { targetLength: 900, maxTokens: 640, timeoutMs: 180_000, qualityMode: "balanced" },
+  first_chapter: { targetLength: 1_600, maxTokens: 1_024, timeoutMs: 240_000, qualityMode: "balanced" },
+  continue_story: { targetLength: 900, maxTokens: 640, timeoutMs: 180_000, qualityMode: "balanced" },
+  rewrite_selection: { targetLength: 520, maxTokens: 384, timeoutMs: 150_000, qualityMode: "fast" },
+  dialogue_boost: { targetLength: 480, maxTokens: 352, timeoutMs: 150_000, qualityMode: "fast" },
+  emotion_boost: { targetLength: 520, maxTokens: 384, timeoutMs: 150_000, qualityMode: "fast" },
+  pacing_tune: { targetLength: 480, maxTokens: 352, timeoutMs: 150_000, qualityMode: "fast" },
+  chapter_hook: { targetLength: 360, maxTokens: 256, timeoutMs: 120_000, qualityMode: "fast" },
+  three_choices: { targetLength: 360, maxTokens: 256, timeoutMs: 120_000, qualityMode: "fast" },
+};
+
+function studioTaskExecutionProfile(task: string): StudioTaskExecutionProfile {
+  return STUDIO_TASK_EXECUTION_PROFILES[task]
+    ?? { targetLength: 420, maxTokens: 288, timeoutMs: 120_000, qualityMode: "fast" };
+}
+
+function closedAIRootCauseCode(error: unknown) {
+  const typed = error as {
+    code?: unknown;
+    causeCode?: unknown;
+    cause?: { code?: unknown; causeCode?: unknown; cause?: { code?: unknown } };
+  } | null;
+  return String(
+    typed?.causeCode
+      ?? typed?.cause?.causeCode
+      ?? typed?.cause?.code
+      ?? typed?.cause?.cause?.code
+      ?? typed?.code
+      ?? "MODEL_NOT_READY",
+  );
+}
 const choiceProgressSteps = [
   "正在整理故事脈絡……",
   "正在推進劇情……",
@@ -872,6 +921,8 @@ export default function StudioClient({
     [assistantBusy, setAssistantBusy] = useState<string | null>(null),
     [assistantStreamText, setAssistantStreamText] = useState(""),
     [assistantStreamEvents, setAssistantStreamEvents] = useState(0),
+    [assistantProgress, setAssistantProgress] = useState<ClosedAIProgressEvent | null>(null),
+    [assistantFailure, setAssistantFailure] = useState(""),
     [lastRejectedCandidate, setLastRejectedCandidate] =
       useState<NonNullable<Candidate> | null>(null),
     [regenerationError, setRegenerationError] = useState(""),
@@ -1121,6 +1172,18 @@ export default function StudioClient({
     }
   }, [screen]);
   useEffect(() => {
+    if (!loaded || screen !== "choice") return;
+    if (!project?.id) {
+      commitScreen("create", true);
+      return;
+    }
+    // The former /studio?screen=choice page exposed three deterministic strings
+    // before a story existed. Keep the URL compatible, but move every consumer
+    // to the canonical RPG director where foundation, model proof and StoryState
+    // effects are enforced.
+    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+  }, [loaded, project?.id, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
     const onPopState = () => {
       const requested = new URL(location.href).searchParams.get("screen");
       void requestScreenNavigation(resolveStudioScreen(requested), true);
@@ -1219,11 +1282,13 @@ export default function StudioClient({
       },
     });
   }
-  function commitScreen(value: Screen, replace = false) {
+  function commitScreen(value: Screen, replace = false, projectIdOverride?: string) {
     const url = new URL(location.href);
     url.pathname = "/studio";
     url.searchParams.set("screen", value);
-    if (project?.id) url.searchParams.set("projectId", project.id);
+    const destinationProjectId = projectIdOverride ?? project?.id;
+    if (destinationProjectId) url.searchParams.set("projectId", destinationProjectId);
+    else url.searchParams.delete("projectId");
     const method = replace ? "replaceState" : "pushState";
     history[method]({ screen: value }, "", url);
     setScreen(value);
@@ -1416,7 +1481,7 @@ export default function StudioClient({
       wizard: { ...emptyWizard, optionalFields: emptyOptional() },
       wizardStep: 1,
     });
-    navigate("write");
+    commitScreen("write", false, id);
   }
   async function saveDraft(chapterId: string, title: string, draft: string) {
     if (!ensureCanonicalWritable("儲存草稿")) return;
@@ -1734,6 +1799,9 @@ export default function StudioClient({
         "只提出候選，不得假設空白欄位已設定；若輸出推薦或三選一，請使用簡潔 JSON。",
     });
   }
+  // Kept only to decode pre-RC5 local-rule records during migration. New tasks
+  // never call this constructor and fail closed when no real model answers.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function ruleCandidate(task: string): Candidate {
     const fields = project?.optionalFields ?? state.wizard.optionalFields,
       name = optionalValue(fields, "protagonist") || "主角",
@@ -1834,6 +1902,7 @@ export default function StudioClient({
     if (!ensureCanonicalWritable("執行會產生候選的助手工作")) return;
     if (assistantBusy) return;
     const started = performance.now();
+    const executionProfile = studioTaskExecutionProfile(task);
     const regenerationSource = options.regenerateFrom;
     const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
     if (externalSelected && !externalRunConsent) {
@@ -1870,9 +1939,16 @@ export default function StudioClient({
       }
     }
     const taskController = new AbortController();
+    let taskTimedOut = false;
+    const taskDeadline = window.setTimeout(() => {
+      taskTimedOut = true;
+      taskController.abort("STUDIO_AI_TASK_TIMEOUT");
+    }, executionProfile.timeoutMs);
     assistantControllerRef.current = taskController;
     setAssistantStreamText("");
     setAssistantStreamEvents(0);
+    setAssistantProgress(null);
+    setAssistantFailure("");
     setAssistantBusy(regenerationSource ? `regenerate:${task}` : task);
     try {
       if (project) {
@@ -1890,13 +1966,23 @@ export default function StudioClient({
         input: contextFor(task, currentChapterText),
         sourceChapterId: sourceChapterId ?? undefined,
         sourceRevision: sourceRevision ?? undefined,
-        targetLength:
-          task === "first_chapter"
-            ? 1600
-            : task === "continue_story"
-              ? 900
-              : 700,
+        targetLength: executionProfile.targetLength,
+        qualityMode: executionProfile.qualityMode,
+        generationOptions: {
+          maxTokens: executionProfile.maxTokens,
+          temperature: regenerationSource ? 0.9 : 0.76,
+          topP: 0.92,
+          repetitionPenalty: regenerationSource ? 1.18 : 1.1,
+        },
         signal: taskController.signal,
+        onProgress: (event: ClosedAIProgressEvent) => {
+          setAssistantProgress(event);
+          if (event.delta) setAssistantStreamText((value) => value + event.delta);
+          setAssistantStreamEvents((value) => Math.max(
+            value + 1,
+            event.generatedTokenEvents ?? 0,
+          ));
+        },
       };
       if (externalSelected) {
         setExternalRunConsent(false);
@@ -1911,12 +1997,20 @@ export default function StudioClient({
           providerId: externalConnectorId,
           externalConsent: true,
           prompt: externalPrompt,
-          maxOutputTokens: taskInput.targetLength ? Math.min(4096, Math.max(512, Math.round(taskInput.targetLength * 1.6))) : 1536,
+          maxOutputTokens: executionProfile.maxTokens,
         }, {
           signal: taskController.signal,
           onDelta: (delta, generatedTokenEvents) => {
             setAssistantStreamText((value) => value + delta);
             setAssistantStreamEvents(generatedTokenEvents);
+            setAssistantProgress({
+              taskId: `external:${task}`,
+              phase: "generating",
+              label: `外接 AI 已串流 ${generatedTokenEvents} 個片段`,
+              percent: Math.min(82, 48 + Math.round(Math.sqrt(generatedTokenEvents) * 4)),
+              occurredAt: new Date().toISOString(),
+              generatedTokenEvents,
+            });
           },
         });
         const contentDigest = await sha256Hex(generated.text);
@@ -2002,9 +2096,10 @@ export default function StudioClient({
         };
         setAssistantStatus(result.provider === "local-ollama" ? "ollama_ready" : "runtime_ready");
       }
+      setAssistantFailure("");
       setLastRejectedCandidate(null);
     } catch (error) {
-      const code = String((error as { code?: string })?.code || "MODEL_NOT_READY");
+      const code = taskTimedOut ? "STUDIO_AI_TASK_TIMEOUT" : closedAIRootCauseCode(error);
       if (regenerationSource) {
         console.error("STUDIO_EXPLICIT_REGENERATION_FAILED", {
           code,
@@ -2046,43 +2141,40 @@ export default function StudioClient({
         }));
         return;
       }
+      if (taskController.signal.aborted) {
+        const message = taskTimedOut
+          ? `真實模型在 ${Math.round(executionProfile.timeoutMs / 1_000)} 秒內沒有完成「${assistantTasks.find((item) => item[0] === task)?.[1] ?? task}」。已停止本次工作，沒有建立候選或修改正文。`
+          : "已停止本次生成；未完成內容沒有建立候選，也沒有修改正式章節。";
+        setAssistantFailure(`${message}（${code}）`);
+        setAiModeMessage(message);
+        setState((value) => ({ ...value, candidate: null }));
+        return;
+      }
       const guidance = code === "LOCAL_NETWORK_PERMISSION_DENIED"
         ? "瀏覽器拒絕本機網路權限。請在網址列的網站權限中允許「本機網路存取」，再到閉端 AI 指揮中心重新配對。"
+        : code === "BROWSER_AI_ESCALATE_LOCAL_OLLAMA"
+          ? "瀏覽器生成模型本次執行失敗，而且 Local Ollama 尚未連線。請先在閉端 AI 指揮中心重測已安裝的 Browser 模型，或啟動本機 AI Companion。"
+          : code.startsWith("BROWSER_AI_REQUIRED_GENERATIVE") || code.startsWith("BROWSER_WEBLLM")
+            ? "已安裝的 Browser 生成模型沒有完成真實推理。請重新實測模型；若裝置資源不足，改用較小模型或 Local Ollama。"
         : code === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"
           ? "這項創作需要真實生成模型；Local Ollama 尚未完成配對與實測。"
           : code === "BROWSER_AI_TASK_NOT_SUPPORTED"
             ? "目前瀏覽器只有摘要／分類模型，不能拿來冒充續寫模型。"
             : "真實閉端模型沒有完成這次工作，系統已安全停止。";
-      const writingAid = ruleCandidate(task)!;
-      candidate = {
-        ...writingAid,
-        projectId: project?.id ?? null,
-        candidateId: null,
-        taskId: `local-writing-aid:${crypto.randomUUID()}`,
-        provider: "local-writing-aid",
-        modelId: null,
-        modelDigest: null,
-        contextDigest: await sha256Hex(contextFor(task)),
-        contentDigest: await sha256Hex(writingAid.content),
-        actualExecutor: "not_executed",
-        canonicalMutationCount: 0,
-        sourceChapterId,
-        sourceRevision,
-        candidateKind: "local-writing-aid",
-        title: "真實 AI 尚未完成",
-        source: "離線寫作工具（非 AI 模型）",
-        diagnostic: `${guidance}（${code}）`,
-      };
+      candidate = null;
+      setAssistantFailure(`${guidance}（${code}）`);
+      setAiModeMessage(guidance);
       setAssistantStatus((current) =>
         current === "auth_required" ? current : "runtime_required",
       );
     } finally {
+      window.clearTimeout(taskDeadline);
       if (assistantControllerRef.current === taskController) assistantControllerRef.current = null;
       setAssistantBusy(null);
     }
     const elapsedMs = Math.round(performance.now() - started),
       status: ExecutionLog["status"] =
-        candidate?.model === "local-rule" ? "fallback" : "completed";
+        !candidate ? "failed" : candidate.model === "local-rule" ? "fallback" : "completed";
     setState((value) => ({
       ...value,
       candidate,
@@ -2347,24 +2439,10 @@ export default function StudioClient({
         project.draft.trim() || name || conflict || project.coreIdea.value,
       );
     if (!hasStory) {
-      if (!signal?.aborted)
-        setState((value) => ({
-          ...value,
-          candidate: {
-            task: "branch_choice",
-            title: "故事資料不足",
-            content:
-              "目前故事資料還不夠，請先建立主角、核心想法，或寫一小段開場。",
-            source: "本機故事建議",
-            model: "local-rule",
-            usedLocalMemory: false,
-            externalRequest: false,
-            choiceText,
-            impacts: [],
-            statChanges: [],
-            createdAt: new Date().toISOString(),
-          },
-        }));
+      if (!signal?.aborted) {
+        setAiModeMessage("故事資料還不夠：請先建立主角、核心想法，或寫一小段開場；系統沒有建立固定規則選項。");
+        setState((value) => ({ ...value, candidate: null }));
+      }
       return;
     }
     const protagonist = name || "主角",
@@ -2398,10 +2476,10 @@ export default function StudioClient({
       }
     }
     setRegenerationError("");
-    let content = `${protagonist}依照「${choiceText}」採取行動。\n\n在${scene}裡，這個決定立刻改變了局勢：${activeConflict}不再只是等待處理的問題，而成為必須正面承擔的後果。${protagonist}從對方的反應中察覺一個新的細節，也因此確定下一步不能照原來的方式進行。`,
-      source = "本機故事建議",
-      model = "local-rule",
-      providerId = "local-rule",
+    let content = "",
+      source = "",
+      model = "",
+      providerId = "",
       candidateIdentity: Partial<NonNullable<Candidate>> = {};
     try {
       const canonical = await ensureStudioCanonicalProject(
@@ -2551,10 +2629,9 @@ export default function StudioClient({
         return;
       }
       console.error("STUDIO_CHOICE_CLOSED_AI_FAILED", { code });
-      candidateIdentity = {
-        actualExecutor: "not_executed",
-        diagnostic: `真實閉端模型未完成這次推理，已保留本機規則候選。（${code}）`,
-      };
+      setAiModeMessage(`真實閉端模型未完成這次推理（${code}）。沒有建立規則替代品，也沒有修改 Canon 或 RPG 數值。`);
+      setState((value) => ({ ...value, candidate: null }));
+      return;
     }
     if (signal?.aborted) return;
     const deltaByChoice: Record<string, number> = { A: 3, B: 2, C: -2 },
@@ -3057,6 +3134,8 @@ export default function StudioClient({
                 assistantBusy={assistantBusy}
                 assistantStreamText={assistantStreamText}
                 assistantStreamEvents={assistantStreamEvents}
+                assistantProgress={assistantProgress}
+                assistantFailure={assistantFailure}
                 stopAssistantTask={stopAssistantTask}
                 lastRejectedCandidate={
                   lastRejectedCandidate?.projectId === project?.id
@@ -3208,27 +3287,43 @@ function HomeScreen({
           </div>
         </section>
       ) : null}
-      <div className="studioWelcome">
-        <div>
-          <span>完整故事庫已連線</span>
-          <h1>從一個想法開始，也可以先保持空白</h1>
-          <p>
-            {STORY_LIBRARY.packs.length} 個分類包・
-            {STORY_LIBRARY.topics.filter((topic) => topic.classic).length}{" "}
-            類經典題材・設定可稍後逐步補充
-          </p>
+      <section className="studioHomeHero">
+        <div className="studioHomeHeroCopy">
+          <span className="studioHeroEyebrow">THE TEN THOUSAND WORLDS · STORY FORGE</span>
+          <h1>一念開天地，落筆成萬界</h1>
+          <p>在同一座創作殿堂裡完成小說、角色、世界、互動分支與 RPG。每一個 AI 候選都先由你核准，才會成為正式故事。</p>
+          <div className="studioHeroSignals" aria-label="系統特色">
+            <span>本機優先</span>
+            <span>章節獨立保存</span>
+            <span>Canon 可回溯</span>
+          </div>
+          <div className="studioHeroActions">
+            <Link className="studioHeroPrimary" href="/studio/create">開啟新世界</Link>
+            <button type="button" disabled={!project} onClick={() => navigate("write")}>續寫目前篇章</button>
+            <button type="button" onClick={() => navigate("library")}>走進我的書庫</button>
+          </div>
         </div>
-        <div>
-          <Link className="gold studioLinkButton" href="/studio/create">
-            建立新作品
-          </Link>
-          <button onClick={() => navigate("write")}>繼續最近作品</button>
-          <button onClick={() => navigate("library")}>我的作品</button>
+        <div className="studioRealmOrb" aria-hidden="true">
+          <i /><i /><i />
+          <div><small>STORY REALM</small><b>{project ? "續" : "始"}</b><span>{project?.topicName || "等待命名的世界"}</span></div>
         </div>
-      </div>
-      <h2>最近作品</h2>
+      </section>
+
+      <section className="studioHomePortals" aria-label="快速入口">
+        <Link href="/studio/create"><small>01 · CREATE</small><b>建立新作品</b><span>由引導精靈陪你完成世界與人物</span></Link>
+        <button type="button" disabled={!project} onClick={() => navigate("write")}><small>02 · WRITE</small><b>章節寫作</b><span>回到上次游標與六層 AI Cache</span></button>
+        <button type="button" disabled={!project} onClick={() => project && window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}><small>03 · PLAY</small><b>互動故事／RPG</b><span>讓選擇真正改變正文、關係與數值</span></button>
+        <Link href={project ? `/studio/project/${encodeURIComponent(project.id)}/closed-ai` : "/settings/local-ai"}><small>04 · INTELLIGENCE</small><b>閉端 AI 中樞</b><span>查看真實模型、裝置與執行證明</span></Link>
+      </section>
+
+      <div className="studioHomeSectionTitle"><div><small>YOUR LATEST WORLD</small><h2>最近作品</h2></div><span>{project ? "旅程仍在延續" : "第一個世界正等待你"}</span></div>
       {project ? (
         <article className="studioRecent">
+          <div className="studioBookCover" aria-hidden="true">
+            <small>{project.topicName || "原創小說"}</small>
+            <b>{(project.title || "書").slice(0, 1)}</b>
+            <span>諸天萬界典藏</span>
+          </div>
           <section>
             <small>{project.topicName || "題材尚未設定"}</small>
             <h3>{project.title}</h3>
@@ -3237,7 +3332,7 @@ function HomeScreen({
               {formatTime(project.updatedAt)}
             </p>
             <div className="recentActions">
-              <button onClick={() => navigate("write")}>繼續創作</button>
+              <button className="gold" onClick={() => navigate("write")}>繼續創作</button>
               <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
               <button
                 data-testid="studio-open-rpg-dashboard"
@@ -3252,7 +3347,7 @@ function HomeScreen({
         <div className="studioEmpty">
           <b>尚未建立作品</b>
           <p>不用先填完整設定，邊寫邊補也可以。</p>
-          <button onClick={() => navigate("create")}>建立第一部小說</button>
+          <Link className="studioLinkButton" href="/studio/create">建立第一部小說</Link>
         </div>
       )}
     </section>
@@ -3887,6 +3982,8 @@ function WriteScreen({
   assistantBusy,
   assistantStreamText,
   assistantStreamEvents,
+  assistantProgress,
+  assistantFailure,
   stopAssistantTask,
   lastRejectedCandidate,
   regenerationError,
@@ -3908,6 +4005,8 @@ function WriteScreen({
   assistantBusy: string | null;
   assistantStreamText: string;
   assistantStreamEvents: number;
+  assistantProgress: ClosedAIProgressEvent | null;
+  assistantFailure: string;
   stopAssistantTask: () => void;
   lastRejectedCandidate: NonNullable<Candidate> | null;
   regenerationError: string;
@@ -3958,6 +4057,7 @@ function WriteScreen({
   useEffect(() => {
     if (!project?.id || !project.activeChapterId) return;
     const controller = new AbortController();
+    let cancelModelPrewarm = () => {};
     const statusTimer = window.setTimeout(() => {
       setAiCacheStatus("正在把目前章節與作品記憶預載到六層 AI Cache…");
     }, 0);
@@ -3970,6 +4070,13 @@ function WriteScreen({
           signal: controller.signal,
         }),
         prewarmStudioInteractiveChoiceAI(controller.signal),
+        scheduleBrowserModelPrewarm({
+          policy: "browser-first",
+          signal: controller.signal,
+        }).then((decision) => {
+          cancelModelPrewarm = decision.cancel;
+          return decision;
+        }),
       ]).then(([cacheResult]) => {
         if (controller.signal.aborted) return;
         const warmed = cacheResult.status === "fulfilled" ? cacheResult.value[0] : null;
@@ -3981,6 +4088,7 @@ function WriteScreen({
     return () => {
       window.clearTimeout(statusTimer);
       window.clearTimeout(timer);
+      cancelModelPrewarm();
       controller.abort("STUDIO_WRITING_CONTEXT_REPLACED");
     };
   }, [project?.activeChapterId, project?.chapterTitle, project?.id, project?.updatedAt]);
@@ -4347,14 +4455,30 @@ function WriteScreen({
             <section className="studioStreamPreview" data-testid="studio-stream-preview" aria-live="polite">
               <header>
                 <div>
-                  <strong>{assistantStreamText ? "模型正在寫作" : "正在連接真實模型"}</strong>
-                  <small>{assistantStreamEvents > 0 ? `${assistantStreamEvents} 個串流片段` : "等待第一個文字片段"}</small>
+                  <strong>{assistantProgress?.label ?? (assistantStreamText ? "模型正在寫作" : "正在連接真實模型")}</strong>
+                  <small>
+                    {assistantProgress
+                      ? `${assistantProgress.percent}%${assistantProgress.generatedCharacters != null ? `・${assistantProgress.generatedCharacters} 字` : ""}`
+                      : assistantStreamEvents > 0
+                        ? `${assistantStreamEvents} 個串流片段`
+                        : "正在核對模型與裝置資源"}
+                  </small>
                 </div>
                 <button type="button" onClick={stopAssistantTask}>停止生成</button>
               </header>
+              <progress max={100} value={assistantProgress?.percent ?? 8} aria-label="AI 工作進度" />
               {assistantStreamText && <pre>{assistantStreamText}</pre>}
             </section>
           )}
+          {!assistantBusy && assistantFailure ? (
+            <div className="studioAiWarning" role="alert" data-testid="studio-assistant-failure">
+              <strong>這次沒有取得真實模型回答</strong>
+              <span>{assistantFailure}</span>
+              <Link href={`/studio/project/${project.id}/closed-ai?task=chapter.continue`}>
+                檢查並重測閉端 AI
+              </Link>
+            </div>
+          ) : null}
           {!candidate && lastRejectedCandidate && (
             <div className="studioRegenerationPrompt" data-testid="studio-rejected-regeneration">
               <strong>原候選已放棄，正式故事沒有變更</strong>

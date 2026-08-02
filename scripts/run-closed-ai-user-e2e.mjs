@@ -21,8 +21,23 @@ const evidencePath = path.join(
 const records = [];
 const pageErrors = [];
 const consoleErrors = [];
+const loopbackRecords = [];
 let server = null;
 let browser = null;
+
+function recordLoopback(url, result) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "127.0.0.1" || parsed.port !== "3217") return;
+    loopbackRecords.push({
+      path: parsed.pathname,
+      ...result,
+    });
+    if (loopbackRecords.length > 100) loopbackRecords.shift();
+  } catch {
+    // Diagnostics are best-effort and never include headers, bodies, or query strings.
+  }
+}
 
 function progress(name, details = {}) {
   process.stdout.write(
@@ -176,16 +191,15 @@ async function createProject(page, title) {
   await page.goto(`${baseUrl}/studio?screen=create`, {
     waitUntil: "domcontentloaded",
   });
-  const wizard = page.locator("section.p11-wizard");
+  const wizard = page.getByTestId("studio-create-wizard");
   await wizard.waitFor({ state: "visible", timeout: 60_000 });
-  await page.locator('[data-genre="玄幻修仙"]').click();
-  for (let index = 0; index < 3; index += 1) {
-    await page.locator("[data-wizard-next]").click();
+  await page.getByTestId("studio-project-title").fill(title);
+  await page.getByTestId("studio-guide-autofill").click();
+  for (let index = 0; index < 4; index += 1) {
+    await page.getByTestId("studio-create-next").click();
   }
-  await page.locator('[data-play="RPG 冒險"]').click();
-  await page.locator("[data-wizard-next]").click();
-  await page.locator('[data-wizard-field="title"]').fill(title);
-  await page.locator("[data-wizard-create]").click();
+  await page.getByTestId("studio-foundation-ready").waitFor({ state: "visible" });
+  await page.getByTestId("studio-create-submit").click();
   await page.waitForFunction(
     () => Boolean(new URL(location.href).searchParams.get("projectId")),
     undefined,
@@ -262,51 +276,79 @@ async function runDesktop(page) {
     state: "visible",
     timeout: 60_000,
   });
-  await page.getByTestId("local-ai-companion-download").waitFor({
-    state: "visible",
-  });
-  await page.getByTestId("local-ai-start-pairing").click();
-  try {
-    await page.getByTestId("local-ai-pairing-code").waitFor({
-      state: "visible",
-      timeout: 30_000,
-    });
-  } catch {
-    const state = await page
-      .getByTestId("local-ai-setup")
-      .getAttribute("data-runtime-state");
-    const message = (
-      await page.getByTestId("local-ai-runtime-state").innerText()
-    )
-      .replace(/\s+/g, " ")
-      .slice(0, 500);
-    throw new Error(`PAIRING_UI_NOT_READY:${state}:${message}`);
+  const companionDownload = page.getByTestId("local-ai-companion-download");
+  await companionDownload.waitFor({ state: "attached" });
+  const companionDetails = companionDownload.locator("xpath=ancestor::details");
+  if (!(await companionDetails.getAttribute("open"))) {
+    await companionDetails.locator("summary").click();
   }
+  await companionDownload.waitFor({ state: "visible" });
+  const manualPairing = page.getByTestId("local-ai-start-pairing");
+  const autoConnect = page.getByTestId("local-ai-auto-connect");
+  const directReady = page.getByTestId("local-ai-direct-connection-ready");
+  const automaticConnectionAvailable =
+    await autoConnect.isVisible().catch(() => false)
+    || await directReady.isVisible().catch(() => false);
+  const usedManualPairing = !automaticConnectionAvailable
+    && await manualPairing.isVisible().catch(() => false);
+  if (usedManualPairing) {
+    await manualPairing.click();
+    try {
+      await page.getByTestId("local-ai-pairing-code").waitFor({
+        state: "visible",
+        timeout: 30_000,
+      });
+    } catch {
+      const state = await page
+        .getByTestId("local-ai-setup")
+        .getAttribute("data-runtime-state");
+      const message = (
+        await page.getByTestId("local-ai-runtime-state").innerText()
+      )
+        .replace(/\s+/g, " ")
+        .slice(0, 500);
+      throw new Error(`PAIRING_UI_NOT_READY:${state}:${message}`);
+    }
 
-  const launcherPath = path.join(root, "local-ai", "bridge", "launcher.mjs");
-  let pairingResponse;
-  try {
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [launcherPath, "pair"],
-      {
-        cwd: root,
-        env: process.env,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      },
-    );
-    pairingResponse = JSON.parse(stdout);
-  } catch {
-    throw new Error("LOCAL_BRIDGE_PAIRING_CONFIRMATION_UNAVAILABLE");
+    const launcherPath = path.join(root, "local-ai", "bridge", "launcher.mjs");
+    let pairingResponse;
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [launcherPath, "pair"],
+        {
+          cwd: root,
+          env: process.env,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        },
+      );
+      pairingResponse = JSON.parse(stdout);
+    } catch {
+      throw new Error("LOCAL_BRIDGE_PAIRING_CONFIRMATION_UNAVAILABLE");
+    }
+    assert.equal(pairingResponse?.ok, true);
+    assert.match(String(pairingResponse?.code || ""), /^\d{6}$/);
+    await page
+      .getByTestId("local-ai-pairing-code")
+      .fill(String(pairingResponse.code));
+    pairingResponse.code = undefined;
+    await page.getByTestId("local-ai-confirm-pairing").click();
+  } else {
+    if (await autoConnect.isVisible().catch(() => false)) {
+      await page.waitForFunction(
+        () => Boolean(document.querySelector('[data-testid="local-ai-direct-connection-ready"]'))
+          || !(document.querySelector('[data-testid="local-ai-auto-connect"]'))?.hasAttribute("disabled"),
+        undefined,
+        { timeout: 60_000 },
+      );
+      if (!(await directReady.isVisible().catch(() => false))) await autoConnect.click();
+    }
+    await directReady.waitFor({
+      state: "visible",
+      timeout: 60_000,
+    });
   }
-  assert.equal(pairingResponse?.ok, true);
-  assert.match(String(pairingResponse?.code || ""), /^\d{6}$/);
-  await page
-    .getByTestId("local-ai-pairing-code")
-    .fill(String(pairingResponse.code));
-  pairingResponse.code = undefined;
-  await page.getByTestId("local-ai-confirm-pairing").click();
   await page.getByTestId("local-ai-model-proof").waitFor({
     state: "visible",
     timeout: 180_000,
@@ -325,9 +367,10 @@ async function runDesktop(page) {
     )?.trim(),
     "local-ollama",
   );
-  record("pair Local Bridge and verify a real Ollama model", {
+  record("connect Local Bridge and verify a real Ollama model", {
     actualExecutor: "local-ollama",
     proofVisible: true,
+    connectionMode: usedManualPairing ? "manual-pairing" : "automatic-exact-origin",
     pairingSecretStored: false,
   });
 
@@ -372,6 +415,36 @@ async function runDesktop(page) {
     projectPresent: true,
   });
   progress("desktop canonical project context visible");
+  await page.getByTestId("closed-ai-task-type").selectOption("chapter.continue");
+  await page.getByTestId("closed-ai-quality").selectOption("fast");
+  try {
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="closed-ai-execution-readiness"]')
+          ?.getAttribute("data-ready") === "true"
+        || Boolean(document.querySelector('[data-testid="closed-ai-use-local-ollama"]')),
+      undefined,
+      { timeout: 60_000 },
+    );
+  } catch {
+    const runtimeStatus = (
+      await page.getByTestId("closed-ai-auto-connect-status").innerText()
+    ).replace(/\s+/g, " ").slice(0, 800);
+    const readiness = (
+      await page.getByTestId("closed-ai-execution-readiness").innerText()
+    ).replace(/\s+/g, " ").slice(0, 800);
+    const backendTruth = (
+      await page.locator('section[aria-labelledby="backend-title"]').innerText()
+    ).replace(/\s+/g, " ").slice(0, 1_600);
+    throw new Error(
+      `LOCAL_OLLAMA_EXPLICIT_ROUTE_NOT_AVAILABLE:${runtimeStatus}:${readiness}:${backendTruth}:LOOPBACK=${JSON.stringify(loopbackRecords.slice(-20))}`,
+    );
+  }
+  const useLocalOllama = page.getByTestId("closed-ai-use-local-ollama");
+  if (await useLocalOllama.isVisible().catch(() => false)) {
+    await useLocalOllama.click();
+  }
   await page.waitForFunction(
     () =>
       document
@@ -381,9 +454,6 @@ async function runDesktop(page) {
     { timeout: 60_000 },
   );
   progress("desktop Local Ollama execution route ready");
-  await page.getByTestId("closed-ai-task-type").selectOption("chapter.continue");
-  await page.getByTestId("closed-ai-backend").selectOption("auto");
-  await page.getByTestId("closed-ai-quality").selectOption("fast");
   await page
     .getByTestId("closed-ai-objective")
     .fill(
@@ -529,7 +599,7 @@ async function runMobile(page) {
     .fill("摘要目前已核准章節資料；如果沒有內容，清楚列出缺少的資料。");
   await page.getByTestId("closed-ai-run").click();
   await openCandidateProof(page);
-  await assertCandidateBoundary(page, "browser-ai");
+  await assertCandidateBoundary(page, "browser-task-model");
   assert.match(
     (
       await page.getByTestId("closed-ai-model-id").textContent()
@@ -538,7 +608,7 @@ async function runMobile(page) {
   );
   record("mobile packaged Browser AI executes only a light task", {
     taskType: "story.summary",
-    actualExecutor: "browser-ai",
+    actualExecutor: "browser-task-model",
   });
   await assertNoHorizontalOverflow(page, "mobile Closed AI workspace");
 
@@ -570,6 +640,12 @@ async function main() {
     if (message.type() !== "error") return;
     consoleErrors.push(message.text().replace(/\s+/g, " ").slice(0, 1_000));
   });
+  page.on("response", (response) => {
+    recordLoopback(response.url(), { status: response.status() });
+  });
+  page.on("requestfailed", (request) => {
+    recordLoopback(request.url(), { failure: "request_failed" });
+  });
 
   if (mobile) await runMobile(page);
   else await runDesktop(page);
@@ -592,6 +668,7 @@ async function main() {
         baseUrl,
         pairingCodePersisted: false,
         consoleErrorCount: consoleErrors.length,
+        loopbackRecords,
         records,
       },
       null,
@@ -630,6 +707,7 @@ try {
         error:
           error instanceof Error ? error.message : "UNKNOWN_BROWSER_E2E_ERROR",
         consoleErrors: consoleErrors.slice(-5),
+        loopbackRecords,
         records,
       },
       null,

@@ -17,7 +17,13 @@ const configPath = path.join(runtimeDir, "config.json");
 const originAuditPath = path.join(runtimeDir, "origin-audit.jsonl");
 const accessLogPath = path.join(runtimeDir, "access.jsonl");
 const host = "127.0.0.1";
-const port = 3217;
+const requestedTestPort = Number(process.env.BRIDGE_PORT || 3217);
+const port = process.env.BRIDGE_TEST_MODE === "1"
+  && Number.isInteger(requestedTestPort)
+  && requestedTestPort >= 1024
+  && requestedTestPort <= 65_535
+  ? requestedTestPort
+  : 3217;
 const launcherArgs = process.argv.slice(2);
 
 class LauncherError extends Error {

@@ -1,7 +1,7 @@
 {
-  "releaseTag": "novel-ai-p24b-browser-first-compute-plane-rc5",
-  "releaseName": "P2.4B Browser-First Sovereign Compute Plane RC5",
-  "consumerRelease": "p2.4b-browser-first-compute-plane-rc5",
+  "releaseTag": "novel-ai-p24b-browser-sovereign-ai-fabric-rc5",
+  "releaseName": "P2.4B Browser Sovereign AI Fabric RC5",
+  "consumerRelease": "p2.4b-browser-sovereign-ai-fabric-rc5",
   "architectureStage": "P2.4B RC",
   "buildTime": "2026-08-02T12:00:00+08:00"
 }

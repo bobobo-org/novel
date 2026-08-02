@@ -25,6 +25,10 @@ import {
   rpgTextSimilarity,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import {
+  inspectRpgFoundation,
+  RPG_FOUNDATION_MINIMUM_CONTEXT_CHARACTERS,
+} from "../lib/novel-ai/web/rpg-foundation-gate.ts";
+import {
   prewarmStudioProjectAICache,
   readPrewarmedStudioProjectContext,
 } from "../lib/novel-ai/web/studio-project-ai-cache.ts";
@@ -189,6 +193,39 @@ await test("opening a saved project prewarms all six isolated AI cache layers", 
   assert.ok(context?.context.some((item) => item.text.includes("失蹤同伴留下的暗號")));
 });
 
+await test("interactive story performs zero inference until the story foundation is ready", () => {
+  const empty = inspectRpgFoundation({});
+  assert.equal(empty.ready, false);
+  assert.deepEqual(empty.issues.map((issue) => issue.code), [
+    "PROTAGONIST_REQUIRED",
+    "STORY_PREMISE_REQUIRED",
+    "STORY_CONTEXT_REQUIRED",
+  ]);
+
+  const missingContext = inspectRpgFoundation({
+    protagonistName: "林昭",
+    coreIdea: "在失落王城找回被抹去的盟約",
+    chapterContent: "夜門剛剛打開。",
+  });
+  assert.equal(missingContext.ready, false);
+  assert.deepEqual(missingContext.issues.map((issue) => issue.code), ["STORY_CONTEXT_REQUIRED"]);
+
+  const readyFromChapter = inspectRpgFoundation({
+    protagonistName: "林昭",
+    theme: "信任與代價",
+    chapterContent: "界".repeat(RPG_FOUNDATION_MINIMUM_CONTEXT_CHARACTERS),
+  });
+  assert.equal(readyFromChapter.ready, true);
+
+  const readyFromConflict = inspectRpgFoundation({
+    protagonistName: "林昭",
+    coreIdea: "找出叛徒",
+    chapterContent: "",
+    unresolvedThreadCount: 1,
+  });
+  assert.equal(readyFromConflict.ready, true);
+});
+
 await test("AI director requires three distinct contextual strategies while preserving formula effects", () => {
   const payload = JSON.stringify({ choices: [
     { key: "A", title: "查驗密道回聲", description: "主角先比對牆後腳步與舊地圖，避開正在換防的巡守。", consequence: "時機可能縮短，但可找出安全退路。", continuityReason: "承接上一段提到的牆後回聲與失蹤地圖。" },
@@ -223,6 +260,8 @@ await test("source contracts expose save-home-task gating and verified closed AI
     readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
+  assert.match(studio, /commitScreen\("write", false, id\)/);
+  assert.match(studio, /url\.searchParams\.delete\("projectId"\)/);
   assert.match(studio, /item\.activeChapterId === canonical\.chapter\.id/);
   assert.match(studio, /studio-task-handoff-continue/);
   assert.match(studio, /studio-open-rpg-dashboard/);
@@ -236,6 +275,11 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(writer, /六層 AI Cache 已就緒/);
   assert.match(rpg, /buildRpgChoiceDirectorPrompt/);
   assert.match(rpg, /buildRpgResolutionDirectorPrompt/);
+  assert.match(rpg, /data-testid="rpg-foundation-gate"/);
+  assert.match(rpg, /inspectRpgFoundation/);
+  assert.match(rpg, /!rpgFoundationReady/);
+  assert.match(rpg, /RPG_AI_CHOICES_REPEAT_RECENT_ROUND/);
+  assert.match(rpg, /rpgTextSimilarity\(previous, regeneratedSignature\) >= 0\.82/);
   assert.match(rpg, /hasVerifiedExecutedStoryOutput/);
   assert.match(rpg, /approveStudioClosedAgentCandidate/);
   assert.match(rpg, /canonicalMutationCount !== 0/);

@@ -10,9 +10,9 @@ const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p24b-browser-first-compute-plane-rc5";
-const expectedName = "P2.4B Browser-First Sovereign Compute Plane RC5";
-const expectedConsumerRelease = "p2.4b-browser-first-compute-plane-rc5";
+const expectedTag = "novel-ai-p24b-browser-sovereign-ai-fabric-rc5";
+const expectedName = "P2.4B Browser Sovereign AI Fabric RC5";
+const expectedConsumerRelease = "p2.4b-browser-sovereign-ai-fabric-rc5";
 const expectedStage = "P2.4B RC";
 const results = [];
 

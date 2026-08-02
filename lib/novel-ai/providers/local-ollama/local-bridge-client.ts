@@ -17,6 +17,7 @@ export const LOCAL_BRIDGE_PROTOCOL = "novel-local-bridge/v1";
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3217";
 export const LOCAL_BRIDGE_CONTROL_TIMEOUT_MS = 5_000;
 export const LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
+export const LOCAL_BRIDGE_AUTOMATIC_CONNECTION_TIMEOUT_MS = 45_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
 
@@ -68,6 +69,41 @@ export type LocalBridgeAutomaticConnection = {
   model: LocalTextModel;
   proof: LocalModelInferenceProof;
 };
+
+function reusableLocalModelProof(
+  value: unknown,
+  identity: {
+    instanceId: string;
+    modelId: string;
+    modelDigest: string | null;
+  },
+): LocalModelInferenceProof | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const proof = value as Partial<LocalModelInferenceProof>;
+  const verifiedAt = Date.parse(String(proof.verifiedAt ?? ""));
+  const valid = proof.proofVersion === "local-model-inference-proof-v1"
+    && proof.state === "inference_verified"
+    && proof.providerKind === "local_ollama"
+    && proof.instanceId === identity.instanceId
+    && proof.modelId === identity.modelId
+    && proof.modelDigest === identity.modelDigest
+    && Number.isFinite(verifiedAt)
+    && verifiedAt > 0
+    && verifiedAt <= Date.now() + 60_000
+    && typeof proof.latencyMs === "number"
+    && proof.latencyMs >= 0
+    && typeof proof.outputDigest === "string"
+    && /^[a-f0-9]{64}$/i.test(proof.outputDigest)
+    && typeof proof.outputBytes === "number"
+    && proof.outputBytes > 0
+    && (proof.evalCount === null || (
+      typeof proof.evalCount === "number"
+      && proof.evalCount >= 0
+    ))
+    && proof.externalRequest === false
+    && proof.dataLeftDevice === false;
+  return valid ? structuredClone(proof as LocalModelInferenceProof) : null;
+}
 type LocalBridgeBody = Record<string, unknown> & {
   errorCode?: string;
   message?: string;
@@ -300,6 +336,9 @@ export class LocalBridgeClient {
       },
       modelId,
       modelDigest,
+      modelProof: this.modelVerification
+        ? structuredClone(this.modelVerification)
+        : null,
       savedAt: new Date().toISOString(),
     }, this.tabStorage);
   }
@@ -347,7 +386,11 @@ export class LocalBridgeClient {
           { retryable: true, stage: "local-session-recovery" },
         );
       }
-      const proof = await this.verifyModel(selected.modelId, signal);
+      const proof = reusableLocalModelProof(remembered.modelProof, {
+        instanceId: remembered.instanceId,
+        modelId: selected.modelId,
+        modelDigest: selected.modelDigest ?? null,
+      }) ?? await this.verifyModel(selected.modelId, signal);
       if (
         proof.instanceId !== remembered.instanceId
         || proof.modelId !== selected.modelId
@@ -359,6 +402,7 @@ export class LocalBridgeClient {
           { retryable: false, stage: "local-session-recovery" },
         );
       }
+      this.modelVerification = proof;
       this.saveRememberedSession(
         selected.modelId,
         selected.modelDigest ?? null,
@@ -477,9 +521,13 @@ export class LocalBridgeClient {
       return structuredClone(await this.automaticConnectionInFlight);
     }
     const operation = (async () => {
-      const health = await this.health(
-        signal ?? AbortSignal.timeout(LOCAL_BRIDGE_CONTROL_TIMEOUT_MS),
+      const automaticTimeout = AbortSignal.timeout(
+        LOCAL_BRIDGE_AUTOMATIC_CONNECTION_TIMEOUT_MS,
       );
+      const connectionSignal = signal
+        ? AbortSignal.any([signal, automaticTimeout])
+        : automaticTimeout;
+      const health = await this.health(connectionSignal);
       const versionStatus = evaluateLocalAIRuntimeVersion({
         reportedVersion: health.bridgeVersion,
         minimumVersion: LOCAL_AI_COMPANION_RELEASE.minimumBridgeVersion,
@@ -518,7 +566,7 @@ export class LocalBridgeClient {
             headers: { ...this.headers(), "Content-Type": "application/json" },
             body: JSON.stringify({ intent: "closed-ai-connect" }),
           },
-          signal,
+          connectionSignal,
         ));
         const validSession = typeof body.token === "string"
           && body.token.length >= 32
@@ -550,7 +598,7 @@ export class LocalBridgeClient {
 
       let modelResponse;
       try {
-        modelResponse = await this.models(signal);
+        modelResponse = await this.models(connectionSignal);
       } catch (error) {
         const code = String((error as { code?: string })?.code ?? "");
         if (!["BRIDGE_NOT_PAIRED", "BRIDGE_PAIRING_EXPIRED", "BRIDGE_PAIRING_REVOKED"].includes(code)) {
@@ -559,7 +607,7 @@ export class LocalBridgeClient {
         this.setSession(null);
         this.clearRememberedSession();
         await issueAutomaticSession();
-        modelResponse = await this.models(signal);
+        modelResponse = await this.models(connectionSignal);
       }
       const available = modelResponse.models.filter(
         (model) => model.capabilities?.textGeneration?.value === true,
@@ -574,7 +622,7 @@ export class LocalBridgeClient {
         );
       }
       const proof = this.getModelVerification(selected.modelId)
-        ?? await this.verifyModel(selected.modelId, signal);
+        ?? await this.verifyModel(selected.modelId, connectionSignal);
       const session = this.getSessionMetadata();
       if (!session) {
         throw new AiProviderError(
