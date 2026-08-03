@@ -883,6 +883,7 @@ test("studio-explicit-local-compute-selection", () => {
   assert.equal(external.maxTokens, 640);
 
   const localBudget = resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
     modelId: "qwen2.5:3b",
     qualityPreference: "balanced",
     requestedMaxTokens: 640,
@@ -895,12 +896,33 @@ test("studio-explicit-local-compute-selection", () => {
     maxOutputTokens: 192,
   });
   assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
     modelId: "qwen2.5:14b",
     qualityPreference: "balanced",
     requestedMaxTokens: 640,
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 640);
+  assert.deepEqual(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.abcChoices",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
+    requestedMaxTokens: 420,
+    profileMaxTokens: 512,
+    profileMaxInputCharacters: 16_000,
+  }), {
+    smallLocalModel: true,
+    maxInputCharacters: 4_000,
+    maxOutputTokens: 420,
+  });
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
+    requestedMaxTokens: 420,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  }).maxOutputTokens, 160);
 });
 
 test("studio-cross-page-local-session-recovery", () => {

@@ -99,6 +99,7 @@ export function repairLocalProseCompletionBoundary(input: {
 }
 
 export function resolveLocalOllamaPerformanceBudget(input: {
+  taskType: PlatformAIRequest["taskType"];
   modelId: string;
   qualityPreference?: PlatformAIRequest["qualityPreference"];
   requestedMaxTokens?: number;
@@ -109,11 +110,14 @@ export function resolveLocalOllamaPerformanceBudget(input: {
     input.modelId,
   );
   const fastLocalMode = input.qualityPreference === "fast";
-  const qualityTokenCap = fastLocalMode
-    ? 160
-    : smallLocalModel
-      ? input.qualityPreference === "high" ? 256 : 192
-      : input.profileMaxTokens;
+  const structuredAbcChoices = input.taskType === "chapter.abcChoices";
+  const qualityTokenCap = structuredAbcChoices
+    ? input.profileMaxTokens
+    : fastLocalMode
+      ? 160
+      : smallLocalModel
+        ? input.qualityPreference === "high" ? 256 : 192
+        : input.profileMaxTokens;
   const requestedOutputTokenCap = typeof input.requestedMaxTokens === "number"
     && Number.isFinite(input.requestedMaxTokens)
     ? Math.max(32, Math.min(4_096, Math.floor(input.requestedMaxTokens)))
@@ -212,6 +216,7 @@ export async function runLocalOllama(
   const client = bridgeClient(base);
   const profile = getClosedAIModelProfile(request.taskType, "local-ollama");
   const performanceBudget = resolveLocalOllamaPerformanceBudget({
+    taskType: request.taskType,
     modelId: decision.modelId || "",
     qualityPreference: request.qualityPreference,
     requestedMaxTokens: request.generationOptions?.maxTokens,

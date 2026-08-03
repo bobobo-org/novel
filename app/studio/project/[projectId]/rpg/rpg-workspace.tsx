@@ -128,6 +128,22 @@ const FORMULA = rpgFormulaExplanation();
 const MODE_STORAGE_PREFIX = "novel:rpg-mode:v2:";
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
 
+function closedAIErrorCode(error: unknown) {
+  const typed = error as {
+    code?: unknown;
+    causeCode?: unknown;
+    cause?: { code?: unknown; causeCode?: unknown; cause?: { code?: unknown } };
+  } | null;
+  return String(
+    typed?.causeCode
+      ?? typed?.cause?.causeCode
+      ?? typed?.cause?.code
+      ?? typed?.cause?.cause?.code
+      ?? typed?.code
+      ?? "MODEL_NOT_READY",
+  );
+}
+
 const emptyEffect = (): StoryChoiceEffect => ({
   statChanges: {},
   relationshipChanges: {},
@@ -512,6 +528,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     void Promise.resolve()
       .then(() => prewarmStudioInteractiveChoiceAI(controller.signal))
       .then(async () => {
+        const planningSeed = (
+          data.storyState.revision * 997
+          + progression.turn * 131
+          + progression.choiceVariant * 17
+          + aiChoiceRetry
+        ) >>> 0;
         const taskInput = {
           projectId: data.project.id,
           task: "three_choices",
@@ -527,7 +549,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             temperature: 0.82,
             topP: 0.94,
             repetitionPenalty: 1.16,
-            seed: (data.storyState.revision * 997 + progression.turn * 131 + progression.choiceVariant * 17 + aiChoiceRetry) >>> 0,
+            seed: planningSeed,
           },
           signal: controller.signal,
           onProgress: (event: ClosedAIProgressEvent) => {
@@ -536,7 +558,23 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             setAiChoiceStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
           },
         };
-        let result = await runStudioClosedAI(taskInput);
+        let result;
+        try {
+          result = await runStudioClosedAI(taskInput);
+        } catch (error) {
+          if (closedAIErrorCode(error) !== "ABC_CHOICES_INVALID_STRUCTURE") throw error;
+          setAiChoiceStatus("第一版結構不完整；閉端 AI 正在以新 seed 修復 A／B／C JSON……");
+          result = await runStudioClosedAI({
+            ...taskInput,
+            input: `結構修復重試：上一版未產生完整的 A／B／C JSON。只輸出符合 outputSchema 的單一 JSON 物件，不得加入前言、Markdown 或第四個選項。\n\n${taskInput.input}`,
+            generationOptions: {
+              ...taskInput.generationOptions,
+              temperature: 0.45,
+              topP: 0.86,
+              seed: (planningSeed + 104_729) >>> 0,
+            },
+          });
+        }
         let directed;
         try {
           directed = parseRpgChoiceDirectorOutput(result.content);

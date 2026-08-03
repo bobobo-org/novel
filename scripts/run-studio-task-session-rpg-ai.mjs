@@ -325,6 +325,9 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /canonicalMutationCount !== 0/);
   assert.match(rpg, /qualityMode: "fast" as const/);
   assert.match(rpg, /maxTokens: 420/);
+  assert.match(rpg, /closedAIErrorCode\(error\) !== "ABC_CHOICES_INVALID_STRUCTURE"/);
+  assert.match(rpg, /結構修復重試/);
+  assert.match(rpg, /seed: \(planningSeed \+ 104_729\) >>> 0/);
   assert.match(rpg, /maxTokens: 520/);
   assert.match(rpg, /已產生 \$\{generated\} 字/);
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
