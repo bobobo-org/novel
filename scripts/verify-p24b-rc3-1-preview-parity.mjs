@@ -114,6 +114,10 @@ function identityNormalizer(input) {
           : "<NEXT_BUILD_ID>");
     }
     return normalized
+      .replace(
+        /((?:\\?["'])(?:assetManifestDigest|commitProvenanceHash)(?:\\?["'])\s*:\s*(?:\\?["']))[0-9a-f]{64}((?:\\?["']))/giu,
+        "$1<PROVENANCE_DIGEST>$2",
+      )
       .replace(/dpl_[A-Za-z0-9_-]+/gu, "<DEPLOYMENT_ID>")
       .replace(/(["']buildTime["']\s*:\s*["'])[^"']+(["'])/giu, "$1<BUILD_TIME>$2")
       .replace(/([?&](?:dpl|deployment|buildId|commit)=)[^&#"']+/giu, "$1<DEPLOYMENT_ID>");
@@ -174,8 +178,13 @@ async function crawl(origin) {
     raw.push(item);
     if (!textMime(item.mime, item.pathname) || !fetched.bytes.length) continue;
     const text = fetched.bytes.toString("utf8");
-    for (const match of text.matchAll(/\/_next\/static\/([^/"'\s]+)\//gu)) {
+    for (const match of text.matchAll(/\/_next\/static\/([^/"'\s]+)\/(?:_buildManifest|_ssgManifest)\.js/gu)) {
       buildIds.add(match[1]);
+    }
+    if (text.includes("self.__next_f.push")) {
+      for (const match of text.matchAll(/(?:\\?["'])b(?:\\?["'])\s*:\s*(?:\\?["'])([A-Za-z0-9_-]{10,128})(?:\\?["'])/gu)) {
+        buildIds.add(match[1]);
+      }
     }
     for (const discovered of extractUrls(text, key)) {
       const url = new URL(discovered);
