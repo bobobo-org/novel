@@ -29,6 +29,30 @@ const characterExtractionFormat = {
     } } },
   },
 };
+const rpgChoiceDirectorFormat = {
+  type: "object",
+  additionalProperties: false,
+  required: ["choices"],
+  properties: {
+    choices: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "title", "description", "consequence", "continuityReason"],
+        properties: {
+          key: { type: "string", enum: ["A", "B", "C"] },
+          title: { type: "string", minLength: 3, maxLength: 18 },
+          description: { type: "string", minLength: 18, maxLength: 72 },
+          consequence: { type: "string", minLength: 8, maxLength: 44 },
+          continuityReason: { type: "string", minLength: 8, maxLength: 50 },
+        },
+      },
+    },
+  },
+};
 
 function sendJson(response, status, body, origin) {
   response.writeHead(status, { ...jsonHeaders, ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}) });
@@ -481,7 +505,11 @@ export function createBridgeServer(options = {}) {
         const startedAt = performance.now();
         let status = "failed";
         try {
-          const format = body.taskType === "character.extract" ? characterExtractionFormat : undefined;
+          const format = body.taskType === "character.extract"
+            ? characterExtractionFormat
+            : body.taskType === "chapter.abcChoices"
+              ? rpgChoiceDirectorFormat
+              : undefined;
           const upstream = await ollamaFetch(ollamaEndpoint, "/api/generate", { method: "POST", body: JSON.stringify({ model: modelId, prompt, system: body.systemInstruction || undefined, stream: true, format, keep_alive: "30m", options: { ...(body.options || {}), num_predict: maxTokens } }) }, timeoutMs, controller);
           response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Access-Control-Allow-Origin": origin, Vary: "Origin", "X-Content-Type-Options": "nosniff" });
           response.write(`${JSON.stringify({ type: "started", requestId, modelId })}\n`);

@@ -33,7 +33,10 @@ import {
   type ClosedAgentStateRepository,
 } from "./repository";
 import { selectClosedAIBackend } from "./router";
-import { normalizeAbcChoicesCandidate } from "./structured-output";
+import {
+  normalizeAbcChoicesCandidate,
+  normalizeAbcChoicesExecutionContent,
+} from "./structured-output";
 import {
   assertClosedAgentPermission,
   ClosedAgentToolRegistry,
@@ -628,7 +631,7 @@ export class ClosedAgentOS {
         }
       }
       if (request.taskType === "chapter.abcChoices") {
-        const normalized = normalizeAbcChoicesCandidate(execution.content);
+        const normalized = normalizeAbcChoicesExecutionContent(execution.content);
         if (!normalized.valid) {
           throw osError("ABC_CHOICES_INVALID_STRUCTURE", undefined, {
             extractedItemCount: normalized.extractedItemCount,
@@ -1514,7 +1517,7 @@ export class ClosedAgentOS {
       const structured = [final, draft]
         .map((result) => ({
           result,
-          normalized: normalizeAbcChoicesCandidate(result.content),
+          normalized: normalizeAbcChoicesExecutionContent(result.content),
         }))
         .find((item) => item.normalized.valid);
       if (!structured || !structured.normalized.valid) {

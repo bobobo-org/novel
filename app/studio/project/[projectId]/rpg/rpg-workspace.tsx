@@ -16,6 +16,7 @@ import {
   type TimelineEvent,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import {
   RPG_CHARACTER_LIBRARY_STORAGE_KEY,
   createRpgCharacterTemplate,
@@ -517,15 +518,23 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           input: buildRpgChoiceDirectorPrompt({ context: aiDirectorContext, baseChoices: ruleChoices }),
           sourceChapterId: data.chapter.id,
           sourceRevision: data.chapter.revision,
-          qualityMode: "balanced" as const,
+          // Interactive A/B/C planning is schema-validated and formula-locked.
+          // A second quality pass doubled latency on 3B CPUs without adding a
+          // new safety boundary, so keep this planning transaction single-pass.
+          qualityMode: "fast" as const,
           generationOptions: {
-            maxTokens: 720,
+            maxTokens: 420,
             temperature: 0.82,
             topP: 0.94,
             repetitionPenalty: 1.16,
             seed: (data.storyState.revision * 997 + progression.turn * 131 + progression.choiceVariant * 17 + aiChoiceRetry) >>> 0,
           },
           signal: controller.signal,
+          onProgress: (event: ClosedAIProgressEvent) => {
+            if (controller.signal.aborted) return;
+            const generated = event.generatedCharacters ?? 0;
+            setAiChoiceStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
+          },
         };
         let result = await runStudioClosedAI(taskInput);
         let directed;
@@ -760,16 +769,22 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             settlement,
           },
         }),
-        targetLength: 760,
+        targetLength: 480,
         sourceChapterId: data.chapter.id,
         sourceRevision: data.chapter.revision,
-        qualityMode: "deep" as const,
+        // A committed RPG turn still passes identity, proof, prose and Canon
+        // validators below; one interactive model pass keeps the UI responsive.
+        qualityMode: "fast" as const,
         generationOptions: {
-          maxTokens: 760,
+          maxTokens: 520,
           temperature: 0.84,
           topP: 0.94,
           repetitionPenalty: 1.18,
           seed: (data.storyState.revision * 1009 + progression.turn * 149 + resolution.roll * 23) >>> 0,
+        },
+        onProgress: (event: ClosedAIProgressEvent) => {
+          const generated = event.generatedCharacters ?? 0;
+          setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
         },
       };
       let generated = await runStudioClosedAI(taskInput);

@@ -66,10 +66,10 @@ function parseZip(buffer) {
 }
 
 function companionZipGate() {
-  const zipRelative = "public/downloads/novel-local-ai-companion-v1.4.2.zip";
+  const zipRelative = "public/downloads/novel-local-ai-companion-v1.4.3.zip";
   const zip = fs.readFileSync(path.join(root, zipRelative));
   const checksumLine = fs.readFileSync(
-    path.join(root, "public/downloads/novel-local-ai-companion-v1.4.2.sha256"),
+    path.join(root, "public/downloads/novel-local-ai-companion-v1.4.3.sha256"),
     "ascii",
   ).trim();
   const expectedDigest = checksumLine.split(/\s+/u)[0].toLowerCase();
@@ -83,11 +83,11 @@ function companionZipGate() {
     "Companion release metadata checksum mismatch",
   );
   assert.ok(
-    releaseSource.includes("novel-local-ai-companion-v1.4.2.zip"),
+    releaseSource.includes("novel-local-ai-companion-v1.4.3.zip"),
     "Companion release metadata filename mismatch",
   );
   const entries = parseZip(zip);
-  const prefix = "novel-local-ai-companion-v1.4.2/";
+  const prefix = "novel-local-ai-companion-v1.4.3/";
   const sourceByEntry = new Map([
     [`${prefix}manifest.json`, "local-ai/companion/manifest.json"],
     [`${prefix}README.md`, "local-ai/companion/README.md"],

@@ -254,3 +254,27 @@ export function normalizeAbcChoicesCandidate(
   const list = listChoices(value);
   return finalize(list.format, list.values);
 }
+
+/**
+ * The Closed Agent OS historically canonicalized every valid A/B/C response to
+ * three display lines. That is useful for prose-only callers, but it destroys
+ * structured RPG fields such as consequence and continuityReason before the
+ * product-level validator can inspect them. Preserve validated JSON payloads
+ * while retaining the legacy normalization for line-oriented responses.
+ */
+export function normalizeAbcChoicesExecutionContent(
+  input: string,
+): AbcChoiceNormalization {
+  const normalized = normalizeAbcChoicesCandidate(input);
+  if (
+    !normalized.valid
+    || (normalized.sourceFormat !== "json-array"
+      && normalized.sourceFormat !== "json-object")
+  ) {
+    return normalized;
+  }
+  return {
+    ...normalized,
+    content: stripCodeFence(input),
+  };
+}

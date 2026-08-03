@@ -1,6 +1,6 @@
 {
   "schemaVersion": "novel-local-ai-companion-manifest-v1",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "minimumNodeMajor": 22,
   "bindAddress": "127.0.0.1",
   "bridgePort": 3217,

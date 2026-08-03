@@ -24,6 +24,7 @@ import {
   parseRpgChoiceDirectorOutput,
   rpgTextSimilarity,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
+import { normalizeAbcChoicesExecutionContent } from "../lib/novel-ai/closed-agent-os/structured-output.ts";
 import {
   inspectRpgFoundation,
   RPG_FOUNDATION_MINIMUM_CONTEXT_CHARACTERS,
@@ -262,6 +263,21 @@ await test("AI director requires three distinct contextual strategies while pres
   assert.match(merged[1].aiContinuityReason, /契約伏筆/);
 });
 
+await test("validated RPG JSON survives the Closed Agent boundary without losing consequence fields", () => {
+  const payload = JSON.stringify({ choices: [
+    { key: "A", title: "穩住星橋", description: "主角先封住裂縫並確認失蹤者留下的座標。", consequence: "耗費靈力但取得可靠線索。", continuityReason: "承接上一章星橋崩裂與失蹤伏筆。" },
+    { key: "B", title: "交換密報", description: "主角以人情向守塔人換取禁區內部的巡查紀錄。", consequence: "增加關係債並暴露調查方向。", continuityReason: "承接守塔人先前隱瞞的異常反應。" },
+    { key: "C", title: "闖入禁區", description: "主角趁警戒交替直接追蹤仍在移動的星砂痕跡。", consequence: "風險最高但可能立刻接觸真相。", continuityReason: "承接星砂只在雨夜出現的世界規則。" },
+  ] });
+  const normalized = normalizeAbcChoicesExecutionContent(payload);
+  assert.equal(normalized.valid, true);
+  assert.equal(normalized.sourceFormat, "json-object");
+  assert.deepEqual(JSON.parse(normalized.content), JSON.parse(payload));
+  const legacy = normalizeAbcChoicesExecutionContent("A. 穩住星橋\nB. 交換密報\nC. 闖入禁區");
+  assert.equal(legacy.valid, true);
+  assert.equal(legacy.content, "A. 穩住星橋\nB. 交換密報\nC. 闖入禁區");
+});
+
 await test("duplicate ABC output and parrot-like continuation are rejected", () => {
   const duplicate = JSON.stringify({ choices: ["A", "B", "C"].map((key) => ({
     key, title: "繼續前進", description: "主角繼續前進並且觀察四周是否出現新的變化。",
@@ -275,11 +291,13 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg] = await Promise.all([
+  const [studio, navigation, writer, rpg, bridge, taskProfile] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
+    readFile("local-ai/bridge/server.mjs", "utf8"),
+    readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
   assert.match(studio, /commitScreen\("write", false, id\)/);
@@ -305,6 +323,13 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /hasVerifiedExecutedStoryOutput/);
   assert.match(rpg, /approveStudioClosedAgentCandidate/);
   assert.match(rpg, /canonicalMutationCount !== 0/);
+  assert.match(rpg, /qualityMode: "fast" as const/);
+  assert.match(rpg, /maxTokens: 420/);
+  assert.match(rpg, /maxTokens: 520/);
+  assert.match(rpg, /已產生 \$\{generated\} 字/);
+  assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
+  assert.match(bridge, /rpgChoiceDirectorFormat/);
+  assert.match(taskProfile, /根層只能有 choices/);
 });
 
 await test("consumer home presents a compact luxury world dashboard with truthful project facts", async () => {

@@ -279,6 +279,13 @@ async function waitCandidate(page, timeout = 300_000) {
   return candidate;
 }
 
+async function continueStudioTaskHandoff(page, timeout = 60_000) {
+  const handoff = page.getByTestId("studio-task-handoff");
+  await handoff.waitFor({ state: "visible", timeout });
+  await handoff.getByTestId("studio-task-handoff-continue").click();
+  await handoff.waitFor({ state: "hidden", timeout }).catch(() => undefined);
+}
+
 function classifyDiagnostics(consoleRows, pageErrors, networkRows) {
   const rows = [];
   let productError = 0;
@@ -341,6 +348,7 @@ async function main() {
   let profileDeleted = false;
   let gateError = null;
   let gateStage = "initialization";
+  let failureDiagnostic = null;
   let observedPermission = null;
   let observedRpg = null;
   let evidence = null;
@@ -575,18 +583,51 @@ async function main() {
     }
 
     gateStage = "rpg-open";
-    await page.getByRole("button", { name: "互動故事" }).first().click();
-    await page.getByTestId("studio-rpg-choice").waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "互動故事／RPG" }).first().click();
+    await continueStudioTaskHandoff(page);
+    const rpgWorkspace = page.getByTestId("rpg-workspace");
+    await rpgWorkspace.waitFor({ state: "visible", timeout: 60_000 });
+    const initializeRpg = page.getByTestId("rpg-initialize");
+    if (await initializeRpg.isVisible().catch(() => false)) {
+      await initializeRpg.click();
+    }
+    await page.getByTestId("rpg-play-guide").waitFor({ state: "visible", timeout: 60_000 });
+    gateStage = "rpg-ai-choice-planning";
+    await page.waitForFunction(() => {
+      const status = document.querySelector('[data-testid="rpg-ai-choice-status"]');
+      const choice = document.querySelector('[data-testid="rpg-choice-A"]');
+      return status?.getAttribute("data-ready") === "true"
+        && choice instanceof HTMLButtonElement
+        && !choice.disabled;
+    }, undefined, { timeout: 420_000 });
+    const choicePlanningStatus = (await page.getByTestId("rpg-ai-choice-status").innerText()).trim();
+    if (!choicePlanningStatus.includes("local-ollama")) {
+      throw new Error("RPG_CHOICE_PLANNER_EXECUTOR_MISMATCH");
+    }
     const beforeRpg = await canonSnapshot(page, projectId);
+    const beforeRpgCandidateIds = new Set(
+      (await closedAgentCandidates(page, projectId)).map((record) => record.id),
+    );
     gateStage = "rpg-model-execution";
-    await page.getByTestId("studio-choice-A").click();
-    const choiceResult = page.getByTestId("studio-choice-result");
-    await choiceResult.waitFor({ state: "visible", timeout: 300_000 });
-    const rpgActualExecutor = (await choiceResult
-      .getByTestId("studio-choice-actual-executor").textContent())?.trim() || "missing";
-    const rpgContent = (await choiceResult.locator(".choiceStory").innerText()).trim();
+    await page.getByTestId("rpg-choice-A").click();
+    const acceptRpgChoice = page.getByTestId("rpg-accept-choice");
+    await acceptRpgChoice.waitFor({ state: "visible", timeout: 30_000 });
+    await acceptRpgChoice.click();
+    await page.getByTestId("rpg-resolution").waitFor({ state: "visible", timeout: 480_000 });
+    const afterRpg = await canonSnapshot(page, projectId);
+    const rpgCandidates = (await closedAgentCandidates(page, projectId))
+      .filter((record) => !beforeRpgCandidateIds.has(record.id));
+    const rpgRecord = rpgCandidates
+      .filter((record) => record.status === "committed")
+      .at(-1) ?? rpgCandidates.at(-1);
+    const beforeAcceptedChoiceIds = new Set(beforeRpg.acceptedChoices.map((record) => record.id));
+    const acceptedRpgChoice = afterRpg.acceptedChoices.find(
+      (record) => !beforeAcceptedChoiceIds.has(record.id),
+    );
+    const rpgActualExecutor = rpgRecord?.actualExecutor ?? "missing";
+    const rpgContent = String(acceptedRpgChoice?.acceptedText ?? "").trim();
     const rpgFailureDiagnostic = consoleRows
-      .filter((row) => row.text.includes("STUDIO_CHOICE_CLOSED_AI_FAILED"))
+      .filter((row) => /STUDIO_CHOICE_CLOSED_AI_FAILED|RPG_CLOSED_AI_/u.test(row.text))
       .at(-1)?.text
       ?.replace(/[^A-Z0-9_:\-{}., ]/gu, "")
       .slice(0, 300) ?? null;
@@ -598,12 +639,13 @@ async function main() {
     };
     process.stdout.write(`${JSON.stringify({ event: "rpg_executor_observed", ...observedRpg })}\n`);
     gateStage = "rpg-executor-proof";
-    if (rpgActualExecutor !== "local-ollama") {
+    if (
+      rpgActualExecutor !== "local-ollama"
+      || rpgRecord?.canonicalMutationCount !== 1
+      || !rpgContent
+    ) {
       throw new Error("RPG_EXECUTOR_MISMATCH");
     }
-    await choiceResult.getByTestId("studio-choice-accept").click();
-    await choiceResult.waitFor({ state: "hidden", timeout: 90_000 });
-    const afterRpg = await canonSnapshot(page, projectId);
     if (
       afterRpg.acceptedChoices.length !== beforeRpg.acceptedChoices.length + 1
       || afterRpg.storyBranches.length !== beforeRpg.storyBranches.length + 1
@@ -611,6 +653,14 @@ async function main() {
       throw new Error("RPG_ATOMIC_UPDATE_MISMATCH");
     }
 
+    gateStage = "rpg-to-writing-handoff";
+    await page.getByRole("navigation", { name: "作品功能" })
+      .locator('a[href$="/write"]').click();
+    await continueStudioTaskHandoff(page);
+    await page.locator("main.p2WritingPage").waitFor({ state: "visible", timeout: 60_000 });
+    await page.getByRole("button", { name: "我的作品" }).click();
+    await continueStudioTaskHandoff(page);
+    await page.locator(".studioHome").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByRole("button", { name: "存檔與備份" }).click();
     const semanticBeforeBackup = digest(semanticCanon(await canonSnapshot(page, projectId)));
     await page.getByRole("button", { name: "立即快速備份" }).click();
@@ -618,11 +668,13 @@ async function main() {
     await backupDialog.waitFor({ state: "visible" });
     await backupDialog.getByRole("button", { name: "關閉" }).click();
     await page.getByRole("button", { name: "繼續寫作" }).click();
+    await continueStudioTaskHandoff(page);
     await writing.waitFor({ state: "visible" });
     await page.getByLabel("正文編輯器").fill(`${persistedDraft}\n\n驗收暫時變更`);
     await page.getByRole("button", { name: "儲存草稿" }).click();
     await page.waitForTimeout(1_500);
     await page.getByRole("button", { name: "存檔與備份" }).click();
+    await continueStudioTaskHandoff(page);
     await page.getByRole("button", { name: "查看詳情" }).first().click();
     await backupDialog.waitFor({ state: "visible" });
     await backupDialog.getByRole("button", { name: "安全還原" }).click();
@@ -781,6 +833,17 @@ async function main() {
     };
   } catch (error) {
     gateError = error;
+    failureDiagnostic = await page?.evaluate(() => {
+      const planning = document.querySelector('[data-testid="rpg-ai-choice-status"]');
+      const choice = document.querySelector('[data-testid="rpg-choice-A"]');
+      const status = document.querySelector('[role="status"]');
+      return {
+        planningReady: planning?.getAttribute("data-ready") ?? null,
+        planningStatus: planning?.textContent?.replace(/\s+/gu, " ").trim().slice(0, 500) ?? null,
+        choiceDisabled: choice instanceof HTMLButtonElement ? choice.disabled : null,
+        visibleStatus: status?.textContent?.replace(/\s+/gu, " ").trim().slice(0, 300) ?? null,
+      };
+    }).catch(() => null) ?? null;
   } finally {
     await context?.close().catch(() => undefined);
     if (bridgeStarted) await invokeLauncher(root, "stop").catch(() => undefined);
@@ -803,6 +866,7 @@ async function main() {
       failureRoute: page?.url() ? safeRoute(page.url()) : null,
       observedPermission,
       observedRpg,
+      failureDiagnostic,
       nativeDecisionMethod: "HUMAN_OPERATOR",
       permissionInjectionUsed: false,
       windowsUiAutomationUsed: false,
