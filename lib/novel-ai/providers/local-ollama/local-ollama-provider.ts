@@ -56,11 +56,18 @@ export function repairLocalProseCompletionBoundary(input: {
   content: string;
   generatedTokenEvents: number;
   maxOutputTokens: number;
+  evaluatedTokens?: number | null;
+  doneReason?: string | null;
 }): LocalProseCompletionBoundary {
   const content = input.content.trimEnd();
+  const exhaustedOutputBudget = input.doneReason === "length"
+    || (typeof input.evaluatedTokens === "number"
+      && Number.isFinite(input.evaluatedTokens)
+      && input.evaluatedTokens >= input.maxOutputTokens)
+    || input.generatedTokenEvents >= input.maxOutputTokens;
   if (
     !LOCAL_DIRECT_PROSE_TASKS.has(input.taskType)
-    || input.generatedTokenEvents < input.maxOutputTokens
+    || !exhaustedOutputBudget
     || !content
     || COMPLETE_PROSE_BOUNDARIES.has(content.at(-1) ?? "")
   ) {
@@ -105,6 +112,7 @@ export function resolveLocalOllamaPerformanceBudget(input: {
   requestedMaxTokens?: number;
   profileMaxTokens: number;
   profileMaxInputCharacters: number;
+  boundedQualityRepair?: boolean;
 }): LocalOllamaPerformanceBudget {
   const smallLocalModel = /(?:^|[:_-])(?:1|2|3|4)b(?:$|[:_-])/iu.test(
     input.modelId,
@@ -121,11 +129,13 @@ export function resolveLocalOllamaPerformanceBudget(input: {
     && explicitRequestedMaxTokens > 160;
   const qualityTokenCap = structuredAbcChoices
     ? input.profileMaxTokens
-    : fastLocalMode
-      ? explicitFastDirectProse ? 288 : 160
-      : smallLocalModel
-        ? input.qualityPreference === "high" ? 256 : 192
-        : input.profileMaxTokens;
+    : input.boundedQualityRepair && smallLocalModel
+      ? 360
+      : fastLocalMode
+        ? explicitFastDirectProse ? 288 : 160
+        : smallLocalModel
+          ? input.qualityPreference === "high" ? 256 : 192
+          : input.profileMaxTokens;
   const requestedOutputTokenCap = explicitRequestedMaxTokens !== null
     ? Math.max(32, Math.min(4_096, Math.floor(explicitRequestedMaxTokens)))
     : Number.POSITIVE_INFINITY;
@@ -218,6 +228,7 @@ export async function runLocalOllama(
   decision: PlatformRouterDecision,
   base?: string,
   onProgress?: (progress: ClosedProviderGenerationProgress) => void,
+  runtimeOptions?: { boundedQualityRepair?: boolean },
 ): Promise<PlatformAIResult> {
   const started = performance.now();
   const client = bridgeClient(base);
@@ -229,6 +240,7 @@ export async function runLocalOllama(
     requestedMaxTokens: request.generationOptions?.maxTokens,
     profileMaxTokens: profile.options.num_predict,
     profileMaxInputCharacters: profile.maxInputCharacters,
+    boundedQualityRepair: runtimeOptions?.boundedQualityRepair,
   });
   const requestedTemperatureOption = request.generationOptions?.temperature;
   const requestedTemperature = typeof requestedTemperatureOption === "number"
@@ -279,6 +291,8 @@ export async function runLocalOllama(
   let firstTokenMs: number | null = null;
   let tokenEvents = 0;
   let lastReportedCharacters = 0;
+  let evaluatedTokens: number | null = null;
+  let doneReason: string | null = null;
   for await (const event of client.generate({
     requestId: request.requestId,
     model: decision.modelId || "",
@@ -309,6 +323,15 @@ export async function runLocalOllama(
         });
       }
     }
+    if (event.type === "metadata") {
+      evaluatedTokens = typeof event.evalCount === "number"
+        && Number.isFinite(event.evalCount)
+        ? event.evalCount
+        : evaluatedTokens;
+      doneReason = typeof event.doneReason === "string"
+        ? event.doneReason
+        : doneReason;
+    }
     if (event.type === "completed") completed = true;
     if (event.type === "failed" || event.type === "cancelled") throw Object.assign(new Error(String(event.errorCode || event.type)), { code: event.errorCode || (event.type === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_STREAM_INTERRUPTED") });
   }
@@ -327,6 +350,8 @@ export async function runLocalOllama(
     content: normalizedContent,
     generatedTokenEvents: tokenEvents,
     maxOutputTokens: effectiveProfile.options.num_predict,
+    evaluatedTokens,
+    doneReason,
   });
   return {
     requestId: request.requestId,
@@ -343,11 +368,18 @@ export async function runLocalOllama(
       request.qualityPreference ?? "balanced"
     }-${effectiveProfile.options.num_predict}${
       completionBoundary.repaired ? ":completion-boundary-repaired" : ""
+    }${
+      runtimeOptions?.boundedQualityRepair ? ":bounded-quality-repair" : ""
     }`,
     firstTokenMs,
     inputCharacters: prompt.inputCharacters,
     outputCharacters: completionBoundary.content.length,
     generatedTokenEvents: tokenEvents,
     omittedInputCharacters: prompt.omittedCharacters,
+    runtimeStats: [
+      evaluatedTokens === null ? null : `ollama-eval-count=${evaluatedTokens}`,
+      doneReason ? `ollama-done-reason=${doneReason}` : null,
+      completionBoundary.repaired ? "completion-boundary-repaired=1" : null,
+    ].filter(Boolean).join("; "),
   };
 }

@@ -26,6 +26,7 @@ import type {
 } from "../closed-ai-cache";
 import type {
   PlatformAIRequest,
+  PlatformAIResult,
   PlatformProviderSnapshot,
   PlatformRouterDecision,
 } from "../router/platform-types";
@@ -226,6 +227,130 @@ function lockedDecision(
   };
 }
 
+const LOCAL_BOUNDED_QUALITY_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
+  "chapter.continue",
+  "chapter.expand",
+  "chapter.rewrite",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
+const LOCAL_BOUNDED_QUALITY_REPAIR_REASONS = new Set([
+  "QUALITY_TASK_FORM_MISMATCH",
+  "QUALITY_CONTEXT_ANCHOR_MISSING",
+  "QUALITY_CONTEXT_CHARACTER_MISSING",
+  "QUALITY_OUTPUT_TRUNCATED",
+  "QUALITY_NARRATIVE_TOO_SHORT",
+  "QUALITY_CONTEXT_COPY_EXCESSIVE",
+  "QUALITY_NARRATIVE_PROGRESS_MISSING",
+  "QUALITY_WORLD_REGISTER_DRIFT",
+]);
+
+const LOCAL_BOUNDED_QUALITY_DIAGNOSTIC_REASONS = new Set([
+  "QUALITY_TRADITIONALCHINESE_LOW",
+  "QUALITY_CHARACTERVOICE_LOW",
+  "QUALITY_CONTINUITY_LOW",
+  "QUALITY_SPECIFICITY_LOW",
+  "QUALITY_REPETITION_LOW",
+  "QUALITY_TASKUSEFULNESS_LOW",
+  "QUALITY_LENGTHCOMPLIANCE_LOW",
+]);
+
+function localQualityReasonCodes(error: unknown) {
+  if (!error || typeof error !== "object") return [];
+  const values = (error as { qualityReasonCodes?: unknown }).qualityReasonCodes;
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.filter((value): value is string =>
+    typeof value === "string"
+    && (
+      /^QUALITY_[A-Z0-9_]+$/u.test(value)
+      || value === "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK"
+    )))];
+}
+
+export function shouldRunBoundedLocalQualityRepair(input: {
+  request: PlatformAIRequest;
+  error: unknown;
+}) {
+  const errorCode = String((input.error as { code?: unknown })?.code ?? "");
+  const reasons = localQualityReasonCodes(input.error);
+  const repairableReasons = reasons.filter((reason) =>
+    LOCAL_BOUNDED_QUALITY_REPAIR_REASONS.has(reason));
+  return errorCode === "BROWSER_ASSISTED_QUALITY_BLOCKED"
+    && input.request.qualityPhase === "revision"
+    && LOCAL_BOUNDED_QUALITY_REPAIR_TASKS.has(input.request.taskType)
+    && repairableReasons.length > 0
+    && reasons.every((reason) =>
+      LOCAL_BOUNDED_QUALITY_REPAIR_REASONS.has(reason)
+      || LOCAL_BOUNDED_QUALITY_DIAGNOSTIC_REASONS.has(reason));
+}
+
+export function boundedLocalQualityRepairRequest(
+  request: PlatformAIRequest,
+  reasonCodes: string[],
+): PlatformAIRequest {
+  const initialSeed = request.generationOptions?.seed ?? 0;
+  const repairSeed = ((Math.abs(Math.trunc(initialSeed)) + 97) % 2_147_483_646) + 1;
+  return {
+    ...request,
+    requestId: `${request.requestId}:bounded-local-quality-repair`,
+    input: [
+      request.input,
+      "前一版終稿未通過本機品質檢查，請重新輸出一份完整替代正文。",
+      `需修正的安全品質代碼：${reasonCodes.join("、")}。`,
+      "硬性要求：承接既有人物、場景與最後一個未解事件；只寫新的情節，不得重抄或摘要既有章節；至少推進一個事件並造成一項可觀察後果；輸出二百二十至三百二十個繁體中文字；最後一句必須完整，並以句號、驚嘆號、問號或閉合引號收尾。",
+    ].join("\n"),
+    qualityPreference: "high",
+    qualityPhase: "revision",
+    generationOptions: {
+      ...request.generationOptions,
+      seed: repairSeed,
+      temperature: Math.min(
+        Math.max(request.generationOptions?.temperature ?? 0.68, 0.66),
+        0.76,
+      ),
+      topP: Math.min(
+        Math.max(request.generationOptions?.topP ?? 0.88, 0.86),
+        0.92,
+      ),
+      maxTokens: 360,
+      repetitionPenalty: Math.max(
+        request.generationOptions?.repetitionPenalty ?? 1.08,
+        1.12,
+      ),
+    },
+    idempotencyKey: `${request.idempotencyKey ?? request.requestId}:bounded-local-quality-repair`,
+  };
+}
+
+function localExecutionResult(
+  result: PlatformAIResult,
+  input: ClosedBackendExecutionInput,
+  qualityPasses = 1,
+): ClosedBackendExecutionResult {
+  return {
+    backendId: "local-ollama",
+    modelId: result.modelId ?? "unknown-local-model",
+    modelDigest: result.modelDigest ?? "unknown-local-digest",
+    content: result.content,
+    candidateOnly: true,
+    dataLeftDevice: false,
+    externalRequest: false,
+    elapsedMs: result.elapsedMs,
+    profileId: result.profileId,
+    firstTokenMs: result.firstTokenMs,
+    inputCharacters: result.inputCharacters,
+    outputCharacters: result.outputCharacters,
+    generatedTokenEvents: result.generatedTokenEvents,
+    omittedInputCharacters: result.omittedInputCharacters,
+    qualityMode: input.plan.qualityMode,
+    qualityPasses,
+    draftDigest: null,
+    criticDigest: null,
+    actualExecutor: "local-ollama",
+  };
+}
+
 export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
   readonly id = "browser-ai" as const;
 
@@ -328,32 +453,61 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
       ),
     );
-    const execution: ClosedBackendExecutionResult = {
-      backendId: this.id,
-      modelId: result.modelId ?? "unknown-local-model",
-      modelDigest: result.modelDigest ?? "unknown-local-digest",
-      content: result.content,
-      candidateOnly: true,
-      dataLeftDevice: false,
-      externalRequest: false,
-      elapsedMs: result.elapsedMs,
-      profileId: result.profileId,
-      firstTokenMs: result.firstTokenMs,
-      inputCharacters: result.inputCharacters,
-      outputCharacters: result.outputCharacters,
-      generatedTokenEvents: result.generatedTokenEvents,
-      omittedInputCharacters: result.omittedInputCharacters,
-      qualityMode: input.plan.qualityMode,
-      qualityPasses: 1,
-      draftDigest: null,
-      criticDigest: null,
-      actualExecutor: this.id,
-    };
-    const assisted = await finalizeBrowserAssistedBackendResult({
-      preparation: browserAssisted,
-      result: execution,
-      executor: this.id,
-    });
+    let execution = localExecutionResult(result, input);
+    let assisted: Awaited<ReturnType<typeof finalizeBrowserAssistedBackendResult>>;
+    try {
+      assisted = await finalizeBrowserAssistedBackendResult({
+        preparation: browserAssisted,
+        result: execution,
+        executor: this.id,
+      });
+    } catch (error) {
+      if (!shouldRunBoundedLocalQualityRepair({ request, error })) throw error;
+      const reasonCodes = localQualityReasonCodes(error);
+      const repairRequest = boundedLocalQualityRepairRequest(request, reasonCodes);
+      const repairResult = await runLocalOllama(
+        repairRequest,
+        lockedDecision(repairRequest, snapshot),
+        undefined,
+        (progress) => reportGenerationProgress(
+          input,
+          `Local Ollama 有界補修中 · ${progress.generatedCharacters} 字`,
+          progress.generatedCharacters,
+          Math.min(94, 78 + Math.round(Math.sqrt(progress.generatedCharacters) * 0.9)),
+        ),
+        { boundedQualityRepair: true },
+      );
+      if (
+        repairResult.modelId !== result.modelId
+        || repairResult.modelDigest !== result.modelDigest
+        || repairResult.providerId !== "local-ollama"
+      ) {
+        throw Object.assign(new Error("Bounded Local repair changed executor identity."), {
+          code: "CLOSED_AI_BACKEND_IDENTITY_MISMATCH",
+        });
+      }
+      const repairedExecution = localExecutionResult(repairResult, input, 2);
+      execution = {
+        ...repairedExecution,
+        elapsedMs: result.elapsedMs + repairResult.elapsedMs,
+        firstTokenMs: result.elapsedMs + (repairResult.firstTokenMs ?? 0),
+        inputCharacters:
+          (result.inputCharacters ?? 0) + (repairResult.inputCharacters ?? 0),
+        outputCharacters: repairResult.content.length,
+        generatedTokenEvents:
+          (result.generatedTokenEvents ?? 0)
+          + (repairResult.generatedTokenEvents ?? 0),
+        omittedInputCharacters:
+          (result.omittedInputCharacters ?? 0)
+          + (repairResult.omittedInputCharacters ?? 0),
+        profileId: `${repairResult.profileId ?? "local-ollama"}:bounded-same-model-quality-repair`,
+      };
+      assisted = await finalizeBrowserAssistedBackendResult({
+        preparation: browserAssisted,
+        result: execution,
+        executor: this.id,
+      });
+    }
     return {
       ...execution,
       browserComputeReceiptId: assisted.receipt.receiptId,

@@ -292,7 +292,7 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate] = await Promise.all([
+  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate, backends] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
@@ -300,6 +300,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
     readFile("local-ai/bridge/server.mjs", "utf8"),
     readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
     readFile("scripts/run-p24b-rc3-1-manual-edge-gate.mjs", "utf8"),
+    readFile("lib/novel-ai/closed-agent-os/backends.ts", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
   assert.match(studio, /commitScreen\("write", false, id\)/);
@@ -310,6 +311,8 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(studio, /screen === "home" && value === "choice" && project/);
   assert.match(studio, /window\.location\.replace\(`\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg`\)/);
   assert.match(studio, /prewarmStudioProjectAIState/);
+  assert.match(studio, /closedAgentQualityReasonCodes\(error\)/);
+  assert.match(studio, /STUDIO_EXPLICIT_REGENERATION_FAILED/);
   assert.match(navigation, /stageStudioTaskHandoff/);
   assert.match(navigation, /prefetch=\{false\}/);
   assert.match(writer, /Saving content must never select a chapter/);
@@ -341,6 +344,9 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
   assert.match(bridge, /rpgChoiceDirectorFormat/);
   assert.match(taskProfile, /根層只能有 choices/);
+  assert.match(backends, /bounded-local-quality-repair/);
+  assert.match(backends, /LOCAL_BOUNDED_QUALITY_REPAIR_REASONS/);
+  assert.match(backends, /fallbackPolicy: "none"/);
 });
 
 await test("consumer home presents a compact luxury world dashboard with truthful project facts", async () => {

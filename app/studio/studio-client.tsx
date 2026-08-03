@@ -54,7 +54,10 @@ import {
   type StudioTaskHandoff,
 } from "@/lib/novel-ai/web/studio-task-session";
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
-import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
+import {
+  closedAgentQualityReasonCodes,
+  type ClosedAIProgressEvent,
+} from "@/lib/novel-ai/closed-agent-os";
 import {
   approveStudioClosedAgentCandidate,
   prewarmStudioProjectAIState,
@@ -2150,8 +2153,10 @@ export default function StudioClient({
     } catch (error) {
       const code = taskTimedOut ? "STUDIO_AI_TASK_TIMEOUT" : closedAIRootCauseCode(error);
       if (regenerationSource) {
+        const qualityReasonCodes = closedAgentQualityReasonCodes(error);
         console.error("STUDIO_EXPLICIT_REGENERATION_FAILED", {
           code,
+          qualityReasonCodes,
           normalizedDigestDifferent: (error as { normalizedDigestDifferent?: boolean })
             ?.normalizedDigestDifferent,
           similarityMetric: (error as { similarityMetric?: string })?.similarityMetric,
@@ -2162,7 +2167,10 @@ export default function StudioClient({
             ? "模型連續產生相同內容，請調整額外要求或改用其他模型。"
             : "模型沒有完成不同版本；原候選已放棄，正式故事沒有變更。",
         );
-        setRegenerationError((current) => `${current}（${code}）`);
+        setRegenerationError((current) => `${current}（${[
+          code,
+          ...qualityReasonCodes,
+        ].join("、")}）`);
         setState((value) => ({
           ...value,
           candidate: null,

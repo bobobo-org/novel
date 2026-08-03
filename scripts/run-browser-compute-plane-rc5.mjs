@@ -62,6 +62,10 @@ import {
 } from "../lib/novel-ai/providers/browser-ai/webllm-model-registry.ts";
 import { resolveClosedAIRoute } from "../lib/novel-ai/closed-agent-os/router.ts";
 import {
+  boundedLocalQualityRepairRequest,
+  shouldRunBoundedLocalQualityRepair,
+} from "../lib/novel-ai/closed-agent-os/backends.ts";
+import {
   assessRegenerationDistinctness,
   createExplicitRegenerationContract,
 } from "../lib/novel-ai/web/explicit-regeneration.ts";
@@ -938,6 +942,15 @@ test("studio-explicit-local-compute-selection", () => {
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 160);
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "high",
+    requestedMaxTokens: 360,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+    boundedQualityRepair: true,
+  }).maxOutputTokens, 360);
 });
 
 test("studio-cross-page-local-session-recovery", () => {
@@ -987,6 +1000,29 @@ test("local-prose-completion-boundary", () => {
   assert.equal(underBudget.repaired, false);
   assert.equal(underBudget.content, `${completed}他伸`);
 
+  const exhaustedByOllamaMetadata = repairLocalProseCompletionBoundary({
+    taskType: "chapter.continue",
+    content: `${completed}他伸`,
+    generatedTokenEvents: 17,
+    maxOutputTokens: 192,
+    evaluatedTokens: 192,
+  });
+  assert.deepEqual(exhaustedByOllamaMetadata, {
+    content: completed,
+    repaired: true,
+    removedCharacters: 2,
+  });
+
+  const naturallyStopped = repairLocalProseCompletionBoundary({
+    taskType: "chapter.continue",
+    content: `${completed}他伸`,
+    generatedTokenEvents: 17,
+    maxOutputTokens: 192,
+    evaluatedTokens: 80,
+    doneReason: "stop",
+  });
+  assert.equal(naturallyStopped.repaired, false);
+
   const nonProse = repairLocalProseCompletionBoundary({
     taskType: "story.consistencyCheck",
     content: `${completed}待查`,
@@ -1002,6 +1038,78 @@ test("local-prose-completion-boundary", () => {
     maxOutputTokens: 192,
   });
   assert.equal(noCompletedSentence.repaired, false);
+});
+
+test("bounded-local-terminal-quality-repair", () => {
+  const request = {
+    requestId: "task-1",
+    projectId: "project-1",
+    taskType: "chapter.continue",
+    privacyMode: "strict-local",
+    privacyLevel: "device_only",
+    fallbackPolicy: "none",
+    preferredProvider: "local-ollama",
+    input: "承接沈曜在城門前遭到攔截的情節。",
+    context: ["目前章節：沈曜懷中藏著密信。"],
+    qualityPreference: "balanced",
+    qualityPhase: "revision",
+    generationOptions: { seed: 41, maxTokens: 192 },
+    externalConsent: false,
+    closedOnly: true,
+    offlineRequired: true,
+  };
+  const repairableError = Object.assign(new Error("blocked"), {
+    code: "BROWSER_ASSISTED_QUALITY_BLOCKED",
+    qualityReasonCodes: [
+      "QUALITY_TASKUSEFULNESS_LOW",
+      "QUALITY_OUTPUT_TRUNCATED",
+    ],
+  });
+  assert.equal(shouldRunBoundedLocalQualityRepair({ request, error: repairableError }), true);
+  assert.equal(shouldRunBoundedLocalQualityRepair({
+    request,
+    error: Object.assign(new Error("blocked"), {
+      code: "BROWSER_ASSISTED_QUALITY_BLOCKED",
+      qualityReasonCodes: ["QUALITY_EMPTY_CANDIDATE"],
+    }),
+  }), false);
+  assert.equal(shouldRunBoundedLocalQualityRepair({
+    request,
+    error: Object.assign(new Error("blocked"), {
+      code: "BROWSER_ASSISTED_QUALITY_BLOCKED",
+      qualityReasonCodes: [
+        "QUALITY_OUTPUT_TRUNCATED",
+        "QUALITY_STRUCTUREDOUTPUT_LOW",
+      ],
+    }),
+  }), false);
+  assert.equal(shouldRunBoundedLocalQualityRepair({
+    request,
+    error: Object.assign(new Error("blocked"), {
+      code: "BROWSER_ASSISTED_QUALITY_BLOCKED",
+      qualityReasonCodes: [
+        "QUALITY_OUTPUT_TRUNCATED",
+        "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+      ],
+    }),
+  }), false);
+  assert.equal(shouldRunBoundedLocalQualityRepair({
+    request: { ...request, qualityPhase: "draft" },
+    error: repairableError,
+  }), false);
+
+  const repairedRequest = boundedLocalQualityRepairRequest(
+    request,
+    ["QUALITY_OUTPUT_TRUNCATED"],
+  );
+  assert.equal(repairedRequest.requestId, "task-1:bounded-local-quality-repair");
+  assert.equal(repairedRequest.preferredProvider, "local-ollama");
+  assert.equal(repairedRequest.fallbackPolicy, "none");
+  assert.equal(repairedRequest.externalConsent, false);
+  assert.equal(repairedRequest.qualityPhase, "revision");
+  assert.equal(repairedRequest.generationOptions.maxTokens, 360);
+  assert.notEqual(repairedRequest.generationOptions.seed, request.generationOptions.seed);
+  assert.match(repairedRequest.input, /完整替代正文/u);
 });
 
 test("no-silent-fallback", () => {
