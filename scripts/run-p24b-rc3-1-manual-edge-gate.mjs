@@ -266,13 +266,21 @@ async function waitCandidate(page, timeout = 300_000) {
     const message = ((await source.innerText()) || "")
       .replace(/\s+/gu, " ")
       .slice(0, 1_000);
-    const code = message.match(/[（(]([A-Z][A-Z0-9_]+)[）)]/u)?.[1]
+    const observedCodes = [...new Set(
+      message.match(/\b[A-Z][A-Z0-9_]{3,}\b/gu) ?? [],
+    )];
+    const qualityReasonCodes = observedCodes.filter((value) =>
+      /^QUALITY_[A-Z0-9_]+$/u.test(value)
+      || value === "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK");
+    const code = observedCodes.find((value) =>
+      !qualityReasonCodes.includes(value))
+      ?? message.match(/[（(]([A-Z][A-Z0-9_]+)[）)]/u)?.[1]
       ?? (outcome === "failure"
         ? "STUDIO_ASSISTANT_FAILED"
         : "STUDIO_REGENERATION_FAILED");
     throw Object.assign(
       new Error(`STUDIO_ASSISTANT_FAILURE:${code}`),
-      { code },
+      { code, qualityReasonCodes },
     );
   }
   await candidate.getByText("真實閉端 AI 候選").waitFor({ state: "visible", timeout });
@@ -866,6 +874,9 @@ async function main() {
       failureRoute: page?.url() ? safeRoute(page.url()) : null,
       observedPermission,
       observedRpg,
+      qualityReasonCodes: Array.isArray(gateError?.qualityReasonCodes)
+        ? gateError.qualityReasonCodes
+        : [],
       failureDiagnostic,
       nativeDecisionMethod: "HUMAN_OPERATOR",
       permissionInjectionUsed: false,

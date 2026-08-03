@@ -54,6 +54,7 @@ import {
 import {
   finalizeBrowserAssistedBackendResult,
   prepareBrowserAssistedBackendInput,
+  resolveBrowserAssistedQualityEnforcement,
 } from "../lib/novel-ai/providers/browser-ai/browser-assisted-postprocessor.ts";
 import { BrowserGPUQueue } from "../lib/novel-ai/providers/browser-ai/browser-gpu-queue.ts";
 import {
@@ -700,6 +701,115 @@ test("browser-assisted-local", async () => {
   assert.equal(finalized.receipt.localOllamaUsed, true);
   assert.equal(finalized.receipt.browserPrecomputeUsed, true);
   assert.equal(finalized.receipt.rawPromptStored, false);
+});
+
+test("browser-assisted-quality-phases", async () => {
+  const repairableDraft = "林澈循著廊下殘燈走進雨幕，記住門後那道壓低的呼吸聲。她沒有回頭，只把染血的信箋收進袖中，沿著石階追向鐘樓深處";
+  const preparationFor = (qualityPhase, qualityMode, taskId) =>
+    prepareBrowserAssistedBackendInput({
+      request: {
+        taskId,
+        namespace: namespace(),
+        taskType: "chapter.continue",
+        objective: "承接目前章節，寫出下一段具體行動與後果。",
+        context: [],
+        allowedToolIds: [],
+        permissionScopes: [],
+      },
+      plan: {
+        schemaVersion: "closed-agent-os-v1",
+        taskId,
+        complexity: "standard",
+        qualityMode,
+        backendId: "local-ollama",
+        roles: ["actor", "critic", "evaluator"],
+        steps: [],
+        planDigest: `${taskId}-plan`,
+        candidateOnly: true,
+      },
+      actorContext: [],
+      toolResults: [],
+      qualityPhase,
+      workingMaterials: [],
+    });
+  const resultFor = (content) => ({
+    backendId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "verified-model-digest",
+    content,
+    candidateOnly: true,
+    dataLeftDevice: false,
+    externalRequest: false,
+    elapsedMs: 12,
+    qualityMode: "balanced",
+    qualityPasses: 1,
+    draftDigest: null,
+    criticDigest: null,
+  });
+
+  const draftPreparation = await preparationFor(
+    "draft",
+    "balanced",
+    "assisted-balanced-draft",
+  );
+  const draftQuality = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    content: repairableDraft,
+    expectedMinTokens: 24,
+  });
+  assert.equal(draftQuality.decision, "block");
+  assert.ok(draftQuality.reasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"));
+  const draftEnforcement = resolveBrowserAssistedQualityEnforcement({
+    preparation: draftPreparation,
+    quality: draftQuality,
+  });
+  assert.equal(draftEnforcement.shouldBlock, false);
+  assert.equal(draftEnforcement.deferredToClosedAgentRevision, true);
+  const draftFinalized = await finalizeBrowserAssistedBackendResult({
+    preparation: draftPreparation,
+    executor: "local-ollama",
+    result: resultFor(repairableDraft),
+  });
+  assert.equal(draftFinalized.enforcement.deferredToClosedAgentRevision, true);
+
+  const revisionPreparation = await preparationFor(
+    "revision",
+    "balanced",
+    "assisted-balanced-revision",
+  );
+  await assert.rejects(
+    finalizeBrowserAssistedBackendResult({
+      preparation: revisionPreparation,
+      executor: "local-ollama",
+      result: resultFor(repairableDraft),
+    }),
+    (error) => error.code === "BROWSER_ASSISTED_QUALITY_BLOCKED"
+      && error.qualityPhase === "revision"
+      && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"),
+  );
+
+  const fastPreparation = await preparationFor(
+    "draft",
+    "fast",
+    "assisted-fast-draft",
+  );
+  const fastEnforcement = resolveBrowserAssistedQualityEnforcement({
+    preparation: fastPreparation,
+    quality: draftQuality,
+  });
+  assert.equal(fastEnforcement.terminalCandidate, true);
+  assert.equal(fastEnforcement.shouldBlock, true);
+
+  const emptyQuality = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    content: "",
+  });
+  const emptyEnforcement = resolveBrowserAssistedQualityEnforcement({
+    preparation: draftPreparation,
+    quality: emptyQuality,
+  });
+  assert.equal(emptyEnforcement.hardSafetyBlock, true);
+  assert.equal(emptyEnforcement.shouldBlock, true);
 });
 
 test("explicit-escalation", () => {

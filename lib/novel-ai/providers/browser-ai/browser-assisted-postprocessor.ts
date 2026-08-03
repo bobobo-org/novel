@@ -18,7 +18,7 @@ import { evaluateBrowserCandidateQuality } from "./browser-quality-gate";
 import { BROWSER_WEBLLM_MODELS } from "./webllm-model-registry";
 
 export const BROWSER_ASSISTED_POSTPROCESSOR_VERSION =
-  "browser-assisted-postprocessor-v2" as const;
+  "browser-assisted-postprocessor-v3" as const;
 
 const CONTEXT_KIND: Record<ClosedAIContextItem["kind"], BrowserContextKind> = {
   canon: "canon-authority",
@@ -41,6 +41,50 @@ export type BrowserAssistedPreparation = {
   };
   plannedPipeline: string[];
 };
+
+export type BrowserAssistedQualityEnforcement = {
+  qualityPhase: ClosedBackendExecutionInput["qualityPhase"];
+  terminalCandidate: boolean;
+  hardSafetyBlock: boolean;
+  shouldBlock: boolean;
+  deferredToClosedAgentRevision: boolean;
+};
+
+/**
+ * Balanced/deep Local and Hub drafts are intermediate material owned by the
+ * Closed Agent OS quality transaction. Repairable prose findings must reach
+ * the revision node. Final/fast output remains fully blocking, while empty,
+ * boundary-leaking, structurally invalid, or canon-conflicting output is
+ * rejected at every phase.
+ */
+export function resolveBrowserAssistedQualityEnforcement(input: {
+  preparation: BrowserAssistedPreparation;
+  quality: ReturnType<typeof evaluateBrowserCandidateQuality>;
+}): BrowserAssistedQualityEnforcement {
+  const qualityPhase = input.preparation.input.qualityPhase;
+  const terminalCandidate = qualityPhase === "revision"
+    || (
+      qualityPhase === "draft"
+      && input.preparation.input.plan.qualityMode === "fast"
+    );
+  const hardSafetyBlock = input.quality.reasonCodes.includes(
+    "QUALITY_EMPTY_CANDIDATE",
+  )
+    || input.quality.reasonCodes.includes(
+      "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+    )
+    || input.quality.scores.structuredOutput === 0
+    || input.quality.scores.canonCompliance < 0.5;
+  const qualityBlocked = input.quality.decision === "block";
+  const shouldBlock = qualityBlocked && (terminalCandidate || hardSafetyBlock);
+  return {
+    qualityPhase,
+    terminalCandidate,
+    hardSafetyBlock,
+    shouldBlock,
+    deferredToClosedAgentRevision: qualityBlocked && !shouldBlock,
+  };
+}
 
 /**
  * A conservative budgeting profile used only to divide an already-approved
@@ -137,6 +181,10 @@ export async function finalizeBrowserAssistedBackendResult(input: {
       input.preparation.input.request.generationOptions?.maxTokens ?? 4_096,
     threshold: 0.7,
   });
+  const enforcement = resolveBrowserAssistedQualityEnforcement({
+    preparation: input.preparation,
+    quality,
+  });
   const metrics = input.preparation.contextMetrics;
   const receipt = await createBrowserExecutionReceipt({
     taskIdentity:
@@ -164,15 +212,17 @@ export async function finalizeBrowserAssistedBackendResult(input: {
     elapsedMs: input.result.elapsedMs,
   });
   await recordBrowserExecutionReceipt(receipt);
-  if (quality.decision === "block") {
+  if (enforcement.shouldBlock) {
     throw Object.assign(new Error("瀏覽器品質閘拒絕空白、越界或無效候選。"), {
       code: "BROWSER_ASSISTED_QUALITY_BLOCKED",
       qualityReasonCodes: quality.reasonCodes,
       qualityScore: quality.score,
+      qualityPhase: enforcement.qualityPhase,
+      qualityDeferredToRevision: false,
       receiptId: receipt.receiptId,
       fallbackAttempted: false,
       canonicalMutationCount: 0,
     });
   }
-  return { quality, receipt, contextMetrics: metrics };
+  return { quality, enforcement, receipt, contextMetrics: metrics };
 }
