@@ -288,6 +288,7 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
   const repeated = `${previous} ${previous}`;
   assert.ok(rpgTextSimilarity(previous, repeated) > 0.72);
   assert.throws(() => cleanRpgContinuation(repeated, [previous]), /REPETITIVE/);
+  assert.throws(() => cleanRpgContinuation("他停下腳步。", []), /TOO_SHORT/);
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
@@ -328,7 +329,10 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /closedAIErrorCode\(error\) !== "ABC_CHOICES_INVALID_STRUCTURE"/);
   assert.match(rpg, /結構修復重試/);
   assert.match(rpg, /seed: \(planningSeed \+ 104_729\) >>> 0/);
-  assert.match(rpg, /maxTokens: 520/);
+  assert.match(rpg, /targetLength: 240/);
+  assert.match(rpg, /maxTokens: 288/);
+  assert.match(rpg, /data-testid="rpg-operation-status"/);
+  assert.match(rpg, /RPG_CLOSED_AI_RESOLUTION_FAILED/);
   assert.match(rpg, /已產生 \$\{generated\} 字/);
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
   assert.match(bridge, /rpgChoiceDirectorFormat/);

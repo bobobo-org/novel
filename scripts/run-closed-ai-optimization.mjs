@@ -309,7 +309,8 @@ test("Interactive choice requests use a bounded fast single-pass policy", async 
     topP: 0.9,
     repetitionPenalty: 1.1,
   });
-  assert.match(routedRequest.input, /260 個中文字以內/u);
+  assert.match(routedRequest.input, /約 260 個中文字/u);
+  assert.match(routedRequest.input, /至少 156 字/u);
   assert.equal(result.provider, "local-ollama");
 
   const { os, calls } = createOS();

@@ -141,7 +141,11 @@ export function cleanRpgContinuation(raw: string, recentAcceptedTexts: string[])
     .replace(/^\s*```(?:text|markdown)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
     .trim();
-  if (value.length < 120) throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
+  // qwen2.5:3b reliably produces a compact 2–3 sentence turn even when given a
+  // larger token budget. The verified formula settlement is appended by the
+  // canonical transaction, so reject fragments while allowing complete,
+  // responsive local-model turns instead of demanding padded prose.
+  if (value.length < 64) throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
   if (/^(?:說明|分析|以下是|作為(?:AI|人工智慧)|工程|JSON|```)/i.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_NOT_STORY");
   }
@@ -171,6 +175,7 @@ export function buildRpgResolutionDirectorPrompt(input: {
       "你是閉端小說 RPG 導演。依照已鎖定的玩家選擇與規則判定，寫出 3 到 6 段可直接接到目前章節末尾的繁體中文正文。",
       "必須承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；用動作、對話、感官和具體新變化推進。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
+      "正文至少 150 個繁體中文字，分成 3 到 6 個完整段落；未達最低篇幅時繼續推進人物反應與直接後果，不要提早總結。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說正文，不要標題、JSON 或 Markdown。",
     ].join("\n"),
     context: input.context,

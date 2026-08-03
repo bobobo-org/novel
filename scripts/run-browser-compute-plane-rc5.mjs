@@ -919,7 +919,22 @@ test("studio-explicit-local-compute-selection", () => {
     taskType: "chapter.continue",
     modelId: "qwen2.5:3b",
     qualityPreference: "fast",
+    requestedMaxTokens: 144,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  }).maxOutputTokens, 144);
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
     requestedMaxTokens: 420,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  }).maxOutputTokens, 288);
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 160);

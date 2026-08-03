@@ -621,7 +621,19 @@ async function main() {
     const acceptRpgChoice = page.getByTestId("rpg-accept-choice");
     await acceptRpgChoice.waitFor({ state: "visible", timeout: 30_000 });
     await acceptRpgChoice.click();
-    await page.getByTestId("rpg-resolution").waitFor({ state: "visible", timeout: 480_000 });
+    await page.waitForFunction(() => {
+      const resolution = document.querySelector('[data-testid="rpg-resolution"]');
+      const operation = document.querySelector('[data-testid="rpg-operation-status"]');
+      return Boolean(resolution)
+        || operation?.getAttribute("data-state") === "failed";
+    }, undefined, { timeout: 480_000 });
+    const rpgOperationStatus = page.getByTestId("rpg-operation-status");
+    if (await rpgOperationStatus.getAttribute("data-state") === "failed") {
+      const code = await rpgOperationStatus.getAttribute("data-error-code")
+        || "RPG_CLOSED_AI_RESOLUTION_FAILED";
+      throw Object.assign(new Error(code), { code });
+    }
+    await page.getByTestId("rpg-resolution").waitFor({ state: "visible", timeout: 5_000 });
     const afterRpg = await canonSnapshot(page, projectId);
     const rpgCandidates = (await closedAgentCandidates(page, projectId))
       .filter((record) => !beforeRpgCandidateIds.has(record.id));
@@ -844,12 +856,14 @@ async function main() {
     failureDiagnostic = await page?.evaluate(() => {
       const planning = document.querySelector('[data-testid="rpg-ai-choice-status"]');
       const choice = document.querySelector('[data-testid="rpg-choice-A"]');
-      const status = document.querySelector('[role="status"]');
+      const status = document.querySelector('[data-testid="rpg-operation-status"]');
       return {
         planningReady: planning?.getAttribute("data-ready") ?? null,
         planningStatus: planning?.textContent?.replace(/\s+/gu, " ").trim().slice(0, 500) ?? null,
         choiceDisabled: choice instanceof HTMLButtonElement ? choice.disabled : null,
         visibleStatus: status?.textContent?.replace(/\s+/gu, " ").trim().slice(0, 300) ?? null,
+        operationState: status?.getAttribute("data-state") ?? null,
+        operationErrorCode: status?.getAttribute("data-error-code") ?? null,
       };
     }).catch(() => null) ?? null;
   } finally {

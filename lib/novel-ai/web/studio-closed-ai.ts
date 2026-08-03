@@ -260,13 +260,15 @@ export async function runStudioClosedAI(
   execute?: PlatformExecutor,
 ) {
   const requestId = `studio-closed-${crypto.randomUUID()}`;
+  const taskType = studioPlatformTaskType(input.task);
   const targetInstruction = input.targetLength
-    ? `\n\n請將候選內容控制在約 ${input.targetLength} 個中文字以內。`
+    ? taskType === "chapter.continue"
+      ? `\n\n請將候選正文寫到約 ${input.targetLength} 個中文字，至少 ${Math.ceil(input.targetLength * 0.6)} 字；必須完成本場景的新事件與直接後果。`
+      : `\n\n請將候選內容控制在約 ${input.targetLength} 個中文字以內。`
     : "";
   const regenerationInstruction = input.regeneration
     ? explicitRegenerationInstruction(input.regeneration)
     : "";
-  const taskType = studioPlatformTaskType(input.task);
   const humanizedInstruction = humanizedSerialFictionInstruction(
     taskType,
     input.targetLength,

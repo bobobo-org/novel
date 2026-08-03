@@ -41,7 +41,9 @@ export function humanizedSerialFictionInstruction(
 ) {
   if (!narrativeTasks.has(taskType)) return "";
   const lengthRule = targetLength
-    ? `篇幅以約 ${targetLength} 個中文字為上限，優先完成場景，不為湊字數重複資訊。`
+    ? taskType === "chapter.continue"
+      ? `篇幅目標約 ${targetLength} 個中文字，至少 ${Math.ceil(targetLength * 0.6)} 字；先完成一個有因果與後果的場景，再在完整句收束。`
+      : `篇幅以約 ${targetLength} 個中文字為上限，優先完成場景，不為湊字數重複資訊。`
     : "篇幅服從場景需要，不重複已知資訊。";
   const taskRule = taskRules[taskType]
     ?? "讓人物的選擇推動情節，並留下可追蹤的因果與情緒變化。";

@@ -132,16 +132,18 @@ function closedAIErrorCode(error: unknown) {
   const typed = error as {
     code?: unknown;
     causeCode?: unknown;
+    message?: unknown;
     cause?: { code?: unknown; causeCode?: unknown; cause?: { code?: unknown } };
   } | null;
-  return String(
+  const explicitCode =
     typed?.causeCode
       ?? typed?.cause?.causeCode
       ?? typed?.cause?.code
       ?? typed?.cause?.cause?.code
-      ?? typed?.code
-      ?? "MODEL_NOT_READY",
-  );
+      ?? typed?.code;
+  if (explicitCode) return String(explicitCode);
+  const message = String(typed?.message ?? "").trim();
+  return /^[A-Z][A-Z0-9_]+$/u.test(message) ? message : "MODEL_NOT_READY";
 }
 
 const emptyEffect = (): StoryChoiceEffect => ({
@@ -205,7 +207,7 @@ function studioSeed(data: WorkspaceData): StudioProjectSeed {
 }
 
 function errorMessage(error: unknown) {
-  const code = String((error as { code?: string })?.code ?? "");
+  const code = closedAIErrorCode(error);
   const labels: Record<string, string> = {
     PROJECT_REVISION_CONFLICT: "作品在你選擇時已有更新，請重新整理三選一。",
     CHAPTER_REVISION_CONFLICT: "章節內容已更新，請重新整理三選一。",
@@ -213,6 +215,12 @@ function errorMessage(error: unknown) {
     CANDIDATE_STALE: "這個選項已過期，請產生新一輪選擇。",
     RPG_CHARACTER_NAME_REQUIRED: "角色姓名不能空白。",
     RPG_CUSTOM_ACTION_REQUIRED: "請先輸入你想採取的自由行動。",
+    RPG_AI_CONTINUATION_TOO_SHORT: "本機模型這次只產生了過短片段，沒有寫入故事；請重新執行本回合。",
+    RPG_AI_CONTINUATION_NOT_STORY: "本機模型這次回傳的是說明而非小說正文，沒有寫入故事；請重新執行本回合。",
+    RPG_AI_CONTINUATION_REPETITIVE: "本機模型這次內容與最近回合過度相似，沒有寫入故事；請重新規劃後再試。",
+    OLLAMA_TIMEOUT: "本機模型回應逾時，沒有寫入故事；請確認模型仍在運作後重試。",
+    CLOSED_AGENT_EVALUATION_BLOCKED: "本回合沒有通過閉端 AI 品質檢查，因此沒有寫入故事。",
+    RPG_CLOSED_AI_RESOLUTION_FAILED: "閉端 AI 沒有完成本回合，故事與能力值均未變更。",
   };
   return labels[code] ?? (error instanceof Error ? error.message : "操作未完成，請再試一次。");
 }
@@ -247,6 +255,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [customLibrary, setCustomLibrary] = useState<RpgCharacterTemplate[]>([]);
   const [status, setStatus] = useState("正在載入故事狀態與角色養成資料。");
+  const [operationError, setOperationError] = useState<{ code: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedChoice, setSelectedChoice] = useState<RpgChoice | null>(null);
   const [lastResolution, setLastResolution] = useState<RpgChoiceResolution | null>(null);
@@ -783,6 +792,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setStatus("這三個選項目前只是公式預覽，尚未經真實閉端 AI 讀取上下文；請先重試 AI 規劃，系統不會把模板寫入故事。");
       return;
     }
+    setOperationError(null);
     setBusy(true);
     setStatus(`閉端 AI 正在依照規則判定與目前章節，撰寫「${choice.key}｜${choice.title}」造成的下一回合……`);
     try {
@@ -807,14 +817,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             settlement,
           },
         }),
-        targetLength: 480,
+        targetLength: 240,
         sourceChapterId: data.chapter.id,
         sourceRevision: data.chapter.revision,
         // A committed RPG turn still passes identity, proof, prose and Canon
         // validators below; one interactive model pass keeps the UI responsive.
         qualityMode: "fast" as const,
         generationOptions: {
-          maxTokens: 520,
+          maxTokens: 288,
           temperature: 0.84,
           topP: 0.94,
           repetitionPenalty: 1.18,
@@ -830,21 +840,44 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         throw Object.assign(new Error("閉端 AI 沒有建立可核准的本回合候選。"), { code: "RPG_AI_RESULT_CANDIDATE_MISSING" });
       }
       const recentAcceptedTexts = data.acceptedChoices.slice(0, 8).map((item) => item.acceptedText);
-      let continuation: string;
-      try {
-        continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts);
-      } catch {
-        generated = await regenerateStudioClosedAI(taskInput, {
-          taskId: generated.taskId,
-          candidateId: generated.candidateId,
-          content: generated.content,
-          contentDigest: generated.contentDigest,
-          regenerationAttempt: generated.regeneration?.regenerationAttempt ?? 0,
-        }, {
-          extraRequirement: "前一版過短、像摘要或與最近回合太相似。請換掉事件機制、人物反應與句型，寫出真正不同且可接到章末的正文。",
-          maximumAttempts: 2,
-        });
-        continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts);
+      let continuation: string | null = null;
+      let continuationError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts);
+          break;
+        } catch (error) {
+          continuationError = error;
+          if (attempt >= 2) {
+            if (generated.candidateId) {
+              await rejectStudioClosedAgentCandidate(generated.candidateId).catch(() => undefined);
+            }
+            throw error;
+          }
+          const previous = generated;
+          try {
+            generated = await regenerateStudioClosedAI(taskInput, {
+              taskId: previous.taskId,
+              candidateId: previous.candidateId,
+              content: previous.content,
+              contentDigest: previous.contentDigest,
+              regenerationAttempt: previous.regeneration?.regenerationAttempt ?? 0,
+            }, {
+              extraRequirement: "前一版過短、像摘要或與最近回合太相似。務必寫滿四個連續段落，每段至少兩句，依序呈現行動落地、人物反應、代價發生，以及下回合可處理的新局勢；只輸出小說正文。",
+              maximumAttempts: 1,
+            });
+          } finally {
+            if (previous.candidateId) {
+              await rejectStudioClosedAgentCandidate(previous.candidateId).catch(() => undefined);
+            }
+          }
+        }
+      }
+      if (!continuation) {
+        throw continuationError ?? Object.assign(
+          new Error("RPG_AI_CONTINUATION_INVALID"),
+          { code: "RPG_AI_CONTINUATION_INVALID" },
+        );
       }
       if (
         !hasVerifiedExecutedStoryOutput(generated)
@@ -903,10 +936,15 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setCustomAction("");
       setLastResolution(resolution);
       await load();
+      setOperationError(null);
       setStatus(`已核准：${resolution.summary}。${generated.model} 產生的後續正文與公式數值已在同一筆交易寫入目前章節；下一回合會重新讀取新上下文。`);
     } catch (error) {
-      setStatus(errorMessage(error));
+      const code = closedAIErrorCode(error) || "RPG_CLOSED_AI_RESOLUTION_FAILED";
+      const message = errorMessage(error);
+      console.warn("RPG_CLOSED_AI_RESOLUTION_FAILED", { code });
       await load().catch(() => undefined);
+      setOperationError({ code, message });
+      setStatus(message);
     } finally {
       setBusy(false);
     }
@@ -1200,7 +1238,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       </header>
 
       <ProjectNavigation projectId={projectId} active="rpg" />
-      <p className={styles.status} role="status" aria-live="polite">{status}</p>
+      <p
+        className={styles.status}
+        role="status"
+        aria-live="polite"
+        data-testid="rpg-operation-status"
+        data-state={operationError ? "failed" : busy ? "running" : "ready"}
+        data-error-code={operationError?.code ?? ""}
+      >
+        {status}
+      </p>
 
       <nav className={styles.modeSwitch} aria-label="遊戲模式">
         {(Object.keys(RPG_MODE_DEFINITIONS) as RpgMode[]).map((modeId) => (

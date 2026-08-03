@@ -111,6 +111,7 @@
     "test:ai:closed:bridge:contract": "node scripts/run-closed-ai-bridge-contract.mjs",
     "test:ai:closed:bridge:real": "node scripts/run-closed-ai-bridge-real.mjs",
     "test:ai:closed:rpg:structured-real": "node scripts/run-rpg-choice-structured-real.mjs",
+    "test:ai:closed:rpg:resolution-real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rpg-resolution-real.mjs",
     "test:ai:closed:bridge:real:recovery": "node scripts/run-closed-ai-bridge-real-recovery.mjs",
     "test:ai:closed:bridge:router": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-bridge-router.mjs",
     "test:ai:closed:live-model": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-live-model.mjs",
