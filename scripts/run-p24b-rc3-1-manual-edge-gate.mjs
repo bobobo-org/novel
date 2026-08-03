@@ -343,14 +343,26 @@ function classifyDiagnostics(consoleRows, pageErrors, networkRows) {
   }
   for (const row of networkRows.filter((entry) => entry.status === 0 || entry.status >= 400)) {
     const parsed = new URL(row.url);
-    const expected = /\/api\/(?:persistence|ai\/cloud)\/health$/u.test(parsed.pathname)
-      || (row.status === 0 && parsed.hostname === "127.0.0.1");
+    const expectedCloudDegradation = /\/api\/(?:persistence|ai\/cloud)\/health$/u
+      .test(parsed.pathname);
+    const expectedLoopbackProbe = row.status === 0 && parsed.hostname === "127.0.0.1";
+    const expectedNavigationAbort = row.status === 0
+      && /(?:net::)?ERR_ABORTED/iu.test(String(row.failure || ""));
+    const expected = expectedCloudDegradation || expectedLoopbackProbe || expectedNavigationAbort;
     if (!expected) unclassified += 1;
     rows.push({
       source: "network",
       classification: expected ? "EXPECTED_DEGRADED" : "UNCLASSIFIED",
+      reason: expectedNavigationAbort
+        ? "expected_navigation_abort"
+        : expectedLoopbackProbe
+          ? "expected_local_loopback_probe"
+          : expectedCloudDegradation
+            ? "expected_cloud_degradation"
+            : "unclassified_network_failure",
       route: safeRoute(row.url),
       status: row.status,
+      failureCode: String(row.failure || "").match(/\b(ERR_[A-Z_]+)\b/u)?.[1] ?? null,
     });
   }
   return { productError, securityError, unclassified, rows };
@@ -425,6 +437,7 @@ async function main() {
       method: request.method(),
       url: safeRoute(request.url()),
       status: 0,
+      failure: request.failure()?.errorText ?? "UNKNOWN_REQUEST_FAILURE",
     }));
     page.on("response", (response) => networkRows.push({
       phase: "response",

@@ -292,13 +292,14 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, bridge, taskProfile] = await Promise.all([
+  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
     readFile("local-ai/bridge/server.mjs", "utf8"),
     readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
+    readFile("scripts/run-p24b-rc3-1-manual-edge-gate.mjs", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
   assert.match(studio, /commitScreen\("write", false, id\)/);
@@ -310,6 +311,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(studio, /window\.location\.replace\(`\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg`\)/);
   assert.match(studio, /prewarmStudioProjectAIState/);
   assert.match(navigation, /stageStudioTaskHandoff/);
+  assert.match(navigation, /prefetch=\{false\}/);
   assert.match(writer, /Saving content must never select a chapter/);
   assert.match(writer, /freshTarget/);
   assert.match(writer, /readStudioWritingResume/);
@@ -317,6 +319,8 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /buildRpgChoiceDirectorPrompt/);
   assert.match(rpg, /buildRpgResolutionDirectorPrompt/);
   assert.match(rpg, /data-testid="rpg-foundation-gate"/);
+  assert.match(edgeGate, /request\.failure\(\)\?\.errorText/);
+  assert.match(edgeGate, /ERR_ABORTED/);
   assert.match(rpg, /inspectRpgFoundation/);
   assert.match(rpg, /!rpgFoundationReady/);
   assert.match(rpg, /RPG_AI_CHOICES_REPEAT_RECENT_ROUND/);

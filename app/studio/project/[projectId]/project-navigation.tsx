@@ -75,6 +75,7 @@ export default function ProjectNavigation({
       <Link
         className="p2NavWorkbench"
         href={`/professional?projectId=${encodeURIComponent(projectId)}`}
+        prefetch={false}
         {...guardedLink(`/professional?projectId=${encodeURIComponent(projectId)}`, "專業工作台")}
       >
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
