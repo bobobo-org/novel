@@ -107,10 +107,19 @@ async function runSurfaceChecks(page, origin, checks, screenshotsDirectory) {
 
   await page.getByRole("link", { name: /諸天萬界小說生成系統/ }).first().click();
   await frontdoor.waitFor({ state: "visible" });
+  const legacyDocumentRequestPromise = page.waitForRequest((request) => {
+    if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return false;
+    return new URL(request.url()).pathname.startsWith("/legacy/");
+  }, { timeout: 60_000 });
   await page.getByRole("link", { name: "Legacy 進階工具" }).click();
+  const legacyDocumentRequest = await legacyDocumentRequestPromise;
   await page.locator("#novelStaticRelease[data-consumer-entry-mode='legacy-explicit-only']").waitFor({ state: "attached", timeout: 60_000 });
-  if (!new URL(page.url()).pathname.startsWith("/legacy/")) throw new Error("LEGACY_EXPLICIT_ROUTE_MISSING");
-  checks.push({ name: "legacy-explicit-only", status: "PASS" });
+  checks.push({
+    name: "legacy-explicit-only",
+    status: "PASS",
+    requestedPath: new URL(legacyDocumentRequest.url()).pathname,
+    settledPath: new URL(page.url()).pathname,
+  });
   await page.getByRole("link", { name: "返回新版首頁" }).click();
   await page.getByTestId("modern-consumer-frontdoor").waitFor({ state: "visible", timeout: 60_000 });
   checks.push({ name: "legacy-return-to-modern", status: "PASS" });
