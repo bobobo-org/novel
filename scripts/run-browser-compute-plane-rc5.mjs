@@ -70,6 +70,9 @@ import {
   readStudioClosedComputePolicy,
   resolveStudioClosedComputePolicy,
 } from "../lib/novel-ai/web/studio-closed-compute-policy.ts";
+import {
+  shouldRestoreStudioLocalRuntime,
+} from "../lib/novel-ai/web/closed-agent-os-service.ts";
 import { adaptStudioProfileForExplicitLocalCompute } from "../lib/novel-ai/web/studio-local-performance-policy.ts";
 import {
   repairLocalProseCompletionBoundary,
@@ -898,6 +901,30 @@ test("studio-explicit-local-compute-selection", () => {
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 640);
+});
+
+test("studio-cross-page-local-session-recovery", () => {
+  assert.equal(shouldRestoreStudioLocalRuntime({
+    taskType: "chapter.abcChoices",
+    browserComputePolicy: "quality-first",
+    allowPreAuthorizedClosedEscalation: true,
+  }), true);
+  assert.equal(shouldRestoreStudioLocalRuntime({
+    taskType: "chapter.continue",
+    preferredBackend: "local-ollama",
+    browserComputePolicy: "browser-first",
+    allowPreAuthorizedClosedEscalation: false,
+  }), true);
+  assert.equal(shouldRestoreStudioLocalRuntime({
+    taskType: "chapter.abcChoices",
+    browserComputePolicy: "browser-first",
+    allowPreAuthorizedClosedEscalation: false,
+  }), false);
+  assert.equal(shouldRestoreStudioLocalRuntime({
+    taskType: "character.privateArc",
+    browserComputePolicy: "quality-first",
+    allowPreAuthorizedClosedEscalation: true,
+  }), false);
 });
 
 test("local-prose-completion-boundary", () => {

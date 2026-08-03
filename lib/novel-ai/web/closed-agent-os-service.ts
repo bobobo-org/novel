@@ -130,6 +130,24 @@ export type ExecuteStudioClosedAgentInput = {
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
 
+export function shouldRestoreStudioLocalRuntime(
+  input: Pick<
+    ExecuteStudioClosedAgentInput,
+    | "taskType"
+    | "preferredBackend"
+    | "browserComputePolicy"
+    | "allowPreAuthorizedClosedEscalation"
+  >,
+) {
+  if (taskComplexity(input.taskType) === "heavy") return false;
+  if (input.preferredBackend === "local-ollama") return true;
+  return input.allowPreAuthorizedClosedEscalation === true
+    && (
+      input.browserComputePolicy === "quality-first"
+      || input.browserComputePolicy === "balanced"
+    );
+}
+
 export async function executeStudioClosedAgent(
   input: ExecuteStudioClosedAgentInput,
 ): Promise<ClosedAgentExecutionResult> {
@@ -138,6 +156,16 @@ export async function executeStudioClosedAgent(
   const taskId =
     input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`;
   runtime.beginExecution(input.projectId, input.taskType);
+  // Project sections use full-page navigation so their module singletons are
+  // intentionally recreated. The origin-bound Local Bridge session and model
+  // proof survive inside this tab, but they must be restored into the new
+  // coordinator before Closed Agent OS probes its backends. Only an explicit
+  // quality/balanced policy (or a locked Local Ollama transaction such as
+  // regeneration) authorizes this reconnect; browser-first routing remains
+  // fail-closed and never escalates silently.
+  if (shouldRestoreStudioLocalRuntime(input)) {
+    await runtime.connectLocalAutomatically(input.signal);
+  }
   const complexity = taskComplexity(input.taskType);
   const privacyLevel = complexity === "heavy"
     ? "private_infrastructure_only"
