@@ -299,9 +299,21 @@ function classifyDiagnostics(consoleRows, pageErrors, networkRows) {
   let productError = 0;
   let securityError = 0;
   let unclassified = 0;
+  const localLoopbackRefused = networkRows.some((entry) => {
+    if (entry.status !== 0) return false;
+    try {
+      return new URL(entry.url).hostname === "127.0.0.1";
+    } catch {
+      return false;
+    }
+  });
   for (const row of consoleRows) {
     if (row.type !== "error") continue;
-    const expected = /favicon|supabase|cloud persistence|networkerror.*persistence/iu.test(row.text);
+    const expectedCloudDegradation = /favicon|supabase|cloud persistence|networkerror.*persistence/iu
+      .test(row.text);
+    const expectedLoopbackProbe = localLoopbackRefused
+      && /(?:net::)?ERR_CONNECTION_REFUSED/iu.test(row.text);
+    const expected = expectedCloudDegradation || expectedLoopbackProbe;
     const security = /securityerror|mixed content|content security policy|credential|authorization/iu.test(row.text);
     const classification = security
       ? "SECURITY_ERROR"
@@ -310,7 +322,20 @@ function classifyDiagnostics(consoleRows, pageErrors, networkRows) {
         : "UNCLASSIFIED";
     if (classification === "SECURITY_ERROR") securityError += 1;
     if (classification === "UNCLASSIFIED") unclassified += 1;
-    rows.push({ source: "console", classification, digest: sha(row.text), length: row.text.length });
+    rows.push({
+      source: "console",
+      classification,
+      reason: security
+        ? "security_error"
+        : expectedLoopbackProbe
+          ? "expected_local_loopback_probe"
+          : expectedCloudDegradation
+            ? "expected_cloud_degradation"
+            : "unclassified_console_error",
+      errorCode: row.text.match(/\b(ERR_[A-Z_]+)\b/u)?.[1] ?? null,
+      digest: sha(row.text),
+      length: row.text.length,
+    });
   }
   for (const message of pageErrors) {
     productError += 1;
@@ -357,6 +382,7 @@ async function main() {
   let gateError = null;
   let gateStage = "initialization";
   let failureDiagnostic = null;
+  let rawDiagnostics = null;
   let observedPermission = null;
   let observedRpg = null;
   let evidence = null;
@@ -729,6 +755,7 @@ async function main() {
     }
 
     const diagnostics = classifyDiagnostics(consoleRows, pageErrors, networkRows);
+    rawDiagnostics = diagnostics;
     if (diagnostics.productError || diagnostics.securityError || diagnostics.unclassified) {
       throw new Error("RAW_DIAGNOSTIC_CLASSIFICATION_BLOCKED");
     }
@@ -854,7 +881,7 @@ async function main() {
     };
   } catch (error) {
     gateError = error;
-    failureDiagnostic = await page?.evaluate(() => {
+    const pageDiagnostic = await page?.evaluate(() => {
       const planning = document.querySelector('[data-testid="rpg-ai-choice-status"]');
       const choice = document.querySelector('[data-testid="rpg-choice-A"]');
       const status = document.querySelector('[data-testid="rpg-operation-status"]');
@@ -867,6 +894,16 @@ async function main() {
         operationErrorCode: status?.getAttribute("data-error-code") ?? null,
       };
     }).catch(() => null) ?? null;
+    const classified = rawDiagnostics ?? classifyDiagnostics(consoleRows, pageErrors, networkRows);
+    failureDiagnostic = {
+      ...pageDiagnostic,
+      rawDiagnostics: {
+        productError: classified.productError,
+        securityError: classified.securityError,
+        unclassified: classified.unclassified,
+        rows: classified.rows,
+      },
+    };
   } finally {
     await context?.close().catch(() => undefined);
     if (bridgeStarted) await invokeLauncher(root, "stop").catch(() => undefined);
