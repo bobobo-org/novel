@@ -678,9 +678,10 @@ async function main() {
       .locator('a[href$="/write"]').click();
     await continueStudioTaskHandoff(page);
     await page.locator("main.p2WritingPage").waitFor({ state: "visible", timeout: 60_000 });
+    gateStage = "writing-to-studio-home";
     await page.getByRole("button", { name: "我的作品" }).click();
-    await continueStudioTaskHandoff(page);
     await page.locator(".studioHome").waitFor({ state: "visible", timeout: 60_000 });
+    gateStage = "studio-backup-open";
     await page.getByRole("button", { name: "存檔與備份" }).click();
     const semanticBeforeBackup = digest(semanticCanon(await canonSnapshot(page, projectId)));
     await page.getByRole("button", { name: "立即快速備份" }).click();
