@@ -246,14 +246,14 @@ test("Local and Hub task profiles enforce different budgets and truthful prompts
   assert(built.omittedCharacters > 0);
 });
 
-test("A/B/C profile is concise and requires one strict three-line contract", () => {
+test("A/B/C profile is concise and requires one strict structured JSON contract", () => {
   const profile = getClosedAIModelProfile(
     "chapter.abcChoices",
     "local-ollama",
   );
-  assert.match(profile.systemInstruction, /A\. …/u);
-  assert.match(profile.systemInstruction, /B\. …/u);
-  assert.match(profile.systemInstruction, /C\. …/u);
+  assert.match(profile.systemInstruction, /根層只能有 choices/u);
+  assert.match(profile.systemInstruction, /key、title、description、consequence、continuityReason/u);
+  assert.match(profile.systemInstruction, /title 3–18 字/u);
   assert.match(profile.systemInstruction, /不得加入前言/u);
   assert(profile.options.num_predict <= 512);
   assert(profile.options.temperature <= 0.45);
