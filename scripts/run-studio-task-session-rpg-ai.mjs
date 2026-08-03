@@ -347,6 +347,10 @@ await test("consumer home presents a compact luxury world dashboard with truthfu
   assert.match(styles, /\.studioHomeLower\{display:grid/);
   assert.match(styles, /\.studioHomeCompass\{position:relative/);
   assert.match(styles, /\.studioRecentFacts\{display:grid/);
+  assert.match(styles, /\.studioRail\{display:flex;height:100dvh;flex-direction:column;overflow:hidden\}/);
+  assert.match(styles, /\.studioRail>nav\{flex:1 1 auto;min-height:0;[^}]*overflow-y:auto/);
+  assert.match(styles, /\.studioRail>\.studioLocalAI,\.studioRail>\.studioProfessional\{position:static;[^}]*width:100%\}/);
+  assert.match(styles, /\.studioRail>nav button\{overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
 });
 
 const failed = cases.filter((entry) => entry.status === "FAIL");
