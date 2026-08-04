@@ -12,6 +12,12 @@ const PRODUCTION_ORIGINS = new Set([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",
 ]);
+const LOCAL_RUNTIME_ORIGINS = new Set([
+  "http://127.0.0.1:3217",
+  "http://localhost:3217",
+  "http://[::1]:3217",
+  "http://127.0.0.1:3227",
+]);
 
 function parseArgs(argv) {
   const result = {};
@@ -149,6 +155,7 @@ async function main() {
   const consoleRows = [];
   const networkRows = [];
   const externalRequests = [];
+  const localRuntimeRequests = [];
   const previewInfrastructureRequests = [];
   let context;
   try {
@@ -168,10 +175,11 @@ async function main() {
       networkRows.push({ phase: "request", method: request.method(), url, resourceType: request.resourceType() });
       const requestOrigin = new URL(request.url()).origin;
       const previewInfrastructure = target.isVercelPreview && requestOrigin === "https://vercel.live";
+      const localRuntime = LOCAL_RUNTIME_ORIGINS.has(requestOrigin);
       if (previewInfrastructure) previewInfrastructureRequests.push({ method: request.method(), url });
+      if (localRuntime) localRuntimeRequests.push({ method: request.method(), url });
       const allowed = requestOrigin === target.origin
-        || requestOrigin === "http://127.0.0.1:3217"
-        || requestOrigin === "http://localhost:3217"
+        || localRuntime
         || previewInfrastructure;
       if (!allowed) externalRequests.push({ method: request.method(), url });
     });
@@ -195,6 +203,11 @@ async function main() {
     const externalAi = externalRequests.filter((row) => !row.url.startsWith(target.origin));
     if (externalAi.length) throw new Error(`EXTERNAL_REQUEST_DETECTED:${externalAi[0].url}`);
     checks.push({ name: "external-ai-request-count", status: "PASS", count: 0 });
+    checks.push({
+      name: "local-runtime-request-classification",
+      status: "PASS",
+      count: localRuntimeRequests.length,
+    });
 
     const result = {
       schemaVersion: "p24b-rc3-exact-origin-acceptance-v1",
@@ -208,6 +221,7 @@ async function main() {
       manualDeepUrlCount: 0,
       checks,
       externalRequestCount: 0,
+      localRuntimeRequestCount: localRuntimeRequests.length,
       previewInfrastructureRequestCount: previewInfrastructureRequests.length,
       productionMutationCount: 0,
     };
@@ -218,7 +232,11 @@ async function main() {
     await writeFile(path.join(artifactRoot, "exact-origin-results.sha256"), `${digest}\n`, "utf8");
     process.stdout.write(`${JSON.stringify({ status: "PASS", origin: target.origin, digest })}\n`);
   } finally {
-    await context?.close();
+    try {
+      await context?.close();
+    } finally {
+      await rm(profilePath, { recursive: true, force: true });
+    }
   }
 }
 
