@@ -9,6 +9,9 @@ const [
   setupWizard,
   coordinator,
   modelRecommendations,
+  studio,
+  projectSections,
+  browserRuntime,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
@@ -17,6 +20,9 @@ const [
   readFile(new URL("../app/settings/local-ai/setup-wizard.tsx", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/web/closed-ai-runtime-coordinator.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/model-orchestration/recommended-models.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/studio-client.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/project-section-client.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts", import.meta.url), "utf8"),
 ]);
 
 const checks = [];
@@ -39,9 +45,13 @@ check("navigation saves first and only explicit confirmation can abandon edits",
   assert.match(writing, /allowTransitionAfterSave/u);
   assert.match(writing, /只有按下「確定」才會放棄本次未保存修改/u);
   assert.match(writing, /stageStudioTaskHandoff/u);
+  assert.match(writing, /router\.push\(href\)/u);
   assert.match(writing, /router\.push\(studioHomeHref\(projectId\)\)/u);
   assert.match(navigation, /onNavigate\?: \(href: string, label: string\) => void \| Promise<void>/u);
-  assert.match(navigation, /window\.location\.assign\(studioHomeHref\(projectId\)\)/u);
+  assert.match(navigation, /window\.location\.assign\(href\)/u);
+  assert.doesNotMatch(navigation, /window\.location\.assign\(studioHomeHref\(projectId\)\)/u);
+  assert.match(studio, /window\.location\.assign\(destinationHref\)/u);
+  assert.doesNotMatch(studio, /setTaskHandoff\(handoff\);\s*commitScreen\("home"/u);
   assert.doesNotMatch(navigation, /<a\s/u);
 });
 
@@ -54,7 +64,10 @@ check("chapter changes stay explicit and chapter scoped", () => {
 check("writing elf guides setup, drafting, AI candidate and reading", () => {
   assert.match(writing, /創作小精靈/u);
   assert.match(writing, /先設定故事/u);
-  assert.match(writing, /閉端 AI 續寫候選/u);
+  assert.match(writing, /AI 承接脈絡續寫/u);
+  assert.match(writing, /executeStudioClosedAgent/u);
+  assert.match(writing, /p2WritingAICandidate/u);
+  assert.match(writing, /核准並寫入目前章節/u);
   assert.match(writing, /閱讀預覽/u);
 });
 
@@ -90,10 +103,27 @@ check("first connection verifies the fast model while retaining selectable 7B qu
     /localClient\.connectAutomatically\(\s*FAST_LOCAL_WRITER_MODEL/u,
   );
   assert.match(coordinator, /missing Private Hub must never delay/u);
-  assert.match(closedAI, /PRIVATE_HUB_DEFERRED/u);
-  assert.match(closedAI, /selectedTask\?\.complexity === "heavy"/u);
+  assert.match(closedAI, /connectPrivateHubAutomatically/u);
+  assert.doesNotMatch(closedAI, /PRIVATE_HUB_DEFERRED/u);
+  assert.doesNotMatch(closedAI, /shouldConnectPrivateHub/u);
   assert.match(setupWizard, /getModelVerification\(\)\?\.modelId/u);
   assert.match(closedAI, /getModelVerification\(\)\?\.modelId/u);
+});
+
+check("browser model switching reuses verified local cache", () => {
+  assert.match(browserRuntime, /repairSelectedBrowserWebLLMCache/u);
+  assert.match(browserRuntime, /正在從此裝置快取載入顯存（不重新下載）/u);
+  assert.match(browserRuntime, /idleReleaseMs: 600_000/u);
+  assert.match(browserRuntime, /navigator\.storage\?\.persist/u);
+});
+
+check("character AI runs in the form and fills a validated RPG candidate", () => {
+  assert.match(projectSections, /generateCharacterAICandidate/u);
+  assert.match(projectSections, /taskType: "character\.create"/u);
+  assert.match(projectSections, /normalizeAICharacterStats/u);
+  assert.match(projectSections, /characterRpgPointTotal\(characterAICandidate\.draft\.rpgStats\)/u);
+  assert.match(projectSections, /已自動填入下方/u);
+  assert.doesNotMatch(projectSections, /closedAIHref\(projectId, "character\.dialogue"/u);
 });
 
 check("an explicit runtime choice survives a same-tab reload without storing credentials", () => {

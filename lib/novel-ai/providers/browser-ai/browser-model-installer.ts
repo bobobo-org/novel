@@ -48,6 +48,15 @@ export type BrowserModelShardVerification = {
   verifiedAt: string;
 };
 
+export type BrowserModelShardCacheInspection = {
+  modelId: BrowserWebLLMModelId;
+  shardCount: number;
+  cachedShardCount: number;
+  totalBytes: number;
+  cachedBytes: number;
+  complete: boolean;
+};
+
 const manifest = shardManifestJson as BrowserModelShardManifest;
 
 function isHexDigest(value: string) {
@@ -95,6 +104,46 @@ export function browserModelShardRecord(modelId: string) {
 
 export async function browserModelShardManifestDigest() {
   return sha256Hex(stableStringify(manifest));
+}
+
+/**
+ * Reads only CacheStorage keys. It never downloads or hashes model bytes, so
+ * the UI can distinguish a retained on-device cache from a new download.
+ */
+export async function inspectBrowserModelShardCache(
+  modelId: BrowserWebLLMModelId,
+): Promise<BrowserModelShardCacheInspection> {
+  const model = browserModelShardRecord(modelId);
+  if (!model) {
+    throw Object.assign(new Error("No immutable shard manifest exists for this model."), {
+      code: "MODEL_SHARD_MANIFEST_MISSING",
+      modelId,
+    });
+  }
+  if (typeof caches === "undefined") {
+    return {
+      modelId,
+      shardCount: model.shardCount,
+      cachedShardCount: 0,
+      totalBytes: model.totalBytes,
+      cachedBytes: 0,
+      complete: false,
+    };
+  }
+  const cache = await caches.open(BROWSER_MODEL_SHARD_CACHE);
+  const present = await Promise.all(model.shards.map(async (shard) => ({
+    shard,
+    cached: Boolean(await cache.match(new Request(shard.url))),
+  })));
+  const cached = present.filter((item) => item.cached);
+  return {
+    modelId,
+    shardCount: model.shardCount,
+    cachedShardCount: cached.length,
+    totalBytes: model.totalBytes,
+    cachedBytes: cached.reduce((sum, item) => sum + item.shard.bytes, 0),
+    complete: cached.length === model.shardCount,
+  };
 }
 
 function bytesToHex(buffer: ArrayBuffer) {

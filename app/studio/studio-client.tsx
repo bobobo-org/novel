@@ -1324,10 +1324,27 @@ export default function StudioClient({
 
   function screenDestination(value: Screen) {
     if (!project) return `/studio?screen=${encodeURIComponent(value)}`;
-    if (value === "choice") {
-      return `/studio/project/${encodeURIComponent(project.id)}/rpg`;
+    const projectRoot = `/studio/project/${encodeURIComponent(project.id)}`;
+    if (value === "create") return "/studio/create";
+    if (value === "write") return `${projectRoot}/write`;
+    if (value === "world") return `${projectRoot}/characters`;
+    if (value === "dashboard") return `${projectRoot}/tasks`;
+    if (value === "backup") return `${projectRoot}/backups`;
+    if (value === "choice") return `${projectRoot}/rpg`;
+    if (value === "inspect") {
+      const query = new URLSearchParams({
+        task: "story.consistencyCheck",
+        objective: "檢查目前作品的角色、時間線、世界規則與章節因果，列出可核准修正候選。",
+        source: "studio-navigation",
+        returnTo: `${projectRoot}/write`,
+      });
+      return `${projectRoot}/closed-ai?${query.toString()}`;
     }
     return `/studio?screen=${encodeURIComponent(value)}&projectId=${encodeURIComponent(project.id)}`;
+  }
+
+  function isDirectProjectDestination(value: Screen) {
+    return ["create", "write", "world", "dashboard", "backup", "choice", "inspect"].includes(value);
   }
 
   async function leaveCurrentTask(
@@ -1350,7 +1367,7 @@ export default function StudioClient({
         chapterTitle: project.chapterTitle,
       });
       setTaskHandoff(handoff);
-      commitScreen("home", replace);
+      window.location.assign(destinationHref);
     } catch (error) {
       alert(`${error instanceof Error ? error.message : "目前內容尚未安全儲存"}\n\n系統已留在原頁，沒有跳到其他任務。`);
     } finally {
@@ -1383,6 +1400,12 @@ export default function StudioClient({
       clearStudioTaskHandoff();
       setTaskHandoff(null);
       window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+      return;
+    }
+    if (screen === "home" && project && isDirectProjectDestination(value)) {
+      clearStudioTaskHandoff();
+      setTaskHandoff(null);
+      window.location.assign(screenDestination(value));
       return;
     }
     if (screen === "home") {
@@ -3099,7 +3122,7 @@ export default function StudioClient({
               : assistantStatus === "external_ready"
                 ? `${externalConnectorId} 外接 AI 已就緒`
               : assistantStatus === "runtime_ready"
-                ? "瀏覽器輕量 AI 可用"
+                ? "瀏覽器閉端 AI 已就緒"
                 : assistantStatus === "auth_required"
                   ? "本機 AI 等待授權"
                   : "真實 AI 尚未連線"}
@@ -4624,11 +4647,11 @@ function WriteScreen({
                 : assistantStatus === "external_ready"
                   ? "真實外接 AI 已就緒"
                 : assistantStatus === "runtime_ready"
-                  ? "瀏覽器輕量 AI 可用；創作模型未連線"
+                  ? "瀏覽器閉端 AI 已就緒"
                   : "真實創作模型尚未連線"}
             </h2>
           </header>
-          {assistantStatus !== "ollama_ready" && assistantStatus !== "external_ready" ? (
+          {assistantStatus !== "ollama_ready" && assistantStatus !== "external_ready" && assistantStatus !== "runtime_ready" ? (
             <div className="studioAiConnection" role="status">
               <strong>續寫、改寫與對話需要真實生成模型</strong>
               <span>未連線時只會提供清楚標示的離線寫作工具，不會把規則模板冒充 AI。</span>
@@ -4664,7 +4687,9 @@ function WriteScreen({
                     ? "本機 AI 建議：由本機模型產生候選，再由你決定是否加入"
                     : assistantStatus === "external_ready"
                       ? "外接 AI 建議：資料會離開裝置，結果仍須由你核准"
-                    : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
+                    : assistantStatus === "runtime_ready"
+                      ? "瀏覽器閉端 AI：讀取目前作品脈絡，在裝置內產生候選"
+                      : "先嘗試真實模型；未連線時改顯示非 AI 寫作工具"}
                 </span>
               </button>
             ))}
@@ -4781,8 +4806,21 @@ function SuggestionCard({
     : `${originalContent.trim()}${originalContent.trim() ? "\n\n" : ""}${content.trim()}`;
   const beforeCharacters = originalContent.replace(/\s/g, "").length;
   const afterCharacters = proposedContent.replace(/\s/g, "").length;
+  const contextLabel = (() => {
+    if (!candidate.contextSourceSummary) return "尚未記錄脈絡來源";
+    try {
+      const parsed = JSON.parse(candidate.contextSourceSummary) as {
+        counts?: Record<string, number>;
+        includedSources?: string[];
+        truncated?: boolean;
+      };
+      return `已讀取 ${parsed.counts?.chapters ?? 0} 章、${parsed.counts?.characters ?? 0} 名角色與 ${parsed.includedSources?.length ?? 0} 類正式設定${parsed.truncated ? "（依模型容量節錄）" : ""}`;
+    } catch {
+      return "已讀取正式作品脈絡，來源雜湊已封存";
+    }
+  })();
   return (
-    <article className="studioCandidate" data-testid="studio-candidate">
+    <article className="studioCandidate" data-testid="studio-candidate" data-origin={candidate.candidateKind ?? "unknown"}>
       <header>
         <b>
           {candidate.model === "local-rule"
@@ -4804,6 +4842,7 @@ function SuggestionCard({
           這是模型產生、尚未核准的候選。你可以直接採用、修改後採用，或暫時不使用。
         </p>
       )}
+      {candidate.model !== "local-rule" ? <small className="studioCandidateContext">{contextLabel}</small> : null}
       {editing ? (
         <textarea
           aria-label="修改故事建議"

@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ClosedAgentExecutionResult,
+  ClosedAIProgressEvent,
+} from "@/lib/novel-ai/closed-agent-os";
 import { makeRecord, type Chapter, type NovelProject } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import { mirrorChapterToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
@@ -15,7 +19,12 @@ import {
   studioHomeHref,
 } from "@/lib/novel-ai/web/studio-task-session";
 import { prewarmStudioInteractiveChoiceAI } from "@/lib/novel-ai/web/studio-closed-ai";
-import { prewarmStudioProjectAIState } from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  executeStudioClosedAgent,
+  getStudioClosedAgentOS,
+  prewarmStudioProjectAIState,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
+import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canonical-approval";
 import {
   readStudioWritingResume,
   writeStudioWritingResume,
@@ -46,6 +55,25 @@ function snapshotIsDirty(snapshot: EditorSnapshot) {
     : false;
 }
 
+function aiContextSummary(result: ClosedAgentExecutionResult | null) {
+  const raw = result?.candidate.contextSourceSummary;
+  if (!raw) return "等待建立脈絡證明";
+  try {
+    const parsed = JSON.parse(raw) as {
+      counts?: Record<string, number>;
+      includedSources?: string[];
+      truncated?: boolean;
+    };
+    const counts = parsed.counts ?? {};
+    const chapters = counts.chapters ?? 0;
+    const characters = counts.characters ?? 0;
+    const sources = parsed.includedSources?.length ?? 0;
+    return `已讀取 ${chapters} 章、${characters} 名角色與 ${sources} 類正式資料${parsed.truncated ? "（依模型容量精準節錄）" : ""}`;
+  } catch {
+    return "已讀取正式作品脈絡並封存來源雜湊";
+  }
+}
+
 async function syncChapterKnowledge(projectId: string, chapter: Chapter | null) {
   const sourceKey = `chapter:${chapter?.id || "missing"}`;
   await ingestFirstPartyProjectKnowledge(createSovereignLearningRepository(), {
@@ -63,6 +91,7 @@ async function syncChapterKnowledge(projectId: string, chapter: Chapter | null) 
 
 export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const router = useRouter();
+  const closedAgentOS = useMemo(() => getStudioClosedAgentOS(), []);
   const [project, setProject] = useState<NovelProject | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [chapter, setChapter] = useState<Chapter | null>(null);
@@ -78,11 +107,17 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const [guideOpen, setGuideOpen] = useState(true);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [editHistory, setEditHistory] = useState<string[]>([]);
+  const [aiResult, setAiResult] = useState<ClosedAgentExecutionResult | null>(null);
+  const [aiCandidateText, setAiCandidateText] = useState("");
+  const [aiBusy, setAiBusy] = useState<"continue" | "rewrite" | "approve" | "reject" | null>(null);
+  const [aiProgress, setAiProgress] = useState<ClosedAIProgressEvent | null>(null);
+  const [aiMessage, setAiMessage] = useState("AI 會讀取目前章節、相鄰章節、角色、Story Bible 與 StoryState，再建立候選。");
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const saveQueueRef = useRef<Promise<Chapter | null>>(Promise.resolve(null));
   const cacheWarmTimerRef = useRef<number | null>(null);
   const cacheWarmControllerRef = useRef<AbortController | null>(null);
   const resumeTimerRef = useRef<number | null>(null);
+  const aiControllerRef = useRef<AbortController | null>(null);
   const latestRef = useRef<EditorSnapshot>({
     chapter: null,
     project: null,
@@ -169,6 +204,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     if (cacheWarmTimerRef.current !== null) window.clearTimeout(cacheWarmTimerRef.current);
     if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
     cacheWarmControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
+    aiControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
   }, []);
 
   const load = useCallback(async () => {
@@ -315,9 +351,21 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   }
 
   async function navigateSafely(href: string, destination: string) {
-    if (busy) return;
+    if (busy || aiBusy) return;
     setBusy(true);
     try {
+      if (aiResult?.candidate.status === "awaiting-approval") {
+        const abandonCandidate = window.confirm(
+          `目前有一份尚未核准的 AI 候選。\n\n按「確定」會放棄候選、保留正式正文並前往「${destination}」；按「取消」會留在寫作頁。`,
+        );
+        if (!abandonCandidate) {
+          setStatus("已留在目前章節；AI 候選與正式正文都沒有變更。");
+          return;
+        }
+        await closedAgentOS.rejectCandidate(aiResult.candidate.id);
+        setAiResult(null);
+        setAiCandidateText("");
+      }
       if (!await allowTransitionAfterSave(destination)) return;
       window.sessionStorage.setItem(`novel-writing-return:${projectId}`, JSON.stringify({
         chapterId: latestRef.current.chapter?.id ?? null,
@@ -336,7 +384,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
         chapterId: latestRef.current.chapter?.id ?? null,
         chapterTitle: latestRef.current.title,
       });
-      router.push(studioHomeHref(projectId));
+      router.push(href);
     } finally {
       setBusy(false);
     }
@@ -497,6 +545,137 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     setStatus("已復原上一次段落工具操作。");
   }
 
+  async function runInlineWritingAI(mode: "continue" | "rewrite") {
+    if (aiBusy || busy || !chapter) return;
+    setAiBusy(mode);
+    setAiProgress(null);
+    setAiMessage("正在保存目前章節，再由 Closed Agent OS 組合前後章、角色、Story Bible 與 StoryState。");
+    const controller = new AbortController();
+    aiControllerRef.current = controller;
+    try {
+      if (aiResult?.candidate.status === "awaiting-approval") {
+        await closedAgentOS.rejectCandidate(aiResult.candidate.id);
+        setAiResult(null);
+      }
+      const sourceChapter = await save(false);
+      if (!sourceChapter) throw new Error("目前章節尚未安全儲存，因此沒有送出 AI 工作。");
+      const taskType = mode === "continue" ? "chapter.continue" : "chapter.rewrite";
+      const targetCharacters = mode === "continue"
+        ? Math.max(650, Math.min(1_000, Math.round(Math.max(sourceChapter.content.length, 650) * 0.9)))
+        : Math.max(650, Math.min(1_200, sourceChapter.content.replace(/\s/gu, "").length || 800));
+      const objective = mode === "continue"
+        ? [
+          `承接「${sourceChapter.title}」最後一個可見動作、位置與情緒，續寫一個完整的新場景。`,
+          `正文目標 ${targetCharacters} 個繁體中文字，至少 ${Math.ceil(targetCharacters * 0.7)} 字；必須推進一個新事件、一次人物選擇與其直接後果。`,
+          "不得摘要、重述前文、改名、換世界或用空泛句子湊字數；只輸出可接在本章末尾的正文。",
+        ].join("\n")
+        : [
+          `重寫「${sourceChapter.title}」目前全文，保留既有事件、人物、視角、關係與因果。`,
+          `正文目標約 ${targetCharacters} 個繁體中文字；加強動作、感官、對話潛台詞與節奏，不得刪掉關鍵事件或新增未核准 Canon。`,
+          "只輸出可整章替換的正文，不要說明修改方法。",
+        ].join("\n");
+      const next = await executeStudioClosedAgent({
+        taskId: `writing:${mode}:${crypto.randomUUID()}`,
+        projectId,
+        taskType,
+        objective,
+        sourceChapterId: sourceChapter.id,
+        sourceRevision: sourceChapter.revision,
+        storyBibleRevision: "current",
+        knowledgeScopeRevision: "current",
+        contextTokenBudget: 4_096,
+        qualityMode: "balanced",
+        browserComputePolicy: "browser-first",
+        allowPreAuthorizedClosedEscalation: false,
+        generationOptions: {
+          maxTokens: mode === "continue" ? 1_024 : 1_280,
+          temperature: 0.76,
+          topP: 0.92,
+          repetitionPenalty: 1.14,
+        },
+        signal: controller.signal,
+        onProgress: (event) => {
+          setAiProgress(event);
+          setAiMessage(event.label);
+        },
+      });
+      setAiResult(next);
+      setAiCandidateText(next.candidate.content);
+      setAiMessage(`AI 候選已完成；${aiContextSummary(next)}。核准前正式正文沒有變更。`);
+    } catch (cause) {
+      setAiMessage(controller.signal.aborted
+        ? "已停止本次 AI 工作；正式正文沒有變更。"
+        : `AI 候選失敗：${cause instanceof Error ? cause.message : "請檢查模型後重試"}`);
+    } finally {
+      if (aiControllerRef.current === controller) aiControllerRef.current = null;
+      setAiBusy(null);
+    }
+  }
+
+  async function approveInlineWritingAI() {
+    if (!aiResult || aiBusy || aiResult.candidate.status !== "awaiting-approval") return;
+    const candidate = aiResult.candidate;
+    if (!candidate.sourceChapterId || candidate.sourceRevision == null) {
+      setAiMessage("候選缺少來源章節版本，沒有修改正文；請重新產生。");
+      return;
+    }
+    setAiBusy("approve");
+    try {
+      let committedChapter: Chapter | null = null;
+      await closedAgentOS.approveCandidate({
+        candidateId: candidate.id,
+        approvedBy: "local-author",
+        humanApproved: true,
+        canonicalCommit: async ({ idempotencyKey }) => {
+          const committed = await commitStudioCandidateToChapter({
+            repository: createNovelRepository(),
+            projectId,
+            chapterId: candidate.sourceChapterId!,
+            sourceRevision: candidate.sourceRevision!,
+            taskId: candidate.taskId,
+            idempotencyKey,
+            content: aiCandidateText,
+            mode: aiResult.task.taskType === "chapter.rewrite" ? "replace" : "append",
+          });
+          committedChapter = committed.chapter;
+          return { commitId: committed.commitId, storyBibleRevision: "current" };
+        },
+      });
+      if (!committedChapter) throw new Error("核准交易沒有回傳章節結果。");
+      const savedChapter = committedChapter as Chapter;
+      applyChapter(savedChapter);
+      setChapters((items) => items.map((item) => item.id === savedChapter.id ? savedChapter : item));
+      latestRef.current = { ...latestRef.current, chapter: savedChapter, content: savedChapter.content };
+      void syncChapterKnowledge(projectId, savedChapter).catch(() => undefined);
+      scheduleAICacheWarm(savedChapter, 300);
+      setAiResult(null);
+      setAiCandidateText("");
+      setAiProgress(null);
+      setAiMessage(`AI 候選已核准並寫入「${savedChapter.title}」；其他章節沒有變更。`);
+      setStatus("AI 候選已完成核准交易並安全寫入目前章節。");
+    } catch (cause) {
+      setAiMessage(`核准失敗：${cause instanceof Error ? cause.message : "正式正文保持不變"}`);
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  async function rejectInlineWritingAI() {
+    if (!aiResult || aiBusy) return;
+    setAiBusy("reject");
+    try {
+      await closedAgentOS.rejectCandidate(aiResult.candidate.id);
+      setAiResult(null);
+      setAiCandidateText("");
+      setAiProgress(null);
+      setAiMessage("AI 候選已放棄；正式正文沒有變更。");
+    } catch (cause) {
+      setAiMessage(`放棄候選失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
   const wordCount = useMemo(() => content.replace(/\s/g, "").length, [content]);
   const paragraphCount = useMemo(() => content.split(/\n\s*\n/u).filter((item) => item.trim()).length, [content]);
   const guideStage = !project?.coreIdea.value?.trim()
@@ -568,8 +747,8 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
 
         <article className="p2ChapterEditor">
           <div className="p2ChapterMeta">
-            <input aria-label="章節標題" disabled={busy} value={title} onChange={(event) => setTitle(event.target.value)} />
-            <select aria-label="章節狀態" disabled={busy} value={chapterStatus} onChange={(event) => setChapterStatus(event.target.value as Chapter["status"])}>
+            <input aria-label="章節標題" disabled={busy || Boolean(aiBusy) || Boolean(aiResult)} value={title} onChange={(event) => setTitle(event.target.value)} />
+            <select aria-label="章節狀態" disabled={busy || Boolean(aiBusy) || Boolean(aiResult)} value={chapterStatus} onChange={(event) => setChapterStatus(event.target.value as Chapter["status"])}>
               <option value="draft">草稿</option>
               <option value="completed">已完成</option>
             </select>
@@ -577,7 +756,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           <textarea
             ref={editorRef}
             aria-label="正文"
-            readOnly={busy}
+            readOnly={busy || Boolean(aiBusy) || Boolean(aiResult)}
             value={content}
             onChange={(event) => setContent(event.target.value)}
             onSelect={(event) => {
@@ -589,13 +768,13 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           />
           <label className="p2ChapterSummary">
             本章摘要（可留白）
-            <textarea readOnly={busy} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="供時間線與閉端 AI 檢索使用；仍由作者確認。" />
+            <textarea readOnly={busy || Boolean(aiBusy) || Boolean(aiResult)} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="供時間線與閉端 AI 檢索使用；仍由作者確認。" />
           </label>
           <footer>
             <span>{wordCount} 字 · {paragraphCount} 段 · {saving ? "自動儲存中" : "Ctrl+S 立即儲存"}</span>
             <div>
-              <button type="button" className="danger" disabled={busy || chapters.length <= 1} onClick={() => void deleteChapter()}>刪除本章</button>
-              <button type="button" disabled={busy || saving || !dirty} onClick={() => void save()}>{saving ? "儲存中…" : "儲存目前內容"}</button>
+              <button type="button" className="danger" disabled={busy || Boolean(aiBusy) || Boolean(aiResult) || chapters.length <= 1} onClick={() => void deleteChapter()}>刪除本章</button>
+              <button type="button" disabled={busy || Boolean(aiBusy) || Boolean(aiResult) || saving || !dirty} onClick={() => void save()}>{saving ? "儲存中…" : "儲存目前內容"}</button>
             </div>
           </footer>
         </article>
@@ -605,8 +784,47 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           <p>{project.coreIdea.value || "尚未設定核心想法。小精靈建議先建立人物與世界，或直接用 AI 引導設定。"}</p>
           {guideStage === 0 ? <button type="button" onClick={() => void navigateSafely(`/studio/project/${projectId}/story-bible`, "故事設定")}>先設定故事</button> : null}
           {guideStage <= 1 ? <button type="button" onClick={() => editorRef.current?.focus()}>我自己開始寫</button> : null}
-          <button type="button" onClick={() => void navigateSafely(closedAIHref(projectId, "chapter.continue", `延續「${title || "目前章節"}」，產生符合已核准設定的候選正文。`), "閉端 AI 續寫")}>閉端 AI 續寫候選</button>
-          <button type="button" onClick={() => void navigateSafely(closedAIHref(projectId, "chapter.rewrite", `改寫「${title || "目前章節"}」的整章候選版本，保留正式 Canon 與角色設定。`), "閉端 AI 改寫")}>閉端 AI 整章改寫</button>
+          <button type="button" disabled={Boolean(aiBusy) || Boolean(aiResult)} onClick={() => void runInlineWritingAI("continue")}>AI 承接脈絡續寫</button>
+          <button type="button" disabled={Boolean(aiBusy) || Boolean(aiResult)} onClick={() => void runInlineWritingAI("rewrite")}>AI 整章改寫候選</button>
+          <p className="p2WritingAIStatus" role="status" aria-live="polite">{aiMessage}</p>
+          {aiBusy === "continue" || aiBusy === "rewrite" ? <section className="p2WritingAIProgress" data-testid="writing-ai-progress">
+            <div>
+              <strong>{aiProgress?.label ?? "Closed Agent OS 正在準備寫作脈絡"}</strong>
+              <span>{aiProgress?.percent ?? 5}%{aiProgress?.generatedCharacters != null ? ` · ${aiProgress.generatedCharacters} 字` : ""}</span>
+            </div>
+            <progress max={100} value={aiProgress?.percent ?? 5} />
+            <button type="button" onClick={() => aiControllerRef.current?.abort("USER_CANCELLED")}>停止生成</button>
+          </section> : null}
+          {aiResult ? <section
+            className="p2WritingAICandidate"
+            data-testid="writing-ai-candidate"
+            data-origin={aiResult.candidate.backendId}
+          >
+            <header>
+              <div><small>AI 產生 · 尚未寫入正文</small><strong>脈絡承接候選</strong></div>
+              <span>{aiResult.candidate.modelId}</span>
+            </header>
+            <p>{aiContextSummary(aiResult)}</p>
+            <textarea
+              aria-label="AI 候選文字"
+              value={aiCandidateText}
+              disabled={Boolean(aiBusy)}
+              onChange={(event) => setAiCandidateText(event.target.value)}
+            />
+            <footer>
+              <button type="button" className="gold" disabled={Boolean(aiBusy) || !aiCandidateText.trim()} onClick={() => void approveInlineWritingAI()}>
+                {aiBusy === "approve" ? "核准寫入中…" : "核准並寫入目前章節"}
+              </button>
+              <button type="button" disabled={Boolean(aiBusy)} onClick={() => void runInlineWritingAI(aiResult.task.taskType === "chapter.rewrite" ? "rewrite" : "continue")}>換一個版本</button>
+              <button type="button" disabled={Boolean(aiBusy)} onClick={() => void rejectInlineWritingAI()}>{aiBusy === "reject" ? "放棄中…" : "放棄候選"}</button>
+            </footer>
+            <details>
+              <summary>執行證明</summary>
+              <p>實際執行器：{aiResult.candidate.actualExecutor}</p>
+              <p>脈絡雜湊：{aiResult.candidate.contextDigest ?? "未記錄"}</p>
+              <p>Canon mutation：{aiResult.candidate.canonicalMutationCount}</p>
+            </details>
+          </section> : null}
           <div className="p2ParagraphTools" aria-label="段落整理工具">
             <strong>段落整理</strong>
             <button type="button" disabled={busy} onClick={() => insertAtSelection("\n\n")}>在游標處分段</button>
@@ -615,7 +833,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
             <button type="button" disabled={busy || editHistory.length === 0} onClick={undoToolEdit}>復原工具操作</button>
           </div>
           <button type="button" onClick={() => void navigateSafely(`/studio/read/${projectId}`, "閱讀預覽")}>閱讀預覽</button>
-          <button type="button" onClick={() => void navigateSafely(`/studio/project/${projectId}/ai`, "進階候選與評估")}>進階候選與評估</button>
+          <Link href={closedAIHref(projectId, "story.consistencyCheck", "檢查目前作品的設定、人物、時序與世界規則矛盾。")}>模型連線與進階診斷</Link>
           <button type="button" onClick={() => void navigateSafely(`/studio/project/${projectId}/learning`, "學習規則中心")}>學習規則中心</button>
           <details>
             <summary>資料與核准邊界</summary>

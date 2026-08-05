@@ -48,6 +48,7 @@ import {
   deleteBrowserWebLLMModel,
   installBrowserWebLLMModel,
   prewarmBrowserWebLLMModel,
+  repairSelectedBrowserWebLLMCache,
   selectBrowserWebLLMModel,
   subscribeBrowserWebLLMProgress,
   type BrowserWebLLMProgress,
@@ -80,6 +81,7 @@ import {
 import {
   readBrowserExecutionReceipts,
   summarizeBrowserOffload,
+  type BrowserExecutionReceipt,
   type BrowserOffloadSummary,
 } from "@/lib/novel-ai/providers/browser-ai/browser-offload-metrics";
 import {
@@ -306,9 +308,6 @@ function runtimeError(error: unknown) {
 
 function automaticConnectionFailure(error: unknown, label: string) {
   const code = String((error as { code?: string })?.code ?? "");
-  if (code === "PRIVATE_HUB_DEFERRED") {
-    return `${label} 會在重型任務需要時自動連接，不會與快速本機寫作搶算力。`;
-  }
   if (code === "BRIDGE_PROCESS_UNREACHABLE" || code === "REQUEST_TIMEOUT") {
     return `${label} 尚未在這台電腦啟動`;
   }
@@ -424,7 +423,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const hubClient = runtimeCoordinator.privateHubClient;
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [taskType, setTaskType] = useState<PlatformTaskType>("chapter.continue");
+  const [taskType, setTaskType] = useState<PlatformTaskType>("story.consistencyCheck");
   const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("auto");
   const [computePolicy, setComputePolicy] = useState<BrowserComputePolicy>(
     "browser-first",
@@ -433,7 +432,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [workspacePreferenceHydrated, setWorkspacePreferenceHydrated] =
     useState(false);
   const [objective, setObjective] = useState(
-    TASKS.find((task) => task.id === "chapter.continue")!.defaultObjective,
+    TASKS.find((task) => task.id === "story.consistencyCheck")!.defaultObjective,
   );
   const [storyContext, setStoryContext] = useState("");
   const [storyBibleRevision, setStoryBibleRevision] = useState("current");
@@ -462,6 +461,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [browserSemanticIndexError, setBrowserSemanticIndexError] = useState<string | null>(null);
   const [browserSemanticIndexRefresh, setBrowserSemanticIndexRefresh] = useState(0);
   const [browserOffload, setBrowserOffload] = useState<BrowserOffloadSummary | null>(null);
+  const [lastBrowserExecutionReceipt, setLastBrowserExecutionReceipt] =
+    useState<BrowserExecutionReceipt | null>(null);
   const [localPairing, setLocalPairing] = useState<PairingRequest | null>(null);
   const [localModels, setLocalModels] = useState<LocalTextModel[]>([]);
   const [localModelId, setLocalModelId] = useState("");
@@ -994,7 +995,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
     const browserProbe = Promise.all([
       detectBrowserAI(),
-      browserWebLLMRuntimeSnapshot().catch(() => null),
+      repairSelectedBrowserWebLLMCache({
+        onProgress: setBrowserWebLlmProgress,
+      }).catch(() => browserWebLLMRuntimeSnapshot().catch(() => null)),
       repairStaleBrowserSemanticRuntime({
         onProgress: setBrowserSemanticProgress,
       }).catch(() => browserSemanticRuntimeSnapshot().catch(() => null)),
@@ -1167,6 +1170,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setSnapshots(nextSnapshots);
     setDashboard(nextDashboard);
     setBrowserOffload(summarizeBrowserOffload(receipts));
+    setLastBrowserExecutionReceipt(
+      [...receipts].sort((left, right) =>
+        Date.parse(right.completedAt) - Date.parse(left.completedAt))[0] ?? null,
+    );
     if (announce) {
       setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
     }
@@ -1181,6 +1188,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     taskType,
   ]);
 
+  const refreshDashboardOnly = useCallback(async () => {
+    const nextDashboard = await os.dashboard(projectId, snapshots);
+    setDashboard(nextDashboard);
+    return nextDashboard;
+  }, [os, projectId, snapshots]);
+
   const connectRuntimesAutomatically = useCallback(async () => {
     if (automaticConnectionRunning.current) return;
     automaticConnectionRunning.current = true;
@@ -1188,26 +1201,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeStatus("正在直接連接這台電腦的閉端 AI；不需要輸入密碼或配對碼。");
     try {
       const messages: string[] = [];
-      const localConnection = runtimeCoordinator.connectLocalAutomatically().then(
+      // Connect the two loopback services in sequence. They can share the same
+      // Ollama process, so simultaneous verification only creates avoidable
+      // contention and rate-limit failures on smaller computers.
+      const localResult = await runtimeCoordinator.connectLocalAutomatically().then(
         (value) => ({ status: "fulfilled", value } as const),
         (reason: unknown) => ({ status: "rejected", reason } as const),
       );
-      const selectedTask = TASKS.find((task) => task.id === taskType);
-      const shouldConnectPrivateHub = backend === "private-ai-hub"
-        || selectedTask?.complexity === "heavy";
-      const privateHubConnection = shouldConnectPrivateHub
-        ? runtimeCoordinator.connectPrivateHubAutomatically().then(
-          (value) => ({ status: "fulfilled", value } as const),
-          (reason: unknown) => ({ status: "rejected", reason } as const),
-        )
-        : Promise.resolve({
-          status: "rejected",
-          reason: Object.assign(
-            new Error("Private Hub connection deferred until a heavy task requires it."),
-            { code: "PRIVATE_HUB_DEFERRED" },
-          ),
-        } as const);
-      const localResult = await localConnection;
       if (localResult.status === "fulfilled") {
         setLocalPairing(null);
         setLocalModelId(localResult.value.model.modelId);
@@ -1246,16 +1246,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       } else {
         messages.push(automaticConnectionFailure(localResult.reason, "Local Ollama"));
       }
-      setRuntimeStatus(`${messages.join("；")}。Private Hub 正在背景核對；Local 路由不必等待它。`);
-      try {
-        await refresh(false);
-      } catch (error) {
-        setRuntimeStatus(
-          `${messages.join("；")}。Local 後端真相同步失敗：${runtimeError(error)}`,
+      setRuntimeStatus(`${messages.join("；")}。Private Hub 正在自動連線。`);
+      const privateHubResult = await runtimeCoordinator
+        .connectPrivateHubAutomatically()
+        .then(
+          (value) => ({ status: "fulfilled", value } as const),
+          (reason: unknown) => ({ status: "rejected", reason } as const),
         );
-      }
-
-      const privateHubResult = await privateHubConnection;
       if (privateHubResult.status === "fulfilled") {
         setHubPairing(null);
         setHubModelId(privateHubResult.value.model.modelId);
@@ -1280,7 +1277,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       automaticConnectionRunning.current = false;
       setRuntimeBusy(false);
     }
-  }, [backend, refresh, runtimeCoordinator, taskType]);
+  }, [refresh, runtimeCoordinator]);
 
   useEffect(() => {
     runtimeCoordinator.setRememberPairingWithinTab(rememberPairing);
@@ -1295,18 +1292,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }, 0);
     return () => window.clearTimeout(initialization);
   }, [connectRuntimesAutomatically, currentOrigin]);
-
-  useEffect(() => {
-    if (!currentOrigin || hubProof) return;
-    const selectedTask = TASKS.find((task) => task.id === taskType);
-    if (backend !== "private-ai-hub" && selectedTask?.complexity !== "heavy") {
-      return;
-    }
-    const deferredConnection = window.setTimeout(() => {
-      void connectRuntimesAutomatically();
-    }, 0);
-    return () => window.clearTimeout(deferredConnection);
-  }, [backend, connectRuntimesAutomatically, currentOrigin, hubProof, taskType]);
 
   useEffect(() => {
     if (!currentOrigin) return;
@@ -1349,10 +1334,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     if (runtimeBusy) return;
     const manifest = BROWSER_WEBLLM_MODELS.find((item) => item.modelId === modelId);
     if (!manifest) return;
+    const current = browserWebLlm?.models.find((item) => item.modelId === modelId);
+    const cacheAction = current?.cacheComplete
+      ? "只會驗證此裝置已保留的完整快取，不會重新下載。"
+      : current?.cachePresent
+        ? `會保留已有的 ${current.cachedShardCount}/${current.expectedShardCount} 個分片，只取得缺少檔案。`
+        : "第一次安裝需要連網；完成快取驗證後，文章推理可留在此裝置。";
     const approved = window.confirm(
-      `即將下載 ${manifest.displayName}（約 ${formatBytes(manifest.estimatedDownloadBytes)}）。\n\n`
+      `${current?.cacheComplete ? "即將驗證" : "即將準備"} ${manifest.displayName}（完整模型約 ${formatBytes(manifest.estimatedDownloadBytes)}）。\n\n`
       + `授權：${manifest.license}\n版本：${manifest.sourceRevision.slice(0, 12)}…\n\n`
-      + "第一次安裝需要連網；完成快取驗證後，文章推理可留在此裝置。是否繼續？",
+      + `${cacheAction}是否繼續？`,
     );
     if (!approved) return;
     const controller = new AbortController();
@@ -2029,7 +2020,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         })));
       await os.learning.setKillSwitch(projectId, false);
       setStatus("三個閉端後端的可控學習同意已開啟；仍只接受通過隱私過濾與人工核准的 L0／L1 候選。");
-      await refresh(false);
+      await refreshDashboardOnly();
     } catch (error) {
       setStatus(userMessage(error));
     } finally {
@@ -2042,7 +2033,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     try {
       await os.learning.setKillSwitch(projectId, true, "USER_ENGAGED");
       setStatus("可控學習已緊急停止；生成與既有記憶不受影響。");
-      await refresh(false);
+      await refreshDashboardOnly();
     } catch (error) {
       setStatus(userMessage(error));
     } finally {
@@ -2213,8 +2204,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </article>
           <article>
             <small>最近實際執行器</small>
-            <strong>{result?.candidate.actualExecutor ?? "not_executed"}</strong>
-            <span>{result?.candidate.dataLeftDevice ? "資料離開裝置" : "資料留在裝置／尚未執行"}</span>
+            <strong>{result?.candidate.actualExecutor
+              ?? lastBrowserExecutionReceipt?.actualExecutor
+              ?? "尚未執行"}</strong>
+            <span>{result?.candidate.actualExecutor || lastBrowserExecutionReceipt
+              ? (result?.candidate.dataLeftDevice ?? lastBrowserExecutionReceipt?.dataLeftDevice)
+                ? "資料離開裝置"
+                : "資料留在裝置"
+              : "尚無執行紀錄"}</span>
           </article>
           <article>
             <small>核准邊界</small>
@@ -2299,6 +2296,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                           ? browserWebLlmProgress
                           : null;
                         const ready = state?.installStatus === "ready" && state.cacheVerified;
+                        const researchOnly = manifest.usePolicy === "research-only";
+                        const statusText = ready
+                          ? state?.selected ? "使用中" : "已安裝"
+                          : researchOnly
+                            ? state?.cachePresent ? "研究版快取已保留" : "正式版未啟用"
+                            : state?.cacheComplete
+                              ? "完整快取待驗證"
+                              : state?.cachePresent
+                                ? `已保留 ${state.cachedShardCount}/${state.expectedShardCount} 分片`
+                                : state?.installStatus === "error" ? "需重試" : "未安裝";
                         return <div
                           className={styles.browserModelCard}
                           data-selected={state?.selected || undefined}
@@ -2307,7 +2314,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                         >
                           <div>
                             <strong>{manifest.displayName}</strong>
-                            <span>{ready ? state?.selected ? "使用中" : "已安裝" : state?.installStatus === "error" ? "需重試" : "未安裝"}</span>
+                            <span>{statusText}</span>
                           </div>
                           <small>
                             約 {formatBytes(manifest.estimatedDownloadBytes)} · 顯存約 {Math.round(manifest.estimatedVramMB)} MB · {manifest.license}
@@ -2319,6 +2326,15 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                               ? `${state.verifiedShardCount} 個分片已驗證`
                               : "尚未驗證"}
                           </small>
+                          <small data-testid={`browser-webllm-cache-${manifest.parameterLabel}`}>
+                            裝置快取：{state?.cachePresent
+                              ? `${formatBytes(state.cachedBytes)} · ${state.cachedShardCount}/${state.expectedShardCount} 分片`
+                              : "尚無權重快取"}。切換模型只釋放顯存，不會刪除權重。
+                          </small>
+                          {researchOnly ? <small className={styles.modelError}>
+                            此模型使用 Qwen Research License，正式版不會啟用；
+                            <a href={manifest.licenseUrl} target="_blank" rel="noreferrer">查看官方授權</a>。
+                          </small> : null}
                           {state?.generationCount ? <small>
                             已完成 {state.generationCount} 次 · 平均首字 {state.averageFirstTokenMs ?? "—"} ms · 平均 {state.averageTokensPerSecond?.toFixed(2) ?? "—"} tokens/s
                           </small> : null}
@@ -2328,14 +2344,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                           </div> : null}
                           {state?.lastError ? <small className={styles.modelError}>{state.lastError}</small> : null}
                           <div className={styles.modelActions}>
-                            {!ready ? <button
+                            {!ready && !researchOnly ? <button
                               type="button"
                               disabled={runtimeBusy || !state?.allowed}
                               title={!state?.allowed ? "此模型未通過目前裝置 Gate" : undefined}
                               onClick={() => void installBrowserModel(manifest.modelId)}
                             >
-                              {state?.installStatus === "error" ? "重新安裝" : "安裝模型"}
-                            </button> : <>
+                              {state?.cacheComplete
+                                ? "驗證本機快取"
+                                : state?.cachePresent
+                                  ? "繼續缺少檔案"
+                                  : state?.installStatus === "error" ? "重新安裝" : "安裝模型"}
+                            </button> : ready ? <>
                               <button
                                 type="button"
                                 disabled={runtimeBusy || state?.selected || !state?.allowed}
@@ -2348,7 +2368,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                                 disabled={runtimeBusy}
                                 onClick={() => void removeBrowserModel(manifest.modelId)}
                               >刪除</button>
-                            </>}
+                            </> : state?.cachePresent ? <button
+                              type="button"
+                              disabled={runtimeBusy}
+                              onClick={() => void removeBrowserModel(manifest.modelId)}
+                            >刪除研究版快取</button> : null}
                             {runtimeBusy && progress && browserModelOperation === "install" ? <button
                               type="button"
                               onClick={stopBrowserModelInstall}
@@ -2661,6 +2685,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <div><small>共用工作流</small><h2 id="task-title">交給 Closed Agent OS</h2></div>
             <span>候選先評估，再由你核准</span>
           </div>
+          {CHAPTER_COMMIT_TASKS.has(taskType) ? <div className={styles.modelRecommendation}>
+            <div>
+              <small>正文功能已整合到寫作區</small>
+              <strong>在章節旁直接產生、比較與核准 AI 候選</strong>
+              <span>寫作頁會先保存目前章節、讀取前後章與 Story Bible，核准前不會改動正文；本頁保留給模型連線、證明與進階診斷。</span>
+            </div>
+            <Link className={styles.secondaryLink} href={`/studio/project/${projectId}/write`}>返回整合寫作區</Link>
+          </div> : null}
           <div className={styles.formGrid}>
             <label>工作類型
               <select data-testid="closed-ai-task-type" value={taskType} onChange={(event) => {
@@ -2925,9 +2957,26 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.systemGroup}>
             <h3>可控自我學習</h3>
             <p>文章與 AI 輸出先在規則中心抽象並逐條核准；本區只套用通過版本化、A/B 與回滾治理的 L0／L1 設定。</p>
+            <p data-testid="controlled-learning-consent-status">
+              {dashboard?.learning.consentEnabled && !dashboard.learning.killSwitchEngaged
+                ? "本作品學習已開啟；核准資料才會形成可回滾的 L0／L1 候選。"
+                : dashboard?.learning.killSwitchEngaged
+                  ? "本作品學習目前已停止。"
+                  : "本作品學習尚未開啟。"}
+            </p>
             <div className={styles.actions}>
               <Link className={styles.secondaryLink} href={`/studio/project/${projectId}/learning`}>開啟規則學習中心</Link>
-              <button type="button" disabled={busy} onClick={() => void enableLearning()}>開啟本作品學習同意</button>
+              <button
+                type="button"
+                disabled={busy || Boolean(dashboard?.learning.consentEnabled && !dashboard.learning.killSwitchEngaged)}
+                onClick={() => void enableLearning()}
+              >
+                {dashboard?.learning.consentEnabled && !dashboard.learning.killSwitchEngaged
+                  ? "本作品學習已開啟"
+                  : dashboard?.learning.killSwitchEngaged
+                    ? "重新開啟本作品學習"
+                    : "開啟本作品學習同意"}
+              </button>
               <button className={styles.danger} type="button" disabled={busy} onClick={() => void engageKillSwitch()}>緊急停止學習</button>
               <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportLearning()}>匯出</button>
               <button className={styles.secondary} type="button" disabled={busy} onClick={() => void deleteLearning()}>刪除</button>

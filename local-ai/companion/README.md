@@ -1,4 +1,4 @@
-# Novel Local AI Companion 1.4.4
+# Novel Local AI Companion 1.4.5
 
 This package runs only on the user's Windows computer. It connects the Novel
 Studio web page to an existing Ollama installation through loopback:
@@ -23,7 +23,7 @@ Studio web page to an existing Ollama installation through loopback:
 
 ## Recommended installation
 
-Download and run `novel-local-ai-companion-setup-v1.4.4.cmd`. The one-click
+Download and run `novel-local-ai-companion-setup-v1.4.5.cmd`. The one-click
 installer downloads checksum-pinned release files from the official site and:
 
 1. verifies or installs Node.js LTS and Ollama through Windows `winget`;
@@ -91,7 +91,7 @@ inspection and manual installation.
 The setup page publishes the SHA-256 of the exact installer. In PowerShell:
 
 ```powershell
-Get-FileHash .\novel-local-ai-companion-setup-v1.4.4.cmd -Algorithm SHA256
+Get-FileHash .\novel-local-ai-companion-setup-v1.4.5.cmd -Algorithm SHA256
 ```
 
 Compare the full value before extracting. This release is checksum-verifiable

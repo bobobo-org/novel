@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   stageStudioTaskHandoff,
-  studioHomeHref,
 } from "@/lib/novel-ai/web/studio-task-session";
 
 // 保留既有的二欄導覽契約；顯示細節另外附加，避免新增介面破壞舊版驗證。
@@ -66,7 +65,11 @@ export default function ProjectNavigation({
         destinationLabel: label,
         destinationHref: href,
       });
-      window.location.assign(studioHomeHref(projectId));
+      // Project sections already share the same canonical repository. A
+      // completed handoff can therefore go straight to the selected section;
+      // forcing an extra home-page stop only made the interface feel like a
+      // different application and invited accidental second clicks.
+      window.location.assign(href);
     } };
   }
 

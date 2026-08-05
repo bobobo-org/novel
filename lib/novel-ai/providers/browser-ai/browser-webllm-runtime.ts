@@ -18,7 +18,10 @@ import {
   resolveBrowserAIPerformancePolicy,
   type BrowserAIPerformancePolicy,
 } from "./browser-performance-policy";
-import { verifyBrowserModelShards } from "./browser-model-installer";
+import {
+  inspectBrowserModelShardCache,
+  verifyBrowserModelShards,
+} from "./browser-model-installer";
 import { BrowserGPUQueue } from "./browser-gpu-queue";
 
 const METADATA_DB = "novel-browser-webllm-v1";
@@ -119,6 +122,11 @@ export type BrowserWebLLMRuntimeSnapshot = {
     shardManifestDigest: string | null;
     shardVerifiedAt: string | null;
     verifiedShardCount: number;
+    cachedShardCount: number;
+    expectedShardCount: number;
+    cachedBytes: number;
+    cachePresent: boolean;
+    cacheComplete: boolean;
     selected: boolean;
     allowed: boolean;
     installedAt: string | null;
@@ -272,8 +280,19 @@ function reportProgress(progress: BrowserWebLLMProgress) {
 function installProgressPhase(report: InitProgressReport): BrowserWebLLMProgress["phase"] {
   const text = report.text.toLowerCase();
   if (report.progress >= 1) return "ready";
-  if (/fetch|download|cache|shard|weight/u.test(text)) return "downloading";
+  if (/from cache|cache\[/u.test(text)) return "loading";
+  if (/fetch|download/u.test(text)) return "downloading";
   return "loading";
+}
+
+export function browserWebLLMProgressText(report: Pick<InitProgressReport, "text">) {
+  if (/from cache|cache\[/iu.test(report.text)) {
+    return `正在從此裝置快取載入顯存（不重新下載）· ${report.text}`;
+  }
+  if (/fetch|download/iu.test(report.text)) {
+    return `正在下載缺少的模型檔案 · ${report.text}`;
+  }
+  return report.text;
 }
 
 function parseTokensPerSecond(runtimeStats: string) {
@@ -300,7 +319,10 @@ function createGPUQueue() {
   return new BrowserGPUQueue({
     maxQueuedJobs: 8,
     maxMemoryMB: 4_096,
-    idleReleaseMs: 120_000,
+    // Keep the selected 0.5B/1.5B engine warm long enough for a writing
+    // session. Switching models still unloads GPU memory immediately, while
+    // CacheStorage remains untouched.
+    idleReleaseMs: 600_000,
     onRecover: releaseActiveEngine,
     onIdleRelease: releaseActiveEngine,
   });
@@ -332,7 +354,7 @@ async function createEngine(
       modelId,
       phase: installProgressPhase(report),
       progress: Math.max(0, Math.min(1, report.progress)),
-      text: report.text,
+      text: browserWebLLMProgressText(report),
     };
     reportProgress(progress);
     onProgress?.(progress);
@@ -401,13 +423,30 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
   const selected = records.find((record): record is SelectedModelRecord => (
     record.kind === "setting" && record.key === SELECTED_MODEL_KEY
   ));
-  const selectedModelId = browserWebLLMModel(selected?.modelId)
-    ? selected!.modelId
+  const persistedModel = browserWebLLMModel(selected?.modelId);
+  const selectedModelId = persistedModel?.productionQualified
+    && device.allowedModelIds.includes(persistedModel.modelId)
+    ? persistedModel.modelId
     : device.recommendedModelId;
   const modelRecords = new Map(
     records
       .filter((record): record is BrowserWebLLMModelMetadata => record.kind === "model")
       .map((record) => [record.modelId, record]),
+  );
+  const cacheInspections = new Map(
+    await Promise.all(
+      BROWSER_WEBLLM_MODELS.map(async (model) => [
+        model.modelId,
+        await inspectBrowserModelShardCache(model.modelId).catch(() => ({
+          modelId: model.modelId,
+          shardCount: 0,
+          cachedShardCount: 0,
+          totalBytes: 0,
+          cachedBytes: 0,
+          complete: false,
+        })),
+      ] as const),
+    ),
   );
   const queue = gpuQueue.snapshot();
   return {
@@ -436,10 +475,12 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
     },
     models: BROWSER_WEBLLM_MODELS.map((model) => {
       const record = modelRecords.get(model.modelId);
+      const cache = cacheInspections.get(model.modelId)!;
       const verifiedForCurrentCache = Boolean(
         record?.cacheVerified
         && record.cacheBackend === cacheBackend
-        && record.shardIntegrityVerified,
+        && record.shardIntegrityVerified
+        && cache.complete,
       );
       return {
         modelId: model.modelId,
@@ -457,6 +498,11 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
         shardManifestDigest: record?.shardManifestDigest ?? null,
         shardVerifiedAt: record?.shardVerifiedAt ?? null,
         verifiedShardCount: record?.verifiedShardCount ?? 0,
+        cachedShardCount: cache.cachedShardCount,
+        expectedShardCount: cache.shardCount,
+        cachedBytes: cache.cachedBytes,
+        cachePresent: cache.cachedShardCount > 0,
+        cacheComplete: cache.complete,
         selected: selectedModelId === model.modelId,
         allowed: device.allowedModelIds.includes(model.modelId),
         installedAt: record?.installedAt ?? null,
@@ -473,7 +519,103 @@ export async function browserWebLLMRuntimeSnapshot(): Promise<BrowserWebLLMRunti
 export async function selectBrowserWebLLMModel(modelId: BrowserWebLLMModelId) {
   const model = browserWebLLMModel(modelId);
   if (!model) throw runtimeError("BROWSER_WEBLLM_MODEL_UNKNOWN", "未知的 Browser AI 模型。");
+  const device = await detectBrowserWebLLMDevice();
+  if (!model.productionQualified || !device.allowedModelIds.includes(modelId)) {
+    throw runtimeError(
+      "BROWSER_WEBLLM_DEVICE_GATE_FAILED",
+      model.usePolicy === "research-only"
+        ? "此模型授權僅限研究，正式版不會啟用。"
+        : "此模型未通過目前裝置 Gate。",
+    );
+  }
   await putMetadataRecord({ key: SELECTED_MODEL_KEY, kind: "setting", modelId });
+  return browserWebLLMRuntimeSnapshot();
+}
+
+/**
+ * Repairs legacy metadata from a complete local cache. This path performs no
+ * download and is therefore safe to run automatically on page startup.
+ */
+export async function repairSelectedBrowserWebLLMCache(options: {
+  onProgress?: (progress: BrowserWebLLMProgress) => void;
+} = {}) {
+  const snapshot = await browserWebLLMRuntimeSnapshot();
+  const modelId = snapshot.selectedModelId;
+  const state = snapshot.models.find((item) => item.modelId === modelId);
+  const model = browserWebLLMModel(modelId);
+  if (
+    !modelId
+    || !model
+    || !model.productionQualified
+    || !state?.allowed
+    || state.installStatus === "ready"
+    || !state.cacheComplete
+  ) {
+    return snapshot;
+  }
+  const existing = (await readMetadataRecords()).find(
+    (record): record is BrowserWebLLMModelMetadata => (
+      record.kind === "model" && record.modelId === modelId
+    ),
+  );
+  const cacheBackend = snapshot.cacheBackend;
+  const webllm = await import("@mlc-ai/web-llm");
+  if (!await webllm.hasModelInCache(
+    modelId,
+    browserWebLLMAppConfig(cacheBackend),
+  )) {
+    return snapshot;
+  }
+  const checking: BrowserWebLLMProgress = {
+    modelId,
+    phase: "verifying",
+    progress: 0,
+    text: "偵測到完整本機快取，正在一次性恢復驗證（不重新下載）。",
+  };
+  reportProgress(checking);
+  options.onProgress?.(checking);
+  const verification = await verifyBrowserModelShards({
+    modelId,
+    onProgress: (progress) => {
+      const update: BrowserWebLLMProgress = {
+        modelId,
+        phase: "verifying",
+        progress: progress.verifiedShardCount / progress.shardCount,
+        text: `從本機快取驗證 ${progress.verifiedShardCount}/${progress.shardCount}（0 網路下載）`,
+      };
+      reportProgress(update);
+      options.onProgress?.(update);
+    },
+  });
+  if (!verification.verified) return browserWebLLMRuntimeSnapshot();
+  await putMetadataRecord({
+    key: modelMetadataKey(modelId),
+    kind: "model",
+    modelId,
+    modelDigest: model.modelDigest,
+    sourceRevision: model.sourceRevision,
+    cacheBackend,
+    installStatus: "ready",
+    cacheVerified: true,
+    shardIntegrityVerified: true,
+    shardManifestDigest: verification.manifestDigest,
+    shardVerifiedAt: verification.verifiedAt,
+    verifiedShardCount: verification.verifiedShardCount,
+    installedAt: existing?.installedAt ?? new Date().toISOString(),
+    lastUsedAt: existing?.lastUsedAt ?? null,
+    lastError: null,
+    generationCount: existing?.generationCount ?? 0,
+    averageFirstTokenMs: existing?.averageFirstTokenMs ?? null,
+    averageTokensPerSecond: existing?.averageTokensPerSecond ?? null,
+  });
+  const ready: BrowserWebLLMProgress = {
+    modelId,
+    phase: "ready",
+    progress: 1,
+    text: "本機模型快取已恢復並通過完整性驗證；不需重新下載。",
+  };
+  reportProgress(ready);
+  options.onProgress?.(ready);
   return browserWebLLMRuntimeSnapshot();
 }
 
@@ -502,6 +644,12 @@ export async function installBrowserWebLLMModel(
   }
   if (options.signal?.aborted) throw new DOMException("已取消模型安裝。", "AbortError");
   const cacheBackend = chooseBrowserWebLLMCacheBackend(device);
+  const previous = (await readMetadataRecords()).find(
+    (record): record is BrowserWebLLMModelMetadata => (
+      record.kind === "model" && record.modelId === modelId
+    ),
+  );
+  await navigator.storage?.persist?.().catch(() => false);
   const installing: BrowserWebLLMModelMetadata = {
     key: modelMetadataKey(modelId),
     kind: "model",
@@ -515,9 +663,12 @@ export async function installBrowserWebLLMModel(
     shardManifestDigest: null,
     shardVerifiedAt: null,
     verifiedShardCount: 0,
-    installedAt: null,
-    lastUsedAt: null,
+    installedAt: previous?.installedAt ?? null,
+    lastUsedAt: previous?.lastUsedAt ?? null,
     lastError: null,
+    generationCount: previous?.generationCount ?? 0,
+    averageFirstTokenMs: previous?.averageFirstTokenMs ?? null,
+    averageTokensPerSecond: previous?.averageTokensPerSecond ?? null,
   };
   await putMetadataRecord(installing);
   reportProgress({
@@ -657,6 +808,7 @@ async function readyModel(signal?: AbortSignal) {
     || state?.installStatus !== "ready"
     || !state.cacheVerified
     || !state.shardIntegrityVerified
+    || !state.allowed
   ) {
     throw runtimeError(
       "BROWSER_WEBLLM_MODEL_NOT_INSTALLED",

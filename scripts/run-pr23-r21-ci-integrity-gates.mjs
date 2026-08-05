@@ -66,10 +66,10 @@ function parseZip(buffer) {
 }
 
 function companionZipGate() {
-  const zipRelative = "public/downloads/novel-local-ai-companion-v1.4.4.zip";
+  const zipRelative = "public/downloads/novel-local-ai-companion-v1.4.5.zip";
   const zip = fs.readFileSync(path.join(root, zipRelative));
   const checksumLine = fs.readFileSync(
-    path.join(root, "public/downloads/novel-local-ai-companion-v1.4.4.sha256"),
+    path.join(root, "public/downloads/novel-local-ai-companion-v1.4.5.sha256"),
     "ascii",
   ).trim();
   const expectedDigest = checksumLine.split(/\s+/u)[0].toLowerCase();
@@ -83,11 +83,11 @@ function companionZipGate() {
     "Companion release metadata checksum mismatch",
   );
   assert.ok(
-    releaseSource.includes("novel-local-ai-companion-v1.4.4.zip"),
+    releaseSource.includes("novel-local-ai-companion-v1.4.5.zip"),
     "Companion release metadata filename mismatch",
   );
   const entries = parseZip(zip);
-  const prefix = "novel-local-ai-companion-v1.4.4/";
+  const prefix = "novel-local-ai-companion-v1.4.5/";
   const sourceByEntry = new Map([
     [`${prefix}manifest.json`, "local-ai/companion/manifest.json"],
     [`${prefix}README.md`, "local-ai/companion/README.md"],
@@ -145,11 +145,11 @@ function companionZipGate() {
   assert.equal(manifest.windowsLogonAutostart, true);
   const installer = fs.readFileSync(path.join(
     root,
-    "public/downloads/novel-local-ai-companion-setup-v1.4.4.cmd",
+    "public/downloads/novel-local-ai-companion-setup-v1.4.5.cmd",
   ));
   const installerChecksum = fs.readFileSync(path.join(
     root,
-    "public/downloads/novel-local-ai-companion-setup-v1.4.4.sha256",
+    "public/downloads/novel-local-ai-companion-setup-v1.4.5.sha256",
   ), "ascii").trim().split(/\s+/u)[0].toLowerCase();
   assert.equal(sha256(installer), installerChecksum, "Companion installer checksum mismatch");
   assert.ok(releaseSource.includes(installerChecksum.toUpperCase()));

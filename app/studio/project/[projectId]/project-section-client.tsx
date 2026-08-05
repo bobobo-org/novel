@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import {
   makeRecord,
   optionalValue,
@@ -47,6 +48,10 @@ import {
   suggestCharacterRpgArchetype,
 } from "@/lib/novel-ai/game/character-rpg-profile";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import {
+  executeStudioClosedAgent,
+  getStudioClosedAgentOS,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
 import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
 
@@ -120,6 +125,162 @@ async function updateStoryBibleReferences(
 
 function withoutId(values: string[], id: string) {
   return values.filter((value) => value !== id);
+}
+
+type CharacterAIDraft = {
+  name: string;
+  aliases: string[];
+  identity: string;
+  goal: string;
+  lifeStatus: Character["lifeStatus"];
+  location: string;
+  age: number | null;
+  personality: string;
+  fears: string[];
+  privateSecrets: string[];
+  factions: string[];
+  values: string[];
+  capabilities: string[];
+  limitations: string[];
+  voiceStyle: "short" | "mixed" | "long";
+  isProtagonist: boolean;
+  rpgArchetype: CharacterRpgArchetype;
+  rpgStats: Record<CharacterRpgStatKey, number>;
+};
+
+type CharacterAICandidate = {
+  candidateId: string;
+  modelId: string;
+  actualExecutor: string;
+  contextSourceSummary: string | null;
+  draft: CharacterAIDraft;
+};
+
+type CharacterAIFormSnapshot = {
+  name: string;
+  aliases: string;
+  identity: string;
+  goal: string;
+  lifeStatus: Character["lifeStatus"];
+  location: string;
+  age: string;
+  ageVerified: boolean;
+  personality: string;
+  fear: string;
+  secret: string;
+  faction: string;
+  values: string;
+  capabilities: string;
+  limitations: string;
+  voiceStyle: "short" | "mixed" | "long";
+  isProtagonist: boolean;
+  rpgArchetype: CharacterRpgArchetype;
+  rpgStats: Record<CharacterRpgStatKey, number>;
+};
+
+const CHARACTER_AI_STAT_KEYS = Object.keys(
+  CHARACTER_RPG_STAT_LABELS,
+) as CharacterRpgStatKey[];
+
+function characterAIText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function characterAIList(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(characterAIText).filter(Boolean).slice(0, 8);
+  }
+  return characterAIText(value).split(/[、,，\n]/u).map((item) => item.trim()).filter(Boolean).slice(0, 8);
+}
+
+function normalizeAICharacterStats(
+  raw: unknown,
+  archetype: CharacterRpgArchetype,
+) {
+  const fallback = characterRpgStatsForArchetype(
+    archetype === "custom" ? "balanced" : archetype,
+  );
+  const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const aliases: Record<CharacterRpgStatKey, string[]> = {
+    "rpg.physique": ["rpg.physique", "physique", "體能"],
+    "rpg.technique": ["rpg.technique", "technique", "技巧"],
+    "rpg.intellect": ["rpg.intellect", "intellect", "智慧"],
+    "rpg.charisma": ["rpg.charisma", "charisma", "魅力"],
+    "rpg.will": ["rpg.will", "will", "意志"],
+    "rpg.creativity": ["rpg.creativity", "creativity", "創造"],
+  };
+  let supplied = false;
+  const stats = Object.fromEntries(CHARACTER_AI_STAT_KEYS.map((key) => {
+    const value = aliases[key].map((alias) => record[alias]).find((item) => Number.isFinite(Number(item)));
+    if (value !== undefined) supplied = true;
+    const resolved = value === undefined ? fallback[key] : Number(value);
+    return [key, Math.max(20, Math.min(80, Math.round(resolved)))];
+  })) as Record<CharacterRpgStatKey, number>;
+  if (!supplied) return fallback;
+  let delta = CHARACTER_RPG_POINT_BUDGET - characterRpgPointTotal(stats);
+  let cursor = 0;
+  while (delta !== 0 && cursor < 2_000) {
+    const key = CHARACTER_AI_STAT_KEYS[cursor % CHARACTER_AI_STAT_KEYS.length];
+    if (delta > 0 && stats[key] < 80) {
+      stats[key] += 1;
+      delta -= 1;
+    } else if (delta < 0 && stats[key] > 20) {
+      stats[key] -= 1;
+      delta += 1;
+    }
+    cursor += 1;
+  }
+  return stats;
+}
+
+function parseCharacterAIDraft(content: string, currentName: string): CharacterAIDraft {
+  const json = content.match(/\{[\s\S]*\}/u)?.[0];
+  if (!json) throw new Error("模型沒有回傳可辨識的角色 JSON，正式資料未變更。請再試一次。");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    throw new Error("模型回傳的角色資料格式不完整，正式資料未變更。請再試一次。");
+  }
+  const archetypeValue = characterAIText(parsed.rpgArchetype);
+  const validArchetypes = new Set(CHARACTER_RPG_ARCHETYPES.map((item) => item.id));
+  const inferredArchetype = suggestCharacterRpgArchetype([
+    characterAIText(parsed.identity),
+    ...characterAIList(parsed.capabilities),
+    ...characterAIList(parsed.values),
+  ]);
+  const rpgArchetype = validArchetypes.has(archetypeValue as CharacterRpgArchetype)
+    ? archetypeValue as CharacterRpgArchetype
+    : inferredArchetype;
+  const lifeStatusValue = characterAIText(parsed.lifeStatus);
+  const voiceStyleValue = characterAIText(parsed.voiceStyle);
+  const ageValue = Number(parsed.age);
+  return {
+    name: characterAIText(parsed.name) || currentName.trim() || "未命名角色",
+    aliases: characterAIList(parsed.aliases),
+    identity: characterAIText(parsed.identity),
+    goal: characterAIText(parsed.goal),
+    lifeStatus: ["alive", "dead", "unknown"].includes(lifeStatusValue)
+      ? lifeStatusValue as Character["lifeStatus"]
+      : "alive",
+    location: characterAIText(parsed.location),
+    age: Number.isFinite(ageValue) && ageValue >= 0 && ageValue <= 300
+      ? Math.round(ageValue)
+      : null,
+    personality: characterAIText(parsed.personality),
+    fears: characterAIList(parsed.fears),
+    privateSecrets: characterAIList(parsed.privateSecrets),
+    factions: characterAIList(parsed.factions),
+    values: characterAIList(parsed.values),
+    capabilities: characterAIList(parsed.capabilities),
+    limitations: characterAIList(parsed.limitations),
+    voiceStyle: ["short", "mixed", "long"].includes(voiceStyleValue)
+      ? voiceStyleValue as "short" | "mixed" | "long"
+      : "mixed",
+    isProtagonist: parsed.isProtagonist === true,
+    rpgArchetype,
+    rpgStats: normalizeAICharacterStats(parsed.rpgStats, rpgArchetype),
+  };
 }
 
 export default function ProjectSectionClient({
@@ -301,6 +462,7 @@ function CharacterEditor({
   storyBibles: StoryBible[];
   onChanged: () => Promise<void>;
 }) {
+  const closedAgentOS = useMemo(() => getStudioClosedAgentOS(), []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [aliases, setAliases] = useState("");
@@ -329,6 +491,11 @@ function CharacterEditor({
   const [rpgStats, setRpgStats] = useState(() => characterRpgStatsForArchetype("balanced"));
   const [isProtagonist, setIsProtagonist] = useState(false);
   const [message, setMessage] = useState("");
+  const [characterAIBusy, setCharacterAIBusy] = useState(false);
+  const [characterAIProgress, setCharacterAIProgress] = useState<ClosedAIProgressEvent | null>(null);
+  const [characterAICandidate, setCharacterAICandidate] = useState<CharacterAICandidate | null>(null);
+  const characterAIControllerRef = useRef<AbortController | null>(null);
+  const characterAIFormBeforeRef = useRef<CharacterAIFormSnapshot | null>(null);
   const portraitPageSize = 12;
   const filteredPortraits = useMemo(
     () => filterCharacterPortraitCatalog({ query: portraitQuery, themeId: portraitTheme }),
@@ -341,6 +508,197 @@ function CharacterEditor({
     safePortraitPage * portraitPageSize + portraitPageSize,
   );
   const rpgPointTotal = characterRpgPointTotal(rpgStats);
+
+  useEffect(() => () => characterAIControllerRef.current?.abort("CHARACTER_EDITOR_UNMOUNTED"), []);
+
+  function currentCharacterAIForm(): CharacterAIFormSnapshot {
+    return {
+      name,
+      aliases,
+      identity,
+      goal,
+      lifeStatus,
+      location,
+      age,
+      ageVerified,
+      personality,
+      fear,
+      secret,
+      faction,
+      values,
+      capabilities,
+      limitations,
+      voiceStyle,
+      isProtagonist,
+      rpgArchetype,
+      rpgStats: { ...rpgStats },
+    };
+  }
+
+  function applyCharacterAIForm(values: CharacterAIFormSnapshot) {
+    setName(values.name);
+    setAliases(values.aliases);
+    setIdentity(values.identity);
+    setGoal(values.goal);
+    setLifeStatus(values.lifeStatus);
+    setLocation(values.location);
+    setAge(values.age);
+    setAgeVerified(values.ageVerified);
+    setPersonality(values.personality);
+    setFear(values.fear);
+    setSecret(values.secret);
+    setFaction(values.faction);
+    setValues(values.values);
+    setCapabilities(values.capabilities);
+    setLimitations(values.limitations);
+    setVoiceStyle(values.voiceStyle);
+    setIsProtagonist(values.isProtagonist);
+    setRpgArchetype(values.rpgArchetype);
+    setRpgStats({ ...values.rpgStats });
+  }
+
+  function characterAIDraftAsForm(draft: CharacterAIDraft): CharacterAIFormSnapshot {
+    return {
+      name: draft.name,
+      aliases: draft.aliases.join("、"),
+      identity: draft.identity,
+      goal: draft.goal,
+      lifeStatus: draft.lifeStatus,
+      location: draft.location,
+      age: draft.age == null ? "" : String(draft.age),
+      ageVerified: false,
+      personality: draft.personality,
+      fear: draft.fears.join("、"),
+      secret: draft.privateSecrets.join("、"),
+      faction: draft.factions.join("、"),
+      values: draft.values.join("、"),
+      capabilities: draft.capabilities.join("、"),
+      limitations: draft.limitations.join("、"),
+      voiceStyle: draft.voiceStyle,
+      isProtagonist: draft.isProtagonist,
+      rpgArchetype: draft.rpgArchetype,
+      rpgStats: { ...draft.rpgStats },
+    };
+  }
+
+  async function discardCharacterAICandidate(announce = true) {
+    const candidate = characterAICandidate;
+    if (!candidate || characterAIBusy) return;
+    setCharacterAIBusy(true);
+    try {
+      await closedAgentOS.rejectCandidate(candidate.candidateId);
+      if (characterAIFormBeforeRef.current) {
+        applyCharacterAIForm(characterAIFormBeforeRef.current);
+      }
+      characterAIFormBeforeRef.current = null;
+      setCharacterAICandidate(null);
+      setCharacterAIProgress(null);
+      if (announce) setMessage("AI 角色候選已放棄；角色表單與正式資料沒有變更。");
+    } catch (cause) {
+      setMessage(`放棄 AI 候選失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setCharacterAIBusy(false);
+    }
+  }
+
+  async function generateCharacterAICandidate() {
+    if (characterAIBusy) return;
+    setCharacterAIBusy(true);
+    setCharacterAIProgress(null);
+    setMessage("閉端 AI 正在讀取作品、人物與世界設定，建立角色與 RPG 能力候選…");
+    const controller = new AbortController();
+    characterAIControllerRef.current = controller;
+    let generatedCandidateId: string | null = null;
+    try {
+      if (!characterAIFormBeforeRef.current) {
+        characterAIFormBeforeRef.current = currentCharacterAIForm();
+      }
+      if (characterAICandidate) {
+        await closedAgentOS.rejectCandidate(characterAICandidate.candidateId);
+        setCharacterAICandidate(null);
+      }
+      const currentFields = {
+        name: name.trim(),
+        aliases: characterAIList(aliases),
+        identity: identity.trim(),
+        goal: goal.trim(),
+        location: location.trim(),
+        age: age.trim() || null,
+        personality: personality.trim(),
+        fears: characterAIList(fear),
+        privateSecrets: characterAIList(secret),
+        factions: characterAIList(faction),
+        values: characterAIList(values),
+        capabilities: characterAIList(capabilities),
+        limitations: characterAIList(limitations),
+        isProtagonist,
+      };
+      const result = await executeStudioClosedAgent({
+        taskId: `character-form:${crypto.randomUUID()}`,
+        projectId,
+        taskType: "character.create",
+        characterId: editingId ?? undefined,
+        objective: [
+          "依目前作品已核准的章節、Story Bible、世界與角色關係，建立一份可直接填入角色表單的角色候選。",
+          `目前表單（已填內容優先保留並深化）：${JSON.stringify(currentFields)}`,
+          "只輸出一個 JSON 物件，不要 Markdown、說明或前後綴。",
+          "必要欄位：name、aliases、identity、goal、lifeStatus、location、age、personality、fears、privateSecrets、factions、values、capabilities、limitations、voiceStyle、isProtagonist、rpgArchetype、rpgStats。",
+          "陣列欄位請輸出 JSON 字串陣列；lifeStatus 只能是 alive/dead/unknown；voiceStyle 只能是 short/mixed/long；rpgArchetype 只能是 balanced/vanguard/strategist/diplomat/mystic/creator/custom。",
+          "rpgStats 必須含 physique、technique、intellect、charisma、will、creativity 六個整數，每項 20–80、總和 300；能力與弱點必須符合角色背景，不能只填平均值充數。",
+          "不要引用其他角色的 AUTHOR_ONLY 秘密，也不要把候選直接寫入正式資料。",
+        ].join("\n"),
+        storyBibleRevision: "current",
+        knowledgeScopeRevision: "current",
+        contextTokenBudget: 3_584,
+        qualityMode: "balanced",
+        browserComputePolicy: "browser-first",
+        allowPreAuthorizedClosedEscalation: false,
+        generationOptions: {
+          maxTokens: 900,
+          temperature: 0.72,
+          topP: 0.9,
+          repetitionPenalty: 1.12,
+        },
+        signal: controller.signal,
+        onProgress: (event) => {
+          setCharacterAIProgress(event);
+          setMessage(event.label);
+        },
+      });
+      generatedCandidateId = result.candidate.id;
+      const draft = parseCharacterAIDraft(result.candidate.content, name);
+      setCharacterAICandidate({
+        candidateId: result.candidate.id,
+        modelId: result.candidate.modelId,
+        actualExecutor: result.candidate.actualExecutor,
+        contextSourceSummary: result.candidate.contextSourceSummary ?? null,
+        draft,
+      });
+      applyCharacterAIForm(characterAIDraftAsForm(draft));
+      setMessage("AI 已直接填好角色與 RPG 六項能力；目前仍是可修改表單，按「建立角色／儲存修改」後才會正式核准。");
+    } catch (cause) {
+      if (generatedCandidateId) {
+        await closedAgentOS.rejectCandidate(generatedCandidateId).catch(() => undefined);
+      }
+      if (characterAIFormBeforeRef.current) {
+        applyCharacterAIForm(characterAIFormBeforeRef.current);
+      }
+      characterAIFormBeforeRef.current = null;
+      setMessage(controller.signal.aborted
+        ? "已停止角色 AI；表單與正式資料沒有變更。"
+        : `角色 AI 失敗：${cause instanceof Error ? cause.message : "請檢查模型後重試"}`);
+    } finally {
+      if (characterAIControllerRef.current === controller) characterAIControllerRef.current = null;
+      setCharacterAIBusy(false);
+    }
+  }
+
+  function applyCharacterAICandidate() {
+    const candidate = characterAICandidate;
+    if (!candidate || characterAIBusy) return;
+    applyCharacterAIForm(characterAIDraftAsForm(candidate.draft));
+    setMessage("已重新套用 AI 建議到表單；你仍可修改，按儲存後才會正式核准。");
+  }
 
   function reset() {
     setEditingId(null);
@@ -369,6 +727,9 @@ function CharacterEditor({
     setRpgArchetype("balanced");
     setRpgStats(characterRpgStatsForArchetype("balanced"));
     setIsProtagonist(false);
+    characterAIFormBeforeRef.current = null;
+    setCharacterAICandidate(null);
+    setCharacterAIProgress(null);
   }
 
   function edit(item: Character) {
@@ -463,6 +824,15 @@ function CharacterEditor({
       return;
     }
     try {
+      if (characterAICandidate) {
+        await closedAgentOS.approveCandidate({
+          candidateId: characterAICandidate.candidateId,
+          approvedBy: "local-author",
+          humanApproved: true,
+        });
+        setCharacterAICandidate(null);
+        characterAIFormBeforeRef.current = null;
+      }
       const repo = createNovelRepository();
       const existing = characters.find((item) => item.id === editingId);
       const base = existing ?? makeRecord(projectId);
@@ -619,10 +989,44 @@ function CharacterEditor({
   return (
     <>
       <div className="p2SectionToolbar">
-        <Link href={closedAIHref(projectId, "character.dialogue", "根據已核准角色資料，產生一段符合角色目標與語氣的候選對話。")}>
-          用閉端 AI 協助角色
-        </Link>
+        <button type="button" disabled={characterAIBusy} onClick={() => void generateCharacterAICandidate()}>
+          {characterAIBusy ? "閉端 AI 正在設定角色…" : "用閉端 AI 協助角色與能力值"}
+        </button>
+        {characterAIBusy ? <button type="button" onClick={() => characterAIControllerRef.current?.abort("USER_CANCELLED")}>停止</button> : null}
       </div>
+      {characterAIProgress ? <div className="characterAIAssistProgress" role="status">
+        <span>{characterAIProgress.label}</span>
+        <strong>{characterAIProgress.percent}%{characterAIProgress.generatedCharacters != null ? ` · ${characterAIProgress.generatedCharacters} 字` : ""}</strong>
+        <progress max={100} value={characterAIProgress.percent} />
+      </div> : null}
+      {characterAICandidate ? <section className="characterAIAssistCandidate" data-testid="character-ai-form-candidate">
+        <header>
+          <div><small>真實閉端 AI 候選 · 已自動填入下方，尚未儲存</small><h3>{characterAICandidate.draft.name}</h3></div>
+          <span>{characterAICandidate.modelId}</span>
+        </header>
+        <div className="characterAIAssistSummary">
+          <p><b>身分</b>{characterAICandidate.draft.identity || "待補"}</p>
+          <p><b>目標</b>{characterAICandidate.draft.goal || "待補"}</p>
+          <p><b>性格</b>{characterAICandidate.draft.personality || "待補"}</p>
+          <p><b>能力</b>{characterAICandidate.draft.capabilities.join("、") || "待補"}</p>
+          <p><b>限制</b>{characterAICandidate.draft.limitations.join("、") || "待補"}</p>
+          <p><b>RPG</b>{CHARACTER_RPG_ARCHETYPES.find((item) => item.id === characterAICandidate.draft.rpgArchetype)?.label ?? "自訂"} · {characterRpgPointTotal(characterAICandidate.draft.rpgStats)} / {CHARACTER_RPG_POINT_BUDGET} 點</p>
+        </div>
+        <div className="characterAIAssistStats">
+          {CHARACTER_AI_STAT_KEYS.map((key) => <span key={key}><small>{CHARACTER_RPG_STAT_LABELS[key]}</small><b>{characterAICandidate.draft.rpgStats[key]}</b></span>)}
+        </div>
+        <footer>
+          <button type="button" disabled={characterAIBusy} onClick={applyCharacterAICandidate}>重新套用 AI 建議</button>
+          <button type="button" disabled={characterAIBusy} onClick={() => void generateCharacterAICandidate()}>換一個角色版本</button>
+          <button type="button" className="danger" disabled={characterAIBusy} onClick={() => void discardCharacterAICandidate()}>放棄候選</button>
+        </footer>
+        <details>
+          <summary>執行證明</summary>
+          <p>實際執行器：{characterAICandidate.actualExecutor}</p>
+          <p>作品脈絡：{characterAICandidate.contextSourceSummary ?? "已讀取正式作品資料"}</p>
+          <p>套用只會填入表單；仍需由你按儲存，才會更新正式角色。</p>
+        </details>
+      </section> : null}
       <form className="p2InlineEditor" aria-labelledby="character-editor-heading" onSubmit={(event) => void save(event)}>
         <h3 id="character-editor-heading">{editingId ? "編輯角色" : "建立角色"}</h3>
         <label>角色姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
