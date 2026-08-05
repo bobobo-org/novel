@@ -54,8 +54,10 @@ test("支援not_applicable", () => studio.includes('"not_applicable"'));
 test("空白不填假值", () =>
   compactStudio.includes('draft:""') &&
   !compactStudio.includes('location||"陌生的世界"'));
-test("未命名作品可建立", () =>
-  compactStudio.includes('w.title.trim()||"未命名作品"'));
+test("作品名稱是建立前必填", () =>
+  compactStudio.includes('if(!w.title.trim())') &&
+  compactStudio.includes("請先輸入作品名稱") &&
+  !compactStudio.includes('w.title.trim()||"未命名作品"'));
 test("保持空白是建立方式", () =>
   compactStudio.includes('creationMethod==="blank"'));
 test("玩法可保持未設定", () =>

@@ -23,7 +23,7 @@ function safeLoadDraft() {
 }
 
 export default function CreateProjectClient() {
-  const [draft, setDraft] = useState<ProjectCreationDraft>(() => createDraft()), [ready, setReady] = useState(false), [saving, setSaving] = useState(false), [message, setMessage] = useState(""), [createdId, setCreatedId] = useState<string | null>(null), requestId = useRef(crypto.randomUUID());
+  const [draft, setDraft] = useState<ProjectCreationDraft>(() => createDraft()), [ready, setReady] = useState(false), [saving, setSaving] = useState(false), [message, setMessage] = useState(""), [titleError, setTitleError] = useState(""), [createdId, setCreatedId] = useState<string | null>(null), requestId = useRef(crypto.randomUUID()), titleInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
       setDraft(safeLoadDraft());
@@ -37,9 +37,17 @@ export default function CreateProjectClient() {
   const modeSteps = draft.mode === "guided" ? 5 : draft.mode === "blank" ? 1 : 3;
   const set = (partial: Partial<ProjectCreationDraft>) => setDraft((value) => ({ ...value, ...partial, updatedAt: new Date().toISOString() }));
   const setAnswer = (key: string, value: string | null, status: "user_defined" | "deferred" = "user_defined") => set({ answers: { ...draft.answers, [key]: optionalValue(value, status) } });
-  const chooseMode = (mode: ProjectCreationDraft["mode"]) => { const next = createDraft(mode); next.title = draft.title; setDraft(next); requestId.current = crypto.randomUUID(); };
+  const requireTitle = (action: string) => {
+    if (draft.title.trim()) { setTitleError(""); return true; }
+    setTitleError(`請先輸入作品名稱，再${action}。`);
+    window.requestAnimationFrame(() => { titleInputRef.current?.focus(); titleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); });
+    return false;
+  };
+  const chooseMode = (mode: ProjectCreationDraft["mode"]) => { if (!requireTitle("選擇建立方式")) return; const next = createDraft(mode); next.title = draft.title.trim(); setDraft(next); requestId.current = crypto.randomUUID(); };
   const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const advance = () => { if (!requireTitle("進入下一步")) return; set({ step: Math.min(modeSteps, draft.step + 1), seedCandidate: draft.step + 1 === modeSteps ? buildSeedCandidate(draft) : draft.seedCandidate }); };
   async function finish() {
+    if (!requireTitle("建立作品")) return;
     if (saving) return; setSaving(true); setMessage("正在建立作品與安全備份……");
     try {
       const repository = createNovelRepository(), withSeed = { ...draft, seedCandidate: seed }, bundle = buildProjectBundle(withSeed);
@@ -49,9 +57,14 @@ export default function CreateProjectClient() {
     } catch (error) { setMessage(`建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`); } finally { setSaving(false); }
   }
   if (!ready) return <main className="p2CreateShell"><p>正在讀取你的創作資料……</p></main>;
-  if (createdId) return <main className="p2CreateShell"><section className="p2CreateSuccess"><span>建立完成</span><h1>{draft.title.trim() || "未命名作品"}</h1><p>{message}</p><div><Link className="primaryAction" href={`/studio/project/${createdId}/write`}>開始寫作</Link><a className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>返回 Professional 工作台</a></div></section></main>;
+  if (createdId) return <main className="p2CreateShell"><section className="p2CreateSuccess"><span>建立完成</span><h1>{draft.title.trim()}</h1><p>{message}</p><div><Link className="primaryAction" href={`/studio/project/${createdId}/write`}>開始寫作</Link><a className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>返回 Professional 工作台</a></div></section></main>;
   return <main className="p2CreateShell">
-    <header><a href="/professional">← 返回 Professional 工作台</a><div><span>建立新作品</span><h1>從一個想法開始</h1><p>設定都可以稍後補充；空白不是錯誤。</p></div><small>資料先保存在這個瀏覽器</small></header>
+    <header><a href="/professional">← 返回 Professional 工作台</a><div><span>建立新作品</span><h1>先命名，再開始創作</h1><p>作品名稱是唯一必填；其他設定可以稍後補充。</p></div><small>資料先保存在這個瀏覽器</small></header>
+    <section className="p2TitleGate" data-valid={Boolean(draft.title.trim())}>
+      <label htmlFor="p2-project-title"><span>作品名稱 <strong>必填</strong></span><input ref={titleInputRef} id="p2-project-title" data-testid="p2-project-title" value={draft.title} aria-invalid={Boolean(titleError)} onChange={(event) => { set({ title: event.target.value }); if (event.target.value.trim()) setTitleError(""); }} placeholder="例如：星河盡頭的歸途" autoComplete="off" /></label>
+      <p>名稱會綁定這部作品的章節、角色、世界設定與備份。</p>
+      {titleError && <div className="p2TitleError" role="alert">{titleError}</div>}
+    </section>
     <nav className="p2ModeTabs" aria-label="建立方式">
       <button className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseMode("quick")}><b>快速建立</b><span>提供少量資料，先看故事雛形</span></button>
       <button className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseMode("guided")}><b>引導建立</b><span>用五個問題慢慢整理想法</span></button>
@@ -60,16 +73,16 @@ export default function CreateProjectClient() {
     <div className="p2CreateLayout"><section className="p2CreatePanel">
       <div className="p2StepBar" aria-label={`第 ${draft.step} 步，共 ${modeSteps} 步`}>{Array.from({ length: modeSteps }, (_, i) => <i key={i} className={i < draft.step ? "done" : ""} />)}</div>
       {draft.mode === "blank" ? <Blank draft={draft} set={set} /> : draft.mode === "guided" ? <Guided draft={draft} setAnswer={setAnswer} /> : <Quick draft={draft} set={set} topics={topics} />}
-      <footer><button disabled={draft.step <= 1} onClick={() => set({ step: Math.max(1, draft.step - 1) })}>上一步</button>{draft.step < modeSteps ? <button className="gold" onClick={() => set({ step: Math.min(modeSteps, draft.step + 1), seedCandidate: draft.step + 1 === modeSteps ? buildSeedCandidate(draft) : draft.seedCandidate })}>繼續</button> : <button className="gold" disabled={saving} onClick={finish}>{saving ? "建立中……" : "建立作品"}</button>}</footer>{message && <p className="p2CreateMessage" role="status">{message}</p>}
-    </section><aside className="p2SeedPreview"><span>故事雛形</span><h2>{draft.title.trim() || "未命名作品"}</h2><dl><div><dt>題材</dt><dd>{topic?.name || "尚未設定"}</dd></div><div><dt>核心想法</dt><dd>{draft.coreIdea.value || "稍後補充"}</dd></div><div><dt>主角</dt><dd>{seed.protagonist.value || "稍後補充"}</dd></div><div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div><div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div></dl><p>只有你主動填寫或接受的內容會成為正式設定。</p></aside></div>
+      <footer><button disabled={draft.step <= 1} onClick={() => set({ step: Math.max(1, draft.step - 1) })}>上一步</button>{draft.step < modeSteps ? <button className="gold" onClick={advance}>繼續</button> : <button className="gold" disabled={saving} onClick={finish}>{saving ? "建立中……" : "建立作品"}</button>}</footer>{message && <p className="p2CreateMessage" role="status">{message}</p>}
+    </section><aside className="p2SeedPreview"><span>故事雛形</span><h2>{draft.title.trim() || "請先輸入作品名稱"}</h2><dl><div><dt>題材</dt><dd>{topic?.name || "尚未設定"}</dd></div><div><dt>核心想法</dt><dd>{draft.coreIdea.value || "稍後補充"}</dd></div><div><dt>主角</dt><dd>{seed.protagonist.value || "稍後補充"}</dd></div><div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div><div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div></dl><p>只有你主動填寫或接受的內容會成為正式設定。</p></aside></div>
   </main>;
 }
 
-function Blank({ draft, set }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { return <div className="p2CreateFields"><h2>先替作品取個名字</h2><label>作品名稱（可留白）<input value={draft.title} placeholder="未命名作品" onChange={(e) => set({ title: e.target.value })} /></label><p>建立後可以直接進入寫作，人物、世界與大綱都能邊寫邊補。</p></div>; }
+function Blank({ draft }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { return <div className="p2CreateFields"><h2>{draft.title.trim()}</h2><p>這個模式只需要作品名稱。建立後可以直接進入寫作，人物、世界與大綱都能邊寫邊補。</p></div>; }
 function Quick({ draft, set, topics }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void; topics: ReturnType<typeof listStoryTopics> }) {
   if (draft.step === 1) return <div className="p2CreateFields"><h2>選擇故事方向</h2><label>分類包（選填）<select value={draft.genrePackId || ""} onChange={(e) => set({ genrePackId: e.target.value || null, genreId: null })}><option value="">暫時略過</option>{STORY_LIBRARY.packs.filter((x) => x.enabled).map((x) => <option key={x.packId} value={x.packId}>{x.name}</option>)}</select></label><div className="p2TopicGrid">{topics.slice(0, 18).map((item) => <button key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genreId: item.topicId })}><b>{item.name}</b><span>{item.description}</span></button>)}</div></div>;
-  if (draft.step === 2) return <div className="p2CreateFields"><h2>放入你的核心想法</h2><label>作品名稱（選填）<input value={draft.title} onChange={(e) => set({ title: e.target.value })} /></label><label>核心想法（選填）<textarea value={draft.coreIdea.value || ""} onChange={(e) => set({ coreIdea: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label><label>主角（選填）<input value={draft.protagonist.value || ""} onChange={(e) => set({ protagonist: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label></div>;
+  if (draft.step === 2) return <div className="p2CreateFields"><h2>放入你的核心想法</h2><label>核心想法（選填）<textarea value={draft.coreIdea.value || ""} onChange={(e) => set({ coreIdea: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label><label>主角（選填）<input value={draft.protagonist.value || ""} onChange={(e) => set({ protagonist: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label></div>;
   return <SeedEditor draft={draft} set={set} />;
 }
 function Guided({ draft, setAnswer }: { draft: ProjectCreationDraft; setAnswer: (key: string, value: string | null, status?: "user_defined" | "deferred") => void }) { const q = questions[Math.min(questions.length - 1, draft.step - 1)], selected = draft.answers[q.key]?.value; return <div className="p2CreateFields"><span>第 {draft.step} 題／共 5 題</span><h2>{q.title}</h2><div className="p2GuidedChoices">{q.choices.map((choice, index) => <button key={choice} className={selected === choice ? "active" : ""} onClick={() => setAnswer(q.key, choice)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}</div><label>自己輸入（選填）<input value={selected && !q.choices.some((choice) => choice === selected) ? selected : ""} onChange={(e) => setAnswer(q.key, e.target.value || null, e.target.value ? "user_defined" : "deferred")} /></label><button onClick={() => setAnswer(q.key, null, "deferred")}>暫時跳過</button></div>; }
-function SeedEditor({ draft, set }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { const seed = draft.seedCandidate ?? buildSeedCandidate(draft); return <div className="p2CreateFields"><h2>確認故事雛形</h2><label>暫定書名<input value={draft.title} placeholder="未命名作品" onChange={(e) => set({ title: e.target.value, seedCandidate: { ...seed, titleCandidates: [e.target.value || "未命名作品"] } })} /></label><label>一句話故事<textarea value={seed.logline.value || ""} onChange={(e) => set({ seedCandidate: { ...seed, logline: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") } })} /></label><p>你可以保持任何欄位空白，建立作品後再補。</p></div>; }
+function SeedEditor({ draft, set }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { const seed = draft.seedCandidate ?? buildSeedCandidate(draft); return <div className="p2CreateFields"><h2>確認《{draft.title.trim()}》的故事雛形</h2><label>一句話故事<textarea value={seed.logline.value || ""} onChange={(e) => set({ seedCandidate: { ...seed, logline: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") } })} /></label><p>除了作品名稱之外，其他欄位都能保持空白並在建立後再補。</p></div>; }

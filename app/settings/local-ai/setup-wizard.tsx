@@ -305,8 +305,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
           <small>LOCAL AI SETUP</small>
           <h1>把真正的閉端 AI 接到這台電腦</h1>
           <p>
-            精靈只連接這台電腦，不開放區域網路、不改防火牆、不安裝軟體，
-            也不要求任何 Vercel、GitHub 或雲端 Token。
+            精靈只連接這台電腦，不開放區域網路、不改防火牆；網站不會暗中安裝軟體，
+            只有你明確執行一鍵安裝器才會安裝目前使用者的本機服務。
           </p>
         </div>
         <div
@@ -381,12 +381,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
           <div>
             <h2>準備這台電腦的 AI 服務</h2>
             <p>
-              如果狀態不是「可連線」，展開下方設定說明，依序下載、解壓、啟動；
-              完成後再按重新檢查。
+              如果狀態不是「可連線」，下載並執行一次 Windows 安裝器；它會安裝、
+              立即啟動並設定登入自動啟動。完成後回來按重新檢查。
             </p>
             <p>目前狀態：{runtime?.localBridge.status ?? "檢查中"}</p>
             <details>
-              <summary>第一次設定／技術指令</summary>
+              <summary>一鍵安裝／進階技術資訊</summary>
               <p data-testid="local-ai-companion-version-status">
                 Companion 最新版本 {LOCAL_AI_COMPANION_RELEASE.version}；目前 Bridge {bridgeVersion ?? "未偵測"}。
                 {bridgeVersionStatus === "current"
@@ -405,13 +405,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                   download
                   data-testid="local-ai-companion-download"
                 >
-                  下載 Windows Companion ZIP
+                  一鍵安裝 Windows Companion
                 </a>
                 <a
-                  href={LOCAL_AI_COMPANION_RELEASE.downloadPath.replace(/\.zip$/, ".sha256")}
+                  href={LOCAL_AI_COMPANION_RELEASE.checksumPath}
                   download
                 >
                   下載 SHA-256
+                </a>
+                <a
+                  href={LOCAL_AI_COMPANION_RELEASE.archiveDownloadPath}
+                  download={LOCAL_AI_COMPANION_RELEASE.archiveFilename}
+                >
+                  管理員用 ZIP
                 </a>
                 <a href="https://nodejs.org/en/download">Node.js 官方下載</a>
                 <a href="https://ollama.com/download/windows">Ollama 官方下載</a>
@@ -424,8 +430,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 onCopy={() => void copy("hash", hashCommand)}
               />
               <p>
-                需要 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+ 與已啟動的
-                Ollama。16 GB RAM 建議：<code>ollama pull {RECOMMENDED_LOCAL_WRITER_MODEL}</code>；
+                一鍵安裝器會檢查 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+、Ollama、
+                登入自動啟動與快速 3B 模型。16 GB RAM 進階建議：<code>ollama pull {RECOMMENDED_LOCAL_WRITER_MODEL}</code>；
                 記憶體較少可用 <code>ollama pull {FAST_LOCAL_WRITER_MODEL}</code>。
                 首次自動連線會先用快速 3B 完成真實推理驗證，避免 7B 冷啟動卡住畫面；
                 連線後仍可在下方切換並驗證 7B 品質模型。

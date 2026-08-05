@@ -15,6 +15,8 @@ const checks = [
   ["引導精靈會補人物、世界與衝突", /protagonist: name/u.test(guide) && /world:/u.test(guide) && /conflict:/u.test(guide)],
   ["RPG 預設能力已連到遊戲模式", /rpg: \["stamina", "money", "experience", "level", "turns", "questProgress"\]/u.test(guide)],
   ["設定完成度對消費者可見", /data-testid="studio-creation-guide"/u.test(studio) && /data-testid="studio-foundation-blocked"/u.test(studio)],
+  ["作品名稱是所有建立模式的共同必填 Gate", /key: "title"/u.test(guide) && /data-testid="studio-project-title"/u.test(studio) && /requireTitle/u.test(studio)],
+  ["三個建立入口會真的推進流程", /selectEntryMode/u.test(studio) && /studio-entry-/u.test(studio) && /setStep\(2\)/u.test(studio) && /setStep\(5\)/u.test(studio)],
   ["一鍵代設入口可操作", /data-testid="studio-guide-autofill"/u.test(studio) && /buildLocalCreationGuide\(w\)/u.test(studio)],
   ["建立頁的 AI 工作不再突然跳頁", /!creationTasks\.has\(task\)/u.test(studio)],
   ["第一幕提供 AI、自寫與遊戲入口", /data-testid="studio-story-starter"/u.test(studio) && /請 AI 寫開場候選/u.test(studio) && /進入第一個遊戲回合/u.test(studio)],

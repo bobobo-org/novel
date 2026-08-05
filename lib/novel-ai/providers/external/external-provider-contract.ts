@@ -1,8 +1,81 @@
 export const NOVEL_AI_EXECUTION_MODES = ["closed-only", "hybrid", "external-only"] as const;
 export type NovelAIExecutionMode = (typeof NOVEL_AI_EXECUTION_MODES)[number];
 
-export const EXTERNAL_AI_PROVIDER_IDS = ["openai", "gemini", "grok", "claude"] as const;
+export const EXTERNAL_AI_PROVIDER_IDS = [
+  "openai",
+  "gemini",
+  "grok",
+  "claude",
+  "openai-compatible",
+] as const;
 export type ExternalAIProviderId = (typeof EXTERNAL_AI_PROVIDER_IDS)[number];
+
+export const EXTERNAL_AI_PROVIDER_LABELS: Record<ExternalAIProviderId, string> = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  grok: "Grok",
+  claude: "Claude",
+  "openai-compatible": "OpenAI-compatible／AI Gateway",
+};
+
+export const EXTERNAL_AI_CONNECTION_CATALOG = [
+  {
+    group: "原生直連",
+    route: "native",
+    providers: ["OpenAI／ChatGPT API", "Google Gemini", "xAI Grok", "Anthropic Claude"],
+  },
+  {
+    group: "OpenAI 相容雲端",
+    route: "openai-compatible",
+    providers: [
+      "OpenRouter",
+      "Groq",
+      "Together AI",
+      "DeepSeek",
+      "Mistral AI",
+      "Fireworks AI",
+      "Perplexity",
+      "Qwen／DashScope",
+      "Kimi／Moonshot",
+      "SiliconFlow",
+      "Hugging Face Inference",
+      "NVIDIA NIM",
+      "Cerebras",
+      "SambaNova",
+    ],
+  },
+  {
+    group: "AI Gateway／企業雲",
+    route: "gateway",
+    providers: [
+      "Vercel AI Gateway",
+      "LiteLLM",
+      "Portkey",
+      "Cloudflare AI Gateway",
+      "Helicone Gateway",
+      "Azure OpenAI",
+      "Google Vertex AI",
+      "AWS Bedrock",
+      "IBM watsonx.ai",
+      "Oracle OCI Generative AI",
+      "Cohere",
+    ],
+  },
+  {
+    group: "自架／私有 HTTPS 端點",
+    route: "openai-compatible",
+    providers: [
+      "vLLM",
+      "SGLang",
+      "Hugging Face TGI",
+      "LocalAI",
+      "LM Studio",
+      "llama.cpp server",
+      "Ollama OpenAI compatibility",
+      "自訂 OpenAI-compatible Gateway",
+    ],
+  },
+] as const;
 
 export const EXTERNAL_AI_PROVIDER_VERIFICATION_STATES = [
   "not_configured",
@@ -24,7 +97,9 @@ export type ExternalAIProviderPublicStatus = {
   modelId: string;
   keyEnvironmentVariable: string;
   modelEnvironmentVariable: string;
+  endpointEnvironmentVariable?: string;
   apiStyle: string;
+  connectionRoute: "native" | "openai-compatible" | "gateway";
   dataLeavesDevice: true;
   serverSideCredentialOnly: true;
 };

@@ -16,7 +16,14 @@ const EXTERNAL_AI_GENERATED_TEXT_LIMIT = 2_000_000;
 const VERIFIED_STATUS_TTL_MS = 5 * 60 * 1_000;
 const FAILED_STATUS_TTL_MS = 15_000;
 
-type ProviderConfig = ExternalAIProviderPublicStatus & { apiKey: string };
+type ProviderProtocol = "openai-responses" | "gemini" | "grok" | "anthropic" | "openai-chat";
+type ProviderConfig = ExternalAIProviderPublicStatus & {
+  apiKey: string;
+  protocol: ProviderProtocol;
+  baseUrl: string;
+  apiKeyHeader: string;
+  apiKeyScheme: string;
+};
 type JsonRecord = Record<string, unknown>;
 type Usage = ExternalAIGenerationResult["usage"];
 type Generated = { text: string; usage: Usage; generatedTokenEvents: number };
@@ -49,81 +56,177 @@ function firstEnvironmentValue(names: string[]) {
   return "";
 }
 
+function configuredVerification(configured: boolean) {
+  return {
+    configured,
+    verification: configured ? "configured_unverified" as const : "not_configured" as const,
+    verificationCode: configured ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+  };
+}
+
+function normalizeCompatibleBaseUrl(value: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new ExternalAIProviderError(
+      "EXTERNAL_PROVIDER_ENDPOINT_INVALID",
+      "通用外接 AI 的 API Base URL 無效；請設定完整的 HTTPS 網址。",
+      503,
+    );
+  }
+  const localDevelopmentEndpoint = process.env.NODE_ENV !== "production"
+    && process.env.EXTERNAL_AI_ALLOW_INSECURE_LOCAL_ENDPOINT === "1"
+    && parsed.protocol === "http:"
+    && ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== "https:" && !localDevelopmentEndpoint)
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new ExternalAIProviderError(
+      "EXTERNAL_PROVIDER_ENDPOINT_UNSAFE",
+      "通用外接 AI 只接受不含帳密、query 或 fragment 的 HTTPS API Base URL。",
+      503,
+    );
+  }
+  return parsed.toString().replace(/\/$/u, "");
+}
+
+function providerAuthHeaders(config: ProviderConfig): Record<string, string> {
+  const value = config.apiKeyScheme
+    ? `${config.apiKeyScheme} ${config.apiKey}`
+    : config.apiKey;
+  return { [config.apiKeyHeader]: value };
+}
+
+function publicStatus(config: ProviderConfig): ExternalAIProviderPublicStatus {
+  const {
+    apiKey,
+    protocol,
+    baseUrl,
+    apiKeyHeader,
+    apiKeyScheme,
+    ...status
+  } = config;
+  void apiKey;
+  void protocol;
+  void baseUrl;
+  void apiKeyHeader;
+  void apiKeyScheme;
+  return status;
+}
+
 function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
   const geminiKey = firstEnvironmentValue(["GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]);
+  const compatibleKey = process.env.EXTERNAL_AI_COMPATIBLE_API_KEY?.trim() || "";
+  const compatibleModel = process.env.EXTERNAL_AI_COMPATIBLE_MODEL_ID?.trim() || "";
+  const compatibleBaseUrl = process.env.EXTERNAL_AI_COMPATIBLE_BASE_URL?.trim() || "";
+  const compatibleConfigured = Boolean(compatibleKey && compatibleModel && compatibleBaseUrl);
   return {
     openai: {
       id: "openai",
       label: "OpenAI API（ChatGPT 系列）",
-      configured: Boolean(process.env.OPENAI_API_KEY?.trim()),
-      verification: process.env.OPENAI_API_KEY?.trim() ? "configured_unverified" : "not_configured",
-      verificationCode: process.env.OPENAI_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      ...configuredVerification(Boolean(process.env.OPENAI_API_KEY?.trim())),
       verifiedAt: null,
       checkedAt: null,
       modelId: process.env.OPENAI_MODEL_ID?.trim() || "gpt-5.6-sol",
       keyEnvironmentVariable: "OPENAI_API_KEY",
       modelEnvironmentVariable: "OPENAI_MODEL_ID",
       apiStyle: "Responses API",
+      connectionRoute: "native",
       dataLeavesDevice: true,
       serverSideCredentialOnly: true,
       apiKey: process.env.OPENAI_API_KEY?.trim() || "",
+      protocol: "openai-responses",
+      baseUrl: "https://api.openai.com",
+      apiKeyHeader: "Authorization",
+      apiKeyScheme: "Bearer",
     },
     gemini: {
       id: "gemini",
       label: "Google Gemini",
-      configured: Boolean(geminiKey),
-      verification: geminiKey ? "configured_unverified" : "not_configured",
-      verificationCode: geminiKey ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      ...configuredVerification(Boolean(geminiKey)),
       verifiedAt: null,
       checkedAt: null,
       modelId: process.env.GEMINI_MODEL_ID?.trim() || "gemini-3.6-flash",
       keyEnvironmentVariable: "GEMINI_API_KEY（亦接受 GOOGLE_GENERATIVE_AI_API_KEY）",
       modelEnvironmentVariable: "GEMINI_MODEL_ID",
       apiStyle: "Generate Content（stateless）",
+      connectionRoute: "native",
       dataLeavesDevice: true,
       serverSideCredentialOnly: true,
       apiKey: geminiKey,
+      protocol: "gemini",
+      baseUrl: "https://generativelanguage.googleapis.com",
+      apiKeyHeader: "x-goog-api-key",
+      apiKeyScheme: "",
     },
     grok: {
       id: "grok",
       label: "xAI Grok",
-      configured: Boolean(process.env.XAI_API_KEY?.trim()),
-      verification: process.env.XAI_API_KEY?.trim() ? "configured_unverified" : "not_configured",
-      verificationCode: process.env.XAI_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      ...configuredVerification(Boolean(process.env.XAI_API_KEY?.trim())),
       verifiedAt: null,
       checkedAt: null,
       modelId: process.env.XAI_MODEL_ID?.trim() || "grok-4.5",
       keyEnvironmentVariable: "XAI_API_KEY",
       modelEnvironmentVariable: "XAI_MODEL_ID",
       apiStyle: "Chat Completions streaming",
+      connectionRoute: "native",
       dataLeavesDevice: true,
       serverSideCredentialOnly: true,
       apiKey: process.env.XAI_API_KEY?.trim() || "",
+      protocol: "grok",
+      baseUrl: "https://api.x.ai",
+      apiKeyHeader: "Authorization",
+      apiKeyScheme: "Bearer",
     },
     claude: {
       id: "claude",
       label: "Anthropic Claude",
-      configured: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
-      verification: process.env.ANTHROPIC_API_KEY?.trim() ? "configured_unverified" : "not_configured",
-      verificationCode: process.env.ANTHROPIC_API_KEY?.trim() ? "PROBE_REQUIRED" : "NOT_CONFIGURED",
+      ...configuredVerification(Boolean(process.env.ANTHROPIC_API_KEY?.trim())),
       verifiedAt: null,
       checkedAt: null,
       modelId: process.env.ANTHROPIC_MODEL_ID?.trim() || "claude-sonnet-5",
       keyEnvironmentVariable: "ANTHROPIC_API_KEY",
       modelEnvironmentVariable: "ANTHROPIC_MODEL_ID",
       apiStyle: "Messages API",
+      connectionRoute: "native",
       dataLeavesDevice: true,
       serverSideCredentialOnly: true,
       apiKey: process.env.ANTHROPIC_API_KEY?.trim() || "",
+      protocol: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      apiKeyHeader: "x-api-key",
+      apiKeyScheme: "",
+    },
+    "openai-compatible": {
+      id: "openai-compatible",
+      label: "通用 OpenAI-compatible／AI Gateway",
+      ...configuredVerification(compatibleConfigured),
+      verifiedAt: null,
+      checkedAt: null,
+      modelId: compatibleModel || "尚未指定",
+      keyEnvironmentVariable: "EXTERNAL_AI_COMPATIBLE_API_KEY",
+      modelEnvironmentVariable: "EXTERNAL_AI_COMPATIBLE_MODEL_ID",
+      endpointEnvironmentVariable: "EXTERNAL_AI_COMPATIBLE_BASE_URL",
+      apiStyle: "OpenAI Chat Completions（SSE）",
+      connectionRoute: "openai-compatible",
+      dataLeavesDevice: true,
+      serverSideCredentialOnly: true,
+      apiKey: compatibleKey,
+      protocol: "openai-chat",
+      baseUrl: compatibleBaseUrl,
+      apiKeyHeader: process.env.EXTERNAL_AI_COMPATIBLE_API_KEY_HEADER?.trim() || "Authorization",
+      apiKeyScheme: process.env.EXTERNAL_AI_COMPATIBLE_API_KEY_SCHEME?.trim() ?? "Bearer",
     },
   };
 }
 
 export function listExternalAIProviderStatus(): ExternalAIProviderPublicStatus[] {
-  return Object.values(providerConfigs()).map(({ apiKey, ...publicStatus }) => {
-    void apiKey;
-    return publicStatus;
-  });
+  return Object.values(providerConfigs()).map(publicStatus);
 }
 
 function textFromResponsesPayload(payload: JsonRecord) {
@@ -236,9 +339,7 @@ function publicProviderStatus(
   config: ProviderConfig,
   overrides: Partial<ExternalAIProviderPublicStatus> = {},
 ): ExternalAIProviderPublicStatus {
-  const { apiKey, ...status } = config;
-  void apiKey;
-  return { ...status, ...overrides };
+  return { ...publicStatus(config), ...overrides };
 }
 
 function providerVerificationState() {
@@ -251,7 +352,9 @@ function providerVerificationState() {
 }
 
 function providerVerificationKey(config: ProviderConfig) {
-  const credentialDigest = createHash("sha256").update(config.apiKey).digest("hex");
+  const credentialDigest = createHash("sha256")
+    .update(`${config.apiKey}\n${config.baseUrl}\n${config.apiKeyHeader}\n${config.apiKeyScheme}`)
+    .digest("hex");
   return `${config.id}:${config.modelId}:${credentialDigest}`;
 }
 
@@ -274,6 +377,12 @@ function providerVerificationRequest(config: ProviderConfig): { url: string; hea
       headers: { "x-goog-api-key": config.apiKey },
     };
   }
+  if (config.id === "openai-compatible") {
+    return {
+      url: `${normalizeCompatibleBaseUrl(config.baseUrl)}/models`,
+      headers: providerAuthHeaders(config),
+    };
+  }
   return {
     url: `https://api.anthropic.com/v1/models/${encodeURIComponent(config.modelId)}`,
     headers: { "x-api-key": config.apiKey, "anthropic-version": "2023-06-01" },
@@ -287,6 +396,15 @@ function verifiedModelIdentifier(config: ProviderConfig, payload: JsonRecord) {
       : [];
     if (!supported.includes("generateContent")) return "";
     return typeof payload.name === "string" ? payload.name : "";
+  }
+  if (config.id === "openai-compatible") {
+    const models = Array.isArray(payload.data) ? payload.data : [];
+    const selected = models.find((item) => (
+      item
+      && typeof item === "object"
+      && (item as JsonRecord).id === config.modelId
+    ));
+    return selected ? config.modelId : "";
   }
   return typeof payload.id === "string" ? payload.id : "";
 }
@@ -333,13 +451,13 @@ async function verifyProvider(config: ProviderConfig): Promise<ExternalAIProvide
 }
 
 export async function verifyExternalAIProviderStatus(
-  providerIds: ExternalAIProviderId[] = ["openai", "gemini", "grok", "claude"],
+  providerIds: ExternalAIProviderId[] = ["openai", "gemini", "grok", "claude", "openai-compatible"],
 ): Promise<ExternalAIProviderPublicStatus[]> {
   const selected = new Set(providerIds);
   const current = providerVerificationState();
   const configs = Object.values(providerConfigs()).filter((config) => selected.has(config.id));
   return Promise.all(configs.map(async (config) => {
-    if (!config.apiKey) return publicProviderStatus(config);
+    if (!config.configured) return publicProviderStatus(config);
     const key = providerVerificationKey(config);
     const cached = current.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.status;
@@ -522,6 +640,54 @@ async function runClaude(config: ProviderConfig, request: ExternalAIGenerationRe
   };
 }
 
+function chatCompletionText(payload: JsonRecord) {
+  const choices = Array.isArray(payload.choices) ? payload.choices : [];
+  const first = choices[0] && typeof choices[0] === "object"
+    ? choices[0] as JsonRecord
+    : {};
+  const message = first.message && typeof first.message === "object"
+    ? first.message as JsonRecord
+    : {};
+  if (typeof message.content === "string") return message.content.trim();
+  const parts = Array.isArray(message.content) ? message.content : [];
+  return parts.flatMap((part) => (
+    part
+    && typeof part === "object"
+    && typeof (part as JsonRecord).text === "string"
+      ? [(part as JsonRecord).text as string]
+      : []
+  )).join("").trim();
+}
+
+async function runOpenAICompatible(
+  config: ProviderConfig,
+  request: ExternalAIGenerationRequest,
+) {
+  const baseUrl = normalizeCompatibleBaseUrl(config.baseUrl);
+  const payload = await postJson(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      ...providerAuthHeaders(config),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.modelId,
+      messages: [
+        { role: "system", content: request.systemInstruction || DEFAULT_SYSTEM_INSTRUCTION },
+        { role: "user", content: request.prompt },
+      ],
+      stream: false,
+      max_tokens: request.maxOutputTokens,
+      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+    }),
+  }, request.signal);
+  return {
+    text: chatCompletionText(payload),
+    usage: usageFromResponsesPayload(payload),
+    generatedTokenEvents: 1,
+  };
+}
+
 function normalizedExternalRequest(request: ExternalAIGenerationRequest) {
   if (request.executionMode === "closed-only") {
     throw new ExternalAIProviderError("EXTERNAL_AI_BLOCKED_BY_MODE", "目前是全閉端模式，系統不會送出任何外接 AI 要求。", 409);
@@ -537,8 +703,17 @@ function normalizedExternalRequest(request: ExternalAIGenerationRequest) {
     throw new ExternalAIProviderError("EXTERNAL_AI_CANCELLED", "外接 AI 已由使用者取消，沒有建立候選。", 499);
   }
   const config = providerConfigs()[request.providerId];
-  if (!config.apiKey) {
-    throw new ExternalAIProviderError("EXTERNAL_AI_NOT_CONFIGURED", `${config.label} 尚未在伺服器設定 ${config.keyEnvironmentVariable}。`, 503);
+  if (!config.configured) {
+    const required = [
+      config.keyEnvironmentVariable,
+      config.modelEnvironmentVariable,
+      config.endpointEnvironmentVariable,
+    ].filter(Boolean).join("、");
+    throw new ExternalAIProviderError(
+      "EXTERNAL_AI_NOT_CONFIGURED",
+      `${config.label} 尚未完整設定伺服器環境變數：${required}。`,
+      503,
+    );
   }
   return {
     config,
@@ -593,7 +768,9 @@ export async function generateExternalAICandidate(request: ExternalAIGenerationR
       ? await runResponsesProvider(normalized.config, normalized.request, "https://api.x.ai")
       : request.providerId === "gemini"
         ? await runGemini(normalized.config, normalized.request)
-        : await runClaude(normalized.config, normalized.request);
+        : request.providerId === "claude"
+          ? await runClaude(normalized.config, normalized.request)
+          : await runOpenAICompatible(normalized.config, normalized.request);
   return buildResult(normalized.request, normalized.config, generated, normalized.request.requestId || crypto.randomUUID(), startedAt);
 }
 
@@ -644,16 +821,22 @@ async function streamOpenAI(
   return { ...state, usage };
 }
 
-async function streamGrok(
+async function streamOpenAIChat(
   config: ProviderConfig,
   request: ExternalAIGenerationRequest,
   emit: StreamEmitter,
 ): Promise<Generated> {
   const state = { text: "", generatedTokenEvents: 0 };
   let usage = emptyUsage();
-  await postEventStream("https://api.x.ai/v1/chat/completions", {
+  const endpoint = config.id === "grok"
+    ? "https://api.x.ai/v1/chat/completions"
+    : `${normalizeCompatibleBaseUrl(config.baseUrl)}/chat/completions`;
+  await postEventStream(endpoint, {
     method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+    headers: {
+      ...providerAuthHeaders(config),
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       model: config.modelId,
       messages: [
@@ -772,10 +955,12 @@ export async function streamExternalAICandidate(
   const generated = request.providerId === "openai"
     ? await streamOpenAI(normalized.config, normalized.request, emit)
     : request.providerId === "grok"
-      ? await streamGrok(normalized.config, normalized.request, emit)
+      ? await streamOpenAIChat(normalized.config, normalized.request, emit)
       : request.providerId === "gemini"
         ? await streamGemini(normalized.config, normalized.request, emit)
-        : await streamClaude(normalized.config, normalized.request, emit);
+        : request.providerId === "claude"
+          ? await streamClaude(normalized.config, normalized.request, emit)
+          : await streamOpenAIChat(normalized.config, normalized.request, emit);
   const result = buildResult(normalized.request, normalized.config, generated, requestId, startedAt);
   await emit({ type: "complete", result });
   return result;

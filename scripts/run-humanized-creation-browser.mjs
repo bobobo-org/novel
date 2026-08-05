@@ -21,8 +21,27 @@ try {
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
+  await check("all creation entries require a title and visibly advance", async () => {
+    await page.getByTestId("studio-entry-quick").click();
+    await page.locator("#studio-project-title-error").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("studio-create-next").isVisible(), true);
+
+    await page.getByTestId("studio-project-title").fill("入口流程驗收作品");
+    await page.getByTestId("studio-entry-guided").click();
+    await page.getByRole("heading", { name: "選擇題材" }).waitFor({ state: "visible" });
+    await page.getByTestId("studio-create-next").click();
+    await page.getByTestId("studio-create-next").click();
+    await page.getByTestId("studio-create-next").click();
+    await page.getByTestId("studio-create-submit").waitFor({ state: "visible" });
+  });
+
+  await page.goto(`${baseUrl}/studio?screen=create`, { waitUntil: "networkidle" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "networkidle" });
+
   await check("blank structured start is visibly blocked", async () => {
     await page.getByTestId("studio-creation-guide").waitFor({ state: "visible" });
+    await page.getByTestId("studio-project-title").fill("必要設定 Gate 驗收");
     for (let step = 1; step < 5; step += 1) await page.getByTestId("studio-create-next").click();
     await page.getByTestId("studio-foundation-blocked").waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("studio-create-submit").isDisabled(), true);
@@ -33,8 +52,9 @@ try {
   await page.reload({ waitUntil: "networkidle" });
 
   await check("guide creates editable character and story foundations", async () => {
+    await page.getByTestId("studio-project-title").fill("精靈建立驗收");
     await page.getByTestId("studio-guide-autofill").click();
-    assert.notEqual((await page.getByTestId("studio-project-title").inputValue()).trim(), "");
+    assert.equal((await page.getByTestId("studio-project-title").inputValue()).trim(), "精靈建立驗收");
     await page.getByTestId("studio-create-next").click();
     await page.getByTestId("studio-create-next").click();
     assert.notEqual((await page.getByTestId("studio-optional-protagonist").inputValue()).trim(), "");

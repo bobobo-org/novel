@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.4.3"
+  [string]$Version = "1.4.4"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +10,14 @@ $stageRoot = Join-Path $temporaryRoot $packageName
 $outputDirectory = Join-Path $repositoryRoot "public\downloads"
 $outputPath = Join-Path $outputDirectory "$packageName.zip"
 $checksumPath = Join-Path $outputDirectory "$packageName.sha256"
+$installerName = "novel-local-ai-companion-setup-v$Version"
+$installerOutputPath = Join-Path $outputDirectory "$installerName.cmd"
+$installerChecksumPath = Join-Path $outputDirectory "$installerName.sha256"
+$installScriptName = "novel-local-ai-companion-install-v$Version.ps1"
+$installScriptOutputPath = Join-Path $outputDirectory $installScriptName
+$installScriptChecksumPath = Join-Path $outputDirectory (
+  "novel-local-ai-companion-install-v$Version.sha256"
+)
 
 $resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot)
 $systemTemporaryRoot = [System.IO.Path]::GetFullPath(
@@ -77,6 +85,12 @@ Copy-Item -LiteralPath (
 Copy-Item -LiteralPath (
   Join-Path $repositoryRoot "local-ai\companion\manifest.json"
 ) -Destination (Join-Path $stageRoot "manifest.json")
+Copy-Item -LiteralPath (
+  Join-Path $repositoryRoot "local-ai\companion\start-companion.ps1"
+) -Destination (Join-Path $stageRoot "start-companion.ps1")
+Copy-Item -LiteralPath (
+  Join-Path $repositoryRoot "local-ai\companion\uninstall.ps1"
+) -Destination (Join-Path $stageRoot "uninstall.ps1")
 
 if (Test-Path -LiteralPath $outputPath) {
   Remove-Item -LiteralPath $outputPath -Force
@@ -91,11 +105,84 @@ $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
   "$hash  $packageName.zip`n",
   $utf8WithoutBom
 )
+
+if (Test-Path -LiteralPath $installerOutputPath) {
+  Remove-Item -LiteralPath $installerOutputPath -Force
+}
+$installScriptSource = Get-Content -LiteralPath (
+  Join-Path $repositoryRoot "local-ai\companion\install.ps1"
+) -Raw -Encoding utf8
+$utf8WithBom = [System.Text.UTF8Encoding]::new($true)
+[System.IO.File]::WriteAllText(
+  $installScriptOutputPath,
+  $installScriptSource,
+  $utf8WithBom
+)
+$installScriptHash = (
+  Get-FileHash -LiteralPath $installScriptOutputPath -Algorithm SHA256
+).Hash
+[System.IO.File]::WriteAllText(
+  $installScriptChecksumPath,
+  "$installScriptHash  $installScriptName`n",
+  $utf8WithoutBom
+)
+
+$installScriptUrl = "https://novel-orcin.vercel.app/downloads/$installScriptName"
+$archiveUrl = "https://novel-orcin.vercel.app/downloads/$packageName.zip"
+$installerTemplate = @'
+@echo off
+chcp 65001 >nul
+title Novel Local AI Companion Installer
+echo This installer downloads two checksum-pinned files from novel-orcin.vercel.app.
+echo Windows may ask before installing Node.js or Ollama for the current user.
+echo.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $d=Join-Path $env:TEMP ('NovelLocalAICompanion-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Path $d -Force ^| Out-Null; try { $s=Join-Path $d 'install.ps1'; $z=Join-Path $d 'companion.zip'; Invoke-WebRequest -UseBasicParsing -Uri '__SCRIPT_URL__' -OutFile $s; Invoke-WebRequest -UseBasicParsing -Uri '__ARCHIVE_URL__' -OutFile $z; if((Get-FileHash -LiteralPath $s -Algorithm SHA256).Hash -ne '__SCRIPT_HASH__'){throw 'INSTALL_SCRIPT_DIGEST_MISMATCH'}; if((Get-FileHash -LiteralPath $z -Algorithm SHA256).Hash -ne '__ARCHIVE_HASH__'){throw 'COMPANION_ARCHIVE_DIGEST_MISMATCH'}; ^& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $s -ArchivePath $z; exit $LASTEXITCODE } finally { if(Test-Path -LiteralPath $d){Remove-Item -LiteralPath $d -Recurse -Force} }"
+set "NOVEL_INSTALL_EXIT=%ERRORLEVEL%"
+if not "%NOVEL_INSTALL_EXIT%"=="0" (
+  echo.
+  echo Installation did not complete. Keep the error above and retry.
+  pause
+)
+exit /b %NOVEL_INSTALL_EXIT%
+'@
+$installerContent = $installerTemplate.Replace(
+  "__SCRIPT_URL__",
+  $installScriptUrl
+).Replace(
+  "__ARCHIVE_URL__",
+  $archiveUrl
+).Replace(
+  "__SCRIPT_HASH__",
+  $installScriptHash
+).Replace(
+  "__ARCHIVE_HASH__",
+  $hash
+)
+[System.IO.File]::WriteAllText(
+  $installerOutputPath,
+  $installerContent,
+  $utf8WithoutBom
+)
+$installerHash = (
+  Get-FileHash -LiteralPath $installerOutputPath -Algorithm SHA256
+).Hash
+[System.IO.File]::WriteAllText(
+  $installerChecksumPath,
+  "$installerHash  $installerName.cmd`n",
+  $utf8WithoutBom
+)
+
 [pscustomobject]@{
   version = $Version
   package = $packageName
   outputPath = $outputPath
   checksumPath = $checksumPath
   sha256 = $hash
+  installer = $installerName
+  installerOutputPath = $installerOutputPath
+  installerChecksumPath = $installerChecksumPath
+  installerSha256 = $installerHash
+  installScriptOutputPath = $installScriptOutputPath
+  installScriptSha256 = $installScriptHash
   signed = $false
 } | ConvertTo-Json -Depth 4

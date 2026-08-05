@@ -99,9 +99,12 @@ import {
 } from "@/lib/novel-ai/repository/studio-canonical";
 import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
-import type {
-  ExternalAIProviderId as ExternalAIConnectorId,
-  NovelAIExecutionMode,
+import {
+  EXTERNAL_AI_PROVIDER_IDS,
+  EXTERNAL_AI_PROVIDER_LABELS as EXTERNAL_AI_LABELS,
+  isExternalAIProviderId,
+  type ExternalAIProviderId as ExternalAIConnectorId,
+  type NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
 import { generateExternalAIStream } from "@/lib/novel-ai/providers/external/external-provider-client";
 
@@ -1221,7 +1224,7 @@ export default function StudioClient({
         : saved.privacy === "external-allowed"
           ? "hybrid"
           : "closed-only";
-      const provider: ExternalAIConnectorId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
+      const provider: ExternalAIConnectorId = isExternalAIProviderId(saved.externalProviderId)
         ? saved.externalProviderId
         : "openai";
       setAiExecutionMode(mode);
@@ -1446,6 +1449,11 @@ export default function StudioClient({
   async function createProject() {
     if (!ensureCanonicalWritable("建立作品")) return;
     const w = state.wizard;
+    if (!w.title.trim()) {
+      alert("請先輸入作品名稱，才能建立第一章。");
+      update({ wizardStep: 1 });
+      return;
+    }
     if (!w.creationMethod) {
       alert("請先選擇一種建立方式，也可以選擇「保持空白」。");
       return;
@@ -1470,7 +1478,7 @@ export default function StudioClient({
       id = crypto.randomUUID();
     const next: Project = {
       id,
-      title: w.title.trim() || "未命名作品",
+      title: w.title.trim(),
       activeChapterId: null,
       consumerGroupId: w.consumerGroupId || topic?.consumerGroupId || null,
       packId: w.packId || topic?.packId || null,
@@ -3149,7 +3157,11 @@ export default function StudioClient({
                 setExternalRunConsent(false);
                 persistStudioAISettings({ providerId });
               }}>
-                <option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="claude">Claude</option>
+                {EXTERNAL_AI_PROVIDER_IDS.map((providerId) => (
+                  <option key={providerId} value={providerId}>
+                    {EXTERNAL_AI_LABELS[providerId]}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="studioExternalApproval"><input type="checkbox" checked={externalRunConsent} onChange={(event) => setExternalRunConsent(event.target.checked)} /><span>同意下一次工作把內容傳給所選外接 AI（只用一次）</span></label>
@@ -3182,6 +3194,9 @@ export default function StudioClient({
                 createProject={createProject}
                 runTask={runTask}
                 candidate={state.candidate}
+                assistantBusy={assistantBusy}
+                assistantFailure={assistantFailure}
+                assistantStatus={assistantStatus}
                 acceptSuggestion={acceptWizardSuggestion}
                 discard={() => void discardCandidate()}
               />
@@ -3476,6 +3491,9 @@ function CreateScreen({
   createProject,
   runTask,
   candidate,
+  assistantBusy,
+  assistantFailure,
+  assistantStatus,
   acceptSuggestion,
   discard,
 }: {
@@ -3490,11 +3508,18 @@ function CreateScreen({
   createProject: () => void;
   runTask: StudioRunTask;
   candidate: Candidate;
+  assistantBusy: string | null;
+  assistantFailure: string;
+  assistantStatus: AssistantStatus;
   acceptSuggestion: (content: string) => void;
   discard: () => void;
 }) {
   const w = state.wizard,
     step = state.wizardStep;
+  const [titleError, setTitleError] = useState("");
+  const [entryNotice, setEntryNotice] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const candidateRef = useRef<HTMLDivElement>(null);
   const adultProfile = w.adultExperienceProfile;
   const updateAdultProfile = (partial: Partial<AdultExperienceProfile>) => updateWizard({
     adultExperienceProfile: normalizeAdultExperienceProfile({ ...adultProfile, ...partial }),
@@ -3511,6 +3536,53 @@ function CreateScreen({
     limit: w.entryMode === "explore" ? 218 : 12,
   });
   const selectedTopic = resolveStoryTopic(w.topicId);
+  useEffect(() => {
+    if (!candidate?.createdAt) return;
+    candidateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [candidate?.createdAt]);
+
+  const requireTitle = (action: string) => {
+    if (w.title.trim()) {
+      setTitleError("");
+      return true;
+    }
+    setTitleError(`請先輸入作品名稱，再${action}。`);
+    setEntryNotice("");
+    window.requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return false;
+  };
+
+  const applyLocalGuide = () => {
+    if (!requireTitle("請引導精靈代為設定")) return;
+    updateWizard(buildLocalCreationGuide(w));
+    setEntryNotice("引導精靈已補上可修改的起始設定；請逐項確認後再建立作品。");
+  };
+
+  const selectEntryMode = (mode: EntryMode) => {
+    if (!requireTitle(`使用「${mode === "quick" ? "快速開始" : mode === "guided" ? "引導建立" : "完整故事庫"}」`)) return;
+    if (mode === "quick") {
+      updateWizard({
+        ...buildLocalCreationGuide({ ...w, entryMode: mode }),
+        entryMode: mode,
+      });
+      setEntryNotice("快速開始已建立可修改的故事起點，現在請確認預覽。");
+      setStep(5);
+      return;
+    }
+    updateWizard({ entryMode: mode });
+    setEntryNotice(mode === "guided"
+      ? "已進入引導建立；接下來會逐步整理題材、人物、世界與玩法。"
+      : "完整故事庫已開啟；請選擇題材與分類包。");
+    setStep(2);
+  };
+
+  const advanceStep = () => {
+    if (!requireTitle("進入下一步")) return;
+    setStep(Math.min(5, step + 1));
+  };
   const optionalInput = (key: OptionalKey) => {
     const required = (key === "protagonist" && structuredStart)
       || (key === "world" && gameMode);
@@ -3565,6 +3637,28 @@ function CreateScreen({
         ))}
       </div>
       <div className="studioWizardBody">
+        <section className="studioTitleGate" data-valid={Boolean(w.title.trim())}>
+          <label htmlFor="studio-project-title">
+            <span>第一步：先為作品命名 <strong>必填</strong></span>
+            <input
+              ref={titleInputRef}
+              id="studio-project-title"
+              data-testid="studio-project-title"
+              value={w.title}
+              aria-invalid={Boolean(titleError)}
+              aria-describedby={titleError ? "studio-project-title-error" : undefined}
+              onChange={(event) => {
+                updateWizard({ title: event.target.value });
+                if (event.target.value.trim()) setTitleError("");
+              }}
+              placeholder="例如：附身變身：命運改寫者"
+              autoComplete="off"
+            />
+          </label>
+          <p>作品名稱會綁定章節、角色、RPG 狀態與存檔，確認名稱後才會進入其他設定。</p>
+          {titleError ? <div id="studio-project-title-error" className="studioTitleError" role="alert">{titleError}</div> : null}
+          {entryNotice ? <div className="studioEntryNotice" role="status">{entryNotice}</div> : null}
+        </section>
         <section className="studioCreationGuide" data-testid="studio-creation-guide">
           <div>
             <small>創作帶領精靈</small>
@@ -3591,17 +3685,35 @@ function CreateScreen({
               type="button"
               data-testid="studio-guide-autofill"
               className="gold"
-              onClick={() => updateWizard(buildLocalCreationGuide(w))}
+              onClick={applyLocalGuide}
             >
               引導精靈代為完成
             </button>
             <button
               type="button"
-              disabled={Boolean(candidate)}
-              onClick={() => void runTask("improve_settings")}
+              disabled={Boolean(candidate) || Boolean(assistantBusy)}
+              onClick={() => {
+                if (!requireTitle("請真實模型深化候選")) return;
+                setEntryNotice("已送交可用的真實 AI 執行器，候選完成後會顯示在本頁。");
+                void runTask("improve_settings");
+              }}
             >
-              請真實模型深化候選
+              {assistantBusy ? "真實 AI 正在思考……" : "請真實模型深化候選"}
             </button>
+          </div>
+          <div className="studioCreationRuntime" role="status" data-state={assistantFailure ? "failed" : assistantBusy ? "running" : "idle"}>
+            <strong>{assistantStatus === "ollama_ready"
+              ? "Local Ollama 已連線"
+              : assistantStatus === "runtime_ready"
+                ? "Browser AI 可執行"
+                : assistantStatus === "external_ready"
+                  ? "外接 AI 已就緒"
+                  : assistantStatus === "auth_required"
+                    ? "本機 AI 等待授權"
+                    : "尚未找到可生成文字的真實模型"}</strong>
+            <span>{assistantFailure || (assistantBusy
+              ? "正在建立候選；正式設定不會在核准前被修改。"
+              : "Private Hub 未連線不會阻擋 Browser AI；系統會依目前 AI 模式選擇已驗證的執行器。")}</span>
           </div>
         </section>
         {step === 1 && (
@@ -3611,7 +3723,8 @@ function CreateScreen({
                 <button
                   className={w.entryMode === mode ? "active" : ""}
                   key={mode}
-                  onClick={() => updateWizard({ entryMode: mode })}
+                  data-testid={`studio-entry-${mode}`}
+                  onClick={() => selectEntryMode(mode)}
                 >
                   {mode === "quick"
                     ? "快速開始"
@@ -3621,17 +3734,6 @@ function CreateScreen({
                 </button>
               ))}
             </div>
-            <label>
-              作品名稱 <small>可空白</small>
-              <input
-                data-testid="studio-project-title"
-                value={w.title}
-                onChange={(event) =>
-                  updateWizard({ title: event.target.value })
-                }
-                placeholder="未填時使用「未命名作品」"
-              />
-            </label>
             <label>
               核心想法 <small>選填</small>
               <textarea
@@ -4045,16 +4147,18 @@ function CreateScreen({
           </>
         )}
         {candidate && (
-          <SuggestionCard
-            key={candidate.createdAt}
-            candidate={candidate}
-            originalContent=""
-            accept={acceptSuggestion}
-            retry={() => void runTask(candidate.task, {
-              regenerateFrom: candidate,
-            })}
-            discard={discard}
-          />
+          <div ref={candidateRef} data-testid="studio-creation-candidate">
+            <SuggestionCard
+              key={candidate.createdAt}
+              candidate={candidate}
+              originalContent=""
+              accept={acceptSuggestion}
+              retry={() => void runTask(candidate.task, {
+                regenerateFrom: candidate,
+              })}
+              discard={discard}
+            />
+          </div>
         )}
       </div>
       <footer>
@@ -4065,7 +4169,7 @@ function CreateScreen({
           返回修改
         </button>
         {step < 5 ? (
-          <button data-testid="studio-create-next" className="gold" onClick={() => setStep(Math.min(5, step + 1))}>
+          <button data-testid="studio-create-next" className="gold" onClick={advanceStep}>
             儲存本步並繼續
           </button>
         ) : (

@@ -23,6 +23,10 @@ import type {
   ExternalAIProviderPublicStatus,
   NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
+import {
+  EXTERNAL_AI_CONNECTION_CATALOG,
+  isExternalAIProviderId,
+} from "@/lib/novel-ai/providers/external/external-provider-contract";
 import { getStudioClosedAIRuntimeCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
 
 type ModelOption = { modelId: string; parameterSize?: { value?: string | null }; quantization?: { value?: string | null }; capabilities?: { textGeneration?: { value?: boolean } } };
@@ -173,7 +177,7 @@ export default function AISettingsClient() {
       : saved.privacy === "external-allowed"
         ? "hybrid"
         : "closed-only";
-    const savedProvider: ExternalAIProviderId = ["openai", "gemini", "grok", "claude"].includes(saved.externalProviderId)
+    const savedProvider: ExternalAIProviderId = isExternalAIProviderId(saved.externalProviderId)
       ? saved.externalProviderId
       : "openai";
     setExecutionMode(savedMode);
@@ -589,9 +593,20 @@ export default function AISettingsClient() {
       <div className="externalProviderGrid">
         {externalProviders.map((provider) => <label key={provider.id} data-configured={provider.configured} data-verification={provider.verification} data-selected={externalProviderId === provider.id}>
           <input type="radio" name="external-provider" disabled={executionMode === "closed-only"} checked={externalProviderId === provider.id} onChange={() => saveExternalProvider(provider.id)} />
-          <strong>{provider.label}</strong><span>{provider.verification === "verified" ? "金鑰與模型已實測可用" : provider.verification === "failed" ? `實測未通過（${provider.verificationCode}）` : provider.configured ? "已設定，尚未實測" : "尚未設定"}</span><small>模型：{provider.modelId}<br />介面：{provider.apiStyle}<br />伺服器設定：{provider.keyEnvironmentVariable}</small>
+          <strong>{provider.label}</strong><span>{provider.verification === "verified" ? "金鑰與模型已實測可用" : provider.verification === "failed" ? `實測未通過（${provider.verificationCode}）` : provider.configured ? "已設定，尚未實測" : "尚未設定"}</span><small>模型：{provider.modelId}<br />介面：{provider.apiStyle}<br />伺服器設定：{provider.keyEnvironmentVariable}、{provider.modelEnvironmentVariable}{provider.endpointEnvironmentVariable ? `、${provider.endpointEnvironmentVariable}` : ""}</small>
         </label>)}
       </div>
+      <details className="externalConnectionCatalog" data-testid="external-ai-connection-catalog">
+        <summary>查看所有可接入方式</summary>
+        <p>原生供應商直接走各自官方協定；相容服務與自架模型走通用 Chat Completions；企業雲可先接到相容 Gateway。所有憑證仍只存在伺服器。</p>
+        <div className="externalProviderGrid">
+          {EXTERNAL_AI_CONNECTION_CATALOG.map((group) => <article key={group.group}>
+            <strong>{group.group}</strong>
+            <small>{group.route === "native" ? "原生連接器" : group.route === "gateway" ? "透過企業／OpenAI-compatible Gateway" : "通用 OpenAI-compatible 連接器"}</small>
+            <p>{group.providers.join("、")}</p>
+          </article>)}
+        </div>
+      </details>
       {externalProviders.length === 0 && <p role="alert">目前無法讀取外接 AI 狀態；閉端 AI 不受影響。</p>}
       <label>測試內容<textarea rows={5} disabled={executionMode === "closed-only" || externalRunStatus === "running"} value={externalPrompt} onChange={(event) => setExternalPrompt(event.target.value)} /></label>
       <label className="externalConsent"><input type="checkbox" disabled={executionMode === "closed-only" || externalRunStatus === "running"} checked={externalConsent} onChange={(event) => setExternalConsent(event.target.checked)} /><span>我同意只在本次測試中，將上方內容傳給所選外接 AI。這項同意使用一次後立即清除。</span></label>

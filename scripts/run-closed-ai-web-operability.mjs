@@ -650,7 +650,7 @@ await test("official production UI auto-connects local runtimes and exposes vers
     assert.ok(companionReleaseSource.includes(origin), origin);
   }
   assert.ok(companionReleaseSource.includes("evaluateLocalAIRuntimeVersion"));
-  assert.ok(companionReleaseSource.includes('version: "1.4.3"'));
+  assert.ok(companionReleaseSource.includes('version: "1.4.4"'));
   assert.ok(companionReleaseSource.includes('recommendedBridgeVersion: "1.2.2"'));
   for (const marker of [
     "runtimeCoordinator.connectAutomatically()",

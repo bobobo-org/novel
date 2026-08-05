@@ -15,6 +15,7 @@ import {
 const environmentKeys = [
   "OPENAI_API_KEY", "OPENAI_MODEL_ID", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_MODEL_ID",
   "XAI_API_KEY", "XAI_MODEL_ID", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL_ID",
+  "EXTERNAL_AI_COMPATIBLE_API_KEY", "EXTERNAL_AI_COMPATIBLE_MODEL_ID", "EXTERNAL_AI_COMPATIBLE_BASE_URL",
 ];
 const originalEnvironment = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]));
 const originalFetch = globalThis.fetch;
@@ -44,6 +45,9 @@ try {
   process.env.GEMINI_API_KEY = "gemini-test-secret";
   process.env.XAI_API_KEY = "xai-test-secret";
   process.env.ANTHROPIC_API_KEY = "anthropic-test-secret";
+  process.env.EXTERNAL_AI_COMPATIBLE_API_KEY = "compatible-test-secret";
+  process.env.EXTERNAL_AI_COMPATIBLE_MODEL_ID = "custom-writer-model";
+  process.env.EXTERNAL_AI_COMPATIBLE_BASE_URL = "https://compatible.example/v1";
   const generationFetch = async (url, init = {}) => {
     const body = JSON.parse(String(init.body || "{}"));
     calls.push({ url: String(url), init, body });
@@ -53,12 +57,15 @@ try {
     if (String(url).includes("api.anthropic.com")) {
       return response({ content: [{ type: "text", text: "Claude 候選" }], usage: { input_tokens: 12, output_tokens: 5 } });
     }
+    if (String(url).includes("compatible.example")) {
+      return response({ choices: [{ message: { content: "通用相容候選" } }], usage: { prompt_tokens: 11, completion_tokens: 6, total_tokens: 17 } });
+    }
     return response({ output: [{ type: "message", content: [{ type: "output_text", text: String(url).includes("api.x.ai") ? "Grok 候選" : "OpenAI 候選" }] }], usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 } });
   };
   globalThis.fetch = generationFetch;
 
   const status = listExternalAIProviderStatus();
-  assert.deepEqual(status.map((provider) => provider.id), ["openai", "gemini", "grok", "claude"]);
+  assert.deepEqual(status.map((provider) => provider.id), ["openai", "gemini", "grok", "claude", "openai-compatible"]);
   assert.ok(status.every((provider) => provider.configured && provider.serverSideCredentialOnly));
   assert.ok(status.every((provider) => provider.verification === "configured_unverified"));
   const serializedStatus = JSON.stringify(status);
@@ -71,11 +78,14 @@ try {
     if (String(url).includes("generativelanguage.googleapis.com")) {
       return response({ name: "models/gemini-3.6-flash", supportedGenerationMethods: ["generateContent"] });
     }
+    if (String(url).includes("compatible.example")) {
+      return response({ data: [{ id: "custom-writer-model" }] });
+    }
     const id = String(url).split("/").pop();
     return response({ id });
   };
   const verified = await verifyExternalAIProviderStatus();
-  assert.equal(verified.length, 4);
+  assert.equal(verified.length, 5);
   assert.ok(verified.every((provider) => provider.verification === "verified"));
   assert.ok(verified.every((provider) => provider.verificationCode === "MODEL_ACCESS_VERIFIED"));
   assert.ok(verified.every((provider) => provider.checkedAt && provider.verifiedAt));
@@ -85,11 +95,13 @@ try {
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash",
     "https://api.x.ai/v1/models/grok-4.5",
     "https://api.anthropic.com/v1/models/claude-sonnet-5",
+    "https://compatible.example/v1/models",
   ]);
   assert.equal(verificationCalls[0].init.headers.Authorization, "Bearer openai-test-secret");
   assert.equal(verificationCalls[1].init.headers["x-goog-api-key"], "gemini-test-secret");
   assert.equal(verificationCalls[2].init.headers.Authorization, "Bearer xai-test-secret");
   assert.equal(verificationCalls[3].init.headers["x-api-key"], "anthropic-test-secret");
+  assert.equal(verificationCalls[4].init.headers.Authorization, "Bearer compatible-test-secret");
   const verificationCallCount = verificationCalls.length;
   await verifyExternalAIProviderStatus();
   assert.equal(verificationCalls.length, verificationCallCount, "verified model metadata must use the bounded verification cache");
@@ -102,11 +114,12 @@ try {
     return response({}, 503);
   };
   const failedVerification = await verifyExternalAIProviderStatus();
-  assert.deepEqual(failedVerification.map((provider) => provider.verification), ["failed", "failed", "failed", "failed"]);
+  assert.deepEqual(failedVerification.map((provider) => provider.verification), ["failed", "failed", "failed", "failed", "failed"]);
   assert.deepEqual(failedVerification.map((provider) => provider.verificationCode), [
     "EXTERNAL_PROVIDER_AUTH_FAILED",
     "EXTERNAL_PROVIDER_RATE_LIMITED",
     "EXTERNAL_PROVIDER_MODEL_UNAVAILABLE",
+    "EXTERNAL_PROVIDER_UNAVAILABLE",
     "EXTERNAL_PROVIDER_UNAVAILABLE",
   ]);
   assert.ok(failedVerification.every((provider) => provider.verifiedAt === null && provider.checkedAt));
@@ -125,7 +138,7 @@ try {
   assert.equal(calls.length, 0, "missing consent must fail before network access");
 
   const cases = [
-    ["openai", "OpenAI 候選"], ["gemini", "Gemini 候選"], ["grok", "Grok 候選"], ["claude", "Claude 候選"],
+    ["openai", "OpenAI 候選"], ["gemini", "Gemini 候選"], ["grok", "Grok 候選"], ["claude", "Claude 候選"], ["openai-compatible", "通用相容候選"],
   ];
   for (const [providerId, expectedText] of cases) {
     const result = await generateExternalAICandidate({
@@ -143,7 +156,7 @@ try {
     assert.equal(result.serverStoredByApplication, false);
   }
 
-  const [openaiCall, geminiCall, grokCall, claudeCall] = calls;
+  const [openaiCall, geminiCall, grokCall, claudeCall, compatibleCall] = calls;
   assert.equal(openaiCall.url, "https://api.openai.com/v1/responses");
   assert.equal(openaiCall.body.store, false);
   assert.equal(openaiCall.body.safety_identifier, "novel_test_user");
@@ -155,6 +168,9 @@ try {
   assert.equal(grokCall.body.store, false);
   assert.equal(claudeCall.url, "https://api.anthropic.com/v1/messages");
   assert.equal(claudeCall.init.headers["anthropic-version"], "2023-06-01");
+  assert.equal(compatibleCall.url, "https://compatible.example/v1/chat/completions");
+  assert.equal(compatibleCall.init.headers.Authorization, "Bearer compatible-test-secret");
+  assert.equal(compatibleCall.body.model, "custom-writer-model");
 
   const beforeFailure = calls.length;
   globalThis.fetch = async (url, init = {}) => {
@@ -192,6 +208,13 @@ try {
         `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "串流" }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, totalTokenCount: 14 } })}`,
       ]);
     }
+    if (String(url).includes("compatible.example")) {
+      return streamResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "通用相容 " } }] })}`,
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "串流" } }], usage: { prompt_tokens: 11, completion_tokens: 6, total_tokens: 17 } })}`,
+        "data: [DONE]",
+      ]);
+    }
     return streamResponse([
       `event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 12 } } })}`,
       `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "Claude " } })}`,
@@ -202,7 +225,7 @@ try {
   };
 
   const streamCases = [
-    ["openai", "OpenAI 串流"], ["gemini", "Gemini 串流"], ["grok", "Grok 串流"], ["claude", "Claude 串流"],
+    ["openai", "OpenAI 串流"], ["gemini", "Gemini 串流"], ["grok", "Grok 串流"], ["claude", "Claude 串流"], ["openai-compatible", "通用相容 串流"],
   ];
   for (const [providerId, expectedText] of streamCases) {
     const events = [];
@@ -228,6 +251,8 @@ try {
   assert.equal(streamCalls[2].body.stream_options.include_usage, true);
   assert.equal(streamCalls[3].url, "https://api.anthropic.com/v1/messages");
   assert.equal(streamCalls[3].body.stream, true);
+  assert.equal(streamCalls[4].url, "https://compatible.example/v1/chat/completions");
+  assert.equal(streamCalls[4].body.stream, true);
 
   const cancellation = new AbortController();
   const cancellationEvents = [];

@@ -44,7 +44,7 @@ export type CreationWizard = {
 };
 
 export type CreationFoundationItem = {
-  key: "method" | "direction" | "protagonist" | "playMode" | "world" | "dramaticEngine";
+  key: "title" | "method" | "direction" | "protagonist" | "playMode" | "world" | "dramaticEngine";
   label: string;
   detail: string;
   required: boolean;
@@ -92,6 +92,13 @@ export function creationFoundationChecklist(wizard: CreationWizard): CreationFou
   const hasDirection = Boolean(wizard.coreIdea.trim() || wizard.topicId);
   const hasDramaticEngine = Boolean(valueOf(wizard, "goal") || valueOf(wizard, "conflict"));
   return [
+    {
+      key: "title",
+      label: "作品名稱",
+      detail: "先確認這次要建立的是哪一部作品",
+      required: true,
+      ready: Boolean(wizard.title.trim()),
+    },
     {
       key: "method",
       label: "開始方式",
@@ -188,7 +195,7 @@ export function buildLocalCreationGuide(wizard: CreationWizard): Partial<Creatio
   return {
     entryMode: "guided",
     creationMethod: wizard.creationMethod || "recommend",
-    title: wizard.title.trim() || `${topicName}：${subCategory}`,
+    title: wizard.title.trim(),
     coreIdea,
     consumerGroupId: wizard.consumerGroupId || preferredTopic?.consumerGroupId || "",
     packId: wizard.packId || preferredTopic?.packId || "",
