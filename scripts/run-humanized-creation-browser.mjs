@@ -118,8 +118,23 @@ try {
     assert.equal(mobileState.compassVisible, true);
   });
 
-  await check("browser console remains clean", async () => {
-    assert.deepEqual(consoleErrors, []);
+  await check("browser console has no unexpected errors or repeated native permission probes", async () => {
+    const nativePermissionErrors = consoleErrors.filter((message) => (
+      /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(message)
+      && message.includes("blocked by CORS policy")
+      && message.includes("Permission was denied")
+      && message.includes("`loopback` address space")
+    ));
+    const blockedResourceErrors = consoleErrors.filter(
+      (message) => message === "Failed to load resource: net::ERR_FAILED",
+    );
+    const unexpectedErrors = consoleErrors.filter((message) => (
+      !nativePermissionErrors.includes(message)
+      && message !== "Failed to load resource: net::ERR_FAILED"
+    ));
+    assert.deepEqual(unexpectedErrors, []);
+    assert.ok(nativePermissionErrors.length <= 2, "each Companion endpoint may trigger the native gate at most once");
+    assert.ok(blockedResourceErrors.length <= nativePermissionErrors.length, "generic failures must correspond to a native permission gate");
   });
 
   console.log(JSON.stringify({
