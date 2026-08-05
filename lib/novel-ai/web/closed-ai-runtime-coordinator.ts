@@ -218,6 +218,17 @@ async function readLocalNetworkPermission(): Promise<
   return states.length ? "prompt" : "unsupported";
 }
 
+function localNetworkPermissionDeniedError() {
+  return Object.assign(
+    new Error("The browser denied Local Network Access for this site."),
+    {
+      code: "LOCAL_NETWORK_PERMISSION_DENIED",
+      retryable: false,
+      stage: "local-network-permission",
+    },
+  );
+}
+
 export function resolveEffectiveLocalNetworkPermission(input: {
   reported: PermissionState | "unsupported";
   localRuntimeReady: boolean;
@@ -454,6 +465,23 @@ export class ClosedAIRuntimeCoordinator {
   async connectAutomatically(
     signal?: AbortSignal,
   ): Promise<ClosedAIAutomaticConnectionResult> {
+    // Chromium logs every blocked loopback fetch as a console/network error.
+    // Read the native permission first so a denied site does not repeatedly
+    // probe both Companion ports while React surfaces rediscover capabilities.
+    // A later user permission change is picked up because every explicit or
+    // automatic reconnect queries the live browser permission again.
+    if (await readLocalNetworkPermission() === "denied") {
+      return {
+        localOllama: {
+          status: "rejected",
+          reason: localNetworkPermissionDeniedError(),
+        },
+        privateHub: {
+          status: "rejected",
+          reason: localNetworkPermissionDeniedError(),
+        },
+      };
+    }
     const [localOllama, privateHub] = await Promise.allSettled([
       this.connectLocalAutomatically(signal),
       this.connectPrivateHubAutomatically(signal),

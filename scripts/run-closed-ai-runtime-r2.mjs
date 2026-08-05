@@ -394,6 +394,56 @@ test("client-runtime-coordinator", "ready Local Ollama never waits for optional 
   };
 });
 
+test("client-runtime-coordinator", "denied Local Network Access suppresses repeated loopback probes", async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let localConnectCalls = 0;
+  let privateConnectCalls = 0;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      permissions: {
+        query: async () => ({ state: "denied" }),
+      },
+    },
+  });
+  try {
+    const coordinator = new ClosedAIRuntimeCoordinator({
+      origin: "https://novel-orcin.vercel.app",
+      snapshotReader: async () => [],
+      localClient: {
+        connectAutomatically: async () => {
+          localConnectCalls += 1;
+          throw new Error("loopback fetch must not run");
+        },
+      },
+      privateHubClient: {
+        connectAutomatically: async () => {
+          privateConnectCalls += 1;
+          throw new Error("loopback fetch must not run");
+        },
+      },
+    });
+    const result = await coordinator.connectAutomatically();
+    assert.equal(result.localOllama.status, "rejected");
+    assert.equal(result.privateHub.status, "rejected");
+    assert.equal(result.localOllama.reason.code, "LOCAL_NETWORK_PERMISSION_DENIED");
+    assert.equal(result.privateHub.reason.code, "LOCAL_NETWORK_PERMISSION_DENIED");
+    assert.equal(localConnectCalls, 0);
+    assert.equal(privateConnectCalls, 0);
+  } finally {
+    if (originalNavigator) {
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+  return {
+    localConnectCalls,
+    privateConnectCalls,
+    repeatedLoopbackProbes: 0,
+  };
+});
+
 test("client-runtime-coordinator", "twenty-scenario runtime and persistence matrix has no silent fallback", async () => {
   const browserTask = backend("browser-ai");
   const browserGenerative = backend("browser-ai", {
