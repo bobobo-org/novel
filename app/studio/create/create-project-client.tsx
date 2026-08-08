@@ -26,6 +26,7 @@ import {
   type ProjectCreationDraft,
   type ProjectSeed,
   type ReaderState,
+  type StoryState,
 } from "@/lib/novel-ai/domain";
 import {
   browserWebLLMRuntimeSnapshot,
@@ -120,7 +121,7 @@ type CandidatePayload = {
 
 function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
   if (typeof localStorage === "undefined") return createDraft();
-  const keys = cloneFrom ? [storageKey] : [storageKey, DRAFT_KEY];
+  const keys = [storageKey];
   for (const key of keys) {
     try {
       const parsed = JSON.parse(localStorage.getItem(key) || "null") as ProjectCreationDraft | null;
@@ -192,6 +193,25 @@ function playModeOf(draft: ProjectCreationDraft) {
   return selectedStoryPlayMode(draft.answers);
 }
 
+type StoryLanguage = "zh-TW" | "zh-CN" | "en";
+
+const STORY_LANGUAGE_LABELS: Record<StoryLanguage, string> = {
+  "zh-TW": "繁體中文",
+  "zh-CN": "简体中文",
+  en: "English",
+};
+
+function storyLanguageOf(draft: ProjectCreationDraft): StoryLanguage {
+  const language = draft.answers.language?.value;
+  return language === "zh-CN" || language === "en" ? language : "zh-TW";
+}
+
+function storyLanguageInstruction(language: StoryLanguage) {
+  if (language === "zh-CN") return "只使用简体中文，不得混入繁體字。";
+  if (language === "en") return "Use English only. Do not mix Chinese into any story field.";
+  return "只使用臺灣繁體中文，不得混入簡體字。";
+}
+
 function foundationMissing(draft: ProjectCreationDraft, seed: ProjectSeed) {
   const missing: string[] = [];
   const mode = playModeOf(draft);
@@ -205,6 +225,38 @@ function foundationMissing(draft: ProjectCreationDraft, seed: ProjectSeed) {
     if (!seed.opening.value?.trim()) missing.push("開場事件");
   }
   return missing;
+}
+
+const GUIDED_ANSWER_KEYS = ["story", "protagonist", "conflict", "worldRule", "opening"] as const;
+
+function guidedAnswersComplete(draft: ProjectCreationDraft) {
+  return GUIDED_ANSWER_KEYS.every((key) => Boolean(draft.answers[key]?.value?.trim()));
+}
+
+function guidedSeedFromDraft(draft: ProjectCreationDraft): ProjectSeed {
+  const base = buildSeedCandidate(draft);
+  const story = draft.answers.story?.value?.trim() || "一段由選擇推動的故事";
+  const rawProtagonist = draft.answers.protagonist?.value?.trim() || "主角";
+  const [protagonistName, ...protagonistTraits] = rawProtagonist.split("｜").map((item) => item.trim()).filter(Boolean);
+  const protagonist = protagonistName || rawProtagonist;
+  const weakness = protagonistTraits.join("｜") || null;
+  const conflict = draft.answers.conflict?.value?.trim() || "必須面對一個會留下代價的阻力";
+  const worldRule = draft.answers.worldRule?.value?.trim() || "每個選擇都會留下後果";
+  const opening = draft.answers.opening?.value?.trim() || "一件打破日常秩序的事件發生";
+  return {
+    ...base,
+    titleCandidates: [draft.title.trim()],
+    logline: optionalValue(`${protagonist}將走進${story}，並在「${worldRule}」的世界中面對${conflict}。`, "user_defined"),
+    protagonist: optionalValue(protagonist, "user_defined"),
+    goal: optionalValue(conflict, "user_defined"),
+    weakness: optionalValue(weakness, weakness ? "user_defined" : "deferred"),
+    world: optionalValue(`一個遵循「${worldRule}」的故事世界`, "user_defined"),
+    worldRule: optionalValue(worldRule, "user_defined"),
+    conflict: optionalValue(conflict, "user_defined"),
+    opposition: optionalValue(conflict, "user_defined"),
+    opening: optionalValue(opening, "user_defined"),
+    directions: [],
+  };
 }
 
 function proceduralPayload(draft: ProjectCreationDraft): CandidatePayload {
@@ -238,6 +290,10 @@ async function clonedDraft(sourceProjectId: string) {
   if (!source) throw new Error("找不到要複製的原作品。原作品沒有被修改。");
   const seeds = await repository.list<ProjectSeed>("projectSeeds", sourceProjectId);
   const sourceSeed = [...seeds].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
+  const storyStates = await repository.list<StoryState>("storyStates", sourceProjectId);
+  const sourceStoryState = storyStates.find((item) => item.id === source.storyStateId) ?? storyStates[0] ?? null;
+  const storedLanguage = sourceStoryState?.worldFlags["story.language"];
+  const sourceLanguage: StoryLanguage = storedLanguage === "zh-CN" || storedLanguage === "en" ? storedLanguage : "zh-TW";
   const next = createDraft("quick");
   next.title = source.title;
   next.genrePackId = source.genrePackId;
@@ -255,6 +311,7 @@ async function clonedDraft(sourceProjectId: string) {
     worldRule: optionalValue(sourceSeed?.worldRule.value ?? sourceSeed?.world.value ?? null, sourceSeed?.worldRule.value || sourceSeed?.world.value ? "user_defined" : "deferred"),
     opening: optionalValue(sourceSeed?.opening.value ?? null, sourceSeed?.opening.value ? "user_defined" : "deferred"),
     playMode: optionalValue<string>(),
+    language: optionalValue(sourceLanguage, "user_defined"),
   };
   next.seedCandidate = sourceSeed ? seedFromPayload(next, {
     logline: sourceSeed.logline.value ?? undefined,
@@ -335,10 +392,28 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     key: string,
     value: string | null,
     status: "user_defined" | "deferred" = "user_defined",
-  ) => set({
-    answers: { ...draft.answers, [key]: optionalValue(value, status) },
-    seedCandidate: key === "playMode" ? draft.seedCandidate : null,
-  });
+  ) => setDraft((current) => ({
+    ...current,
+    answers: { ...current.answers, [key]: optionalValue(value, status) },
+    seedCandidate: key === "playMode" ? current.seedCandidate : null,
+    updatedAt: new Date().toISOString(),
+  }));
+
+  useEffect(() => {
+    if (!ready || draft.mode !== "guided" || draft.seedCandidate || !guidedAnswersComplete(draft)) return;
+    setDraft((current) => {
+      if (current.mode !== "guided" || current.seedCandidate || !guidedAnswersComplete(current)) return current;
+      const guidedSeed = guidedSeedFromDraft(current);
+      return {
+        ...current,
+        coreIdea: optionalValue(guidedSeed.logline.value, "user_defined"),
+        protagonist: optionalValue(guidedSeed.protagonist.value, "user_defined"),
+        seedCandidate: guidedSeed,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    setMessage("五題已整理成可修改的完整故事起點；不需安裝或檢查 AI 就能建立作品。");
+  }, [draft, ready]);
 
   const requireTitle = (action: string) => {
     if (draft.title.trim()) {
@@ -370,9 +445,31 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       setMessage("請先選擇這部作品要使用的一種創作／遊玩方式。");
       return;
     }
+
+    if (draft.mode === "guided") {
+      const question = questions[Math.min(questions.length - 1, draft.step - 1)];
+      if (!draft.answers[question.key]?.value?.trim()) {
+        setMessage(`請先回答第 ${draft.step} 題「${question.title}」，再繼續下一題。`);
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(".p2GuidedChoices")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+        return;
+      }
+    }
+
+    if (draft.mode === "blank" && draft.step === 1 && !draft.genreId) {
+      setMessage("請先從完整故事庫選擇一個題材方向，再進入故事起點編輯。");
+      return;
+    }
+
     set({
       step: Math.min(modeSteps, draft.step + 1),
-      seedCandidate: draft.step + 1 === modeSteps ? buildSeedCandidate(draft) : draft.seedCandidate,
+    });
+    setMessage(draft.step + 1 === modeSteps
+      ? "已到最後一步。確認右側預覽後即可建立作品；若仍缺資料，按下建立會直接告訴你缺少哪一項。"
+      : `第 ${draft.step} 步已保存，現在進入第 ${draft.step + 1} 步。`);
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".p2CreatePanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   };
 
@@ -422,18 +519,21 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       if (!snapshot.supported || !selected || selected.installStatus !== "ready" || !selected.cacheVerified) {
         throw Object.assign(new Error("Browser AI 尚未完成安裝與驗證。可先使用立即可用的裝置亂數雛形，或到本機 AI 設定完成模型安裝。"), { code: "BROWSER_MODEL_NOT_READY" });
       }
+      const language = storyLanguageOf(draft);
+      const languageRule = storyLanguageInstruction(language);
       const prompt = [
         `作品名稱：${draft.title.trim()}`,
         `固定玩法：${STORY_PLAY_MODE_LABELS[currentPlayMode]}`,
+        `作品語言：${STORY_LANGUAGE_LABELS[language]}`,
         `題材：${topic?.name ?? "尚未指定"}`,
         `目前想法：${draft.coreIdea.value ?? draft.answers.story?.value ?? "尚未指定"}`,
         `目前主角：${seed.protagonist.value ?? "尚未指定"}`,
         "請建立一套原創且彼此一致的故事起始種子。不要寫完整章節，不要輸出分析過程。",
         "只輸出 JSON，欄位為 logline、protagonist、goal、weakness、world、worldRule、conflict、opposition、opening、style、directions（恰好三項）。",
-        "每個字串 15 至 60 個繁體中文字；若是互動或遊戲玩法，三個 directions 必須是策略不同且代價不同的方向，但現在不要產生 A/B/C 回合。",
+        `${languageRule} 若是互動或遊戲玩法，三個 directions 必須是策略不同且代價不同的方向，但現在不要產生 A/B/C 回合。`,
       ].join("\n");
       const result = await generateWithBrowserWebLLM({
-        systemInstruction: "你是繁體中文原創小說的創作帶領精靈。只建立可修改候選，不冒充使用者核准內容；嚴格輸出 JSON。",
+        systemInstruction: `你是原創小說的創作帶領精靈。${languageRule} 只建立可修改候選，不冒充使用者核准內容；嚴格輸出 JSON。`,
         prompt,
         jsonMode: true,
         temperature: 0.82,
@@ -498,6 +598,15 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     setMessage("已採用這份 AI 候選到建立草稿；作品尚未建立前仍可修改。未核准候選沒有寫入 Canon。");
   }
 
+  function abandonCreation() {
+    if (!window.confirm("放棄這次建立草稿？已建立的正式作品不會被刪除。")) return;
+    cancelBrowserWebLLMGeneration();
+    aiController.current?.abort("CREATION_DRAFT_ABANDONED");
+    localStorage.removeItem(storageKey);
+    if (!cloneFrom) localStorage.removeItem(DRAFT_KEY);
+    window.location.assign("/professional");
+  }
+
   async function finish() {
     if (!requireTitle("建立作品")) return;
     if (missing.length) {
@@ -505,6 +614,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       return;
     }
     if (saving || !currentPlayMode) return;
+    if (aiBusy) {
+      cancelBrowserWebLLMGeneration();
+      aiController.current?.abort("CREATION_CONTINUED_WITHOUT_OPTIONAL_AI");
+      setAiBusy(false);
+    }
     setSaving(true);
     setMessage("正在建立獨立作品、第一章與可還原備份……");
     try {
@@ -573,7 +687,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   return (
     <main className="p2CreateShell" data-testid="canonical-create-flow">
       <header>
-        <a href="/professional">儲存建立草稿並離開</a>
+        <div className="p2CreateExitActions">
+          <a href="/professional">儲存草稿並離開</a>
+          <button type="button" className="dangerAction" onClick={abandonCreation}>放棄此次建立</button>
+        </div>
         <div>
           <span>{cloneFrom ? "複製為新玩法" : "建立新作品"}</span>
           <h1>先命名、選玩法，再建立故事起點</h1>
@@ -601,6 +718,28 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         </label>
         <p>名稱會綁定這部作品的章節、玩法、角色、世界設定、StoryState 與備份。</p>
         {titleError ? <div className="p2TitleError" role="alert">{titleError}</div> : null}
+      </section>
+
+      <section className="p2LanguageGate" aria-labelledby="p2-story-language-title" data-testid="p2-story-language">
+        <div>
+          <span>作品語言</span>
+          <h2 id="p2-story-language-title">正文與 AI 候選使用哪一種語言？</h2>
+          <p>選定後，故事種子、正文、選項與回合續寫都必須使用同一種語言。</p>
+        </div>
+        <div className="p2LanguageChoices">
+          {(Object.keys(STORY_LANGUAGE_LABELS) as StoryLanguage[]).map((language) => (
+            <button
+              key={language}
+              type="button"
+              className={storyLanguageOf(draft) === language ? "active" : ""}
+              aria-pressed={storyLanguageOf(draft) === language}
+              onClick={() => setAnswer("language", language)}
+            >
+              <b>{STORY_LANGUAGE_LABELS[language]}</b>
+              <span>{language}</span>
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="p2PlayModeGate" aria-labelledby="p2-play-mode-title">
@@ -648,14 +787,18 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <section className="p2CreationAssistant" aria-label="創作帶領精靈">
             <div>
               <span>創作帶領精靈</span>
-              <h3>先得到可修改雛形，不再按了沒反應</h3>
-              <p>裝置亂數會立即產生；真實 Browser AI 只在已安裝模型可用時執行，並顯示進度與模型身分。</p>
+              <h3>五題完成即可建立，AI 只負責選用深化</h3>
+              <p>你的答案會立即整理成完整故事起點。裝置亂數與 Browser AI 都是選用工具，不會阻擋建立作品。</p>
             </div>
             <div className="p2CreationAssistantActions">
               <button type="button" onClick={applyProcedural}>立即產生裝置亂數雛形 <small>非 AI</small></button>
-              <button type="button" className="gold" disabled={aiBusy} onClick={() => void runBrowserAI()}>{aiBusy ? "真實模型生成中……" : "請真實 Browser AI 深化"}</button>
+              <button type="button" className="gold" disabled={aiBusy} onClick={() => void runBrowserAI()}>{aiBusy ? "真實模型生成中……" : "選用：請 Browser AI 再深化"}</button>
               {aiBusy ? <button type="button" onClick={() => { cancelBrowserWebLLMGeneration(); aiController.current?.abort(); }}>停止生成</button> : null}
-              <Link href="/settings/local-ai">檢查／安裝本機模型</Link>
+              <details>
+                <summary>選用 AI 模型設定</summary>
+                <p>只有想更換或安裝模型時才需要進入；不影響目前五題與建立作品。</p>
+                <Link href="/settings/local-ai">開啟模型設定</Link>
+              </details>
             </div>
             {aiStatus ? <p className="p2AIStatus" role="status" aria-live="polite">{aiStatus}</p> : null}
             {aiCandidate ? (
@@ -682,9 +825,9 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             <button disabled={draft.step <= 1} onClick={() => set({ step: Math.max(1, draft.step - 1) })}>上一步</button>
             {draft.step < modeSteps
               ? <button className="gold" onClick={advance}>繼續</button>
-              : <button className="gold" disabled={saving || aiBusy || missing.length > 0} onClick={() => void finish()}>{saving ? "建立中……" : `建立「${currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選玩法"}」作品`}</button>}
+              : <button className="gold" disabled={saving} onClick={() => void finish()}>{saving ? "建立中……" : `建立「${currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選玩法"}」作品`}</button>}
           </footer>
-          {message ? <p className="p2CreateMessage" role="status">{message}</p> : null}
+          {message ? <p className="p2CreateMessage" role="status" aria-live="polite">{message}</p> : null}
         </section>
 
         <aside className="p2SeedPreview">

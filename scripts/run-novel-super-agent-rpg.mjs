@@ -492,7 +492,10 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
   assert.match(navigation, /\["rpg","RPG 養成"\]/u);
   assert.match(globalCss, /\.p2ProjectNav\{display:grid/u);
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
-  assert.match(workspace, /確認選擇並寫入故事/u);
+  assert.match(workspace, /確認選擇、續寫正文並同步數值/u);
+  assert.match(workspace, /data-testid="rpg-resolution-progress"/u);
+  assert.match(workspace, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/u);
+  assert.match(workspace, /第 \$\{continuationAttempt\}\/2 次/u);
   assert.match(workspace, /我喜歡的人物庫/u);
   assert.match(serviceWorker, /NOVEL_RELEASE_IDENTITY/u);
   assert.match(serviceWorker, /identity\.appCommit[\s\S]*identity\.assetManifestDigest/u);

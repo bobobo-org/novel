@@ -20,7 +20,7 @@ import {
 const origin = "http://127.0.0.1:3000";
 const port = Number(process.env.RPG_RESOLUTION_REAL_TEST_PORT || 33_418);
 const base = `http://127.0.0.1:${port}`;
-const requestedMaxTokens = Number(process.env.RPG_REAL_REQUESTED_TOKENS || 288);
+const requestedMaxTokens = Number(process.env.RPG_REAL_REQUESTED_TOKENS || 640);
 const bridge = createBridgeServer({ testMode: true, port });
 
 const publicHeaders = {
@@ -135,26 +135,26 @@ try {
   });
   const baseObjective = [
     resolutionPrompt,
-    "請將候選正文寫到約 240 個中文字，至少 150 字；必須完成本場景的新事件與直接後果。",
-    humanizedSerialFictionInstruction("chapter.continue", 240),
+    "請以繁體中文寫出 6 至 10 個連續段落、至少 500 個中文字的候選正文；必須完成本場景的新事件、人物反應、可見代價與直接後果。",
+    humanizedSerialFictionInstruction("chapter.continue", 750),
   ].join("\n\n");
   const startedAt = performance.now();
   const attempts = [];
   let accepted = null;
   let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
     const repairRequirement = attempt === 1
       ? ""
-      : "\n\n前一版不合格。務必寫滿四個連續段落，每段至少兩句，依序呈現行動落地、人物反應、代價發生，以及下回合可處理的新局勢；只輸出小說正文。";
+      : "\n\n前一版不合格。務必使用繁體中文寫滿 6 至 10 個連續段落且至少 500 個中文字，每段至少兩句，依序呈現行動落地、人物反應、代價發生，以及下回合可處理的新局勢；只輸出小說正文。";
     const effectiveProfile = {
       ...profile,
       maxInputCharacters: budget.maxInputCharacters,
       options: {
         ...profile.options,
         num_predict: budget.maxOutputTokens,
-        temperature: 0.84,
-        top_p: 0.94,
-        repeat_penalty: 1.18,
+        temperature: 0.72,
+        top_p: 0.92,
+        repeat_penalty: 1.12,
         num_ctx: 4_096,
         seed: 240503 + (attempt - 1) * 104729,
       },

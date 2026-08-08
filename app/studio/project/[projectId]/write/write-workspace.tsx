@@ -148,6 +148,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const [aiProgress, setAiProgress] = useState<ClosedAIProgressEvent | null>(null);
   const [aiMessage, setAiMessage] = useState("AI 會讀取目前章節、相鄰章節、角色、Story Bible 與 StoryState，再建立候選。");
   const [aiRuntimeStatus, setAiRuntimeStatus] = useState("正在自動偵測並預熱可用的閉端 AI……");
+  const [aiDiscovering, setAiDiscovering] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const aiPanelRef = useRef<HTMLElement>(null);
   const saveQueueRef = useRef<Promise<Chapter | null>>(Promise.resolve(null));
@@ -155,6 +156,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   const cacheWarmControllerRef = useRef<AbortController | null>(null);
   const resumeTimerRef = useRef<number | null>(null);
   const aiControllerRef = useRef<AbortController | null>(null);
+  const aiDiscoveryControllerRef = useRef<AbortController | null>(null);
   const latestRef = useRef<EditorSnapshot>({
     chapter: null,
     project: null,
@@ -241,10 +243,22 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   const refreshAIRuntime = useCallback(async (signal?: AbortSignal) => {
+    aiDiscoveryControllerRef.current?.abort("WRITING_RUNTIME_DISCOVERY_REPLACED");
+    const controller = new AbortController();
+    aiDiscoveryControllerRef.current = controller;
+    const abortFromCaller = () => controller.abort(signal?.reason ?? "WRITING_RUNTIME_DISCOVERY_CANCELLED");
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener("abort", abortFromCaller, { once: true });
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort("WRITING_RUNTIME_DISCOVERY_TIMEOUT");
+    }, 8_000);
+    setAiDiscovering(true);
     setAiRuntimeStatus("正在自動偵測閉端 AI；不需要密碼、配對碼或跳轉設定頁……");
     try {
-      const snapshot = await discoverStudioClosedAI(signal);
-      if (signal?.aborted) return snapshot;
+      const snapshot = await discoverStudioClosedAI(controller.signal);
+      if (controller.signal.aborted) return snapshot;
       if (snapshot.status === "ollama_ready") {
         setAiRuntimeStatus(`本機 Ollama 已自動連線${snapshot.modelId ? ` · ${snapshot.modelId}` : ""}；寫作工具可直接執行。`);
       } else if (snapshot.status === "browser_ready") {
@@ -256,21 +270,29 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       }
       return snapshot;
     } catch (cause) {
-      if (!signal?.aborted) {
+      if (timedOut) {
+        setAiRuntimeStatus("背景偵測逾時；寫作與儲存仍可使用。按 AI 工具時會直接嘗試可用執行器。");
+      } else if (!controller.signal.aborted) {
         setAiRuntimeStatus(`自動偵測未完成：${cause instanceof Error ? cause.message : "請稍後重試"}。目前章節不受影響。`);
       }
       return null;
+    } finally {
+      window.clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromCaller);
+      if (aiDiscoveryControllerRef.current === controller) {
+        aiDiscoveryControllerRef.current = null;
+        setAiDiscovering(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void refreshAIRuntime(controller.signal);
+      void refreshAIRuntime();
     }, 0);
     return () => {
       window.clearTimeout(timer);
-      controller.abort("WRITING_RUNTIME_DISCOVERY_UNMOUNTED");
+      aiDiscoveryControllerRef.current?.abort("WRITING_RUNTIME_DISCOVERY_UNMOUNTED");
     };
   }, [projectId, refreshAIRuntime]);
 
@@ -279,6 +301,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     if (resumeTimerRef.current !== null) window.clearTimeout(resumeTimerRef.current);
     cacheWarmControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
     aiControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
+    aiDiscoveryControllerRef.current?.abort("WRITING_WORKSPACE_UNMOUNTED");
   }, []);
 
   const load = useCallback(async () => {
@@ -543,6 +566,19 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
 
   async function createChapter() {
     if (busy) return;
+    if (!project || !chapter) {
+      setStatus("尚未載入目前章節，沒有建立新章。");
+      return;
+    }
+    if (chapterStatus !== "completed") {
+      setStatus("請先使用下方的「完成本章並建立下一章」；未完成的章節不會再建立空白下一章。");
+      return;
+    }
+    const existingNext = chapters.find((item) => item.order === chapter.order + 1) ?? null;
+    if (existingNext) {
+      await selectChapter(existingNext);
+      return;
+    }
     setBusy(true);
     if (!await allowCandidateTransition("新章節")) {
       setBusy(false);
@@ -558,7 +594,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     }
     try {
       const repo = createNovelRepository();
-      const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
+      const order = chapter.order + 1;
       const next = await repo.put<Chapter>("chapters", {
         ...makeRecord(projectId),
         title: `第${order}章`,
@@ -577,7 +613,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       }
       setChapters((items) => [...items, next].sort((left, right) => left.order - right.order));
       applyChapter(next);
-      setStatus("新章節已建立。");
+      setStatus(`已建立空白的「${next.title}」；上一章保持完成狀態。`);
     } catch (cause) {
       setStatus(`建立章節失敗：${cause instanceof Error ? cause.message : "請重試"}`);
     } finally {
@@ -589,6 +625,11 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
     if (!project || !chapter || busy || aiBusy) return;
     if (!title.trim()) {
       setStatus("章節標題不能留白，尚未完成本章。");
+      return;
+    }
+    if (!content.trim()) {
+      setStatus("本章尚無正文，沒有完成或建立下一章。請先寫入內容，或切回尚未完成的章節。");
+      editorRef.current?.focus();
       return;
     }
     if (!await allowCandidateTransition("完成本章")) return;
@@ -625,7 +666,9 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       mirrorChapterToLegacyStudio(projectId, result.completedChapter.title, result.completedChapter.content);
       void syncChapterKnowledge(projectId, result.completedChapter).catch(() => undefined);
       scheduleAICacheWarm(result.nextChapter, 300);
-      setStatus(`「${result.completedChapter.title}」已完成並建立可還原備份；現在是空白的「${result.nextChapter.title}」。`);
+      setStatus(result.reusedNextChapter
+        ? `「${result.completedChapter.title}」已完成並建立可還原備份；已回到既有的「${result.nextChapter.title}」，沒有重複建立空白章。`
+        : `「${result.completedChapter.title}」已完成並建立可還原備份；現在是空白的「${result.nextChapter.title}」。`);
     } catch (cause) {
       setStatus(`完成章節失敗：${cause instanceof Error ? cause.message : "沒有建立下一章"}。目前內容仍留在原章。`);
     } finally {
@@ -1034,7 +1077,10 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
   return (
     <main className="p2ProjectShell p2WritingPage" data-testid="studio-writing">
       <header>
-        <button type="button" className="p2WritingBack" disabled={busy} onClick={() => void navigateSafely("/studio", "我的作品")}>我的作品</button>
+        <div className="p2WritingHeaderActions">
+          <button type="button" className="p2WritingBack" disabled={busy} onClick={() => void navigateSafely("/studio", "首頁")}>首頁</button>
+          <button type="button" className="p2WritingBack" disabled={busy} onClick={() => void navigateSafely(`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`, "我的作品")}>我的作品</button>
+        </div>
         <div><small>{project.title}</small><h1>專注寫作</h1></div>
         <span data-dirty={dirty}>{saving ? "正在自動儲存…" : dirty ? "等待自動儲存" : status}</span>
       </header>
@@ -1057,7 +1103,15 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
       </section>
       <section className="p2WritingWorkspace">
         <aside className="p2ChapterRail" aria-label="章節列表" data-testid="studio-chapter-manager">
-          <header><h2>章節</h2><button type="button" disabled={busy} onClick={() => void createChapter()}>新增</button></header>
+          <header>
+            <h2>章節</h2>
+            <button
+              type="button"
+              disabled={busy}
+              title={chapterStatus === "completed" ? "開啟既有下一章，或建立唯一的新章" : "請先完成目前章節"}
+              onClick={() => void createChapter()}
+            >{chapterStatus === "completed" ? "開啟下一章" : "完成後開下一章"}</button>
+          </header>
           <div className="p2ChapterList">
             {chapters.map((item) => (
               <button
@@ -1101,7 +1155,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           <footer>
             <span>{wordCount} 字 · {paragraphCount} 段 · {saving ? "自動儲存中" : "Ctrl+S 立即儲存"}</span>
             <div>
-              <button type="button" className="gold" disabled={busy || Boolean(aiBusy) || hasPendingAICandidate || !content.trim()} onClick={() => void completeChapterAndCreateNext()}>完成本章並建立下一章</button>
+              <button type="button" className="gold" disabled={busy || Boolean(aiBusy) || hasPendingAICandidate} onClick={() => void completeChapterAndCreateNext()}>完成本章並建立下一章</button>
               <button type="button" className="danger" disabled={busy || Boolean(aiBusy) || hasPendingAICandidate || chapters.length <= 1} onClick={() => void deleteChapter()}>刪除本章</button>
               <button type="button" disabled={busy || Boolean(aiBusy) || hasPendingAICandidate || saving || !dirty} onClick={() => void save()}>{saving ? "儲存中…" : "儲存目前內容"}</button>
             </div>
@@ -1113,7 +1167,7 @@ export default function WriteWorkspace({ projectId }: { projectId: string }) {
           <p>{project.coreIdea.value || "尚未設定核心想法。小精靈建議先建立人物與世界，或直接用 AI 引導設定。"}</p>
           <section className="p2WritingAIRuntime" aria-label="閉端 AI 自動連線狀態">
             <div><strong>閉端 AI 自動連線</strong><span>{aiRuntimeStatus}</span></div>
-            <button type="button" disabled={Boolean(aiBusy)} onClick={() => void refreshAIRuntime()}>重新偵測</button>
+            <button type="button" disabled={aiDiscovering || Boolean(aiBusy)} onClick={() => void refreshAIRuntime()}>{aiDiscovering ? "偵測中…" : "重新偵測"}</button>
           </section>
           <p className="p2WritingAIStageNote">題材、主角、世界、衝突、玩法、故事種子與大綱屬於「建立作品」階段；進入寫作後只顯示會作用於目前章節的工具，不會再把你送去其他頁面。</p>
           {guideStage === 0 ? <button type="button" onClick={() => void navigateSafely(`/studio/project/${projectId}/story-bible`, "故事設定")}>先設定故事</button> : null}

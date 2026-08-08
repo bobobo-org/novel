@@ -418,6 +418,74 @@
 .playGuide > div:last-child { display: flex; gap: 7px; }
 .playGuide a { min-width: 130px; padding: 7px 10px; }
 
+.stateDrawer,
+.worldDrawer {
+  max-width: 1680px;
+  margin: 0 auto 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(7, 21, 39, 0.94);
+}
+
+.stateDrawer > summary,
+.worldDrawer > summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 48px;
+  padding: 11px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.stateDrawer > summary::-webkit-details-marker,
+.worldDrawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+.stateDrawer > summary::before,
+.worldDrawer > summary::before {
+  color: var(--cyan);
+  content: "＋";
+  font-weight: 900;
+}
+
+.stateDrawer[open] > summary::before,
+.worldDrawer[open] > summary::before {
+  content: "－";
+}
+
+.stateDrawer[open] > summary,
+.worldDrawer[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.stateDrawer > summary span,
+.worldDrawer > summary span {
+  color: var(--gold);
+  font-weight: 900;
+}
+
+.stateDrawer > summary strong {
+  flex: 1;
+  color: #eaf5ff;
+}
+
+.stateDrawer > summary small,
+.worldDrawer > summary small {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.stateDrawer .hud,
+.worldDrawer .worldRibbon {
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .worldRibbon {
   position: relative;
   display: grid;
@@ -467,11 +535,11 @@
 
 .dashboard {
   display: grid;
-  grid-template-columns: minmax(240px, 0.84fr) minmax(520px, 1.82fr) minmax(260px, 0.92fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   max-width: 1680px;
-  height: clamp(650px, calc(100vh - 295px), 920px);
-  min-height: 650px;
+  height: auto;
+  min-height: 0;
   margin: 0 auto;
 }
 
@@ -479,7 +547,6 @@
 .centerStage,
 .rightRail {
   min-width: 0;
-  overflow: auto;
   overscroll-behavior: contain;
   scrollbar-color: rgba(97, 214, 232, 0.38) transparent;
   scrollbar-width: thin;
@@ -490,14 +557,29 @@
   display: grid;
   align-content: start;
   gap: 10px;
+  max-height: 620px;
+  overflow: auto;
   padding-right: 2px;
 }
 
 .centerStage {
   display: grid;
+  grid-column: 1 / -1;
+  grid-row: 1;
   align-content: start;
   gap: 10px;
+  overflow: visible;
   padding: 0 2px;
+}
+
+.leftRail {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.rightRail {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .characterCard,
@@ -510,6 +592,7 @@
 .walletCard,
 .identityPathCard,
 .freedomCard,
+.continuationResult,
 .resolution {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -693,11 +776,13 @@
 }
 
 .storyText {
-  max-height: 250px;
-  overflow: auto;
-  padding: 20px;
+  min-height: 260px;
+  max-height: none;
+  overflow: visible;
+  padding: 24px clamp(20px, 4vw, 52px);
   color: #dfeaf6;
-  line-height: 1.95;
+  font-size: 1.02rem;
+  line-height: 2;
   white-space: pre-wrap;
 }
 
@@ -715,6 +800,78 @@
   color: var(--gold);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.continuationResult {
+  scroll-margin-top: 18px;
+  overflow: hidden;
+  border-color: rgba(108, 226, 202, 0.58);
+  background:
+    radial-gradient(circle at 100% 0, rgba(91, 70, 173, 0.24), transparent 38%),
+    linear-gradient(145deg, rgba(11, 38, 61, 0.98), rgba(15, 24, 49, 0.98));
+}
+
+.continuationResult > header,
+.continuationResult > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.continuationResult > header {
+  border-bottom: 1px solid rgba(108, 226, 202, 0.25);
+}
+
+.continuationResult > header small {
+  color: var(--cyan);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.continuationResult > header h2 {
+  margin: 4px 0 0;
+  color: #fff1c4;
+}
+
+.continuationResult > header > span {
+  padding: 6px 10px;
+  border: 1px solid rgba(247, 199, 91, 0.42);
+  border-radius: 999px;
+  color: #ffe09a;
+  font-size: 0.72rem;
+}
+
+.continuationText {
+  padding: 22px 24px;
+  color: #edf7ff;
+  font-size: 1rem;
+  line-height: 1.95;
+  white-space: pre-wrap;
+}
+
+.continuationResult > footer {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(108, 226, 202, 0.2);
+  background: rgba(5, 17, 32, 0.5);
+}
+
+.continuationResult > footer button,
+.continuationResult > footer a {
+  padding: 9px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--text);
+  background: rgba(16, 49, 73, 0.88);
+  font: inherit;
+  text-decoration: none;
+}
+
+.continuationResult > footer a {
+  border-color: rgba(247, 199, 91, 0.55);
+  color: #ffe4a4;
+  background: rgba(70, 49, 18, 0.72);
 }
 
 .resolution {
@@ -1020,6 +1177,31 @@
   width: 100%;
   margin-top: 5px;
   padding: 10px;
+}
+
+.resolutionProgress {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  margin: 7px 0 2px;
+  padding: 10px;
+  border: 1px solid rgba(108, 226, 202, 0.44);
+  border-radius: 8px;
+  background: rgba(7, 38, 55, 0.84);
+}
+
+.resolutionProgress b {
+  color: #9ff4df;
+}
+
+.resolutionProgress span {
+  color: #edf7ff;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.resolutionProgress small {
+  color: #a9bed3;
 }
 
 .questCard,
@@ -1559,7 +1741,7 @@
   .worldRibbon { grid-template-columns: 160px minmax(260px,1fr) minmax(240px,.9fr); }
   .worldRibbon > button { grid-column: 1/-1; }
   .dashboard {
-    grid-template-columns: minmax(220px, 0.76fr) minmax(460px, 1.55fr) minmax(230px, 0.8fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .hud {
@@ -1608,7 +1790,10 @@
   .rightRail { order: 3; }
   .leftRail,
   .centerStage,
-  .rightRail { overflow: visible; }
+  .rightRail {
+    max-height: none;
+    overflow: visible;
+  }
 
   .leftRail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1672,7 +1857,12 @@
   .librarySection > header,
   .logPanel > header { align-items: flex-start; flex-direction: column; }
 
-  .storyText { max-height: 330px; padding: 16px; font-size: 0.9rem; }
+  .stateDrawer > summary,
+  .worldDrawer > summary { align-items: flex-start; flex-wrap: wrap; }
+  .stateDrawer > summary strong { flex-basis: calc(100% - 44px); }
+  .stateDrawer > summary small,
+  .worldDrawer > summary small { width: 100%; margin-left: 28px; }
+  .storyText { min-height: 220px; max-height: none; padding: 18px; font-size: 0.94rem; }
   .sceneCard > footer b { max-width: 100%; white-space: normal; }
   .resolution { grid-template-columns: 1fr; }
   .choiceGrid { grid-template-columns: 1fr; }
@@ -1732,13 +1922,13 @@
 .mutationList > span[data-kind="item"] { border-color: rgba(178, 122, 226, .5); background: rgba(52, 28, 73, .58); }
 .mutationList > span[data-kind="ability"] { border-color: rgba(91, 212, 241, .45); }
 .mutationList > span[data-kind="relationship"] { border-color: rgba(244, 130, 174, .42); }
-.mutationList small { overflow: hidden; color: #adc1d4; font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
-.mutationList del { color: #8ea0b3; font-size: .69rem; text-decoration: none; }
+.mutationList small { overflow: hidden; color: #c5d8e9; font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.mutationList del { color: #9fb0c0; font-size: .76rem; text-decoration: none; }
 .mutationList i { color: #738aa2; font-style: normal; }
-.mutationList strong { color: #f4f8ff; font-size: .76rem; }
-.mutationList em { padding: 2px 5px; border-radius: 999px; color: #bffff0; background: rgba(35, 126, 103, .44); font-size: .64rem; font-style: normal; white-space: nowrap; }
+.mutationList strong { color: #fff7d5; font-size: .86rem; }
+.mutationList em { padding: 3px 7px; border-radius: 999px; color: #bffff0; background: rgba(35, 126, 103, .44); font-size: .72rem; font-style: normal; white-space: nowrap; }
 .committedMutationSummary { display: grid; grid-column: 1 / -1; gap: 7px; padding-top: 9px; border-top: 1px solid rgba(99, 215, 179, .3); }
-.committedMutationSummary > b { color: #baffec; font-size: .76rem; }
+.committedMutationSummary > b { color: #baffec; font-size: .86rem; }
 
 @media (max-width: 900px) {
   .mutationList { grid-template-columns: 1fr; }

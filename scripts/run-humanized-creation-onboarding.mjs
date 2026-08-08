@@ -23,13 +23,16 @@ const checks = [
   ["一鍵代設入口可操作", /data-testid="studio-guide-autofill"/u.test(studio) && /buildLocalCreationGuide\(w\)/u.test(studio)],
   ["建立頁的 AI 工作不再突然跳頁", /!creationTasks\.has\(task\)/u.test(studio)],
   ["第一幕提供 AI、自寫與遊戲入口", /data-testid="studio-story-starter"/u.test(studio) && /請 AI 寫開場候選/u.test(studio) && /進入第一個遊戲回合/u.test(studio)],
-  ["RPG 新手流程清楚呈現", /data-testid="rpg-play-guide"/u.test(rpg) && /選行動 → 看預計影響 → 確認寫入故事/u.test(rpg)],
-  ["RPG 選擇仍須明確核准", /確認選擇並寫入故事/u.test(rpg) && /id="rpg-next-action"/u.test(rpg)],
+  ["RPG 新手流程清楚呈現", /data-testid="rpg-play-guide"/u.test(rpg) && /讀本回合故事 → 選一個行動 → 真實 AI 續寫與結算/u.test(rpg)],
+  ["RPG 選擇仍須明確核准", /data-testid="rpg-accept-choice"/u.test(rpg) && /確認選擇、續寫正文並同步數值/u.test(rpg) && /id="rpg-next-action"/u.test(rpg)],
   ["桌機與手機都有新手流程版面", /\.studioCreationGuide/u.test(globalCss) && /\.studioStoryStarter/u.test(globalCss) && /\.playGuide/u.test(rpgCss) && /@media \(max-width: 680px\)/u.test(rpgCss)],
   ["新版建立流程先要求名稱再鎖定單一玩法", /data-testid="p2-project-title"/u.test(creation) && /story\.playModeLocked/u.test(creationDomain) && /story\.setupComplete/u.test(creationDomain) && /STORY_PLAY_MODE_IDS/u.test(playMode)],
+  ["引導建立每一題都會攔截空白答案", /請先回答第 \$\{draft\.step\} 題/u.test(creation) && /scrollIntoView/u.test(creation)],
+  ["最終建立按鈕可回報缺項而不是靜默失效", /disabled=\{saving\} onClick=\{\(\) => void finish\(\)\}/u.test(creation) && /還不能開始：請先完成 \$\{missing\.join/u.test(creation)],
+  ["作品語言會鎖入正式 StoryState", /data-testid="p2-story-language"/u.test(creation) && /story\.language/u.test(creationDomain)],
   ["同一故事改玩法時建立獨立副本", /cloneFrom/u.test(creation) && /crypto\.randomUUID\(\)/u.test(creationDomain) && /複製故事種子/u.test(rpg)],
   ["五種玩法使用各自儀表板語彙與資源", /PLAY_MODE_DASHBOARD_COPY/u.test(rpg) && /RELATIONSHIP PULSE/u.test(rpg) && /BRANCH STATE/u.test(rpg) && /MANAGEMENT CAPITAL/u.test(rpg)],
-  ["只將選中分支續文與同筆數值交易寫入 Canon", /const acceptedText = continuation/u.test(rpg) && /acceptStudioChoice/u.test(rpg) && /只套用這個選項；另外兩個選項不改正文/u.test(rpg)],
+  ["只將選中分支續文與同筆數值交易寫入 Canon", /acceptedText = continuation/u.test(rpg) && /acceptStudioChoice\([\s\S]*?acceptedText/u.test(rpg) && /只套用這個選項；另外兩個選項不改正文/u.test(rpg)],
 ];
 
 for (const [name, pass] of checks) assert.equal(pass, true, name);

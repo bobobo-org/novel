@@ -897,7 +897,7 @@ test("studio-explicit-local-compute-selection", () => {
   assert.deepEqual(localBudget, {
     smallLocalModel: true,
     maxInputCharacters: 6_000,
-    maxOutputTokens: 192,
+    maxOutputTokens: 640,
   });
   assert.equal(resolveLocalOllamaPerformanceBudget({
     taskType: "chapter.continue",
@@ -934,7 +934,7 @@ test("studio-explicit-local-compute-selection", () => {
     requestedMaxTokens: 420,
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
-  }).maxOutputTokens, 288);
+  }).maxOutputTokens, 420);
   assert.equal(resolveLocalOllamaPerformanceBudget({
     taskType: "chapter.continue",
     modelId: "qwen2.5:3b",

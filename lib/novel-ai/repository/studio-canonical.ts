@@ -139,11 +139,12 @@ export async function completeStudioChapter(repository: NovelRepository, input: 
 
   const chapters = (await repository.list<Chapter>("chapters", input.projectId))
     .sort((left, right) => left.order - right.order);
-  const order = Math.max(0, ...chapters.map((item) => item.order)) + 1;
-  const nextChapter = await repository.put<Chapter>("chapters", {
+  const nextOrder = completedChapter.order + 1;
+  const existingNextChapter = chapters.find((item) => item.id !== completedChapter.id && item.order === nextOrder) ?? null;
+  const nextChapter = existingNextChapter ?? await repository.put<Chapter>("chapters", {
     ...makeRecord(input.projectId, "user"),
-    title: `第${order}章`,
-    order,
+    title: `第${nextOrder}章`,
+    order: nextOrder,
     content: "",
     summary: null,
     status: "draft",
@@ -153,7 +154,13 @@ export async function completeStudioChapter(repository: NovelRepository, input: 
     activeChapterId: nextChapter.id,
   }, project.revision);
 
-  return { completedChapter, nextChapter, nextProject, backup };
+  return {
+    completedChapter,
+    nextChapter,
+    nextProject,
+    backup,
+    reusedNextChapter: Boolean(existingNextChapter),
+  };
 }
 
 export async function persistStudioChoiceCandidate(repository: NovelRepository, input: StudioProjectSeed, candidate: {

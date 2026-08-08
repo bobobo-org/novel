@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Chapter, NovelProject, ProjectBackup, StoryState } from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
@@ -44,8 +44,9 @@ export default function ProfessionalClient({
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("正在開啟同一份正式作品庫……");
-  const [aiStatus, setAIStatus] = useState("正在檢查閉端 AI");
+  const [aiStatus, setAIStatus] = useState("背景偵測中（不影響作品）");
   const [error, setError] = useState("");
+  const aiDiscoveryController = useRef<AbortController | null>(null);
 
   const loadSummary = useCallback(async (projectId: string) => {
     if (!projectId) {
@@ -99,18 +100,6 @@ export default function ProfessionalClient({
         : migration.migrated
         ? `已將 ${migration.migrated} 部舊版作品非覆蓋地接到正式作品庫；原始資料仍保留。`
         : "專業工具與簡易版現在共用同一份正式作品、章節與備份資料。");
-      try {
-        const snapshot = await discoverStudioClosedAI();
-        setAIStatus(snapshot.status === "ollama_ready"
-          ? "Local Ollama 已連線"
-          : snapshot.status === "browser_ready"
-            ? "Browser AI 已就緒"
-            : snapshot.status === "auth_required"
-              ? "本機 AI 等待授權"
-              : "可在寫作頁使用已安裝的 Browser AI");
-      } catch {
-        setAIStatus("可在寫作頁檢查實際執行器");
-      }
       // 保留健康診斷入口的可觀測性；失敗不阻擋本機作品。
       void fetch("/api/ai/health", { cache: "no-store" }).catch(() => undefined);
     } catch (cause) {
@@ -121,12 +110,47 @@ export default function ProfessionalClient({
     }
   }, [intent, loadSummary, repository]);
 
+  const refreshAIStatus = useCallback(async () => {
+    aiDiscoveryController.current?.abort("PROFESSIONAL_AI_DISCOVERY_REPLACED");
+    const controller = new AbortController();
+    aiDiscoveryController.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort("PROFESSIONAL_AI_DISCOVERY_TIMEOUT");
+    }, 7_000);
+    setAIStatus("背景偵測中（不影響作品）");
+    try {
+      const snapshot = await discoverStudioClosedAI(controller.signal);
+      if (controller.signal.aborted) return;
+      setAIStatus(snapshot.status === "ollama_ready"
+        ? "Local Ollama 已連線"
+        : snapshot.status === "browser_ready"
+          ? "Browser AI 已就緒"
+          : snapshot.status === "auth_required"
+            ? "本機 AI 等待授權（不影響作品）"
+            : "未連線（寫作與作品庫仍可使用）");
+    } catch {
+      if (!controller.signal.aborted || timedOut) {
+        setAIStatus(timedOut ? "背景偵測逾時（不影響作品）" : "可在寫作頁重試實際執行器");
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (aiDiscoveryController.current === controller) aiDiscoveryController.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load(initialProjectId);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [initialProjectId, load]);
+
+  useEffect(() => {
+    void refreshAIStatus();
+    return () => aiDiscoveryController.current?.abort("PROFESSIONAL_UNMOUNTED");
+  }, [refreshAIStatus]);
 
   async function selectProject(projectId: string) {
     setSelectedId(projectId);
@@ -163,7 +187,7 @@ export default function ProfessionalClient({
       </header>
 
       <nav className="professionalModernTop" aria-label="專業工作台主要入口">
-        <Link href="/studio">簡易版首頁</Link>
+        <Link href="/studio">首頁</Link>
         <Link className="primary" href="/studio/create">建立新作品</Link>
         {project ? <Link href={`${projectRoot}/write`}>繼續寫作</Link> : null}
         {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}

@@ -4,6 +4,14 @@ export type RpgDirectedChoice = RpgChoice & {
   aiContinuityReason: string;
 };
 
+export type StoryOutputLanguage = "zh-TW" | "zh-CN" | "en";
+
+function outputLanguageInstruction(language: StoryOutputLanguage) {
+  if (language === "zh-CN") return "只使用简体中文，不得混入繁體字。";
+  if (language === "en") return "Use English only. Do not mix Chinese into the story output.";
+  return "只使用臺灣繁體中文，不得混入簡體字。";
+}
+
 type DirectedChoicePayload = {
   key: "A" | "B" | "C";
   title: string;
@@ -90,6 +98,7 @@ export function mergeRpgChoiceDirection(
 export function buildRpgChoiceDirectorPrompt(input: {
   context: Record<string, unknown>;
   baseChoices: RpgChoice[];
+  language: StoryOutputLanguage;
 }) {
   return JSON.stringify({
     instruction: [
@@ -98,6 +107,7 @@ export function buildRpgChoiceDirectorPrompt(input: {
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "不得重述前情、不得沿用最近回合標題、不得使用空泛句型，也不得修改 baseChoices 中的成功率、數值、代價或效果。",
       "每個選項都要指出它承接哪個具體上下文。只輸出 JSON，不要 Markdown。",
+      outputLanguageInstruction(input.language),
     ].join("\n"),
     outputSchema: {
       choices: [
@@ -137,7 +147,11 @@ export function rpgTextSimilarity(left: string, right: string) {
   return (2 * overlap) / (a.size + b.size);
 }
 
-export function cleanRpgContinuation(raw: string, recentAcceptedTexts: string[]) {
+export function cleanRpgContinuation(
+  raw: string,
+  recentAcceptedTexts: string[],
+  language: StoryOutputLanguage = "zh-TW",
+) {
   const unwrapped = raw
     .replace(/^\s*```(?:text|markdown)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
@@ -151,32 +165,44 @@ export function cleanRpgContinuation(raw: string, recentAcceptedTexts: string[])
   const narrativeLength = value.replace(/\s+/g, "").length;
   const paragraphCount = value.split(/\n+/u).map((paragraph) => paragraph.trim()).filter(Boolean).length;
   const sentenceCount = value.match(/[。！？!?]/gu)?.length ?? 0;
-  // A turn must be a usable scene rather than a one-line filler response. The
-  // threshold remains practical for a local 3B model. A response that already
-  // reaches the requested 150-character scene length may use the author's
-  // paragraph style; shorter compact turns still need multiple paragraphs or
-  // at least three complete sentences before they can become a candidate.
-  const structurallyComplete = paragraphCount >= 2 || sentenceCount >= 3;
-  if (narrativeLength < 120 || (narrativeLength < 150 && !structurallyComplete)) {
+  const englishSentenceCount = value.match(/[.!?](?:\s|$)/gu)?.length ?? 0;
+  const completeSentenceCount = language === "en" ? englishSentenceCount : sentenceCount;
+  const minimumLength = language === "en" ? 650 : 480;
+  const structurallyComplete = (paragraphCount >= 5 || completeSentenceCount >= 10)
+    && completeSentenceCount >= 7;
+  const mostSimilar = recentAcceptedTexts.reduce(
+    (highest, previous) => Math.max(highest, rpgTextSimilarity(value, previous)),
+    0,
+  );
+  // A short answer can also be a verbatim replay. Report the actionable
+  // repetition fault first so regeneration changes the scene instead of only
+  // padding the same paragraph to satisfy the length gate.
+  if (mostSimilar >= 0.68) throw Object.assign(
+    new Error("RPG_AI_CONTINUATION_REPETITIVE"),
+    { similarityScore: mostSimilar },
+  );
+  if (narrativeLength < minimumLength || !structurallyComplete) {
     throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
   }
   if (/^(?:說明|分析|以下是|作為(?:AI|人工智慧)|工程|JSON|```)/i.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_NOT_STORY");
   }
-  const mostSimilar = recentAcceptedTexts.reduce(
-    (highest, previous) => Math.max(highest, rpgTextSimilarity(value, previous)),
-    0,
-  );
-  if (mostSimilar >= 0.72) throw Object.assign(
-    new Error("RPG_AI_CONTINUATION_REPETITIVE"),
-    { similarityScore: mostSimilar },
-  );
+  if (language === "zh-TW" && /[这为个来时会发与还说对从过样开关门体应让边当书气国华见听处进远实线网]/u.test(value)) {
+    throw new Error("RPG_AI_CONTINUATION_LANGUAGE_MISMATCH");
+  }
+  if (language === "zh-CN" && /[這為個來時會發與還說對從過樣開關門體應讓邊當書氣國華見聽處進遠實線網]/u.test(value)) {
+    throw new Error("RPG_AI_CONTINUATION_LANGUAGE_MISMATCH");
+  }
+  if (language === "en" && (value.match(/[\u3400-\u9fff]/gu)?.length ?? 0) > 8) {
+    throw new Error("RPG_AI_CONTINUATION_LANGUAGE_MISMATCH");
+  }
   return value;
 }
 
 export function buildRpgResolutionDirectorPrompt(input: {
   context: Record<string, unknown>;
   choice: RpgChoice;
+  language: StoryOutputLanguage;
   resolution: {
     outcomeLabel: string;
     roll: number;
@@ -186,13 +212,16 @@ export function buildRpgResolutionDirectorPrompt(input: {
 }) {
   return JSON.stringify({
     instruction: [
-      "你是閉端小說 RPG 導演。依照已鎖定的玩家選擇與規則判定，寫出 3 到 6 段可直接接到目前章節末尾的繁體中文正文。",
-      "必須承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；用動作、對話、感官和具體新變化推進。",
+      "你是閉端小說故事導演。依照已鎖定的玩家選擇與規則判定，寫出 6 到 10 段可直接接到目前章節末尾的小說正文。",
+      "必須承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
-      "正文至少 150 個繁體中文字，分成 3 到 6 個完整段落；未達最低篇幅時繼續推進人物反應與直接後果，不要提早總結。",
+      input.language === "en"
+        ? "Write 650 to 1,600 characters in 6 to 10 complete paragraphs. Continue character reactions and concrete consequences until the scene reaches a genuine decision point."
+        : "正文需有 500 至 1,200 個中文字，分成 6 到 10 個完整段落；未達最低篇幅時繼續推進人物反應與直接後果，不要提早總結。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說正文，不要標題、JSON 或 Markdown。",
+      outputLanguageInstruction(input.language),
     ].join("\n"),
     context: input.context,
     selectedChoice: {

@@ -970,6 +970,8 @@ export function buildRpgChoices(input: {
     });
     return {
       ...baseChoice,
+      id: `${baseChoice.id}:turn-${input.progression.turn}:variant-${input.variant ?? input.progression.choiceVariant}:${encounter.signature.slice(0, 12)}`,
+      title: `${encounter.title}：${baseChoice.title}`,
       encounter,
       description: `${baseChoice.description} ${encounter.complication}`,
       acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,

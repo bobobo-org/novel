@@ -6,7 +6,20 @@ import {
 
 export function createDraft(mode: ProjectCreationDraft["mode"] = "quick"): ProjectCreationDraft {
   const projectId = crypto.randomUUID();
-  return { ...makeRecord(projectId), mode, step: 1, title: "", genrePackId: null, genreId: null, subgenreId: null, coreIdea: optionalValue(), protagonist: optionalValue(), style: optionalValue(), answers: {}, seedCandidate: null };
+  return {
+    ...makeRecord(projectId),
+    mode,
+    step: 1,
+    title: "",
+    genrePackId: null,
+    genreId: null,
+    subgenreId: null,
+    coreIdea: optionalValue(),
+    protagonist: optionalValue(),
+    style: optionalValue(),
+    answers: { language: optionalValue("zh-TW", "user_defined") },
+    seedCandidate: null,
+  };
 }
 
 export function buildSeedCandidate(draft: ProjectCreationDraft): ProjectSeed {
@@ -63,6 +76,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
       "story.playModeLocked": true,
       "story.setupComplete": true,
       "story.creationMode": draft.mode,
+      "story.language": draft.answers.language?.value || "zh-TW",
     },
     questStates: {},
     achievementStates: {},

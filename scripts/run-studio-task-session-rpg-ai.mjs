@@ -332,12 +332,12 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /approveStudioClosedAgentCandidate/);
   assert.match(rpg, /canonicalMutationCount !== 0/);
   assert.match(rpg, /qualityMode: "fast" as const/);
-  assert.match(rpg, /maxTokens: 420/);
+  assert.match(rpg, /maxTokens: 520/);
   assert.match(rpg, /closedAIErrorCode\(error\) !== "ABC_CHOICES_INVALID_STRUCTURE"/);
   assert.match(rpg, /結構修復重試/);
   assert.match(rpg, /seed: \(planningSeed \+ 104_729\) >>> 0/);
-  assert.match(rpg, /targetLength: 240/);
-  assert.match(rpg, /maxTokens: 288/);
+  assert.match(rpg, /targetLength: storyLanguage === "en" \? 1_000 : 750/);
+  assert.match(rpg, /maxTokens: 1_200/);
   assert.match(rpg, /data-testid="rpg-operation-status"/);
   assert.match(rpg, /RPG_CLOSED_AI_RESOLUTION_FAILED/);
   assert.match(rpg, /已產生 \$\{generated\} 字/);

@@ -119,20 +119,35 @@ export function resolveLocalOllamaPerformanceBudget(input: {
   );
   const fastLocalMode = input.qualityPreference === "fast";
   const structuredAbcChoices = input.taskType === "chapter.abcChoices";
+  const directProseTask = input.taskType === "chapter.continue"
+    || input.taskType === "chapter.rewrite"
+    || input.taskType === "chapter.expand"
+    || input.taskType === "character.dialogue"
+    || input.taskType === "drama.dialogue";
   const explicitRequestedMaxTokens = typeof input.requestedMaxTokens === "number"
     && Number.isFinite(input.requestedMaxTokens)
     ? input.requestedMaxTokens
     : null;
   const explicitFastDirectProse = fastLocalMode
-    && input.taskType === "chapter.continue"
+    && directProseTask
     && explicitRequestedMaxTokens !== null
     && explicitRequestedMaxTokens > 160;
+  const explicitDirectProseCap = directProseTask
+    && explicitRequestedMaxTokens !== null
+    ? fastLocalMode
+      ? 640
+      : input.qualityPreference === "high"
+        ? 1_024
+        : 768
+    : null;
   const qualityTokenCap = structuredAbcChoices
     ? input.profileMaxTokens
     : input.boundedQualityRepair && smallLocalModel
-      ? 360
+      ? directProseTask ? 512 : 360
+      : smallLocalModel && explicitDirectProseCap !== null
+        ? explicitDirectProseCap
       : fastLocalMode
-        ? explicitFastDirectProse ? 288 : 160
+        ? explicitFastDirectProse ? 640 : 160
         : smallLocalModel
           ? input.qualityPreference === "high" ? 256 : 192
           : input.profileMaxTokens;
