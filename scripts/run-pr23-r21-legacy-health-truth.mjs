@@ -68,7 +68,15 @@ assert.match(persistenceHealth, /runtimeStatus:\s*"client_probe_required"/u);
 assert.match(closedContract, /noSilentExternalFallback:\s*true/u);
 assert.match(
   professional,
-  /const snapshot = await discoverStudioClosedAI\(\)/u,
+  /const controller = new AbortController\(\)/u,
+);
+assert.match(
+  professional,
+  /const snapshot = await discoverStudioClosedAI\(controller\.signal\)/u,
+);
+assert.match(
+  professional,
+  /controller\.abort\("PROFESSIONAL_AI_DISCOVERY_TIMEOUT"\)/u,
 );
 assert.match(professional, /snapshot\.status === "ollama_ready"/u);
 assert.match(professional, /void fetch\("\/api\/ai\/health"/u);
