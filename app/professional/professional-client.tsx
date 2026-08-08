@@ -148,8 +148,13 @@ export default function ProfessionalClient({
   }, [initialProjectId, load]);
 
   useEffect(() => {
-    void refreshAIStatus();
-    return () => aiDiscoveryController.current?.abort("PROFESSIONAL_UNMOUNTED");
+    const timer = window.setTimeout(() => {
+      void refreshAIStatus();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      aiDiscoveryController.current?.abort("PROFESSIONAL_UNMOUNTED");
+    };
   }, [refreshAIStatus]);
 
   async function selectProject(projectId: string) {

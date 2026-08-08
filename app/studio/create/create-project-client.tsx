@@ -392,28 +392,27 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     key: string,
     value: string | null,
     status: "user_defined" | "deferred" = "user_defined",
-  ) => setDraft((current) => ({
-    ...current,
-    answers: { ...current.answers, [key]: optionalValue(value, status) },
-    seedCandidate: key === "playMode" ? current.seedCandidate : null,
-    updatedAt: new Date().toISOString(),
-  }));
-
-  useEffect(() => {
-    if (!ready || draft.mode !== "guided" || draft.seedCandidate || !guidedAnswersComplete(draft)) return;
+  ) => {
     setDraft((current) => {
-      if (current.mode !== "guided" || current.seedCandidate || !guidedAnswersComplete(current)) return current;
-      const guidedSeed = guidedSeedFromDraft(current);
-      return {
+      const next: ProjectCreationDraft = {
         ...current,
+        answers: { ...current.answers, [key]: optionalValue(value, status) },
+        seedCandidate: key === "playMode" ? current.seedCandidate : null,
+        updatedAt: new Date().toISOString(),
+      };
+      if (next.mode !== "guided" || !guidedAnswersComplete(next)) return next;
+      const guidedSeed = guidedSeedFromDraft(next);
+      return {
+        ...next,
         coreIdea: optionalValue(guidedSeed.logline.value, "user_defined"),
         protagonist: optionalValue(guidedSeed.protagonist.value, "user_defined"),
         seedCandidate: guidedSeed,
-        updatedAt: new Date().toISOString(),
       };
     });
-    setMessage("五題已整理成可修改的完整故事起點；不需安裝或檢查 AI 就能建立作品。");
-  }, [draft, ready]);
+    if (draft.mode === "guided" && key === GUIDED_ANSWER_KEYS.at(-1) && value?.trim()) {
+      setMessage("五題已整理成可修改的完整故事起點；不需安裝或檢查 AI 就能建立作品。");
+    }
+  };
 
   const requireTitle = (action: string) => {
     if (draft.title.trim()) {
