@@ -1204,6 +1204,35 @@
   color: #a9bed3;
 }
 
+.liveDraft {
+  display: grid;
+  max-height: 260px;
+  gap: 8px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(97, 214, 232, 0.42);
+  border-radius: 10px;
+  background: rgba(5, 20, 36, 0.88);
+}
+
+.liveDraft b {
+  color: #79ead8;
+  font-size: 0.76rem;
+}
+
+.liveDraftText {
+  margin: 0;
+  color: #e6f5ff;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.cancelTurn {
+  border-color: rgba(255, 134, 147, 0.65) !important;
+  color: #ffd4d9 !important;
+  background: rgba(89, 24, 37, 0.56) !important;
+}
+
 .questCard,
 .managementCard,
 .worldCard,

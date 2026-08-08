@@ -80,7 +80,6 @@ import {
 } from "@/lib/novel-ai/repository/studio-canonical";
 import {
   prewarmStudioInteractiveChoiceAI,
-  regenerateStudioClosedAI,
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
 import {
@@ -160,6 +159,8 @@ type RpgMutationLine = {
 
 const FORMULA = rpgFormulaExplanation();
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
+const RPG_CHOICE_PLAN_TIMEOUT_MS = 30_000;
+const RPG_TURN_TIMEOUT_MS = 120_000;
 
 type PlayModeDashboardCopy = {
   identity: string;
@@ -536,9 +537,13 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [aiChoicePlan, setAiChoicePlan] = useState<RpgAiChoicePlan | null>(null);
   const [aiChoiceStatus, setAiChoiceStatus] = useState("等待故事與 RPG 狀態完成同步。 ");
   const [aiChoiceRetry, setAiChoiceRetry] = useState(0);
+  const [turnDraft, setTurnDraft] = useState("");
+  const [turnElapsedSeconds, setTurnElapsedSeconds] = useState(0);
   const aiChoiceControllerRef = useRef<AbortController | null>(null);
   const aiChoiceCandidateRef = useRef<string | null>(null);
   const recentAiChoiceSignaturesRef = useRef<string[]>([]);
+  const turnControllerRef = useRef<AbortController | null>(null);
+  const turnRunIdRef = useRef(0);
   const resultRef = useRef<HTMLElement | null>(null);
   const detailPanels = PLAY_MODE_DETAIL_PANELS[storyPlayMode];
   const visiblePanel = detailPanels.includes(activePanel) ? activePanel : detailPanels[0];
@@ -550,6 +555,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [lastContinuation]);
+
+  useEffect(() => () => {
+    aiChoiceControllerRef.current?.abort();
+    turnControllerRef.current?.abort();
+  }, []);
 
   function leaveRpg(href: string, label: string) {
     stageStudioTaskHandoff({
@@ -841,6 +851,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     const controller = new AbortController();
     aiChoiceControllerRef.current?.abort();
     aiChoiceControllerRef.current = controller;
+    const planningTimeout = window.setTimeout(() => {
+      if (controller.signal.aborted) return;
+      setAiChoiceStatus("AI 規劃超過 30 秒，已改用可直接選擇的安全候選；確認後仍會由真實模型續寫，未取得續文前不會結算。");
+      controller.abort();
+    }, RPG_CHOICE_PLAN_TIMEOUT_MS);
     const resetTimer = window.setTimeout(() => {
       setSelectedChoice(null);
       setAiChoicePlan(null);
@@ -888,39 +903,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             setAiChoiceStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
           },
         };
-        let result;
-        try {
-          result = await runStudioClosedAI(taskInput);
-        } catch (error) {
-          if (closedAIErrorCode(error) !== "ABC_CHOICES_INVALID_STRUCTURE") throw error;
-          setAiChoiceStatus("第一版結構不完整；閉端 AI 正在以新 seed 修復 A／B／C JSON……");
-          result = await runStudioClosedAI({
-            ...taskInput,
-            input: `結構修復重試：上一版未產生完整的 A／B／C JSON。只輸出符合 outputSchema 的單一 JSON 物件，不得加入前言、Markdown 或第四個選項。\n\n${taskInput.input}`,
-            generationOptions: {
-              ...taskInput.generationOptions,
-              temperature: 0.45,
-              topP: 0.86,
-              seed: (planningSeed + 104_729) >>> 0,
-            },
-          });
-        }
-        let directed;
-        try {
-          directed = parseRpgChoiceDirectorOutput(result.content);
-        } catch {
-          result = await regenerateStudioClosedAI(taskInput, {
-            taskId: result.taskId,
-            candidateId: result.candidateId,
-            content: result.content,
-            contentDigest: result.contentDigest,
-            regenerationAttempt: result.regeneration?.regenerationAttempt ?? 0,
-          }, {
-            extraRequirement: "前一版不是完整且彼此不同的 A/B/C JSON。請嚴格依 outputSchema 重做，三條策略不可同義。",
-            maximumAttempts: 2,
-          });
-          directed = parseRpgChoiceDirectorOutput(result.content);
-        }
+        const result = await runStudioClosedAI(taskInput);
+        const directed = parseRpgChoiceDirectorOutput(result.content);
         const signature = directed
           .map((choice) => `${choice.key}:${choice.title}:${choice.description}`)
           .join("|");
@@ -928,27 +912,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           (previous) => rpgTextSimilarity(previous, signature) >= 0.82,
         );
         if (repeated) {
-          result = await regenerateStudioClosedAI(taskInput, {
-            taskId: result.taskId,
-            candidateId: result.candidateId,
-            content: result.content,
-            contentDigest: result.contentDigest,
-            regenerationAttempt: result.regeneration?.regenerationAttempt ?? 0,
-          }, {
-            extraRequirement: "本輪 A／B／C 與近期選項過度相似。請保留 Canon 與數值規則，但改用三種新的可執行策略、代價與後果；不得同義改寫舊選項。",
-            maximumAttempts: 2,
+          throw Object.assign(new Error("AI 規劃與最近回合過度相似，已保留可用的安全候選。"), {
+            code: "RPG_AI_CHOICES_REPEAT_RECENT_ROUND",
           });
-          directed = parseRpgChoiceDirectorOutput(result.content);
-          const regeneratedSignature = directed
-            .map((choice) => `${choice.key}:${choice.title}:${choice.description}`)
-            .join("|");
-          if (recentAiChoiceSignaturesRef.current.some(
-            (previous) => rpgTextSimilarity(previous, regeneratedSignature) >= 0.82,
-          )) {
-            throw Object.assign(new Error("AI 重新規劃後仍重複近期選項。"), {
-              code: "RPG_AI_CHOICES_REPEAT_RECENT_ROUND",
-            });
-          }
         }
         if (
           !hasVerifiedExecutedStoryOutput(result)
@@ -983,10 +949,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       .catch((error) => {
         if (controller.signal.aborted) return;
         console.warn("RPG_CLOSED_AI_CHOICE_PLANNING_FAILED", error);
-        setAiChoiceStatus(`真實閉端 AI 尚未完成本回合規劃（${String((error as { code?: string })?.code ?? "MODEL_NOT_READY")}）。下方公式選項只供預覽；模型完成前不能提交，也不會修改正文或數值。請按「重新請 AI 規劃」。`);
+        setAiChoiceStatus(`真實閉端 AI 尚未完成本回合規劃（${String((error as { code?: string })?.code ?? "MODEL_NOT_READY")}）。安全候選仍可直接選擇；按確認後才會呼叫真實模型續寫，取得正文前不會修改數值或故事。`);
+      })
+      .finally(() => {
+        window.clearTimeout(planningTimeout);
       });
     return () => {
       window.clearTimeout(resetTimer);
+      window.clearTimeout(planningTimeout);
       controller.abort();
     };
   }, [activated, aiChoiceRetry, aiContextKey, aiDirectorContext, data, progression, rpgFoundationReady, ruleChoices, storyLanguage]);
@@ -1095,17 +1065,45 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
+  function cancelTurn() {
+    if (!turnControllerRef.current) return;
+    turnRunIdRef.current += 1;
+    turnControllerRef.current.abort();
+    turnControllerRef.current = null;
+    setBusy(false);
+    const message = "已停止本回合；生成中的文字未寫入故事，數值、物品與貨幣均未結算。";
+    setOperationError({ code: "RPG_AI_TURN_CANCELLED", message });
+    setStatus(message);
+  }
+
   async function acceptChoice(choice: RpgChoice) {
     if (!data || busy || !activated || !progression || !aiDirectorContext) return;
-    if (choice.key !== "custom" && !aiChoicesReady) {
-      const message = "真實閉端 AI 尚未完成本回合 A／B／C 規劃；這次沒有選擇、沒有扣除數值，也沒有修改正文。請先按「重新請 AI 規劃」。";
-      setOperationError({ code: "RPG_AI_CHOICE_PLAN_REQUIRED", message });
-      setStatus(message);
-      return;
-    }
+    const runId = turnRunIdRef.current + 1;
+    turnRunIdRef.current = runId;
+    turnControllerRef.current?.abort();
+    const controller = new AbortController();
+    turnControllerRef.current = controller;
+    const startedAt = Date.now();
+    const elapsedTimer = window.setInterval(() => {
+      if (turnRunIdRef.current === runId) {
+        setTurnElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+      }
+    }, 1_000);
+    let turnTimeout: number | null = null;
+    const ensureActive = () => {
+      if (controller.signal.aborted || turnRunIdRef.current !== runId) {
+        throw Object.assign(
+          new Error("本回合已停止；沒有修改正文、數值、物品或貨幣。"),
+          { code: "RPG_AI_TURN_CANCELLED" },
+        );
+      }
+    };
+
     setOperationError(null);
+    setTurnDraft("");
+    setTurnElapsedSeconds(0);
     setBusy(true);
-    setStatus(`正在結算「${choice.key}｜${choice.title}」，並依目前章節續寫本回合……`);
+    setStatus(`已選擇「${choice.key}｜${choice.title}」；真實閉端 AI 正在承接目前故事續寫……`);
     try {
       const resolution = resolveRpgChoice(choice, {
         seed: `${progression.procedural.runSeed}|${data.chapter.id}|${progression.turn}`,
@@ -1121,7 +1119,6 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       );
       const repository = createNovelRepository();
       const settlement = [...choice.costLabels, ...choice.impactLabels, `${resolution.outcomeLabel} ${resolution.roll}/${resolution.successChance}`];
-      let continuationAttempt = 1;
       const taskInput = {
         projectId: data.project.id,
         task: "branch_choice",
@@ -1136,74 +1133,55 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             settlement,
           },
         }),
-        targetLength: storyLanguage === "en" ? 1_000 : 750,
+        targetLength: storyLanguage === "en" ? 800 : 560,
         sourceChapterId: data.chapter.id,
         sourceRevision: data.chapter.revision,
-        // This is the prose that becomes the next playable turn, so it must use
-        // the full contextual pass instead of a short dashboard-summary pass.
-        qualityMode: "balanced" as const,
+        // Stream one substantive scene instead of silently running a second
+        // full generation. This keeps local 1.5B/3B models responsive while
+        // the proof and canonical-approval gates remain unchanged.
+        qualityMode: "fast" as const,
         browserComputePolicy: "balanced" as const,
         generationOptions: {
-          maxTokens: 1_200,
+          maxTokens: 760,
           temperature: 0.72,
           topP: 0.92,
           repetitionPenalty: 1.18,
           seed: (data.storyState.revision * 1009 + progression.turn * 149 + resolution.roll * 23) >>> 0,
         },
+        signal: controller.signal,
         onProgress: (event: ClosedAIProgressEvent) => {
+          if (controller.signal.aborted || turnRunIdRef.current !== runId) return;
+          if (event.delta) setTurnDraft((current) => `${current}${event.delta}`);
           const generated = event.generatedCharacters ?? 0;
-          setStatus(`第 ${continuationAttempt}/2 次 · ${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
+          setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
         },
       };
       let generated: Awaited<ReturnType<typeof runStudioClosedAI>> | null = null;
       let acceptedText = "";
 
       try {
-        generated = await runStudioClosedAI(taskInput);
+        generated = await Promise.race([
+          runStudioClosedAI(taskInput),
+          new Promise<never>((_resolve, reject) => {
+            turnTimeout = window.setTimeout(() => {
+              controller.abort();
+              reject(Object.assign(
+                new Error("閉端 AI 續寫超過 120 秒，已自動停止；正文與所有數值均維持原狀。"),
+                { code: "RPG_AI_TURN_TIMEOUT" },
+              ));
+            }, RPG_TURN_TIMEOUT_MS);
+          }),
+        ]);
+        if (turnTimeout !== null) {
+          window.clearTimeout(turnTimeout);
+          turnTimeout = null;
+        }
+        ensureActive();
         if (!generated.candidateId) {
           throw Object.assign(new Error("閉端 AI 沒有建立可核准的本回合候選。"), { code: "RPG_AI_RESULT_CANDIDATE_MISSING" });
         }
         const recentAcceptedTexts = data.acceptedChoices.slice(0, 8).map((item) => item.acceptedText);
-        let continuation: string | null = null;
-        let continuationError: unknown = null;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          try {
-            continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts, storyLanguage);
-            break;
-          } catch (error) {
-            continuationError = error;
-            if (attempt >= 1) throw error;
-            const previous = generated;
-            continuationAttempt = 2;
-            const previousCharacters = Array.from(previous.content.trim()).length;
-            const failureCode = closedAIErrorCode(error) || "RPG_AI_CONTINUATION_INVALID";
-            setStatus(`第 1 版 ${previousCharacters} 字未通過 ${failureCode}；正在第 2/2 次重寫完整續文……`);
-            try {
-              generated = await regenerateStudioClosedAI(taskInput, {
-                taskId: previous.taskId,
-                candidateId: previous.candidateId,
-                content: previous.content,
-                contentDigest: previous.contentDigest,
-                regenerationAttempt: previous.regeneration?.regenerationAttempt ?? 0,
-              }, {
-                extraRequirement: storyLanguage === "en"
-                  ? "The previous version was too short, repetitive, or summary-like. Write 6 to 10 coherent prose paragraphs and at least 650 English characters. Show the chosen action, a complete scene with dialogue, immediate consequences, and a new pause point. Output English story prose only; do not output A/B/C choices, rules, scores, or system notes."
-                  : `前一版過短、像摘要、語言不符或與最近回合太相似。請用${storyLanguage === "zh-CN" ? "簡體中文" : "繁體中文"}寫 6 至 10 個連續小說段落，至少 500 字，完整呈現選中行動、場景與對話、人物反應、代價落地，以及下一個自然停頓點；只輸出小說正文，不得輸出 A／B／C、規則、評分或系統說明。`,
-                maximumAttempts: 1,
-              });
-            } finally {
-              if (previous.candidateId) {
-                await rejectStudioClosedAgentCandidate(previous.candidateId).catch(() => undefined);
-              }
-            }
-          }
-        }
-        if (!continuation) {
-          throw continuationError ?? Object.assign(
-            new Error("RPG_AI_CONTINUATION_INVALID"),
-            { code: "RPG_AI_CONTINUATION_INVALID" },
-          );
-        }
+        const continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts, storyLanguage);
         if (
           !hasVerifiedExecutedStoryOutput(generated)
           || !generated.candidateId
@@ -1219,6 +1197,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         const modelFailureCode = closedAIErrorCode(modelError) || "MODEL_NOT_READY";
         if (generated?.candidateId) {
           await rejectStudioClosedAgentCandidate(generated.candidateId).catch(() => undefined);
+        }
+        if (modelFailureCode === "RPG_AI_TURN_TIMEOUT" || modelFailureCode === "RPG_AI_TURN_CANCELLED") {
+          throw modelError;
         }
         throw Object.assign(
           new Error(`真實閉端 AI 未完成本回合正文（${modelFailureCode}）；這次選擇、數值、物品與故事均未寫入。請重新執行本回合。`),
@@ -1237,6 +1218,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
       // 正文只保存玩家選中的行動與其故事後果。數值、物品與貨幣
       // 結算由同一筆 StoryState 交易保存並在儀表板顯示，不污染小說段落。
+      ensureActive();
       const saved = await persistStudioChoiceCandidate(
         repository,
         studioSeed(data),
@@ -1253,6 +1235,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       const approved = await approveStudioClosedAgentCandidate({
         candidateId: verifiedGenerated.candidateId,
         canonicalCommit: async ({ candidate }) => {
+          ensureActive();
           if (
             candidate.taskId !== verifiedGenerated.taskId
             || candidate.contentDigest !== verifiedGenerated.contentDigest
@@ -1287,8 +1270,10 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setLastExecutorLabel(executionLabel);
       await load();
       setOperationError(null);
+      setTurnDraft("");
       setStatus(`已核准：${resolution.summary}。${verifiedGenerated.model} 產生的後續正文與公式數值已在同一筆交易寫入目前章節；下一回合會重新讀取新上下文並產生不同選項。`);
     } catch (error) {
+      if (turnRunIdRef.current !== runId) return;
       const code = closedAIErrorCode(error) || "RPG_CLOSED_AI_RESOLUTION_FAILED";
       const message = errorMessage(error);
       console.warn("RPG_CLOSED_AI_RESOLUTION_FAILED", { code });
@@ -1296,7 +1281,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setOperationError({ code, message });
       setStatus(message);
     } finally {
-      setBusy(false);
+      window.clearInterval(elapsedTimer);
+      if (turnTimeout !== null) window.clearTimeout(turnTimeout);
+      if (turnRunIdRef.current === runId) {
+        turnControllerRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -1794,11 +1784,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                 <div><small>ROUND {progression.turn + 1} · CLOSED AI STORY DIRECTOR</small><h2>接下來要怎麼做？</h2></div>
                 <div>
                   <button type="button" disabled={busy} onClick={() => setAiChoiceRetry((value) => value + 1)}>重新請 AI 規劃</button>
-                  <button type="button" disabled={busy || !aiChoicesReady || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲規則池（命運點 -1）</button>
+                  <button type="button" disabled={busy || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲規則池（命運點 -1）</button>
                 </div>
               </header>
               <p className={styles.aiChoiceStatus} data-ready={aiChoicesReady} data-testid="rpg-ai-choice-status">
-                <b>{aiChoicesReady ? "真實閉端 AI 已完成上下文規劃" : "等待真實閉端 AI；下方公式預覽不可提交"}</b>
+                <b>{aiChoicesReady ? "真實閉端 AI 已完成上下文規劃" : "安全候選已可直接選；AI 規劃在背景更新"}</b>
                 <span>{aiChoiceStatus}</span>
                 {aiChoicePlan?.contextKey === aiContextKey ? <small>執行者 {aiChoicePlan.actualExecutor} · 模型 {aiChoicePlan.model} · 章節 {data.chapter.title} r{data.chapter.revision}</small> : null}
               </p>
@@ -1810,7 +1800,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                     type="button"
                     className={selectedChoice?.key === choice.key ? styles.selected : ""}
                     onClick={() => setSelectedChoice(choice)}
-                    disabled={busy || !aiChoicesReady}
+                    disabled={busy}
                   >
                     <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>{choice.strategyLabel} · {choice.encounter.worldAspect}</small><h3>{choice.title}</h3></div></div>
                     <div className={styles.encounterSignal}><span>{choice.encounter.title}</span><p>{choice.encounter.telegraph}</p></div>
@@ -1847,10 +1837,17 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                       <p className={styles.resolutionProgress} role="status" aria-live="polite" data-testid="rpg-resolution-progress">
                         <b>真實閉端 AI 正在處理本回合</b>
                         <span>{status}</span>
-                        <small>請留在此頁；模型會持續顯示字數，完成前不會修改正文或數值。</small>
+                        <small>已等待 {turnElapsedSeconds} 秒；續文會即時顯示，最長 120 秒。完成前不會修改正文或數值。</small>
                       </p>
                     ) : null}
-                    <button data-testid="rpg-accept-choice" type="button" disabled={busy || (selectedChoice.key !== "custom" && !aiChoicesReady)} onClick={() => void acceptChoice(selectedChoice)}>{busy ? "正在續寫並結算本回合…" : "確認選擇、續寫正文並同步數值"}</button>
+                    {busy && turnDraft ? (
+                      <div className={styles.liveDraft} data-testid="rpg-live-draft">
+                        <b>正在生成的續文（尚未寫入故事）</b>
+                        <p className={styles.liveDraftText}>{turnDraft}</p>
+                      </div>
+                    ) : null}
+                    <button data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void acceptChoice(selectedChoice)}>{busy ? `正在續寫（${turnElapsedSeconds} 秒）…` : "確認選擇、續寫正文並同步數值"}</button>
+                    {busy ? <button data-testid="rpg-cancel-turn" className={styles.cancelTurn} type="button" onClick={cancelTurn}>停止本回合（不結算）</button> : null}
                   </div>
                 </aside>
               ) : null}
