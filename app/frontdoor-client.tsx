@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { NovelProject } from "@/lib/novel-ai/domain";
+import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   EXPLICIT_LEGACY_STUDIO_KEYS,
   previewLegacyStudioProjects,
@@ -60,6 +62,7 @@ function isExplicitLegacyRoute(href: string) {
 
 export default function FrontdoorClient({ release, packs, classicTopics }: FrontdoorProps) {
   const [recentProject, setRecentProject] = useState<RecentProject | null>(null);
+  const [projectCount, setProjectCount] = useState(0);
   const [closedAI, setClosedAI] = useState<ClosedAIStatus>("未設定");
   const [cloudSync, setCloudSync] = useState<CloudStatus>("未設定");
   const [legacyPreview, setLegacyPreview] = useState<ReturnType<
@@ -72,7 +75,25 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     let active = true;
     const timer = window.setTimeout(() => {
       void (async () => {
-        const recent = recentProjectFromShell();
+        const shellRecent = recentProjectFromShell();
+        let recent = shellRecent;
+        let canonicalProjects: NovelProject[] = [];
+        try {
+          canonicalProjects = (await createNovelRepository().list<NovelProject>("projects"))
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+          const preferred = canonicalProjects.find((item) => item.id === shellRecent?.id)
+            ?? canonicalProjects[0];
+          if (preferred) {
+            recent = {
+              id: preferred.id,
+              title: preferred.title,
+              updatedAt: preferred.updatedAt,
+            };
+          }
+        } catch {
+          // The front door remains usable when IndexedDB is temporarily
+          // unavailable; the canonical picker will show the recovery state.
+        }
         const preview = previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS);
         const origin = window.location.origin;
         const coordinator = getStudioClosedAIRuntimeCoordinator(origin);
@@ -80,6 +101,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         const proof = coordinator.localClient.getModelVerification();
         if (!active) return;
         setRecentProject(recent);
+        setProjectCount(canonicalProjects.length || (recent ? 1 : 0));
         setLegacyPreview(preview);
         setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
         if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
@@ -131,23 +153,24 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
   }, []);
 
   const recentId = safeProjectId(recentProject?.id ?? "");
-  const continueHref = recentId
-    ? `/studio?screen=write&projectId=${encodeURIComponent(recentId)}`
-    : "/studio?screen=create";
+  const continueHref = projectCount === 1 && recentId
+    ? `/studio/project/${encodeURIComponent(recentId)}/write`
+    : projectCount > 0
+      ? "/professional?intent=write"
+      : "/studio/create";
   const localAIHref = useMemo(() => {
     const returnTo = recentId
-      ? `/studio?screen=write&projectId=${encodeURIComponent(recentId)}`
-      : "/studio?screen=home";
+      ? `/studio/project/${encodeURIComponent(recentId)}/write`
+      : "/professional?intent=write";
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
   const entries = [
-    ["開始新故事", "從簡單步驟建立人物、世界與玩法。", "/studio?screen=create", "✦"],
-    ["繼續最近作品", recentProject ? `回到《${recentProject.title}》。` : "尚無作品時會引導你建立第一部小說。", continueHref, "↗"],
-    ["AI 助手", "續寫、改寫與檢查都先產生候選，由你核准。", "/studio?screen=write", "AI"],
-    ["互動故事／RPG", "產生嚴格 A／B／C 選項並原子更新故事數值。", "/studio?screen=choice", "ABC"],
-    ["角色", "整理人物設定、關係與角色弧線。", "/studio?screen=world", "角"],
-    ["世界／Story Bible", "管理世界規則、衝突與正式故事真相。", "/studio?screen=world", "界"],
-    ["我的作品", "查看作品、版本、存檔與備份。", "/studio?screen=library", "冊"],
+    ["開始新故事", "先命名、固定玩法，再建立人物、世界與故事起點。", "/studio/create", "✦"],
+    ["繼續寫作", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇，不會誤開別部作品。` : recentProject ? `回到《${recentProject.title}》。` : "尚無作品時會引導你建立第一部小說。", continueHref, "↗"],
+    ["AI 寫作助手", "直接在目前章節內續寫、改寫與修訂，不再跳到 AI 中心。", continueHref, "AI"],
+    ["互動故事／RPG", "先選正式作品，再進入該作品已鎖定的單一玩法。", "/professional?intent=play", "ABC"],
+    ["角色與世界", "先選作品，再管理人物、關係、世界與 Story Bible。", "/professional?intent=library", "角"],
+    ["我的作品", "選擇作品並查看寫作、閱讀、版本與備份。", "/professional?intent=library", "冊"],
     ["本機 AI 設定", "正式網址會直接連接；也可查看 Local Bridge、Private Hub 與模型實測狀態。", localAIHref, "⌁"],
     ["進階工具", "開啟 Legacy 完整工具與技術診斷。", "/professional", "⚙"],
   ] as const;
@@ -166,10 +189,10 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </Link>
         <nav aria-label="主要導覽">
           <Link className="active" href="/">首頁</Link>
-          <Link href="/studio?screen=create">創作</Link>
-          <Link href="/studio?screen=write">AI 助手</Link>
-          <Link href="/studio?screen=choice">互動故事</Link>
-          <Link href="/studio?screen=library">我的作品</Link>
+          <Link href="/studio/create">創作</Link>
+          <Link href={continueHref}>AI 助手</Link>
+          <Link href="/professional?intent=play">互動故事</Link>
+          <Link href="/professional?intent=library">我的作品</Link>
         </nav>
         <Link className="navCta" href="/studio">進入創作中心</Link>
       </header>
@@ -181,8 +204,8 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           <p className="lead">創作、互動、養成與經營的閉端 AI 故事平台</p>
           <h2>今天想創作什麼樣的故事？</h2>
           <div className="heroActions">
-            <Link className="primaryAction" href="/studio?screen=create">開始新故事</Link>
-            <Link className="secondaryAction" href={continueHref}>繼續最近作品</Link>
+            <Link className="primaryAction" href="/studio/create">開始新故事</Link>
+            <Link className="secondaryAction" href={continueHref}>{projectCount > 1 ? "選擇作品繼續" : "繼續最近作品"}</Link>
           </div>
         </div>
         <div className="worldPreview" aria-label="故事世界預覽">

@@ -1705,3 +1705,48 @@
   .modeSwitch button,
   .choiceGrid > button { transition: none; }
 }
+
+.lockedMode {
+  display: flex;
+  max-width: 1680px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 auto 10px;
+  padding: 14px 17px;
+  border: 1px solid rgba(98, 218, 197, 0.46);
+  border-radius: 13px;
+  background: linear-gradient(120deg, rgba(10, 65, 60, 0.58), rgba(15, 29, 54, 0.94));
+}
+
+.lockedMode small { color: var(--green); font-weight: 900; letter-spacing: .1em; }
+.lockedMode h2 { margin: 3px 0; color: #ffe29a; }
+.lockedMode p { margin: 0; color: var(--muted); font-size: .75rem; line-height: 1.55; }
+.lockedMode a { flex: 0 0 auto; padding: 9px 12px; border: 1px solid rgba(247, 199, 91, .55); border-radius: 9px; color: #ffe4a4; background: rgba(70, 49, 18, .72); text-decoration: none; }
+
+.choiceMutationPreview { display: grid !important; gap: 8px !important; }
+.choiceMutationPreview > small { display: block; }
+.mutationList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.mutationList > span { display: grid; grid-template-columns: minmax(84px, 1fr) auto auto auto auto; align-items: center; gap: 5px; min-width: 0; padding: 7px 8px; border: 1px solid rgba(91, 137, 178, .34); border-radius: 8px; background: rgba(6, 21, 37, .68); }
+.mutationList > span[data-kind="currency"] { border-color: rgba(244, 197, 91, .48); background: rgba(65, 47, 17, .58); }
+.mutationList > span[data-kind="item"] { border-color: rgba(178, 122, 226, .5); background: rgba(52, 28, 73, .58); }
+.mutationList > span[data-kind="ability"] { border-color: rgba(91, 212, 241, .45); }
+.mutationList > span[data-kind="relationship"] { border-color: rgba(244, 130, 174, .42); }
+.mutationList small { overflow: hidden; color: #adc1d4; font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
+.mutationList del { color: #8ea0b3; font-size: .69rem; text-decoration: none; }
+.mutationList i { color: #738aa2; font-style: normal; }
+.mutationList strong { color: #f4f8ff; font-size: .76rem; }
+.mutationList em { padding: 2px 5px; border-radius: 999px; color: #bffff0; background: rgba(35, 126, 103, .44); font-size: .64rem; font-style: normal; white-space: nowrap; }
+.committedMutationSummary { display: grid; grid-column: 1 / -1; gap: 7px; padding-top: 9px; border-top: 1px solid rgba(99, 215, 179, .3); }
+.committedMutationSummary > b { color: #baffec; font-size: .76rem; }
+
+@media (max-width: 900px) {
+  .mutationList { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .lockedMode { align-items: stretch; flex-direction: column; }
+  .lockedMode a { text-align: center; }
+  .mutationList > span { grid-template-columns: minmax(76px, 1fr) auto auto auto; }
+  .mutationList > span em { grid-column: 2 / -1; justify-self: end; }
+}

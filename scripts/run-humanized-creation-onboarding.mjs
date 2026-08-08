@@ -4,6 +4,9 @@ import fs from "node:fs";
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const guide = read("lib/novel-data/creation-guide.ts");
 const studio = read("app/studio/studio-client.tsx");
+const creation = read("app/studio/create/create-project-client.tsx");
+const creationDomain = read("lib/novel-ai/domain/creation.ts");
+const playMode = read("lib/novel-ai/domain/play-mode.ts");
 const rpg = read("app/studio/project/[projectId]/rpg/rpg-workspace.tsx");
 const globalCss = read("app/globals.css");
 const rpgCss = read("app/studio/project/[projectId]/rpg/rpg.module.css");
@@ -23,6 +26,10 @@ const checks = [
   ["RPG 新手流程清楚呈現", /data-testid="rpg-play-guide"/u.test(rpg) && /選行動 → 看預計影響 → 確認寫入故事/u.test(rpg)],
   ["RPG 選擇仍須明確核准", /確認選擇並寫入故事/u.test(rpg) && /id="rpg-next-action"/u.test(rpg)],
   ["桌機與手機都有新手流程版面", /\.studioCreationGuide/u.test(globalCss) && /\.studioStoryStarter/u.test(globalCss) && /\.playGuide/u.test(rpgCss) && /@media \(max-width: 680px\)/u.test(rpgCss)],
+  ["新版建立流程先要求名稱再鎖定單一玩法", /data-testid="p2-project-title"/u.test(creation) && /story\.playModeLocked/u.test(creationDomain) && /story\.setupComplete/u.test(creationDomain) && /STORY_PLAY_MODE_IDS/u.test(playMode)],
+  ["同一故事改玩法時建立獨立副本", /cloneFrom/u.test(creation) && /crypto\.randomUUID\(\)/u.test(creationDomain) && /複製故事種子/u.test(rpg)],
+  ["五種玩法使用各自儀表板語彙與資源", /PLAY_MODE_DASHBOARD_COPY/u.test(rpg) && /RELATIONSHIP PULSE/u.test(rpg) && /BRANCH STATE/u.test(rpg) && /MANAGEMENT CAPITAL/u.test(rpg)],
+  ["只將選中分支續文與同筆數值交易寫入 Canon", /const acceptedText = continuation/u.test(rpg) && /acceptStudioChoice/u.test(rpg) && /只套用這個選項；另外兩個選項不改正文/u.test(rpg)],
 ];
 
 for (const [name, pass] of checks) assert.equal(pass, true, name);

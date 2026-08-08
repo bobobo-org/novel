@@ -1,4 +1,8 @@
 import { makeRecord, optionalValue, type ProjectBundle, type ProjectCreationDraft, type ProjectSeed } from "./index";
+import {
+  isStoryPlayModeId,
+  selectedStoryPlayMode,
+} from "./play-mode";
 
 export function createDraft(mode: ProjectCreationDraft["mode"] = "quick"): ProjectCreationDraft {
   const projectId = crypto.randomUUID();
@@ -6,8 +10,16 @@ export function createDraft(mode: ProjectCreationDraft["mode"] = "quick"): Proje
 }
 
 export function buildSeedCandidate(draft: ProjectCreationDraft): ProjectSeed {
-  const hero = draft.protagonist.value?.trim() || null;
-  const idea = draft.coreIdea.value?.trim() || null;
+  const hero = draft.protagonist.value?.trim()
+    || draft.answers.protagonist?.value?.trim()
+    || null;
+  const idea = draft.coreIdea.value?.trim()
+    || draft.answers.story?.value?.trim()
+    || null;
+  const conflict = draft.answers.conflict?.value?.trim()
+    || draft.answers.obstacle?.value?.trim()
+    || draft.answers.goal?.value?.trim()
+    || null;
   return {
     ...makeRecord(draft.projectId, "system"),
     titleCandidates: [draft.title.trim() || "未命名作品"],
@@ -17,7 +29,7 @@ export function buildSeedCandidate(draft: ProjectCreationDraft): ProjectSeed {
     weakness: optionalValue<string>(null, "deferred"),
     world: optionalValue(draft.answers.worldRule?.value ?? null, draft.answers.worldRule?.value ? "user_defined" : "deferred"),
     worldRule: optionalValue(draft.answers.worldRule?.value ?? null, draft.answers.worldRule?.value ? "user_defined" : "deferred"),
-    conflict: optionalValue(draft.answers.obstacle?.value ?? null, draft.answers.obstacle?.value ? "user_defined" : "deferred"),
+    conflict: optionalValue(conflict, conflict ? "user_defined" : "deferred"),
     opposition: optionalValue<string>(null, "deferred"),
     opening: optionalValue(draft.answers.opening?.value ?? null, draft.answers.opening?.value ? "user_defined" : "deferred"),
     directions: [],
@@ -33,7 +45,31 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
   const protagonist = seed.protagonist.value ? { ...makeRecord(projectId), name: seed.protagonist.value, aliases: [] as string[], identity: optionalValue<string>(), personality: optionalValue<string>(), goal: seed.goal, lifeStatus: "unknown" as const, locationId: null } : null;
   const world = seed.world.value ? { ...makeRecord(projectId), name: optionalValue<string>(null, "deferred"), era: optionalValue<string>(null, "deferred"), summary: seed.world } : null;
   const storyBible = { ...bibleRecord, theme: optionalValue<string>(null, "deferred"), style: draft.style, protagonistIds: protagonist ? [protagonist.id] : [], characterIds: protagonist ? [protagonist.id] : [], relationshipIds: [], worldId: world?.id ?? null, worldRuleIds: [], loreIds: [], timelineEventIds: [], foreshadowing: [], unresolvedThreads: seed.conflict.value ? [seed.conflict.value] : [], forbiddenContradictions: [], authorPreferences: [] };
-  const storyState = { ...stateRecord, protagonistStats: {}, resources: {}, money: null, inventory: [], relationships: {}, reputation: null, factionStanding: {}, worldFlags: {}, questStates: {}, achievementStates: {}, timeState: null, locationState: null, riskState: null };
+  const requestedPlayMode = selectedStoryPlayMode(draft.answers);
+  const playMode = requestedPlayMode && isStoryPlayModeId(requestedPlayMode)
+    ? requestedPlayMode
+    : "general";
+  const storyState = {
+    ...stateRecord,
+    protagonistStats: {},
+    resources: {},
+    money: null,
+    inventory: [],
+    relationships: {},
+    reputation: null,
+    factionStanding: {},
+    worldFlags: {
+      "story.playMode": playMode,
+      "story.playModeLocked": true,
+      "story.setupComplete": true,
+      "story.creationMode": draft.mode,
+    },
+    questStates: {},
+    achievementStates: {},
+    timeState: null,
+    locationState: null,
+    riskState: null,
+  };
   const project = { ...makeRecord(projectId), id: projectId, title, creationMode: draft.mode, genrePackId: draft.genrePackId, genreId: draft.genreId, subgenreId: draft.subgenreId, coreIdea: draft.coreIdea, narrativeStyle: draft.style, adultMode: false, adultExperienceProfile: null, activeChapterId: null, storyBibleId: storyBible.id, storyStateId: storyState.id };
   const initialTask = { ...makeRecord(projectId), title: "寫下第一章", kind: "writing" as const, status: "not_started" as const, progress: 0, target: 1 };
   const readerState = { ...makeRecord(projectId), chapterId: null, positionType: "ratio" as const, positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0, theme: "night" as const, fontFamily: "system-ui", fontSize: 20, lineHeight: 1.9, contentWidth: 760, paragraphSpacing: 18, lastReadAt: null };

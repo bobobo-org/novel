@@ -1,4 +1,5 @@
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { redirect } from "next/navigation";
 import StudioClient from "./studio-client";
 
 const SCREENS = new Set([
@@ -28,6 +29,31 @@ export default async function StudioPage({
 }) {
   const params = await searchParams;
   const requestedScreen = first(params.screen);
+  const projectId = safeProjectId(first(params.projectId));
+  if (requestedScreen === "create") {
+    redirect("/studio/create");
+  }
+  // Old consumer URLs used the monolithic StudioClient. Keep those links
+  // compatible, but always land authors in the canonical single-purpose
+  // workspace so chapters and AI candidates cannot be split across two UIs.
+  if (requestedScreen === "write") {
+    redirect(projectId
+      ? `/studio/project/${encodeURIComponent(projectId)}/write`
+      : "/professional?intent=write");
+  }
+  if (requestedScreen === "library") {
+    redirect(projectId
+      ? `/professional?intent=library&projectId=${encodeURIComponent(projectId)}`
+      : "/professional?intent=library");
+  }
+  if (requestedScreen === "choice" || requestedScreen === "interactive") {
+    redirect(projectId
+      ? `/studio/project/${encodeURIComponent(projectId)}/rpg`
+      : "/professional?intent=play");
+  }
+  if (requestedScreen === "world" && projectId) {
+    redirect(`/studio/project/${encodeURIComponent(projectId)}/story-bible`);
+  }
   const initialScreen = requestedScreen === "interactive"
     ? "choice"
     : SCREENS.has(requestedScreen)
@@ -41,7 +67,7 @@ export default async function StudioPage({
     <StudioClient
       initialScreen={initialScreen}
       initialTask={first(params.task)}
-      initialProjectId={safeProjectId(first(params.projectId))}
+      initialProjectId={projectId}
       initialLegacyMigrationAction={migrationAction}
       release={RELEASE_MANIFEST}
     />

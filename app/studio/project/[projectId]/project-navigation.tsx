@@ -1,6 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import type { StoryState } from "@/lib/novel-ai/domain";
+import {
+  STORY_PLAY_MODE_LABELS,
+  resolveStoryPlayMode,
+  type StoryPlayModeId,
+} from "@/lib/novel-ai/domain/play-mode";
+import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   stageStudioTaskHandoff,
 } from "@/lib/novel-ai/web/studio-task-session";
@@ -52,6 +60,22 @@ export default function ProjectNavigation({
   active: string;
   onNavigate?: (href: string, label: string) => void | Promise<void>;
 }) {
+  const [playMode, setPlayMode] = useState<StoryPlayModeId | null>(null);
+
+  useEffect(() => {
+    let activeRequest = true;
+    void createNovelRepository().list<StoryState>("storyStates", projectId)
+      .then((states) => {
+        if (!activeRequest) return;
+        const state = states[0];
+        setPlayMode(state ? resolveStoryPlayMode(state) : "general");
+      })
+      .catch(() => {
+        if (activeRequest) setPlayMode("general");
+      });
+    return () => { activeRequest = false; };
+  }, [projectId]);
+
   function guardedLink(href: string, label: string) {
     return { onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
@@ -75,6 +99,11 @@ export default function ProjectNavigation({
 
   return (
     <nav className="p2ProjectNav" aria-label="作品功能">
+      {playMode ? (
+        <span className="p2LockedPlayMode" title="此作品的玩法已固定；要改用其他玩法，請複製為新作品。">
+          固定玩法：{STORY_PLAY_MODE_LABELS[playMode]}
+        </span>
+      ) : null}
       <Link
         className="p2NavWorkbench"
         href={`/professional?projectId=${encodeURIComponent(projectId)}`}
@@ -86,21 +115,43 @@ export default function ProjectNavigation({
         <span className="p2NavShort">工作台</span>
       </Link>
       {PROJECT_LINKS.map(([path, label]) => {
+        if (path === "rpg" && (!playMode || playMode === "general")) return null;
         const { icon, short } = PROJECT_LINK_PRESENTATION[path];
+        const displayedLabel = path === "rpg" && playMode
+          ? `${STORY_PLAY_MODE_LABELS[playMode]}儀表板`
+          : label;
+        const displayedShort = path === "rpg" && playMode
+          ? STORY_PLAY_MODE_LABELS[playMode].replace("養成", "").replace("模擬", "")
+          : short;
+        const href = path === "ai"
+          ? `/studio/project/${projectId}/write?assistant=advanced#writing-ai`
+          : `/studio/project/${projectId}/${path}`;
         return (
           <Link
             key={path}
             className={active === path ? "active" : ""}
-            href={`/studio/project/${projectId}/${path}`}
+            href={href}
             aria-current={active === path ? "page" : undefined}
-            {...(active === path ? {} : guardedLink(`/studio/project/${projectId}/${path}`, label))}
+            {...(active === path ? {} : guardedLink(href, displayedLabel))}
           >
             <span className="p2NavIcon" aria-hidden="true">{icon}</span>
-            <span className="p2NavLabel">{label}</span>
-            <span className="p2NavShort">{short}</span>
+            <span className="p2NavLabel">{displayedLabel}</span>
+            <span className="p2NavShort">{displayedShort}</span>
           </Link>
         );
       })}
+      {playMode ? (
+        <Link
+          className="p2NavCloneMode"
+          href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}
+          prefetch={false}
+          {...guardedLink(`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`, "複製為其他玩法")}
+        >
+          <span className="p2NavIcon" aria-hidden="true">↗</span>
+          <span className="p2NavLabel">複製為其他玩法</span>
+          <span className="p2NavShort">複製玩法</span>
+        </Link>
+      ) : null}
     </nav>
   );
 }

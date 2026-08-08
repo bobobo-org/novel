@@ -983,8 +983,8 @@
             </div>
             <div class="bar">
               <button class="btn green" onclick="Phase1Novel.openLatestForWriting()">繼續寫作</button>
-              <button onclick="Phase1Novel.readProject('${project.id}')">閱讀作品</button>
-              <button onclick="Phase1Novel.focusManager('${project.id}')">作品管理</button>
+              <button onclick="Phase1Novel.openCanonical('${project.id}','read')">閱讀作品</button>
+              <button onclick="Phase1Novel.openCanonical('${project.id}','manage')">作品管理</button>
             </div>
           </div>
         </div>
@@ -2719,32 +2719,10 @@
   }
 
   async function openLatestForWriting() {
-    if (typeof showView === "function") showView("creation");
     const rawProject = await findRecentProject();
     if (!rawProject) return showNewWork();
     const project = normalizeProject(rawProject);
-    UI.projectId = project.id;
-    const bundle = await NovelDB.listProjectBundle(project.id);
-    const lastOpen = await getLastOpen();
-    const latest = chooseResumeChapter(project, bundle, lastOpen);
-    UI.volumeId = latest?.volumeId || project.currentVolumeId || "";
-    UI.chapterId = latest?.id || project.currentChapterId || "";
-    UI.lastRestore = latest ? {
-      chapterId: latest.id,
-      cursor: lastOpen.lastProjectId === project.id && lastOpen.lastChapterId === latest.id ? lastOpen.lastCursorPosition : latest.lastCursorPosition,
-      scroll: lastOpen.lastProjectId === project.id && lastOpen.lastChapterId === latest.id ? lastOpen.lastScrollPosition : latest.lastScrollPosition
-    } : null;
-    await saveLastOpen({ lastCursorPosition: UI.lastRestore?.cursor || 0, lastScrollPosition: UI.lastRestore?.scroll || 0 });
-    await refresh();
-    showSection("phase1Manager");
-    showSection("phase1AssistTools");
-    hideSection("phase1NewWorkArea");
-    hideSection("phase1NewWorkIntro");
-    hideSection("phase1MyWorks");
-    if (!latest) {
-      notify("此作品尚未建立章節，請先建立第一章。");
-      $("phase1NewChapterTitleInput")?.focus();
-    }
+    openCanonical(project.id, "write");
   }
 
   async function createVolume() {
@@ -4246,26 +4224,25 @@
     }
   }
 
-  async function readProject(projectId) {
-    const bundle = await NovelDB.listProjectBundle(projectId);
-    if (!bundle) return;
-    const out = $("storyOutput");
-    if (out) {
-      out.classList.remove("hidden");
-      out.textContent = bundle.chapters.map((chapter) => chapter.content).join("\n\n" + "=".repeat(48) + "\n\n");
-      if (typeof showView === "function") showView("creation");
+  function openCanonical(projectId, target = "write") {
+    const id = String(projectId || "");
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+      notify("找不到可開啟的作品識別碼。", "error");
+      return;
     }
+    localStorage.setItem("novel_last_project_id", id);
+    const safeTarget = ["write", "read", "manage", "backups", "professional"].includes(target)
+      ? target
+      : "write";
+    location.assign(`/studio/legacy-handoff?projectId=${encodeURIComponent(id)}&target=${safeTarget}`);
+  }
+
+  async function readProject(projectId) {
+    openCanonical(projectId, "read");
   }
 
   function showNewWork() {
-    if (typeof showView === "function") showView("creation");
-    if (typeof activateProfessionalNavButton === "function") activateProfessionalNavButton("phase1NewWorkNavButton");
-    showSection("phase1NewWorkIntro");
-    showSection("phase1NewWorkArea");
-    hideSection("phase1Manager");
-    hideSection("phase1AssistTools");
-    hideSection("phase1MyWorks");
-    $("phase1NewWorkIntro")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    location.assign("/studio/create");
   }
 
   async function showMyWorks() {
@@ -4288,9 +4265,9 @@
             <p class="muted">${new Date(project.updatedAt || project.createdAt || Date.now()).toLocaleString()}｜${project.currentChapter || 0}章｜${project.totalWords || 0}字</p>
           </div>
           <div class="bar">
-            <button class="btn green" onclick="Phase1Novel.focusManager('${project.id}')">繼續寫作</button>
-            <button onclick="Phase1Novel.readProject('${project.id}')">閱讀</button>
-            <button onclick="Phase1Novel.focusManager('${project.id}')">管理</button>
+            <button class="btn green" onclick="Phase1Novel.openCanonical('${project.id}','write')">繼續寫作</button>
+            <button onclick="Phase1Novel.openCanonical('${project.id}','read')">閱讀</button>
+            <button onclick="Phase1Novel.openCanonical('${project.id}','manage')">管理</button>
           </div>
         </div>`).join("") : "<p class='muted'>尚未建立作品。</p><button class='btn green' onclick='Phase1Novel.showNewWork()'>建立第一部小說</button>"}
     `;
@@ -4481,6 +4458,7 @@
     exportCurrentProject,
     importBackup,
     readProject,
+    openCanonical,
     readPreviousChapter,
     focusManager,
     focusProjectSettings,

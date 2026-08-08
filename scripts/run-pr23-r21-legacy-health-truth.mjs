@@ -68,8 +68,11 @@ assert.match(persistenceHealth, /runtimeStatus:\s*"client_probe_required"/u);
 assert.match(closedContract, /noSilentExternalFallback:\s*true/u);
 assert.match(
   professional,
-  /raw\.legacyCloudAnalysis\?\.model\|\|raw\.legacyCloudAnalysis\?\.modelId/u,
+  /const snapshot = await discoverStudioClosedAI\(\)/u,
 );
+assert.match(professional, /snapshot\.status === "ollama_ready"/u);
+assert.match(professional, /void fetch\("\/api\/ai\/health"/u);
+assert.doesNotMatch(professional, /legacyCloudAnalysis/u);
 assert.doesNotMatch(professional, /raw\.model\|\|raw\.modelId/u);
 
 console.log(JSON.stringify({

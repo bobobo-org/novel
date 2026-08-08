@@ -12,6 +12,10 @@ const [
   studio,
   projectSections,
   browserRuntime,
+  quickAssistant,
+  studioPage,
+  professional,
+  aiPage,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
@@ -23,6 +27,10 @@ const [
   readFile(new URL("../app/studio/studio-client.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-section-client.tsx", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/quick-assistant/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/ai/page.tsx", import.meta.url), "utf8"),
 ]);
 
 const checks = [];
@@ -86,10 +94,33 @@ check("reader has progress, searchable directory and previous-next navigation", 
   assert.match(reader, /nextChapter/u);
 });
 
-check("closed AI safely returns to the source writing chapter", () => {
-  assert.match(writing, /returnTo/u);
-  assert.match(closedAI, /requestedReturn/u);
-  assert.match(closedAI, /返回原章寫作/u);
+check("writing AI auto-connects and stays in the canonical chapter workspace", () => {
+  assert.match(writing, /discoverStudioClosedAI/u);
+  assert.match(writing, /閉端 AI 自動連線/u);
+  assert.match(writing, /executeStudioClosedAgent/u);
+  assert.doesNotMatch(writing, /closedAIHref/u);
+  assert.match(quickAssistant, /write\?assistant=advanced#writing-ai/u);
+  assert.match(aiPage, /write\?assistant=advanced#writing-ai/u);
+});
+
+check("writing tools are stage-correct and commit only an approved candidate", () => {
+  assert.match(writing, /"rewrite-selection"/u);
+  assert.match(writing, /"dialogue"/u);
+  assert.match(writing, /"tension"/u);
+  assert.match(writing, /"pacing"/u);
+  assert.match(writing, /"hook"/u);
+  assert.match(writing, /approveInlineWritingAI/u);
+  assert.match(writing, /selectedOption\?\.selection/u);
+  assert.match(writing, /sourceSnapshot\.revision !== candidate\.sourceRevision/u);
+  assert.match(writing, /commitStudioCandidateToChapter/u);
+});
+
+check("continue writing selects an explicit canonical project and old routes converge", () => {
+  assert.match(professional, /mustChoose/u);
+  assert.match(professional, /canonical-project-picker/u);
+  assert.match(studioPage, /requestedScreen === "write"/u);
+  assert.match(studioPage, /professional\?intent=write/u);
+  assert.doesNotMatch(quickAssistant, /StudioClient/u);
 });
 
 check("first connection verifies the fast model while retaining selectable 7B quality", () => {

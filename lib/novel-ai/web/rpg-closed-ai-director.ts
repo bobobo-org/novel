@@ -95,6 +95,7 @@ export function buildRpgChoiceDirectorPrompt(input: {
     instruction: [
       "你是閉端小說 RPG 導演。請先理解目前章節、角色、世界規則、未解伏筆、最近選擇與正式 RPG 狀態，再設計本回合 A/B/C。",
       "A 必須是穩健／觀察策略，B 必須是資源／關係策略，C 必須是高風險／突破策略；三者要導向不同事件、人物反應與後續代價。",
+      "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "不得重述前情、不得沿用最近回合標題、不得使用空泛句型，也不得修改 baseChoices 中的成功率、數值、代價或效果。",
       "每個選項都要指出它承接哪個具體上下文。只輸出 JSON，不要 Markdown。",
     ].join("\n"),
@@ -137,15 +138,28 @@ export function rpgTextSimilarity(left: string, right: string) {
 }
 
 export function cleanRpgContinuation(raw: string, recentAcceptedTexts: string[]) {
-  const value = raw
+  const unwrapped = raw
     .replace(/^\s*```(?:text|markdown)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
     .trim();
-  // qwen2.5:3b reliably produces a compact 2–3 sentence turn even when given a
-  // larger token budget. The verified formula settlement is appended by the
-  // canonical transaction, so reject fragments while allowing complete,
-  // responsive local-model turns instead of demanding padded prose.
-  if (value.length < 64) throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
+  const choiceBlockIndex = unwrapped.search(
+    /(?:^|\n)\s*(?:【\s*(?:下一(?:回合|步|次)[^】]{0,12}(?:選擇|選項)|本回合結算|選項)\s*】|[ABCＡＢＣ][.．、:：]\s*)/u,
+  );
+  const value = (choiceBlockIndex >= 0 ? unwrapped.slice(0, choiceBlockIndex) : unwrapped)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const narrativeLength = value.replace(/\s+/g, "").length;
+  const paragraphCount = value.split(/\n+/u).map((paragraph) => paragraph.trim()).filter(Boolean).length;
+  const sentenceCount = value.match(/[。！？!?]/gu)?.length ?? 0;
+  // A turn must be a usable scene rather than a one-line filler response. The
+  // threshold remains practical for a local 3B model. A response that already
+  // reaches the requested 150-character scene length may use the author's
+  // paragraph style; shorter compact turns still need multiple paragraphs or
+  // at least three complete sentences before they can become a candidate.
+  const structurallyComplete = paragraphCount >= 2 || sentenceCount >= 3;
+  if (narrativeLength < 120 || (narrativeLength < 150 && !structurallyComplete)) {
+    throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
+  }
   if (/^(?:說明|分析|以下是|作為(?:AI|人工智慧)|工程|JSON|```)/i.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_NOT_STORY");
   }
@@ -175,7 +189,9 @@ export function buildRpgResolutionDirectorPrompt(input: {
       "你是閉端小說 RPG 導演。依照已鎖定的玩家選擇與規則判定，寫出 3 到 6 段可直接接到目前章節末尾的繁體中文正文。",
       "必須承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；用動作、對話、感官和具體新變化推進。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
+      "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       "正文至少 150 個繁體中文字，分成 3 到 6 個完整段落；未達最低篇幅時繼續推進人物反應與直接後果，不要提早總結。",
+      "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說正文，不要標題、JSON 或 Markdown。",
     ].join("\n"),
     context: input.context,

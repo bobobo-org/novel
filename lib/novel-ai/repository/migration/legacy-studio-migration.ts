@@ -6,6 +6,7 @@ import type {
   ProjectBundle,
 } from "../../domain/index";
 import { ensureStudioCanonicalProject } from "../studio-canonical";
+import { resolveStoryPlayMode } from "../../domain/play-mode";
 
 const LEGACY_KEYS = ["novel_p12_studio_state", "novel_p11r2_studio_state", "novel_p11_consumer_state"];
 
@@ -299,7 +300,7 @@ export function mirrorProjectToLegacyStudio(bundle: ProjectBundle) {
   try {
     const current = JSON.parse(localStorage.getItem(key) || "null") || {};
     const projects = Array.isArray(current.projects) ? current.projects.filter((item: { id?: string }) => item.id !== bundle.project.id) : [];
-    projects.unshift({ id: bundle.project.id, title: bundle.project.title, consumerGroupId: null, packId: bundle.project.genrePackId, topicId: bundle.project.genreId, topicName: null, subCategory: bundle.project.subgenreId, coreIdea: bundle.project.coreIdea, selectedPlayModeId: null, enabledStats: [], adultMode: false, optionalFields: { protagonist: bundle.seed.protagonist, identity: optionalValue<string>(null,"deferred"), archetype: optionalValue<string>(null,"deferred"), goal: bundle.seed.goal, weakness: bundle.seed.weakness, world: bundle.seed.world, worldRule: bundle.seed.worldRule, factions: optionalValue<string>(null,"deferred"), conflict: bundle.seed.conflict, villain: bundle.seed.opposition, style: bundle.project.narrativeStyle, storySeed: bundle.seed.logline, outline: optionalValue<string>(null,"deferred") }, storyLibrarySchemaVersion: "story-library-v1", chapterTitle: "第一章", draft: "", updatedAt: bundle.project.updatedAt, versions: [] });
+    projects.unshift({ id: bundle.project.id, title: bundle.project.title, consumerGroupId: null, packId: bundle.project.genrePackId, topicId: bundle.project.genreId, topicName: null, subCategory: bundle.project.subgenreId, coreIdea: bundle.project.coreIdea, selectedPlayModeId: resolveStoryPlayMode(bundle.storyState), enabledStats: [], adultMode: false, optionalFields: { protagonist: bundle.seed.protagonist, identity: optionalValue<string>(null,"deferred"), archetype: optionalValue<string>(null,"deferred"), goal: bundle.seed.goal, weakness: bundle.seed.weakness, world: bundle.seed.world, worldRule: bundle.seed.worldRule, factions: optionalValue<string>(null,"deferred"), conflict: bundle.seed.conflict, villain: bundle.seed.opposition, style: bundle.project.narrativeStyle, storySeed: bundle.seed.logline, outline: optionalValue<string>(null,"deferred") }, storyLibrarySchemaVersion: "story-library-v1", chapterTitle: "第一章", draft: "", updatedAt: bundle.project.updatedAt, versions: [] });
     localStorage.setItem(key, JSON.stringify({ ...current, schemaVersion: Math.max(4, Number(current.schemaVersion)||0), activeProjectId: bundle.project.id, projects }));
   } catch { /* IndexedDB remains authoritative if compatibility mirroring fails. */ }
 }

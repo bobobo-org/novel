@@ -17,68 +17,54 @@ async function check(name, work) {
 }
 
 try {
-  await page.goto(`${baseUrl}/studio?screen=create`, { waitUntil: "networkidle", timeout: 60_000 });
+  await page.goto(`${baseUrl}/studio/create`, { waitUntil: "networkidle", timeout: 60_000 });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
-  await check("all creation entries require a title and visibly advance", async () => {
-    await page.getByTestId("studio-entry-quick").click();
-    await page.locator("#studio-project-title-error").waitFor({ state: "visible" });
-    assert.equal(await page.getByTestId("studio-create-next").isVisible(), true);
+  await check("title is required before mode or creation path", async () => {
+    await page.getByTestId("canonical-create-flow").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("create-play-mode-general").isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: /快速開始/ }).isDisabled(), true);
+    assert.equal(await page.getByTestId("rpg-choice-A").count(), 0);
 
-    await page.getByTestId("studio-project-title").fill("入口流程驗收作品");
-    await page.getByTestId("studio-entry-guided").click();
-    await page.getByRole("heading", { name: "選擇題材" }).waitFor({ state: "visible" });
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-create-submit").waitFor({ state: "visible" });
+    await page.getByTestId("p2-project-title").fill("入口流程驗收作品");
+    assert.equal(await page.getByTestId("create-play-mode-general").isEnabled(), true);
+    await page.getByTestId("create-play-mode-general").click();
+    await page.getByRole("button", { name: /引導建立/ }).click();
+    await page.getByText("第 1 題／共 5 題").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("p2-project-title").inputValue(), "入口流程驗收作品");
   });
 
-  await page.goto(`${baseUrl}/studio?screen=create`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/studio/create`, { waitUntil: "networkidle" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
-  await check("blank structured start is visibly blocked", async () => {
-    await page.getByTestId("studio-creation-guide").waitFor({ state: "visible" });
-    await page.getByTestId("studio-project-title").fill("必要設定 Gate 驗收");
-    for (let step = 1; step < 5; step += 1) await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-foundation-blocked").waitFor({ state: "visible" });
-    assert.equal(await page.getByTestId("studio-create-submit").isDisabled(), true);
+  await check("incomplete RPG setup has no choices and cannot start", async () => {
+    await page.getByTestId("p2-project-title").fill("必要設定 Gate 驗收");
+    await page.getByTestId("create-play-mode-rpg").click();
+    await page.getByRole("button", { name: /引導建立/ }).click();
+    for (let step = 1; step < 5; step += 1) {
+      await page.getByRole("button", { name: "繼續", exact: true }).click();
+    }
+    await page.locator(".p2FoundationWarning").waitFor({ state: "visible" });
+    assert.equal(await page.getByRole("button", { name: "建立「RPG 養成」作品" }).isDisabled(), true);
+    assert.equal(await page.getByTestId("rpg-choice-A").count(), 0);
   });
 
-  await page.goto(`${baseUrl}/studio?screen=create`, { waitUntil: "networkidle" });
-  await page.evaluate(() => window.localStorage.clear());
-  await page.reload({ waitUntil: "networkidle" });
-
-  await check("guide creates editable character and story foundations", async () => {
-    await page.getByTestId("studio-project-title").fill("精靈建立驗收");
-    await page.getByTestId("studio-guide-autofill").click();
-    assert.equal((await page.getByTestId("studio-project-title").inputValue()).trim(), "精靈建立驗收");
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-create-next").click();
-    assert.notEqual((await page.getByTestId("studio-optional-protagonist").inputValue()).trim(), "");
-    assert.notEqual((await page.getByTestId("studio-optional-world").inputValue()).trim(), "");
+  await check("guide creates editable foundations without changing the title", async () => {
+    await page.getByRole("button", { name: /立即產生裝置亂數雛形/ }).click();
+    await page.getByText("故事起點已完整").waitFor({ state: "visible" });
+    assert.equal((await page.getByTestId("p2-project-title").inputValue()).trim(), "必要設定 Gate 驗收");
+    const preview = await page.locator(".p2SeedPreview").innerText();
+    assert.equal(preview.includes("稍後補充"), false);
+    assert.equal(await page.getByRole("button", { name: "建立「RPG 養成」作品" }).isEnabled(), true);
   });
 
   await check("RPG start reaches a playable first turn", async () => {
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-play-mode-rpg").click();
-    await page.getByTestId("studio-create-next").click();
-    await page.getByTestId("studio-foundation-ready").waitFor({ state: "visible" });
-    assert.equal(await page.getByTestId("studio-create-submit").isEnabled(), true);
-    await page.getByTestId("studio-create-submit").click();
-    await page.getByTestId("studio-story-starter").waitFor({ state: "visible", timeout: 60_000 });
-    await page.setViewportSize({ width: 1280, height: 720 });
-    const rpgButtonHitTarget = await page.getByTestId("studio-writing-open-rpg").evaluate((button) => {
-      const bounds = button.getBoundingClientRect();
-      const target = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-      return target === button || Boolean(target && button.contains(target));
-    });
-    assert.equal(rpgButtonHitTarget, true, "the visible RPG action must not be covered by the assistant column");
-    await page.getByTestId("studio-writing-open-rpg").click();
-    await page.getByTestId("studio-task-handoff").waitFor({ state: "visible", timeout: 60_000 });
-    await page.getByTestId("studio-task-handoff-continue").click();
+    await page.getByRole("button", { name: "建立「RPG 養成」作品" }).click();
+    await page.getByRole("link", { name: "進入第一回合" }).click();
+    const handoff = page.getByTestId("studio-task-handoff");
+    if (await handoff.isVisible()) await page.getByTestId("studio-task-handoff-continue").click();
     await page.getByTestId("rpg-initialize").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByTestId("rpg-initialize").click();
     await page.getByTestId("rpg-play-guide").waitFor({ state: "visible", timeout: 60_000 });

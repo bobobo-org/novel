@@ -45,8 +45,8 @@ async function consumerFrontdoorDefault() {
   assert.doesNotMatch(config, /source:\s*["']\/["']/);
   assert.match(frontdoor, /data-testid="modern-consumer-frontdoor"/);
   for (const label of [
-    "開始新故事", "繼續最近作品", "AI 助手", "互動故事／RPG", "角色",
-    "世界／Story Bible", "我的作品", "本機 AI 設定", "進階工具",
+    "開始新故事", "繼續寫作", "AI 寫作助手", "互動故事／RPG",
+    "角色與世界", "我的作品", "本機 AI 設定", "進階工具",
   ]) assert.ok(frontdoor.includes(label), `missing frontdoor entry: ${label}`);
   for (const truth of ["本機裝置", "未設定", "等待配對", "已就緒", "預設未使用"]) {
     assert.ok(frontdoor.includes(truth), `missing status truth: ${truth}`);
@@ -124,7 +124,10 @@ async function frontdoorProjectRouting() {
     source("app/settings/local-ai/setup-wizard.tsx"),
   ]);
   assert.match(frontdoor, /safeProjectId/);
-  assert.match(frontdoor, /projectId=\$\{encodeURIComponent\(recentId\)\}/);
+  assert.match(frontdoor, /projectCount === 1 && recentId/);
+  assert.match(frontdoor, /`\/studio\/project\/\$\{encodeURIComponent\(recentId\)\}\/write`/);
+  assert.match(frontdoor, /projectCount > 0[\s\S]*?"\/professional\?intent=write"/);
+  assert.match(frontdoor, /從 \$\{projectCount\} 部正式作品中選擇，不會誤開別部作品/);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
   assert.match(wizard, /href=\{returnTo\}/);

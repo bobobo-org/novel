@@ -40,6 +40,7 @@ import {
   DEFAULT_RPG_RULE_SETTINGS,
   RPG_FREE_WORLD_ACTIVITIES,
   RPG_FORMULA_VERSION,
+  RPG_ITEM_CATALOG,
   RPG_MODE_DEFINITIONS,
   RPG_STAT_DEFINITIONS,
   buildCustomRpgChoice,
@@ -56,7 +57,9 @@ import {
   type RpgChoiceResolution,
   type RpgInventoryStack,
   type RpgMode,
+  type RpgProgressionSnapshot,
   type RpgRuleSettings,
+  type RpgStatKey,
 } from "@/lib/novel-ai/game/progression/rpg-progression";
 import {
   XIANXIA_RULE_KIND_OPTIONS,
@@ -65,6 +68,11 @@ import {
   type XianxiaRuleKind,
 } from "@/lib/novel-ai/game/xianxia-procedural-rule-packs";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
+import {
+  STORY_PLAY_MODE_LABELS,
+  resolveStoryPlayMode,
+  type StoryPlayModeId,
+} from "@/lib/novel-ai/domain/play-mode";
 import {
   acceptStudioChoice,
   persistStudioChoiceCandidate,
@@ -93,7 +101,6 @@ import {
 import { inspectRpgFoundation } from "@/lib/novel-ai/web/rpg-foundation-gate";
 import {
   stageStudioTaskHandoff,
-  studioHomeHref,
 } from "@/lib/novel-ai/web/studio-task-session";
 import ProjectNavigation from "../project-navigation";
 import styles from "./rpg.module.css";
@@ -124,9 +131,131 @@ type RpgAiChoicePlan = {
 
 type DetailPanel = "inventory" | "quests" | "relationships" | "log" | "rules" | "characters";
 
+const DETAIL_PANEL_LABELS: Record<DetailPanel, string> = {
+  inventory: "裝備與寶物",
+  quests: "任務與成就",
+  relationships: "人物關係",
+  log: "選擇紀錄",
+  rules: "玩法規則",
+  characters: "人物庫",
+};
+
+const PLAY_MODE_DETAIL_PANELS: Record<StoryPlayModeId, readonly DetailPanel[]> = {
+  general: ["log", "rules", "characters"],
+  interactive: ["relationships", "log", "rules", "characters"],
+  rpg: ["inventory", "quests", "relationships", "log", "rules", "characters"],
+  romance: ["relationships", "log", "rules", "characters"],
+  management: ["quests", "relationships", "log", "rules", "characters"],
+};
+
+type RpgMutationLine = {
+  key: string;
+  label: string;
+  before: string;
+  after: string;
+  delta: string;
+  kind: "ability" | "status" | "currency" | "item" | "relationship" | "progress" | "world";
+};
+
 const FORMULA = rpgFormulaExplanation();
-const MODE_STORAGE_PREFIX = "novel:rpg-mode:v2:";
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
+
+type PlayModeDashboardCopy = {
+  identity: string;
+  hp: string;
+  stamina: string;
+  actions: string;
+  questKind: string;
+  questTitle: string;
+  statLabels: Record<RpgStatKey, string>;
+  derivedLabels: {
+    attack: string;
+    defense: string;
+    speed: string;
+    insight: string;
+    negotiation: string;
+    leadership: string;
+  };
+};
+
+const PLAY_MODE_DASHBOARD_COPY: Record<StoryPlayModeId, PlayModeDashboardCopy> = {
+  general: {
+    identity: "小說主角", hp: "情節穩定", stamina: "創作動能", actions: "段落行動", questKind: "章節目標", questTitle: "推進目前章節",
+    statLabels: { "rpg.physique": "行動力", "rpg.technique": "表現力", "rpg.intellect": "洞察力", "rpg.charisma": "感染力", "rpg.will": "意志力", "rpg.creativity": "創造力" },
+    derivedLabels: { attack: "推進力", defense: "一致性", speed: "節奏", insight: "洞察", negotiation: "對話", leadership: "主導" },
+  },
+  interactive: {
+    identity: "分支故事主角", hp: "局勢穩定", stamina: "專注力", actions: "本回合行動", questKind: "分支目標", questTitle: "推進目前故事分支",
+    statLabels: { "rpg.physique": "行動力", "rpg.technique": "反應力", "rpg.intellect": "洞察力", "rpg.charisma": "同理心", "rpg.will": "決斷力", "rpg.creativity": "變通力" },
+    derivedLabels: { attack: "推進力", defense: "風險抵抗", speed: "反應速度", insight: "線索洞察", negotiation: "說服力", leadership: "帶領力" },
+  },
+  rpg: {
+    identity: "冒險主角", hp: "生命 HP", stamina: "體力 SP", actions: "行動點", questKind: "主線任務", questTitle: "推進當前主線",
+    statLabels: { "rpg.physique": "力量／體魄", "rpg.technique": "敏捷／技巧", "rpg.intellect": "智力／感知", "rpg.charisma": "魅力／交涉", "rpg.will": "意志／抗性", "rpg.creativity": "創造／奇策" },
+    derivedLabels: { attack: "攻擊", defense: "防禦", speed: "速度", insight: "洞察", negotiation: "談判", leadership: "領導" },
+  },
+  romance: {
+    identity: "關係故事主角", hp: "安全感", stamina: "互動能量", actions: "互動次數", questKind: "關係目標", questTitle: "讓關係產生真實進展",
+    statLabels: { "rpg.physique": "安全感", "rpg.technique": "互動技巧", "rpg.intellect": "理解力", "rpg.charisma": "吸引力", "rpg.will": "承諾力", "rpg.creativity": "浪漫創意" },
+    derivedLabels: { attack: "主動表達", defense: "情緒防護", speed: "回應速度", insight: "情感洞察", negotiation: "溝通力", leadership: "關係承諾" },
+  },
+  management: {
+    identity: "經營決策者", hp: "組織韌性", stamina: "執行能量", actions: "決策點", questKind: "階段目標", questTitle: "讓組織穩定成長",
+    statLabels: { "rpg.physique": "執行力", "rpg.technique": "專業力", "rpg.intellect": "判斷力", "rpg.charisma": "溝通力", "rpg.will": "韌性", "rpg.creativity": "創新力" },
+    derivedLabels: { attack: "執行產能", defense: "風險防禦", speed: "決策速度", insight: "市場洞察", negotiation: "談判力", leadership: "領導力" },
+  },
+};
+
+function rpgModeForStoryPlayMode(mode: StoryPlayModeId): RpgMode {
+  if (mode === "management") return "management";
+  if (mode === "romance") return "cultivation";
+  return "adventure";
+}
+
+function adaptChoiceForStoryPlayMode(choice: RpgChoice, playMode: StoryPlayModeId): RpgChoice {
+  if (playMode === "rpg" || playMode === "management" || playMode === "general") return choice;
+  const preservedResources = Object.fromEntries(Object.entries(choice.effect.resourceChanges).filter(([key]) =>
+    key.startsWith("status.") || key.startsWith("game.") || key.startsWith("journey.")));
+  const progress = Math.max(1, Number(Object.values(choice.effect.questProgress)[0] ?? 8));
+  const achievement = Math.max(1, Number(Object.values(choice.effect.achievementProgress)[0] ?? 20));
+  const strategy = choice.approach;
+  const relationshipDelta = strategy === "steady" ? 2 : strategy === "resource" ? 5 : 3;
+  const modeResources: Record<string, number> = playMode === "romance"
+    ? {
+        "romance.understanding": strategy === "steady" ? 3 : strategy === "resource" ? 2 : 1,
+        "romance.intimacy": strategy === "steady" ? 1 : strategy === "resource" ? 4 : 2,
+        "romance.tension": strategy === "steady" ? -1 : strategy === "resource" ? 1 : 4,
+        "growth.bondEvents": 1,
+      }
+    : {
+        "interactive.clues": strategy === "steady" ? 3 : 1,
+        "interactive.branchMomentum": strategy === "bold" ? 4 : 2,
+        "interactive.choicePressure": strategy === "steady" ? -1 : strategy === "resource" ? 1 : 3,
+      };
+  const statLabels = PLAY_MODE_DASHBOARD_COPY[playMode].statLabels;
+  const statImpacts = Object.entries(choice.effect.statChanges)
+    .filter(([key]) => key !== "rpg.xp")
+    .slice(0, 2)
+    .map(([key, delta]) => `${statLabels[key as RpgStatKey] ?? key} ${signed(Number(delta))}`);
+  const staminaWord = playMode === "romance" ? "互動能量" : "專注力";
+  return {
+    ...choice,
+    id: `${playMode}-${choice.id}`,
+    costLabels: choice.costLabels
+      .filter((label) => !/金幣|靈石|道具|資金/u.test(label))
+      .map((label) => label.replace("體力", staminaWord)),
+    impactLabels: [`EXP +${choice.xpGain}`, ...statImpacts, playMode === "romance" ? `關係 ${signed(relationshipDelta)}` : "分支狀態"].slice(0, 4),
+    effect: {
+      ...choice.effect,
+      relationshipChanges: { ...choice.effect.relationshipChanges, "rpg.partyTrust": relationshipDelta },
+      resourceChanges: { ...preservedResources, ...modeResources },
+      moneyChange: 0,
+      worldFlags: { ...choice.effect.worldFlags, "story.playMode": playMode, "rpg.lastMode": playMode },
+      questProgress: { [`${playMode}.main`]: progress },
+      achievementProgress: { [`${playMode}.${strategy}`]: achievement },
+    },
+  };
+}
 
 function closedAIErrorCode(error: unknown) {
   const typed = error as {
@@ -166,15 +295,6 @@ function readCustomLibrary() {
     );
   } catch {
     return [];
-  }
-}
-
-function readStoredMode(projectId: string): RpgMode {
-  try {
-    const value = window.localStorage?.getItem(`${MODE_STORAGE_PREFIX}${projectId}`);
-    return value === "cultivation" || value === "management" ? value : "adventure";
-  } catch {
-    return "adventure";
   }
 }
 
@@ -233,6 +353,150 @@ function signed(value: number) {
   return `${value >= 0 ? "+" : ""}${formatNumber(value)}`;
 }
 
+const RESOURCE_LABELS: Record<string, string> = {
+  "game.actionPoints": "行動點",
+  "game.day": "遊戲日",
+  "game.turn": "回合",
+  "game.fatePoints": "命運點",
+  "journey.mainlineMomentum": "主線動能",
+  "journey.path.steady": "守序路線",
+  "journey.path.resource": "結盟路線",
+  "journey.path.bold": "破界路線",
+  "journey.worldFreedom": "世界自由度",
+  "adventure.clues": "情報線索",
+  "adventure.mapProgress": "地圖進度",
+  "adventure.supplies": "冒險補給",
+  "adventure.tools": "實用工具",
+  "adventure.momentum": "冒險動能",
+  "adventure.renown": "冒險聲望",
+  "growth.mastery": "修練熟練度",
+  "growth.bondEvents": "共同經歷",
+  "growth.alchemy": "煉製熟練度",
+  "growth.realm": "境界進度",
+  "growth.popularity": "人氣",
+  "management.cash": "營運資金",
+  "management.staff": "員工人數",
+  "management.inventory": "商品庫存",
+  "management.morale": "團隊士氣",
+  "management.reputation": "商譽",
+  "management.satisfaction": "顧客滿意",
+  "management.technology": "技術力",
+  "management.risk": "營運風險",
+  "management.marketShare": "市場占有率",
+  "management.socialImpact": "社會影響",
+};
+
+function buildRpgMutationLines(
+  state: StoryState,
+  effect: StoryChoiceEffect,
+  seed: string,
+  mode: RpgMode,
+) {
+  const nextState = applyStoryChoiceEffect(state, effect);
+  const before = readRpgProgression(state, seed, mode);
+  const after = readRpgProgression(nextState, seed, mode);
+  const lines: RpgMutationLine[] = [];
+  const seen = new Set<string>();
+  const pushNumber = (
+    key: string,
+    label: string,
+    beforeValue: number,
+    afterValue: number,
+    kind: RpgMutationLine["kind"],
+  ) => {
+    if (beforeValue === afterValue || seen.has(key)) return;
+    seen.add(key);
+    lines.push({
+      key,
+      label,
+      before: formatNumber(beforeValue),
+      after: formatNumber(afterValue),
+      delta: signed(afterValue - beforeValue),
+      kind,
+    });
+  };
+
+  for (const definition of RPG_STAT_DEFINITIONS) {
+    pushNumber(
+      definition.key,
+      definition.labels[mode],
+      before.stats[definition.key],
+      after.stats[definition.key],
+      "ability",
+    );
+  }
+  pushNumber("rpg.xp", "經驗值", before.xp, after.xp, "progress");
+  const derived: Array<[keyof RpgProgressionSnapshot["derived"], string]> = [
+    ["maxHp", "生命上限"],
+    ["attack", "攻擊力"],
+    ["defense", "防禦力"],
+    ["speed", "速度"],
+    ["insight", "洞察"],
+    ["negotiation", "談判"],
+    ["leadership", "領導"],
+    ["carryCapacity", "負重上限"],
+  ];
+  for (const [key, label] of derived) {
+    pushNumber(`derived.${key}`, label, before.derived[key], after.derived[key], "ability");
+  }
+  const statuses: Array<[keyof RpgProgressionSnapshot["status"], string]> = [
+    ["hp", "生命"], ["stamina", "體力"], ["spirit", "精神"],
+    ["fatigue", "疲勞"], ["stress", "壓力"], ["mood", "心情"],
+    ["health", "健康"], ["focus", "專注"], ["actionPoints", "行動點"],
+  ];
+  for (const [key, label] of statuses) {
+    pushNumber(`status.${key}`, label, before.status[key], after.status[key], "status");
+  }
+  pushNumber("currency.gold", "金幣", before.currencies.gold, after.currencies.gold, "currency");
+  pushNumber("currency.spiritStone", "靈石", before.currencies.spiritStone, after.currencies.spiritStone, "currency");
+  pushNumber("currency.guildToken", "公會憑證", before.currencies.guildToken, after.currencies.guildToken, "currency");
+
+  const itemIds = new Set([
+    ...before.inventory.map((item) => item.itemId),
+    ...after.inventory.map((item) => item.itemId),
+    ...Object.keys(effect.resourceChanges).filter((key) => key.startsWith("item.")).map((key) => key.slice(5)),
+  ]);
+  for (const itemId of itemIds) {
+    const beforeItem = before.inventory.find((item) => item.itemId === itemId);
+    const afterItem = after.inventory.find((item) => item.itemId === itemId);
+    const catalogItem = RPG_ITEM_CATALOG.find((item) => item.itemId === itemId);
+    pushNumber(
+      `item.${itemId}`,
+      catalogItem?.name ?? afterItem?.name ?? beforeItem?.name ?? itemId,
+      beforeItem?.quantity ?? 0,
+      afterItem?.quantity ?? 0,
+      "item",
+    );
+  }
+
+  for (const key of Object.keys(effect.relationshipChanges)) {
+    pushNumber(
+      `relationship.${key}`,
+      key === "rpg.partyTrust" ? "隊伍信任" : key,
+      state.relationships[key] ?? 0,
+      nextState.relationships[key] ?? 0,
+      "relationship",
+    );
+  }
+  for (const key of Object.keys(effect.questProgress)) {
+    pushNumber(`quest.${key}`, `任務：${key}`, Number(state.questStates[key]) || 0, Number(nextState.questStates[key]) || 0, "progress");
+  }
+  for (const key of Object.keys(effect.achievementProgress)) {
+    pushNumber(`achievement.${key}`, `成就：${key}`, Number(state.achievementStates[key]) || 0, Number(nextState.achievementStates[key]) || 0, "progress");
+  }
+  for (const key of Object.keys(effect.resourceChanges)) {
+    if (key.startsWith("item.") || key.startsWith("currency.") || key.startsWith("status.") || key === "game.actionPoints") continue;
+    pushNumber(key, RESOURCE_LABELS[key] ?? key, state.resources[key] ?? 0, nextState.resources[key] ?? 0, key.startsWith("game.") || key.startsWith("journey.") ? "progress" : "world");
+  }
+
+  const beforeWeapon = before.inventory.find((item) => item.equipped && item.slot === "weapon")?.name ?? "未裝備";
+  const afterWeapon = after.inventory.find((item) => item.equipped && item.slot === "weapon")?.name ?? "未裝備";
+  if (beforeWeapon !== afterWeapon) {
+    lines.unshift({ key: "equipment.weapon", label: "目前武器", before: beforeWeapon, after: afterWeapon, delta: "已換裝", kind: "item" });
+  }
+  return lines;
+}
+
 function sceneExcerpt(content: string) {
   const clean = content.trim();
   if (!clean) return "故事還沒有正文。先建立一段場景，再讓三選一推動它。";
@@ -259,7 +523,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [selectedChoice, setSelectedChoice] = useState<RpgChoice | null>(null);
   const [lastResolution, setLastResolution] = useState<RpgChoiceResolution | null>(null);
+  const [lastMutationLines, setLastMutationLines] = useState<RpgMutationLine[]>([]);
   const [activeMode, setActiveMode] = useState<RpgMode>("adventure");
+  const [storyPlayMode, setStoryPlayMode] = useState<StoryPlayModeId>("general");
   const [activePanel, setActivePanel] = useState<DetailPanel>("inventory");
   const [rules, setRules] = useState<RpgRuleSettings>(DEFAULT_RPG_RULE_SETTINGS);
   const [customAction, setCustomAction] = useState("");
@@ -276,6 +542,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const aiChoiceControllerRef = useRef<AbortController | null>(null);
   const aiChoiceCandidateRef = useRef<string | null>(null);
   const recentAiChoiceSignaturesRef = useRef<string[]>([]);
+  const detailPanels = PLAY_MODE_DETAIL_PANELS[storyPlayMode];
+  const visiblePanel = detailPanels.includes(activePanel) ? activePanel : detailPanels[0];
 
   function leaveRpg(href: string, label: string) {
     stageStudioTaskHandoff({
@@ -286,7 +554,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       chapterId: data?.chapter.id ?? null,
       chapterTitle: data?.chapter.title ?? null,
     });
-    window.location.assign(studioHomeHref(projectId));
+    window.location.assign(href);
   }
 
   const load = useCallback(async () => {
@@ -322,11 +590,24 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         activeChapterId: chapter.id,
       }, project.revision);
     }
-    const storyState = states.find((item) => item.id === project.storyStateId) ?? states[0];
+    let storyState = states.find((item) => item.id === project.storyStateId) ?? states[0];
     const storyBible = bibles.find((item) => item.id === project.storyBibleId) ?? bibles[0];
     if (!chapter || !storyState || !storyBible) {
       throw new Error("作品缺少章節、故事狀態或 Story Bible，無法啟動 RPG。");
     }
+    const resolvedPlayMode = resolveStoryPlayMode(storyState);
+    if (storyState.worldFlags["story.playMode"] === undefined && resolvedPlayMode !== "general") {
+      storyState = await repository.put<StoryState>("storyStates", {
+        ...storyState,
+        worldFlags: {
+          ...storyState.worldFlags,
+          "story.playMode": resolvedPlayMode,
+          "story.playModeLocked": true,
+        },
+      }, storyState.revision);
+    }
+    setStoryPlayMode(resolvedPlayMode);
+    setActiveMode(rpgModeForStoryPlayMode(resolvedPlayMode));
     setData({
       project,
       chapter,
@@ -357,7 +638,6 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     void Promise.resolve()
       .then(() => {
         setCustomLibrary(readCustomLibrary());
-        setActiveMode(readStoredMode(projectId));
         setRules(readStoredRules(projectId));
       })
       .then(load)
@@ -372,6 +652,24 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       : null,
     [activeMode, data, protagonist?.name],
   );
+  const selectedResolutionPreview = useMemo(() => {
+    if (!data || !progression || !selectedChoice) return null;
+    return resolveRpgChoice(selectedChoice, {
+      seed: `${progression.procedural.runSeed}|${data.chapter.id}|${progression.turn}`,
+      revision: data.storyState.revision,
+      recentEncounterSignatures: progression.procedural.recentEncounterSignatures,
+      turn: progression.turn,
+    });
+  }, [data, progression, selectedChoice]);
+  const selectedMutationLines = useMemo(() => {
+    if (!data || !selectedResolutionPreview) return [];
+    return buildRpgMutationLines(
+      data.storyState,
+      selectedResolutionPreview.effect,
+      `${data.project.title}|${protagonist?.name ?? ""}`,
+      activeMode,
+    );
+  }, [activeMode, data, protagonist?.name, selectedResolutionPreview]);
   const activated = Boolean(data?.storyState.protagonistStats["rpg.xp"] !== undefined);
   const conflict = data?.chapter.content.slice(-360).trim()
     || data?.chapter.summary?.trim()
@@ -389,9 +687,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         variant: progression.choiceVariant,
         seed: `${data.project.id}|${data.storyState.revision}`,
         rules,
-      })
+      }).map((choice) => adaptChoiceForStoryPlayMode(choice, storyPlayMode))
       : [],
-    [activeMode, conflict, data, progression, protagonist?.name, rules],
+    [activeMode, conflict, data, progression, protagonist?.name, rules, storyPlayMode],
   );
   const aiContextKey = data && progression
     ? [
@@ -400,6 +698,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       data.chapter.revision,
       data.storyState.revision,
       data.storyBible.revision,
+      storyPlayMode,
       activeMode,
       progression.turn,
       progression.choiceVariant,
@@ -425,6 +724,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         coreIdea: data.project.coreIdea.value,
         genre: data.project.genreId,
         narrativeStyle: data.project.narrativeStyle.value,
+        fixedPlayMode: storyPlayMode,
+        fixedPlayModeLabel: STORY_PLAY_MODE_LABELS[storyPlayMode],
       },
       currentChapter: {
         id: data.chapter.id,
@@ -496,10 +797,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         relationships: data.storyState.relationships,
         day: progression.day,
         turn: progression.turn,
-        mode: activeMode,
+        fixedPlayMode: storyPlayMode,
+        progressionMode: activeMode,
       },
     };
-  }, [activeMode, data, progression, protagonist]);
+  }, [activeMode, data, progression, protagonist, storyPlayMode]);
   const choices = aiChoicePlan?.contextKey === aiContextKey
     ? aiChoicePlan.choices
     : ruleChoices;
@@ -697,18 +999,6 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
-  function chooseMode(mode: RpgMode) {
-    setActiveMode(mode);
-    setSelectedChoice(null);
-    setLastResolution(null);
-    try {
-      window.localStorage?.setItem(`${MODE_STORAGE_PREFIX}${projectId}`, mode);
-    } catch {
-      // The mode remains available for this session even if browser storage is blocked.
-    }
-    setStatus(`已切換至${RPG_MODE_DEFINITIONS[mode].label}；共用 Canon 與角色，不會建立另一套互不相干的遊戲。`);
-  }
-
   function updateRules(next: RpgRuleSettings) {
     const normalized = normalizeRpgRuleSettings(next);
     setRules(normalized);
@@ -802,6 +1092,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         recentEncounterSignatures: progression.procedural.recentEncounterSignatures,
         turn: progression.turn,
       });
+      const mutationLines = buildRpgMutationLines(
+        data.storyState,
+        resolution.effect,
+        `${data.project.title}|${protagonist?.name ?? ""}`,
+        activeMode,
+      );
       const repository = createNovelRepository();
       const settlement = [...choice.costLabels, ...choice.impactLabels, `${resolution.outcomeLabel} ${resolution.roll}/${resolution.successChance}`];
       const taskInput = {
@@ -889,7 +1185,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       ) {
         throw Object.assign(new Error("閉端 AI 本回合內容缺少模型、章節或執行證明。"), { code: "RPG_AI_RESULT_PROOF_MISSING" });
       }
-      const acceptedText = `${continuation}\n\n【本回合結算】${settlement.join("；")}。`;
+      // 正文只保存玩家選中的行動與其故事後果。數值、物品與貨幣
+      // 結算由同一筆 StoryState 交易保存並在儀表板顯示，不污染小說段落。
+      const acceptedText = continuation;
       const saved = await persistStudioChoiceCandidate(
         repository,
         studioSeed(data),
@@ -935,6 +1233,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setSelectedChoice(null);
       setCustomAction("");
       setLastResolution(resolution);
+      setLastMutationLines(mutationLines);
       await load();
       setOperationError(null);
       setStatus(`已核准：${resolution.summary}。${generated.model} 產生的後續正文與公式數值已在同一筆交易寫入目前章節；下一回合會重新讀取新上下文。`);
@@ -953,14 +1252,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   function prepareCustomAction() {
     if (!data || !progression) return;
     try {
-      setSelectedChoice(buildCustomRpgChoice({
+      setSelectedChoice(adaptChoiceForStoryPlayMode(buildCustomRpgChoice({
         progression,
         action: customAction,
         protagonist: protagonist?.name ?? "主角",
         chapterTitle: data.chapter.title,
         conflict,
         rules,
-      }));
+      }), storyPlayMode));
       setStatus("自由行動已轉成可驗證候選；請檢查成功率與代價後再核准。");
     } catch (error) {
       setStatus(errorMessage(error));
@@ -1190,6 +1489,32 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     return <main className={styles.shell}><p className={styles.loading} role="status">{status}</p></main>;
   }
 
+  if (storyPlayMode === "general") {
+    return (
+      <main className={styles.shell} data-testid="rpg-play-mode-gate">
+        <header className={styles.header}>
+          <div>
+            <small>IMMUTABLE PLAY MODE</small>
+            <h1>這部作品是一般章節寫作</h1>
+            <p>玩法在建立作品時已固定，因此不會在寫到一半時突然加入 A／B／C、RPG 數值或其他儀表板。</p>
+          </div>
+        </header>
+        <ProjectNavigation projectId={projectId} active="rpg" />
+        <section className={styles.activation}>
+          <div>
+            <small>原作品不會被修改</small>
+            <h2>要用同一組故事種子體驗其他玩法，請建立獨立副本</h2>
+            <p>副本只帶入作品名稱與開場設定，會取得新的作品 ID、空白章節與獨立 StoryState。</p>
+          </div>
+          <div className={styles.activationAction}>
+            <button type="button" onClick={() => window.location.assign(`/studio/project/${projectId}/write`)}>回到章節寫作</button>
+            <button type="button" onClick={() => window.location.assign(`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`)}>複製為其他玩法</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (rpgFoundationMissing.length > 0) {
     return (
       <main className={styles.shell} data-testid="rpg-foundation-gate">
@@ -1218,8 +1543,15 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   const mode = RPG_MODE_DEFINITIONS[activeMode];
+  const dashboardCopy = PLAY_MODE_DASHBOARD_COPY[storyPlayMode];
   const journeyActivities = RPG_FREE_WORLD_ACTIVITIES[activeMode];
-  const trackedQuest = activeMode === "management" ? "management.survive90" : activeMode === "cultivation" ? "growth.main" : "rpg.mainArc";
+  const trackedQuest = storyPlayMode === "management"
+    ? "management.survive90"
+    : storyPlayMode === "romance"
+      ? "romance.main"
+      : storyPlayMode === "interactive"
+        ? "interactive.main"
+        : "rpg.mainArc";
   const trackedProgress = Number(data.storyState.questStates[trackedQuest] ?? 0);
   const rerollUsed = Number(data.storyState.worldFlags["rpg.rerollTurn"] ?? -1) === progression.turn;
 
@@ -1229,11 +1561,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         <div>
           <small>UNIFIED STORY GAME OS · {RPG_FORMULA_VERSION}</small>
           <h1>命運運算中樞</h1>
-          <p>同一個角色、同一套 Canon：冒險、養成與經營共用規則引擎，但各自保留清楚的玩法與儀表板。</p>
+          <p>{STORY_PLAY_MODE_LABELS[storyPlayMode]}專用儀表板：選中的行動、模型續文與數值交易共用同一份 Canon，其他玩法不會混入。</p>
         </div>
         <div className={styles.headerActions}>
           <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/closed-ai`, "閉端 AI 任務設計")}>閉端 AI 任務設計</button>
-          <div className={styles.levelBadge}><span>LV.</span><strong>{progression.level}</strong><small>戰力 {progression.powerScore}</small></div>
+          <div className={styles.levelBadge}><span>LV.</span><strong>{progression.level}</strong><small>{storyPlayMode === "rpg" ? "戰力" : "綜合能力"} {progression.powerScore}</small></div>
         </div>
       </header>
 
@@ -1249,29 +1581,24 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         {status}
       </p>
 
-      <nav className={styles.modeSwitch} aria-label="遊戲模式">
-        {(Object.keys(RPG_MODE_DEFINITIONS) as RpgMode[]).map((modeId) => (
-          <button
-            key={modeId}
-            type="button"
-            className={activeMode === modeId ? styles.activeMode : ""}
-            onClick={() => chooseMode(modeId)}
-          >
-            <span>{RPG_MODE_DEFINITIONS[modeId].label}</span>
-            <small>{RPG_MODE_DEFINITIONS[modeId].description}</small>
-          </button>
-        ))}
-      </nav>
+      <section className={styles.lockedMode} aria-label="固定玩法" data-testid="rpg-locked-play-mode">
+        <div>
+          <small>本作品固定玩法</small>
+          <h2>{STORY_PLAY_MODE_LABELS[storyPlayMode]}</h2>
+          <p>{mode.description}。正文、選擇紀錄與儀表板都只服務這一種玩法，不會在創作途中切換成其他系統。</p>
+        </div>
+        <a href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}>複製故事種子，建立其他玩法</a>
+      </section>
 
       <section className={styles.hud} aria-label="核心狀態 HUD">
         <div className={styles.identityHud}>
-          <span>{mode.shortLabel}主角</span>
+          <span>{dashboardCopy.identity}</span>
           <strong>{protagonist?.name ?? "尚未指定主角"}</strong>
           <small>{data.project.title} · {data.chapter.title}</small>
         </div>
-        <div className={styles.hudStat}><span>生命 HP</span><strong>{progression.status.hp}</strong><progress max={100} value={progression.status.hp} /></div>
-        <div className={styles.hudStat}><span>體力 SP</span><strong>{progression.status.stamina}</strong><progress max={100} value={progression.status.stamina} /></div>
-        <div className={styles.hudStat}><span>行動點</span><strong>{progression.status.actionPoints}/{mode.dailyActionPoints}</strong><small>第 {progression.day} 日</small></div>
+        <div className={styles.hudStat}><span>{dashboardCopy.hp}</span><strong>{progression.status.hp}</strong><progress max={100} value={progression.status.hp} /></div>
+        <div className={styles.hudStat}><span>{dashboardCopy.stamina}</span><strong>{progression.status.stamina}</strong><progress max={100} value={progression.status.stamina} /></div>
+        <div className={styles.hudStat}><span>{dashboardCopy.actions}</span><strong>{progression.status.actionPoints}/{mode.dailyActionPoints}</strong><small>第 {progression.day} 日</small></div>
         <div className={styles.hudStat}><span>{mode.primaryCurrency}</span><strong>{activeMode === "management" ? formatNumber(progression.management.cash) : activeMode === "cultivation" ? progression.currencies.spiritStone : formatNumber(progression.currencies.gold)}</strong><small>命運點 {progression.fatePoints}</small></div>
         <div className={styles.xpHud}><div><span>EXP {formatNumber(progression.xp)}</span><b>{progression.levelProgress}%</b></div><progress max={Math.max(1, progression.nextLevelXp - progression.currentLevelXp)} value={Math.max(0, progression.xp - progression.currentLevelXp)} /><small>下一級 {formatNumber(progression.nextLevelXp)} EXP</small></div>
       </section>
@@ -1326,7 +1653,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               <header><h3>核心能力</h3><small>裝備加成已計入</small></header>
               {RPG_STAT_DEFINITIONS.map((definition) => (
                 <div key={definition.key} className={styles.statRow}>
-                  <span>{definition.labels[activeMode]}</span>
+                  <span>{dashboardCopy.statLabels[definition.key]}</span>
                   <progress max={100} value={progression.stats[definition.key]} />
                   <b>{progression.stats[definition.key]}</b>
                   {progression.equipmentBonuses[definition.key] ? <em>+{progression.equipmentBonuses[definition.key]}</em> : null}
@@ -1335,12 +1662,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             </section>
 
             <div className={styles.derivedGrid}>
-              <span>攻擊 <b>{progression.derived.attack}</b></span>
-              <span>防禦 <b>{progression.derived.defense}</b></span>
-              <span>速度 <b>{progression.derived.speed}</b></span>
-              <span>洞察 <b>{progression.derived.insight}</b></span>
-              <span>談判 <b>{progression.derived.negotiation}</b></span>
-              <span>領導 <b>{progression.derived.leadership}</b></span>
+              <span>{dashboardCopy.derivedLabels.attack} <b>{progression.derived.attack}</b></span>
+              <span>{dashboardCopy.derivedLabels.defense} <b>{progression.derived.defense}</b></span>
+              <span>{dashboardCopy.derivedLabels.speed} <b>{progression.derived.speed}</b></span>
+              <span>{dashboardCopy.derivedLabels.insight} <b>{progression.derived.insight}</b></span>
+              <span>{dashboardCopy.derivedLabels.negotiation} <b>{progression.derived.negotiation}</b></span>
+              <span>{dashboardCopy.derivedLabels.leadership} <b>{progression.derived.leadership}</b></span>
             </div>
           </aside>
 
@@ -1359,6 +1686,18 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                 <div><small>上一回合結果</small><h3>{lastResolution.outcomeLabel}</h3></div>
                 <p>{lastResolution.summary}</p>
                 <span>規則引擎擲骰 {lastResolution.roll}／成功率 {lastResolution.successChance}%</span>
+                {lastMutationLines.length ? (
+                  <div className={styles.committedMutationSummary} data-testid="rpg-committed-mutations">
+                    <b>已同步更新正文與儀表板</b>
+                    <div className={styles.mutationList}>
+                      {lastMutationLines.map((line) => (
+                        <span key={line.key} data-kind={line.kind}>
+                          <small>{line.label}</small><del>{line.before}</del><i>→</i><strong>{line.after}</strong><em>{line.delta}</em>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </article>
             ) : null}
 
@@ -1405,7 +1744,19 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               {selectedChoice ? (
                 <aside className={styles.confirmChoice}>
                   <div><span>待核准分支</span><h3>{selectedChoice.key === "custom" ? "自由行動" : selectedChoice.key}｜{selectedChoice.title}</h3><p>{selectedChoice.consequence}</p><small>主能力：{statLabel(selectedChoice.primaryStat, activeMode)} · 副能力：{statLabel(selectedChoice.secondaryStat, activeMode)}</small></div>
-                  <div><b>預計影響</b>{selectedChoice.costLabels.map((label) => <span key={label} data-cost="true">{label}</span>)}{selectedChoice.impactLabels.map((label) => <span key={label}>{label}</span>)}<button data-testid="rpg-accept-choice" type="button" disabled={busy || (selectedChoice.key !== "custom" && !aiChoicesReady)} onClick={() => void acceptChoice(selectedChoice)}>{busy ? "閉端 AI 正在撰寫本回合…" : "確認選擇並寫入故事"}</button></div>
+                  <div className={styles.choiceMutationPreview}>
+                    <b>確認後的精確變化</b>
+                    <small>只套用這個選項；另外兩個選項不改正文，也不改任何數值。</small>
+                    <div className={styles.mutationList} data-testid="rpg-mutation-preview">
+                      {selectedMutationLines.map((line) => (
+                        <span key={line.key} data-kind={line.kind}>
+                          <small>{line.label}</small><del>{line.before}</del><i>→</i><strong>{line.after}</strong><em>{line.delta}</em>
+                        </span>
+                      ))}
+                    </div>
+                    {selectedResolutionPreview ? <small>本回合判定：{selectedResolutionPreview.outcomeLabel} · {selectedResolutionPreview.roll}/{selectedResolutionPreview.successChance}</small> : null}
+                    <button data-testid="rpg-accept-choice" type="button" disabled={busy || (selectedChoice.key !== "custom" && !aiChoicesReady)} onClick={() => void acceptChoice(selectedChoice)}>{busy ? "閉端 AI 正在撰寫本回合…" : "確認選擇、續寫正文並同步數值"}</button>
+                  </div>
                 </aside>
               ) : null}
             </section>
@@ -1413,8 +1764,8 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
           <aside className={styles.rightRail}>
             <section className={styles.questCard}>
-              <header><span>{activeMode === "management" ? "階段目標" : activeMode === "cultivation" ? "成長路線" : "主線任務"}</span><b>{trackedProgress}%</b></header>
-              <h3>{activeMode === "management" ? "生存 90 天" : activeMode === "cultivation" ? "形成自己的道路" : "推進當前主線"}</h3>
+              <header><span>{dashboardCopy.questKind}</span><b>{trackedProgress}%</b></header>
+              <h3>{dashboardCopy.questTitle}</h3>
               <progress max={100} value={trackedProgress} />
               <p>{progression.journey.mainlineGoal}</p>
               <div className={styles.gateGrid} aria-label="主線門檻">
@@ -1478,13 +1829,39 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
               </section>
             )}
 
-            <section className={styles.walletCard}>
-              <header><small>WALLET & EXCHANGE</small><h3>貨幣與價值</h3></header>
-              <div><span>金幣<small>旅店、交易、情報</small></span><b>{formatNumber(progression.currencies.gold)}</b></div>
-              <div><span>靈石<small>修煉、煉製、稀有交換</small></span><b>{progression.currencies.spiritStone}</b></div>
-              <div><span>公會憑證<small>特殊委託與限定物品</small></span><b>{progression.currencies.guildToken}</b></div>
-              <button type="button" disabled={busy || progression.currencies.gold < 100} onClick={() => void exchangeSpiritStone()}>100 金幣兌換 1 靈石</button>
-            </section>
+            {storyPlayMode === "rpg" ? (
+              <section className={styles.walletCard}>
+                <header><small>WALLET & EXCHANGE</small><h3>貨幣與價值</h3></header>
+                <div><span>金幣<small>旅店、交易、情報</small></span><b>{formatNumber(progression.currencies.gold)}</b></div>
+                <div><span>靈石<small>修煉、煉製、稀有交換</small></span><b>{progression.currencies.spiritStone}</b></div>
+                <div><span>公會憑證<small>特殊委託與限定物品</small></span><b>{progression.currencies.guildToken}</b></div>
+                <button type="button" disabled={busy || progression.currencies.gold < 100} onClick={() => void exchangeSpiritStone()}>100 金幣兌換 1 靈石</button>
+              </section>
+            ) : storyPlayMode === "romance" ? (
+              <section className={styles.walletCard}>
+                <header><small>RELATIONSHIP PULSE</small><h3>關係與情緒</h3></header>
+                <div><span>信任<small>核准互動後才會改變</small></span><b>{Math.round(data.storyState.relationships["rpg.partyTrust"] ?? 0)}</b></div>
+                <div><span>親密進展<small>共同事件與真實回應</small></span><b>{Math.round(data.storyState.resources["romance.intimacy"] ?? 0)}</b></div>
+                <div><span>關係張力<small>越高越需要處理衝突</small></span><b>{Math.round(data.storyState.resources["romance.tension"] ?? 0)}</b></div>
+                <div><span>命運點<small>只用於重擲本回合</small></span><b>{progression.fatePoints}</b></div>
+              </section>
+            ) : storyPlayMode === "interactive" ? (
+              <section className={styles.walletCard}>
+                <header><small>BRANCH STATE</small><h3>分支資源</h3></header>
+                <div><span>線索<small>可支撐後續判斷</small></span><b>{Math.round(data.storyState.resources["interactive.clues"] ?? 0)}</b></div>
+                <div><span>分支動能<small>目前路線的推進程度</small></span><b>{Math.round(data.storyState.resources["interactive.branchMomentum"] ?? 0)}</b></div>
+                <div><span>選擇壓力<small>高風險行動會提高</small></span><b>{Math.round(data.storyState.resources["interactive.choicePressure"] ?? 0)}</b></div>
+                <div><span>命運點<small>只用於重擲本回合</small></span><b>{progression.fatePoints}</b></div>
+              </section>
+            ) : (
+              <section className={styles.walletCard}>
+                <header><small>MANAGEMENT CAPITAL</small><h3>經營資源</h3></header>
+                <div><span>可用資金<small>收入、支出與投資</small></span><b>{formatNumber(progression.management.cash)}</b></div>
+                <div><span>聲望<small>影響合作與需求</small></span><b>{formatNumber(progression.management.reputation)}</b></div>
+                <div><span>員工士氣<small>影響效率與穩定</small></span><b>{formatNumber(progression.management.morale)}</b></div>
+                <div><span>營運風險<small>高於 60 需要優先處理</small></span><b>{formatNumber(progression.management.risk)}</b></div>
+              </section>
+            )}
           </aside>
         </section>
         </>
@@ -1493,19 +1870,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       {activated ? (
         <section className={styles.detailDock}>
           <nav aria-label="RPG 詳細功能">
-            {([
-              ["inventory", "背包與寶物"],
-              ["quests", "任務與成就"],
-              ["relationships", "關係與陣營"],
-              ["log", "冒險日誌"],
-              ["rules", "規則設定"],
-              ["characters", "人物庫"],
-            ] as Array<[DetailPanel, string]>).map(([panel, label]) => (
-              <button key={panel} type="button" className={activePanel === panel ? styles.activePanel : ""} onClick={() => setActivePanel(panel)}>{label}</button>
+            {detailPanels.map((panel) => (
+              <button key={panel} type="button" className={visiblePanel === panel ? styles.activePanel : ""} onClick={() => setActivePanel(panel)}>{DETAIL_PANEL_LABELS[panel]}</button>
             ))}
           </nav>
 
-          {activePanel === "inventory" ? (
+          {visiblePanel === "inventory" ? (
             <div className={styles.inventoryPanel}>
               <header><div><small>INVENTORY & TREASURES</small><h2>背包、裝備與寶物功用</h2></div><p>負重 {progression.carryWeight}／{progression.derived.carryCapacity} · 每件物品都標示用途、價值與真實效果。</p></header>
               <div className={styles.inventoryGrid}>
@@ -1522,21 +1892,21 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             </div>
           ) : null}
 
-          {activePanel === "quests" ? (
+          {visiblePanel === "quests" ? (
             <div className={styles.recordsPanel}>
               <section><small>QUESTS</small><h2>任務進度</h2>{Object.keys(data.storyState.questStates).length ? Object.entries(data.storyState.questStates).map(([key, value]) => <article key={key}><div><b>{key}</b><span>{value}%</span></div><progress max={100} value={Number(value) || 0} /></article>) : <p>尚無任務；核准第一個選擇後會建立主線進度。</p>}</section>
               <section><small>ACHIEVEMENTS</small><h2>成就與稱號</h2>{Object.keys(data.storyState.achievementStates).length ? Object.entries(data.storyState.achievementStates).map(([key, value]) => <article key={key}><div><b>{key}</b><span>{value}%</span></div><progress max={100} value={Number(value) || 0} /></article>) : <p>尚無成就進度。</p>}</section>
             </div>
           ) : null}
 
-          {activePanel === "relationships" ? (
+          {visiblePanel === "relationships" ? (
             <div className={styles.recordsPanel}>
               <section><small>RELATIONSHIPS</small><h2>人物關係</h2>{Object.keys(data.storyState.relationships).length ? Object.entries(data.storyState.relationships).map(([key, value]) => <article key={key}><div><b>{key}</b><span>{Math.round(value)}</span></div><progress max={200} value={value + 100} /></article>) : <p>尚未透過故事建立可計算的關係。</p>}</section>
               <section><small>FACTIONS</small><h2>陣營聲望</h2>{Object.keys(data.storyState.factionStanding).length ? Object.entries(data.storyState.factionStanding).map(([key, value]) => <article key={key}><div><b>{key}</b><span>{Math.round(value)}</span></div><progress max={200} value={value + 100} /></article>) : <p>目前陣營中立；後續選擇會分別累積，不會只用一個總好感。</p>}</section>
             </div>
           ) : null}
 
-          {activePanel === "log" ? (
+          {visiblePanel === "log" ? (
             <div className={styles.logPanel}>
               <header><small>ADVENTURE LOG</small><h2>真正寫入的選擇與世界變化</h2><p>這些紀錄來自核准交易，不是 AI 臨時描述，可用來防止死亡角色復活、物品回來或任務倒退。</p></header>
               {data.acceptedChoices.length ? data.acceptedChoices.slice(0, 20).map((choice) => (
@@ -1545,7 +1915,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             </div>
           ) : null}
 
-          {activePanel === "rules" ? (
+          {visiblePanel === "rules" ? (
             <div className={styles.rulesPanel}>
               <section><small>AUTHOR SETTINGS</small><h2>作者設定</h2><label>成長速度<select value={rules.growthPace} onChange={(event) => updateRules({ ...rules, growthPace: event.target.value as RpgRuleSettings["growthPace"] })}><option value="fast">快速</option><option value="standard">標準</option><option value="realistic">寫實</option></select></label><label>隨機程度<select value={rules.randomness} onChange={(event) => updateRules({ ...rules, randomness: event.target.value as RpgRuleSettings["randomness"] })}><option value="story">劇情型</option><option value="balanced">平衡型</option><option value="high_risk">高風險型</option></select></label><label>後果預覽<select value={rules.choicePreview} onChange={(event) => updateRules({ ...rules, choicePreview: event.target.value as RpgRuleSettings["choicePreview"] })}><option value="partial">保留未知</option><option value="full">完整顯示</option></select></label><label>事件頻率<select value={rules.eventFrequency} onChange={(event) => updateRules({ ...rules, eventFrequency: Number(event.target.value) as 3 | 4 | 5 })}><option value={3}>每 3 回合</option><option value={4}>每 4 回合</option><option value={5}>每 5 回合</option></select></label></section>
               <section><small>PLAYER CHOICE</small><h2>玩家選擇</h2><p>A／B／C 固定代表穩健、關係／資源與冒險三種策略；自由行動也要先轉成同樣可驗證的候選。</p><ul><li>重擲每回合最多一次，消耗 1 命運點。</li><li>失敗產生補救支線，不會因單次亂數直接壞結局。</li><li>只有玩家按下核准後才寫入正式正文與 Canon。</li></ul></section>
@@ -1554,7 +1924,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             </div>
           ) : null}
 
-          {activePanel === "characters" ? (
+          {visiblePanel === "characters" ? (
             <div className={styles.librarySection}>
               <header><div><small>CHARACTER VAULT</small><h2>我喜歡的人物庫</h2></div><p>內建角色可直接加入作品；自創角色保存在這台裝置，加入作品後才進入專案資料。</p></header>
               <div className={styles.libraryLayout}>

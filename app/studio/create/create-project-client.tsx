@@ -2,87 +2,807 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { STORY_LIBRARY, listStoryTopics, resolveStoryTopic } from "@/lib/novel-data/story-library";
-import { buildProjectBundle, buildSeedCandidate, createDraft } from "@/lib/novel-ai/domain/creation";
-import { optionalValue, type ProjectCreationDraft } from "@/lib/novel-ai/domain";
+import {
+  STORY_LIBRARY,
+  listStoryTopics,
+  resolveStoryTopic,
+} from "@/lib/novel-data/story-library";
+import {
+  buildProjectBundle,
+  buildSeedCandidate,
+  createDraft,
+} from "@/lib/novel-ai/domain/creation";
+import {
+  selectedStoryPlayMode,
+  STORY_PLAY_MODE_LABELS,
+  storyPlayModeDashboardHref,
+  type StoryPlayModeId,
+} from "@/lib/novel-ai/domain/play-mode";
+import {
+  makeRecord,
+  optionalValue,
+  type Chapter,
+  type NovelProject,
+  type ProjectCreationDraft,
+  type ProjectSeed,
+  type ReaderState,
+} from "@/lib/novel-ai/domain";
+import {
+  browserWebLLMRuntimeSnapshot,
+  cancelBrowserWebLLMGeneration,
+  generateWithBrowserWebLLM,
+} from "@/lib/novel-ai/providers/browser-ai/browser-webllm-runtime";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
+import { createProjectBackup } from "@/lib/novel-ai/repository/backup";
 import { mirrorProjectToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
+
+function draftStorageKey(cloneFrom: string | null) {
+  return `${DRAFT_KEY}:${cloneFrom ? `clone:${cloneFrom}` : "new"}`;
+}
+
 const questions = [
-  { key: "story", title: "想寫什麼樣的故事？", choices: ["一段改變命運的冒險", "一場人物關係的考驗", "一個逐步揭開的謎團"] },
-  { key: "goal", title: "主角最想得到什麼？", choices: ["守住所愛的人與生活", "證明自己的選擇是對的", "找回失去的真相或身分"] },
-  { key: "obstacle", title: "主要阻力是什麼？", choices: ["強大的對手與制度", "主角自己的恐懼與缺點", "時間、資源與信任逐漸耗盡"] },
-  { key: "worldRule", title: "世界最特殊的規則是什麼？", choices: ["每次獲得力量都必須付出代價", "真相只能由行動證明", "看似平凡的秩序隱藏另一套規則"] },
-  { key: "opening", title: "第一章從哪裡開始？", choices: ["主角收到一個無法忽視的消息", "日常秩序突然被打破", "主角必須立刻做出一次選擇"] },
+  {
+    key: "story",
+    title: "這是一個關於什麼的故事？",
+    choices: ["一段改變命運的冒險", "一場人物關係的考驗", "一個逐步揭開的謎團"],
+  },
+  {
+    key: "protagonist",
+    title: "故事跟著誰前進？",
+    choices: ["林知微｜冷靜但害怕再次失去", "沈星河｜勇敢但容易獨自承擔", "江離｜敏銳但不輕易相信別人"],
+  },
+  {
+    key: "conflict",
+    title: "主角想完成什麼，又被什麼阻擋？",
+    choices: ["守住所愛的人，卻被強大制度逼迫讓步", "找回失去的真相，但每次追查都要付出代價", "證明自己的選擇，卻必須先克服內心恐懼"],
+  },
+  {
+    key: "worldRule",
+    title: "故事舞台最重要的規則是什麼？",
+    choices: ["每次獲得力量都必須付出代價", "真相只能由行動證明", "平凡秩序下藏著另一套會回應選擇的規則"],
+  },
+  {
+    key: "opening",
+    title: "開場從哪個具體事件開始？",
+    choices: ["主角收到一個無法忽視的消息", "熟悉的日常秩序突然被打破", "主角必須立刻做出一次會留下後果的選擇"],
+  },
 ] as const;
 
-function safeLoadDraft() {
+const proceduralNames = [
+  "林知微", "沈星河", "江離", "蘇晚晴", "顧明川", "葉清和", "陸沉舟", "程予安",
+  "夏青禾", "周既白", "聞人月", "段雲歸", "艾琳・沃克", "諾亞・陳", "米拉・宋", "里昂・顧",
+];
+const proceduralGoals = [
+  "找回被奪走的選擇權", "守住一個即將消失的家", "查清一段被集體遺忘的真相",
+  "在期限前救回重要的人", "阻止熟悉的世界被另一套規則取代", "證明一場被判定失敗的選擇仍有意義",
+];
+const proceduralWorlds = [
+  "一座會記錄每次承諾的山城", "一個以記憶交換資源的群島", "一座白天正常、夜裡重排街道的都市",
+  "靈脈與商路同時衰竭的修行邊城", "由五個互不信任勢力共同維持的空中聚落", "每逢月蝕便會顯露過去分支的古國",
+];
+const proceduralRules = [
+  "任何力量都會留下可追查的代價", "人物只能依自己實際接觸過的情報行動",
+  "已發生的事件不能無故重置", "每次改變關係都會同時改變資源與風險",
+  "秘密越接近真相，保護它的人就越必須作出選擇", "世界會記住承諾，但不保證用原意實現",
+];
+const proceduralOpenings = [
+  "主角在最熟悉的地方，看見一件只有失蹤者才知道的物品。",
+  "一封寫著明日日期的信，要求主角在今晚背叛最信任的人。",
+  "原本例行的交易突然中止，而所有人都假裝從未見過主角。",
+  "主角醒來後發現自己的名字仍在，卻被另一個人合法使用。",
+  "一場不該失敗的儀式成功了，代價卻落在完全無關的人身上。",
+  "城門關閉前最後一位旅人，帶來了主角已親手銷毀的證據。",
+];
+
+type AICandidate = {
+  seed: ProjectSeed;
+  raw: string;
+  modelId: string;
+  modelDigest: string;
+  elapsedMs: number;
+};
+
+type CandidatePayload = {
+  logline?: string;
+  protagonist?: string;
+  goal?: string;
+  weakness?: string;
+  world?: string;
+  worldRule?: string;
+  conflict?: string;
+  opposition?: string;
+  opening?: string;
+  style?: string;
+  directions?: string[];
+};
+
+function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
   if (typeof localStorage === "undefined") return createDraft();
-  try { const parsed = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); return parsed?.schemaVersion ? parsed as ProjectCreationDraft : createDraft(); } catch { return createDraft(); }
+  const keys = cloneFrom ? [storageKey] : [storageKey, DRAFT_KEY];
+  for (const key of keys) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || "null") as ProjectCreationDraft | null;
+      if (!parsed?.schemaVersion) continue;
+      const parsedCloneFrom = parsed.answers.cloneFrom?.value ?? null;
+      if (cloneFrom ? parsedCloneFrom === cloneFrom : !parsedCloneFrom) return parsed;
+    } catch {
+      // A damaged draft must not block creation or leak into a cloned project.
+    }
+  }
+  return createDraft();
 }
 
-export default function CreateProjectClient() {
-  const [draft, setDraft] = useState<ProjectCreationDraft>(() => createDraft()), [ready, setReady] = useState(false), [saving, setSaving] = useState(false), [message, setMessage] = useState(""), [titleError, setTitleError] = useState(""), [createdId, setCreatedId] = useState<string | null>(null), requestId = useRef(crypto.randomUUID()), titleInputRef = useRef<HTMLInputElement>(null);
+function randomIndex(length: number) {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return bytes[0] % length;
+}
+
+function pick<T>(items: readonly T[]) {
+  return items[randomIndex(items.length)];
+}
+
+function text(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function candidatePayload(raw: string): CandidatePayload {
+  const unfenced = raw.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(unfenced.slice(start, end + 1)) as CandidatePayload;
+    } catch {
+      // A small local model may emit valid prose around invalid JSON. The raw
+      // response remains visible and can still become a one-line premise.
+    }
+  }
+  return { logline: unfenced.slice(0, 360) };
+}
+
+function optionalSuggestion(value: string | null, accepted = false) {
+  const next = optionalValue(value, value ? (accepted ? "ai_accepted" : "ai_suggested") : "deferred");
+  return value ? { ...next, source: "ai_candidate" as const } : next;
+}
+
+function seedFromPayload(draft: ProjectCreationDraft, payload: CandidatePayload, accepted = false) {
+  const current = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const value = (candidate: unknown, fallback: string | null) => text(candidate) || fallback;
+  return {
+    ...current,
+    logline: optionalSuggestion(value(payload.logline, current.logline.value), accepted),
+    protagonist: optionalSuggestion(value(payload.protagonist, current.protagonist.value), accepted),
+    goal: optionalSuggestion(value(payload.goal, current.goal.value), accepted),
+    weakness: optionalSuggestion(value(payload.weakness, current.weakness.value), accepted),
+    world: optionalSuggestion(value(payload.world, current.world.value), accepted),
+    worldRule: optionalSuggestion(value(payload.worldRule, current.worldRule.value), accepted),
+    conflict: optionalSuggestion(value(payload.conflict, current.conflict.value), accepted),
+    opposition: optionalSuggestion(value(payload.opposition, current.opposition.value), accepted),
+    opening: optionalSuggestion(value(payload.opening, current.opening.value), accepted),
+    directions: Array.isArray(payload.directions)
+      ? payload.directions.map(text).filter(Boolean).slice(0, 3)
+      : current.directions,
+  } satisfies ProjectSeed;
+}
+
+function playModeOf(draft: ProjectCreationDraft) {
+  return selectedStoryPlayMode(draft.answers);
+}
+
+function foundationMissing(draft: ProjectCreationDraft, seed: ProjectSeed) {
+  const missing: string[] = [];
+  const mode = playModeOf(draft);
+  if (!draft.title.trim()) missing.push("作品名稱");
+  if (!mode) missing.push("創作／遊玩方式");
+  if (mode) {
+    if (!draft.genreId && !draft.coreIdea.value?.trim() && !seed.logline.value?.trim()) missing.push("故事方向");
+    if (!seed.protagonist.value?.trim()) missing.push("主要人物");
+    if (!seed.world.value?.trim() && !seed.worldRule.value?.trim()) missing.push("故事舞台或世界規則");
+    if (!seed.conflict.value?.trim() && !seed.goal.value?.trim()) missing.push("目標或衝突");
+    if (!seed.opening.value?.trim()) missing.push("開場事件");
+  }
+  return missing;
+}
+
+function proceduralPayload(draft: ProjectCreationDraft): CandidatePayload {
+  const hero = draft.protagonist.value?.trim() || draft.answers.protagonist?.value?.trim() || pick(proceduralNames);
+  const goal = pick(proceduralGoals);
+  const world = pick(proceduralWorlds);
+  const worldRule = pick(proceduralRules);
+  const opening = pick(proceduralOpenings);
+  const topic = resolveStoryTopic(draft.genreId)?.name || "原創幻想";
+  const mode = playModeOf(draft) ?? "general";
+  return {
+    protagonist: hero,
+    goal,
+    weakness: pick(["害怕再次失去重要的人", "過度相信自己可以獨自承擔", "面對親密關係時容易退縮", "習慣把真相看得比人更重要"]),
+    world,
+    worldRule,
+    conflict: `${hero}若追查「${goal}」，就會失去眼前的安全；若退縮，危機會先傷害身邊的人。`,
+    opposition: pick(["相信犧牲少數才能維持秩序的執行者", "掌握舊規則並拒絕交出權力的聯盟", "與主角追求同一目標、卻採取相反方法的人"]),
+    opening,
+    logline: `${hero}在${world}裡，因${opening.replace(/[。！]$/u, "")}而被迫追查${goal}，並面對「${worldRule}」的代價。`,
+    style: `${topic}；場景先於說明，人物以行動表達情緒，每次選擇都留下後果。`,
+    directions: mode === "general"
+      ? ["人物關係先行", "謎團逐層揭露", "以具體代價推進章節"]
+      : ["穩健承擔代價", "交換資源取得情報", "高風險打破既有規則"],
+  };
+}
+
+async function clonedDraft(sourceProjectId: string) {
+  const repository = createNovelRepository();
+  const source = await repository.get<NovelProject>("projects", sourceProjectId);
+  if (!source) throw new Error("找不到要複製的原作品。原作品沒有被修改。");
+  const seeds = await repository.list<ProjectSeed>("projectSeeds", sourceProjectId);
+  const sourceSeed = [...seeds].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
+  const next = createDraft("quick");
+  next.title = source.title;
+  next.genrePackId = source.genrePackId;
+  next.genreId = source.genreId;
+  next.subgenreId = source.subgenreId;
+  next.coreIdea = optionalValue(source.coreIdea.value, source.coreIdea.value ? "user_defined" : "deferred");
+  next.protagonist = optionalValue(sourceSeed?.protagonist.value ?? null, sourceSeed?.protagonist.value ? "user_defined" : "deferred");
+  next.style = optionalValue(source.narrativeStyle.value, source.narrativeStyle.value ? "user_defined" : "deferred");
+  next.answers = {
+    cloneFrom: optionalValue(sourceProjectId, "user_defined"),
+    story: optionalValue(sourceSeed?.logline.value ?? source.coreIdea.value, sourceSeed?.logline.value || source.coreIdea.value ? "user_defined" : "deferred"),
+    protagonist: optionalValue(sourceSeed?.protagonist.value ?? null, sourceSeed?.protagonist.value ? "user_defined" : "deferred"),
+    goal: optionalValue(sourceSeed?.goal.value ?? null, sourceSeed?.goal.value ? "user_defined" : "deferred"),
+    conflict: optionalValue(sourceSeed?.conflict.value ?? null, sourceSeed?.conflict.value ? "user_defined" : "deferred"),
+    worldRule: optionalValue(sourceSeed?.worldRule.value ?? sourceSeed?.world.value ?? null, sourceSeed?.worldRule.value || sourceSeed?.world.value ? "user_defined" : "deferred"),
+    opening: optionalValue(sourceSeed?.opening.value ?? null, sourceSeed?.opening.value ? "user_defined" : "deferred"),
+    playMode: optionalValue<string>(),
+  };
+  next.seedCandidate = sourceSeed ? seedFromPayload(next, {
+    logline: sourceSeed.logline.value ?? undefined,
+    protagonist: sourceSeed.protagonist.value ?? undefined,
+    goal: sourceSeed.goal.value ?? undefined,
+    weakness: sourceSeed.weakness.value ?? undefined,
+    world: sourceSeed.world.value ?? undefined,
+    worldRule: sourceSeed.worldRule.value ?? undefined,
+    conflict: sourceSeed.conflict.value ?? undefined,
+    opposition: sourceSeed.opposition.value ?? undefined,
+    opening: sourceSeed.opening.value ?? undefined,
+    directions: sourceSeed.directions,
+  }, true) : null;
+  return next;
+}
+
+export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: string | null }) {
+  const [draft, setDraft] = useState<ProjectCreationDraft>(() => createDraft());
+  const [ready, setReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [titleError, setTitleError] = useState("");
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [createdMode, setCreatedMode] = useState<StoryPlayModeId>("general");
+  const [aiCandidate, setAiCandidate] = useState<AICandidate | null>(null);
+  const [aiStatus, setAiStatus] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const requestId = useRef(crypto.randomUUID());
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const aiController = useRef<AbortController | null>(null);
+  const storageKey = draftStorageKey(cloneFrom);
+
   useEffect(() => {
-    const restoreTimer = window.setTimeout(() => {
-      setDraft(safeLoadDraft());
-      setReady(true);
-    }, 0);
-    return () => window.clearTimeout(restoreTimer);
-  }, []);
-  useEffect(() => { if (ready) localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); }, [draft, ready]);
-  const topics = useMemo(() => listStoryTopics({ packId: draft.genrePackId || undefined, limit: 40 }), [draft.genrePackId]);
+    let active = true;
+    void (async () => {
+      try {
+        const restored = safeLoadDraft(storageKey, cloneFrom);
+        const next = cloneFrom && restored.answers.cloneFrom?.value !== cloneFrom
+          ? await clonedDraft(cloneFrom)
+          : restored;
+        if (!active) return;
+        setDraft(next);
+        if (cloneFrom) setMessage("已複製原作品名稱與起始種子。請選擇新的玩法；原作品與既有章節不會被修改。");
+      } catch (error) {
+        if (!active) return;
+        setDraft(createDraft());
+        setMessage(error instanceof Error ? error.message : "無法讀取原作品；已改為建立全新作品。");
+      } finally {
+        if (active) setReady(true);
+      }
+    })();
+    return () => {
+      active = false;
+      aiController.current?.abort();
+    };
+  }, [cloneFrom, storageKey]);
+
+  useEffect(() => {
+    if (ready) localStorage.setItem(storageKey, JSON.stringify(draft));
+  }, [draft, ready, storageKey]);
+
+  const currentPlayMode = selectedStoryPlayMode(draft.answers);
+  const topics = useMemo(
+    () => listStoryTopics({ packId: draft.genrePackId || undefined, playModeId: currentPlayMode || undefined, limit: 80 }),
+    [currentPlayMode, draft.genrePackId],
+  );
   const topic = resolveStoryTopic(draft.genreId);
-  const modeSteps = draft.mode === "guided" ? 5 : draft.mode === "blank" ? 1 : 3;
-  const set = (partial: Partial<ProjectCreationDraft>) => setDraft((value) => ({ ...value, ...partial, updatedAt: new Date().toISOString() }));
-  const setAnswer = (key: string, value: string | null, status: "user_defined" | "deferred" = "user_defined") => set({ answers: { ...draft.answers, [key]: optionalValue(value, status) } });
+  const modeSteps = draft.mode === "guided" ? 5 : draft.mode === "blank" ? 2 : 3;
+  const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const missing = foundationMissing(draft, seed);
+
+  const set = (partial: Partial<ProjectCreationDraft>) => setDraft((value) => ({
+    ...value,
+    ...partial,
+    updatedAt: new Date().toISOString(),
+  }));
+  const setAnswer = (
+    key: string,
+    value: string | null,
+    status: "user_defined" | "deferred" = "user_defined",
+  ) => set({
+    answers: { ...draft.answers, [key]: optionalValue(value, status) },
+    seedCandidate: key === "playMode" ? draft.seedCandidate : null,
+  });
+
   const requireTitle = (action: string) => {
-    if (draft.title.trim()) { setTitleError(""); return true; }
+    if (draft.title.trim()) {
+      setTitleError("");
+      return true;
+    }
     setTitleError(`請先輸入作品名稱，再${action}。`);
-    window.requestAnimationFrame(() => { titleInputRef.current?.focus(); titleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); });
+    window.requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
     return false;
   };
-  const chooseMode = (mode: ProjectCreationDraft["mode"]) => { if (!requireTitle("選擇建立方式")) return; const next = createDraft(mode); next.title = draft.title.trim(); setDraft(next); requestId.current = crypto.randomUUID(); };
-  const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
-  const advance = () => { if (!requireTitle("進入下一步")) return; set({ step: Math.min(modeSteps, draft.step + 1), seedCandidate: draft.step + 1 === modeSteps ? buildSeedCandidate(draft) : draft.seedCandidate }); };
+
+  const chooseBuildMode = (mode: ProjectCreationDraft["mode"]) => {
+    if (!requireTitle("選擇建立方式")) return;
+    set({ mode, step: 1 });
+  };
+
+  const choosePlayMode = (mode: StoryPlayModeId) => {
+    if (!requireTitle("選擇創作方式")) return;
+    setAnswer("playMode", mode);
+    setMessage(`已選擇「${STORY_PLAY_MODE_LABELS[mode]}」。作品建立後這個玩法會鎖定；若要比較其他玩法，請複製為新作品。`);
+  };
+
+  const advance = () => {
+    if (!requireTitle("進入下一步")) return;
+    if (!currentPlayMode) {
+      setMessage("請先選擇這部作品要使用的一種創作／遊玩方式。");
+      return;
+    }
+    set({
+      step: Math.min(modeSteps, draft.step + 1),
+      seedCandidate: draft.step + 1 === modeSteps ? buildSeedCandidate(draft) : draft.seedCandidate,
+    });
+  };
+
+  function applyProcedural() {
+    if (!requireTitle("建立故事雛形")) return;
+    if (!currentPlayMode) {
+      setMessage("先選擇一般寫作、三選一、RPG、戀愛或經營其中一種方式。");
+      return;
+    }
+    const payload = proceduralPayload(draft);
+    const suggested = seedFromPayload(draft, payload, true);
+    set({
+      coreIdea: optionalValue(payload.logline ?? null, "user_defined"),
+      protagonist: optionalValue(payload.protagonist ?? null, "user_defined"),
+      style: optionalValue(payload.style ?? null, "user_defined"),
+      answers: {
+        ...draft.answers,
+        story: optionalValue(payload.logline ?? null, "user_defined"),
+        protagonist: optionalValue(payload.protagonist ?? null, "user_defined"),
+        goal: optionalValue(payload.goal ?? null, "user_defined"),
+        conflict: optionalValue(payload.conflict ?? null, "user_defined"),
+        worldRule: optionalValue(payload.worldRule ?? payload.world ?? null, "user_defined"),
+        opening: optionalValue(payload.opening ?? null, "user_defined"),
+      },
+      seedCandidate: suggested,
+    });
+    setAiCandidate(null);
+    setMessage("已由裝置亂數產生一套可修改雛形（非 AI、非固定三個名字）。你可以直接修改，或再請已安裝的真實 Browser AI 深化。");
+  }
+
+  async function runBrowserAI() {
+    if (!requireTitle("請 AI 協助")) return;
+    if (!currentPlayMode) {
+      setMessage("請先選擇創作／遊玩方式，AI 才知道要建立哪一種故事基礎。");
+      return;
+    }
+    if (aiBusy) return;
+    aiController.current?.abort();
+    const controller = new AbortController();
+    aiController.current = controller;
+    setAiBusy(true);
+    setAiCandidate(null);
+    setAiStatus("正在確認這台裝置已安裝的 Browser AI 模型……");
+    try {
+      const snapshot = await browserWebLLMRuntimeSnapshot();
+      const selected = snapshot.models.find((model) => model.selected);
+      if (!snapshot.supported || !selected || selected.installStatus !== "ready" || !selected.cacheVerified) {
+        throw Object.assign(new Error("Browser AI 尚未完成安裝與驗證。可先使用立即可用的裝置亂數雛形，或到本機 AI 設定完成模型安裝。"), { code: "BROWSER_MODEL_NOT_READY" });
+      }
+      const prompt = [
+        `作品名稱：${draft.title.trim()}`,
+        `固定玩法：${STORY_PLAY_MODE_LABELS[currentPlayMode]}`,
+        `題材：${topic?.name ?? "尚未指定"}`,
+        `目前想法：${draft.coreIdea.value ?? draft.answers.story?.value ?? "尚未指定"}`,
+        `目前主角：${seed.protagonist.value ?? "尚未指定"}`,
+        "請建立一套原創且彼此一致的故事起始種子。不要寫完整章節，不要輸出分析過程。",
+        "只輸出 JSON，欄位為 logline、protagonist、goal、weakness、world、worldRule、conflict、opposition、opening、style、directions（恰好三項）。",
+        "每個字串 15 至 60 個繁體中文字；若是互動或遊戲玩法，三個 directions 必須是策略不同且代價不同的方向，但現在不要產生 A/B/C 回合。",
+      ].join("\n");
+      const result = await generateWithBrowserWebLLM({
+        systemInstruction: "你是繁體中文原創小說的創作帶領精靈。只建立可修改候選，不冒充使用者核准內容；嚴格輸出 JSON。",
+        prompt,
+        jsonMode: true,
+        temperature: 0.82,
+        topP: 0.92,
+        repetitionPenalty: 1.12,
+        maxTokens: 360,
+        seed: randomIndex(2_147_483_647),
+        signal: controller.signal,
+        onToken: (event) => setAiStatus(`真實 Browser AI 正在裝置內生成 · ${event.content.length} 字`),
+      });
+      const payload = candidatePayload(result.content);
+      const nextSeed = seedFromPayload(draft, payload, false);
+      setAiCandidate({
+        seed: nextSeed,
+        raw: result.content,
+        modelId: result.modelId,
+        modelDigest: result.modelDigest,
+        elapsedMs: result.elapsedMs,
+      });
+      setAiStatus(`候選已完成 · ${result.modelId} · ${(result.elapsedMs / 1000).toFixed(1)} 秒 · 資料未離開裝置`);
+    } catch (error) {
+      if ((error as { name?: string })?.name === "AbortError") {
+        setAiStatus("已停止這次生成；草稿與正式作品都沒有被修改。");
+      } else {
+        setAiStatus(error instanceof Error ? error.message : "Browser AI 沒有完成這次候選。");
+      }
+    } finally {
+      setAiBusy(false);
+      if (aiController.current === controller) aiController.current = null;
+    }
+  }
+
+  function acceptAICandidate() {
+    if (!aiCandidate) return;
+    const accepted = seedFromPayload(draft, {
+      logline: aiCandidate.seed.logline.value ?? undefined,
+      protagonist: aiCandidate.seed.protagonist.value ?? undefined,
+      goal: aiCandidate.seed.goal.value ?? undefined,
+      weakness: aiCandidate.seed.weakness.value ?? undefined,
+      world: aiCandidate.seed.world.value ?? undefined,
+      worldRule: aiCandidate.seed.worldRule.value ?? undefined,
+      conflict: aiCandidate.seed.conflict.value ?? undefined,
+      opposition: aiCandidate.seed.opposition.value ?? undefined,
+      opening: aiCandidate.seed.opening.value ?? undefined,
+      directions: aiCandidate.seed.directions,
+    }, true);
+    set({
+      coreIdea: optionalValue(accepted.logline.value, accepted.logline.value ? "ai_accepted" : "deferred"),
+      protagonist: optionalValue(accepted.protagonist.value, accepted.protagonist.value ? "ai_accepted" : "deferred"),
+      answers: {
+        ...draft.answers,
+        story: optionalValue(accepted.logline.value, accepted.logline.value ? "ai_accepted" : "deferred"),
+        protagonist: optionalValue(accepted.protagonist.value, accepted.protagonist.value ? "ai_accepted" : "deferred"),
+        goal: optionalValue(accepted.goal.value, accepted.goal.value ? "ai_accepted" : "deferred"),
+        conflict: optionalValue(accepted.conflict.value, accepted.conflict.value ? "ai_accepted" : "deferred"),
+        worldRule: optionalValue(accepted.worldRule.value ?? accepted.world.value, accepted.worldRule.value || accepted.world.value ? "ai_accepted" : "deferred"),
+        opening: optionalValue(accepted.opening.value, accepted.opening.value ? "ai_accepted" : "deferred"),
+      },
+      seedCandidate: accepted,
+    });
+    setAiCandidate(null);
+    setMessage("已採用這份 AI 候選到建立草稿；作品尚未建立前仍可修改。未核准候選沒有寫入 Canon。");
+  }
+
   async function finish() {
     if (!requireTitle("建立作品")) return;
-    if (saving) return; setSaving(true); setMessage("正在建立作品與安全備份……");
+    if (missing.length) {
+      setMessage(`還不能開始：請先完成 ${missing.join("、")}。互動與遊戲作品不會在空白設定上產生 A／B／C。`);
+      return;
+    }
+    if (saving || !currentPlayMode) return;
+    setSaving(true);
+    setMessage("正在建立獨立作品、第一章與可還原備份……");
     try {
-      const repository = createNovelRepository(), withSeed = { ...draft, seedCandidate: seed }, bundle = buildProjectBundle(withSeed);
+      const repository = createNovelRepository();
+      const withSeed = { ...draft, seedCandidate: seed };
+      const bundle = buildProjectBundle(withSeed);
       await repository.createProject(bundle, requestId.current);
+      const chapter = await repository.put<Chapter>("chapters", {
+        ...makeRecord(bundle.project.id, "user"),
+        title: "第一章",
+        order: 1,
+        content: "",
+        summary: seed.opening.value,
+        status: "draft",
+      });
+      const project = await repository.put<NovelProject>("projects", {
+        ...bundle.project,
+        activeChapterId: chapter.id,
+      }, bundle.project.revision);
+      const reader = await repository.get<ReaderState>("readerStates", bundle.readerState.id);
+      if (reader) {
+        bundle.readerState = await repository.put<ReaderState>("readerStates", {
+          ...reader,
+          chapterId: chapter.id,
+        }, reader.revision);
+      }
+      bundle.project = project;
+      await createProjectBackup(repository, project.id, "full");
       mirrorProjectToLegacyStudio(bundle);
-      localStorage.setItem("novel_p2_active_project_id", bundle.project.id); localStorage.removeItem(DRAFT_KEY); setCreatedId(bundle.project.id); setMessage("作品已完整建立，初始設定與備份均已保存。");
-    } catch (error) { setMessage(`建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`); } finally { setSaving(false); }
+      localStorage.setItem("novel_p2_active_project_id", project.id);
+      localStorage.removeItem(storageKey);
+      if (!cloneFrom) localStorage.removeItem(DRAFT_KEY);
+      setCreatedMode(currentPlayMode);
+      setCreatedId(project.id);
+      setMessage(`作品已建立並鎖定為「${STORY_PLAY_MODE_LABELS[currentPlayMode]}」。起始種子、第一章與完整備份均已保存。`);
+    } catch (error) {
+      setMessage(`建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`);
+    } finally {
+      setSaving(false);
+    }
   }
+
   if (!ready) return <main className="p2CreateShell"><p>正在讀取你的創作資料……</p></main>;
-  if (createdId) return <main className="p2CreateShell"><section className="p2CreateSuccess"><span>建立完成</span><h1>{draft.title.trim()}</h1><p>{message}</p><div><Link className="primaryAction" href={`/studio/project/${createdId}/write`}>開始寫作</Link><a className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>返回 Professional 工作台</a></div></section></main>;
-  return <main className="p2CreateShell">
-    <header><a href="/professional">← 返回 Professional 工作台</a><div><span>建立新作品</span><h1>先命名，再開始創作</h1><p>作品名稱是唯一必填；其他設定可以稍後補充。</p></div><small>資料先保存在這個瀏覽器</small></header>
-    <section className="p2TitleGate" data-valid={Boolean(draft.title.trim())}>
-      <label htmlFor="p2-project-title"><span>作品名稱 <strong>必填</strong></span><input ref={titleInputRef} id="p2-project-title" data-testid="p2-project-title" value={draft.title} aria-invalid={Boolean(titleError)} onChange={(event) => { set({ title: event.target.value }); if (event.target.value.trim()) setTitleError(""); }} placeholder="例如：星河盡頭的歸途" autoComplete="off" /></label>
-      <p>名稱會綁定這部作品的章節、角色、世界設定與備份。</p>
-      {titleError && <div className="p2TitleError" role="alert">{titleError}</div>}
-    </section>
-    <nav className="p2ModeTabs" aria-label="建立方式">
-      <button className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseMode("quick")}><b>快速建立</b><span>提供少量資料，先看故事雛形</span></button>
-      <button className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseMode("guided")}><b>引導建立</b><span>用五個問題慢慢整理想法</span></button>
-      <button className={draft.mode === "blank" ? "active" : ""} onClick={() => chooseMode("blank")}><b>空白建立</b><span>只要名稱就能開始寫</span></button>
-    </nav>
-    <div className="p2CreateLayout"><section className="p2CreatePanel">
-      <div className="p2StepBar" aria-label={`第 ${draft.step} 步，共 ${modeSteps} 步`}>{Array.from({ length: modeSteps }, (_, i) => <i key={i} className={i < draft.step ? "done" : ""} />)}</div>
-      {draft.mode === "blank" ? <Blank draft={draft} set={set} /> : draft.mode === "guided" ? <Guided draft={draft} setAnswer={setAnswer} /> : <Quick draft={draft} set={set} topics={topics} />}
-      <footer><button disabled={draft.step <= 1} onClick={() => set({ step: Math.max(1, draft.step - 1) })}>上一步</button>{draft.step < modeSteps ? <button className="gold" onClick={advance}>繼續</button> : <button className="gold" disabled={saving} onClick={finish}>{saving ? "建立中……" : "建立作品"}</button>}</footer>{message && <p className="p2CreateMessage" role="status">{message}</p>}
-    </section><aside className="p2SeedPreview"><span>故事雛形</span><h2>{draft.title.trim() || "請先輸入作品名稱"}</h2><dl><div><dt>題材</dt><dd>{topic?.name || "尚未設定"}</dd></div><div><dt>核心想法</dt><dd>{draft.coreIdea.value || "稍後補充"}</dd></div><div><dt>主角</dt><dd>{seed.protagonist.value || "稍後補充"}</dd></div><div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div><div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div></dl><p>只有你主動填寫或接受的內容會成為正式設定。</p></aside></div>
-  </main>;
+
+  if (createdId) {
+    const primaryHref = storyPlayModeDashboardHref(createdId, createdMode);
+    return (
+      <main className="p2CreateShell">
+        <section className="p2CreateSuccess">
+          <span>建立完成</span>
+          <h1>{draft.title.trim()}</h1>
+          <strong>{STORY_PLAY_MODE_LABELS[createdMode]} · 已鎖定</strong>
+          <p>{message}</p>
+          <div>
+            <Link className="primaryAction" href={primaryHref}>
+              {createdMode === "general" ? "進入第一章寫作" : "進入第一回合"}
+            </Link>
+            {createdMode !== "general" ? <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>先檢查開場與正文</Link> : null}
+            <Link className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>回到作品工作台</Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="p2CreateShell" data-testid="canonical-create-flow">
+      <header>
+        <a href="/professional">儲存建立草稿並離開</a>
+        <div>
+          <span>{cloneFrom ? "複製為新玩法" : "建立新作品"}</span>
+          <h1>先命名、選玩法，再建立故事起點</h1>
+          <p>設定完成前不會出現 A／B／C，也不會讓其他功能磚打斷這個流程。</p>
+        </div>
+        <small>建立後玩法鎖定；換玩法請複製新作品</small>
+      </header>
+
+      <section className="p2TitleGate" data-valid={Boolean(draft.title.trim())}>
+        <label htmlFor="p2-project-title">
+          <span>作品名稱 <strong>必填</strong></span>
+          <input
+            ref={titleInputRef}
+            id="p2-project-title"
+            data-testid="p2-project-title"
+            value={draft.title}
+            aria-invalid={Boolean(titleError)}
+            onChange={(event) => {
+              set({ title: event.target.value });
+              if (event.target.value.trim()) setTitleError("");
+            }}
+            placeholder="例如：星河盡頭的歸途"
+            autoComplete="off"
+          />
+        </label>
+        <p>名稱會綁定這部作品的章節、玩法、角色、世界設定、StoryState 與備份。</p>
+        {titleError ? <div className="p2TitleError" role="alert">{titleError}</div> : null}
+      </section>
+
+      <section className="p2PlayModeGate" aria-labelledby="p2-play-mode-title">
+        <div>
+          <span>第 1 個決定</span>
+          <h2 id="p2-play-mode-title">這部作品要用哪一種方式進行？</h2>
+          <p>只能選一種。建立後儀表板與後續流程會固定，不會寫到一半跳成另一套遊戲。</p>
+        </div>
+        <div className="p2PlayModeGrid">
+          {(Object.keys(STORY_PLAY_MODE_LABELS) as StoryPlayModeId[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              disabled={!draft.title.trim()}
+              className={currentPlayMode === mode ? "active" : ""}
+              aria-pressed={currentPlayMode === mode}
+              data-testid={`create-play-mode-${mode}`}
+              onClick={() => choosePlayMode(mode)}
+            >
+              <b>{STORY_PLAY_MODE_LABELS[mode]}</b>
+              <span>{mode === "general" ? "章節編輯、AI 輔助與閱讀" : mode === "interactive" ? "每回合選一條路，只把選中結果寫入正文" : mode === "rpg" ? "能力、任務、裝備、貨幣與故事回合" : mode === "romance" ? "關係、信任、事件與人物成長" : "資金、人力、品質、聲望與風險"}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <nav className="p2ModeTabs" aria-label="建立方式">
+        <button disabled={!draft.title.trim()} className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseBuildMode("quick")}><b>快速開始</b><span>少量設定，立即看可修改雛形</span></button>
+        <button disabled={!draft.title.trim()} className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseBuildMode("guided")}><b>引導建立</b><span>用五個問題整理人物與第一幕</span></button>
+        <button disabled={!draft.title.trim()} className={draft.mode === "blank" ? "active" : ""} onClick={() => chooseBuildMode("blank")}><b>完整故事庫</b><span>從完整題材庫挑選，再確認故事種子</span></button>
+      </nav>
+
+      <div className="p2CreateLayout">
+        <section className="p2CreatePanel">
+          <div className="p2StepBar" aria-label={`第 ${draft.step} 步，共 ${modeSteps} 步`}>
+            {Array.from({ length: modeSteps }, (_, index) => <i key={index} className={index < draft.step ? "done" : ""} />)}
+          </div>
+
+          {draft.mode === "blank"
+            ? <Library draft={draft} set={set} topics={topics} />
+            : draft.mode === "guided"
+              ? <Guided draft={draft} setAnswer={setAnswer} />
+              : <Quick draft={draft} set={set} topics={topics} />}
+
+          <section className="p2CreationAssistant" aria-label="創作帶領精靈">
+            <div>
+              <span>創作帶領精靈</span>
+              <h3>先得到可修改雛形，不再按了沒反應</h3>
+              <p>裝置亂數會立即產生；真實 Browser AI 只在已安裝模型可用時執行，並顯示進度與模型身分。</p>
+            </div>
+            <div className="p2CreationAssistantActions">
+              <button type="button" onClick={applyProcedural}>立即產生裝置亂數雛形 <small>非 AI</small></button>
+              <button type="button" className="gold" disabled={aiBusy} onClick={() => void runBrowserAI()}>{aiBusy ? "真實模型生成中……" : "請真實 Browser AI 深化"}</button>
+              {aiBusy ? <button type="button" onClick={() => { cancelBrowserWebLLMGeneration(); aiController.current?.abort(); }}>停止生成</button> : null}
+              <Link href="/settings/local-ai">檢查／安裝本機模型</Link>
+            </div>
+            {aiStatus ? <p className="p2AIStatus" role="status" aria-live="polite">{aiStatus}</p> : null}
+            {aiCandidate ? (
+              <article className="p2AICandidate" data-testid="creation-ai-candidate">
+                <header><div><small>真實模型候選 · 尚未寫入正式作品</small><h4>{aiCandidate.seed.logline.value || "模型候選"}</h4></div><span>{aiCandidate.modelId}<br />{aiCandidate.modelDigest.slice(0, 14)}…</span></header>
+                <dl>
+                  <div><dt>主角</dt><dd>{aiCandidate.seed.protagonist.value || "未提供"}</dd></div>
+                  <div><dt>世界</dt><dd>{aiCandidate.seed.world.value || "未提供"}</dd></div>
+                  <div><dt>衝突</dt><dd>{aiCandidate.seed.conflict.value || "未提供"}</dd></div>
+                  <div><dt>開場</dt><dd>{aiCandidate.seed.opening.value || "未提供"}</dd></div>
+                </dl>
+                <footer>
+                  <button type="button" className="gold" onClick={acceptAICandidate}>採用並繼續修改</button>
+                  <button type="button" onClick={() => { setAiCandidate(null); setAiStatus("候選已放棄；建立草稿與 Canon 都沒有改變。"); }}>放棄候選</button>
+                  <button type="button" onClick={() => void runBrowserAI()}>重新生成不同候選</button>
+                </footer>
+              </article>
+            ) : null}
+          </section>
+
+          {missing.length ? <div className="p2FoundationWarning" role="status"><b>開始前還缺：</b>{missing.join("、")}<span>補齊前不會產生第一回合 A／B／C。</span></div> : <div className="p2FoundationReady"><b>故事起點已完整</b><span>建立作品後才會依選定玩法開啟正文或第一回合。</span></div>}
+
+          <footer>
+            <button disabled={draft.step <= 1} onClick={() => set({ step: Math.max(1, draft.step - 1) })}>上一步</button>
+            {draft.step < modeSteps
+              ? <button className="gold" onClick={advance}>繼續</button>
+              : <button className="gold" disabled={saving || aiBusy || missing.length > 0} onClick={() => void finish()}>{saving ? "建立中……" : `建立「${currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選玩法"}」作品`}</button>}
+          </footer>
+          {message ? <p className="p2CreateMessage" role="status">{message}</p> : null}
+        </section>
+
+        <aside className="p2SeedPreview">
+          <span>正式建立前預覽</span>
+          <h2>{draft.title.trim() || "請先輸入作品名稱"}</h2>
+          <strong>{currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選擇玩法"}</strong>
+          <dl>
+            <div><dt>題材</dt><dd>{topic?.name || "尚未設定"}</dd></div>
+            <div><dt>核心想法</dt><dd>{seed.logline.value || draft.coreIdea.value || "稍後補充"}</dd></div>
+            <div><dt>主角</dt><dd>{seed.protagonist.value || "稍後補充"}</dd></div>
+            <div><dt>故事舞台</dt><dd>{seed.world.value || seed.worldRule.value || "稍後補充"}</dd></div>
+            <div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div>
+            <div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div>
+          </dl>
+          <p>只有你填寫、點選亂數產生，或明確採用的 AI 候選會進入新作品。未選的 A／B／C 永遠不寫進正文。</p>
+        </aside>
+      </div>
+    </main>
+  );
 }
 
-function Blank({ draft }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { return <div className="p2CreateFields"><h2>{draft.title.trim()}</h2><p>這個模式只需要作品名稱。建立後可以直接進入寫作，人物、世界與大綱都能邊寫邊補。</p></div>; }
-function Quick({ draft, set, topics }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void; topics: ReturnType<typeof listStoryTopics> }) {
-  if (draft.step === 1) return <div className="p2CreateFields"><h2>選擇故事方向</h2><label>分類包（選填）<select value={draft.genrePackId || ""} onChange={(e) => set({ genrePackId: e.target.value || null, genreId: null })}><option value="">暫時略過</option>{STORY_LIBRARY.packs.filter((x) => x.enabled).map((x) => <option key={x.packId} value={x.packId}>{x.name}</option>)}</select></label><div className="p2TopicGrid">{topics.slice(0, 18).map((item) => <button key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genreId: item.topicId })}><b>{item.name}</b><span>{item.description}</span></button>)}</div></div>;
-  if (draft.step === 2) return <div className="p2CreateFields"><h2>放入你的核心想法</h2><label>核心想法（選填）<textarea value={draft.coreIdea.value || ""} onChange={(e) => set({ coreIdea: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label><label>主角（選填）<input value={draft.protagonist.value || ""} onChange={(e) => set({ protagonist: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") })} /></label></div>;
+function Quick({ draft, set, topics }: {
+  draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
+  topics: ReturnType<typeof listStoryTopics>;
+}) {
+  if (draft.step === 1) {
+    return (
+      <div className="p2CreateFields">
+        <h2>選擇故事方向</h2>
+        <label>分類包（選填）
+          <select value={draft.genrePackId || ""} onChange={(event) => set({ genrePackId: event.target.value || null, genreId: null, seedCandidate: null })}>
+            <option value="">查看全部</option>
+            {STORY_LIBRARY.packs.filter((item) => item.enabled).map((item) => <option key={item.packId} value={item.packId}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="p2TopicGrid">
+          {topics.slice(0, 18).map((item) => <button type="button" key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genreId: item.topicId, seedCandidate: null })}><b>{item.name}</b><span>{item.description}</span></button>)}
+        </div>
+      </div>
+    );
+  }
+  if (draft.step === 2) {
+    return (
+      <div className="p2CreateFields">
+        <h2>放入人物與故事核心</h2>
+        <label>核心想法<textarea value={draft.coreIdea.value || ""} onChange={(event) => set({ coreIdea: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred"), seedCandidate: null })} /></label>
+        <label>主角姓名<input value={draft.protagonist.value || ""} onChange={(event) => set({ protagonist: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred"), seedCandidate: null })} /></label>
+        <label>故事舞台／世界規則<textarea value={draft.answers.worldRule?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, worldRule: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
+        <label>目標或衝突<textarea value={draft.answers.conflict?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, conflict: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
+        <label>開場事件<textarea value={draft.answers.opening?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, opening: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
+      </div>
+    );
+  }
   return <SeedEditor draft={draft} set={set} />;
 }
-function Guided({ draft, setAnswer }: { draft: ProjectCreationDraft; setAnswer: (key: string, value: string | null, status?: "user_defined" | "deferred") => void }) { const q = questions[Math.min(questions.length - 1, draft.step - 1)], selected = draft.answers[q.key]?.value; return <div className="p2CreateFields"><span>第 {draft.step} 題／共 5 題</span><h2>{q.title}</h2><div className="p2GuidedChoices">{q.choices.map((choice, index) => <button key={choice} className={selected === choice ? "active" : ""} onClick={() => setAnswer(q.key, choice)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}</div><label>自己輸入（選填）<input value={selected && !q.choices.some((choice) => choice === selected) ? selected : ""} onChange={(e) => setAnswer(q.key, e.target.value || null, e.target.value ? "user_defined" : "deferred")} /></label><button onClick={() => setAnswer(q.key, null, "deferred")}>暫時跳過</button></div>; }
-function SeedEditor({ draft, set }: { draft: ProjectCreationDraft; set: (p: Partial<ProjectCreationDraft>) => void }) { const seed = draft.seedCandidate ?? buildSeedCandidate(draft); return <div className="p2CreateFields"><h2>確認《{draft.title.trim()}》的故事雛形</h2><label>一句話故事<textarea value={seed.logline.value || ""} onChange={(e) => set({ seedCandidate: { ...seed, logline: optionalValue(e.target.value || null, e.target.value ? "user_defined" : "deferred") } })} /></label><p>除了作品名稱之外，其他欄位都能保持空白並在建立後再補。</p></div>; }
+
+function Guided({ draft, setAnswer }: {
+  draft: ProjectCreationDraft;
+  setAnswer: (key: string, value: string | null, status?: "user_defined" | "deferred") => void;
+}) {
+  const question = questions[Math.min(questions.length - 1, draft.step - 1)];
+  const selected = draft.answers[question.key]?.value;
+  return (
+    <div className="p2CreateFields">
+      <span>第 {draft.step} 題／共 5 題</span>
+      <h2>{question.title}</h2>
+      <div className="p2GuidedChoices">
+        {question.choices.map((choice, index) => <button type="button" key={choice} className={selected === choice ? "active" : ""} onClick={() => setAnswer(question.key, choice)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}
+      </div>
+      <label>自己輸入<input value={selected && !question.choices.some((choice) => choice === selected) ? selected : ""} onChange={(event) => setAnswer(question.key, event.target.value || null, event.target.value ? "user_defined" : "deferred")} /></label>
+      <button type="button" onClick={() => setAnswer(question.key, null, "deferred")}>清除此題</button>
+    </div>
+  );
+}
+
+function Library({ draft, set, topics }: {
+  draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
+  topics: ReturnType<typeof listStoryTopics>;
+}) {
+  if (draft.step === 1) {
+    return (
+      <div className="p2CreateFields">
+        <h2>完整故事庫</h2>
+        <p>這裡是題材與規則索引，不是下載小說全文。選擇後只會帶入創作方向。</p>
+        <div className="p2TopicGrid p2TopicGridLarge">
+          {topics.map((item) => <button type="button" key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genrePackId: item.packId, genreId: item.topicId, seedCandidate: null })}><b>{item.name}</b><span>{item.description}</span></button>)}
+        </div>
+      </div>
+    );
+  }
+  return <SeedEditor draft={draft} set={set} />;
+}
+
+function SeedEditor({ draft, set }: {
+  draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
+}) {
+  const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const update = (key: keyof Pick<ProjectSeed, "logline" | "protagonist" | "goal" | "world" | "worldRule" | "conflict" | "opening">, value: string) => set({
+    seedCandidate: {
+      ...seed,
+      [key]: optionalValue(value || null, value ? "user_defined" : "deferred"),
+    },
+  });
+  return (
+    <div className="p2CreateFields p2SeedEditor">
+      <h2>確認《{draft.title.trim()}》的故事起點</h2>
+      <label>一句話故事<textarea value={seed.logline.value || ""} onChange={(event) => update("logline", event.target.value)} /></label>
+      <div className="p2SeedEditorGrid">
+        <label>主角<input value={seed.protagonist.value || ""} onChange={(event) => update("protagonist", event.target.value)} /></label>
+        <label>主角目標<input value={seed.goal.value || ""} onChange={(event) => update("goal", event.target.value)} /></label>
+        <label>故事舞台<textarea value={seed.world.value || ""} onChange={(event) => update("world", event.target.value)} /></label>
+        <label>世界規則<textarea value={seed.worldRule.value || ""} onChange={(event) => update("worldRule", event.target.value)} /></label>
+        <label>主要衝突<textarea value={seed.conflict.value || ""} onChange={(event) => update("conflict", event.target.value)} /></label>
+        <label>開場事件<textarea value={seed.opening.value || ""} onChange={(event) => update("opening", event.target.value)} /></label>
+      </div>
+    </div>
+  );
+}
