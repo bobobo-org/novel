@@ -678,7 +678,7 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
     assert.ok(projectSource.includes(value), value);
   }
   for (const value of [
-    "新章節已建立",
+    "完成本章並建立下一章",
     "儲存目前內容",
     "刪除本章",
     "Ctrl+S",
