@@ -474,6 +474,8 @@ harness.test("mobile", "inline A/B/C choices are single-column touch targets and
   const choices = page.getByTestId("rpg-inline-choices").locator("button");
   await choices.first().waitFor({ state: "visible" });
   assert.equal(await choices.count(), 3);
+  assert.equal(await choices.first().isEnabled(), false);
+  assert.match(await choices.first().innerText(), /舊版選項僅供查看/u);
   const boxes = await choices.evaluateAll((buttons) => buttons.map((button) => {
     const box = button.getBoundingClientRect();
     return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, height: box.height };

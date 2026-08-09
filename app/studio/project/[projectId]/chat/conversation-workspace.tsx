@@ -104,6 +104,26 @@ type RpgChoiceEnvelope = {
   plan: RpgChatChoicePlan;
 };
 
+type RpgChoiceKey = "A" | "B" | "C";
+
+type RpgDisplayChoice = {
+  key: RpgChoiceKey;
+  strategyLabel: string;
+  title: string;
+  description: string;
+  displayedChanceBand: string;
+  risk: 1 | 2 | 3 | 4 | 5;
+  knownCosts: Array<{ label: string }>;
+  consequenceTeaser: string;
+  irreversibleWarning: string | null;
+  disabledReason: string | null;
+};
+
+type ParsedRpgChoices = {
+  envelope: RpgChoiceEnvelope | null;
+  choices: RpgDisplayChoice[];
+};
+
 type DrawerPayload =
   | { kind: "artifact"; artifactId: string }
   | { kind: "status"; title: string; content: string }
@@ -154,14 +174,100 @@ function statusLabel(status: ConversationMessage["status"]) {
   return labels[status];
 }
 
-function parseRpgChoices(value: string): RpgChoiceEnvelope | null {
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonEmptyText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function nullableText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isExecutableRpgChoice(value: unknown): value is RpgChatChoicePlan["choices"][number] {
+  const choice = objectValue(value);
+  if (!choice) return false;
+  return typeof choice.id === "string"
+    && ["A", "B", "C"].includes(String(choice.key))
+    && typeof choice.approach === "string"
+    && typeof choice.primaryStat === "string"
+    && typeof choice.secondaryStat === "string"
+    && typeof choice.successChance === "number"
+    && typeof choice.internalSuccessChance === "number"
+    && typeof choice.risk === "number"
+    && Array.isArray(choice.requirements)
+    && Array.isArray(choice.missingRequirements)
+    && Array.isArray(choice.knownCosts)
+    && Array.isArray(choice.costLabels)
+    && Array.isArray(choice.impactLabels)
+    && Array.isArray(choice.delayedConsequenceRefs)
+    && Boolean(objectValue(choice.effect))
+    && Boolean(objectValue(choice.immediateEffect))
+    && Boolean(objectValue(choice.failureEffect))
+    && Boolean(objectValue(choice.partialSuccessEffect))
+    && Boolean(objectValue(choice.successEffect))
+    && Boolean(objectValue(choice.criticalSuccessEffect))
+    && Boolean(objectValue(choice.sourceSnapshot))
+    && Boolean(objectValue(choice.encounter));
+}
+
+function parseRpgChoices(value: string): ParsedRpgChoices | null {
   if (!value.startsWith(RPG_CHOICES_PREFIX)) return null;
   try {
-    const parsed = JSON.parse(value.slice(RPG_CHOICES_PREFIX.length)) as RpgChoiceEnvelope;
-    return parsed.schemaVersion === "conversation-rpg-choices-v1"
-      && parsed.plan.choices.length === 3
-      ? parsed
-      : null;
+    const parsed = objectValue(JSON.parse(value.slice(RPG_CHOICES_PREFIX.length)));
+    const plan = objectValue(parsed?.plan);
+    const rawChoices = Array.isArray(plan?.choices) ? plan.choices : [];
+    if (parsed?.schemaVersion !== "conversation-rpg-choices-v1" || rawChoices.length !== 3) {
+      return null;
+    }
+    const rows = rawChoices.map((value, index) => {
+      const choice = objectValue(value);
+      const key = choice?.key === "A" || choice?.key === "B" || choice?.key === "C"
+        ? choice.key
+        : null;
+      if (!choice || !key) return null;
+      const executable = isExecutableRpgChoice(choice);
+      const fallbackRisk = [1, 3, 5][index] as 1 | 3 | 5;
+      const numericRisk = Number(choice.risk);
+      const risk = Math.max(1, Math.min(5, Number.isFinite(numericRisk) ? Math.round(numericRisk) : fallbackRisk)) as 1 | 2 | 3 | 4 | 5;
+      const knownCosts = Array.isArray(choice.knownCosts)
+        ? choice.knownCosts.flatMap((cost) => {
+          const label = nullableText(objectValue(cost)?.label);
+          return label ? [{ label }] : [];
+        })
+        : [];
+      return {
+        key,
+        strategyLabel: nonEmptyText(choice.strategyLabel, ["穩健／觀察", "資源／關係", "高風險／突破"][index]),
+        title: nonEmptyText(choice.title, `選項 ${key}`),
+        description: nonEmptyText(choice.description, "這是舊版保存的故事選項。"),
+        displayedChanceBand: nonEmptyText(choice.displayedChanceBand, "舊版未記錄機率"),
+        risk,
+        knownCosts,
+        consequenceTeaser: nonEmptyText(choice.consequenceTeaser, nonEmptyText(choice.consequence, "部分後果仍未知。")),
+        irreversibleWarning: nullableText(choice.irreversibleWarning),
+        disabledReason: executable
+          ? nullableText(choice.disabledReason)
+          : "舊版選項僅供查看，請重新產生本回合。",
+      } satisfies RpgDisplayChoice;
+    });
+    if (rows.some((choice) => !choice)) return null;
+    const choices = rows as RpgDisplayChoice[];
+    if (new Set(choices.map((choice) => choice.key)).size !== 3) return null;
+    const executable = rawChoices.every(isExecutableRpgChoice)
+      && typeof parsed.chapterId === "string"
+      && Number.isInteger(parsed.chapterRevision)
+      && Number.isInteger(parsed.storyStateRevision)
+      && plan?.schemaVersion === "rpg-chat-turn-v1"
+      && typeof plan.candidateId === "string";
+    return {
+      envelope: executable ? parsed as unknown as RpgChoiceEnvelope : null,
+      choices,
+    };
   } catch {
     return null;
   }
@@ -561,7 +667,7 @@ export default function ConversationWorkspace({
   const latestRpgChoices = (() => {
     for (const message of [...messages].reverse()) {
       const parsed = parseRpgChoices(message.content);
-      if (parsed) return { message, envelope: parsed };
+      if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
       if (message.role === "assistant" && message.candidateIds.length) break;
     }
     return null;
@@ -3174,8 +3280,10 @@ export default function ConversationWorkspace({
                     {rpgChoices ? (
                       <>
                       <div className={styles.choices} data-testid="rpg-inline-choices">
-                        {rpgChoices.plan.choices.map((choice) => (
-                          <button className={styles.choiceCard} type="button" key={choice.key} aria-label={`選項 ${choice.key}：${choice.title}；${choice.strategyLabel}；${choice.displayedChanceBand}`} title={choice.disabledReason ?? undefined} disabled={busy || rpgChoicesConsumed || Boolean(choice.disabledReason)} onClick={() => void chooseRpgOption(rpgChoices, message.id, choice.key as "A" | "B" | "C")}>
+                        {rpgChoices.choices.map((choice) => (
+                          <button className={styles.choiceCard} type="button" key={choice.key} aria-label={`選項 ${choice.key}：${choice.title}；${choice.strategyLabel}；${choice.displayedChanceBand}`} title={choice.disabledReason ?? undefined} disabled={busy || rpgChoicesConsumed || !rpgChoices.envelope || Boolean(choice.disabledReason)} onClick={() => {
+                            if (rpgChoices.envelope) void chooseRpgOption(rpgChoices.envelope, message.id, choice.key);
+                          }}>
                             <span className={styles.choiceKey}>{choice.key} · {choice.strategyLabel}</span>
                             <h3>{choice.title}</h3>
                             <p>{choice.description}</p>
