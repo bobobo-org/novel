@@ -107,6 +107,7 @@ async function createProject(page, title) {
   await primary.click();
   await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 90_000 });
   await page.getByLabel("小說專案訊息").waitFor({ state: "visible" });
+  await waitUntilIdle(page);
   return { projectId, href };
 }
 
