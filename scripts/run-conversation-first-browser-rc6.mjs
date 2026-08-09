@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Rc6TestHarness, assert } from "./rc6-test-harness.mjs";
@@ -37,6 +37,20 @@ async function waitForStudio() {
 
 async function startServer() {
   if (!explicitBaseUrl && process.env.RC6_CONVERSATION_START_SERVER !== "0") {
+    const provenance = spawnSync(
+      process.execPath,
+      [path.join(process.cwd(), "scripts/generate-release-provenance.mjs")],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+        encoding: "utf8",
+      },
+    );
+    if (provenance.status !== 0) {
+      throw new Error(
+        `RC6_CONVERSATION_PROVENANCE_FAILED:${provenance.stderr || provenance.stdout || provenance.error?.message || "UNKNOWN"}`,
+      );
+    }
     const url = new URL(baseUrl);
     serverProcess = spawn(
       process.execPath,
@@ -253,7 +267,13 @@ harness.test("browser", "route and component source expose the complete conversa
   const workspaceSource = readFileSync("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8");
   const cssSource = readFileSync("app/studio/project/[projectId]/chat/conversation.module.css", "utf8");
   const manualLearningGateSource = readFileSync("scripts/run-rc6-manual-learning.mjs", "utf8");
+  const browserRunnerSource = readFileSync("scripts/run-conversation-first-browser-rc6.mjs", "utf8");
   assert.match(pageSource, /ConversationWorkspace/u);
+  assert.match(
+    browserRunnerSource,
+    /scripts\/generate-release-provenance\.mjs/u,
+    "a clean checkout must generate ephemeral release provenance before starting Next",
+  );
   for (const contract of [
     "conversation-first-workspace",
     "＋ 新對話",
