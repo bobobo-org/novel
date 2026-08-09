@@ -31,15 +31,27 @@ const stamped = {
   html: source.html
     .replaceAll("__NOVEL_STATIC_APP_COMMIT__", provenance.appCommit)
     .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag)
+    .replaceAll("__NOVEL_STATIC_RELEASE_REVISION__", provenance.releaseRevision)
+    .replaceAll("__NOVEL_STATIC_RELEASE_BUILD__", provenance.releaseBuild)
+    .replaceAll("__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__", provenance.releaseProductCommit)
+    .replaceAll("__NOVEL_STATIC_RELEASE_BASE_COMMIT__", provenance.releaseBaseCommit)
     .replaceAll("__NOVEL_STATIC_RELEASE_NAME__", releaseManifest.releaseName)
     .replaceAll("__NOVEL_STATIC_CONSUMER_RELEASE__", releaseManifest.consumerRelease)
-    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage),
+    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage)
+    .replaceAll("__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__", provenance.gitCommitSignature)
+    .replaceAll("__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__", "verified"),
   workspace: source.workspace
     .replaceAll("__NOVEL_STATIC_APP_COMMIT__", provenance.appCommit)
     .replaceAll("__NOVEL_STATIC_RELEASE_TAG__", provenance.releaseTag)
+    .replaceAll("__NOVEL_STATIC_RELEASE_REVISION__", provenance.releaseRevision)
+    .replaceAll("__NOVEL_STATIC_RELEASE_BUILD__", provenance.releaseBuild)
+    .replaceAll("__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__", provenance.releaseProductCommit)
+    .replaceAll("__NOVEL_STATIC_RELEASE_BASE_COMMIT__", provenance.releaseBaseCommit)
     .replaceAll("__NOVEL_STATIC_RELEASE_NAME__", releaseManifest.releaseName)
     .replaceAll("__NOVEL_STATIC_CONSUMER_RELEASE__", releaseManifest.consumerRelease)
-    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage),
+    .replaceAll("__NOVEL_STATIC_ARCHITECTURE_STAGE__", releaseManifest.architectureStage)
+    .replaceAll("__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__", provenance.gitCommitSignature)
+    .replaceAll("__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__", "verified"),
 };
 
 async function test(name, work) {
@@ -82,8 +94,19 @@ await test("Build JSON contains architectureStage", () => {
 });
 await test("Build JSON contains complete RC release identity", () => {
   const actual = build();
+  assert.equal(actual.releaseRevision, releaseManifest.releaseRevision);
+  assert.equal(actual.releaseBuild, provenance.releaseBuild);
+  assert.equal(actual.releaseProductCommit, provenance.appCommit);
+  assert.equal(actual.releaseBaseCommit, releaseManifest.releaseBaseCommit);
   assert.equal(actual.releaseName, releaseManifest.releaseName);
   assert.equal(actual.consumerRelease, releaseManifest.consumerRelease);
+});
+await test("Build JSON separates signature truth from deployment provenance", () => {
+  const actual = build();
+  assert.equal(actual.gitCommitSignature, "unsigned");
+  assert.equal(actual.deploymentProvenance, "verified");
+  assert.equal(actual.artifactAttestationStatus, "not_produced");
+  assert.equal(actual.artifactAttestationDigest, null);
 });
 await test("Build JSON contains verified provenance fields", () => {
   const actual = build();

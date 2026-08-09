@@ -33,10 +33,10 @@ import {
 } from "@/lib/novel-ai/sovereign-learning";
 import { runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import {
-  extractManualLearningFile,
   splitManualLearningDocument,
   type ManualLearningFileExtraction,
 } from "@/lib/novel-ai/web/manual-learning-file";
+import { extractManualLearningFileInWorker } from "@/lib/novel-ai/web/manual-learning-worker-client";
 import ProjectNavigation from "../project-navigation";
 import styles from "./learning.module.css";
 
@@ -1063,7 +1063,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
               const file = input.files?.[0];
               if (!file) return;
               setStatus(`正在本機解析 ${file.name}；檔案不會上傳。`);
-              void extractManualLearningFile(file).then((extraction) => {
+              void extractManualLearningFileInWorker(file).then((extraction) => {
                 setContent(extraction.text);
                 setLoadedFile(extraction);
                 setTitle(file.name.replace(/\.[^.]+$/u, ""));

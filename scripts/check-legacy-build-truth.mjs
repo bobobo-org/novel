@@ -17,14 +17,26 @@ const normalizeReleaseFields = (value) => value
   .replace(/\r\n/g, "\n")
   .replace(/(<meta name="novel-static-release" content=")[^"]*(">)/, '$1__NOVEL_STATIC_APP_COMMIT__$2')
   .replace(/(<meta name="novel-static-release-tag" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_TAG__$2')
+  .replace(/(<meta name="novel-static-release-revision" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_REVISION__$2')
+  .replace(/(<meta name="novel-static-release-build" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_BUILD__$2')
+  .replace(/(<meta name="novel-static-release-product-commit" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__$2')
+  .replace(/(<meta name="novel-static-release-base-commit" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_BASE_COMMIT__$2')
   .replace(/(<meta name="novel-static-release-name" content=")[^"]*(">)/, '$1__NOVEL_STATIC_RELEASE_NAME__$2')
   .replace(/(<meta name="novel-static-consumer-release" content=")[^"]*(">)/, '$1__NOVEL_STATIC_CONSUMER_RELEASE__$2')
   .replace(/(<meta name="novel-static-architecture-stage" content=")[^"]*(">)/, '$1__NOVEL_STATIC_ARCHITECTURE_STAGE__$2')
+  .replace(/(<meta name="novel-static-git-commit-signature" content=")[^"]*(">)/, '$1__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__$2')
+  .replace(/(<meta name="novel-static-deployment-provenance" content=")[^"]*(">)/, '$1__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__$2')
   .replace(/data-app-commit="[^"]*"/, 'data-app-commit="__NOVEL_STATIC_APP_COMMIT__"')
   .replace(/data-release-tag="[^"]*"/, 'data-release-tag="__NOVEL_STATIC_RELEASE_TAG__"')
+  .replace(/data-release-revision="[^"]*"/, 'data-release-revision="__NOVEL_STATIC_RELEASE_REVISION__"')
+  .replace(/data-release-build="[^"]*"/, 'data-release-build="__NOVEL_STATIC_RELEASE_BUILD__"')
+  .replace(/data-release-product-commit="[^"]*"/, 'data-release-product-commit="__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__"')
+  .replace(/data-release-base-commit="[^"]*"/, 'data-release-base-commit="__NOVEL_STATIC_RELEASE_BASE_COMMIT__"')
   .replace(/data-release-name="[^"]*"/, 'data-release-name="__NOVEL_STATIC_RELEASE_NAME__"')
   .replace(/data-consumer-release="[^"]*"/, 'data-consumer-release="__NOVEL_STATIC_CONSUMER_RELEASE__"')
   .replace(/data-architecture-stage="[^"]*"/, 'data-architecture-stage="__NOVEL_STATIC_ARCHITECTURE_STAGE__"')
+  .replace(/data-git-commit-signature="[^"]*"/, 'data-git-commit-signature="__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__"')
+  .replace(/data-deployment-provenance="[^"]*"/, 'data-deployment-provenance="__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__"')
   .replace(/data-visible-ui-semantic-version="[^"]*"/, 'data-visible-ui-semantic-version="__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__"')
   .replace(/data-visible-ui-body-hash="[^"]*"/, 'data-visible-ui-body-hash="__NOVEL_VISIBLE_UI_BODY_HASH__"');
 
@@ -68,8 +80,13 @@ function validateSealedProvenance(provenance, manifest, contract) {
   if (!FULL_COMMIT.test(provenance?.appCommit ?? "")) failures.push("invalid sealed commit");
   if (!SHA256.test(provenance?.integrity?.payloadHash ?? "")) failures.push("invalid provenance hash");
   if (!allowedSchemas.includes(provenance?.schemaVersion)) failures.push("unsupported provenance schema");
+  if (provenance?.releaseProductCommit !== provenance?.appCommit) failures.push("releaseProductCommit mismatch");
+  if (provenance?.releaseBaseCommit !== manifest.releaseBaseCommit) failures.push("releaseBaseCommit mismatch");
   if (provenance?.releaseTag !== manifest.releaseTag) failures.push("releaseTag mismatch");
+  if (provenance?.releaseRevision !== manifest.releaseRevision) failures.push("releaseRevision mismatch");
+  if (provenance?.releaseBuild !== `${manifest.releaseRevision}+${provenance?.appCommit}`) failures.push("releaseBuild mismatch");
   if (provenance?.architectureStage !== manifest.architectureStage) failures.push("architectureStage mismatch");
+  if (provenance?.gitCommitSignature !== manifest.gitCommitSignature) failures.push("gitCommitSignature mismatch");
   if (failures.length) fail("LEGACY_BUILD_PROVENANCE_INVALID", failures);
 }
 
@@ -111,71 +128,133 @@ export function createLegacyBuildTruth({
 
   const htmlCommit = matchValue(html, /<meta name="novel-static-release" content="([^"]*)">/, "HTML commit");
   const htmlTag = matchValue(html, /<meta name="novel-static-release-tag" content="([^"]*)">/, "HTML releaseTag");
+  const htmlRevision = matchValue(html, /<meta name="novel-static-release-revision" content="([^"]*)">/, "HTML releaseRevision");
+  const htmlBuild = matchValue(html, /<meta name="novel-static-release-build" content="([^"]*)">/, "HTML releaseBuild");
+  const htmlProductCommit = matchValue(html, /<meta name="novel-static-release-product-commit" content="([^"]*)">/, "HTML releaseProductCommit");
+  const htmlBaseCommit = matchValue(html, /<meta name="novel-static-release-base-commit" content="([^"]*)">/, "HTML releaseBaseCommit");
   const htmlName = matchValue(html, /<meta name="novel-static-release-name" content="([^"]*)">/, "HTML releaseName");
   const htmlConsumer = matchValue(html, /<meta name="novel-static-consumer-release" content="([^"]*)">/, "HTML consumerRelease");
   const htmlStage = matchValue(html, /<meta name="novel-static-architecture-stage" content="([^"]*)">/, "HTML architectureStage");
+  const htmlSignature = matchValue(html, /<meta name="novel-static-git-commit-signature" content="([^"]*)">/, "HTML gitCommitSignature");
+  const htmlDeploymentProvenance = matchValue(html, /<meta name="novel-static-deployment-provenance" content="([^"]*)">/, "HTML deploymentProvenance");
   const jsCommit = matchValue(workspace, /appCommit:\s*"([^"]*)"/, "JavaScript commit");
   const jsTag = matchValue(workspace, /releaseTag:\s*"([^"]*)"/, "JavaScript releaseTag");
   const jsExpectedTag = matchValue(workspace, /expectedReleaseTag:\s*"([^"]*)"/, "JavaScript expectedReleaseTag");
+  const jsRevision = matchValue(workspace, /releaseRevision:\s*"([^"]*)"/, "JavaScript releaseRevision");
+  const jsBuild = matchValue(workspace, /releaseBuild:\s*"([^"]*)"/, "JavaScript releaseBuild");
+  const jsProductCommit = matchValue(workspace, /releaseProductCommit:\s*"([^"]*)"/, "JavaScript releaseProductCommit");
+  const jsBaseCommit = matchValue(workspace, /releaseBaseCommit:\s*"([^"]*)"/, "JavaScript releaseBaseCommit");
   const jsName = matchValue(workspace, /releaseName:\s*"([^"]*)"/, "JavaScript releaseName");
   const jsConsumer = matchValue(workspace, /consumerRelease:\s*"([^"]*)"/, "JavaScript consumerRelease");
   const jsStage = matchValue(workspace, /architectureStage:\s*"([^"]*)"/, "JavaScript architectureStage");
+  const jsSignature = matchValue(workspace, /gitCommitSignature:\s*"([^"]*)"/, "JavaScript gitCommitSignature");
+  const jsDeploymentProvenance = matchValue(workspace, /deploymentProvenance:\s*"([^"]*)"/, "JavaScript deploymentProvenance");
   const expectedCommit = provenance.appCommit;
+  const expectedProductCommit = provenance.releaseProductCommit;
+  const expectedBaseCommit = provenance.releaseBaseCommit;
   const expectedTag = provenance.releaseTag;
+  const expectedRevision = provenance.releaseRevision;
+  const expectedBuild = provenance.releaseBuild;
   const expectedName = manifest.releaseName;
   const expectedConsumer = manifest.consumerRelease;
   const expectedStage = provenance.architectureStage;
+  const expectedSignature = provenance.gitCommitSignature;
+  const expectedDeploymentProvenance = "verified";
   const templateAllowed = allowTemplatePlaceholders
     && htmlCommit === TEMPLATE_COMMIT
     && htmlTag === TEMPLATE_TAG
+    && htmlRevision === "__NOVEL_STATIC_RELEASE_REVISION__"
+    && htmlBuild === "__NOVEL_STATIC_RELEASE_BUILD__"
+    && htmlProductCommit === "__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__"
+    && htmlBaseCommit === "__NOVEL_STATIC_RELEASE_BASE_COMMIT__"
     && htmlName === "__NOVEL_STATIC_RELEASE_NAME__"
     && htmlConsumer === "__NOVEL_STATIC_CONSUMER_RELEASE__"
     && htmlStage === "__NOVEL_STATIC_ARCHITECTURE_STAGE__"
+    && htmlSignature === "__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__"
+    && htmlDeploymentProvenance === "__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__"
     && jsCommit === TEMPLATE_COMMIT
     && jsTag === TEMPLATE_TAG
     && jsExpectedTag === TEMPLATE_TAG
+    && jsRevision === "__NOVEL_STATIC_RELEASE_REVISION__"
+    && jsBuild === "__NOVEL_STATIC_RELEASE_BUILD__"
+    && jsProductCommit === "__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__"
+    && jsBaseCommit === "__NOVEL_STATIC_RELEASE_BASE_COMMIT__"
     && jsName === "__NOVEL_STATIC_RELEASE_NAME__"
     && jsConsumer === "__NOVEL_STATIC_CONSUMER_RELEASE__"
-    && jsStage === "__NOVEL_STATIC_ARCHITECTURE_STAGE__";
+    && jsStage === "__NOVEL_STATIC_ARCHITECTURE_STAGE__"
+    && jsSignature === "__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__"
+    && jsDeploymentProvenance === "__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__";
   const metadataMatches = templateAllowed || (
     htmlCommit === expectedCommit
     && jsCommit === expectedCommit
     && htmlTag === expectedTag
     && jsTag === expectedTag
     && jsExpectedTag === expectedTag
+    && htmlRevision === expectedRevision
+    && jsRevision === expectedRevision
+    && htmlBuild === expectedBuild
+    && jsBuild === expectedBuild
+    && htmlProductCommit === expectedProductCommit
+    && jsProductCommit === expectedProductCommit
+    && htmlBaseCommit === expectedBaseCommit
+    && jsBaseCommit === expectedBaseCommit
     && htmlName === expectedName
     && jsName === expectedName
     && htmlConsumer === expectedConsumer
     && jsConsumer === expectedConsumer
     && htmlStage === expectedStage
     && jsStage === expectedStage
+    && htmlSignature === expectedSignature
+    && jsSignature === expectedSignature
+    && htmlDeploymentProvenance === expectedDeploymentProvenance
+    && jsDeploymentProvenance === expectedDeploymentProvenance
   );
   if (!metadataMatches) {
     fail("LEGACY_BUILD_RELEASE_METADATA_MISMATCH", [
       `HTML commit: ${htmlCommit}`,
       `HTML releaseTag: ${htmlTag}`,
+      `HTML releaseRevision: ${htmlRevision}`,
+      `HTML releaseBuild: ${htmlBuild}`,
+      `HTML releaseProductCommit: ${htmlProductCommit}`,
+      `HTML releaseBaseCommit: ${htmlBaseCommit}`,
       `HTML releaseName: ${htmlName}`,
       `HTML consumerRelease: ${htmlConsumer}`,
       `HTML architectureStage: ${htmlStage}`,
+      `HTML gitCommitSignature: ${htmlSignature}`,
+      `HTML deploymentProvenance: ${htmlDeploymentProvenance}`,
       `JavaScript commit: ${jsCommit}`,
       `JavaScript releaseTag: ${jsTag}`,
       `JavaScript expectedReleaseTag: ${jsExpectedTag}`,
+      `JavaScript releaseRevision: ${jsRevision}`,
+      `JavaScript releaseBuild: ${jsBuild}`,
+      `JavaScript releaseProductCommit: ${jsProductCommit}`,
+      `JavaScript releaseBaseCommit: ${jsBaseCommit}`,
       `JavaScript releaseName: ${jsName}`,
       `JavaScript consumerRelease: ${jsConsumer}`,
       `JavaScript architectureStage: ${jsStage}`,
+      `JavaScript gitCommitSignature: ${jsSignature}`,
+      `JavaScript deploymentProvenance: ${jsDeploymentProvenance}`,
     ]);
   }
 
   return {
-    schemaVersion: "legacy-build-truth-v2",
+    schemaVersion: "legacy-build-truth-v3",
     sourcePath: "public/legacy/novel-system.html",
     deployedRoute: "/legacy/novel-system.html",
     hashMode: "sha256-normalized-release-fields-v1",
     commit: expectedCommit,
+    releaseProductCommit: expectedProductCommit,
+    releaseBaseCommit: expectedBaseCommit,
     releaseTag: expectedTag,
+    releaseRevision: expectedRevision,
+    releaseBuild: expectedBuild,
     releaseName: expectedName,
     consumerRelease: expectedConsumer,
     architectureStage: expectedStage,
+    gitCommitSignature: expectedSignature,
+    deploymentProvenance: expectedDeploymentProvenance,
+    artifactAttestationStatus: "not_produced",
+    artifactAttestationDigest: null,
     commitProvenanceSource: "build_sealed",
     commitProvenanceStatus: "verified",
     commitProvenanceSchemaVersion: provenance.schemaVersion,

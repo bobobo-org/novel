@@ -2,8 +2,8 @@
 
 import {
   ManualLearningWorkerRuntime,
-  type ManualLearningWorkerRequest,
 } from "./manual-learning-worker";
+import type { ManualLearningWorkerRequest } from "./manual-learning-import-preparation";
 
 const runtime = new ManualLearningWorkerRuntime();
 const workerScope = globalThis as unknown as {

@@ -392,13 +392,21 @@ test("private Storage provisioning is gated, server-only and preserves the addit
   assert.match(workflow, /Verify staged encrypted cloud sync runtime/u);
   assert.match(workflow, /cloud_sync_e2ee_storage_001/u);
   assert.match(workflow, /private-object-storage/u);
-  const bootstrapJob = workflow.slice(
-    workflow.indexOf("  production_env_bootstrap:"),
-    workflow.indexOf("  restore_known_stable:"),
-  );
-  const deployJob = workflow.slice(workflow.indexOf("  deploy:"));
-  assert.match(bootstrapJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
-  assert.doesNotMatch(deployJob, /SUPABASE_ACCESS_TOKEN/u);
+  const workflowJob = (name) => {
+    const start = workflow.indexOf(`  ${name}:`);
+    assert.notEqual(start, -1, `${name} job must exist`);
+    const next = workflow.slice(start + 3).search(/^  [a-z][a-z0-9_]*:/mu);
+    return next < 0
+      ? workflow.slice(start)
+      : workflow.slice(start, start + 3 + next);
+  };
+  const auditJob = workflowJob("production_env_audit");
+  const repairJob = workflowJob("production_env_repair");
+  assert.match(auditJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+  assert.match(repairJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+  for (const name of ["production_build", "staged_deploy", "runtime_gates", "alias_cutover"]) {
+    assert.doesNotMatch(workflowJob(name), /SUPABASE_ACCESS_TOKEN/u);
+  }
   assert.ok(workflow.indexOf("Verify staged encrypted cloud sync runtime") < workflow.indexOf("Cut over both aliases with atomic compensation"));
 });
 

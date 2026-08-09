@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   DEFAULT_XAI_MODEL_ID,
+  planXaiProductionChanges,
+  PRODUCTION_EXTERNAL_AI_MUTATION_KEYS,
   parseExternalAIEnv,
   resolveXaiBootstrapConfiguration,
   validateXaiBootstrapInput,
@@ -30,6 +32,26 @@ assert.deepEqual(resolveXaiBootstrapConfiguration({
   modelId: "grok-4.5",
   credentialSource: "vercel_production",
 });
+assert.deepEqual(PRODUCTION_EXTERNAL_AI_MUTATION_KEYS, ["XAI_API_KEY", "XAI_MODEL_ID"]);
+assert.deepEqual(planXaiProductionChanges({
+  production: { XAI_API_KEY: testKey, XAI_MODEL_ID: "grok-old" },
+  configuration: { apiKey: testKey, modelId: "grok-4.5", credentialSource: "github_secret" },
+  allowedMutationKeys: ["XAI_MODEL_ID"],
+}), ["XAI_MODEL_ID"]);
+assert.deepEqual(planXaiProductionChanges({
+  production: { XAI_API_KEY: "", XAI_MODEL_ID: "grok-old" },
+  configuration: { apiKey: testKey, modelId: "grok-4.5", credentialSource: "github_secret" },
+  allowedMutationKeys: ["XAI_MODEL_ID"],
+  environmentMetadata: { entries: { XAI_API_KEY: { type: "sensitive" } } },
+}), ["XAI_MODEL_ID"]);
+assert.throws(
+  () => planXaiProductionChanges({
+    production: { XAI_API_KEY: "different-production-key-with-length", XAI_MODEL_ID: "grok-old" },
+    configuration: { apiKey: testKey, modelId: "grok-4.5", credentialSource: "github_secret" },
+    allowedMutationKeys: ["XAI_MODEL_ID"],
+  }),
+  (error) => error.code === "XAI_UNAUDITED_PRODUCTION_DRIFT",
+);
 assert.deepEqual(resolveXaiBootstrapConfiguration({
   githubApiKey: testKey,
   githubModelId: "grok-4.5-latest",
@@ -75,7 +97,8 @@ await assert.rejects(
 );
 
 const source = await readFile(new URL("./bootstrap-production-external-ai-env.mjs", import.meta.url), "utf8");
-assert.match(source, /--sensitive/u);
+assert.match(source, /upsertSensitiveProductionEnvironment/u);
+assert.doesNotMatch(source, /"--sensitive"/u);
 assert.match(source, /https:\/\/api\.x\.ai\/v1\/models/u);
 assert.match(source, /env", "pull"/u);
 assert.match(source, /mkdtemp/u);
@@ -83,10 +106,16 @@ assert.match(source, /await rm\(directory/u);
 assert.match(source, /production_xai_env_not_configured/u);
 assert.match(source, /error\?\.code !== "XAI_API_KEY_NOT_CONFIGURED"/u);
 assert.doesNotMatch(source, /console\.log\([^\n]*apiKey/u);
+assert.match(source, /production\.XAI_API_KEY !== configuration\.apiKey/u);
+assert.match(source, /mutationCount:\s*actualChangedKeys\.length/u);
+assert.match(source, /credentialVerification:\s*\{/u);
+assert.match(source, /credentialSource:\s*configuration\.credentialSource/u);
+assert.match(source, /verificationCode:\s*"MODEL_ACCESS_VERIFIED"/u);
+assert.match(source, /secretValuesStored:\s*false/u);
 
 console.log(JSON.stringify({
   status: "PASS",
-  assertions: 27,
+  assertions: 31,
   modelId: DEFAULT_XAI_MODEL_ID,
   credentialExposed: false,
 }, null, 2));

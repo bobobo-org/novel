@@ -4,24 +4,29 @@ on:
   push:
     branches:
       - main
-      - agent/p24b-rc6-conversation-first
   pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
       operation:
-        description: Recovery operation
+        description: Trusted Preview or Production recovery operation
         required: true
         type: choice
         options:
+          - deploy-preview
           - restore-known-stable
+      preview_ref:
+        description: Exact 40-character commit SHA from this repository (deploy-preview only)
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: vercel-deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) && 'vercel-production-main') || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
+  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) }}
 
 env:
   VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
@@ -30,19 +35,25 @@ env:
   VERCEL_SCOPE: lqtechs-projects
   LEGACY_BOOTSTRAP_DEPLOYMENT_ID: dpl_8vdPA2mFkDJUezr5Rfn5MuxqJuBa
   LEGACY_BOOTSTRAP_COMMIT: d0e80323dc68bf08cb541e46c6b9114a71e05cd9
-  RECOVERY_DEPLOYMENT_ID: dpl_ECbrLCX4RsdhUUjYj7cZrhY27oJV
-  RECOVERY_COMMIT: 5cf5e819a95d9f98d485a2bec1c39ae68c1d4a1f
+  EMERGENCY_RECOVERY_DEPLOYMENT_ID: dpl_ECbrLCX4RsdhUUjYj7cZrhY27oJV
+  EMERGENCY_RECOVERY_COMMIT: 5cf5e819a95d9f98d485a2bec1c39ae68c1d4a1f
+  EXPECTED_RELEASE_TAG: novel-ai-p24b-conversation-first-studio-rc6
+  EXPECTED_RELEASE_REVISION: rc6.1
 
 jobs:
   validate:
     name: validate
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy-preview'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'workflow_dispatch' && inputs.preview_ref || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -64,6 +75,9 @@ jobs:
       - name: Initialize ephemeral CI evidence
         shell: bash
         run: mkdir -p "$RUNNER_TEMP/rc6-evidence"
+
+      - name: Prepare validation-only demand-loaded Worker asset
+        run: pnpm build:manual-learning-worker
 
       - name: Verify RC6 release hardening
         shell: bash
@@ -130,7 +144,27 @@ jobs:
             pnpm test:ai:legacy-health-cannot-claim-closed-runtime
             pnpm test:ci:dual-alias-rollback
             pnpm test:ci:workflow-contract
+            pnpm test:ci:rc6-1-deployment-governance
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/truth-gates.log"
+
+      - name: Run RC6.1 post-release hardening gates
+        run: |
+          set -euo pipefail
+          {
+            pnpm test:ci:release-revision
+            pnpm test:ci:release-tag-commit-traceability
+            pnpm test:ci:artifact-attestation
+            pnpm test:ci:build-provenance
+            pnpm test:ci:signature-vs-provenance-truth
+            pnpm test:studio:conversation-component-contract
+            pnpm test:studio:conversation-lazy-tools
+            pnpm test:studio:conversation-long-session
+            pnpm test:studio:conversation-scroll-restoration
+            pnpm test:ai:manual-learning-worker-asset
+            pnpm test:ai:attachment-worker-cancellation
+            pnpm test:ai:attachment-worker-memory-release
+            pnpm test:ai:attachment-late-result-rejected
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/rc6-1-hardening.log"
 
       - name: Verify secrets, Companion ZIP, and evidence schemas
         run: |
@@ -155,12 +189,6 @@ jobs:
           set -o pipefail
           pnpm lint:ci 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/lint.log"
 
-      - name: Build
-        shell: bash
-        run: |
-          set -o pipefail
-          pnpm build 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/build.log"
-
       - name: Write exact-SHA evidence manifest
         if: always()
         shell: bash
@@ -168,7 +196,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rc6-evidence"
           jq -n \
             --arg schemaVersion "p24b-rc6-actions-evidence-v1" \
-            --arg headSha "$GITHUB_SHA" \
+            --arg headSha "$VERCEL_GIT_COMMIT_SHA" \
             --arg ref "$GITHUB_REF" \
             --arg runId "$GITHUB_RUN_ID" \
             --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
@@ -180,7 +208,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: p24b-rc6-validation-${{ github.sha }}-${{ github.run_attempt }}
+          name: p24b-rc6-validation-${{ env.VERCEL_GIT_COMMIT_SHA }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/rc6-evidence
           if-no-files-found: error
           retention-days: 30
@@ -190,20 +218,31 @@ jobs:
     needs: validate
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/agent/p24b-rc6-conversation-first')
+      (github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-preview')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.preview_ref }}
     steps:
       - name: Checkout trusted Preview head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
           persist-credentials: false
+
+      - name: Enforce trusted exact-SHA Preview policy
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_GIT_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$VERCEL_GIT_COMMIT_SHA" ]]
+          remote="$(git remote get-url origin)"
+          [[ "$remote" == *"$EXPECTED_REPOSITORY"* ]]
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -243,8 +282,8 @@ jobs:
         run: |
           set -euo pipefail
           identity_url="$PREVIEW_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
+          for attempt in {1..15}; do
+            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
               app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
               environment="$(jq -r '.environment // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
@@ -259,11 +298,16 @@ jobs:
           echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
           exit 1
 
-  production_env_bootstrap:
-    name: production env bootstrap
+  production_env_audit:
+    name: production-env-audit
+    needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      repair_required: ${{ steps.audit.outputs.repair_required }}
+      mutation_count: ${{ steps.audit.outputs.mutation_count }}
+      before_digest: ${{ steps.audit.outputs.before_digest }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -288,24 +332,99 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.34.5 --activate
 
-      - name: Install Vercel environment tooling
+      - name: Install read-only Production audit tooling
         run: pnpm install --frozen-lockfile
 
-      - name: Verify and recover Production Supabase environment
-        run: node scripts/bootstrap-production-supabase-env.mjs
+      - name: Audit Production environment without mutation
+        id: audit
+        env:
+          PRODUCTION_ENV_AUDIT_PATH: ${{ runner.temp }}/production-environment-audit.json
+        run: node scripts/production-environment-governance.mjs audit
 
-      - name: Verify optional Production xAI Grok environment
-        run: node scripts/bootstrap-production-external-ai-env.mjs
+      - name: Upload sanitized Production environment audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-environment-audit-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/production-environment-audit.json
+          if-no-files-found: error
+          retention-days: 30
+
+  production_env_repair:
+    name: production-env-repair
+    needs: [validate, production_env_audit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      mutation_count: ${{ steps.repair.outputs.mutation_count || steps.noop_receipt.outputs.mutation_count }}
+      before_digest: ${{ steps.repair.outputs.before_digest || steps.noop_receipt.outputs.before_digest }}
+      after_digest: ${{ steps.repair.outputs.after_digest || steps.noop_receipt.outputs.after_digest }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF_FALLBACK: iwobncchxuykcztziavw
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      XAI_MODEL_ID: grok-4.5
+    steps:
+      - name: Checkout validated Product commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+
+      - name: Install Production repair tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Repair Production environment only when audit found drift
+        id: repair
+        if: needs.production_env_audit.outputs.repair_required == 'true'
+        env:
+          AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
+          AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
+          PRODUCTION_ENV_REPAIR_RECEIPT_PATH: ${{ runner.temp }}/production-environment-repair-receipt.json
+        run: node scripts/production-environment-governance.mjs repair
+
+      - name: Record zero-mutation repair receipt when audit is already ready
+        id: noop_receipt
+        if: needs.production_env_audit.outputs.repair_required != 'true'
+        env:
+          AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
+          AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
+          PRODUCTION_ENV_REPAIR_RECEIPT_PATH: ${{ runner.temp }}/production-environment-repair-receipt.json
+        run: node scripts/production-environment-governance.mjs repair
+
+      - name: Upload sanitized Production repair receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-environment-repair-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/production-environment-repair-receipt.json
+          if-no-files-found: error
+          retention-days: 30
 
   restore_known_stable:
     name: restore known stable production aliases
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable'
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_FETCH_TIMEOUT_MS: 10000
+      ROLLBACK_TARGET_SELECTION_DEADLINE_MS: 60000
+      ROLLBACK_DEADLINE_MS: 240000
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -317,20 +436,47 @@ jobs:
         with:
           node-version: 24
 
+      - name: Discover latest successful Last Known Good artifact
+        id: lkg
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/production-last-known-good.mjs discover
+
+      - name: Download latest Last Known Good identity
+        if: steps.lkg.outputs.available == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ steps.lkg.outputs.artifact_name }}
+          path: ${{ runner.temp }}/last-known-good
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.lkg.outputs.run_id }}
+
+      - name: Select verified Last Known Good or emergency fallback
+        id: rollback
+        env:
+          DISABLE_CURRENT_CAPTURE: 'true'
+          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good/last-known-good-production.json', runner.temp) || '' }}
+          EMERGENCY_PRIMARY_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
+          EMERGENCY_PRIMARY_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
+          EMERGENCY_MIRROR_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
+          EMERGENCY_MIRROR_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
+        run: node scripts/production-last-known-good.mjs select
+
       - name: Restore and verify both production aliases
         env:
-          PRIMARY_BEFORE_DEPLOYMENT: ${{ env.RECOVERY_DEPLOYMENT_ID }}
-          PRIMARY_BEFORE_COMMIT: ${{ env.RECOVERY_COMMIT }}
-          MIRROR_BEFORE_DEPLOYMENT: ${{ env.RECOVERY_DEPLOYMENT_ID }}
-          MIRROR_BEFORE_COMMIT: ${{ env.RECOVERY_COMMIT }}
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
         run: node scripts/vercel-dual-alias-cutover.mjs restore
 
-  deploy:
-    name: deploy
-    needs: [validate, production_env_bootstrap]
+  production_build:
+    name: build
+    needs: production_env_repair
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -339,6 +485,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -354,49 +501,109 @@ jobs:
       - name: Install project dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Capture both current alias identities for rollback
-        if: github.ref == 'refs/heads/main'
-        id: aliases_before
-        run: node scripts/vercel-dual-alias-cutover.mjs capture
-
       - name: Pull Vercel environment (production)
-        if: github.ref == 'refs/heads/main'
-        run: pnpm exec vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel pull --yes --environment=production --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
 
       - name: Provision and verify encrypted cloud sync private storage
-        if: github.ref == 'refs/heads/main'
         run: node scripts/provision-cloud-sync-storage.mjs --env-file .vercel/.env.production.local --required
 
       - name: Build (production)
-        if: github.ref == 'refs/heads/main'
-        run: pnpm exec vercel build --prod --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel build --prod --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
 
-      - name: Deploy staged production
-        if: github.ref == 'refs/heads/main'
+      - name: Verify Conversation production bundle budget
+        run: pnpm test:studio:conversation-bundle-budget
+
+      - name: Upload sealed prebuilt Production artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-prebuilt-${{ github.sha }}-${{ github.run_attempt }}
+          path: .vercel/output
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+  staged_deploy:
+    name: staged deploy
+    needs: production_build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      url: ${{ steps.production.outputs.url }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout exact Product commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+
+      - name: Install locked deployment tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore sealed prebuilt Production artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: production-prebuilt-${{ github.sha }}-${{ github.run_attempt }}
+          path: .vercel/output
+
+      - name: Verify restored Build Output API artifact
+        shell: bash
+        run: test -f .vercel/output/config.json
+
+      - name: Pull Vercel project identity for staged deployment
+        run: pnpm exec vercel pull --yes --environment=production --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+
+      - name: Deploy staged production without alias mutation
         id: production
         shell: bash
         run: |
           set -euo pipefail
-          output="$(pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN" 2>&1)"
+          output="$(pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
 
+  runtime_gates:
+    name: runtime gates
+    needs: staged_deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deployment_id: ${{ steps.staged.outputs.deployment_id }}
+    env:
+      STAGED_URL: ${{ needs.staged_deploy.outputs.url }}
+      EXPECTED_XAI_MODEL_ID: grok-4.5
+    steps:
       - name: Verify staged production identity
-        if: github.ref == 'refs/heads/main'
         id: staged
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          identity_url="${{ steps.production.outputs.url }}/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
+          identity_url="$STAGED_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for attempt in {1..15}; do
+            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
               app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
               deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               environment="$(jq -r '.environment // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$environment" == "production" ]]; then
+              release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
+              release_revision="$(jq -r '.releaseRevision // empty' <<<"$body")"
+              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$environment" == "production" && "$release_tag" == "$EXPECTED_RELEASE_TAG" && "$release_revision" == "$EXPECTED_RELEASE_REVISION" ]]; then
                 echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -406,18 +613,45 @@ jobs:
           echo "Staged release identity did not match commit $GITHUB_SHA." >&2
           exit 1
 
-      - name: Verify staged encrypted cloud sync runtime
-        if: steps.staged.outcome == 'success'
-        id: staged_health
-        continue-on-error: true
+      - name: Verify staged demand-loaded manual learning Worker asset
         shell: bash
-        env:
-          STAGED_URL: ${{ steps.production.outputs.url }}
+        run: |
+          set -euo pipefail
+          worker_url="$STAGED_URL/generated/manual-learning-worker.js?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          worker_body="$RUNNER_TEMP/manual-learning-worker.js"
+          worker_headers="$RUNNER_TEMP/manual-learning-worker.headers"
+          for attempt in {1..10}; do
+            : > "$worker_body"
+            : > "$worker_headers"
+            if status="$(curl --connect-timeout 5 --max-time 20 --silent --show-error \
+              --output "$worker_body" --dump-header "$worker_headers" --write-out '%{http_code}' \
+              "$worker_url" 2>/dev/null)" && [[ "$status" == "200" ]]; then
+              content_type="$(awk 'BEGIN { IGNORECASE=1 } /^content-type:/ { sub(/^[^:]+:[[:space:]]*/, ""); gsub(/\r/, ""); print }' "$worker_headers" | tail -n 1)"
+              bytes="$(wc -c < "$worker_body" | tr -d '[:space:]')"
+              if [[ "$content_type" =~ (java|ecma)script ]] \
+                && (( bytes >= 500000 && bytes <= 3500000 )) \
+                && grep -aFq 'LEARNING_FILE_MAGIC_MISMATCH' "$worker_body" \
+                && grep -aFq 'splitManualLearningDocumentSemantically' "$worker_body" \
+                && grep -aFq 'LEARNING_WORKER_DUPLICATE_REQUEST' "$worker_body" \
+                && grep -aFq 'prepare_import_file' "$worker_body" \
+                && grep -aFq 'manual-learning-worker-protocol-v2' "$worker_body" \
+                && ! head -c 512 "$worker_body" | grep -aiq '<!doctype html'; then
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo "Staged manual learning Worker asset is missing or invalid; aliases remain unchanged." >&2
+          exit 1
+
+      - name: Verify staged encrypted cloud sync runtime
+        id: staged_health
+        shell: bash
         run: |
           set -euo pipefail
           health_url="$STAGED_URL/api/persistence/sync/health?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$health_url" 2>/dev/null)"; then
+          for attempt in {1..15}; do
+            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$health_url" 2>/dev/null)"; then
               status="$(jq -r '.status // empty' <<<"$body")"
               migration="$(jq -r '.migrationVersion // empty' <<<"$body")"
               schema="$(jq -r '.schemaVersion // empty' <<<"$body")"
@@ -432,25 +666,31 @@ jobs:
           exit 1
 
       - name: Verify staged external AI truth and provider isolation
-        if: steps.staged.outcome == 'success' && steps.staged_health.outcome == 'success'
         id: staged_teachers
-        continue-on-error: true
         shell: bash
-        env:
-          STAGED_URL: ${{ steps.production.outputs.url }}
         run: |
           set -euo pipefail
           providers_url="$STAGED_URL/api/ai/external/providers?probe=1&providers=openai,grok&verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for attempt in {1..30}; do
-            if body="$(curl --fail --silent --show-error "$providers_url" 2>/dev/null)"; then
-              openai_safe="$(jq -r 'any(.providers[]?; .id == "openai" and ((.configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED") or (.configured == true and ((.verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED") or (.verification == "failed" and (.verificationCode | length) > 0 and .verificationCode != "PROBE_REQUIRED")))))' <<<"$body")"
-              grok_safe="$(jq -r 'any(.providers[]?; .id == "grok" and ((.configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED") or (.configured == true and ((.verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and (.modelId == "grok-4.5" or .modelId == "grok-4.5-latest")) or (.verification == "failed" and (.verificationCode | length) > 0 and .verificationCode != "PROBE_REQUIRED")))))' <<<"$body")"
+          for attempt in {1..15}; do
+            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$providers_url" 2>/dev/null)"; then
+              openai_not_configured="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED")' <<<"$body")"
+              openai_verified="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED")' <<<"$body")"
+              grok_verified="$(jq -r --arg expectedModel "$EXPECTED_XAI_MODEL_ID" 'any(.providers[]?; .id == "grok" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and .modelId == $expectedModel)' <<<"$body")"
               credential_mode="$(jq -r '.credentials // empty' <<<"$body")"
               provider_verification="$(jq -r '.verification // empty' <<<"$body")"
+              probe_performed="$(jq -r 'if has("probePerformed") then .probePerformed else false end' <<<"$body")"
               silent_fallback="$(jq -r 'if has("silentFallback") then .silentFallback else true end' <<<"$body")"
               provider_count="$(jq -r '[.providers[]?] | length' <<<"$body")"
+              openai_count="$(jq -r '[.providers[]? | select(.id == "openai")] | length' <<<"$body")"
+              grok_count="$(jq -r '[.providers[]? | select(.id == "grok")] | length' <<<"$body")"
               provider_boundaries="$(jq -r 'all(.providers[]?; .serverSideCredentialOnly == true and .dataLeavesDevice == true)' <<<"$body")"
-              if [[ "$openai_safe" == "true" && "$grok_safe" == "true" && "$credential_mode" == "server-side-only" && ("$provider_verification" == "verified" || "$provider_verification" == "degraded") && "$silent_fallback" == "false" && "$provider_count" == "2" && "$provider_boundaries" == "true" ]]; then
+              top_level_safe="false"
+              if [[ "$openai_not_configured" == "true" && "$openai_verified" == "false" && "$provider_verification" == "degraded" ]]; then
+                top_level_safe="true"
+              elif [[ "$openai_not_configured" == "false" && "$openai_verified" == "true" && "$provider_verification" == "verified" ]]; then
+                top_level_safe="true"
+              fi
+              if [[ "$grok_verified" == "true" && "$top_level_safe" == "true" && "$credential_mode" == "server-side-only" && "$probe_performed" == "true" && "$silent_fallback" == "false" && "$provider_count" == "2" && "$openai_count" == "1" && "$grok_count" == "1" && "$provider_boundaries" == "true" ]]; then
                 exit 0
               fi
             fi
@@ -459,29 +699,139 @@ jobs:
           echo "Staged external AI truth surface is invalid; aliases remain unchanged." >&2
           exit 1
 
-      - name: Restore aliases after staged gate rejection
-        if: always() && steps.production.outcome == 'success' && (steps.staged.outcome != 'success' || steps.staged_health.outcome != 'success' || steps.staged_teachers.outcome != 'success')
+  alias_cutover:
+    name: alias cutover
+    needs: [staged_deploy, runtime_gates]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_FETCH_TIMEOUT_MS: 10000
+      ALIAS_CAPTURE_DEADLINE_MS: 60000
+      ROLLBACK_TARGET_SELECTION_DEADLINE_MS: 60000
+      CUTOVER_DEADLINE_MS: 360000
+      CUTOVER_ROLLBACK_RESERVE_MS: 180000
+      POST_CUTOVER_DEADLINE_MS: 180000
+      PUBLIC_GATE_FETCH_TIMEOUT_MS: 10000
+      ROLLBACK_DEADLINE_MS: 240000
+    steps:
+      - name: Checkout exact Product commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Capture current dual-alias transaction identity
+        id: aliases_before
+        continue-on-error: true
+        run: node scripts/vercel-dual-alias-cutover.mjs capture
+
+      - name: Discover latest successful Last Known Good artifact
+        id: lkg
         env:
-          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.primary_deployment_id }}
-          PRIMARY_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
-          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
-          MIRROR_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
-        run: node scripts/vercel-dual-alias-cutover.mjs restore
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/production-last-known-good.mjs discover
+
+      - name: Download latest Last Known Good identity
+        if: steps.lkg.outputs.available == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ steps.lkg.outputs.artifact_name }}
+          path: ${{ runner.temp }}/last-known-good
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.lkg.outputs.run_id }}
+
+      - name: Select and verify rollback target in dynamic priority order
+        id: rollback
+        env:
+          CURRENT_PRIMARY_DEPLOYMENT: ${{ steps.aliases_before.outputs.primary_deployment_id }}
+          CURRENT_PRIMARY_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
+          CURRENT_MIRROR_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
+          CURRENT_MIRROR_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
+          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good/last-known-good-production.json', runner.temp) || '' }}
+          EMERGENCY_PRIMARY_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
+          EMERGENCY_PRIMARY_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
+          EMERGENCY_MIRROR_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
+          EMERGENCY_MIRROR_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
+        run: node scripts/production-last-known-good.mjs select
 
       - name: Cut over both aliases with atomic compensation
-        if: steps.staged.outcome == 'success' && steps.staged_health.outcome == 'success' && steps.staged_teachers.outcome == 'success'
+        id: cutover
+        continue-on-error: true
         env:
-          STAGED_TARGET: ${{ steps.production.outputs.url }}
-          STAGED_DEPLOYMENT_ID: ${{ steps.staged.outputs.deployment_id }}
+          STAGED_TARGET: ${{ needs.staged_deploy.outputs.url }}
+          STAGED_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
           EXPECTED_COMMIT: ${{ github.sha }}
-          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.primary_deployment_id }}
-          PRIMARY_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
-          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
-          MIRROR_BEFORE_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
-        run: node scripts/vercel-dual-alias-cutover.mjs
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs cutover
 
-      - name: Fail after compensated staged gate rejection
-        if: always() && steps.production.outcome == 'success' && (steps.staged.outcome != 'success' || steps.staged_health.outcome != 'success' || steps.staged_teachers.outcome != 'success')
+      - name: Verify both public aliases and their dynamic assets after cutover
+        if: steps.cutover.outcome == 'success'
+        id: public_gate
+        continue-on-error: true
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          POST_CUTOVER_REPORT_PATH: ${{ runner.temp }}/post-cutover-public-verification.json
+        run: node scripts/verify-production-public-cutover.mjs
+
+      - name: Compensating rollback after public verification failure
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
+
+      - name: Upload post-cutover verification evidence
+        if: always() && steps.cutover.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-post-cutover-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/post-cutover-public-verification.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Write Last Known Good only after public verification passes
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        env:
+          PRIMARY_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
+          MIRROR_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
+          APP_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ env.EXPECTED_RELEASE_TAG }}
+          RELEASE_REVISION: ${{ env.EXPECTED_RELEASE_REVISION }}
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+        run: node scripts/production-last-known-good.mjs write
+
+      - name: Publish dynamic Last Known Good identity
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-last-known-good-${{ github.sha }}
+          path: ${{ runner.temp }}/last-known-good-production.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Fail after atomic cutover compensation
+        if: steps.cutover.outcome != 'success'
         run: |
-          echo "Staged production was rejected and both aliases were restored." >&2
+          echo "Alias cutover failed; its atomic compensation completed or reported failure." >&2
+          exit 1
+
+      - name: Fail after post-cutover compensating rollback
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
+        run: |
+          echo "Public Production verification failed and both aliases were rolled back." >&2
           exit 1

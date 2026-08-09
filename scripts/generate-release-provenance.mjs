@@ -36,6 +36,17 @@ export function resolveBuildCommit({ env = process.env, cwd = process.cwd(), git
   }
 }
 
+export function createReleaseBuildIdentity({
+  releaseRevision = releaseManifest.releaseRevision,
+  appCommit,
+}) {
+  if (!(new RegExp(releaseContract.releaseRevisionPattern)).test(releaseRevision)) {
+    throw new Error("INVALID_RELEASE_REVISION");
+  }
+  if (!FULL_COMMIT.test(appCommit)) throw new Error("INVALID_RELEASE_PRODUCT_COMMIT");
+  return `${releaseRevision}+${appCommit.toLowerCase()}`;
+}
+
 function resolveSealedAt({ env, cwd, appCommit, git }) {
   if (env.NOVEL_BUILD_SEALED_AT) {
     const explicit = new Date(env.NOVEL_BUILD_SEALED_AT);
@@ -54,8 +65,13 @@ export function provenancePayload(provenance) {
   return {
     schemaVersion: provenance.schemaVersion,
     appCommit: provenance.appCommit,
+    releaseProductCommit: provenance.releaseProductCommit,
+    releaseBaseCommit: provenance.releaseBaseCommit,
     releaseTag: provenance.releaseTag,
+    releaseRevision: provenance.releaseRevision,
+    releaseBuild: provenance.releaseBuild,
     architectureStage: provenance.architectureStage,
+    gitCommitSignature: provenance.gitCommitSignature,
     sealedAt: provenance.sealedAt,
     source: provenance.source,
   };
@@ -67,8 +83,17 @@ export function verifyReleaseProvenance(provenance) {
   if (!allowedSchemas.includes(provenance.schemaVersion)) return false;
   if (!releaseContract.allowedProvenanceSources.includes(provenance.source)) return false;
   if (!FULL_COMMIT.test(provenance.appCommit)) return false;
+  if (provenance.releaseProductCommit !== provenance.appCommit) return false;
+  if (provenance.releaseBaseCommit !== releaseManifest.releaseBaseCommit) return false;
   if (provenance.releaseTag !== releaseManifest.releaseTag) return false;
+  if (provenance.releaseRevision !== releaseManifest.releaseRevision) return false;
+  if (provenance.releaseBuild !== createReleaseBuildIdentity({
+    releaseRevision: provenance.releaseRevision,
+    appCommit: provenance.appCommit,
+  })) return false;
   if (provenance.architectureStage !== releaseManifest.architectureStage) return false;
+  if (provenance.gitCommitSignature !== releaseManifest.gitCommitSignature
+    || !releaseContract.allowedGitCommitSignatures.includes(provenance.gitCommitSignature)) return false;
   if (provenance.integrity?.algorithm !== releaseContract.provenanceHashAlgorithm) return false;
   const hash = createHash("sha256")
     .update(JSON.stringify(provenancePayload(provenance)), "utf8")
@@ -87,8 +112,13 @@ export function generateReleaseProvenance({
   const payload = {
     schemaVersion: releaseContract.provenanceSchemaVersion,
     appCommit: resolved.appCommit,
+    releaseProductCommit: resolved.appCommit,
+    releaseBaseCommit: releaseManifest.releaseBaseCommit,
     releaseTag: releaseManifest.releaseTag,
+    releaseRevision: releaseManifest.releaseRevision,
+    releaseBuild: createReleaseBuildIdentity({ appCommit: resolved.appCommit }),
     architectureStage: releaseManifest.architectureStage,
+    gitCommitSignature: releaseManifest.gitCommitSignature,
     sealedAt: resolveSealedAt({ env, cwd, appCommit: resolved.appCommit, git }),
     source: resolved.source,
   };
@@ -113,6 +143,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     status: "PASS",
     schemaVersion: provenance.schemaVersion,
     appCommit: provenance.appCommit,
+    releaseRevision: provenance.releaseRevision,
+    releaseBuild: provenance.releaseBuild,
+    releaseProductCommit: provenance.releaseProductCommit,
+    releaseBaseCommit: provenance.releaseBaseCommit,
+    gitCommitSignature: provenance.gitCommitSignature,
     source: provenance.source,
     payloadHash: provenance.integrity.payloadHash,
   }));

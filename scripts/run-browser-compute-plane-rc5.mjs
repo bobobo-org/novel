@@ -1483,9 +1483,12 @@ test("production-acceptance", async () => {
   const manifest = JSON.parse(readFileSync(resolve(root, "release-manifest.json"), "utf8"));
   assert.deepEqual(manifest, {
     releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-    releaseName: "P2.4B Conversation-First Novel Project GPT RC6",
-    consumerRelease: "p2.4b-conversation-first-studio-rc6",
+    releaseRevision: "rc6.1",
+    releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
+    consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
     architectureStage: "P2.4B RC",
+    releaseBaseCommit: "e9b1091916b53c34ed9676dc4d418baaf696786e",
+    gitCommitSignature: "unsigned",
     buildTime: "2026-08-02T12:00:00+08:00",
   });
   const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));

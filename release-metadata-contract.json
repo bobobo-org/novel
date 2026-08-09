@@ -1,7 +1,8 @@
 {
   "schemaVersion": "p24b-release-metadata-contract-v1",
-  "provenanceSchemaVersion": "p21-build-provenance-v1",
+  "provenanceSchemaVersion": "p24b-rc6.1-build-provenance-v1",
   "allowedProvenanceSchemaVersions": [
+    "p24b-rc6.1-build-provenance-v1",
     "p21-build-provenance-v1"
   ],
   "provenanceHashAlgorithm": "sha256",
@@ -20,6 +21,13 @@
     "P2.4B RC"
   ],
   "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$",
-  "consumerReleasePattern": "^p(?:1\\.5|2(?:\\.[0-9]+[a-z]?)*)(?:-[a-z0-9]+)*$",
+  "releaseRevisionPattern": "^rc[0-9]+(?:\\.[0-9]+)*$",
+  "releaseBuildPattern": "^rc[0-9]+(?:\\.[0-9]+)*\\+[0-9a-f]{40}$",
+  "releaseBaseCommitPattern": "^[0-9a-f]{40}$",
+  "consumerReleasePattern": "^p(?:1\\.5|2(?:\\.[0-9]+[a-z]?)*)(?:-[a-z0-9]+(?:\\.[a-z0-9]+)*)*$",
+  "allowedGitCommitSignatures": [
+    "unsigned",
+    "verified"
+  ],
   "buildTimeFormat": "iso-8601"
 }

@@ -293,7 +293,7 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, rpgController, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile] = await Promise.all([
+  const [studio, navigation, writer, rpg, rpgController, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile, manualLearningValidation] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
@@ -306,6 +306,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
     readFile("lib/novel-ai/web/studio-closed-ai.ts", "utf8"),
     readFile("app/studio/project/[projectId]/learning/learning-workspace.tsx", "utf8"),
     readFile("lib/novel-ai/web/manual-learning-file.ts", "utf8"),
+    readFile("lib/novel-ai/web/manual-learning-file-validation.ts", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
   assert.match(studio, /commitScreen\("write", false, id\)/);
@@ -368,7 +369,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(learningWorkspace, /\.pdf,\.docx/);
   assert.match(manualLearningFile, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
   assert.match(manualLearningFile, /mammoth/);
-  assert.match(manualLearningFile, /單一檔案上限/);
+  assert.match(manualLearningValidation, /單一檔案上限/);
 });
 
 await test("consumer home presents a compact luxury world dashboard with truthful project facts", async () => {

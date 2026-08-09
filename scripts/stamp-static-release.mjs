@@ -5,9 +5,15 @@ import releaseProvenance from "../generated/release-provenance.json" with { type
 import { verifyReleaseProvenance } from "./generate-release-provenance.mjs";
 
 const releaseTag = releaseManifest.releaseTag;
+const releaseRevision = releaseManifest.releaseRevision;
+const releaseBuild = releaseProvenance.releaseBuild;
+const releaseProductCommit = releaseProvenance.releaseProductCommit;
+const releaseBaseCommit = releaseManifest.releaseBaseCommit;
 const releaseName = releaseManifest.releaseName;
 const consumerRelease = releaseManifest.consumerRelease;
 const architectureStage = releaseManifest.architectureStage;
+const gitCommitSignature = releaseProvenance.gitCommitSignature;
+const deploymentProvenance = "verified";
 const visibleUiSemanticVersion = "h2w3-visible-ui-semantic-closure-v1";
 const visibleUiRequiredStrings = [
   "三路閉端 AI 工作區",
@@ -46,9 +52,15 @@ const appCommit = releaseProvenance.appCommit;
 const replacements = new Map([
   ["__NOVEL_STATIC_APP_COMMIT__", appCommit],
   ["__NOVEL_STATIC_RELEASE_TAG__", releaseTag],
+  ["__NOVEL_STATIC_RELEASE_REVISION__", releaseRevision],
+  ["__NOVEL_STATIC_RELEASE_BUILD__", releaseBuild],
+  ["__NOVEL_STATIC_RELEASE_PRODUCT_COMMIT__", releaseProductCommit],
+  ["__NOVEL_STATIC_RELEASE_BASE_COMMIT__", releaseBaseCommit],
   ["__NOVEL_STATIC_RELEASE_NAME__", releaseName],
   ["__NOVEL_STATIC_CONSUMER_RELEASE__", consumerRelease],
   ["__NOVEL_STATIC_ARCHITECTURE_STAGE__", architectureStage],
+  ["__NOVEL_STATIC_GIT_COMMIT_SIGNATURE__", gitCommitSignature],
+  ["__NOVEL_STATIC_DEPLOYMENT_PROVENANCE__", deploymentProvenance],
   ["__NOVEL_VISIBLE_UI_SEMANTIC_VERSION__", visibleUiSemanticVersion],
   ["__NOVEL_VISIBLE_UI_BODY_HASH__", visibleUiBodyHash],
 ]);

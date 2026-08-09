@@ -16,12 +16,8 @@ import { CLOSED_AI_CACHE_HEALTH } from "@/lib/novel-ai/closed-ai-cache";
 import { CONTROLLED_LEARNING_HEALTH } from "@/lib/novel-ai/controlled-learning-os";
 import { VERIFIABLE_LEDGER_HEALTH } from "@/lib/novel-ai/verifiable-ledger";
 import { CLOSED_AGENT_OS_HEALTH } from "@/lib/novel-ai/closed-agent-os";
-import { createHash } from "node:crypto";
-import {
-  RELEASE_MANIFEST,
-  RELEASE_METADATA_CONTRACT,
-  RELEASE_PROVENANCE,
-} from "@/lib/release-manifest";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { releaseProvenanceStatus } from "@/lib/novel-ai/runtime-truth";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
 import { capabilityStatus, capabilityTruthMatrix, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
@@ -29,23 +25,8 @@ import { listExternalAIProviderStatus } from "@/lib/novel-ai/providers/external/
 
 export const runtime = "nodejs";
 
-function verifyReleaseProvenance() {
-  const payload = {
-    schemaVersion: RELEASE_PROVENANCE.schemaVersion,
-    appCommit: RELEASE_PROVENANCE.appCommit,
-    releaseTag: RELEASE_PROVENANCE.releaseTag,
-    architectureStage: RELEASE_PROVENANCE.architectureStage,
-    sealedAt: RELEASE_PROVENANCE.sealedAt,
-    source: RELEASE_PROVENANCE.source,
-  };
-  const actualHash = createHash("sha256")
-    .update(JSON.stringify(payload), "utf8")
-    .digest("hex");
-  return actualHash === RELEASE_PROVENANCE.integrity.payloadHash
-    && RELEASE_PROVENANCE.integrity.algorithm === RELEASE_METADATA_CONTRACT.provenanceHashAlgorithm;
-}
-
-const releaseProvenanceVerified = verifyReleaseProvenance();
+const deploymentProvenance = releaseProvenanceStatus();
+const releaseProvenanceVerified = deploymentProvenance === "verified";
 
 function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>, id: string) {
   const capability = catalog[id];
@@ -58,11 +39,25 @@ function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>,
 
 const RELEASE_META = {
   appCommit: releaseProvenanceVerified ? RELEASE_MANIFEST.appCommit : "provenance-unavailable",
+  releaseProductCommit: releaseProvenanceVerified
+    ? RELEASE_MANIFEST.releaseProductCommit
+    : "provenance-unavailable",
+  releaseBaseCommit: RELEASE_MANIFEST.releaseBaseCommit,
+  releaseRevision: RELEASE_MANIFEST.releaseRevision,
+  releaseBuild: releaseProvenanceVerified
+    ? RELEASE_MANIFEST.releaseBuild
+    : "provenance-unavailable",
   buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
   releaseTag: RELEASE_MANIFEST.releaseTag,
   releaseName: RELEASE_MANIFEST.releaseName,
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
+  provenanceStatus: deploymentProvenance,
+  deploymentProvenance,
+  buildProvenanceStatus: deploymentProvenance,
+  gitCommitSignature: RELEASE_MANIFEST.gitCommitSignature,
+  artifactAttestationStatus: "not_produced",
+  artifactAttestationDigest: null,
   commitProvenanceSource: RELEASE_MANIFEST.commitProvenanceSource,
   commitProvenanceStatus: releaseProvenanceVerified ? "verified" : "unavailable",
   commitProvenanceSchemaVersion: RELEASE_MANIFEST.commitProvenanceSchemaVersion,

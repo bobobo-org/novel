@@ -309,7 +309,11 @@ export type BackupManifest = {
   projectSchemaVersion: string;
   createdAt: string;
   appCommit: string | null;
+  releaseProductCommit: string | null;
+  releaseBaseCommit: string | null;
   releaseTag: string | null;
+  releaseRevision: string | null;
+  releaseBuild: string | null;
   sourceDevice: "browser";
   contentHash: string;
   recordCounts: Record<string, number>;

@@ -23,13 +23,14 @@ import type {
   LearningRightsBasis,
   LearningSourceKind,
 } from "../sovereign-learning/types";
-import {
-  extractManualLearningFile,
-  hashManualLearningFile,
-  splitManualLearningDocumentSemantically,
-  validateManualLearningBatch,
-  type ManualLearningFileProgress,
-} from "../web/manual-learning-file";
+import { validateManualLearningBatch } from "../web/manual-learning-file-validation";
+import type {
+  ManualLearningDocumentChunk,
+  ManualLearningFilePreparer,
+  ManualLearningFileProgress,
+  ManualLearningPreparedExtraction,
+  ManualLearningPreparedFile,
+} from "../web/manual-learning-import-preparation";
 import {
   assertConversationAttachmentScope,
   createConversationAttachmentRecord,
@@ -86,6 +87,42 @@ export type LearningImportFaultPoint =
 
 function learningImportError(code: string, message = code) {
   return Object.assign(new Error(message), { code });
+}
+
+function assertPreparedManualLearningFile(
+  value: ManualLearningPreparedFile,
+): asserts value is ManualLearningPreparedFile {
+  const extraction = value?.extraction;
+  if (
+    value?.rawContentRetained !== false
+    || value?.dataLeftDevice !== false
+    || value?.semanticChunkingAlgorithm !== "semantic-chunking-v1"
+    || !extraction
+    || "text" in extraction
+    || extraction.rawContentRetained !== false
+    || extraction.dataLeftDevice !== false
+    || extraction.localAnalysisOnly !== true
+    || extraction.parsingStatus !== "completed"
+  ) {
+    throw learningImportError("LEARNING_WORKER_PRIVACY_CONTRACT_INVALID");
+  }
+  if (
+    !Number.isSafeInteger(extraction.byteLength)
+    || extraction.byteLength < 0
+    || !/^[a-f0-9]{64}$/u.test(extraction.contentHash)
+    || !Array.isArray(extraction.warnings)
+    || !Array.isArray(value.chunks)
+    || value.chunks.some((chunk, index) => (
+      chunk.chunkIndex !== index
+      || typeof chunk.text !== "string"
+      || typeof chunk.sourceSection !== "string"
+      || !/^[a-f0-9]{64}$/u.test(chunk.contentHash)
+      || (chunk.previousOverlapDigest !== null && !/^[a-f0-9]{64}$/u.test(chunk.previousOverlapDigest))
+      || (chunk.nextOverlapDigest !== null && !/^[a-f0-9]{64}$/u.test(chunk.nextOverlapDigest))
+    ))
+  ) {
+    throw learningImportError("LEARNING_WORKER_PREPARED_FILE_INVALID");
+  }
 }
 
 function now() {
@@ -243,7 +280,8 @@ export class AtomicLearningImportCoordinator {
     private readonly learningRepository: SovereignLearningRepository,
     private readonly options: {
       faultInjector?: (point: LearningImportFaultPoint, partIndex: number | null) => void;
-    } = {},
+      prepareFile: ManualLearningFilePreparer;
+    },
   ) {}
 
   private inject(point: LearningImportFaultPoint, partIndex: number | null = null) {
@@ -414,44 +452,41 @@ export class AtomicLearningImportCoordinator {
           current: 0,
           total: 1,
         });
-        let extraction: Awaited<ReturnType<typeof extractManualLearningFile>> | null = null;
-        let chunks: Awaited<ReturnType<typeof splitManualLearningDocumentSemantically>> = [];
+        let extraction: ManualLearningPreparedExtraction | null = null;
+        let chunks: ManualLearningDocumentChunk[] = [];
         try {
           if (attachment.rightsBasis !== input.rightsBasis || attachment.rightsEvidenceHash !== rightsEvidenceHash) {
             throw learningImportError("LEARNING_IMPORT_RIGHTS_MANIFEST_MISMATCH");
           }
-          const contentHash = await hashManualLearningFile(file, controller.signal);
-          if (contentHash !== attachment.contentHash || file.size !== attachment.byteLength) {
+          if (file.size !== attachment.byteLength) {
             throw learningImportError("LEARNING_IMPORT_FILE_MANIFEST_MISMATCH");
           }
           attachment = await this.setAttachmentStatus(attachment, "parsing");
-          extraction = await extractManualLearningFile(file, {
+          const prepared = await this.options.prepareFile(file, {
             signal: controller.signal,
+            maximumChunkCharacters: input.maximumChunkCharacters ?? 285_000,
             onProgress: (fileProgress) => input.onProgress?.({
               importSessionId: session.id,
               partIndex,
               partCount: session.totalParts,
               attachmentId,
-              phase: "extracting",
+              phase: fileProgress.phase === "chunking" ? "chunking" : "extracting",
               current: fileProgress.current,
               total: fileProgress.total,
               fileProgress,
             }),
           });
+          if (controller.signal.aborted) throw learningImportError("LEARNING_FILE_CANCELLED");
+          assertPreparedManualLearningFile(prepared);
+          extraction = prepared.extraction;
+          chunks = prepared.chunks;
+          if (
+            extraction.contentHash !== attachment.contentHash
+            || extraction.byteLength !== attachment.byteLength
+          ) {
+            throw learningImportError("LEARNING_IMPORT_FILE_MANIFEST_MISMATCH");
+          }
           this.inject("after_file_extraction", partIndex);
-          input.onProgress?.({
-            importSessionId: session.id,
-            partIndex,
-            partCount: session.totalParts,
-            attachmentId,
-            phase: "chunking",
-            current: 0,
-            total: 1,
-          });
-          chunks = await splitManualLearningDocumentSemantically(
-            extraction.text,
-            input.maximumChunkCharacters ?? 285_000,
-          );
           if (!chunks.length) throw learningImportError("LEARNING_IMPORT_NO_VALID_CHUNKS");
           const partRepository = new MemorySovereignLearningRepository();
           for (const [chunkPosition, chunk] of chunks.entries()) {
@@ -545,7 +580,6 @@ export class AtomicLearningImportCoordinator {
             // Preserve the original safe error code; retry will reconcile metadata.
           }
         } finally {
-          if (extraction) extraction.text = "";
           for (const chunk of chunks) chunk.text = "";
           chunks.length = 0;
           extraction = null;

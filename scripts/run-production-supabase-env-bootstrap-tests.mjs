@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   collectEnvironmentServiceRoleCandidates,
   discoverProjectRef,
@@ -10,14 +11,18 @@ import {
   mergeProductionWithSource,
   overrideSupabaseProjectIdentity,
   parseEnvFile,
+  planSupabaseProductionChanges,
   projectRefFromUrl,
   projectRefFromServiceRole,
+  restrictSupabaseProductionChanges,
   selectServiceRoleCredential,
   serviceRoleCredentialKind,
   validateBootstrapConfigurationShape,
+  validateBootstrapProjectIdentity,
   validateConfigurationShape,
   validateRuntimeConfigurationShape,
 } from "./bootstrap-production-supabase-env.mjs";
+import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
 
 const projectRef = "abcdefghijklmnopqrst";
 const serviceRolePayload = Buffer.from(JSON.stringify({ role: "service_role", ref: projectRef })).toString("base64url");
@@ -129,6 +134,51 @@ assert.throws(
   () => overrideSupabaseProjectIdentity(merged, "not a project ref"),
   (error) => error?.code === "SUPABASE_BOOTSTRAP_PROJECT_REF_OVERRIDE_INVALID",
 );
+assert.deepEqual(planSupabaseProductionChanges({
+  production: {
+    SUPABASE_PROJECT_REF: projectRef,
+    NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: "",
+  },
+  configuration: source,
+  allowedMutationKeys: ["NEXT_PUBLIC_SUPABASE_URL"],
+  environmentMetadata: {
+    entries: { SUPABASE_SERVICE_ROLE_KEY: { type: "sensitive" } },
+  },
+}), []);
+assert.deepEqual(planSupabaseProductionChanges({
+  production: {
+    SUPABASE_PROJECT_REF: projectRef,
+    NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: "",
+  },
+  configuration: source,
+  allowedMutationKeys: ["SUPABASE_SERVICE_ROLE_KEY"],
+  environmentMetadata: {
+    entries: { SUPABASE_SERVICE_ROLE_KEY: { type: "sensitive" } },
+  },
+}), ["SUPABASE_SERVICE_ROLE_KEY"]);
+const sensitiveMutationSecret = "service-role-secret-never-returned";
+let sensitiveMutationRequest;
+const sensitiveMutation = await upsertSensitiveProductionEnvironment({
+  token: "vercel-test-token",
+  teamId: "team_expected",
+  projectId: "prj_expected",
+  key: "SUPABASE_SERVICE_ROLE_KEY",
+  value: sensitiveMutationSecret,
+  fetcher: async (rawUrl, init) => {
+    sensitiveMutationRequest = { url: String(rawUrl), init };
+    return new Response("{}", { status: 200 });
+  },
+});
+assert.equal(sensitiveMutation.mutationCount, 1);
+assert.deepEqual(sensitiveMutation.changedKeys, ["SUPABASE_SERVICE_ROLE_KEY"]);
+assert.equal(new URL(sensitiveMutationRequest.url).searchParams.get("upsert"), "true");
+const sensitiveMutationBody = JSON.parse(sensitiveMutationRequest.init.body);
+assert.equal(sensitiveMutationBody.type, "sensitive");
+assert.deepEqual(sensitiveMutationBody.target, ["production"]);
+assert.equal(sensitiveMutationBody.value, sensitiveMutationSecret);
+assert.doesNotMatch(JSON.stringify(sensitiveMutation), new RegExp(sensitiveMutationSecret, "u"));
 assert.deepEqual(validateConfigurationShape(merged), { projectRef });
 assert.deepEqual(validateRuntimeConfigurationShape({
   SUPABASE_PROJECT_REF: projectRef,
@@ -140,11 +190,27 @@ assert.deepEqual(validateBootstrapConfigurationShape({
   NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY: "[REDACTED]",
 }), { projectRef });
+assert.deepEqual(validateBootstrapProjectIdentity({
+  SUPABASE_PROJECT_REF: projectRef,
+  NEXT_PUBLIC_SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: "",
+}), { projectRef });
 assert.deepEqual(PRODUCTION_RUNTIME_SUPABASE_KEYS, [
   "SUPABASE_PROJECT_REF",
   "NEXT_PUBLIC_SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
 ]);
+assert.deepEqual(restrictSupabaseProductionChanges({
+  productionChanges: ["NEXT_PUBLIC_SUPABASE_URL"],
+  allowedMutationKeys: ["NEXT_PUBLIC_SUPABASE_URL"],
+}), ["NEXT_PUBLIC_SUPABASE_URL"]);
+assert.throws(
+  () => restrictSupabaseProductionChanges({
+    productionChanges: ["SUPABASE_SERVICE_ROLE_KEY"],
+    allowedMutationKeys: ["NEXT_PUBLIC_SUPABASE_URL"],
+  }),
+  (error) => error.code === "SUPABASE_UNAUDITED_PRODUCTION_DRIFT",
+);
 
 const aliasOnly = mergeProductionWithSource({}, {
   SUPABASE_MANAGEMENT_TOKEN: source.SUPABASE_ACCESS_TOKEN,
@@ -214,6 +280,29 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
 }
+
+const bootstrapSource = await readFile(
+  new URL("./bootstrap-production-supabase-env.mjs", import.meta.url),
+  "utf8",
+);
+const packageDocument = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+assert.equal(packageDocument.devDependencies.vercel, "56.3.2");
+assert.match(
+  bootstrapSource,
+  /upsertSensitiveProductionEnvironment/u,
+);
+assert.match(
+  bootstrapSource,
+  /if \(key === "SUPABASE_SERVICE_ROLE_KEY"\)[\s\S]*upsertSensitiveProductionEnvironment[\s\S]*else \{[\s\S]*"--no-sensitive"/u,
+);
+assert.doesNotMatch(
+  bootstrapSource,
+  /assert\.equal\(verified\[key\], configuration\[key\][\s\S]{0,120}PRODUCTION_RUNTIME_SUPABASE_KEYS/u,
+);
+assert.match(bootstrapSource, /serviceRolePlaintextRoundTripRequired:\s*false/u);
+assert.match(bootstrapSource, /stagedRuntimeVerificationRequired:\s*true/u);
+assert.match(bootstrapSource, /timeout:\s*60_000/u);
+assert.doesNotMatch(bootstrapSource, /"--sensitive"/u);
 
 console.log(JSON.stringify({
   schemaVersion: "production-supabase-env-bootstrap-tests-v1",

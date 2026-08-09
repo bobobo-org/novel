@@ -7,6 +7,8 @@ import {
   validateManualLearningBatch,
 } from "../lib/novel-ai/web/manual-learning-file.ts";
 import { ManualLearningWorkerRuntime } from "../lib/novel-ai/web/manual-learning-worker.ts";
+import { prepareManualLearningFileLocally } from "../lib/novel-ai/web/manual-learning-local-preparer.ts";
+import { MANUAL_LEARNING_WORKER_PROTOCOL_VERSION } from "../lib/novel-ai/web/manual-learning-import-preparation.ts";
 import {
   AtomicLearningImportCoordinator,
   synthesizeLearningImportStaging,
@@ -25,6 +27,13 @@ const suite = process.argv[2] ?? "all";
 const tests = [];
 const results = [];
 const register = (name, run) => tests.push({ name, run });
+
+function createCoordinator(conversations, learning, options = {}) {
+  return new AtomicLearningImportCoordinator(conversations, learning, {
+    prepareFile: prepareManualLearningFileLocally,
+    ...options,
+  });
+}
 
 function sourceText(label, repeat = 12) {
   return `第一卷 ${label}\n\n第一章 雨夜\n\n「你確定要進去？」她壓低聲音。\n\n他望向門後的微光，知道此刻的選擇會改變兩人的關係與下一場危機。\n\n${`${label}的場景讓角色承受具體壓力，線索逐步揭露，決定立即帶來新的後果。`.repeat(repeat)}`;
@@ -258,7 +267,7 @@ function registerTransactionTests() {
   register("start rejects missing or cross-project conversation session", async () => {
     const conversations = new MemoryNovelRepository();
     const learning = new MemorySovereignLearningRepository();
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     await assert.rejects(
       () => coordinator.start({
         projectId: "missing",
@@ -277,7 +286,7 @@ function registerTransactionTests() {
     const learning = new MemorySovereignLearningRepository();
     await seedConversation(conversations, "project-atomic", "session-atomic");
     let failSecondPart = true;
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning, {
+    const coordinator = createCoordinator(conversations, learning, {
       faultInjector: (point, index) => {
         if (point === "before_part_staging_commit" && index === 1 && failSecondPart) {
           failSecondPart = false;
@@ -330,7 +339,7 @@ function registerTransactionTests() {
     const learning = new MemorySovereignLearningRepository();
     await seedConversation(conversations, "project-compensate", "session-compensate");
     let inject = true;
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning, {
+    const coordinator = createCoordinator(conversations, learning, {
       faultInjector: (point) => {
         if (point === "after_formal_commit" && inject) {
           inject = false;
@@ -371,7 +380,7 @@ function registerTransactionTests() {
     const projectId = "project-learning-copy-portability";
     const sessionId = "session-learning-copy-portability";
     await seedConversation(conversations, projectId, sessionId);
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     const files = [
       new File([sourceText("copy-portability", 24)], "copy-portability.txt", {
         type: "text/plain",
@@ -503,7 +512,7 @@ function registerTransactionTests() {
     const projectId = "project-stable-id-compensation";
     const sessionId = "session-stable-id-compensation";
     await seedConversation(conversations, projectId, sessionId);
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     const files = [
       new File([sourceText("existing-stable-id", 24)], "existing.txt", { type: "text/plain" }),
       new File([sourceText("new-import-id", 26)], "new.txt", { type: "text/plain" }),
@@ -707,7 +716,7 @@ function registerTransactionTests() {
     const projectId = "project-atomic-rule-approval";
     const sessionId = "session-atomic-rule-approval";
     await seedConversation(conversations, projectId, sessionId);
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     const files = [
       new File([sourceText("atomic-approval", 26)], "atomic-approval.txt", {
         type: "text/plain",
@@ -763,7 +772,7 @@ function registerTransactionTests() {
         `${recoveryMode}.txt`,
         { type: "text/plain" },
       );
-      const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+      const coordinator = createCoordinator(conversations, learning);
       const started = await coordinator.start({
         projectId,
         sessionId,
@@ -813,7 +822,7 @@ function registerTransactionTests() {
     const conversations = new MemoryNovelRepository();
     const learning = new MemorySovereignLearningRepository();
     await seedConversation(conversations, "project-rollback", "session-rollback");
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     const files = [new File([sourceText("回滾", 18)], "rollback.txt", { type: "text/plain" })];
     const started = await coordinator.start({
       projectId: "project-rollback",
@@ -839,7 +848,7 @@ function registerTransactionTests() {
       }
     }
     const file = new SlowFile([sourceText("競態", 20)], "race.txt", { type: "text/plain" });
-    const coordinator = new AtomicLearningImportCoordinator(conversations, learning);
+    const coordinator = createCoordinator(conversations, learning);
     const started = await coordinator.start({
       projectId: "project-race",
       sessionId: "session-race",
@@ -870,6 +879,7 @@ function registerWorkerTests() {
     const responses = [];
     await runtime.handle({
       type: "extract_batch",
+      protocolVersion: MANUAL_LEARNING_WORKER_PROTOCOL_VERSION,
       requestId: "worker-batch",
       files: [
         new File([sourceText("worker")], "worker.txt", { type: "text/plain" }),
@@ -892,11 +902,98 @@ function registerWorkerTests() {
       size: 500,
       arrayBuffer: () => new Promise((resolve) => setTimeout(() => resolve(new TextEncoder().encode(sourceText("delay")).buffer), 20)),
     };
-    const pending = runtime.handle({ type: "extract_batch", requestId: "cancel-me", files: [delayedFile] }, (response) => responses.push(structuredClone(response)));
-    await runtime.handle({ type: "cancel", requestId: "cancel-me" }, (response) => responses.push(structuredClone(response)));
+    const pending = runtime.handle({
+      type: "extract_batch",
+      protocolVersion: MANUAL_LEARNING_WORKER_PROTOCOL_VERSION,
+      requestId: "cancel-me",
+      files: [delayedFile],
+    }, (response) => responses.push(structuredClone(response)));
+    await runtime.handle({
+      type: "cancel",
+      protocolVersion: MANUAL_LEARNING_WORKER_PROTOCOL_VERSION,
+      requestId: "cancel-me",
+    }, (response) => responses.push(structuredClone(response)));
     await pending;
     assert(responses.some((response) => response.type === "cancelled"));
     assert.equal(runtime.activeRequestCount(), 0);
+  });
+
+  register("worker import preparation returns metadata plus semantic chunks with versioned progress", async () => {
+    const runtime = new ManualLearningWorkerRuntime();
+    const responses = [];
+    const file = new File([sourceText("worker prepared", 24)], "worker-prepared.txt", {
+      type: "text/plain",
+    });
+    await runtime.handle({
+      type: "prepare_import_file",
+      protocolVersion: MANUAL_LEARNING_WORKER_PROTOCOL_VERSION,
+      requestId: "worker-prepared",
+      file,
+      maximumChunkCharacters: 285_000,
+    }, (response) => responses.push(structuredClone(response)));
+    assert(responses.every((response) => (
+      response.protocolVersion === MANUAL_LEARNING_WORKER_PROTOCOL_VERSION
+    )));
+    const prepared = responses.find((response) => response.type === "prepared");
+    assert(prepared);
+    assert.equal("text" in prepared.prepared.extraction, false);
+    assert.match(prepared.prepared.extraction.contentHash, /^[a-f0-9]{64}$/u);
+    assert(prepared.prepared.chunks.length > 0);
+    assert(prepared.prepared.chunks.every((chunk) => (
+      chunk.text && /^[a-f0-9]{64}$/u.test(chunk.contentHash)
+    )));
+    assert.deepEqual(
+      responses
+        .filter((response) => response.type === "progress" && response.progress.phase === "chunking")
+        .map((response) => response.progress.current),
+      [0, 1],
+    );
+    assert.equal(runtime.activeRequestCount(), 0);
+
+    const mismatched = [];
+    await runtime.handle({
+      type: "prepare_import_file",
+      protocolVersion: "manual-learning-worker-protocol-v1",
+      requestId: "worker-old-protocol",
+      file,
+    }, (response) => mismatched.push(structuredClone(response)));
+    assert.equal(mismatched[0].type, "failed");
+    assert.equal(mismatched[0].errorCode, "LEARNING_WORKER_PROTOCOL_MISMATCH");
+  });
+
+  register("late extraction completion after cancel cannot write LearningImportSession staging", async () => {
+    const conversations = new MemoryNovelRepository();
+    const learning = new MemorySovereignLearningRepository();
+    await seedConversation(conversations, "project-worker-late", "session-worker-late");
+    const file = new File([sourceText("worker late", 20)], "worker-late.txt", { type: "text/plain" });
+    const coordinator = createCoordinator(conversations, learning, {
+      prepareFile: async (inputFile, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return prepareManualLearningFileLocally(inputFile, options);
+      },
+    });
+    const started = await coordinator.start({
+      projectId: "project-worker-late",
+      sessionId: "session-worker-late",
+      files: [file],
+      rightsBasis: "owned_by_user",
+      userConfirmedRights: true,
+    });
+    const processing = coordinator.process({
+      projectId: "project-worker-late",
+      importSessionId: started.session.id,
+      files: [file],
+      sourceKind: "personal_note",
+      rightsBasis: "owned_by_user",
+      userConfirmedRights: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await coordinator.cancel("project-worker-late", started.session.id);
+    const result = await processing;
+    assert.equal(result.session.status, "cancelled");
+    assert.equal(result.session.completedParts, 0);
+    assert.equal((await learning.getImportStaging(started.session.id))?.completedPartIndexes.length ?? 0, 0);
+    assert.equal((await learning.listSources("project-worker-late")).length, 0);
   });
 }
 

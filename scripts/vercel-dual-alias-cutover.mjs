@@ -1,8 +1,11 @@
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-
-const delay = (milliseconds) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
+import {
+  assertDeadline,
+  boundedFetch,
+  boundedOperation,
+  delayWithinDeadline,
+} from "./bounded-fetch.mjs";
 
 const LEGACY_CONTROL_PLANE_PHASES = new Set([
   "capture-primary",
@@ -63,6 +66,8 @@ export function createVercelControlPlaneReader({
   teamId,
   projectId,
   fetchImpl = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Number.POSITIVE_INFINITY,
 }) {
   if (!token || !teamId || !projectId) {
     throw cutoverError("VERCEL_CONTROL_PLANE_CONFIGURATION_INCOMPLETE");
@@ -73,12 +78,16 @@ export function createVercelControlPlaneReader({
     );
     url.searchParams.set("url", alias);
     url.searchParams.set("teamId", teamId);
-    const response = await fetchImpl(url, {
+    const response = await boundedFetch(fetchImpl, url, {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
+    }, {
+      timeoutMs: fetchTimeoutMs,
+      deadlineAt,
+      timeoutCode: "VERCEL_CONTROL_PLANE_FETCH_TIMEOUT",
     });
     if (!response.ok) {
       throw cutoverError("VERCEL_CONTROL_PLANE_HTTP_ERROR", {
@@ -88,7 +97,12 @@ export function createVercelControlPlaneReader({
     }
     let deployment;
     try {
-      deployment = await response.json();
+      deployment = await boundedOperation(() => response.json(), {
+        timeoutMs: fetchTimeoutMs,
+        deadlineAt,
+        timeoutCode: "VERCEL_CONTROL_PLANE_BODY_TIMEOUT",
+        onTimeout: () => response.body?.cancel().catch(() => undefined),
+      });
     } catch {
       throw cutoverError("VERCEL_CONTROL_PLANE_JSON_INVALID", { alias });
     }
@@ -104,11 +118,13 @@ export function createVercelAliasSetter({
   token,
   teamId,
   fetchImpl = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Number.POSITIVE_INFINITY,
 }) {
   if (!token || !teamId) {
     throw cutoverError("VERCEL_ALIAS_CONFIGURATION_INCOMPLETE");
   }
-  return async (target, alias) => {
+  return async (target, alias, _phase, context = {}) => {
     const deployment = String(target)
       .replace(/^https?:\/\//u, "")
       .replace(/\/+$/u, "");
@@ -119,7 +135,7 @@ export function createVercelAliasSetter({
       `https://api.vercel.com/v2/deployments/${encodeURIComponent(deployment)}/aliases`,
     );
     url.searchParams.set("teamId", teamId);
-    const response = await fetchImpl(url, {
+    const response = await boundedFetch(fetchImpl, url, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -128,6 +144,10 @@ export function createVercelAliasSetter({
       },
       body: JSON.stringify({ alias }),
       cache: "no-store",
+    }, {
+      timeoutMs: fetchTimeoutMs,
+      deadlineAt: context.deadlineAt ?? deadlineAt,
+      timeoutCode: "VERCEL_ALIAS_SET_TIMEOUT",
     });
     if (!response.ok) {
       throw cutoverError("VERCEL_ALIAS_SET_FAILED", {
@@ -142,6 +162,8 @@ export function createAliasIdentityReader({
   readControlPlane,
   legacyBootstrapIdentity,
   fetchImpl = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Number.POSITIVE_INFINITY,
 }) {
   return async (alias, context) => {
     const query = new URLSearchParams({
@@ -150,12 +172,23 @@ export function createAliasIdentityReader({
       run: process.env.GITHUB_RUN_ID ?? "local",
       runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "0",
     });
-    const response = await fetchImpl(
+    const response = await boundedFetch(
+      fetchImpl,
       `https://${alias}/api/release/identity?${query}`,
       { cache: "no-store" },
+      {
+        timeoutMs: fetchTimeoutMs,
+        deadlineAt: context.deadlineAt ?? deadlineAt,
+        timeoutCode: "RELEASE_IDENTITY_FETCH_TIMEOUT",
+      },
     );
     if (response.ok) {
-      const identity = await response.json();
+      const identity = await boundedOperation(() => response.json(), {
+        timeoutMs: fetchTimeoutMs,
+        deadlineAt: context.deadlineAt ?? deadlineAt,
+        timeoutCode: "RELEASE_IDENTITY_BODY_TIMEOUT",
+        onTimeout: () => response.body?.cancel().catch(() => undefined),
+      });
       return {
         ...identity,
         identitySource: "release_identity_endpoint",
@@ -220,22 +253,27 @@ export async function captureCurrentAliasIdentities({
   readIdentity,
   attempts = 5,
   delayMs = 1_000,
+  deadlineAt = Date.now() + 60_000,
 }) {
   const capture = async (alias, label) => {
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      assertDeadline(deadlineAt, "ALIAS_IDENTITY_CAPTURE_DEADLINE_EXCEEDED");
       try {
         return assertCapturedIdentity(
           alias,
           await readIdentity(alias, {
             attempt,
             phase: `capture-${label}`,
+            deadlineAt,
           }),
         );
       } catch (error) {
         lastError = error;
       }
-      if (attempt < attempts && delayMs > 0) await delay(delayMs);
+      if (attempt < attempts && delayMs > 0) {
+        await delayWithinDeadline(delayMs, deadlineAt, "ALIAS_IDENTITY_CAPTURE_DEADLINE_EXCEEDED");
+      }
     }
     throw cutoverError("ALIAS_IDENTITY_CAPTURE_FAILED", {
       alias,
@@ -256,13 +294,16 @@ async function verifyAliasIdentity({
   readIdentity,
   attempts,
   delayMs,
+  deadlineAt,
 }) {
   let lastIdentity = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    assertDeadline(deadlineAt, "ALIAS_IDENTITY_VERIFY_DEADLINE_EXCEEDED");
     try {
       const identity = await readIdentity(alias, {
         attempt,
         phase,
+        deadlineAt,
       });
       lastIdentity = identity;
       if (
@@ -277,7 +318,9 @@ async function verifyAliasIdentity({
         errorCode: error?.code ?? "IDENTITY_READ_FAILED",
       };
     }
-    if (attempt < attempts && delayMs > 0) await delay(delayMs);
+    if (attempt < attempts && delayMs > 0) {
+      await delayWithinDeadline(delayMs, deadlineAt, "ALIAS_IDENTITY_VERIFY_DEADLINE_EXCEEDED");
+    }
   }
   throw cutoverError("ALIAS_IDENTITY_MISMATCH", {
     alias,
@@ -299,6 +342,8 @@ export async function promoteDualAliases({
   verifyAttempts = 30,
   verifyDelayMs = 2_000,
   logger = console,
+  deadlineAt = Date.now() + 360_000,
+  rollbackReserveMs = 180_000,
 }) {
   if (!primaryAlias || !mirrorAlias || primaryAlias === mirrorAlias) {
     throw cutoverError("DUAL_ALIAS_CONFIGURATION_INVALID");
@@ -313,10 +358,14 @@ export async function promoteDualAliases({
     }
   }
 
+  const promotionDeadlineAt = deadlineAt - rollbackReserveMs;
+  assertDeadline(promotionDeadlineAt, "DUAL_ALIAS_PROMOTION_DEADLINE_INVALID");
   let cutoverAttempted = false;
   try {
     cutoverAttempted = true;
-    await setAlias(stagedTarget, mirrorAlias, "promote-mirror");
+    await setAlias(stagedTarget, mirrorAlias, "promote-mirror", {
+      deadlineAt: promotionDeadlineAt,
+    });
     await verifyAliasIdentity({
       alias: mirrorAlias,
       expected: stagedIdentity,
@@ -324,8 +373,11 @@ export async function promoteDualAliases({
       readIdentity,
       attempts: verifyAttempts,
       delayMs: verifyDelayMs,
+      deadlineAt: promotionDeadlineAt,
     });
-    await setAlias(stagedTarget, primaryAlias, "promote-primary");
+    await setAlias(stagedTarget, primaryAlias, "promote-primary", {
+      deadlineAt: promotionDeadlineAt,
+    });
     await verifyAliasIdentity({
       alias: primaryAlias,
       expected: stagedIdentity,
@@ -333,6 +385,7 @@ export async function promoteDualAliases({
       readIdentity,
       attempts: verifyAttempts,
       delayMs: verifyDelayMs,
+      deadlineAt: promotionDeadlineAt,
     });
     logger.log("DUAL_ALIAS_CUTOVER_VERIFIED");
     return {
@@ -350,7 +403,8 @@ export async function promoteDualAliases({
       [mirrorBeforeIdentity.deploymentId, mirrorAlias, "rollback-mirror"],
     ]) {
       try {
-        await setAlias(target, alias, phase);
+        assertDeadline(deadlineAt, "DUAL_ALIAS_ROLLBACK_DEADLINE_EXCEEDED");
+        await setAlias(target, alias, phase, { deadlineAt });
       } catch (error) {
         rollbackFailures.push({
           phase,
@@ -370,6 +424,7 @@ export async function promoteDualAliases({
           readIdentity,
           attempts: verifyAttempts,
           delayMs: verifyDelayMs,
+          deadlineAt,
         });
       } catch (error) {
         rollbackFailures.push({
@@ -403,6 +458,7 @@ export async function restoreDualAliases({
   verifyAttempts = 30,
   verifyDelayMs = 2_000,
   logger = console,
+  deadlineAt = Date.now() + 240_000,
 }) {
   if (!primaryAlias || !mirrorAlias || primaryAlias === mirrorAlias) {
     throw cutoverError("DUAL_ALIAS_CONFIGURATION_INVALID");
@@ -425,7 +481,8 @@ export async function restoreDualAliases({
     [mirrorIdentity.deploymentId, mirrorAlias, "restore-mirror"],
   ]) {
     try {
-      await setAlias(target, alias, phase);
+      assertDeadline(deadlineAt, "DUAL_ALIAS_RESTORE_DEADLINE_EXCEEDED");
+      await setAlias(target, alias, phase, { deadlineAt });
     } catch (error) {
       failures.push({ phase, code: error?.code ?? "ALIAS_SET_FAILED" });
     }
@@ -442,6 +499,7 @@ export async function restoreDualAliases({
         readIdentity,
         attempts: verifyAttempts,
         delayMs: verifyDelayMs,
+        deadlineAt,
       });
     } catch (error) {
       failures.push({
@@ -467,11 +525,25 @@ function requiredEnvironment(name) {
   return value;
 }
 
-function createEnvironmentIdentityReader() {
+function durationEnvironment(name, fallback, { min = 1_000, max = 900_000 } = {}) {
+  const raw = Number(process.env[name] || fallback);
+  if (!Number.isFinite(raw) || raw < min || raw > max) {
+    throw cutoverError(`INVALID_DURATION_ENVIRONMENT:${name}`);
+  }
+  return Math.floor(raw);
+}
+
+function createEnvironmentIdentityReader({ deadlineAt }) {
+  const fetchTimeoutMs = durationEnvironment("VERCEL_FETCH_TIMEOUT_MS", 10_000, {
+    min: 100,
+    max: 30_000,
+  });
   const readControlPlane = createVercelControlPlaneReader({
     token: requiredEnvironment("VERCEL_TOKEN"),
     teamId: requiredEnvironment("VERCEL_ORG_ID"),
     projectId: requiredEnvironment("VERCEL_PROJECT_ID"),
+    fetchTimeoutMs,
+    deadlineAt,
   });
   return createAliasIdentityReader({
     readControlPlane,
@@ -479,6 +551,8 @@ function createEnvironmentIdentityReader() {
       deploymentId: requiredEnvironment("LEGACY_BOOTSTRAP_DEPLOYMENT_ID"),
       appCommit: requiredEnvironment("LEGACY_BOOTSTRAP_COMMIT"),
     },
+    fetchTimeoutMs,
+    deadlineAt,
   });
 }
 
@@ -486,10 +560,12 @@ async function runCaptureCli() {
   const primaryAlias = requiredEnvironment("PRIMARY_ALIAS");
   const mirrorAlias = requiredEnvironment("MIRROR_ALIAS");
   const outputPath = requiredEnvironment("GITHUB_OUTPUT");
+  const deadlineAt = Date.now() + durationEnvironment("ALIAS_CAPTURE_DEADLINE_MS", 60_000);
   const identities = await captureCurrentAliasIdentities({
     primaryAlias,
     mirrorAlias,
-    readIdentity: createEnvironmentIdentityReader(),
+    readIdentity: createEnvironmentIdentityReader({ deadlineAt }),
+    deadlineAt,
   });
   appendFileSync(
     outputPath,
@@ -523,8 +599,22 @@ async function runCutoverCli() {
   };
   const token = requiredEnvironment("VERCEL_TOKEN");
   const teamId = requiredEnvironment("VERCEL_ORG_ID");
-  const readIdentity = createEnvironmentIdentityReader();
-  const setAlias = createVercelAliasSetter({ token, teamId });
+  const deadlineMs = durationEnvironment("CUTOVER_DEADLINE_MS", 360_000);
+  const rollbackReserveMs = durationEnvironment("CUTOVER_ROLLBACK_RESERVE_MS", 180_000, {
+    max: deadlineMs - 1_000,
+  });
+  const deadlineAt = Date.now() + deadlineMs;
+  const fetchTimeoutMs = durationEnvironment("VERCEL_FETCH_TIMEOUT_MS", 10_000, {
+    min: 100,
+    max: 30_000,
+  });
+  const readIdentity = createEnvironmentIdentityReader({ deadlineAt });
+  const setAlias = createVercelAliasSetter({
+    token,
+    teamId,
+    fetchTimeoutMs,
+    deadlineAt,
+  });
   await promoteDualAliases({
     primaryAlias,
     mirrorAlias,
@@ -534,6 +624,8 @@ async function runCutoverCli() {
     mirrorBeforeIdentity,
     setAlias,
     readIdentity,
+    deadlineAt,
+    rollbackReserveMs,
   });
 }
 
@@ -550,13 +642,19 @@ async function runRestoreCli() {
   };
   const token = requiredEnvironment("VERCEL_TOKEN");
   const teamId = requiredEnvironment("VERCEL_ORG_ID");
+  const deadlineAt = Date.now() + durationEnvironment("ROLLBACK_DEADLINE_MS", 240_000);
+  const fetchTimeoutMs = durationEnvironment("VERCEL_FETCH_TIMEOUT_MS", 10_000, {
+    min: 100,
+    max: 30_000,
+  });
   await restoreDualAliases({
     primaryAlias,
     mirrorAlias,
     primaryIdentity,
     mirrorIdentity,
-    setAlias: createVercelAliasSetter({ token, teamId }),
-    readIdentity: createEnvironmentIdentityReader(),
+    setAlias: createVercelAliasSetter({ token, teamId, fetchTimeoutMs, deadlineAt }),
+    readIdentity: createEnvironmentIdentityReader({ deadlineAt }),
+    deadlineAt,
   });
 }
 

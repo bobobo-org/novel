@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readVercelProductionEnvironmentMetadata } from "./production-environment-governance.mjs";
+import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
 
 export const DEFAULT_XAI_MODEL_ID = "grok-4.5";
 
@@ -86,6 +88,7 @@ function runVercel(args, input) {
     input,
     maxBuffer: 4 * 1024 * 1024,
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    timeout: 60_000,
   });
   if (result.error || result.status !== 0) {
     throw Object.assign(new Error("VERCEL_EXTERNAL_AI_ENV_COMMAND_FAILED"), {
@@ -106,11 +109,57 @@ async function pullProductionEnvironment({ filename, projectId, scope, token }) 
   return parseExternalAIEnv(await readFile(filename, "utf8"));
 }
 
-export async function main() {
+export function planXaiProductionChanges({
+  production,
+  configuration,
+  allowedMutationKeys = PRODUCTION_EXTERNAL_AI_MUTATION_KEYS,
+  environmentMetadata,
+}) {
+  const allowed = new Set(allowedMutationKeys);
+  for (const key of allowed) {
+    if (!PRODUCTION_EXTERNAL_AI_MUTATION_KEYS.includes(key)) {
+      throw Object.assign(new Error("XAI_UNSUPPORTED_MUTATION_KEY"), {
+        code: "XAI_UNSUPPORTED_MUTATION_KEY",
+      });
+    }
+  }
+  const planned = [];
+  const credentialMetadataType = environmentMetadata?.entries?.XAI_API_KEY?.type;
+  const credentialMetadataSafe = ["encrypted", "sensitive"].includes(credentialMetadataType);
+  const credentialReadable = Boolean(String(production.XAI_API_KEY || "").trim())
+    && credentialMetadataType !== "sensitive";
+  if (
+    configuration.credentialSource === "github_secret"
+    && (
+      allowed.has("XAI_API_KEY")
+      || (credentialReadable && production.XAI_API_KEY !== configuration.apiKey)
+      || (!credentialReadable && !credentialMetadataSafe)
+    )
+  ) planned.push("XAI_API_KEY");
+  if (production.XAI_MODEL_ID !== configuration.modelId) planned.push("XAI_MODEL_ID");
+  const unaudited = planned.filter((key) => !allowed.has(key));
+  if (unaudited.length > 0) {
+    throw Object.assign(new Error("XAI_UNAUDITED_PRODUCTION_DRIFT"), {
+      code: "XAI_UNAUDITED_PRODUCTION_DRIFT",
+      unauditedKeys: unaudited,
+    });
+  }
+  return planned;
+}
+
+export const PRODUCTION_EXTERNAL_AI_MUTATION_KEYS = Object.freeze([
+  "XAI_API_KEY",
+  "XAI_MODEL_ID",
+]);
+
+export async function main({
+  allowedMutationKeys = PRODUCTION_EXTERNAL_AI_MUTATION_KEYS,
+} = {}) {
   const projectId = process.env.VERCEL_PROJECT_ID || "";
   const scope = process.env.VERCEL_SCOPE || "";
   const token = process.env.VERCEL_TOKEN || "";
-  assert.ok(projectId && scope && token, "VERCEL_EXTERNAL_AI_BOOTSTRAP_AUTH_MISSING");
+  const teamId = process.env.VERCEL_ORG_ID || "";
+  assert.ok(projectId && scope && token && teamId, "VERCEL_EXTERNAL_AI_BOOTSTRAP_AUTH_MISSING");
   const directory = await mkdtemp(`${tmpdir()}/novel-external-ai-bootstrap-`);
   const productionFile = resolve(directory, ".env.production");
   try {
@@ -119,6 +168,11 @@ export async function main() {
       projectId,
       scope,
       token,
+    });
+    const environmentMetadata = await readVercelProductionEnvironmentMetadata({
+      token,
+      teamId,
+      projectId,
     });
     let configuration;
     try {
@@ -135,22 +189,37 @@ export async function main() {
         modelAvailable: false,
         credentialExposed: false,
       }));
-      return;
+      return {
+        mutationCount: 0,
+        changedKeys: [],
+        credentialVerification: {
+          verified: false,
+          modelId: process.env.XAI_MODEL_ID || DEFAULT_XAI_MODEL_ID,
+          credentialSource: null,
+          secretValuesStored: false,
+        },
+      };
     }
     const verification = await verifyXaiCredential(configuration);
+    const productionChanges = planXaiProductionChanges({
+      production,
+      configuration,
+      allowedMutationKeys,
+      environmentMetadata,
+    });
 
-    if (configuration.credentialSource === "github_secret") {
-      runVercel([
-        "env", "add", "XAI_API_KEY", "production",
-        "--project", projectId,
-        "--scope", scope,
-        "--token", token,
-        "--force",
-        "--sensitive",
-        "--yes",
-      ], `${configuration.apiKey}\n`);
+    const actualChangedKeys = [];
+    if (productionChanges.includes("XAI_API_KEY")) {
+      const mutation = await upsertSensitiveProductionEnvironment({
+        token,
+        teamId,
+        projectId,
+        key: "XAI_API_KEY",
+        value: configuration.apiKey,
+      });
+      actualChangedKeys.push(...mutation.changedKeys);
     }
-    if (production.XAI_MODEL_ID !== configuration.modelId) {
+    if (productionChanges.includes("XAI_MODEL_ID")) {
       runVercel([
         "env", "add", "XAI_MODEL_ID", "production",
         "--project", projectId,
@@ -160,10 +229,23 @@ export async function main() {
         "--no-sensitive",
         "--yes",
       ], `${configuration.modelId}\n`);
+      actualChangedKeys.push("XAI_MODEL_ID");
+    }
+    if (actualChangedKeys.includes("XAI_API_KEY")) {
+      const verifiedMetadata = await readVercelProductionEnvironmentMetadata({
+        token,
+        teamId,
+        projectId,
+      });
+      assert.equal(
+        verifiedMetadata.entries.XAI_API_KEY?.type,
+        "sensitive",
+        "XAI_API_KEY_METADATA_NOT_SENSITIVE",
+      );
     }
 
     console.log(JSON.stringify({
-      status: configuration.credentialSource === "github_secret"
+      status: actualChangedKeys.length > 0
         ? "production_xai_env_promoted"
         : "production_xai_env_already_ready",
       credentialSource: configuration.credentialSource,
@@ -171,7 +253,20 @@ export async function main() {
       modelAvailable: verification.modelAvailable,
       modelCount: verification.modelCount,
       credentialExposed: false,
+      promotedKeys: actualChangedKeys,
+      mutationCount: actualChangedKeys.length,
     }));
+    return {
+      mutationCount: actualChangedKeys.length,
+      changedKeys: actualChangedKeys,
+      credentialVerification: {
+        verified: verification.modelAvailable === true,
+        modelId: configuration.modelId,
+        credentialSource: configuration.credentialSource,
+        verificationCode: "MODEL_ACCESS_VERIFIED",
+        secretValuesStored: false,
+      },
+    };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

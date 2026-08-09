@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 
 const expected = {
   releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6",
+  releaseRevision: "rc6.1",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
   architectureStage: "P2.4B RC",
   packageManager: "pnpm@10.34.5",
   vercelVersion: "56.3.2",
-  previewBranch: "agent/p24b-rc6-conversation-first",
   checkoutPin: "3d3c42e5aac5ba805825da76410c181273ba90b1",
   setupNodePin: "820762786026740c76f36085b0efc47a31fe5020",
   uploadArtifactPin: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
@@ -55,11 +55,13 @@ const packageJson = JSON.parse(packageText);
 
 assert.deepEqual({
   releaseTag: manifest.releaseTag,
+  releaseRevision: manifest.releaseRevision,
   releaseName: manifest.releaseName,
   consumerRelease: manifest.consumerRelease,
   architectureStage: manifest.architectureStage,
 }, {
   releaseTag: expected.releaseTag,
+  releaseRevision: expected.releaseRevision,
   releaseName: expected.releaseName,
   consumerRelease: expected.consumerRelease,
   architectureStage: expected.architectureStage,
@@ -83,7 +85,12 @@ assert.match(lockfile, /\n\s{6}vercel:\r?\n\s{8}specifier: 56\.3\.2\r?\n/u);
 assert.match(pnpmWorkspace, /^\s*esbuild:\s*true\s*$/mu);
 assert.doesNotMatch(pnpmWorkspace, /set this to true or false/u);
 
-assert.match(workflow, new RegExp(`- ${expected.previewBranch.replaceAll("/", "\\/")}`, "u"));
+assert.match(workflow, /pull_request:\s*\r?\n\s+branches:\s*\[main\]/u);
+assert.match(workflow, /workflow_dispatch:\s*\r?\n\s+inputs:/u);
+assert.match(workflow, /preview_ref:/u);
+assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/u);
+assert.match(workflow, /VERCEL_GIT_COMMIT_SHA.*preview_ref/u);
+assert.doesNotMatch(workflow, /agent\/p24b-rc6-conversation-first/u);
 assert.doesNotMatch(workflow, /agent\/browser-sovereign-ai-fabric-rc5/u);
 assert.match(workflow, new RegExp(expected.releaseTag, "u"));
 assert.match(workflow, /pnpm test:ci:rc6-release-hardening/u);
@@ -96,7 +103,8 @@ assert.match(
   workflow,
   new RegExp(`actions/upload-artifact@${expected.uploadArtifactPin}`, "u"),
 );
-assert.match(workflow, /p24b-rc6-validation-\$\{\{ github\.sha \}\}/u);
+assert.match(workflow, /p24b-rc6-validation-\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
+assert.match(workflow, /--arg headSha "\$VERCEL_GIT_COMMIT_SHA"/u);
 assert.match(workflow, /rawUploadsIncluded:false/u);
 assert.match(workflow, /pnpm exec vercel pull/u);
 assert.match(workflow, /pnpm exec vercel build/u);
@@ -129,7 +137,7 @@ console.log(JSON.stringify({
   releaseTag: expected.releaseTag,
   packageManager: expected.packageManager,
   vercelVersion: expected.vercelVersion,
-  previewBranch: expected.previewBranch,
+  previewPolicy: "trusted_same_repository_exact_sha",
   nodeRuntime: 24,
   actionPins: {
     "actions/checkout@v7.0.1": expected.checkoutPin,

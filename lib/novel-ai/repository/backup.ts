@@ -1,5 +1,6 @@
 import type { BackupManifest, DomainRecord, ProjectBackup } from "../domain";
 import { makeRecord } from "../domain";
+import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import { LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, P24B_RC6_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelRepository } from "./contracts";
 import { validateImportRecords } from "./import-remap";
 import {
@@ -20,7 +21,11 @@ export type BackupPayload = {
 
 type BackupOptions = {
   appCommit?: string | null;
+  releaseProductCommit?: string | null;
+  releaseBaseCommit?: string | null;
   releaseTag?: string | null;
+  releaseRevision?: string | null;
+  releaseBuild?: string | null;
   sovereignLearningRepository?: SovereignLearningRepository;
 };
 
@@ -105,9 +110,26 @@ export async function createProjectBackup(
   const semanticBody = { records, sovereignLearning };
   const body = stableStringify(semanticBody);
   const now = new Date().toISOString();
+  const appCommit = release.appCommit ?? RELEASE_MANIFEST.appCommit;
+  const releaseProductCommit = release.releaseProductCommit
+    ?? release.appCommit
+    ?? RELEASE_MANIFEST.releaseProductCommit;
+  const releaseRevision = release.releaseRevision ?? RELEASE_MANIFEST.releaseRevision;
+  const releaseBuild = release.releaseBuild
+    ?? (releaseProductCommit === RELEASE_MANIFEST.releaseProductCommit
+      ? RELEASE_MANIFEST.releaseBuild
+      : /^[0-9a-f]{40}$/iu.test(releaseProductCommit ?? "")
+        ? `${releaseRevision}+${releaseProductCommit}`
+        : null);
   const manifest: BackupManifest = {
     format: "novel-project-backup", formatVersion: "novel-backup-v6", backupId: crypto.randomUUID(), projectId,
-    projectSchemaVersion: "novel-repository-v8", createdAt: now, appCommit: release.appCommit ?? null, releaseTag: release.releaseTag ?? null,
+    projectSchemaVersion: "novel-repository-v8", createdAt: now,
+    appCommit,
+    releaseProductCommit,
+    releaseBaseCommit: release.releaseBaseCommit ?? RELEASE_MANIFEST.releaseBaseCommit,
+    releaseTag: release.releaseTag ?? RELEASE_MANIFEST.releaseTag,
+    releaseRevision,
+    releaseBuild,
     sourceDevice: "browser", contentHash: await digest(body), recordCounts: Object.fromEntries(Object.entries(records).map(([store, rows]) => [store, rows.length])),
     includedStores: Object.keys(records), compression: "none", encryption: "none",
   };

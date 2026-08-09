@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6";
-const CONSUMER_RELEASE = "p2.4b-conversation-first-studio-rc6";
+const CONSUMER_RELEASE = "p2.4b-conversation-first-studio-rc6.1";
 const PRODUCTION_ORIGINS = new Set([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",

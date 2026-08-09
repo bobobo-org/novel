@@ -11,9 +11,11 @@ const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
 const expectedTag = "novel-ai-p24b-conversation-first-studio-rc6";
-const expectedName = "P2.4B Conversation-First Novel Project GPT RC6";
-const expectedConsumerRelease = "p2.4b-conversation-first-studio-rc6";
+const expectedRevision = "rc6.1";
+const expectedName = "P2.4B Conversation-First Novel Project GPT RC6.1";
+const expectedConsumerRelease = "p2.4b-conversation-first-studio-rc6.1";
 const expectedStage = "P2.4B RC";
+const expectedBaseCommit = "e9b1091916b53c34ed9676dc4d418baaf696786e";
 const results = [];
 
 function test(name, work) {
@@ -32,6 +34,9 @@ function mustReject(actual, expected) {
 
 test("manifest uses authoritative P2.4B RC6 metadata", () => {
   validate(manifest, { releaseTag: expectedTag, architectureStage: expectedStage });
+  assert.equal(manifest.releaseRevision, expectedRevision);
+  assert.equal(manifest.releaseBaseCommit, expectedBaseCommit);
+  assert.equal(manifest.gitCommitSignature, "unsigned");
   assert.equal(manifest.releaseName, expectedName);
   assert.equal(manifest.consumerRelease, expectedConsumerRelease);
 });
@@ -77,7 +82,7 @@ test("admin diagnostics reads the same shared release identity", () => {
   assert.match(adminHealthSource, /characterCapabilities/);
 });
 test("build stamp reads and stamps the complete shared manifest", () => {
-  for (const field of ["releaseTag", "releaseName", "consumerRelease", "architectureStage"]) {
+  for (const field of ["releaseTag", "releaseName", "consumerRelease", "architectureStage", "releaseRevision", "releaseBaseCommit"]) {
     assert.match(stampSource, new RegExp(`releaseManifest\\.${field}`));
   }
 });

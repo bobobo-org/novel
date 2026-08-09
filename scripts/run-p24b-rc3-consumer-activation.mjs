@@ -11,8 +11,9 @@ const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
   releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6",
+  releaseRevision: "rc6.1",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
   architectureStage: "P2.4B RC",
 };
 const cases = [];

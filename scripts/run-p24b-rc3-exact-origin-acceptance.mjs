@@ -5,7 +5,7 @@ import path from "node:path";
 
 const RC3 = {
   releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
   architectureStage: "P2.4B RC",
 };
 const PRODUCTION_ORIGINS = new Set([

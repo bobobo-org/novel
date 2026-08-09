@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { readVercelProductionEnvironmentMetadata } from "./production-environment-governance.mjs";
+import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
 
 export const REQUIRED_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_ACCESS_TOKEN",
@@ -181,6 +183,24 @@ export function validateBootstrapConfigurationShape(configuration) {
   return { projectRef };
 }
 
+export function validateBootstrapProjectIdentity(configuration) {
+  const missingKeys = ["SUPABASE_PROJECT_REF", "NEXT_PUBLIC_SUPABASE_URL"]
+    .filter((key) => !configuration[key]);
+  if (missingKeys.length > 0) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_SOURCE_MISSING"), {
+      code: "SUPABASE_BOOTSTRAP_SOURCE_MISSING",
+      missingKeys,
+    });
+  }
+  const projectRef = projectRefFromUrl(configuration.NEXT_PUBLIC_SUPABASE_URL);
+  if (!projectRef || projectRef !== configuration.SUPABASE_PROJECT_REF) {
+    throw Object.assign(new Error("SUPABASE_BOOTSTRAP_IDENTITY_MISMATCH"), {
+      code: "SUPABASE_BOOTSTRAP_IDENTITY_MISMATCH",
+    });
+  }
+  return { projectRef };
+}
+
 export function validateConfigurationShape(configuration) {
   const missingKeys = REQUIRED_SUPABASE_KEYS.filter((key) => !configuration[key]);
   if (missingKeys.length > 0) {
@@ -205,6 +225,7 @@ function runVercel(args, { input } = {}) {
     input,
     maxBuffer: 4 * 1024 * 1024,
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    timeout: 60_000,
   });
   if (result.error || result.status !== 0) {
     throw Object.assign(new Error("VERCEL_ENV_COMMAND_FAILED"), {
@@ -457,11 +478,57 @@ async function verifySupabase(configuration, projectRef) {
   });
 }
 
-export async function main() {
+export function restrictSupabaseProductionChanges({
+  productionChanges,
+  allowedMutationKeys = PRODUCTION_RUNTIME_SUPABASE_KEYS,
+}) {
+  const allowed = new Set(allowedMutationKeys);
+  for (const key of allowed) {
+    if (!PRODUCTION_RUNTIME_SUPABASE_KEYS.includes(key)) {
+      throw Object.assign(new Error("SUPABASE_UNSUPPORTED_MUTATION_KEY"), {
+        code: "SUPABASE_UNSUPPORTED_MUTATION_KEY",
+      });
+    }
+  }
+  const unaudited = productionChanges.filter((key) => !allowed.has(key));
+  if (unaudited.length > 0) {
+    throw Object.assign(new Error("SUPABASE_UNAUDITED_PRODUCTION_DRIFT"), {
+      code: "SUPABASE_UNAUDITED_PRODUCTION_DRIFT",
+      unauditedKeys: unaudited,
+    });
+  }
+  return [...productionChanges];
+}
+
+export function planSupabaseProductionChanges({
+  production,
+  configuration,
+  allowedMutationKeys,
+  environmentMetadata,
+}) {
+  const allowed = new Set(allowedMutationKeys);
+  const productionChanges = PRODUCTION_RUNTIME_SUPABASE_KEYS.filter((key) => {
+    if (key !== "SUPABASE_SERVICE_ROLE_KEY") {
+      return production[key] !== configuration[key];
+    }
+    if (allowed.has(key)) return true;
+    if (serviceRoleCredentialKind(production[key])) {
+      return production[key] !== configuration[key];
+    }
+    const metadataType = environmentMetadata?.entries?.[key]?.type;
+    return !["encrypted", "sensitive"].includes(metadataType);
+  });
+  return restrictSupabaseProductionChanges({ productionChanges, allowedMutationKeys });
+}
+
+export async function main({
+  allowedMutationKeys = PRODUCTION_RUNTIME_SUPABASE_KEYS,
+} = {}) {
   const projectId = process.env.VERCEL_PROJECT_ID || "";
   const scope = process.env.VERCEL_SCOPE || "";
   const token = process.env.VERCEL_TOKEN || "";
-  assert.ok(projectId && scope && token, "VERCEL_BOOTSTRAP_AUTH_MISSING");
+  const teamId = process.env.VERCEL_ORG_ID || "";
+  assert.ok(projectId && scope && token && teamId, "VERCEL_BOOTSTRAP_AUTH_MISSING");
 
   const directory = await mkdtemp(`${tmpdir()}/novel-supabase-bootstrap-`);
   const productionFile = resolve(directory, ".env.production");
@@ -488,6 +555,11 @@ export async function main() {
       projectId,
       scope,
       token,
+    });
+    const environmentMetadata = await readVercelProductionEnvironmentMetadata({
+      token,
+      teamId,
+      projectId,
     });
     const source = { ...development, ...preview };
     if (process.env.SUPABASE_ACCESS_TOKEN) {
@@ -522,7 +594,7 @@ export async function main() {
           configuration.NEXT_PUBLIC_SUPABASE_URL = `https://${discovered.projectRef}.supabase.co`;
         }
       }
-      ({ projectRef } = validateBootstrapConfigurationShape(configuration));
+      ({ projectRef } = validateBootstrapProjectIdentity(configuration));
     } catch (error) {
       error.availableSourceKeys = Object.keys(source)
         .filter((key) => /^(?:SUPABASE|DATABASE|POSTGRES)_/u.test(key))
@@ -577,18 +649,35 @@ export async function main() {
     validateRuntimeConfigurationShape(configuration);
     const management = await verifySupabase(configuration, projectRef);
 
-    const productionChanges = PRODUCTION_RUNTIME_SUPABASE_KEYS
-      .filter((key) => production[key] !== configuration[key]);
+    const productionChanges = planSupabaseProductionChanges({
+      production,
+      configuration,
+      allowedMutationKeys,
+      environmentMetadata,
+    });
+    const actualChangedKeys = [];
     for (const key of productionChanges) {
-      runVercel([
-        "env", "add", key, "production",
-        "--project", projectId,
-        "--scope", scope,
-        "--token", token,
-        "--force",
-        "--no-sensitive",
-        "--yes",
-      ], { input: `${configuration[key]}\n` });
+      if (key === "SUPABASE_SERVICE_ROLE_KEY") {
+        const mutation = await upsertSensitiveProductionEnvironment({
+          token,
+          teamId,
+          projectId,
+          key,
+          value: configuration[key],
+        });
+        actualChangedKeys.push(...mutation.changedKeys);
+      } else {
+        runVercel([
+          "env", "add", key, "production",
+          "--project", projectId,
+          "--scope", scope,
+          "--token", token,
+          "--force",
+          "--no-sensitive",
+          "--yes",
+        ], { input: `${configuration[key]}\n` });
+        actualChangedKeys.push(key);
+      }
     }
 
     const verified = await pullEnvironment({
@@ -598,14 +687,26 @@ export async function main() {
       scope,
       token,
     });
-    for (const key of PRODUCTION_RUNTIME_SUPABASE_KEYS) {
+    for (const key of ["SUPABASE_PROJECT_REF", "NEXT_PUBLIC_SUPABASE_URL"]) {
       assert.equal(verified[key], configuration[key], `${key}_PROMOTION_MISMATCH`);
     }
+    const verifiedMetadata = await readVercelProductionEnvironmentMetadata({
+      token,
+      teamId,
+      projectId,
+    });
+    const serviceRoleMetadataType = verifiedMetadata.entries.SUPABASE_SERVICE_ROLE_KEY?.type;
+    assert.ok(
+      productionChanges.includes("SUPABASE_SERVICE_ROLE_KEY")
+        ? serviceRoleMetadataType === "sensitive"
+        : ["encrypted", "sensitive"].includes(serviceRoleMetadataType),
+      "SUPABASE_SERVICE_ROLE_KEY_METADATA_INVALID",
+    );
     console.log(JSON.stringify({
-      status: productionChanges.length > 0
+      status: actualChangedKeys.length > 0
         ? "production_supabase_env_promoted"
         : "production_supabase_env_already_ready",
-      promotedKeys: productionChanges,
+      promotedKeys: actualChangedKeys,
       requiredRuntimeKeyCount: PRODUCTION_RUNTIME_SUPABASE_KEYS.length,
       projectRefSuffix: projectRef.slice(-4),
       projectRefDiscovery,
@@ -619,7 +720,30 @@ export async function main() {
       serviceRoleStorageHttpStatus: credential.storageHttpStatus,
       managementApiKeyDiscoveryHttpStatus: discoveredKeys.httpStatus,
       managementApiKeyCandidateCount: discoveredKeys.candidates.length,
+      mutationCount: actualChangedKeys.length,
+      serviceRoleMetadataType,
+      serviceRolePlaintextRoundTripRequired: false,
+      stagedRuntimeVerificationRequired: true,
     }));
+    return {
+      mutationCount: actualChangedKeys.length,
+      changedKeys: actualChangedKeys,
+      supabaseCredentialVerification: {
+        verified: management.serviceRoleVerified === true
+          && credential.restHttpStatus >= 200
+          && credential.restHttpStatus < 300
+          && credential.storageHttpStatus >= 200
+          && credential.storageHttpStatus < 300,
+        indeterminate: false,
+        readOnly: true,
+        verificationMode: "repair-source-probe-plus-vercel-metadata",
+        projectRefMatches: true,
+        restHttpStatus: credential.restHttpStatus,
+        storageHttpStatus: credential.storageHttpStatus,
+        failureCode: null,
+        secretValuesStored: false,
+      },
+    };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

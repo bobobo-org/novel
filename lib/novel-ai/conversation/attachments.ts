@@ -7,7 +7,7 @@ import {
   hashManualLearningFile,
   safeManualLearningSourceAlias,
   type ManualLearningDocumentFormat,
-} from "../web/manual-learning-file";
+} from "../web/manual-learning-file-validation";
 
 export const CONVERSATION_ATTACHMENT_SCHEMA_VERSION = "conversation-attachment-v1" as const;
 

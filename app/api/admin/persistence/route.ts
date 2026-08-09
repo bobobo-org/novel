@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/novel-ai/admin";
 import { resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
+import { releaseProvenanceStatus } from "@/lib/novel-ai/runtime-truth";
 import {
   AiRunRepository,
   EvaluationRepository,
@@ -16,6 +17,8 @@ import {
 export const runtime = "nodejs";
 
 const capabilityCatalog = resolveCapabilityCatalog();
+const deploymentProvenance = releaseProvenanceStatus();
+const releaseProvenanceVerified = deploymentProvenance === "verified";
 const releaseCapability = (id: string) => ({
   contractStatus: capabilityCatalog[id]?.contractStatus ?? "not_implemented",
   runtimeStatus: capabilityCatalog[id]?.runtimeStatus ?? "not_implemented",
@@ -23,12 +26,24 @@ const releaseCapability = (id: string) => ({
 });
 
 const releaseIdentity = {
-  appCommit: RELEASE_MANIFEST.appCommit,
+  appCommit: releaseProvenanceVerified
+    ? RELEASE_MANIFEST.appCommit
+    : "provenance-unavailable",
+  releaseProductCommit: releaseProvenanceVerified
+    ? RELEASE_MANIFEST.releaseProductCommit
+    : "provenance-unavailable",
+  releaseBaseCommit: RELEASE_MANIFEST.releaseBaseCommit,
   releaseTag: RELEASE_MANIFEST.releaseTag,
+  releaseRevision: RELEASE_MANIFEST.releaseRevision,
+  releaseBuild: releaseProvenanceVerified
+    ? RELEASE_MANIFEST.releaseBuild
+    : "provenance-unavailable",
   releaseName: RELEASE_MANIFEST.releaseName,
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
   architectureStage: RELEASE_MANIFEST.architectureStage,
-  commitProvenanceStatus: RELEASE_MANIFEST.commitProvenanceStatus,
+  gitCommitSignature: RELEASE_MANIFEST.gitCommitSignature,
+  deploymentProvenance,
+  commitProvenanceStatus: deploymentProvenance,
   unifiedProfessionalUiStatus: "ready",
   professionalFrontdoorStatus: "ready",
   deepStudioRoutesStatus: "ready",
