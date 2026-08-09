@@ -9,6 +9,7 @@ import {
   evaluateStagedExternalAiRuntimeTruth,
   planInvalidOptionalOpenAiProductionRemoval,
   readBoundProductionExternalAiRuntimeTruth,
+  readBoundProductionExternalAiRuntimeTruthWithRetry,
   readProductionExternalAiRuntimeTruth,
   readVercelProductionEnvironmentMetadata,
   readVercelProjectIdentity,
@@ -623,6 +624,61 @@ async function testExternalAiProductionTruth() {
   assert.equal(boundInvalidOptionalOpenAi.openaiState, "credential_revoked");
   assert.equal(boundInvalidOptionalOpenAi.earliestDeploymentCreatedAt, 100);
   assert.equal(boundInvalidOptionalOpenAi.deploymentSnapshots.length, 2);
+
+  let retryReadCount = 0;
+  const recoveredBoundTruth = await readBoundProductionExternalAiRuntimeTruthWithRetry({
+    attempts: 3,
+    retryDelayMs: 0,
+    delay: async () => undefined,
+    reader: async () => {
+      retryReadCount += 1;
+      return retryReadCount < 3
+        ? { indeterminate: true, failureCode: "TRANSIENT_READ_ONLY_PROBE_FAILURE" }
+        : boundInvalidOptionalOpenAi;
+    },
+  });
+  assert.equal(retryReadCount, 3);
+  assert.equal(recoveredBoundTruth, boundInvalidOptionalOpenAi);
+
+  let definiteReadCount = 0;
+  const definiteBoundTruth = await readBoundProductionExternalAiRuntimeTruthWithRetry({
+    attempts: 3,
+    retryDelayMs: 0,
+    delay: async () => undefined,
+    reader: async () => {
+      definiteReadCount += 1;
+      return boundInvalidOptionalOpenAi;
+    },
+  });
+  assert.equal(definiteReadCount, 1);
+  assert.equal(definiteBoundTruth.openaiState, "credential_revoked");
+
+  let exhaustedReadCount = 0;
+  const exhaustedTruth = await readBoundProductionExternalAiRuntimeTruthWithRetry({
+    attempts: 3,
+    retryDelayMs: 0,
+    delay: async () => undefined,
+    reader: async () => {
+      exhaustedReadCount += 1;
+      return {
+        indeterminate: true,
+        failureCode: `TRANSIENT_${exhaustedReadCount}`,
+      };
+    },
+  });
+  assert.equal(exhaustedReadCount, 3);
+  assert.equal(exhaustedTruth.indeterminate, true);
+  assert.equal(exhaustedTruth.failureCode, "TRANSIENT_3");
+
+  await assert.rejects(
+    readBoundProductionExternalAiRuntimeTruthWithRetry({
+      attempts: 2,
+      retryDelayMs: 5_000,
+      deadlineAt: Date.now() - 1,
+      reader: async () => ({ indeterminate: true }),
+    }),
+    (error) => error.code === "PRODUCTION_AUDIT_EXTERNAL_AI_RETRY_DEADLINE_EXCEEDED",
+  );
 
   const changedIdentityTruth = await readBoundProductionExternalAiRuntimeTruth({
     aliases,

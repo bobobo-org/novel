@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { boundedFetch, boundedOperation } from "./bounded-fetch.mjs";
+import { boundedFetch, boundedOperation, delayWithinDeadline } from "./bounded-fetch.mjs";
 
 export const PRODUCTION_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_PROJECT_REF",
@@ -972,6 +972,37 @@ export async function readBoundProductionExternalAiRuntimeTruth({
   }
 }
 
+export async function readBoundProductionExternalAiRuntimeTruthWithRetry({
+  attempts = 3,
+  retryDelayMs = 5_000,
+  delay = delayWithinDeadline,
+  reader = readBoundProductionExternalAiRuntimeTruth,
+  ...options
+}) {
+  if (!Number.isInteger(attempts) || attempts < 1 || attempts > 5) {
+    throw Object.assign(new Error("PRODUCTION_AUDIT_EXTERNAL_AI_RETRY_COUNT_INVALID"), {
+      code: "PRODUCTION_AUDIT_EXTERNAL_AI_RETRY_COUNT_INVALID",
+    });
+  }
+  const deadlineAt = Number.isFinite(Number(options.deadlineAt))
+    ? Number(options.deadlineAt)
+    : Date.now() + 45_000;
+  const readerOptions = { ...options, deadlineAt };
+  let latest;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    latest = await reader(readerOptions);
+    if (latest?.indeterminate !== true) return latest;
+    if (attempt < attempts) {
+      await delay(
+        retryDelayMs,
+        deadlineAt,
+        "PRODUCTION_AUDIT_EXTERNAL_AI_RETRY_DEADLINE_EXCEEDED",
+      );
+    }
+  }
+  return latest;
+}
+
 function isXaiKey(value) {
   const normalized = String(value || "").trim();
   return normalized.length >= 20 && !/\s/u.test(normalized);
@@ -1532,7 +1563,7 @@ async function performAudit({
       }),
       externalAiRuntimeTruthOverride
         ? Promise.resolve(externalAiRuntimeTruthOverride)
-        : readBoundProductionExternalAiRuntimeTruth({
+        : readBoundProductionExternalAiRuntimeTruthWithRetry({
           aliases: [requiredEnvironment("PRIMARY_ALIAS"), requiredEnvironment("MIRROR_ALIAS")],
           expectedXaiModelId,
           token,
@@ -1789,6 +1820,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     console.error(JSON.stringify({
       status: "production_environment_governance_failed",
       errorCode: String(error?.code || error?.message || "PRODUCTION_ENVIRONMENT_GOVERNANCE_FAILED"),
+      failureCode: error?.failureCode ? String(error.failureCode) : null,
       httpStatus: Number.isInteger(error?.httpStatus) ? error.httpStatus : null,
       secretValuesStored: false,
     }));
