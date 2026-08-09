@@ -80,7 +80,7 @@ export async function verifyXaiCredential({ apiKey, modelId, fetcher = fetch }) 
 }
 
 function runVercel(args, input) {
-  const result = spawnSync("vercel", args, {
+  const result = spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["exec", "vercel", ...args], {
     encoding: "utf8",
     env: process.env,
     input,

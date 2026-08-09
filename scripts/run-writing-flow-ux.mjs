@@ -94,13 +94,16 @@ check("reader has progress, searchable directory and previous-next navigation", 
   assert.match(reader, /nextChapter/u);
 });
 
-check("writing AI auto-connects and stays in the canonical chapter workspace", () => {
+check("writing AI auto-connects while historical assistants hand off to project chat", () => {
   assert.match(writing, /discoverStudioClosedAI/u);
   assert.match(writing, /閉端 AI 自動連線/u);
   assert.match(writing, /executeStudioClosedAgent/u);
   assert.doesNotMatch(writing, /closedAIHref/u);
-  assert.match(quickAssistant, /write\?assistant=advanced#writing-ai/u);
-  assert.match(aiPage, /write\?assistant=advanced#writing-ai/u);
+  assert.match(quickAssistant, /\/chat\$\{query\.size/u);
+  assert.match(quickAssistant, /professional\?intent=chat/u);
+  assert.match(aiPage, /\/chat\$\{destination\.size/u);
+  assert.doesNotMatch(quickAssistant, /write\?assistant=advanced#writing-ai/u);
+  assert.doesNotMatch(aiPage, /write\?assistant=advanced#writing-ai/u);
 });
 
 check("writing tools are stage-correct and commit only an approved candidate", () => {
@@ -119,7 +122,8 @@ check("continue writing selects an explicit canonical project and old routes con
   assert.match(professional, /mustChoose/u);
   assert.match(professional, /canonical-project-picker/u);
   assert.match(studioPage, /requestedScreen === "write"/u);
-  assert.match(studioPage, /professional\?intent=write/u);
+  assert.match(studioPage, /professional\?intent=chat/u);
+  assert.match(studioPage, /\/chat/u);
   assert.doesNotMatch(quickAssistant, /StudioClient/u);
 });
 

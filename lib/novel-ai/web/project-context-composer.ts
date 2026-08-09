@@ -3,6 +3,9 @@ import type {
   Achievement,
   Chapter,
   Character,
+  ConversationArtifact,
+  ConversationMessage,
+  ConversationSummary,
   DomainRecord,
   LoreEntry,
   NovelProject,
@@ -18,9 +21,34 @@ import type {
 import type { ClosedAIContextItem } from "../closed-agent-os";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import type { NovelRepository, NovelStoreName } from "../repository/contracts";
+import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-sanitizer";
 
 export const PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION =
   "project-context-composer-v1" as const;
+
+const PROJECT_CONVERSATION_SUMMARY_LIMIT = 4;
+const CONVERSATION_SUMMARY_CHARACTER_LIMIT = 6_000;
+const CONVERSATION_SUMMARY_SOURCE_ID_LIMIT = 64;
+
+export async function conversationCanonRevisionDigest(input: {
+  project: Pick<NovelProject, "id" | "revision">;
+  activeChapter: Pick<Chapter, "id" | "revision"> | null;
+  storyBible: Pick<StoryBible, "id" | "revision"> | null;
+  storyState: Pick<StoryState, "id" | "revision"> | null;
+}) {
+  return sha256Hex(stableStringify({
+    project: { id: input.project.id, revision: input.project.revision },
+    chapter: input.activeChapter
+      ? { id: input.activeChapter.id, revision: input.activeChapter.revision }
+      : null,
+    storyBible: input.storyBible
+      ? { id: input.storyBible.id, revision: input.storyBible.revision }
+      : null,
+    storyState: input.storyState
+      ? { id: input.storyState.id, revision: input.storyState.revision }
+      : null,
+  }));
+}
 
 export type ProjectContextAudience = "actor" | "evaluator" | "author";
 
@@ -41,6 +69,13 @@ export type ProjectContextComposerInput = {
     id: string;
     rule: string;
     revision: string | number;
+  }>;
+  conversationSessionId?: string;
+  conversationRecentMessageLimit?: number;
+  selectedAttachmentSummaries?: Array<{
+    attachmentId: string;
+    summary: string;
+    contentDigest: string;
   }>;
   supplementalContext?: ClosedAIContextItem[];
   semanticQuery?: string;
@@ -245,6 +280,9 @@ export async function composeProjectContext(
     characterRelationships,
     relationshipEvents,
     privateArcs,
+    conversationMessages,
+    conversationArtifacts,
+    conversationSummaries,
   ] = await Promise.all([
     input.repository.get<NovelProject>("projects", input.projectId),
     safeList<ProjectSeed>(input.repository, "projectSeeds", input.projectId),
@@ -272,6 +310,9 @@ export async function composeProjectContext(
       input.projectId,
     ),
     safeList<DomainRecord>(input.repository, "characterPrivateArcs", input.projectId),
+    safeList<ConversationMessage>(input.repository, "conversationMessages", input.projectId),
+    safeList<ConversationArtifact>(input.repository, "conversationArtifacts", input.projectId),
+    safeList<ConversationSummary>(input.repository, "conversationSummaries", input.projectId),
   ]);
   if (!project) {
     throw Object.assign(new Error("The project does not exist in local canonical storage."), {
@@ -782,6 +823,153 @@ export async function composeProjectContext(
       privacyLevel,
     });
   }
+  let includedConversationSummaryCount = 0;
+  if (input.conversationSessionId) {
+    const canonRevisionDigest = await conversationCanonRevisionDigest({
+      project,
+      activeChapter,
+      storyBible,
+      storyState,
+    });
+    const scopedConversationMessages = new Map(
+      conversationMessages
+        .filter((message) => message.projectId === input.projectId && !message.deletedAt)
+        .map((message) => [message.id, message] as const),
+    );
+    const eligibleSummaries = conversationSummaries
+      .filter((summary) =>
+        summary.projectId === input.projectId
+        && !summary.deletedAt
+        && !summary.invalidatedAt
+        && summary.canonRevisionDigest === canonRevisionDigest
+        && summary.sourceMessageIds.length > 0
+        && summary.sourceMessageIds.every((messageId) =>
+          scopedConversationMessages.get(messageId)?.sessionId === summary.sessionId))
+      .sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt)
+        || right.revision - left.revision
+        || left.id.localeCompare(right.id))
+      .filter((summary, index, summaries) =>
+        summaries.findIndex((candidate) => candidate.sessionId === summary.sessionId) === index);
+    const currentSummary = eligibleSummaries.find((summary) =>
+      summary.sessionId === input.conversationSessionId) ?? null;
+    const recentProjectSummaries = eligibleSummaries
+      .filter((summary) => summary.sessionId !== input.conversationSessionId)
+      .slice(0, PROJECT_CONVERSATION_SUMMARY_LIMIT - (currentSummary ? 1 : 0));
+    includedConversationSummaryCount = recentProjectSummaries.length
+      + (currentSummary ? 1 : 0);
+    if (currentSummary) {
+      addContext(entries, {
+        id: `conversation-summary:${currentSummary.id}`,
+        kind: "memory",
+        source: "CURRENT_PROJECT_CONVERSATION_SUMMARY_NON_CANONICAL",
+        value: {
+          authority: "conversation_memory_only",
+          canonAligned: true,
+          content: currentSummary.content.slice(0, CONVERSATION_SUMMARY_CHARACTER_LIMIT),
+          sourceMessageIds: currentSummary.sourceMessageIds.slice(
+            -CONVERSATION_SUMMARY_SOURCE_ID_LIMIT,
+          ),
+          contentDigest: currentSummary.contentDigest,
+          revision: currentSummary.revision,
+        },
+        priority: 83,
+        privacyLevel,
+      });
+    }
+    if (recentProjectSummaries.length) {
+      addContext(entries, {
+        id: `conversation-project-summaries:${input.projectId}`,
+        kind: "memory",
+        source: "SAME_PROJECT_RECENT_CONVERSATION_SUMMARIES_NON_CANONICAL",
+        value: recentProjectSummaries.map((summary) => ({
+          sessionId: summary.sessionId,
+          authority: "conversation_memory_only",
+          canonAligned: true,
+          content: summary.content.slice(0, CONVERSATION_SUMMARY_CHARACTER_LIMIT),
+          sourceMessageIds: summary.sourceMessageIds.slice(
+            -CONVERSATION_SUMMARY_SOURCE_ID_LIMIT,
+          ),
+          contentDigest: summary.contentDigest,
+          revision: summary.revision,
+        })),
+        priority: 78,
+        privacyLevel,
+      });
+    }
+    const approvedArtifactMessages = new Set(
+      conversationArtifacts
+        .filter((artifact) =>
+          artifact.projectId === input.projectId
+          && artifact.sessionId === input.conversationSessionId
+          && artifact.status === "approved"
+          && !artifact.deletedAt)
+        .map((artifact) => artifact.sourceMessageId),
+    );
+    const recentLimit = Math.max(
+      2,
+      Math.min(input.conversationRecentMessageLimit ?? 12, 24),
+    );
+    const recentMessages = conversationMessages
+      .filter((message) =>
+        message.projectId === input.projectId
+        && message.sessionId === input.conversationSessionId
+        && !message.deletedAt
+        && message.status === "completed"
+        && (message.role === "user" || message.role === "assistant"))
+      .sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt)
+        || left.id.localeCompare(right.id))
+      .slice(-recentLimit);
+    if (recentMessages.length) {
+      addContext(entries, {
+        id: `conversation-recent:${input.conversationSessionId}`,
+        kind: "memory",
+        source: "CURRENT_SESSION_RECENT_MESSAGES_NON_CANONICAL",
+        value: recentMessages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content.slice(0, 4_000),
+          contentDigest: message.contentDigest,
+          authority: message.role === "assistant"
+            ? approvedArtifactMessages.has(message.id)
+              ? "approved_artifact_reference"
+              : "assistant_candidate_only"
+            : "current_author_request",
+        })),
+        priority: 81,
+        privacyLevel,
+      });
+    }
+  }
+  for (const attachment of input.selectedAttachmentSummaries ?? []) {
+    const boundary = sanitizeRetrievedKnowledge(attachment.summary, {
+      sourceId: attachment.attachmentId,
+      sourceRevision: attachment.contentDigest,
+      sourceType: "user_document",
+      storyId: input.projectId,
+      storyRevision: String(input.revision ?? "current"),
+    });
+    addContext(entries, {
+      id: `conversation-attachment-summary:${attachment.attachmentId}`,
+      kind: "retrieval",
+      source: "EXPLICITLY_SELECTED_LOCAL_ATTACHMENT_SUMMARY_UNTRUSTED",
+      value: {
+        authority: "untrusted_reference_data_only",
+        contentDigest: attachment.contentDigest,
+        sanitizationStatus: boundary.sanitizationStatus,
+        detectedInjectionSignals: boundary.detectedInjectionSignals,
+        summary: boundary.sanitizationStatus === "quarantined"
+          ? "[ATTACHMENT_SUMMARY_QUARANTINED]"
+          : boundary.sanitizedText,
+        mayInvokeTools: false,
+        mayMutateCanonical: false,
+        mayAuthorizeExternalTransfer: false,
+      },
+      priority: 79,
+      privacyLevel,
+    });
+  }
   for (const item of input.supplementalContext ?? []) {
     if (!item.approved) continue;
     if (item.visibility === "author-only" && audience !== "author") continue;
@@ -858,6 +1046,14 @@ export async function composeProjectContext(
     characterRelationships: characterRelationships.length,
     characterRelationshipEvents: approvedRelationshipEvents.length,
     privateArcs: audience === "author" ? privateArcs.length : 0,
+    conversationMessages: input.conversationSessionId
+      ? conversationMessages.filter((message) =>
+        message.projectId === input.projectId
+        && message.sessionId === input.conversationSessionId
+        && !message.deletedAt).length
+      : 0,
+    conversationSummaries: includedConversationSummaryCount,
+    selectedAttachmentSummaries: input.selectedAttachmentSummaries?.length ?? 0,
   };
   const contextSourceSummary: ProjectContextSourceSummary = {
     schemaVersion: PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION,
@@ -884,6 +1080,7 @@ export async function composeProjectContext(
     canonId: input.canonId ?? `canon:${input.projectId}`,
     branchId: activeBranch?.branchId ?? input.branchId ?? "main",
     characterId: input.characterId ?? "shared",
+    conversationSessionId: input.conversationSessionId ?? null,
     revision: input.revision ?? "current",
     privacyLevel,
     context: budgeted.context,

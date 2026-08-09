@@ -57,6 +57,7 @@ import {
   type ClosedAgentPlan,
   type ClosedAgentTaskRecord,
   type ClosedAgentTaskRequest,
+  type ClosedAgentToolExecutionEvidence,
   type ClosedBackendExecutionResult,
 } from "./types";
 
@@ -270,6 +271,7 @@ export class ClosedAgentOS {
         task: existing,
         candidate,
         plan: planLookup.entry.value,
+        toolExecutions: structuredClone(candidate.toolExecutions ?? []),
         route: {
           backendId: candidate.backendId,
           locked: true,
@@ -410,7 +412,7 @@ export class ClosedAgentOS {
           ),
         },
       });
-      const toolResults = await this.executeTools(request, plan);
+      const { toolResults, toolExecutions } = await this.executeTools(request, plan);
       if (request.context.some((item) =>
         item.kind === "author-note"
         && item.visibility !== "author-only")) {
@@ -820,6 +822,7 @@ export class ClosedAgentOS {
           ?? executionReceipt?.backendId
           ?? "not_executed",
         executionReceipt,
+        toolExecutions: structuredClone(toolExecutions),
         contextDigest,
         contextSourceSummary: request.contextSourceSummary ?? stableStringify(
           Object.fromEntries(
@@ -897,6 +900,7 @@ export class ClosedAgentOS {
         task,
         candidate,
         plan,
+        toolExecutions,
         route: {
           backendId: route.backend.id,
           locked: true,
@@ -1613,6 +1617,7 @@ export class ClosedAgentOS {
 
   private async executeTools(request: ClosedAgentTaskRequest, plan: ClosedAgentPlan) {
     const results: Array<{ toolId: string; value: unknown }> = [];
+    const executions: ClosedAgentToolExecutionEvidence[] = [];
     const preferredTool = learningPreferredTool(request.learningConfiguration);
     const toolIds = [...request.allowedToolIds].sort((left, right) =>
       Number(right === preferredTool) - Number(left === preferredTool)
@@ -1623,13 +1628,38 @@ export class ClosedAgentOS {
       const role = plan.steps.find((step) => step.allowedToolIds.includes(toolId))?.role ?? "planner";
       assertClosedAgentPermission({ request, role, tool });
       try {
+        const toolTaskId = `${request.taskId}:tool:${toolId}`;
+        const approvedContext = request.context.filter((item) =>
+          item.approved
+          && item.visibility !== "author-only"
+          && item.visibility !== "evaluator"
+          && item.privacyLevel === request.namespace.privacyLevel);
+        const objectiveDigest = await sha256Hex(request.objective);
+        const contextDigest = await sha256Hex(stableStringify(
+          await Promise.all(approvedContext.map(async (item) => ({
+            id: item.id,
+            kind: item.kind,
+            visibility: item.visibility,
+            privacyLevel: item.privacyLevel,
+            textDigest: await sha256Hex(item.text),
+          }))),
+        ));
+        const inputDigest = await sha256Hex(stableStringify({
+          taskId: toolTaskId,
+          parentTaskId: request.taskId,
+          taskType: request.taskType,
+          toolId,
+          objectiveDigest,
+          contextDigest,
+        }));
+        const startedAt = this.now().toISOString();
         const cacheResult = await this.cache.compute(
           "tool-result",
           request.namespace,
           {
             toolId,
             taskId: request.taskId,
-            objectiveDigest: await sha256Hex(request.objective),
+            objectiveDigest,
             learningConfiguration: request.learningConfiguration ?? {},
           },
           () => tool.execute({
@@ -1637,11 +1667,7 @@ export class ClosedAgentOS {
             taskId: request.taskId,
             taskType: request.taskType,
             objective: request.objective,
-            approvedContext: request.context.filter((item) =>
-              item.approved
-              && item.visibility !== "author-only"
-              && item.visibility !== "evaluator"
-              && item.privacyLevel === request.namespace.privacyLevel),
+            approvedContext,
             payload: { taskType: request.taskType },
             signal: request.signal,
           }),
@@ -1650,7 +1676,45 @@ export class ClosedAgentOS {
             ttlMs: learningCacheTtl(request.learningConfiguration, "tool-result"),
           },
         );
+        const completedAt = this.now().toISOString();
+        const outputDigest = await sha256Hex(stableStringify(cacheResult.value));
+        const receiptDigest = await sha256Hex(stableStringify({
+          taskId: toolTaskId,
+          parentTaskId: request.taskId,
+          toolId,
+          inputDigest,
+          contextDigest,
+          outputDigest,
+          startedAt,
+          completedAt,
+          cacheHit: cacheResult.cacheHit,
+        }));
         results.push({ toolId, value: cacheResult.value });
+        executions.push({
+          schemaVersion: "closed-agent-tool-execution-v1",
+          receiptId: `closed-agent-tool-receipt:${receiptDigest}`,
+          taskId: toolTaskId,
+          parentTaskId: request.taskId,
+          taskType: request.taskType,
+          toolId,
+          role,
+          status: "completed",
+          inputDigest,
+          contextDigest,
+          outputDigest,
+          startedAt,
+          completedAt,
+          latencyMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)),
+          actualExecutor: cacheResult.cacheHit
+            ? "closed-agent-os:tool-cache"
+            : "closed-agent-os:tool-registry",
+          cacheHit: cacheResult.cacheHit,
+          externalRequest: false,
+          dataLeftDevice: false,
+          canonicalMutationCount: 0,
+          rawInputStored: false,
+          rawOutputStored: false,
+        });
         await this.recordOperationalLearningSignal({
           request,
           outcome: "tool_result",
@@ -1663,7 +1727,7 @@ export class ClosedAgentOS {
           feature: {
             toolId,
             role,
-            resultDigest: await sha256Hex(stableStringify(cacheResult.value)),
+            resultDigest: outputDigest,
           },
         });
       } catch (cause) {
@@ -1681,7 +1745,7 @@ export class ClosedAgentOS {
         throw cause;
       }
     }
-    return results;
+    return { toolResults: results, toolExecutions: executions };
   }
 
   private async recordOperationalLearningSignal(input: {

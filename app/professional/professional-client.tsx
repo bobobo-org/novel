@@ -87,7 +87,7 @@ export default function ProfessionalClient({
       const explicitProject = nextProjects.some((item) => item.id === preferredProjectId);
       const mustChoose = !explicitProject
         && nextProjects.length > 1
-        && (intent === "write" || intent === "play");
+        && (intent === "chat" || intent === "write" || intent === "play");
       const nextId = explicitProject
         ? preferredProjectId
         : mustChoose
@@ -175,7 +175,8 @@ export default function ProfessionalClient({
     ?? summary?.chapters.at(-1)
     ?? null;
   const playMode = summary?.storyState ? resolveStoryPlayMode(summary.storyState) : "general";
-  const primaryWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
+  const primaryWorkspace = project ? `${projectRoot}/chat` : "";
+  const playWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
 
   return (
     <main className="professionalModern" data-testid="professional-canonical-workbench">
@@ -194,7 +195,7 @@ export default function ProfessionalClient({
       <nav className="professionalModernTop" aria-label="專業工作台主要入口">
         <Link href="/studio">首頁</Link>
         <Link className="primary" href="/studio/create">建立新作品</Link>
-        {project ? <Link href={`${projectRoot}/write`}>繼續寫作</Link> : null}
+        {project ? <Link href={`${projectRoot}/chat`}>專案對話</Link> : null}
         {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}
       </nav>
 
@@ -221,8 +222,8 @@ export default function ProfessionalClient({
               <h2>{project.title}</h2>
               <p>{project.coreIdea.value || "尚未設定核心想法；可在作品設定或寫作小精靈中補上。"}</p>
               <div className="professionalHeroActions">
-                <Link className="primary" href={primaryWorkspace}>{playMode === "general" ? `繼續「${activeChapter?.title || "目前章節"}」` : `繼續${STORY_PLAY_MODE_LABELS[playMode]}`}</Link>
-                <Link href={`${projectRoot}/write?assistant=advanced#writing-ai`}>在寫作頁開啟 AI 助手</Link>
+                <Link className="primary" href={primaryWorkspace}>繼續小說專案對話</Link>
+                <Link href={`${projectRoot}/chat?prompt=${encodeURIComponent(`請接續「${activeChapter?.title || "目前章節"}」協助我創作。`)}`}>用自然語言繼續創作</Link>
                 <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
                 <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
               </div>
@@ -237,10 +238,10 @@ export default function ProfessionalClient({
 
           <section className="professionalActionGroups">
             <article>
-              <small>WRITE</small><h2>創作與 AI</h2>
-              <p>正文、候選與核准留在同一個寫作視窗，不必先跳到 AI 中心。</p>
+              <small>CONVERSATION</small><h2>小說專案對話</h2>
+              <p>續寫、改寫、分析、角色與 RPG 都在同一條對話；採用前仍只是候選。</p>
+              <Link href={`${projectRoot}/chat`}>開啟專案對話</Link>
               <Link href={`${projectRoot}/write`}>章節寫作</Link>
-              <Link href={`${projectRoot}/write?assistant=advanced#writing-ai`}>AI 續寫／改寫候選</Link>
               <Link href={`${projectRoot}/story-bible`}>故事記憶</Link>
             </article>
             <article>
@@ -255,7 +256,7 @@ export default function ProfessionalClient({
               <p>目前固定為「{STORY_PLAY_MODE_LABELS[playMode]}」。同一作品不會在寫作途中切換玩法；需要另一種方式時會建立獨立副本。</p>
               <Link href={`${projectRoot}/characters`}>角色管理</Link>
               <Link href={`${projectRoot}/world`}>世界設定</Link>
-              {playMode !== "general" ? <Link href={primaryWorkspace}>開啟{STORY_PLAY_MODE_LABELS[playMode]}儀表板</Link> : null}
+              {playMode !== "general" ? <Link href={playWorkspace}>開啟{STORY_PLAY_MODE_LABELS[playMode]}進階工作區</Link> : null}
               <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製為其他玩法</Link>
               <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
@@ -274,7 +275,7 @@ export default function ProfessionalClient({
         <section className="professionalProjectChoices" data-testid="canonical-project-picker">
           <header>
             <small>CHOOSE ONE CANONICAL PROJECT</small>
-            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : "選擇要繼續寫作的作品"}</h2>
+            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : intent === "chat" ? "選擇要開啟對話的小說專案" : "選擇要繼續寫作的作品"}</h2>
             <p>每個按鈕都綁定獨立 projectId；選擇前不會載入、覆蓋或混合任何章節。</p>
           </header>
           <div>
@@ -282,7 +283,7 @@ export default function ProfessionalClient({
               <button type="button" key={item.id} onClick={() => void selectProject(item.id)}>
                 <strong>{item.title}</strong>
                 <span>最後保存：{formatTime(item.updatedAt)}</span>
-                <small>{intent === "play" ? "選擇後開啟固定玩法儀表板" : "選擇後顯示章節與續寫入口"}</small>
+                <small>{intent === "play" ? "選擇後顯示固定玩法入口" : intent === "chat" ? "選擇後開啟該作品的獨立對話與記憶" : "選擇後顯示章節與續寫入口"}</small>
               </button>
             ))}
           </div>

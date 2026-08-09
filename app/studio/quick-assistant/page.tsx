@@ -8,11 +8,7 @@ function safeProjectId(value: string) {
   return /^[A-Za-z0-9_-]{1,128}$/u.test(value) ? value : "";
 }
 
-/**
- * Historical links opened a second, monolithic AI editor. That split the
- * author away from the active chapter. Keep the URL compatible while routing
- * every writing task into the canonical chapter workspace instead.
- */
+/** Historical links now hand their task to the project-scoped conversation. */
 export default async function QuickAssistantPage({
   searchParams,
 }: {
@@ -20,7 +16,12 @@ export default async function QuickAssistantPage({
 }) {
   const params = await searchParams;
   const projectId = safeProjectId(first(params.projectId));
+  const prompt = first(params.objective || params.prompt || params.task)
+    .trim()
+    .slice(0, 8_000);
+  const query = new URLSearchParams();
+  if (prompt) query.set("prompt", prompt);
   redirect(projectId
-    ? `/studio/project/${encodeURIComponent(projectId)}/write?assistant=advanced#writing-ai`
-    : "/professional?intent=write");
+    ? `/studio/project/${encodeURIComponent(projectId)}/chat${query.size ? `?${query.toString()}` : ""}`
+    : "/professional?intent=chat");
 }

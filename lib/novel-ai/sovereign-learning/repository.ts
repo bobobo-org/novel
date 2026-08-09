@@ -7,10 +7,56 @@ import type {
 } from "./types";
 
 export const SOVEREIGN_LEARNING_DB_NAME = "novel-sovereign-learning";
-export const SOVEREIGN_LEARNING_DB_VERSION = 1;
+export const SOVEREIGN_LEARNING_DB_VERSION = 2;
 
-const STORE_NAMES = ["sources", "rules", "feedback", "profiles", "audit"] as const;
+const STORE_NAMES = ["sources", "rules", "feedback", "profiles", "audit", "staging"] as const;
 type LearningStoreName = (typeof STORE_NAMES)[number];
+
+export type LearningImportStagingRecord = {
+  id: string;
+  projectId: string;
+  manifestDigest: string;
+  completedPartIndexes: number[];
+  sources: LearningSourceRecord[];
+  rules: LearnedNarrativeRule[];
+  audit: LearningAuditRecord[];
+  chunkManifest: Array<{
+    attachmentId: string;
+    chunkIndex: number;
+    sourceSection: string;
+    contentHash: string;
+    previousOverlapDigest: string | null;
+    nextOverlapDigest: string | null;
+    volumeCount: number;
+    chapterCount: number;
+    paragraphCount: number;
+    dialogueParagraphCount: number;
+    characterCount: number;
+  }>;
+  globalSynthesis: {
+    uniqueChunkCount: number;
+    duplicateChunkCount: number;
+    candidateRuleIds: string[];
+    rejectedSourceOverlapRuleIds: string[];
+    conflictKeys: string[];
+    narrativeDna: {
+      volumeCount: number;
+      chapterCount: number;
+      paragraphCount: number;
+      dialogueParagraphRatio: number;
+      averageParagraphCharacters: number;
+    };
+  } | null;
+  formalCommit?: {
+    sourceIds: string[];
+    ruleIds: string[];
+    auditIds: string[];
+  } | null;
+  rawContentRetained: false;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+};
 
 type StoreRecordMap = {
   sources: LearningSourceRecord;
@@ -18,6 +64,7 @@ type StoreRecordMap = {
   feedback: LearningFeedbackRecord;
   profiles: LearningPreferenceProfile;
   audit: LearningAuditRecord;
+  staging: LearningImportStagingRecord;
 };
 
 export type LearningRepositoryCommit = {
@@ -26,6 +73,7 @@ export type LearningRepositoryCommit = {
   feedback?: LearningFeedbackRecord[];
   profiles?: LearningPreferenceProfile[];
   audit?: LearningAuditRecord[];
+  staging?: LearningImportStagingRecord[];
   remove?: Partial<Record<LearningStoreName, string[]>>;
 };
 
@@ -39,6 +87,8 @@ export interface SovereignLearningRepository {
   listRules(projectId: string): Promise<LearnedNarrativeRule[]>;
   listFeedback(projectId: string): Promise<LearningFeedbackRecord[]>;
   listAudit(projectId: string): Promise<LearningAuditRecord[]>;
+  getImportStaging(importSessionId: string): Promise<LearningImportStagingRecord | null>;
+  listImportStaging(projectId: string): Promise<LearningImportStagingRecord[]>;
   commit(input: LearningRepositoryCommit): Promise<void>;
   clearProject(projectId: string): Promise<void>;
 }
@@ -152,6 +202,14 @@ export class IndexedDbSovereignLearningRepository implements SovereignLearningRe
     return this.list("audit", projectId);
   }
 
+  getImportStaging(importSessionId: string) {
+    return this.get("staging", importSessionId);
+  }
+
+  listImportStaging(projectId: string) {
+    return this.list("staging", projectId);
+  }
+
   async commit(input: LearningRepositoryCommit) {
     const touched = STORE_NAMES.filter((name) =>
       (input[name]?.length ?? 0) > 0 || (input.remove?.[name]?.length ?? 0) > 0);
@@ -198,6 +256,7 @@ export class MemorySovereignLearningRepository implements SovereignLearningRepos
     feedback: new Map(),
     profiles: new Map(),
     audit: new Map(),
+    staging: new Map(),
   };
 
   isAvailable() {
@@ -245,6 +304,14 @@ export class MemorySovereignLearningRepository implements SovereignLearningRepos
     return this.list("audit", projectId);
   }
 
+  getImportStaging(importSessionId: string) {
+    return this.get("staging", importSessionId);
+  }
+
+  listImportStaging(projectId: string) {
+    return this.list("staging", projectId);
+  }
+
   async commit(input: LearningRepositoryCommit) {
     const before = {
       sources: new Map([...this.stores.sources.entries()].map(([id, row]) => [id, structuredClone(row)])),
@@ -252,6 +319,7 @@ export class MemorySovereignLearningRepository implements SovereignLearningRepos
       feedback: new Map([...this.stores.feedback.entries()].map(([id, row]) => [id, structuredClone(row)])),
       profiles: new Map([...this.stores.profiles.entries()].map(([id, row]) => [id, structuredClone(row)])),
       audit: new Map([...this.stores.audit.entries()].map(([id, row]) => [id, structuredClone(row)])),
+      staging: new Map([...this.stores.staging.entries()].map(([id, row]) => [id, structuredClone(row)])),
     };
     try {
       for (const name of STORE_NAMES) {

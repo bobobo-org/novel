@@ -713,7 +713,7 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(legacyHtmlSource.includes("consumer-app.css?v=p24b-closed-ai-truth-r2"));
   assert.ok(legacyHtmlSource.includes("sovereign-learning-entry.js?v=closed-ai-sovereign-learning-v2"));
   assert.ok(serviceWorkerSource.includes(
-    'const CACHE_VERSION = "novel-system-browser-sovereign-ai-fabric-rc5"',
+    'const CACHE_VERSION = "novel-system-conversation-first-studio-rc6"',
   ));
   assert.equal(
     serviceWorkerSource.includes("novel-system-unified-closed-ai-20260729-2"),

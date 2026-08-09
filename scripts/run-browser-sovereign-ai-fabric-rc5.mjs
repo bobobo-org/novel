@@ -567,7 +567,7 @@ test("offline", () => {
   const serviceWorker = readFileSync(resolve(root, "public/legacy/service-worker.js"), "utf8");
   assert.match(runtime, /hasModelInCache/u);
   assert.match(runtime, /cacheVerified/u);
-  assert.match(serviceWorker, /browser-sovereign-ai-fabric-rc5/u);
+  assert.match(serviceWorker, /conversation-first-studio-rc6/u);
 });
 
 test("privacy-isolation", async () => {

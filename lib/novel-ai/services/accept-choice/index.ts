@@ -18,14 +18,18 @@ function stableStringify(value: unknown): string {
 }
 
 export function acceptChoicePayloadFingerprint(input: AcceptChoiceTransactionInput) {
-  const serialized = stableStringify({
+  const payload: Record<string, unknown> = {
     projectId: input.projectId, chapterId: input.chapterId, candidateId: input.candidateId,
     parentBranchId: input.parentBranchId ?? null, acceptedText: input.acceptedText,
     choiceLabel: input.choiceLabel ?? null, expectedProjectRevision: input.expectedProjectRevision,
     expectedChapterRevision: input.expectedChapterRevision, expectedCandidateRevision: input.expectedCandidateRevision,
     expectedStoryStateRevision: input.expectedStoryStateRevision,
     expectedStoryBibleRevision: input.expectedStoryBibleRevision,
-  });
+  };
+  // Keep the historical fingerprint byte-for-byte when this optional RC6
+  // boundary is absent, so previously accepted choices remain replayable.
+  if (input.conversationApproval) payload.conversationApproval = input.conversationApproval;
+  const serialized = stableStringify(payload);
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(serialized)) { hash ^= byte; hash = Math.imul(hash, 0x01000193) >>> 0; }
   return `fnv1a32:${hash.toString(16).padStart(8, "0")}`;

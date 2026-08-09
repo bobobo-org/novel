@@ -2,6 +2,7 @@
   "name": "zhutian-novel-system",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "predev": "node scripts/generate-release-provenance.mjs",
     "dev": "next dev",
@@ -235,6 +236,23 @@
     "test:ci:evidence-schema": "node scripts/run-pr23-r21-ci-integrity-gates.mjs evidence-schema",
     "test:ci:dual-alias-rollback": "node scripts/run-pr23-r21-dual-alias-rollback.mjs",
     "test:ci:workflow-contract": "node scripts/run-pr23-r21-workflow-contract.mjs",
+    "test:ci:rc6-release-hardening": "node scripts/run-rc6-release-hardening.mjs",
+    "test:studio:conversation-first-contract": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs contract",
+    "test:studio:conversation-first-browser": "node scripts/run-conversation-first-browser-rc6.mjs browser",
+    "test:studio:conversation-mobile": "node scripts/run-conversation-first-browser-rc6.mjs mobile",
+    "test:studio:conversation-persistence": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs persistence",
+    "test:studio:conversation-backup": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs backup",
+    "test:studio:conversation-branching": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs branching",
+    "test:studio:conversation-approval": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs approval",
+    "test:studio:conversation-rpg": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs rpg",
+    "test:ai:conversation-project-memory": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs memory",
+    "test:ai:conversation-tool-routing": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs routing",
+    "test:ai:conversation-security": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-rc6.mjs security",
+    "test:ai:conversation-ollama-real": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-conversation-first-ollama-real-rc6.mjs",
+    "test:ai:manual-learning-file-contract": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-manual-learning.mjs file",
+    "test:ai:manual-learning-import-transaction": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-manual-learning.mjs transaction",
+    "test:ai:manual-learning-worker": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-manual-learning.mjs worker",
+    "test:ai:manual-learning-global-synthesis": "node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-manual-learning.mjs synthesis",
     "test:ci:production-supabase-bootstrap": "node scripts/run-production-supabase-env-bootstrap-tests.mjs",
     "test:ci:production-external-ai-bootstrap": "node scripts/run-production-external-ai-env-bootstrap-tests.mjs",
     "test:ai:closed-ai-user-e2e": "node scripts/run-closed-ai-user-e2e.mjs",
@@ -244,6 +262,7 @@
     "audit:p2:wave0": "node scripts/generate-p2-wave0.mjs",
     "start": "next start",
     "lint": "eslint",
+    "lint:ci": "node scripts/run-eslint-warning-ratchet.mjs",
     "eval:novel-ai": "node scripts/run-novel-ai-evals.mjs",
     "test:story-bible:l0a": "node scripts/run-story-bible-l0a-tests.mjs",
     "test:story-bible:l0a2e2": "node scripts/run-story-bible-l0a2e2-smoke.mjs",
@@ -493,6 +512,7 @@
     "eslint-config-next": "16.2.10",
     "fake-indexeddb": "^6.2.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vercel": "56.3.2"
   }
 }

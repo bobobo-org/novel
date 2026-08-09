@@ -338,8 +338,9 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /RPG_TURN_TIMEOUT_MS = 300_000/);
   assert.match(rpg, /qualityMode: "fast" as const/);
   assert.match(rpg, /maxTokens: 520/);
-  assert.match(rpg, /targetLength: storyLanguage === "en" \? 1_500 : 1_100/);
-  assert.match(rpg, /maxTokens: 1_600/);
+  assert.match(rpg, /targetLength: storyLanguage === "en" \? 1_700 : 1_600/);
+  assert.match(rpg, /maxTokens: 1_792/);
+  assert.match(rpg, /substantiveScene: true/);
   assert.match(rpg, /signal: controller\.signal/);
   assert.match(rpg, /data-testid="rpg-live-draft"/);
   assert.match(rpg, /data-testid="rpg-cancel-turn"/);

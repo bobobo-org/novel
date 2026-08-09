@@ -12,6 +12,7 @@ import type {
 } from "../../drama-os/types";
 import type {
   AcceptChoiceTransactionResult,
+  ApproveConversationArtifactTransactionResult,
   CommitStudioCandidateTransactionResult,
   NovelRepository,
 } from "../contracts";
@@ -65,6 +66,14 @@ export class UnavailableNovelRepository implements NovelRepository {
   }
 
   async commitStudioCandidateTransaction(): Promise<CommitStudioCandidateTransactionResult> {
+    return this.fail();
+  }
+
+  async approveConversationArtifactTransaction(): Promise<ApproveConversationArtifactTransactionResult> {
+    return this.fail();
+  }
+
+  async markConversationArtifactApprovedFromExternalCommit(): Promise<ApproveConversationArtifactTransactionResult> {
     return this.fail();
   }
 

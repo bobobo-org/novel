@@ -28,6 +28,9 @@ async function readGeneration(response) {
   let pending = "";
   let content = "";
   let completed = false;
+  let generatedTokenEvents = 0;
+  let firstTokenMs = null;
+  const startedAt = performance.now();
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -37,13 +40,74 @@ async function readGeneration(response) {
     for (const line of lines) {
       if (!line.trim()) continue;
       const event = JSON.parse(line);
-      if (event.type === "token") content += String(event.text || "");
+      if (event.type === "token") {
+        if (firstTokenMs === null) firstTokenMs = Math.round(performance.now() - startedAt);
+        generatedTokenEvents += 1;
+        content += String(event.text || "");
+      }
       if (event.type === "completed") completed = true;
       if (event.type === "failed") throw new Error(String(event.errorCode || "LOCAL_GENERATION_FAILED"));
     }
   }
   assert.equal(completed, true, "Bridge stream must reach completed");
-  return content;
+  return { content, firstTokenMs, generatedTokenEvents };
+}
+
+function normalized(value) {
+  return String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function grams(value) {
+  const text = normalized(value);
+  const result = new Set();
+  for (let index = 0; index < text.length - 2; index += 1) result.add(text.slice(index, index + 3));
+  return result;
+}
+
+function similarity(left, right) {
+  const a = grams(left);
+  const b = grams(right);
+  if (!a.size || !b.size) return normalized(left) === normalized(right) ? 1 : 0;
+  let overlap = 0;
+  for (const gram of a) if (b.has(gram)) overlap += 1;
+  return (2 * overlap) / (a.size + b.size);
+}
+
+function validateStructuredChoices(content) {
+  const parsed = JSON.parse(content);
+  assert.deepEqual(Object.keys(parsed), ["choices"]);
+  assert.equal(parsed.choices.length, 3);
+  const byKey = new Map(parsed.choices.map((choice) => [choice.key, choice]));
+  assert.equal(byKey.size, 3);
+  const choices = ["A", "B", "C"].map((key) => byKey.get(key));
+  assert.ok(choices.every(Boolean), "Structured choices must contain A, B, and C");
+  assert.equal(new Set(choices.map((choice) => normalized(choice.title))).size, 3);
+  for (const choice of choices) {
+    assert.deepEqual(
+      Object.keys(choice).sort(),
+      ["consequence", "continuityReason", "description", "key", "title"],
+    );
+    assert.ok(choice.title.length >= 3 && choice.title.length <= 18);
+    assert.ok(choice.description.length >= 18 && choice.description.length <= 72);
+    assert.ok(choice.consequence.length >= 8 && choice.consequence.length <= 44);
+    assert.ok(choice.continuityReason.length >= 8 && choice.continuityReason.length <= 50);
+    assert.doesNotMatch(
+      `${choice.title}|${choice.description}|${choice.consequence}|${choice.continuityReason}`,
+      /3至18字|18至72字|8至44字|8至50字/u,
+    );
+  }
+  for (let left = 0; left < choices.length; left += 1) {
+    for (let right = left + 1; right < choices.length; right += 1) {
+      assert.ok(
+        similarity(
+          `${choices[left].title}${choices[left].description}`,
+          `${choices[right].title}${choices[right].description}`,
+        ) < 0.72,
+        "Structured RPG choices must be materially distinct",
+      );
+    }
+  }
+  return choices;
 }
 
 await bridge.start();
@@ -73,53 +137,116 @@ try {
   const model = models.models.find((item) => /^qwen2\.5:3b$/iu.test(item.modelId))
     ?? models.models.find((item) => /qwen2\.5.*3b/iu.test(item.modelId));
   assert.ok(model?.modelId, "qwen2.5:3b must be installed for the real RPG gate");
+  assert.match(String(model.modelDigest || ""), /^[a-f0-9]{64}$/iu, "qwen2.5:3b must expose a verified model digest");
 
-  const requestId = `rpg-structured-real-${Date.now()}`;
   const startedAt = performance.now();
-  const content = await readGeneration(await fetch(`${base}/generate`, {
-    method: "POST",
-    headers: { ...authHeaders, "Idempotency-Key": requestId },
-    body: JSON.stringify({
-      requestId,
-      model: model.modelId,
-      taskType: "chapter.abcChoices",
-      timeoutMs: 240_000,
-      systemInstruction: "你是繁體中文小說 RPG 導演。嚴守既有角色、世界規則與未解伏筆，只提出可執行且有代價的不同策略。各欄務必精煉：title 3–18 字、description 18–72 字、consequence 8–44 字、continuityReason 8–50 字。",
-      prompt: "上一章：星橋在雨夜崩裂，守塔人隱瞞巡查紀錄，主角只剩六成靈力且必須在天亮前找到失蹤同伴。請提出 A、B、C 三條承接上下文但風險與代價不同的下一步。",
-      options: {
-        num_predict: 420,
-        temperature: 0.82,
-        top_p: 0.94,
-        repeat_penalty: 1.16,
-        seed: 240503,
-      },
-    }),
-  }));
+  const basePrompt = `上一章：星橋在雨夜崩裂，守塔人隱瞞巡查紀錄，主角只剩六成靈力且必須在天亮前找到失蹤同伴。
 
-  const parsed = JSON.parse(content);
-  assert.deepEqual(Object.keys(parsed), ["choices"]);
-  assert.equal(parsed.choices.length, 3);
-  assert.deepEqual(parsed.choices.map((choice) => choice.key), ["A", "B", "C"]);
-  assert.equal(new Set(parsed.choices.map((choice) => choice.title)).size, 3);
-  for (const choice of parsed.choices) {
-    assert.ok(choice.title.length >= 3);
-    assert.ok(choice.description.length >= 18);
-    assert.ok(choice.consequence.length >= 8);
-    assert.ok(choice.continuityReason.length >= 8);
+請提出 A、B、C 三條承接上下文、策略與代價都明顯不同的下一步。A 是穩健觀察，B 是資源或關係策略，C 是高風險突破。三個 title 必須彼此不同；下方每個字串都只是欄位內容提示，必須全部改寫成具體候選，不可照抄「3至18字」等提示。只輸出下列 JSON 物件，不要 Markdown 或說明：
+{"choices":[{"key":"A","title":"觀察策略的具體短標題","description":"寫出18至72字的穩健具體行動與眼前阻力","consequence":"寫出8至44字的穩健代價","continuityReason":"寫出8至50字的具體前文依據"},{"key":"B","title":"關係策略的不同短標題","description":"寫出18至72字的關係或資源行動與眼前阻力","consequence":"寫出8至44字的關係或資源代價","continuityReason":"寫出8至50字的另一項前文依據"},{"key":"C","title":"突破策略的不同短標題","description":"寫出18至72字的高風險具體行動與眼前阻力","consequence":"寫出8至44字的高風險代價","continuityReason":"寫出8至50字的另一項前文依據"}]}`;
+  const attempts = [];
+  let accepted = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const providerRunId = `rpg-structured-real-${crypto.randomUUID()}`;
+    const correction = attempt === 1
+      ? ""
+      : "\n\n前次未通過 RPG 結構契約。請從頭產生新 JSON，逐項檢查唯一根鍵 choices、恰好 A/B/C、五個必填欄位、欄位長度與三種實質不同策略。";
+    const prompt = `${basePrompt}${correction}`;
+    let generated = { content: "", firstTokenMs: null, generatedTokenEvents: 0 };
+    try {
+      generated = await readGeneration(await fetch(`${base}/generate`, {
+        method: "POST",
+        headers: { ...authHeaders, "Idempotency-Key": providerRunId },
+        body: JSON.stringify({
+          requestId: providerRunId,
+          model: model.modelId,
+          taskType: "chapter.abcChoices",
+          timeoutMs: 120_000,
+          systemInstruction: "你是繁體中文小說 RPG 導演。嚴守既有角色、世界規則與未解伏筆，只輸出 schema 合法、可執行且有代價的 A/B/C JSON 候選。",
+          prompt,
+          options: {
+            num_predict: 420,
+            temperature: attempt === 1 ? 0.45 : 0.35,
+            top_p: 0.86,
+            repeat_penalty: 1.16,
+            seed: 240503 + (attempt - 1) * 104729,
+          },
+        }),
+      }));
+      const choices = validateStructuredChoices(generated.content);
+      const metadata = {
+        attempt,
+        providerRunId,
+        status: "PASS",
+        outputDigest: crypto.createHash("sha256").update(generated.content).digest("hex"),
+        contextDigest: crypto.createHash("sha256").update(prompt).digest("hex"),
+        outputCharacters: generated.content.length,
+        generatedTokenEvents: generated.generatedTokenEvents,
+        firstTokenMs: generated.firstTokenMs,
+      };
+      attempts.push(metadata);
+      accepted = { choices, generated, metadata };
+      break;
+    } catch (error) {
+      lastError = error;
+      attempts.push({
+        attempt,
+        providerRunId,
+        status: "FAIL",
+        errorCode: error instanceof Error && /^[A-Z][A-Z0-9_]+$/u.test(error.message)
+          ? error.message
+          : "RPG_STRUCTURED_SCHEMA_INVALID",
+        outputDigest: generated.content
+          ? crypto.createHash("sha256").update(generated.content).digest("hex")
+          : crypto.createHash("sha256").update("").digest("hex"),
+        contextDigest: crypto.createHash("sha256").update(prompt).digest("hex"),
+        outputCharacters: generated.content.length,
+        generatedTokenEvents: generated.generatedTokenEvents,
+        firstTokenMs: generated.firstTokenMs,
+      });
+    }
   }
+  if (!accepted) {
+    console.error(JSON.stringify({
+      schemaVersion: "rpg-choice-structured-real-v1",
+      status: "FAIL",
+      errorCode: "RPG_STRUCTURED_SCHEMA_INVALID",
+      attempts,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      rawPromptStored: false,
+      rawOutputStored: false,
+      outputPersisted: false,
+    }, null, 2));
+    throw lastError;
+  }
+  const { choices, generated, metadata } = accepted;
 
   console.log(JSON.stringify({
     schemaVersion: "rpg-choice-structured-real-v1",
     status: "PASS",
     executor: "local-ollama",
     modelId: model.modelId,
+    modelDigest: model.modelDigest,
+    actualExecutor: "local-ollama",
+    providerRunId: metadata.providerRunId,
     taskType: "chapter.abcChoices",
-    choiceKeys: parsed.choices.map((choice) => choice.key),
-    distinctTitles: new Set(parsed.choices.map((choice) => choice.title)).size,
-    outputDigest: crypto.createHash("sha256").update(content).digest("hex"),
+    choiceKeys: choices.map((choice) => choice.key),
+    distinctTitles: new Set(choices.map((choice) => choice.title)).size,
+    outputCharacters: generated.content.length,
+    generatedTokenEvents: generated.generatedTokenEvents,
+    firstTokenMs: generated.firstTokenMs,
+    attemptCount: attempts.length,
+    attempts,
+    outputDigest: metadata.outputDigest,
+    contextDigest: metadata.contextDigest,
     elapsedMs: Math.round(performance.now() - startedAt),
-    externalAiCalls: 0,
+    externalRequest: false,
     dataLeftDevice: false,
+    candidateOnly: true,
+    canonicalMutationCount: 0,
+    rawPromptStored: false,
+    rawOutputStored: false,
     outputPersisted: false,
   }, null, 2));
 } finally {

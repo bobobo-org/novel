@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "p24b-rc6-eslint-warning-baseline-v1",
+  "baseCommit": "6d132f464e380bf1b521b33415220e407c3bdde2",
+  "maxGlobalWarnings": 98,
+  "maxChangedSourceWarnings": 0,
+  "changedSourceRoots": [
+    "app",
+    "lib",
+    "scripts"
+  ]
+}

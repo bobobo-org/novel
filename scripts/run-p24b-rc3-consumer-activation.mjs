@@ -10,9 +10,9 @@ import {
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
-  releaseTag: "novel-ai-p24b-browser-sovereign-ai-fabric-rc5",
-  releaseName: "P2.4B Browser Sovereign AI Fabric RC5",
-  consumerRelease: "p2.4b-browser-sovereign-ai-fabric-rc5",
+  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6",
   architectureStage: "P2.4B RC",
 };
 const cases = [];

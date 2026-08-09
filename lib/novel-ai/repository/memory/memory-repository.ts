@@ -1,4 +1,5 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationMessage, ConversationSession, ConversationSummary, ConversationToolInvocation, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import { sha256Hex } from "../../closed-ai-cache";
 import { buildDramaApprovalRecords } from "../../drama-os/approval";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
 import { buildCharacterApprovalRecords, buildCharacterRejectionRecords } from "../../character-agent/approval-service";
@@ -12,9 +13,24 @@ import type {
   RejectCharacterProposalResult,
 } from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
-import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
+import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type ApproveConversationArtifactTransactionInput, type ApproveConversationArtifactTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type MarkConversationArtifactApprovedFromExternalCommitInput, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
+import {
+  assertAcceptedChoiceConversationApprovalReplay,
+  assertConversationApprovalExecutionTruth,
+  assertConversationApprovalReplay,
+  assertConversationApprovalSource,
+  buildConversationApprovalRecords,
+  buildNextConversationCanonicalRecord,
+  acceptedChoiceConversationApprovalPayloadFingerprint,
+  prepareAcceptedChoiceConversationApproval,
+  conversationApprovalPayloadFingerprint,
+  conversationCanonicalRecordDigest,
+  conversationContentDigest,
+  type ConversationArtifactApprovalInput,
+} from "../../conversation/approval-transaction";
+import { assertConversationRecordSafe } from "../../conversation/record-security";
 
 export class MemoryNovelRepository implements NovelRepository {
   readonly kind = "memory" as const;
@@ -26,10 +42,48 @@ export class MemoryNovelRepository implements NovelRepository {
     this.approvalFaultInjector = options.approvalFaultInjector ?? null;
   }
   private inject(point: string) { this.approvalFaultInjector?.(point); }
+  private async conversationToolInvocationsForMessage(
+    sourceMessage: ConversationMessage | null,
+  ) {
+    if (!sourceMessage) return [];
+    const linkedIds = new Set(sourceMessage.toolInvocationIds);
+    return (await this.list<ConversationToolInvocation>(
+      "conversationToolInvocations",
+      sourceMessage.projectId,
+    )).filter((invocation) =>
+      linkedIds.has(invocation.id)
+      && invocation.messageId === sourceMessage.id
+      && invocation.sessionId === sourceMessage.sessionId);
+  }
+  private invalidateConversationSummaries(projectId: string, changedAt: string) {
+    for (const row of this.stores.get("conversationSummaries")?.values() ?? []) {
+      const summary = row as ConversationSummary;
+      if (summary.projectId !== projectId || summary.invalidatedAt) continue;
+      const invalidated: ConversationSummary = {
+        ...summary,
+        invalidatedAt: changedAt,
+        parentRevision: summary.revision,
+        revision: summary.revision + 1,
+        updatedAt: changedAt,
+      };
+      this.stores.get("conversationSummaries")?.set(invalidated.id, structuredClone(invalidated));
+      const session = this.stores.get("conversationSessions")?.get(summary.sessionId) as ConversationSession | undefined;
+      if (session?.summaryDigest === summary.contentDigest) {
+        this.stores.get("conversationSessions")?.set(session.id, structuredClone({
+          ...session,
+          summaryDigest: null,
+          parentRevision: session.revision,
+          revision: session.revision + 1,
+          updatedAt: changedAt,
+        }));
+      }
+    }
+  }
   isAvailable() { return true; }
   async get<T extends DomainRecord>(store: NovelStoreName, id: string) { return (structuredClone(this.stores.get(store)?.get(id)) as T | undefined) ?? null; }
   async list<T extends DomainRecord>(store: NovelStoreName, projectId?: string) { return [...(this.stores.get(store)?.values() ?? [])].filter((item) => !projectId || item.projectId === projectId).map((item) => structuredClone(item) as T); }
   async put<T extends DomainRecord>(store: NovelStoreName, record: T, expectedRevision?: number) {
+    await assertConversationRecordSafe(store, record);
     const current = this.stores.get(store)?.get(record.id);
     if (expectedRevision !== undefined && (current?.revision ?? 0) !== expectedRevision) throw new RevisionConflictError(expectedRevision, current?.revision ?? 0);
     const next = { ...record, revision: current ? current.revision + 1 : record.revision, updatedAt: new Date().toISOString(), parentRevision: current?.revision ?? null } as T;
@@ -60,15 +114,112 @@ export class MemoryNovelRepository implements NovelRepository {
       ]);
       const storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null;
       if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch || !storyBible || !storyBibleDelta || !approvalTransaction) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
-      return { replayed: true, project, chapter, candidate, storyState, acceptedChoice, branch, storyBible, storyBibleDelta, approvalTransaction, idempotencyRecord: replay };
+      let conversationArtifact: ConversationArtifact | undefined;
+      let conversationApprovalTransaction: ConversationApprovalTransaction | undefined;
+      if (input.conversationApproval) {
+        conversationApprovalTransaction = (await this.list<ConversationApprovalTransaction>("conversationApprovalTransactions", input.projectId))
+          .find((record) => record.idempotencyScope === `${input.projectId}:${input.conversationApproval!.idempotencyKey}`);
+        if (!conversationApprovalTransaction) {
+          throw new RepositoryOperationError("RPG_CONVERSATION_APPROVAL_REPLAY_INCOMPLETE");
+        }
+        const conversationPayloadFingerprint = await acceptedChoiceConversationApprovalPayloadFingerprint(input);
+        assertAcceptedChoiceConversationApprovalReplay(input, conversationApprovalTransaction, conversationPayloadFingerprint);
+        const [session, sourceMessage, artifact] = await Promise.all([
+          this.get<ConversationSession>("conversationSessions", input.conversationApproval.sessionId),
+          this.get<ConversationMessage>("conversationMessages", input.conversationApproval.sourceMessageId),
+          this.get<ConversationArtifact>("conversationArtifacts", input.conversationApproval.artifactId),
+        ]);
+        if (
+          !session
+          || !sourceMessage
+          || !artifact
+          || session.projectId !== input.projectId
+          || sourceMessage.projectId !== input.projectId
+          || sourceMessage.sessionId !== session.id
+          || artifact.projectId !== input.projectId
+          || artifact.sessionId !== session.id
+          || artifact.status !== "approved"
+          || artifact.candidateDigest !== input.conversationApproval.candidateDigest
+        ) {
+          throw new RepositoryOperationError("RPG_CONVERSATION_APPROVAL_REPLAY_INCOMPLETE");
+        }
+        assertConversationApprovalExecutionTruth(
+          sourceMessage,
+          artifact,
+          await this.conversationToolInvocationsForMessage(sourceMessage),
+          await sha256Hex(artifact.candidateContent),
+        );
+        conversationArtifact = artifact;
+      }
+      return {
+        replayed: true,
+        project,
+        chapter,
+        candidate,
+        storyState,
+        acceptedChoice,
+        branch,
+        storyBible,
+        storyBibleDelta,
+        approvalTransaction,
+        idempotencyRecord: replay,
+        conversationArtifact,
+        conversationApprovalTransaction,
+      };
     }
     const project = await this.get<NovelProject>("projects", input.projectId), chapter = await this.get<Chapter>("chapters", input.chapterId), candidate = await this.get<ChoiceCandidate>("candidates", input.candidateId), storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null, storyBible = (await this.list<StoryBible>("storyBibles", input.projectId))[0] ?? null, parentBranch = input.parentBranchId ? await this.get<StoryBranch>("storyBranches", input.parentBranchId) : null;
     if (!project || !chapter || !candidate || !storyState || !storyBible) throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
     const records = buildAcceptedChoiceRecords(input, { project, chapter, candidate, storyState, storyBible, parentBranch });
+    let conversationRecords: Awaited<ReturnType<typeof prepareAcceptedChoiceConversationApproval>> = null;
+    if (input.conversationApproval) {
+      const existingApproval = (await this.list<ConversationApprovalTransaction>("conversationApprovalTransactions", input.projectId))
+        .find((record) => record.idempotencyScope === `${input.projectId}:${input.conversationApproval!.idempotencyKey}`);
+      if (existingApproval) throw new RepositoryOperationError("RPG_CONVERSATION_APPROVAL_ALREADY_EXISTS");
+      const [session, sourceMessage, artifact] = await Promise.all([
+        this.get<ConversationSession>("conversationSessions", input.conversationApproval.sessionId),
+        this.get<ConversationMessage>("conversationMessages", input.conversationApproval.sourceMessageId),
+        this.get<ConversationArtifact>("conversationArtifacts", input.conversationApproval.artifactId),
+      ]);
+      const toolInvocations = await this.conversationToolInvocationsForMessage(sourceMessage);
+      conversationRecords = await prepareAcceptedChoiceConversationApproval({
+        request: input,
+        currentChapter: chapter,
+        approvedChapter: records.chapter,
+        session,
+        sourceMessage,
+        artifact,
+        toolInvocations,
+      });
+    }
     const before = new Map(NOVEL_STORES.map((name) => [name, new Map([...(this.stores.get(name)?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]))]));
     try {
       for (const [store, row] of [["projects",records.project],["chapters",records.chapter],["candidates",records.candidate],["storyStates",records.storyState],["acceptedChoices",records.acceptedChoice],["storyBranches",records.branch],["storyBibles",records.storyBible],["storyBibleDeltas",records.storyBibleDelta],["approvalTransactions",records.approvalTransaction],["idempotencyRecords",records.idempotencyRecord],["operationJournal",records.journal]] as Array<[NovelStoreName, DomainRecord]>) this.stores.get(store)?.set(row.id, structuredClone(row));
-      return { replayed: false, project: records.project, chapter: records.chapter, candidate: records.candidate, storyState: records.storyState, acceptedChoice: records.acceptedChoice, branch: records.branch, storyBible: records.storyBible, storyBibleDelta: records.storyBibleDelta, approvalTransaction: records.approvalTransaction, idempotencyRecord: records.idempotencyRecord };
+      if (conversationRecords) {
+        this.inject("before:conversationArtifacts");
+        this.stores.get("conversationArtifacts")?.set(conversationRecords.artifact.id, structuredClone(conversationRecords.artifact));
+        this.inject("after:conversationArtifacts");
+        this.inject("before:conversationApprovalTransactions");
+        this.stores.get("conversationApprovalTransactions")?.set(conversationRecords.approvalTransaction.id, structuredClone(conversationRecords.approvalTransaction));
+        this.inject("after:conversationApprovalTransactions");
+        this.inject("before:conversationSummaryInvalidation");
+        this.invalidateConversationSummaries(input.projectId, conversationRecords.approvalTransaction.approvedAt);
+        this.inject("after:conversationSummaryInvalidation");
+      }
+      return {
+        replayed: false,
+        project: records.project,
+        chapter: records.chapter,
+        candidate: records.candidate,
+        storyState: records.storyState,
+        acceptedChoice: records.acceptedChoice,
+        branch: records.branch,
+        storyBible: records.storyBible,
+        storyBibleDelta: records.storyBibleDelta,
+        approvalTransaction: records.approvalTransaction,
+        idempotencyRecord: records.idempotencyRecord,
+        conversationArtifact: conversationRecords?.artifact,
+        conversationApprovalTransaction: conversationRecords?.approvalTransaction,
+      };
     } catch (error) { this.stores = before; throw error; }
   }
   commitStudioCandidateTransaction(input: CommitStudioCandidateTransactionInput): Promise<CommitStudioCandidateTransactionResult> {
@@ -112,6 +263,200 @@ export class MemoryNovelRepository implements NovelRepository {
     } catch (error) {
       this.stores.set("chapters", beforeChapters);
       this.stores.set("operationJournal", beforeJournal);
+      throw error;
+    }
+  }
+  approveConversationArtifactTransaction(input: ApproveConversationArtifactTransactionInput): Promise<ApproveConversationArtifactTransactionResult> {
+    const run = this.interactionQueue.then(() => this.approveConversationArtifactTransactionInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async conversationApprovalReplay(
+    input: ConversationArtifactApprovalInput,
+    payloadFingerprint: string,
+  ): Promise<ApproveConversationArtifactTransactionResult | null> {
+    const idempotencyScope = `${input.projectId}:${input.idempotencyKey}`;
+    const replay = (await this.list<ConversationApprovalTransaction>("conversationApprovalTransactions", input.projectId))
+      .find((record) => record.idempotencyScope === idempotencyScope);
+    if (!replay) return null;
+    assertConversationApprovalReplay(input, payloadFingerprint, replay);
+    const [session, sourceMessage, artifact, canonicalRecord] = await Promise.all([
+      this.get<ConversationSession>("conversationSessions", replay.sessionId),
+      this.get<ConversationMessage>("conversationMessages", replay.sourceMessageId),
+      this.get<ConversationArtifact>("conversationArtifacts", replay.artifactId),
+      this.get<DomainRecord>(replay.targetStore as NovelStoreName, replay.targetRecordId),
+    ]);
+    if (
+      !session
+      || !sourceMessage
+      || !artifact
+      || !canonicalRecord
+      || artifact.status !== "approved"
+      || canonicalRecord.revision < replay.resultingRevision
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_IDEMPOTENCY_REPLAY_INCOMPLETE");
+    }
+    assertConversationApprovalExecutionTruth(
+      sourceMessage,
+      artifact,
+      await this.conversationToolInvocationsForMessage(sourceMessage),
+      await sha256Hex(artifact.candidateContent),
+    );
+    return { replayed: true, session, sourceMessage, artifact, canonicalRecord, approvalTransaction: replay };
+  }
+  private async approveConversationArtifactTransactionInternal(
+    input: ApproveConversationArtifactTransactionInput,
+  ): Promise<ApproveConversationArtifactTransactionResult> {
+    const payloadFingerprint = await conversationApprovalPayloadFingerprint(input);
+    const replay = await this.conversationApprovalReplay(input, payloadFingerprint);
+    if (replay) return replay;
+    const [session, sourceMessage, artifact, canonicalRecord] = await Promise.all([
+      this.get<ConversationSession>("conversationSessions", input.sessionId),
+      this.get<ConversationMessage>("conversationMessages", input.sourceMessageId),
+      this.get<ConversationArtifact>("conversationArtifacts", input.artifactId),
+      this.get<DomainRecord>(input.targetStore as NovelStoreName, input.targetRecordId),
+    ]);
+    const candidateContentDigest = artifact
+      ? await conversationContentDigest(artifact.candidateContent)
+      : "";
+    const toolInvocations = await this.conversationToolInvocationsForMessage(sourceMessage);
+    assertConversationApprovalSource(
+      input,
+      {
+        session,
+        sourceMessage,
+        artifact,
+        canonicalRecord,
+        toolInvocations,
+        candidateRawContentDigest: artifact
+          ? await sha256Hex(artifact.candidateContent)
+          : undefined,
+      },
+      candidateContentDigest,
+    );
+    const nextCanonicalRecord = buildNextConversationCanonicalRecord(input, canonicalRecord, artifact!);
+    const records = buildConversationApprovalRecords({
+      request: input,
+      artifact: artifact!,
+      canonicalRecord: nextCanonicalRecord,
+      payloadFingerprint,
+      commitMode: "atomic_canonical",
+      applicationMode: input.applicationMode,
+      externalCommitId: null,
+    });
+    const before = new Map(NOVEL_STORES.map((name) => [
+      name,
+      new Map([...(this.stores.get(name)?.entries() ?? [])]
+        .map(([id, row]) => [id, structuredClone(row)])),
+    ]));
+    try {
+      this.inject(`before:${input.targetStore}`);
+      this.stores.get(input.targetStore as NovelStoreName)?.set(nextCanonicalRecord.id, structuredClone(nextCanonicalRecord));
+      this.inject(`after:${input.targetStore}`);
+      this.inject("before:conversationArtifacts");
+      this.stores.get("conversationArtifacts")?.set(records.artifact.id, structuredClone(records.artifact));
+      this.inject("after:conversationArtifacts");
+      this.inject("before:conversationApprovalTransactions");
+      this.stores.get("conversationApprovalTransactions")?.set(records.approvalTransaction.id, structuredClone(records.approvalTransaction));
+      this.inject("after:conversationApprovalTransactions");
+      this.inject("before:conversationSummaryInvalidation");
+      this.invalidateConversationSummaries(input.projectId, records.approvalTransaction.approvedAt);
+      this.inject("after:conversationSummaryInvalidation");
+      const approvedSession = this.stores.get("conversationSessions")?.get(input.sessionId) as ConversationSession | undefined;
+      return {
+        replayed: false,
+        session: approvedSession ?? session!,
+        sourceMessage: sourceMessage!,
+        artifact: records.artifact,
+        canonicalRecord: nextCanonicalRecord,
+        approvalTransaction: records.approvalTransaction,
+      };
+    } catch (error) {
+      this.stores = before;
+      throw error;
+    }
+  }
+  markConversationArtifactApprovedFromExternalCommit(
+    input: MarkConversationArtifactApprovedFromExternalCommitInput,
+  ): Promise<ApproveConversationArtifactTransactionResult> {
+    const run = this.interactionQueue.then(() => this.markConversationArtifactApprovedFromExternalCommitInternal(input));
+    this.interactionQueue = run.catch(() => undefined);
+    return run;
+  }
+  private async markConversationArtifactApprovedFromExternalCommitInternal(
+    input: MarkConversationArtifactApprovedFromExternalCommitInput,
+  ): Promise<ApproveConversationArtifactTransactionResult> {
+    const payloadFingerprint = await conversationApprovalPayloadFingerprint(input);
+    const replay = await this.conversationApprovalReplay(input, payloadFingerprint);
+    if (replay) return replay;
+    const [session, sourceMessage, artifact, canonicalRecord] = await Promise.all([
+      this.get<ConversationSession>("conversationSessions", input.sessionId),
+      this.get<ConversationMessage>("conversationMessages", input.sourceMessageId),
+      this.get<ConversationArtifact>("conversationArtifacts", input.artifactId),
+      this.get<DomainRecord>(input.targetStore as NovelStoreName, input.targetRecordId),
+    ]);
+    const candidateContentDigest = artifact
+      ? await conversationContentDigest(artifact.candidateContent)
+      : "";
+    const toolInvocations = await this.conversationToolInvocationsForMessage(sourceMessage);
+    assertConversationApprovalSource(
+      input,
+      {
+        session,
+        sourceMessage,
+        artifact,
+        canonicalRecord,
+        toolInvocations,
+        candidateRawContentDigest: artifact
+          ? await sha256Hex(artifact.candidateContent)
+          : undefined,
+      },
+      candidateContentDigest,
+      input.resultingRevision,
+    );
+    if (
+      !canonicalRecord
+      || input.resultingRevision !== input.expectedSourceRevision + 1
+      || await conversationCanonicalRecordDigest(canonicalRecord) !== input.canonicalRecordDigest
+      || !input.commitId.trim()
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_EXTERNAL_COMMIT_INVALID");
+    }
+    const records = buildConversationApprovalRecords({
+      request: input,
+      artifact: artifact!,
+      canonicalRecord,
+      payloadFingerprint,
+      commitMode: "external_canonical",
+      applicationMode: "external_commit",
+      externalCommitId: input.commitId,
+    });
+    const before = new Map(NOVEL_STORES.map((name) => [
+      name,
+      new Map([...(this.stores.get(name)?.entries() ?? [])]
+        .map(([id, row]) => [id, structuredClone(row)])),
+    ]));
+    try {
+      this.inject("before:conversationArtifacts");
+      this.stores.get("conversationArtifacts")?.set(records.artifact.id, structuredClone(records.artifact));
+      this.inject("after:conversationArtifacts");
+      this.inject("before:conversationApprovalTransactions");
+      this.stores.get("conversationApprovalTransactions")?.set(records.approvalTransaction.id, structuredClone(records.approvalTransaction));
+      this.inject("after:conversationApprovalTransactions");
+      this.inject("before:conversationSummaryInvalidation");
+      this.invalidateConversationSummaries(input.projectId, records.approvalTransaction.approvedAt);
+      this.inject("after:conversationSummaryInvalidation");
+      const approvedSession = this.stores.get("conversationSessions")?.get(input.sessionId) as ConversationSession | undefined;
+      return {
+        replayed: false,
+        session: approvedSession ?? session!,
+        sourceMessage: sourceMessage!,
+        artifact: records.artifact,
+        canonicalRecord,
+        approvalTransaction: records.approvalTransaction,
+      };
+    } catch (error) {
+      this.stores = before;
       throw error;
     }
   }

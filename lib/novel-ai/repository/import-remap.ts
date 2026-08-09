@@ -1,14 +1,51 @@
 import type { DomainRecord } from "../domain";
-import { CHARACTER_AGENT_STORES, DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
+import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
+
+const FORBIDDEN_CONVERSATION_KEYS = new Set([
+  "authorization",
+  "cookie",
+  "token",
+  "apikey",
+  "accesstoken",
+  "refreshtoken",
+  "pairingsecret",
+  "systemprompt",
+  "chainofthought",
+  "rawreasoning",
+  "rawcontent",
+  "rawbytes",
+  "arraybuffer",
+  "fulltext",
+  "parsedtext",
+]);
+const CONVERSATION_CREDENTIAL_PATTERN = /\b(?:vcp|sbp|gh[pousr])_[A-Za-z0-9_-]{16,}\b|\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*\b/iu;
+const CONVERSATION_HIDDEN_REASONING_PATTERN = /\b(?:chain[-_ ]?of[-_ ]?thought|raw[_-]?reasoning|system[_-]?prompt)\b/iu;
+
+function normalizeSecurityKey(key: string) {
+  return key.replace(/[_-]/gu, "").toLowerCase();
+}
+
+function containsForbiddenConversationData(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsForbiddenConversationData);
+  if (!value || typeof value !== "object") {
+    return typeof value === "string" && (CONVERSATION_CREDENTIAL_PATTERN.test(value) || CONVERSATION_HIDDEN_REASONING_PATTERN.test(value));
+  }
+  return Object.entries(value as Record<string, unknown>).some(([key, item]) =>
+    FORBIDDEN_CONVERSATION_KEYS.has(normalizeSecurityKey(key))
+    || containsForbiddenConversationData(item));
+}
 
 export function assertCompleteReplacePayload(payload: Record<string, unknown[]>) {
+  const containsConversationData = CONVERSATION_STORES.some((store) => Object.hasOwn(payload, store));
   const containsCharacterAgentData = CHARACTER_AGENT_STORES.some((store) => Object.hasOwn(payload, store));
   const containsDramaData = DRAMA_STORES.some((store) => Object.hasOwn(payload, store));
-  const requiredStores = containsCharacterAgentData
+  const requiredStores = containsConversationData
     ? REQUIRED_RESTORE_STORES
-    : containsDramaData
-      ? P24A_REQUIRED_RESTORE_STORES
-      : LEGACY_REQUIRED_RESTORE_STORES;
+    : containsCharacterAgentData
+      ? P24B_RC5_REQUIRED_RESTORE_STORES
+      : containsDramaData
+        ? P24A_REQUIRED_RESTORE_STORES
+        : LEGACY_REQUIRED_RESTORE_STORES;
   const missing = requiredStores.filter((store) => !Array.isArray(payload[store]));
   if (missing.length) throw new Error(`BACKUP_REQUIRED_STORE_MISSING:${missing.join(",")}`);
 }
@@ -101,6 +138,213 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     if (approvalScopes.has(row.idempotencyScope)) throw new Error("BACKUP_DUPLICATE_CHARACTER_APPROVAL");
     approvalScopes.add(row.idempotencyScope);
   }
+  const sessions = (payload.conversationSessions ?? []) as Array<DomainRecord & {
+    status?: string;
+    activeChapterId?: string | null;
+    parentSessionId?: string | null;
+    branchedFromMessageId?: string | null;
+    summaryDigest?: string | null;
+  }>;
+  const messages = (payload.conversationMessages ?? []) as Array<DomainRecord & {
+    sessionId?: string;
+    role?: string;
+    content?: string;
+    contentDigest?: string;
+    status?: string;
+    parentMessageId?: string | null;
+    sourceMessageId?: string | null;
+    candidateIds?: string[];
+    toolInvocationIds?: string[];
+    attachmentIds?: string[];
+  }>;
+  const toolInvocations = (payload.conversationToolInvocations ?? []) as Array<DomainRecord & {
+    sessionId?: string;
+    messageId?: string;
+    taskId?: string;
+    toolId?: string;
+    taskType?: string;
+    inputDigest?: string;
+    contextDigest?: string;
+    status?: string;
+    canonicalMutationCount?: number;
+    externalRequest?: boolean;
+    dataLeftDevice?: boolean;
+    actualExecutor?: string | null;
+    modelId?: string | null;
+    modelDigest?: string | null;
+    executionReceipt?: {
+      receiptId?: string;
+      modelId?: string | null;
+      modelDigest?: string | null;
+      providerRunId?: string | null;
+      contextDigest?: string;
+      outputDigest?: string | null;
+      externalRequest?: boolean;
+      dataLeftDevice?: boolean;
+      latencyMs?: number | null;
+    } | null;
+    safeProgress?: { percent?: number | null } | null;
+    safeErrorCode?: string | null;
+  }>;
+  const attachments = (payload.conversationAttachments ?? []) as Array<DomainRecord & {
+    sessionId?: string;
+    safeSourceAlias?: string;
+    contentHash?: string;
+    rightsEvidenceHash?: string;
+    localAnalysisOnly?: boolean;
+    rawContentRetained?: boolean;
+  }>;
+  const artifacts = (payload.conversationArtifacts ?? []) as Array<DomainRecord & {
+    sessionId?: string;
+    sourceMessageId?: string;
+    targetStore?: string;
+    targetRecordId?: string;
+    sourceRevision?: number;
+    candidateContent?: string;
+    candidateDigest?: string;
+    status?: string;
+    approvedRevision?: number | null;
+  }>;
+  const summaries = (payload.conversationSummaries ?? []) as Array<DomainRecord & {
+    sessionId?: string;
+    sourceMessageIds?: string[];
+    contentDigest?: string;
+    canonRevisionDigest?: string;
+  }>;
+  const conversationApprovals = (payload.conversationApprovalTransactions ?? []) as Array<DomainRecord & {
+    transactionId?: string;
+    idempotencyScope?: string;
+    sessionId?: string;
+    sourceMessageId?: string;
+    artifactId?: string;
+    candidateDigest?: string;
+    targetStore?: string;
+    targetRecordId?: string;
+    sourceRevision?: number;
+    resultingRevision?: number;
+    canonicalMutationCount?: number;
+  }>;
+  const learningImports = (payload.learningImportSessions ?? []) as Array<DomainRecord & {
+    importSessionId?: string;
+    sessionId?: string;
+    attachmentIds?: string[];
+    totalParts?: number;
+    completedParts?: number;
+    failedParts?: number;
+    status?: string;
+    mode?: string;
+    manifestDigest?: string;
+    stagingNamespace?: string;
+  }>;
+  const conversationPayload = Object.fromEntries(CONVERSATION_STORES.map((store) => [store, payload[store] ?? []]));
+  if (containsForbiddenConversationData(conversationPayload)) throw new Error("BACKUP_CONVERSATION_PRIVATE_DATA_NOT_ALLOWED");
+  const sessionMap = new Map(sessions.map((row) => [row.id, row]));
+  const messageMap = new Map(messages.map((row) => [row.id, row]));
+  const invocationMap = new Map(toolInvocations.map((row) => [row.id, row]));
+  const attachmentMap = new Map(attachments.map((row) => [row.id, row]));
+  const artifactMap = new Map(artifacts.map((row) => [row.id, row]));
+  const digestPattern = /^[a-f0-9]{64}$/u;
+  for (const session of sessions) {
+    if (!session.status || !["active", "archived", "deleted"].includes(session.status)) throw new Error("BACKUP_CONVERSATION_SESSION_STATUS_INVALID");
+    if (session.activeChapterId && !ids.has(session.activeChapterId)) throw new Error("BACKUP_CONVERSATION_ACTIVE_CHAPTER_INVALID");
+    if (session.parentSessionId && !sessionMap.has(session.parentSessionId)) throw new Error("BACKUP_CONVERSATION_PARENT_SESSION_INVALID");
+    if (session.branchedFromMessageId && !messageMap.has(session.branchedFromMessageId)) throw new Error("BACKUP_CONVERSATION_BRANCH_MESSAGE_INVALID");
+    if (session.summaryDigest && !digestPattern.test(session.summaryDigest)) throw new Error("BACKUP_CONVERSATION_SUMMARY_DIGEST_INVALID");
+    const seen = new Set<string>([session.id]);
+    let parentSessionId = session.parentSessionId ?? null;
+    while (parentSessionId) {
+      if (seen.has(parentSessionId)) throw new Error("BACKUP_CONVERSATION_SESSION_CYCLE");
+      seen.add(parentSessionId);
+      parentSessionId = sessionMap.get(parentSessionId)?.parentSessionId ?? null;
+    }
+  }
+  for (const message of messages) {
+    if (!message.sessionId || !sessionMap.has(message.sessionId)) throw new Error("BACKUP_CONVERSATION_MESSAGE_SESSION_INVALID");
+    if (!message.role || !["user", "assistant", "tool", "system_notice"].includes(message.role)) throw new Error("BACKUP_CONVERSATION_MESSAGE_ROLE_INVALID");
+    if (!message.status || !["pending", "streaming", "completed", "failed", "cancelled"].includes(message.status)) throw new Error("BACKUP_CONVERSATION_MESSAGE_STATUS_INVALID");
+    if (typeof message.content !== "string" || !message.contentDigest || !digestPattern.test(message.contentDigest)) throw new Error("BACKUP_CONVERSATION_MESSAGE_CONTENT_INVALID");
+    if (message.parentMessageId && messageMap.get(message.parentMessageId)?.sessionId !== message.sessionId) throw new Error("BACKUP_CONVERSATION_PARENT_MESSAGE_INVALID");
+    if (message.sourceMessageId && !messageMap.has(message.sourceMessageId)) throw new Error("BACKUP_CONVERSATION_SOURCE_MESSAGE_INVALID");
+    if (!message.candidateIds?.every((id) => artifactMap.get(id)?.sessionId === message.sessionId)) throw new Error("BACKUP_CONVERSATION_MESSAGE_ARTIFACT_INVALID");
+    if (!message.toolInvocationIds?.every((id) => invocationMap.get(id)?.sessionId === message.sessionId)) throw new Error("BACKUP_CONVERSATION_MESSAGE_TOOL_INVALID");
+    if (!message.attachmentIds?.every((id) => attachmentMap.get(id)?.sessionId === message.sessionId)) throw new Error("BACKUP_CONVERSATION_MESSAGE_ATTACHMENT_INVALID");
+    const seen = new Set<string>([message.id]);
+    let parentMessageId = message.parentMessageId ?? null;
+    while (parentMessageId) {
+      if (seen.has(parentMessageId)) throw new Error("BACKUP_CONVERSATION_MESSAGE_CYCLE");
+      seen.add(parentMessageId);
+      parentMessageId = messageMap.get(parentMessageId)?.parentMessageId ?? null;
+    }
+  }
+  const seenTaskIds = new Set<string>();
+  for (const invocation of toolInvocations) {
+    if (!invocation.sessionId || messageMap.get(invocation.messageId ?? "")?.sessionId !== invocation.sessionId) throw new Error("BACKUP_CONVERSATION_TOOL_MESSAGE_INVALID");
+    if (!invocation.taskId || seenTaskIds.has(invocation.taskId)) throw new Error("BACKUP_CONVERSATION_TASK_ID_DUPLICATE");
+    seenTaskIds.add(invocation.taskId);
+    if (!invocation.toolId || !invocation.taskType || !invocation.inputDigest || !digestPattern.test(invocation.inputDigest) || !invocation.contextDigest || !digestPattern.test(invocation.contextDigest) || !invocation.status || !["pending", "running", "completed", "failed", "cancelled"].includes(invocation.status)) throw new Error("BACKUP_CONVERSATION_TOOL_CONTRACT_INVALID");
+    if (invocation.status === "completed" && !invocation.executionReceipt) throw new Error("BACKUP_CONVERSATION_EXECUTION_RECEIPT_REQUIRED");
+    if (invocation.status === "failed" && !invocation.safeErrorCode) throw new Error("BACKUP_CONVERSATION_SAFE_ERROR_CODE_REQUIRED");
+    if (!Number.isInteger(invocation.canonicalMutationCount) || (invocation.canonicalMutationCount ?? -1) < 0 || (invocation.canonicalMutationCount ?? 2) > 1) throw new Error("BACKUP_CONVERSATION_CANONICAL_MUTATION_COUNT_INVALID");
+    if (invocation.dataLeftDevice && !invocation.externalRequest) throw new Error("BACKUP_CONVERSATION_EXECUTION_TRUTH_INVALID");
+    if (invocation.actualExecutor !== null && invocation.actualExecutor !== undefined && (!invocation.actualExecutor.trim() || invocation.actualExecutor.length > 120)) throw new Error("BACKUP_CONVERSATION_EXECUTOR_INVALID");
+    if (invocation.actualExecutor && ["external-ai", "openai", "gemini", "grok", "claude"].includes(invocation.actualExecutor) && (!invocation.externalRequest || !invocation.dataLeftDevice)) throw new Error("BACKUP_CONVERSATION_EXTERNAL_EXECUTOR_TRUTH_INVALID");
+    if (invocation.executionReceipt && (invocation.executionReceipt.externalRequest !== invocation.externalRequest || invocation.executionReceipt.dataLeftDevice !== invocation.dataLeftDevice)) throw new Error("BACKUP_CONVERSATION_RECEIPT_TRUTH_INVALID");
+    if (invocation.executionReceipt && (
+      !invocation.executionReceipt.receiptId?.trim()
+      || invocation.executionReceipt.contextDigest !== invocation.contextDigest
+      || !digestPattern.test(invocation.executionReceipt.contextDigest)
+      || (invocation.executionReceipt.outputDigest !== null && (!invocation.executionReceipt.outputDigest || !digestPattern.test(invocation.executionReceipt.outputDigest)))
+      || (invocation.executionReceipt.providerRunId !== null && !invocation.executionReceipt.providerRunId?.trim())
+      || invocation.executionReceipt.latencyMs === undefined
+      || (invocation.executionReceipt.latencyMs !== null && (!Number.isFinite(invocation.executionReceipt.latencyMs) || invocation.executionReceipt.latencyMs < 0))
+      || (invocation.modelId !== null && invocation.executionReceipt.modelId !== invocation.modelId)
+      || (invocation.modelDigest !== null && invocation.executionReceipt.modelDigest !== invocation.modelDigest)
+    )) throw new Error("BACKUP_CONVERSATION_RECEIPT_IDENTITY_INVALID");
+    if (invocation.safeProgress?.percent !== null && invocation.safeProgress?.percent !== undefined && (!Number.isFinite(invocation.safeProgress.percent) || invocation.safeProgress.percent < 0 || invocation.safeProgress.percent > 100)) throw new Error("BACKUP_CONVERSATION_PROGRESS_INVALID");
+    if (invocation.safeErrorCode && !/^[A-Z0-9_.:-]{1,96}$/u.test(invocation.safeErrorCode)) throw new Error("BACKUP_CONVERSATION_SAFE_ERROR_CODE_INVALID");
+    if (!messageMap.get(invocation.messageId ?? "")?.toolInvocationIds?.includes(invocation.id)) throw new Error("BACKUP_CONVERSATION_TOOL_BACK_REFERENCE_INVALID");
+  }
+  for (const attachment of attachments) {
+    if (!attachment.sessionId || !sessionMap.has(attachment.sessionId)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_SESSION_INVALID");
+    if (attachment.localAnalysisOnly !== true || attachment.rawContentRetained !== false) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_RETENTION_INVALID");
+    if (!attachment.contentHash || !digestPattern.test(attachment.contentHash) || !attachment.rightsEvidenceHash || !digestPattern.test(attachment.rightsEvidenceHash)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_DIGEST_INVALID");
+    if (!attachment.safeSourceAlias || /^(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home)\/)/u.test(attachment.safeSourceAlias)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_ALIAS_UNSAFE");
+  }
+  const canonicalConversationTargets = new Set(["chapters", "storyBibles", "characters", "relationships", "worldRules", "lore", "timeline", "storyStates", "dramaProjects", "dramaSeasons", "dramaEpisodes", "dramaScenes", "dramaBeats", "learningImportSessions"]);
+  const approvedArtifactIds = new Set(conversationApprovals.map((approval) => approval.artifactId).filter((id): id is string => Boolean(id)));
+  for (const artifact of artifacts) {
+    if (!artifact.sessionId || messageMap.get(artifact.sourceMessageId ?? "")?.sessionId !== artifact.sessionId) throw new Error("BACKUP_CONVERSATION_ARTIFACT_MESSAGE_INVALID");
+    if (!artifact.targetStore || ![...canonicalConversationTargets, "controlledLearning", "none"].includes(artifact.targetStore)) throw new Error("BACKUP_CONVERSATION_ARTIFACT_TARGET_INVALID");
+    if (!artifact.targetRecordId || !Number.isInteger(artifact.sourceRevision) || (artifact.sourceRevision ?? -1) < 0 || typeof artifact.candidateContent !== "string" || !artifact.candidateDigest || !digestPattern.test(artifact.candidateDigest)) throw new Error("BACKUP_CONVERSATION_ARTIFACT_INVALID");
+    if (!artifact.status || !["candidate", "approved", "rejected", "superseded"].includes(artifact.status)) throw new Error("BACKUP_CONVERSATION_ARTIFACT_STATUS_INVALID");
+    if (!messageMap.get(artifact.sourceMessageId ?? "")?.candidateIds?.includes(artifact.id)) throw new Error("BACKUP_CONVERSATION_ARTIFACT_BACK_REFERENCE_INVALID");
+    if (artifact.status === "approved" && (!canonicalConversationTargets.has(artifact.targetStore) || !ids.has(artifact.targetRecordId) || !Number.isInteger(artifact.approvedRevision) || !approvedArtifactIds.has(artifact.id))) throw new Error("BACKUP_CONVERSATION_APPROVED_ARTIFACT_TARGET_INVALID");
+    if (artifact.status !== "approved" && approvedArtifactIds.has(artifact.id)) throw new Error("BACKUP_CONVERSATION_ARTIFACT_APPROVAL_STATE_INVALID");
+  }
+  for (const summary of summaries) {
+    if (!summary.sessionId || !sessionMap.has(summary.sessionId) || !summary.sourceMessageIds?.length || !summary.sourceMessageIds.every((id) => messageMap.get(id)?.sessionId === summary.sessionId)) throw new Error("BACKUP_CONVERSATION_SUMMARY_SOURCE_INVALID");
+    if (!summary.contentDigest || !digestPattern.test(summary.contentDigest) || !summary.canonRevisionDigest) throw new Error("BACKUP_CONVERSATION_SUMMARY_DIGEST_INVALID");
+  }
+  for (const session of sessions) {
+    if (!session.summaryDigest) continue;
+    const active = summaries.find((summary) => summary.sessionId === session.id && summary.contentDigest === session.summaryDigest);
+    if (!active || (active as DomainRecord & { invalidatedAt?: string | null }).invalidatedAt) throw new Error("BACKUP_CONVERSATION_SESSION_SUMMARY_INVALID");
+  }
+  const conversationApprovalScopes = new Set<string>();
+  for (const approval of conversationApprovals) {
+    const artifact = artifactMap.get(approval.artifactId ?? "");
+    if (approval.transactionId !== approval.id || !approval.idempotencyScope || conversationApprovalScopes.has(approval.idempotencyScope)) throw new Error("BACKUP_CONVERSATION_APPROVAL_IDEMPOTENCY_INVALID");
+    conversationApprovalScopes.add(approval.idempotencyScope);
+    if (!approval.sessionId || messageMap.get(approval.sourceMessageId ?? "")?.sessionId !== approval.sessionId || artifact?.sessionId !== approval.sessionId) throw new Error("BACKUP_CONVERSATION_APPROVAL_SCOPE_INVALID");
+    if (!approval.targetStore || !canonicalConversationTargets.has(approval.targetStore) || !approval.targetRecordId || !ids.has(approval.targetRecordId)) throw new Error("BACKUP_CONVERSATION_APPROVAL_TARGET_INVALID");
+    if (approval.candidateDigest !== artifact?.candidateDigest || approval.canonicalMutationCount !== 1 || !Number.isInteger(approval.sourceRevision) || !Number.isInteger(approval.resultingRevision) || (approval.resultingRevision ?? 0) <= (approval.sourceRevision ?? 0)) throw new Error("BACKUP_CONVERSATION_APPROVAL_RESULT_INVALID");
+    if (artifact?.status !== "approved" || artifact.approvedRevision !== approval.resultingRevision) throw new Error("BACKUP_CONVERSATION_APPROVAL_ARTIFACT_STATE_INVALID");
+  }
+  for (const importSession of learningImports) {
+    if (importSession.importSessionId !== importSession.id || !importSession.sessionId || !sessionMap.has(importSession.sessionId) || !importSession.attachmentIds?.every((id) => attachmentMap.get(id)?.sessionId === importSession.sessionId)) throw new Error("BACKUP_LEARNING_IMPORT_ATTACHMENT_INVALID");
+    if (!Number.isInteger(importSession.totalParts) || !Number.isInteger(importSession.completedParts) || !Number.isInteger(importSession.failedParts) || (importSession.completedParts ?? 0) + (importSession.failedParts ?? 0) > (importSession.totalParts ?? -1)) throw new Error("BACKUP_LEARNING_IMPORT_PROGRESS_INVALID");
+    if (!importSession.status || !["staging", "processing", "cancelled", "failed", "ready_to_finalize", "committed", "rolled_back"].includes(importSession.status) || !["atomic_document", "partial"].includes(importSession.mode ?? "") || !importSession.manifestDigest || !digestPattern.test(importSession.manifestDigest) || importSession.stagingNamespace !== `learning-import-staging:${importSession.id}`) throw new Error("BACKUP_LEARNING_IMPORT_CONTRACT_INVALID");
+  }
   return { project, sourceProjectId };
 }
 
@@ -125,10 +369,14 @@ export function buildImportIdMap(payload: Record<string, unknown[]>, sourceProje
     }
   };
   collectCanonContextIds(payload);
+  for (const raw of payload.conversationToolInvocations ?? []) {
+    const taskId = (raw as { taskId?: unknown }).taskId;
+    if (typeof taskId === "string" && taskId && !idMap.has(taskId)) idMap.set(taskId, `conversation-task:${crypto.randomUUID()}`);
+  }
   return idMap;
 }
 
-const COMPOUND_ID_FIELDS = new Set(["idempotencyKey", "idempotencyScope", "sourceEventScope"]);
+const COMPOUND_ID_FIELDS = new Set(["idempotencyKey", "idempotencyScope", "sourceEventScope", "stagingNamespace"]);
 const COPY_REVISION_FIELDS = new Set([
   "sourceRevision",
   "sourceCharacterRevision",
@@ -138,6 +386,11 @@ const COPY_REVISION_FIELDS = new Set([
   "expectedSourceRevision",
   "expectedSourceStoryBibleVersion",
   "resultingCanonicalRevision",
+]);
+
+const NON_PORTABLE_CONVERSATION_ARTIFACT_TYPES = new Set([
+  "learning_rule",
+  "rpg",
 ]);
 
 function remapCompoundIdentity(value: string, idMap: Map<string, string>) {
@@ -176,6 +429,47 @@ function remapValue(value: unknown, idMap: Map<string, string>, fieldName = ""):
 export function remapImportedRecord(raw: DomainRecord, targetProjectId: string, idMap: Map<string, string>, copy: boolean) {
   if (!copy) return structuredClone({ ...raw, projectId: targetProjectId }) as DomainRecord;
   const mapped = remapValue(raw, idMap) as Record<string, unknown>;
+  const now = new Date().toISOString();
+  if (mapped.conversationSchemaVersion === "conversation-session-v1") mapped.summaryDigest = null;
+  if (mapped.conversationSchemaVersion === "conversation-summary-v1") mapped.invalidatedAt = now;
+  if (mapped.conversationSchemaVersion === "conversation-artifact-v1" && mapped.status === "approved") {
+    mapped.sourceRevision = 0;
+    mapped.approvedRevision = 1;
+  }
+  if (
+    mapped.conversationSchemaVersion === "conversation-artifact-v1"
+    && mapped.status === "candidate"
+    && typeof mapped.artifactType === "string"
+    && NON_PORTABLE_CONVERSATION_ARTIFACT_TYPES.has(mapped.artifactType)
+  ) {
+    // These two candidate kinds depend on state outside the canonical
+    // repository: Sovereign Learning staging or the Closed Agent candidate
+    // cache.  Copy restore intentionally does not clone either private,
+    // transient namespace.  Preserve the card as history, but make it
+    // explicitly non-actionable instead of exposing a candidate that can
+    // never pass its approval boundary.
+    mapped.status = "superseded";
+    mapped.approvedAt = null;
+    mapped.approvedRevision = null;
+  }
+  if (
+    mapped.learningImportSchemaVersion === "learning-import-session-v1"
+    && mapped.status !== "committed"
+    && mapped.status !== "rolled_back"
+  ) {
+    // copySovereignLearningBackupSnapshot deliberately excludes staging, so
+    // a copied import cannot be resumed or finalized.  Record that truth in
+    // the canonical import ledger as well.
+    mapped.status = "rolled_back";
+    mapped.completedParts = 0;
+    mapped.failedParts = 0;
+    mapped.retryablePartIndexes = [];
+    mapped.completedAt = now;
+  }
+  if (mapped.conversationSchemaVersion === "conversation-approval-transaction-v1") {
+    mapped.sourceRevision = 0;
+    mapped.resultingRevision = 1;
+  }
   return {
     ...mapped,
     id: idMap.get(raw.id)!,
@@ -183,7 +477,7 @@ export function remapImportedRecord(raw: DomainRecord, targetProjectId: string, 
     revision: 1,
     parentRevision: null,
     createdAt: raw.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    migrationVersion: "p21-backup-import-v2",
+    updatedAt: now,
+    migrationVersion: "p24b-rc6-backup-import-v4",
   } as DomainRecord;
 }

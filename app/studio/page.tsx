@@ -38,8 +38,8 @@ export default async function StudioPage({
   // workspace so chapters and AI candidates cannot be split across two UIs.
   if (requestedScreen === "write") {
     redirect(projectId
-      ? `/studio/project/${encodeURIComponent(projectId)}/write`
-      : "/professional?intent=write");
+      ? `/studio/project/${encodeURIComponent(projectId)}/chat`
+      : "/professional?intent=chat");
   }
   if (requestedScreen === "library") {
     redirect(projectId

@@ -154,20 +154,20 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
 
   const recentId = safeProjectId(recentProject?.id ?? "");
   const continueHref = projectCount === 1 && recentId
-    ? `/studio/project/${encodeURIComponent(recentId)}/write`
+    ? `/studio/project/${encodeURIComponent(recentId)}/chat`
     : projectCount > 0
-      ? "/professional?intent=write"
+      ? "/professional?intent=chat"
       : "/studio/create";
   const localAIHref = useMemo(() => {
     const returnTo = recentId
-      ? `/studio/project/${encodeURIComponent(recentId)}/write`
-      : "/professional?intent=write";
+      ? `/studio/project/${encodeURIComponent(recentId)}/chat`
+      : "/professional?intent=chat";
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
   const entries = [
     ["開始新故事", "先命名、固定玩法，再建立人物、世界與故事起點。", "/studio/create", "✦"],
-    ["繼續寫作", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇，不會誤開別部作品。` : recentProject ? `回到《${recentProject.title}》。` : "尚無作品時會引導你建立第一部小說。", continueHref, "↗"],
-    ["AI 寫作助手", "直接在目前章節內續寫、改寫與修訂，不再跳到 AI 中心。", continueHref, "AI"],
+    ["繼續小說專案", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇，不會誤開別部作品。` : recentProject ? `回到《${recentProject.title}》的對話。` : "尚無作品時會引導你建立第一部小說。", continueHref, "↗"],
+    ["小說專案助手", "用自然語言續寫、改寫、分析、匯入檔案或進行故事回合。", continueHref, "AI"],
     ["互動故事／RPG", "先選正式作品，再進入該作品已鎖定的單一玩法。", "/professional?intent=play", "ABC"],
     ["角色與世界", "先選作品，再管理人物、關係、世界與 Story Bible。", "/professional?intent=library", "角"],
     ["我的作品", "選擇作品並查看寫作、閱讀、版本與備份。", "/professional?intent=library", "冊"],

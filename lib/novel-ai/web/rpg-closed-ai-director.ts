@@ -169,14 +169,6 @@ export function cleanRpgContinuation(
       recentAcceptedTexts.join("\n"),
     );
   }
-  const narrativeLength = value.replace(/\s+/g, "").length;
-  const paragraphCount = value.split(/\n+/u).map((paragraph) => paragraph.trim()).filter(Boolean).length;
-  const sentenceCount = value.match(/[。！？!?]/gu)?.length ?? 0;
-  const englishSentenceCount = value.match(/[.!?](?:\s|$)/gu)?.length ?? 0;
-  const completeSentenceCount = language === "en" ? englishSentenceCount : sentenceCount;
-  const minimumLength = language === "en" ? 950 : 750;
-  const structurallyComplete = (paragraphCount >= 7 || completeSentenceCount >= 14)
-    && completeSentenceCount >= 10;
   const mostSimilar = recentAcceptedTexts.reduce(
     (highest, previous) => Math.max(highest, rpgTextSimilarity(value, previous)),
     0,
@@ -188,9 +180,7 @@ export function cleanRpgContinuation(
     new Error("RPG_AI_CONTINUATION_REPETITIVE"),
     { similarityScore: mostSimilar },
   );
-  if (narrativeLength < minimumLength || !structurallyComplete) {
-    throw new Error("RPG_AI_CONTINUATION_TOO_SHORT");
-  }
+  validateRpgStoryTurnContract(value, language);
   if (/^(?:說明|分析|以下是|作為(?:AI|人工智慧)|工程|JSON|```)/i.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_NOT_STORY");
   }
@@ -204,6 +194,47 @@ export function cleanRpgContinuation(
     throw new Error("RPG_AI_CONTINUATION_LANGUAGE_MISMATCH");
   }
   return value;
+}
+
+export function validateRpgStoryTurnContract(
+  value: string,
+  language: StoryOutputLanguage = "zh-TW",
+) {
+  const narrativeLength = value.replace(/\s+/gu, "").length;
+  const paragraphCount = value
+    .split(/\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean).length;
+  const sentenceCount = language === "en"
+    ? value.match(/[.!?](?:\s|$)/gu)?.length ?? 0
+    : value.match(/[。！？!?]/gu)?.length ?? 0;
+  const minimumLength = language === "en" ? 950 : 900;
+  const maximumLength = language === "en" ? 2_200 : 1_600;
+  if (narrativeLength < minimumLength || paragraphCount < 8 || sentenceCount < 10) {
+    throw Object.assign(new Error("RPG_AI_CONTINUATION_TOO_SHORT"), {
+      narrativeLength,
+      paragraphCount,
+      sentenceCount,
+      minimumLength,
+    });
+  }
+  if (narrativeLength > maximumLength || paragraphCount > 16) {
+    throw Object.assign(new Error("RPG_AI_CONTINUATION_TOO_LONG"), {
+      narrativeLength,
+      paragraphCount,
+      maximumLength,
+      maximumParagraphs: 16,
+    });
+  }
+  return {
+    narrativeLength,
+    paragraphCount,
+    sentenceCount,
+    minimumLength,
+    maximumLength,
+    minimumParagraphs: 8 as const,
+    maximumParagraphs: 16 as const,
+  };
 }
 
 export function buildRpgResolutionDirectorPrompt(input: {
@@ -225,14 +256,17 @@ export function buildRpgResolutionDirectorPrompt(input: {
         ? `The first line must be "Round ${input.turnNumber ?? "N"} | <a concrete event title>".`
         : `第一行必須是「第 ${input.turnNumber ?? "N"} 回合｜具體事件標題」；標題要指出本回合真正發生的事，不可使用「新的冒險」等空話。`,
       "開頭要自然承認玩家剛選擇的行動，接著承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
-      "使用 8 到 16 個完整段落；情節較長時用 2 到 6 個「一｜分節名」式短標題分節，但正文必須仍然像小說，不得變成儀表板或條列報告。",
+      "回合標題後使用 8 到 16 個完整小說段落；本回合不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
-        ? "Write 1,100 to 2,200 characters in 8 to 16 complete paragraphs. Continue character reactions and concrete consequences until the scene reaches a genuine decision point."
-        : "正文需有 900 至 1,600 個中文字，分成 8 到 16 個完整段落；未達最低篇幅時繼續推進人物反應、場景變化與直接後果，不要提早總結。",
+        ? "Write 1,100 to 2,200 characters. After the round title, write exactly 10 complete story paragraphs with no extra headings; keep each paragraph substantial and continue until the scene reaches a genuine decision point."
+        : "正文需有 900 至 1,600 個中文字。回合標題後恰好寫 10 個完整小說段落，不加分節標題；每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，未達最低篇幅時不得提早總結。",
+      input.language === "en"
+        ? "Use the ten paragraphs in order for: immediate action, resistance, opposing reaction, sensory escalation, irreversible cost, result taking effect, relationship reaction, changed environment, new danger, and a genuine decision point. Do not print this plan."
+        : "十段依序完成：行動落地、阻力出現、對手反應、感官升壓、不可逆代價、判定結果生效、人物關係反應、環境改變、新危險逼近、自然決策點。不要把這份段落計畫印出來。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
-      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出回合標題、小說正文與短分節；不要行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由規則引擎在正文後另行顯示。",
+      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出回合標題與小說正文；不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由規則引擎在正文後另行顯示。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
     context: input.context,

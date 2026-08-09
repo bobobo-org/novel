@@ -10,9 +10,9 @@ const adminHealthSource = await read("app/api/admin/persistence/route.ts");
 const stampSource = await read("scripts/stamp-static-release.mjs");
 const sealSource = await read("scripts/seal-p21-preview-evidence.mjs");
 const runtimeSource = await read("lib/release-manifest.ts");
-const expectedTag = "novel-ai-p24b-browser-sovereign-ai-fabric-rc5";
-const expectedName = "P2.4B Browser Sovereign AI Fabric RC5";
-const expectedConsumerRelease = "p2.4b-browser-sovereign-ai-fabric-rc5";
+const expectedTag = "novel-ai-p24b-conversation-first-studio-rc6";
+const expectedName = "P2.4B Conversation-First Novel Project GPT RC6";
+const expectedConsumerRelease = "p2.4b-conversation-first-studio-rc6";
 const expectedStage = "P2.4B RC";
 const results = [];
 
@@ -30,7 +30,7 @@ function mustReject(actual, expected) {
   assert.throws(() => validate(actual, expected));
 }
 
-test("manifest uses authoritative P2.4B RC5 metadata", () => {
+test("manifest uses authoritative P2.4B RC6 metadata", () => {
   validate(manifest, { releaseTag: expectedTag, architectureStage: expectedStage });
   assert.equal(manifest.releaseName, expectedName);
   assert.equal(manifest.consumerRelease, expectedConsumerRelease);
@@ -90,7 +90,7 @@ test("legacy P2.1 RC2 evidence and RC3 tag remain immutable", () => {
   );
 });
 
-const summary = { suite: "P2.4B RC5 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
+const summary = { suite: "P2.4B RC6 release metadata regression", pass: results.filter(x => x.status === "PASS").length, fail: results.filter(x => x.status === "FAIL").length, skip: 0, results };
 await mkdir("artifacts/p23-rc3-release-metadata", { recursive: true });
 await writeFile("artifacts/p23-rc3-release-metadata/release-metadata-regression.json", `${JSON.stringify(summary, null, 2)}\n`, "utf8");
 console.log(JSON.stringify(summary, null, 2));

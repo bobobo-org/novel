@@ -516,8 +516,9 @@ const consumerCenter = await readFile(
   "utf8",
 );
 assert.match(quickAssistantRoute, /redirect\(projectId/);
-assert.match(quickAssistantRoute, /write\?assistant=advanced#writing-ai/);
-assert.match(quickAssistantRoute, /professional\?intent=write/);
+assert.match(quickAssistantRoute, /studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat/);
+assert.match(quickAssistantRoute, /query\.set\("prompt", prompt\)/);
+assert.match(quickAssistantRoute, /professional\?intent=chat/);
 assert.doesNotMatch(quickAssistantRoute, /<StudioClient/);
 assert.match(consumerActions, /data-open-quick-assistant/);
 assert.match(

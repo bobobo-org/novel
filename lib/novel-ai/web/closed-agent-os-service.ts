@@ -9,6 +9,11 @@ import {
   type ClosedAgentExecutionResult,
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
+import { buildApprovedLearningContext } from "../sovereign-learning/combination-engine";
+import {
+  createSovereignLearningRepository,
+  type SovereignLearningRepository,
+} from "../sovereign-learning/repository";
 import type {
   BrowserComputePolicy,
   PlatformAIRequest,
@@ -103,6 +108,26 @@ export type StudioClosedAgentContext = Omit<
   approved?: boolean;
 };
 
+export async function loadApprovedConversationLearningRules(input: {
+  repository: SovereignLearningRepository;
+  projectId: string;
+  taskType: PlatformTaskType;
+  maximumRules?: number;
+}) {
+  if (!input.repository.isAvailable()) return [];
+  const context = await buildApprovedLearningContext({
+    repository: input.repository,
+    projectId: input.projectId,
+    taskType: input.taskType,
+    maximumRules: input.maximumRules ?? 8,
+  });
+  return context.rules.map((rule, index) => ({
+    id: rule.id,
+    rule: context.instructions[index] ?? rule.statement,
+    revision: rule.revision,
+  }));
+}
+
 export type ExecuteStudioClosedAgentInput = {
   projectId: string;
   taskType: PlatformTaskType;
@@ -126,6 +151,13 @@ export type ExecuteStudioClosedAgentInput = {
   generationOptions?: PlatformAIRequest["generationOptions"];
   taskId?: string;
   contextTokenBudget?: number;
+  conversationSessionId?: string;
+  conversationRecentMessageLimit?: number;
+  selectedAttachmentSummaries?: Array<{
+    attachmentId: string;
+    summary: string;
+    contentDigest: string;
+  }>;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -193,7 +225,15 @@ export async function executeStudioClosedAgent(
   }));
   try {
     const repository = createNovelRepository();
+    const approvedLearningRules = await loadApprovedConversationLearningRules({
+      repository: createSovereignLearningRepository(),
+      projectId: input.projectId,
+      taskType: input.taskType,
+    });
     const prewarmed = supplementalContext.length === 0
+      && !input.conversationSessionId
+      && !input.selectedAttachmentSummaries?.length
+      && approvedLearningRules.length === 0
       ? await readPrewarmedStudioProjectContext({
         cache: os.cache,
         repository,
@@ -216,6 +256,10 @@ export async function executeStudioClosedAgent(
       privacyLevel,
       tokenBudget: input.contextTokenBudget,
       audience: "actor",
+      conversationSessionId: input.conversationSessionId,
+      conversationRecentMessageLimit: input.conversationRecentMessageLimit,
+      approvedLearningRules,
+      selectedAttachmentSummaries: input.selectedAttachmentSummaries,
       supplementalContext,
       semanticQuery: input.objective,
       semanticRanker: typeof window === "undefined"

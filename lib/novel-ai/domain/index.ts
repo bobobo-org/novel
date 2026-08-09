@@ -295,7 +295,7 @@ export type ReaderNote = DomainRecord & { chapterId: string; anchor: string; exc
 export type ReaderBookmark = DomainRecord & { chapterId: string; anchor: string; excerpt: string; label: string | null; needsRelocation: boolean };
 export type BackupManifest = {
   format: "novel-project-backup";
-  formatVersion: "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5";
+  formatVersion: "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5" | "novel-backup-v6";
   backupId: string;
   projectId: string;
   projectSchemaVersion: string;
@@ -310,13 +310,180 @@ export type BackupManifest = {
   encryption: "none";
 };
 export type ProjectBackup = DomainRecord & {
-  formatVersion: "novel-backup-v2" | "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5";
+  formatVersion: "novel-backup-v2" | "novel-backup-v3" | "novel-backup-v4" | "novel-backup-v5" | "novel-backup-v6";
   kind: "initial" | "quick" | "full" | "safety";
   byteSize: number;
   snapshot: Record<string, unknown>;
+  sovereignLearningSnapshot?: import("../sovereign-learning/backup").SovereignLearningBackupSnapshot;
   manifest?: BackupManifest;
 };
 export type AIProvenance = Provenance & { providerId: string; modelId: string | null; taskType: string; externalRequest: boolean; dataLeftDevice: boolean; contextSources: string[]; elapsedMs: number | null };
+
+export type ConversationSessionStatus = "active" | "archived" | "deleted";
+export type ConversationMessageRole = "user" | "assistant" | "tool" | "system_notice";
+export type ConversationMessageStatus = "pending" | "streaming" | "completed" | "failed" | "cancelled";
+export type ConversationArtifactStatus = "candidate" | "approved" | "rejected" | "superseded";
+export type ConversationArtifactTargetStore =
+  | "chapters"
+  | "storyBibles"
+  | "characters"
+  | "relationships"
+  | "worldRules"
+  | "lore"
+  | "timeline"
+  | "storyStates"
+  | "dramaProjects"
+  | "dramaSeasons"
+  | "dramaEpisodes"
+  | "dramaScenes"
+  | "dramaBeats"
+  | "learningImportSessions"
+  | "controlledLearning"
+  | "none";
+export type ConversationCanonicalTargetStore = Exclude<ConversationArtifactTargetStore, "controlledLearning" | "none">;
+
+export type ConversationSession = DomainRecord & {
+  conversationSchemaVersion: "conversation-session-v1";
+  title: string;
+  status: ConversationSessionStatus;
+  activeChapterId: string | null;
+  lastMessageAt: string | null;
+  summaryDigest: string | null;
+  parentSessionId: string | null;
+  branchedFromMessageId: string | null;
+};
+
+export type ConversationMessage = DomainRecord & {
+  conversationSchemaVersion: "conversation-message-v1";
+  sessionId: string;
+  role: ConversationMessageRole;
+  content: string;
+  contentDigest: string;
+  status: ConversationMessageStatus;
+  parentMessageId: string | null;
+  sourceMessageId: string | null;
+  candidateIds: string[];
+  toolInvocationIds: string[];
+  attachmentIds: string[];
+  completedAt: string | null;
+};
+
+export type ConversationExecutionReceipt = {
+  receiptId: string;
+  modelId: string | null;
+  modelDigest: string | null;
+  providerRunId: string | null;
+  contextDigest: string;
+  outputDigest: string | null;
+  externalRequest: boolean;
+  dataLeftDevice: boolean;
+  latencyMs: number | null;
+};
+
+export type ConversationToolInvocation = DomainRecord & {
+  conversationSchemaVersion: "conversation-tool-invocation-v1";
+  sessionId: string;
+  messageId: string;
+  taskId: string;
+  toolId: string;
+  taskType: string;
+  inputDigest: string;
+  contextDigest: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  startedAt: string;
+  completedAt: string | null;
+  actualExecutor: string | null;
+  modelId: string | null;
+  modelDigest: string | null;
+  executionReceipt: ConversationExecutionReceipt | null;
+  externalRequest: boolean;
+  dataLeftDevice: boolean;
+  canonicalMutationCount: number;
+  safeProgress: { stage: string; percent: number | null; message: string } | null;
+  safeErrorCode: string | null;
+};
+
+export type ConversationAttachment = DomainRecord & {
+  conversationSchemaVersion: "conversation-attachment-v1";
+  sessionId: string;
+  displayName: string;
+  safeSourceAlias: string;
+  format: "txt" | "markdown" | "html" | "json" | "pdf" | "docx";
+  byteLength: number;
+  contentHash: string;
+  rightsBasis: string;
+  rightsEvidenceHash: string;
+  localAnalysisOnly: true;
+  rawContentRetained: false;
+  parsingStatus: "pending" | "parsing" | "completed" | "failed" | "cancelled" | "ocr_required";
+  warnings?: string[];
+};
+
+export type ConversationArtifact = DomainRecord & {
+  conversationSchemaVersion: "conversation-artifact-v1";
+  sessionId: string;
+  sourceMessageId: string;
+  artifactType: "novel" | "drama" | "rpg" | "character" | "world_rule" | "story_bible" | "learning_rule" | "diff" | "attachment_analysis";
+  targetStore: ConversationArtifactTargetStore;
+  targetRecordId: string;
+  sourceRevision: number;
+  candidateContent: string;
+  candidateDigest: string;
+  status: ConversationArtifactStatus;
+  approvedAt: string | null;
+  approvedRevision: number | null;
+};
+
+export type ConversationSummary = DomainRecord & {
+  conversationSchemaVersion: "conversation-summary-v1";
+  sessionId: string;
+  sourceMessageIds: string[];
+  content: string;
+  contentDigest: string;
+  canonRevisionDigest: string;
+  invalidatedAt: string | null;
+};
+
+export type ConversationApprovalTransaction = DomainRecord & {
+  conversationSchemaVersion: "conversation-approval-transaction-v1";
+  transactionId: string;
+  operationId: string;
+  idempotencyKey: string;
+  idempotencyScope: string;
+  payloadFingerprint: string;
+  sessionId: string;
+  sourceMessageId: string;
+  artifactId: string;
+  candidateDigest: string;
+  targetStore: ConversationCanonicalTargetStore;
+  targetRecordId: string;
+  sourceRevision: number;
+  resultingRevision: number;
+  actor: "user";
+  canonicalMutationCount: 1;
+  commitMode: "atomic_canonical" | "external_canonical";
+  applicationMode: "append" | "replace" | "summary" | "record_replace" | "external_commit";
+  externalCommitId: string | null;
+  approvedAt: string;
+  status: "committed";
+};
+
+export type LearningImportSession = DomainRecord & {
+  learningImportSchemaVersion: "learning-import-session-v1";
+  importSessionId: string;
+  sessionId: string;
+  attachmentIds: string[];
+  totalParts: number;
+  completedParts: number;
+  failedParts: number;
+  status: "staging" | "processing" | "cancelled" | "failed" | "ready_to_finalize" | "committed" | "rolled_back";
+  mode: "atomic_document" | "partial";
+  manifestDigest: string;
+  startedAt: string;
+  completedAt: string | null;
+  stagingNamespace: string;
+  retryablePartIndexes: number[];
+};
 
 export type ProjectBundle = {
   project: NovelProject;

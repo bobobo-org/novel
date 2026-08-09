@@ -30,6 +30,7 @@ import {
   backupDownload,
   createProjectBackup,
   markdownDownload,
+  restoreProjectBackup,
   validateBackupPayload,
 } from "@/lib/novel-ai/repository/backup";
 import {
@@ -1795,8 +1796,8 @@ function BackupCenter({
         appCommit: RELEASE_MANIFEST.appCommit,
         releaseTag: RELEASE_MANIFEST.releaseTag,
       });
-      const copyId = await repo.importProject(check.payload.records, "copy");
-      location.assign(`/studio/project/${copyId}/write`);
+      const copyId = await restoreProjectBackup(repo, check.payload, "copy");
+      location.assign(`/studio/project/${copyId}/chat`);
     } catch (cause) {
       setMessage(`匯入失敗：${cause instanceof Error ? cause.message : "原有資料仍保持不變"}`);
     } finally {
@@ -1813,13 +1814,21 @@ function BackupCenter({
     setBusy(true);
     try {
       const repo = createNovelRepository();
+      const check = await validateBackupPayload({
+        manifest: backup.manifest,
+        records: backup.snapshot,
+        sovereignLearning: backup.sovereignLearningSnapshot,
+      });
+      if (!check.valid || check.payload.manifest.projectId !== projectId) {
+        throw new Error(check.valid ? "BACKUP_PROJECT_SCOPE_MISMATCH" : check.reason);
+      }
       await createProjectBackup(repo, projectId, "safety", {
         appCommit: RELEASE_MANIFEST.appCommit,
         releaseTag: RELEASE_MANIFEST.releaseTag,
       });
-      await repo.importProject(backup.snapshot as Record<string, unknown[]>, "replace", projectId);
+      await restoreProjectBackup(repo, check.payload, "replace", projectId);
       setMessage("還原完成，正在重新載入。");
-      window.setTimeout(() => location.reload(), 300);
+      window.setTimeout(() => location.assign(`/studio/project/${projectId}/chat`), 300);
     } catch (cause) {
       setMessage(`還原失敗：${cause instanceof Error ? cause.message : "已保留還原前安全備份"}`);
     } finally {

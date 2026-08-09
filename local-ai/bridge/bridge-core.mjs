@@ -9,7 +9,7 @@ export const TRUSTED_AUTO_SESSION_ORIGINS = Object.freeze([
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ]);
-export const DEFAULT_LIMITS = Object.freeze({ maxPromptBytes: 65_536, maxOutputTokens: 2_048, maxConcurrent: 1, maxQueue: 2, maxTimeoutMs: 120_000, rateLimitPerMinute: 30 });
+export const DEFAULT_LIMITS = Object.freeze({ maxPromptBytes: 65_536, maxOutputTokens: 2_048, maxConcurrent: 1, maxQueue: 2, maxTimeoutMs: 240_000, rateLimitPerMinute: 30 });
 export const ERROR_CODES = Object.freeze([
   "BRIDGE_PROCESS_UNREACHABLE", "MIXED_CONTENT_BLOCKED", "PRIVATE_NETWORK_ACCESS_BLOCKED", "CORS_PREFLIGHT_REJECTED", "HOST_VALIDATION_FAILED", "PAIRING_STATE_INVALID", "PROTOCOL_MISMATCH", "REQUEST_TIMEOUT",
   "BRIDGE_NOT_RUNNING", "BRIDGE_NOT_PAIRED", "BRIDGE_PAIRING_EXPIRED", "BRIDGE_PAIRING_REVOKED", "BRIDGE_ORIGIN_NOT_ALLOWED", "BRIDGE_PROTOCOL_INCOMPATIBLE",

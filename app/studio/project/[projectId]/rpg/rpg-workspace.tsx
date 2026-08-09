@@ -1178,20 +1178,20 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             settlement,
           },
         }),
-        targetLength: storyLanguage === "en" ? 1_500 : 1_100,
+        targetLength: storyLanguage === "en" ? 1_700 : 1_600,
         sourceChapterId: data.chapter.id,
         sourceRevision: data.chapter.revision,
-        // Stream one substantive scene instead of silently running a second
-        // full generation. This keeps local 1.5B/3B models responsive while
-        // the proof and canonical-approval gates remain unchanged.
+        // Keep each attempt single-pass; the strict story validator may request
+        // one bounded, from-scratch correction below.
         qualityMode: "fast" as const,
         browserComputePolicy: "balanced" as const,
         generationOptions: {
-          maxTokens: 1_600,
+          maxTokens: 1_792,
           temperature: 0.72,
           topP: 0.92,
           repetitionPenalty: 1.18,
           seed: (data.storyState.revision * 1009 + progression.turn * 149 + resolution.roll * 23) >>> 0,
+          substantiveScene: true,
         },
         signal: controller.signal,
         onProgress: (event: ClosedAIProgressEvent) => {
@@ -1205,8 +1205,78 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       let acceptedText = "";
 
       try {
-        generated = await Promise.race([
-          runStudioClosedAI(taskInput),
+        const recentAcceptedTexts = data.acceptedChoices.slice(0, 8).map((item) => item.acceptedText);
+        const baseSeed = taskInput.generationOptions.seed;
+        const completedTurn = await Promise.race([
+          (async () => {
+            let validationCorrection = "";
+            for (let attempt = 1; attempt <= 2; attempt += 1) {
+              if (attempt > 1) {
+                setTurnDraft("");
+                setStatus("前一版未達完整回合門檻；同一閉端模型正依安全指標重新生成……");
+              }
+              generated = await runStudioClosedAI({
+                ...taskInput,
+                input: `${taskInput.input}${validationCorrection}`,
+                generationOptions: {
+                  ...taskInput.generationOptions,
+                  temperature: attempt === 1 ? 0.72 : 0.66,
+                  topP: attempt === 1 ? 0.92 : 0.88,
+                  seed: (baseSeed + (attempt - 1) * 104_729) >>> 0,
+                },
+              });
+              ensureActive();
+              if (!generated.candidateId) {
+                throw Object.assign(new Error("閉端 AI 沒有建立可核准的本回合候選。"), { code: "RPG_AI_RESULT_CANDIDATE_MISSING" });
+              }
+              try {
+                acceptedText = cleanRpgContinuation(
+                  generated.content,
+                  recentAcceptedTexts,
+                  storyLanguage,
+                );
+              } catch (validationError) {
+                const validationCode = closedAIErrorCode(validationError);
+                await rejectStudioClosedAgentCandidate(generated.candidateId).catch(() => undefined);
+                generated = null;
+                if (
+                  attempt === 2
+                  || (validationCode !== "RPG_AI_CONTINUATION_TOO_SHORT"
+                    && validationCode !== "RPG_AI_CONTINUATION_TOO_LONG")
+                ) {
+                  throw validationError;
+                }
+                const metrics = validationError && typeof validationError === "object"
+                  ? validationError as Record<string, unknown>
+                  : {};
+                validationCorrection = `\n\n${JSON.stringify({
+                  validatorCorrection: {
+                    errorCode: validationCode,
+                    narrativeLength: Number(metrics.narrativeLength) || 0,
+                    paragraphCount: Number(metrics.paragraphCount) || 0,
+                    sentenceCount: Number(metrics.sentenceCount) || 0,
+                    requiredNarrativeCharacters: storyLanguage === "en" ? "1100-2200" : "900-1600",
+                    requiredParagraphs: "8-16",
+                    instruction: storyLanguage === "en"
+                      ? "Discard the previous attempt. Regenerate from scratch; after the round title, write exactly 10 substantial paragraphs with no extra headings and output story prose only."
+                      : "捨棄前次內容並從頭重寫；回合標題後恰好寫 10 個完整段落，不加分節標題，每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，只輸出小說正文。",
+                  },
+                })}`;
+                continue;
+              }
+              if (
+                !hasVerifiedExecutedStoryOutput(generated)
+                || !generated.modelDigest
+                || generated.sourceChapterId !== data.chapter.id
+                || generated.sourceRevision !== data.chapter.revision
+                || generated.canonicalMutationCount !== 0
+              ) {
+                throw Object.assign(new Error("閉端 AI 本回合內容缺少模型、章節或執行證明。"), { code: "RPG_AI_RESULT_PROOF_MISSING" });
+              }
+              return { generated, acceptedText };
+            }
+            throw new Error("RPG_AI_CONTINUATION_EMPTY");
+          })(),
           new Promise<never>((_resolve, reject) => {
             turnTimeout = window.setTimeout(() => {
               controller.abort();
@@ -1217,27 +1287,13 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             }, RPG_TURN_TIMEOUT_MS);
           }),
         ]);
+        generated = completedTurn.generated;
+        acceptedText = completedTurn.acceptedText;
         if (turnTimeout !== null) {
           window.clearTimeout(turnTimeout);
           turnTimeout = null;
         }
         ensureActive();
-        if (!generated.candidateId) {
-          throw Object.assign(new Error("閉端 AI 沒有建立可核准的本回合候選。"), { code: "RPG_AI_RESULT_CANDIDATE_MISSING" });
-        }
-        const recentAcceptedTexts = data.acceptedChoices.slice(0, 8).map((item) => item.acceptedText);
-        const continuation = cleanRpgContinuation(generated.content, recentAcceptedTexts, storyLanguage);
-        if (
-          !hasVerifiedExecutedStoryOutput(generated)
-          || !generated.candidateId
-          || !generated.modelDigest
-          || generated.sourceChapterId !== data.chapter.id
-          || generated.sourceRevision !== data.chapter.revision
-          || generated.canonicalMutationCount !== 0
-        ) {
-          throw Object.assign(new Error("閉端 AI 本回合內容缺少模型、章節或執行證明。"), { code: "RPG_AI_RESULT_PROOF_MISSING" });
-        }
-        acceptedText = continuation;
       } catch (modelError) {
         const modelFailureCode = closedAIErrorCode(modelError) || "MODEL_NOT_READY";
         if (generated?.candidateId) {

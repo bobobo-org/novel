@@ -9,7 +9,7 @@ function safeProjectId(value: string) {
 }
 
 function safeIntent(value: string) {
-  return value === "write" || value === "play" || value === "library"
+  return value === "chat" || value === "write" || value === "play" || value === "library"
     ? value
     : "library";
 }

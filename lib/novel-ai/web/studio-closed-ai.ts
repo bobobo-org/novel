@@ -375,6 +375,7 @@ export async function runStudioClosedAI(
       dataLeftDevice: result.candidate.dataLeftDevice ?? false,
       externalRequest: result.candidate.externalRequest ?? false,
       warnings: result.candidate.evaluation.warningCodes,
+      toolExecutions: result.toolExecutions,
       ledgerHeadHash: result.ledgerHeadHash,
       canonicalMutationCount: result.candidate.canonicalMutationCount,
       regeneration: result.candidate.regeneration ?? null,
@@ -475,6 +476,7 @@ export async function runStudioClosedAI(
     dataLeftDevice: result.dataLeavesDevice,
     externalRequest: result.externalRequest,
     warnings: result.provenance.warnings,
+    toolExecutions: [],
     regeneration: input.regeneration
       ? {
         regenerationAttempt: input.regeneration.regenerationAttempt,

@@ -1,2 +1,5 @@
 import { redirect } from "next/navigation";
-export default async function Page({ params }: { params: Promise<{ projectId: string }> }) { const { projectId } = await params; redirect(`/studio/project/${projectId}/write`); }
+export default async function Page({ params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params;
+  redirect(`/studio/project/${encodeURIComponent(projectId)}/chat`);
+}

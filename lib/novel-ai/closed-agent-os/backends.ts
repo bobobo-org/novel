@@ -291,6 +291,11 @@ export function boundedLocalQualityRepairRequest(
 ): PlatformAIRequest {
   const initialSeed = request.generationOptions?.seed ?? 0;
   const repairSeed = ((Math.abs(Math.trunc(initialSeed)) + 97) % 2_147_483_646) + 1;
+  const substantiveScene = request.taskType === "chapter.continue"
+    && request.generationOptions?.substantiveScene === true;
+  const replacementRequirement = substantiveScene
+    ? "硬性要求：重新寫出完整替代場景；正文需有 900 至 1,600 個中文字，標題後寫恰好 10 個完整段落，不加分節標題，每段約 130 至 155 個中文字，總長以 1,050 至 1,450 字為安全目標；承接既有人物、場景與未解事件，至少推進一個事件並造成一項可觀察後果；只輸出小說正文，最後一句必須完整。"
+    : "硬性要求：承接既有人物、場景與最後一個未解事件；只寫新的情節，不得重抄或摘要既有章節；至少推進一個事件並造成一項可觀察後果；輸出二百二十至三百二十個繁體中文字；最後一句必須完整，並以句號、驚嘆號、問號或閉合引號收尾。";
   return {
     ...request,
     requestId: `${request.requestId}:bounded-local-quality-repair`,
@@ -298,7 +303,7 @@ export function boundedLocalQualityRepairRequest(
       request.input,
       "前一版終稿未通過本機品質檢查，請重新輸出一份完整替代正文。",
       `需修正的安全品質代碼：${reasonCodes.join("、")}。`,
-      "硬性要求：承接既有人物、場景與最後一個未解事件；只寫新的情節，不得重抄或摘要既有章節；至少推進一個事件並造成一項可觀察後果；輸出二百二十至三百二十個繁體中文字；最後一句必須完整，並以句號、驚嘆號、問號或閉合引號收尾。",
+      replacementRequirement,
     ].join("\n"),
     qualityPreference: "high",
     qualityPhase: "revision",
@@ -313,7 +318,7 @@ export function boundedLocalQualityRepairRequest(
         Math.max(request.generationOptions?.topP ?? 0.88, 0.86),
         0.92,
       ),
-      maxTokens: 360,
+      maxTokens: substantiveScene ? 1_792 : 360,
       repetitionPenalty: Math.max(
         request.generationOptions?.repetitionPenalty ?? 1.08,
         1.12,

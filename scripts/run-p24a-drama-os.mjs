@@ -22,7 +22,7 @@ import {
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { IndexedDbNovelRepository, indexedDbCapability } from "../lib/novel-ai/repository/indexeddb/indexeddb-repository.ts";
 import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repository/backup.ts";
-import { CHARACTER_AGENT_STORES, LEGACY_NOVEL_STORES, NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
+import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, LEGACY_NOVEL_STORES, NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
 import { CAPABILITY_REGISTRY } from "../lib/novel-ai/capabilities/capability-registry.ts";
 import { PlatformRouterError, resolvePlatformProvider } from "../lib/novel-ai/router/platform-router.ts";
 
@@ -295,8 +295,8 @@ function registerMigrationTests() {
     });
     assert.equal(LEGACY_NOVEL_STORES.length, 29);
   });
-  test("IndexedDB schema reports current version 6", () => assert.equal(indexedDbCapability().version, 6));
-  test("repository schema contains legacy, Drama, and Character Agent stores", () => assert.equal(NOVEL_STORES.length, LEGACY_NOVEL_STORES.length + DRAMA_STORE_NAMES.length + CHARACTER_AGENT_STORES.length));
+  test("IndexedDB schema reports current version 7", () => assert.equal(indexedDbCapability().version, 7));
+  test("repository schema contains legacy, Drama, Character Agent, and Conversation stores", () => assert.equal(NOVEL_STORES.length, LEGACY_NOVEL_STORES.length + DRAMA_STORE_NAMES.length + CHARACTER_AGENT_STORES.length + CONVERSATION_STORES.length));
   for (const store of DRAMA_STORE_NAMES) test(`IndexedDB capability contains ${store}`, () => assert(indexedDbCapability().stores.includes(store)));
   test("RC3 v4 database upgrades and persists a Drama projection", async () => {
     const idbInput = fixture("DRAMA_60_SECONDS");
@@ -310,8 +310,8 @@ function registerMigrationTests() {
     for (const store of DRAMA_STORE_NAMES) await idbRepo.list(store);
     assert(true);
   });
-  test("new backup uses v5 format", async () => { input = fixture(); repo = new MemoryNovelRepository(); await seedRepository(repo, input); service = new DramaOsService(repo); projected = await service.project(input); payload = (await createProjectBackup(repo, input.storyId, "full")).payload; assert.equal(payload.manifest.formatVersion, "novel-backup-v5"); });
-  test("new backup uses repository v6", () => assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v6"));
+  test("new backup uses v6 format", async () => { input = fixture(); repo = new MemoryNovelRepository(); await seedRepository(repo, input); service = new DramaOsService(repo); projected = await service.project(input); payload = (await createProjectBackup(repo, input.storyId, "full")).payload; assert.equal(payload.manifest.formatVersion, "novel-backup-v6"); });
+  test("new backup uses repository v7", () => assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v7"));
   for (const store of DRAMA_STORE_NAMES) test(`backup includes ${store}`, () => assert(payload.manifest.includedStores.includes(store)));
   test("backup validates", async () => assert((await validateBackupPayload(payload)).valid));
   test("backup restores as copy", async () => { restored = new MemoryNovelRepository(); const copyId = await restored.importProject(payload.records, "copy"); assert.notEqual(copyId, input.storyId); restored.copyId = copyId; });

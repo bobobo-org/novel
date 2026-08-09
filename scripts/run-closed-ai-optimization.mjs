@@ -161,6 +161,7 @@ function createOS() {
       signer: new ApprovalSigner(),
     }),
     state: new MemoryClosedAgentStateRepository(),
+    tools: createStudioClosedAgentToolRegistry(),
   });
   return { os, calls };
 }
@@ -562,6 +563,62 @@ test("Studio tools expose acceptance and approved context metadata without raw s
   assert.equal(contextResult.sources.length, 1);
   assert.equal(JSON.stringify(contextResult).includes("AUTHOR_SECRET_MUST_NOT_LEAK"), false);
   assert.equal(contextResult.rawSourceTextStored, false);
+});
+
+test("Closed Agent OS exposes one safe receipt per underlying tool without raw values", async () => {
+  const { os } = createOS();
+  const request = {
+    taskId: "optimization-tool-receipts",
+    namespace: namespace({ projectId: "project-tool-receipts" }),
+    taskType: "story.summary",
+    objective: "Summarize the approved project context.",
+    context: [{
+      id: "approved-tool-context",
+      kind: "story-bible",
+      text: "RAW_TOOL_CONTEXT_MUST_NOT_LEAK",
+      visibility: "both",
+      privacyLevel: "device_only",
+      approved: true,
+    }],
+    complexity: "light",
+    allowedToolIds: ["acceptance-checklist", "story-context-index"],
+    permissionScopes: [
+      "story:read",
+      "story-bible:read",
+      "candidate:write",
+      "candidate:read",
+      "evaluation:write",
+      "character:read",
+      "world:read",
+    ],
+  };
+  const result = await os.execute(request);
+  assert.deepEqual(
+    result.toolExecutions.map((execution) => execution.toolId),
+    ["acceptance-checklist", "story-context-index"],
+  );
+  for (const execution of result.toolExecutions) {
+    assert.equal(execution.schemaVersion, "closed-agent-tool-execution-v1");
+    assert.equal(execution.status, "completed");
+    assert.match(execution.inputDigest, /^[a-f0-9]{64}$/u);
+    assert.match(execution.contextDigest, /^[a-f0-9]{64}$/u);
+    assert.match(execution.outputDigest, /^[a-f0-9]{64}$/u);
+    assert.match(execution.receiptId, /^closed-agent-tool-receipt:[a-f0-9]{64}$/u);
+    assert.equal(execution.parentTaskId, "optimization-tool-receipts");
+    assert.match(execution.taskId, /^optimization-tool-receipts:tool:/u);
+    assert.equal(execution.externalRequest, false);
+    assert.equal(execution.dataLeftDevice, false);
+    assert.equal(execution.canonicalMutationCount, 0);
+    assert.equal(execution.rawInputStored, false);
+    assert.equal(execution.rawOutputStored, false);
+  }
+  assert.equal(new Set(result.toolExecutions.map((execution) => execution.taskId)).size, 2);
+  const safeEvidence = JSON.stringify(result.toolExecutions);
+  assert.equal(safeEvidence.includes("RAW_TOOL_CONTEXT_MUST_NOT_LEAK"), false);
+  assert.equal(safeEvidence.includes("requestedItemCount"), false);
+  const replay = await os.execute(request);
+  assert.deepEqual(replay.toolExecutions, result.toolExecutions);
+  assert.equal(replay.route.reasonCode, "IDEMPOTENT_REPLAY");
 });
 
 test("Local Bridge control probes are coalesced and session-scoped", async () => {

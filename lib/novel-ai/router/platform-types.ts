@@ -61,6 +61,8 @@ export type PlatformAIRequest = {
     topP?: number;
     maxTokens?: number;
     repetitionPenalty?: number;
+    /** Opt in to a bounded long-form scene budget with an application-level validator. */
+    substantiveScene?: boolean;
   };
   idempotencyKey?: string;
   cacheNamespace?: ClosedAINamespace;

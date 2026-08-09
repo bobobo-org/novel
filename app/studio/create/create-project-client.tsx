@@ -663,7 +663,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   if (!ready) return <main className="p2CreateShell"><p>正在讀取你的創作資料……</p></main>;
 
   if (createdId) {
-    const primaryHref = storyPlayModeDashboardHref(createdId, createdMode);
+    const primaryHref = `/studio/project/${encodeURIComponent(createdId)}/chat`;
     return (
       <main className="p2CreateShell">
         <section className="p2CreateSuccess">
@@ -673,9 +673,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <p>{message}</p>
           <div>
             <Link className="primaryAction" href={primaryHref}>
-              {createdMode === "general" ? "進入第一章寫作" : "進入第一回合"}
+              進入小說專案對話
             </Link>
-            {createdMode !== "general" ? <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>先檢查開場與正文</Link> : null}
+            {createdMode !== "general" ? <Link className="secondaryAction" href={storyPlayModeDashboardHref(createdId, createdMode)}>開啟進階玩法工作區</Link> : null}
+            <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>檢查章節正文</Link>
             <Link className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>回到作品工作台</Link>
           </div>
         </section>

@@ -1,7 +1,7 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
 import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
 import { createProjectBackup } from "./backup";
-import { RepositoryOperationError, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
+import { RepositoryOperationError, type AcceptChoiceConversationApprovalInput, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
 
 export type StudioProjectSeed = {
@@ -206,7 +206,13 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
   return { candidate: saved, current };
 }
 
-export async function acceptStudioChoice(repository: NovelRepository, candidateId: string, acceptedText: string, choiceLabel?: string | null): Promise<AcceptChoiceTransactionResult> {
+export async function acceptStudioChoice(
+  repository: NovelRepository,
+  candidateId: string,
+  acceptedText: string,
+  choiceLabel?: string | null,
+  conversationApproval?: AcceptChoiceConversationApprovalInput,
+): Promise<AcceptChoiceTransactionResult> {
   const candidate = await repository.get<ChoiceCandidate>("candidates", candidateId);
   if (!candidate) throw new Error("CANDIDATE_NOT_FOUND");
   if (candidate.storyBibleRevision == null) throw new RepositoryOperationError("CANDIDATE_STORY_BIBLE_REVISION_MISSING");
@@ -226,6 +232,7 @@ export async function acceptStudioChoice(repository: NovelRepository, candidateI
     expectedCandidateRevision: candidate.revision,
     expectedStoryStateRevision: candidate.storyStateRevision,
     expectedStoryBibleRevision: candidate.storyBibleRevision,
+    conversationApproval,
   });
 }
 

@@ -11,6 +11,7 @@ import {
   stableStringify,
 } from "./hashing";
 import type {
+  LearningImportStagingRecord,
   LearningRepositoryCommit,
   SovereignLearningRepository,
 } from "./repository";
@@ -886,6 +887,114 @@ export async function approveLearningRule(
     })],
   });
   return updated;
+}
+
+/**
+ * Approve a whole import's rules as one repository transaction.  When an
+ * import staging row is supplied, its compensation marker is extended with
+ * the approval-audit IDs in that same transaction.
+ */
+export async function approveLearningRulesAtomically(
+  repository: SovereignLearningRepository,
+  projectId: string,
+  ruleIds: string[],
+  options: { staging?: LearningImportStagingRecord } = {},
+) {
+  const selectedIds = [...new Set(ruleIds)];
+  if (!selectedIds.length) {
+    return {
+      rules: [] as LearnedNarrativeRule[],
+      audit: [] as LearningAuditRecord[],
+      staging: options.staging ?? null,
+    };
+  }
+  const pairs = await Promise.all(selectedIds.map((ruleId) =>
+    requireRuleAndSource(repository, projectId, ruleId)));
+  for (const { rule, source } of pairs) {
+    if (source.status !== "active" || rule.status === "quarantined") {
+      throw learningError("LEARNING_SOURCE_REVIEW_REQUIRED");
+    }
+    if (["rejected", "revoked"].includes(rule.status)) {
+      throw learningError("LEARNING_RULE_STATE_INVALID");
+    }
+  }
+  const selected = new Set(selectedIds);
+  const allRules = await repository.listRules(projectId);
+  const conflictGroups = new Map<string, string[]>();
+  for (const { rule } of pairs) {
+    if (!rule.conflictKey) continue;
+    conflictGroups.set(rule.conflictKey, [
+      ...(conflictGroups.get(rule.conflictKey) ?? []),
+      rule.id,
+    ]);
+  }
+  const conflictingIds = [
+    ...new Set([
+      ...[...conflictGroups.values()].filter((ids) => ids.length > 1).flat(),
+      ...pairs.flatMap(({ rule }) => rule.conflictKey
+        ? allRules
+          .filter((candidate) =>
+            !selected.has(candidate.id)
+            && candidate.status === "approved"
+            && candidate.conflictKey === rule.conflictKey)
+          .map((candidate) => candidate.id)
+        : []),
+    ]),
+  ];
+  if (conflictingIds.length) {
+    throw Object.assign(
+      new Error("LEARNING_RULE_CONFLICT_REQUIRES_RESOLUTION"),
+      { code: "LEARNING_RULE_CONFLICT_REQUIRES_RESOLUTION", conflictRuleIds: conflictingIds },
+    );
+  }
+  const updatedAt = now();
+  const newlyApprovedIds = new Set(pairs
+    .filter(({ rule }) => rule.status !== "approved")
+    .map(({ rule }) => rule.id));
+  const rules = pairs.map(({ rule }): LearnedNarrativeRule => rule.status === "approved"
+    ? rule
+    : {
+      ...rule,
+      status: "approved",
+      approvedAt: updatedAt,
+      updatedAt,
+      revision: rule.revision + 1,
+    });
+  const audit = pairs
+    .filter(({ rule }) => newlyApprovedIds.has(rule.id))
+    .map(({ rule, source }) => auditRecord({
+      projectId,
+      action: "rule_approved",
+      sourceId: source.id,
+      ruleId: rule.id,
+    }));
+  let staging = options.staging ?? null;
+  if (staging) {
+    if (
+      staging.projectId !== projectId
+      || !staging.formalCommit
+      || selectedIds.some((ruleId) => !staging!.formalCommit!.ruleIds.includes(ruleId))
+    ) {
+      throw learningError("LEARNING_IMPORT_APPROVAL_STAGING_INVALID");
+    }
+    staging = {
+      ...staging,
+      formalCommit: {
+        ...staging.formalCommit,
+        auditIds: [...new Set([...staging.formalCommit.auditIds, ...audit.map((row) => row.id)])],
+      },
+      updatedAt,
+      revision: staging.revision + 1,
+    };
+  }
+  if (audit.length) {
+    await repository.commit({
+      rules: rules.filter((rule) => newlyApprovedIds.has(rule.id)),
+      audit,
+      staging: staging ? [staging] : undefined,
+    });
+  }
+  return { rules, audit, staging };
 }
 
 export async function rejectLearningRule(

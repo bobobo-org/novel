@@ -15,6 +15,7 @@ import {
 
 // 保留既有的二欄導覽契約；顯示細節另外附加，避免新增介面破壞舊版驗證。
 const PROJECT_LINKS = [
+  ["chat","專案對話"],
   ["write","寫作"],
   ["ai","AI 創作"],
   ["closed-ai","閉端 AI 中心"],
@@ -35,6 +36,7 @@ const PROJECT_LINK_PRESENTATION: Record<(typeof PROJECT_LINKS)[number][0], {
   short: string;
   icon: string;
 }> = {
+  chat: { short: "對話", icon: "✦" },
   write: { short: "寫作", icon: "✦" },
   ai: { short: "AI 創作", icon: "AI" },
   "closed-ai": { short: "AI 中心", icon: "◉" },
@@ -124,7 +126,7 @@ export default function ProjectNavigation({
           ? STORY_PLAY_MODE_LABELS[playMode].replace("養成", "").replace("模擬", "")
           : short;
         const href = path === "ai"
-          ? `/studio/project/${projectId}/write?assistant=advanced#writing-ai`
+          ? `/studio/project/${projectId}/chat?prompt=${encodeURIComponent("請協助我續寫、改寫或分析目前小說。")}`
           : `/studio/project/${projectId}/${path}`;
         return (
           <Link

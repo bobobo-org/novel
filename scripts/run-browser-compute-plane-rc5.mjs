@@ -79,6 +79,9 @@ import {
 } from "../lib/novel-ai/web/closed-agent-os-service.ts";
 import { adaptStudioProfileForExplicitLocalCompute } from "../lib/novel-ai/web/studio-local-performance-policy.ts";
 import {
+  buildSubstantiveSceneContinuationPrompt,
+  measureSubstantiveScene,
+  mergeSubstantiveSceneContinuation,
   repairLocalProseCompletionBoundary,
   resolveLocalOllamaPerformanceBudget,
 } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
@@ -939,6 +942,40 @@ test("studio-explicit-local-compute-selection", () => {
     taskType: "chapter.continue",
     modelId: "qwen2.5:3b",
     qualityPreference: "fast",
+    requestedMaxTokens: 1_792,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+  }).maxOutputTokens, 640);
+  assert.deepEqual(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
+    requestedMaxTokens: 1_792,
+    profileMaxTokens: 1_792,
+    profileMaxInputCharacters: 16_000,
+    substantiveScene: true,
+  }), {
+    smallLocalModel: true,
+    maxInputCharacters: 8_000,
+    maxOutputTokens: 1_792,
+  });
+  const shortScene = Array.from(
+    { length: 8 },
+    (_, index) => `第${index + 1}段人物採取行動，阻力隨即改變現場，也留下必須處理的後果。`,
+  ).join("\n\n");
+  const continuationPlan = buildSubstantiveSceneContinuationPrompt(shortScene);
+  assert.ok(continuationPlan.metrics.narrativeLength < 1_000);
+  assert.match(continuationPlan.prompt, /EXISTING_STORY_REFERENCE/u);
+  const supplement = "新的壓力沿著牆面傳來，人物沒有重述先前行動，而是辨認出口與同伴反應。".repeat(12);
+  const mergedScene = mergeSubstantiveSceneContinuation(shortScene, supplement);
+  const mergedMetrics = measureSubstantiveScene(mergedScene);
+  assert.ok(mergedMetrics.narrativeLength > continuationPlan.metrics.narrativeLength);
+  assert.equal(mergedMetrics.paragraphCount, 8);
+  assert.ok(mergedMetrics.narrativeLength <= 1_450);
+  assert.equal(resolveLocalOllamaPerformanceBudget({
+    taskType: "chapter.continue",
+    modelId: "qwen2.5:3b",
+    qualityPreference: "fast",
     profileMaxTokens: 1_792,
     profileMaxInputCharacters: 16_000,
   }).maxOutputTokens, 160);
@@ -1110,6 +1147,19 @@ test("bounded-local-terminal-quality-repair", () => {
   assert.equal(repairedRequest.generationOptions.maxTokens, 360);
   assert.notEqual(repairedRequest.generationOptions.seed, request.generationOptions.seed);
   assert.match(repairedRequest.input, /完整替代正文/u);
+
+  const substantiveRepair = boundedLocalQualityRepairRequest({
+    ...request,
+    generationOptions: {
+      ...request.generationOptions,
+      maxTokens: 1_792,
+      substantiveScene: true,
+    },
+  }, ["QUALITY_NARRATIVE_TOO_SHORT"]);
+  assert.equal(substantiveRepair.generationOptions.maxTokens, 1_792);
+  assert.equal(substantiveRepair.generationOptions.substantiveScene, true);
+  assert.match(substantiveRepair.input, /900 至 1,600/u);
+  assert.doesNotMatch(substantiveRepair.input, /二百二十至三百二十/u);
 });
 
 test("no-silent-fallback", () => {
@@ -1432,9 +1482,9 @@ test("regeneration", async () => {
 test("production-acceptance", async () => {
   const manifest = JSON.parse(readFileSync(resolve(root, "release-manifest.json"), "utf8"));
   assert.deepEqual(manifest, {
-    releaseTag: "novel-ai-p24b-browser-sovereign-ai-fabric-rc5",
-    releaseName: "P2.4B Browser Sovereign AI Fabric RC5",
-    consumerRelease: "p2.4b-browser-sovereign-ai-fabric-rc5",
+    releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
+    releaseName: "P2.4B Conversation-First Novel Project GPT RC6",
+    consumerRelease: "p2.4b-conversation-first-studio-rc6",
     architectureStage: "P2.4B RC",
     buildTime: "2026-08-02T12:00:00+08:00",
   });

@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - agent/browser-sovereign-ai-fabric-rc5
+      - agent/p24b-rc6-conversation-first
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -41,80 +41,155 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
-      - name: Install pnpm
-        run: npm install --global pnpm@10
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install locked Chromium for browser gates
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Initialize ephemeral CI evidence
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/rc6-evidence"
+
+      - name: Verify RC6 release hardening
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:ci:rc6-release-hardening 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/release-hardening.log"
+
+      - name: Run RC6 conversation-first gates
+        run: |
+          set -euo pipefail
+          {
+            pnpm test:studio:conversation-first-contract
+            pnpm test:studio:conversation-first-browser
+            pnpm test:studio:conversation-mobile
+            pnpm test:studio:conversation-persistence
+            pnpm test:studio:conversation-backup
+            pnpm test:studio:conversation-branching
+            pnpm test:studio:conversation-approval
+            pnpm test:studio:conversation-rpg
+            pnpm test:ai:conversation-project-memory
+            pnpm test:ai:conversation-tool-routing
+            pnpm test:ai:conversation-security
+            pnpm test:ai:manual-learning-file-contract
+            pnpm test:ai:manual-learning-import-transaction
+            pnpm test:ai:manual-learning-worker
+            pnpm test:ai:manual-learning-global-synthesis
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/conversation-gates.log"
+
       - name: Run required product suites
         run: |
           set -euo pipefail
-          pnpm test:ai:p24b:all
-          pnpm test:ai:p24b-rc3-1-regeneration
-          pnpm test:ai:closed:unified-os
-          pnpm test:ai:closed:web-operability
-          pnpm test:ai:closed:optimization
-          pnpm test:ai:external:modes
-          pnpm test:ai:external:request-guard
-          pnpm test:ai:closed:cloud-sync
-          pnpm test:ai:closed:model-verification-timeout
-          pnpm test:ai:closed:super-agent-rpg
-          pnpm test:ai:closed:cache-runtime
-          pnpm test:ai:closed:controlled-learning-runtime
-          pnpm test:ai:closed-ai-runtime-r2
-          pnpm test:p12
-          pnpm test:studio:chapter-isolation
-          pnpm test:studio:writing-flow
-          pnpm test:studio:task-session-rpg-ai
-          pnpm test:ai:p15:consumer-platform
-          pnpm test:ai:p21:three-high
+          {
+            pnpm test:ai:p24b:all
+            pnpm test:ai:p24b-rc3-1-regeneration
+            pnpm test:ai:closed:unified-os
+            pnpm test:ai:closed:web-operability
+            pnpm test:ai:closed:optimization
+            pnpm test:ai:external:modes
+            pnpm test:ai:external:request-guard
+            pnpm test:ai:closed:cloud-sync
+            pnpm test:ai:closed:model-verification-timeout
+            pnpm test:ai:closed:super-agent-rpg
+            pnpm test:ai:closed:cache-runtime
+            pnpm test:ai:closed:controlled-learning-runtime
+            pnpm test:ai:closed-ai-runtime-r2
+            pnpm test:p12
+            pnpm test:studio:chapter-isolation
+            pnpm test:studio:writing-flow
+            pnpm test:studio:task-session-rpg-ai
+            pnpm test:ai:p15:consumer-platform
+            pnpm test:ai:p21:three-high
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/product-regressions.log"
 
       - name: Run PR23 R2.1 truth gates
         run: |
           set -euo pipefail
-          pnpm test:ai:indexeddb-blocked-byte-preservation
-          pnpm test:ai:indexeddb-blocked-ui-write-gate
-          pnpm test:ai:daily-backup-marker-after-success
-          pnpm test:ai:quick-assistant-canonical-approval
-          pnpm test:ai:actual-executor-truth
-          pnpm test:ai:legacy-health-cannot-claim-closed-runtime
-          pnpm test:ci:dual-alias-rollback
-          pnpm test:ci:workflow-contract
+          {
+            pnpm test:ai:indexeddb-blocked-byte-preservation
+            pnpm test:ai:indexeddb-blocked-ui-write-gate
+            pnpm test:ai:daily-backup-marker-after-success
+            pnpm test:ai:quick-assistant-canonical-approval
+            pnpm test:ai:actual-executor-truth
+            pnpm test:ai:legacy-health-cannot-claim-closed-runtime
+            pnpm test:ci:dual-alias-rollback
+            pnpm test:ci:workflow-contract
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/truth-gates.log"
 
       - name: Verify secrets, Companion ZIP, and evidence schemas
         run: |
           set -euo pipefail
-          pnpm test:ai:p24b:secret-scan
-          pnpm test:ci:companion-zip-content
-          pnpm test:ci:evidence-schema
-          pnpm test:ci:production-supabase-bootstrap
-          pnpm test:ci:production-external-ai-bootstrap
+          {
+            pnpm test:ai:p24b:secret-scan
+            pnpm test:ci:companion-zip-content
+            pnpm test:ci:evidence-schema
+            pnpm test:ci:production-supabase-bootstrap
+            pnpm test:ci:production-external-ai-bootstrap
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/security-and-evidence.log"
 
       - name: Typecheck
-        run: pnpm exec tsc --noEmit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm exec tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/typecheck.log"
 
       - name: Lint
-        run: pnpm lint
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm lint:ci 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/lint.log"
 
       - name: Build
-        run: pnpm build
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/build.log"
+
+      - name: Write exact-SHA evidence manifest
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/rc6-evidence"
+          jq -n \
+            --arg schemaVersion "p24b-rc6-actions-evidence-v1" \
+            --arg headSha "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg jobStatus "${{ job.status }}" \
+            '{schemaVersion:$schemaVersion,headSha:$headSha,ref:$ref,runId:$runId,runAttempt:$runAttempt,jobStatus:$jobStatus,rawUploadsIncluded:false}' \
+            > "$RUNNER_TEMP/rc6-evidence/manifest.json"
+
+      - name: Upload RC6 validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: p24b-rc6-validation-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rc6-evidence
+          if-no-files-found: error
+          retention-days: 30
 
   preview:
     name: preview
     needs: validate
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/agent/browser-sovereign-ai-fabric-rc5')
+      (github.event_name == 'push' && github.ref == 'refs/heads/agent/p24b-rc6-conversation-first')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -124,35 +199,40 @@ jobs:
       VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout trusted Preview head
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
 
       - name: Install Preview deployment tooling
-        run: npm install --global pnpm@10 vercel@56.3.2
+        run: pnpm install --frozen-lockfile
 
       - name: Pull Vercel environment (Preview)
-        run: vercel pull --yes --environment=preview --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel pull --yes --environment=preview --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
 
       - name: Build Preview
-        run: vercel build --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel build --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
 
       - name: Deploy isolated Preview
         id: preview
         shell: bash
         run: |
           set -euo pipefail
-          output="$(vercel deploy --prebuilt --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
+          output="$(pnpm exec vercel deploy --prebuilt --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
-          echo "::notice title=RC5 Preview URL::$deployment_url"
+          echo "::notice title=RC6 Preview URL::$deployment_url"
 
       - name: Verify Preview release identity
         shell: bash
@@ -168,8 +248,8 @@ jobs:
               environment="$(jq -r '.environment // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
-              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-browser-sovereign-ai-fabric-rc5" ]]; then
-                printf '### RC5 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-conversation-first-studio-rc6" ]]; then
+                printf '### RC6 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
             fi
@@ -193,17 +273,22 @@ jobs:
       XAI_MODEL_ID: grok-4.5
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
 
       - name: Install Vercel environment tooling
-        run: npm install --global vercel@56.3.2
+        run: pnpm install --frozen-lockfile
 
       - name: Verify and recover Production Supabase environment
         run: node scripts/bootstrap-production-supabase-env.mjs
@@ -222,14 +307,14 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Restore and verify both production aliases
         env:
@@ -251,17 +336,19 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
-      - name: Install deployment tooling
-        run: npm install --global pnpm@10 vercel@56.3.2
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
 
       - name: Install project dependencies
         run: pnpm install --frozen-lockfile
@@ -273,7 +360,7 @@ jobs:
 
       - name: Pull Vercel environment (production)
         if: github.ref == 'refs/heads/main'
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Provision and verify encrypted cloud sync private storage
         if: github.ref == 'refs/heads/main'
@@ -281,7 +368,7 @@ jobs:
 
       - name: Build (production)
         if: github.ref == 'refs/heads/main'
-        run: vercel build --prod --token="$VERCEL_TOKEN"
+        run: pnpm exec vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy staged production
         if: github.ref == 'refs/heads/main'
@@ -289,7 +376,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          output="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN" 2>&1)"
+          output="$(pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN" 2>&1)"
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"

@@ -136,7 +136,7 @@ const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "story.plotCandidate": "產生三個互斥但都符合 Canon 的後續分支；各列觸發事件、人物選擇、短期結果、長期代價與回接主線方式。",
   "story.endingPlan": "提出結局方案，逐一處理核心衝突、角色弧線、伏筆、主題回聲與最後代價；標出仍未解決的線索。",
   "chapter.outline": "建立可執行章節大綱：開場狀態、場景節拍、衝突升級、關鍵選擇、代價、章尾鉤子與下一章接口。",
-  "chapter.continue": "直接續寫小說正文；從最後一句之後的新瞬間開始，第一句承接最後可見動作、場景或人物反應，以人物選擇和代價推進。不可摘錄、重排、縮寫或改述已有正文，至少推進一個新事件並造成一項新後果。只准輸出敘事正文，禁止輸出提問、分析、建議、爭議環節、條列清單、標題或創作方法。",
+  "chapter.continue": "直接續寫小說正文；從最後一句之後的新瞬間開始，第一句承接最後可見動作、場景或人物反應，以人物選擇和代價推進。不可摘錄、重排、縮寫或改述已有正文，至少推進一個新事件並造成一項新後果。只准輸出敘事正文，禁止輸出提問、分析、建議、爭議環節、條列清單、未經任務明確要求的標題或創作方法。",
   "chapter.rewrite": "保留必要事實、角色意圖與因果，依作者目標完整改寫指定文字；只輸出可替換正文。",
   "chapter.expand": "把指定片段擴成完整場景，增加可見動作、感官、空間、對話潛台詞與後果，但不新增未核准設定。",
   "chapter.abcChoices": "只輸出一個合法 JSON 物件，根層只能有 choices。choices 必須恰好包含 A、B、C 三項且彼此不同；每項必須有 key、title、description、consequence、continuityReason，並符合 Canon、角色可執行行動與明確代價。各欄務必精煉：title 3–18 字、description 18–72 字、consequence 8–44 字、continuityReason 8–50 字。不得加入前言、結語、第四個選項或 Markdown 程式碼區塊。",

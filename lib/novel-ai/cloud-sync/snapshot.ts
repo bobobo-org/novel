@@ -28,9 +28,23 @@ const SENSITIVE_KEYS = new Set([
   "endpoint",
   "baseurl",
   "connectionstring",
+  "pairingsecret",
+  "systemprompt",
+  "chainofthought",
+  "rawreasoning",
 ]);
 
-const CREDENTIAL_PATTERN = /\b(?:vcp|sbp|sk|gh[pousr])_[A-Za-z0-9_-]{16,}\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*\b/iu;
+const TRANSIENT_ATTACHMENT_KEYS = new Set([
+  "rawcontent",
+  "rawbytes",
+  "arraybuffer",
+  "parsedtext",
+  "fulltext",
+  "filehandle",
+  "blob",
+]);
+
+const CREDENTIAL_PATTERN = /\b(?:vcp|sbp|gh[pousr])_[A-Za-z0-9_-]{16,}\b|\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*\b/iu;
 
 function stableStringifyInternal(value: unknown): string {
   if (Array.isArray(value)) {
@@ -73,6 +87,11 @@ function isDeviceOnlyRecord(value: unknown) {
     || record.privateSimulation === true
     || record.private_simulation === true
     || record.privateMode === true
+    || record.deviceOnly === true
+    || record.device_only === true
+    || record.localOnly === true
+    || record.local_only === true
+    || record.rawContentRetained === true
     || record.mode === "private_simulation"
     || record.canonType === "PRIVATE_SIMULATION"
     || record.originType === "PRIVATE_SIMULATION"
@@ -94,6 +113,7 @@ function sanitizeValue(
     const normalizedKey = key.replace(/[_-]/gu, "").toLowerCase();
     if (
       SENSITIVE_KEYS.has(normalizedKey)
+      || TRANSIENT_ATTACHMENT_KEYS.has(normalizedKey)
       || normalizedKey.startsWith("private")
       || normalizedKey.startsWith("authoronly")
     ) {
@@ -101,6 +121,10 @@ function sanitizeValue(
       continue;
     }
     output[key] = sanitizeValue(item, counters);
+  }
+  if ((value as Record<string, unknown>).conversationSchemaVersion === "conversation-attachment-v1") {
+    output.rawContentRetained = false;
+    output.localAnalysisOnly = true;
   }
   return output;
 }

@@ -97,7 +97,12 @@ import {
   saveStudioChapter,
   type StudioProjectSeed,
 } from "@/lib/novel-ai/repository/studio-canonical";
-import { createProjectBackup, validateBackupPayload, type BackupPayload } from "@/lib/novel-ai/repository/backup";
+import {
+  createProjectBackup,
+  restoreProjectBackup,
+  validateBackupPayload,
+  type BackupPayload,
+} from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 import {
   EXTERNAL_AI_PROVIDER_IDS,
@@ -1367,7 +1372,8 @@ export default function StudioClient({
         chapterTitle: project.chapterTitle,
       });
       setTaskHandoff(handoff);
-      window.location.assign(destinationHref);
+      if (replace) window.location.replace(destinationHref);
+      else window.location.assign(destinationHref);
     } catch (error) {
       alert(`${error instanceof Error ? error.message : "目前內容尚未安全儲存"}\n\n系統已留在原頁，沒有跳到其他任務。`);
     } finally {
@@ -1656,7 +1662,11 @@ export default function StudioClient({
     if (snapshot.formalPayload) {
       const validated = await validateBackupPayload(snapshot.formalPayload);
       if (!validated.valid) throw new Error(validated.reason);
-      const newId = await repositoryRef.current!.importProject(validated.payload.records, "copy");
+      const newId = await restoreProjectBackup(
+        repositoryRef.current!,
+        validated.payload,
+        "copy",
+      );
       const hydrated = await hydrateCanonicalStudio(repositoryRef.current!, { ...state, activeProjectId: newId });
       setState(hydrated);
       return;
@@ -1697,7 +1707,12 @@ export default function StudioClient({
       const validated = await validateBackupPayload(record.formalPayload);
       if (!validated.valid) throw new Error(validated.reason);
       if (!asCopy) await createProjectBackup(repositoryRef.current!, project.id, "safety", release);
-      const restoredId = await repositoryRef.current!.importProject(validated.payload.records, asCopy ? "copy" : "replace", asCopy ? undefined : project.id);
+      const restoredId = await restoreProjectBackup(
+        repositoryRef.current!,
+        validated.payload,
+        asCopy ? "copy" : "replace",
+        asCopy ? undefined : project.id,
+      );
       setState(await hydrateCanonicalStudio(repositoryRef.current!, { ...state, activeProjectId: restoredId }));
       return;
     }

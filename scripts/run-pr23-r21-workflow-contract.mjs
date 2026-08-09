@@ -56,11 +56,11 @@ assert.match(
 );
 assert.match(
   previewJob,
-  /github\.event_name == 'push' && github\.ref == 'refs\/heads\/agent\/browser-sovereign-ai-fabric-rc5'/u,
+  /github\.event_name == 'push' && github\.ref == 'refs\/heads\/agent\/p24b-rc6-conversation-first'/u,
 );
 assert.match(
   globalConfiguration,
-  /branches:[\s\S]*- main[\s\S]*- agent\/browser-sovereign-ai-fabric-rc5/u,
+  /branches:[\s\S]*- main[\s\S]*- agent\/p24b-rc6-conversation-first/u,
 );
 for (const secret of [
   "VERCEL_TOKEN",
@@ -76,6 +76,7 @@ assert.match(
 );
 assert.match(previewJob, /environment=preview/u);
 assert.match(previewJob, /vercel deploy --prebuilt/u);
+assert.match(previewJob, /pnpm exec vercel deploy --prebuilt/u);
 assert.match(previewJob, /\/api\/release\/identity/u);
 assert.doesNotMatch(previewJob, /--prod/u);
 assert.doesNotMatch(previewJob, /vercel\s+alias/u);
@@ -125,6 +126,7 @@ assert.match(deployJob, /private-object-storage/u);
 
 const requiredCommands = [
   "pnpm install --frozen-lockfile",
+  "pnpm test:ci:rc6-release-hardening",
   "pnpm test:ai:p24b:all",
   "pnpm test:ai:closed:unified-os",
   "pnpm test:ai:closed:web-operability",
@@ -151,7 +153,7 @@ const requiredCommands = [
   "pnpm test:ci:production-supabase-bootstrap",
   "pnpm test:ci:production-external-ai-bootstrap",
   "pnpm exec tsc --noEmit",
-  "pnpm lint",
+  "pnpm lint:ci",
   "pnpm build",
 ];
 for (const command of requiredCommands) {
@@ -163,8 +165,13 @@ const uses = [...workflow.matchAll(/uses:\s*([^\s]+)/gu)]
 assert.ok(uses.length >= 4);
 assert.ok(uses.every((value) => /@[a-f0-9]{40}$/u.test(value)));
 assert.ok(uses.every((value) =>
-  value === "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-  || value === "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"));
+  value === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+  || value === "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+  || value === "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"));
+
+assert.match(workflow, /corepack prepare pnpm@10\.34\.5 --activate/u);
+assert.doesNotMatch(workflow, /npm install --global/u);
+assert.doesNotMatch(workflow, /(?<!pnpm exec )vercel (?:pull|build|deploy)/u);
 
 assert.match(deployJob, /\/api\/release\/identity/u);
 assert.doesNotMatch(deployJob, /\/api\/ai\/health/u);

@@ -70,7 +70,7 @@ import { CHARACTER_AGENT_STORE_NAMES } from "../lib/novel-ai/character-agent/rep
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { IndexedDbNovelRepository, indexedDbCapability } from "../lib/novel-ai/repository/indexeddb/indexeddb-repository.ts";
 import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repository/backup.ts";
-import { CHARACTER_AGENT_STORES, NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
+import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, DRAMA_STORES, NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
 import { validateImportRecords } from "../lib/novel-ai/repository/import-remap.ts";
 import { resolvePlatformProvider } from "../lib/novel-ai/router/platform-router.ts";
 import { CAPABILITY_REGISTRY } from "../lib/novel-ai/capabilities/capability-registry.ts";
@@ -902,8 +902,8 @@ async function semanticSnapshot(repo, projectId) {
 function registerMigrationTests() {
   test("migration", "all fourteen required Character Agent stores exist", () => assert.equal(CHARACTER_AGENT_STORE_NAMES.length, 14));
   test("migration", "repository includes all Character Agent stores", () => assert(CHARACTER_AGENT_STORES.every((store) => NOVEL_STORES.includes(store))));
-  test("migration", "IndexedDB schema is v6", () => assert.equal(indexedDbCapability().version, 6));
-  test("migration", "IndexedDB v5 upgrades to v6 without losing P2.4A project data", async () => {
+  test("migration", "IndexedDB schema is v7", () => assert.equal(indexedDbCapability().version, 7));
+  test("migration", "IndexedDB v5 upgrades to v7 without losing P2.4A project data", async () => {
     const database = indexedDbCapability().database;
     await new Promise((resolve, reject) => { const request = indexedDB.deleteDatabase(database); request.onsuccess = resolve; request.onerror = () => reject(request.error); });
     const projectId = crypto.randomUUID();
@@ -926,7 +926,36 @@ function registerMigrationTests() {
   test("migration", "IndexedDB concurrent approval has no duplicate", async () => { const repo = new IndexedDbNovelRepository(); const { request, f } = await approvalFixture(repo); const results = await Promise.all(Array.from({ length: 10 }, () => repo.approveCharacterProposalTransaction(request))); assert.equal(results.filter((result) => !result.replayed).length, 1); assert.equal((await repo.list("characterAgentApprovals", f.projectId)).length, 1); });
   test("migration", "IndexedDB stale relationship revision blocks approval", async () => { const repo = new IndexedDbNovelRepository(); const { request, f } = await approvalFixture(repo); const edge = f.relationships[0]; await repo.put("characterRelationships", { ...edge, trust: edge.trust + 1 }, edge.revision); await assert.rejects(() => repo.approveCharacterProposalTransaction(request), /STALE_RELATIONSHIP_REVISION/); assert.equal((await repo.list("characterAgentApprovals", f.projectId)).length, 0); });
   test("migration", "IndexedDB injected Character write fault rolls back transaction", async () => { let enabled = false; const repo = new IndexedDbNovelRepository({ approvalFaultInjector: (point) => { if (enabled && point === "after:characterMemories") throw new Error("INDEXEDDB_FAULT"); } }); const { request, f } = await approvalFixture(repo); const before = await semanticSnapshot(repo, f.projectId); enabled = true; await assert.rejects(() => repo.approveCharacterProposalTransaction(request), /INDEXEDDB_FAULT/); assert.equal(await semanticSnapshot(repo, f.projectId), before); });
-  test("migration", "new backup uses v5 format", async () => { const f = await fixture(); const repo = new MemoryNovelRepository(); await seedRepository(repo, f); const { payload } = await createProjectBackup(repo, f.projectId, "full"); assert.equal(payload.manifest.formatVersion, "novel-backup-v5"); assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v6"); });
+  test("migration", "new backup uses v6 format", async () => { const f = await fixture(); const repo = new MemoryNovelRepository(); await seedRepository(repo, f); const { payload } = await createProjectBackup(repo, f.projectId, "full"); assert.equal(payload.manifest.formatVersion, "novel-backup-v6"); assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v7"); });
+  for (const compatibility of [
+    { formatVersion: "novel-backup-v3", projectSchemaVersion: "novel-repository-v4", excludedStores: [...DRAMA_STORES, ...CHARACTER_AGENT_STORES, ...CONVERSATION_STORES] },
+    { formatVersion: "novel-backup-v4", projectSchemaVersion: "novel-repository-v5", excludedStores: [...CHARACTER_AGENT_STORES, ...CONVERSATION_STORES] },
+    { formatVersion: "novel-backup-v5", projectSchemaVersion: "novel-repository-v6", excludedStores: [...CONVERSATION_STORES] },
+    { formatVersion: "novel-backup-v6", projectSchemaVersion: "novel-repository-v7", excludedStores: [] },
+  ]) {
+    test("migration", `${compatibility.formatVersion} restore remains backward compatible`, async () => {
+      const f = await fixture();
+      const repo = new MemoryNovelRepository();
+      await seedRepository(repo, f);
+      const current = (await createProjectBackup(repo, f.projectId, "full")).payload;
+      const excluded = new Set(compatibility.excludedStores);
+      const records = Object.fromEntries(Object.entries(current.records).filter(([store]) => !excluded.has(store)));
+      const manifest = {
+        ...current.manifest,
+        formatVersion: compatibility.formatVersion,
+        projectSchemaVersion: compatibility.projectSchemaVersion,
+        includedStores: Object.keys(records),
+        recordCounts: Object.fromEntries(Object.entries(records).map(([store, rows]) => [store, rows.length])),
+        contentHash: await hash(stableStringify(records)),
+      };
+      const validation = await validateBackupPayload({ manifest, records });
+      assert.equal(validation.valid, true, validation.valid ? "" : validation.reason);
+      const restored = new MemoryNovelRepository();
+      const restoredProjectId = await restored.importProject(records, "copy");
+      assert(restoredProjectId);
+      assert.equal((await restored.list("projects", restoredProjectId)).length, 1);
+    });
+  }
   test("migration", "new backup includes every Character Agent store", async () => { const f = await fixture(); const repo = new MemoryNovelRepository(); await seedRepository(repo, f); const { payload } = await createProjectBackup(repo, f.projectId, "full"); assert(CHARACTER_AGENT_STORES.every((store) => payload.manifest.includedStores.includes(store))); });
   test("migration", "new backup validates checksum", async () => { const f = await fixture(); const repo = new MemoryNovelRepository(); await seedRepository(repo, f); assert.equal((await validateBackupPayload((await createProjectBackup(repo, f.projectId, "full")).payload)).valid, true); });
   test("migration", "corrupt backup is rejected", async () => { const f = await fixture(); const repo = new MemoryNovelRepository(); await seedRepository(repo, f); const { payload } = await createProjectBackup(repo, f.projectId, "full"); payload.records.characters[0].name = "corrupt"; assert.equal((await validateBackupPayload(payload)).valid, false); });

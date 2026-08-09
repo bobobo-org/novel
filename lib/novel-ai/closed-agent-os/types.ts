@@ -285,6 +285,30 @@ export type ClosedAIExecutionReceipt = {
   tokensSaved?: number;
 };
 
+export type ClosedAgentToolExecutionEvidence = {
+  schemaVersion: "closed-agent-tool-execution-v1";
+  receiptId: string;
+  taskId: string;
+  parentTaskId: string;
+  taskType: PlatformTaskType;
+  toolId: string;
+  role: ClosedAgentRole;
+  status: "completed";
+  inputDigest: string;
+  contextDigest: string;
+  outputDigest: string;
+  startedAt: string;
+  completedAt: string;
+  latencyMs: number;
+  actualExecutor: "closed-agent-os:tool-registry" | "closed-agent-os:tool-cache";
+  cacheHit: boolean;
+  externalRequest: false;
+  dataLeftDevice: false;
+  canonicalMutationCount: 0;
+  rawInputStored: false;
+  rawOutputStored: false;
+};
+
 export type ClosedAgentCandidate = {
   schemaVersion: typeof CLOSED_AGENT_OS_SCHEMA_VERSION;
   kind: "candidate";
@@ -303,6 +327,7 @@ export type ClosedAgentCandidate = {
   sourceRevision: number | null;
   actualExecutor: string | "not_executed";
   executionReceipt: ClosedAIExecutionReceipt | null;
+  toolExecutions?: ClosedAgentToolExecutionEvidence[];
   contextDigest?: string;
   contextSourceSummary?: string;
   dataLeftDevice?: boolean;
@@ -387,6 +412,7 @@ export type ClosedAgentExecutionResult = {
   task: ClosedAgentTaskRecord;
   candidate: ClosedAgentCandidate;
   plan: ClosedAgentPlan;
+  toolExecutions: ClosedAgentToolExecutionEvidence[];
   route: {
     backendId: ClosedAIBackendId;
     locked: true;

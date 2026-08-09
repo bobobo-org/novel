@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { BRIDGE_PROTOCOL } from "../local-ai/bridge/bridge-core.mjs";
 import { createBridgeServer } from "../local-ai/bridge/server.mjs";
 import {
+  buildSubstantiveSceneContinuationPrompt,
+  mergeSubstantiveSceneContinuation,
   resolveLocalOllamaPerformanceBudget,
 } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 import {
@@ -12,6 +14,7 @@ import {
 import {
   buildRpgResolutionDirectorPrompt,
   cleanRpgContinuation,
+  validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import {
   humanizedSerialFictionInstruction,
@@ -20,7 +23,7 @@ import {
 const origin = "http://127.0.0.1:3000";
 const port = Number(process.env.RPG_RESOLUTION_REAL_TEST_PORT || 33_418);
 const base = `http://127.0.0.1:${port}`;
-const requestedMaxTokens = Number(process.env.RPG_REAL_REQUESTED_TOKENS || 640);
+const requestedMaxTokens = Number(process.env.RPG_REAL_REQUESTED_TOKENS || 1_792);
 const bridge = createBridgeServer({ testMode: true, port });
 
 const publicHeaders = {
@@ -47,6 +50,7 @@ async function readGeneration(response) {
   let content = "";
   let generatedTokenEvents = 0;
   let firstTokenMs = null;
+  let completed = false;
   const startedAt = performance.now();
   while (true) {
     const { value, done } = await reader.read();
@@ -68,8 +72,10 @@ async function readGeneration(response) {
           { code: event.errorCode || "LOCAL_GENERATION_FAILED" },
         );
       }
+      if (event.type === "completed") completed = true;
     }
   }
+  assert.equal(completed, true, "Bridge generation stream must reach completed");
   return { content, firstTokenMs, generatedTokenEvents };
 }
 
@@ -100,6 +106,7 @@ try {
   const model = models.models.find((item) => /^qwen2\.5:3b$/iu.test(item.modelId))
     ?? models.models.find((item) => /qwen2\.5.*3b/iu.test(item.modelId));
   assert.ok(model?.modelId, "qwen2.5:3b must be installed for the real RPG gate");
+  assert.match(String(model.modelDigest || ""), /^[a-f0-9]{64}$/iu, "qwen2.5:3b must expose a verified model digest");
 
   const profile = getClosedAIModelProfile("chapter.continue", "local-ollama");
   const budget = resolveLocalOllamaPerformanceBudget({
@@ -109,6 +116,7 @@ try {
     requestedMaxTokens,
     profileMaxTokens: profile.options.num_predict,
     profileMaxInputCharacters: profile.maxInputCharacters,
+    substantiveScene: true,
   });
   const resolutionPrompt = buildRpgResolutionDirectorPrompt({
     context: {
@@ -132,20 +140,17 @@ try {
       successChance: 55,
       settlement: ["行動點 -1", "靈力 -2", "金幣 -80", "EXP +45", "執法隊警戒 +1"],
     },
+    language: "zh-TW",
   });
   const baseObjective = [
     resolutionPrompt,
-    "請以繁體中文寫出 6 至 10 個連續段落、至少 500 個中文字的候選正文；必須完成本場景的新事件、人物反應、可見代價與直接後果。",
-    humanizedSerialFictionInstruction("chapter.continue", 750),
+    humanizedSerialFictionInstruction("chapter.continue", 1_600),
   ].join("\n\n");
   const startedAt = performance.now();
   const attempts = [];
   let accepted = null;
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const repairRequirement = attempt === 1
-      ? ""
-      : "\n\n前一版不合格。務必使用繁體中文寫滿 6 至 10 個連續段落且至少 500 個中文字，每段至少兩句，依序呈現行動落地、人物反應、代價發生，以及下回合可處理的新局勢；只輸出小說正文。";
+  for (let attempt = 1; attempt <= 1; attempt += 1) {
     const effectiveProfile = {
       ...profile,
       maxInputCharacters: budget.maxInputCharacters,
@@ -155,12 +160,13 @@ try {
         temperature: 0.72,
         top_p: 0.92,
         repeat_penalty: 1.12,
-        num_ctx: 4_096,
+        num_ctx: 8_192,
         seed: 240503 + (attempt - 1) * 104729,
       },
+      timeoutMs: Math.max(profile.timeoutMs, 240_000),
     };
     const built = buildClosedAIModelPrompt({
-      objective: `${baseObjective}${repairRequirement}`,
+      objective: baseObjective,
       context: [
         "目前章節：雨水沿著沈曜的袖口滴進火盆，墨跡在火舌裡捲曲。守塔人後退半步，河對岸的求救燈號又亮了一次。",
         "角色：沈曜謹慎但不會拋下同伴；守塔人害怕執法隊。",
@@ -169,7 +175,7 @@ try {
       profile: effectiveProfile,
       qualityPhase: "draft",
     });
-    const requestId = `rpg-resolution-real-${Date.now()}-${attempt}`;
+    const requestId = `rpg-resolution-real-${crypto.randomUUID()}`;
     const generated = await readGeneration(await fetch(`${base}/generate`, {
       method: "POST",
       headers: { ...authHeaders, "Idempotency-Key": requestId },
@@ -185,6 +191,7 @@ try {
     }));
     const metrics = {
       attempt,
+      providerRunId: requestId,
       inputCharacters: built.inputCharacters,
       outputCharacters: generated.content.trim().length,
       generatedTokenEvents: generated.generatedTokenEvents,
@@ -192,21 +199,100 @@ try {
       outputDigest: crypto.createHash("sha256").update(generated.content).digest("hex"),
     };
     try {
-      const continuation = cleanRpgContinuation(generated.content, []);
-      attempts.push({ ...metrics, status: "PASS" });
-      accepted = { continuation, generated, built };
+      const continuation = cleanRpgContinuation(generated.content, [], "zh-TW");
+      const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
+      attempts.push({ ...metrics, ...contract, status: "PASS" });
+      accepted = {
+        continuation,
+        generated,
+        built,
+        contract,
+        providerRunId: requestId,
+        contextDigest: crypto.createHash("sha256").update(built.prompt).digest("hex"),
+      };
       break;
     } catch (error) {
       lastError = error;
-      attempts.push({
+      const initialFailure = {
         ...metrics,
-        status: "FAIL",
+        status: error instanceof Error && error.message === "RPG_AI_CONTINUATION_TOO_SHORT"
+          ? "SUPPLEMENT_REQUIRED"
+          : "FAIL",
         errorCode: error instanceof Error ? error.message : String(error),
-      });
-      if (process.env.RPG_REAL_DEBUG_OUTPUT === "1") {
-        console.error(`--- SYNTHETIC RPG OUTPUT ${attempt} ---`);
-        console.error(generated.content);
-        console.error("--- END SYNTHETIC RPG OUTPUT ---");
+        narrativeLength: Number(error?.narrativeLength) || 0,
+        paragraphCount: Number(error?.paragraphCount) || 0,
+        sentenceCount: Number(error?.sentenceCount) || 0,
+      };
+      attempts.push(initialFailure);
+      if (!(error instanceof Error) || error.message !== "RPG_AI_CONTINUATION_TOO_SHORT") continue;
+
+      const continuationPlan = buildSubstantiveSceneContinuationPrompt(generated.content);
+      const providerRunId = `rpg-resolution-real-${crypto.randomUUID()}`;
+      const remainingTimeMs = Math.floor(240_000 - (performance.now() - startedAt));
+      if (remainingTimeMs < 100) {
+        lastError = Object.assign(new Error("OLLAMA_TIMEOUT"), { code: "OLLAMA_TIMEOUT" });
+        continue;
+      }
+      const supplement = await readGeneration(await fetch(`${base}/generate`, {
+        method: "POST",
+        headers: { ...authHeaders, "Idempotency-Key": providerRunId },
+        body: JSON.stringify({
+          requestId: providerRunId,
+          model: model.modelId,
+          taskType: "chapter.continue",
+          timeoutMs: Math.min(120_000, remainingTimeMs),
+          systemInstruction: effectiveProfile.systemInstruction,
+          prompt: continuationPlan.prompt,
+          options: {
+            ...effectiveProfile.options,
+            num_predict: Math.min(896, effectiveProfile.options.num_predict),
+            temperature: 0.66,
+            top_p: 0.88,
+            seed: 240503 + 104729,
+          },
+        }),
+      }));
+      const merged = mergeSubstantiveSceneContinuation(
+        generated.content,
+        supplement.content,
+      );
+      const supplementMetrics = {
+        attempt: 2,
+        providerRunId,
+        inputCharacters: continuationPlan.prompt.length,
+        outputCharacters: supplement.content.trim().length,
+        generatedTokenEvents: supplement.generatedTokenEvents,
+        firstTokenMs: supplement.firstTokenMs,
+        outputDigest: crypto.createHash("sha256").update(supplement.content).digest("hex"),
+      };
+      try {
+        const continuation = cleanRpgContinuation(merged, [], "zh-TW");
+        const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
+        attempts.push({ ...supplementMetrics, ...contract, status: "PASS" });
+        accepted = {
+          continuation,
+          generated: {
+            ...generated,
+            generatedTokenEvents: generated.generatedTokenEvents + supplement.generatedTokenEvents,
+          },
+          built,
+          contract,
+          providerRunId,
+          contextDigest: crypto.createHash("sha256")
+            .update(`${built.prompt}\n${continuationPlan.prompt}`)
+            .digest("hex"),
+        };
+        break;
+      } catch (supplementError) {
+        lastError = supplementError;
+        attempts.push({
+          ...supplementMetrics,
+          status: "FAIL",
+          errorCode: supplementError instanceof Error ? supplementError.message : String(supplementError),
+          narrativeLength: Number(supplementError?.narrativeLength) || 0,
+          paragraphCount: Number(supplementError?.paragraphCount) || 0,
+          sentenceCount: Number(supplementError?.sentenceCount) || 0,
+        });
       }
     }
   }
@@ -219,30 +305,44 @@ try {
       effectiveMaxTokens: budget.maxOutputTokens,
       attempts,
       elapsedMs: Math.round(performance.now() - startedAt),
+      rawPromptStored: false,
+      rawOutputStored: false,
       outputPersisted: false,
     }, null, 2));
     throw lastError;
   }
-  const { continuation, generated, built } = accepted;
+  const { continuation, generated, built, contract, providerRunId, contextDigest } = accepted;
 
   console.log(JSON.stringify({
     schemaVersion: "rpg-resolution-real-v1",
     status: "PASS",
     executor: "local-ollama",
     modelId: model.modelId,
+    modelDigest: model.modelDigest,
+    promptProfileVersion: profile.profileId,
+    actualExecutor: "local-ollama",
+    providerRunId,
     taskType: "chapter.continue",
     requestedMaxTokens,
     effectiveMaxTokens: budget.maxOutputTokens,
     inputCharacters: built.inputCharacters,
     outputCharacters: continuation.length,
+    narrativeLength: contract.narrativeLength,
+    paragraphCount: contract.paragraphCount,
+    sentenceCount: contract.sentenceCount,
     generatedTokenEvents: generated.generatedTokenEvents,
     firstTokenMs: generated.firstTokenMs,
     attemptCount: attempts.length,
     attempts,
     elapsedMs: Math.round(performance.now() - startedAt),
     outputDigest: crypto.createHash("sha256").update(continuation).digest("hex"),
-    externalAiCalls: 0,
+    contextDigest,
+    externalRequest: false,
     dataLeftDevice: false,
+    candidateOnly: true,
+    canonicalMutationCount: 0,
+    rawPromptStored: false,
+    rawOutputStored: false,
     outputPersisted: false,
   }, null, 2));
 } finally {
