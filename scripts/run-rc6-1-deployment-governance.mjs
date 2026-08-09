@@ -75,6 +75,7 @@ function testOrdering() {
   assert.match(jobSection("production_build"), /include-hidden-files:\s*true/u);
   assert.doesNotMatch(jobSection("validate"), /pnpm build(?:\s|$)|conversation-bundle-budget/u);
   assert.match(jobSection("validate"), /pnpm build:manual-learning-worker/u);
+  assert.match(jobSection("validate"), /node scripts\/generate-release-provenance\.mjs/u);
   const productionBuild = jobSection("production_build");
   assert.ok(
     productionBuild.indexOf("pnpm test:studio:conversation-bundle-budget")

@@ -79,6 +79,9 @@ jobs:
       - name: Prepare validation-only demand-loaded Worker asset
         run: pnpm build:manual-learning-worker
 
+      - name: Seal exact-SHA validation release provenance
+        run: node scripts/generate-release-provenance.mjs
+
       - name: Verify RC6 release hardening
         shell: bash
         run: |

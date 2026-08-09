@@ -232,6 +232,7 @@ const requiredCommands = [
   "pnpm test:ci:production-supabase-bootstrap",
   "pnpm test:ci:production-external-ai-bootstrap",
   "pnpm build:manual-learning-worker",
+  "node scripts/generate-release-provenance.mjs",
   "pnpm exec tsc --noEmit",
   "pnpm lint:ci",
 ];
@@ -242,6 +243,11 @@ assert.ok(
   validateJob.indexOf("pnpm build:manual-learning-worker")
     < validateJob.indexOf("pnpm test:studio:conversation-first-browser"),
   "the clean validation runner must generate the isolated Worker before browser gates",
+);
+assert.ok(
+  validateJob.indexOf("node scripts/generate-release-provenance.mjs")
+    < validateJob.indexOf("pnpm test:studio:conversation-first-contract"),
+  "the clean validation runner must seal exact-SHA provenance before release consumers load",
 );
 assert.doesNotMatch(validateJob, /pnpm build(?:\s|$)|conversation-bundle-budget/u);
 const formalBuildIndex = buildJob.indexOf("vercel build --prod");
