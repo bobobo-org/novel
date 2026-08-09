@@ -516,13 +516,27 @@ jobs:
       - name: Verify Conversation production bundle budget
         run: pnpm test:studio:conversation-bundle-budget
 
+      - name: Verify complete prebuilt Production file references
+        run: node scripts/verify-vercel-prebuilt-file-references.mjs
+
+      - name: Seal complete prebuilt Production filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d .next
+          tar --create --gzip \
+            --file "$RUNNER_TEMP/production-prebuilt.tgz" \
+            --exclude='.next/cache' \
+            .vercel/output .next
+
       - name: Upload sealed prebuilt Production artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-prebuilt-${{ github.sha }}-${{ github.run_attempt }}
-          path: .vercel/output
+          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-prebuilt.tgz
           if-no-files-found: error
           include-hidden-files: true
+          overwrite: true
           retention-days: 7
 
   staged_deploy:
@@ -560,8 +574,16 @@ jobs:
       - name: Restore sealed prebuilt Production artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: production-prebuilt-${{ github.sha }}-${{ github.run_attempt }}
-          path: .vercel/output
+          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-prebuilt
+
+      - name: Extract sealed prebuilt Production filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/production-prebuilt/production-prebuilt.tgz"
+          test -f "$archive"
+          tar --extract --gzip --file "$archive" --directory "$GITHUB_WORKSPACE"
 
       - name: Verify restored Build Output API artifact
         shell: bash
@@ -570,14 +592,40 @@ jobs:
       - name: Pull Vercel project identity for staged deployment
         run: pnpm exec vercel pull --yes --environment=production --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
 
+      - name: Verify sealed artifact after Vercel project pull
+        run: node scripts/verify-vercel-prebuilt-file-references.mjs
+
       - name: Deploy staged production without alias mutation
         id: production
         shell: bash
         run: |
           set -euo pipefail
-          output="$(pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
-          deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
-          test -n "$deployment_url"
+          deployment_stdout="$RUNNER_TEMP/vercel-staged-deploy.stdout"
+          deploy_log="$RUNNER_TEMP/vercel-staged-deploy.stderr.log"
+          set +e
+          { pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" > "$deployment_stdout"; } 2>&1 \
+            | perl -pe 'BEGIN { $| = 1; $token = $ENV{"VERCEL_TOKEN"} // ""; } s/\Q$token\E/[REDACTED]/g if length $token' \
+            | tee "$deploy_log" >&2
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          deploy_status="${pipeline_status[0]}"
+          sanitizer_status="${pipeline_status[1]}"
+          capture_status="${pipeline_status[2]}"
+          if (( deploy_status != 0 )); then
+            echo "Vercel staged deployment failed with exit code $deploy_status." >&2
+            exit "$deploy_status"
+          fi
+          if (( sanitizer_status != 0 || capture_status != 0 )); then
+            echo "Unable to sanitize or capture Vercel staged deployment output." >&2
+            exit 1
+          fi
+          # Vercel CLI reserves stdout for the deployment URL; diagnostics stream through sanitized stderr above.
+          deployment_url="$(sed -e 's/\r$//' "$deployment_stdout")"
+          if [[ ! "$deployment_url" =~ ^https://[[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?[.]vercel[.]app/?$ ]]; then
+            echo "Vercel staged deployment stdout did not contain exactly one valid deployment URL." >&2
+            exit 1
+          fi
+          deployment_url="${deployment_url%/}"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
 
   runtime_gates:

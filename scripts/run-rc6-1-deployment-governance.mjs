@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   auditProductionEnvironment,
   createEnvironmentRepairReceipt,
@@ -27,6 +29,7 @@ import {
 import { planXaiProductionChanges } from "./bootstrap-production-external-ai-env.mjs";
 import { restrictSupabaseProductionChanges } from "./bootstrap-production-supabase-env.mjs";
 import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
+import { verifyVercelPrebuiltFileReferences } from "./verify-vercel-prebuilt-file-references.mjs";
 
 const [workflow, envGovernanceSource, lkgSource, publicGateSource, vercelConfigurationText] = await Promise.all([
   readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
@@ -82,7 +85,50 @@ function testOrdering() {
       > productionBuild.indexOf("vercel build --prod"),
     "bundle budget must consume the fresh formal production build",
   );
-  assert.match(jobSection("staged_deploy"), /test -f \.vercel\/output\/config\.json/u);
+  assert.match(productionBuild, /verify-vercel-prebuilt-file-references\.mjs/u);
+  assert.match(productionBuild, /tar --create --gzip/u);
+  assert.match(productionBuild, /--file "\$RUNNER_TEMP\/production-prebuilt\.tgz"/u);
+  assert.match(productionBuild, /--exclude='\.next\/cache'/u);
+  assert.match(productionBuild, /\.vercel\/output \.next/u);
+  assert.match(productionBuild, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
+  assert.match(productionBuild, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.match(productionBuild, /overwrite:\s*true/u);
+  assert.doesNotMatch(productionBuild, /production-prebuilt-[^\n]*github\.run_attempt/u);
+  const stagedDeploy = jobSection("staged_deploy");
+  assert.match(stagedDeploy, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.doesNotMatch(stagedDeploy, /production-prebuilt-[^\n]*github\.run_attempt/u);
+  assert.match(stagedDeploy, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt/u);
+  assert.match(stagedDeploy, /tar --extract --gzip --file "\$archive" --directory "\$GITHUB_WORKSPACE"/u);
+  assert.match(stagedDeploy, /test -f \.vercel\/output\/config\.json/u);
+  assert.match(stagedDeploy, /Verify sealed artifact after Vercel project pull[\s\S]*verify-vercel-prebuilt-file-references\.mjs/u);
+  assert.ok(
+    stagedDeploy.indexOf("Verify sealed artifact after Vercel project pull")
+      > stagedDeploy.indexOf("Pull Vercel project identity for staged deployment"),
+    "the sealed artifact must be checked again after vercel pull",
+  );
+  assert.ok(
+    stagedDeploy.indexOf("Deploy staged production without alias mutation")
+      > stagedDeploy.indexOf("Verify sealed artifact after Vercel project pull"),
+    "staged deploy must not start before the post-pull artifact gate",
+  );
+  assert.match(stagedDeploy, /deployment_stdout="\$RUNNER_TEMP\/vercel-staged-deploy\.stdout"/u);
+  assert.match(stagedDeploy, /deploy_log="\$RUNNER_TEMP\/vercel-staged-deploy\.stderr\.log"/u);
+  assert.match(stagedDeploy, /perl -pe '[^\n]*\$ENV\{"VERCEL_TOKEN"\}[^\n]*\[REDACTED\]/u);
+  assert.match(stagedDeploy, /> "\$deployment_stdout"; \} 2>&1/u);
+  assert.match(stagedDeploy, /\| tee "\$deploy_log" >&2/u);
+  assert.match(stagedDeploy, /pipeline_status=\("\$\{PIPESTATUS\[@\]\}"\)/u);
+  assert.ok(
+    stagedDeploy.indexOf('pipeline_status=("${PIPESTATUS[@]}")')
+      < stagedDeploy.indexOf('set -e\n          deploy_status='),
+    "the pipeline statuses must be captured before errexit is restored",
+  );
+  assert.match(stagedDeploy, /deploy_status="\$\{pipeline_status\[0\]\}"/u);
+  assert.match(stagedDeploy, /exit "\$deploy_status"/u);
+  assert.ok(stagedDeploy.includes("deployment_url=\"$(sed -e 's/\\r$//' \"$deployment_stdout\")\""));
+  assert.ok(stagedDeploy.includes('[[ ! "$deployment_url" =~ ^https://[[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?[.]vercel[.]app/?$ ]]'));
+  assert.match(stagedDeploy, /deployment_url="\$\{deployment_url%\/\}"/u);
+  assert.doesNotMatch(stagedDeploy, /output="\$\(pnpm exec vercel deploy/u);
+  assert.doesNotMatch(stagedDeploy, /set -x|(?:echo|printf)[^\n]*\$VERCEL_TOKEN/u);
   const runtimeGates = jobSection("runtime_gates");
   assert.match(runtimeGates, /generated\/manual-learning-worker\.js/u);
   assert.match(runtimeGates, /curl --connect-timeout 5 --max-time 20/u);
@@ -104,6 +150,74 @@ function testOrdering() {
   assert.match(runtimeGates, /top_level_safe/u);
   assert.doesNotMatch(runtimeGates, /\.verification == "failed"/u);
   assert.doesNotMatch(runtimeGates, /grok-4\.5-latest/u);
+}
+
+async function testPrebuiltFileReferences() {
+  const workspace = await mkdtemp(join(tmpdir(), "rc6-1-vercel-prebuilt-"));
+  const writeFixture = async (relativePath, content = "fixture") => {
+    const fixturePath = join(workspace, relativePath);
+    await mkdir(dirname(fixturePath), { recursive: true });
+    await writeFile(fixturePath, content, "utf8");
+    return fixturePath;
+  };
+  try {
+    await writeFixture(".vercel/output/config.json", "{}");
+    await writeFixture(".next/server/chunk.js");
+    await writeFixture("node_modules/example/index.js");
+    await writeFixture("evals/rubric.json");
+    await writeFixture(".env.example");
+    const writeFunctionConfig = (filePathMap) => writeFixture(
+      ".vercel/output/functions/api.func/.vc-config.json",
+      JSON.stringify({ runtime: "nodejs24.x", filePathMap }),
+    );
+    await writeFunctionConfig({
+      "bundle/chunk-a.js": ".next/server/chunk.js",
+      "bundle/chunk-b.js": ".next/server/chunk.js",
+      "bundle/package.js": "node_modules/example/index.js",
+      "bundle/rubric.json": "evals/rubric.json",
+      "bundle/env.example": ".env.example",
+    });
+
+    const report = await verifyVercelPrebuiltFileReferences({ workspace });
+    assert.equal(report.status, "PASS");
+    assert.equal(report.functionConfigCount, 1);
+    assert.equal(report.referenceCount, 5);
+    assert.equal(report.uniqueReferenceCount, 4);
+    assert.deepEqual(report.topLevelReferenceCounts, {
+      ".next": 1,
+      node_modules: 1,
+      evals: 1,
+      ".env.example": 1,
+    });
+
+    await rm(join(workspace, ".next/server/chunk.js"));
+    await assert.rejects(
+      verifyVercelPrebuiltFileReferences({ workspace }),
+      (error) => error.code === "VERCEL_PREBUILT_FILE_REFERENCE_MISSING"
+        && error.details.missingCount === 1,
+    );
+
+    await writeFixture(".next/server/chunk.js");
+    await writeFixture(".next/cache/unsafe.bin");
+    await writeFunctionConfig({ "bundle/unsafe.bin": ".next/cache/unsafe.bin" });
+    await assert.rejects(
+      verifyVercelPrebuiltFileReferences({ workspace }),
+      (error) => error.code === "VERCEL_PREBUILT_REFERENCE_EXCLUDED_FROM_ARCHIVE",
+    );
+
+    await writeFunctionConfig({ "bundle/root": "." });
+    await assert.rejects(
+      verifyVercelPrebuiltFileReferences({ workspace }),
+      (error) => error.code === "VERCEL_PREBUILT_FILE_REFERENCE_INVALID",
+    );
+    await writeFunctionConfig({ "bundle/backslash": ".next\\server\\chunk.js" });
+    await assert.rejects(
+      verifyVercelPrebuiltFileReferences({ workspace }),
+      (error) => error.code === "VERCEL_PREBUILT_FILE_REFERENCE_INVALID",
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 }
 
 function readyProduction() {
@@ -1173,8 +1287,10 @@ const cases = {
   "post-cutover-public-verification": [testPublicVerificationAndCompensation],
   "post-cutover-compensating-rollback": [testPublicVerificationAndCompensation],
   "production-env-actual-mutation-receipt": [testActualMutationReceipt],
+  "staged-prebuilt-file-references": [testOrdering, testPrebuiltFileReferences],
   all: [
     testOrdering,
+    testPrebuiltFileReferences,
     testEnvironmentAuditAndRepair,
     testExternalAiProductionTruth,
     testConcurrency,

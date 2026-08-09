@@ -112,15 +112,52 @@ assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_requ
 assert.match(buildJob, /needs:\s*production_env_repair/u);
 assert.match(buildJob, /vercel build --prod/u);
 assert.match(buildJob, /production-prebuilt-/u);
-assert.match(buildJob, /path:\s*\.vercel\/output/u);
+assert.match(buildJob, /verify-vercel-prebuilt-file-references\.mjs/u);
+assert.match(buildJob, /tar --create --gzip/u);
+assert.match(buildJob, /--file "\$RUNNER_TEMP\/production-prebuilt\.tgz"/u);
+assert.match(buildJob, /--exclude='\.next\/cache'/u);
+assert.match(buildJob, /\.vercel\/output \.next/u);
+assert.match(buildJob, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
 assert.match(buildJob, /include-hidden-files:\s*true/u);
+assert.match(buildJob, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+assert.match(buildJob, /overwrite:\s*true/u);
+assert.doesNotMatch(buildJob, /production-prebuilt-[^\n]*github\.run_attempt/u);
 assert.doesNotMatch(buildJob, /vercel deploy/u);
 assert.doesNotMatch(buildJob, /vercel-dual-alias-cutover/u);
 
 assert.match(stagedJob, /needs:\s*production_build/u);
 assert.match(stagedJob, /actions\/download-artifact@[a-f0-9]{40}/u);
 assert.match(stagedJob, /vercel deploy --prebuilt --prod --skip-domain/u);
+assert.match(stagedJob, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+assert.doesNotMatch(stagedJob, /production-prebuilt-[^\n]*github\.run_attempt/u);
+assert.match(stagedJob, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt/u);
+assert.match(stagedJob, /tar --extract --gzip --file "\$archive" --directory "\$GITHUB_WORKSPACE"/u);
 assert.match(stagedJob, /test -f \.vercel\/output\/config\.json/u);
+assert.match(stagedJob, /Verify sealed artifact after Vercel project pull[\s\S]*verify-vercel-prebuilt-file-references\.mjs/u);
+assert.ok(
+  stagedJob.indexOf("Verify sealed artifact after Vercel project pull")
+    > stagedJob.indexOf("Pull Vercel project identity for staged deployment"),
+  "the sealed artifact must be checked again after vercel pull",
+);
+assert.ok(
+  stagedJob.indexOf("Deploy staged production without alias mutation")
+    > stagedJob.indexOf("Verify sealed artifact after Vercel project pull"),
+  "staged deploy must not start before the post-pull artifact gate",
+);
+assert.match(stagedJob, /deployment_stdout="\$RUNNER_TEMP\/vercel-staged-deploy\.stdout"/u);
+assert.match(stagedJob, /deploy_log="\$RUNNER_TEMP\/vercel-staged-deploy\.stderr\.log"/u);
+assert.match(stagedJob, /perl -pe '[^\n]*\$ENV\{"VERCEL_TOKEN"\}[^\n]*\[REDACTED\]/u);
+assert.match(stagedJob, /> "\$deployment_stdout"; \} 2>&1/u);
+assert.match(stagedJob, /\| tee "\$deploy_log" >&2/u);
+assert.match(stagedJob, /pipeline_status=\("\$\{PIPESTATUS\[@\]\}"\)/u);
+assert.match(stagedJob, /deploy_status="\$\{pipeline_status\[0\]\}"/u);
+assert.match(stagedJob, /exit "\$deploy_status"/u);
+assert.ok(stagedJob.includes("deployment_url=\"$(sed -e 's/\\r$//' \"$deployment_stdout\")\""));
+assert.ok(stagedJob.includes('[[ ! "$deployment_url" =~ ^https://[[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?[.]vercel[.]app/?$ ]]'));
+assert.match(stagedJob, /deployment_url="\$\{deployment_url%\/\}"/u);
+assert.doesNotMatch(stagedJob, /output="\$\(pnpm exec vercel deploy/u);
+assert.ok(!stagedJob.includes("grep -Eo 'https://[^[:space:]]+'"));
+assert.doesNotMatch(stagedJob, /set -x|(?:echo|printf)[^\n]*\$VERCEL_TOKEN/u);
 assert.doesNotMatch(stagedJob, /vercel-dual-alias-cutover/u);
 assert.doesNotMatch(stagedJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 
