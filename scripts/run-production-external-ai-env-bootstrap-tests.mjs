@@ -9,6 +9,7 @@ import {
   validateXaiBootstrapInput,
   verifyXaiCredential,
 } from "./bootstrap-production-external-ai-env.mjs";
+import { planInvalidOptionalOpenAiProductionRemoval } from "./production-environment-governance.mjs";
 
 const testKey = "xai-test-key-with-sufficient-length-123456";
 assert.deepEqual(validateXaiBootstrapInput({ apiKey: ` ${testKey} ` }), {
@@ -19,6 +20,32 @@ assert.throws(() => validateXaiBootstrapInput({ apiKey: "short" }), (error) => e
 assert.throws(
   () => validateXaiBootstrapInput({ apiKey: testKey, modelId: "../../invalid" }),
   (error) => error.code === "XAI_MODEL_ID_INVALID",
+);
+
+const auditedOptionalOpenAiTruth = {
+  openai: {
+    removalAuthorized: true,
+    runtimeState: "credential_revoked",
+    credentialMetadataPresent: true,
+    credentialTargets: ["production"],
+    runtimeRepairKeys: ["OPENAI_API_KEY"],
+    productionRecordCount: 1,
+    removableRecordIdPresent: true,
+    removableRecordFingerprint: "a".repeat(64),
+    deploymentBound: true,
+    recordPredatesDeployments: true,
+  },
+};
+assert.deepEqual(planInvalidOptionalOpenAiProductionRemoval({
+  allowedMutationKeys: ["OPENAI_API_KEY"],
+  auditedExternalAiTruth: auditedOptionalOpenAiTruth,
+}), ["OPENAI_API_KEY"]);
+assert.throws(
+  () => planInvalidOptionalOpenAiProductionRemoval({
+    allowedMutationKeys: ["OPENAI_MODEL_ID"],
+    auditedExternalAiTruth: auditedOptionalOpenAiTruth,
+  }),
+  (error) => error.code === "PRODUCTION_REPAIR_OPENAI_MUTATION_KEY_INVALID",
 );
 assert.deepEqual(parseExternalAIEnv('XAI_API_KEY="secret-value"\nXAI_MODEL_ID=grok-4.5\n'), {
   XAI_API_KEY: "secret-value",
@@ -97,6 +124,10 @@ await assert.rejects(
 );
 
 const source = await readFile(new URL("./bootstrap-production-external-ai-env.mjs", import.meta.url), "utf8");
+const governanceSource = await readFile(
+  new URL("./production-environment-governance.mjs", import.meta.url),
+  "utf8",
+);
 assert.match(source, /upsertSensitiveProductionEnvironment/u);
 assert.doesNotMatch(source, /"--sensitive"/u);
 assert.match(source, /https:\/\/api\.x\.ai\/v1\/models/u);
@@ -112,10 +143,17 @@ assert.match(source, /credentialVerification:\s*\{/u);
 assert.match(source, /credentialSource:\s*configuration\.credentialSource/u);
 assert.match(source, /verificationCode:\s*"MODEL_ACCESS_VERIFIED"/u);
 assert.match(source, /secretValuesStored:\s*false/u);
+assert.match(governanceSource, /providers=openai,grok/u);
+assert.match(governanceSource, /method:\s*"DELETE"/u);
+assert.match(governanceSource, /encodeURIComponent\(recordId\)/u);
+assert.doesNotMatch(governanceSource, /"env", "rm"/u);
+assert.match(governanceSource, /PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED/u);
+assert.match(governanceSource, /internalContentHintPresent/u);
+assert.doesNotMatch(governanceSource, /console\.log\([^\n]*OPENAI_API_KEY/u);
 
 console.log(JSON.stringify({
   status: "PASS",
-  assertions: 31,
+  assertions: 38,
   modelId: DEFAULT_XAI_MODEL_ID,
   credentialExposed: false,
 }, null, 2));

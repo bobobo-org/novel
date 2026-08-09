@@ -5,10 +5,14 @@ import { dirname, join } from "node:path";
 import {
   auditProductionEnvironment,
   createEnvironmentRepairReceipt,
+  deleteVercelProductionEnvironmentRecord,
   evaluateStagedExternalAiRuntimeTruth,
+  planInvalidOptionalOpenAiProductionRemoval,
+  readBoundProductionExternalAiRuntimeTruth,
   readProductionExternalAiRuntimeTruth,
   readVercelProductionEnvironmentMetadata,
   readVercelProjectIdentity,
+  removeInvalidOptionalOpenAiProductionEnvironment,
   verifySupabaseProductionCredential,
 } from "./production-environment-governance.mjs";
 import {
@@ -406,7 +410,7 @@ function externalAiPayload({
   openaiVerification = "not_configured",
   openaiVerificationCode = "NOT_CONFIGURED",
   openaiConfigured = false,
-  includeOpenai = false,
+  includeOpenai = true,
   topLevelVerification,
   secretMarker,
 } = {}) {
@@ -539,6 +543,497 @@ async function testExternalAiProductionTruth() {
   assert.equal(auditedRevocation.truth.externalAi.runtimeState, "credential_revoked");
   assert.doesNotMatch(JSON.stringify(auditedRevocation), new RegExp(githubXaiApiKey, "u"));
 
+  const invalidOptionalOpenAi = await readProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    fetcher: responseFor(externalAiPayload({
+      grokConfigured: false,
+      grokVerification: "not_configured",
+      grokVerificationCode: "NOT_CONFIGURED",
+      openaiConfigured: true,
+      openaiVerification: "failed",
+      openaiVerificationCode: "EXTERNAL_PROVIDER_AUTH_FAILED",
+      secretMarker,
+    })),
+  });
+  assert.equal(invalidOptionalOpenAi.indeterminate, false);
+  assert.equal(invalidOptionalOpenAi.state, "credential_not_configured");
+  assert.equal(invalidOptionalOpenAi.openaiState, "credential_revoked");
+  assert.deepEqual(invalidOptionalOpenAi.openaiRepairKeys, ["OPENAI_API_KEY"]);
+  assert.doesNotMatch(JSON.stringify(invalidOptionalOpenAi), new RegExp(secretMarker, "u"));
+
+  const auditedDeploymentId = "dpl_AuditedProduction123";
+  const auditedAppCommit = "a".repeat(40);
+  const createBoundTruthFetcher = ({ changeIdentityAfterProbe = false, target = "production" } = {}) => {
+    let identityReadCount = 0;
+    return async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "api.vercel.com") {
+        return Response.json({
+          id: auditedDeploymentId,
+          meta: { githubCommitSha: auditedAppCommit },
+          projectId: "prj_expected",
+          teamId: "team_expected",
+          readyState: "READY",
+          target,
+          createdAt: 100,
+        });
+      }
+      if (url.pathname === "/api/release/identity") {
+        identityReadCount += 1;
+        return Response.json({
+          deploymentId: changeIdentityAfterProbe && identityReadCount > aliases.length
+            ? "dpl_ChangedProduction456"
+            : auditedDeploymentId,
+          appCommit: auditedAppCommit,
+          environment: "production",
+          provenanceStatus: "verified",
+        });
+      }
+      if (url.pathname === "/api/ai/external/providers") {
+        return Response.json(externalAiPayload({
+          grokConfigured: false,
+          grokVerification: "not_configured",
+          grokVerificationCode: "NOT_CONFIGURED",
+          openaiConfigured: true,
+          openaiVerification: "failed",
+          openaiVerificationCode: "EXTERNAL_PROVIDER_AUTH_FAILED",
+        }));
+      }
+      throw new Error(`UNEXPECTED_BOUND_TRUTH_URL:${url}`);
+    };
+  };
+  const boundInvalidOptionalOpenAi = await readBoundProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    token: "test-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    fetcher: createBoundTruthFetcher(),
+  });
+  assert.equal(boundInvalidOptionalOpenAi.deploymentBound, true);
+  assert.equal(boundInvalidOptionalOpenAi.openaiState, "credential_revoked");
+  assert.equal(boundInvalidOptionalOpenAi.earliestDeploymentCreatedAt, 100);
+  assert.equal(boundInvalidOptionalOpenAi.deploymentSnapshots.length, 2);
+
+  const changedIdentityTruth = await readBoundProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    token: "test-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    fetcher: createBoundTruthFetcher({ changeIdentityAfterProbe: true }),
+  });
+  assert.equal(changedIdentityTruth.deploymentBound, false);
+  assert.equal(changedIdentityTruth.indeterminate, true);
+  assert.equal(
+    changedIdentityTruth.failureCode,
+    "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED",
+  );
+
+  const invalidControlPlaneTruth = await readBoundProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    token: "test-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    fetcher: createBoundTruthFetcher({ target: "preview" }),
+  });
+  assert.equal(invalidControlPlaneTruth.deploymentBound, false);
+  assert.equal(invalidControlPlaneTruth.indeterminate, true);
+  assert.equal(
+    invalidControlPlaneTruth.failureCode,
+    "PRODUCTION_AUDIT_DEPLOYMENT_CONTROL_PLANE_INVALID",
+  );
+
+  let disagreeingAliasIndex = 0;
+  const disagreeingOptionalOpenAi = await readProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    fetcher: async () => {
+      disagreeingAliasIndex += 1;
+      return Response.json(externalAiPayload({
+        grokConfigured: false,
+        grokVerification: "not_configured",
+        grokVerificationCode: "NOT_CONFIGURED",
+        openaiConfigured: disagreeingAliasIndex === 1,
+        openaiVerification: disagreeingAliasIndex === 1 ? "failed" : "not_configured",
+        openaiVerificationCode: disagreeingAliasIndex === 1
+          ? "EXTERNAL_PROVIDER_AUTH_FAILED"
+          : "NOT_CONFIGURED",
+      }));
+    },
+  });
+  assert.equal(disagreeingOptionalOpenAi.indeterminate, true);
+  assert.equal(
+    disagreeingOptionalOpenAi.failureCode,
+    "PRODUCTION_AUDIT_EXTERNAL_AI_ALIAS_TRUTH_DISAGREEMENT",
+  );
+  assert.deepEqual(disagreeingOptionalOpenAi.repairKeys, []);
+
+  const invalidOptionalOpenAiMetadata = await readVercelProductionEnvironmentMetadata({
+    token: "test-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    fetcher: async () => Response.json({ envs: [
+      {
+        id: "env_openai_production_only",
+        key: "OPENAI_API_KEY",
+        value: secretMarker,
+        type: "sensitive",
+        target: "production",
+        updatedAt: 73,
+      },
+      {
+        id: "env_openai_model_production_only",
+        key: "OPENAI_MODEL_ID",
+        value: "gpt-5.6-sol",
+        type: "encrypted",
+        target: ["production"],
+        updatedAt: 74,
+      },
+    ] }),
+  });
+  assert.deepEqual(
+    invalidOptionalOpenAiMetadata.entries.OPENAI_API_KEY.targets,
+    ["production"],
+    "a string target must normalize to one exact production target",
+  );
+  assert.equal(invalidOptionalOpenAiMetadata.records.length, 2);
+  assert.doesNotMatch(
+    JSON.stringify(invalidOptionalOpenAiMetadata),
+    new RegExp(secretMarker, "u"),
+  );
+
+  const invalidOptionalOpenAiBound = boundInvalidOptionalOpenAi;
+
+  const invalidOptionalOpenAiAudit = auditProductionEnvironment({
+    production: { ...fixture.production, OPENAI_API_KEY: "" },
+    expectedProjectRef: fixture.projectRef,
+    expectedXaiModelId: "grok-4.5",
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: {
+      ...fixture.vercelEnvironmentMetadata,
+      entries: {
+        ...fixture.vercelEnvironmentMetadata.entries,
+        ...invalidOptionalOpenAiMetadata.entries,
+      },
+      records: invalidOptionalOpenAiMetadata.records,
+    },
+    externalAiRuntimeTruth: invalidOptionalOpenAiBound,
+  });
+  assert.deepEqual(invalidOptionalOpenAiAudit.driftKeys, ["OPENAI_API_KEY"]);
+  assert.equal(
+    invalidOptionalOpenAiAudit.truth.externalAi.openai.removalAuthorized,
+    true,
+  );
+  assert.equal(invalidOptionalOpenAiAudit.truth.externalAi.openai.modelMetadataPresent, true);
+  assert.doesNotMatch(
+    JSON.stringify(invalidOptionalOpenAiAudit),
+    new RegExp(secretMarker, "u"),
+  );
+
+  assert.deepEqual(planInvalidOptionalOpenAiProductionRemoval({
+    allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
+    auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+  }), ["OPENAI_API_KEY"]);
+  assert.throws(
+    () => planInvalidOptionalOpenAiProductionRemoval({
+      allowedMutationKeys: ["OPENAI_MODEL_ID"],
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_OPENAI_MUTATION_KEY_INVALID",
+  );
+
+  const removalCalls = [];
+  let removalMetadataReadCount = 0;
+  const removal = await removeInvalidOptionalOpenAiProductionEnvironment({
+    allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
+    auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+    auditDigestVerified: true,
+    projectId: "prj_expected",
+    token: "vercel-token-must-never-be-logged",
+    teamId: "team_expected",
+    recordRemover: (input) => {
+      removalCalls.push(input);
+      return Promise.resolve({ deleted: true, httpStatus: 204 });
+    },
+    metadataReader: async () => {
+      removalMetadataReadCount += 1;
+      if (removalMetadataReadCount === 1) {
+        return invalidOptionalOpenAiAudit.vercelEnvironmentMetadata
+          || {
+            entries: invalidOptionalOpenAiMetadata.entries,
+            records: invalidOptionalOpenAiMetadata.records,
+          };
+      }
+      return {
+        entries: { OPENAI_MODEL_ID: invalidOptionalOpenAiMetadata.entries.OPENAI_MODEL_ID },
+        records: invalidOptionalOpenAiMetadata.records
+          .filter((record) => record.key === "OPENAI_MODEL_ID"),
+      };
+    },
+  });
+  assert.deepEqual(removal.changedKeys, ["OPENAI_API_KEY"]);
+  assert.equal(removal.mutationCount, 1);
+  assert.equal(removal.beforeRecordFingerprint,
+    invalidOptionalOpenAiAudit.truth.externalAi.openai.removableRecordFingerprint);
+  assert.equal(removalCalls.length, 1);
+  assert.equal(removalCalls[0].recordId, "env_openai_production_only");
+  assert.equal(removalCalls[0].projectId, "prj_expected");
+  assert.equal(removalCalls[0].teamId, "team_expected");
+  assert.ok(
+    !JSON.stringify(removalCalls[0]).includes("OPENAI_MODEL_ID"),
+    "the optional model id is retained because removing the credential is sufficient",
+  );
+
+  let deleteRequest;
+  const deleteResult = await deleteVercelProductionEnvironmentRecord({
+    token: "test-delete-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    recordId: "env_openai_production_only",
+    fetcher: async (url, init) => {
+      deleteRequest = { url: String(url), init };
+      return new Response(null, { status: 204 });
+    },
+  });
+  assert.equal(deleteResult.deleted, true);
+  assert.equal(deleteResult.httpStatus, 204);
+  const deleteUrl = new URL(deleteRequest.url);
+  assert.equal(
+    deleteUrl.pathname,
+    "/v10/projects/prj_expected/env/env_openai_production_only",
+  );
+  assert.equal(deleteUrl.searchParams.get("teamId"), "team_expected");
+  assert.equal(deleteRequest.init.method, "DELETE");
+
+  let stalePostRemovalCount = 0;
+  await assert.rejects(
+    removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+      auditDigestVerified: true,
+      projectId: "prj_expected",
+      token: "test-token",
+      teamId: "team_expected",
+      recordRemover: async () => {
+        stalePostRemovalCount += 1;
+        return { deleted: true, httpStatus: 204 };
+      },
+      metadataReader: async () => ({
+        entries: invalidOptionalOpenAiMetadata.entries,
+        records: invalidOptionalOpenAiMetadata.records,
+      }),
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_OPENAI_REMOVAL_NOT_OBSERVED",
+  );
+  assert.equal(stalePostRemovalCount, 1);
+  const pendingOptionalOpenAiRemovalTruth = {
+    verified: false,
+    indeterminate: false,
+    readOnly: true,
+    verificationMode: "audited-repair-plus-vercel-metadata-pending-staged-deployment",
+    expectedModelId: "grok-4.5",
+    state: "credential_not_configured",
+    openaiState: "credential_not_configured_pending_staged_deployment",
+    xaiRepairKeys: [],
+    openaiRepairKeys: [],
+    repairKeys: [],
+    observations: [],
+    secretValuesStored: false,
+  };
+  const afterOptionalOpenAiRemoval = auditProductionEnvironment({
+    production: fixture.production,
+    expectedProjectRef: fixture.projectRef,
+    expectedXaiModelId: "grok-4.5",
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: fixture.vercelEnvironmentMetadata,
+    externalAiRuntimeTruth: pendingOptionalOpenAiRemovalTruth,
+  });
+  assert.equal(afterOptionalOpenAiRemoval.repairRequired, false);
+  assert.throws(
+    () => auditProductionEnvironment({
+      production: fixture.production,
+      expectedProjectRef: fixture.projectRef,
+      expectedXaiModelId: "grok-4.5",
+      projectIdentity: fixture.projectIdentity,
+      supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+      vercelEnvironmentMetadata: {
+        ...fixture.vercelEnvironmentMetadata,
+        entries: {
+          ...fixture.vercelEnvironmentMetadata.entries,
+          ...invalidOptionalOpenAiMetadata.entries,
+        },
+        records: invalidOptionalOpenAiMetadata.records,
+      },
+      externalAiRuntimeTruth: pendingOptionalOpenAiRemovalTruth,
+    }),
+    (error) => error.code === "PRODUCTION_AUDIT_OPENAI_REMOVAL_PENDING_METADATA_PRESENT",
+  );
+  const optionalOpenAiRemovalReceipt = createEnvironmentRepairReceipt({
+    before: invalidOptionalOpenAiAudit,
+    after: afterOptionalOpenAiRemoval,
+    actualChangedKeys: ["OPENAI_API_KEY"],
+  });
+  assert.equal(optionalOpenAiRemovalReceipt.mutationCount, 1);
+  assert.equal(optionalOpenAiRemovalReceipt.changedKeysCount, 1);
+  assert.deepEqual(optionalOpenAiRemovalReceipt.mutations, [{
+    key: "OPENAI_API_KEY",
+    operation: "remove",
+    target: "production",
+    beforeRecordFingerprint:
+      invalidOptionalOpenAiAudit.truth.externalAi.openai.removableRecordFingerprint,
+  }]);
+
+  const unsafeOpenAiRecordCases = [
+    ["missing-id", {}],
+    ["missing-updated-at", { id: "env_missing_updated", updatedAt: null }],
+    ["zero-updated-at", { id: "env_zero_updated", updatedAt: 0 }],
+    ["invalid-updated-at", { id: "env_invalid_updated", updatedAt: "invalid" }],
+    ["newer-than-deployment", { id: "env_newer", updatedAt: 101 }],
+    ["plain-type", { id: "env_plain", type: "plain" }],
+    ["multi-target", { id: "env_multi", target: ["production", "preview"] }],
+    ["git-branch", { id: "env_branch", gitBranch: "main" }],
+    ["custom-environment", { id: "env_custom", customEnvironmentIds: ["env_custom_target"] }],
+    ["system", { id: "env_system", system: true }],
+    ["configuration", { id: "env_configuration", configurationId: "icfg_managed" }],
+    ["edge-config", { id: "env_edge_config", edgeConfigId: "ecfg_managed" }],
+    ["edge-config-token", {
+      id: "env_edge_config_token", edgeConfigTokenId: "ect_managed",
+    }],
+    ["sunset-secret", { id: "env_sunset_secret", sunsetSecretId: "sec_legacy" }],
+    ["vsm-value", { id: "env_vsm", vsmValue: secretMarker }],
+    ["content-hint", { id: "env_content", contentHint: { type: "secret" } }],
+    ["internal-content-hint", {
+      id: "env_internal_content", internalContentHint: { type: "secret" },
+    }],
+    ["integration", { id: "env_integration", integrationId: "integration_managed" }],
+    ["managed", { id: "env_managed", managed: true }],
+    ["shared", { id: "env_shared", shared: true }],
+  ];
+  let firstUnsafeTruthDigest = "";
+  for (const [caseName, patch] of unsafeOpenAiRecordCases) {
+    const unsafeMetadata = await readVercelProductionEnvironmentMetadata({
+      token: "test-token",
+      teamId: "team_expected",
+      projectId: "prj_expected",
+      fetcher: async () => Response.json({ envs: [{
+        key: "OPENAI_API_KEY",
+        type: "sensitive",
+        target: "production",
+        updatedAt: 72,
+        updatedAt: 73,
+        ...patch,
+      }] }),
+    });
+    const unsafeAudit = auditProductionEnvironment({
+      production: fixture.production,
+      expectedProjectRef: fixture.projectRef,
+      expectedXaiModelId: "grok-4.5",
+      projectIdentity: fixture.projectIdentity,
+      supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+      vercelEnvironmentMetadata: {
+        ...fixture.vercelEnvironmentMetadata,
+        entries: { ...fixture.vercelEnvironmentMetadata.entries, ...unsafeMetadata.entries },
+        records: unsafeMetadata.records,
+      },
+      externalAiRuntimeTruth: invalidOptionalOpenAiBound,
+    });
+    assert.deepEqual(unsafeAudit.driftKeys, ["OPENAI_API_KEY"], caseName);
+    assert.equal(unsafeAudit.truth.externalAi.openai.removalAuthorized, false, caseName);
+    if (!firstUnsafeTruthDigest) firstUnsafeTruthDigest = unsafeAudit.truthDigest;
+    let unsafeRemovalCount = 0;
+    await assert.rejects(
+      removeInvalidOptionalOpenAiProductionEnvironment({
+        allowedMutationKeys: ["OPENAI_API_KEY"],
+        auditedExternalAiTruth: unsafeAudit.truth.externalAi,
+        auditDigestVerified: true,
+        projectId: "prj_expected",
+        token: "test-token",
+        teamId: "team_expected",
+        recordRemover: () => { unsafeRemovalCount += 1; },
+        metadataReader: async () => unsafeMetadata,
+      }),
+      (error) => error.code === "PRODUCTION_REPAIR_OPENAI_AUDIT_AUTHORIZATION_INVALID",
+      caseName,
+    );
+    assert.equal(unsafeRemovalCount, 0, `${caseName} must cause zero mutation attempts`);
+    assert.doesNotMatch(JSON.stringify(unsafeAudit), new RegExp(secretMarker, "u"));
+  }
+  const duplicateOpenAiMetadata = await readVercelProductionEnvironmentMetadata({
+    token: "test-token",
+    teamId: "team_expected",
+    projectId: "prj_expected",
+    fetcher: async () => Response.json({ envs: [
+      {
+        id: "env_duplicate_one",
+        key: "OPENAI_API_KEY",
+        type: "sensitive",
+        target: "production",
+        updatedAt: 72,
+      },
+      {
+        id: "env_duplicate_two",
+        key: "OPENAI_API_KEY",
+        type: "sensitive",
+        target: ["production"],
+        updatedAt: 73,
+      },
+    ] }),
+  });
+  const duplicateOpenAiAudit = auditProductionEnvironment({
+    production: fixture.production,
+    expectedProjectRef: fixture.projectRef,
+    expectedXaiModelId: "grok-4.5",
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: {
+      ...fixture.vercelEnvironmentMetadata,
+      entries: {
+        ...fixture.vercelEnvironmentMetadata.entries,
+        ...duplicateOpenAiMetadata.entries,
+      },
+      records: duplicateOpenAiMetadata.records,
+    },
+    externalAiRuntimeTruth: invalidOptionalOpenAiBound,
+  });
+  assert.equal(duplicateOpenAiAudit.truth.externalAi.openai.productionRecordCount, 2);
+  assert.equal(duplicateOpenAiAudit.truth.externalAi.openai.removalAuthorized, false);
+  assert.notEqual(invalidOptionalOpenAiAudit.truthDigest, firstUnsafeTruthDigest);
+  assert.notEqual(invalidOptionalOpenAiAudit.truthDigest, duplicateOpenAiAudit.truthDigest);
+
+  let changedFingerprintRemovalCount = 0;
+  await assert.rejects(
+    removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: ["OPENAI_API_KEY"],
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+      auditDigestVerified: true,
+      projectId: "prj_expected",
+      token: "test-token",
+      teamId: "team_expected",
+      recordRemover: () => { changedFingerprintRemovalCount += 1; },
+      metadataReader: async () => duplicateOpenAiMetadata,
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED",
+  );
+  assert.equal(changedFingerprintRemovalCount, 0);
+  await assert.rejects(
+    removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: ["OPENAI_API_KEY"],
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+      auditDigestVerified: false,
+      projectId: "prj_expected",
+      token: "test-token",
+      teamId: "team_expected",
+      recordRemover: () => undefined,
+      metadataReader: async () => ({ entries: {} }),
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED",
+  );
+
   const modelInvalid = await readProductionExternalAiRuntimeTruth({
     aliases,
     expectedXaiModelId: "grok-4.5",
@@ -662,9 +1157,14 @@ async function testExternalAiProductionTruth() {
     "top-level degraded is allowed only when optional OpenAI is not configured",
   );
 
-  assert.match(envGovernanceSource, /providers=grok/u);
+  assert.match(envGovernanceSource, /providers=openai,grok/u);
   assert.match(envGovernanceSource, /dual-public-alias-read-only-probe/u);
   assert.match(envGovernanceSource, /PRODUCTION_REPAIR_XAI_GITHUB_SECRET_REQUIRED/u);
+  assert.match(envGovernanceSource, /method:\s*"DELETE"/u);
+  assert.match(envGovernanceSource, /\/v10\/projects\/\$\{encodeURIComponent\(projectId\)\}\/env\/\$\{encodeURIComponent\(recordId\)\}/u);
+  assert.doesNotMatch(envGovernanceSource, /"env", "rm"/u);
+  assert.match(envGovernanceSource, /PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED/u);
+  assert.match(envGovernanceSource, /credential_not_configured_pending_staged_deployment/u);
 }
 
 function testConcurrency() {

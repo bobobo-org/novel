@@ -14,9 +14,18 @@ export const PRODUCTION_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_SERVICE_ROLE_KEY",
 ]);
 
-export const PRODUCTION_EXTERNAL_AI_KEYS = Object.freeze([
+export const PRODUCTION_XAI_KEYS = Object.freeze([
   "XAI_API_KEY",
   "XAI_MODEL_ID",
+]);
+
+export const PRODUCTION_OPTIONAL_OPENAI_KEYS = Object.freeze([
+  "OPENAI_API_KEY",
+]);
+
+export const PRODUCTION_EXTERNAL_AI_KEYS = Object.freeze([
+  ...PRODUCTION_XAI_KEYS,
+  ...PRODUCTION_OPTIONAL_OPENAI_KEYS,
 ]);
 
 function stableValue(value) {
@@ -184,18 +193,56 @@ export async function readVercelProductionEnvironmentMetadata({
       httpStatus: response.status,
     });
   }
+  const normalizeTargets = (target) => [...new Set(
+    (Array.isArray(target) ? target : typeof target === "string" ? [target] : [])
+      .map(String)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )].sort();
+  const records = [];
   const entries = {};
   for (const env of body.envs) {
     const key = String(env?.key || "");
-    const targets = Array.isArray(env?.target) ? env.target.map(String) : [];
+    const targets = normalizeTargets(env?.target);
     if (!key || !targets.includes("production")) continue;
-    const candidate = {
+    const controlMarkers = Object.keys(env || {})
+      .filter((field) => /(?:integration|managed|shared)/iu.test(field))
+      .filter((field) => {
+        const value = env[field];
+        return Array.isArray(value) ? value.length > 0 : Boolean(value);
+      })
+      .sort();
+    const recordCore = {
+      id: String(env?.id || ""),
       key,
       type: String(env?.type || "unknown"),
-      targets: [...new Set(targets)].sort(),
+      targets,
       updatedAt: Number.isFinite(Number(env?.updatedAt)) ? Number(env.updatedAt) : null,
+      gitBranchScoped: Boolean(String(env?.gitBranch || "").trim()),
+      customEnvironmentIdCount: Array.isArray(env?.customEnvironmentIds)
+        ? env.customEnvironmentIds.length
+        : env?.customEnvironmentIds == null
+          ? 0
+          : 1,
+      system: Boolean(env?.system),
+      configurationLinked: Boolean(String(env?.configurationId || "").trim()),
+      edgeConfigLinked: Boolean(
+        String(env?.edgeConfigId || "").trim()
+        || String(env?.edgeConfigTokenId || "").trim()
+      ),
+      sunsetSecretLinked: Boolean(String(env?.sunsetSecretId || "").trim()),
+      vsmValuePresent: env?.vsmValue != null,
+      contentHintPresent: env?.contentHint != null,
+      internalContentHintPresent: env?.internalContentHint != null,
+      createdByIntegration: /integration/iu.test(String(env?.createdBy?.type || "")),
+      controlMarkers,
       secretValuesStored: false,
     };
+    const candidate = {
+      ...recordCore,
+      recordFingerprint: sha256(recordCore),
+    };
+    records.push(candidate);
     if (!entries[key] || (candidate.updatedAt || 0) >= (entries[key].updatedAt || 0)) {
       entries[key] = candidate;
     }
@@ -204,8 +251,47 @@ export async function readVercelProductionEnvironmentMetadata({
     verified: true,
     readOnly: true,
     entries,
+    records,
     secretValuesStored: false,
   };
+}
+
+function optionalOpenAiProductionRecords(metadata) {
+  return (metadata?.records || [])
+    .filter((record) => record?.key === "OPENAI_API_KEY")
+    .filter((record) => record?.targets?.includes("production"));
+}
+
+function isExclusiveUnmanagedProductionRecord(record) {
+  return Boolean(
+    String(record?.id || "").trim()
+    && ["encrypted", "sensitive"].includes(record?.type)
+    && Number.isFinite(record?.updatedAt)
+    && record.updatedAt > 0
+    && Array.isArray(record?.targets)
+    && record.targets.length === 1
+    && record.targets[0] === "production"
+    && record.gitBranchScoped === false
+    && record.customEnvironmentIdCount === 0
+    && record.system === false
+    && record.configurationLinked === false
+    && record.edgeConfigLinked === false
+    && record.sunsetSecretLinked === false
+    && record.vsmValuePresent === false
+    && record.contentHintPresent === false
+    && record.internalContentHintPresent === false
+    && record.createdByIntegration === false
+    && Array.isArray(record.controlMarkers)
+    && record.controlMarkers.length === 0
+    && /^[a-f0-9]{64}$/u.test(String(record.recordFingerprint || ""))
+  );
+}
+
+function exactRemovableOpenAiProductionRecord(metadata) {
+  const records = optionalOpenAiProductionRecords(metadata);
+  return records.length === 1 && isExclusiveUnmanagedProductionRecord(records[0])
+    ? records[0]
+    : null;
 }
 
 export async function readProductionCloudRuntimeTruth({
@@ -279,6 +365,11 @@ function sanitizedXaiObservation({
   modelId = null,
   topLevelVerification = null,
   state = "indeterminate",
+  openaiConfigured = null,
+  openaiVerification = null,
+  openaiVerificationCode = null,
+  openaiModelId = null,
+  openaiState = "indeterminate",
   failureCode = null,
 }) {
   return {
@@ -290,6 +381,11 @@ function sanitizedXaiObservation({
     modelId,
     topLevelVerification,
     state,
+    openaiConfigured,
+    openaiVerification,
+    openaiVerificationCode,
+    openaiModelId,
+    openaiState,
     failureCode,
     secretValuesStored: false,
   };
@@ -298,16 +394,20 @@ function sanitizedXaiObservation({
 function classifyXaiRuntimePayload({ alias, httpStatus, payload, expectedXaiModelId }) {
   const providers = Array.isArray(payload?.providers) ? payload.providers : [];
   const grokProviders = providers.filter((provider) => provider?.id === "grok");
+  const openaiProviders = providers.filter((provider) => provider?.id === "openai");
   const grok = grokProviders[0];
+  const openai = openaiProviders[0];
   const surfaceValid = payload?.status === "ready"
     && payload?.credentials === "server-side-only"
     && payload?.silentFallback === false
     && payload?.probePerformed === true
     && ["verified", "degraded"].includes(payload?.verification)
-    && providers.length === 1
+    && providers.length === 2
     && grokProviders.length === 1
-    && grok?.serverSideCredentialOnly === true
-    && grok?.dataLeavesDevice === true;
+    && openaiProviders.length === 1
+    && providers.every((provider) => (
+      provider?.serverSideCredentialOnly === true && provider?.dataLeavesDevice === true
+    ));
   if (!surfaceValid) {
     return sanitizedXaiObservation({
       alias,
@@ -324,48 +424,79 @@ function classifyXaiRuntimePayload({ alias, httpStatus, payload, expectedXaiMode
     verificationCode: String(grok.verificationCode || ""),
     modelId: String(grok.modelId || ""),
     topLevelVerification: String(payload.verification || ""),
+    openaiConfigured: openai.configured === true,
+    openaiVerification: String(openai.verification || ""),
+    openaiVerificationCode: String(openai.verificationCode || ""),
+    openaiModelId: String(openai.modelId || ""),
   };
+  let state = "indeterminate";
   if (
     grok.configured === false
     && grok.verification === "not_configured"
     && grok.verificationCode === "NOT_CONFIGURED"
-    && payload.verification === "degraded"
   ) {
-    return sanitizedXaiObservation({ ...common, state: "credential_not_configured" });
-  }
-  if (grok.configured !== true) {
-    return sanitizedXaiObservation({
-      ...common,
-      failureCode: "PRODUCTION_AUDIT_XAI_CONFIGURATION_TRUTH_INVALID",
-    });
-  }
-  if (String(grok.modelId || "") !== expectedXaiModelId) {
-    return sanitizedXaiObservation({ ...common, state: "model_invalid" });
-  }
-  if (
+    state = "credential_not_configured";
+  } else if (grok.configured !== true) {
+    state = "indeterminate";
+  } else if (String(grok.modelId || "") !== expectedXaiModelId) {
+    state = "model_invalid";
+  } else if (
     grok.verification === "verified"
     && grok.verificationCode === "MODEL_ACCESS_VERIFIED"
-    && payload.verification === "verified"
   ) {
-    return sanitizedXaiObservation({ ...common, state: "verified" });
-  }
-  if (
+    state = "verified";
+  } else if (
     grok.verification === "failed"
-    && payload.verification === "degraded"
     && DEFINITE_XAI_CREDENTIAL_FAILURES.has(grok.verificationCode)
   ) {
-    return sanitizedXaiObservation({ ...common, state: "credential_revoked" });
-  }
-  if (
+    state = "credential_revoked";
+  } else if (
     grok.verification === "failed"
-    && payload.verification === "degraded"
     && DEFINITE_XAI_MODEL_FAILURES.has(grok.verificationCode)
   ) {
-    return sanitizedXaiObservation({ ...common, state: "model_invalid" });
+    state = "model_invalid";
+  }
+
+  let openaiState = "indeterminate";
+  if (
+    openai.configured === false
+    && openai.verification === "not_configured"
+    && openai.verificationCode === "NOT_CONFIGURED"
+  ) {
+    openaiState = "credential_not_configured";
+  } else if (
+    openai.configured === true
+    && openai.verification === "verified"
+    && openai.verificationCode === "MODEL_ACCESS_VERIFIED"
+  ) {
+    openaiState = "verified";
+  } else if (
+    openai.configured === true
+    && openai.verification === "failed"
+    && openai.verificationCode === "EXTERNAL_PROVIDER_AUTH_FAILED"
+  ) {
+    openaiState = "credential_revoked";
+  }
+
+  const expectedTopLevelVerification = state === "verified" && openaiState === "verified"
+    ? "verified"
+    : "degraded";
+  if (
+    state !== "indeterminate"
+    && openaiState !== "indeterminate"
+    && payload.verification === expectedTopLevelVerification
+  ) {
+    return sanitizedXaiObservation({ ...common, state, openaiState });
   }
   return sanitizedXaiObservation({
     ...common,
-    failureCode: "PRODUCTION_AUDIT_XAI_RUNTIME_TRUTH_INDETERMINATE",
+    state,
+    openaiState,
+    failureCode: state === "indeterminate"
+      ? "PRODUCTION_AUDIT_XAI_RUNTIME_TRUTH_INDETERMINATE"
+      : openaiState === "indeterminate"
+        ? "PRODUCTION_AUDIT_OPENAI_RUNTIME_TRUTH_INDETERMINATE"
+        : "PRODUCTION_AUDIT_EXTERNAL_AI_TOP_LEVEL_TRUTH_INVALID",
   });
 }
 
@@ -460,7 +591,7 @@ export async function readProductionExternalAiRuntimeTruth({
     try {
       response = await boundedFetch(
         fetcher,
-        `https://${alias}/api/ai/external/providers?probe=1&providers=grok&production-env-audit=${Date.now()}`,
+        `https://${alias}/api/ai/external/providers?probe=1&providers=openai,grok&production-env-audit=${Date.now()}`,
         { cache: "no-store" },
         {
           timeoutMs: fetchTimeoutMs,
@@ -498,10 +629,13 @@ export async function readProductionExternalAiRuntimeTruth({
   }));
 
   const states = [...new Set(observations.map((observation) => observation.state))];
+  const openaiStates = [...new Set(observations.map((observation) => observation.openaiState))];
   const hasIndeterminateObservation = observations.some((observation) => (
-    observation.state === "indeterminate" || observation.failureCode
+    observation.state === "indeterminate"
+    || observation.openaiState === "indeterminate"
+    || observation.failureCode
   ));
-  if (hasIndeterminateObservation || states.length !== 1) {
+  if (hasIndeterminateObservation || states.length !== 1 || openaiStates.length !== 1) {
     return {
       verified: false,
       indeterminate: true,
@@ -513,29 +647,265 @@ export async function readProductionExternalAiRuntimeTruth({
       observations,
       failureCode: hasIndeterminateObservation
         ? "PRODUCTION_AUDIT_XAI_RUNTIME_TRUTH_UNAVAILABLE"
-        : "PRODUCTION_AUDIT_XAI_ALIAS_TRUTH_DISAGREEMENT",
+        : "PRODUCTION_AUDIT_EXTERNAL_AI_ALIAS_TRUTH_DISAGREEMENT",
       secretValuesStored: false,
     };
   }
 
   const state = states[0];
-  const repairKeys = state === "credential_not_configured" || state === "credential_revoked"
+  const openaiState = openaiStates[0];
+  const xaiRepairKeys = state === "credential_not_configured" || state === "credential_revoked"
     ? ["XAI_API_KEY"]
     : state === "model_invalid"
       ? ["XAI_MODEL_ID"]
       : [];
+  const openaiRepairKeys = openaiState === "credential_revoked"
+    ? ["OPENAI_API_KEY"]
+    : [];
+  const repairKeys = [...xaiRepairKeys, ...openaiRepairKeys];
   return {
-    verified: state === "verified",
+    verified: state === "verified"
+      && ["verified", "credential_not_configured"].includes(openaiState),
     indeterminate: false,
     readOnly: true,
     verificationMode: "dual-public-alias-read-only-probe",
     expectedModelId: expectedXaiModelId,
     state,
+    openaiState,
+    xaiRepairKeys,
+    openaiRepairKeys,
     repairKeys,
     observations,
     failureCode: null,
     secretValuesStored: false,
   };
+}
+
+async function readProductionAliasIdentitySet({
+  aliases,
+  fetcher,
+  fetchTimeoutMs,
+  deadlineAt,
+  phase,
+}) {
+  return Promise.all(aliases.map(async (alias) => {
+    const response = await boundedFetch(
+      fetcher,
+      `https://${alias}/api/release/identity?production-env-audit=${phase}-${Date.now()}`,
+      { cache: "no-store" },
+      {
+        timeoutMs: fetchTimeoutMs,
+        deadlineAt,
+        timeoutCode: "PRODUCTION_AUDIT_RELEASE_IDENTITY_TIMEOUT",
+      },
+    );
+    const identity = await boundedOperation(() => response.json(), {
+      timeoutMs: fetchTimeoutMs,
+      deadlineAt,
+      timeoutCode: "PRODUCTION_AUDIT_RELEASE_IDENTITY_BODY_TIMEOUT",
+      onTimeout: () => response.body?.cancel().catch(() => undefined),
+    }).catch(() => null);
+    if (
+      !response.ok
+      || !/^dpl_[A-Za-z0-9]+$/u.test(String(identity?.deploymentId || ""))
+      || !/^[a-f0-9]{40}$/u.test(String(identity?.appCommit || ""))
+      || identity?.environment !== "production"
+      || identity?.provenanceStatus !== "verified"
+    ) {
+      throw Object.assign(new Error("PRODUCTION_AUDIT_RELEASE_IDENTITY_INVALID"), {
+        code: "PRODUCTION_AUDIT_RELEASE_IDENTITY_INVALID",
+      });
+    }
+    return {
+      alias,
+      deploymentId: identity.deploymentId,
+      appCommit: identity.appCommit,
+      provenanceStatus: "verified",
+      environment: "production",
+    };
+  }));
+}
+
+async function readProductionDeploymentControlPlane({
+  deploymentId,
+  appCommit,
+  token,
+  teamId,
+  projectId,
+  fetcher,
+  fetchTimeoutMs,
+  deadlineAt,
+}) {
+  const url = new URL(
+    `https://api.vercel.com/v13/deployments/${encodeURIComponent(deploymentId)}`,
+  );
+  url.searchParams.set("teamId", teamId);
+  const response = await boundedFetch(fetcher, url, {
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  }, {
+    timeoutMs: fetchTimeoutMs,
+    deadlineAt,
+    timeoutCode: "PRODUCTION_AUDIT_DEPLOYMENT_CONTROL_PLANE_TIMEOUT",
+  });
+  const deployment = await boundedOperation(() => response.json(), {
+    timeoutMs: fetchTimeoutMs,
+    deadlineAt,
+    timeoutCode: "PRODUCTION_AUDIT_DEPLOYMENT_CONTROL_PLANE_BODY_TIMEOUT",
+    onTimeout: () => response.body?.cancel().catch(() => undefined),
+  }).catch(() => null);
+  const observedDeploymentId = deployment?.id ?? deployment?.uid ?? null;
+  const observedCommit = deployment?.meta?.githubCommitSha ?? null;
+  const observedProjectId = deployment?.projectId ?? deployment?.project?.id ?? null;
+  const observedTeamId = deployment?.teamId
+    ?? deployment?.ownerId
+    ?? deployment?.project?.accountId
+    ?? null;
+  const readyState = deployment?.readyState ?? deployment?.state ?? null;
+  const createdAt = Number(deployment?.createdAt);
+  if (
+    !response.ok
+    || observedDeploymentId !== deploymentId
+    || observedCommit !== appCommit
+    || observedProjectId !== projectId
+    || observedTeamId !== teamId
+    || readyState !== "READY"
+    || deployment?.target !== "production"
+    || !Number.isFinite(createdAt)
+    || createdAt <= 0
+  ) {
+    throw Object.assign(new Error("PRODUCTION_AUDIT_DEPLOYMENT_CONTROL_PLANE_INVALID"), {
+      code: "PRODUCTION_AUDIT_DEPLOYMENT_CONTROL_PLANE_INVALID",
+    });
+  }
+  return {
+    deploymentId,
+    appCommit,
+    createdAt,
+    readyState: "READY",
+    target: "production",
+    projectIdMatches: true,
+    teamIdMatches: true,
+  };
+}
+
+export async function readBoundProductionExternalAiRuntimeTruth({
+  aliases,
+  expectedXaiModelId = "grok-4.5",
+  token,
+  teamId,
+  projectId,
+  fetcher = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Date.now() + 45_000,
+}) {
+  const normalizedAliases = [...new Set((aliases || []).map((alias) => String(alias || "").trim()))]
+    .filter(Boolean);
+  if (normalizedAliases.length !== 2 || !token || !teamId || !projectId) {
+    return {
+      verified: false,
+      indeterminate: true,
+      readOnly: true,
+      verificationMode: "dual-public-alias-deployment-bound-read-only-probe",
+      expectedModelId: expectedXaiModelId,
+      state: "indeterminate",
+      openaiState: "indeterminate",
+      repairKeys: [],
+      observations: [],
+      deploymentBound: false,
+      deploymentSnapshots: [],
+      earliestDeploymentCreatedAt: null,
+      failureCode: "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_BINDING_INPUT_INVALID",
+      secretValuesStored: false,
+    };
+  }
+  let runtimeTruth;
+  try {
+    const identityBefore = await readProductionAliasIdentitySet({
+      aliases: normalizedAliases,
+      fetcher,
+      fetchTimeoutMs,
+      deadlineAt,
+      phase: "before",
+    });
+    runtimeTruth = await readProductionExternalAiRuntimeTruth({
+      aliases: normalizedAliases,
+      expectedXaiModelId,
+      fetcher,
+      fetchTimeoutMs,
+      deadlineAt,
+    });
+    const identityAfter = await readProductionAliasIdentitySet({
+      aliases: normalizedAliases,
+      fetcher,
+      fetchTimeoutMs,
+      deadlineAt,
+      phase: "after",
+    });
+    const identityBeforeDigest = sha256(identityBefore);
+    const identityAfterDigest = sha256(identityAfter);
+    const deploymentIds = [...new Set(identityAfter.map((entry) => entry.deploymentId))];
+    const appCommits = [...new Set(identityAfter.map((entry) => entry.appCommit))];
+    if (
+      identityBeforeDigest !== identityAfterDigest
+      || deploymentIds.length !== 1
+      || appCommits.length !== 1
+    ) {
+      throw Object.assign(new Error("PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED"), {
+        code: "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED",
+      });
+    }
+    const controlPlane = await readProductionDeploymentControlPlane({
+      deploymentId: deploymentIds[0],
+      appCommit: appCommits[0],
+      token,
+      teamId,
+      projectId,
+      fetcher,
+      fetchTimeoutMs,
+      deadlineAt,
+    });
+    const deploymentSnapshots = identityAfter.map((identity) => ({
+      alias: identity.alias,
+      deploymentId: identity.deploymentId,
+      appCommit: identity.appCommit,
+      deploymentCreatedAt: controlPlane.createdAt,
+      provenanceStatus: identity.provenanceStatus,
+      environment: identity.environment,
+    }));
+    return {
+      ...runtimeTruth,
+      verified: runtimeTruth.verified === true,
+      indeterminate: runtimeTruth.indeterminate === true,
+      verificationMode: "dual-public-alias-deployment-bound-read-only-probe",
+      deploymentBound: true,
+      deploymentSnapshots,
+      earliestDeploymentCreatedAt: controlPlane.createdAt,
+      secretValuesStored: false,
+    };
+  } catch (error) {
+    return {
+      ...(runtimeTruth || {}),
+      verified: false,
+      indeterminate: true,
+      readOnly: true,
+      verificationMode: "dual-public-alias-deployment-bound-read-only-probe",
+      expectedModelId: expectedXaiModelId,
+      state: "indeterminate",
+      openaiState: "indeterminate",
+      xaiRepairKeys: [],
+      openaiRepairKeys: [],
+      repairKeys: [],
+      observations: runtimeTruth?.observations || [],
+      deploymentBound: false,
+      deploymentSnapshots: [],
+      earliestDeploymentCreatedAt: null,
+      failureCode: String(
+        error?.code || error?.message || "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_BINDING_FAILED",
+      ),
+      secretValuesStored: false,
+    };
+  }
 }
 
 function isXaiKey(value) {
@@ -558,11 +928,39 @@ export function auditProductionEnvironment({
   const githubKey = String(githubXaiApiKey || "").trim();
   const productionXaiKey = String(production.XAI_API_KEY || "").trim();
   const productionXaiModel = String(production.XAI_MODEL_ID || "").trim();
+  const productionOpenAiKey = String(production.OPENAI_API_KEY || "").trim();
   const supabaseCredentialMetadata = vercelEnvironmentMetadata?.entries?.SUPABASE_SERVICE_ROLE_KEY;
   const xaiCredentialMetadata = vercelEnvironmentMetadata?.entries?.XAI_API_KEY;
+  const openaiCredentialMetadata = vercelEnvironmentMetadata?.entries?.OPENAI_API_KEY;
+  const openaiModelMetadata = vercelEnvironmentMetadata?.entries?.OPENAI_MODEL_ID;
+  const openaiProductionRecords = optionalOpenAiProductionRecords(vercelEnvironmentMetadata);
+  const removableOpenAiRecord = exactRemovableOpenAiProductionRecord(vercelEnvironmentMetadata);
+  const earliestDeploymentCreatedAt = Number(
+    externalAiRuntimeTruth?.earliestDeploymentCreatedAt,
+  );
+  const openaiRecordPredatesDeployments = Boolean(
+    removableOpenAiRecord
+    && Number.isFinite(earliestDeploymentCreatedAt)
+    && earliestDeploymentCreatedAt > 0
+    && removableOpenAiRecord.updatedAt <= earliestDeploymentCreatedAt
+  );
   const supabaseCredentialMetadataSafe = ["encrypted", "sensitive"]
     .includes(supabaseCredentialMetadata?.type);
   const driftKeys = [];
+
+  if (
+    externalAiRuntimeTruth?.openaiState
+      === "credential_not_configured_pending_staged_deployment"
+    && (
+      Boolean(productionOpenAiKey)
+      || Boolean(openaiCredentialMetadata)
+      || openaiProductionRecords.length !== 0
+    )
+  ) {
+    throw Object.assign(new Error("PRODUCTION_AUDIT_OPENAI_REMOVAL_PENDING_METADATA_PRESENT"), {
+      code: "PRODUCTION_AUDIT_OPENAI_REMOVAL_PENDING_METADATA_PRESENT",
+    });
+  }
 
   if (supabaseCredentialVerification?.indeterminate === true) {
     throw Object.assign(new Error("PRODUCTION_AUDIT_SUPABASE_TRUTH_UNAVAILABLE"), {
@@ -608,6 +1006,7 @@ export function auditProductionEnvironment({
   }
 
   const externalAiExpected = Boolean(githubKey || productionXaiKey || xaiCredentialMetadata);
+  const optionalOpenAiConfigured = Boolean(productionOpenAiKey || openaiCredentialMetadata);
   if (
     githubKey
     && productionXaiKey !== githubKey
@@ -629,10 +1028,23 @@ export function auditProductionEnvironment({
   ) {
     driftKeys.push("XAI_API_KEY");
   }
-  for (const key of externalAiExpected ? externalAiRuntimeTruth?.repairKeys || [] : []) {
-    if (!PRODUCTION_EXTERNAL_AI_KEYS.includes(key)) {
+  const xaiRepairKeys = externalAiRuntimeTruth?.xaiRepairKeys
+    || (externalAiRuntimeTruth?.repairKeys || []).filter((key) => PRODUCTION_XAI_KEYS.includes(key));
+  for (const key of externalAiExpected ? xaiRepairKeys : []) {
+    if (!PRODUCTION_XAI_KEYS.includes(key)) {
       throw Object.assign(new Error("PRODUCTION_AUDIT_XAI_REPAIR_KEY_INVALID"), {
         code: "PRODUCTION_AUDIT_XAI_REPAIR_KEY_INVALID",
+      });
+    }
+    driftKeys.push(key);
+  }
+  const openaiRepairKeys = externalAiRuntimeTruth?.openaiRepairKeys
+    || (externalAiRuntimeTruth?.repairKeys || [])
+      .filter((key) => PRODUCTION_OPTIONAL_OPENAI_KEYS.includes(key));
+  for (const key of optionalOpenAiConfigured ? openaiRepairKeys : []) {
+    if (!PRODUCTION_OPTIONAL_OPENAI_KEYS.includes(key)) {
+      throw Object.assign(new Error("PRODUCTION_AUDIT_OPENAI_REPAIR_KEY_INVALID"), {
+        code: "PRODUCTION_AUDIT_OPENAI_REPAIR_KEY_INVALID",
       });
     }
     driftKeys.push(key);
@@ -647,7 +1059,7 @@ export function auditProductionEnvironment({
     },
     requiredVariables: Object.fromEntries([
       ...PRODUCTION_SUPABASE_KEYS,
-      ...PRODUCTION_EXTERNAL_AI_KEYS,
+      ...PRODUCTION_XAI_KEYS,
     ].map((key) => [
       key,
       Boolean(String(production[key] || "").trim())
@@ -690,6 +1102,33 @@ export function auditProductionEnvironment({
       runtimeFailureCode: externalAiRuntimeTruth?.failureCode || null,
       runtimeRepairKeys: [...(externalAiRuntimeTruth?.repairKeys || [])],
       runtimeObservations: [...(externalAiRuntimeTruth?.observations || [])],
+      openai: {
+        configured: optionalOpenAiConfigured,
+        credentialMetadataPresent: Boolean(openaiCredentialMetadata),
+        credentialType: openaiCredentialMetadata?.type || null,
+        credentialTargets: [...(openaiCredentialMetadata?.targets || [])],
+        modelMetadataPresent: Boolean(openaiModelMetadata),
+        modelTargets: [...(openaiModelMetadata?.targets || [])],
+        productionRecordCount: openaiProductionRecords.length,
+        removableRecordFingerprint: removableOpenAiRecord?.recordFingerprint || null,
+        removableRecordIdPresent: Boolean(removableOpenAiRecord?.id),
+        removableRecordUpdatedAt: removableOpenAiRecord?.updatedAt || null,
+        deploymentBound: externalAiRuntimeTruth?.deploymentBound === true,
+        deploymentSnapshots: [...(externalAiRuntimeTruth?.deploymentSnapshots || [])],
+        earliestDeploymentCreatedAt: Number.isFinite(earliestDeploymentCreatedAt)
+          ? earliestDeploymentCreatedAt
+          : null,
+        recordPredatesDeployments: openaiRecordPredatesDeployments,
+        runtimeState: externalAiRuntimeTruth?.openaiState || null,
+        runtimeRepairKeys: [...openaiRepairKeys],
+        removalAuthorized: optionalOpenAiConfigured
+          && externalAiRuntimeTruth?.openaiState === "credential_revoked"
+          && openaiRepairKeys.length === 1
+          && openaiRepairKeys[0] === "OPENAI_API_KEY"
+          && Boolean(removableOpenAiRecord?.recordFingerprint)
+          && externalAiRuntimeTruth?.deploymentBound === true
+          && openaiRecordPredatesDeployments,
+      },
     },
     driftKeys: uniqueDriftKeys,
   };
@@ -730,6 +1169,17 @@ export function createEnvironmentRepairReceipt({ before, after, actualChangedKey
     });
   }
   const changedKeys = [...new Set(actualChangedKeys)].sort();
+  const mutations = actualChangedKeys.map((key) => ({
+    key,
+    operation: key === "OPENAI_API_KEY"
+      && before.truth?.externalAi?.openai?.removalAuthorized === true
+      ? "remove"
+      : "upsert",
+    target: "production",
+    beforeRecordFingerprint: key === "OPENAI_API_KEY"
+      ? before.truth?.externalAi?.openai?.removableRecordFingerprint || null
+      : null,
+  }));
   const receiptCore = {
     schemaVersion: "production-environment-repair-receipt-v1",
     beforeDigest: before.truthDigest,
@@ -737,6 +1187,7 @@ export function createEnvironmentRepairReceipt({ before, after, actualChangedKey
     changedKeys,
     changedKeysCount: changedKeys.length,
     mutationCount: actualChangedKeys.length,
+    mutations,
     secretValuesStored: false,
   };
   return {
@@ -751,20 +1202,172 @@ function requiredEnvironment(name) {
   return value;
 }
 
-function runVercel(args) {
+function runVercel(args, {
+  failureCode = "PRODUCTION_AUDIT_VERCEL_COMMAND_FAILED",
+  timeoutMs = 60_000,
+} = {}) {
   const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const result = spawnSync(command, ["exec", "vercel", ...args], {
     encoding: "utf8",
     env: process.env,
     maxBuffer: 4 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 60_000,
+    timeout: timeoutMs,
   });
   if (result.error || result.status !== 0) {
-    throw Object.assign(new Error("PRODUCTION_AUDIT_VERCEL_PULL_FAILED"), {
-      code: "PRODUCTION_AUDIT_VERCEL_PULL_FAILED",
+    throw Object.assign(new Error(failureCode), {
+      code: failureCode,
     });
   }
+}
+
+export function planInvalidOptionalOpenAiProductionRemoval({
+  allowedMutationKeys,
+  auditedExternalAiTruth,
+}) {
+  if (!Array.isArray(allowedMutationKeys)) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_MUTATION_KEYS_MISSING"), {
+      code: "PRODUCTION_REPAIR_OPENAI_MUTATION_KEYS_MISSING",
+    });
+  }
+  const requested = [...new Set(allowedMutationKeys)];
+  if (requested.some((key) => !PRODUCTION_OPTIONAL_OPENAI_KEYS.includes(key))) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_MUTATION_KEY_INVALID"), {
+      code: "PRODUCTION_REPAIR_OPENAI_MUTATION_KEY_INVALID",
+    });
+  }
+  if (requested.length === 0) return [];
+  const openaiTruth = auditedExternalAiTruth?.openai;
+  if (
+    openaiTruth?.removalAuthorized !== true
+    || openaiTruth?.runtimeState !== "credential_revoked"
+    || openaiTruth?.credentialMetadataPresent !== true
+    || !openaiTruth?.credentialTargets?.includes("production")
+    || !openaiTruth?.runtimeRepairKeys?.includes("OPENAI_API_KEY")
+    || openaiTruth?.productionRecordCount !== 1
+    || openaiTruth?.removableRecordIdPresent !== true
+    || openaiTruth?.deploymentBound !== true
+    || openaiTruth?.recordPredatesDeployments !== true
+    || !/^[a-f0-9]{64}$/u.test(String(openaiTruth?.removableRecordFingerprint || ""))
+  ) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_AUDIT_AUTHORIZATION_INVALID"), {
+      code: "PRODUCTION_REPAIR_OPENAI_AUDIT_AUTHORIZATION_INVALID",
+    });
+  }
+  return requested.filter((key) => key === "OPENAI_API_KEY");
+}
+
+export async function deleteVercelProductionEnvironmentRecord({
+  token,
+  teamId,
+  projectId,
+  recordId,
+  fetcher = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Date.now() + 30_000,
+}) {
+  if (!token || !teamId || !projectId || !recordId) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_DELETE_IDENTITY_MISSING"), {
+      code: "PRODUCTION_REPAIR_OPENAI_DELETE_IDENTITY_MISSING",
+    });
+  }
+  const url = new URL(
+    `https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(recordId)}`,
+  );
+  url.searchParams.set("teamId", teamId);
+  const response = await boundedFetch(fetcher, url, {
+    method: "DELETE",
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  }, {
+    timeoutMs: fetchTimeoutMs,
+    deadlineAt,
+    timeoutCode: "PRODUCTION_REPAIR_OPENAI_VERCEL_DELETE_TIMEOUT",
+  });
+  await response.body?.cancel().catch(() => undefined);
+  if (!response.ok) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_VERCEL_DELETE_FAILED"), {
+      code: "PRODUCTION_REPAIR_OPENAI_VERCEL_DELETE_FAILED",
+      httpStatus: response.status,
+    });
+  }
+  return {
+    deleted: true,
+    httpStatus: response.status,
+    target: "production",
+    secretValuesStored: false,
+  };
+}
+
+export async function removeInvalidOptionalOpenAiProductionEnvironment({
+  allowedMutationKeys,
+  auditedExternalAiTruth,
+  auditDigestVerified,
+  projectId,
+  token,
+  teamId,
+  recordRemover = deleteVercelProductionEnvironmentRecord,
+  metadataReader = readVercelProductionEnvironmentMetadata,
+}) {
+  if (auditDigestVerified !== true) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED"), {
+      code: "PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED",
+    });
+  }
+  if (!projectId || !token || !teamId) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_VERCEL_AUTH_MISSING"), {
+      code: "PRODUCTION_REPAIR_OPENAI_VERCEL_AUTH_MISSING",
+    });
+  }
+  const plannedKeys = planInvalidOptionalOpenAiProductionRemoval({
+    allowedMutationKeys,
+    auditedExternalAiTruth,
+  });
+  const preMutationMetadata = await metadataReader({ token, teamId, projectId });
+  const preMutationRecord = exactRemovableOpenAiProductionRecord(preMutationMetadata);
+  if (
+    !preMutationRecord
+    || preMutationRecord.recordFingerprint
+      !== auditedExternalAiTruth.openai.removableRecordFingerprint
+  ) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED"), {
+      code: "PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED",
+    });
+  }
+  const actualChangedKeys = [];
+  for (const key of plannedKeys) {
+    const deletion = await recordRemover({
+      token,
+      teamId,
+      projectId,
+      recordId: preMutationRecord.id,
+    });
+    if (
+      deletion?.deleted !== true
+      || !Number.isInteger(deletion?.httpStatus)
+      || deletion.httpStatus < 200
+      || deletion.httpStatus >= 300
+    ) {
+      throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_DELETE_NOT_ATTESTED"), {
+        code: "PRODUCTION_REPAIR_OPENAI_DELETE_NOT_ATTESTED",
+      });
+    }
+    const metadata = await metadataReader({ token, teamId, projectId });
+    if (optionalOpenAiProductionRecords(metadata).length !== 0) {
+      throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_REMOVAL_NOT_OBSERVED"), {
+        code: "PRODUCTION_REPAIR_OPENAI_REMOVAL_NOT_OBSERVED",
+      });
+    }
+    actualChangedKeys.push(key);
+  }
+  return {
+    changedKeys: actualChangedKeys,
+    mutationCount: actualChangedKeys.length,
+    target: "production",
+    beforeRecordFingerprint: preMutationRecord.recordFingerprint,
+    credentialExposed: false,
+    secretValuesStored: false,
+  };
 }
 
 export async function readVercelProjectIdentity({
@@ -825,9 +1428,9 @@ async function performAudit({
       "--scope", scope,
       "--token", token,
       "--yes",
-    ]);
+    ], { failureCode: "PRODUCTION_AUDIT_VERCEL_PULL_FAILED" });
     const production = await readFile(productionFile, "utf8").then(parseEnvFile);
-    const deadlineAt = Date.now() + 30_000;
+    const deadlineAt = Date.now() + 60_000;
     const expectedXaiModelId = process.env.XAI_MODEL_ID || "grok-4.5";
     const [
       projectIdentity,
@@ -843,9 +1446,12 @@ async function performAudit({
       }),
       externalAiRuntimeTruthOverride
         ? Promise.resolve(externalAiRuntimeTruthOverride)
-        : readProductionExternalAiRuntimeTruth({
+        : readBoundProductionExternalAiRuntimeTruth({
           aliases: [requiredEnvironment("PRIMARY_ALIAS"), requiredEnvironment("MIRROR_ALIAS")],
           expectedXaiModelId,
+          token,
+          teamId,
+          projectId,
           deadlineAt,
         }),
     ]);
@@ -942,6 +1548,8 @@ async function runRepairCli() {
   const actualChangedKeys = [];
   let supabaseCredentialVerificationOverride;
   let externalAiRuntimeTruthOverride;
+  let xaiRepaired = false;
+  let optionalOpenAiRemoved = false;
   if (auditedRepairRequired && before.driftKeys.some((key) => PRODUCTION_SUPABASE_KEYS.includes(key))) {
     const { main: repairSupabase } = await import("./bootstrap-production-supabase-env.mjs");
     const result = await repairSupabase({
@@ -950,7 +1558,7 @@ async function runRepairCli() {
     actualChangedKeys.push(...result.changedKeys);
     supabaseCredentialVerificationOverride = result.supabaseCredentialVerification;
   }
-  if (auditedRepairRequired && before.driftKeys.some((key) => PRODUCTION_EXTERNAL_AI_KEYS.includes(key))) {
+  if (auditedRepairRequired && before.driftKeys.some((key) => PRODUCTION_XAI_KEYS.includes(key))) {
     if (!isXaiKey(process.env.XAI_API_KEY)) {
       throw Object.assign(new Error("PRODUCTION_REPAIR_XAI_GITHUB_SECRET_REQUIRED"), {
         code: "PRODUCTION_REPAIR_XAI_GITHUB_SECRET_REQUIRED",
@@ -958,7 +1566,7 @@ async function runRepairCli() {
     }
     const { main: repairExternalAi } = await import("./bootstrap-production-external-ai-env.mjs");
     const result = await repairExternalAi({
-      allowedMutationKeys: before.driftKeys.filter((key) => PRODUCTION_EXTERNAL_AI_KEYS.includes(key)),
+      allowedMutationKeys: before.driftKeys.filter((key) => PRODUCTION_XAI_KEYS.includes(key)),
     });
     actualChangedKeys.push(...result.changedKeys);
     if (
@@ -970,15 +1578,50 @@ async function runRepairCli() {
         code: "PRODUCTION_REPAIR_XAI_DIRECT_VERIFICATION_MISSING",
       });
     }
+    xaiRepaired = true;
+  }
+  if (
+    auditedRepairRequired
+    && before.driftKeys.some((key) => PRODUCTION_OPTIONAL_OPENAI_KEYS.includes(key))
+  ) {
+    const result = await removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: before.driftKeys
+        .filter((key) => PRODUCTION_OPTIONAL_OPENAI_KEYS.includes(key)),
+      auditedExternalAiTruth: before.truth.externalAi,
+      auditDigestVerified: auditedBeforeDigest === before.truthDigest,
+      projectId: requiredEnvironment("VERCEL_PROJECT_ID"),
+      token: requiredEnvironment("VERCEL_TOKEN"),
+      teamId: requiredEnvironment("VERCEL_ORG_ID"),
+    });
+    actualChangedKeys.push(...result.changedKeys);
+    optionalOpenAiRemoved = result.changedKeys.includes("OPENAI_API_KEY");
+  }
+  if (xaiRepaired || optionalOpenAiRemoved) {
+    const beforeExternalAiTruth = before.truth.externalAi;
+    const xaiState = xaiRepaired
+      ? "verified_pending_staged_deployment"
+      : beforeExternalAiTruth.runtimeState;
+    const openaiState = optionalOpenAiRemoved
+      ? "credential_not_configured_pending_staged_deployment"
+      : beforeExternalAiTruth.openai?.runtimeState;
     externalAiRuntimeTruthOverride = {
-      verified: true,
+      verified: String(xaiState || "").startsWith("verified")
+        && ["verified", "credential_not_configured_pending_staged_deployment"]
+          .includes(openaiState),
       indeterminate: false,
       readOnly: true,
-      verificationMode: "github-secret-direct-read-only-probe-after-repair",
-      expectedModelId: result.credentialVerification.modelId,
-      state: "verified_pending_staged_deployment",
+      verificationMode: "audited-repair-plus-vercel-metadata-pending-staged-deployment",
+      expectedModelId: process.env.XAI_MODEL_ID || "grok-4.5",
+      state: xaiState,
+      openaiState,
+      xaiRepairKeys: [],
+      openaiRepairKeys: [],
       repairKeys: [],
       observations: [],
+      deploymentBound: beforeExternalAiTruth.openai?.deploymentBound === true,
+      deploymentSnapshots: [...(beforeExternalAiTruth.openai?.deploymentSnapshots || [])],
+      earliestDeploymentCreatedAt:
+        beforeExternalAiTruth.openai?.earliestDeploymentCreatedAt || null,
       failureCode: null,
       pendingStagedDeploymentVerification: true,
       secretValuesStored: false,

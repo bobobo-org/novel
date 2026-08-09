@@ -100,6 +100,7 @@ assert.match(auditJob, /needs:\s*validate/u);
 assert.match(auditJob, /production-environment-governance\.mjs audit/u);
 assert.match(auditJob, /read-only Production audit tooling/u);
 assert.doesNotMatch(auditJob, /bootstrap-production-|environment-governance\.mjs repair|vercel-dual-alias|env add|vercel alias/u);
+assert.doesNotMatch(auditJob, /secrets\.OPENAI_API_KEY/u);
 
 assert.match(repairJob, /needs:\s*\[validate,\s*production_env_audit\]/u);
 assert.match(repairJob, /production-environment-governance\.mjs repair/u);
@@ -108,6 +109,7 @@ assert.match(repairJob, /AUDIT_REPAIR_REQUIRED/u);
 assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_required == 'true'/u);
 assert.match(repairJob, /Record zero-mutation repair receipt/u);
 assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_required != 'true'/u);
+assert.doesNotMatch(repairJob, /secrets\.OPENAI_API_KEY/u);
 
 assert.match(buildJob, /needs:\s*production_env_repair/u);
 assert.match(buildJob, /vercel build --prod/u);
@@ -183,10 +185,12 @@ assert.match(runtimeJob, /grok_safe/u);
 assert.match(runtimeJob, /openai_not_configured/u);
 assert.match(runtimeJob, /openai_verified/u);
 assert.match(runtimeJob, /top_level_safe/u);
+assert.match(runtimeJob, /\.configured == false and \.verification == "not_configured" and \.verificationCode == "NOT_CONFIGURED"/u);
 assert.match(runtimeJob, /\.modelId == \$expectedModel/u);
 assert.match(runtimeJob, /"\$provider_verification" == "degraded"/u);
 assert.match(runtimeJob, /"\$provider_verification" == "verified"/u);
 assert.doesNotMatch(runtimeJob, /\.verification == "failed"/u);
+assert.doesNotMatch(runtimeJob, /EXTERNAL_PROVIDER_AUTH_FAILED/u);
 assert.doesNotMatch(runtimeJob, /grok-4\.5-latest/u);
 assert.doesNotMatch(runtimeJob, /vercel-dual-alias-cutover/u);
 
