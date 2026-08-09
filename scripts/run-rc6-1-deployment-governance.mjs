@@ -13,6 +13,7 @@ import {
   readVercelProductionEnvironmentMetadata,
   readVercelProjectIdentity,
   removeInvalidOptionalOpenAiProductionEnvironment,
+  validateAuditedProductionEnvironmentInput,
   verifySupabaseProductionCredential,
 } from "./production-environment-governance.mjs";
 import {
@@ -392,13 +393,20 @@ async function testEnvironmentAuditAndRepair() {
   const auditJob = jobSection("production_env_audit");
   const repairJob = jobSection("production_env_repair");
   assert.match(auditJob, /production-environment-governance\.mjs audit/u);
+  assert.match(auditJob, /production-environment-audit-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.match(auditJob, /overwrite:\s*true/u);
   assert.doesNotMatch(auditJob, /bootstrap-production-|env add|vercel-dual-alias|vercel alias/u);
   assert.match(repairJob, /AUDIT_REPAIR_REQUIRED/u);
   assert.match(repairJob, /AUDIT_BEFORE_DIGEST/u);
+  assert.match(repairJob, /Download exact sanitized Production audit evidence/u);
+  assert.match(repairJob, /PRODUCTION_ENV_AUDIT_INPUT_PATH/u);
+  assert.match(repairJob, /production-environment-audit-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.doesNotMatch(repairJob, /production-environment-audit-[^\n]*github\.run_attempt/u);
   assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_required == 'true'/u);
   assert.match(repairJob, /Record zero-mutation repair receipt/u);
   assert.match(envGovernanceSource, /auditedRepairRequired && before\.driftKeys/u);
   assert.match(envGovernanceSource, /PRODUCTION_REPAIR_AUDIT_DIGEST_CHANGED/u);
+  assert.match(envGovernanceSource, /PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED/u);
   assert.match(envGovernanceSource, /secretValuesStored:\s*false/u);
 }
 
@@ -704,7 +712,6 @@ async function testExternalAiProductionTruth() {
     JSON.stringify(invalidOptionalOpenAiMetadata),
     new RegExp(secretMarker, "u"),
   );
-
   const invalidOptionalOpenAiBound = boundInvalidOptionalOpenAi;
 
   const invalidOptionalOpenAiAudit = auditProductionEnvironment({
@@ -733,6 +740,41 @@ async function testExternalAiProductionTruth() {
     JSON.stringify(invalidOptionalOpenAiAudit),
     new RegExp(secretMarker, "u"),
   );
+  assert.equal(
+    validateAuditedProductionEnvironmentInput(invalidOptionalOpenAiAudit),
+    invalidOptionalOpenAiAudit,
+  );
+  assert.throws(
+    () => validateAuditedProductionEnvironmentInput({
+      ...invalidOptionalOpenAiAudit,
+      truth: {
+        ...invalidOptionalOpenAiAudit.truth,
+        externalAi: {
+          ...invalidOptionalOpenAiAudit.truth.externalAi,
+          openai: {
+            ...invalidOptionalOpenAiAudit.truth.externalAi.openai,
+            removalAuthorized: false,
+          },
+        },
+      },
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED",
+  );
+  assert.throws(
+    () => validateAuditedProductionEnvironmentInput({
+      ...invalidOptionalOpenAiAudit,
+      driftKeys: ["XAI_API_KEY"],
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED",
+  );
+  const auditedDeploymentBinding = {
+    deploymentBound: true,
+    deploymentSnapshots:
+      invalidOptionalOpenAiAudit.truth.externalAi.openai.deploymentSnapshots,
+    earliestDeploymentCreatedAt:
+      invalidOptionalOpenAiAudit.truth.externalAi.openai.earliestDeploymentCreatedAt,
+  };
+  const auditedDeploymentBindingReader = async () => auditedDeploymentBinding;
 
   assert.deepEqual(planInvalidOptionalOpenAiProductionRemoval({
     allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
@@ -755,10 +797,12 @@ async function testExternalAiProductionTruth() {
     projectId: "prj_expected",
     token: "vercel-token-must-never-be-logged",
     teamId: "team_expected",
+    aliases,
     recordRemover: (input) => {
       removalCalls.push(input);
       return Promise.resolve({ deleted: true, httpStatus: 204 });
     },
+    deploymentBindingReader: auditedDeploymentBindingReader,
     metadataReader: async () => {
       removalMetadataReadCount += 1;
       if (removalMetadataReadCount === 1) {
@@ -818,10 +862,12 @@ async function testExternalAiProductionTruth() {
       projectId: "prj_expected",
       token: "test-token",
       teamId: "team_expected",
+      aliases,
       recordRemover: async () => {
         stalePostRemovalCount += 1;
         return { deleted: true, httpStatus: 204 };
       },
+      deploymentBindingReader: auditedDeploymentBindingReader,
       metadataReader: async () => ({
         entries: invalidOptionalOpenAiMetadata.entries,
         records: invalidOptionalOpenAiMetadata.records,
@@ -954,7 +1000,9 @@ async function testExternalAiProductionTruth() {
         projectId: "prj_expected",
         token: "test-token",
         teamId: "team_expected",
+        aliases,
         recordRemover: () => { unsafeRemovalCount += 1; },
+        deploymentBindingReader: auditedDeploymentBindingReader,
         metadataReader: async () => unsafeMetadata,
       }),
       (error) => error.code === "PRODUCTION_REPAIR_OPENAI_AUDIT_AUTHORIZATION_INVALID",
@@ -1014,12 +1062,35 @@ async function testExternalAiProductionTruth() {
       projectId: "prj_expected",
       token: "test-token",
       teamId: "team_expected",
+      aliases,
       recordRemover: () => { changedFingerprintRemovalCount += 1; },
+      deploymentBindingReader: auditedDeploymentBindingReader,
       metadataReader: async () => duplicateOpenAiMetadata,
     }),
     (error) => error.code === "PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED",
   );
   assert.equal(changedFingerprintRemovalCount, 0);
+  let changedDeploymentRemovalCount = 0;
+  await assert.rejects(
+    removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: ["OPENAI_API_KEY"],
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+      auditDigestVerified: true,
+      projectId: "prj_expected",
+      token: "test-token",
+      teamId: "team_expected",
+      aliases,
+      recordRemover: () => { changedDeploymentRemovalCount += 1; },
+      metadataReader: async () => invalidOptionalOpenAiMetadata,
+      deploymentBindingReader: async () => ({
+        ...auditedDeploymentBinding,
+        earliestDeploymentCreatedAt:
+          auditedDeploymentBinding.earliestDeploymentCreatedAt + 1,
+      }),
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_OPENAI_DEPLOYMENT_BINDING_CHANGED",
+  );
+  assert.equal(changedDeploymentRemovalCount, 0);
   await assert.rejects(
     removeInvalidOptionalOpenAiProductionEnvironment({
       allowedMutationKeys: ["OPENAI_API_KEY"],
@@ -1028,7 +1099,9 @@ async function testExternalAiProductionTruth() {
       projectId: "prj_expected",
       token: "test-token",
       teamId: "team_expected",
+      aliases,
       recordRemover: () => undefined,
+      deploymentBindingReader: auditedDeploymentBindingReader,
       metadataReader: async () => ({ entries: {} }),
     }),
     (error) => error.code === "PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED",

@@ -99,12 +99,18 @@ assert.doesNotMatch(previewJob, /SUPABASE_ACCESS_TOKEN/u);
 assert.match(auditJob, /needs:\s*validate/u);
 assert.match(auditJob, /production-environment-governance\.mjs audit/u);
 assert.match(auditJob, /read-only Production audit tooling/u);
+assert.match(auditJob, /production-environment-audit-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+assert.match(auditJob, /overwrite:\s*true/u);
 assert.doesNotMatch(auditJob, /bootstrap-production-|environment-governance\.mjs repair|vercel-dual-alias|env add|vercel alias/u);
 assert.doesNotMatch(auditJob, /secrets\.OPENAI_API_KEY/u);
 
 assert.match(repairJob, /needs:\s*\[validate,\s*production_env_audit\]/u);
 assert.match(repairJob, /production-environment-governance\.mjs repair/u);
 assert.match(repairJob, /PRODUCTION_ENV_REPAIR_RECEIPT_PATH/u);
+assert.match(repairJob, /Download exact sanitized Production audit evidence/u);
+assert.match(repairJob, /production-environment-audit-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+assert.doesNotMatch(repairJob, /production-environment-audit-[^\n]*github\.run_attempt/u);
+assert.match(repairJob, /PRODUCTION_ENV_AUDIT_INPUT_PATH/u);
 assert.match(repairJob, /AUDIT_REPAIR_REQUIRED/u);
 assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_required == 'true'/u);
 assert.match(repairJob, /Record zero-mutation repair receipt/u);

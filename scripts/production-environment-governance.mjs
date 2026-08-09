@@ -789,6 +789,93 @@ async function readProductionDeploymentControlPlane({
   };
 }
 
+async function bindProductionAliasIdentitySets({
+  identityBefore,
+  identityAfter,
+  token,
+  teamId,
+  projectId,
+  fetcher,
+  fetchTimeoutMs,
+  deadlineAt,
+}) {
+  const deploymentIds = [...new Set(identityAfter.map((entry) => entry.deploymentId))];
+  const appCommits = [...new Set(identityAfter.map((entry) => entry.appCommit))];
+  if (
+    sha256(identityBefore) !== sha256(identityAfter)
+    || deploymentIds.length !== 1
+    || appCommits.length !== 1
+  ) {
+    throw Object.assign(new Error("PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED"), {
+      code: "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED",
+    });
+  }
+  const controlPlane = await readProductionDeploymentControlPlane({
+    deploymentId: deploymentIds[0],
+    appCommit: appCommits[0],
+    token,
+    teamId,
+    projectId,
+    fetcher,
+    fetchTimeoutMs,
+    deadlineAt,
+  });
+  return {
+    deploymentBound: true,
+    deploymentSnapshots: identityAfter.map((identity) => ({
+      alias: identity.alias,
+      deploymentId: identity.deploymentId,
+      appCommit: identity.appCommit,
+      deploymentCreatedAt: controlPlane.createdAt,
+      provenanceStatus: identity.provenanceStatus,
+      environment: identity.environment,
+    })),
+    earliestDeploymentCreatedAt: controlPlane.createdAt,
+  };
+}
+
+export async function readProductionAliasDeploymentBinding({
+  aliases,
+  token,
+  teamId,
+  projectId,
+  fetcher = fetch,
+  fetchTimeoutMs = 10_000,
+  deadlineAt = Date.now() + 30_000,
+}) {
+  const normalizedAliases = [...new Set((aliases || []).map((alias) => String(alias || "").trim()))]
+    .filter(Boolean);
+  if (normalizedAliases.length !== 2 || !token || !teamId || !projectId) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_DEPLOYMENT_BINDING_INPUT_INVALID"), {
+      code: "PRODUCTION_REPAIR_OPENAI_DEPLOYMENT_BINDING_INPUT_INVALID",
+    });
+  }
+  const identityBefore = await readProductionAliasIdentitySet({
+    aliases: normalizedAliases,
+    fetcher,
+    fetchTimeoutMs,
+    deadlineAt,
+    phase: "repair-before",
+  });
+  const identityAfter = await readProductionAliasIdentitySet({
+    aliases: normalizedAliases,
+    fetcher,
+    fetchTimeoutMs,
+    deadlineAt,
+    phase: "repair-after",
+  });
+  return bindProductionAliasIdentitySets({
+    identityBefore,
+    identityAfter,
+    token,
+    teamId,
+    projectId,
+    fetcher,
+    fetchTimeoutMs,
+    deadlineAt,
+  });
+}
+
 export async function readBoundProductionExternalAiRuntimeTruth({
   aliases,
   expectedXaiModelId = "grok-4.5",
@@ -842,22 +929,9 @@ export async function readBoundProductionExternalAiRuntimeTruth({
       deadlineAt,
       phase: "after",
     });
-    const identityBeforeDigest = sha256(identityBefore);
-    const identityAfterDigest = sha256(identityAfter);
-    const deploymentIds = [...new Set(identityAfter.map((entry) => entry.deploymentId))];
-    const appCommits = [...new Set(identityAfter.map((entry) => entry.appCommit))];
-    if (
-      identityBeforeDigest !== identityAfterDigest
-      || deploymentIds.length !== 1
-      || appCommits.length !== 1
-    ) {
-      throw Object.assign(new Error("PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED"), {
-        code: "PRODUCTION_AUDIT_EXTERNAL_AI_DEPLOYMENT_IDENTITY_CHANGED",
-      });
-    }
-    const controlPlane = await readProductionDeploymentControlPlane({
-      deploymentId: deploymentIds[0],
-      appCommit: appCommits[0],
+    const deploymentBinding = await bindProductionAliasIdentitySets({
+      identityBefore,
+      identityAfter,
       token,
       teamId,
       projectId,
@@ -865,22 +939,12 @@ export async function readBoundProductionExternalAiRuntimeTruth({
       fetchTimeoutMs,
       deadlineAt,
     });
-    const deploymentSnapshots = identityAfter.map((identity) => ({
-      alias: identity.alias,
-      deploymentId: identity.deploymentId,
-      appCommit: identity.appCommit,
-      deploymentCreatedAt: controlPlane.createdAt,
-      provenanceStatus: identity.provenanceStatus,
-      environment: identity.environment,
-    }));
     return {
       ...runtimeTruth,
       verified: runtimeTruth.verified === true,
       indeterminate: runtimeTruth.indeterminate === true,
       verificationMode: "dual-public-alias-deployment-bound-read-only-probe",
-      deploymentBound: true,
-      deploymentSnapshots,
-      earliestDeploymentCreatedAt: controlPlane.createdAt,
+      ...deploymentBinding,
       secretValuesStored: false,
     };
   } catch (error) {
@@ -1306,15 +1370,17 @@ export async function removeInvalidOptionalOpenAiProductionEnvironment({
   projectId,
   token,
   teamId,
+  aliases,
   recordRemover = deleteVercelProductionEnvironmentRecord,
   metadataReader = readVercelProductionEnvironmentMetadata,
+  deploymentBindingReader = readProductionAliasDeploymentBinding,
 }) {
   if (auditDigestVerified !== true) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED"), {
       code: "PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED",
     });
   }
-  if (!projectId || !token || !teamId) {
+  if (!projectId || !token || !teamId || !Array.isArray(aliases)) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_VERCEL_AUTH_MISSING"), {
       code: "PRODUCTION_REPAIR_OPENAI_VERCEL_AUTH_MISSING",
     });
@@ -1332,6 +1398,26 @@ export async function removeInvalidOptionalOpenAiProductionEnvironment({
   ) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED"), {
       code: "PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED",
+    });
+  }
+  const freshDeploymentBinding = await deploymentBindingReader({
+    aliases,
+    token,
+    teamId,
+    projectId,
+  });
+  const auditedDeploymentBinding = {
+    deploymentBound: auditedExternalAiTruth.openai.deploymentBound === true,
+    deploymentSnapshots: auditedExternalAiTruth.openai.deploymentSnapshots || [],
+    earliestDeploymentCreatedAt:
+      auditedExternalAiTruth.openai.earliestDeploymentCreatedAt || null,
+  };
+  if (
+    freshDeploymentBinding?.deploymentBound !== true
+    || sha256(freshDeploymentBinding) !== sha256(auditedDeploymentBinding)
+  ) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_DEPLOYMENT_BINDING_CHANGED"), {
+      code: "PRODUCTION_REPAIR_OPENAI_DEPLOYMENT_BINDING_CHANGED",
     });
   }
   const actualChangedKeys = [];
@@ -1510,6 +1596,42 @@ async function writeJsonIfRequested(environmentName, value) {
   await writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+export function validateAuditedProductionEnvironmentInput(audit) {
+  const driftKeys = Array.isArray(audit?.driftKeys) ? audit.driftKeys : [];
+  const expectedStatus = driftKeys.length === 0 ? "ready" : "repair_required";
+  if (
+    audit?.schemaVersion !== "production-environment-audit-v1"
+    || audit?.readOnly !== true
+    || audit?.mutationCount !== 0
+    || audit?.secretValuesStored !== false
+    || audit?.status !== expectedStatus
+    || audit?.repairRequired !== (driftKeys.length > 0)
+    || !Array.isArray(audit?.truth?.driftKeys)
+    || sha256(driftKeys) !== sha256(audit.truth.driftKeys)
+    || !/^[a-f0-9]{64}$/u.test(String(audit?.truthDigest || ""))
+    || sha256(audit?.truth) !== audit.truthDigest
+    || sha256(driftKeys) !== sha256([...(new Set(driftKeys))].sort())
+  ) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED"), {
+      code: "PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED",
+    });
+  }
+  return audit;
+}
+
+async function readAuditedProductionEnvironmentInput() {
+  const target = requiredEnvironment("PRODUCTION_ENV_AUDIT_INPUT_PATH");
+  let audit;
+  try {
+    audit = JSON.parse(await readFile(target, "utf8"));
+  } catch {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_ARTIFACT_INVALID"), {
+      code: "PRODUCTION_REPAIR_AUDIT_ARTIFACT_INVALID",
+    });
+  }
+  return validateAuditedProductionEnvironmentInput(audit);
+}
+
 async function runAuditCli() {
   const audit = await performAudit();
   appendOutputs({
@@ -1522,7 +1644,7 @@ async function runAuditCli() {
 }
 
 async function runRepairCli() {
-  const before = await performAudit();
+  const auditedBefore = await readAuditedProductionEnvironmentInput();
   if (!["true", "false"].includes(process.env.AUDIT_REPAIR_REQUIRED || "")) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_DECISION_MISSING"), {
       code: "PRODUCTION_REPAIR_AUDIT_DECISION_MISSING",
@@ -1535,14 +1657,25 @@ async function runRepairCli() {
       code: "PRODUCTION_REPAIR_AUDIT_DIGEST_MISSING",
     });
   }
-  if (auditedBeforeDigest !== before.truthDigest) {
+  if (auditedBeforeDigest !== auditedBefore.truthDigest) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_DIGEST_CHANGED"), {
       code: "PRODUCTION_REPAIR_AUDIT_DIGEST_CHANGED",
     });
   }
-  if (auditedRepairRequired !== before.repairRequired) {
+  if (auditedRepairRequired !== auditedBefore.repairRequired) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_DECISION_CHANGED"), {
       code: "PRODUCTION_REPAIR_AUDIT_DECISION_CHANGED",
+    });
+  }
+  const auditedOpenAiOnlyRepair = auditedRepairRequired
+    && auditedBefore.driftKeys.length === 1
+    && auditedBefore.driftKeys[0] === "OPENAI_API_KEY";
+  const before = auditedOpenAiOnlyRepair || !auditedRepairRequired
+    ? auditedBefore
+    : await performAudit();
+  if (before.truthDigest !== auditedBeforeDigest) {
+    throw Object.assign(new Error("PRODUCTION_REPAIR_LIVE_AUDIT_DIGEST_CHANGED"), {
+      code: "PRODUCTION_REPAIR_LIVE_AUDIT_DIGEST_CHANGED",
     });
   }
   const actualChangedKeys = [];
@@ -1592,6 +1725,7 @@ async function runRepairCli() {
       projectId: requiredEnvironment("VERCEL_PROJECT_ID"),
       token: requiredEnvironment("VERCEL_TOKEN"),
       teamId: requiredEnvironment("VERCEL_ORG_ID"),
+      aliases: [requiredEnvironment("PRIMARY_ALIAS"), requiredEnvironment("MIRROR_ALIAS")],
     });
     actualChangedKeys.push(...result.changedKeys);
     optionalOpenAiRemoved = result.changedKeys.includes("OPENAI_API_KEY");

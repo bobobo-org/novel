@@ -347,10 +347,11 @@ jobs:
       - name: Upload sanitized Production environment audit
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-environment-audit-${{ github.sha }}-${{ github.run_attempt }}
+          name: production-environment-audit-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/production-environment-audit.json
           if-no-files-found: error
           retention-days: 30
+          overwrite: true
 
   production_env_repair:
     name: production-env-repair
@@ -387,6 +388,12 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.34.5 --activate
 
+      - name: Download exact sanitized Production audit evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: production-environment-audit-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-environment-audit
+
       - name: Install Production repair tooling
         run: pnpm install --frozen-lockfile
 
@@ -396,6 +403,7 @@ jobs:
         env:
           AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
           AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
+          PRODUCTION_ENV_AUDIT_INPUT_PATH: ${{ runner.temp }}/production-environment-audit/production-environment-audit.json
           PRODUCTION_ENV_REPAIR_RECEIPT_PATH: ${{ runner.temp }}/production-environment-repair-receipt.json
         run: node scripts/production-environment-governance.mjs repair
 
@@ -405,6 +413,7 @@ jobs:
         env:
           AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
           AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
+          PRODUCTION_ENV_AUDIT_INPUT_PATH: ${{ runner.temp }}/production-environment-audit/production-environment-audit.json
           PRODUCTION_ENV_REPAIR_RECEIPT_PATH: ${{ runner.temp }}/production-environment-repair-receipt.json
         run: node scripts/production-environment-governance.mjs repair
 
