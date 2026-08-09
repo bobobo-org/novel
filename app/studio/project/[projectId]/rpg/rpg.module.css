@@ -11,12 +11,25 @@
   --violet: #b08cff;
   --green: #61ddb0;
   min-height: 100vh;
+  overflow-x: clip;
   padding: 22px clamp(14px, 2.4vw, 38px) 48px;
   color: var(--text);
   background:
     radial-gradient(circle at 8% -5%, rgba(63, 112, 226, 0.25), transparent 28%),
     radial-gradient(circle at 86% 6%, rgba(140, 75, 201, 0.18), transparent 30%),
     linear-gradient(155deg, #040a14 0%, var(--bg) 45%, #081426 100%);
+}
+
+.dashboard > *,
+.centerStage,
+.choiceSection,
+.choiceGrid > button,
+.confirmChoice,
+.liveDraft,
+.storyText {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .shell[data-mode="cultivation"] {

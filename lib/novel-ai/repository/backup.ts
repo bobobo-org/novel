@@ -1,6 +1,6 @@
 import type { BackupManifest, DomainRecord, ProjectBackup } from "../domain";
 import { makeRecord } from "../domain";
-import { LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelRepository } from "./contracts";
+import { LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, P24B_RC6_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelRepository } from "./contracts";
 import { validateImportRecords } from "./import-remap";
 import {
   copySovereignLearningBackupSnapshot,
@@ -107,7 +107,7 @@ export async function createProjectBackup(
   const now = new Date().toISOString();
   const manifest: BackupManifest = {
     format: "novel-project-backup", formatVersion: "novel-backup-v6", backupId: crypto.randomUUID(), projectId,
-    projectSchemaVersion: "novel-repository-v7", createdAt: now, appCommit: release.appCommit ?? null, releaseTag: release.releaseTag ?? null,
+    projectSchemaVersion: "novel-repository-v8", createdAt: now, appCommit: release.appCommit ?? null, releaseTag: release.releaseTag ?? null,
     sourceDevice: "browser", contentHash: await digest(body), recordCounts: Object.fromEntries(Object.entries(records).map(([store, rows]) => [store, rows.length])),
     includedStores: Object.keys(records), compression: "none", encryption: "none",
   };
@@ -132,7 +132,7 @@ export async function validateBackupPayload(input: unknown): Promise<{ valid: tr
   if (!input || typeof input !== "object") return { valid: false, reason: "BACKUP_INVALID_FORMAT" };
   const payload = input as BackupPayload;
   if (payload.manifest?.format !== "novel-project-backup" || !["novel-backup-v3", "novel-backup-v4", "novel-backup-v5", "novel-backup-v6"].includes(payload.manifest.formatVersion)) return { valid: false, reason: "BACKUP_UNSUPPORTED_FORMAT" };
-  if (!["novel-domain-v1", "novel-repository-v4", "novel-repository-v5", "novel-repository-v6", "novel-repository-v7"].includes(payload.manifest.projectSchemaVersion)) return { valid: false, reason: "BACKUP_SCHEMA_UNSUPPORTED" };
+  if (!["novel-domain-v1", "novel-repository-v4", "novel-repository-v5", "novel-repository-v6", "novel-repository-v7", "novel-repository-v8"].includes(payload.manifest.projectSchemaVersion)) return { valid: false, reason: "BACKUP_SCHEMA_UNSUPPORTED" };
   if (!payload.records || !Array.isArray(payload.records.projects) || payload.records.projects.length !== 1) return { valid: false, reason: "BACKUP_PROJECT_MISSING" };
   const project = payload.records.projects[0] as DomainRecord;
   if ((project.projectId || project.id) !== payload.manifest.projectId) return { valid: false, reason: "BACKUP_PROJECT_SCOPE_MISMATCH" };
@@ -148,8 +148,11 @@ export async function validateBackupPayload(input: unknown): Promise<{ valid: tr
   if (recordStores.some((store) => !NOVEL_STORES.includes(store as (typeof NOVEL_STORES)[number]) || EXCLUDED_BACKUP_STORES.has(store))) return { valid: false, reason: "BACKUP_STORE_NOT_ALLOWED" };
   if (containsSensitiveKey(payload.records)) return { valid: false, reason: "BACKUP_SENSITIVE_DATA_NOT_ALLOWED" };
   if (recordStores.join("|") !== manifestStores.join("|")) return { valid: false, reason: "BACKUP_MANIFEST_STORE_MISMATCH" };
-  if (payload.manifest.projectSchemaVersion === "novel-repository-v7") {
+  if (payload.manifest.projectSchemaVersion === "novel-repository-v8") {
     const missing = REQUIRED_RESTORE_STORES.filter((store) => !recordStores.includes(store));
+    if (missing.length) return { valid: false, reason: "BACKUP_REQUIRED_STORE_MISSING" };
+  } else if (payload.manifest.projectSchemaVersion === "novel-repository-v7") {
+    const missing = P24B_RC6_REQUIRED_RESTORE_STORES.filter((store) => !recordStores.includes(store));
     if (missing.length) return { valid: false, reason: "BACKUP_REQUIRED_STORE_MISSING" };
   } else if (payload.manifest.projectSchemaVersion === "novel-repository-v6") {
     const missing = P24B_RC5_REQUIRED_RESTORE_STORES.filter((store) => !recordStores.includes(store));

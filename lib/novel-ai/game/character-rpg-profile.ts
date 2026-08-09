@@ -73,7 +73,7 @@ export function createCharacterRpgProfile(input: {
 }): CharacterRpgProfile {
   return {
     schemaVersion: "character-rpg-profile-v1",
-    formulaVersion: "novel-rpg-unified-v2",
+    formulaVersion: "novel-rpg-unified-v3",
     archetype: input.archetype,
     stats: { ...validateCharacterRpgStats(input.stats) },
     pointBudget: CHARACTER_RPG_POINT_BUDGET,

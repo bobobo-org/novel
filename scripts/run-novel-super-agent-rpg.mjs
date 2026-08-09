@@ -273,7 +273,7 @@ await test("unified RPG, cultivation and management modes share one governed sta
       seed: "unified-choice-seed",
     });
     assert.deepEqual(choices.map((choice) => choice.key), ["A", "B", "C"]);
-    assert.deepEqual(choices.map((choice) => choice.approach), ["steady", "resource", "bold"]);
+    assert.deepEqual(new Set(choices.map((choice) => choice.approach)), new Set(["steady", "resource", "bold"]));
     assert.equal(new Set(choices.map((choice) => choice.id)).size, 3);
     assert.ok(choices.every((choice) => choice.costLabels.length > 0));
     return { mode, choices: choices.map(({ id, title }) => ({ id, title })) };
@@ -492,7 +492,7 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
   assert.match(navigation, /\["rpg","RPG 養成"\]/u);
   assert.match(globalCss, /\.p2ProjectNav\{display:grid/u);
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
-  assert.match(workspace, /確認選擇、續寫正文並同步數值/u);
+  assert.match(workspace, /規則先結算 → 產生候選正文 → 你核准才原子寫入/u);
   assert.match(workspace, /data-testid="rpg-resolution-progress"/u);
   assert.match(workspace, /const RPG_TURN_TIMEOUT_MS = 300_000/u);
   assert.match(workspace, /signal: controller\.signal/u);

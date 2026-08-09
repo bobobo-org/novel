@@ -902,7 +902,7 @@ async function semanticSnapshot(repo, projectId) {
 function registerMigrationTests() {
   test("migration", "all fourteen required Character Agent stores exist", () => assert.equal(CHARACTER_AGENT_STORE_NAMES.length, 14));
   test("migration", "repository includes all Character Agent stores", () => assert(CHARACTER_AGENT_STORES.every((store) => NOVEL_STORES.includes(store))));
-  test("migration", "IndexedDB schema is v7", () => assert.equal(indexedDbCapability().version, 7));
+  test("migration", "IndexedDB schema is v8", () => assert.equal(indexedDbCapability().version, 8));
   test("migration", "IndexedDB v5 upgrades to v7 without losing P2.4A project data", async () => {
     const database = indexedDbCapability().database;
     await new Promise((resolve, reject) => { const request = indexedDB.deleteDatabase(database); request.onsuccess = resolve; request.onerror = () => reject(request.error); });

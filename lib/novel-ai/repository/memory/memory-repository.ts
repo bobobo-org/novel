@@ -1,4 +1,4 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationMessage, ConversationSession, ConversationSummary, ConversationToolInvocation, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationMessage, ConversationSession, ConversationSummary, ConversationToolInvocation, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { sha256Hex } from "../../closed-ai-cache";
 import { buildDramaApprovalRecords } from "../../drama-os/approval";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
@@ -116,6 +116,12 @@ export class MemoryNovelRepository implements NovelRepository {
       if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch || !storyBible || !storyBibleDelta || !approvalTransaction) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
       let conversationArtifact: ConversationArtifact | undefined;
       let conversationApprovalTransaction: ConversationApprovalTransaction | undefined;
+      const rpgTurnReceipt = replay.rpgTurnReceiptId
+        ? await this.get<RpgTurnReceipt>("rpgTurnReceipts", replay.rpgTurnReceiptId)
+        : undefined;
+      if (replay.rpgTurnReceiptId && !rpgTurnReceipt) {
+        throw new RepositoryOperationError("RPG_TURN_RECEIPT_REPLAY_INCOMPLETE");
+      }
       if (input.conversationApproval) {
         conversationApprovalTransaction = (await this.list<ConversationApprovalTransaction>("conversationApprovalTransactions", input.projectId))
           .find((record) => record.idempotencyScope === `${input.projectId}:${input.conversationApproval!.idempotencyKey}`);
@@ -163,6 +169,7 @@ export class MemoryNovelRepository implements NovelRepository {
         storyBibleDelta,
         approvalTransaction,
         idempotencyRecord: replay,
+        rpgTurnReceipt: rpgTurnReceipt ?? undefined,
         conversationArtifact,
         conversationApprovalTransaction,
       };
@@ -194,6 +201,11 @@ export class MemoryNovelRepository implements NovelRepository {
     const before = new Map(NOVEL_STORES.map((name) => [name, new Map([...(this.stores.get(name)?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]))]));
     try {
       for (const [store, row] of [["projects",records.project],["chapters",records.chapter],["candidates",records.candidate],["storyStates",records.storyState],["acceptedChoices",records.acceptedChoice],["storyBranches",records.branch],["storyBibles",records.storyBible],["storyBibleDeltas",records.storyBibleDelta],["approvalTransactions",records.approvalTransaction],["idempotencyRecords",records.idempotencyRecord],["operationJournal",records.journal]] as Array<[NovelStoreName, DomainRecord]>) this.stores.get(store)?.set(row.id, structuredClone(row));
+      if (records.rpgTurnReceipt) {
+        this.inject("before:rpgTurnReceipts");
+        this.stores.get("rpgTurnReceipts")?.set(records.rpgTurnReceipt.id, structuredClone(records.rpgTurnReceipt));
+        this.inject("after:rpgTurnReceipts");
+      }
       if (conversationRecords) {
         this.inject("before:conversationArtifacts");
         this.stores.get("conversationArtifacts")?.set(conversationRecords.artifact.id, structuredClone(conversationRecords.artifact));
@@ -217,6 +229,7 @@ export class MemoryNovelRepository implements NovelRepository {
         storyBibleDelta: records.storyBibleDelta,
         approvalTransaction: records.approvalTransaction,
         idempotencyRecord: records.idempotencyRecord,
+        rpgTurnReceipt: records.rpgTurnReceipt,
         conversationArtifact: conversationRecords?.artifact,
         conversationApprovalTransaction: conversationRecords?.approvalTransaction,
       };
@@ -685,7 +698,7 @@ export class MemoryNovelRepository implements NovelRepository {
   }
   async listAcceptedChoices(projectId: string, chapterId?: string) { return (await this.list<AcceptedChoice>("acceptedChoices", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
   async listStoryBranches(projectId: string, chapterId?: string) { return (await this.list<StoryBranch>("storyBranches", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
-  async deleteInteractionsByProject(projectId: string) { for (const store of ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal"] as NovelStoreName[]) for (const row of await this.list(store, projectId)) await this.remove(store, row.id); }
+  async deleteInteractionsByProject(projectId: string) { for (const store of ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal","rpgTurnReceipts"] as NovelStoreName[]) for (const row of await this.list(store, projectId)) await this.remove(store, row.id); }
   async exportProject(projectId: string) { const output: Record<string, unknown[]> = {}; for (const store of NOVEL_STORES) output[store] = await this.list(store, projectId); return output; }
   async importProject(payload: Record<string, unknown[]>, mode: "copy" | "replace", targetProjectId?: string) {
     const { sourceProjectId: sourceId } = validateImportRecords(payload);

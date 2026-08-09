@@ -424,9 +424,9 @@ harness.test("contract", "conversation domain stores are canonical repository st
   assert.equal(new Set(NOVEL_STORES).size, NOVEL_STORES.length);
 });
 
-harness.test("contract", "IndexedDB v7 opens every Conversation store", async () => {
+harness.test("contract", "IndexedDB v8 opens every Conversation store", async () => {
   const capability = indexedDbCapability();
-  assert.equal(capability.version, 7);
+  assert.equal(capability.version, 8);
   assert(CONVERSATION_STORES.every((store) => capability.stores.includes(store)));
   const repository = new IndexedDbNovelRepository();
   for (const store of CONVERSATION_STORES) {

@@ -1,4 +1,15 @@
-import type { StoryChoiceEffect, StoryState } from "../../domain";
+import {
+  RPG_FORMULA_V3,
+  type ChoiceRequirement,
+  type CultivationRealmState,
+  type DelayedConsequence,
+  type ResourceDelta,
+  type RpgDerivedCultivationStats,
+  type RpgStateV3,
+  type RpgTurnSettlement,
+  type StoryChoiceEffect,
+  type StoryState,
+} from "../../domain";
 import {
   generateProceduralPills,
   type ProceduralPillProfile,
@@ -9,8 +20,17 @@ import {
   parseRecentEncounterSignatures,
   type ProceduralEncounter,
 } from "../procedural-world-director";
+import {
+  CULTIVATION_REALM_CATALOG_V3,
+  buildRpgTurnSnapshot,
+  computeCultivationDerivedStats,
+  emptyRpgEffect,
+  evaluateDelayedConsequences,
+  mergeStoryEffects,
+  readRpgStateV3,
+} from "./xianxia-ruleset-v3";
 
-export const RPG_FORMULA_VERSION = "novel-rpg-unified-v2" as const;
+export const RPG_FORMULA_VERSION = RPG_FORMULA_V3;
 
 export type RpgMode = "adventure" | "cultivation" | "management";
 export type RpgChoiceKey = "A" | "B" | "C" | "custom";
@@ -255,6 +275,8 @@ export type RpgProgressionSnapshot = {
   equipmentBonuses: Record<RpgStatKey, number>;
   stats: Record<RpgStatKey, number>;
   derived: RpgDerivedStats;
+  cultivationDerived: RpgDerivedCultivationStats;
+  rpgState: RpgStateV3;
   status: RpgStatusSnapshot;
   management: ManagementSnapshot;
   journey: RpgJourneySnapshot;
@@ -288,6 +310,12 @@ export type RpgChoice = {
   strategyLabel: string;
   description: string;
   consequence: string;
+  consequenceTeaser: string;
+  requirements: ChoiceRequirement[];
+  missingRequirements: ChoiceRequirement[];
+  knownCosts: ResourceDelta[];
+  internalSuccessChance: number;
+  displayedChanceBand: string;
   primaryStat: RpgStatKey;
   secondaryStat: RpgStatKey;
   risk: 1 | 2 | 3 | 4 | 5;
@@ -297,6 +325,19 @@ export type RpgChoice = {
   costLabels: string[];
   impactLabels: string[];
   effect: StoryChoiceEffect;
+  immediateEffect: StoryChoiceEffect;
+  failureEffect: StoryChoiceEffect;
+  partialSuccessEffect: StoryChoiceEffect;
+  successEffect: StoryChoiceEffect;
+  criticalSuccessEffect: StoryChoiceEffect;
+  delayedConsequenceRefs: string[];
+  irreversibleWarning: string | null;
+  hiddenInformationLevel: "none" | "partial" | "high";
+  disabledReason: string | null;
+  sourceSnapshot: import("../../domain").RpgTurnSnapshot;
+  rulesetId: string;
+  presetId: string | null;
+  turnNumber: number;
   acceptedText: string;
   encounter: ProceduralEncounter;
 };
@@ -308,6 +349,7 @@ export type RpgChoiceResolution = {
   roll: number;
   successChance: number;
   effect: StoryChoiceEffect;
+  settlement: RpgTurnSettlement;
   acceptedText: string;
   summary: string;
 };
@@ -453,7 +495,18 @@ export function computeSuccessChance(input: {
   temporaryModifier?: number;
   equipmentBonus?: number;
   teamBonus?: number;
+  realmLevel?: number;
+  injury?: number;
+  fatigue?: number;
+  daoHeart?: number;
+  mindDemon?: number;
+  fate?: number;
+  informationBonus?: number;
+  terrainModifier?: number;
+  oppositionGap?: number;
+  difficulty?: "story" | "standard" | "hard" | "extreme";
 }) {
+  const difficultyPenalty = ({ story: -5, standard: 0, hard: 7, extreme: 14 } as const)[input.difficulty ?? "standard"];
   return clamp(Math.round(
     24
     + input.primary * 0.48
@@ -462,6 +515,16 @@ export function computeSuccessChance(input: {
     + (input.temporaryModifier ?? 0)
     + (input.equipmentBonus ?? 0)
     + (input.teamBonus ?? 0)
+    + (input.realmLevel ?? 0) * 0.65
+    - (input.injury ?? 0) * 0.16
+    - (input.fatigue ?? 0) * 0.1
+    + ((input.daoHeart ?? 50) - 50) * 0.08
+    - (input.mindDemon ?? 0) * 0.08
+    + ((input.fate ?? 50) - 50) * 0.05
+    + (input.informationBonus ?? 0)
+    + (input.terrainModifier ?? 0)
+    - (input.oppositionGap ?? 0)
+    - difficultyPenalty
     - input.risk * 8,
   ), 5, 95);
 }
@@ -571,7 +634,7 @@ function readManagement(resources: Record<string, number>): ManagementSnapshot {
 }
 
 type StoryStateInput = Pick<StoryState, "protagonistStats"> & Partial<
-  Pick<StoryState, "resources" | "money" | "inventory" | "worldFlags" | "questStates">
+  Pick<StoryState, "resources" | "money" | "inventory" | "worldFlags" | "questStates" | "rpgState">
 >;
 
 function readJourney(
@@ -643,6 +706,12 @@ export function readRpgProgression(
 ): RpgProgressionSnapshot {
   const resources = storyState.resources ?? {};
   const worldFlags = storyState.worldFlags ?? {};
+  const rpgState = readRpgStateV3({
+    rpgState: storyState.rpgState,
+    resources,
+    worldFlags,
+    protagonistStats: storyState.protagonistStats,
+  });
   const runSeed = typeof worldFlags["rpg.runSeed"] === "string" && worldFlags["rpg.runSeed"]
     ? String(worldFlags["rpg.runSeed"])
     : seed || "default-playthrough";
@@ -678,6 +747,12 @@ export function readRpgProgression(
     equipmentBonuses: bonuses,
     stats,
     derived: computeDerivedStats(stats, level),
+    cultivationDerived: computeCultivationDerivedStats({
+      stats,
+      realm: rpgState.realm,
+      meters: rpgState.meters,
+    }),
+    rpgState,
     status,
     management: readManagement(resources),
     journey: readJourney(mode, resources, storyState.questStates ?? {}, inventory, powerScore),
@@ -741,6 +816,7 @@ const CHOICE_POOL: ChoiceBlueprint[] = [
   { id: "adv-craft", mode: "adventure", strategy: "resource", title: "製作臨時工具破局", description: "利用現有材料設計一個不必正面衝突的實際解法。", consequence: "可保存生命與體力；會消耗材料並留下可追查痕跡。", primaryStat: "rpg.creativity", secondaryStat: "rpg.technique", risk: 2, actionCost: 1, staminaCost: 5, fatigueDelta: 2, stressDelta: 1, statRewards: { "rpg.creativity": 4, "rpg.technique": 2 }, resourceRewards: { "adventure.tools": 1, "item.spirit-shard": -1 }, questId: "rpg.mainArc", achievementId: "rpg.inventor" },
   { id: "adv-bounty", mode: "adventure", strategy: "resource", title: "完成委託取得補給", description: "順手處理一項可驗證的小型委託，換取資金、補給與地方信用。", consequence: "資源回報穩定；主要目標會稍微延後。", primaryStat: "rpg.technique", secondaryStat: "rpg.charisma", risk: 2, actionCost: 1, staminaCost: 8, fatigueDelta: 4, stressDelta: 1, moneyChange: 180, statRewards: { "rpg.technique": 2, "rpg.charisma": 2 }, resourceRewards: { "item.healing-potion": 1 }, questId: "rpg.mainArc", achievementId: "rpg.contract" },
   { id: "adv-market-blade", mode: "adventure", strategy: "resource", title: "到坊市購入青鋒靈刃", description: "向鑄師確認刃身、靈紋與來源後，以五枚靈石完成交易並立即換裝。", consequence: "靈石減少，青鋒靈刃進入背包並成為目前武器；攻擊、速度與綜合戰力會依裝備加成重新計算。", primaryStat: "rpg.intellect", secondaryStat: "rpg.charisma", risk: 1, actionCost: 1, staminaCost: 2, fatigueDelta: 1, stressDelta: -1, statRewards: { "rpg.intellect": 1 }, resourceRewards: { "currency.spiritStone": -5, "item.spirit-market-blade": 1 }, worldFlags: { "rpg.equipped.weapon": "spirit-market-blade", "rpg.lastEquipmentChange": "spirit-market-blade" }, questId: "rpg.mainArc", achievementId: "rpg.firstRareWeapon" },
+  { id: "adv-black-market-intel", mode: "adventure", strategy: "resource", title: "潛入黑市交換禁忌情報", description: "以可追溯的金幣與身分風險換取稀缺情報，同時準備應付尾隨、假消息與勢力設局。", consequence: "即使交易成功也會累積黑市暴露，並在後續回合觸發追查或反情報危機。", primaryStat: "rpg.charisma", secondaryStat: "rpg.intellect", risk: 4, actionCost: 1, staminaCost: 7, fatigueDelta: 4, stressDelta: 6, moneyChange: -160, statRewards: { "rpg.charisma": 2, "rpg.intellect": 3 }, resourceRewards: { "knowledge.blackMarketIntel": 1, "risk.blackMarketExposure": 4 }, worldFlags: { "xianxia.blackMarketContacted": true }, questId: "rpg.mainArc", achievementId: "rpg.blackMarketWitness" },
   { id: "adv-breakthrough", mode: "adventure", strategy: "bold", title: "正面突破封鎖", description: "抓住守備變化的瞬間，以速度與力量直接打開缺口。", consequence: "推進最快、風險最高；失敗會消耗大量狀態。", primaryStat: "rpg.physique", secondaryStat: "rpg.technique", risk: 4, actionCost: 2, staminaCost: 18, fatigueDelta: 9, stressDelta: 5, statRewards: { "rpg.physique": 4, "rpg.technique": 3 }, resourceRewards: { "adventure.momentum": 3 }, questId: "rpg.mainArc", achievementId: "rpg.bold" },
   { id: "adv-forbidden-zone", mode: "adventure", strategy: "bold", title: "追入禁區奪取先機", description: "在敵人重整前追入未知區域，冒險換取稀有情報與世界線優勢。", consequence: "可能開啟隱藏路線；也可能受傷或觸發追捕。", primaryStat: "rpg.will", secondaryStat: "rpg.intellect", risk: 5, actionCost: 2, staminaCost: 16, fatigueDelta: 8, stressDelta: 8, statRewards: { "rpg.will": 5, "rpg.intellect": 2 }, resourceRewards: { "adventure.hiddenRoute": 1 }, questId: "rpg.mainArc", achievementId: "rpg.fatebreaker" },
   { id: "adv-duel", mode: "adventure", strategy: "bold", title: "挑戰關鍵強敵", description: "把衝突集中到一場可判定的對決，阻止局勢繼續擴散。", consequence: "成功可大幅提高聲望；失敗仍會產生可補救的新支線。", primaryStat: "rpg.technique", secondaryStat: "rpg.will", risk: 4, actionCost: 2, staminaCost: 20, fatigueDelta: 10, stressDelta: 6, statRewards: { "rpg.technique": 5, "rpg.will": 2 }, resourceRewards: { "adventure.renown": 4 }, questId: "rpg.mainArc", achievementId: "rpg.challenger" },
@@ -797,6 +873,7 @@ function riskAdjustment(settings: RpgRuleSettings) {
 }
 
 function canAfford(blueprint: ChoiceBlueprint, snapshot: RpgProgressionSnapshot) {
+  if (blueprint.actionCost > snapshot.status.actionPoints) return false;
   if (blueprint.staminaCost > snapshot.status.stamina) return false;
   if ((blueprint.moneyChange ?? 0) < 0 && snapshot.currencies.gold < Math.abs(blueprint.moneyChange ?? 0)) return false;
   for (const [key, delta] of Object.entries(blueprint.resourceRewards)) {
@@ -806,6 +883,189 @@ function canAfford(blueprint: ChoiceBlueprint, snapshot: RpgProgressionSnapshot)
     if (key.startsWith("item.") && (snapshot.inventory.find((item) => `item.${item.itemId}` === key)?.quantity ?? 0) < Math.abs(delta)) return false;
   }
   return true;
+}
+
+function affordableFallback(
+  blueprint: ChoiceBlueprint,
+  snapshot: RpgProgressionSnapshot,
+): ChoiceBlueprint {
+  return {
+    ...blueprint,
+    id: `${blueprint.id}-resource-safe-fallback`,
+    title: blueprint.strategy === "steady"
+      ? "收束風險整理退路"
+      : blueprint.strategy === "resource"
+        ? "盤點現有籌碼再布局"
+        : "孤注一擲尋找破口",
+    description: blueprint.strategy === "steady"
+      ? "先收束眼前風險、整理情報與退路，在不透支資源的前提下穩定推進。"
+      : blueprint.strategy === "resource"
+        ? "重新盤點手邊可用的人情、情報與物資，以不新增負債的方式建立下一步布局。"
+        : "在資源不足時改以決斷與現場判斷尋找唯一破口，保留失敗後仍可補救的退路。",
+    consequence: blueprint.strategy === "bold"
+      ? "風險仍高，但不會暗中透支現有資源。"
+      : "進展較慢，但不會讓任何正式資源成為負數。",
+    actionCost: Math.min(blueprint.actionCost, snapshot.status.actionPoints),
+    staminaCost: blueprint.staminaCost > 0
+      ? Math.min(blueprint.staminaCost, snapshot.status.stamina)
+      : blueprint.staminaCost,
+    moneyChange: Math.max(0, blueprint.moneyChange ?? 0),
+    resourceRewards: Object.fromEntries(
+      Object.entries(blueprint.resourceRewards).filter(([, delta]) => delta >= 0),
+    ),
+  };
+}
+
+function choiceRequirements(
+  blueprint: ChoiceBlueprint,
+): ChoiceRequirement[] {
+  const requirements: ChoiceRequirement[] = [];
+  if (blueprint.actionCost > 0) requirements.push({
+    requirementId: `${blueprint.id}:action-points`,
+    kind: "resource",
+    key: "game.actionPoints",
+    operator: "gte",
+    value: blueprint.actionCost,
+    label: `行動點至少 ${blueprint.actionCost}`,
+    hard: true,
+  });
+  if (blueprint.staminaCost > 0) requirements.push({
+    requirementId: `${blueprint.id}:stamina`,
+    kind: "resource",
+    key: "status.stamina",
+    operator: "gte",
+    value: blueprint.staminaCost,
+    label: `體力至少 ${blueprint.staminaCost}`,
+    hard: true,
+  });
+  if ((blueprint.moneyChange ?? 0) < 0) requirements.push({
+    requirementId: `${blueprint.id}:money`,
+    kind: "money",
+    key: "money",
+    operator: "gte",
+    value: Math.abs(blueprint.moneyChange ?? 0),
+    label: `金幣至少 ${Math.abs(blueprint.moneyChange ?? 0)}`,
+    hard: true,
+  });
+  for (const [key, delta] of Object.entries(blueprint.resourceRewards)) {
+    if (delta >= 0) continue;
+    requirements.push({
+      requirementId: `${blueprint.id}:${key}`,
+      kind: "resource",
+      key,
+      operator: "gte",
+      value: Math.abs(delta),
+      label: `${key} 至少 ${Math.abs(delta)}`,
+      hard: true,
+    });
+  }
+  return requirements;
+}
+
+function missingRequirements(
+  requirements: readonly ChoiceRequirement[],
+  snapshot: RpgProgressionSnapshot,
+) {
+  return requirements.filter((requirement) => {
+    const actual = requirement.kind === "money"
+      ? snapshot.currencies.gold
+      : requirement.key === "status.stamina"
+        ? snapshot.status.stamina
+        : requirement.key === "game.actionPoints"
+          ? snapshot.status.actionPoints
+          : requirement.key === "currency.spiritStone"
+            ? snapshot.currencies.spiritStone
+            : requirement.key === "management.cash"
+              ? snapshot.management.cash
+              : requirement.key.startsWith("item.")
+                ? snapshot.inventory.find((item) => `item.${item.itemId}` === requirement.key)?.quantity ?? 0
+                : 0;
+    const expected = Number(requirement.value);
+    return requirement.operator === "gte"
+      ? actual < expected
+      : requirement.operator === "lte"
+        ? actual > expected
+        : actual !== expected;
+  });
+}
+
+function knownCosts(blueprint: ChoiceBlueprint): ResourceDelta[] {
+  const costs: ResourceDelta[] = [];
+  if (blueprint.actionCost > 0) costs.push({ resourceId: "game.actionPoints", amount: -blueprint.actionCost, label: `行動點 -${blueprint.actionCost}`, reason: "本回合重大行動" });
+  if (blueprint.staminaCost > 0) costs.push({ resourceId: "status.stamina", amount: -blueprint.staminaCost, label: `體力 -${blueprint.staminaCost}`, reason: "行動消耗" });
+  if ((blueprint.moneyChange ?? 0) < 0) costs.push({ resourceId: "money", amount: blueprint.moneyChange ?? 0, label: `金幣 ${blueprint.moneyChange}`, reason: "已知交易成本" });
+  for (const [key, delta] of Object.entries(blueprint.resourceRewards)) {
+    if (delta >= 0) continue;
+    costs.push({ resourceId: key, amount: delta, label: `${key} ${delta}`, reason: "已知資源成本" });
+  }
+  return costs;
+}
+
+function onlyImmediateCosts(effect: StoryChoiceEffect): StoryChoiceEffect {
+  return {
+    ...emptyRpgEffect(),
+    statChanges: Object.fromEntries(Object.entries(effect.statChanges).filter(([, value]) => value < 0)),
+    relationshipChanges: Object.fromEntries(Object.entries(effect.relationshipChanges).filter(([, value]) => value < 0)),
+    resourceChanges: Object.fromEntries(Object.entries(effect.resourceChanges).filter(([key, value]) =>
+      value < 0 || key.startsWith("game."))),
+    moneyChange: Math.min(0, effect.moneyChange),
+    worldFlags: effect.worldFlags,
+    timelineEvents: effect.timelineEvents,
+  };
+}
+
+function outcomeEffects(effect: StoryChoiceEffect, risk: number) {
+  const scaled = (multiplier: number, outcome: RpgOutcome): StoryChoiceEffect => ({
+    ...effect,
+    statChanges: scalePositiveMap(effect.statChanges, multiplier),
+    relationshipChanges: scalePositiveMap(effect.relationshipChanges, multiplier),
+    resourceChanges: {
+      ...scalePositiveMap(
+        effect.resourceChanges,
+        multiplier,
+        (key) => key.startsWith("game.")
+          || key === "status.fatigue"
+          || key === "status.stress"
+          || key === "management.risk",
+      ),
+      ...(outcome === "partial_success" ? {
+        "status.stress": (effect.resourceChanges["status.stress"] ?? 0) + Math.max(1, risk),
+        "meter.pursuit": Math.max(1, risk - 1),
+      } : {}),
+      ...(outcome === "failure" ? {
+        "status.health": (effect.resourceChanges["status.health"] ?? 0) - Math.max(2, risk * 2),
+        "status.stress": (effect.resourceChanges["status.stress"] ?? 0) + Math.max(2, risk * 2),
+        "meter.injury": Math.max(1, risk * 2),
+        "meter.pursuit": Math.max(1, risk),
+      } : {}),
+    },
+    moneyChange: effect.moneyChange > 0 ? Math.round(effect.moneyChange * multiplier) : effect.moneyChange,
+    questProgress: scalePositiveMap(effect.questProgress, outcome === "failure" ? 0.2 : multiplier),
+    achievementProgress: scalePositiveMap(effect.achievementProgress, outcome === "failure" ? 0.2 : multiplier),
+    worldFlags: { ...effect.worldFlags, "rpg.plannedOutcomeProfile": outcome },
+  });
+  return {
+    failureEffect: scaled(0.18, "failure"),
+    partialSuccessEffect: scaled(0.55, "partial_success"),
+    successEffect: scaled(1, "success"),
+    criticalSuccessEffect: scaled(1.45, "critical_success"),
+  };
+}
+
+function displayedChanceBand(chance: number) {
+  if (chance >= 80) return "很有把握（80% 以上）";
+  if (chance >= 60) return "偏有利（60%～79%）";
+  if (chance >= 40) return "勝負未定（40%～59%）";
+  if (chance >= 20) return "偏不利（20%～39%）";
+  return "機會渺茫（5%～19%）";
+}
+
+function boundedText(value: string, minimum: number, maximum: number, suffix: string) {
+  const compact = value.replace(/\s+/gu, " ").trim();
+  const characters = Array.from(compact);
+  if (characters.length > maximum) return characters.slice(0, maximum).join("").replace(/[，、：；。]$/u, "");
+  if (characters.length >= minimum) return compact;
+  return Array.from(`${compact}${suffix}`).slice(0, maximum).join("");
 }
 
 function makeEffect(
@@ -893,6 +1153,7 @@ function blueprintToChoice(
   settings: RpgRuleSettings,
   protagonist: string,
   chapterTitle: string,
+  sourceSnapshot: import("../../domain").RpgTurnSnapshot,
 ) {
   const risk = clamp(blueprint.risk + riskAdjustment(settings), 1, 5) as 1 | 2 | 3 | 4 | 5;
   const successChance = computeSuccessChance({
@@ -902,16 +1163,34 @@ function blueprintToChoice(
     risk,
     temporaryModifier: statusModifier(snapshot),
     teamBonus: Math.round((snapshot.management.morale - 50) / 20),
+    realmLevel: snapshot.rpgState.realm?.level ?? 0,
+    injury: snapshot.rpgState.meters.injury,
+    fatigue: snapshot.status.fatigue,
+    daoHeart: snapshot.rpgState.meters.daoHeart,
+    mindDemon: snapshot.rpgState.meters.mindDemon,
+    fate: snapshot.rpgState.meters.fate,
+    informationBonus: Math.min(8, snapshot.journey.gates.information.current),
+    difficulty: snapshot.rpgState.difficulty,
   });
   const { effect, xpGain } = makeEffect({ ...blueprint, risk }, snapshot, settings);
+  const requirements = choiceRequirements(blueprint);
+  const missing = missingRequirements(requirements, snapshot);
+  const outcomes = outcomeEffects(effect, risk);
+  const consequenceTeaser = boundedText(blueprint.consequence, 12, 40, "，後續代價將由規則結算。");
   return {
     id: blueprint.id,
     key,
-    title: blueprint.title,
+    title: boundedText(blueprint.title, 8, 18, "並承擔後果"),
     approach: blueprint.strategy,
     strategyLabel: STRATEGY_LABELS[blueprint.strategy],
-    description: blueprint.description,
-    consequence: blueprint.consequence,
+    description: boundedText(blueprint.description, 30, 80, "，並依目前狀態承擔可驗證的代價與後續變化。"),
+    consequence: consequenceTeaser,
+    consequenceTeaser,
+    requirements,
+    missingRequirements: missing,
+    knownCosts: knownCosts(blueprint),
+    internalSuccessChance: successChance,
+    displayedChanceBand: displayedChanceBand(successChance),
     primaryStat: blueprint.primaryStat,
     secondaryStat: blueprint.secondaryStat,
     risk,
@@ -921,6 +1200,16 @@ function blueprintToChoice(
     costLabels: costLabels(blueprint),
     impactLabels: impactLabels(blueprint, xpGain),
     effect,
+    immediateEffect: onlyImmediateCosts(effect),
+    ...outcomes,
+    delayedConsequenceRefs: risk >= 3 ? [`delayed:${blueprint.id}`] : [],
+    irreversibleWarning: risk >= 5 ? "此路線可能造成已明示的重大損失或長期敵對。" : null,
+    hiddenInformationLevel: risk >= 4 ? "high" : risk >= 2 ? "partial" : "none",
+    disabledReason: missing.length ? missing.map((item) => item.label).join("、") : null,
+    sourceSnapshot,
+    rulesetId: snapshot.rpgState.rulesetId,
+    presetId: snapshot.rpgState.presetId,
+    turnNumber: snapshot.turn + 1,
     acceptedText: `【互動分支 ${key}｜${blueprint.title}】\n\n${protagonist}在「${chapterTitle}」選擇了${blueprint.description}`,
   } satisfies Omit<RpgChoice, "encounter">;
 }
@@ -934,13 +1223,44 @@ export function buildRpgChoices(input: {
   variant?: number;
   seed?: string;
   rules?: RpgRuleSettings;
+  storyStateRevision?: number;
+  storyState?: StoryState;
 }): RpgChoice[] {
   const mode = input.mode ?? input.progression.mode;
   const rules = normalizeRpgRuleSettings(input.rules);
   const protagonist = input.protagonist.trim() || "主角";
   const chapterTitle = input.chapterTitle.trim() || "目前章節";
-  const seed = `${input.seed ?? ""}|${mode}|${input.progression.turn}|${input.variant ?? input.progression.choiceVariant}|${input.conflict}`;
-  const strategies: RpgChoiceStrategy[] = ["steady", "resource", "bold"];
+  const stateRevision = input.storyStateRevision ?? 0;
+  const seed = `${input.seed ?? input.progression.procedural.runSeed}|${mode}|${input.progression.turn}|${stateRevision}|${input.variant ?? input.progression.choiceVariant}|${input.conflict}`;
+  const permutations: readonly (readonly RpgChoiceStrategy[])[] = [
+    ["steady", "resource", "bold"],
+    ["steady", "bold", "resource"],
+    ["resource", "steady", "bold"],
+    ["resource", "bold", "steady"],
+    ["bold", "steady", "resource"],
+    ["bold", "resource", "steady"],
+  ];
+  const strategies = permutations[hashText(`${input.progression.procedural.runSeed}|${input.progression.turn}|${stateRevision}`) % permutations.length];
+  const sourceSnapshot = input.storyState
+    ? buildRpgTurnSnapshot({
+        ...input.storyState,
+        protagonistStats: {
+          ...input.storyState.protagonistStats,
+          ...input.progression.baseStats,
+        },
+      })
+    : {
+        schemaVersion: "rpg-turn-snapshot-v1" as const,
+        storyStateRevision: stateRevision,
+        turnNumber: input.progression.turn,
+        realm: structuredClone(input.progression.rpgState.realm),
+        meters: structuredClone(input.progression.rpgState.meters),
+        stats: structuredClone(input.progression.baseStats),
+        resources: {},
+        relationships: {},
+        strategicAssets: structuredClone(input.progression.rpgState.strategicAssets),
+        pendingConsequences: structuredClone(input.progression.rpgState.pendingConsequences),
+      };
   const usedPrimaryStats = new Set<RpgStatKey>();
   return strategies.map((strategy, index) => {
     const candidates = CHOICE_POOL.filter((item) =>
@@ -948,9 +1268,12 @@ export function buildRpgChoices(input: {
     const fallback = CHOICE_POOL.filter((item) => item.mode === mode && item.strategy === strategy);
     const pool = candidates.length ? candidates : fallback;
     const start = (hashText(`${seed}|${strategy}`) + index) % pool.length;
-    const blueprint = Array.from({ length: pool.length }, (_, offset) => pool[(start + offset) % pool.length])
+    const selected = Array.from({ length: pool.length }, (_, offset) => pool[(start + offset) % pool.length])
       .find((candidate) => !usedPrimaryStats.has(candidate.primaryStat))
       ?? pool[start];
+    const blueprint = canAfford(selected, input.progression)
+      ? selected
+      : affordableFallback(selected, input.progression);
     usedPrimaryStats.add(blueprint.primaryStat);
     const baseChoice = blueprintToChoice(
       blueprint,
@@ -959,6 +1282,7 @@ export function buildRpgChoices(input: {
       rules,
       protagonist,
       chapterTitle,
+      sourceSnapshot,
     );
     const encounter = buildProceduralEncounter({
       runSeed: input.progression.procedural.runSeed,
@@ -971,9 +1295,9 @@ export function buildRpgChoices(input: {
     return {
       ...baseChoice,
       id: `${baseChoice.id}:turn-${input.progression.turn}:variant-${input.variant ?? input.progression.choiceVariant}:${encounter.signature.slice(0, 12)}`,
-      title: `${encounter.title}：${baseChoice.title}`,
+      title: boundedText(`${encounter.title}：${baseChoice.title}`, 8, 18, "並承擔後果"),
       encounter,
-      description: `${baseChoice.description} ${encounter.complication}`,
+      description: boundedText(`${baseChoice.description} ${encounter.complication}`, 30, 80, "，結果將由規則引擎先行結算。"),
       acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,
     };
   });
@@ -986,6 +1310,7 @@ export function buildCustomRpgChoice(input: {
   chapterTitle: string;
   conflict: string;
   rules?: RpgRuleSettings;
+  storyState?: StoryState;
 }): RpgChoice {
   const action = input.action.trim();
   if (!action) throw Object.assign(new Error("請先輸入你想採取的行動。"), { code: "RPG_CUSTOM_ACTION_REQUIRED" });
@@ -1017,6 +1342,20 @@ export function buildCustomRpgChoice(input: {
     normalizeRpgRuleSettings(input.rules),
     input.protagonist,
     input.chapterTitle,
+    input.storyState
+      ? buildRpgTurnSnapshot(input.storyState)
+      : {
+          schemaVersion: "rpg-turn-snapshot-v1",
+          storyStateRevision: 0,
+          turnNumber: input.progression.turn,
+          realm: structuredClone(input.progression.rpgState.realm),
+          meters: structuredClone(input.progression.rpgState.meters),
+          stats: structuredClone(input.progression.baseStats),
+          resources: {},
+          relationships: {},
+          strategicAssets: structuredClone(input.progression.rpgState.strategicAssets),
+          pendingConsequences: structuredClone(input.progression.rpgState.pendingConsequences),
+        },
   );
   const encounter = buildProceduralEncounter({
     runSeed: input.progression.procedural.runSeed,
@@ -1048,7 +1387,13 @@ function scalePositiveMap(
 
 export function resolveRpgChoice(
   choice: RpgChoice,
-  input: { seed: string; revision: number; recentEncounterSignatures?: string[]; turn?: number },
+  input: {
+    seed: string;
+    revision: number;
+    recentEncounterSignatures?: string[];
+    turn?: number;
+    storyState?: StoryState;
+  },
 ): RpgChoiceResolution {
   const roll = hashText(`${input.seed}|${input.revision}|${choice.id}|${choice.key}`) % 100 + 1;
   const criticalThreshold = Math.max(5, Math.round(choice.successChance * 0.12));
@@ -1059,44 +1404,162 @@ export function resolveRpgChoice(
       : roll <= Math.min(98, choice.successChance + 15)
         ? "partial_success"
         : "failure";
-  const multiplier = outcome === "critical_success" ? 1.45 : outcome === "success" ? 1 : outcome === "partial_success" ? 0.55 : 0.18;
   const outcomeLabel = {
     critical_success: "大成功",
     success: "成功",
     partial_success: "部分成功",
     failure: "失敗但故事繼續",
   }[outcome];
-  const scaledEffect: StoryChoiceEffect = {
-    ...choice.effect,
-    statChanges: scalePositiveMap(choice.effect.statChanges, multiplier),
-    relationshipChanges: scalePositiveMap(choice.effect.relationshipChanges, multiplier),
-    resourceChanges: scalePositiveMap(
-      choice.effect.resourceChanges,
-      multiplier,
-      (key) => key.startsWith("game.")
-        || key === "status.fatigue"
-        || key === "status.stress"
-        || key === "management.risk",
-    ),
-    moneyChange: choice.effect.moneyChange > 0
-      ? Math.round(choice.effect.moneyChange * multiplier)
-      : choice.effect.moneyChange,
-    worldFlags: {
-      ...choice.effect.worldFlags,
-      "rpg.lastOutcome": outcome,
-      "rpg.lastRoll": roll,
+  const outcomeEffect = outcome === "critical_success"
+    ? choice.criticalSuccessEffect
+    : outcome === "success"
+      ? choice.successEffect
+      : outcome === "partial_success"
+        ? choice.partialSuccessEffect
+        : choice.failureEffect;
+  const nextTurn = (input.turn ?? choice.sourceSnapshot.turnNumber) + 1;
+  const triggeredConsequences = input.storyState
+    ? evaluateDelayedConsequences({ storyState: input.storyState, nextTurn, seed: input.seed })
+    : [];
+  const triggeredEffects = triggeredConsequences.map((item) => item.effects.storyEffect);
+  const governedEffect = mergeStoryEffects([
+    {
+      ...outcomeEffect,
+      worldFlags: {
+        ...outcomeEffect.worldFlags,
+        "rpg.lastOutcome": outcome,
+        "rpg.lastRoll": roll,
+      },
     },
-    questProgress: scalePositiveMap(choice.effect.questProgress, outcome === "failure" ? 0.2 : multiplier),
-    achievementProgress: scalePositiveMap(choice.effect.achievementProgress, outcome === "failure" ? 0.2 : multiplier),
-  };
+    ...triggeredEffects,
+  ]);
   const effect = applyProceduralWorldPulse({
-    effect: scaledEffect,
+    effect: governedEffect,
     encounter: choice.encounter,
     outcome,
     strategy: choice.approach,
     turn: input.turn ?? 0,
     recentSignatures: input.recentEncounterSignatures,
   });
+  const sourceRealm = choice.sourceSnapshot.realm;
+  const isBreakthrough = choice.id.includes("breakthrough");
+  const realmChange = (() => {
+    if (!isBreakthrough || !sourceRealm) return null;
+    const progressDelta = outcome === "critical_success"
+      ? 90
+      : outcome === "success"
+        ? 65
+        : outcome === "partial_success"
+          ? 28
+          : -12;
+    if (outcome === "failure") {
+      const progress = Math.max(0, sourceRealm.progress + progressDelta);
+      return {
+        from: structuredClone(sourceRealm),
+        to: {
+          ...sourceRealm,
+          progress,
+          stage: (progress >= 85 ? "peak" : progress >= 60 ? "late" : progress >= 30 ? "middle" : "early") as CultivationRealmState["stage"],
+          foundationIntegrity: Math.max(0, sourceRealm.foundationIntegrity - choice.risk * 3),
+        },
+        progressDelta,
+        breakthrough: false,
+      };
+    }
+    const accumulated = sourceRealm.progress + progressDelta;
+    if (accumulated < 100 || outcome === "partial_success") {
+      const progress = Math.min(outcome === "partial_success" ? 99 : 100, accumulated);
+      return {
+        from: structuredClone(sourceRealm),
+        to: {
+          ...sourceRealm,
+          progress,
+          stage: (progress >= 85 ? "peak" : progress >= 60 ? "late" : progress >= 30 ? "middle" : "early") as CultivationRealmState["stage"],
+        },
+        progressDelta,
+        breakthrough: false,
+      };
+    }
+    const currentIndex = Math.max(0, CULTIVATION_REALM_CATALOG_V3.findIndex((item) => item.id === sourceRealm.definitionId));
+    const nextDefinition = CULTIVATION_REALM_CATALOG_V3[Math.min(currentIndex + 1, CULTIVATION_REALM_CATALOG_V3.length - 1)];
+    const level = nextDefinition.id === sourceRealm.definitionId
+      ? sourceRealm.level + 1
+      : nextDefinition.levelRange[0];
+    return {
+      from: structuredClone(sourceRealm),
+      to: {
+        definitionId: nextDefinition.id,
+        level,
+        stage: "early" as const,
+        progress: Math.min(35, accumulated - 100),
+        foundationIntegrity: Math.max(1, Math.min(100, sourceRealm.foundationIntegrity + (outcome === "critical_success" ? 4 : 0))),
+        lastBreakthroughTurn: nextTurn,
+      },
+      progressDelta,
+      breakthrough: nextDefinition.id !== sourceRealm.definitionId,
+    };
+  })();
+  const outcomeMeterChanges: Partial<Record<keyof import("../../domain").NarrativeMeterState, number>> = outcome === "critical_success"
+    ? { daoHeart: 3, fate: 2, injury: -Math.max(1, choice.risk - 1), mindDemon: -1 }
+    : outcome === "success"
+      ? { daoHeart: 1, fate: 1, injury: -1 }
+      : outcome === "partial_success"
+        ? { daoHeart: 1, mindDemon: 2, pursuit: Math.max(1, choice.risk - 1), injury: Math.max(1, choice.risk - 2) }
+        : { mindDemon: Math.max(2, choice.risk), pursuit: Math.max(1, choice.risk), injury: Math.max(2, choice.risk * 2), daoHeart: -1 };
+  if (choice.approach === "bold") outcomeMeterChanges.worldAttention = (outcomeMeterChanges.worldAttention ?? 0) + choice.risk;
+  if (choice.approach === "resource") outcomeMeterChanges.sectReputation = (outcomeMeterChanges.sectReputation ?? 0) + (outcome === "failure" ? -2 : 1);
+  for (const consequence of triggeredConsequences) {
+    for (const [key, value] of Object.entries(consequence.effects.meterChanges)) {
+      const meter = key as keyof import("../../domain").NarrativeMeterState;
+      outcomeMeterChanges[meter] = (outcomeMeterChanges[meter] ?? 0) + (value ?? 0);
+    }
+  }
+  const scheduledConsequences: DelayedConsequence[] = choice.risk >= 3 ? [{
+    consequenceId: `consequence:${hashText(`${input.seed}|${choice.id}|${nextTurn}`).toString(16)}`,
+    sourceTurnReceiptId: "pending",
+    triggerType: "turn_range",
+    triggerTurn: [nextTurn + 2, nextTurn + 5],
+    triggerCondition: { sourceChoiceId: choice.id, chance: choice.approach === "bold" ? 0.7 : 0.45 },
+    visibility: choice.hiddenInformationLevel === "high" ? "foreshadowed" : "known",
+    status: "pending",
+    effects: {
+      storyEffect: {
+        ...emptyRpgEffect(),
+        resourceChanges: { "meter.pursuit": Math.max(1, choice.risk - 1) },
+        worldFlags: { [`rpg.consequenceTriggered.${choice.id}`]: true },
+        timelineEvents: [`延遲後果：${choice.title}`],
+      },
+      meterChanges: choice.approach === "bold"
+        ? { pursuit: choice.risk, worldAttention: Math.max(1, choice.risk - 1) }
+        : { mindDemon: 1, karma: 1 },
+    },
+    narrativeHint: choice.approach === "bold"
+      ? "高風險行動留下的痕跡，可能在兩至五回合內引來追索。"
+      : "這次交換形成了尚未清償的義務，後續可能有人要求回報。",
+    createdAt: "pending",
+    resolvedAt: null,
+  }] : [];
+  const settlement: RpgTurnSettlement = {
+    schemaVersion: "rpg-turn-settlement-v1",
+    formulaVersion: RPG_FORMULA_VERSION,
+    rulesetId: choice.rulesetId,
+    presetId: choice.presetId,
+    turnNumber: nextTurn,
+    choiceKey: choice.key,
+    choiceId: choice.id,
+    choiceTitle: choice.title,
+    selectedStrategy: choice.approach,
+    requirements: structuredClone(choice.requirements),
+    outcome,
+    roll,
+    successChance: choice.successChance,
+    beforeSnapshot: structuredClone(choice.sourceSnapshot),
+    resolvedEffect: structuredClone(effect),
+    meterChanges: outcomeMeterChanges,
+    realmChange,
+    triggeredConsequences: structuredClone(triggeredConsequences),
+    scheduledConsequences,
+  };
   const continuation = {
     critical_success: "局勢比預期更快鬆動。主角不只取得原定成果，還看見一條先前被遮蔽的新路；這份額外優勢也讓下一個選擇更具分量。",
     success: "行動按照計畫產生效果，但新的結果同時改變了人物立場與世界狀態。主角必須根據這次真正留下的變化決定下一步。",
@@ -1119,6 +1582,7 @@ export function resolveRpgChoice(
     roll,
     successChance: choice.successChance,
     effect,
+    settlement,
     acceptedText,
     summary: `${choice.title}：${outcomeLabel}（${roll}/${choice.successChance}）`,
   };

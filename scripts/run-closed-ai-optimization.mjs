@@ -253,8 +253,9 @@ test("A/B/C profile is concise and requires one strict structured JSON contract"
     "local-ollama",
   );
   assert.match(profile.systemInstruction, /根層只能有 choices/u);
-  assert.match(profile.systemInstruction, /key、title、description、consequence、continuityReason/u);
-  assert.match(profile.systemInstruction, /title 3–18 字/u);
+  assert.match(profile.systemInstruction, /key、title、description、consequenceTeaser/u);
+  assert.match(profile.systemInstruction, /title 8–18 字/u);
+  assert.match(profile.systemInstruction, /不得輸出或修改成功率/u);
   assert.match(profile.systemInstruction, /不得加入前言/u);
   assert(profile.options.num_predict <= 512);
   assert(profile.options.temperature <= 0.45);

@@ -1,5 +1,5 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
-import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
+import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type RpgTurnSettlement, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
 import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceConversationApprovalInput, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
@@ -172,6 +172,7 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
   modelId: string | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  rpgSettlement?: RpgTurnSettlement;
 }) {
   const current = await ensureStudioCanonicalProject(repository, input);
   const base = makeRecord(input.id, "ai_candidate");
@@ -189,6 +190,7 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
     chapterRevision: current.chapter.revision,
     storyStateRevision: current.storyState.revision,
     storyBibleRevision: current.storyBible.revision,
+    rpgSettlement: candidate.rpgSettlement,
     provenance: {
       ...base.provenance,
       actor: candidate.externalRequest ? "external-ai" : candidate.providerId === "ollama" ? "local-ollama" : candidate.providerId === "browser-ai" ? "browser-ai" : "local-rule",
@@ -229,7 +231,13 @@ export async function acceptStudioChoice(
     choiceLabel,
     expectedProjectRevision: candidate.inputRevision,
     expectedChapterRevision: candidate.chapterRevision,
-    expectedCandidateRevision: candidate.revision,
+    // A second identical approval must reproduce the original transaction
+    // fingerprint. The accepted candidate keeps its pre-commit revision in
+    // parentRevision, while a genuinely pending candidate uses its current
+    // revision as before.
+    expectedCandidateRevision: candidate.status === "accepted"
+      ? candidate.parentRevision ?? Math.max(0, candidate.revision - 1)
+      : candidate.revision,
     expectedStoryStateRevision: candidate.storyStateRevision,
     expectedStoryBibleRevision: candidate.storyBibleRevision,
     conversationApproval,

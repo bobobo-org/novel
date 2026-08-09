@@ -41,13 +41,12 @@ const rpgChoiceDirectorFormat = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["key", "title", "description", "consequence", "continuityReason"],
+        required: ["key", "title", "description", "consequenceTeaser"],
         properties: {
           key: { type: "string", enum: ["A", "B", "C"] },
-          title: { type: "string", minLength: 3, maxLength: 18 },
-          description: { type: "string", minLength: 18, maxLength: 72 },
-          consequence: { type: "string", minLength: 8, maxLength: 44 },
-          continuityReason: { type: "string", minLength: 8, maxLength: 50 },
+          title: { type: "string", minLength: 8, maxLength: 18 },
+          description: { type: "string", minLength: 30, maxLength: 72 },
+          consequenceTeaser: { type: "string", minLength: 12, maxLength: 40 },
         },
       },
     },

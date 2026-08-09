@@ -1,4 +1,4 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationMessage, ConversationSession, ConversationSummary, ConversationToolInvocation, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationMessage, ConversationSession, ConversationSummary, ConversationToolInvocation, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import { buildDramaApprovalRecords } from "../../drama-os/approval";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaApprovalRecord, DramaEvaluation, DramaProject, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult, NarrativeCanonLink } from "../../drama-os/types";
 import { buildCharacterApprovalRecords, buildCharacterRejectionRecords } from "../../character-agent/approval-service";
@@ -34,7 +34,7 @@ import { assertConversationRecordSafe } from "../../conversation/record-security
 import { sha256Hex } from "../../closed-ai-cache";
 
 const DB_NAME = "novel-intelligence-platform";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const REQUEST_STORE = "requestLedger";
 
 function request<T>(value: IDBRequest<T>): Promise<T> { return new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error ?? new Error("INDEXEDDB_REQUEST_FAILED")); }); }
@@ -64,6 +64,11 @@ export class IndexedDbNovelRepository implements NovelRepository {
           if (name === "operationJournal" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "idempotencyRecords" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "approvalTransactions" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+          if (name === "rpgTurnReceipts") {
+            if (!store.indexNames.contains("acceptedChoiceId")) store.createIndex("acceptedChoiceId", "acceptedChoiceId", { unique: true });
+            if (!store.indexNames.contains("operationId")) store.createIndex("operationId", "operationId", { unique: true });
+            if (!store.indexNames.contains("chapterId")) store.createIndex("chapterId", "chapterId", { unique: false });
+          }
           if (name === "dramaApprovals" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
           if (name === "narrativeCanonLinks" && !store.indexNames.contains("dramaProjectId")) store.createIndex("dramaProjectId", "dramaProjectId", { unique: true });
           if (name === "characterAgentApprovals" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
@@ -209,7 +214,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
     const stores = [...new Set<NovelStoreName>([
       "projects", "chapters", "candidates", "storyStates", "acceptedChoices",
       "storyBranches", "storyBibles", "storyBibleDeltas", "approvalTransactions",
-      "idempotencyRecords", "operationJournal",
+      "idempotencyRecords", "operationJournal", "rpgTurnReceipts",
       ...(input.conversationApproval
         ? ["conversationSessions", "conversationMessages", "conversationToolInvocations", "conversationArtifacts", "conversationSummaries", "conversationApprovalTransactions"] as NovelStoreName[]
         : []),
@@ -236,6 +241,12 @@ export class IndexedDbNovelRepository implements NovelRepository {
         if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch || !storyBible || !storyBibleDelta || !approvalTransaction) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
         let conversationArtifact: ConversationArtifact | undefined;
         let conversationApprovalTransaction: ConversationApprovalTransaction | undefined;
+        const rpgTurnReceipt = replay.rpgTurnReceiptId
+          ? await get<RpgTurnReceipt>("rpgTurnReceipts", replay.rpgTurnReceiptId)
+          : undefined;
+        if (replay.rpgTurnReceiptId && !rpgTurnReceipt) {
+          throw new RepositoryOperationError("RPG_TURN_RECEIPT_REPLAY_INCOMPLETE");
+        }
         if (input.conversationApproval) {
           conversationApprovalTransaction = await request(
             tx.objectStore("conversationApprovalTransactions").index("idempotencyScope")
@@ -285,6 +296,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
           storyBibleDelta,
           approvalTransaction,
           idempotencyRecord: replay,
+          rpgTurnReceipt,
           conversationArtifact,
           conversationApprovalTransaction,
         };
@@ -352,6 +364,11 @@ export class IndexedDbNovelRepository implements NovelRepository {
       tx.objectStore("approvalTransactions").put(records.approvalTransaction);
       tx.objectStore("idempotencyRecords").put(records.idempotencyRecord);
       tx.objectStore("operationJournal").put(records.journal);
+      if (records.rpgTurnReceipt) {
+        this.inject("before:rpgTurnReceipts");
+        tx.objectStore("rpgTurnReceipts").put(records.rpgTurnReceipt);
+        this.inject("after:rpgTurnReceipts");
+      }
       if (conversationRecords) {
         this.inject("before:conversationArtifacts");
         tx.objectStore("conversationArtifacts").put(conversationRecords.artifact);
@@ -398,6 +415,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
         storyBibleDelta: records.storyBibleDelta,
         approvalTransaction: records.approvalTransaction,
         idempotencyRecord: records.idempotencyRecord,
+        rpgTurnReceipt: records.rpgTurnReceipt,
         conversationArtifact: conversationRecords?.artifact,
         conversationApprovalTransaction: conversationRecords?.approvalTransaction,
       };
@@ -895,7 +913,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
   async listAcceptedChoices(projectId: string, chapterId?: string) { return (await this.list<AcceptedChoice>("acceptedChoices", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
   async listStoryBranches(projectId: string, chapterId?: string) { return (await this.list<StoryBranch>("storyBranches", projectId)).filter((item) => !chapterId || item.chapterId === chapterId); }
   async deleteInteractionsByProject(projectId: string) {
-    const db = await this.open(), stores: NovelStoreName[] = ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal"], tx = db.transaction(stores, "readwrite");
+    const db = await this.open(), stores: NovelStoreName[] = ["acceptedChoices","storyBranches","storyBibleDeltas","approvalTransactions","idempotencyRecords","operationJournal","rpgTurnReceipts"], tx = db.transaction(stores, "readwrite");
     for (const store of stores) { const objectStore = tx.objectStore(store), keys = await request(objectStore.index("projectId").getAllKeys(projectId)); for (const key of keys) objectStore.delete(key); }
     await complete(tx);
     notifyCloudSyncMutation(projectId, "delete-project-interactions");

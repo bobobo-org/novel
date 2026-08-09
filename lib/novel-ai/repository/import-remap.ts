@@ -1,5 +1,5 @@
-import type { DomainRecord } from "../domain";
-import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, type NovelStoreName } from "./contracts";
+import { RPG_FORMULA_V3, type DomainRecord, type RpgTurnReceipt } from "../domain";
+import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, P24B_RC6_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, RPG_V3_STORES, type NovelStoreName } from "./contracts";
 
 const FORBIDDEN_CONVERSATION_KEYS = new Set([
   "authorization",
@@ -36,11 +36,14 @@ function containsForbiddenConversationData(value: unknown): boolean {
 }
 
 export function assertCompleteReplacePayload(payload: Record<string, unknown[]>) {
+  const containsRpgV3Data = RPG_V3_STORES.some((store) => Object.hasOwn(payload, store));
   const containsConversationData = CONVERSATION_STORES.some((store) => Object.hasOwn(payload, store));
   const containsCharacterAgentData = CHARACTER_AGENT_STORES.some((store) => Object.hasOwn(payload, store));
   const containsDramaData = DRAMA_STORES.some((store) => Object.hasOwn(payload, store));
-  const requiredStores = containsConversationData
+  const requiredStores = containsRpgV3Data
     ? REQUIRED_RESTORE_STORES
+    : containsConversationData
+      ? P24B_RC6_REQUIRED_RESTORE_STORES
     : containsCharacterAgentData
       ? P24B_RC5_REQUIRED_RESTORE_STORES
       : containsDramaData
@@ -73,7 +76,7 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     }
   }
   const ids = new Set(NOVEL_STORES.flatMap((store) => (payload[store] ?? []).map((raw) => (raw as DomainRecord).id)));
-  const accepted = (payload.acceptedChoices ?? []) as Array<DomainRecord & { candidateId?: string; branchId?: string; chapterId?: string; acceptedChoiceId?: string }>;
+  const accepted = (payload.acceptedChoices ?? []) as Array<DomainRecord & { candidateId?: string; branchId?: string; chapterId?: string; acceptedChoiceId?: string; rpgTurnReceiptId?: string | null }>;
   const branches = (payload.storyBranches ?? []) as Array<DomainRecord & { branchId?: string; parentBranchId?: string | null; acceptedChoiceId?: string; sourceCandidateId?: string; chapterId?: string }>;
   for (const row of accepted) {
     if (!row.candidateId || !row.branchId || !row.chapterId || !ids.has(row.candidateId) || !ids.has(row.branchId) || !ids.has(row.chapterId)) throw new Error("BACKUP_ACCEPTED_CHOICE_REFERENCE_INVALID");
@@ -87,11 +90,51 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     while (parent) { if (seen.has(parent)) throw new Error("BACKUP_BRANCH_CYCLE"); seen.add(parent); parent = branchMap.get(parent)?.parentBranchId ?? null; }
   }
   const deltas = (payload.storyBibleDeltas ?? []) as Array<DomainRecord & { transactionId?: string; candidateId?: string; acceptedChoiceId?: string; chapterId?: string }>;
-  const approvals = (payload.approvalTransactions ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string }>;
-  const idempotency = (payload.idempotencyRecords ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string }>;
+  const approvals = (payload.approvalTransactions ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string; rpgTurnReceiptId?: string | null }>;
+  const idempotency = (payload.idempotencyRecords ?? []) as Array<DomainRecord & { transactionId?: string; acceptedChoiceId?: string; branchId?: string; storyBibleDeltaId?: string; candidateId?: string; rpgTurnReceiptId?: string | null }>;
+  const journals = (payload.operationJournal ?? []) as Array<DomainRecord & { operationId?: string; acceptedChoiceId?: string; rpgTurnReceiptId?: string | null }>;
+  const rpgReceipts = (payload.rpgTurnReceipts ?? []) as RpgTurnReceipt[];
   for (const row of deltas) if (!row.transactionId || !row.candidateId || !row.acceptedChoiceId || !row.chapterId || !ids.has(row.transactionId) || !ids.has(row.candidateId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.chapterId)) throw new Error("BACKUP_STORY_BIBLE_DELTA_REFERENCE_INVALID");
   for (const row of approvals) if (!row.transactionId || row.transactionId !== row.id || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_APPROVAL_TRANSACTION_REFERENCE_INVALID");
   for (const row of idempotency) if (!row.transactionId || !row.acceptedChoiceId || !row.branchId || !row.storyBibleDeltaId || !row.candidateId || !ids.has(row.transactionId) || !ids.has(row.acceptedChoiceId) || !ids.has(row.branchId) || !ids.has(row.storyBibleDeltaId) || !ids.has(row.candidateId)) throw new Error("BACKUP_IDEMPOTENCY_REFERENCE_INVALID");
+  const receiptMap = new Map(rpgReceipts.map((row) => [row.id, row]));
+  const acceptedMap = new Map(accepted.map((row) => [row.id, row]));
+  const approvalMap = new Map(approvals.map((row) => [row.id, row]));
+  const journalMap = new Map(journals.map((row) => [row.operationId ?? row.id, row]));
+  for (const row of rpgReceipts) {
+    if (
+      row.receiptId !== row.id
+      || !row.chapterId
+      || !row.operationId
+      || !row.acceptedChoiceId
+      || !ids.has(row.chapterId)
+      || !ids.has(row.operationId)
+      || !ids.has(row.acceptedChoiceId)
+      || !Number.isInteger(row.sourceRevision)
+      || !Number.isInteger(row.resultingRevision)
+      || row.sourceRevision < 0
+      || row.resultingRevision <= row.sourceRevision
+      || row.beforeSnapshot?.storyStateRevision !== row.sourceRevision
+      || row.afterSnapshot?.storyStateRevision !== row.resultingRevision
+      || row.formulaVersion !== RPG_FORMULA_V3
+      || acceptedMap.get(row.acceptedChoiceId)?.rpgTurnReceiptId !== row.id
+      || approvalMap.get(row.operationId)?.rpgTurnReceiptId !== row.id
+      || (Object.hasOwn(payload, "operationJournal") && journalMap.get(row.operationId)?.rpgTurnReceiptId !== row.id)
+      || !idempotency.some((record) => record.transactionId === row.operationId && record.rpgTurnReceiptId === row.id)
+    ) throw new Error("BACKUP_RPG_TURN_RECEIPT_REFERENCE_INVALID");
+  }
+  for (const row of accepted) {
+    if (row.rpgTurnReceiptId && receiptMap.get(row.rpgTurnReceiptId)?.acceptedChoiceId !== row.id) throw new Error("BACKUP_ACCEPTED_CHOICE_RPG_RECEIPT_INVALID");
+  }
+  for (const row of approvals) {
+    if (row.rpgTurnReceiptId && receiptMap.get(row.rpgTurnReceiptId)?.operationId !== row.id) throw new Error("BACKUP_APPROVAL_RPG_RECEIPT_INVALID");
+  }
+  for (const row of idempotency) {
+    if (row.rpgTurnReceiptId && receiptMap.get(row.rpgTurnReceiptId)?.operationId !== row.transactionId) throw new Error("BACKUP_IDEMPOTENCY_RPG_RECEIPT_INVALID");
+  }
+  for (const row of journals) {
+    if (row.rpgTurnReceiptId && receiptMap.get(row.rpgTurnReceiptId)?.operationId !== (row.operationId ?? row.id)) throw new Error("BACKUP_JOURNAL_RPG_RECEIPT_INVALID");
+  }
   const dramaProjects = (payload.dramaProjects ?? []) as Array<DomainRecord & { dramaProjectId?: string; seasonIds?: string[] }>;
   const canonLinks = (payload.narrativeCanonLinks ?? []) as Array<DomainRecord & { dramaProjectId?: string; episodeIds?: string[] }>;
   const dramaApprovals = (payload.dramaApprovals ?? []) as Array<DomainRecord & { dramaProjectId?: string; approvedEntityIds?: string[] }>;
@@ -469,6 +512,16 @@ export function remapImportedRecord(raw: DomainRecord, targetProjectId: string, 
   if (mapped.conversationSchemaVersion === "conversation-approval-transaction-v1") {
     mapped.sourceRevision = 0;
     mapped.resultingRevision = 1;
+  }
+  if (mapped.receiptId === mapped.id && mapped.formulaVersion === "novel-rpg-unified-v3") {
+    mapped.sourceRevision = 0;
+    mapped.resultingRevision = 1;
+    if (mapped.beforeSnapshot && typeof mapped.beforeSnapshot === "object") {
+      (mapped.beforeSnapshot as Record<string, unknown>).storyStateRevision = 0;
+    }
+    if (mapped.afterSnapshot && typeof mapped.afterSnapshot === "object") {
+      (mapped.afterSnapshot as Record<string, unknown>).storyStateRevision = 1;
+    }
   }
   return {
     ...mapped,

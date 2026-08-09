@@ -51,6 +51,37 @@ function normalizeRpgStat(key: string, value: number) {
   return value;
 }
 
+const RPG_STAT_LEGACY_ALIASES: Record<string, string> = {
+  "rpg.physique": "rpg.resilience",
+  "rpg.technique": "rpg.craft",
+  "rpg.intellect": "rpg.insight",
+  "rpg.charisma": "rpg.empathy",
+  "rpg.will": "rpg.courage",
+  "rpg.creativity": "rpg.renown",
+};
+
+function addProtagonistStats(
+  base: Record<string, number>,
+  changes: Record<string, number>,
+  baselines: Record<string, number>,
+) {
+  const next = { ...base };
+  for (const [key, baseline] of Object.entries(baselines)) {
+    if (!(key in RPG_STAT_LEGACY_ALIASES) || next[key] !== undefined) continue;
+    const legacyKey = RPG_STAT_LEGACY_ALIASES[key];
+    next[key] = normalizeRpgStat(key, next[legacyKey] ?? baseline);
+  }
+  for (const [key, change] of Object.entries(changes)) {
+    const legacyKey = RPG_STAT_LEGACY_ALIASES[key];
+    const current = next[key]
+      ?? (legacyKey ? next[legacyKey] : undefined)
+      ?? baselines[key]
+      ?? 0;
+    next[key] = normalizeRpgStat(key, current + change);
+  }
+  return next;
+}
+
 function normalizeResource(key: string, value: number) {
   if (
     key.startsWith("status.")
@@ -93,6 +124,7 @@ function addProgress(
 export function applyStoryChoiceEffect(
   state: StoryState,
   effect: StoryChoiceEffect,
+  statBaselines: Record<string, number> = {},
 ): StoryState {
   const validation = validateStoryChoiceEffect(effect);
   if (!validation.valid) throw new Error(validation.errors.join("；"));
@@ -101,10 +133,10 @@ export function applyStoryChoiceEffect(
     revision: state.revision + 1,
     parentRevision: state.revision,
     updatedAt: new Date().toISOString(),
-    protagonistStats: addNumericMap(
+    protagonistStats: addProtagonistStats(
       state.protagonistStats,
       effect.statChanges,
-      normalizeRpgStat,
+      statBaselines,
     ),
     relationships: addNumericMap(
       state.relationships,

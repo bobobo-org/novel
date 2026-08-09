@@ -251,23 +251,24 @@ await test("an accepted creation conflict becomes the first canonical unresolved
 
 await test("AI director requires three distinct contextual strategies while preserving formula effects", () => {
   const payload = JSON.stringify({ choices: [
-    { key: "A", title: "查驗密道回聲", description: "主角先比對牆後腳步與舊地圖，避開正在換防的巡守。", consequence: "時機可能縮短，但可找出安全退路。", continuityReason: "承接上一段提到的牆後回聲與失蹤地圖。" },
-    { key: "B", title: "說服守庫人倒戈", description: "主角拿出剛取得的契約證據，交換守庫人掌握的內部名冊。", consequence: "會欠下一份人情，並讓同伴質疑交易代價。", continuityReason: "承接守庫人的猶豫、隊伍信任與契約伏筆。" },
-    { key: "C", title: "引爆假警報奪門", description: "主角冒險製造禁區失火假象，趁敵方分兵時強行穿越正門。", consequence: "成功可直接逼近核心，失敗會暴露整隊位置。", continuityReason: "承接禁區封鎖、敵方增援與時間壓力。" },
+    { key: "A", title: "先封山門再查暗線", description: "主角先封住殘破山門並核對巡使腳印，從仍在移動的香灰判斷真正入口。", consequenceTeaser: "會失去短暫先機，但能保留可靠退路。" },
+    { key: "B", title: "借舊人情換取密報", description: "主角以舊日宗門人情接觸守庫人，用可追溯承諾交換巡查名冊與時限。", consequenceTeaser: "人情債會留下，盟友也將追問交換代價。" },
+    { key: "C", title: "引巡使入陣奪先手", description: "主角故意暴露一段假路線，趁巡使分兵時強闖石門後的核心陣眼與退路。", consequenceTeaser: "成功可逼近核心，失敗會暴露倖存同伴。" },
   ] });
   const directed = parseRpgChoiceDirectorOutput(payload);
   const merged = mergeRpgChoiceDirection(baseChoices, directed);
   assert.deepEqual(merged.map((choice) => choice.key), ["A", "B", "C"]);
   assert.equal(new Set(merged.map((choice) => choice.title)).size, 3);
   assert.equal(merged[0].effect, baseChoices[0].effect);
-  assert.match(merged[1].aiContinuityReason, /契約伏筆/);
+  assert.match(merged[1].consequenceTeaser, /人情債/u);
+  assert.deepEqual(merged[1].requirements, baseChoices[1].requirements);
 });
 
-await test("validated RPG JSON survives the Closed Agent boundary without losing consequence fields", () => {
+await test("validated RPG JSON survives the Closed Agent boundary without losing display-only fields", () => {
   const payload = JSON.stringify({ choices: [
-    { key: "A", title: "穩住星橋", description: "主角先封住裂縫並確認失蹤者留下的座標。", consequence: "耗費靈力但取得可靠線索。", continuityReason: "承接上一章星橋崩裂與失蹤伏筆。" },
-    { key: "B", title: "交換密報", description: "主角以人情向守塔人換取禁區內部的巡查紀錄。", consequence: "增加關係債並暴露調查方向。", continuityReason: "承接守塔人先前隱瞞的異常反應。" },
-    { key: "C", title: "闖入禁區", description: "主角趁警戒交替直接追蹤仍在移動的星砂痕跡。", consequence: "風險最高但可能立刻接觸真相。", continuityReason: "承接星砂只在雨夜出現的世界規則。" },
+    { key: "A", title: "封住星橋裂縫查座標", description: "主角先封住星橋裂縫，再比對失蹤者留下的座標與雨夜星砂移動方向。", consequenceTeaser: "會消耗眼前時間，但能留下可靠退路。" },
+    { key: "B", title: "以舊人情交換巡查密報", description: "主角以一筆可追溯的人情向守塔人換取禁區巡查紀錄與換防時限。", consequenceTeaser: "關係債將被記錄，也會暴露調查方向。" },
+    { key: "C", title: "趁換防強闖星砂禁區", description: "主角趁警戒交替追蹤仍在移動的星砂痕跡，試圖在增援抵達前逼近真相。", consequenceTeaser: "成功可直達核心，失敗會暴露隊伍位置。" },
   ] });
   const normalized = normalizeAbcChoicesExecutionContent(payload);
   assert.equal(normalized.valid, true);
@@ -280,8 +281,8 @@ await test("validated RPG JSON survives the Closed Agent boundary without losing
 
 await test("duplicate ABC output and parrot-like continuation are rejected", () => {
   const duplicate = JSON.stringify({ choices: ["A", "B", "C"].map((key) => ({
-    key, title: "繼續前進", description: "主角繼續前進並且觀察四周是否出現新的變化。",
-    consequence: "可能遇到新的危險與額外代價。", continuityReason: "承接目前故事內容與尚未處理的問題。",
+    key, title: "繼續前進並觀察周遭", description: "主角沿著原路繼續前進，同時觀察四周是否出現新的腳印、聲響與伏擊跡象。",
+    consequenceTeaser: "可能遇到新的危險，也會付出額外代價。",
   })) });
   assert.throws(() => parseRpgChoiceDirectorOutput(duplicate), /NOT_DISTINCT/);
   const previous = "主角推開石門，冷風從地底湧出。他握緊手中長劍，示意同伴跟上，眾人沿著濕滑階梯向下走去。黑暗深處傳來鐵鏈拖地的聲音，一場新的危機正在等待他們。";
@@ -292,11 +293,12 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile] = await Promise.all([
+  const [studio, navigation, writer, rpg, rpgController, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
+    readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
     readFile("local-ai/bridge/server.mjs", "utf8"),
     readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
     readFile("scripts/run-p24b-rc3-1-manual-edge-gate.mjs", "utf8"),
@@ -322,29 +324,30 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(writer, /freshTarget/);
   assert.match(writer, /readStudioWritingResume/);
   assert.match(writer, /六層 AI Cache 已就緒/);
-  assert.match(rpg, /buildRpgChoiceDirectorPrompt/);
-  assert.match(rpg, /buildRpgResolutionDirectorPrompt/);
+  assert.match(rpg, /planRpgChatChoices/);
+  assert.match(rpg, /generateRpgChatTurnCandidate/);
+  assert.match(rpg, /approveRpgChatTurn/);
+  assert.match(rpgController, /buildRpgChoiceDirectorPrompt/);
+  assert.match(rpgController, /buildRpgResolutionDirectorPrompt/);
   assert.match(rpg, /data-testid="rpg-foundation-gate"/);
   assert.match(edgeGate, /request\.failure\(\)\?\.errorText/);
   assert.match(edgeGate, /ERR_ABORTED/);
   assert.match(rpg, /inspectRpgFoundation/);
   assert.match(rpg, /!rpgFoundationReady/);
-  assert.match(rpg, /RPG_AI_CHOICES_REPEAT_RECENT_ROUND/);
-  assert.match(rpg, /rpgTextSimilarity\(previous, signature\) >= 0\.82/);
-  assert.match(rpg, /hasVerifiedExecutedStoryOutput/);
-  assert.match(rpg, /approveStudioClosedAgentCandidate/);
-  assert.match(rpg, /canonicalMutationCount !== 0/);
+  assert.match(rpgController, /hasVerifiedExecutedStoryOutput/);
+  assert.match(rpgController, /approveStudioClosedAgentCandidate/);
+  assert.match(rpgController, /canonicalMutationCount !== 0/);
   assert.match(rpg, /RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000/);
   assert.match(rpg, /RPG_TURN_TIMEOUT_MS = 300_000/);
-  assert.match(rpg, /qualityMode: "fast" as const/);
-  assert.match(rpg, /maxTokens: 520/);
-  assert.match(rpg, /targetLength: storyLanguage === "en" \? 1_700 : 1_600/);
-  assert.match(rpg, /maxTokens: 1_792/);
-  assert.match(rpg, /substantiveScene: true/);
+  assert.match(rpgController, /qualityMode: "fast"/);
+  assert.match(rpgController, /maxTokens: 520/);
+  assert.match(rpgController, /targetLength: input\.snapshot\.language === "en" \? 1_700 : 1_600/);
+  assert.match(rpgController, /maxTokens: 1_792/);
+  assert.match(rpgController, /substantiveScene: true/);
   assert.match(rpg, /signal: controller\.signal/);
   assert.match(rpg, /data-testid="rpg-live-draft"/);
   assert.match(rpg, /data-testid="rpg-cancel-turn"/);
-  assert.match(rpg, /data-testid="rpg-operation-status"/);
+  assert.match(rpg, /aria-live="polite"/);
   assert.match(rpg, /RPG_CLOSED_AI_RESOLUTION_FAILED/);
   assert.match(rpg, /已產生 \$\{generated\} 字/);
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
@@ -359,7 +362,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /displayedRoundText/);
   assert.match(rpg, /沉浸回合正文/);
   assert.match(rpg, /【選項 \{choice\.key\}】/);
-  assert.match(rpg, /dashboardExpanded \? <div className=\{styles\.freeAction\}>/);
+  assert.match(rpg, /dashboardExpanded && progression\.rpgState\.customActionEnabled \? <div className=\{styles\.freeAction\}>/);
   assert.match(learningWorkspace, /extractManualLearningFile/);
   assert.match(learningWorkspace, /splitManualLearningDocument/);
   assert.match(learningWorkspace, /\.pdf,\.docx/);

@@ -76,6 +76,7 @@ import {
   buildRpgChatCustomAction,
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
+  parseRpgChoiceSelection,
   planRpgChatChoices,
   type RpgChatChoicePlan,
   type RpgChatTurnCandidate,
@@ -2327,11 +2328,8 @@ export default function ConversationWorkspace({
           signal: controller.signal,
         });
       } else if (plan.executionKind === "rpg") {
-        const exactChoice = content.match(/^(?:選擇\s*)?([ABCＡＢＣ])(?:\s*[：:].*)?$/iu)?.[1]
-          ?.normalize("NFKC")
-          .toUpperCase();
-        const plannedChoice = exactChoice && latestRpgChoices
-          ? latestRpgChoices.envelope.plan.choices.find((choice) => choice.key === exactChoice)
+        const plannedChoice = latestRpgChoices
+          ? parseRpgChoiceSelection(content, latestRpgChoices.envelope.plan.choices)
           : null;
         if (plannedChoice && latestRpgChoices) {
           await executeRpgChoice({
@@ -3177,11 +3175,15 @@ export default function ConversationWorkspace({
                       <>
                       <div className={styles.choices} data-testid="rpg-inline-choices">
                         {rpgChoices.plan.choices.map((choice) => (
-                          <button className={styles.choiceCard} type="button" key={choice.key} disabled={busy || rpgChoicesConsumed} onClick={() => void chooseRpgOption(rpgChoices, message.id, choice.key as "A" | "B" | "C")}>
+                          <button className={styles.choiceCard} type="button" key={choice.key} aria-label={`選項 ${choice.key}：${choice.title}；${choice.strategyLabel}；${choice.displayedChanceBand}`} title={choice.disabledReason ?? undefined} disabled={busy || rpgChoicesConsumed || Boolean(choice.disabledReason)} onClick={() => void chooseRpgOption(rpgChoices, message.id, choice.key as "A" | "B" | "C")}>
                             <span className={styles.choiceKey}>{choice.key} · {choice.strategyLabel}</span>
                             <h3>{choice.title}</h3>
                             <p>{choice.description}</p>
-                            <span className={styles.choiceMeta}>{choice.consequence}</span>
+                            <span className={styles.choiceMeta}>風險 {choice.risk}/5 · {choice.displayedChanceBand}</span>
+                            <span className={styles.choiceMeta}>已知成本：{choice.knownCosts.map((cost) => cost.label).join("、") || "無"}</span>
+                            <span className={styles.choiceMeta}>{choice.consequenceTeaser}</span>
+                            {choice.irreversibleWarning ? <strong>不可逆警告：{choice.irreversibleWarning}</strong> : null}
+                            {choice.disabledReason ? <span role="status">目前不可選：{choice.disabledReason}</span> : null}
                           </button>
                         ))}
                       </div>

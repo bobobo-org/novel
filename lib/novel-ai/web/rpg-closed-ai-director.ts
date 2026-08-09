@@ -1,9 +1,7 @@
 import type { RpgChoice } from "../game/progression/rpg-progression";
 import { normalizeTraditionalChinesePreservingProperNouns } from "../language/traditional-chinese";
 
-export type RpgDirectedChoice = RpgChoice & {
-  aiContinuityReason: string;
-};
+export type RpgDirectedChoice = RpgChoice;
 
 export type StoryOutputLanguage = "zh-TW" | "zh-CN" | "en";
 
@@ -17,8 +15,7 @@ type DirectedChoicePayload = {
   key: "A" | "B" | "C";
   title: string;
   description: string;
-  consequence: string;
-  continuityReason: string;
+  consequenceTeaser: string;
 };
 
 function cleanText(value: unknown, maximum: number) {
@@ -47,14 +44,13 @@ export function parseRpgChoiceDirectorOutput(raw: string): DirectedChoicePayload
   const rows = parsed.choices.map((value) => {
     const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const key = row.key === "A" || row.key === "B" || row.key === "C" ? row.key : null;
-    const title = cleanText(row.title, 36);
-    const description = cleanText(row.description, 240);
-    const consequence = cleanText(row.consequence, 180);
-    const continuityReason = cleanText(row.continuityReason, 180);
-    if (!key || title.length < 3 || description.length < 18 || consequence.length < 8 || continuityReason.length < 8) {
+    const title = cleanText(row.title, 18);
+    const description = cleanText(row.description, 72);
+    const consequenceTeaser = cleanText(row.consequenceTeaser, 40);
+    if (!key || title.length < 8 || description.length < 30 || consequenceTeaser.length < 12) {
       throw new Error("RPG_AI_CHOICE_INCOMPLETE");
     }
-    return { key, title, description, consequence, continuityReason } satisfies DirectedChoicePayload;
+    return { key, title, description, consequenceTeaser } satisfies DirectedChoicePayload;
   });
   const byKey = new Map(rows.map((row) => [row.key, row]));
   if (byKey.size !== 3 || !byKey.has("A") || !byKey.has("B") || !byKey.has("C")) {
@@ -89,9 +85,8 @@ export function mergeRpgChoiceDirection(
       ...choice,
       title: narrative.title,
       description: narrative.description,
-      consequence: narrative.consequence,
+      consequenceTeaser: narrative.consequenceTeaser,
       acceptedText: `【互動分支 ${choice.key}｜${narrative.title}】\n\n${narrative.description}`,
-      aiContinuityReason: narrative.continuityReason,
     };
   });
 }
@@ -103,18 +98,18 @@ export function buildRpgChoiceDirectorPrompt(input: {
 }) {
   return JSON.stringify({
     instruction: [
-      "你是閉端小說 RPG 導演。請先理解目前章節、角色、世界規則、未解伏筆、最近選擇與正式 RPG 狀態，再設計本回合 A/B/C。",
-      "A 必須是穩健／觀察策略，B 必須是資源／關係策略，C 必須是高風險／突破策略；三者要導向不同事件、人物反應與後續代價。",
+      "你是閉端小說 RPG 文案導演。請理解目前章節、角色、世界規則、未解伏筆、最近選擇與正式 RPG 狀態，僅潤飾本回合 A/B/C 的顯示文案。",
+      "每個 key 已由規則引擎綁定策略，而且 A/B/C 的策略位置會輪替；必須逐項服從 immutableRuleChoices，不可自行假設 A、B、C 的策略。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
-      "不得重述前情、不得沿用最近回合標題、不得使用空泛句型，也不得修改 baseChoices 中的成功率、數值、代價或效果。",
-      "每個選項都要指出它承接哪個具體上下文。只輸出 JSON，不要 Markdown。",
+      "不得重述前情、不得沿用最近回合標題、不得使用空泛句型。只能重寫 title、description、consequenceTeaser；不得輸出或修改策略、需求、成功率、風險、成本、效果、判定或其他規則欄位。",
+      "三項要承接具體上下文並導向不同事件與人物反應。只輸出 JSON，不要 Markdown。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
     outputSchema: {
       choices: [
-        { key: "A", title: "3-18字", description: "具體行動與眼前阻力", consequence: "可預期代價", continuityReason: "承接的章節／角色／伏筆依據" },
-        { key: "B", title: "3-18字", description: "具體行動與眼前阻力", consequence: "可預期代價", continuityReason: "承接的章節／角色／伏筆依據" },
-        { key: "C", title: "3-18字", description: "具體行動與眼前阻力", consequence: "可預期代價", continuityReason: "承接的章節／角色／伏筆依據" },
+        { key: "A", title: "8-18字", description: "30-72字的具體行動與眼前阻力", consequenceTeaser: "12-40字的可預期後果提示" },
+        { key: "B", title: "8-18字", description: "30-72字的具體行動與眼前阻力", consequenceTeaser: "12-40字的可預期後果提示" },
+        { key: "C", title: "8-18字", description: "30-72字的具體行動與眼前阻力", consequenceTeaser: "12-40字的可預期後果提示" },
       ],
     },
     context: input.context,
@@ -274,10 +269,7 @@ export function buildRpgResolutionDirectorPrompt(input: {
       key: input.choice.key,
       title: input.choice.title,
       action: input.choice.description,
-      expectedConsequence: input.choice.consequence,
-      continuityReason: "aiContinuityReason" in input.choice
-        ? String(input.choice.aiContinuityReason)
-        : null,
+      expectedConsequence: input.choice.consequenceTeaser,
       encounter: input.choice.encounter,
     },
     lockedResolution: input.resolution,

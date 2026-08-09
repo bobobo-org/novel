@@ -1,6 +1,8 @@
 import type { DomainRecord, OptionalValue, Provenance } from "./common";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
+import type { RpgStateV3, RpgTurnSettlement } from "./rpg";
 export * from "./common";
+export * from "./rpg";
 
 export type ProjectSeed = DomainRecord & {
   titleCandidates: string[];
@@ -90,7 +92,7 @@ export type CharacterRpgArchetype =
   | "custom";
 export type CharacterRpgProfile = {
   schemaVersion: "character-rpg-profile-v1";
-  formulaVersion: "novel-rpg-unified-v2";
+  formulaVersion: "novel-rpg-unified-v2" | "novel-rpg-unified-v3";
   archetype: CharacterRpgArchetype;
   stats: Record<CharacterRpgStatKey, number>;
   pointBudget: 300;
@@ -164,9 +166,10 @@ export type StoryState = DomainRecord & {
   timeState: string | null;
   locationState: string | null;
   riskState: string | null;
+  rpgState?: RpgStateV3;
 };
 
-export type StoryChoiceEffect = { statChanges: Record<string, number>; relationshipChanges: Record<string, number>; resourceChanges: Record<string, number>; moneyChange: number; worldFlags: Record<string, boolean | string | number>; questProgress: Record<string, number>; achievementProgress: Record<string, number>; timelineEvents: string[] };
+export type StoryChoiceEffect = import("./rpg").RpgCanonicalEffect;
 export type ChoiceCandidate = Omit<DomainRecord, "provenance"> & {
   provenance: AIProvenance;
   prompt: string;
@@ -181,6 +184,7 @@ export type ChoiceCandidate = Omit<DomainRecord, "provenance"> & {
   chapterRevision: number;
   storyStateRevision: number;
   storyBibleRevision?: number;
+  rpgSettlement?: RpgTurnSettlement;
 };
 export type AcceptedChoice = Omit<DomainRecord, "provenance"> & {
   provenance: AIProvenance;
@@ -199,6 +203,7 @@ export type AcceptedChoice = Omit<DomainRecord, "provenance"> & {
   effectOperationId: string;
   appliedEffect: StoryChoiceEffect;
   acceptedAt: string;
+  rpgTurnReceiptId?: string | null;
 };
 export type StoryBranch = DomainRecord & {
   branchId: string;
@@ -221,6 +226,7 @@ export type OperationJournal = DomainRecord & {
   resultRevision: number;
   payloadFingerprint: string;
   completedAt: string;
+  rpgTurnReceiptId?: string | null;
 };
 export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[]; interactionDeltaIds?: string[] };
 export type StoryBibleDelta = DomainRecord & {
@@ -259,6 +265,7 @@ export type ApprovalTransaction = DomainRecord & {
   acceptedChoiceId: string;
   branchId: string;
   storyBibleDeltaId: string;
+  rpgTurnReceiptId?: string | null;
 };
 export type IdempotencyRecord = DomainRecord & {
   idempotencyKey: string;
@@ -273,6 +280,7 @@ export type IdempotencyRecord = DomainRecord & {
   resultRevision: number;
   status: "committed";
   idempotencySchemaVersion: "idempotency-record-v1";
+  rpgTurnReceiptId?: string | null;
 };
 export type WritingTask = DomainRecord & { title: string; kind: "main" | "side" | "character" | "world" | "writing" | "exploration" | "relationship"; status: "not_started" | "active" | "completed" | "paused"; progress: number; target: number };
 export type Achievement = DomainRecord & { title: string; progress: number; target: number; unlockedAt: string | null };

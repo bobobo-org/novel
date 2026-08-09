@@ -139,7 +139,7 @@ const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "chapter.continue": "直接續寫小說正文；從最後一句之後的新瞬間開始，第一句承接最後可見動作、場景或人物反應，以人物選擇和代價推進。不可摘錄、重排、縮寫或改述已有正文，至少推進一個新事件並造成一項新後果。只准輸出敘事正文，禁止輸出提問、分析、建議、爭議環節、條列清單、未經任務明確要求的標題或創作方法。",
   "chapter.rewrite": "保留必要事實、角色意圖與因果，依作者目標完整改寫指定文字；只輸出可替換正文。",
   "chapter.expand": "把指定片段擴成完整場景，增加可見動作、感官、空間、對話潛台詞與後果，但不新增未核准設定。",
-  "chapter.abcChoices": "只輸出一個合法 JSON 物件，根層只能有 choices。choices 必須恰好包含 A、B、C 三項且彼此不同；每項必須有 key、title、description、consequence、continuityReason，並符合 Canon、角色可執行行動與明確代價。各欄務必精煉：title 3–18 字、description 18–72 字、consequence 8–44 字、continuityReason 8–50 字。不得加入前言、結語、第四個選項或 Markdown 程式碼區塊。",
+  "chapter.abcChoices": "只輸出一個合法 JSON 物件，根層只能有 choices。choices 必須恰好包含 A、B、C 三項且彼此不同；每項只能有 key、title、description、consequenceTeaser。這些只是顯示文案，必須服從輸入中每個 key 已鎖定的策略與 Canon，不得輸出或修改成功率、風險、需求、成本、效果或判定。各欄務必精煉：title 8–18 字、description 30–72 字、consequenceTeaser 12–40 字。不得加入前言、結語、第四個選項或 Markdown 程式碼區塊。",
   "character.create": "建立角色候選，包含身分、外在目標、內在需求、能力、限制、恐懼、矛盾、語氣、關係鉤子與劇情功能。",
   "character.dialogue": "只輸出符合角色知識邊界、目標、語氣與關係狀態的候選對話；用動作或停頓呈現潛台詞。",
   "character.dialogueConsistency": "比較對話與角色聲音基準，列出一致與偏離證據；沒有足夠角色基準時明確標示，不能猜測。",

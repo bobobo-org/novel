@@ -85,15 +85,14 @@ function validateStructuredChoices(content) {
   for (const choice of choices) {
     assert.deepEqual(
       Object.keys(choice).sort(),
-      ["consequence", "continuityReason", "description", "key", "title"],
+      ["consequenceTeaser", "description", "key", "title"],
     );
-    assert.ok(choice.title.length >= 3 && choice.title.length <= 18);
-    assert.ok(choice.description.length >= 18 && choice.description.length <= 72);
-    assert.ok(choice.consequence.length >= 8 && choice.consequence.length <= 44);
-    assert.ok(choice.continuityReason.length >= 8 && choice.continuityReason.length <= 50);
+    assert.ok(choice.title.length >= 8 && choice.title.length <= 18);
+    assert.ok(choice.description.length >= 30 && choice.description.length <= 72);
+    assert.ok(choice.consequenceTeaser.length >= 12 && choice.consequenceTeaser.length <= 40);
     assert.doesNotMatch(
-      `${choice.title}|${choice.description}|${choice.consequence}|${choice.continuityReason}`,
-      /3至18字|18至72字|8至44字|8至50字/u,
+      `${choice.title}|${choice.description}|${choice.consequenceTeaser}`,
+      /8至18字|30至72字|12至40字/u,
     );
   }
   for (let left = 0; left < choices.length; left += 1) {
@@ -142,8 +141,8 @@ try {
   const startedAt = performance.now();
   const basePrompt = `上一章：星橋在雨夜崩裂，守塔人隱瞞巡查紀錄，主角只剩六成靈力且必須在天亮前找到失蹤同伴。
 
-請提出 A、B、C 三條承接上下文、策略與代價都明顯不同的下一步。A 是穩健觀察，B 是資源或關係策略，C 是高風險突破。三個 title 必須彼此不同；下方每個字串都只是欄位內容提示，必須全部改寫成具體候選，不可照抄「3至18字」等提示。只輸出下列 JSON 物件，不要 Markdown 或說明：
-{"choices":[{"key":"A","title":"觀察策略的具體短標題","description":"寫出18至72字的穩健具體行動與眼前阻力","consequence":"寫出8至44字的穩健代價","continuityReason":"寫出8至50字的具體前文依據"},{"key":"B","title":"關係策略的不同短標題","description":"寫出18至72字的關係或資源行動與眼前阻力","consequence":"寫出8至44字的關係或資源代價","continuityReason":"寫出8至50字的另一項前文依據"},{"key":"C","title":"突破策略的不同短標題","description":"寫出18至72字的高風險具體行動與眼前阻力","consequence":"寫出8至44字的高風險代價","continuityReason":"寫出8至50字的另一項前文依據"}]}`;
+請提出 A、B、C 三條承接上下文且文案明顯不同的下一步。每個 key 的策略、成本與規則欄位已由輸入鎖定，你只能改寫 title、description、consequenceTeaser。三個 title 必須彼此不同；下方每個字串都只是提示，必須改寫成具體候選，不可照抄「8至18字」等提示。只輸出下列 JSON 物件，不要 Markdown 或說明：
+{"choices":[{"key":"A","title":"八至十八字的具體行動標題","description":"寫出三十至七十二字的具體行動、對象、眼前阻力與可觀察目的","consequenceTeaser":"寫出十二至四十字的已知代價與後果提示"},{"key":"B","title":"八至十八字的不同具體標題","description":"寫出三十至七十二字的另一個具體行動、對象、眼前阻力與可觀察目的","consequenceTeaser":"寫出十二至四十字的另一項已知代價提示"},{"key":"C","title":"八至十八字的第三個具體標題","description":"寫出三十至七十二字的第三個具體行動、對象、眼前阻力與可觀察目的","consequenceTeaser":"寫出十二至四十字的第三項已知代價提示"}]}`;
   const attempts = [];
   let accepted = null;
   let lastError = null;
@@ -151,7 +150,7 @@ try {
     const providerRunId = `rpg-structured-real-${crypto.randomUUID()}`;
     const correction = attempt === 1
       ? ""
-      : "\n\n前次未通過 RPG 結構契約。請從頭產生新 JSON，逐項檢查唯一根鍵 choices、恰好 A/B/C、五個必填欄位、欄位長度與三種實質不同策略。";
+      : "\n\n前次未通過 RPG 結構契約。請從頭產生新 JSON，逐項檢查唯一根鍵 choices、恰好 A/B/C、四個必填欄位、欄位長度與三組實質不同文案。";
     const prompt = `${basePrompt}${correction}`;
     let generated = { content: "", firstTokenMs: null, generatedTokenEvents: 0 };
     try {
@@ -163,7 +162,7 @@ try {
           model: model.modelId,
           taskType: "chapter.abcChoices",
           timeoutMs: 120_000,
-          systemInstruction: "你是繁體中文小說 RPG 導演。嚴守既有角色、世界規則與未解伏筆，只輸出 schema 合法、可執行且有代價的 A/B/C JSON 候選。",
+          systemInstruction: "你是繁體中文小說 RPG 文案導演。規則引擎已鎖定策略、機率、需求、成本與效果；你只能改寫 key、title、description、consequenceTeaser 四欄並輸出合法 A/B/C JSON。",
           prompt,
           options: {
             num_predict: 420,

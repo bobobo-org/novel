@@ -258,7 +258,7 @@ export function normalizeAbcChoicesCandidate(
 /**
  * The Closed Agent OS historically canonicalized every valid A/B/C response to
  * three display lines. That is useful for prose-only callers, but it destroys
- * structured RPG fields such as consequence and continuityReason before the
+ * structured RPG display fields such as description and consequenceTeaser before the
  * product-level validator can inspect them. Preserve validated JSON payloads
  * while retaining the legacy normalization for line-oriented responses.
  */

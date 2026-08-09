@@ -130,8 +130,7 @@ try {
       key: "A",
       title: "搶救半頁紀錄",
       description: "沈曜撲向火盆搶出尚未燒盡的巡查紀錄，同時逼守塔人說出燈號來源。",
-      consequence: "可取得證據，但會驚動執法隊。",
-      aiContinuityReason: "直接承接火盆、失蹤同伴與夜間時限。",
+      consequenceTeaser: "可取得關鍵證據，但也會驚動執法隊。",
       encounter: { id: "burning-log", label: "焚燒中的巡查紀錄" },
     },
     resolution: {
@@ -226,74 +225,82 @@ try {
       attempts.push(initialFailure);
       if (!(error instanceof Error) || error.message !== "RPG_AI_CONTINUATION_TOO_SHORT") continue;
 
-      const continuationPlan = buildSubstantiveSceneContinuationPrompt(generated.content);
-      const providerRunId = `rpg-resolution-real-${crypto.randomUUID()}`;
-      const remainingTimeMs = Math.floor(240_000 - (performance.now() - startedAt));
-      if (remainingTimeMs < 100) {
-        lastError = Object.assign(new Error("OLLAMA_TIMEOUT"), { code: "OLLAMA_TIMEOUT" });
-        continue;
-      }
-      const supplement = await readGeneration(await fetch(`${base}/generate`, {
-        method: "POST",
-        headers: { ...authHeaders, "Idempotency-Key": providerRunId },
-        body: JSON.stringify({
-          requestId: providerRunId,
-          model: model.modelId,
-          taskType: "chapter.continue",
-          timeoutMs: Math.min(120_000, remainingTimeMs),
-          systemInstruction: effectiveProfile.systemInstruction,
-          prompt: continuationPlan.prompt,
-          options: {
-            ...effectiveProfile.options,
-            num_predict: Math.min(896, effectiveProfile.options.num_predict),
-            temperature: 0.66,
-            top_p: 0.88,
-            seed: 240503 + 104729,
-          },
-        }),
-      }));
-      const merged = mergeSubstantiveSceneContinuation(
-        generated.content,
-        supplement.content,
-      );
-      const supplementMetrics = {
-        attempt: 2,
-        providerRunId,
-        inputCharacters: continuationPlan.prompt.length,
-        outputCharacters: supplement.content.trim().length,
-        generatedTokenEvents: supplement.generatedTokenEvents,
-        firstTokenMs: supplement.firstTokenMs,
-        outputDigest: crypto.createHash("sha256").update(supplement.content).digest("hex"),
-      };
-      try {
-        const continuation = cleanRpgContinuation(merged, [], "zh-TW");
-        const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
-        attempts.push({ ...supplementMetrics, ...contract, status: "PASS" });
-        accepted = {
-          continuation,
-          generated: {
-            ...generated,
-            generatedTokenEvents: generated.generatedTokenEvents + supplement.generatedTokenEvents,
-          },
-          built,
-          contract,
+      let merged = generated.content;
+      let supplementTokenEvents = 0;
+      const supplementPrompts = [];
+      for (let supplementAttempt = 2; supplementAttempt <= 3; supplementAttempt += 1) {
+        const continuationPlan = buildSubstantiveSceneContinuationPrompt(merged);
+        supplementPrompts.push(continuationPlan.prompt);
+        const providerRunId = `rpg-resolution-real-${crypto.randomUUID()}`;
+        const remainingTimeMs = Math.floor(240_000 - (performance.now() - startedAt));
+        if (remainingTimeMs < 100) {
+          lastError = Object.assign(new Error("OLLAMA_TIMEOUT"), { code: "OLLAMA_TIMEOUT" });
+          break;
+        }
+        const supplement = await readGeneration(await fetch(`${base}/generate`, {
+          method: "POST",
+          headers: { ...authHeaders, "Idempotency-Key": providerRunId },
+          body: JSON.stringify({
+            requestId: providerRunId,
+            model: model.modelId,
+            taskType: "chapter.continue",
+            timeoutMs: Math.min(120_000, remainingTimeMs),
+            systemInstruction: effectiveProfile.systemInstruction,
+            prompt: continuationPlan.prompt,
+            options: {
+              ...effectiveProfile.options,
+              num_predict: Math.min(896, effectiveProfile.options.num_predict),
+              temperature: supplementAttempt === 2 ? 0.66 : 0.6,
+              top_p: 0.88,
+              seed: 240503 + (supplementAttempt - 1) * 104729,
+            },
+          }),
+        }));
+        supplementTokenEvents += supplement.generatedTokenEvents;
+        merged = mergeSubstantiveSceneContinuation(merged, supplement.content);
+        const supplementMetrics = {
+          attempt: supplementAttempt,
           providerRunId,
-          contextDigest: crypto.createHash("sha256")
-            .update(`${built.prompt}\n${continuationPlan.prompt}`)
-            .digest("hex"),
+          inputCharacters: continuationPlan.prompt.length,
+          outputCharacters: supplement.content.trim().length,
+          generatedTokenEvents: supplement.generatedTokenEvents,
+          firstTokenMs: supplement.firstTokenMs,
+          outputDigest: crypto.createHash("sha256").update(supplement.content).digest("hex"),
         };
-        break;
-      } catch (supplementError) {
-        lastError = supplementError;
-        attempts.push({
-          ...supplementMetrics,
-          status: "FAIL",
-          errorCode: supplementError instanceof Error ? supplementError.message : String(supplementError),
-          narrativeLength: Number(supplementError?.narrativeLength) || 0,
-          paragraphCount: Number(supplementError?.paragraphCount) || 0,
-          sentenceCount: Number(supplementError?.sentenceCount) || 0,
-        });
+        try {
+          const continuation = cleanRpgContinuation(merged, [], "zh-TW");
+          const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
+          attempts.push({ ...supplementMetrics, ...contract, status: "PASS" });
+          accepted = {
+            continuation,
+            generated: {
+              ...generated,
+              generatedTokenEvents: generated.generatedTokenEvents + supplementTokenEvents,
+            },
+            built,
+            contract,
+            providerRunId,
+            contextDigest: crypto.createHash("sha256")
+              .update([built.prompt, ...supplementPrompts].join("\n"))
+              .digest("hex"),
+          };
+          break;
+        } catch (supplementError) {
+          lastError = supplementError;
+          attempts.push({
+            ...supplementMetrics,
+            status: supplementAttempt < 3 && supplementError instanceof Error && supplementError.message === "RPG_AI_CONTINUATION_TOO_SHORT"
+              ? "SUPPLEMENT_REQUIRED"
+              : "FAIL",
+            errorCode: supplementError instanceof Error ? supplementError.message : String(supplementError),
+            narrativeLength: Number(supplementError?.narrativeLength) || 0,
+            paragraphCount: Number(supplementError?.paragraphCount) || 0,
+            sentenceCount: Number(supplementError?.sentenceCount) || 0,
+          });
+          if (!(supplementError instanceof Error) || supplementError.message !== "RPG_AI_CONTINUATION_TOO_SHORT") break;
+        }
       }
+      if (accepted) break;
     }
   }
   if (!accepted) {

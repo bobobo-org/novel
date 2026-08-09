@@ -1,4 +1,4 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult } from "../../drama-os/types";
 import { CHARACTER_AGENT_STORE_NAMES } from "../../character-agent/repository";
 import type {
@@ -13,10 +13,13 @@ export const DRAMA_STORES = ["dramaProjects","dramaSeasons","dramaEpisodes","dra
 export const CHARACTER_AGENT_STORES = CHARACTER_AGENT_STORE_NAMES;
 export const CONVERSATION_STORES = ["conversationSessions","conversationMessages","conversationToolInvocations","conversationAttachments","conversationArtifacts","conversationSummaries","conversationApprovalTransactions","learningImportSessions"] as const;
 export const RC5_NOVEL_STORES = [...LEGACY_NOVEL_STORES, ...DRAMA_STORES, ...CHARACTER_AGENT_STORES] as const;
-export const NOVEL_STORES = [...RC5_NOVEL_STORES, ...CONVERSATION_STORES] as const;
+export const RC6_NOVEL_STORES = [...RC5_NOVEL_STORES, ...CONVERSATION_STORES] as const;
+export const RPG_V3_STORES = ["rpgTurnReceipts"] as const;
+export const NOVEL_STORES = [...RC6_NOVEL_STORES, ...RPG_V3_STORES] as const;
 export type NovelStoreName = (typeof NOVEL_STORES)[number];
 export const REQUIRED_RESTORE_STORES = NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 export const P24B_RC5_REQUIRED_RESTORE_STORES = RC5_NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
+export const P24B_RC6_REQUIRED_RESTORE_STORES = RC6_NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 export const P24A_REQUIRED_RESTORE_STORES = [...LEGACY_NOVEL_STORES, ...DRAMA_STORES].filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 export const LEGACY_REQUIRED_RESTORE_STORES = LEGACY_NOVEL_STORES.filter((store) => !["backups", "settings", "aiJobs", "migrationJournal", "operationJournal"].includes(store));
 
@@ -75,6 +78,7 @@ export type AcceptChoiceTransactionResult = {
   storyBibleDelta: StoryBibleDelta;
   approvalTransaction: ApprovalTransaction;
   idempotencyRecord: IdempotencyRecord;
+  rpgTurnReceipt?: RpgTurnReceipt;
   conversationArtifact?: ConversationArtifact;
   conversationApprovalTransaction?: ConversationApprovalTransaction;
 };

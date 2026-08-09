@@ -242,7 +242,10 @@ function normalizeObjective(value: string) {
 }
 
 function isRpgChoice(content: string, hasActiveRpgTurn: boolean) {
-  return hasActiveRpgTurn && /^(?:選擇\s*)?[ABCＡＢＣ](?:\s*[：:].*)?$/iu.test(content);
+  if (!hasActiveRpgTurn) return false;
+  const compact = content.normalize("NFKC").trim().replace(/[\s，,。.!！?？、:：｜|／/()（）「」『』]/gu, "");
+  return /^(?:選擇|选择|選|选)?(?:[abc]|[123一二三]|第[123一二三])(?:個|个|項|项|條|条|路|種|种|選項|选项|路線|路线)?$/iu.test(compact)
+    || /^(?:選擇|选择|選|选)?(?:穩健|稳健|觀察|观察|保守|安全|資源|资源|關係|关系|交換|交换|協商|协商|大膽|大胆|冒險|冒险|突破|高風險|高风险|激進|激进)(?:路線|路线|策略|方案)?$/u.test(compact);
 }
 
 function selectedRule(input: PlannerInput, objective: string): IntentRule | null {
