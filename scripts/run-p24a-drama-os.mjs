@@ -311,7 +311,7 @@ function registerMigrationTests() {
     assert(true);
   });
   test("new backup uses v6 format", async () => { input = fixture(); repo = new MemoryNovelRepository(); await seedRepository(repo, input); service = new DramaOsService(repo); projected = await service.project(input); payload = (await createProjectBackup(repo, input.storyId, "full")).payload; assert.equal(payload.manifest.formatVersion, "novel-backup-v6"); });
-  test("new backup uses repository v7", () => assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v7"));
+  test("new backup uses repository v8", () => assert.equal(payload.manifest.projectSchemaVersion, "novel-repository-v8"));
   for (const store of DRAMA_STORE_NAMES) test(`backup includes ${store}`, () => assert(payload.manifest.includedStores.includes(store)));
   test("backup validates", async () => assert((await validateBackupPayload(payload)).valid));
   test("backup restores as copy", async () => { restored = new MemoryNovelRepository(); const copyId = await restored.importProject(payload.records, "copy"); assert.notEqual(copyId, input.storyId); restored.copyId = copyId; });
