@@ -474,6 +474,25 @@ async function testExternalAiProductionTruth() {
   assert.equal(verified.observations.length, 2);
   assert.doesNotMatch(JSON.stringify(verified), new RegExp(secretMarker, "u"));
 
+  let activeProviderProbes = 0;
+  let maximumConcurrentProviderProbes = 0;
+  const sequentialTruth = await readProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    fetcher: async () => {
+      activeProviderProbes += 1;
+      maximumConcurrentProviderProbes = Math.max(
+        maximumConcurrentProviderProbes,
+        activeProviderProbes,
+      );
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1));
+      activeProviderProbes -= 1;
+      return Response.json(externalAiPayload());
+    },
+  });
+  assert.equal(sequentialTruth.verified, true);
+  assert.equal(maximumConcurrentProviderProbes, 1);
+
   const revoked = await readProductionExternalAiRuntimeTruth({
     aliases,
     expectedXaiModelId: "grok-4.5",

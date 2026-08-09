@@ -586,7 +586,8 @@ export async function readProductionExternalAiRuntimeTruth({
     };
   }
 
-  const observations = await Promise.all(normalizedAliases.map(async (alias) => {
+  const observations = [];
+  for (const alias of normalizedAliases) {
     let response;
     try {
       response = await boundedFetch(
@@ -601,11 +602,12 @@ export async function readProductionExternalAiRuntimeTruth({
       );
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
-        return sanitizedXaiObservation({
+        observations.push(sanitizedXaiObservation({
           alias,
           httpStatus: response.status,
           failureCode: "PRODUCTION_AUDIT_XAI_RUNTIME_HTTP_REJECTED",
-        });
+        }));
+        continue;
       }
       const payload = await boundedOperation(() => response.json(), {
         timeoutMs: fetchTimeoutMs,
@@ -613,20 +615,20 @@ export async function readProductionExternalAiRuntimeTruth({
         timeoutCode: "PRODUCTION_AUDIT_XAI_RUNTIME_BODY_TIMEOUT",
         onTimeout: () => response.body?.cancel().catch(() => undefined),
       });
-      return classifyXaiRuntimePayload({
+      observations.push(classifyXaiRuntimePayload({
         alias,
         httpStatus: response.status,
         payload,
         expectedXaiModelId,
-      });
+      }));
     } catch (error) {
-      return sanitizedXaiObservation({
+      observations.push(sanitizedXaiObservation({
         alias,
         httpStatus: Number.isInteger(response?.status) ? response.status : null,
         failureCode: String(error?.code || error?.message || "PRODUCTION_AUDIT_XAI_RUNTIME_FAILED"),
-      });
+      }));
     }
-  }));
+  }
 
   const states = [...new Set(observations.map((observation) => observation.state))];
   const openaiStates = [...new Set(observations.map((observation) => observation.openaiState))];
