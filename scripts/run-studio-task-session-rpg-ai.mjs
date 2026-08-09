@@ -292,7 +292,7 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate, backends] = await Promise.all([
+  const [studio, navigation, writer, rpg, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
@@ -301,6 +301,9 @@ await test("source contracts expose save-home-task gating and verified closed AI
     readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
     readFile("scripts/run-p24b-rc3-1-manual-edge-gate.mjs", "utf8"),
     readFile("lib/novel-ai/closed-agent-os/backends.ts", "utf8"),
+    readFile("lib/novel-ai/web/studio-closed-ai.ts", "utf8"),
+    readFile("app/studio/project/[projectId]/learning/learning-workspace.tsx", "utf8"),
+    readFile("lib/novel-ai/web/manual-learning-file.ts", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
   assert.match(studio, /commitScreen\("write", false, id\)/);
@@ -331,12 +334,12 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpg, /hasVerifiedExecutedStoryOutput/);
   assert.match(rpg, /approveStudioClosedAgentCandidate/);
   assert.match(rpg, /canonicalMutationCount !== 0/);
-  assert.match(rpg, /RPG_CHOICE_PLAN_TIMEOUT_MS = 30_000/);
-  assert.match(rpg, /RPG_TURN_TIMEOUT_MS = 120_000/);
+  assert.match(rpg, /RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000/);
+  assert.match(rpg, /RPG_TURN_TIMEOUT_MS = 300_000/);
   assert.match(rpg, /qualityMode: "fast" as const/);
   assert.match(rpg, /maxTokens: 520/);
-  assert.match(rpg, /targetLength: storyLanguage === "en" \? 800 : 560/);
-  assert.match(rpg, /maxTokens: 760/);
+  assert.match(rpg, /targetLength: storyLanguage === "en" \? 1_500 : 1_100/);
+  assert.match(rpg, /maxTokens: 1_600/);
   assert.match(rpg, /signal: controller\.signal/);
   assert.match(rpg, /data-testid="rpg-live-draft"/);
   assert.match(rpg, /data-testid="rpg-cancel-turn"/);
@@ -349,6 +352,19 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(backends, /bounded-local-quality-repair/);
   assert.match(backends, /LOCAL_BOUNDED_QUALITY_REPAIR_REASONS/);
   assert.match(backends, /fallbackPolicy: "none"/);
+  assert.match(studioClosedAI, /BROWSER_TO_LOCAL_RETRY_CODES/);
+  assert.match(studioClosedAI, /preferredBackend: "local-ollama"/);
+  assert.match(studioClosedAI, /allowPreAuthorizedClosedEscalation: true/);
+  assert.match(rpg, /displayedRoundText/);
+  assert.match(rpg, /沉浸回合正文/);
+  assert.match(rpg, /【選項 \{choice\.key\}】/);
+  assert.match(rpg, /dashboardExpanded \? <div className=\{styles\.freeAction\}>/);
+  assert.match(learningWorkspace, /extractManualLearningFile/);
+  assert.match(learningWorkspace, /splitManualLearningDocument/);
+  assert.match(learningWorkspace, /\.pdf,\.docx/);
+  assert.match(manualLearningFile, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
+  assert.match(manualLearningFile, /mammoth/);
+  assert.match(manualLearningFile, /單一檔案上限/);
 });
 
 await test("consumer home presents a compact luxury world dashboard with truthful project facts", async () => {

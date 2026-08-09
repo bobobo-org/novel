@@ -74,9 +74,20 @@ type SnapshotReader = (signal?: AbortSignal) => Promise<PlatformProviderSnapshot
 type PlatformExecutor = (request: PlatformAIRequest) => Promise<PlatformAIResult>;
 
 const INTERACTIVE_CHOICE_WARM_TTL_MS = 8 * 60 * 1_000;
+const BROWSER_TO_LOCAL_RETRY_CODES = new Set([
+  "BROWSER_EXPLICIT_ESCALATION_REQUIRED",
+  "BROWSER_AI_QUALITY_INSUFFICIENT",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+]);
 let interactiveChoiceWarmModelId: string | null = null;
 let interactiveChoiceWarmedAt = 0;
 let interactiveChoiceWarmPromise: Promise<boolean> | null = null;
+
+function studioClosedAIErrorCode(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return "";
+  return String((error as { code?: unknown }).code ?? "");
+}
 
 /**
  * Starts a tiny verified inference while the author is reading the choices.
@@ -287,7 +298,7 @@ export async function runStudioClosedAI(
     hasExplicitLocalComputeAuthorization(browserComputePolicy);
 
   if (!execute) {
-    const result = await executeStudioClosedAgent({
+    const agentRequest = {
       projectId: input.projectId,
       taskType,
       objective,
@@ -303,7 +314,31 @@ export async function runStudioClosedAI(
       preferredBackend: preferredRegenerationBackend,
       generationOptions: input.generationOptions,
       onProgress: input.onProgress,
-    });
+    };
+    let result;
+    try {
+      result = await executeStudioClosedAgent(agentRequest);
+    } catch (error) {
+      const mayRetryOnPairedLocalRuntime =
+        allowPreAuthorizedClosedEscalation
+        && !input.regeneration
+        && !input.signal?.aborted
+        && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
+      if (!mayRetryOnPairedLocalRuntime) throw error;
+
+      // A browser executor can disappear between readiness probing and actual
+      // generation. For an explicitly authorised closed-compute policy, retry
+      // once on the paired Local Ollama runtime instead of stranding the user
+      // on BROWSER_EXPLICIT_ESCALATION_REQUIRED. This remains device-only and
+      // still fails closed when Local Ollama is unavailable.
+      result = await executeStudioClosedAgent({
+        ...agentRequest,
+        taskId: `${requestId}:local-retry`,
+        browserComputePolicy: "quality-first",
+        allowPreAuthorizedClosedEscalation: true,
+        preferredBackend: "local-ollama",
+      });
+    }
     if (
       !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0

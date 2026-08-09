@@ -159,8 +159,8 @@ type RpgMutationLine = {
 
 const FORMULA = rpgFormulaExplanation();
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
-const RPG_CHOICE_PLAN_TIMEOUT_MS = 30_000;
-const RPG_TURN_TIMEOUT_MS = 120_000;
+const RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000;
+const RPG_TURN_TIMEOUT_MS = 300_000;
 
 type PlayModeDashboardCopy = {
   identity: string;
@@ -511,6 +511,20 @@ function Meter({ label, value, inverted = false }: { label: string; value: numbe
   );
 }
 
+function splitRoundStory(text: string, fallbackTitle: string) {
+  const normalized = text.trim();
+  const lines = normalized.split(/\r?\n/u);
+  const firstContentIndex = lines.findIndex((line) => line.trim().length > 0);
+  const candidate = firstContentIndex >= 0 ? lines[firstContentIndex].trim() : "";
+  const hasRoundTitle = candidate.length <= 90
+    && /^(?:第[一二三四五六七八九十百千〇零0-9]+(?:回合|日|章)|回合\s*[0-9]+|ROUND\s*[0-9]+)/iu.test(candidate);
+  if (!hasRoundTitle) return { title: fallbackTitle, body: normalized };
+  return {
+    title: candidate.replace(/^#+\s*/u, ""),
+    body: lines.filter((_, index) => index !== firstContentIndex).join("\n").trim(),
+  };
+}
+
 export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [customLibrary, setCustomLibrary] = useState<RpgCharacterTemplate[]>([]);
@@ -536,9 +550,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [xianxiaRuleVariant, setXianxiaRuleVariant] = useState(0);
   const [aiChoicePlan, setAiChoicePlan] = useState<RpgAiChoicePlan | null>(null);
   const [aiChoiceStatus, setAiChoiceStatus] = useState("等待故事與 RPG 狀態完成同步。 ");
+  const [aiChoiceElapsedSeconds, setAiChoiceElapsedSeconds] = useState(0);
   const [aiChoiceRetry, setAiChoiceRetry] = useState(0);
   const [turnDraft, setTurnDraft] = useState("");
   const [turnElapsedSeconds, setTurnElapsedSeconds] = useState(0);
+  const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const aiChoiceControllerRef = useRef<AbortController | null>(null);
   const aiChoiceCandidateRef = useRef<string | null>(null);
   const recentAiChoiceSignaturesRef = useRef<string[]>([]);
@@ -690,6 +706,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       activeMode,
     );
   }, [activeMode, data, protagonist?.name, selectedResolutionPreview]);
+  const visibleSelectedMutationLines = dashboardExpanded
+    ? selectedMutationLines
+    : selectedMutationLines.slice(0, 4);
+  const visibleLastMutationLines = dashboardExpanded
+    ? lastMutationLines
+    : lastMutationLines.slice(0, 4);
   const activated = Boolean(data?.storyState.protagonistStats["rpg.xp"] !== undefined);
   const conflict = data?.chapter.content.slice(-360).trim()
     || data?.chapter.summary?.trim()
@@ -826,10 +848,10 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       },
     };
   }, [activeMode, data, progression, protagonist, storyLanguage, storyPlayMode]);
-  const choices = aiChoicePlan?.contextKey === aiContextKey
-    ? aiChoicePlan.choices
-    : ruleChoices;
-  const aiChoicesReady = Boolean(aiChoicePlan?.contextKey === aiContextKey);
+  const aiChoicesReady = Boolean(
+    aiChoicePlan?.contextKey === aiContextKey && aiChoicePlan.choices.length === 3,
+  );
+  const choices = aiChoicesReady && aiChoicePlan ? aiChoicePlan.choices : [];
   const rpgFoundation = useMemo(() => {
     if (!data) return { ready: false, issues: [{ code: "STORY_CONTEXT_REQUIRED" as const, label: "作品資料" }] };
     return inspectRpgFoundation({
@@ -845,20 +867,30 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!activated || !rpgFoundationReady || !data || !progression || !aiDirectorContext || ruleChoices.length !== 3) {
-      const resetTimer = window.setTimeout(() => setAiChoicePlan(null), 0);
+      const resetTimer = window.setTimeout(() => {
+        setAiChoicePlan(null);
+        setAiChoiceElapsedSeconds(0);
+      }, 0);
       return () => window.clearTimeout(resetTimer);
     }
     const controller = new AbortController();
     aiChoiceControllerRef.current?.abort();
     aiChoiceControllerRef.current = controller;
+    const planningStartedAt = Date.now();
+    const planningElapsedTimer = window.setInterval(() => {
+      if (!controller.signal.aborted) {
+        setAiChoiceElapsedSeconds(Math.floor((Date.now() - planningStartedAt) / 1_000));
+      }
+    }, 1_000);
     const planningTimeout = window.setTimeout(() => {
       if (controller.signal.aborted) return;
-      setAiChoiceStatus("AI 規劃超過 30 秒，已改用可直接選擇的安全候選；確認後仍會由真實模型續寫，未取得續文前不會結算。");
+      setAiChoiceStatus("真實閉端 AI 規劃超過 180 秒，已安全停止。沒有提供假選項，也沒有修改正文或數值；請重新規劃或改用較小模型。");
       controller.abort();
     }, RPG_CHOICE_PLAN_TIMEOUT_MS);
     const resetTimer = window.setTimeout(() => {
       setSelectedChoice(null);
       setAiChoicePlan(null);
+      setAiChoiceElapsedSeconds(0);
       setAiChoiceStatus("閉端 AI 正在閱讀目前章節、人物關係、世界規則與最近回合，規劃三條不同路線……");
     }, 0);
     const previousCandidateId = aiChoiceCandidateRef.current;
@@ -912,7 +944,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           (previous) => rpgTextSimilarity(previous, signature) >= 0.82,
         );
         if (repeated) {
-          throw Object.assign(new Error("AI 規劃與最近回合過度相似，已保留可用的安全候選。"), {
+          throw Object.assign(new Error("AI 規劃與最近回合過度相似，已拒絕本次候選；不會以公式選項冒充 AI。"), {
             code: "RPG_AI_CHOICES_REPEAT_RECENT_ROUND",
           });
         }
@@ -949,14 +981,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       .catch((error) => {
         if (controller.signal.aborted) return;
         console.warn("RPG_CLOSED_AI_CHOICE_PLANNING_FAILED", error);
-        setAiChoiceStatus(`真實閉端 AI 尚未完成本回合規劃（${String((error as { code?: string })?.code ?? "MODEL_NOT_READY")}）。安全候選仍可直接選擇；按確認後才會呼叫真實模型續寫，取得正文前不會修改數值或故事。`);
+        setAiChoiceStatus(`真實閉端 AI 尚未完成本回合規劃（${String((error as { code?: string })?.code ?? "MODEL_NOT_READY")}）。沒有顯示假 A／B／C，也沒有修改正文或數值；請重新規劃或檢查模型。`);
       })
       .finally(() => {
         window.clearTimeout(planningTimeout);
+        window.clearInterval(planningElapsedTimer);
       });
     return () => {
       window.clearTimeout(resetTimer);
       window.clearTimeout(planningTimeout);
+      window.clearInterval(planningElapsedTimer);
       controller.abort();
     };
   }, [activated, aiChoiceRetry, aiContextKey, aiDirectorContext, data, progression, rpgFoundationReady, ruleChoices, storyLanguage]);
@@ -1078,6 +1112,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
   async function acceptChoice(choice: RpgChoice) {
     if (!data || busy || !activated || !progression || !aiDirectorContext) return;
+    const verifiedAiChoice = aiChoicePlan?.contextKey === aiContextKey
+      ? aiChoicePlan.choices.find((row) => row.key === choice.key && row.title === choice.title)
+      : null;
+    const isVerifiedPlannedChoice = choice.key === "custom"
+      ? aiChoicesReady
+      : Boolean(verifiedAiChoice);
+    if (!isVerifiedPlannedChoice) {
+      setStatus("真實閉端 AI 尚未完成本回合規劃；沒有選項被執行，也沒有內容或數值寫入。");
+      return;
+    }
     const runId = turnRunIdRef.current + 1;
     turnRunIdRef.current = runId;
     turnControllerRef.current?.abort();
@@ -1126,6 +1170,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           context: aiDirectorContext,
           choice,
           language: storyLanguage,
+          turnNumber: progression.turn + 1,
           resolution: {
             outcomeLabel: resolution.outcomeLabel,
             roll: resolution.roll,
@@ -1133,7 +1178,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             settlement,
           },
         }),
-        targetLength: storyLanguage === "en" ? 800 : 560,
+        targetLength: storyLanguage === "en" ? 1_500 : 1_100,
         sourceChapterId: data.chapter.id,
         sourceRevision: data.chapter.revision,
         // Stream one substantive scene instead of silently running a second
@@ -1142,7 +1187,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         qualityMode: "fast" as const,
         browserComputePolicy: "balanced" as const,
         generationOptions: {
-          maxTokens: 760,
+          maxTokens: 1_600,
           temperature: 0.72,
           topP: 0.92,
           repetitionPenalty: 1.18,
@@ -1166,7 +1211,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             turnTimeout = window.setTimeout(() => {
               controller.abort();
               reject(Object.assign(
-                new Error("閉端 AI 續寫超過 120 秒，已自動停止；正文與所有數值均維持原狀。"),
+                new Error("閉端 AI 續寫超過 300 秒，已自動停止；正文與所有數值均維持原狀。"),
                 { code: "RPG_AI_TURN_TIMEOUT" },
               ));
             }, RPG_TURN_TIMEOUT_MS);
@@ -1291,7 +1336,10 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   function prepareCustomAction() {
-    if (!data || !progression) return;
+    if (!data || !progression || !aiChoicesReady) {
+      setStatus("請先等真實閉端 AI 完成本回合上下文規劃，再建立自由行動候選。");
+      return;
+    }
     try {
       setSelectedChoice(adaptChoiceForStoryPlayMode(buildCustomRpgChoice({
         progression,
@@ -1609,6 +1657,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       : formatNumber(progression.currencies.gold);
   const currentStoryText = data.chapter.content.trim()
     || "故事還沒有正文。請先建立開場；真實閉端 AI 完成上下文規劃後，才會提供可提交的故事選項。";
+  const latestAcceptedChoice = data.acceptedChoices[0] ?? null;
+  const displayedRoundText = lastContinuation
+    || latestAcceptedChoice?.acceptedText.trim()
+    || currentStoryText;
+  const displayedRound = splitRoundStory(
+    displayedRoundText,
+    `第 ${Math.max(1, progression.turn)} 回合｜${data.chapter.title}`,
+  );
 
   return (
     <main className={styles.shell} data-testid="rpg-workspace" data-mode={activeMode}>
@@ -1635,16 +1691,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         {status}
       </p>
 
-      <section className={styles.lockedMode} aria-label="固定玩法" data-testid="rpg-locked-play-mode">
+      {(!activated || dashboardExpanded) ? <section className={styles.lockedMode} aria-label="固定玩法" data-testid="rpg-locked-play-mode">
         <div>
           <small>本作品固定玩法</small>
           <h2>{STORY_PLAY_MODE_LABELS[storyPlayMode]}</h2>
           <p>{mode.description}。正文、選擇紀錄與儀表板都只服務這一種玩法，不會在創作途中切換成其他系統。</p>
         </div>
         <a href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}>複製故事種子，建立其他玩法</a>
-      </section>
+      </section> : null}
 
-      <details className={styles.stateDrawer}>
+      {dashboardExpanded ? <details className={styles.stateDrawer}>
         <summary>
           <span>目前狀態</span>
           <strong>LV.{progression.level} · {mode.primaryCurrency} {primaryCurrencyValue} · EXP {formatNumber(progression.xp)}</strong>
@@ -1662,7 +1718,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           <div className={styles.hudStat}><span>{mode.primaryCurrency}</span><strong>{primaryCurrencyValue}</strong><small>命運點 {progression.fatePoints}</small></div>
           <div className={styles.xpHud}><div><span>EXP {formatNumber(progression.xp)}</span><b>{progression.levelProgress}%</b></div><progress max={Math.max(1, progression.nextLevelXp - progression.currentLevelXp)} value={Math.max(0, progression.xp - progression.currentLevelXp)} /><small>下一級 {formatNumber(progression.nextLevelXp)} EXP</small></div>
         </section>
-      </details>
+      </details> : null}
 
       {!activated ? (
         <section className={styles.activation}>
@@ -1683,7 +1739,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         </section>
       ) : (
         <>
-        <section className={styles.playGuide} data-testid="rpg-play-guide">
+        {dashboardExpanded ? <><section className={styles.playGuide} data-testid="rpg-play-guide">
           <div><small>每回合只走一條路</small><strong>讀本回合故事 → 選一個行動 → 真實 AI 續寫與結算</strong></div>
           <ol><li><b>1</b> 先讀完整故事</li><li><b>2</b> 在 A／B／C 選一張</li><li><b>3</b> 確認後續寫正文並顯示變化</li></ol>
           <div><a href="#rpg-story">閱讀本回合故事</a><button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/write`, "查看／續寫正文")}>查看完整作品</button></div>
@@ -1696,8 +1752,18 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             <div className={styles.ribbonMetrics}><span><b>{data.acceptedChoices.length}</b> 已核准選擇</span><span><b>{progression.procedural.recentEncounterSignatures.length}</b> 近期變化</span><span><b>{progression.inventory.filter((item) => item.rarity === "rare" || item.rarity === "epic").length}</b> 稀有物品</span></div>
             <button type="button" disabled={busy} onClick={() => void beginNewVariationCycle()}>開啟新變化周目</button>
           </section>
-        </details>
-        <section className={styles.dashboard}>
+        </details></> : null}
+        <section className={styles.storyModeBar} aria-label="閱讀與儀表板顯示">
+          <div>
+            <small>閱讀模式</small>
+            <strong>故事正文優先</strong>
+            <span>每回合先讀完整續文與三個選擇；能力、背包、任務和世界數值需要時再展開。</span>
+          </div>
+          <button type="button" aria-expanded={dashboardExpanded} onClick={() => setDashboardExpanded((value) => !value)}>
+            {dashboardExpanded ? "收合完整儀表板" : "查看完整儀表板"}
+          </button>
+        </section>
+        <section className={styles.dashboard} data-dashboard-expanded={dashboardExpanded ? "true" : "false"}>
           <aside className={styles.leftRail}>
             <article className={styles.characterCard}>
               <div className={styles.avatar}>{protagonist?.portrait ? <CharacterPortraitImage portrait={protagonist.portrait} className={styles.avatarPortrait} decorative /> : (protagonist?.name ?? "主").slice(0, 1)}</div>
@@ -1738,42 +1804,33 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           <section className={styles.centerStage}>
             <article className={styles.sceneCard} id="rpg-story">
               <header>
-                <div><small>第 {progression.day} 日 · {data.storyState.timeState ?? "時間未定"}</small><h2>{data.chapter.title}</h2></div>
-                <span data-risk={data.storyState.riskState ?? "穩定"}>{data.storyState.locationState ?? "未知地點"}</span>
+                <div><small>沉浸回合正文</small><h2>{displayedRound.title}</h2></div>
+                {dashboardExpanded ? <span data-risk={data.storyState.riskState ?? "穩定"}>{data.storyState.locationState ?? "未知地點"}</span> : null}
               </header>
-              <div className={styles.storyText}>{currentStoryText}</div>
-              <footer><span>當前目標</span><b>{conflict}</b></footer>
+              {latestAcceptedChoice ? <p className={styles.selectedActionLead}>你選擇了 <strong>{latestAcceptedChoice.choiceLabel ?? `${latestAcceptedChoice.choiceKey}｜故事選擇`}</strong>。</p> : null}
+              <div className={styles.storyText}>{displayedRound.body}</div>
+              {dashboardExpanded ? <footer><span>當前目標</span><b>{conflict}</b></footer> : null}
             </article>
-
-            {lastContinuation ? (
-              <article ref={resultRef} className={styles.continuationResult} data-testid="rpg-continuation-result">
-                <header>
-                  <div><small>你選擇後發生的故事</small><h2>本回合已寫入正文</h2></div>
-                  <span>{lastExecutorLabel}</span>
-                </header>
-                <div className={styles.continuationText}>{lastContinuation}</div>
-                <footer>
-                  <button type="button" onClick={() => leaveRpg(`/studio/project/${projectId}/write`, "章節寫作")}>閱讀／續寫完整正文</button>
-                  <a href="#rpg-next-action">進入下一回合</a>
-                </footer>
-              </article>
-            ) : null}
+            {lastContinuation ? <span ref={resultRef} className={styles.roundCommitReceipt} data-testid="rpg-continuation-result">已由 {lastExecutorLabel} 寫入正式正文</span> : null}
 
             {lastResolution ? (
               <article className={styles.resolution} data-outcome={lastResolution.outcome} data-testid="rpg-resolution">
-                <div><small>本回合結算</small><h3>{lastResolution.outcomeLabel}</h3></div>
+                <div><small>行動結果</small><h3>{lastResolution.outcomeLabel}</h3></div>
                 <p>{lastResolution.summary}</p>
-                <span>規則引擎擲骰 {lastResolution.roll}／成功率 {lastResolution.successChance}%</span>
+                {dashboardExpanded ? <span>規則引擎擲骰 {lastResolution.roll}／成功率 {lastResolution.successChance}%</span> : null}
                 {lastMutationLines.length ? (
                   <div className={styles.committedMutationSummary} data-testid="rpg-committed-mutations">
-                    <b>已同步更新正文與儀表板</b>
+                    <b>本回合關鍵變化</b>
                     <div className={styles.mutationList}>
-                      {lastMutationLines.map((line) => (
+                      {visibleLastMutationLines.map((line) => (
                         <span key={line.key} data-kind={line.kind}>
                           <small>{line.label}</small><del>{line.before}</del><i>→</i><strong>{line.after}</strong><em>{line.delta}</em>
                         </span>
                       ))}
                     </div>
+                    {!dashboardExpanded && lastMutationLines.length > visibleLastMutationLines.length ? (
+                      <small>另有 {lastMutationLines.length - visibleLastMutationLines.length} 項已同步；可在完整儀表板查看。</small>
+                    ) : null}
                   </div>
                 ) : null}
               </article>
@@ -1781,63 +1838,81 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
             <section className={styles.choiceSection} id="rpg-next-action">
               <header>
-                <div><small>ROUND {progression.turn + 1} · CLOSED AI STORY DIRECTOR</small><h2>接下來要怎麼做？</h2></div>
+                <div><small>第 {progression.turn + 1} 回合</small><h2>你現在必須決定下一步</h2></div>
                 <div>
                   <button type="button" disabled={busy} onClick={() => setAiChoiceRetry((value) => value + 1)}>重新請 AI 規劃</button>
                   <button type="button" disabled={busy || rerollUsed || progression.fatePoints < 1} onClick={() => void rerollChoices()}>重擲規則池（命運點 -1）</button>
                 </div>
               </header>
               <p className={styles.aiChoiceStatus} data-ready={aiChoicesReady} data-testid="rpg-ai-choice-status">
-                <b>{aiChoicesReady ? "真實閉端 AI 已完成上下文規劃" : "安全候選已可直接選；AI 規劃在背景更新"}</b>
+                <b>{aiChoicesReady ? "真實閉端 AI 已完成上下文規劃" : "等待真實閉端 AI 規劃"}</b>
                 <span>{aiChoiceStatus}</span>
-                {aiChoicePlan?.contextKey === aiContextKey ? <small>執行者 {aiChoicePlan.actualExecutor} · 模型 {aiChoicePlan.model} · 章節 {data.chapter.title} r{data.chapter.revision}</small> : null}
+                {!aiChoicesReady ? <small>已等待 {aiChoiceElapsedSeconds} 秒；完成前不會顯示可點的 A／B／C，也不會修改故事或數值。</small> : null}
+                {dashboardExpanded && aiChoicePlan?.contextKey === aiContextKey ? <small>執行者 {aiChoicePlan.actualExecutor} · 模型 {aiChoicePlan.model} · 章節 {data.chapter.title} r{data.chapter.revision}</small> : null}
               </p>
-              <div className={styles.choiceGrid}>
-                {choices.map((choice) => (
-                  <button
-                    key={choice.key}
-                    data-testid={`rpg-choice-${choice.key}`}
-                    type="button"
-                    className={selectedChoice?.key === choice.key ? styles.selected : ""}
-                    onClick={() => setSelectedChoice(choice)}
-                    disabled={busy}
-                  >
-                    <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>{choice.strategyLabel} · {choice.encounter.worldAspect}</small><h3>{choice.title}</h3></div></div>
-                    <div className={styles.encounterSignal}><span>{choice.encounter.title}</span><p>{choice.encounter.telegraph}</p></div>
-                    <p>{choice.description}</p>
-                    {"aiContinuityReason" in choice ? <p className={styles.continuityReason}><b>承接依據</b>{String(choice.aiContinuityReason)}</p> : null}
-                    <dl><div><dt>成功率</dt><dd>{choice.successChance}%</dd></div><div><dt>EXP</dt><dd>+{choice.xpGain}</dd></div><div><dt>風險</dt><dd>{"◆".repeat(choice.risk)}{"◇".repeat(5 - choice.risk)}</dd></div></dl>
-                    <div className={styles.choiceTags}>{choice.costLabels.map((label) => <span key={label} data-kind="cost">{label}</span>)}{choice.impactLabels.map((label) => <span key={label}>{label}</span>)}</div>
-                    <small className={styles.consequence}>{rules.choicePreview === "full" ? choice.consequence : "部分後果保持未知；規則與資源代價不隱藏。"}</small>
-                  </button>
-                ))}
-              </div>
+              {aiChoicesReady ? (
+                <div className={styles.choiceGrid}>
+                  {choices.map((choice) => (
+                    <button
+                      key={choice.key}
+                      data-testid={`rpg-choice-${choice.key}`}
+                      type="button"
+                      className={selectedChoice?.key === choice.key ? styles.selected : ""}
+                      onClick={() => setSelectedChoice(choice)}
+                      disabled={busy || !aiChoicesReady}
+                    >
+                      <div className={styles.choiceHeading}><span className={styles.choiceKey}>{choice.key}</span><div><small>【選項 {choice.key}】</small><h3>{choice.title}</h3></div></div>
+                      {dashboardExpanded ? <div className={styles.encounterSignal}><span>{choice.encounter.title}</span><p>{choice.encounter.telegraph}</p></div> : null}
+                      <p>{choice.description}</p>
+                      {dashboardExpanded && "aiContinuityReason" in choice ? <p className={styles.continuityReason}><b>承接依據</b>{String(choice.aiContinuityReason)}</p> : null}
+                      {!dashboardExpanded ? <div className={styles.choiceOutcome}>
+                        <span><b>收益：</b>{choice.impactLabels.join("、") || "推進目前事件"}</span>
+                        <span><b>代價：</b>{choice.costLabels.join("、") || "後果將在正文中揭露"}</span>
+                      </div> : null}
+                      {dashboardExpanded ? (
+                        <>
+                          <dl><div><dt>成功率</dt><dd>{choice.successChance}%</dd></div><div><dt>EXP</dt><dd>+{choice.xpGain}</dd></div><div><dt>風險</dt><dd>{"◆".repeat(choice.risk)}{"◇".repeat(5 - choice.risk)}</dd></div></dl>
+                          <div className={styles.choiceTags}>{choice.costLabels.map((label) => <span key={label} data-kind="cost">{label}</span>)}{choice.impactLabels.map((label) => <span key={label}>{label}</span>)}</div>
+                        </>
+                      ) : null}
+                      <small className={styles.consequence}>{rules.choicePreview === "full" ? choice.consequence : "部分後果保持未知；規則與資源代價不隱藏。"}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.choiceLoading} role="status">
+                  正在承接上一段故事並規劃三條真正不同的路線。模型完成前不提供公式預覽，避免把假選項寫進故事。
+                </p>
+              )}
 
-              <div className={styles.freeAction}>
+              {dashboardExpanded ? <div className={styles.freeAction}>
                 <label htmlFor="rpg-free-action">自由行動</label>
-                <input id="rpg-free-action" value={customAction} onChange={(event) => setCustomAction(event.target.value)} placeholder="例：先假裝撤退，再觀察守衛換班規律" />
-                <button type="button" disabled={busy || !customAction.trim()} onClick={prepareCustomAction}>建立可驗證候選</button>
-              </div>
+                <input id="rpg-free-action" value={customAction} onChange={(event) => setCustomAction(event.target.value)} disabled={busy || !aiChoicesReady} placeholder="例：先假裝撤退，再觀察守衛換班規律" />
+                <button type="button" disabled={busy || !aiChoicesReady || !customAction.trim()} onClick={prepareCustomAction}>建立可驗證候選</button>
+              </div> : null}
 
               {selectedChoice ? (
                 <aside className={styles.confirmChoice}>
                   <div><span>待核准分支</span><h3>{selectedChoice.key === "custom" ? "自由行動" : selectedChoice.key}｜{selectedChoice.title}</h3><p>{selectedChoice.consequence}</p><small>主能力：{statLabel(selectedChoice.primaryStat, activeMode)} · 副能力：{statLabel(selectedChoice.secondaryStat, activeMode)}</small></div>
                   <div className={styles.choiceMutationPreview}>
-                    <b>確認後的精確變化</b>
+                    <b>{dashboardExpanded ? "確認後的精確變化" : "預計關鍵變化"}</b>
                     <small>只套用這個選項；另外兩個選項不改正文，也不改任何數值。</small>
                     <div className={styles.mutationList} data-testid="rpg-mutation-preview">
-                      {selectedMutationLines.map((line) => (
+                      {visibleSelectedMutationLines.map((line) => (
                         <span key={line.key} data-kind={line.kind}>
                           <small>{line.label}</small><del>{line.before}</del><i>→</i><strong>{line.after}</strong><em>{line.delta}</em>
                         </span>
                       ))}
                     </div>
-                    {selectedResolutionPreview ? <small>本回合判定：{selectedResolutionPreview.outcomeLabel} · {selectedResolutionPreview.roll}/{selectedResolutionPreview.successChance}</small> : null}
+                    {!dashboardExpanded && selectedMutationLines.length > visibleSelectedMutationLines.length ? (
+                      <small>另有 {selectedMutationLines.length - visibleSelectedMutationLines.length} 項次要變化；確認後可在完整儀表板查看。</small>
+                    ) : null}
+                    {dashboardExpanded && selectedResolutionPreview ? <small>本回合判定：{selectedResolutionPreview.outcomeLabel} · {selectedResolutionPreview.roll}/{selectedResolutionPreview.successChance}</small> : null}
                     {busy ? (
                       <p className={styles.resolutionProgress} role="status" aria-live="polite" data-testid="rpg-resolution-progress">
                         <b>真實閉端 AI 正在處理本回合</b>
                         <span>{status}</span>
-                        <small>已等待 {turnElapsedSeconds} 秒；續文會即時顯示，最長 120 秒。完成前不會修改正文或數值。</small>
+                        <small>已等待 {turnElapsedSeconds} 秒；續文會即時顯示，最長 300 秒。完成前不會修改正文或數值。</small>
                       </p>
                     ) : null}
                     {busy && turnDraft ? (
@@ -1846,7 +1921,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                         <p className={styles.liveDraftText}>{turnDraft}</p>
                       </div>
                     ) : null}
-                    <button data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void acceptChoice(selectedChoice)}>{busy ? `正在續寫（${turnElapsedSeconds} 秒）…` : "確認選擇、續寫正文並同步數值"}</button>
+                    <button data-testid="rpg-accept-choice" type="button" disabled={busy || !aiChoicesReady} onClick={() => void acceptChoice(selectedChoice)}>{busy ? `正在續寫（${turnElapsedSeconds} 秒）…` : "確認選擇、續寫正文並同步數值"}</button>
                     {busy ? <button data-testid="rpg-cancel-turn" className={styles.cancelTurn} type="button" onClick={cancelTurn}>停止本回合（不結算）</button> : null}
                   </div>
                 </aside>
@@ -1959,7 +2034,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         </>
       )}
 
-      {activated ? (
+      {activated && dashboardExpanded ? (
         <section className={styles.detailDock}>
           <nav aria-label="RPG 詳細功能">
             {detailPanels.map((panel) => (

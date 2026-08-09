@@ -533,6 +533,56 @@
   cursor: not-allowed;
 }
 
+.storyModeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1680px;
+  margin: 0 auto 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(97, 214, 232, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(110deg, rgba(7, 43, 54, 0.88), rgba(19, 25, 58, 0.94));
+  box-shadow: inset 0 1px rgba(206, 251, 255, 0.06);
+}
+
+.storyModeBar > div {
+  display: grid;
+  gap: 2px;
+}
+
+.storyModeBar small {
+  color: var(--cyan);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.storyModeBar strong {
+  color: #fff2c8;
+  font-size: 0.94rem;
+}
+
+.storyModeBar span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.storyModeBar button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid rgba(247, 199, 91, 0.55);
+  border-radius: 9px;
+  color: #ffe5a0;
+  background: rgba(66, 43, 11, 0.72);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -540,6 +590,21 @@
   max-width: 1680px;
   height: auto;
   min-height: 0;
+  margin: 0 auto;
+}
+
+.dashboard[data-dashboard-expanded="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard[data-dashboard-expanded="false"] .leftRail,
+.dashboard[data-dashboard-expanded="false"] .rightRail {
+  display: none;
+}
+
+.dashboard[data-dashboard-expanded="false"] .centerStage {
+  grid-column: 1;
+  width: min(100%, 1080px);
   margin: 0 auto;
 }
 
@@ -786,6 +851,27 @@
   white-space: pre-wrap;
 }
 
+.selectedActionLead {
+  margin: 0;
+  padding: 20px clamp(20px, 4vw, 52px) 0;
+  color: #d7e6f5;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.selectedActionLead strong {
+  color: #ffe3a1;
+}
+
+.roundCommitReceipt {
+  display: block;
+  scroll-margin-top: 18px;
+  margin: -2px 12px 0;
+  color: #8ab6ae;
+  font-size: .68rem;
+  text-align: right;
+}
+
 .sceneCard > footer {
   padding: 11px 17px;
   border-top: 1px solid var(--line);
@@ -946,10 +1032,90 @@
 .aiChoiceStatus span { line-height: 1.55; font-size: .72rem; }
 .aiChoiceStatus small { color: #89a4bc; font-size: .62rem; }
 
+.choiceLoading {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  border: 1px dashed rgba(97, 214, 232, 0.35);
+  border-radius: 12px;
+  color: #b9cbe0;
+  line-height: 1.8;
+  text-align: center;
+  background: linear-gradient(145deg, rgba(11, 31, 52, 0.92), rgba(21, 22, 56, 0.88));
+}
+
 .choiceGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
+}
+
+.choiceOutcome {
+  display: grid;
+  gap: 7px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(145, 170, 197, .17);
+  color: #cbd8e6;
+  font-size: .76rem;
+  line-height: 1.6;
+}
+
+.choiceOutcome b {
+  color: #f4d58b;
+}
+
+.dashboard[data-dashboard-expanded="false"] .sceneCard {
+  border-color: rgba(247, 199, 91, .22);
+  background: linear-gradient(160deg, rgba(14, 27, 47, .99), rgba(8, 17, 31, .99));
+}
+
+.dashboard[data-dashboard-expanded="false"] .sceneCard > header {
+  padding: 24px clamp(22px, 5vw, 58px) 18px;
+  background: linear-gradient(90deg, rgba(47, 32, 26, .62), rgba(18, 28, 49, .92));
+}
+
+.dashboard[data-dashboard-expanded="false"] .sceneCard > header h2 {
+  margin-top: 7px;
+  color: #fff0c5;
+  font-family: Georgia, "Noto Serif TC", "Microsoft JhengHei", serif;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  line-height: 1.35;
+}
+
+.dashboard[data-dashboard-expanded="false"] .storyText {
+  min-height: 360px;
+  padding: 26px clamp(24px, 6vw, 72px) 48px;
+  color: #edf2f8;
+  font-family: Georgia, "Noto Serif TC", "Microsoft JhengHei", serif;
+  font-size: clamp(1rem, 1.8vw, 1.12rem);
+  line-height: 2.15;
+}
+
+.dashboard[data-dashboard-expanded="false"] .choiceSection {
+  padding: 24px clamp(18px, 4vw, 42px) 34px;
+}
+
+.dashboard[data-dashboard-expanded="false"] .choiceSection > header > div:last-child,
+.dashboard[data-dashboard-expanded="false"] .aiChoiceStatus[data-ready="true"] {
+  display: none;
+}
+
+.dashboard[data-dashboard-expanded="false"] .choiceGrid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 13px;
+}
+
+.dashboard[data-dashboard-expanded="false"] .choiceGrid > button {
+  min-height: 0;
+  padding: 18px 20px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(19, 37, 61, .98), rgba(10, 20, 38, .99));
+}
+
+.dashboard[data-dashboard-expanded="false"] .choiceHeading h3 {
+  font-size: 1rem;
 }
 
 .choiceGrid > button {
@@ -1848,6 +2014,8 @@
   .headerActions { display: grid; grid-template-columns: 1fr auto; }
   .headerActions > a { min-width: 0; }
   .levelBadge { min-width: 100px; }
+  .storyModeBar { align-items: stretch; flex-direction: column; }
+  .storyModeBar button { width: 100%; }
 
   .modeSwitch { gap: 5px; }
   .modeSwitch button { min-width: 0; padding: 9px 7px; text-align: center; }

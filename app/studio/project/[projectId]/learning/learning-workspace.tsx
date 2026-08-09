@@ -32,6 +32,11 @@ import {
   type SovereignLearningSnapshot,
 } from "@/lib/novel-ai/sovereign-learning";
 import { runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import {
+  extractManualLearningFile,
+  splitManualLearningDocument,
+  type ManualLearningFileExtraction,
+} from "@/lib/novel-ai/web/manual-learning-file";
 import ProjectNavigation from "../project-navigation";
 import styles from "./learning.module.css";
 
@@ -179,6 +184,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [deepExtraction, setDeepExtraction] = useState(true);
   const [content, setContent] = useState("");
+  const [loadedFile, setLoadedFile] = useState<ManualLearningFileExtraction | null>(null);
   const [recipeTask, setRecipeTask] = useState("continue_writing");
   const [recipeSeed, setRecipeSeed] = useState("第一組");
   const [recipes, setRecipes] = useState<RecipeResult | null>(null);
@@ -412,48 +418,60 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     setStatus("正在檢查來源、授權與敏感資料。");
     try {
-      const result = await ingestLearningSource(learningRepository, {
-        projectId,
-        title,
-        author,
-        sourceReference,
-        sourceKind,
-        rightsBasis,
-        rightsEvidence,
-        userConfirmedRights: rightsConfirmed,
-        content,
-        deepExtractor: deepExtraction
-          ? async ({ prompt }) => {
-            const result = await runStudioClosedAI({
-              projectId,
-              task: "knowledge_rule_extraction",
-              input: prompt,
-            });
-            return {
-              content: result.content,
-              provider: result.provider,
-              model: result.model,
-              externalRequest: result.externalRequest,
-              dataLeftDevice: result.dataLeftDevice,
+      const parts = splitManualLearningDocument(content);
+      let ruleCount = 0;
+      let duplicateParts = 0;
+      let deepExtractionFailures = 0;
+      for (const [partIndex, part] of parts.entries()) {
+        const partLabel = parts.length > 1 ? `（第 ${partIndex + 1}/${parts.length} 卷）` : "";
+        const result = await ingestLearningSource(learningRepository, {
+          projectId,
+          title: `${title}${partLabel}`,
+          author,
+          sourceReference: parts.length > 1
+            ? `${sourceReference || `local-file:${loadedFile?.fileName ?? title}`}#part-${partIndex + 1}`
+            : sourceReference,
+          sourceKind,
+          rightsBasis,
+          rightsEvidence,
+          userConfirmedRights: rightsConfirmed,
+          content: part,
+          deepExtractor: deepExtraction
+            ? async ({ prompt }) => {
+              const result = await runStudioClosedAI({
+                projectId,
+                task: "knowledge_rule_extraction",
+                input: prompt,
+              });
+              return {
+                content: result.content,
+                provider: result.provider,
+                model: result.model,
+                externalRequest: result.externalRequest,
+                dataLeftDevice: result.dataLeftDevice,
+              };
+            }
+            : undefined,
+          onProgress: ({ phase, current, total }) => {
+            const labels = {
+              validating: "正在檢查來源與安全邊界",
+              deterministic: "正在計算故事的敘事 DNA",
+              deep_extraction: "閉端 AI 正在抽象節奏、張力、關係與回合規則",
+              persisting: "正在寫入本機候選規則",
             };
-          }
-          : undefined,
-        onProgress: ({ phase, current, total }) => {
-          const labels = {
-            validating: "正在檢查來源與安全邊界",
-            deterministic: "正在計算文章敘事 DNA",
-            deep_extraction: "閉端 AI 正在抽象創作規則",
-            persisting: "正在寫入本機候選規則",
-          };
-          setStatus(`${labels[phase]}${total > 1 ? `（${current}/${total}）` : ""}。`);
-        },
-      });
-      setStatus(
-        result.duplicate
-          ? `這份來源已分析過，沿用 ${result.rules.length} 條既有規則。`
-          : `分析完成：建立 ${result.rules.length} 條規則候選；原文未保存。${result.deepExtractionFailures ? ` 有 ${result.deepExtractionFailures} 段深度抽象失敗，已保留本機統計結果。` : ""}`,
-      );
+            const volume = parts.length > 1 ? `第 ${partIndex + 1}/${parts.length} 卷・` : "";
+            setStatus(`${volume}${labels[phase]}${total > 1 ? `（${current}/${total}）` : ""}。`);
+          },
+        });
+        ruleCount += result.rules.length;
+        deepExtractionFailures += result.deepExtractionFailures;
+        if (result.duplicate) duplicateParts += 1;
+      }
+      setStatus(duplicateParts === parts.length
+        ? `這份來源已分析過，沿用 ${ruleCount} 條既有規則。`
+        : `分析完成：${parts.length > 1 ? `長篇已安全分成 ${parts.length} 卷；` : ""}建立 ${ruleCount} 條規則候選；原文未保存。${deepExtractionFailures ? ` 有 ${deepExtractionFailures} 段深度抽象失敗，已保留本機統計結果。` : ""}`);
       setContent("");
+      setLoadedFile(null);
       setRightsConfirmed(false);
       await load(false);
     } catch (error) {
@@ -1036,19 +1054,28 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
             <label>來源網址或識別資料<input value={sourceReference} onChange={(event) => setSourceReference(event.target.value)} /></label>
           </div>
           <label>授權證據或備註<input value={rightsEvidence} onChange={(event) => setRightsEvidence(event.target.value)} placeholder="公版年份、授權條款或取得方式" /></label>
-          <label>貼上文章或 AI 輸出
-            <textarea rows={12} value={content} onChange={(event) => setContent(event.target.value)} placeholder="原文只用於這次本機分析，不會寫入學習庫。" />
+          <label>貼上文章、研究或小說
+            <textarea rows={12} value={content} onChange={(event) => { setContent(event.target.value); setLoadedFile(null); }} placeholder="原文只用於這次本機分析，不會寫入學習庫。" />
           </label>
-          <label className={styles.fileLabel}>或載入本機文字檔
-            <input type="file" accept=".txt,.md,.html,.json,text/plain,text/markdown,text/html,application/json" onChange={(event) => {
-              const file = event.target.files?.[0];
+          <label className={styles.fileLabel}>或載入本機作品／研究檔
+            <input type="file" accept=".txt,.md,.html,.json,.pdf,.docx,text/plain,text/markdown,text/html,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0];
               if (!file) return;
-              void file.text().then((text) => {
-                setContent(text);
-                setTitle((current) => current || file.name);
-              }).catch((error) => setStatus(errorMessage(error)));
+              setStatus(`正在本機解析 ${file.name}；檔案不會上傳。`);
+              void extractManualLearningFile(file).then((extraction) => {
+                setContent(extraction.text);
+                setLoadedFile(extraction);
+                setTitle(file.name.replace(/\.[^.]+$/u, ""));
+                setSourceReference(`local-file:${file.name}`);
+                if (file.name.toLowerCase().endsWith(".docx")) setSourceKind("novel_app_export");
+                setStatus(`已在瀏覽器內解析 ${file.name}：${extraction.pageCount ? `${extraction.pageCount} 頁、` : ""}${extraction.text.length.toLocaleString("zh-TW")} 字元。確認權利後即可交給閉端 AI 抽象。`);
+              }).catch((error) => setStatus(errorMessage(error))).finally(() => { input.value = ""; });
             }} />
           </label>
+          {loadedFile ? <p className={styles.note} data-testid="manual-learning-file-ready">
+            已載入：{loadedFile.fileName}（{loadedFile.format.toUpperCase()}）・{loadedFile.text.length.toLocaleString("zh-TW")} 字元{loadedFile.pageCount ? `・${loadedFile.pageCount} 頁` : ""}。超過單卷上限時會自動分卷；只保存抽象規則、來源指紋與授權稽核，不保存原文。
+          </p> : null}
           <label className={styles.check}>
             <input type="checkbox" checked={deepExtraction} onChange={(event) => setDeepExtraction(event.target.checked)} />
             若本機 Ollama／瀏覽器閉端 AI 可用，進行深度規則抽象
@@ -1060,7 +1087,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           <button type="button" disabled={busy || !content.trim() || !title.trim() || !rightsConfirmed} onClick={() => void analyze()}>
             {busy ? "處理中…" : "分析並建立規則候選"}
           </button>
-          <p className={styles.note}>若偵測到密鑰、提示注入或隱藏指令，系統會阻擋或隔離；不會偷偷抓取網站，也不會把作品送到外部 AI。</p>
+          <p className={styles.note}>支援 TXT、Markdown、HTML、JSON、文字型 PDF 與 DOCX。若偵測到密鑰、提示注入或隱藏指令，系統會阻擋或隔離；不會偷偷抓取網站，也不會把作品送到外部 AI。</p>
         </section>
 
         <section className={styles.panel}>

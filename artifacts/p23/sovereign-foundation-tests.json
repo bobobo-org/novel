@@ -1,6 +1,6 @@
 {
   "suite": "P2.3 Sovereign Learning, Reasoning and Distillation Foundation",
-  "runAt": "2026-08-02T03:45:59.421Z",
+  "runAt": "2026-08-09T05:18:25.857Z",
   "pass": 17,
   "fail": 0,
   "skip": 0,
@@ -11,7 +11,7 @@
     {
       "name": "unknown-license knowledge remains retrieval-only",
       "status": "PASS",
-      "elapsedMs": 5
+      "elapsedMs": 2
     },
     {
       "name": "owned knowledge can be versioned, chunked and cited",
@@ -46,12 +46,12 @@
     {
       "name": "distillation requires a permitted sovereign teacher",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "QLoRA never starts without a private training backend",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "preference learning enforces amount, balance and namespace",
@@ -71,7 +71,7 @@
     {
       "name": "persona preferences are viewable, editable, disableable, revertible and deletable",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "name": "persona benchmark contract covers six categories and five variants",
@@ -86,12 +86,12 @@
     {
       "name": "future media provider routing fails closed without a connected runtime",
       "status": "PASS",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "name": "future media extension preserves privacy and adult namespace isolation",
       "status": "PASS",
-      "elapsedMs": 1
+      "elapsedMs": 0
     }
   ]
 }

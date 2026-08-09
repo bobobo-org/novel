@@ -1,4 +1,5 @@
 import type { RpgChoice } from "../game/progression/rpg-progression";
+import { normalizeTraditionalChinesePreservingProperNouns } from "../language/traditional-chinese";
 
 export type RpgDirectedChoice = RpgChoice & {
   aiContinuityReason: string;
@@ -159,17 +160,23 @@ export function cleanRpgContinuation(
   const choiceBlockIndex = unwrapped.search(
     /(?:^|\n)\s*(?:【\s*(?:下一(?:回合|步|次)[^】]{0,12}(?:選擇|選項)|本回合結算|選項)\s*】|[ABCＡＢＣ][.．、:：]\s*)/u,
   );
-  const value = (choiceBlockIndex >= 0 ? unwrapped.slice(0, choiceBlockIndex) : unwrapped)
+  let value = (choiceBlockIndex >= 0 ? unwrapped.slice(0, choiceBlockIndex) : unwrapped)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  if (language === "zh-TW") {
+    value = normalizeTraditionalChinesePreservingProperNouns(
+      value,
+      recentAcceptedTexts.join("\n"),
+    );
+  }
   const narrativeLength = value.replace(/\s+/g, "").length;
   const paragraphCount = value.split(/\n+/u).map((paragraph) => paragraph.trim()).filter(Boolean).length;
   const sentenceCount = value.match(/[。！？!?]/gu)?.length ?? 0;
   const englishSentenceCount = value.match(/[.!?](?:\s|$)/gu)?.length ?? 0;
   const completeSentenceCount = language === "en" ? englishSentenceCount : sentenceCount;
-  const minimumLength = language === "en" ? 650 : 480;
-  const structurallyComplete = (paragraphCount >= 5 || completeSentenceCount >= 10)
-    && completeSentenceCount >= 7;
+  const minimumLength = language === "en" ? 950 : 750;
+  const structurallyComplete = (paragraphCount >= 7 || completeSentenceCount >= 14)
+    && completeSentenceCount >= 10;
   const mostSimilar = recentAcceptedTexts.reduce(
     (highest, previous) => Math.max(highest, rpgTextSimilarity(value, previous)),
     0,
@@ -203,6 +210,7 @@ export function buildRpgResolutionDirectorPrompt(input: {
   context: Record<string, unknown>;
   choice: RpgChoice;
   language: StoryOutputLanguage;
+  turnNumber?: number;
   resolution: {
     outcomeLabel: string;
     roll: number;
@@ -212,15 +220,19 @@ export function buildRpgResolutionDirectorPrompt(input: {
 }) {
   return JSON.stringify({
     instruction: [
-      "你是閉端小說故事導演。依照已鎖定的玩家選擇與規則判定，寫出 6 到 10 段可直接接到目前章節末尾的小說正文。",
-      "必須承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
+      "你是閉端小說故事導演。依照已鎖定的玩家選擇與規則判定，寫出一個完整、沉浸、可直接接到目前章節末尾的小說回合。",
+      input.language === "en"
+        ? `The first line must be "Round ${input.turnNumber ?? "N"} | <a concrete event title>".`
+        : `第一行必須是「第 ${input.turnNumber ?? "N"} 回合｜具體事件標題」；標題要指出本回合真正發生的事，不可使用「新的冒險」等空話。`,
+      "開頭要自然承認玩家剛選擇的行動，接著承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
+      "使用 8 到 16 個完整段落；情節較長時用 2 到 6 個「一｜分節名」式短標題分節，但正文必須仍然像小說，不得變成儀表板或條列報告。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
-        ? "Write 650 to 1,600 characters in 6 to 10 complete paragraphs. Continue character reactions and concrete consequences until the scene reaches a genuine decision point."
-        : "正文需有 500 至 1,200 個中文字，分成 6 到 10 個完整段落；未達最低篇幅時繼續推進人物反應與直接後果，不要提早總結。",
+        ? "Write 1,100 to 2,200 characters in 8 to 16 complete paragraphs. Continue character reactions and concrete consequences until the scene reaches a genuine decision point."
+        : "正文需有 900 至 1,600 個中文字，分成 8 到 16 個完整段落；未達最低篇幅時繼續推進人物反應、場景變化與直接後果，不要提早總結。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
-      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說正文，不要標題、JSON 或 Markdown。",
+      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出回合標題、小說正文與短分節；不要行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由規則引擎在正文後另行顯示。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
     context: input.context,

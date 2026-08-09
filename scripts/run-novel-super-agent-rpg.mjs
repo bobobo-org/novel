@@ -494,7 +494,7 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
   assert.match(workspace, /確認選擇、續寫正文並同步數值/u);
   assert.match(workspace, /data-testid="rpg-resolution-progress"/u);
-  assert.match(workspace, /const RPG_TURN_TIMEOUT_MS = 120_000/u);
+  assert.match(workspace, /const RPG_TURN_TIMEOUT_MS = 300_000/u);
   assert.match(workspace, /signal: controller\.signal/u);
   assert.match(workspace, /data-testid="rpg-live-draft"/u);
   assert.match(workspace, /data-testid="rpg-cancel-turn"/u);
@@ -509,7 +509,7 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
     navigation: "RPG route present",
     mobileMenu: "four-column non-overflow grid",
     approval: "explicit, cancellable, and mutation-free until completion",
-    turnRuntime: "single streamed generation with a 120-second ceiling",
+    turnRuntime: "single streamed generation with a 300-second ceiling",
     updateStrategy: "commit-and-digest cache identity with network-first application code",
   };
 });
