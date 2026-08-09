@@ -369,7 +369,11 @@ function classifyXaiRuntimePayload({ alias, httpStatus, payload, expectedXaiMode
   });
 }
 
-export function evaluateStagedExternalAiRuntimeTruth({ payload, expectedXaiModelId = "grok-4.5" }) {
+export function evaluateStagedExternalAiRuntimeTruth({
+  payload,
+  expectedXaiModelId = "grok-4.5",
+  xaiExpected = true,
+}) {
   const providers = Array.isArray(payload?.providers) ? payload.providers : [];
   const openaiProviders = providers.filter((provider) => provider?.id === "openai");
   const grokProviders = providers.filter((provider) => provider?.id === "grok");
@@ -389,23 +393,34 @@ export function evaluateStagedExternalAiRuntimeTruth({ payload, expectedXaiModel
     && grok?.verification === "verified"
     && grok?.verificationCode === "MODEL_ACCESS_VERIFIED"
     && grok?.modelId === expectedXaiModelId;
+  const grokNotConfigured = grok?.configured === false
+    && grok?.verification === "not_configured"
+    && grok?.verificationCode === "NOT_CONFIGURED";
   const openaiNotConfigured = openai?.configured === false
     && openai?.verification === "not_configured"
     && openai?.verificationCode === "NOT_CONFIGURED";
   const openaiVerified = openai?.configured === true
     && openai?.verification === "verified"
     && openai?.verificationCode === "MODEL_ACCESS_VERIFIED";
-  const topLevelVerificationValid = openaiNotConfigured
+  const grokSafe = xaiExpected ? grokVerified : grokNotConfigured || grokVerified;
+  const optionalProviderAbsent = openaiNotConfigured || (!xaiExpected && grokNotConfigured);
+  const topLevelVerificationValid = optionalProviderAbsent
     ? payload?.verification === "degraded"
-    : openaiVerified && payload?.verification === "verified";
+    : openaiVerified && grokVerified && payload?.verification === "verified";
   return {
     verified: Boolean(
       commonSurfaceValid
-      && grokVerified
+      && grokSafe
       && (openaiNotConfigured || openaiVerified)
       && topLevelVerificationValid
     ),
+    xaiExpected: Boolean(xaiExpected),
     grokVerified: Boolean(grokVerified),
+    grokState: grokNotConfigured
+      ? "not_configured"
+      : grokVerified
+        ? "verified"
+        : "failed",
     openaiState: openaiNotConfigured
       ? "not_configured"
       : openaiVerified
@@ -592,9 +607,7 @@ export function auditProductionEnvironment({
     driftKeys.push("SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  const externalAiExpected = Boolean(
-    githubKey || productionXaiKey || xaiCredentialMetadata || externalAiRuntimeTruth,
-  );
+  const externalAiExpected = Boolean(githubKey || productionXaiKey || xaiCredentialMetadata);
   if (
     githubKey
     && productionXaiKey !== githubKey
@@ -609,13 +622,14 @@ export function auditProductionEnvironment({
     driftKeys.push("XAI_API_KEY");
   }
   if (
-    externalAiRuntimeTruth
+    externalAiExpected
+    && externalAiRuntimeTruth
     && !productionXaiKey
     && !xaiCredentialMetadata
   ) {
     driftKeys.push("XAI_API_KEY");
   }
-  for (const key of externalAiRuntimeTruth?.repairKeys || []) {
+  for (const key of externalAiExpected ? externalAiRuntimeTruth?.repairKeys || [] : []) {
     if (!PRODUCTION_EXTERNAL_AI_KEYS.includes(key)) {
       throw Object.assign(new Error("PRODUCTION_AUDIT_XAI_REPAIR_KEY_INVALID"), {
         code: "PRODUCTION_AUDIT_XAI_REPAIR_KEY_INVALID",

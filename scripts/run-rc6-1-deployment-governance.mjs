@@ -94,7 +94,10 @@ function testOrdering() {
   assert.match(runtimeGates, /prepare_import_file/u);
   assert.match(runtimeGates, /manual-learning-worker-protocol-v2/u);
   assert.match(runtimeGates, /EXPECTED_XAI_MODEL_ID:\s*grok-4\.5/u);
+  assert.match(runtimeGates, /XAI_EXPECTED:\s*\$\{\{ secrets\.XAI_API_KEY != '' \}\}/u);
   assert.match(runtimeGates, /grok_verified/u);
+  assert.match(runtimeGates, /grok_not_configured/u);
+  assert.match(runtimeGates, /grok_safe/u);
   assert.match(runtimeGates, /\.configured == true and \.verification == "verified" and \.verificationCode == "MODEL_ACCESS_VERIFIED" and \.modelId == \$expectedModel/u);
   assert.match(runtimeGates, /openai_not_configured/u);
   assert.match(runtimeGates, /openai_verified/u);
@@ -358,8 +361,49 @@ async function testExternalAiProductionTruth() {
   assert.equal(revoked.state, "credential_revoked");
   assert.deepEqual(revoked.repairKeys, ["XAI_API_KEY"]);
 
+  const notConfigured = await readProductionExternalAiRuntimeTruth({
+    aliases,
+    expectedXaiModelId: "grok-4.5",
+    fetcher: responseFor(externalAiPayload({
+      grokConfigured: false,
+      grokVerification: "not_configured",
+      grokVerificationCode: "NOT_CONFIGURED",
+    })),
+  });
+  assert.equal(notConfigured.indeterminate, false);
+  assert.equal(notConfigured.state, "credential_not_configured");
+  assert.deepEqual(notConfigured.repairKeys, ["XAI_API_KEY"]);
+
   const fixture = readyProduction();
+  const optionalAbsent = auditProductionEnvironment({
+    production: fixture.production,
+    expectedProjectRef: fixture.projectRef,
+    expectedXaiModelId: "grok-4.5",
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: fixture.vercelEnvironmentMetadata,
+    externalAiRuntimeTruth: notConfigured,
+  });
+  assert.equal(optionalAbsent.truth.externalAi.expected, false);
+  assert.equal(optionalAbsent.truth.externalAi.runtimeState, "credential_not_configured");
+  assert.equal(optionalAbsent.repairRequired, false);
+  assert.deepEqual(optionalAbsent.driftKeys, []);
+
   const githubXaiApiKey = "xai-github-secret-with-sufficient-length";
+  const expectedButAbsent = auditProductionEnvironment({
+    production: { ...fixture.production, XAI_MODEL_ID: "grok-4.5" },
+    expectedProjectRef: fixture.projectRef,
+    githubXaiApiKey,
+    expectedXaiModelId: "grok-4.5",
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: fixture.vercelEnvironmentMetadata,
+    externalAiRuntimeTruth: notConfigured,
+  });
+  assert.equal(expectedButAbsent.truth.externalAi.expected, true);
+  assert.equal(expectedButAbsent.repairRequired, true);
+  assert.deepEqual(expectedButAbsent.driftKeys, ["XAI_API_KEY"]);
+
   const auditedRevocation = auditProductionEnvironment({
     production: { ...fixture.production, XAI_API_KEY: "", XAI_MODEL_ID: "grok-4.5" },
     expectedProjectRef: fixture.projectRef,
@@ -423,6 +467,46 @@ async function testExternalAiProductionTruth() {
   });
   assert.equal(optionalOpenaiAbsent.verified, true);
   assert.equal(optionalOpenaiAbsent.openaiState, "not_configured");
+
+  const allOptionalAbsent = evaluateStagedExternalAiRuntimeTruth({
+    payload: externalAiPayload({
+      includeOpenai: true,
+      grokConfigured: false,
+      grokVerification: "not_configured",
+      grokVerificationCode: "NOT_CONFIGURED",
+    }),
+    expectedXaiModelId: "grok-4.5",
+    xaiExpected: false,
+  });
+  assert.equal(allOptionalAbsent.verified, true);
+  assert.equal(allOptionalAbsent.grokState, "not_configured");
+
+  const optionalGrokAbsent = evaluateStagedExternalAiRuntimeTruth({
+    payload: externalAiPayload({
+      includeOpenai: true,
+      openaiConfigured: true,
+      openaiVerification: "verified",
+      openaiVerificationCode: "MODEL_ACCESS_VERIFIED",
+      grokConfigured: false,
+      grokVerification: "not_configured",
+      grokVerificationCode: "NOT_CONFIGURED",
+    }),
+    expectedXaiModelId: "grok-4.5",
+    xaiExpected: false,
+  });
+  assert.equal(optionalGrokAbsent.verified, true);
+
+  const expectedGrokAbsent = evaluateStagedExternalAiRuntimeTruth({
+    payload: externalAiPayload({
+      includeOpenai: true,
+      grokConfigured: false,
+      grokVerification: "not_configured",
+      grokVerificationCode: "NOT_CONFIGURED",
+    }),
+    expectedXaiModelId: "grok-4.5",
+    xaiExpected: true,
+  });
+  assert.equal(expectedGrokAbsent.verified, false);
 
   const failedOpenai = evaluateStagedExternalAiRuntimeTruth({
     payload: externalAiPayload({

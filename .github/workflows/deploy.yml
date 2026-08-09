@@ -591,6 +591,7 @@ jobs:
     env:
       STAGED_URL: ${{ needs.staged_deploy.outputs.url }}
       EXPECTED_XAI_MODEL_ID: grok-4.5
+      XAI_EXPECTED: ${{ secrets.XAI_API_KEY != '' }}
     steps:
       - name: Verify staged production identity
         id: staged
@@ -678,6 +679,7 @@ jobs:
             if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$providers_url" 2>/dev/null)"; then
               openai_not_configured="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED")' <<<"$body")"
               openai_verified="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED")' <<<"$body")"
+              grok_not_configured="$(jq -r 'any(.providers[]?; .id == "grok" and .configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED")' <<<"$body")"
               grok_verified="$(jq -r --arg expectedModel "$EXPECTED_XAI_MODEL_ID" 'any(.providers[]?; .id == "grok" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED" and .modelId == $expectedModel)' <<<"$body")"
               credential_mode="$(jq -r '.credentials // empty' <<<"$body")"
               provider_verification="$(jq -r '.verification // empty' <<<"$body")"
@@ -687,13 +689,23 @@ jobs:
               openai_count="$(jq -r '[.providers[]? | select(.id == "openai")] | length' <<<"$body")"
               grok_count="$(jq -r '[.providers[]? | select(.id == "grok")] | length' <<<"$body")"
               provider_boundaries="$(jq -r 'all(.providers[]?; .serverSideCredentialOnly == true and .dataLeavesDevice == true)' <<<"$body")"
+              grok_safe="false"
+              if [[ "$XAI_EXPECTED" == "true" && "$grok_verified" == "true" ]]; then
+                grok_safe="true"
+              elif [[ "$XAI_EXPECTED" == "false" && ("$grok_not_configured" == "true" || "$grok_verified" == "true") ]]; then
+                grok_safe="true"
+              fi
+              optional_provider_absent="false"
+              if [[ "$openai_not_configured" == "true" || ("$XAI_EXPECTED" == "false" && "$grok_not_configured" == "true") ]]; then
+                optional_provider_absent="true"
+              fi
               top_level_safe="false"
-              if [[ "$openai_not_configured" == "true" && "$openai_verified" == "false" && "$provider_verification" == "degraded" ]]; then
+              if [[ "$optional_provider_absent" == "true" && "$provider_verification" == "degraded" ]]; then
                 top_level_safe="true"
-              elif [[ "$openai_not_configured" == "false" && "$openai_verified" == "true" && "$provider_verification" == "verified" ]]; then
+              elif [[ "$optional_provider_absent" == "false" && "$openai_verified" == "true" && "$grok_verified" == "true" && "$provider_verification" == "verified" ]]; then
                 top_level_safe="true"
               fi
-              if [[ "$grok_verified" == "true" && "$top_level_safe" == "true" && "$credential_mode" == "server-side-only" && "$probe_performed" == "true" && "$silent_fallback" == "false" && "$provider_count" == "2" && "$openai_count" == "1" && "$grok_count" == "1" && "$provider_boundaries" == "true" ]]; then
+              if [[ "$grok_safe" == "true" && ("$openai_not_configured" == "true" || "$openai_verified" == "true") && "$top_level_safe" == "true" && "$credential_mode" == "server-side-only" && "$probe_performed" == "true" && "$silent_fallback" == "false" && "$provider_count" == "2" && "$openai_count" == "1" && "$grok_count" == "1" && "$provider_boundaries" == "true" ]]; then
                 exit 0
               fi
             fi
