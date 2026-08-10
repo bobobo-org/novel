@@ -25,8 +25,10 @@ import {
 } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 import {
   containsConvertibleSimplifiedChinese,
+  containsHighConfidenceSimplifiedChinese,
   containsProtectedProperNounDrift,
   createTraditionalChineseNormalizationPolicy,
+  normalizeTraditionalChinese,
   normalizeTraditionalChinesePreservingProperNouns,
   normalizeTraditionalChineseWithIntegrity,
 } from "../lib/novel-ai/language/traditional-chinese.ts";
@@ -357,6 +359,169 @@ await test("Traditional normalization preserves approved character names", () =>
     ),
     false,
   );
+});
+
+await test("Traditional detector accepts shared-form prose after one pass and still blocks raw Simplified", async () => {
+  const traditional = "那些守衛沒有離開，但是她可以先檢查門鎖，所以眾人決定留在原地，並承擔拖延帶來的風險。";
+  const rawSimplified = "那些守卫没有离开，但是她可以先检查门锁，所以众人决定留在原地，并承担拖延带来的风险。";
+  const policy = await createTraditionalChineseNormalizationPolicy({
+    objective: "延續場景，交代守衛的選擇與風險。",
+    privacyLevel: "device_only",
+    context: [],
+  });
+  const normalized = await normalizeTraditionalChineseWithIntegrity({
+    value: traditional,
+    policy,
+    requestId: "shared-form-traditional-test",
+    providerId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "e".repeat(64),
+    inputStage: "closed-agent-final-selected-content",
+  });
+  assert.equal(normalized.content, traditional);
+  assert.equal(containsHighConfidenceSimplifiedChinese(traditional, []), false);
+  assert.equal(containsHighConfidenceSimplifiedChinese(rawSimplified, []), true);
+  for (const source of [
+    "这是", "这个", "这些", "我们", "你们", "他们", "她们", "没有", "因为", "然后",
+    "已经", "还是", "时候", "什么", "怎么", "为什么", "应该", "起来", "进去", "出来",
+  ]) {
+    assert.equal(containsHighConfidenceSimplifiedChinese(source, []), true);
+    assert.equal(
+      containsHighConfidenceSimplifiedChinese(
+        normalizeTraditionalChinese(source),
+        [],
+      ),
+      false,
+    );
+  }
+  for (const source of Array.from(
+    "这们国为个来说还进过发门问间见开无东乐书车马风气体头长亲爱边变点电动读话画让实写号听难类学术数应总处经认许从",
+  )) {
+    assert.equal(containsHighConfidenceSimplifiedChinese(source, []), true);
+    assert.equal(
+      containsHighConfidenceSimplifiedChinese(
+        normalizeTraditionalChinese(source),
+        [],
+      ),
+      false,
+    );
+  }
+  for (const [source, expected] of [
+    ["万俟", "万俟"],
+    ["万旗", "万旗"],
+    ["不可以道里计", "不可以道里計"],
+    ["么凤士多", "么鳳士多"],
+    ["占万", "佔万"],
+    ["只可以", "只可以"],
+    ["可以克制", "可以剋制"],
+    ["叶叶琹", "葉叶琹"],
+    ["叶恭弘", "叶恭弘"],
+    ["叶音", "叶音"],
+    ["叶韵", "叶韻"],
+    ["夏虫不可以语冰", "夏蟲不可以語冰"],
+    ["崖广", "崖广"],
+    ["并可以", "並可以"],
+    ["幺么小丑", "么麼小醜"],
+    ["幺并矢", "么並矢"],
+    ["幺麼小丑", "么麼小醜"],
+    ["幺麽小丑", "么麼小醜"],
+    ["广部", "广部"],
+    ["才可以", "才可以"],
+    ["梦兰叶吉", "夢蘭叶吉"],
+    ["潭祉叶吉", "潭祉叶吉"],
+  ]) {
+    const onePassOutput = normalizeTraditionalChinese(source);
+    assert.equal(onePassOutput, expected);
+    assert.equal(containsHighConfidenceSimplifiedChinese(onePassOutput, []), false);
+  }
+  for (const [source, expected] of [
+    ["万", "萬"],
+    ["么", "麼"],
+    ["叶", "葉"],
+    ["广", "廣"],
+  ]) {
+    assert.equal(normalizeTraditionalChinese(source), expected);
+  }
+  for (const [index, source, expected] of [
+    [0, "一出声", "一出聲"],
+    [1, "万里", "萬里"],
+    [2, "不干扰", "不干擾"],
+    [3, "丑时", "丑時"],
+  ]) {
+    const once = await normalizeTraditionalChineseWithIntegrity({
+      value: source,
+      policy,
+      requestId: `single-pass-non-idempotent-${index}`,
+      providerId: "local-ollama",
+      modelId: "qwen2.5:3b",
+      modelDigest: "e".repeat(64),
+      inputStage: "closed-agent-final-selected-content",
+    });
+    assert.equal(once.content, expected);
+    assert.equal(once.integrity.normalizationOperationCount, 1);
+    assert.equal(containsHighConfidenceSimplifiedChinese(once.content, []), false);
+  }
+
+  const request = {
+    taskId: "shared-form-traditional-test",
+    namespace: {
+      tenantId: "local-tenant",
+      userId: "local-author",
+      projectId: "shared-form-project",
+      storyId: "shared-form-story",
+      canonId: "shared-form-canon",
+      branchId: "main",
+      characterId: "shared",
+      agentRole: "closed-agent-os",
+      modelId: "qwen2.5:3b",
+      modelDigest: "e".repeat(64),
+      promptProfileVersion: "shared-form-v1",
+      storyBibleRevision: "1",
+      knowledgeScopeRevision: "1",
+      privacyLevel: "device_only",
+    },
+    taskType: "story.continue",
+    objective: "延續場景，交代守衛的選擇與風險。",
+    context: [],
+    complexity: "standard",
+    preferredBackend: "local-ollama",
+    allowedToolIds: [],
+    permissionScopes: permissions(),
+  };
+  const execution = {
+    backendId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "e".repeat(64),
+    content: normalized.content,
+    traditionalChineseNormalization: normalized.integrity,
+    candidateOnly: true,
+    dataLeftDevice: false,
+    externalRequest: false,
+    elapsedMs: 5,
+  };
+  const accepted = await evaluateClosedAgentCandidate({
+    request,
+    execution,
+    traditionalChineseNormalizationPolicy: policy,
+  });
+  assert.equal(accepted.passed, true);
+  assert.doesNotMatch(
+    accepted.blockingCodes.join("|"),
+    /CANDIDATE_SIMPLIFIED_CHINESE_REMAINS/u,
+  );
+
+  const rawRejected = await evaluateClosedAgentCandidate({
+    request,
+    execution: { ...execution, content: rawSimplified },
+    traditionalChineseNormalizationPolicy: policy,
+  });
+  assert.equal(rawRejected.passed, false);
+  assert.ok(rawRejected.blockingCodes.includes(
+    "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
+  ));
+  assert.ok(rawRejected.blockingCodes.includes(
+    "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+  ));
 });
 
 await test("Local Network Access aliases cannot create a false denial", () => {

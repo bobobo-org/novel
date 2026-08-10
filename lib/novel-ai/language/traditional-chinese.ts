@@ -937,12 +937,14 @@ export function containsConvertibleSimplifiedChinese(
   ) !== value;
 }
 
-const HIGH_CONFIDENCE_SIMPLIFIED_CHINESE = /(?:这是|这个|这些|那些|我们|你们|他们|她们|没有|因为|所以|然后|已经|还是|但是|时候|什么|怎么|为什么|可以|应该|起来|进去|出来)|[这们国为个来说还进过发门问间见开无东乐书车马风气体头万长亲爱边变点电动读话画让实写广叶号听么难类学术数应总处经认许从]/u;
+const HIGH_CONFIDENCE_SIMPLIFIED_CHINESE = /(?:这是|这个|这些|我们|你们|他们|她们|没有|因为|然后|已经|还是|时候|什么|怎么|为什么|应该|起来|进去|出来)|[这们国为个来说还进过发门问间见开无东乐书车马风气体头长亲爱边变点电动读话画让实写号听难类学术数应总处经认许从]/u;
 
 /**
  * Defense-in-depth for persisted derived records. This deliberately omits
- * context-ambiguous forms such as 后/里/干/准/丑/台; the integrity record,
- * rather than a lossy character list, is the primary single-pass evidence.
+ * context-ambiguous forms such as 后/里/干/准/丑/台 and the 万/么/叶/广
+ * characters that OpenCC can retain in dictionary-bound single-pass outputs
+ * such as 万俟/叶音; the integrity record, rather than a lossy character list,
+ * is the primary single-pass evidence.
  */
 export function containsHighConfidenceSimplifiedChinese(
   value: string,
