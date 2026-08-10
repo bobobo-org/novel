@@ -1032,9 +1032,6 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && !chapterProseContract.rawBudgetExceeded
       && quality
       && initialQualityReasonCodes.length > 0
-      && initialQualityReasonCodes.every((reason) =>
-        reason === "QUALITY_LENGTHCOMPLIANCE_LOW"
-        || reason === "QUALITY_NARRATIVE_TOO_SHORT")
       && shouldRunBrowserProseExtension({
         taskType: input.request.taskType,
         explicitLengthRequested: !defaultChapterProseContract,

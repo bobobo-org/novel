@@ -1074,6 +1074,83 @@ test("quality-gate", () => {
     finishReason: "stop",
     qualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"],
   }), true);
+  const truncatedContinuationReasonCodes = [
+    "QUALITY_LENGTHCOMPLIANCE_LOW",
+    "QUALITY_NARRATIVE_TOO_SHORT",
+    "QUALITY_OUTPUT_TRUNCATED",
+    "QUALITY_TASKUSEFULNESS_LOW",
+  ];
+  assert.equal(shouldRunBrowserProseExtension({
+    taskType: "chapter.continue",
+    explicitLengthRequested: false,
+    contractSatisfied: false,
+    safetyCode: null,
+    observedHanCharacters: 179,
+    finishReason: "stop",
+    qualityReasonCodes: truncatedContinuationReasonCodes,
+  }), true);
+  for (const [overrides, expected] of [
+    [{ observedHanCharacters: 47 }, false],
+    [{ observedHanCharacters: 48 }, true],
+    [{ observedHanCharacters: 219 }, true],
+    [{ observedHanCharacters: 220 }, false],
+    [{ finishReason: "length" }, false],
+    [{ safetyCode: "role-envelope" }, false],
+    [{ explicitLengthRequested: true }, false],
+    [{ contractSatisfied: true }, false],
+    [{ taskType: "chapter.expand" }, false],
+  ]) {
+    assert.equal(shouldRunBrowserProseExtension({
+      taskType: "chapter.continue",
+      explicitLengthRequested: false,
+      contractSatisfied: false,
+      safetyCode: null,
+      observedHanCharacters: 179,
+      finishReason: "stop",
+      qualityReasonCodes: truncatedContinuationReasonCodes,
+      ...overrides,
+    }), expected);
+  }
+  assert.equal(shouldRunBrowserProseExtension({
+    taskType: "chapter.continue",
+    explicitLengthRequested: false,
+    contractSatisfied: false,
+    safetyCode: null,
+    observedHanCharacters: 179,
+    finishReason: "stop",
+    qualityReasonCodes: ["QUALITY_TASKUSEFULNESS_LOW"],
+  }), false);
+  for (const nonContinuationReason of [
+    "QUALITY_TRADITIONALCHINESE_LOW",
+    "QUALITY_CANONCOMPLIANCE_LOW",
+    "QUALITY_CHARACTERVOICE_LOW",
+    "QUALITY_CONTINUITY_LOW",
+    "QUALITY_CONTEXT_CHARACTER_MISSING",
+    "QUALITY_CONTEXT_ANCHOR_MISSING",
+    "QUALITY_TASK_FORM_MISMATCH",
+    "QUALITY_CONTEXT_COPY_EXCESSIVE",
+    "QUALITY_NARRATIVE_PROGRESS_MISSING",
+    "QUALITY_WORLD_REGISTER_DRIFT",
+    "QUALITY_SPECIFICITY_LOW",
+    "QUALITY_REPETITION_LOW",
+    "QUALITY_STRUCTUREDOUTPUT_LOW",
+    "QUALITY_EMPTY_CANDIDATE",
+    "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+  ]) {
+    assert.equal(shouldRunBrowserProseExtension({
+      taskType: "chapter.continue",
+      explicitLengthRequested: false,
+      contractSatisfied: false,
+      safetyCode: null,
+      observedHanCharacters: 179,
+      finishReason: "stop",
+      qualityReasonCodes: [
+        "QUALITY_OUTPUT_TRUNCATED",
+        "QUALITY_TASKUSEFULNESS_LOW",
+        nonContinuationReason,
+      ],
+    }), false);
+  }
   assert.equal(shouldRunBrowserProseExtension({
     taskType: "chapter.continue",
     explicitLengthRequested: false,
@@ -1940,6 +2017,95 @@ test("bounded-prose-extension", async () => {
   assert.equal(exactTrace.result.dataLeavesDevice, false);
   assert.equal(assessBrowserProseCompletion(exactTrace.result.content).contractSatisfied, true);
 
+  // Match the Fresh Edge failure trace: a tiny initial pass followed by a
+  // normal-EOS 179-Han repair whose final sentence is unfinished. The
+  // truncated/usefulness pair is continuation-repairable only; the 179-Han
+  // text itself must never be accepted until the same verified model supplies
+  // a bounded suffix and the unchanged final contract and quality gate pass.
+  const initial17 = exactHanPrefix(
+    "霧門忽然開啟林知微握緊信封踏入鐘樓暗影深處",
+    17,
+  );
+  const repair179Truncated = exactHanPrefix(
+    acceptedProse.repeat(2),
+    179,
+  ).slice(0, -1);
+  const repair179Quality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: repair179Truncated,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  });
+  assert.equal(countBrowserProseHanCharacters(initial17), 17);
+  assert.equal(countBrowserProseHanCharacters(repair179Truncated), 179);
+  assert.equal(/[。！？…」』）】]$/u.test(repair179Truncated), false);
+  assert.ok(repair179Quality.reasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"));
+  assert.ok(repair179Quality.reasonCodes.includes("QUALITY_TASKUSEFULNESS_LOW"));
+  const exactTruncationTrace = await execute({
+    ...result(initial17, "stop"),
+    completionTokens: 13,
+    rawOutputCharacters: 20,
+    normalizedOutputCharacters: 20,
+  }, [
+    {
+      ...result(
+        repair179Truncated,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 156,
+      rawOutputCharacters: 288,
+      normalizedOutputCharacters: 288,
+    },
+    (extensionRequest, options) => {
+      assert.equal(extensionRequest.input.includes(repair179Truncated), false);
+      assert.deepEqual(extensionRequest.workingMaterials, []);
+      assert.equal(options.unapprovedContinuationSeed?.baseHanCharacters, 179);
+      return {
+        ...result(
+          novelExtensionSuffix,
+          "stop",
+          `${request.requestId}:bounded-prose-extension`,
+        ),
+        completionTokens: 64,
+      };
+    },
+  ]);
+  assert.equal(exactTruncationTrace.calls.length, 2);
+  assert.deepEqual(
+    exactTruncationTrace.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.normalizedOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 13, 20, 20, 17],
+      ["repair", "stop", 156, 288, 288, 179],
+      [
+        "extension",
+        "stop",
+        64,
+        novelExtensionSuffix.length,
+        novelExtensionSuffix.length,
+        64,
+      ],
+    ],
+  );
+  assert.ok(exactTruncationTrace.result.content.startsWith(repair179Truncated));
+  assert.equal(
+    assessBrowserProseCompletion(exactTruncationTrace.result.content).contractSatisfied,
+    true,
+  );
+  assert.equal(exactTruncationTrace.quality.decision, "pass");
+  assert.match(exactTruncationTrace.result.runtimeStats, /bounded-prose-extension=1/u);
+  assert.match(exactTruncationTrace.result.runtimeStats, /bounded-fresh-recovery=0/u);
+  assert.match(exactTruncationTrace.result.runtimeStats, /extension-base-stage=repair/u);
+
   const lengthPrefix = exactHanPrefix(acceptedProse.repeat(3), 260);
   const productionLengthRaw = (marker = "") => {
     const rawBase = `${lengthPrefix}${marker}${"風".repeat(
@@ -2221,6 +2387,61 @@ test("bounded-prose-extension", async () => {
   assert.match(
     shortRepairFallback.result.runtimeStats,
     new RegExp(`extension-base-digest=${await sha256Hex(initial88)}`, "u"),
+  );
+  const truncatedInitial88 = initial88.slice(0, -1);
+  const truncatedInitial88Quality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: truncatedInitial88,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  });
+  assert.ok(truncatedInitial88Quality.reasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"));
+  assert.ok(truncatedInitial88Quality.reasonCodes.includes("QUALITY_TASKUSEFULNESS_LOW"));
+  const truncatedInitialFallback = await execute({
+    ...result(truncatedInitial88, "stop"),
+    completionTokens: 71,
+    rawOutputCharacters: 97,
+    normalizedOutputCharacters: 97,
+  }, [
+    {
+      ...result(
+        repair9Sentinel,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 8,
+      rawOutputCharacters: 10,
+      normalizedOutputCharacters: 10,
+    },
+    async (_extensionRequest, options) => {
+      assert.equal(options.unapprovedContinuationSeed?.baseHanCharacters, 88);
+      assert.equal(
+        options.unapprovedContinuationSeed?.baseDigest,
+        await sha256Hex(truncatedInitial88),
+      );
+      return result(
+        extension132,
+        "stop",
+        `${request.requestId}:bounded-prose-extension`,
+      );
+    },
+  ]);
+  assert.equal(truncatedInitialFallback.calls.length, 2);
+  assert.equal(truncatedInitialFallback.quality.decision, "pass");
+  assert.equal(
+    assessBrowserProseCompletion(truncatedInitialFallback.result.content).contractSatisfied,
+    true,
+  );
+  assert.match(truncatedInitialFallback.result.runtimeStats, /extension-base-stage=initial/u);
+  assert.match(
+    truncatedInitialFallback.result.runtimeStats,
+    /repair-output-disposition=shorter-intermediate-memory-only/u,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(truncatedInitialFallback),
+    new RegExp(repair9Sentinel, "u"),
   );
   assert.match(
     shortRepairFallback.result.runtimeStats,
@@ -2910,9 +3131,6 @@ test("bounded-prose-extension", async () => {
     );
     assert.equal(calls, expectedCalls);
   };
-  await assertShortRepairFallbackRejected({
-    initialContent: initial88.slice(0, -1),
-  });
   await assertShortRepairFallbackRejected({
     initialContent: exactHanPrefix(
       `以下是創作建議清單。${acceptedProse}`,
