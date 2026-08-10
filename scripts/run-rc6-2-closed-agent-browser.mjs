@@ -39,6 +39,7 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "QUALITY_LENGTHCOMPLIANCE_LOW",
   "QUALITY_EMPTY_CANDIDATE",
   "QUALITY_TASK_FORM_MISMATCH",
+  "QUALITY_SCORE_BELOW_THRESHOLD",
   "QUALITY_CONTEXT_ANCHOR_MISSING",
   "QUALITY_CONTEXT_CHARACTER_MISSING",
   "QUALITY_OUTPUT_TRUNCATED",
@@ -81,7 +82,7 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "BROWSER_WEBLLM_GENERATION_FAILED",
 ]);
 const SAFE_DIAGNOSTIC_CODE_SET = new Set(SAFE_DIAGNOSTIC_CODES);
-const SAFE_RUNTIME_STAGES = Object.freeze(["initial", "repair", "extension"]);
+const SAFE_RUNTIME_STAGES = Object.freeze(["initial", "repair", "extension", "recovery"]);
 const SAFE_RUNTIME_FINISH_REASONS = Object.freeze([
   "stop",
   "length",
@@ -285,7 +286,7 @@ async function installSanitizedQualityObserver() {
     const finishReasons = new Set(allowedFinishReasons);
     const codes = new Set();
     const evidence = new Map();
-    const runtimeEvidencePattern = /BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})/gu;
+    const runtimeEvidencePattern = /BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension|recovery):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})/gu;
     const parseRuntimeInteger = (value, maximum) => {
       if (value === "u") return null;
       const parsed = Number(value);

@@ -61,6 +61,7 @@ test("quality failure reasons expose only safe deterministic codes", () => {
   assert.deepEqual(closedAgentQualityReasonCodes({
     qualityReasonCodes: [
       "QUALITY_TASK_FORM_MISMATCH",
+      "QUALITY_SCORE_BELOW_THRESHOLD",
       "QUALITY_OUTPUT_CONTROL_TOKEN",
       "QUALITY_OUTPUT_ROLE_ENVELOPE",
       "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -70,6 +71,7 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     ],
   }), [
     "QUALITY_TASK_FORM_MISMATCH",
+    "QUALITY_SCORE_BELOW_THRESHOLD",
     "QUALITY_OUTPUT_CONTROL_TOKEN",
     "QUALITY_OUTPUT_ROLE_ENVELOPE",
     "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -121,13 +123,20 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     rawOutputCharacters: 130,
     normalizedOutputCharacters: 128,
     observedHanCharacters: 104,
+  }, {
+    stage: "recovery",
+    finishReason: "stop",
+    completionTokens: 246,
+    rawOutputCharacters: 286,
+    normalizedOutputCharacters: 284,
+    observedHanCharacters: 248,
   }];
   assert.deepEqual(closedAgentBrowserRuntimeEvidence({
     browserRuntimeEvidence: runtimeEvidence,
   }), runtimeEvidence);
   assert.equal(
     closedAgentBrowserRuntimeEvidenceProgress({ browserRuntimeEvidence: runtimeEvidence }),
-    "BROWSER_RUNTIME_EVIDENCE:initial:stop:83:91:89:72 BROWSER_RUNTIME_EVIDENCE:repair:length:u:130:128:104",
+    "BROWSER_RUNTIME_EVIDENCE:initial:stop:83:91:89:72 BROWSER_RUNTIME_EVIDENCE:repair:length:u:130:128:104 BROWSER_RUNTIME_EVIDENCE:recovery:stop:246:286:284:248",
   );
   assert.deepEqual(closedAgentBrowserRuntimeEvidence({
     code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",

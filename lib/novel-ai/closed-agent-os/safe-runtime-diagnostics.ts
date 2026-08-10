@@ -34,6 +34,7 @@ const CLOSED_AGENT_BROWSER_RUNTIME_STAGES = new Set([
   "initial",
   "repair",
   "extension",
+  "recovery",
 ] as const);
 const CLOSED_AGENT_BROWSER_RUNTIME_FINISH_REASONS = new Set([
   "stop",
@@ -44,7 +45,7 @@ const CLOSED_AGENT_BROWSER_RUNTIME_FINISH_REASONS = new Set([
 ] as const);
 
 export type ClosedAgentBrowserRuntimeEvidence = {
-  stage: "initial" | "repair" | "extension";
+  stage: "initial" | "repair" | "extension" | "recovery";
   finishReason: "stop" | "length" | "tool_calls" | "abort" | "unavailable";
   completionTokens: number | null;
   rawOutputCharacters: number | null;
@@ -96,7 +97,7 @@ export function closedAgentBrowserRuntimeEvidence(
     const candidate = value as Record<string, unknown>;
     if (
       !CLOSED_AGENT_BROWSER_RUNTIME_STAGES.has(
-        candidate.stage as "initial" | "repair" | "extension",
+        candidate.stage as ClosedAgentBrowserRuntimeEvidence["stage"],
       )
       || !CLOSED_AGENT_BROWSER_RUNTIME_FINISH_REASONS.has(
         candidate.finishReason as ClosedAgentBrowserRuntimeEvidence["finishReason"],

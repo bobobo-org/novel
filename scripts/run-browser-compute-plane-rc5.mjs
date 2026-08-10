@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   buildBrowserBoundedSameModelRepairPlan,
+  buildBrowserFreshRecoveryObjective,
+  browserFreshRecoveryQualityReasonCodes,
   executeBrowserDeterministicOperation,
   executeBrowserBoundedQualityPasses,
   executeBrowserInitialPass,
@@ -306,6 +308,7 @@ test("compute-orchestrator", async () => {
   assert.match(orchestrator, /workingMaterials: \[\]/u);
   assert.doesNotMatch(orchestrator, /text: compactPipelineMaterial\(initialResult\.content/u);
   assert.match(orchestrator, /const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360/u);
+  assert.match(orchestrator, /const BROWSER_BOUNDED_FRESH_RECOVERY_MAX_TOKENS = 360/u);
   assert.match(orchestrator, /maxTokens: BROWSER_BOUNDED_REPAIR_MAX_TOKENS/u);
   assert.match(orchestrator, /stageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS/u);
   assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
@@ -757,6 +760,32 @@ test("quality-gate", () => {
   assert.ok(fittedFreshRepair.prompt.includes("失蹤者留下逆時證據"));
   assert.ok(fittedFreshRepair.prompt.includes(defaultChapterLengthContract));
   assert.ok(fittedFreshRepair.prompt.includes(completeOutputContract(freshRepairPrompt)));
+  const freshRecoveryPrompt = buildClosedAIModelPrompt({
+    objective: buildBrowserFreshRecoveryObjective("幫我開始第一章"),
+    context: [
+      ...fullFreshContext,
+      `[story-bible]\n${"低優先核准背景資料。".repeat(2_000)}`,
+    ],
+    qualityPhase: "draft",
+    profile: browserProfile,
+  }).prompt;
+  const fittedFreshRecovery = fitBrowserPromptToTokenBudget(
+    freshRecoveryPrompt,
+    ecoPromptBudget,
+    { trustedClosedPrompt: true },
+  );
+  assert.ok(estimateBrowserTokens(fittedFreshRecovery.prompt) <= ecoPromptBudget);
+  assert.ok(fittedFreshRecovery.prompt.includes("幫我開始第一章"));
+  assert.ok(fittedFreshRecovery.prompt.includes(
+    "目標240至300；硬限220至320字。",
+  ));
+  assert.ok(fittedFreshRecovery.prompt.includes(proceduralOpenings[0]));
+  assert.ok(fittedFreshRecovery.prompt.includes("林知微"));
+  assert.ok(fittedFreshRecovery.prompt.includes("會記住承諾的霧城"));
+  assert.ok(fittedFreshRecovery.prompt.includes("查明證據來源"));
+  assert.ok(fittedFreshRecovery.prompt.includes("失蹤者留下逆時證據"));
+  assert.ok(fittedFreshRecovery.prompt.includes(defaultChapterLengthContract));
+  assert.ok(fittedFreshRecovery.prompt.includes(completeOutputContract(freshRecoveryPrompt)));
   assert.doesNotMatch(fittedFreshRepair.prompt, /本輪最多生成\s+\d+\s+tokens/iu);
   const matureChapterText = [
     "少年鑄劍師陸沉握著斷劍，妹妹阿璃守在門邊。",
@@ -1348,21 +1377,39 @@ test("quality-gate", () => {
     topP: 0.88,
     repetitionPenalty: 1.12,
   });
+  const recoveryEngine = engineOptionsFor({
+    seed: 308,
+    maxTokens: 360,
+    temperature: 0.68,
+    topP: 0.88,
+    repetitionPenalty: 1.12,
+  });
   const draftEngineOptions = draftEngine.request;
   const repairEngineOptions = repairEngine.request;
   const extensionEngineOptions = extensionEngine.request;
+  const recoveryEngineOptions = recoveryEngine.request;
   assert.equal(draftEngineOptions.max_tokens, draftEngine.performancePolicy.maxOutputTokens);
   assert.equal(repairEngineOptions.max_tokens, 360);
   assert.equal(extensionEngineOptions.max_tokens, 320);
+  assert.equal(recoveryEngineOptions.max_tokens, 360);
   assert.equal(repairEngineOptions.temperature, 0.68);
   assert.equal(repairEngineOptions.top_p, 0.88);
   assert.equal(repairEngineOptions.repetition_penalty, 1.12);
   assert.equal(extensionEngineOptions.temperature, 0.68);
   assert.equal(extensionEngineOptions.top_p, 0.88);
   assert.equal(extensionEngineOptions.repetition_penalty, 1.12);
+  assert.equal(recoveryEngineOptions.temperature, 0.68);
+  assert.equal(recoveryEngineOptions.top_p, 0.88);
+  assert.equal(recoveryEngineOptions.repetition_penalty, 1.12);
   assert.equal(repairEngineOptions.seed, 114);
   assert.equal(extensionEngineOptions.seed, 211);
-  for (const options of [draftEngineOptions, repairEngineOptions, extensionEngineOptions]) {
+  assert.equal(recoveryEngineOptions.seed, 308);
+  for (const options of [
+    draftEngineOptions,
+    repairEngineOptions,
+    extensionEngineOptions,
+    recoveryEngineOptions,
+  ]) {
     assert.equal(Object.hasOwn(options, "ignore_eos"), false);
     assert.equal(typeof options.temperature, "number");
     assert.equal(typeof options.top_p, "number");
@@ -1617,6 +1664,17 @@ test("quality-gate", () => {
 });
 
 test("bounded-prose-extension", async () => {
+  assert.deepEqual(
+    browserFreshRecoveryQualityReasonCodes([]),
+    ["QUALITY_SCORE_BELOW_THRESHOLD"],
+  );
+  assert.deepEqual(
+    browserFreshRecoveryQualityReasonCodes([
+      "QUALITY_TASK_FORM_MISMATCH",
+      "QUALITY_TASK_FORM_MISMATCH",
+    ]),
+    ["QUALITY_TASK_FORM_MISMATCH"],
+  );
   const model = BROWSER_WEBLLM_MODELS[0];
   const decision = {
     providerId: "browser-ai",
@@ -1690,6 +1748,8 @@ test("bounded-prose-extension", async () => {
       ...structuredClone(performancePolicy),
       ...(requestId.endsWith(":bounded-same-model-repair")
         ? { reservedOutputTokens: 360, maxOutputTokens: 360 }
+        : requestId.endsWith(":bounded-fresh-recovery")
+          ? { reservedOutputTokens: 360, maxOutputTokens: 360 }
         : requestId.endsWith(":bounded-prose-extension")
           ? { reservedOutputTokens: 320, maxOutputTokens: 320 }
           : {}),
@@ -1770,7 +1830,7 @@ test("bounded-prose-extension", async () => {
     assert.equal(han, target, `fixture requires ${target} Han characters`);
     return `${value}。`;
   };
-  const execute = async (initialResult, queuedResults) => {
+  const execute = async (initialResult, queuedResults, executionRequestOverride = request) => {
     const calls = [];
     const queued = [...queuedResults];
     const runPass = async (passRequest, passDecision, _progress, options) => {
@@ -1782,7 +1842,7 @@ test("bounded-prose-extension", async () => {
     const value = await executeBrowserBoundedQualityPasses({
       request,
       decision,
-      executionRequest: request,
+      executionRequest: executionRequestOverride,
       initialResult,
       eligibility,
       performancePolicy,
@@ -2261,6 +2321,494 @@ test("bounded-prose-extension", async () => {
     discardedSentinel: repair13Sentinel,
     taskId: "browser-dynamic-extension-margin-authoritative-candidate",
   });
+  const initialZeroSentinel = "ZEROFAIL!";
+  const repair14Sentinel = `${exactHanPrefix(
+    "壞稿絕不可帶入恢復請求甲乙丙丁戊己",
+    14,
+  )}！`;
+  const freshRecovery240 = exactHanPrefix(acceptedProse.repeat(3), 240);
+  assert.equal(initialZeroSentinel.length, 9);
+  assert.equal(countBrowserProseHanCharacters(initialZeroSentinel), 0);
+  assert.equal(repair14Sentinel.length, 16);
+  assert.equal(countBrowserProseHanCharacters(repair14Sentinel), 14);
+  assert.equal(countBrowserProseHanCharacters(freshRecovery240), 240);
+  const approvedRecoveryContextSentinel = "APPROVED_RECOVERY_CONTEXT_SENTINEL";
+  const approvedRecoveryExecutionRequest = {
+    ...request,
+    context: [`[PROJECT_METADATA] ${approvedRecoveryContextSentinel}`],
+  };
+  const freshRecovery = await execute({
+    ...result(initialZeroSentinel, "stop"),
+    completionTokens: 9,
+    rawOutputCharacters: 9,
+    normalizedOutputCharacters: 9,
+  }, [
+    {
+      ...result(
+        repair14Sentinel,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 12,
+      rawOutputCharacters: 16,
+      normalizedOutputCharacters: 16,
+    },
+    (recoveryRequest, options) => {
+      assert.equal(
+        recoveryRequest.requestId,
+        `${request.requestId}:bounded-fresh-recovery`,
+      );
+      assert.equal(recoveryRequest.qualityPhase, "draft");
+      assert.equal(recoveryRequest.agentPlan, undefined);
+      assert.deepEqual(recoveryRequest.toolResults, []);
+      assert.deepEqual(recoveryRequest.workingMaterials, []);
+      assert.deepEqual(
+        recoveryRequest.context,
+        approvedRecoveryExecutionRequest.context,
+      );
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.equal(recoveryRequest.unapprovedContinuationSeed, undefined);
+      assert.equal(recoveryRequest.generationOptions.maxTokens, 360);
+      assert.equal(recoveryRequest.generationOptions.seed, 308);
+      assert.equal(recoveryRequest.generationOptions.temperature, 0.68);
+      assert.equal(recoveryRequest.generationOptions.topP, 0.88);
+      assert.equal(recoveryRequest.generationOptions.repetitionPenalty, 1.12);
+      assert.equal(
+        recoveryRequest.input,
+        buildBrowserFreshRecoveryObjective(request.input),
+      );
+      assert.doesNotMatch(
+        JSON.stringify({ recoveryRequest, options }),
+        new RegExp(`${initialZeroSentinel}|${repair14Sentinel}`, "u"),
+      );
+      const profile = getClosedAIModelProfile("chapter.continue", "browser-ai");
+      const recoveryPrompt = buildClosedAIModelPrompt({
+        objective: recoveryRequest.input,
+        context: recoveryRequest.context,
+        profile,
+        qualityPhase: recoveryRequest.qualityPhase,
+        agentPlan: recoveryRequest.agentPlan,
+        toolResults: recoveryRequest.toolResults,
+        workingMaterials: recoveryRequest.workingMaterials,
+      }).prompt;
+      const fittedRecoveryPrompt = fitBrowserPromptToTokenBudget(
+        recoveryPrompt,
+        448,
+        { trustedClosedPrompt: true },
+      );
+      assert.ok(estimateBrowserTokens(fittedRecoveryPrompt.prompt) <= 448);
+      assert.match(
+        fittedRecoveryPrompt.prompt,
+        /目標240至300；硬限220至320字。/u,
+      );
+      assert.match(
+        fittedRecoveryPrompt.prompt,
+        /未指定時輸出二百二十至三百二十個繁體中文字/u,
+      );
+      assert.ok(fittedRecoveryPrompt.prompt.includes(approvedRecoveryContextSentinel));
+      assert.doesNotMatch(
+        fittedRecoveryPrompt.prompt,
+        new RegExp(`${initialZeroSentinel}|${repair14Sentinel}`, "u"),
+      );
+      return {
+        ...result(
+          freshRecovery240,
+          "stop",
+          `${request.requestId}:bounded-fresh-recovery`,
+        ),
+        completionTokens: 252,
+        rawOutputCharacters: freshRecovery240.length,
+        normalizedOutputCharacters: freshRecovery240.length,
+      };
+    },
+  ], approvedRecoveryExecutionRequest);
+  assert.equal(freshRecovery.calls.length, 2);
+  assert.deepEqual(
+    freshRecovery.browserRuntimeEvidence.map((entry) => entry.stage),
+    ["initial", "repair", "recovery"],
+  );
+  assert.deepEqual(
+    freshRecovery.browserRuntimeEvidence.map((entry) => [
+      entry.completionTokens,
+      entry.observedHanCharacters,
+    ]),
+    [[9, 0], [12, 14], [252, 240]],
+  );
+  assert.equal(freshRecovery.result.content, freshRecovery240);
+  assert.equal(freshRecovery.quality.decision, "pass");
+  assert.match(freshRecovery.result.runtimeStats, /bounded-prose-extension=0/u);
+  assert.match(freshRecovery.result.runtimeStats, /bounded-fresh-recovery=1/u);
+  assert.match(freshRecovery.result.runtimeStats, /recovery-finish=stop/u);
+  assert.doesNotMatch(
+    JSON.stringify(freshRecovery),
+    new RegExp(`${initialZeroSentinel}|${repair14Sentinel}`, "u"),
+  );
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: freshRecovery,
+    rawGeneration: `${initialZeroSentinel}\n${repair14Sentinel}`,
+    discardedSentinel: `${initialZeroSentinel}|${repair14Sentinel}`,
+    taskId: "browser-fresh-recovery-authoritative-candidate",
+  });
+  for (const acceptedRecoveryHanCharacters of [220, 239, 301, 320]) {
+    const boundaryRecoveryContent = exactHanPrefix(
+      acceptedProse.repeat(4),
+      acceptedRecoveryHanCharacters,
+    );
+    const boundaryRecoveryQuality = evaluateBrowserCandidateQuality({
+      taskType: request.taskType,
+      content: boundaryRecoveryContent,
+      expectedMinTokens: 140,
+      expectedMaxTokens: performancePolicy.reservedOutputTokens,
+      approvedContext: request.context,
+      threshold: 0.7,
+    });
+    assert.equal(
+      boundaryRecoveryQuality.decision,
+      "pass",
+      `${acceptedRecoveryHanCharacters}-Han recovery fixture must pass unchanged quality`,
+    );
+    const boundaryRecovery = await execute({
+      ...result(initialZeroSentinel, "stop"),
+      completionTokens: 9,
+      rawOutputCharacters: 9,
+      normalizedOutputCharacters: 9,
+    }, [
+      {
+        ...result(
+          repair14Sentinel,
+          "stop",
+          `${request.requestId}:bounded-same-model-repair`,
+        ),
+        completionTokens: 12,
+        rawOutputCharacters: 16,
+        normalizedOutputCharacters: 16,
+      },
+      {
+        ...result(
+          boundaryRecoveryContent,
+          "stop",
+          `${request.requestId}:bounded-fresh-recovery`,
+        ),
+        completionTokens: Math.min(
+          359,
+          estimateBrowserTokens(boundaryRecoveryContent),
+        ),
+        rawOutputCharacters: boundaryRecoveryContent.length,
+        normalizedOutputCharacters: boundaryRecoveryContent.length,
+      },
+    ]);
+    assert.equal(boundaryRecovery.calls.length, 2);
+    assert.equal(boundaryRecovery.result.content, boundaryRecoveryContent);
+    assert.equal(
+      countBrowserProseHanCharacters(boundaryRecovery.result.content),
+      acceptedRecoveryHanCharacters,
+    );
+    assert.equal(boundaryRecovery.quality.decision, "pass");
+    assert.doesNotMatch(
+      JSON.stringify(boundaryRecovery),
+      new RegExp(`${initialZeroSentinel}|${repair14Sentinel}`, "u"),
+    );
+  }
+
+  const assertFreshRecoveryRejected = async ({
+    recoveryContent = exactHanPrefix(acceptedProse.repeat(3), 219),
+    recoveryFinishReason = "stop",
+    recoveryOverrides = {},
+    recoveryError = null,
+    expectedCode = "BROWSER_AI_QUALITY_INSUFFICIENT",
+    expectedReasonCode = "QUALITY_NARRATIVE_TOO_SHORT",
+  } = {}) => {
+    let calls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: {
+          ...result(initialZeroSentinel, "stop"),
+          completionTokens: 9,
+          rawOutputCharacters: 9,
+          normalizedOutputCharacters: 9,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async (passRequest) => {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              ...result(
+                repair14Sentinel,
+                "stop",
+                `${request.requestId}:bounded-same-model-repair`,
+              ),
+              completionTokens: 12,
+              rawOutputCharacters: 16,
+              normalizedOutputCharacters: 16,
+            };
+          }
+          assert.equal(calls, 2, "fresh recovery must be the final Browser pass");
+          assert.doesNotMatch(
+            JSON.stringify(passRequest),
+            new RegExp(`${initialZeroSentinel}|${repair14Sentinel}`, "u"),
+          );
+          if (recoveryError) throw recoveryError;
+          return {
+            ...result(
+              recoveryContent,
+              recoveryFinishReason,
+              `${request.requestId}:bounded-fresh-recovery`,
+            ),
+            completionTokens: recoveryFinishReason === "length" ? 359 : 240,
+            rawOutputCharacters: recoveryContent.length,
+            normalizedOutputCharacters: recoveryContent.length,
+            ...structuredClone(recoveryOverrides),
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === expectedCode
+          && (expectedReasonCode === null
+            || error.qualityReasonCodes?.includes(expectedReasonCode))
+          && error.canonicalMutationCount === 0
+          && evidence.length === 3
+          && evidence[2].stage === "recovery";
+      },
+    );
+    assert.equal(calls, 2, "failed recovery must not trigger a fourth pass");
+  };
+  await assertFreshRecoveryRejected();
+  await assertFreshRecoveryRejected({
+    recoveryContent: exactHanPrefix(acceptedProse.repeat(4), 321),
+    expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: `<|im_end|>${freshRecovery240}`,
+    expectedReasonCode: "QUALITY_OUTPUT_CONTROL_TOKEN",
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryFinishReason: "length",
+    expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+  });
+  const editorialRecovery = exactHanPrefix(
+    `以下是創作建議清單。${acceptedProse.repeat(3)}`,
+    240,
+  );
+  assert.equal(
+    evaluateBrowserCandidateQuality({
+      taskType: request.taskType,
+      content: editorialRecovery,
+      expectedMinTokens: 140,
+      expectedMaxTokens: performancePolicy.reservedOutputTokens,
+      approvedContext: request.context,
+      threshold: 0.7,
+    }).decision,
+    "block",
+  );
+  await assertFreshRecoveryRejected({
+    recoveryContent: editorialRecovery,
+    expectedReasonCode: "QUALITY_TASK_FORM_MISMATCH",
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: { requestId: "stale-fresh-recovery" },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: {
+      modelId: "attacker-model",
+      modelDigest: "a".repeat(64),
+      provenance: {
+        ...structuredClone(decision),
+        modelId: "attacker-model",
+        modelDigest: "a".repeat(64),
+      },
+    },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: { executor: "chromium-prompt-api" },
+    expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: { candidateOnly: false },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: { providerId: "private-ai-hub" },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: {
+      modelDigest: "not-a-cryptographic-digest",
+      provenance: {
+        ...structuredClone(decision),
+        modelDigest: "not-a-cryptographic-digest",
+      },
+    },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: {
+      provenance: {
+        ...structuredClone(decision),
+        providerId: "private-ai-hub",
+        privacyMode: "private",
+        externalRequest: true,
+        dataLeavesDevice: true,
+        fallbackChain: ["private-ai-hub"],
+      },
+    },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  for (const policyOverride of [
+    { workerExecution: false },
+    { serialGeneration: false },
+  ]) {
+    await assertFreshRecoveryRejected({
+      recoveryContent: freshRecovery240,
+      recoveryOverrides: {
+        performancePolicy: {
+          ...structuredClone(performancePolicy),
+          reservedOutputTokens: 360,
+          maxOutputTokens: 360,
+          ...policyOverride,
+        },
+      },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    });
+  }
+  await assertFreshRecoveryRejected({
+    recoveryError: Object.assign(new Error("private recovery failure"), {
+      code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    }),
+    expectedCode: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: {
+      externalRequest: true,
+      dataLeavesDevice: true,
+      provenance: {
+        ...structuredClone(decision),
+        externalRequest: true,
+        dataLeavesDevice: true,
+      },
+    },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertFreshRecoveryRejected({
+    recoveryContent: freshRecovery240,
+    recoveryOverrides: {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 361,
+        maxOutputTokens: 361,
+      },
+    },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  const assertFreshRecoveryNotRequested = async ({
+    requestOverrides = {},
+    initialContent = initialZeroSentinel,
+    initialFinishReason = "stop",
+    repairContent = repair14Sentinel,
+    repairFinishReason = "stop",
+  } = {}) => {
+    const ineligibleRequest = { ...request, ...structuredClone(requestOverrides) };
+    const passRequestIds = [];
+    try {
+      await executeBrowserBoundedQualityPasses({
+        request: ineligibleRequest,
+        decision,
+        executionRequest: ineligibleRequest,
+        initialResult: {
+          ...result(initialContent, "stop", ineligibleRequest.requestId),
+          generationFinishReason: initialFinishReason,
+          completionTokens: 9,
+          rawOutputCharacters: initialContent.length,
+          normalizedOutputCharacters: initialContent.length,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async (passRequest, _passDecision, _progress, options) => {
+          passRequestIds.push(passRequest.requestId);
+          if (passRequest.requestId.endsWith(":bounded-fresh-recovery")) {
+            return result(
+              freshRecovery240,
+              "stop",
+              passRequest.requestId,
+            );
+          }
+          if (passRequest.requestId.endsWith(":bounded-prose-extension")) {
+            assert.ok(options.unapprovedContinuationSeed);
+            return result(extension132, "stop", passRequest.requestId);
+          }
+          return {
+            ...result(repairContent, "stop", passRequest.requestId),
+            generationFinishReason: repairFinishReason,
+            completionTokens: 12,
+            rawOutputCharacters: repairContent.length,
+            normalizedOutputCharacters: repairContent.length,
+          };
+        },
+      });
+    } catch {
+      // Ineligible cases are expected to retain their existing fail-closed
+      // outcome. This assertion is solely about never entering fresh recovery.
+    }
+    assert.equal(
+      passRequestIds.some((requestId) =>
+        requestId.endsWith(":bounded-fresh-recovery")),
+      false,
+    );
+  };
+  for (const initialFinishReason of ["length", "abort", "tool_calls", null]) {
+    await assertFreshRecoveryNotRequested({ initialFinishReason });
+  }
+  for (const repairFinishReason of ["length", "abort", "tool_calls", null]) {
+    await assertFreshRecoveryNotRequested({ repairFinishReason });
+  }
+  await assertFreshRecoveryNotRequested({
+    initialContent: `<|im_end|>${initialZeroSentinel}`,
+  });
+  await assertFreshRecoveryNotRequested({
+    initialContent: `${initialZeroSentinel}${"A".repeat(700)}`,
+  });
+  await assertFreshRecoveryNotRequested({
+    initialContent: exactHanPrefix(acceptedProse, 48),
+  });
+  await assertFreshRecoveryNotRequested({
+    repairContent: exactHanPrefix(acceptedProse, 48),
+  });
+  await assertFreshRecoveryNotRequested({
+    requestOverrides: { input: "請寫五百字的故事" },
+  });
+  await assertFreshRecoveryNotRequested({
+    requestOverrides: { taskType: "chapter.expand" },
+  });
   const assertShortRepairFallbackRejected = async ({
     initialContent = initial88,
     initialOverrides = {},
@@ -2328,9 +2876,6 @@ test("bounded-prose-extension", async () => {
     );
     assert.equal(calls, expectedCalls);
   };
-  await assertShortRepairFallbackRejected({
-    initialContent: exactHanPrefix(acceptedProse, 47),
-  });
   await assertShortRepairFallbackRejected({
     initialContent: initial88.slice(0, -1),
   });

@@ -834,6 +834,7 @@ await test("source-truth", async () => {
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
   for (const code of [
+    "QUALITY_SCORE_BELOW_THRESHOLD",
     "QUALITY_OUTPUT_CONTROL_TOKEN",
     "QUALITY_OUTPUT_ROLE_ENVELOPE",
     "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -848,6 +849,8 @@ await test("source-truth", async () => {
   ]) {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
   }
+  assert.ok(browserGate.includes('"recovery"'), "recovery runtime stage missing from browser gate allowlist");
+  assert.match(browserGate, /initial\|repair\|extension\|recovery/u);
   assert.match(browserGate, /for \(const code of allowed\)/u);
   assert.doesNotMatch(browserGate, /const codePattern/u);
   for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {

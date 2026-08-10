@@ -188,6 +188,7 @@ const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
 ]);
 const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360;
 const BROWSER_BOUNDED_EXTENSION_MAX_TOKENS = 320;
+const BROWSER_BOUNDED_FRESH_RECOVERY_MAX_TOKENS = 360;
 const BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE = {
   "control-token": "QUALITY_OUTPUT_CONTROL_TOKEN",
   "role-envelope": "QUALITY_OUTPUT_ROLE_ENVELOPE",
@@ -215,6 +216,23 @@ function browserProseMergeReasonCode(reason: string | null) {
       return "QUALITY_CONTINUATION_CONTRACT_UNSATISFIED";
     default: return null;
   }
+}
+
+export function browserFreshRecoveryQualityReasonCodes(reasonCodes: string[]) {
+  const finiteReasons = [...new Set(reasonCodes)];
+  return finiteReasons.length > 0
+    ? finiteReasons
+    : ["QUALITY_SCORE_BELOW_THRESHOLD"];
+}
+
+export function buildBrowserFreshRecoveryObjective(authorObjective: string) {
+  return [
+    authorObjective.trim(),
+    // Keep this internal target compact: the protected final contract owns
+    // Traditional-Chinese, prose-only and hard 220–320 acceptance truth,
+    // while the 448-token model still needs all approved story anchors.
+    "目標240至300；硬限220至320字。",
+  ].filter(Boolean).join("\n");
 }
 
 const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
@@ -1023,6 +1041,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       || right.quality.score - left.quality.score);
     const extensionBase = extensionBaseCandidates[0] ?? null;
     let extensionResult: PlatformAIResult | null = null;
+    let recoveryResult: PlatformAIResult | null = null;
     let extensionBaseDigest: string | null = null;
     let extensionDigest: string | null = null;
     if (
@@ -1164,10 +1183,171 @@ export async function executeBrowserBoundedQualityPasses(input: {
         threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
       });
     }
+    const shouldRunFreshRecovery = Boolean(
+      requiredGenerativeExecutor === "webllm-worker"
+      && !initialSafetyRepairReasonCode
+      && defaultChapterProseContract
+      && !extensionBase
+      && !extensionResult
+      && chapterProseContract
+      && repairCompletion
+      && !chapterProseContract.contractSatisfied
+      && !repairCompletion.contractSatisfied
+      && !chapterProseContract.safetyCode
+      && !repairCompletion.safetyCode
+      && !chapterProseContract.rawBudgetExceeded
+      && !repairCompletion.rawBudgetExceeded
+      && chapterProseContract.observedHanCharacters
+        < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+      && repairCompletion.observedHanCharacters
+        < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+      && initialResult.content.trim().length > 0
+      && repairResult.content.trim().length > 0
+      && initialResult.generationFinishReason === "stop"
+      && repairResult.generationFinishReason === "stop"
+    );
+    if (shouldRunFreshRecovery) {
+      const recoveryRequestId = `${input.request.requestId}:bounded-fresh-recovery`;
+      const recoveryRequest: PlatformAIRequest = {
+        ...executionRequest,
+        requestId: recoveryRequestId,
+        input: buildBrowserFreshRecoveryObjective(input.request.input),
+        qualityPhase: "draft",
+        agentPlan: undefined,
+        toolResults: [],
+        workingMaterials: [],
+        generationOptions: {
+          ...input.request.generationOptions,
+          seed: passSeed(input.request.generationOptions?.seed, 291),
+          temperature: Math.min(
+            Math.max(input.request.generationOptions?.temperature ?? 0.68, 0.66),
+            0.74,
+          ),
+          topP: Math.min(
+            Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
+            0.92,
+          ),
+          maxTokens: BROWSER_BOUNDED_FRESH_RECOVERY_MAX_TOKENS,
+          repetitionPenalty: Math.max(
+            input.request.generationOptions?.repetitionPenalty ?? 1.08,
+            1.12,
+          ),
+        },
+      };
+      // A public or stale request shape must never activate or carry the
+      // internal continuation-seed channel into a standalone recovery draft.
+      Reflect.deleteProperty(recoveryRequest, "unapprovedContinuationSeed");
+      try {
+        recoveryResult = await runPass(
+          recoveryRequest,
+          input.decision,
+          input.onProgress,
+          {
+            preferLightweightRuntime: false,
+            requiredGenerativeExecutor,
+          },
+        );
+      } catch (error) {
+        throw attachBrowserRuntimeEvidence(error, [
+          ...browserRuntimeEvidence,
+          unavailableBrowserRuntimePassEvidence("recovery"),
+        ]);
+      }
+      const recoveryCompletion = assessBrowserProseCompletion(recoveryResult.content);
+      browserRuntimeEvidence.push(browserRuntimePassEvidence(
+        "recovery",
+        recoveryResult,
+        recoveryCompletion.observedHanCharacters,
+      ));
+      try {
+        assertVerifiedClosedWebLLMBoundary(
+          recoveryResult,
+          input.decision,
+          BROWSER_BOUNDED_FRESH_RECOVERY_MAX_TOKENS,
+          recoveryRequestId,
+        );
+        assertVerifiedExecutor(recoveryResult, requiredGenerativeExecutor);
+        assertSameVerifiedBrowserModel(initialResult, recoveryResult);
+      } catch (error) {
+        throw attachBrowserRuntimeEvidence(error, browserRuntimeEvidence);
+      }
+      if (recoveryCompletion.safetyCode) {
+        throw Object.assign(explicitEscalationError(
+          eligibility,
+          "BROWSER_AI_QUALITY_INSUFFICIENT",
+        ), {
+          qualityDecision: "block",
+          qualityReasonCodes: [browserProseSafetyReasonCode(
+            recoveryCompletion.safetyCode,
+          )],
+          browserRuntimeEvidence,
+          fallbackAttempted: false,
+          canonicalMutationCount: 0,
+        });
+      }
+      if (
+        recoveryResult.generationFinishReason !== "stop"
+        || recoveryCompletion.rawBudgetExceeded
+        || !recoveryCompletion.contractSatisfied
+        || !recoveryCompletion.content
+        || recoveryCompletion.observedHanCharacters
+          > recoveryCompletion.maximumHanCharacters
+      ) {
+        throw Object.assign(explicitEscalationError(
+          eligibility,
+          "BROWSER_AI_QUALITY_INSUFFICIENT",
+        ), {
+          qualityDecision: "block",
+          qualityReasonCodes:
+            recoveryResult.generationFinishReason === "stop"
+            && !recoveryCompletion.rawBudgetExceeded
+            && recoveryCompletion.observedHanCharacters < 220
+              ? ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"]
+              : ["QUALITY_OUTPUT_TRUNCATED"],
+          observedHanCharacters: recoveryCompletion.observedHanCharacters,
+          requiredHanCharacters: [220, 320],
+          browserRuntimeEvidence,
+          fallbackAttempted: false,
+          canonicalMutationCount: 0,
+        });
+      }
+      const recoveredContent = recoveryCompletion.content;
+      acceptedResult = {
+        ...recoveryResult,
+        content: recoveredContent,
+        outputCharacters: recoveredContent.length,
+        normalizedOutputCharacters: recoveredContent.length,
+      };
+      repairQuality = evaluateBrowserCandidateQuality({
+        taskType: input.request.taskType,
+        content: recoveredContent,
+        expectedMinTokens,
+        expectedMaxTokens: performancePolicy.reservedOutputTokens,
+        requiresStructuredOutput: input.request.requiresStructured,
+        approvedContext: executionRequest.context,
+        threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+      });
+      if (repairQuality.decision !== "pass") {
+        throw Object.assign(explicitEscalationError(
+          eligibility,
+          "BROWSER_AI_QUALITY_INSUFFICIENT",
+        ), {
+          qualityScore: repairQuality.score,
+          qualityDecision: repairQuality.decision,
+          qualityReasonCodes: browserFreshRecoveryQualityReasonCodes(
+            repairQuality.reasonCodes,
+          ),
+          browserRuntimeEvidence,
+          fallbackAttempted: false,
+          canonicalMutationCount: 0,
+        });
+      }
+    }
     if (
       repairCompletion
       && !repairCompletion.contractSatisfied
       && !extensionResult
+      && !recoveryResult
     ) {
       throw Object.assign(explicitEscalationError(
         eligibility,
@@ -1186,7 +1366,12 @@ export async function executeBrowserBoundedQualityPasses(input: {
         canonicalMutationCount: 0,
       });
     }
-    const passes = [initialResult, repairResult, ...(extensionResult ? [extensionResult] : [])];
+    const passes = [
+      initialResult,
+      repairResult,
+      ...(extensionResult ? [extensionResult] : []),
+      ...(recoveryResult ? [recoveryResult] : []),
+    ];
     const totalCompletionTokens = passes.every((pass) =>
       typeof pass.completionTokens === "number")
       ? passes.reduce((sum, pass) => sum + (pass.completionTokens ?? 0), 0)
@@ -1223,6 +1408,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
         acceptedResult.runtimeStats,
         "bounded-same-model-repair=1",
         `bounded-prose-extension=${extensionResult ? "1" : "0"}`,
+        `bounded-fresh-recovery=${recoveryResult ? "1" : "0"}`,
         `initial-finish=${initialResult.generationFinishReason ?? "unavailable"}`,
         `repair-finish=${repairResult.generationFinishReason ?? "unavailable"}`,
         ...(extensionResult
@@ -1230,6 +1416,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
             `extension-finish=${extensionResult.generationFinishReason ?? "unavailable"}`,
             `extension-base-stage=${extensionBase?.stage ?? "unavailable"}`,
           ]
+          : []),
+        ...(recoveryResult
+          ? [`recovery-finish=${recoveryResult.generationFinishReason ?? "unavailable"}`]
           : []),
         ...(initialDigest
           ? [`initial-output-digest=${initialDigest}`]
@@ -1241,6 +1430,12 @@ export async function executeBrowserBoundedQualityPasses(input: {
         ...(extensionResult && extensionBase?.stage === "initial"
           ? ["repair-output-disposition=shorter-intermediate-memory-only"]
           : []),
+        ...(recoveryResult
+          ? [
+            "initial-output-disposition=degenerate-intermediate-memory-only",
+            "repair-output-disposition=degenerate-intermediate-memory-only",
+          ]
+          : []),
         `initial-quality-reasons=${repairPlan.reasonCodes.join(",")}`,
         "intermediate-content=pipeline-memory-only",
       ].filter(Boolean).join("; "),
@@ -1250,6 +1445,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
           ...acceptedResult.provenance.warnings,
           initialSafetyRepairReasonCode
             ? "One isolated safety repair ran on the same verified Browser executor; rejected initial text remained in memory, was not reused as model input, and no provider fallback occurred."
+            : recoveryResult
+              ? "One bounded repair and one fresh recovery draft ran on the same verified Browser executor; both rejected intermediate texts remained in memory, were not reused as model input, and no provider fallback occurred."
             : "One bounded repair and at most one normal-EOS suffix extension ran on the same verified Browser executor; rejected intermediate text remained in memory and no provider fallback occurred.",
         ],
       },
@@ -1401,8 +1598,10 @@ export async function executeBrowserCompute(input: {
   // Closed Agent OS owns planning, critique and revision. A browser task node
   // normally performs one model pass. Direct continuation tasks may run one
   // bounded repair on the same verified executor when the first output ends
-  // early, merely copies context, or contains a finite output-safety violation;
-  // this never switches providers or mutates Canon.
+  // early, merely copies context, or contains a finite output-safety violation.
+  // If both safe attempts are too short to continue, one final fresh draft may
+  // use only the approved context and author objective. This never switches
+  // providers, reuses rejected prose, or mutates Canon.
   let result = await executeBrowserInitialPass({
     request: executionRequest,
     decision: input.decision,
