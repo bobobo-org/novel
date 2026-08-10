@@ -7,11 +7,20 @@ import type {
   ConversationMessage,
   ConversationSession,
   ConversationToolInvocation,
+  DomainRecord,
   LearningImportSession,
   WorldRule,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
+import type { ClosedAgentCandidate } from "@/lib/novel-ai/closed-agent-os";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
+import {
+  assertConversationClosedAgentApprovalBinding,
+  assertConversationClosedAgentApprovalCallbackCandidate,
+  assertConversationClosedAgentApprovalSnapshotUnchanged,
+  buildConversationClosedAgentApprovalBindingProof,
+  type ConversationClosedAgentApprovalBinding,
+} from "@/lib/novel-ai/conversation/closed-agent-approval";
 import type { ConversationLearningCoordinatorLoader } from "./use-conversation-learning-loader";
 import {
   conversationCanonicalRecordDigest,
@@ -22,6 +31,7 @@ import { planConversationRequest, type ConversationPlan } from "@/lib/novel-ai/c
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import {
   approveStudioClosedAgentCandidate,
+  getStudioClosedAgentOS,
   rejectStudioClosedAgentCandidate,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import { approveRpgChatTurn, loadRpgChatSnapshot } from "@/lib/novel-ai/web/rpg-chat-turn";
@@ -56,6 +66,118 @@ function exactClosedCandidateId(message: ConversationMessage) {
     });
   }
   return candidateIds[0] ?? null;
+}
+
+async function closedCandidateIdForUneditedApproval(
+  repository: NovelRepository,
+  message: ConversationMessage,
+) {
+  const invocations = await Promise.all(message.toolInvocationIds.map((invocationId) => (
+    repository.get<ConversationToolInvocation>("conversationToolInvocations", invocationId)
+  )));
+  const hasClosedLineage = message.candidateIds.some((candidateId) => (
+    candidateId.startsWith("closed-agent-candidate:")
+  )) || invocations.some((invocation) => (
+    invocation?.toolId.startsWith("closed-agent-os:")
+    || invocation?.executionReceipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
+    || invocation?.executionReceipt?.closedAgentCacheOrigin !== undefined
+  ));
+  if (!hasClosedLineage) return null;
+  const candidateId = exactClosedCandidateId(message);
+  if (!candidateId) {
+    throw Object.assign(new Error("Closed candidate approval binding is invalid."), {
+      code: "CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID",
+    });
+  }
+  return candidateId;
+}
+
+async function loadClosedCandidateApprovalBinding(input: {
+  projectId: string;
+  sessionId: string;
+  repository: NovelRepository;
+  candidateId: string;
+  sourceMessageId: string;
+  artifactId: string;
+}) {
+  const os = getStudioClosedAgentOS();
+  const [session, sourceMessage, artifact, candidate, artifacts, invocations] = await Promise.all([
+    input.repository.get<ConversationSession>("conversationSessions", input.sessionId),
+    input.repository.get<ConversationMessage>("conversationMessages", input.sourceMessageId),
+    input.repository.get<ConversationArtifact>("conversationArtifacts", input.artifactId),
+    os.state.get<ClosedAgentCandidate>(input.candidateId),
+    input.repository.list<ConversationArtifact>(
+      "conversationArtifacts",
+      input.projectId,
+    ),
+    input.repository.list<ConversationToolInvocation>(
+      "conversationToolInvocations",
+      input.projectId,
+    ),
+  ]);
+  if (!session || !sourceMessage || !artifact) {
+    throw Object.assign(new Error("Closed candidate approval binding is invalid."), {
+      code: "CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID",
+    });
+  }
+  const sourceMessageCandidateArtifacts = artifacts.filter((candidateArtifact) => (
+    candidateArtifact.projectId === input.projectId
+    && candidateArtifact.sessionId === input.sessionId
+    && candidateArtifact.sourceMessageId === sourceMessage.id
+    && candidateArtifact.status === "candidate"
+  ));
+  const targetRecord = artifact.targetStore === "chapters"
+    || artifact.targetStore === "characters"
+    || artifact.targetStore === "worldRules"
+    ? await input.repository.get<DomainRecord>(artifact.targetStore, artifact.targetRecordId)
+    : null;
+  const candidateIntegrityVerified = candidate
+    ? await os.verifyCandidateIntegrity(candidate.id)
+    : false;
+  return assertConversationClosedAgentApprovalBinding({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    session,
+    sourceMessage,
+    artifact,
+    sourceMessageCandidateArtifacts,
+    invocations,
+    targetRecord,
+    candidate,
+    candidateIntegrityVerified,
+  });
+}
+
+async function assertClosedCandidateApprovalSnapshotCurrent(input: {
+  expected: ConversationClosedAgentApprovalBinding;
+  projectId: string;
+  sessionId: string;
+  repository: NovelRepository;
+}) {
+  const current = await loadClosedCandidateApprovalBinding({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    repository: input.repository,
+    candidateId: input.expected.candidate.id,
+    sourceMessageId: input.expected.sourceMessage.id,
+    artifactId: input.expected.artifact.id,
+  });
+  assertConversationClosedAgentApprovalSnapshotUnchanged(input.expected, current);
+  return current;
+}
+
+/*
+ * Approval spans Closed Agent ledger/state and Conversation IndexedDB stores.
+ * The first preflight guarantees pre-existing mismatch never reaches the OS.
+ * This callback-time check is the saga CAS: a concurrent mismatch leaves at
+ * most the reusable signed approval intent, while Canon and candidate state
+ * remain unchanged until an exact retry completes the canonical commit.
+ */
+function assertCanonicalCallbackCandidate(
+  expected: ClosedAgentCandidate,
+  candidate: ClosedAgentCandidate,
+) {
+  assertConversationClosedAgentApprovalCallbackCandidate(expected, candidate);
 }
 
 function approvalApplicationMode(plan: ConversationPlan) {
@@ -113,6 +235,12 @@ export function useConversationApprovalController({
 }) {
   async function approveArtifact(artifact: ConversationArtifact, editedContent?: string) {
     if (!activeSession || busy || operationLockRef.current || artifact.status !== "candidate") return;
+    const contentWasEdited = (
+      !["rpg", "learning_rule"].includes(artifact.artifactType)
+      && editedContent !== undefined
+      && editedContent.normalize("NFKC").trim()
+        !== artifactStory(artifact).normalize("NFKC").trim()
+    );
     const sessionId = activeSession.id;
     retryActionRef.current = () => { void approveArtifact(artifact, editedContent); };
     setRetryAvailable(true);
@@ -131,11 +259,7 @@ export function useConversationApprovalController({
     setSafeError(null);
     try {
       let selected = artifact;
-      if (
-        !["rpg", "learning_rule"].includes(artifact.artifactType)
-        && editedContent !== undefined
-        && editedContent.trim() !== artifactStory(artifact).trim()
-      ) {
+      if (contentWasEdited) {
         const originalSourceMessage = await repository.get<ConversationMessage>(
           "conversationMessages",
           artifact.sourceMessageId,
@@ -237,6 +361,10 @@ export function useConversationApprovalController({
             ).catch(() => undefined);
           }
           throw error;
+        }
+        const originalClosedCandidateId = exactClosedCandidateId(originalSourceMessage);
+        if (originalClosedCandidateId) {
+          await rejectStudioClosedAgentCandidate(originalClosedCandidateId);
         }
         selected = editedArtifact;
         await conversation.rejectArtifact(projectId, sessionId, artifact.id, artifact.revision);
@@ -360,39 +488,66 @@ export function useConversationApprovalController({
           signal: controller.signal,
         });
       } else if (freshArtifact.targetStore === "chapters") {
-        const closedCandidateId = exactClosedCandidateId(sourceMessage);
+        const closedCandidateId = !contentWasEdited
+          ? await closedCandidateIdForUneditedApproval(repository, sourceMessage)
+          : null;
         const requestMessage = sourceMessage.parentMessageId
           ? await repository.get<ConversationMessage>("conversationMessages", sourceMessage.parentMessageId)
           : null;
         const sourcePlan = await planConversationRequest({ content: requestMessage?.content ?? "" });
-        const commit = async () => {
-          const currentSession = await repository.get<ConversationSession>("conversationSessions", session.id);
-          const currentMessage = await repository.get<ConversationMessage>("conversationMessages", sourceMessage.id);
-          const currentArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id);
+        const commit = async (
+          binding?: ConversationClosedAgentApprovalBinding,
+        ) => {
+          const [currentSession, currentMessage, currentArtifact] = binding
+            ? [binding.session, binding.sourceMessage, binding.artifact]
+            : await Promise.all([
+                repository.get<ConversationSession>("conversationSessions", session.id),
+                repository.get<ConversationMessage>("conversationMessages", sourceMessage.id),
+                repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id),
+              ]);
           if (!currentSession || !currentMessage || !currentArtifact) {
             throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
           }
+          const closedAgentApprovalBinding = binding
+            ? await buildConversationClosedAgentApprovalBindingProof(binding)
+            : undefined;
           return conversation.approveChapterArtifact({
-            operationId: `conversation-approval:${freshArtifact.id}`,
-            idempotencyKey: `conversation-approval:${freshArtifact.id}:${freshArtifact.candidateDigest}`,
+            operationId: `conversation-approval:${currentArtifact.id}`,
+            idempotencyKey: `conversation-approval:${currentArtifact.id}:${currentArtifact.candidateDigest}`,
             projectId,
             sessionId: session.id,
-            artifactId: freshArtifact.id,
-            sourceMessageId: sourceMessage.id,
-            candidateDigest: freshArtifact.candidateDigest,
-            targetRecordId: freshArtifact.targetRecordId,
+            artifactId: currentArtifact.id,
+            sourceMessageId: currentMessage.id,
+            candidateDigest: currentArtifact.candidateDigest,
+            targetRecordId: currentArtifact.targetRecordId,
             expectedSessionRevision: currentSession.revision,
             expectedArtifactRevision: currentArtifact.revision,
             expectedSourceMessageRevision: currentMessage.revision,
-            expectedSourceRevision: freshArtifact.sourceRevision,
+            expectedSourceRevision: currentArtifact.sourceRevision,
             applicationMode: approvalApplicationMode(sourcePlan),
+            closedAgentApprovalBinding,
           });
         };
-        if (closedCandidateId && editedContent === undefined) {
+        if (closedCandidateId && !contentWasEdited) {
+          const bound = await loadClosedCandidateApprovalBinding({
+            projectId,
+            sessionId: session.id,
+            repository,
+            candidateId: closedCandidateId,
+            sourceMessageId: sourceMessage.id,
+            artifactId: freshArtifact.id,
+          });
           await approveStudioClosedAgentCandidate({
             candidateId: closedCandidateId,
-            canonicalCommit: async () => {
-              const result = await commit();
+            canonicalCommit: async ({ candidate }) => {
+              assertCanonicalCallbackCandidate(bound.candidate, candidate);
+              await assertClosedCandidateApprovalSnapshotCurrent({
+                expected: bound,
+                projectId,
+                sessionId: session.id,
+                repository,
+              });
+              const result = await commit(bound);
               return { commitId: result.approvalTransaction.operationId };
             },
           });
@@ -400,47 +555,78 @@ export function useConversationApprovalController({
           await commit();
         }
       } else if (freshArtifact.targetStore === "characters" || freshArtifact.targetStore === "worldRules") {
-        const closedCandidateId = exactClosedCandidateId(sourceMessage);
+        const closedCandidateId = !contentWasEdited
+          ? await closedCandidateIdForUneditedApproval(repository, sourceMessage)
+          : null;
         const targetStore = freshArtifact.targetStore;
-        const current = await repository.get<Character | WorldRule>(
-          targetStore,
-          freshArtifact.targetRecordId,
-        );
-        const nextCanonicalRecord = buildConversationCanonicalReplacement({
-          projectId,
-          store: targetStore,
-          targetRecordId: freshArtifact.targetRecordId,
-          candidateContent: freshArtifact.candidateContent,
-          current,
-        });
-        const currentSession = await repository.get<ConversationSession>("conversationSessions", session.id);
-        const currentMessage = await repository.get<ConversationMessage>("conversationMessages", sourceMessage.id);
-        const currentArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id);
-        if (!currentSession || !currentMessage || !currentArtifact) {
-          throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
-        }
-        const commit = async () => conversation.approveArtifact({
-          operationId: `conversation-approval:${freshArtifact.id}`,
-          idempotencyKey: `conversation-approval:${freshArtifact.id}:${freshArtifact.candidateDigest}`,
-          projectId,
-          sessionId: session.id,
-          artifactId: freshArtifact.id,
-          sourceMessageId: sourceMessage.id,
-          candidateDigest: freshArtifact.candidateDigest,
-          targetStore,
-          targetRecordId: freshArtifact.targetRecordId,
-          expectedSessionRevision: currentSession.revision,
-          expectedArtifactRevision: currentArtifact.revision,
-          expectedSourceMessageRevision: currentMessage.revision,
-          expectedSourceRevision: freshArtifact.sourceRevision,
-          applicationMode: "record_replace",
-          nextCanonicalRecord,
-        });
-        if (closedCandidateId && editedContent === undefined) {
+        const commit = async (
+          binding?: ConversationClosedAgentApprovalBinding,
+        ) => {
+          const [currentSession, currentMessage, currentArtifact, currentTarget] = binding
+            ? [
+                binding.session,
+                binding.sourceMessage,
+                binding.artifact,
+                binding.targetRecord as Character | WorldRule | null,
+              ]
+            : await Promise.all([
+                repository.get<ConversationSession>("conversationSessions", session.id),
+                repository.get<ConversationMessage>("conversationMessages", sourceMessage.id),
+                repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id),
+                repository.get<Character | WorldRule>(targetStore, freshArtifact.targetRecordId),
+              ]);
+          if (!currentSession || !currentMessage || !currentArtifact) {
+            throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
+          }
+          const nextCanonicalRecord = buildConversationCanonicalReplacement({
+            projectId,
+            store: targetStore,
+            targetRecordId: currentArtifact.targetRecordId,
+            candidateContent: currentArtifact.candidateContent,
+            current: currentTarget,
+          });
+          const closedAgentApprovalBinding = binding
+            ? await buildConversationClosedAgentApprovalBindingProof(binding)
+            : undefined;
+          return conversation.approveArtifact({
+            operationId: `conversation-approval:${currentArtifact.id}`,
+            idempotencyKey: `conversation-approval:${currentArtifact.id}:${currentArtifact.candidateDigest}`,
+            projectId,
+            sessionId: session.id,
+            artifactId: currentArtifact.id,
+            sourceMessageId: currentMessage.id,
+            candidateDigest: currentArtifact.candidateDigest,
+            targetStore,
+            targetRecordId: currentArtifact.targetRecordId,
+            expectedSessionRevision: currentSession.revision,
+            expectedArtifactRevision: currentArtifact.revision,
+            expectedSourceMessageRevision: currentMessage.revision,
+            expectedSourceRevision: currentArtifact.sourceRevision,
+            applicationMode: "record_replace",
+            nextCanonicalRecord,
+            closedAgentApprovalBinding,
+          });
+        };
+        if (closedCandidateId && !contentWasEdited) {
+          const bound = await loadClosedCandidateApprovalBinding({
+            projectId,
+            sessionId: session.id,
+            repository,
+            candidateId: closedCandidateId,
+            sourceMessageId: sourceMessage.id,
+            artifactId: freshArtifact.id,
+          });
           await approveStudioClosedAgentCandidate({
             candidateId: closedCandidateId,
-            canonicalCommit: async () => {
-              const result = await commit();
+            canonicalCommit: async ({ candidate }) => {
+              assertCanonicalCallbackCandidate(bound.candidate, candidate);
+              await assertClosedCandidateApprovalSnapshotCurrent({
+                expected: bound,
+                projectId,
+                sessionId: session.id,
+                repository,
+              });
+              const result = await commit(bound);
               return { commitId: result.approvalTransaction.operationId };
             },
           });

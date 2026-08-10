@@ -1,8 +1,5 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
 import {
-  normalizeTraditionalChinesePreservingProperNouns,
-} from "../../language/traditional-chinese";
-import {
   BROWSER_TASK_MODEL,
   isNativeBrowserSummaryTask,
   runPackagedBrowserTaskModel,
@@ -96,6 +93,8 @@ export type BrowserAIExecutionOptions = {
    * task-model result.
    */
   requiredGenerativeExecutor?: "webllm-worker" | "chromium-prompt-api";
+  /** Internal adapter control: OS owns normalization after final selection. */
+  deferTraditionalChineseNormalization?: boolean;
   /** Internal-only, in-memory suffix anchor. Never accepted from PlatformAIRequest. */
   unapprovedContinuationSeed?: {
     anchor: string;
@@ -574,6 +573,24 @@ export async function runBrowserAI(
 ): Promise<PlatformAIResult> {
   const started = performance.now();
   const sourceText = [...request.context, request.input].join("\n\n");
+  const normalizeGeneratedContent = async (input: {
+    value: string;
+    modelId: string | null;
+    modelDigest: string | null;
+  }) => {
+    if (options.deferTraditionalChineseNormalization) {
+      return { content: input.value };
+    }
+    const { normalizeTraditionalChinesePreservingProperNouns } = await import(
+      "../../language/traditional-chinese"
+    );
+    return {
+      content: normalizeTraditionalChinesePreservingProperNouns(
+        input.value,
+        sourceText,
+      ),
+    };
+  };
   let webLlmFailureWarning: string | null = null;
   const webLlm = await browserWebLLMRuntimeSnapshot().catch(() => null);
   const selectedWebLlm = webLlm?.models.find((model) => (
@@ -629,10 +646,12 @@ export async function runBrowserAI(
           elapsedMs: event.elapsedMs,
         }),
       });
-      const normalized = normalizeTraditionalChinesePreservingProperNouns(
-        generated.content,
-        sourceText,
-      );
+      const normalizedResult = await normalizeGeneratedContent({
+        value: generated.content,
+        modelId: generated.modelId,
+        modelDigest: generated.modelDigest,
+      });
+      const normalized = normalizedResult.content;
       await recordInferenceProof(
         normalized,
         started,
@@ -670,7 +689,9 @@ export async function runBrowserAI(
           `finish-reason=${generated.finishReason ?? "unavailable"}`,
           `completion-tokens=${generated.completionTokens ?? "unavailable"}`,
           `raw-output-characters=${generated.outputCharacters}`,
-          `normalized-output-characters=${normalized.length}`,
+          options.deferTraditionalChineseNormalization
+            ? "traditional-chinese-normalization=deferred-to-closed-agent-os"
+            : `normalized-output-characters=${normalized.length}`,
         ].filter(Boolean).join("; "),
         tokensPerSecond: generated.tokensPerSecond,
         estimatedMemoryMB: generated.estimatedVramMB,
@@ -681,7 +702,10 @@ export async function runBrowserAI(
         generationFinishReason: generated.finishReason,
         completionTokens: generated.completionTokens,
         rawOutputCharacters: generated.outputCharacters,
-        normalizedOutputCharacters: normalized.length,
+        normalizedOutputCharacters:
+          options.deferTraditionalChineseNormalization
+            ? undefined
+            : normalized.length,
       };
     } catch (error) {
       cancelBrowserWebLLMGeneration();
@@ -775,10 +799,12 @@ export async function runBrowserAI(
         profile.timeoutMs,
         "BROWSER_AI_PROMPT_INFERENCE_TIMEOUT",
       );
-      const normalized = normalizeTraditionalChinesePreservingProperNouns(
-        content.trim(),
-        sourceText,
-      );
+      const normalizedResult = await normalizeGeneratedContent({
+        value: content.trim(),
+        modelId: BROWSER_LANGUAGE_MODEL_ID,
+        modelDigest: BROWSER_MANAGED_MODEL_DIGEST,
+      });
+      const normalized = normalizedResult.content;
       const elapsedMs = Math.round(performance.now() - started);
       onProgress?.({
         generatedCharacters: normalized.length,
@@ -865,10 +891,12 @@ export async function runBrowserAI(
   const factory = summarizerFactory();
   const runPackagedFallback = async (warning: string): Promise<PlatformAIResult> => {
     const result = runPackagedBrowserTaskModel(request.taskType, sourceText);
-    const normalized = normalizeTraditionalChinesePreservingProperNouns(
-      result.content,
-      sourceText,
-    );
+    const normalizedResult = await normalizeGeneratedContent({
+      value: result.content,
+      modelId: result.modelId,
+      modelDigest: result.modelDigest,
+    });
+    const normalized = normalizedResult.content;
     const elapsedMs = Math.round(performance.now() - started);
     onProgress?.({
       generatedCharacters: normalized.length,
@@ -949,10 +977,12 @@ export async function runBrowserAI(
       "chrome-built-in-summarizer",
       "browser-managed-model-digest-unavailable",
     );
-    const normalized = normalizeTraditionalChinesePreservingProperNouns(
-      content.trim(),
-      sourceText,
-    );
+    const normalizedResult = await normalizeGeneratedContent({
+      value: content.trim(),
+      modelId: "chrome-built-in-summarizer",
+      modelDigest: "browser-managed-model-digest-unavailable",
+    });
+    const normalized = normalizedResult.content;
     const elapsedMs = Math.round(performance.now() - started);
     onProgress?.({
       generatedCharacters: normalized.length,

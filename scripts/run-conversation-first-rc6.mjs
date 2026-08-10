@@ -39,12 +39,27 @@ import {
   composeProjectContext,
 } from "../lib/novel-ai/web/project-context-composer.ts";
 import {
+  getStudioClosedAgentOS,
   loadApprovedConversationLearningRules,
 } from "../lib/novel-ai/web/closed-agent-os-service.ts";
+import {
+  useConversationApprovalController,
+} from "../app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts";
+import {
+  artifactStory,
+} from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
 import {
   sha256Hex,
   stableStringify,
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
+import {
+  assertConversationClosedAgentApprovalBinding,
+  buildConversationClosedAgentApprovalBindingProof,
+} from "../lib/novel-ai/conversation/closed-agent-approval.ts";
+import {
+  buildConversationClosedAgentCacheOriginProof,
+} from "../lib/novel-ai/conversation/closed-agent-cache-origin-proof.ts";
+import { conversationContentDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
 import {
   createProjectBackup,
   restoreProjectBackup,
@@ -71,6 +86,51 @@ const mode = process.argv[2] ?? "all";
 const harness = new Rc6TestHarness("P2.4B RC6 conversation-first runtime gate", mode);
 globalThis.indexedDB = indexedDB;
 globalThis.IDBKeyRange = IDBKeyRange;
+
+class ApprovalSnapshotTamperingRepository extends IndexedDbNovelRepository {
+  #armedRecord = null;
+
+  armArtifactTamper(artifactId, tamperedContent) {
+    this.#armedRecord = {
+      store: "conversationArtifacts",
+      id: artifactId,
+      patch: { candidateContent: tamperedContent },
+    };
+  }
+
+  armSourceMessageTamper(messageId, tamperedContent) {
+    this.#armedRecord = {
+      store: "conversationMessages",
+      id: messageId,
+      patch: { content: tamperedContent },
+    };
+  }
+
+  async get(store, id) {
+    const snapshot = await super.get(store, id);
+    if (
+      store !== this.#armedRecord?.store
+      || id !== this.#armedRecord.id
+      || !snapshot
+    ) {
+      return snapshot;
+    }
+    const armedRecord = this.#armedRecord;
+    this.#armedRecord = null;
+    const db = await this.open();
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).put({
+      ...snapshot,
+      ...armedRecord.patch,
+    });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error ?? new Error("TEST_IDB_TAMPER_ABORTED"));
+      tx.onerror = () => reject(tx.error ?? new Error("TEST_IDB_TAMPER_FAILED"));
+    });
+    return snapshot;
+  }
+}
 
 function record(id, projectId = id, source = "user") {
   const createdAt = new Date().toISOString();
@@ -148,7 +208,7 @@ async function attachCompletedInvocation(service, {
     sessionId,
     messageId,
     taskId: `task:${crypto.randomUUID()}`,
-    toolId: "closed-agent-os:story-context-index",
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.storyStateQuery,
     taskType,
     inputDigest,
     contextDigest,
@@ -178,6 +238,7 @@ async function setupApproval(options = {}) {
     repository: providedRepository,
     projectId = "project-approval",
     candidateContent = "The approved continuation arrives.",
+    requestContent = null,
     ...repositoryOptions
   } = options;
   const repository = providedRepository ?? new MemoryNovelRepository(repositoryOptions);
@@ -187,11 +248,20 @@ async function setupApproval(options = {}) {
     title: "Approval",
     activeChapterId: state.chapterId,
   });
+  const request = requestContent
+    ? await state.service.appendMessage({
+        projectId: state.projectId,
+        sessionId: session.id,
+        role: "user",
+        content: requestContent,
+      })
+    : null;
   const assistant = await state.service.appendMessage({
     projectId: state.projectId,
     sessionId: session.id,
     role: "assistant",
     content: candidateContent,
+    parentMessageId: request?.id,
   });
   await attachCompletedInvocation(state.service, {
     projectId: state.projectId,
@@ -213,6 +283,7 @@ async function setupApproval(options = {}) {
   const currentMessage = await repository.get("conversationMessages", assistant.id);
   return {
     ...state,
+    request,
     session: currentSession,
     message: currentMessage,
     artifact,
@@ -232,6 +303,297 @@ async function setupApproval(options = {}) {
       expectedSourceRevision: 1,
       applicationMode: "append",
     },
+  };
+}
+
+async function setupClosedApprovalFixture({
+  cacheHit = false,
+  requestContent = null,
+  repository = new IndexedDbNovelRepository(),
+  projectId = `project-closed-approval:${crypto.randomUUID()}`,
+  candidateContent = "Ａ，封閉候選保持繁體與完整來源綁定。",
+} = {}) {
+  const state = await setupApproval({
+    repository,
+    projectId,
+    candidateContent,
+    requestContent,
+  });
+  const originalInvocation = await repository.get(
+    "conversationToolInvocations",
+    state.message.toolInvocationIds[0],
+  );
+  assert(originalInvocation);
+  const taskId = `closed-agent-task:${crypto.randomUUID()}`;
+  const originTaskId = cacheHit
+    ? `closed-agent-origin-task:${crypto.randomUUID()}`
+    : taskId;
+  const candidateId = `closed-agent-candidate:${taskId}`;
+  const modelId = "rc6-browser-model";
+  const modelDigest = await sha256Hex(modelId);
+  const contentDigest = await sha256Hex(candidateContent);
+  const contextDigest = await sha256Hex(`context:${taskId}`);
+  const normalizationReceiptId = `traditional-chinese-integrity:${await sha256Hex(`normalization:${originTaskId}`)}`;
+  const normalization = {
+    schemaVersion: "closed-agent-traditional-chinese-integrity-v2-ambiguous-occurrences",
+    normalizerVersion: "opencc-js-1.4.1-cn-to-tw-single-pass-v1",
+    policyVersion: "closed-agent-traditional-chinese-policy-v3-boundary-identity-occurrences",
+    policyId: `policy:${await sha256Hex(projectId)}`,
+    sourceDigest: await sha256Hex(`source:${projectId}`),
+    protectedTermsDigest: await sha256Hex("protected-terms"),
+    originRequestId: originTaskId,
+    providerId: "browser-ai",
+    modelId,
+    modelDigest,
+    inputStage: "closed-agent-final-selected-content",
+    normalizationInputDigest: contentDigest,
+    outputDigest: contentDigest,
+    normalizationOperationCount: 1,
+    ambiguousCanonicalOccurrenceCount: 0,
+    receiptId: normalizationReceiptId,
+  };
+  const originContextDigest = await sha256Hex(`origin-context:${originTaskId}`);
+  const originExecutionReceipt = {
+    taskId: originTaskId,
+    backendId: "browser-ai",
+    modelId,
+    modelDigest,
+    startedAt: "2026-08-10T00:00:00.000Z",
+    completedAt: "2026-08-10T00:00:01.000Z",
+    generatedTokenEvents: 4,
+    outputCharacters: candidateContent.length,
+    contentDigest,
+    contextDigest: cacheHit ? originContextDigest : contextDigest,
+    proofState: "verified",
+    dataLeftDevice: false,
+    externalRequest: false,
+    actualExecutor: "browser-ai",
+    traditionalChineseNormalization: normalization,
+  };
+  const cacheOrigin = cacheHit ? {
+    schemaVersion: "closed-agent-cache-origin-v1",
+    layer: "exact",
+    entryId: `closed-ai-cache:${await sha256Hex(`entry:${projectId}`)}`,
+    entryValueDigest: await sha256Hex(`value:${projectId}`),
+    originCandidateId: `closed-agent-candidate:${originTaskId}`,
+    originTaskId,
+    originRequestId: originTaskId,
+    originLedgerId: `closed-agent:${projectId}:${originTaskId}`,
+    originLedgerBlockHash: await sha256Hex(`block:${originTaskId}`),
+    originExecutionReceipt,
+    normalizationReceiptId,
+  } : null;
+  const candidate = {
+    schemaVersion: "closed-agent-os-v2",
+    kind: "candidate",
+    id: candidateId,
+    projectId,
+    taskId,
+    namespace: {
+      tenantId: "local-tenant",
+      userId: "local-author",
+      projectId,
+      storyId: projectId,
+      canonId: `canon:${projectId}`,
+      branchId: "main",
+      characterId: "shared",
+      agentRole: "closed-agent-os",
+      modelId,
+      modelDigest,
+      promptProfileVersion: "studio-closed-agent-v3",
+      storyBibleRevision: "current",
+      knowledgeScopeRevision: "current",
+      privacyLevel: "device_only",
+    },
+    backendId: "browser-ai",
+    modelId,
+    modelDigest,
+    adapterId: "browser-ai",
+    adapterDigest: await sha256Hex("browser-ai-adapter"),
+    content: candidateContent,
+    contentDigest,
+    sourceChapterId: state.chapterId,
+    sourceRevision: 1,
+    actualExecutor: cacheHit ? "not_executed" : "browser-ai",
+    executionReceipt: cacheHit ? null : originExecutionReceipt,
+    cacheOrigin,
+    traditionalChineseNormalization: normalization,
+    contextDigest,
+    dataLeftDevice: false,
+    externalRequest: false,
+    planComplexity: "standard",
+    planDigest: await sha256Hex(`plan:${projectId}`),
+    requestContractDigest: await sha256Hex(`request:${projectId}`),
+    evaluation: {
+      passed: true,
+      score: 1,
+      blockingCodes: [],
+      warningCodes: [],
+      evaluatorInputDigest: await sha256Hex(`evaluation:${projectId}`),
+      rubric: { safety: 1, objectiveCoverage: 1, structure: 1, specificity: 1, repetitionPenalty: 0 },
+      rawChainOfThoughtStored: false,
+    },
+    status: "awaiting-approval",
+    candidateOnly: true,
+    canonicalMutationCount: 0,
+  };
+  const cacheOriginProof = await buildConversationClosedAgentCacheOriginProof(candidate);
+  const invocation = await repository.put("conversationToolInvocations", {
+    ...originalInvocation,
+    taskId,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
+    taskType: "chapter.continue",
+    contextDigest,
+    actualExecutor: cacheHit ? "not_executed" : "browser-ai",
+    modelId,
+    modelDigest,
+    executionReceipt: {
+      receiptId: `conversation-receipt:${taskId}`,
+      modelId,
+      modelDigest,
+      providerRunId: cacheHit ? null : taskId,
+      contextDigest,
+      outputDigest: contentDigest,
+      externalRequest: false,
+      dataLeftDevice: false,
+      latencyMs: cacheHit ? null : 1_000,
+      closedAgentSchemaVersion: "closed-agent-os-v2",
+      closedAgentBackendId: "browser-ai",
+      normalizationReceiptId,
+      traditionalChineseNormalizerVersion: normalization.normalizerVersion,
+      ...(cacheOriginProof ? { closedAgentCacheOrigin: cacheOriginProof } : {}),
+    },
+  }, originalInvocation.revision);
+  const originalMessage = await repository.get("conversationMessages", state.message.id);
+  assert(originalMessage);
+  const message = await repository.put("conversationMessages", {
+    ...originalMessage,
+    candidateIds: [candidateId, state.artifact.id],
+  }, originalMessage.revision);
+  const session = await repository.get("conversationSessions", state.session.id);
+  const artifact = await repository.get("conversationArtifacts", state.artifact.id);
+  const targetRecord = await repository.get("chapters", state.chapterId);
+  assert(session && artifact && targetRecord);
+  const bindingInput = {
+    projectId,
+    sessionId: session.id,
+    session,
+    sourceMessage: message,
+    artifact,
+    sourceMessageCandidateArtifacts: [artifact],
+    invocations: [invocation],
+    targetRecord,
+    candidate,
+    candidateIntegrityVerified: true,
+  };
+  return {
+    ...state,
+    session,
+    message,
+    artifact,
+    invocation,
+    candidate,
+    targetRecord,
+    bindingInput,
+    approvalInput: {
+      ...state.approvalInput,
+      expectedSessionRevision: session.revision,
+      expectedArtifactRevision: artifact.revision,
+      expectedSourceMessageRevision: message.revision,
+    },
+  };
+}
+
+async function runClosedDrawerApproval(state, approvalContent) {
+  const os = getStudioClosedAgentOS();
+  const originalStateGet = os.state.get;
+  const originalVerifyCandidateIntegrity = os.verifyCandidateIntegrity;
+  const originalApproveCandidate = os.approveCandidate;
+  const originalRejectCandidate = os.rejectCandidate;
+  const approvedCandidateIds = [];
+  const rejectedCandidateIds = [];
+  const safeErrors = [];
+  let leaseReleaseCount = 0;
+
+  os.state.get = async function getControllerFixtureRecord(recordId) {
+    if (recordId === state.candidate.id) return structuredClone(state.candidate);
+    return originalStateGet.call(this, recordId);
+  };
+  os.verifyCandidateIntegrity = async function verifyControllerFixtureCandidate(candidateId) {
+    if (candidateId === state.candidate.id) return true;
+    return originalVerifyCandidateIntegrity.call(this, candidateId);
+  };
+  os.approveCandidate = async function approveControllerFixtureCandidate(input) {
+    assert.equal(input.candidateId, state.candidate.id);
+    approvedCandidateIds.push(input.candidateId);
+    const commit = input.canonicalCommit
+      ? await input.canonicalCommit({
+          candidate: structuredClone(state.candidate),
+          approvalId: `closed-agent-approval:${state.candidate.id}`,
+          idempotencyKey: `closed-agent-approval:${state.candidate.id}`,
+        })
+      : null;
+    return {
+      candidate: {
+        ...state.candidate,
+        status: commit ? "committed" : "approved",
+        canonicalMutationCount: commit ? 1 : 0,
+      },
+      canonicalMutationCount: commit ? 1 : 0,
+    };
+  };
+  os.rejectCandidate = async function rejectControllerFixtureCandidate(candidateId) {
+    assert.equal(candidateId, state.candidate.id);
+    rejectedCandidateIds.push(candidateId);
+    return { ...state.candidate, status: "rejected" };
+  };
+
+  try {
+    // Deterministic harness invocation uses the stubbed React hook runtime above.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const controller = useConversationApprovalController({
+      projectId: state.projectId,
+      repository: state.repository,
+      conversation: state.service,
+      getLearningCoordinator: async () => {
+        throw new Error("UNEXPECTED_LEARNING_APPROVAL");
+      },
+      activeSession: state.session,
+      busy: false,
+      operationLockRef: { current: false },
+      retryActionRef: { current: null },
+      acquireLease: async () => () => {
+        leaseReleaseCount += 1;
+      },
+      currentCanonRevisionDigest: () => sha256Hex(`canon:${state.projectId}:controller`),
+      createRpgChoicesMessage: async () => {
+        throw new Error("UNEXPECTED_RPG_APPROVAL");
+      },
+      loadWorkspace: async () => true,
+      refreshSession: async () => true,
+      setRetryAvailable: () => undefined,
+      setRetryLabel: () => undefined,
+      setBusy: () => undefined,
+      setSafeError: (error) => {
+        if (error) safeErrors.push(error);
+      },
+      setProgress: () => undefined,
+      setArtifactOpen: () => undefined,
+      setDrawer: () => undefined,
+    });
+    await controller.approveArtifact(state.artifact, approvalContent);
+  } finally {
+    os.state.get = originalStateGet;
+    os.verifyCandidateIntegrity = originalVerifyCandidateIntegrity;
+    os.approveCandidate = originalApproveCandidate;
+    os.rejectCandidate = originalRejectCandidate;
+  }
+
+  return {
+    approvedCandidateIds,
+    rejectedCandidateIds,
+    safeErrors,
+    leaseReleaseCount,
   };
 }
 
@@ -662,23 +1024,53 @@ harness.test("branching", "branching preserves the source history with new immut
 });
 
 harness.test("branching", "regeneration creates distinct task, candidate and message IDs without overwriting", async () => {
-  const { service, projectId } = await setup();
-  const session = await service.createSession({ projectId });
-  const source = await service.appendMessage({
-    projectId,
-    sessionId: session.id,
-    role: "assistant",
-    content: "Original candidate remains.",
+  const state = await setupClosedApprovalFixture({ cacheHit: false });
+  const prepare = () => state.service.prepareRegeneration({
+    projectId: state.projectId,
+    sessionId: state.session.id,
+    sourceMessageId: state.message.id,
+    expectedSourceMessage: state.message,
+    expectedSourceInvocation: state.invocation,
+    expectedClosedCandidateId: state.candidate.id,
   });
-  const first = await service.prepareRegeneration({ projectId, sessionId: session.id, sourceMessageId: source.id });
-  const second = await service.prepareRegeneration({ projectId, sessionId: session.id, sourceMessageId: source.id });
+  const first = await prepare();
+  const second = await prepare();
   assert.notEqual(first.taskId, second.taskId);
   assert.notEqual(first.candidateId, second.candidateId);
   assert.notEqual(first.messageId, second.messageId);
   assert.equal(
-    (await service.listMessages(projectId, session.id)).find((message) => message.id === source.id)?.content,
-    "Original candidate remains.",
+    (await state.service.listMessages(state.projectId, state.session.id))
+      .find((message) => message.id === state.message.id)?.content,
+    state.message.content,
   );
+
+  const staleState = await setupClosedApprovalFixture({ cacheHit: false });
+  const changedContent = "The displayed source was replaced before regeneration started.";
+  const changedMessage = await staleState.repository.put("conversationMessages", {
+    ...staleState.message,
+    content: changedContent,
+    contentDigest: await conversationContentDigest(changedContent),
+  }, staleState.message.revision);
+  const messageCountBefore = (await staleState.service.listMessages(
+    staleState.projectId,
+    staleState.session.id,
+  )).length;
+  await assert.rejects(
+    () => staleState.service.prepareRegeneration({
+      projectId: staleState.projectId,
+      sessionId: staleState.session.id,
+      sourceMessageId: staleState.message.id,
+      expectedSourceMessage: staleState.message,
+      expectedSourceInvocation: staleState.invocation,
+      expectedClosedCandidateId: staleState.candidate.id,
+    }),
+    errorWithCode("CONVERSATION_REGENERATION_SOURCE_STALE"),
+  );
+  assert.equal(changedMessage.content, changedContent);
+  assert.equal((await staleState.service.listMessages(
+    staleState.projectId,
+    staleState.session.id,
+  )).length, messageCountBefore);
 });
 
 harness.test("approval", "candidate-only artifact mutates Canon exactly once after approval", async () => {
@@ -696,6 +1088,320 @@ harness.test("approval", "candidate-only artifact mutates Canon exactly once aft
   assert.equal(replay.replayed, true);
   assert.equal((await state.repository.list("conversationApprovalTransactions", state.projectId)).length, 1);
   assert.equal((await state.repository.get("chapters", state.chapterId)).revision, 2);
+});
+
+harness.test("approval", "Closed approval preflight binds the current IndexedDB candidate before signed intent", async () => {
+  const positive = await setupClosedApprovalFixture({ cacheHit: false });
+  const binding = await assertConversationClosedAgentApprovalBinding(positive.bindingInput);
+  const proof = await buildConversationClosedAgentApprovalBindingProof(binding);
+  let signedIntentCount = 0;
+  signedIntentCount += 1;
+  const approved = await positive.repository.approveConversationArtifactTransaction({
+    ...positive.approvalInput,
+    closedAgentApprovalBinding: proof,
+  });
+  assert.equal(signedIntentCount, 1);
+  assert.equal(approved.artifact.status, "approved");
+  assert.equal(approved.canonicalRecord.revision, 2);
+
+  const tampered = await setupClosedApprovalFixture({ cacheHit: false });
+  const tamperedContent = "另一份已被竄改但自洽的候選內容。";
+  const currentArtifact = await tampered.repository.get(
+    "conversationArtifacts",
+    tampered.artifact.id,
+  );
+  const tamperedArtifact = await tampered.repository.put("conversationArtifacts", {
+    ...currentArtifact,
+    candidateContent: tamperedContent,
+    candidateDigest: await sha256Hex(tamperedContent.normalize("NFKC")),
+  }, currentArtifact.revision);
+  let rejectedSignedIntentCount = 0;
+  await assert.rejects(
+    async () => {
+      await assertConversationClosedAgentApprovalBinding({
+        ...tampered.bindingInput,
+        artifact: tamperedArtifact,
+        sourceMessageCandidateArtifacts: [tamperedArtifact],
+      });
+      rejectedSignedIntentCount += 1;
+    },
+    errorWithCode("CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID"),
+  );
+  assert.equal(rejectedSignedIntentCount, 0);
+  assert.equal((await tampered.repository.get("chapters", tampered.chapterId)).revision, 1);
+  assert.equal((await tampered.repository.list("conversationApprovalTransactions", tampered.projectId)).length, 0);
+});
+
+harness.test("approval", "Closed cache-hit approval requires exact persisted origin proof", async () => {
+  const cached = await setupClosedApprovalFixture({ cacheHit: true });
+  const binding = await assertConversationClosedAgentApprovalBinding(cached.bindingInput);
+  const proof = await buildConversationClosedAgentApprovalBindingProof(binding);
+  const approved = await cached.repository.approveConversationArtifactTransaction({
+    ...cached.approvalInput,
+    closedAgentApprovalBinding: proof,
+  });
+  assert.equal(cached.invocation.actualExecutor, "not_executed");
+  assert.equal(cached.invocation.executionReceipt.providerRunId, null);
+  assert.equal(approved.artifact.status, "approved");
+  assert.equal(approved.canonicalRecord.revision, 2);
+
+  const missing = await setupClosedApprovalFixture({ cacheHit: true });
+  await assert.rejects(
+    () => missing.repository.approveConversationArtifactTransaction(missing.approvalInput),
+    errorWithCode("CONVERSATION_CLOSED_APPROVAL_BINDING_INVALID"),
+  );
+  assert.equal((await missing.repository.get("chapters", missing.chapterId)).revision, 1);
+
+  const tampered = await setupClosedApprovalFixture({ cacheHit: true });
+  const persistedInvocation = await tampered.repository.get(
+    "conversationToolInvocations",
+    tampered.invocation.id,
+  );
+  const tamperedInvocation = await tampered.repository.put("conversationToolInvocations", {
+    ...persistedInvocation,
+    executionReceipt: {
+      ...persistedInvocation.executionReceipt,
+      closedAgentCacheOrigin: {
+        ...persistedInvocation.executionReceipt.closedAgentCacheOrigin,
+        entryId: `closed-ai-cache:${await sha256Hex("tampered-entry")}`,
+      },
+    },
+  }, persistedInvocation.revision);
+  let signedIntentCount = 0;
+  await assert.rejects(
+    async () => {
+      await assertConversationClosedAgentApprovalBinding({
+        ...tampered.bindingInput,
+        invocations: [tamperedInvocation],
+      });
+      signedIntentCount += 1;
+    },
+    errorWithCode("CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID"),
+  );
+  assert.equal(signedIntentCount, 0);
+  assert.equal((await tampered.repository.get("chapters", tampered.chapterId)).revision, 1);
+});
+
+harness.test("approval", "Drawer-defined unchanged fresh Closed content uses the bound OS approval path", async () => {
+  const state = await setupClosedApprovalFixture({
+    cacheHit: false,
+    candidateContent: "Fresh Closed content shown unchanged in the artifact drawer.",
+    requestContent: "Continue the current chapter.",
+  });
+  const result = await runClosedDrawerApproval(state, artifactStory(state.artifact));
+  const approvedArtifact = await state.repository.get("conversationArtifacts", state.artifact.id);
+  const invocations = await state.repository.list("conversationToolInvocations", state.projectId);
+
+  assert.deepEqual(result.safeErrors, []);
+  assert.deepEqual(result.approvedCandidateIds, [state.candidate.id]);
+  assert.deepEqual(result.rejectedCandidateIds, []);
+  assert.equal(result.leaseReleaseCount, 1);
+  assert.equal(approvedArtifact.status, "approved");
+  assert.equal((await state.repository.get("chapters", state.chapterId)).revision, 2);
+  assert.equal(invocations.filter((item) => item.actualExecutor === "local-user-edit").length, 0);
+});
+
+harness.test("approval", "Drawer-defined unchanged cache-hit Closed content preserves cache origin approval", async () => {
+  const state = await setupClosedApprovalFixture({
+    cacheHit: true,
+    candidateContent: "Cache-hit Closed content shown unchanged in the artifact drawer.",
+    requestContent: "Continue the current chapter.",
+  });
+  const unchangedDrawerContent = `  \n${artifactStory(state.artifact)}\n  `;
+  const result = await runClosedDrawerApproval(state, unchangedDrawerContent);
+  const approvedArtifact = await state.repository.get("conversationArtifacts", state.artifact.id);
+  const invocations = await state.repository.list("conversationToolInvocations", state.projectId);
+
+  assert.deepEqual(result.safeErrors, []);
+  assert.deepEqual(result.approvedCandidateIds, [state.candidate.id]);
+  assert.deepEqual(result.rejectedCandidateIds, []);
+  assert.equal(result.leaseReleaseCount, 1);
+  assert.equal(state.invocation.actualExecutor, "not_executed");
+  assert(state.invocation.executionReceipt.closedAgentCacheOrigin);
+  assert.equal(approvedArtifact.status, "approved");
+  assert.equal((await state.repository.get("chapters", state.chapterId)).revision, 2);
+  assert.equal(invocations.filter((item) => item.actualExecutor === "local-user-edit").length, 0);
+});
+
+harness.test("approval", "Drawer true edit derives local-user-edit and rejects the original Closed candidate", async () => {
+  const state = await setupClosedApprovalFixture({
+    cacheHit: false,
+    candidateContent: "Original Closed content before the author edits it in the drawer.",
+    requestContent: "Continue the current chapter.",
+  });
+  const editedContent = `${artifactStory(state.artifact)}\nThe author adds a materially new ending.`;
+  const result = await runClosedDrawerApproval(state, editedContent);
+  const artifacts = await state.repository.list("conversationArtifacts", state.projectId);
+  const invocations = await state.repository.list("conversationToolInvocations", state.projectId);
+  const originalArtifact = artifacts.find((item) => item.id === state.artifact.id);
+  const editedArtifact = artifacts.find((item) => (
+    item.id !== state.artifact.id && item.status === "approved"
+  ));
+  const localEdits = invocations.filter((item) => item.actualExecutor === "local-user-edit");
+
+  assert.deepEqual(result.safeErrors, []);
+  assert.deepEqual(result.approvedCandidateIds, []);
+  assert.deepEqual(result.rejectedCandidateIds, [state.candidate.id]);
+  assert.equal(result.leaseReleaseCount, 1);
+  assert.equal(originalArtifact.status, "rejected");
+  assert(editedArtifact);
+  assert.equal(editedArtifact.candidateContent, editedContent.trim());
+  assert.equal(localEdits.length, 1);
+  assert.equal(localEdits[0].executionReceipt.outputDigest, editedArtifact.candidateDigest);
+  assert.equal((await state.repository.get("chapters", state.chapterId)).revision, 2);
+});
+
+harness.test("approval", "Closed lineage cannot downgrade to generic approval when candidate identity is missing", async () => {
+  const state = await setupClosedApprovalFixture({ cacheHit: false });
+  const currentMessage = await state.repository.get("conversationMessages", state.message.id);
+  const tamperedMessage = await state.repository.put("conversationMessages", {
+    ...currentMessage,
+    candidateIds: [state.artifact.id],
+  }, currentMessage.revision);
+  await assert.rejects(
+    () => state.repository.approveConversationArtifactTransaction({
+      ...state.approvalInput,
+      expectedSourceMessageRevision: tamperedMessage.revision,
+    }),
+    errorWithCode("CONVERSATION_CLOSED_APPROVAL_BINDING_INVALID"),
+  );
+  assert.equal((await state.repository.get("chapters", state.chapterId)).revision, 1);
+  assert.equal((await state.repository.list("conversationApprovalTransactions", state.projectId)).length, 0);
+});
+
+harness.test("approval", "author-edited Closed artifact uses one exact local-edit derivation", async () => {
+  const state = await setupClosedApprovalFixture({ cacheHit: false });
+  const editedContent = "作者親自改寫後的繁體候選，內容與模型輸出明確不同。";
+  const editedArtifact = await state.service.saveArtifact({
+    projectId: state.projectId,
+    sessionId: state.session.id,
+    sourceMessageId: state.message.id,
+    artifactType: "novel",
+    targetStore: "chapters",
+    targetRecordId: state.chapterId,
+    sourceRevision: 1,
+    candidateContent: editedContent,
+  });
+  await state.service.rejectArtifact(
+    state.projectId,
+    state.session.id,
+    state.artifact.id,
+    state.artifact.revision,
+  );
+  const sourceMessage = await state.repository.get("conversationMessages", state.message.id);
+  const contextDigest = await sha256Hex(`local-edit:${state.projectId}`);
+  const localEditTaskId = `conversation-local-user-edit:task:${crypto.randomUUID()}`;
+  const localEdit = await state.service.saveToolInvocation({
+    projectId: state.projectId,
+    sessionId: state.session.id,
+    messageId: sourceMessage.id,
+    taskId: localEditTaskId,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.localUserEdit,
+    taskType: "candidate.user-edit",
+    inputDigest: sourceMessage.contentDigest,
+    contextDigest,
+    status: "completed",
+    actualExecutor: "local-user-edit",
+    modelId: null,
+    modelDigest: null,
+    executionReceipt: {
+      receiptId: `conversation-local-user-edit:${crypto.randomUUID()}`,
+      modelId: null,
+      modelDigest: null,
+      providerRunId: localEditTaskId,
+      contextDigest,
+      outputDigest: editedArtifact.candidateDigest,
+      externalRequest: false,
+      dataLeftDevice: false,
+      latencyMs: 0,
+    },
+    externalRequest: false,
+    dataLeftDevice: false,
+    canonicalMutationCount: 0,
+  });
+  const linkedMessage = await state.repository.get("conversationMessages", state.message.id);
+  const currentSession = await state.repository.get("conversationSessions", state.session.id);
+  const currentArtifact = await state.repository.get("conversationArtifacts", editedArtifact.id);
+  const input = {
+    ...state.approvalInput,
+    operationId: `edited-approval:${editedArtifact.id}`,
+    idempotencyKey: `edited-approval:${editedArtifact.id}`,
+    artifactId: editedArtifact.id,
+    candidateDigest: editedArtifact.candidateDigest,
+    expectedSessionRevision: currentSession.revision,
+    expectedArtifactRevision: currentArtifact.revision,
+    expectedSourceMessageRevision: linkedMessage.revision,
+  };
+  const approved = await state.repository.approveConversationArtifactTransaction(input);
+  assert.equal(approved.artifact.status, "approved");
+  assert.equal(approved.canonicalRecord.revision, 2);
+
+  const tampered = await setupClosedApprovalFixture({ cacheHit: false });
+  const tamperedArtifact = await tampered.service.saveArtifact({
+    projectId: tampered.projectId,
+    sessionId: tampered.session.id,
+    sourceMessageId: tampered.message.id,
+    artifactType: "novel",
+    targetStore: "chapters",
+    targetRecordId: tampered.chapterId,
+    sourceRevision: 1,
+    candidateContent: `${editedContent}第二份`,
+  });
+  await tampered.service.rejectArtifact(
+    tampered.projectId,
+    tampered.session.id,
+    tampered.artifact.id,
+    tampered.artifact.revision,
+  );
+  const tamperedMessage = await tampered.repository.get("conversationMessages", tampered.message.id);
+  const tamperedContext = await sha256Hex(`local-edit:${tampered.projectId}`);
+  const tamperedEditTaskId = `conversation-local-user-edit:task:${crypto.randomUUID()}`;
+  await tampered.service.saveToolInvocation({
+    projectId: tampered.projectId,
+    sessionId: tampered.session.id,
+    messageId: tamperedMessage.id,
+    taskId: tamperedEditTaskId,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.localUserEdit,
+    taskType: "candidate.user-edit",
+    inputDigest: tamperedMessage.contentDigest,
+    contextDigest: tamperedContext,
+    status: "completed",
+    actualExecutor: "local-user-edit",
+    modelId: null,
+    modelDigest: null,
+    executionReceipt: {
+      receiptId: `conversation-local-user-edit:${crypto.randomUUID()}`,
+      modelId: null,
+      modelDigest: null,
+      providerRunId: tamperedEditTaskId,
+      contextDigest: tamperedContext,
+      outputDigest: await sha256Hex("wrong local edit output"),
+      externalRequest: false,
+      dataLeftDevice: false,
+      latencyMs: 0,
+    },
+    externalRequest: false,
+    dataLeftDevice: false,
+    canonicalMutationCount: 0,
+  });
+  const tamperedLinkedMessage = await tampered.repository.get("conversationMessages", tampered.message.id);
+  const tamperedSession = await tampered.repository.get("conversationSessions", tampered.session.id);
+  const tamperedCurrentArtifact = await tampered.repository.get("conversationArtifacts", tamperedArtifact.id);
+  await assert.rejects(
+    () => tampered.repository.approveConversationArtifactTransaction({
+      ...tampered.approvalInput,
+      operationId: `tampered-edit:${tamperedArtifact.id}`,
+      idempotencyKey: `tampered-edit:${tamperedArtifact.id}`,
+      artifactId: tamperedArtifact.id,
+      candidateDigest: tamperedArtifact.candidateDigest,
+      expectedSessionRevision: tamperedSession.revision,
+      expectedArtifactRevision: tamperedCurrentArtifact.revision,
+      expectedSourceMessageRevision: tamperedLinkedMessage.revision,
+    }),
+    errorWithCode("CONVERSATION_CLOSED_APPROVAL_BINDING_INVALID"),
+  );
+  assert.equal((await tampered.repository.get("chapters", tampered.chapterId)).revision, 1);
+  assert(localEdit);
 });
 
 harness.test("approval", "failed receipts and output-unbound receipts cannot approve in Memory or IndexedDB", async () => {
@@ -837,6 +1543,70 @@ harness.test("approval", "IndexedDB v7 approval is atomic, replay-safe, and roll
   assert.deepEqual(await rollbackRepository.get("chapters", rollbackState.chapterId), beforeChapter);
   assert.equal((await rollbackRepository.get("conversationArtifacts", rollbackState.artifact.id)).status, "candidate");
   assert.equal((await rollbackRepository.list("conversationApprovalTransactions", rollbackProjectId)).length, 0);
+});
+
+harness.test("approval", "IndexedDB approval rejects exact-snapshot artifact and message races before Canon mutation", async () => {
+  const projectId = `project-indexeddb-approval-race:${crypto.randomUUID()}`;
+  const repository = new ApprovalSnapshotTamperingRepository();
+  const state = await setupApproval({ repository, projectId });
+  const tamperedContent = "A direct IndexedDB write changed only the candidate content.";
+  repository.armArtifactTamper(state.artifact.id, tamperedContent);
+
+  await assert.rejects(
+    () => repository.approveConversationArtifactTransaction(state.approvalInput),
+    errorWithCode("CONVERSATION_APPROVAL_SOURCE_STALE"),
+  );
+
+  assert.equal((await repository.get("chapters", state.chapterId)).revision, 1);
+  assert.equal((await repository.get("chapters", state.chapterId)).content, "Canonical opening.");
+  assert.equal((await repository.get("conversationArtifacts", state.artifact.id)).candidateContent, tamperedContent);
+  assert.equal((await repository.list("conversationApprovalTransactions", projectId)).length, 0);
+
+  const messageProjectId = `project-indexeddb-approval-message-race:${crypto.randomUUID()}`;
+  const messageRepository = new ApprovalSnapshotTamperingRepository();
+  const messageState = await setupApproval({
+    repository: messageRepository,
+    projectId: messageProjectId,
+  });
+  const tamperedMessageContent = "A direct IndexedDB write changed only the source message content.";
+  messageRepository.armSourceMessageTamper(
+    messageState.message.id,
+    tamperedMessageContent,
+  );
+  await assert.rejects(
+    () => messageRepository.approveConversationArtifactTransaction(messageState.approvalInput),
+    errorWithCode("CONVERSATION_APPROVAL_SOURCE_STALE"),
+  );
+  assert.equal((await messageRepository.get("chapters", messageState.chapterId)).revision, 1);
+  assert.equal((await messageRepository.get("chapters", messageState.chapterId)).content, "Canonical opening.");
+  assert.equal(
+    (await messageRepository.get("conversationMessages", messageState.message.id)).content,
+    tamperedMessageContent,
+  );
+  assert.equal((await messageRepository.list("conversationApprovalTransactions", messageProjectId)).length, 0);
+
+  const inconsistentProjectId = `project-indexeddb-approval-inconsistent-message:${crypto.randomUUID()}`;
+  const inconsistentRepository = new ApprovalSnapshotTamperingRepository();
+  const inconsistentState = await setupApproval({
+    repository: inconsistentRepository,
+    projectId: inconsistentProjectId,
+  });
+  inconsistentRepository.armSourceMessageTamper(
+    inconsistentState.message.id,
+    "The source was already inconsistent before the approval preflight read it.",
+  );
+  await inconsistentRepository.get("conversationMessages", inconsistentState.message.id);
+  await assert.rejects(
+    () => inconsistentRepository.approveConversationArtifactTransaction(
+      inconsistentState.approvalInput,
+    ),
+    errorWithCode("CONVERSATION_APPROVAL_SOURCE_STALE"),
+  );
+  assert.equal((await inconsistentRepository.get("chapters", inconsistentState.chapterId)).revision, 1);
+  assert.equal((await inconsistentRepository.list(
+    "conversationApprovalTransactions",
+    inconsistentProjectId,
+  )).length, 0);
 });
 
 harness.test("routing", "natural-language planner maps supported intents to the fixed tool allowlist", async () => {

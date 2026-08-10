@@ -28,6 +28,9 @@ let context;
 let page;
 
 const SAFE_DIAGNOSTIC_CODES = Object.freeze([
+  "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
+  "CLOSED_AGENT_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
+  "CLOSED_AGENT_PROVIDER_NORMALIZATION_NOT_DEFERRED",
   "QUALITY_TRADITIONALCHINESE_LOW",
   "QUALITY_CANONCOMPLIANCE_LOW",
   "QUALITY_CHARACTERVOICE_LOW",
@@ -43,6 +46,8 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "QUALITY_CONTEXT_ANCHOR_MISSING",
   "QUALITY_CONTEXT_CHARACTER_MISSING",
   "QUALITY_OUTPUT_TRUNCATED",
+  "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+  "QUALITY_OUTPUT_RAW_REASONING_LEAK",
   "QUALITY_OUTPUT_CONTROL_TOKEN",
   "QUALITY_OUTPUT_ROLE_ENVELOPE",
   "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -62,6 +67,7 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "CANDIDATE_EMPTY",
   "CANDIDATE_CREDENTIAL_LEAK",
   "CANDIDATE_RAW_REASONING_LEAK",
+  "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
   "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
   "CANDIDATE_PROPER_NOUN_DRIFT",
   "CANDIDATE_ONLY_CONTRACT_MISSING",
@@ -286,7 +292,8 @@ async function installSanitizedQualityObserver() {
     const finishReasons = new Set(allowedFinishReasons);
     const codes = new Set();
     const evidence = new Map();
-    const runtimeEvidencePattern = /BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension|recovery):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})/gu;
+    const diagnosticTokenPattern = /(?<![\p{L}\p{N}_])[A-Z][A-Z0-9_]{0,95}(?![\p{L}\p{N}_])/gu;
+    const runtimeEvidencePattern = /(?<![\p{L}\p{N}_:])BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension|recovery):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})(?=$|[^\p{L}\p{N}_:])/gu;
     const parseRuntimeInteger = (value, maximum) => {
       if (value === "u") return null;
       const parsed = Number(value);
@@ -297,8 +304,8 @@ async function installSanitizedQualityObserver() {
     const collect = () => {
       for (const node of document.querySelectorAll('[role="status"]')) {
         const text = node.textContent ?? "";
-        for (const code of allowed) {
-          if (text.includes(code) && codes.size < 12) codes.add(code);
+        for (const token of text.match(diagnosticTokenPattern) ?? []) {
+          if (allowed.has(token) && codes.size < 12) codes.add(token);
         }
         for (const match of text.matchAll(runtimeEvidencePattern)) {
           const [, stage, finishReason, completion, raw, normalized, han] = match;
@@ -351,13 +358,35 @@ async function assertMaliciousDomDiagnosticsAreRejected() {
     const node = document.createElement("div");
     node.hidden = true;
     node.setAttribute("role", "status");
-    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
+    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID_ATTACKER CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID_ATTACKER xQUALITY_OUTPUT_CREDENTIAL_LEAK QUALITY_OUTPUT_RAW_REASONING_LEAKx 惡QUALITY_OUTPUT_ROLE_ENVELOPE QUALITY_OUTPUT_CONTROL_TOKEN惡 BROWSER_WEBLLM_ATTACKER_FAKE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20_ATTACKER xBROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20x 惡BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20惡 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
     document.body.append(node);
     await new Promise((resolve) => setTimeout(resolve, 0));
     node.remove();
   });
-  assert.deepEqual(await readSanitizedQualityCodes(), ["QUALITY_EMPTY_CANDIDATE"]);
+  assert.deepEqual(await readSanitizedQualityCodes(), []);
   assert.deepEqual(await readSanitizedBrowserRuntimeEvidence(), []);
+  await page.evaluate(async () => {
+    const node = document.createElement("div");
+    node.hidden = true;
+    node.setAttribute("role", "status");
+    node.textContent = "QUALITY_EMPTY_CANDIDATE CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20";
+    document.body.append(node);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    node.remove();
+  });
+  assert.deepEqual(await readSanitizedQualityCodes(), [
+    "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
+    "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
+    "QUALITY_EMPTY_CANDIDATE",
+  ]);
+  assert.deepEqual(await readSanitizedBrowserRuntimeEvidence(), [{
+    stage: "initial",
+    finishReason: "stop",
+    completionTokens: 12,
+    rawOutputCharacters: 30,
+    normalizedOutputCharacters: 30,
+    observedHanCharacters: 20,
+  }]);
   await page.evaluate(() => {
     window.__rc62SanitizedQualityObserver?.codes?.clear();
     window.__rc62SanitizedQualityObserver?.evidence?.clear();

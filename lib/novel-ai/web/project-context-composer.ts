@@ -162,6 +162,60 @@ function ordered<T extends DomainRecord>(records: T[]) {
   });
 }
 
+function canonicalCharacterIdentities(records: Character[]) {
+  const output = new Map<Character, { name?: string; aliases?: string[] }>();
+  const seen = new Set<string>();
+  let termCount = 0;
+  let termCharacters = 0;
+  const take = (value: unknown) => {
+    if (
+      typeof value !== "string"
+      || !/^[\p{Script=Han}·]{2,12}$/u.test(value)
+      || seen.has(value)
+      || termCount >= 64
+      || termCharacters + value.length > 512
+    ) return null;
+    seen.add(value);
+    termCount += 1;
+    termCharacters += value.length;
+    return value;
+  };
+  const canonicalRecords = ordered(records);
+  for (const record of canonicalRecords) {
+    if (termCount >= 64 || termCharacters >= 512) break;
+    const identity = cleanRecord(record, ["name", "aliases"]);
+    const name = take(identity.name);
+    if (name) output.set(record, { name });
+  }
+  for (const record of canonicalRecords) {
+    if (termCount >= 64 || termCharacters >= 512) break;
+    const identity = cleanRecord(record, ["name", "aliases"]);
+    const aliases = (Array.isArray(identity.aliases) ? identity.aliases : [])
+      .map(take)
+      .filter((alias): alias is string => Boolean(alias));
+    if (aliases.length) {
+      output.set(record, { ...output.get(record), aliases });
+    }
+  }
+  const bounded = canonicalRecords.flatMap((record) => {
+    const identity = output.get(record);
+    return identity ? [identity] : [];
+  });
+  const serializedLength = () => (
+    `[CANONICAL_CHARACTER_IDENTITIES]\n${stableStringify(bounded)}`.length
+  );
+  while (bounded.length && serializedLength() > 896) {
+    const lastWithAliases = bounded.findLast((identity) => identity.aliases?.length);
+    if (lastWithAliases?.aliases?.length) {
+      lastWithAliases.aliases.pop();
+      if (!lastWithAliases.aliases.length) delete lastWithAliases.aliases;
+      continue;
+    }
+    bounded.pop();
+  }
+  return bounded;
+}
+
 function addContext(
   target: PrioritizedContext[],
   input: {
@@ -176,6 +230,12 @@ function addContext(
   },
 ) {
   const text = `[${input.source}]\n${stableStringify(input.value)}`;
+  const canonicalIdentitySource = {
+    CANONICAL_CHARACTER_IDENTITIES: "characters",
+    CHARACTERS: "characters",
+    PROJECT_SEED: "project-seed",
+    ACTIVE_CHAPTER: "active-chapter",
+  }[input.source] as ClosedAIContextItem["canonicalIdentitySource"];
   target.push({
     priority: input.priority,
     item: {
@@ -186,6 +246,8 @@ function addContext(
       visibility: input.visibility ?? "both",
       privacyLevel: input.privacyLevel,
       approved: true,
+      composerAuthority: "project-context-composer-v1",
+      ...(canonicalIdentitySource ? { canonicalIdentitySource } : {}),
     },
   });
 }
@@ -338,6 +400,17 @@ export async function composeProjectContext(
   const selectedCharacters = input.characterId
     ? characters.filter((item) => item.id === input.characterId)
     : characters;
+
+  if (selectedCharacters.length) {
+    addContext(entries, {
+      id: `canonical-character-identities:${input.characterId ?? "all"}`,
+      kind: "canon",
+      source: "CANONICAL_CHARACTER_IDENTITIES",
+      value: canonicalCharacterIdentities(selectedCharacters),
+      priority: 101,
+      privacyLevel,
+    });
+  }
 
   addContext(entries, {
     id: `project:${project.id}`,
@@ -973,7 +1046,10 @@ export async function composeProjectContext(
   for (const item of input.supplementalContext ?? []) {
     if (!item.approved) continue;
     if (item.visibility === "author-only" && audience !== "author") continue;
-    entries.push({ priority: 99, item: structuredClone(item) });
+    const supplemental = structuredClone(item);
+    delete supplemental.composerAuthority;
+    delete supplemental.canonicalIdentitySource;
+    entries.push({ priority: 99, item: supplemental });
   }
 
   let ranking: ProjectContextSourceSummary["ranking"] = {

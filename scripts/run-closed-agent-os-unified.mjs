@@ -37,10 +37,18 @@ import {
   closedAgentBrowserRuntimeEvidenceProgress,
   safeClosedAgentBrowserRuntimeCauseCode,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
+import { createExplicitRegenerationContract } from "../lib/novel-ai/web/explicit-regeneration.ts";
 
 const tests = [];
 const results = [];
 const test = (name, run) => tests.push({ name, run });
+
+function candidateCacheCount(entries) {
+  return entries.filter((entry) => (
+    entry.tags.includes("closed-agent-candidate")
+    || entry.tags.includes("closed-agent-semantic-candidate")
+  )).length;
+}
 
 test("quality failure reasons expose only safe deterministic codes", () => {
   assert.deepEqual(closedAgentQualityReasonCodes({
@@ -62,6 +70,8 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     qualityReasonCodes: [
       "QUALITY_TASK_FORM_MISMATCH",
       "QUALITY_SCORE_BELOW_THRESHOLD",
+      "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+      "QUALITY_OUTPUT_RAW_REASONING_LEAK",
       "QUALITY_OUTPUT_CONTROL_TOKEN",
       "QUALITY_OUTPUT_ROLE_ENVELOPE",
       "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -72,6 +82,8 @@ test("quality failure reasons expose only safe deterministic codes", () => {
   }), [
     "QUALITY_TASK_FORM_MISMATCH",
     "QUALITY_SCORE_BELOW_THRESHOLD",
+    "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+    "QUALITY_OUTPUT_RAW_REASONING_LEAK",
     "QUALITY_OUTPUT_CONTROL_TOKEN",
     "QUALITY_OUTPUT_ROLE_ENVELOPE",
     "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -81,6 +93,7 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     "CANDIDATE_EMPTY",
     "CANDIDATE_CREDENTIAL_LEAK",
     "CANDIDATE_RAW_REASONING_LEAK",
+    "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
     "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
     "CANDIDATE_PROPER_NOUN_DRIFT",
     "CANDIDATE_ONLY_CONTRACT_MISSING",
@@ -88,8 +101,25 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     "ABC_CHOICES_INVALID_STRUCTURE",
   ];
   assert.deepEqual(closedAgentQualityReasonCodes({
-    blockingCodes: [...evaluatorCodes, "CANDIDATE_ATTACKER_FAKE", "private-output"],
+    blockingCodes: [
+      ...evaluatorCodes,
+      "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID_ATTACKER",
+      "CANDIDATE_ATTACKER_FAKE",
+      "private-output",
+    ],
   }), evaluatorCodes);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    causeCode: "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
+    reasonCodes: [
+      "CLOSED_AGENT_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
+      "CLOSED_AGENT_PROVIDER_NORMALIZATION_NOT_DEFERRED",
+      "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID_ATTACKER",
+    ],
+  }), [
+    "CLOSED_AGENT_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
+    "CLOSED_AGENT_PROVIDER_NORMALIZATION_NOT_DEFERRED",
+    "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
+  ]);
   assert.deepEqual(closedAgentQualityReasonCodes({
     qualityReasonCodes: ["QUALITY_ATTACKER_FAKE"],
     reasonCodes: ["QUALITY_SECRET_VALUE"],
@@ -250,17 +280,21 @@ class MockBackend {
       backendId: this.id,
       actorContext: structuredClone(input.actorContext),
       taskId: input.request.taskId,
+      qualityPhase: input.qualityPhase,
+      workingMaterials: structuredClone(input.workingMaterials),
       learningConfiguration: structuredClone(input.request.learningConfiguration ?? {}),
     });
     if (this.options.executeError) throw this.options.executeError;
+    const content = this.options.contentByPhase?.[input.qualityPhase]
+      ?? `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`;
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
       modelDigest: modelDigestForBackend(this.id),
-      content: `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`,
+      content,
       candidateOnly: true,
-      dataLeftDevice: this.id === "private-ai-hub",
-      externalRequest: this.id === "private-ai-hub",
+      dataLeftDevice: false,
+      externalRequest: false,
       elapsedMs: 5,
     };
   }
@@ -273,7 +307,7 @@ function createMockOS(options = {}) {
     semanticThreshold: 0.2,
   });
   const ledger = new VerifiableLedger({
-    repository: new MemoryVerifiableLedgerRepository(),
+    repository: options.ledgerRepository ?? new MemoryVerifiableLedgerRepository(),
     signer: new ApprovalSigner(),
   });
   const backends = [
@@ -285,9 +319,9 @@ function createMockOS(options = {}) {
     backends,
     cache,
     ledger,
-    state: new MemoryClosedAgentStateRepository(),
+    state: options.state ?? new MemoryClosedAgentStateRepository(),
   });
-  return { os, calls };
+  return { os, calls, backends };
 }
 
 function request(taskId, taskType, complexity, overrides = {}) {
@@ -764,6 +798,162 @@ test("failed Browser execution exposes only finite transient runtime evidence", 
   assert.doesNotMatch(failed.label, /private prompt|raw output/iu);
 });
 
+test("unsafe raw passes stop before working material and durable candidate writes", async () => {
+  const unsafeFixtures = [{
+    label: "generic-control",
+    content: "<|begin_of_text|>不可保存的控制內容",
+    reason: "QUALITY_OUTPUT_CONTROL_TOKEN",
+  }, {
+    label: "mistral-control",
+    content: "[INST] 不可保存的控制內容 [/INST]",
+    reason: "QUALITY_OUTPUT_CONTROL_TOKEN",
+  }, {
+    label: "zero-width-role",
+    content: "\u200Bsystem: 不可保存的角色內容",
+    reason: "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  }, {
+    label: "role-xml",
+    content: "<assistant>不可保存的角色內容</assistant>",
+    reason: "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  }, {
+    label: "credential",
+    content: `sk-proj-${"a".repeat(24)}`,
+    reason: "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+  }, {
+    label: "private-key",
+    content: "-----BEGIN PRIVATE KEY-----",
+    reason: "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+  }, {
+    label: "reasoning",
+    content: "<think>private reasoning</think>",
+    reason: "QUALITY_OUTPUT_RAW_REASONING_LEAK",
+  }, {
+    label: "escaped-reasoning",
+    content: "&lt;analysis&gt;hidden steps&lt;/analysis&gt;",
+    reason: "QUALITY_OUTPUT_RAW_REASONING_LEAK",
+  }];
+  const backendCases = [{
+    id: "browser-ai",
+    option: "browser",
+    taskType: "story.summary",
+    complexity: "light",
+    namespace: {},
+  }, {
+    id: "local-ollama",
+    option: "local",
+    taskType: "chapter.continue",
+    complexity: "standard",
+    namespace: {},
+  }, {
+    id: "private-ai-hub",
+    option: "privateHub",
+    taskType: "character.multiAgentSimulation",
+    complexity: "heavy",
+    namespace: { privacyLevel: "private_infrastructure_only" },
+  }];
+  let index = 0;
+  for (const backendCase of backendCases) {
+    for (const fixture of unsafeFixtures) {
+      index += 1;
+      const options = {
+        [backendCase.option]: {
+          contentByPhase: { draft: fixture.content },
+        },
+      };
+      const { os, calls } = createMockOS(options);
+      const taskId = `unsafe-pass-${backendCase.id}-${fixture.label}-${index}`;
+      let failure;
+      await assert.rejects(
+        () => os.execute(request(
+          taskId,
+          backendCase.taskType,
+          backendCase.complexity,
+          {
+            preferredBackend: backendCase.id,
+            namespace: backendCase.namespace,
+          },
+        )),
+        (error) => {
+          failure = error;
+          return error?.code === "CLOSED_AGENT_QUALITY_PASS_UNSAFE";
+        },
+      );
+      assert.deepEqual(closedAgentQualityReasonCodes(failure), [fixture.reason]);
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].workingMaterials, []);
+      const ledgerId = `closed-agent:project-a:${taskId}`;
+      const durable = JSON.stringify({
+        blocks: await os.ledger.repository.list(ledgerId),
+        candidates: await os.state.list("project-a", "candidate"),
+        cache: await os.cache.repository.list(),
+      });
+      assert.equal(durable.includes(fixture.content), false);
+      assert.equal(durable.includes(await sha256Hex(fixture.content)), false);
+      assert.equal((await os.state.list("project-a", "candidate")).length, 0);
+      assert.equal(candidateCacheCount(await os.cache.repository.list()), 0);
+    }
+  }
+
+  for (const phaseCase of [{
+    option: "local",
+    backendId: "local-ollama",
+    taskType: "chapter.continue",
+    complexity: "standard",
+    phase: "revision",
+    unsafe: "analysis: hidden steps",
+    expectedCalls: 2,
+    namespace: {},
+  }, {
+    option: "privateHub",
+    backendId: "private-ai-hub",
+    taskType: "character.multiAgentSimulation",
+    complexity: "heavy",
+    phase: "critic",
+    unsafe: `Bearer ${"b".repeat(24)}`,
+    expectedCalls: 2,
+    namespace: { privacyLevel: "private_infrastructure_only" },
+  }, {
+    option: "privateHub",
+    backendId: "private-ai-hub",
+    taskType: "character.multiAgentSimulation",
+    complexity: "heavy",
+    phase: "revision",
+    unsafe: "<analysis>hidden steps</analysis>",
+    expectedCalls: 3,
+    namespace: { privacyLevel: "private_infrastructure_only" },
+  }]) {
+    const options = {
+      [phaseCase.option]: {
+        contentByPhase: { [phaseCase.phase]: phaseCase.unsafe },
+      },
+    };
+    const { os, calls } = createMockOS(options);
+    const taskId = `unsafe-${phaseCase.backendId}-${phaseCase.phase}`;
+    await assert.rejects(
+      () => os.execute(request(
+        taskId,
+        phaseCase.taskType,
+        phaseCase.complexity,
+        {
+          preferredBackend: phaseCase.backendId,
+          namespace: phaseCase.namespace,
+        },
+      )),
+      errorCode("CLOSED_AGENT_QUALITY_PASS_UNSAFE"),
+    );
+    assert.equal(calls.length, phaseCase.expectedCalls);
+    assert.equal(calls.at(-1).qualityPhase, phaseCase.phase);
+    assert.equal(JSON.stringify(calls).includes(phaseCase.unsafe), false);
+    const durable = JSON.stringify({
+      blocks: await os.ledger.repository.list(`closed-agent:project-a:${taskId}`),
+      candidates: await os.state.list("project-a", "candidate"),
+      cache: await os.cache.repository.list(),
+    });
+    assert.equal(durable.includes(phaseCase.unsafe), false);
+    assert.equal(durable.includes(await sha256Hex(phaseCase.unsafe)), false);
+  }
+});
+
 test("native browser generator without a cryptographic model digest fails closed", () => {
   assert.throws(
     () => selectClosedAIBackend(
@@ -894,6 +1084,164 @@ test("semantic candidate cache is bound to the evaluated context digest", async 
   ));
   assert.equal(repeatedContext.cache.candidateHit, true);
   assert.equal(calls.length, 2);
+});
+
+test("an existing cache-hit candidate retains immutable lineage while rejected origins stop new reuse", async () => {
+  const { os, calls, backends } = createMockOS();
+  const context = [{
+    id: "approved-cache-origin-context",
+    kind: "story-bible",
+    text: "The approved clue is the sealed bronze key.",
+    visibility: "both",
+    privacyLevel: "device_only",
+    approved: true,
+  }];
+  const sharedInput = {
+    objective: "Summarize the approved sealed bronze key clue.",
+    context,
+  };
+  const origin = await os.execute(request(
+    "task-cache-origin-a",
+    "story.summary",
+    "light",
+    sharedInput,
+  ));
+  const callsAfterOrigin = calls.length;
+  const cached = await os.execute(request(
+    "task-cache-origin-b",
+    "story.summary",
+    "light",
+    sharedInput,
+  ));
+  assert.equal(cached.cache.candidateHit, true);
+  assert.equal(calls.length, callsAfterOrigin);
+  assert.equal(cached.candidate.actualExecutor, "not_executed");
+  assert.equal(cached.candidate.executionReceipt, null);
+  assert.equal(cached.candidate.cacheOrigin?.originCandidateId, origin.candidate.id);
+  assert.equal(await os.verifyCandidateIntegrity(cached.candidate.id), true);
+
+  await os.rejectCandidate(origin.candidate.id);
+  assert.equal(await os.verifyCandidateIntegrity(cached.candidate.id), true);
+  backends.find((backend) => backend.id === "browser-ai").options.contentByPhase = {
+    draft: "A fresh regeneration follows a different consequence and ends with a newly opened route.",
+  };
+  const regenerated = await os.execute(request(
+    "task-cache-origin-c-regenerated",
+    "story.summary",
+    "light",
+    {
+      ...sharedInput,
+      preferredBackend: "browser-ai",
+      regeneration: createExplicitRegenerationContract({
+        previousCandidateId: cached.candidate.id,
+        previousTaskId: cached.candidate.taskId,
+        previousCandidateDigest: cached.candidate.contentDigest,
+        regenerationAttempt: 1,
+      }),
+    },
+  ));
+  assert.equal(regenerated.cache.candidateHit, false);
+  assert.equal(regenerated.candidate.actualExecutor, "browser-ai");
+  assert.equal(regenerated.candidate.executionReceipt?.proofState, "verified");
+  assert.equal(
+    regenerated.candidate.regeneration?.previousCandidateId,
+    cached.candidate.id,
+  );
+  assert.equal(calls.length, callsAfterOrigin + 1);
+
+  const approvedCached = await os.approveCandidate({
+    candidateId: cached.candidate.id,
+    approvedBy: "author",
+    humanApproved: true,
+  });
+  assert.equal(approvedCached.candidate.status, "approved");
+  const freshAfterRejection = await os.execute(request(
+    "task-cache-origin-d-after-rejection",
+    "story.summary",
+    "light",
+    sharedInput,
+  ));
+  assert.equal(freshAfterRejection.cache.candidateHit, false);
+  assert.equal(freshAfterRejection.candidate.actualExecutor, "browser-ai");
+  assert.equal(calls.length, callsAfterOrigin + 2);
+});
+
+test("a failed final state write recovers one durable candidate without rerunning", async () => {
+  let failCandidateStateOnce = true;
+  const state = new MemoryClosedAgentStateRepository({
+    faultInjector(point) {
+      if (failCandidateStateOnce && point === "before:candidate") {
+        failCandidateStateOnce = false;
+        throw new Error("TRANSIENT_CANDIDATE_STATE_WRITE_FAILED");
+      }
+    },
+  });
+  const { os, calls, backends } = createMockOS({ state });
+  const retriedRequest = request(
+    "task-state-recovery",
+    "story.summary",
+    "light",
+  );
+  await assert.rejects(
+    () => os.execute(retriedRequest),
+    /TRANSIENT_CANDIDATE_STATE_WRITE_FAILED/u,
+  );
+  assert.equal(calls.length, 1);
+  backends.find((backend) => backend.id === "browser-ai").options.status = "unreachable";
+  const recovered = await os.execute(retriedRequest);
+  assert.equal(recovered.task.state, "awaiting-approval");
+  assert.equal(recovered.route.reasonCode, "DURABLE_CANDIDATE_RECOVERY");
+  assert.equal(calls.length, 1);
+  const blocks = await os.ledger.repository.list(
+    "closed-agent:project-a:task-state-recovery",
+  );
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-generated").length, 1);
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-evaluated").length, 1);
+  const approved = await os.approveCandidate({
+    candidateId: recovered.candidate.id,
+    approvedBy: "author",
+    humanApproved: true,
+  });
+  assert.equal(approved.candidate.status, "approved");
+});
+
+test("a failed evaluated append is completed from the retained generated snapshot", async () => {
+  let failEvaluationOnce = true;
+  class FailOnceEvaluationLedgerRepository extends MemoryVerifiableLedgerRepository {
+    async append(block) {
+      if (failEvaluationOnce && block.eventType === "candidate-evaluated") {
+        failEvaluationOnce = false;
+        throw new Error("TRANSIENT_EVALUATION_LEDGER_APPEND_FAILED");
+      }
+      return super.append(block);
+    }
+  }
+  const { os, calls } = createMockOS({
+    ledgerRepository: new FailOnceEvaluationLedgerRepository(),
+  });
+  const retriedRequest = request(
+    "task-evaluation-recovery",
+    "story.summary",
+    "light",
+  );
+  await assert.rejects(
+    () => os.execute(retriedRequest),
+    /TRANSIENT_EVALUATION_LEDGER_APPEND_FAILED/u,
+  );
+  assert.equal(calls.length, 1);
+  const recovered = await os.execute(retriedRequest);
+  assert.equal(recovered.route.reasonCode, "DURABLE_CANDIDATE_RECOVERY");
+  assert.equal(calls.length, 1);
+  const blocks = await os.ledger.repository.list(
+    "closed-agent:project-a:task-evaluation-recovery",
+  );
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-generated").length, 1);
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-evaluated").length, 1);
+  assert.equal(await os.verifyCandidateIntegrity(recovered.candidate.id), true);
 });
 
 test("explicit incompatible backend fails without silent fallback", async () => {

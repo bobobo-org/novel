@@ -1,18 +1,18 @@
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
-import {
-  containsConvertibleSimplifiedChinese,
-  containsProtectedProperNounDrift,
+import type {
+  TraditionalChineseNormalizationPolicy,
 } from "../language/traditional-chinese";
 import { evaluateObjectiveAcceptance } from "./acceptance";
 import { normalizeAbcChoicesCandidate } from "./structured-output";
+import {
+  closedOutputSafetyCode,
+  closedOutputSafetyReasonCode,
+} from "../security/closed-output-safety";
 import type {
   ClosedAgentEvaluation,
   ClosedAgentTaskRequest,
   ClosedBackendExecutionResult,
 } from "./types";
-
-const CREDENTIAL = /\b(?:vcp|sbp|sk|gh[pousr])_[A-Za-z0-9_-]{20,}\b/u;
-const RAW_REASONING = /\b(?:chain[- ]of[- ]thought|hidden reasoning)\b/iu;
 
 function candidateRubric(input: {
   content: string;
@@ -48,28 +48,58 @@ function candidateRubric(input: {
 export async function evaluateClosedAgentCandidate(input: {
   request: ClosedAgentTaskRequest;
   execution: ClosedBackendExecutionResult;
+  traditionalChineseNormalizationPolicy: TraditionalChineseNormalizationPolicy;
 }): Promise<ClosedAgentEvaluation> {
+  const {
+    containsHighConfidenceSimplifiedChinese,
+    containsProtectedTermDrift,
+    verifyTraditionalChineseNormalizationIntegrity,
+  } = await import("../language/traditional-chinese");
   const blockingCodes: string[] = [];
   const warningCodes: string[] = [];
   const content = input.execution.content.trim();
   if (!content) blockingCodes.push("CANDIDATE_EMPTY");
-  if (CREDENTIAL.test(content)) blockingCodes.push("CANDIDATE_CREDENTIAL_LEAK");
-  if (RAW_REASONING.test(content)) blockingCodes.push("CANDIDATE_RAW_REASONING_LEAK");
-  const protectedSource = [
-    input.request.objective,
-    ...input.request.context.map((item) => item.text),
-  ].join("\n");
-  if (containsConvertibleSimplifiedChinese(content, protectedSource)) {
+  const outputSafetyCode = closedOutputSafetyCode(content);
+  if (outputSafetyCode) {
+    blockingCodes.push(
+      outputSafetyCode === "credential"
+        ? "CANDIDATE_CREDENTIAL_LEAK"
+        : outputSafetyCode === "raw-reasoning"
+          ? "CANDIDATE_RAW_REASONING_LEAK"
+          : closedOutputSafetyReasonCode(outputSafetyCode),
+    );
+  }
+  const normalizationVerified = await verifyTraditionalChineseNormalizationIntegrity({
+    content,
+    integrity: input.execution.traditionalChineseNormalization,
+    policy: input.traditionalChineseNormalizationPolicy,
+    providerId: input.execution.backendId,
+    modelId: input.execution.modelId,
+    modelDigest: input.execution.modelDigest,
+  });
+  if (!normalizationVerified) {
+    blockingCodes.push("CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID");
+  }
+  if (containsHighConfidenceSimplifiedChinese(
+    content,
+    input.traditionalChineseNormalizationPolicy.protectedTerms,
+    input.traditionalChineseNormalizationPolicy.protectedTermModes,
+  )) {
     blockingCodes.push("CANDIDATE_SIMPLIFIED_CHINESE_REMAINS");
   }
-  if (containsProtectedProperNounDrift(content, protectedSource)) {
+  if (containsProtectedTermDrift(
+    content,
+    input.traditionalChineseNormalizationPolicy.protectedTerms,
+    input.traditionalChineseNormalizationPolicy.protectedTermModes,
+  ) || containsProtectedTermDrift(
+    content,
+    input.traditionalChineseNormalizationPolicy.continuityTerms,
+  ) || input.execution.traditionalChineseNormalization
+    .ambiguousCanonicalOccurrenceCount > 0) {
     blockingCodes.push("CANDIDATE_PROPER_NOUN_DRIFT");
   }
   if (!input.execution.candidateOnly) blockingCodes.push("CANDIDATE_ONLY_CONTRACT_MISSING");
-  if (
-    input.execution.backendId !== "private-ai-hub"
-    && (input.execution.externalRequest || input.execution.dataLeftDevice)
-  ) {
+  if (input.execution.externalRequest || input.execution.dataLeftDevice) {
     blockingCodes.push("CANDIDATE_DEVICE_BOUNDARY_VIOLATION");
   }
   if (

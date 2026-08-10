@@ -9,6 +9,7 @@ import type {
   DomainRecord,
   LearningImportSession,
 } from "../domain";
+import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
 
 const CONVERSATION_STORE_PREFIX = "conversation";
 const MAX_PERSISTED_CONVERSATION_TEXT = 262_144;
@@ -134,6 +135,33 @@ export async function assertConversationRecordSafe(store: string, record: Domain
   if (store === "conversationToolInvocations") {
     const invocation = record as ConversationToolInvocation;
     const receipt = invocation.executionReceipt;
+    const hasAnyClosedProof = Boolean(receipt) && (
+      receipt!.closedAgentSchemaVersion !== undefined
+      || receipt!.closedAgentBackendId !== undefined
+      || receipt!.normalizationReceiptId !== undefined
+      || receipt!.traditionalChineseNormalizerVersion !== undefined
+      || receipt!.closedAgentCacheOrigin !== undefined
+    );
+    const closedCacheProof = receipt?.closedAgentCacheOrigin;
+    const closedProofInvalid = hasAnyClosedProof && (
+      receipt?.closedAgentSchemaVersion !== "closed-agent-os-v2"
+      || !["browser-ai", "local-ollama", "private-ai-hub"]
+        .includes(receipt?.closedAgentBackendId ?? "")
+      || !/^traditional-chinese-integrity:[a-f0-9]{64}$/u.test(
+        receipt?.normalizationReceiptId ?? "",
+      )
+      || receipt?.traditionalChineseNormalizerVersion
+        !== "opencc-js-1.4.1-cn-to-tw-single-pass-v1"
+      || (closedCacheProof !== undefined && (
+        invocation.actualExecutor !== "not_executed"
+        || receipt?.providerRunId !== null
+        || !hasValidConversationClosedAgentCacheOriginProof(closedCacheProof)
+      ))
+      || (closedCacheProof === undefined && (
+        invocation.actualExecutor === "not_executed"
+        || receipt?.providerRunId !== invocation.taskId
+      ))
+    );
     if (
       !invocation.sessionId
       || !digestPattern(invocation.inputDigest)
@@ -156,6 +184,7 @@ export async function assertConversationRecordSafe(store: string, record: Domain
         || (receipt.modelId !== null && invocation.modelId !== receipt.modelId)
         || (receipt.modelDigest !== null && invocation.modelDigest !== receipt.modelDigest)
         || (receipt.latencyMs !== null && (!Number.isFinite(receipt.latencyMs) || receipt.latencyMs < 0))
+        || closedProofInvalid
       ))
     ) fail("CONVERSATION_TOOL_RECORD_INVALID");
   }

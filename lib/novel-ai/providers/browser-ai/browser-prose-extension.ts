@@ -1,4 +1,10 @@
 import { estimateBrowserTokens } from "./browser-performance-policy";
+import {
+  CLOSED_OUTPUT_PINNED_SPECIAL_TOKENS,
+  CLOSED_OUTPUT_PINNED_SPECIAL_TOKENS_SOURCE_REVISION,
+  closedOutputSafetyCode,
+  type ClosedOutputSafetyCode,
+} from "../../security/closed-output-safety";
 
 export const BROWSER_PROSE_MINIMUM_HAN_CHARACTERS = 220;
 export const BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS = 320;
@@ -7,35 +13,12 @@ export const BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS = 48;
 export const BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS = 384;
 export const BROWSER_PROSE_MAXIMUM_CODE_POINTS = 640;
 
-export type BrowserProseSafetyCode =
-  | "control-token"
-  | "role-envelope"
-  | "internal-envelope";
+export type BrowserProseSafetyCode = ClosedOutputSafetyCode;
 
 export const BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS_SOURCE_REVISION =
-  "32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad" as const;
-export const BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS = Object.freeze([
-  "<|im_start|>",
-  "<|im_end|>",
-  "<|endoftext|>",
-  "<|object_ref_start|>",
-  "<|object_ref_end|>",
-  "<|box_start|>",
-  "<|box_end|>",
-  "<|quad_start|>",
-  "<|quad_end|>",
-  "<|vision_start|>",
-  "<|vision_end|>",
-  "<|vision_pad|>",
-  "<|image_pad|>",
-  "<|video_pad|>",
-] as const);
-const BROWSER_WEBLLM_PINNED_SPECIAL_TOKEN_SET = new Set<string>(
-  BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS,
-);
-const MODEL_CONTROL_TOKEN = /<\|[^|<>\r\n]+\|>/giu;
-const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?=[:：]|$)|(?:<|&lt;)\/?\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?:>|&gt;))/iu;
-const INTERNAL_CONTINUATION_ENVELOPE = /(?:<\/?(?:unapproved-continuation-seed|作者目標|最終輸出契約|品質階段|工作類型|explicit-regeneration)>|base-digest=|base-han=|anchor-(?:begin|end))/iu;
+  CLOSED_OUTPUT_PINNED_SPECIAL_TOKENS_SOURCE_REVISION;
+export const BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS =
+  CLOSED_OUTPUT_PINNED_SPECIAL_TOKENS;
 
 function normalizedOutput(value: string) {
   return value.replace(/\r\n?/gu, "\n").trim();
@@ -151,12 +134,7 @@ function hasBalancedProseDelimiters(value: string) {
 }
 
 export function browserProseSafetyCode(value: string): BrowserProseSafetyCode | null {
-  const normalized = normalizedOutput(value).normalize("NFKC");
-  if ([...normalized.matchAll(MODEL_CONTROL_TOKEN)].some((match) =>
-    BROWSER_WEBLLM_PINNED_SPECIAL_TOKEN_SET.has(match[0]))) return "control-token";
-  if (MODEL_ROLE_ENVELOPE.test(normalized)) return "role-envelope";
-  if (INTERNAL_CONTINUATION_ENVELOPE.test(normalized)) return "internal-envelope";
-  return null;
+  return closedOutputSafetyCode(value);
 }
 
 export function countBrowserProseHanCharacters(value: string) {

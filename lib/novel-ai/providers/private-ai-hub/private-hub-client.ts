@@ -2,7 +2,7 @@ import {
   isCryptographicClosedAIModelDigest,
   type ClosedAIBackendSnapshot,
   type ClosedBackendExecutionInput,
-  type ClosedBackendExecutionResult,
+  type ClosedBackendRawExecutionResult,
 } from "../../closed-agent-os/types";
 import { closedAIRegenerationPromptContext } from "../../closed-agent-os/regeneration-prompt";
 /*
@@ -14,9 +14,6 @@ import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
 } from "../../closed-ai-cache";
-import {
-  normalizeTraditionalChinesePreservingProperNouns,
-} from "../../language/traditional-chinese";
 import { AiProviderError } from "../provider-errors";
 import {
   buildClosedAIModelPrompt,
@@ -1403,7 +1400,7 @@ export class LoopbackPrivateHubTransport {
 
   async execute(
     input: ClosedBackendExecutionInput,
-  ): Promise<ClosedBackendExecutionResult> {
+  ): Promise<ClosedBackendRawExecutionResult> {
     const client = getConfiguredPrivateHubClient();
     if (!client) {
       throw Object.assign(new Error("Private Hub runtime is not connected."), {
@@ -1548,13 +1545,7 @@ export class LoopbackPrivateHubTransport {
       modelDigest: routedModelDigest,
       adapterId,
       adapterDigest,
-      content: normalizeTraditionalChinesePreservingProperNouns(
-        content,
-        [
-          input.request.objective,
-          ...input.actorContext.map((item) => item.text),
-        ].join("\n"),
-      ),
+      content,
       candidateOnly: true,
       dataLeftDevice: false,
       externalRequest: false,

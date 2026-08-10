@@ -795,7 +795,7 @@ export async function generateRpgChatTurnCandidate(input: {
         onProgress: input.onProgress,
       });
       try {
-        story = cleanRpgContinuation(
+        story = await cleanRpgContinuation(
           generated.content,
           recentAcceptedTexts,
           input.snapshot.language,
@@ -989,7 +989,7 @@ export async function approveRpgChatTurn(input: {
             code: "RPG_CHAT_RESULT_IDENTITY_MISMATCH",
           });
         }
-        const verifiedStory = cleanRpgContinuation(
+        const verifiedStory = await cleanRpgContinuation(
           candidate.content,
           input.snapshot.acceptedChoices.slice(0, 8).map((item) => item.acceptedText),
           input.snapshot.language,

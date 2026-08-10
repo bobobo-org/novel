@@ -1,5 +1,4 @@
 import type { RpgChoice } from "../game/progression/rpg-progression";
-import { normalizeTraditionalChinesePreservingProperNouns } from "../language/traditional-chinese";
 
 export type RpgDirectedChoice = RpgChoice;
 
@@ -143,7 +142,7 @@ export function rpgTextSimilarity(left: string, right: string) {
   return (2 * overlap) / (a.size + b.size);
 }
 
-export function cleanRpgContinuation(
+export async function cleanRpgContinuation(
   raw: string,
   recentAcceptedTexts: string[],
   language: StoryOutputLanguage = "zh-TW",
@@ -159,6 +158,9 @@ export function cleanRpgContinuation(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (language === "zh-TW") {
+    const { normalizeTraditionalChinesePreservingProperNouns } = await import(
+      "../language/traditional-chinese"
+    );
     value = normalizeTraditionalChinesePreservingProperNouns(
       value,
       recentAcceptedTexts.join("\n"),

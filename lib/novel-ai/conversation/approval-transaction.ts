@@ -4,6 +4,7 @@ import type {
   ConversationApprovalTransaction,
   ConversationArtifact,
   ConversationCanonicalTargetStore,
+  ConversationClosedAgentApprovalBindingProof,
   ConversationMessage,
   ConversationSession,
   ConversationToolInvocation,
@@ -15,6 +16,8 @@ import type {
   MarkConversationArtifactApprovedFromExternalCommitInput,
 } from "../repository/contracts";
 import { RepositoryOperationError } from "../repository/contracts";
+import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 
 export type ConversationArtifactApprovalInput =
   | ApproveConversationArtifactTransactionInput
@@ -219,6 +222,7 @@ export async function conversationApprovalPayloadFingerprint(
     expectedArtifactRevision: input.expectedArtifactRevision,
     expectedSourceMessageRevision: input.expectedSourceMessageRevision,
     expectedSourceRevision: input.expectedSourceRevision,
+    closedAgentApprovalBinding: input.closedAgentApprovalBinding ?? null,
     commitMode: external ? "external_canonical" : "atomic_canonical",
     applicationMode: external ? "external_commit" : input.applicationMode,
     ...(external
@@ -309,11 +313,20 @@ export function assertConversationApprovalSource(
   if (!CONVERSATION_CANONICAL_TARGET_STORES.has(input.targetStore)) {
     throw new RepositoryOperationError("CONVERSATION_CANONICAL_TARGET_NOT_ALLOWED");
   }
+  const requiredInvocationId = assertConversationClosedAgentApprovalBindingProof(
+    input.closedAgentApprovalBinding,
+    session,
+    sourceMessage,
+    artifact,
+    records.toolInvocations,
+    records.candidateRawContentDigest,
+  );
   assertConversationApprovalExecutionTruth(
     sourceMessage,
     artifact,
     records.toolInvocations,
     records.candidateRawContentDigest,
+    requiredInvocationId,
   );
   const currentRevision = canonicalRecord?.revision ?? 0;
   if (currentRevision !== expectedCanonicalRevision) {
@@ -325,6 +338,115 @@ export function assertConversationApprovalSource(
   )) {
     throw new RepositoryOperationError("CONVERSATION_CANONICAL_SCOPE_MISMATCH");
   }
+}
+
+function assertConversationClosedAgentApprovalBindingProof(
+  proof: ConversationClosedAgentApprovalBindingProof | undefined,
+  session: ConversationSession,
+  sourceMessage: ConversationMessage,
+  artifact: ConversationArtifact,
+  toolInvocations: ConversationToolInvocation[],
+  candidateRawContentDigest?: string,
+) {
+  const linked = toolInvocations.filter((invocation) => (
+    sourceMessage.toolInvocationIds.includes(invocation.id)
+    && invocation.messageId === sourceMessage.id
+  ));
+  const closedCandidateIds = sourceMessage.candidateIds.filter((candidateId) => (
+    candidateId.startsWith("closed-agent-candidate:")
+  ));
+  const suspiciousClosedInvocations = linked.filter((invocation) => (
+    invocation.toolId.startsWith("closed-agent-os:")
+    || invocation.executionReceipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
+    || invocation.executionReceipt?.closedAgentCacheOrigin !== undefined
+  ));
+  const closedPlanInvocations = linked.filter((invocation) => (
+    invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+  ));
+  const hasClosedLineage = closedCandidateIds.length > 0 || suspiciousClosedInvocations.length > 0;
+  if (!hasClosedLineage) {
+    if (proof !== undefined) {
+      throw new RepositoryOperationError("CONVERSATION_CLOSED_APPROVAL_BINDING_UNEXPECTED");
+    }
+    return null;
+  }
+  const localEditInvocations = linked.filter((invocation) => (
+    invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.localUserEdit
+  ));
+  const localEdit = localEditInvocations.length === 1
+    ? localEditInvocations[0]
+    : null;
+  const localEditReceipt = localEdit?.executionReceipt;
+  const localEditVerified = Boolean(
+    proof === undefined
+    && closedCandidateIds.length === 1
+    && closedPlanInvocations.length === 1
+    && localEdit
+    && localEditReceipt
+    && localEdit.status === "completed"
+    && localEdit.actualExecutor === "local-user-edit"
+    && localEdit.modelId === null
+    && localEdit.modelDigest === null
+    && localEdit.inputDigest === sourceMessage.contentDigest
+    && localEdit.externalRequest === false
+    && localEdit.dataLeftDevice === false
+    && localEdit.canonicalMutationCount === 0
+    && localEditReceipt.providerRunId === localEdit.taskId
+    && localEditReceipt.modelId === null
+    && localEditReceipt.modelDigest === null
+    && localEditReceipt.contextDigest === localEdit.contextDigest
+    && localEditReceipt.outputDigest === artifact.candidateDigest
+    && localEditReceipt.externalRequest === false
+    && localEditReceipt.dataLeftDevice === false
+    && localEditReceipt.closedAgentSchemaVersion === undefined
+    && localEditReceipt.closedAgentCacheOrigin === undefined
+    && artifact.candidateDigest !== sourceMessage.contentDigest
+    && sourceMessage.candidateIds.includes(artifact.id),
+  );
+  if (localEditVerified) return localEdit!.id;
+  const invocation = closedPlanInvocations.length === 1
+    ? closedPlanInvocations[0]
+    : null;
+  const receipt = invocation?.executionReceipt;
+  const cacheOrigin = receipt?.closedAgentCacheOrigin;
+  if (
+    !proof
+    || proof.schemaVersion !== "conversation-closed-agent-approval-binding-v1"
+    || proof.sessionId !== session.id
+    || proof.sessionRevision !== session.revision
+    || closedCandidateIds.length !== 1
+    || closedCandidateIds[0] !== proof.candidateId
+    || !sourceMessage.candidateIds.includes(artifact.id)
+    || !invocation
+    || !receipt
+    || invocation.id !== proof.invocationId
+    || invocation.revision !== proof.invocationRevision
+    || invocation.taskId !== proof.candidateTaskId
+    || invocation.modelId !== proof.candidateModelId
+    || invocation.modelDigest !== proof.candidateModelDigest
+    || invocation.contextDigest !== proof.candidateContextDigest
+    || receipt.closedAgentSchemaVersion !== "closed-agent-os-v2"
+    || receipt.closedAgentBackendId !== proof.candidateBackendId
+    || receipt.modelId !== proof.candidateModelId
+    || receipt.modelDigest !== proof.candidateModelDigest
+    || receipt.outputDigest !== proof.candidateRawContentDigest
+    || receipt.normalizationReceiptId !== proof.normalizationReceiptId
+    || receipt.traditionalChineseNormalizerVersion !== proof.normalizerVersion
+    || sourceMessage.id !== proof.sourceMessageId
+    || sourceMessage.revision !== proof.sourceMessageRevision
+    || sourceMessage.contentDigest !== proof.sourceMessageContentDigest
+    || artifact.id !== proof.artifactId
+    || artifact.revision !== proof.artifactRevision
+    || artifact.candidateDigest !== proof.artifactCandidateDigest
+    || artifact.targetStore !== proof.targetStore
+    || artifact.targetRecordId !== proof.targetRecordId
+    || artifact.sourceRevision !== proof.targetSourceRevision
+    || candidateRawContentDigest !== proof.candidateRawContentDigest
+    || stableStringify(cacheOrigin ?? null) !== stableStringify(proof.cacheOrigin)
+  ) {
+    throw new RepositoryOperationError("CONVERSATION_CLOSED_APPROVAL_BINDING_INVALID");
+  }
+  return invocation.id;
 }
 
 function artifactOutputDigests(
@@ -359,6 +481,38 @@ function hasValidApprovalExecutionTruth(
 ) {
   const receipt = invocation.executionReceipt;
   const digestPattern = /^[a-f0-9]{64}$/u;
+  const cacheOrigin = receipt?.closedAgentCacheOrigin;
+  const verifiedClosedCacheHit = Boolean(
+    invocation.actualExecutor === "not_executed"
+    && receipt
+    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+    && receipt.closedAgentSchemaVersion === "closed-agent-os-v2"
+    && receipt.closedAgentBackendId
+    && ["browser-ai", "local-ollama", "private-ai-hub"]
+      .includes(receipt.closedAgentBackendId)
+    && receipt.providerRunId === null
+    && receipt.modelId === invocation.modelId
+    && receipt.modelDigest === invocation.modelDigest
+    && receipt.normalizationReceiptId
+    && receipt.traditionalChineseNormalizerVersion
+    && hasValidConversationClosedAgentCacheOriginProof(cacheOrigin)
+    && cacheOrigin?.originBackendId === receipt.closedAgentBackendId
+    && cacheOrigin?.originModelId === receipt.modelId
+    && cacheOrigin?.originModelDigest === receipt.modelDigest
+    && cacheOrigin?.originContentDigest === receipt.outputDigest
+    && cacheOrigin?.originNormalizationReceiptId === receipt.normalizationReceiptId
+    && cacheOrigin?.originNormalizerVersion
+      === receipt.traditionalChineseNormalizerVersion,
+  );
+  const verifiedClosedFreshExecution = Boolean(
+    invocation.actualExecutor !== "not_executed"
+    && receipt
+    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+    && receipt.closedAgentSchemaVersion === "closed-agent-os-v2"
+    && invocation.actualExecutor === receipt.closedAgentBackendId
+    && receipt.providerRunId === invocation.taskId
+    && cacheOrigin === undefined,
+  );
   if (
     invocation.projectId !== sourceMessage.projectId
     || invocation.sessionId !== sourceMessage.sessionId
@@ -370,7 +524,11 @@ function hasValidApprovalExecutionTruth(
     || !invocation.toolId.trim()
     || !invocation.taskType.trim()
     || !invocation.actualExecutor?.trim()
-    || invocation.actualExecutor === "not_executed"
+    || (invocation.actualExecutor === "not_executed" && !verifiedClosedCacheHit)
+    || (invocation.actualExecutor !== "not_executed" && cacheOrigin !== undefined)
+    || (receipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
+      && !verifiedClosedCacheHit
+      && !verifiedClosedFreshExecution)
     || (
       ["external-ai", "openai", "gemini", "grok", "claude"].includes(invocation.actualExecutor)
       && (!invocation.externalRequest || !invocation.dataLeftDevice)
@@ -405,6 +563,7 @@ export function assertConversationApprovalExecutionTruth(
   artifact: ConversationArtifact,
   toolInvocations: ConversationToolInvocation[],
   candidateRawContentDigest?: string,
+  requiredInvocationId?: string | null,
 ) {
   if (sourceMessage.status !== "completed" || !sourceMessage.completedAt) {
     throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_MESSAGE_NOT_COMPLETED");
@@ -413,7 +572,9 @@ export function assertConversationApprovalExecutionTruth(
     sourceMessage.toolInvocationIds.includes(invocation.id)
     && invocation.messageId === sourceMessage.id);
   const completedWithReceipt = linked.filter((invocation) =>
-    invocation.status === "completed" && invocation.executionReceipt !== null);
+    invocation.status === "completed"
+    && invocation.executionReceipt !== null
+    && (!requiredInvocationId || invocation.id === requiredInvocationId));
   if (!completedWithReceipt.length) {
     throw new RepositoryOperationError("CONVERSATION_APPROVAL_EXECUTION_RECEIPT_REQUIRED");
   }

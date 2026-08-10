@@ -8,6 +8,12 @@ import {
 } from "@/lib/novel-ai/closed-agent-os";
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
+import {
+  buildConversationClosedAgentCacheOriginProof,
+  hasValidConversationClosedAgentCacheOriginProof,
+} from "@/lib/novel-ai/conversation/closed-agent-cache-origin-proof";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
+import { stableStringify } from "@/lib/novel-ai/closed-ai-cache";
 import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 import {
   getStudioClosedAgentOS,
@@ -35,18 +41,41 @@ const CLOSED_REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
   "local-ollama",
   "private-ai-hub",
 ]);
+const NORMALIZATION_RECEIPT = /^traditional-chinese-integrity:[a-f0-9]{64}$/u;
 
 function verifiedConversationRegenerationBackend(
   invocation: ConversationToolInvocation | null,
 ): ClosedAIBackendId | null {
   const receipt = invocation?.executionReceipt;
-  const backend = invocation?.actualExecutor;
+  const backend = receipt?.closedAgentBackendId;
+  const cacheOrigin = receipt?.closedAgentCacheOrigin;
+  const freshExecutionVerified = Boolean(
+    backend
+    && invocation?.actualExecutor === backend
+    && receipt?.providerRunId === invocation.taskId
+    && cacheOrigin === undefined,
+  );
+  const cachedExecutionVerified = Boolean(
+    backend
+    && invocation?.actualExecutor === "not_executed"
+    && receipt?.providerRunId === null
+    && hasValidConversationClosedAgentCacheOriginProof(cacheOrigin)
+    && cacheOrigin?.originBackendId === backend
+    && cacheOrigin?.originModelId === invocation.modelId
+    && cacheOrigin?.originModelDigest === invocation.modelDigest
+    && cacheOrigin?.originContentDigest === receipt?.outputDigest
+    && cacheOrigin?.originNormalizationReceiptId === receipt?.normalizationReceiptId
+    && cacheOrigin?.originNormalizerVersion
+      === receipt?.traditionalChineseNormalizerVersion,
+  );
   if (
     !invocation
     || invocation.status !== "completed"
     || !invocation.completedAt
     || !backend
-    || !CLOSED_REGENERATION_BACKENDS.has(backend as ClosedAIBackendId)
+    || !CLOSED_REGENERATION_BACKENDS.has(backend)
+    || invocation.toolId !== CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+    || (!freshExecutionVerified && !cachedExecutionVerified)
     || !invocation.modelId?.trim()
     || !isCryptographicClosedAIModelDigest(invocation.modelDigest)
     || invocation.externalRequest
@@ -58,11 +87,14 @@ function verifiedConversationRegenerationBackend(
     || receipt.contextDigest !== invocation.contextDigest
     || !isCryptographicClosedAIModelDigest(receipt.contextDigest)
     || !isCryptographicClosedAIModelDigest(receipt.outputDigest)
-    || receipt.providerRunId !== invocation.taskId
     || receipt.externalRequest
     || receipt.dataLeftDevice
+    || receipt.closedAgentSchemaVersion !== "closed-agent-os-v2"
+    || !NORMALIZATION_RECEIPT.test(receipt.normalizationReceiptId ?? "")
+    || receipt.traditionalChineseNormalizerVersion
+      !== "opencc-js-1.4.1-cn-to-tw-single-pass-v1"
   ) return null;
-  return backend as ClosedAIBackendId;
+  return backend;
 }
 
 export function useClosedAiBootstrap(projectId: string) {
@@ -209,30 +241,60 @@ export function useClosedAiBootstrap(projectId: string) {
     const normalizedCandidateDigest = candidate
       ? await conversationContentDigest(candidate.content)
       : null;
+    const expectedCacheOriginProof = candidate
+      ? await buildConversationClosedAgentCacheOriginProof(candidate)
+      : undefined;
+    const freshCandidateProof = Boolean(
+      candidate?.actualExecutor === sourceBackend
+      && candidate.cacheOrigin === null
+      && candidate.executionReceipt?.proofState === "verified"
+      && candidate.executionReceipt.taskId === invocation.taskId
+      && candidate.executionReceipt.backendId === sourceBackend
+      && candidate.executionReceipt.actualExecutor === sourceBackend
+      && candidate.executionReceipt.modelId === invocation.modelId
+      && candidate.executionReceipt.modelDigest === invocation.modelDigest
+      && candidate.executionReceipt.contentDigest === invocationReceipt?.outputDigest
+      && candidate.executionReceipt.contextDigest === invocation.contextDigest
+      && candidate.executionReceipt.externalRequest === false
+      && candidate.executionReceipt.dataLeftDevice === false,
+    );
+    const cachedCandidateProof = Boolean(
+      candidate?.actualExecutor === "not_executed"
+      && candidate.executionReceipt === null
+      && candidate.cacheOrigin
+      && candidate.cacheOrigin.originExecutionReceipt.backendId === sourceBackend
+      && candidate.cacheOrigin.originExecutionReceipt.modelId === invocation.modelId
+      && candidate.cacheOrigin.originExecutionReceipt.modelDigest === invocation.modelDigest
+      && candidate.cacheOrigin.originExecutionReceipt.contentDigest
+        === invocationReceipt?.outputDigest
+      && candidate.cacheOrigin.normalizationReceiptId
+        === candidate.traditionalChineseNormalization.receiptId
+      && stableStringify(invocationReceipt?.closedAgentCacheOrigin)
+        === stableStringify(expectedCacheOriginProof),
+    );
+    const candidateIntegrityVerified = candidate
+      ? await getStudioClosedAgentOS().verifyCandidateIntegrity(candidate.id)
+      : false;
     if (
       !candidate
       || !invocationReceipt
+      || !candidateIntegrityVerified
+      || candidate.schemaVersion !== "closed-agent-os-v2"
       || candidate.projectId !== projectId
       || (candidate.status !== "awaiting-approval" && candidate.status !== "rejected")
       || candidate.taskId !== invocation.taskId
       || candidate.backendId !== sourceBackend
-      || candidate.actualExecutor !== sourceBackend
       || candidate.modelId !== invocation.modelId
       || candidate.modelDigest !== invocation.modelDigest
       || candidate.contentDigest !== invocationReceipt.outputDigest
       || normalizedSourceMessageDigest !== input.sourceMessageContentDigest
       || normalizedCandidateDigest !== input.sourceMessageContentDigest
       || candidate.contextDigest !== invocation.contextDigest
-      || candidate.executionReceipt?.proofState !== "verified"
-      || candidate.executionReceipt.taskId !== invocation.taskId
-      || candidate.executionReceipt.backendId !== sourceBackend
-      || candidate.executionReceipt.actualExecutor !== sourceBackend
-      || candidate.executionReceipt.modelId !== invocation.modelId
-      || candidate.executionReceipt.modelDigest !== invocation.modelDigest
-      || candidate.executionReceipt.contentDigest !== invocationReceipt.outputDigest
-      || candidate.executionReceipt.contextDigest !== invocation.contextDigest
-      || candidate.executionReceipt.externalRequest
-      || candidate.executionReceipt.dataLeftDevice
+      || candidate.traditionalChineseNormalization.receiptId
+        !== invocationReceipt.normalizationReceiptId
+      || candidate.traditionalChineseNormalization.normalizerVersion
+        !== invocationReceipt.traditionalChineseNormalizerVersion
+      || (!freshCandidateProof && !cachedCandidateProof)
       || candidate.externalRequest
       || candidate.dataLeftDevice
       || candidate.canonicalMutationCount !== 0

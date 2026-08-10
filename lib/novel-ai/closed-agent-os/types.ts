@@ -8,8 +8,11 @@ import type {
   PlatformAIRequest,
   PlatformTaskType,
 } from "../router/platform-types";
+import type {
+  TraditionalChineseNormalizationIntegrityRecord,
+} from "../language/traditional-chinese";
 
-export const CLOSED_AGENT_OS_SCHEMA_VERSION = "closed-agent-os-v1" as const;
+export const CLOSED_AGENT_OS_SCHEMA_VERSION = "closed-agent-os-v2" as const;
 
 export const CLOSED_AI_BACKEND_IDS = [
   "browser-ai",
@@ -163,6 +166,12 @@ export type ClosedAIContextItem = {
   visibility: "actor" | "evaluator" | "both" | "author-only";
   privacyLevel: ClosedAIPrivacyLevel;
   approved: boolean;
+  /** Set only by the canonical project-context composer; supplemental input is stripped. */
+  composerAuthority?: "project-context-composer-v1";
+  canonicalIdentitySource?:
+    | "characters"
+    | "project-seed"
+    | "active-chapter";
 };
 
 /**
@@ -191,6 +200,8 @@ export type ClosedAIRegenerationEvidence = {
   previousContentReused: false;
   newCandidate: true;
   nonceStored: false;
+  /** Digest of the full ephemeral contract, including the nonce, for exact crash recovery. */
+  contractDigest: string;
 };
 
 export type ClosedAgentTaskRequest = {
@@ -275,7 +286,7 @@ export type ClosedBackendExecutionInput = {
   workingMaterials: ClosedAIWorkingMaterial[];
 };
 
-export type ClosedBackendExecutionResult = {
+export type ClosedBackendRawExecutionResult = {
   backendId: ClosedAIBackendId;
   modelId: string;
   modelDigest: string;
@@ -305,13 +316,17 @@ export type ClosedBackendExecutionResult = {
   browserTokensSaved?: number;
 };
 
+export type ClosedBackendExecutionResult = ClosedBackendRawExecutionResult & {
+  traditionalChineseNormalization: TraditionalChineseNormalizationIntegrityRecord;
+};
+
 export interface ClosedAIBackendAdapter {
   readonly id: ClosedAIBackendId;
   snapshot(
     signal?: AbortSignal,
     namespace?: Pick<ClosedAINamespace, "projectId">,
   ): Promise<ClosedAIBackendSnapshot>;
-  execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult>;
+  execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendRawExecutionResult>;
   invalidateCache?(
     invalidation: ClosedAICacheInvalidation,
     signal?: AbortSignal,
@@ -349,12 +364,31 @@ export type ClosedAIExecutionReceipt = {
   dataLeftDevice: boolean;
   externalRequest: boolean;
   actualExecutor?: string;
+  traditionalChineseNormalization?: TraditionalChineseNormalizationIntegrityRecord;
   browserComputeReceiptId?: string;
   browserFabricReceiptId?: string;
   browserFabricPlannedGraph?: string[];
   contextTokensBefore?: number;
   contextTokensAfter?: number;
   tokensSaved?: number;
+};
+
+export type ClosedAgentVerifiedExecutionReceipt = ClosedAIExecutionReceipt & {
+  traditionalChineseNormalization: TraditionalChineseNormalizationIntegrityRecord;
+};
+
+export type ClosedAgentCacheOriginEvidence = {
+  schemaVersion: "closed-agent-cache-origin-v1";
+  layer: "exact" | "semantic";
+  entryId: string;
+  entryValueDigest: string;
+  originCandidateId: string;
+  originTaskId: string;
+  originRequestId: string;
+  originLedgerId: string;
+  originLedgerBlockHash: string;
+  originExecutionReceipt: ClosedAgentVerifiedExecutionReceipt;
+  normalizationReceiptId: string;
 };
 
 export type ClosedAgentToolExecutionEvidence = {
@@ -398,19 +432,25 @@ export type ClosedAgentCandidate = {
   sourceChapterId: string | null;
   sourceRevision: number | null;
   actualExecutor: string | "not_executed";
-  executionReceipt: ClosedAIExecutionReceipt | null;
+  executionReceipt: ClosedAgentVerifiedExecutionReceipt | null;
+  cacheOrigin: ClosedAgentCacheOriginEvidence | null;
+  traditionalChineseNormalization: TraditionalChineseNormalizationIntegrityRecord;
   toolExecutions?: ClosedAgentToolExecutionEvidence[];
   contextDigest?: string;
   contextSourceSummary?: string;
   dataLeftDevice?: boolean;
   externalRequest?: boolean;
+  planComplexity: ClosedAITaskComplexity;
   planDigest: string;
+  /** Exact caller contract for idempotent replay and crash recovery. */
+  requestContractDigest: string;
   evaluation: ClosedAgentEvaluation;
   status: "awaiting-approval" | "approved" | "rejected" | "committed" | "rolled-back";
   candidateOnly: true;
   canonicalMutationCount: 0 | 1;
   regeneration?: ClosedAIRegenerationEvidence;
   generationTelemetry?: {
+    cacheHit: boolean;
     profileId: string;
     elapsedMs: number;
     firstTokenMs: number | null;

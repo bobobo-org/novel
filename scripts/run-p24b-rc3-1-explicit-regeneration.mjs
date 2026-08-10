@@ -30,6 +30,7 @@ import {
   fitBrowserPromptToTokenBudget,
 } from "../lib/novel-ai/providers/browser-ai/browser-performance-policy.ts";
 import { conversationContentDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { hasVerifiedClosedRegenerationProof } from "../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts";
 
 const mode = process.argv[2] || "all";
@@ -179,7 +180,7 @@ function createOS(options = {}) {
       repository: new MemoryVerifiableLedgerRepository(),
       signer: new ApprovalSigner(),
     }),
-    state: new MemoryClosedAgentStateRepository(),
+    state: options.state ?? new MemoryClosedAgentStateRepository(),
   });
   return { os, calls, backends, cacheRepository };
 }
@@ -267,9 +268,12 @@ test("explicit-regeneration-distinct", async () => {
   );
   const normalizedMessageDigest = await conversationContentDigest(fullwidthContent);
   assert.notEqual(fullwidthSource.candidate.contentDigest, normalizedMessageDigest);
-  const verifiedInvocation = {
+  const verifiedInvocation = (messageId) => ({
+    id: `conversation-tool-invocation:${messageId}`,
+    messageId,
+    completedAt: "2026-08-09T00:00:00.000Z",
     status: "completed",
-    toolId: "closed-agent-os:chapter.continue",
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
     actualExecutor: "browser-ai",
     modelId: fullwidthSource.candidate.modelId,
     modelDigest: fullwidthSource.candidate.modelDigest,
@@ -287,15 +291,23 @@ test("explicit-regeneration-distinct", async () => {
       outputDigest: fullwidthSource.candidate.contentDigest,
       externalRequest: false,
       dataLeftDevice: false,
+      closedAgentSchemaVersion: fullwidthSource.candidate.schemaVersion,
+      closedAgentBackendId: fullwidthSource.candidate.backendId,
+      normalizationReceiptId:
+        fullwidthSource.candidate.traditionalChineseNormalization.receiptId,
+      traditionalChineseNormalizerVersion:
+        fullwidthSource.candidate.traditionalChineseNormalization.normalizerVersion,
     },
-  };
+  });
+  const fullwidthMessageInvocation = verifiedInvocation("fullwidth-message");
   assert.equal(hasVerifiedClosedRegenerationProof({
     message: {
       id: "fullwidth-message",
       candidateIds: [fullwidthSource.candidate.id, "conversation-artifact:fullwidth"],
+      toolInvocationIds: [fullwidthMessageInvocation.id],
       contentDigest: normalizedMessageDigest,
     },
-    invocations: [verifiedInvocation],
+    invocations: [fullwidthMessageInvocation],
     artifacts: [{
       id: "conversation-artifact:fullwidth",
       sourceMessageId: "fullwidth-message",
@@ -303,22 +315,26 @@ test("explicit-regeneration-distinct", async () => {
       candidateDigest: normalizedMessageDigest,
     }],
   }), true, "NFKC-normalized message digest must not hide a raw-digest verified candidate");
+  const noArtifactInvocation = verifiedInvocation("fullwidth-message-no-artifact");
   assert.equal(hasVerifiedClosedRegenerationProof({
     message: {
       id: "fullwidth-message-no-artifact",
       candidateIds: [fullwidthSource.candidate.id],
+      toolInvocationIds: [noArtifactInvocation.id],
       contentDigest: normalizedMessageDigest,
     },
-    invocations: [verifiedInvocation],
+    invocations: [noArtifactInvocation],
     artifacts: [],
   }), true, "verified non-approval Closed Agent messages remain regenerable without an artifact");
+  const mismatchedArtifactInvocation = verifiedInvocation("fullwidth-message-mismatched-artifact");
   assert.equal(hasVerifiedClosedRegenerationProof({
     message: {
       id: "fullwidth-message-mismatched-artifact",
       candidateIds: [fullwidthSource.candidate.id],
+      toolInvocationIds: [mismatchedArtifactInvocation.id],
       contentDigest: normalizedMessageDigest,
     },
-    invocations: [verifiedInvocation],
+    invocations: [mismatchedArtifactInvocation],
     artifacts: [{
       id: "conversation-artifact:mismatch",
       sourceMessageId: "fullwidth-message-mismatched-artifact",
@@ -400,6 +416,128 @@ test("regeneration-new-task-candidate", async () => {
   );
   assert.equal((await scenario.os.state.get(scenario.second.candidate.id))?.status, "awaiting-approval");
   assert.equal((await scenario.os.state.get(third.candidate.id))?.status, "awaiting-approval");
+});
+
+test("failed regeneration state write recovers the exact nonce-bound candidate", async () => {
+  let failRegenerationCandidateWrite = false;
+  const state = new MemoryClosedAgentStateRepository({
+    faultInjector(point) {
+      if (failRegenerationCandidateWrite && point === "before:candidate") {
+        failRegenerationCandidateWrite = false;
+        throw new Error("TRANSIENT_REGENERATION_STATE_WRITE_FAILED");
+      }
+    },
+  });
+  const runtime = createOS({ state });
+  const source = await runtime.os.execute(baseRequest(
+    "source:regeneration-recovery",
+  ));
+  const contract = contractFor(source.candidate);
+  const regenerationRequest = baseRequest(
+    "regenerated:state-recovery",
+    "local-ollama",
+    { regeneration: contract },
+  );
+  failRegenerationCandidateWrite = true;
+  await assert.rejects(
+    () => runtime.os.execute(regenerationRequest),
+    /TRANSIENT_REGENERATION_STATE_WRITE_FAILED/u,
+  );
+  const callsAfterFailure = runtime.backends["local-ollama"].executionCount;
+  await assert.rejects(
+    () => runtime.os.execute({
+      ...regenerationRequest,
+      regeneration: {
+        ...contract,
+        regenerationNonce: contract.regenerationNonce
+          === "00000000-0000-4000-8000-000000000001"
+          ? "00000000-0000-4000-8000-000000000002"
+          : "00000000-0000-4000-8000-000000000001",
+      },
+    }),
+    (error) => error?.code === "CLOSED_AGENT_IDEMPOTENCY_CONFLICT",
+  );
+  assert.equal(runtime.backends["local-ollama"].executionCount, callsAfterFailure);
+  const recovered = await runtime.os.execute(regenerationRequest);
+  assert.equal(recovered.route.reasonCode, "DURABLE_CANDIDATE_RECOVERY");
+  assert.equal(runtime.backends["local-ollama"].executionCount, callsAfterFailure);
+  const blocks = await runtime.os.ledger.repository.list(
+    "closed-agent:project-rc6-2:regenerated:state-recovery",
+  );
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-generated").length, 1);
+  assert.equal(blocks.filter((block) =>
+    block.eventType === "candidate-evaluated").length, 1);
+  const approved = await runtime.os.approveCandidate({
+    candidateId: recovered.candidate.id,
+    approvedBy: "author",
+    humanApproved: true,
+  });
+  assert.equal(approved.candidate.status, "approved");
+
+  let failCancelledCandidateWrite = false;
+  const cancelledState = new MemoryClosedAgentStateRepository({
+    faultInjector(point) {
+      if (failCancelledCandidateWrite && point === "before:candidate") {
+        failCancelledCandidateWrite = false;
+        throw new Error("TRANSIENT_CANCELLED_RECOVERY_STATE_WRITE_FAILED");
+      }
+    },
+  });
+  const cancelledRuntime = createOS({ state: cancelledState });
+  const cancelledSource = await cancelledRuntime.os.execute(baseRequest(
+    "source:cancelled-regeneration-recovery",
+  ));
+  const cancelledContract = contractFor(cancelledSource.candidate);
+  const cancelledTaskId = "regenerated:cancelled-state-recovery";
+  const cancelledRequest = baseRequest(cancelledTaskId, "local-ollama", {
+    regeneration: cancelledContract,
+  });
+  failCancelledCandidateWrite = true;
+  await assert.rejects(
+    () => cancelledRuntime.os.execute(cancelledRequest),
+    /TRANSIENT_CANCELLED_RECOVERY_STATE_WRITE_FAILED/u,
+  );
+  const callsBeforeCancelledRecovery =
+    cancelledRuntime.backends["local-ollama"].executionCount;
+  const abortController = new AbortController();
+  const cancelledLedgerId = `closed-agent:project-rc6-2:${cancelledTaskId}`;
+  const originalVerify = cancelledRuntime.os.ledger.verify.bind(
+    cancelledRuntime.os.ledger,
+  );
+  let abortOnRecoveryVerify = true;
+  cancelledRuntime.os.ledger.verify = async (...args) => {
+    const verification = await originalVerify(...args);
+    if (abortOnRecoveryVerify && args[0] === cancelledLedgerId) {
+      abortOnRecoveryVerify = false;
+      abortController.abort("RC6_2_TEST_DURABLE_RECOVERY_CANCELLED");
+    }
+    return verification;
+  };
+  await assert.rejects(
+    () => cancelledRuntime.os.execute({
+      ...cancelledRequest,
+      signal: abortController.signal,
+    }),
+    (error) => error?.code === "CLOSED_AGENT_TASK_CANCELLED",
+  );
+  assert.equal(
+    cancelledRuntime.backends["local-ollama"].executionCount,
+    callsBeforeCancelledRecovery,
+  );
+  assert.equal((await cancelledState.get(cancelledTaskId))?.state, "cancelled");
+  assert.equal(
+    (await cancelledState.list("project-rc6-2", "candidate"))
+      .some((candidate) => candidate.taskId === cancelledTaskId),
+    false,
+  );
+  const cancelledBlocks = await cancelledRuntime.os.ledger.repository.list(
+    cancelledLedgerId,
+  );
+  assert.equal(cancelledBlocks.filter((block) =>
+    block.eventType === "candidate-generated").length, 1);
+  assert.equal(cancelledBlocks.filter((block) =>
+    block.eventType === "candidate-evaluated").length, 1);
 });
 
 test("regeneration-canon-zero-before-approval", async () => {
@@ -643,12 +781,13 @@ test("regeneration-no-external-fallback", async () => {
       regeneration: null,
     },
   });
-  const migrated = await legacy.os.execute(baseRequest("legacy-regeneration", "local-ollama", {
-    regeneration: contractFor(legacySource.candidate),
-  }));
-  assert.equal(migrated.candidate.backendId, "local-ollama");
-  assert.equal(migrated.candidate.regeneration?.previousCandidateId, legacySource.candidate.id);
-  assert.equal(legacy.calls.length, 1, "verified pre-RC6.2 ledger source must regenerate once");
+  await expectCode(
+    () => legacy.os.execute(baseRequest("legacy-regeneration", "local-ollama", {
+      regeneration: contractFor(legacySource.candidate),
+    })),
+    "CLOSED_AGENT_REGENERATION_SOURCE_NOT_VERIFIED",
+  );
+  assert.equal(legacy.calls.length, 0, "proofless legacy sources must fail before execution");
 
   for (const failure of ["content", "adapter", "receipt", "privacy"]) {
     const runtime = createOS();

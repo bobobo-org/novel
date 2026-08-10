@@ -390,6 +390,58 @@ export type ConversationExecutionReceipt = {
   externalRequest: boolean;
   dataLeftDevice: boolean;
   latencyMs: number | null;
+  closedAgentSchemaVersion?: "closed-agent-os-v2";
+  closedAgentBackendId?: "browser-ai" | "local-ollama" | "private-ai-hub";
+  normalizationReceiptId?: string;
+  traditionalChineseNormalizerVersion?: string;
+  closedAgentCacheOrigin?: ConversationClosedAgentCacheOriginProof;
+};
+
+export type ConversationClosedAgentCacheOriginProof = {
+  schemaVersion: "conversation-closed-agent-cache-origin-v2";
+  layer: "exact" | "semantic";
+  entryId: string;
+  entryValueDigest: string;
+  originCandidateId: string;
+  originTaskId: string;
+  originRequestId: string;
+  originLedgerId: string;
+  originLedgerBlockHash: string;
+  originBackendId: "browser-ai" | "local-ollama" | "private-ai-hub";
+  originModelId: string;
+  originModelDigest: string;
+  originContentDigest: string;
+  originContextDigest: string;
+  originNormalizationReceiptId: string;
+  originNormalizerVersion: string;
+  namespaceDigest: string;
+};
+
+export type ConversationClosedAgentApprovalBindingProof = {
+  schemaVersion: "conversation-closed-agent-approval-binding-v1";
+  candidateId: string;
+  candidateTaskId: string;
+  candidateBackendId: "browser-ai" | "local-ollama" | "private-ai-hub";
+  candidateModelId: string;
+  candidateModelDigest: string;
+  candidateRawContentDigest: string;
+  candidateContextDigest: string;
+  normalizationReceiptId: string;
+  normalizerVersion: string;
+  cacheOrigin: ConversationClosedAgentCacheOriginProof | null;
+  sessionId: string;
+  sessionRevision: number;
+  sourceMessageId: string;
+  sourceMessageRevision: number;
+  sourceMessageContentDigest: string;
+  artifactId: string;
+  artifactRevision: number;
+  artifactCandidateDigest: string;
+  invocationId: string;
+  invocationRevision: number;
+  targetStore: "chapters" | "characters" | "worldRules";
+  targetRecordId: string;
+  targetSourceRevision: number;
 };
 
 export type ConversationToolInvocation = DomainRecord & {

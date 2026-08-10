@@ -5,7 +5,7 @@ import {
 } from "../closed/continuity-anchors";
 import { estimateBrowserTokens } from "./browser-performance-policy";
 
-export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v6" as const;
+export const BROWSER_QUALITY_GATE_VERSION = "browser-quality-gate-v7" as const;
 
 export type BrowserQualityGateResult = {
   schemaVersion: typeof BROWSER_QUALITY_GATE_VERSION;
@@ -23,6 +23,7 @@ export type BrowserQualityGateResult = {
     taskUsefulness: number;
     lengthCompliance: number;
   };
+  deferredDimensions: Array<"traditionalChinese">;
   reasonCodes: string[];
   userMessage: string | null;
   allowedActions: Array<
@@ -287,6 +288,13 @@ export function evaluateBrowserCandidateQuality(input: {
   characterVoiceScore?: number;
   approvedContext?: string[];
   threshold?: number;
+  /**
+   * Closed Agent OS owns the single Traditional-Chinese normalization pass.
+   * While that owner is deferred, Browser quality must not score the raw model
+   * text as though it were already normalized. All other dimensions and hard
+   * gates remain active.
+   */
+  deferTraditionalChineseQuality?: boolean;
 }): BrowserQualityGateResult {
   const content = input.content.trim();
   const tokenCount = estimateBrowserTokens(content);
@@ -357,13 +365,23 @@ export function evaluateBrowserCandidateQuality(input: {
     taskUsefulness: 0.08,
     lengthCompliance: 0.06,
   } as const;
-  const score = round(Object.entries(scores).reduce(
-    (sum, [key, value]) => sum + value * weights[key as keyof typeof weights],
-    0,
-  ));
+  const score = round(input.deferTraditionalChineseQuality
+    ? Object.entries(scores).reduce(
+      (sum, [key, value]) => key === "traditionalChinese"
+        ? sum
+        : sum + value * weights[key as keyof typeof weights],
+      0,
+    ) / (1 - weights.traditionalChinese)
+    : Object.entries(scores).reduce(
+      (sum, [key, value]) => sum + value * weights[key as keyof typeof weights],
+      0,
+    ));
   const threshold = input.threshold ?? 0.76;
   const reasonCodes: string[] = [];
   for (const [name, value] of Object.entries(scores)) {
+    if (input.deferTraditionalChineseQuality && name === "traditionalChinese") {
+      continue;
+    }
     if (value < 0.65) reasonCodes.push(`QUALITY_${name.toUpperCase()}_LOW`);
   }
   if (!content) reasonCodes.push("QUALITY_EMPTY_CANDIDATE");
@@ -411,6 +429,9 @@ export function evaluateBrowserCandidateQuality(input: {
     scores: Object.fromEntries(
       Object.entries(scores).map(([key, value]) => [key, round(value)]),
     ) as BrowserQualityGateResult["scores"],
+    deferredDimensions: input.deferTraditionalChineseQuality
+      ? ["traditionalChinese"]
+      : [],
     reasonCodes,
     userMessage: decision === "pass"
       ? null

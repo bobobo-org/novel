@@ -26,7 +26,9 @@ import {
 import {
   containsConvertibleSimplifiedChinese,
   containsProtectedProperNounDrift,
+  createTraditionalChineseNormalizationPolicy,
   normalizeTraditionalChinesePreservingProperNouns,
+  normalizeTraditionalChineseWithIntegrity,
 } from "../lib/novel-ai/language/traditional-chinese.ts";
 import {
   resolveLocalNetworkPermissionStates,
@@ -188,8 +190,8 @@ class OperabilityBackend {
       modelDigest: modelDigestForBackend(this.id),
       content: `「${input.request.taskType}」功能已透過 ${this.id} 真實執行管線建立候選。此結果保留角色選擇、世界規則與人工核准邊界，並提供可驗證的作者用途。`,
       candidateOnly: true,
-      dataLeftDevice: this.id === "private-ai-hub",
-      externalRequest: this.id === "private-ai-hub",
+      dataLeftDevice: false,
+      externalRequest: false,
       elapsedMs: 3,
       profileId: `operability-${input.request.taskType}`,
       firstTokenMs: 1,
@@ -387,6 +389,20 @@ await test("Local Network Access aliases cannot create a false denial", () => {
 });
 
 await test("Evaluator blocks drift from an author-approved proper noun", async () => {
+  const policy = await createTraditionalChineseNormalizationPolicy({
+    objective: "角色名：沈岳。延續城門場景。",
+    privacyLevel: "device_only",
+    context: [],
+  });
+  const normalized = await normalizeTraditionalChineseWithIntegrity({
+    value: "沈岳握住銅鑰匙，決定先驗證來者身分，再承擔延誤開門的風險。",
+    policy,
+    requestId: "proper-noun-drift-test",
+    providerId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "e".repeat(64),
+    inputStage: "closed-agent-final-selected-content",
+  });
   const evaluation = await evaluateClosedAgentCandidate({
     request: {
       taskId: "proper-noun-drift-test",
@@ -418,15 +434,145 @@ await test("Evaluator blocks drift from an author-approved proper noun", async (
       backendId: "local-ollama",
       modelId: "qwen2.5:3b",
       modelDigest: "e".repeat(64),
-      content: "沈嶽握住銅鑰匙，決定先驗證來者身分，再承擔延誤開門的風險。",
+      content: normalized.content,
+      traditionalChineseNormalization: normalized.integrity,
       candidateOnly: true,
       dataLeftDevice: false,
       externalRequest: false,
       elapsedMs: 5,
     },
+    traditionalChineseNormalizationPolicy: policy,
   });
   assert.equal(evaluation.passed, false);
   assert.ok(evaluation.blockingCodes.includes("CANDIDATE_PROPER_NOUN_DRIFT"));
+});
+
+await test("two-Han canonical ambiguity converts prose but fails closed on a bare subject", async () => {
+  const context = [{
+    id: "canonical-character-identities:two-han",
+    kind: "canon",
+    text: '[CANONICAL_CHARACTER_IDENTITIES]\n[{"name":"王国","aliases":[]},{"name":"开心","aliases":[]},{"name":"国王","aliases":[]},{"name":"长城","aliases":[]},{"name":"万里","aliases":[]}]',
+    visibility: "both",
+    privacyLevel: "device_only",
+    approved: true,
+    composerAuthority: "project-context-composer-v1",
+    canonicalIdentitySource: "characters",
+  }];
+  const policy = await createTraditionalChineseNormalizationPolicy({
+    objective: "延續已核准場景。",
+    privacyLevel: "device_only",
+    context,
+  });
+  const normalize = (value, requestId) => normalizeTraditionalChineseWithIntegrity({
+    value,
+    policy,
+    requestId,
+    providerId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "e".repeat(64),
+    inputStage: "closed-agent-final-selected-content",
+  });
+  const ambiguous = await normalize(
+    "王国走进城门，決定先詢問守衛，再承擔延誤會面的風險。",
+    "two-han-ambiguous",
+  );
+  assert.match(ambiguous.content, /^王國走進城門/u);
+  assert.equal(ambiguous.integrity.ambiguousCanonicalOccurrenceCount, 1);
+  const evaluation = await evaluateClosedAgentCandidate({
+    request: {
+      taskId: "two-han-ambiguous",
+      namespace: {
+        tenantId: "local-tenant",
+        userId: "local-author",
+        projectId: "two-han-project",
+        storyId: "two-han-story",
+        canonId: "two-han-canon",
+        branchId: "main",
+        characterId: "shared",
+        agentRole: "closed-agent-os",
+        modelId: "qwen2.5:3b",
+        modelDigest: "e".repeat(64),
+        promptProfileVersion: "two-han-v1",
+        storyBibleRevision: "1",
+        knowledgeScopeRevision: "1",
+        privacyLevel: "device_only",
+      },
+      taskType: "story.continue",
+      objective: "延續已核准場景。",
+      context,
+      complexity: "standard",
+      preferredBackend: "local-ollama",
+      allowedToolIds: [],
+      permissionScopes: permissions(),
+    },
+    execution: {
+      backendId: "local-ollama",
+      modelId: "qwen2.5:3b",
+      modelDigest: "e".repeat(64),
+      content: ambiguous.content,
+      traditionalChineseNormalization: ambiguous.integrity,
+      candidateOnly: true,
+      dataLeftDevice: false,
+      externalRequest: false,
+      elapsedMs: 5,
+    },
+    traditionalChineseNormalizationPolicy: policy,
+  });
+  assert.ok(evaluation.blockingCodes.includes("CANDIDATE_PROPER_NOUN_DRIFT"));
+  for (const [index, action] of [
+    "衝進城門",
+    "奔向鐘樓",
+    "拔劍迎敵",
+    "縱身躍下",
+    "沉默不語",
+    "閃身避開",
+  ].entries()) {
+    const unseenAction = await normalize(
+      `王国${action}，仍必須承擔選擇造成的後果。`,
+      `two-han-unseen-action-${index}`,
+    );
+    assert.equal(unseenAction.integrity.ambiguousCanonicalOccurrenceCount, 1);
+  }
+  for (const [index, sentence] of [
+    "這時王国衝進城門，守衛立刻拉響警鐘。",
+    "隨後王国拔劍迎敵，眾人退到長廊。",
+    "轉眼間王国縱身躍下，落在城牆外。",
+  ].entries()) {
+    const unknownContext = await normalize(
+      sentence,
+      `two-han-unknown-context-${index}`,
+    );
+    assert.equal(unknownContext.integrity.ambiguousCanonicalOccurrenceCount, 1);
+  }
+
+  const prose = await normalize(
+    "這個王国開始動亂，百姓只得關閉城門。",
+    "two-han-common-prose",
+  );
+  assert.match(prose.content, /這個王國開始動亂/u);
+  assert.equal(prose.integrity.ambiguousCanonicalOccurrenceCount, 0);
+  for (const [index, value, expected] of [
+    [0, "她很开心地笑了，決定先回家。", /很開心地笑了/u],
+    [1, "百姓見到国王下令，便關閉城門。", /見到國王下令/u],
+    [2, "他到长城後停下腳步，望向遠方。", /到長城後/u],
+    [3, "他走了万里才抵達故鄉，鞋底早已磨破。", /走了萬里/u],
+  ]) {
+    const common = await normalize(value, `two-han-clear-common-${index}`);
+    assert.match(common.content, expected);
+    assert.equal(common.integrity.ambiguousCanonicalOccurrenceCount, 0);
+  }
+  const vocative = await normalize(
+    "「王国，你回來了。」守衛鬆了一口氣。",
+    "two-han-vocative",
+  );
+  assert.match(vocative.content, /「王国，你回來了。」/u);
+  assert.equal(vocative.integrity.ambiguousCanonicalOccurrenceCount, 0);
+  const objectMention = await normalize(
+    "他看見王国，立刻把信交給對方。",
+    "two-han-object",
+  );
+  assert.match(objectMention.content, /看見王国/u);
+  assert.equal(objectMention.integrity.ambiguousCanonicalOccurrenceCount, 0);
 });
 
 await test("Private Hub model identity is scoped to the executing project", async () => {
@@ -530,7 +676,7 @@ await test("Private Hub performs one control-plane probe per routed task", async
         modelDigest: input.request.namespace.modelDigest,
         adapterId: "test-adapter",
         adapterDigest: "d".repeat(64),
-        content: "沈岳收起銅鑰匙，先命人點亮城牆烽火，再以第二道暗號驗證來者；若判斷失誤，追兵將循火光找到北門。",
+        content: "守衛看見沈岳，便收起銅鑰匙，先命人點亮城牆烽火，再以第二道暗號驗證來者；若判斷失誤，追兵將循火光找到北門。",
         candidateOnly: true,
         dataLeftDevice: false,
         externalRequest: false,
@@ -567,7 +713,16 @@ await test("Private Hub performs one control-plane probe per routed task", async
     },
     taskType: "story.continue",
     objective: "角色名：沈岳。延續他在雨夜城門的行動，並交代選擇與風險。",
-    context: [],
+    context: [{
+      id: "canonical-character-identities:all",
+      kind: "canon",
+      text: '[CANONICAL_CHARACTER_IDENTITIES]\n[{"name":"沈岳"}]',
+      visibility: "both",
+      privacyLevel: "private_infrastructure_only",
+      approved: true,
+      composerAuthority: "project-context-composer-v1",
+      canonicalIdentitySource: "characters",
+    }],
     complexity: "heavy",
     preferredBackend: "private-ai-hub",
     allowedToolIds: [],

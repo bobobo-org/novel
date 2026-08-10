@@ -79,6 +79,7 @@ function fabricTask(request: PlatformAIRequest): BrowserFabricTask {
 export async function executeBrowserSovereignFabric(input: {
   request: PlatformAIRequest;
   decision: PlatformRouterDecision;
+  deferTraditionalChineseNormalization?: boolean;
   onProgress?: (progress: BrowserAIStreamProgress) => void;
 }): Promise<BrowserSovereignFabricExecution> {
   const task = fabricTask(input.request);

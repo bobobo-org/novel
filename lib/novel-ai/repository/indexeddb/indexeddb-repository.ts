@@ -31,7 +31,7 @@ import {
   type ConversationArtifactApprovalInput,
 } from "../../conversation/approval-transaction";
 import { assertConversationRecordSafe } from "../../conversation/record-security";
-import { sha256Hex } from "../../closed-ai-cache";
+import { sha256Hex, stableStringify } from "../../closed-ai-cache";
 import {
   asIndexedDbRepositoryError,
   INDEXEDDB_DATABASE_VERSION,
@@ -524,14 +524,43 @@ export class IndexedDbNovelRepository implements NovelRepository {
     input: ConversationArtifactApprovalInput,
   ): Promise<ApproveConversationArtifactTransactionResult> {
     const payloadFingerprint = await conversationApprovalPayloadFingerprint(input);
-    const preflightArtifact = await this.get<ConversationArtifact>("conversationArtifacts", input.artifactId);
+    const [
+      preflightSession,
+      preflightSourceMessage,
+      preflightArtifact,
+      preflightCanonical,
+      preflightProjectInvocations,
+    ] = await Promise.all([
+      this.get<ConversationSession>("conversationSessions", input.sessionId),
+      this.get<ConversationMessage>("conversationMessages", input.sourceMessageId),
+      this.get<ConversationArtifact>("conversationArtifacts", input.artifactId),
+      this.get<DomainRecord>(input.targetStore as NovelStoreName, input.targetRecordId),
+      this.list<ConversationToolInvocation>("conversationToolInvocations", input.projectId),
+    ]);
+    const preflightLinkedInvocationIds = new Set(
+      preflightSourceMessage?.toolInvocationIds ?? [],
+    );
+    const preflightToolInvocations = preflightProjectInvocations
+      .filter((invocation) => (
+        invocation.messageId === input.sourceMessageId
+        && preflightLinkedInvocationIds.has(invocation.id)
+      ))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const preflightSourceMessageContentDigest = preflightSourceMessage
+      ? await conversationContentDigest(preflightSourceMessage.content)
+      : null;
+    if (
+      preflightSourceMessage
+      && preflightSourceMessageContentDigest !== preflightSourceMessage.contentDigest
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_STALE");
+    }
     const candidateContentDigest = preflightArtifact
       ? await conversationContentDigest(preflightArtifact.candidateContent)
       : "";
     const candidateRawContentDigest = preflightArtifact
       ? await sha256Hex(preflightArtifact.candidateContent)
       : undefined;
-    const preflightCanonical = await this.get<DomainRecord>(input.targetStore as NovelStoreName, input.targetRecordId);
     const preflightCanonicalDigest = preflightCanonical
       ? await conversationCanonicalRecordDigest(preflightCanonical)
       : null;
@@ -563,6 +592,13 @@ export class IndexedDbNovelRepository implements NovelRepository {
           || !sourceMessage
           || !artifact
           || !canonicalRecord
+          || !preflightSession
+          || !preflightSourceMessage
+          || !preflightArtifact
+          || stableStringify(session) !== stableStringify(preflightSession)
+          || stableStringify(sourceMessage) !== stableStringify(preflightSourceMessage)
+          || stableStringify(artifact) !== stableStringify(preflightArtifact)
+          || stableStringify(canonicalRecord) !== stableStringify(preflightCanonical ?? null)
           || artifact.status !== "approved"
           || canonicalRecord.revision < replay.resultingRevision
         ) {
@@ -571,7 +607,12 @@ export class IndexedDbNovelRepository implements NovelRepository {
         const linkedIds = new Set(sourceMessage.toolInvocationIds);
         const toolInvocations = (await request(
           tx.objectStore("conversationToolInvocations").index("messageId").getAll(sourceMessage.id),
-        ) as ConversationToolInvocation[]).filter((invocation) => linkedIds.has(invocation.id));
+        ) as ConversationToolInvocation[])
+          .filter((invocation) => linkedIds.has(invocation.id))
+          .sort((left, right) => left.id.localeCompare(right.id));
+        if (stableStringify(toolInvocations) !== stableStringify(preflightToolInvocations)) {
+          throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_STALE");
+        }
         assertConversationApprovalExecutionTruth(
           sourceMessage,
           artifact,
@@ -588,12 +629,28 @@ export class IndexedDbNovelRepository implements NovelRepository {
         request(tx.objectStore(input.targetStore).get(input.targetRecordId)) as Promise<DomainRecord | undefined>,
       ]);
       const external = "commitId" in input;
+      if (
+        !preflightSession
+        || !preflightSourceMessage
+        || !preflightArtifact
+        || stableStringify(session ?? null) !== stableStringify(preflightSession)
+        || stableStringify(sourceMessage ?? null) !== stableStringify(preflightSourceMessage)
+        || stableStringify(artifact ?? null) !== stableStringify(preflightArtifact)
+        || stableStringify(canonicalRecord ?? null) !== stableStringify(preflightCanonical ?? null)
+      ) {
+        throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_STALE");
+      }
       const linkedIds = new Set(sourceMessage?.toolInvocationIds ?? []);
       const toolInvocations = sourceMessage
         ? (await request(
             tx.objectStore("conversationToolInvocations").index("messageId").getAll(sourceMessage.id),
-          ) as ConversationToolInvocation[]).filter((invocation) => linkedIds.has(invocation.id))
+          ) as ConversationToolInvocation[])
+            .filter((invocation) => linkedIds.has(invocation.id))
+            .sort((left, right) => left.id.localeCompare(right.id))
         : [];
+      if (stableStringify(toolInvocations) !== stableStringify(preflightToolInvocations)) {
+        throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_STALE");
+      }
       assertConversationApprovalSource(
         input,
         {

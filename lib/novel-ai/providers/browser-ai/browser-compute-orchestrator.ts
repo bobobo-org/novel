@@ -190,6 +190,8 @@ const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360;
 const BROWSER_BOUNDED_EXTENSION_MAX_TOKENS = 320;
 const BROWSER_BOUNDED_FRESH_RECOVERY_MAX_TOKENS = 360;
 const BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE = {
+  "credential": "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+  "raw-reasoning": "QUALITY_OUTPUT_RAW_REASONING_LEAK",
   "control-token": "QUALITY_OUTPUT_CONTROL_TOKEN",
   "role-envelope": "QUALITY_OUTPUT_ROLE_ENVELOPE",
   "internal-envelope": "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -204,6 +206,8 @@ function browserProseSafetyReasonCode(code: BrowserProseSafetyCode) {
 
 function browserProseMergeReasonCode(reason: string | null) {
   switch (reason) {
+    case "credential": return "QUALITY_OUTPUT_CREDENTIAL_LEAK";
+    case "raw-reasoning": return "QUALITY_OUTPUT_RAW_REASONING_LEAK";
     case "control-token": return "QUALITY_CONTINUATION_CONTROL_TOKEN";
     case "role-envelope": return "QUALITY_CONTINUATION_ROLE_ENVELOPE";
     case "internal-envelope": return "QUALITY_CONTINUATION_INTERNAL_ENVELOPE";
@@ -641,6 +645,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
   requiredGenerativeExecutor?: VerifiedBrowserExecutor;
   onProgress?: (progress: BrowserAIStreamProgress) => void;
   runPass?: typeof runBrowserAI;
+  deferTraditionalChineseNormalization?: boolean;
 }) {
   const eligibility = input.eligibility;
   const executionRequest = input.executionRequest;
@@ -790,7 +795,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
       ...result,
       content: chapterProseContract.content,
       outputCharacters: chapterProseContract.content.length,
-      normalizedOutputCharacters: chapterProseContract.content.length,
+      ...(input.deferTraditionalChineseNormalization
+        ? {}
+        : { normalizedOutputCharacters: chapterProseContract.content.length }),
     };
   }
   const expectedMinTokens = minimumCandidateTokens(
@@ -807,6 +814,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
       requiresStructuredOutput: input.request.requiresStructured,
       approvedContext: executionRequest.context,
       threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+      deferTraditionalChineseQuality:
+        input.deferTraditionalChineseNormalization,
     });
   const repairReasonCodes = [...new Set([
     ...(initialSafetyRepairReasonCode
@@ -870,6 +879,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         {
           preferLightweightRuntime: false,
           requiredGenerativeExecutor,
+          deferTraditionalChineseNormalization:
+            input.deferTraditionalChineseNormalization,
         },
       );
     } catch (error) {
@@ -962,12 +973,15 @@ export async function executeBrowserBoundedQualityPasses(input: {
       repairCompletion = selectedCompletion;
     }
     const acceptedRepairContent = repairCompletion?.content ?? repairResult.content;
-    let acceptedResult: PlatformAIResult = {
+    repairResult = {
       ...repairResult,
       content: acceptedRepairContent,
       outputCharacters: acceptedRepairContent.length,
-      normalizedOutputCharacters: acceptedRepairContent.length,
+      ...(input.deferTraditionalChineseNormalization
+        ? {}
+        : { normalizedOutputCharacters: acceptedRepairContent.length }),
     };
+    let acceptedResult: PlatformAIResult = repairResult;
     let repairQuality = evaluateBrowserCandidateQuality({
       taskType: input.request.taskType,
       content: acceptedRepairContent,
@@ -976,6 +990,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
       requiresStructuredOutput: input.request.requiresStructured,
       approvedContext: executionRequest.context,
       threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+      deferTraditionalChineseQuality:
+        input.deferTraditionalChineseNormalization,
     });
     const extensionBaseCandidates: Array<{
       stage: "initial" | "repair";
@@ -1102,6 +1118,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
             preferLightweightRuntime: false,
             requiredGenerativeExecutor,
             unapprovedContinuationSeed: continuationSeed,
+            deferTraditionalChineseNormalization:
+              input.deferTraditionalChineseNormalization,
           },
         );
       } catch (error) {
@@ -1171,7 +1189,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
         ...extensionResult,
         content: merged.content,
         outputCharacters: merged.content.length,
-        normalizedOutputCharacters: merged.content.length,
+        ...(input.deferTraditionalChineseNormalization
+          ? {}
+          : { normalizedOutputCharacters: merged.content.length }),
       };
       repairQuality = evaluateBrowserCandidateQuality({
         taskType: input.request.taskType,
@@ -1181,6 +1201,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         requiresStructuredOutput: input.request.requiresStructured,
         approvedContext: executionRequest.context,
         threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+        deferTraditionalChineseQuality:
+          input.deferTraditionalChineseNormalization,
       });
     }
     const shouldRunFreshRecovery = Boolean(
@@ -1245,6 +1267,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
           {
             preferLightweightRuntime: false,
             requiredGenerativeExecutor,
+            deferTraditionalChineseNormalization:
+              input.deferTraditionalChineseNormalization,
           },
         );
       } catch (error) {
@@ -1312,12 +1336,15 @@ export async function executeBrowserBoundedQualityPasses(input: {
         });
       }
       const recoveredContent = recoveryCompletion.content;
-      acceptedResult = {
+      recoveryResult = {
         ...recoveryResult,
         content: recoveredContent,
         outputCharacters: recoveredContent.length,
-        normalizedOutputCharacters: recoveredContent.length,
+        ...(input.deferTraditionalChineseNormalization
+          ? {}
+          : { normalizedOutputCharacters: recoveredContent.length }),
       };
+      acceptedResult = recoveryResult;
       repairQuality = evaluateBrowserCandidateQuality({
         taskType: input.request.taskType,
         content: recoveredContent,
@@ -1326,6 +1353,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         requiresStructuredOutput: input.request.requiresStructured,
         approvedContext: executionRequest.context,
         threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+        deferTraditionalChineseQuality:
+          input.deferTraditionalChineseNormalization,
       });
       if (repairQuality.decision !== "pass") {
         throw Object.assign(explicitEscalationError(
@@ -1403,7 +1432,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
         (sum, pass) => sum + (pass.rawOutputCharacters ?? pass.outputCharacters ?? 0),
         0,
       ),
-      normalizedOutputCharacters: acceptedResult.content.length,
+      ...(input.deferTraditionalChineseNormalization
+        ? {}
+        : { normalizedOutputCharacters: acceptedResult.content.length }),
       runtimeStats: [
         acceptedResult.runtimeStats,
         "bounded-same-model-repair=1",
@@ -1475,6 +1506,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
 export async function executeBrowserCompute(input: {
   request: PlatformAIRequest;
   decision: PlatformRouterDecision;
+  deferTraditionalChineseNormalization?: boolean;
   onProgress?: (progress: BrowserAIStreamProgress) => void;
 }): Promise<BrowserComputeExecution> {
   const started = performance.now();
@@ -1609,6 +1641,8 @@ export async function executeBrowserCompute(input: {
     options: {
       preferLightweightRuntime: eligibility.tier === "T1",
       requiredGenerativeExecutor,
+      deferTraditionalChineseNormalization:
+        input.deferTraditionalChineseNormalization,
     },
   });
   const qualityPasses = await executeBrowserBoundedQualityPasses({
@@ -1620,6 +1654,8 @@ export async function executeBrowserCompute(input: {
     performancePolicy,
     requiredGenerativeExecutor,
     onProgress: input.onProgress,
+    deferTraditionalChineseNormalization:
+      input.deferTraditionalChineseNormalization,
   });
   result = qualityPasses.result;
   const quality = qualityPasses.quality;

@@ -1,7 +1,7 @@
 import type {
   ClosedAIContextItem,
   ClosedBackendExecutionInput,
-  ClosedBackendExecutionResult,
+  ClosedBackendRawExecutionResult,
 } from "../../closed-agent-os/types";
 import type { PlatformProviderId } from "../../router/platform-types";
 import {
@@ -170,7 +170,7 @@ export async function prepareBrowserAssistedBackendInput(
 /** Record browser-side deterministic checks without storing prompt or output. */
 export async function finalizeBrowserAssistedBackendResult(input: {
   preparation: BrowserAssistedPreparation;
-  result: ClosedBackendExecutionResult;
+  result: ClosedBackendRawExecutionResult;
   executor: Extract<PlatformProviderId, "local-ollama" | "private-ai-hub">;
 }) {
   const quality = evaluateBrowserCandidateQuality({

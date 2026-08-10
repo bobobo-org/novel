@@ -35,6 +35,8 @@ import {
 } from "@/lib/novel-ai/repository/backup";
 import { createSovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
+import { buildConversationClosedAgentCacheOriginProof } from "@/lib/novel-ai/conversation/closed-agent-cache-origin-proof";
+import { stableStringify } from "@/lib/novel-ai/closed-ai-cache";
 import { resolveConversationCanonicalTarget } from "@/lib/novel-ai/conversation/canonical-target";
 import type { AtomicLearningImportCoordinator } from "@/lib/novel-ai/conversation/learning-import";
 import {
@@ -1141,8 +1143,10 @@ export default function ConversationWorkspace({
         taskType: input.plan.taskType ?? "assistant.general",
         objective: input.plan.objective,
         taskId,
-        sourceChapterId: currentChapter?.id,
-        sourceRevision: currentChapter?.revision,
+        sourceChapterId: resolvedCanonicalTarget?.targetRecordId
+          ?? currentChapter?.id,
+        sourceRevision: resolvedCanonicalTarget?.sourceRevision
+          ?? currentChapter?.revision,
         conversationSessionId: input.sessionId,
         conversationRecentMessageLimit: 12,
         selectedAttachmentSummaries: input.preparedAttachments.map(({ record, extraction }) => ({
@@ -1241,6 +1245,17 @@ export default function ConversationWorkspace({
           externalRequest: false,
           dataLeftDevice: false,
           receipt: result.candidate.executionReceipt,
+          closedAgentProof: {
+            schemaVersion: result.candidate.schemaVersion,
+            backendId: result.candidate.backendId,
+            normalizationReceiptId:
+              result.candidate.traditionalChineseNormalization.receiptId,
+            traditionalChineseNormalizerVersion:
+              result.candidate.traditionalChineseNormalization.normalizerVersion,
+            cacheOrigin: await buildConversationClosedAgentCacheOriginProof(
+              result.candidate,
+            ),
+          },
         }),
         externalRequest: false,
         dataLeftDevice: false,
@@ -1567,15 +1582,27 @@ export default function ConversationWorkspace({
     setBusy(true);
     setSafeError(null);
     try {
+      const currentSourceMessage = await repository.get<ConversationMessage>(
+        "conversationMessages",
+        message.id,
+      );
+      if (
+        !currentSourceMessage
+        || stableStringify(currentSourceMessage) !== stableStringify(message)
+      ) {
+        throw Object.assign(new Error("The regeneration source changed after it was displayed."), {
+          code: "CONVERSATION_REGENERATION_SOURCE_STALE",
+        });
+      }
       const sourceArtifacts = (await conversation.listArtifacts(projectId, sessionId))
-        .filter((artifact) => artifact.sourceMessageId === message.id);
+        .filter((artifact) => artifact.sourceMessageId === currentSourceMessage.id);
       if (sourceArtifacts.some((artifact) => ["rpg", "learning_rule"].includes(artifact.artifactType))) {
         throw Object.assign(new Error("這類候選必須從原本的 RPG 選擇或附件匯入流程重新執行。"), {
           code: "CONVERSATION_REGENERATION_SPECIALIZED_FLOW_REQUIRED",
         });
       }
-      const sourceUser = message.parentMessageId
-        ? await repository.get<ConversationMessage>("conversationMessages", message.parentMessageId)
+      const sourceUser = currentSourceMessage.parentMessageId
+        ? await repository.get<ConversationMessage>("conversationMessages", currentSourceMessage.parentMessageId)
         : null;
       if (!sourceUser || sourceUser.role !== "user") {
         throw Object.assign(new Error("找不到原始使用者訊息。"), {
@@ -1596,25 +1623,31 @@ export default function ConversationWorkspace({
           code: "CONVERSATION_REGENERATION_SPECIALIZED_FLOW_REQUIRED",
         });
       }
-      const sourceInvocation = (await conversation.listToolInvocations(projectId, sessionId))
+      const sourceInvocations = (await conversation.listToolInvocations(projectId, sessionId))
         .filter((invocation) => (
-          invocation.messageId === message.id
+          invocation.messageId === currentSourceMessage.id
+          && currentSourceMessage.toolInvocationIds.includes(invocation.id)
           && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
           && invocation.status === "completed"
-        ))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
+        ));
+      const sourceInvocation = sourceInvocations.length === 1
+        ? sourceInvocations[0]
+        : null;
       const regenerationSource = await resolveRegenerationBackend({
         sourceInvocation,
-        sourceCandidateIds: message.candidateIds,
-        sourceMessageContent: message.content,
-        sourceMessageContentDigest: message.contentDigest,
+        sourceCandidateIds: currentSourceMessage.candidateIds,
+        sourceMessageContent: currentSourceMessage.content,
+        sourceMessageContentDigest: currentSourceMessage.contentDigest,
         taskType: plan.taskType ?? "assistant.general",
         signal: controller.signal,
       });
       const prepared = await conversation.prepareRegeneration({
         projectId,
         sessionId,
-        sourceMessageId: message.id,
+        sourceMessageId: currentSourceMessage.id,
+        expectedSourceMessage: currentSourceMessage,
+        expectedSourceInvocation: sourceInvocation!,
+        expectedClosedCandidateId: regenerationSource.candidateId,
       });
       await runClosedAgent({
         plan,
@@ -1623,7 +1656,7 @@ export default function ConversationWorkspace({
         preparedAttachments: [],
         signal: controller.signal,
         regeneration: {
-          source: message,
+          source: currentSourceMessage,
           taskId: prepared.taskId,
           placeholderId: prepared.messageId,
           preferredBackend: regenerationSource.backendId,

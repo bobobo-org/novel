@@ -1,7 +1,8 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderCapability, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
 import {
-  normalizeTraditionalChinesePreservingProperNouns,
-} from "../../language/traditional-chinese";
+  closedOutputSafetyCode,
+  closedOutputSafetyReasonCode,
+} from "../../security/closed-output-safety";
 import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
@@ -67,6 +68,17 @@ export function buildSubstantiveSceneContinuationPrompt(value: string) {
     maximumCharacters,
     requestedParagraphs,
   };
+}
+
+function assertSafeLocalSelectedOutput(value: string) {
+  const safetyCode = closedOutputSafetyCode(value);
+  if (!safetyCode) return;
+  const reasonCode = closedOutputSafetyReasonCode(safetyCode);
+  throw Object.assign(new Error(reasonCode), {
+    code: reasonCode,
+    externalFallback: false,
+    canonicalMutationCount: 0,
+  });
 }
 
 function trimAtCompleteSentence(value: string, maximumCharacters: number) {
@@ -360,7 +372,10 @@ export async function runLocalOllama(
   decision: PlatformRouterDecision,
   base?: string,
   onProgress?: (progress: ClosedProviderGenerationProgress) => void,
-  runtimeOptions?: { boundedQualityRepair?: boolean },
+  runtimeOptions?: {
+    boundedQualityRepair?: boolean;
+    deferTraditionalChineseNormalization?: boolean;
+  },
 ): Promise<PlatformAIResult> {
   const started = performance.now();
   const client = bridgeClient(base);
@@ -478,12 +493,24 @@ export async function runLocalOllama(
     if (event.type === "failed" || event.type === "cancelled") throw Object.assign(new Error(String(event.errorCode || event.type)), { code: event.errorCode || (event.type === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_STREAM_INTERRUPTED") });
   }
   if (!completed) throw Object.assign(new Error("Local Ollama stream did not complete."), { code: "OLLAMA_STREAM_INTERRUPTED" });
+  // Scan the entire provider output before any boundary repair can discard a
+  // malicious tail. The selected final is scanned again by the OS evaluator.
+  assertSafeLocalSelectedOutput(content);
   onProgress?.({
     generatedCharacters: content.length,
     firstTokenMs,
     tokenEvents,
   });
-  let normalizedContent = normalizeTraditionalChinesePreservingProperNouns(
+  // Closed Agent OS normalizes the final selected/merged value exactly once.
+  // Non-OS callers retain the legacy per-provider normalization behavior.
+  const normalizeGeneratedContent = async (value: string, source: string) => {
+    if (runtimeOptions?.deferTraditionalChineseNormalization) return value;
+    const { normalizeTraditionalChinesePreservingProperNouns } = await import(
+      "../../language/traditional-chinese"
+    );
+    return normalizeTraditionalChinesePreservingProperNouns(value, source);
+  };
+  let normalizedContent = await normalizeGeneratedContent(
     content,
     [request.input, ...request.context].join("\n"),
   );
@@ -500,6 +527,9 @@ export async function runLocalOllama(
       || initialSubstantiveMetrics.sentenceCount < 10
     )
   ) {
+    // The first model output is data, not a prompt fragment. Reject forged
+    // model/role/internal envelopes before embedding it as story reference.
+    assertSafeLocalSelectedOutput(normalizedContent);
     const continuation = buildSubstantiveSceneContinuationPrompt(normalizedContent);
     substantiveSupplementRunId = `${request.requestId.slice(0, 88)}:scene:${crypto.randomUUID().slice(0, 8)}`;
     const remainingSubstantiveTimeMs = Math.floor(240_000 - (performance.now() - started));
@@ -563,10 +593,12 @@ export async function runLocalOllama(
         code: "OLLAMA_STREAM_INTERRUPTED",
       });
     }
-    const normalizedSupplement = normalizeTraditionalChinesePreservingProperNouns(
+    assertSafeLocalSelectedOutput(supplement);
+    const normalizedSupplement = await normalizeGeneratedContent(
       supplement,
       [request.input, normalizedContent].join("\n"),
     );
+    assertSafeLocalSelectedOutput(normalizedSupplement);
     const supplementBoundary = repairLocalProseCompletionBoundary({
       taskType: request.taskType,
       content: normalizedSupplement,
@@ -591,12 +623,13 @@ export async function runLocalOllama(
     evaluatedTokens,
     doneReason,
   });
+  const finalContent = completionBoundary.content;
   return {
     requestId: request.requestId,
     providerId: "local-ollama",
     modelId: decision.modelId,
     modelDigest: decision.modelDigest ?? null,
-    content: completionBoundary.content,
+    content: finalContent,
     candidateOnly: true,
     externalRequest: false,
     dataLeavesDevice: false,
@@ -615,7 +648,7 @@ export async function runLocalOllama(
     }`,
     firstTokenMs,
     inputCharacters: prompt.inputCharacters,
-    outputCharacters: completionBoundary.content.length,
+    outputCharacters: finalContent.length,
     generatedTokenEvents: tokenEvents,
     omittedInputCharacters: prompt.omittedCharacters,
     runtimeStats: [

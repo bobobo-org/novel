@@ -279,7 +279,7 @@ await test("validated RPG JSON survives the Closed Agent boundary without losing
   assert.equal(legacy.content, "A. 穩住星橋\nB. 交換密報\nC. 闖入禁區");
 });
 
-await test("duplicate ABC output and parrot-like continuation are rejected", () => {
+await test("duplicate ABC output and parrot-like continuation are rejected", async () => {
   const duplicate = JSON.stringify({ choices: ["A", "B", "C"].map((key) => ({
     key, title: "繼續前進並觀察周遭", description: "主角沿著原路繼續前進，同時觀察四周是否出現新的腳印、聲響與伏擊跡象。",
     consequenceTeaser: "可能遇到新的危險，也會付出額外代價。",
@@ -288,8 +288,8 @@ await test("duplicate ABC output and parrot-like continuation are rejected", () 
   const previous = "主角推開石門，冷風從地底湧出。他握緊手中長劍，示意同伴跟上，眾人沿著濕滑階梯向下走去。黑暗深處傳來鐵鏈拖地的聲音，一場新的危機正在等待他們。";
   const repeated = `${previous} ${previous}`;
   assert.ok(rpgTextSimilarity(previous, repeated) > 0.72);
-  assert.throws(() => cleanRpgContinuation(repeated, [previous]), /REPETITIVE/);
-  assert.throws(() => cleanRpgContinuation("他停下腳步。", []), /TOO_SHORT/);
+  await assert.rejects(() => cleanRpgContinuation(repeated, [previous]), /REPETITIVE/);
+  await assert.rejects(() => cleanRpgContinuation("他停下腳步。", []), /TOO_SHORT/);
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {

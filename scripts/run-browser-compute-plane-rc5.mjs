@@ -940,7 +940,7 @@ test("quality-gate", () => {
   ).contractSatisfied, true);
   assert.equal(assessBrowserProseCompletion(
     `<|任務|>${"霧".repeat(218)}。`,
-  ).contractSatisfied, true);
+  ).contractSatisfied, false);
   const pinnedSpecialTokens = [
     "<|im_start|>",
     "<|im_end|>",
@@ -962,7 +962,21 @@ test("quality-gate", () => {
     BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS_SOURCE_REVISION,
   );
   assert.deepEqual(BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS, pinnedSpecialTokens);
-  assert.equal(browserProseSafetyCode("<|任務|>自訂小說標籤"), null);
+  assert.equal(browserProseSafetyCode("<|任務|>自訂小說標籤"), "control-token");
+  for (const token of [
+    "<|begin_of_text|>",
+    "<|start_header_id|>",
+    "<|eot_id|>",
+    "[INST]",
+    "[/INST]",
+    "<s>",
+    "</s>",
+  ]) {
+    assert.equal(browserProseSafetyCode(`${token}候選正文`), "control-token", token);
+  }
+  assert.equal(browserProseSafetyCode("\u200Bsystem: private"), "role-envelope");
+  assert.equal(browserProseSafetyCode("<\u200Bsystem>private"), "role-envelope");
+  assert.equal(browserProseSafetyCode("assistant\u200B: private"), "role-envelope");
   for (const token of pinnedSpecialTokens) {
     assert.equal(browserProseSafetyCode(`${token}候選正文`), "control-token", token);
     assert.equal(assessBrowserProseCompletion(
@@ -2094,16 +2108,36 @@ test("bounded-prose-extension", async () => {
     assert.ok(selectedCacheEntries.length > 0, "authoritative OS run must write candidate-only cache entries");
     const selectedExactCache = selectedCacheEntries.find((entry) =>
       entry.layer === "exact"
-      && entry.value?.content === authoritativeContent);
+      && entry.value?.execution?.content === authoritativeContent);
     const selectedSemanticCache = selectedCacheEntries.find((entry) =>
       entry.layer === "semantic"
-      && entry.value?.execution?.content === authoritativeContent);
+      && entry.value?.artifact?.execution?.content === authoritativeContent);
     assert.ok(selectedExactCache, "exact cache must contain the selected Browser candidate only");
     assert.ok(selectedSemanticCache, "semantic cache must contain the selected Browser candidate only");
-    assert.equal(selectedExactCache.value.modelId, model.modelId);
-    assert.equal(selectedExactCache.value.modelDigest, model.modelDigest);
-    assert.equal(selectedSemanticCache.value.execution.modelId, model.modelId);
-    assert.equal(selectedSemanticCache.value.execution.modelDigest, model.modelDigest);
+    const exactArtifact = selectedExactCache.value;
+    const semanticArtifact = selectedSemanticCache.value.artifact;
+    for (const artifact of [exactArtifact, semanticArtifact]) {
+      assert.equal(artifact.schemaVersion, "closed-agent-cached-execution-v1");
+      assert.equal(artifact.originCandidateId, selectedCandidateResult.candidate.id);
+      assert.equal(artifact.originTaskId, taskId);
+      assert.equal(artifact.originLedgerId, selectedLedgerId);
+      assert.equal(artifact.originLedgerBlockHash, selectedCandidateBlock.blockHash);
+      assert.equal(artifact.execution.content, authoritativeContent);
+      assert.equal(artifact.execution.modelId, model.modelId);
+      assert.equal(artifact.execution.modelDigest, model.modelDigest);
+      assert.equal(
+        artifact.execution.traditionalChineseNormalization.receiptId,
+        selectedCandidateResult.candidate.traditionalChineseNormalization.receiptId,
+      );
+      assert.deepEqual(
+        artifact.originExecutionReceipt,
+        selectedCandidateResult.candidate.executionReceipt,
+      );
+      assert.deepEqual(
+        artifact.originExecutionReceipt.traditionalChineseNormalization,
+        selectedCandidateResult.candidate.traditionalChineseNormalization,
+      );
+    }
     assert.doesNotMatch(
       JSON.stringify({
         result: selectedCandidateResult,

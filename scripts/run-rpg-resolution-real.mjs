@@ -198,7 +198,7 @@ try {
       outputDigest: crypto.createHash("sha256").update(generated.content).digest("hex"),
     };
     try {
-      const continuation = cleanRpgContinuation(generated.content, [], "zh-TW");
+      const continuation = await cleanRpgContinuation(generated.content, [], "zh-TW");
       const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
       attempts.push({ ...metrics, ...contract, status: "PASS" });
       accepted = {
@@ -268,7 +268,7 @@ try {
           outputDigest: crypto.createHash("sha256").update(supplement.content).digest("hex"),
         };
         try {
-          const continuation = cleanRpgContinuation(merged, [], "zh-TW");
+          const continuation = await cleanRpgContinuation(merged, [], "zh-TW");
           const contract = validateRpgStoryTurnContract(continuation, "zh-TW");
           attempts.push({ ...supplementMetrics, ...contract, status: "PASS" });
           accepted = {

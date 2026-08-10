@@ -8,6 +8,7 @@ import type {
   ClosedAIBackendId,
   ClosedAIQualityMode,
 } from "./types";
+import { CLOSED_AGENT_OS_SCHEMA_VERSION } from "./types";
 
 const rolesByComplexity: Record<ClosedAITaskComplexity, ClosedAgentRole[]> = {
   light: ["planner", "actor", "evaluator"],
@@ -53,7 +54,7 @@ export async function createClosedAgentPlan(input: {
       : ["actor", "both"] as const,
   }));
   const body = {
-    schemaVersion: "closed-agent-os-v1" as const,
+    schemaVersion: CLOSED_AGENT_OS_SCHEMA_VERSION,
     taskId: input.request.taskId,
     complexity: input.complexity,
     qualityMode,

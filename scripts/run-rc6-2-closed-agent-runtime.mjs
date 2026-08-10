@@ -561,18 +561,44 @@ await test("candidate-executor-contract", async () => {
   );
 
   executionContent = "这是一个只用于触发语言边界的候选。";
+  const normalizedResult = await os.execute({
+    ...request,
+    taskId: "rc6-2-single-normalization",
+    objective: "簡體模型輸出必須由 Closed Agent OS 恰好正規化一次。",
+  });
+  assert.equal(normalizedResult.candidate.content, "這是一個只用於觸發語言邊界的候選。");
+  assert.equal(
+    normalizedResult.candidate.traditionalChineseNormalization.normalizationOperationCount,
+    1,
+  );
+  assert.deepEqual(
+    normalizedResult.candidate.executionReceipt?.traditionalChineseNormalization,
+    normalizedResult.candidate.traditionalChineseNormalization,
+  );
+
+  executionContent = "這時王国衝進城門，守衛立刻拉響警鐘；若判斷失誤，追兵將循火光找到北門。";
   const progress = [];
   await assert.rejects(
     os.execute({
       ...request,
       taskId: "rc6-2-evaluator-safe-progress",
       objective: "敏感作者內容不得出現在失敗證據。",
+      context: [{
+        id: "canonical-character-identities:runtime-progress",
+        kind: "canon",
+        text: '[CANONICAL_CHARACTER_IDENTITIES]\n[{"name":"王国","aliases":[]}]',
+        visibility: "both",
+        privacyLevel: "device_only",
+        approved: true,
+        composerAuthority: "project-context-composer-v1",
+        canonicalIdentitySource: "characters",
+      }],
       onProgress: (event) => progress.push(event),
     }),
     (error) => error?.code === "CLOSED_AGENT_EVALUATION_BLOCKED",
   );
   assert.ok(progress.some((event) => event.label.includes(
-    "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+    "CANDIDATE_PROPER_NOUN_DRIFT",
   )));
   assert.equal(progress.some((event) => event.label.includes("敏感作者內容")), false);
   assert.deepEqual(closedAgentQualityReasonCodes({
@@ -716,6 +742,20 @@ await test("production-matrix", () => {
 });
 
 await test("source-truth", async () => {
+  const lazyTraditionalRuntimeSources = await Promise.all([
+    "../lib/novel-ai/closed-agent-os/closed-agent-os.ts",
+    "../lib/novel-ai/closed-agent-os/evaluator.ts",
+    "../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts",
+    "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts",
+    "../lib/novel-ai/web/rpg-closed-ai-director.ts",
+  ].map((source) => readFile(new URL(source, import.meta.url), "utf8")));
+  for (const source of lazyTraditionalRuntimeSources) {
+    assert.doesNotMatch(
+      source,
+      /(?:^|\n)import\s+(?!type\b)(?:\{[^}]*\}|\w+|\*\s+as\s+\w+)\s+from\s+["'][^"']*language\/traditional-chinese["']/u,
+    );
+    assert.match(source, /import\([\s\S]{0,80}language\/traditional-chinese/u);
+  }
   const [types, closedAgentOs, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
@@ -801,7 +841,9 @@ await test("source-truth", async () => {
   assert.match(bootstrapHook, /candidateId\.startsWith\("closed-agent-candidate:"\)/u);
   assert.match(bootstrapHook, /normalizedCandidateDigest !== input\.sourceMessageContentDigest/u);
   assert.match(bootstrapHook, /candidateDigest:\s*candidate\.contentDigest/u);
-  assert.match(workspace, /sourceCandidateIds:\s*message\.candidateIds/u);
+  assert.match(workspace, /sourceCandidateIds:\s*currentSourceMessage\.candidateIds/u);
+  assert.match(workspace, /expectedSourceMessage:\s*currentSourceMessage/u);
+  assert.match(workspace, /expectedSourceInvocation:\s*sourceInvocation!/u);
   assert.match(workspace, /sourceCandidateDigest:\s*regenerationSource\.candidateDigest/u);
   assert.doesNotMatch(messageRow, /outputDigest === message\.contentDigest/u);
   assert.match(regenerationProof, /input\.artifacts\.length === 0/u);
@@ -835,6 +877,8 @@ await test("source-truth", async () => {
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
   for (const code of [
     "QUALITY_SCORE_BELOW_THRESHOLD",
+    "QUALITY_OUTPUT_CREDENTIAL_LEAK",
+    "QUALITY_OUTPUT_RAW_REASONING_LEAK",
     "QUALITY_OUTPUT_CONTROL_TOKEN",
     "QUALITY_OUTPUT_ROLE_ENVELOPE",
     "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
@@ -846,12 +890,20 @@ await test("source-truth", async () => {
     "QUALITY_CONTINUATION_SUFFIX_EMPTY",
     "QUALITY_CONTINUATION_BASE_REPEATED",
     "QUALITY_CONTINUATION_CONTRACT_UNSATISFIED",
+    "CANDIDATE_CREDENTIAL_LEAK",
+    "CANDIDATE_RAW_REASONING_LEAK",
   ]) {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
   }
   assert.ok(browserGate.includes('"recovery"'), "recovery runtime stage missing from browser gate allowlist");
   assert.match(browserGate, /initial\|repair\|extension\|recovery/u);
-  assert.match(browserGate, /for \(const code of allowed\)/u);
+  assert.match(browserGate, /text\.match\(diagnosticTokenPattern\)/u);
+  assert.match(browserGate, /allowed\.has\(token\)/u);
+  assert.ok(browserGate.includes("const diagnosticTokenPattern = /(?<!["));
+  assert.ok(browserGate.includes("\\p{L}\\p{N}_"));
+  assert.match(browserGate, /xQUALITY_OUTPUT_CREDENTIAL_LEAK/u);
+  assert.match(browserGate, /惡QUALITY_OUTPUT_ROLE_ENVELOPE/u);
+  assert.doesNotMatch(browserGate, /for \(const code of allowed\)/u);
   assert.doesNotMatch(browserGate, /const codePattern/u);
   for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);

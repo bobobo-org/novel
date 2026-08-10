@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import type {
+  ConversationClosedAgentCacheOriginProof,
   ConversationExecutionReceipt,
   ConversationMessage,
   ConversationToolInvocation,
@@ -25,6 +26,13 @@ export function toExecutionReceipt(input: {
     browserComputeReceiptId?: string;
     browserFabricReceiptId?: string;
   } | null;
+  closedAgentProof?: {
+    schemaVersion: "closed-agent-os-v2";
+    backendId: "browser-ai" | "local-ollama" | "private-ai-hub";
+    normalizationReceiptId: string;
+    traditionalChineseNormalizerVersion: string;
+    cacheOrigin?: ConversationClosedAgentCacheOriginProof;
+  } | null;
 }): ConversationExecutionReceipt {
   const started = input.receipt?.startedAt ? Date.parse(input.receipt.startedAt) : Number.NaN;
   const completed = input.receipt?.completedAt ? Date.parse(input.receipt.completedAt) : Number.NaN;
@@ -34,7 +42,7 @@ export function toExecutionReceipt(input: {
       ?? `conversation-receipt:${input.taskId}`,
     modelId: input.modelId,
     modelDigest: input.modelDigest,
-    providerRunId: input.taskId,
+    providerRunId: input.closedAgentProof?.cacheOrigin ? null : input.taskId,
     contextDigest: input.contextDigest,
     outputDigest: input.outputDigest,
     externalRequest: input.externalRequest,
@@ -42,6 +50,16 @@ export function toExecutionReceipt(input: {
     latencyMs: Number.isFinite(started) && Number.isFinite(completed)
       ? Math.max(0, completed - started)
       : null,
+    ...(input.closedAgentProof ? {
+      closedAgentSchemaVersion: input.closedAgentProof.schemaVersion,
+      closedAgentBackendId: input.closedAgentProof.backendId,
+      normalizationReceiptId: input.closedAgentProof.normalizationReceiptId,
+      traditionalChineseNormalizerVersion:
+        input.closedAgentProof.traditionalChineseNormalizerVersion,
+      ...(input.closedAgentProof.cacheOrigin ? {
+        closedAgentCacheOrigin: input.closedAgentProof.cacheOrigin,
+      } : {}),
+    } : {}),
   };
 }
 

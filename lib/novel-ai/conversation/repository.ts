@@ -1,4 +1,4 @@
-import { sha256Hex } from "../closed-ai-cache";
+import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import {
   makeRecord,
   type ConversationArtifact,
@@ -25,6 +25,8 @@ import {
   type NovelRepository,
 } from "../repository/contracts";
 import { conversationContentDigest } from "./approval-transaction";
+import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 
 const MAX_MESSAGE_CHARACTERS = 262_144;
 const SHA256_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
@@ -121,6 +123,7 @@ function assertExecutionTruth(input: {
 }
 
 function assertSafeToolMetadata(input: {
+  taskId: string;
   toolId: string;
   taskType: string;
   modelId: string | null;
@@ -130,6 +133,7 @@ function assertSafeToolMetadata(input: {
   safeProgress: ConversationToolInvocation["safeProgress"];
   safeErrorCode: string | null;
   status: ConversationToolInvocation["status"];
+  actualExecutor: ConversationToolInvocation["actualExecutor"];
 }) {
   const percent = input.safeProgress?.percent;
   if (percent !== null && percent !== undefined && (!Number.isFinite(percent) || percent < 0 || percent > 100)) {
@@ -138,6 +142,34 @@ function assertSafeToolMetadata(input: {
   if (input.safeErrorCode && !/^[A-Z0-9_.:-]{1,96}$/u.test(input.safeErrorCode)) {
     throw new RepositoryOperationError("CONVERSATION_SAFE_ERROR_CODE_INVALID");
   }
+  const closedProof = input.executionReceipt;
+  const hasAnyClosedProof = Boolean(closedProof) && (
+    closedProof!.closedAgentSchemaVersion !== undefined
+    || closedProof!.closedAgentBackendId !== undefined
+    || closedProof!.normalizationReceiptId !== undefined
+    || closedProof!.traditionalChineseNormalizerVersion !== undefined
+    || closedProof!.closedAgentCacheOrigin !== undefined
+  );
+  const closedCacheProof = closedProof?.closedAgentCacheOrigin;
+  const closedProofInvalid = hasAnyClosedProof && (
+    closedProof?.closedAgentSchemaVersion !== "closed-agent-os-v2"
+    || !["browser-ai", "local-ollama", "private-ai-hub"]
+      .includes(closedProof?.closedAgentBackendId ?? "")
+    || !/^traditional-chinese-integrity:[a-f0-9]{64}$/u.test(
+      closedProof?.normalizationReceiptId ?? "",
+    )
+    || closedProof?.traditionalChineseNormalizerVersion
+      !== "opencc-js-1.4.1-cn-to-tw-single-pass-v1"
+    || (closedCacheProof !== undefined && (
+      input.actualExecutor !== "not_executed"
+      || closedProof?.providerRunId !== null
+      || !hasValidConversationClosedAgentCacheOriginProof(closedCacheProof)
+    ))
+    || (closedCacheProof === undefined && (
+      input.actualExecutor === "not_executed"
+      || closedProof?.providerRunId !== input.taskId
+    ))
+  );
   if (input.executionReceipt && (
     !input.executionReceipt.receiptId.trim()
     || !SHA256_DIGEST_PATTERN.test(input.executionReceipt.contextDigest)
@@ -147,6 +179,7 @@ function assertSafeToolMetadata(input: {
     || (input.executionReceipt.latencyMs !== null && (!Number.isFinite(input.executionReceipt.latencyMs) || input.executionReceipt.latencyMs < 0))
     || (input.modelId !== null && input.executionReceipt.modelId !== input.modelId)
     || (input.modelDigest !== null && input.executionReceipt.modelDigest !== input.modelDigest)
+    || closedProofInvalid
   )) {
     throw new RepositoryOperationError("CONVERSATION_RECEIPT_IDENTITY_INVALID");
   }
@@ -517,6 +550,7 @@ export class ConversationRepositoryService {
       dataLeftDevice: input.dataLeftDevice ?? false,
     });
     assertSafeToolMetadata({
+      taskId: input.taskId,
       toolId: input.toolId,
       taskType: input.taskType,
       modelId: input.modelId ?? null,
@@ -526,6 +560,7 @@ export class ConversationRepositoryService {
       safeProgress: input.safeProgress ?? null,
       safeErrorCode: input.safeErrorCode ?? null,
       status: input.status ?? "pending",
+      actualExecutor: input.actualExecutor ?? null,
     });
     const now = new Date().toISOString();
     const base = makeRecord(input.projectId, "system");
@@ -611,6 +646,7 @@ export class ConversationRepositoryService {
       dataLeftDevice: input.dataLeftDevice ?? invocation.dataLeftDevice,
     });
     assertSafeToolMetadata({
+      taskId: invocation.taskId,
       toolId: invocation.toolId,
       taskType: invocation.taskType,
       modelId: input.modelId ?? invocation.modelId,
@@ -620,6 +656,7 @@ export class ConversationRepositoryService {
       safeProgress: input.safeProgress ?? invocation.safeProgress,
       safeErrorCode: input.safeErrorCode ?? invocation.safeErrorCode,
       status: input.status,
+      actualExecutor: input.actualExecutor ?? invocation.actualExecutor,
     });
     return this.repository.put("conversationToolInvocations", {
       ...invocation,
@@ -1026,14 +1063,42 @@ export class ConversationRepositoryService {
     projectId: string;
     sessionId: string;
     sourceMessageId: string;
+    expectedSourceMessage: ConversationMessage;
+    expectedSourceInvocation: ConversationToolInvocation;
+    expectedClosedCandidateId: string;
   }) {
     await this.requireSession(input.projectId, input.sessionId);
-    const source = await this.repository.get<ConversationMessage>("conversationMessages", input.sourceMessageId);
+    const [source, sourceInvocation] = await Promise.all([
+      this.repository.get<ConversationMessage>("conversationMessages", input.sourceMessageId),
+      this.repository.get<ConversationToolInvocation>(
+        "conversationToolInvocations",
+        input.expectedSourceInvocation.id,
+      ),
+    ]);
+    if (
+      stableStringify(source) !== stableStringify(input.expectedSourceMessage)
+      || stableStringify(sourceInvocation) !== stableStringify(input.expectedSourceInvocation)
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_REGENERATION_SOURCE_STALE");
+    }
+    const closedCandidateIds = source?.candidateIds.filter((candidateId) => (
+      candidateId.startsWith("closed-agent-candidate:")
+    )) ?? [];
     if (
       !source
       || source.projectId !== input.projectId
       || source.sessionId !== input.sessionId
       || source.role !== "assistant"
+      || source.status !== "completed"
+      || closedCandidateIds.length !== 1
+      || closedCandidateIds[0] !== input.expectedClosedCandidateId
+      || !sourceInvocation
+      || sourceInvocation.projectId !== input.projectId
+      || sourceInvocation.sessionId !== input.sessionId
+      || sourceInvocation.messageId !== source.id
+      || !source.toolInvocationIds.includes(sourceInvocation.id)
+      || sourceInvocation.toolId !== CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+      || sourceInvocation.status !== "completed"
     ) {
       throw new RepositoryOperationError("CONVERSATION_REGENERATION_SOURCE_INVALID");
     }

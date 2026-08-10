@@ -1,4 +1,4 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationClosedAgentApprovalBindingProof, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult } from "../../drama-os/types";
 import { CHARACTER_AGENT_STORE_NAMES } from "../../character-agent/repository";
 import type {
@@ -137,6 +137,7 @@ export type ApproveConversationArtifactTransactionInput = {
   expectedSourceRevision: number;
   applicationMode: "append" | "replace" | "summary" | "record_replace";
   nextCanonicalRecord?: DomainRecord;
+  closedAgentApprovalBinding?: ConversationClosedAgentApprovalBindingProof;
 };
 
 export type MarkConversationArtifactApprovedFromExternalCommitInput = {
@@ -156,6 +157,7 @@ export type MarkConversationArtifactApprovedFromExternalCommitInput = {
   resultingRevision: number;
   canonicalRecordDigest: string;
   commitId: string;
+  closedAgentApprovalBinding?: ConversationClosedAgentApprovalBindingProof;
 };
 
 export type ApproveConversationArtifactTransactionResult = {

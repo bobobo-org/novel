@@ -40,7 +40,7 @@ import type {
   ClosedAIBackendRuntimeTruth,
   ClosedAIBackendSnapshot,
   ClosedBackendExecutionInput,
-  ClosedBackendExecutionResult,
+  ClosedBackendRawExecutionResult,
 } from "./types";
 
 function mapStatus(
@@ -392,7 +392,7 @@ function localExecutionResult(
   result: PlatformAIResult,
   input: ClosedBackendExecutionInput,
   qualityPasses = 1,
-): ClosedBackendExecutionResult {
+): ClosedBackendRawExecutionResult {
   if (
     !result.modelId
     || !isCryptographicClosedAIModelDigest(result.modelDigest)
@@ -464,7 +464,7 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
     return snapshotFromPlatform(this.id, platform, runtimeTruth, status);
   }
 
-  async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult> {
+  async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendRawExecutionResult> {
     const snapshot = await this.snapshot();
     if (snapshot.status !== "ready" || !snapshot.modelId) {
       throw unavailable(this.id, snapshot.status);
@@ -476,6 +476,7 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
     const compute = await executeBrowserSovereignFabric({
       request,
       decision: lockedDecision(request, snapshot),
+      deferTraditionalChineseNormalization: true,
       onProgress: (progress) => reportGenerationProgress(
         input,
         `瀏覽器 AI 已生成 ${progress.generatedCharacters} 字`,
@@ -542,7 +543,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
     return snapshot;
   }
 
-  async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult> {
+  async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendRawExecutionResult> {
     const routedModelId = input.request.namespace.modelId;
     const routedModelDigest = input.request.namespace.modelDigest;
     const cached = this.verifiedSnapshot;
@@ -566,6 +567,9 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
         progress.generatedCharacters,
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
       ),
+      {
+        deferTraditionalChineseNormalization: true,
+      },
     );
     let execution = localExecutionResult(result, input);
     let assisted: Awaited<ReturnType<typeof finalizeBrowserAssistedBackendResult>>;
@@ -589,7 +593,10 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
           progress.generatedCharacters,
           Math.min(94, 78 + Math.round(Math.sqrt(progress.generatedCharacters) * 0.9)),
         ),
-        { boundedQualityRepair: true },
+        {
+          boundedQualityRepair: true,
+          deferTraditionalChineseNormalization: true,
+        },
       );
       if (
         repairResult.modelId !== result.modelId
@@ -600,7 +607,11 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
           code: "CLOSED_AI_BACKEND_IDENTITY_MISMATCH",
         });
       }
-      const repairedExecution = localExecutionResult(repairResult, input, 2);
+      const repairedExecution = localExecutionResult(
+        repairResult,
+        input,
+        2,
+      );
       execution = {
         ...repairedExecution,
         elapsedMs: result.elapsedMs + repairResult.elapsedMs,
@@ -644,7 +655,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
 }
 
 export type PrivateHubTransport = {
-  execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult>;
+  execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendRawExecutionResult>;
   snapshot(
     signal?: AbortSignal,
     namespace?: Pick<ClosedAINamespace, "projectId">,

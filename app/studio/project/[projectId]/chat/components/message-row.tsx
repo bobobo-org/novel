@@ -16,7 +16,7 @@ import type { ConversationMessageActions } from "./conversation-types";
 import { AttachmentCard } from "./attachment-card";
 import { RpgTurnCard } from "./rpg-turn-card";
 import { ToolProgressCard } from "./tool-progress-card";
-import { hasVerifiedClosedRegenerationProof } from "./conversation-regeneration-proof";
+import { closedRegenerationProofStatus } from "./conversation-regeneration-proof";
 import styles from "../conversation.module.css";
 
 export const MessageRow = memo(function MessageRow({
@@ -56,11 +56,12 @@ export const MessageRow = memo(function MessageRow({
     ? allMessages.find((candidate) => candidate.id === message.parentMessageId) ?? null
     : null;
   const retryNeedsAttachment = Boolean(retryParent?.attachmentIds.length);
-  const hasVerifiedClosedInvocation = hasVerifiedClosedRegenerationProof({
+  const closedProofStatus = closedRegenerationProofStatus({
     message,
     invocations: messageInvocations,
     artifacts: messageArtifacts,
   });
+  const hasVerifiedClosedInvocation = closedProofStatus === "verified";
   const canRegenerate = message.role === "assistant"
     && message.status === "completed"
     && !retryNeedsAttachment
@@ -166,6 +167,17 @@ export const MessageRow = memo(function MessageRow({
             {busy ? "產生中…" : "重新產生"}
           </button>
         ) : null}
+        {message.role === "assistant"
+          && message.status === "completed"
+          && closedProofStatus === "legacy_v1_unverifiable" ? (
+            <span
+              className={styles.emptyNote}
+              role="status"
+              data-conversation-regeneration-disabled-reason="legacy_v1_unverifiable"
+            >
+              舊候選缺少 RC6.2 完整性記錄，請建立新候選。
+            </span>
+          ) : null}
         {(["failed", "cancelled"].includes(message.status)) && !retryNeedsAttachment ? <button type="button" onClick={() => actions.retryMessage(retryParent?.content ?? "")}>重試</button> : null}
         {(["failed", "cancelled"].includes(message.status)) && retryNeedsAttachment ? <span className={styles.emptyNote}>請重新附加原檔後再試</span> : null}
       </div>
