@@ -3,7 +3,6 @@ import {
   detectBrowserAI,
   getBrowserAIInferenceProof,
 } from "../providers/browser-ai/browser-ai-provider";
-import { executeBrowserSovereignFabric } from "../browser-fabric";
 import {
   finalizeBrowserAssistedBackendResult,
   prepareBrowserAssistedBackendInput,
@@ -470,6 +469,9 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
     if (snapshot.status !== "ready" || !snapshot.modelId) {
       throw unavailable(this.id, snapshot.status);
     }
+    const { executeBrowserSovereignFabric } = await import(
+      "../browser-fabric/orchestrator"
+    );
     const request = closedBackendPlatformRequest(input);
     const compute = await executeBrowserSovereignFabric({
       request,

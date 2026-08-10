@@ -745,6 +745,16 @@ await test("source-truth", async () => {
   assert.match(backends, /proof\?\.inferenceMode === "generative-model"/u);
   assert.match(backends, /proof\.modelId === capability\.modelId/u);
   assert.match(backends, /proof\.modelDigest === capability\.modelDigest/u);
+  assert.doesNotMatch(
+    backends,
+    /import\s*\{\s*executeBrowserSovereignFabric\s*\}\s*from/u,
+    "Chat bootstrap must not synchronously load the Browser sovereign generation graph",
+  );
+  assert.match(
+    backends,
+    /await import\(\s*"\.\.\/browser-fabric\/orchestrator"\s*\)/u,
+    "Browser sovereign generation must load only at the verified Browser execute boundary",
+  );
   assert.doesNotMatch(backends, /unknown-local-digest|unknown-local-model/u);
   assert.match(backends, /Local Ollama returned no verified model identity/u);
   assert.match(
