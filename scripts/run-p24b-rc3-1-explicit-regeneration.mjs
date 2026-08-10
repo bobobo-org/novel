@@ -25,6 +25,10 @@ import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
 } from "../lib/novel-ai/providers/closed/task-profile.ts";
+import {
+  estimateBrowserTokens,
+  fitBrowserPromptToTokenBudget,
+} from "../lib/novel-ai/providers/browser-ai/browser-performance-policy.ts";
 import { conversationContentDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
 import { hasVerifiedClosedRegenerationProof } from "../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts";
 
@@ -471,13 +475,38 @@ test("regeneration-no-external-fallback", async () => {
         profile: getClosedAIModelProfile("chapter.continue", backendId),
       }).prompt;
       assert.ok(finalPrompt.includes(sanitizedDirection));
+      assert.ok(finalPrompt.includes(outgoing.input));
       assert.equal(finalPrompt.includes(scenario.contract.regenerationNonce), false);
+      if (backendId === "browser-ai") {
+        const fitted = fitBrowserPromptToTokenBudget(finalPrompt, 448, {
+          trustedClosedPrompt: true,
+        });
+        assert.ok(
+          fitted.prompt.includes(`<作者目標>\n${outgoing.input}\n</作者目標>`),
+          "ECO fitting dropped or truncated the complete author objective",
+        );
+        assert.ok(fitted.prompt.includes("<工作類型>chapter.continue</工作類型>"));
+        const outputStart = finalPrompt.lastIndexOf("<最終輸出契約>");
+        const outputEnd = finalPrompt.lastIndexOf("</最終輸出契約>")
+          + "</最終輸出契約>".length;
+        assert.ok(fitted.prompt.includes(finalPrompt.slice(outputStart, outputEnd)));
+        assert.equal(
+          fitted.prompt.includes("<最終輸出契約>"),
+          fitted.prompt.includes("</最終輸出契約>"),
+          "ECO fitting emitted a malformed partial output-contract tag",
+        );
+        assert.ok(estimateBrowserTokens(fitted.prompt) <= 448);
+        assert.equal(fitted.prompt.includes(scenario.contract.regenerationNonce), false);
+        assert.equal(fitted.prompt.includes(scenario.contract.previousCandidateId), false);
+        assert.equal(fitted.prompt.includes(scenario.contract.previousTaskId), false);
+      }
     }
     if (backendId === "private-ai-hub") {
+      const privateOutgoingRequest = baseRequest("private-outgoing-request", backendId, {
+        regeneration: scenario.contract,
+      });
       const privateGeneration = buildPrivateHubClosedGenerationRequest({
-        request: baseRequest("private-outgoing-request", backendId, {
-          regeneration: scenario.contract,
-        }),
+        request: privateOutgoingRequest,
         plan: scenario.second.plan,
         actorContext: [{
           id: "near-max-context",
@@ -492,6 +521,7 @@ test("regeneration-no-external-fallback", async () => {
         workingMaterials: [],
       });
       assert.equal(privateGeneration.options.seed, scenario.contract.modelSeed);
+      assert.ok(privateGeneration.prompt.prompt.includes(privateOutgoingRequest.objective));
       assert.ok(privateGeneration.prompt.prompt.includes(sanitizedDirection));
       assert.ok(privateGeneration.prompt.prompt.includes(
         scenario.contract.previousCandidateDigest,

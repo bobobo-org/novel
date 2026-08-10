@@ -45,12 +45,50 @@ const MODEL_MODE: Record<
   "3B": "QUALITY",
 };
 
+const DIRECT_PROSE_PROMPT_TASKS = new Set([
+  "chapter.continue",
+  "chapter.rewrite",
+  "chapter.expand",
+  "character.dialogue",
+  "drama.dialogue",
+]);
+
 export function estimateBrowserTokens(text: string) {
   const normalized = text.trim();
   if (!normalized) return 0;
   const cjk = (normalized.match(/[\u3400-\u9fff\uf900-\ufaff]/gu) ?? []).length;
   const other = Math.max(0, normalized.length - cjk);
   return Math.max(1, Math.ceil(cjk * 1.08 + other / 3.6));
+}
+
+function outerTaggedPromptBlock(
+  prompt: string,
+  tag: string,
+  closingStrategy: "first" | "last" | "before-author" = "first",
+  openingStrategy: "first" | "last" = "first",
+) {
+  const opening = `<${tag}>`;
+  const closing = `</${tag}>`;
+  const start = openingStrategy === "last"
+    ? prompt.lastIndexOf(opening)
+    : prompt.indexOf(opening);
+  if (start < 0) return "";
+  const authorBoundary = prompt.indexOf("<作者目標>");
+  const end = closingStrategy === "last"
+    ? prompt.lastIndexOf(closing)
+    : closingStrategy === "before-author" && authorBoundary >= 0
+      ? prompt.lastIndexOf(closing, authorBoundary)
+      : prompt.indexOf(closing, start + opening.length);
+  if (end < start) return "";
+  return prompt.slice(start, end + closing.length);
+}
+
+function taggedPromptBlockValue(block: string, tag: string) {
+  const opening = `<${tag}>`;
+  const closing = `</${tag}>`;
+  return block.startsWith(opening) && block.endsWith(closing)
+    ? block.slice(opening.length, -closing.length).trim()
+    : "";
 }
 
 export function fitBrowserTextToTokenBudget(
@@ -195,12 +233,118 @@ export function resolveBrowserAIPerformancePolicy(input: {
   };
 }
 
-export function fitBrowserPromptToTokenBudget(prompt: string, maxTokens: number) {
-  const fitted = fitBrowserTextToTokenBudget(prompt, maxTokens);
+export function fitBrowserPromptToTokenBudget(
+  prompt: string,
+  maxTokens: number,
+  options: { trustedClosedPrompt?: boolean } = {},
+) {
+  const normalizedBudget = Math.max(0, Math.floor(maxTokens));
+  if (options.trustedClosedPrompt !== true) {
+    if (estimateBrowserTokens(prompt) <= normalizedBudget) {
+      return {
+        prompt,
+        omittedCharacters: 0,
+        strategy: "full" as const,
+      };
+    }
+    const fitted = fitBrowserTextToTokenBudget(prompt, normalizedBudget);
+    return {
+      prompt: fitted.text,
+      omittedCharacters: fitted.omittedCharacters,
+      strategy: fitted.strategy,
+    };
+  }
+
+  const taggedBlocks = [
+    outerTaggedPromptBlock(prompt, "工作類型"),
+    outerTaggedPromptBlock(prompt, "品質階段"),
+    outerTaggedPromptBlock(prompt, "explicit-regeneration", "before-author"),
+    outerTaggedPromptBlock(prompt, "作者目標", "last"),
+    outerTaggedPromptBlock(prompt, "最終輸出契約", "last", "last"),
+  ];
+  const taskType = taggedPromptBlockValue(taggedBlocks[0] ?? "", "工作類型");
+  const qualityPhase = taggedPromptBlockValue(taggedBlocks[1] ?? "", "品質階段");
+  const objectiveValue = taggedPromptBlockValue(taggedBlocks[3] ?? "", "作者目標");
+  const outputRequired = DIRECT_PROSE_PROMPT_TASKS.has(taskType)
+    && qualityPhase !== "critic";
+  if (!taskType || !qualityPhase || !objectiveValue || (outputRequired && !taggedBlocks[4])) {
+    throw Object.assign(
+      new Error("BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING"),
+      { code: "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING" },
+    );
+  }
+  if (estimateBrowserTokens(prompt) <= normalizedBudget) {
+    return {
+      prompt,
+      omittedCharacters: 0,
+      strategy: "full" as const,
+    };
+  }
+  const protectedBlocks = taggedBlocks.filter(Boolean);
+
+  let lowerPrioritySource = prompt;
+  for (const block of protectedBlocks) {
+    lowerPrioritySource = lowerPrioritySource.replace(block, "");
+  }
+  const lowerPriority = lowerPrioritySource
+    // Lower-priority sections may be cut, so remove their XML-like wrappers
+    // before fitting instead of ever emitting a dangling opening/closing tag.
+    .replace(/<\/?[^>\n]{1,80}>/gu, "")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+  const structurallyOmittedCharacters = Math.max(
+    0,
+    Array.from(lowerPrioritySource).length - Array.from(lowerPriority).length,
+  );
+
+  const [
+    taskTypeBlock = "",
+    qualityPhaseBlock = "",
+    regeneration = "",
+    objective = "",
+    outputContract = "",
+  ] = taggedBlocks;
+  const assemble = (fittedLowerPriority: string) => [
+    taskTypeBlock,
+    qualityPhaseBlock,
+    fittedLowerPriority.trim(),
+    regeneration,
+    objective,
+    outputContract,
+  ].filter(Boolean).join("\n");
+
+  const protectedPrompt = assemble("");
+  if (estimateBrowserTokens(protectedPrompt) > normalizedBudget) {
+    throw Object.assign(
+      new Error("BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED"),
+      { code: "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED" },
+    );
+  }
+
+  let low = 0;
+  let high = normalizedBudget;
+  let best = "";
+  let bestOmittedCharacters = lowerPriority.length;
+  while (low <= high) {
+    const lowerPriorityBudget = Math.floor((low + high) / 2);
+    const fitted = fitBrowserTextToTokenBudget(lowerPriority, lowerPriorityBudget, {
+      headRatio: 0.72,
+    });
+    const candidate = assemble(fitted.text);
+    if (estimateBrowserTokens(candidate) <= normalizedBudget) {
+      best = candidate;
+      bestOmittedCharacters = fitted.omittedCharacters;
+      low = lowerPriorityBudget + 1;
+    } else {
+      high = lowerPriorityBudget - 1;
+    }
+  }
+
   return {
-    prompt: fitted.text,
-    omittedCharacters: fitted.omittedCharacters,
-    strategy: fitted.strategy,
+    prompt: best || protectedPrompt,
+    omittedCharacters: structurallyOmittedCharacters
+      + (best ? bestOmittedCharacters : lowerPriority.length),
+    strategy: "authority_head_and_recent_tail" as const,
   };
 }
 

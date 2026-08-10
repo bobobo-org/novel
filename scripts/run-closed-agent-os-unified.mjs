@@ -52,6 +52,24 @@ test("quality failure reasons expose only safe deterministic codes", () => {
   assert.deepEqual(closedAgentQualityReasonCodes({
     reasonCodes: ["QUALITY_WORLD_REGISTER_DRIFT"],
   }), ["QUALITY_WORLD_REGISTER_DRIFT"]);
+  const evaluatorCodes = [
+    "CANDIDATE_EMPTY",
+    "CANDIDATE_CREDENTIAL_LEAK",
+    "CANDIDATE_RAW_REASONING_LEAK",
+    "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+    "CANDIDATE_PROPER_NOUN_DRIFT",
+    "CANDIDATE_ONLY_CONTRACT_MISSING",
+    "CANDIDATE_DEVICE_BOUNDARY_VIOLATION",
+    "ABC_CHOICES_INVALID_STRUCTURE",
+  ];
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    blockingCodes: [...evaluatorCodes, "CANDIDATE_ATTACKER_FAKE", "private-output"],
+  }), evaluatorCodes);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    qualityReasonCodes: ["QUALITY_ATTACKER_FAKE"],
+    reasonCodes: ["QUALITY_SECRET_VALUE"],
+    blockingCodes: ["CANDIDATE_ATTACKER_FAKE"],
+  }), []);
 });
 
 function namespace(overrides = {}) {

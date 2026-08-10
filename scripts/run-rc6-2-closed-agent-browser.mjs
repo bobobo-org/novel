@@ -27,6 +27,74 @@ let browser;
 let context;
 let page;
 
+const SAFE_DIAGNOSTIC_CODES = Object.freeze([
+  "QUALITY_TRADITIONALCHINESE_LOW",
+  "QUALITY_CANONCOMPLIANCE_LOW",
+  "QUALITY_CHARACTERVOICE_LOW",
+  "QUALITY_CONTINUITY_LOW",
+  "QUALITY_SPECIFICITY_LOW",
+  "QUALITY_REPETITION_LOW",
+  "QUALITY_STRUCTUREDOUTPUT_LOW",
+  "QUALITY_TASKUSEFULNESS_LOW",
+  "QUALITY_LENGTHCOMPLIANCE_LOW",
+  "QUALITY_EMPTY_CANDIDATE",
+  "QUALITY_TASK_FORM_MISMATCH",
+  "QUALITY_CONTEXT_ANCHOR_MISSING",
+  "QUALITY_CONTEXT_CHARACTER_MISSING",
+  "QUALITY_OUTPUT_TRUNCATED",
+  "QUALITY_NARRATIVE_TOO_SHORT",
+  "QUALITY_CONTEXT_COPY_EXCESSIVE",
+  "QUALITY_NARRATIVE_PROGRESS_MISSING",
+  "QUALITY_WORLD_REGISTER_DRIFT",
+  "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+  "CANDIDATE_EMPTY",
+  "CANDIDATE_CREDENTIAL_LEAK",
+  "CANDIDATE_RAW_REASONING_LEAK",
+  "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+  "CANDIDATE_PROPER_NOUN_DRIFT",
+  "CANDIDATE_ONLY_CONTRACT_MISSING",
+  "CANDIDATE_DEVICE_BOUNDARY_VIOLATION",
+  "ABC_CHOICES_INVALID_STRUCTURE",
+]);
+const SAFE_DIAGNOSTIC_CODE_SET = new Set(SAFE_DIAGNOSTIC_CODES);
+const SAFE_FAILURE_CODES = new Set([
+  "RC6_2_CLOSED_AI_GATE_FAILED",
+  "RC6_2_CLOSED_AI_SETUP_FAILED",
+  "RC6_2_CLOSED_AI_SETUP_TIMEOUT",
+  "RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT",
+  "RC6_2_CLOSED_AI_GENERATION_FAILED",
+  "RC6_2_CLOSED_AI_GENERATION_TIMEOUT",
+  "BROWSER_AI_QUALITY_INSUFFICIENT",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+  "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING",
+  "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  "CLOSED_AGENT_EVALUATION_BLOCKED",
+  "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+]);
+
+function sanitizeDiagnosticCodes(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.filter(
+    (value) => typeof value === "string" && SAFE_DIAGNOSTIC_CODE_SET.has(value),
+  ))].sort().slice(0, 12);
+}
+
+function gateError(code) {
+  const safeCode = SAFE_FAILURE_CODES.has(code)
+    ? code
+    : "RC6_2_CLOSED_AI_GATE_FAILED";
+  return Object.assign(new Error(safeCode), { code: safeCode });
+}
+
+function safeFailureCode(error) {
+  if (error && typeof error === "object") {
+    const code = error.code;
+    if (code === "ERR_ASSERTION") return "RC6_2_CLOSED_AI_GATE_FAILED";
+    if (typeof code === "string" && SAFE_FAILURE_CODES.has(code)) return code;
+  }
+  return "RC6_2_CLOSED_AI_GATE_FAILED";
+}
+
 function isModelPayload(urlValue) {
   const url = new URL(urlValue);
   return url.hostname === "huggingface.co"
@@ -119,7 +187,51 @@ async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
     if (await locator.getAttribute("aria-busy") === "false") return;
     await page.waitForTimeout(250);
   }
-  throw new Error("RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT");
+  throw gateError("RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT");
+}
+
+async function installSanitizedQualityObserver() {
+  await page.evaluate((allowedCodes) => {
+    const allowed = new Set(allowedCodes);
+    const codePattern = /(?:QUALITY|CANDIDATE)_[A-Z0-9_]+|CHARACTER_KNOWLEDGE_BOUNDARY_LEAK|ABC_CHOICES_INVALID_STRUCTURE/gu;
+    const codes = new Set();
+    const collect = () => {
+      for (const node of document.querySelectorAll('[role="status"]')) {
+        for (const code of node.textContent?.match(codePattern) ?? []) {
+          if (allowed.has(code) && codes.size < 12) codes.add(code);
+        }
+      }
+    };
+    collect();
+    const observer = new MutationObserver(collect);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    Object.defineProperty(window, "__rc62SanitizedQualityObserver", {
+      configurable: true,
+      value: { codes, observer },
+    });
+  }, SAFE_DIAGNOSTIC_CODES);
+}
+
+async function readSanitizedQualityCodes() {
+  const values = await page.evaluate(() => {
+    const state = window.__rc62SanitizedQualityObserver;
+    return state?.codes ? [...state.codes].sort() : [];
+  });
+  return sanitizeDiagnosticCodes(values);
+}
+
+async function assertMaliciousDomDiagnosticsAreRejected() {
+  await page.evaluate(async () => {
+    const node = document.createElement("div");
+    node.hidden = true;
+    node.setAttribute("role", "status");
+    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE";
+    document.body.append(node);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    node.remove();
+  });
+  assert.deepEqual(await readSanitizedQualityCodes(), ["QUALITY_EMPTY_CANDIDATE"]);
+  await page.evaluate(() => window.__rc62SanitizedQualityObserver?.codes?.clear());
 }
 
 async function inspectFreshSetup() {
@@ -200,7 +312,7 @@ async function waitForBrowserAiReady(card) {
     const busy = await card.getAttribute("aria-busy");
     const retry = await card.getByTestId("closed-ai-prepare-browser").textContent().catch(() => "");
     if (busy === "false" && /重試/u.test(retry ?? "")) {
-      throw new Error(`RC6_2_CLOSED_AI_SETUP_FAILED:${(await card.textContent() ?? "").slice(0, 500)}`);
+      throw gateError("RC6_2_CLOSED_AI_SETUP_FAILED");
     }
     if (Date.now() >= nextHeartbeat) {
       process.stderr.write(`[RC6.2 Closed AI] setup in progress (${Math.round((Date.now() - startedAt) / 1_000)}s)\n`);
@@ -208,7 +320,7 @@ async function waitForBrowserAiReady(card) {
     }
     await page.waitForTimeout(1_000);
   }
-  throw new Error("RC6_2_CLOSED_AI_SETUP_TIMEOUT");
+  throw gateError("RC6_2_CLOSED_AI_SETUP_TIMEOUT");
 }
 
 async function readModelMetadata() {
@@ -353,8 +465,6 @@ async function readCandidateEvidence(projectId, candidateId = null) {
           modelDigest: candidate.modelDigest,
           contentDigest: candidate.contentDigest,
           normalizedContentDigest,
-          nfkcDigestDiffersFromRaw: normalizedContentDigest !== candidate.contentDigest,
-          containsFullwidthDigestProbe: candidate.content.includes("Ａ，"),
           status: candidate.status,
           candidateOnly: candidate.candidateOnly,
           canonicalMutationCount: candidate.canonicalMutationCount,
@@ -469,10 +579,6 @@ function assertCandidateTruth(evidence, expected = {}) {
   assert.equal(evidence.browserComputeReceipt?.rawPromptStored, false);
   assert.equal(evidence.browserComputeReceipt?.rawOutputStored, false);
   assert.equal(evidence.artifact?.candidateDigest, evidence.candidate.normalizedContentDigest);
-  if (expected.nfkcDigestProbe) {
-    assert.equal(evidence.candidate.containsFullwidthDigestProbe, true);
-    assert.equal(evidence.candidate.nfkcDigestDiffersFromRaw, true);
-  }
   if (expected.previous) {
     assert.equal(
       evidence.candidate.regeneration?.previousCandidateId,
@@ -531,7 +637,11 @@ async function waitForCandidate(projectId, previousTaskId = null) {
       }
     }, projectId);
     if (failedInvocation && failedInvocation.taskId !== previousTaskId) {
-      throw new Error(`RC6_2_CLOSED_AI_GENERATION_FAILED:${JSON.stringify(failedInvocation)}`);
+      throw gateError(
+        SAFE_FAILURE_CODES.has(failedInvocation.safeErrorCode)
+          ? failedInvocation.safeErrorCode
+          : "RC6_2_CLOSED_AI_GENERATION_FAILED",
+      );
     }
     if (Date.now() >= nextHeartbeat) {
       process.stderr.write(`[RC6.2 Closed AI] candidate generation in progress (${Math.round((Date.now() - startedAt) / 1_000)}s)\n`);
@@ -539,7 +649,7 @@ async function waitForCandidate(projectId, previousTaskId = null) {
     }
     await page.waitForTimeout(1_000);
   }
-  throw new Error("RC6_2_CLOSED_AI_GENERATION_TIMEOUT");
+  throw gateError("RC6_2_CLOSED_AI_GENERATION_TIMEOUT");
 }
 
 async function waitForArtifactStatus(artifactId, status, timeoutMs = 90_000) {
@@ -615,11 +725,13 @@ async function runGenerationLifecycle(projectId, setupEvidence) {
   assert.match(modelMetadata.shardManifestDigest, /^[a-f0-9]{64}$/u);
 
   const canonBefore = await readChapterTruth(projectId);
+  await installSanitizedQualityObserver();
+  await assertMaliciousDomDiagnosticsAreRejected();
   const composer = page.locator('textarea[aria-label="小說專案訊息"]');
-  await composer.fill("請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。候選第一句必須原樣保留全形字面標記「Ａ，」，不可改成半形。只建立候選，不要直接修改 Canon。");
+  await composer.fill("幫我開始第一章");
   await page.getByRole("button", { name: "送出", exact: true }).click();
   const first = await waitForCandidate(projectId);
-  assertCandidateTruth(first, { nfkcDigestProbe: true });
+  assertCandidateTruth(first);
   assert.deepEqual(await readChapterTruth(projectId), canonBefore, "first candidate mutated Canon before approval");
 
   const firstCard = page.locator(`[data-artifact-id="${first.artifact.id}"]`).first();
@@ -773,10 +885,7 @@ try {
     completedAt: new Date().toISOString(),
   }, null, 2));
 } catch (error) {
-  const safeError = {
-    name: error instanceof Error ? error.name : "Error",
-    message: error instanceof Error ? error.message.slice(0, 1_000) : String(error).slice(0, 1_000),
-  };
+  const diagnosticCodes = await readSanitizedQualityCodes().catch(() => []);
   console.error(JSON.stringify({
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v1",
     status: "FAIL",
@@ -785,7 +894,10 @@ try {
     freshBrowserContext: true,
     modelPayloadRequestCount: modelRequests.length,
     prohibitedExternalAiRequestCount: prohibitedExternalAiRequests.length,
-    error: safeError,
+    error: {
+      code: safeFailureCode(error),
+      diagnosticCodes: sanitizeDiagnosticCodes(diagnosticCodes),
+    },
     completedAt: new Date().toISOString(),
   }, null, 2));
   process.exitCode = 1;

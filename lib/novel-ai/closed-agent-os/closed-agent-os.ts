@@ -225,21 +225,54 @@ function regenerationSimilarity(left: string, right: string) {
   return intersection / (leftGrams.size + rightGrams.size - intersection || 1);
 }
 
+const CLOSED_AGENT_QUALITY_REASON_CODES = new Set([
+  "QUALITY_TRADITIONALCHINESE_LOW",
+  "QUALITY_CANONCOMPLIANCE_LOW",
+  "QUALITY_CHARACTERVOICE_LOW",
+  "QUALITY_CONTINUITY_LOW",
+  "QUALITY_SPECIFICITY_LOW",
+  "QUALITY_REPETITION_LOW",
+  "QUALITY_STRUCTUREDOUTPUT_LOW",
+  "QUALITY_TASKUSEFULNESS_LOW",
+  "QUALITY_LENGTHCOMPLIANCE_LOW",
+  "QUALITY_EMPTY_CANDIDATE",
+  "QUALITY_TASK_FORM_MISMATCH",
+  "QUALITY_CONTEXT_ANCHOR_MISSING",
+  "QUALITY_CONTEXT_CHARACTER_MISSING",
+  "QUALITY_OUTPUT_TRUNCATED",
+  "QUALITY_NARRATIVE_TOO_SHORT",
+  "QUALITY_CONTEXT_COPY_EXCESSIVE",
+  "QUALITY_NARRATIVE_PROGRESS_MISSING",
+  "QUALITY_WORLD_REGISTER_DRIFT",
+  "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+]);
+const CLOSED_AGENT_EVALUATOR_BLOCKING_CODES = new Set([
+  "CANDIDATE_EMPTY",
+  "CANDIDATE_CREDENTIAL_LEAK",
+  "CANDIDATE_RAW_REASONING_LEAK",
+  "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+  "CANDIDATE_PROPER_NOUN_DRIFT",
+  "CANDIDATE_ONLY_CONTRACT_MISSING",
+  "CANDIDATE_DEVICE_BOUNDARY_VIOLATION",
+  "ABC_CHOICES_INVALID_STRUCTURE",
+]);
+
 export function closedAgentQualityReasonCodes(error: unknown): string[] {
   if (!error || typeof error !== "object") return [];
   const candidate = error as {
     qualityReasonCodes?: unknown;
     reasonCodes?: unknown;
+    blockingCodes?: unknown;
   };
-  const values = Array.isArray(candidate.qualityReasonCodes)
-    ? candidate.qualityReasonCodes
-    : Array.isArray(candidate.reasonCodes)
-      ? candidate.reasonCodes
-      : [];
+  const values = [
+    ...(Array.isArray(candidate.qualityReasonCodes) ? candidate.qualityReasonCodes : []),
+    ...(Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : []),
+    ...(Array.isArray(candidate.blockingCodes) ? candidate.blockingCodes : []),
+  ];
   return [...new Set(values
     .filter((value): value is string => typeof value === "string")
-    .filter((value) => /^QUALITY_[A-Z0-9_]+$/u.test(value)
-      || value === "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK"))]
+    .filter((value) => CLOSED_AGENT_QUALITY_REASON_CODES.has(value)
+      || CLOSED_AGENT_EVALUATOR_BLOCKING_CODES.has(value)))]
     .slice(0, 8);
 }
 

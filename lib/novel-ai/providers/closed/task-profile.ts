@@ -243,6 +243,13 @@ function compactText(value: string, limit: number) {
   return `${normalized.slice(0, head)}${marker}${normalized.slice(-(available - head))}`;
 }
 
+function escapePromptMarkup(value: string) {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
+}
+
 function directProseContinuityAnchor(input: {
   taskType: PlatformTaskType;
   phase: "draft" | "critic" | "revision";
@@ -319,22 +326,24 @@ export function buildClosedAIModelPrompt(input: {
 }): ClosedAIPromptBuild {
   const phase = input.qualityPhase ?? "draft";
   const toolSources = (input.toolResults ?? []).map((item) =>
-    `${item.toolId}：${JSON.stringify(item.value)}`);
+    escapePromptMarkup(`${item.toolId}：${JSON.stringify(item.value)}`));
   const promptPlanRoles = phase === "critic"
     ? new Set(["critic", "evaluator"])
     : new Set(["actor"]);
   const planSources = input.agentPlan
     ? input.agentPlan.steps
       .filter((step) => promptPlanRoles.has(step.role))
-      .map((step) => `${step.role}：${step.objective}`)
+      .map((step) => escapePromptMarkup(`${step.role}：${step.objective}`))
     : [];
-  const workingSources = (input.workingMaterials ?? []).map((item) => item.text);
-  const mandatoryInstruction = input.mandatoryInstruction
+  const workingSources = (input.workingMaterials ?? []).map((item) =>
+    escapePromptMarkup(item.text));
+  const rawMandatoryInstruction = input.mandatoryInstruction
     ?.replace(/\r\n?/gu, "\n")
     .trim()
     .slice(0, 800) ?? "";
+  const mandatoryInstruction = escapePromptMarkup(rawMandatoryInstruction);
   const sourceCharacters = input.objective.length
-    + mandatoryInstruction.length
+    + rawMandatoryInstruction.length
     + input.context.reduce((total, item) => total + item.length, 0)
     + toolSources.reduce((total, item) => total + item.length, 0)
     + planSources.reduce((total, item) => total + item.length, 0)
@@ -344,10 +353,10 @@ export function buildClosedAIModelPrompt(input: {
     Math.floor(input.profile.maxInputCharacters * 0.35),
     input.profile.maxInputCharacters - 1_050 - mandatoryInstruction.length,
   ));
-  const objective = compactText(input.objective, objectiveLimit);
+  const objective = escapePromptMarkup(compactText(input.objective, objectiveLimit));
   const seen = new Set<string>();
   const context = input.context
-    .map((item) => item.replace(/\r\n?/gu, "\n").trim())
+    .map((item) => escapePromptMarkup(item.replace(/\r\n?/gu, "\n").trim()))
     .filter((item) => {
       const key = item.replace(/\s+/gu, " ");
       if (!key || seen.has(key)) return false;
@@ -421,7 +430,10 @@ export function buildClosedAIModelPrompt(input: {
     compactedWorking.length
       ? compactedWorking.map((item, index) => {
         const material = input.workingMaterials?.[index];
-        return `[${material?.kind ?? "draft"}｜${material?.digest ?? "digest-unavailable"}]\n${item}`;
+        const materialIdentity = escapePromptMarkup(
+          `${material?.kind ?? "draft"}｜${material?.digest ?? "digest-unavailable"}`,
+        );
+        return `[${materialIdentity}]\n${item}`;
       }).join("\n\n")
       : "（沒有前一階段素材）",
     "</未核准工作素材>",

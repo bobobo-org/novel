@@ -603,6 +603,7 @@ export async function runBrowserAI(
       const generated = await generateWithBrowserWebLLM({
         systemInstruction: profile.systemInstruction,
         prompt: prompt.prompt,
+        trustedClosedPrompt: true,
         jsonMode: request.requiresStructured === true,
         jsonSchema: request.outputSchema,
         temperature: request.generationOptions?.temperature,

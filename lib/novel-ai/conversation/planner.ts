@@ -229,7 +229,7 @@ const RULES: IntentRule[] = [
   },
   {
     intent: "continue_writing",
-    pattern: /(?:續寫|繼續寫|接著寫|往下寫|延續故事|下一段)/iu,
+    pattern: /(?:續寫|繼續寫|接著寫|往下寫|延續故事|下一段)|(?:(?:請|幫我|請幫我)\s*)?(?:開始(?:寫|撰寫)?|寫|撰寫)\s*(?:第\s*)?(?:一|1)\s*章/iu,
     taskType: "chapter.continue",
     executionKind: "closed_agent",
     targetStore: "chapters",

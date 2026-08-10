@@ -141,6 +141,7 @@ export type BrowserWebLLMRuntimeSnapshot = {
 export type BrowserWebLLMGenerationInput = {
   systemInstruction: string;
   prompt: string;
+  trustedClosedPrompt?: boolean;
   jsonMode?: boolean;
   jsonSchema?: Record<string, unknown>;
   temperature?: number;
@@ -867,7 +868,9 @@ async function runBrowserWebLLMGeneration(
     128,
     performancePolicy.inputBudgetTokens - systemTokens,
   );
-  const fittedPrompt = fitBrowserPromptToTokenBudget(input.prompt, promptBudget);
+  const fittedPrompt = fitBrowserPromptToTokenBudget(input.prompt, promptBudget, {
+    trustedClosedPrompt: input.trustedClosedPrompt === true,
+  });
   const interrupt = () => engine.interruptGenerate();
   input.signal?.addEventListener("abort", interrupt, { once: true });
   let content = "";

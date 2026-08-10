@@ -17,14 +17,68 @@ type ActorContextIdentity = {
   text: string;
 };
 
+function structuredActiveChapterContent(item: ActorContextIdentity) {
+  const tagged = item.text
+    .replace(/\r\n?/gu, "\n")
+    .trim()
+    .match(/^\[active[_-]chapter\]\s*([\s\S]+)$/iu);
+  if (!tagged?.[1]) return null;
+  try {
+    const record = JSON.parse(tagged[1]) as {
+      content?: unknown;
+      summary?: unknown;
+      title?: unknown;
+    };
+    if (
+      !record
+      || typeof record !== "object"
+      || !("content" in record || "summary" in record || "title" in record)
+    ) return null;
+    return typeof record.content === "string" ? record.content.trim() : "";
+  } catch {
+    return null;
+  }
+}
+
+function isSummaryOnlyActiveChapter(item: ActorContextIdentity) {
+  return structuredActiveChapterContent(item) === "";
+}
+
+function isProjectSeedContext(item: ActorContextIdentity) {
+  return item.id.startsWith("seed:")
+    || /^\s*\[project[_-]seed\]/iu.test(item.text);
+}
+
 function isStrongActiveChapter(item: ActorContextIdentity) {
-  return item.id.startsWith("chapter-active:")
-    || /^\s*\[active[_-]chapter\]/iu.test(item.text);
+  return !isSummaryOnlyActiveChapter(item)
+    && (
+      item.id.startsWith("chapter-active:")
+      || /^\s*\[active[_-]chapter\]/iu.test(item.text)
+    );
 }
 
 function isCurrentChapterCandidate(item: ActorContextIdentity) {
-  return isStrongActiveChapter(item)
-    || CURRENT_CHAPTER_CONTEXT_MARKER.test(item.text);
+  return !isSummaryOnlyActiveChapter(item)
+    && (
+      isStrongActiveChapter(item)
+      || CURRENT_CHAPTER_CONTEXT_MARKER.test(item.text)
+    );
+}
+
+function readableNonCurrentContext(item: ActorContextIdentity) {
+  const normalized = item.text.replace(/\r\n?/gu, "\n").trim();
+  if (!isSummaryOnlyActiveChapter(item)) return normalized;
+  const tagged = normalized.match(/^\[active[_-]chapter\]\s*([\s\S]+)$/iu);
+  if (tagged?.[1]) {
+    try {
+      const record = JSON.parse(tagged[1]) as { summary?: unknown };
+      const summary = typeof record.summary === "string" ? record.summary.trim() : "";
+      if (summary) return `[approved-chapter-seed]\n${summary}`;
+    } catch {
+      // Fall through to the non-current legacy representation.
+    }
+  }
+  return normalized.replace(/^\[active[_-]chapter\]/iu, "[approved-chapter-seed]");
 }
 
 function readableActiveChapter(value: string) {
@@ -68,12 +122,26 @@ export function serializeClosedActorContext(
     : narrativeTask
       ? context.findIndex(isCurrentChapterCandidate)
       : -1;
+  const summarySeedIndex = narrativeTask
+    ? context.findIndex(isSummaryOnlyActiveChapter)
+    : -1;
   return context
-    .map((item, index) => ({ item, index, active: index === activeIndex }))
-    .sort((left, right) => Number(right.active) - Number(left.active) || left.index - right.index)
+    .map((item, index) => ({
+      item,
+      index,
+      active: index === activeIndex,
+      promptPriority: index === activeIndex
+        ? 3
+        : isSummaryOnlyActiveChapter(item)
+          ? 2
+          : summarySeedIndex >= 0 && isProjectSeedContext(item)
+            ? 1
+          : 0,
+    }))
+    .sort((left, right) => right.promptPriority - left.promptPriority || left.index - right.index)
     .map(({ item, active }) => active
       ? `[current-chapter]\n${readableActiveChapter(item.text)}`
-      : `[${item.kind}]\n${item.text.replace(/\r\n?/gu, "\n").trim()}`);
+      : `[${item.kind}]\n${readableNonCurrentContext(item)}`);
 }
 
 const ROLE_PREFIXES = [

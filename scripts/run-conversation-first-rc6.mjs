@@ -903,6 +903,21 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
   assert.equal(continuation.approvalRequired, true);
   assert.equal(continuation.candidateOnly, true);
 
+  for (const firstChapterPrompt of [
+    "幫我開始第一章",
+    "開始第一章",
+    "寫第一章",
+    "請幫我開始寫第 1 章",
+  ]) {
+    const firstChapter = await planConversationRequest({ content: firstChapterPrompt });
+    assert.equal(firstChapter.intent, "continue_writing", firstChapterPrompt);
+    assert.equal(firstChapter.taskType, "chapter.continue", firstChapterPrompt);
+    assert.equal(firstChapter.targetStore, "chapters", firstChapterPrompt);
+    assert.equal(firstChapter.executionKind, "closed_agent", firstChapterPrompt);
+    assert.equal(firstChapter.approvalRequired, true, firstChapterPrompt);
+    assert.equal(firstChapter.candidateOnly, true, firstChapterPrompt);
+  }
+
   const entityCandidateCases = [
     {
       content: "請修改角色明檀的背景，讓她曾在北境修行。",
@@ -924,6 +939,18 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
     },
     {
       content: "請修改世界規則，讓靈石不可逆流，接著寫下一段。",
+      intent: "world_rule_candidate",
+      taskType: "world.ruleCandidate",
+      targetStore: "worldRules",
+    },
+    {
+      content: "請修改角色明檀的背景，再幫我開始第一章。",
+      intent: "character_candidate",
+      taskType: "character.create",
+      targetStore: "characters",
+    },
+    {
+      content: "請修改世界規則，再開始第一章。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
       targetStore: "worldRules",

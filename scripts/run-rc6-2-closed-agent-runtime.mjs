@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import {
   ClosedAgentOS,
   MemoryClosedAgentStateRepository,
+  closedAgentQualityReasonCodes,
   hasVerifiedClosedAIGeneration,
   resolveClosedAIRoute,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
@@ -469,11 +470,12 @@ await test("bootstrap-immediate-cancel-retry", async () => {
 
 await test("candidate-executor-contract", async () => {
   const snapshot = backend("browser-ai");
+  let executionContent = null;
   const backendAdapter = {
     id: "browser-ai",
     snapshot: async () => structuredClone(snapshot),
     execute: async (input) => {
-      const content = [
+      const content = executionContent ?? [
         "暴雨停歇後，檔案館的鐵門終於打開。",
         "明檀先核對已核准的地圖與人物關係，再沿著東側階梯前進；她沒有改寫既有設定，也沒有把任何作品資料送出裝置。",
         "遠處的燈影揭露了新的線索，但這段內容仍只是等待作者核准的候選稿。",
@@ -552,6 +554,28 @@ await test("candidate-executor-contract", async () => {
     result.candidate.generationTelemetry?.browserFabricReceiptId,
     "browser-fabric-receipt:real-runtime-proof",
   );
+
+  executionContent = "这是一个只用于触发语言边界的候选。";
+  const progress = [];
+  await assert.rejects(
+    os.execute({
+      ...request,
+      taskId: "rc6-2-evaluator-safe-progress",
+      objective: "敏感作者內容不得出現在失敗證據。",
+      onProgress: (event) => progress.push(event),
+    }),
+    (error) => error?.code === "CLOSED_AGENT_EVALUATION_BLOCKED",
+  );
+  assert.ok(progress.some((event) => event.label.includes(
+    "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+  )));
+  assert.equal(progress.some((event) => event.label.includes("敏感作者內容")), false);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    blockingCodes: [
+      "CANDIDATE_SIMPLIFIED_CHINESE_REMAINS",
+      "CANDIDATE_ATTACKER_FAKE",
+    ],
+  }), ["CANDIDATE_SIMPLIFIED_CHINESE_REMAINS"]);
 });
 
 await test("model-identity-mismatch", async () => {
@@ -682,6 +706,9 @@ await test("source-truth", async () => {
   assert.match(types, /CRYPTOGRAPHIC_MODEL_DIGEST_PATTERN = \/\^\[a-f0-9\]\{64\}\$\//u);
   assert.match(types, /isCryptographicClosedAIModelDigest\(snapshot\.modelDigest\)/u);
   assert.match(closedAgentOs, /CLOSED_AI_MODEL_IDENTITY_MISMATCH/u);
+  assert.match(closedAgentOs, /CLOSED_AGENT_EVALUATOR_BLOCKING_CODES/u);
+  assert.match(closedAgentOs, /Array\.isArray\(candidate\.blockingCodes\)/u);
+  assert.doesNotMatch(closedAgentOs, /\^QUALITY_\[A-Z0-9_\]\+\$/u);
   assert.match(closedAgentOs, /execution\.modelId !== routed\.modelId/u);
   assert.match(closedAgentOs, /execution\.modelDigest !== routed\.modelDigest/u);
   assert.match(closedAgentOs, /isCryptographicClosedAIModelDigest\(\s*execution\.modelDigest/u);
@@ -763,8 +790,13 @@ await test("source-truth", async () => {
   assert.match(browserGate, /regenerationAttempt:\s*1/u);
   assert.match(browserGate, /regenerationAttempt:\s*2/u);
   assert.match(browserGate, /firstAfterDirectRegeneration\.candidate\.status, "awaiting-approval"/u);
-  assert.match(browserGate, /containsFullwidthDigestProbe/u);
-  assert.match(browserGate, /nfkcDigestDiffersFromRaw/u);
+  assert.match(browserGate, /installSanitizedQualityObserver/u);
+  assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
+  assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
+  assert.match(browserGate, /assertMaliciousDomDiagnosticsAreRejected/u);
+  assert.match(browserGate, /QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE/u);
+  assert.doesNotMatch(browserGate, /error\.message\.slice|String\(error\)\.slice/u);
+  assert.doesNotMatch(browserGate, /RC6_2_CLOSED_AI_SETUP_FAILED:\$\{\(await card\.textContent/u);
   assert.match(browserGate, /page\.reload/u);
   assert.match(browserGate, /actualExecutor, "browser-ai"/u);
   assert.match(browserGate, /consumerReadiness\.generationVerifiedBackends >= 1/u);
@@ -772,6 +804,8 @@ await test("source-truth", async () => {
   assert.match(browserGate, /consumerReadiness\.externalFallback, false/u);
   assert.match(browserGate, /data-estimated-download-bytes/u);
   assert.match(browserGate, /"294543984"/u);
+  assert.match(browserGate, /composer\.fill\("幫我開始第一章"\)/u);
+  assert.match(browserGate, /BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING/u);
   assert.doesNotMatch(browserGate, /page\.route|addInitScript|mock-provider|test-provider/iu);
   assert.match(health, /closedAiGenerationVerifiedBackends: CLOSED_AI_SERVER_RUNTIME_TRUTH\.generationVerifiedBackends/u);
   assert.match(health, /browserAiStatus: "client_probe_required"/u);
