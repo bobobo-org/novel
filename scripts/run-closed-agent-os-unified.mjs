@@ -821,7 +821,7 @@ test("unsafe raw passes stop before working material and durable candidate write
     reason: "QUALITY_OUTPUT_CREDENTIAL_LEAK",
   }, {
     label: "private-key",
-    content: "-----BEGIN PRIVATE KEY-----",
+    content: ["-----BEGIN ", "PRIVATE KEY-----"].join(""),
     reason: "QUALITY_OUTPUT_CREDENTIAL_LEAK",
   }, {
     label: "reasoning",
