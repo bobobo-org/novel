@@ -24,6 +24,10 @@ import {
 import {
   browserProviderSnapshot,
 } from "../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts";
+import {
+  BROWSER_WEBLLM_MODELS,
+  detectBrowserWebLLMDevice,
+} from "../lib/novel-ai/providers/browser-ai/webllm-model-registry.ts";
 
 const mode = process.argv[2] ?? "all";
 const results = [];
@@ -103,6 +107,80 @@ function task(taskType = "chapter.continue", privacyLevel = "device_only") {
     browserComputePolicy: "browser-first",
   };
 }
+
+async function detectBrowserDeviceWithGpu(requestAdapter) {
+  const fixtureGlobals = ["window", "navigator", "Worker", "indexedDB"];
+  const originals = new Map(
+    fixtureGlobals.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+  );
+  try {
+    Object.defineProperties(globalThis, {
+      window: { configurable: true, value: {} },
+      navigator: {
+        configurable: true,
+        value: {
+          deviceMemory: 8,
+          hardwareConcurrency: 8,
+          userAgent: "RC6.2 WebGPU device-gate fixture",
+          gpu: { requestAdapter },
+          storage: {
+            estimate: async () => ({ quota: 2_000_000_000, usage: 0 }),
+            getDirectory: async () => ({}),
+          },
+        },
+      },
+      Worker: { configurable: true, value: class WorkerFixture {} },
+      indexedDB: { configurable: true, value: {} },
+    });
+    return await detectBrowserWebLLMDevice();
+  } finally {
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+}
+
+await test("browser-webgpu-device-gate", async () => {
+  let nullAdapterRequests = 0;
+  const unavailable = await detectBrowserDeviceWithGpu(async () => {
+    nullAdapterRequests += 1;
+    return null;
+  });
+  assert.equal(nullAdapterRequests, 1);
+  assert.equal(unavailable.supported, false);
+  assert.equal(unavailable.webGpu, false);
+  assert.equal(unavailable.reason, "webgpu_adapter_unavailable");
+  assert.deepEqual(unavailable.allowedModelIds, []);
+  assert.equal(unavailable.recommendedModelId, null);
+  assert.equal(unavailable.maxStorageBufferBindingSize, null);
+
+  let failedAdapterRequests = 0;
+  const failed = await detectBrowserDeviceWithGpu(async () => {
+    failedAdapterRequests += 1;
+    throw new Error("sanitized adapter fixture failure");
+  });
+  assert.equal(failedAdapterRequests, 1);
+  assert.equal(failed.supported, false);
+  assert.equal(failed.webGpu, false);
+  assert.equal(failed.reason, "webgpu_adapter_request_failed");
+  assert.deepEqual(failed.allowedModelIds, []);
+  assert.equal(failed.recommendedModelId, null);
+
+  const adapterLimit = 268_435_456;
+  const available = await detectBrowserDeviceWithGpu(async () => ({
+    limits: { maxStorageBufferBindingSize: adapterLimit },
+  }));
+  assert.equal(available.supported, true);
+  assert.equal(available.webGpu, true);
+  assert.equal(available.maxStorageBufferBindingSize, adapterLimit);
+  assert.equal(available.reason, "device_gate_passed:standard");
+  assert.deepEqual(
+    available.allowedModelIds,
+    BROWSER_WEBLLM_MODELS.slice(0, 2).map((model) => model.modelId),
+  );
+  assert.equal(available.recommendedModelId, BROWSER_WEBLLM_MODELS[1].modelId);
+});
 
 await test("state-model", () => {
   for (const id of ["browser-ai", "local-ollama", "private-ai-hub"]) {

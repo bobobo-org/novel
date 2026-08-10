@@ -226,7 +226,7 @@ export async function detectBrowserWebLLMDevice(): Promise<BrowserWebLLMDevicePr
   }
 
   const current = navigator as BrowserNavigator;
-  const webGpu = Boolean(current.gpu?.requestAdapter);
+  const webGpuApi = typeof current.gpu?.requestAdapter === "function";
   const wasm = typeof WebAssembly !== "undefined";
   const worker = typeof Worker !== "undefined";
   const indexedDb = typeof indexedDB !== "undefined";
@@ -246,17 +246,23 @@ export async function detectBrowserWebLLMDevice(): Promise<BrowserWebLLMDevicePr
   const storageAvailable = storageQuota === null || storageUsage === null
     ? null
     : Math.max(0, storageQuota - storageUsage);
-  let maxStorageBufferBindingSize: number | null = null;
-  if (webGpu) {
+  let adapter: Awaited<ReturnType<NonNullable<BrowserNavigator["gpu"]>["requestAdapter"]>> = null;
+  let webGpuFailureReason: "missing:WebGPU" | "webgpu_adapter_unavailable" | "webgpu_adapter_request_failed" | null = webGpuApi
+    ? null
+    : "missing:WebGPU";
+  if (webGpuApi) {
     try {
-      const adapter = await current.gpu?.requestAdapter();
-      maxStorageBufferBindingSize = Number(
-        adapter?.limits?.maxStorageBufferBindingSize ?? 0,
-      ) || null;
+      adapter = await current.gpu!.requestAdapter();
+      if (!adapter) webGpuFailureReason = "webgpu_adapter_unavailable";
     } catch {
-      maxStorageBufferBindingSize = null;
+      adapter = null;
+      webGpuFailureReason = "webgpu_adapter_request_failed";
     }
   }
+  const webGpu = adapter !== null;
+  const maxStorageBufferBindingSize = Number(
+    adapter?.limits?.maxStorageBufferBindingSize ?? 0,
+  ) || null;
 
   const baseSupported = webGpu && wasm && worker && indexedDb;
   if (!baseSupported) {
@@ -269,7 +275,7 @@ export async function detectBrowserWebLLMDevice(): Promise<BrowserWebLLMDevicePr
     return {
       supported: false,
       tier: "unsupported",
-      reason: `missing:${missing}`,
+      reason: webGpuFailureReason ?? `missing:${missing}`,
       mobile,
       webGpu,
       wasm,

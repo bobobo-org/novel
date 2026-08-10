@@ -893,6 +893,63 @@ harness.test("routing", "natural-language planner maps supported intents to the 
   );
 });
 
+harness.test("routing", "explicit continuation outranks incidental Canon entity mentions", async () => {
+  const productionGatePrompt = "請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。只建立候選，不要直接修改 Canon。";
+  const continuation = await planConversationRequest({ content: productionGatePrompt });
+  assert.equal(continuation.intent, "continue_writing");
+  assert.equal(continuation.taskType, "chapter.continue");
+  assert.equal(continuation.targetStore, "chapters");
+  assert.equal(continuation.executionKind, "closed_agent");
+  assert.equal(continuation.approvalRequired, true);
+  assert.equal(continuation.candidateOnly, true);
+
+  const entityCandidateCases = [
+    {
+      content: "請修改角色明檀的背景，讓她曾在北境修行。",
+      intent: "character_candidate",
+      taskType: "character.create",
+      targetStore: "characters",
+    },
+    {
+      content: "請修改世界規則，讓靈石不可逆流。",
+      intent: "world_rule_candidate",
+      taskType: "world.ruleCandidate",
+      targetStore: "worldRules",
+    },
+    {
+      content: "請修改角色明檀的背景，讓她曾在北境修行，然後續寫下一段。",
+      intent: "character_candidate",
+      taskType: "character.create",
+      targetStore: "characters",
+    },
+    {
+      content: "請修改世界規則，讓靈石不可逆流，接著寫下一段。",
+      intent: "world_rule_candidate",
+      taskType: "world.ruleCandidate",
+      targetStore: "worldRules",
+    },
+    {
+      content: "只建立一個候選角色，並續寫下一段。",
+      intent: "character_candidate",
+      taskType: "character.create",
+      targetStore: "characters",
+    },
+    {
+      content: "只建立一個候選世界規則，並續寫下一段。",
+      intent: "world_rule_candidate",
+      taskType: "world.ruleCandidate",
+      targetStore: "worldRules",
+    },
+  ];
+  for (const expected of entityCandidateCases) {
+    const plan = await planConversationRequest({ content: expected.content });
+    assert.equal(plan.intent, expected.intent, expected.content);
+    assert.equal(plan.taskType, expected.taskType, expected.content);
+    assert.equal(plan.targetStore, expected.targetStore, expected.content);
+    assert.equal(plan.approvalRequired, true, expected.content);
+  }
+});
+
 harness.test("routing", "Canon target creation returns a fresh non-canonical identity at revision zero", async () => {
   const state = await setup(`project-canon-create:${crypto.randomUUID()}`);
   const createdId = `character-candidate:${crypto.randomUUID()}`;

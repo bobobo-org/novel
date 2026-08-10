@@ -241,6 +241,26 @@ function normalizeObjective(value: string) {
   return value.replace(/\r\n?/gu, "\n").trim().slice(0, 32_000);
 }
 
+const CANDIDATE_ONLY_BOUNDARY_PATTERN = /(?:只|僅)\s*(?:建立|產生|生成)\s*(?:一個|一份)?\s*(?:候選|建議稿)(?!\s*(?:的\s*)?(?:角色|人物|世界規則|世界觀|設定規則))/giu;
+const NEGATED_MUTATION_BOUNDARY_PATTERN = /(?:不要|不可|不得|請勿|避免)\s*(?:直接)?\s*(?:建立|新增|創建|設計|修改|調整|變更|更新|寫入)/giu;
+const CHARACTER_POSITIVE_MUTATION_PATTERN = /(?:(?:建立|新增|創建|設計|修改|調整|變更|更新)[^，。！？!?；;\n]{0,24}(?:角色|人物)|(?:角色|人物)[^，。！？!?；;\n]{0,24}(?:(?:建立|新增|創建|設計|修改|調整|變更|更新)|設定(?:成|為)))/iu;
+const WORLD_RULE_POSITIVE_MUTATION_PATTERN = /(?:(?:建立|新增|創建|設計|修改|調整|變更|更新)[^，。！？!?；;\n]{0,24}(?:世界規則|世界觀|設定規則)|(?:世界規則|世界觀|設定規則)[^，。！？!?；;\n]{0,24}(?:(?:建立|新增|創建|設計|修改|調整|變更|更新)|設定(?:成|為)))/iu;
+
+function intentClassificationObjective(value: string) {
+  return value
+    .replace(CANDIDATE_ONLY_BOUNDARY_PATTERN, " ")
+    .replace(NEGATED_MUTATION_BOUNDARY_PATTERN, " ");
+}
+
+function hasPositiveEntityMutation(
+  objective: string,
+  intent: "character_candidate" | "world_rule_candidate",
+) {
+  return (intent === "character_candidate"
+    ? CHARACTER_POSITIVE_MUTATION_PATTERN
+    : WORLD_RULE_POSITIVE_MUTATION_PATTERN).test(objective);
+}
+
 function isRpgChoice(content: string, hasActiveRpgTurn: boolean) {
   if (!hasActiveRpgTurn) return false;
   const compact = content.normalize("NFKC").trim().replace(/[\s，,。.!！?？、:：｜|／/()（）「」『』]/gu, "");
@@ -249,7 +269,8 @@ function isRpgChoice(content: string, hasActiveRpgTurn: boolean) {
 }
 
 function selectedRule(input: PlannerInput, objective: string): IntentRule | null {
-  if (isRpgChoice(objective, Boolean(input.hasActiveRpgTurn))) {
+  const classificationObjective = intentClassificationObjective(objective);
+  if (isRpgChoice(classificationObjective, Boolean(input.hasActiveRpgTurn))) {
     return {
       intent: "rpg_custom_action",
       pattern: /./u,
@@ -259,7 +280,11 @@ function selectedRule(input: PlannerInput, objective: string): IntentRule | null
       approvalRequired: true,
     };
   }
-  if (input.hasActiveRpgTurn && objective && !RULES.some((rule) => rule.pattern.test(objective))) {
+  if (
+    input.hasActiveRpgTurn
+    && classificationObjective
+    && !RULES.some((rule) => rule.pattern.test(classificationObjective))
+  ) {
     return {
       intent: "rpg_custom_action",
       pattern: /./u,
@@ -269,7 +294,17 @@ function selectedRule(input: PlannerInput, objective: string): IntentRule | null
       approvalRequired: true,
     };
   }
-  const explicitRule = RULES.find((rule) => rule.pattern.test(objective)) ?? null;
+  const explicitRule = RULES.find((rule) => rule.pattern.test(classificationObjective)) ?? null;
+  if (
+    (explicitRule?.intent === "character_candidate" || explicitRule?.intent === "world_rule_candidate")
+    && !hasPositiveEntityMutation(classificationObjective, explicitRule.intent)
+  ) {
+    const continuation = RULES.find((rule) => (
+      rule.intent === "continue_writing"
+      && rule.pattern.test(classificationObjective)
+    ));
+    if (continuation) return continuation;
+  }
   if (explicitRule?.intent === "learning_rule_candidate") return explicitRule;
   if ((input.attachmentCount ?? 0) > 0) {
     return RULES.find((rule) => rule.intent === "attachment_analysis") ?? null;
