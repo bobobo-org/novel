@@ -3,6 +3,7 @@ import { estimateBrowserTokens } from "./browser-performance-policy";
 export const BROWSER_PROSE_MINIMUM_HAN_CHARACTERS = 220;
 export const BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS = 320;
 export const BROWSER_PROSE_CONTINUATION_ANCHOR_CHARACTERS = 24;
+export const BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS = 48;
 export const BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS = 384;
 export const BROWSER_PROSE_MAXIMUM_CODE_POINTS = 640;
 
@@ -197,6 +198,8 @@ export function shouldRunBrowserProseExtension(input: {
     && !input.explicitLengthRequested
     && !input.contractSatisfied
     && !input.safetyCode
+    && input.observedHanCharacters
+      >= BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
     && input.observedHanCharacters < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
     && input.finishReason === "stop"
     && lengthOnly;

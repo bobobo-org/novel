@@ -1031,6 +1031,24 @@ test("quality-gate", () => {
     finishReason: "stop",
     qualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"],
   }), true);
+  assert.equal(shouldRunBrowserProseExtension({
+    taskType: "chapter.continue",
+    explicitLengthRequested: false,
+    contractSatisfied: false,
+    safetyCode: null,
+    observedHanCharacters: 47,
+    finishReason: "stop",
+    qualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"],
+  }), false);
+  assert.equal(shouldRunBrowserProseExtension({
+    taskType: "chapter.continue",
+    explicitLengthRequested: false,
+    contractSatisfied: false,
+    safetyCode: null,
+    observedHanCharacters: 48,
+    finishReason: "stop",
+    qualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"],
+  }), true);
   for (const finishReason of ["length", "tool_calls", "abort", null]) {
     assert.equal(shouldRunBrowserProseExtension({
       taskType: "chapter.continue",
@@ -1628,7 +1646,14 @@ test("bounded-prose-extension", async () => {
     completionTokens: 80,
     rawOutputCharacters: content.length,
     normalizedOutputCharacters: content.length,
-    performancePolicy: structuredClone(performancePolicy),
+    performancePolicy: {
+      ...structuredClone(performancePolicy),
+      ...(requestId.endsWith(":bounded-same-model-repair")
+        ? { reservedOutputTokens: 360, maxOutputTokens: 360 }
+        : requestId.endsWith(":bounded-prose-extension")
+          ? { reservedOutputTokens: 320, maxOutputTokens: 320 }
+          : {}),
+    },
   });
   await assert.rejects(
     () => executeBrowserInitialPass({
@@ -1991,6 +2016,311 @@ test("bounded-prose-extension", async () => {
       "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
     );
   };
+  const initial88 = exactHanPrefix(acceptedProse.repeat(2), 88);
+  const repair9Sentinel = "壞稿絕不可留存甲乙。";
+  const extension132 = exactHanPrefix(suffix.repeat(3), 132);
+  assert.equal(countBrowserProseHanCharacters(initial88), 88);
+  assert.equal(countBrowserProseHanCharacters(repair9Sentinel), 9);
+  const initial88Quality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: initial88,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  });
+  assert.deepEqual(initial88Quality.reasonCodes, [
+    "QUALITY_NARRATIVE_TOO_SHORT",
+  ]);
+  const shortRepairFallback = await execute({
+    ...result(initial88, "stop"),
+    completionTokens: 71,
+    rawOutputCharacters: 106,
+    normalizedOutputCharacters: 106,
+  }, [
+    {
+      ...result(
+        repair9Sentinel,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 8,
+      rawOutputCharacters: 10,
+      normalizedOutputCharacters: 10,
+    },
+    async (extensionRequest, options) => {
+      const seed = options.unapprovedContinuationSeed;
+      assert.ok(seed);
+      assert.equal(seed.baseHanCharacters, 88);
+      assert.equal(seed.baseDigest, await sha256Hex(initial88));
+      assert.doesNotMatch(
+        JSON.stringify({ extensionRequest, options }),
+        new RegExp(repair9Sentinel, "u"),
+      );
+      return result(
+        extension132,
+        "stop",
+        `${request.requestId}:bounded-prose-extension`,
+      );
+    },
+  ]);
+  assert.equal(shortRepairFallback.calls.length, 2);
+  assert.deepEqual(
+    shortRepairFallback.browserRuntimeEvidence.map((entry) => entry.stage),
+    ["initial", "repair", "extension"],
+  );
+  assert.equal(shortRepairFallback.browserRuntimeEvidence[0].completionTokens, 71);
+  assert.equal(shortRepairFallback.browserRuntimeEvidence[0].observedHanCharacters, 88);
+  assert.equal(shortRepairFallback.browserRuntimeEvidence[1].completionTokens, 8);
+  assert.equal(shortRepairFallback.browserRuntimeEvidence[1].observedHanCharacters, 9);
+  assert.equal(shortRepairFallback.result.content.startsWith(initial88), true);
+  assert.doesNotMatch(JSON.stringify(shortRepairFallback), new RegExp(repair9Sentinel, "u"));
+  assert.equal(
+    assessBrowserProseCompletion(shortRepairFallback.result.content).contractSatisfied,
+    true,
+  );
+  assert.equal(shortRepairFallback.quality.decision, "pass");
+  assert.match(shortRepairFallback.result.runtimeStats, /extension-base-stage=initial/u);
+  assert.match(
+    shortRepairFallback.result.runtimeStats,
+    new RegExp(`extension-base-digest=${await sha256Hex(initial88)}`, "u"),
+  );
+  assert.match(
+    shortRepairFallback.result.runtimeStats,
+    /repair-output-disposition=shorter-intermediate-memory-only/u,
+  );
+  const assertShortRepairFallbackRejected = async ({
+    initialContent = initial88,
+    initialOverrides = {},
+    decisionOverride = decision,
+    repairOverrides = {},
+    extensionOverrides = null,
+    expectedCalls = 1,
+    expectedCode = "BROWSER_AI_QUALITY_INSUFFICIENT",
+    expectedReasonCode = "QUALITY_NARRATIVE_TOO_SHORT",
+  }) => {
+    let calls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision: decisionOverride,
+        executionRequest: request,
+        initialResult: {
+          ...result(initialContent, "stop"),
+          completionTokens: 71,
+          rawOutputCharacters: initialContent.length,
+          normalizedOutputCharacters: initialContent.length,
+          ...initialOverrides,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async () => {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              ...result(
+                repair9Sentinel,
+                "stop",
+                `${request.requestId}:bounded-same-model-repair`,
+              ),
+              completionTokens: 8,
+              rawOutputCharacters: 10,
+              normalizedOutputCharacters: 10,
+              ...repairOverrides,
+            };
+          }
+          assert.equal(calls, 2, "fallback recovery must never exceed one extension pass");
+          assert.ok(extensionOverrides, "ineligible initial/repair bases must not run extension");
+          return {
+            ...result(
+              extension132,
+              "stop",
+              `${request.requestId}:bounded-prose-extension`,
+            ),
+            ...extensionOverrides,
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === expectedCode
+          && (expectedReasonCode === null
+            || error.qualityReasonCodes?.includes(expectedReasonCode))
+          && error.canonicalMutationCount === 0
+          && evidence.length === expectedCalls + 1
+          && evidence.at(-1)?.stage === (
+            expectedCalls === 0 ? "initial" : expectedCalls === 1 ? "repair" : "extension"
+          );
+      },
+    );
+    assert.equal(calls, expectedCalls);
+  };
+  await assertShortRepairFallbackRejected({
+    initialContent: exactHanPrefix(acceptedProse, 47),
+  });
+  await assertShortRepairFallbackRejected({
+    initialContent: initial88.slice(0, -1),
+  });
+  await assertShortRepairFallbackRejected({
+    initialContent: exactHanPrefix(
+      `以下是創作建議清單。${acceptedProse}`,
+      88,
+    ),
+  });
+  await assertShortRepairFallbackRejected({
+    initialContent: `<|im_end|>${initial88}`,
+    expectedReasonCode: "QUALITY_NARRATIVE_TOO_SHORT",
+  });
+  await assertShortRepairFallbackRejected({
+    initialContent: `${initial88}${"A".repeat(700)}`,
+    expectedCalls: 0,
+    expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+  });
+  await assertShortRepairFallbackRejected({
+    initialOverrides: { requestId: "stale-browser-initial" },
+    expectedCalls: 0,
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertShortRepairFallbackRejected({
+    initialOverrides: { executor: "chromium-prompt-api" },
+    expectedCalls: 0,
+    expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertShortRepairFallbackRejected({
+    decisionOverride: { ...structuredClone(decision), fallbackChain: ["browser-ai"] },
+    expectedCalls: 0,
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  for (const initialOverrides of [
+    { providerId: "private-ai-hub" },
+    { candidateOnly: false },
+    { externalRequest: true },
+    { dataLeavesDevice: true },
+    { provenance: { ...structuredClone(decision), providerId: "private-ai-hub" } },
+    { provenance: { ...structuredClone(decision), privacyMode: "private-hub" } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["private-ai-hub"] } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["browser-ai"] } },
+    {
+      modelId: "coherent-wrong-browser-model",
+      modelDigest: "f".repeat(64),
+      provenance: {
+        ...structuredClone(decision),
+        modelId: "coherent-wrong-browser-model",
+        modelDigest: "f".repeat(64),
+      },
+    },
+    {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        workerExecution: false,
+      },
+    },
+  ]) {
+    await assertShortRepairFallbackRejected({
+      initialOverrides,
+      expectedCalls: 0,
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    });
+  }
+  await assertShortRepairFallbackRejected({
+    repairOverrides: { requestId: "stale-browser-repair" },
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    expectedReasonCode: null,
+  });
+  for (const repairOverrides of [
+    { providerId: "private-ai-hub" },
+    { candidateOnly: false },
+    { externalRequest: true },
+    { dataLeavesDevice: true },
+    { provenance: { ...structuredClone(decision), providerId: "private-ai-hub" } },
+    { provenance: { ...structuredClone(decision), privacyMode: "private-hub" } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["private-ai-hub"] } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["browser-ai"] } },
+    {
+      modelId: "coherent-wrong-browser-model",
+      modelDigest: "f".repeat(64),
+      provenance: {
+        ...structuredClone(decision),
+        modelId: "coherent-wrong-browser-model",
+        modelDigest: "f".repeat(64),
+      },
+    },
+    {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 361,
+        maxOutputTokens: 361,
+      },
+    },
+  ]) {
+    await assertShortRepairFallbackRejected({
+      repairOverrides,
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    });
+  }
+  const extensionBoundaryOverrides = [
+    { requestId: "stale-browser-extension" },
+    { providerId: "private-ai-hub" },
+    { candidateOnly: false },
+    { externalRequest: true },
+    { dataLeavesDevice: true },
+    { provenance: { ...structuredClone(decision), externalRequest: true } },
+    { provenance: { ...structuredClone(decision), providerId: "private-ai-hub" } },
+    { provenance: { ...structuredClone(decision), privacyMode: "private-hub" } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["private-ai-hub"] } },
+    { provenance: { ...structuredClone(decision), fallbackChain: ["browser-ai"] } },
+    {
+      modelId: "coherent-wrong-browser-model",
+      modelDigest: "f".repeat(64),
+      provenance: {
+        ...structuredClone(decision),
+        modelId: "coherent-wrong-browser-model",
+        modelDigest: "f".repeat(64),
+      },
+    },
+    {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 321,
+        maxOutputTokens: 321,
+      },
+    },
+    {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 320,
+        maxOutputTokens: 320,
+        serialGeneration: false,
+      },
+    },
+    { modelDigest: "runtime-managed" },
+  ];
+  for (const extensionOverrides of extensionBoundaryOverrides) {
+    await assertShortRepairFallbackRejected({
+      extensionOverrides,
+      expectedCalls: 2,
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    });
+  }
+  await assertShortRepairFallbackRejected({
+    extensionOverrides: { executor: "chromium-prompt-api" },
+    expectedCalls: 2,
+    expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+    expectedReasonCode: null,
+  });
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: shortRepairFallback,
+    rawGeneration: repair9Sentinel,
+    discardedSentinel: repair9Sentinel,
+    taskId: "browser-short-repair-initial-base-authoritative-candidate",
+  });
   await assertAuthoritativeSelectedResult({
     selectedExecution: salvagedLongLength,
     rawGeneration: safeLengthRaw,
@@ -2612,6 +2942,8 @@ test("bounded-prose-extension", async () => {
       finishReason: "length",
       completionTokens: 359,
       runtimePerformancePolicy: null,
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
     },
     {
       finishReason: "length",
@@ -2620,6 +2952,8 @@ test("bounded-prose-extension", async () => {
         ...structuredClone(repair360Policy),
         policyVersion: "attacker-policy",
       },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
     },
     {
       finishReason: "length",
@@ -2629,6 +2963,8 @@ test("bounded-prose-extension", async () => {
         reservedOutputTokens: 384,
         maxOutputTokens: 384,
       },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
     },
   ]) {
     await assertRepairLengthPrefixRejected(invalidRepairEvidence);
@@ -2661,7 +2997,7 @@ test("bounded-prose-extension", async () => {
     finishReason: "length",
     completionTokens: 359,
     repairOverrides: { modelDigest: "runtime-managed" },
-    expectedCode: "BROWSER_AI_BOUNDED_REPAIR_MODEL_MISMATCH",
+    expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
     expectedReasonCode: null,
     expectedEvidenceLength: 2,
   });
@@ -2685,6 +3021,8 @@ test("bounded-prose-extension", async () => {
     raw = safeLengthRaw,
     runtimePerformancePolicy = performancePolicy,
     initialOverrides = {},
+    expectedCode = "BROWSER_AI_QUALITY_INSUFFICIENT",
+    expectedReasonCode = "QUALITY_OUTPUT_TRUNCATED",
   }) => {
     let calls = 0;
     await assert.rejects(
@@ -2708,9 +3046,10 @@ test("bounded-prose-extension", async () => {
           throw new Error("invalid length-prefix evidence must fail before another model pass");
         },
       }),
-      (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
-        && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED")
-        && !error.qualityReasonCodes.includes("QUALITY_TASK_FORM_MISMATCH")
+      (error) => error.code === expectedCode
+        && (expectedReasonCode === null
+          || error.qualityReasonCodes?.includes(expectedReasonCode))
+        && !error.qualityReasonCodes?.includes("QUALITY_TASK_FORM_MISMATCH")
         && closedAgentBrowserRuntimeEvidence(error).length === 1
         && error.canonicalMutationCount === 0,
     );
@@ -2722,7 +3061,13 @@ test("bounded-prose-extension", async () => {
     { finishReason: "length", completionTokens: 0 },
     { finishReason: "length", completionTokens: 375 },
     { finishReason: "length", completionTokens: 385 },
-    { finishReason: "length", completionTokens: 383, runtimePerformancePolicy: null },
+    {
+      finishReason: "length",
+      completionTokens: 383,
+      runtimePerformancePolicy: null,
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    },
     {
       finishReason: "length",
       completionTokens: 383,
@@ -2730,6 +3075,8 @@ test("bounded-prose-extension", async () => {
         ...structuredClone(performancePolicy),
         policyVersion: "attacker-policy",
       },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
     },
     {
       finishReason: "length",
@@ -2740,11 +3087,15 @@ test("bounded-prose-extension", async () => {
       finishReason: "length",
       completionTokens: 383,
       initialOverrides: { executor: "chromium-prompt-api" },
+      expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+      expectedReasonCode: null,
     },
     {
       finishReason: "length",
       completionTokens: 383,
       initialOverrides: { modelDigest: "runtime-managed" },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
     },
   ]) {
     await assertLengthPrefixRejected(invalidEvidence);

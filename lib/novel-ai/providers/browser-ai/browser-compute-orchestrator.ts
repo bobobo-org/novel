@@ -41,6 +41,7 @@ import {
 import { browserWebLLMRuntimeSnapshot } from "./browser-webllm-runtime";
 import {
   assessBrowserProseCompletion,
+  BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS,
   browserProseSafetyCode,
   buildBrowserProseContinuationSeed,
   mergeBrowserProseContinuation,
@@ -123,19 +124,22 @@ function hasVerifiedClosedWebLLMBoundary(
     && decision.privacyMode === "strict-local"
     && decision.externalRequest === false
     && decision.dataLeavesDevice === false
-    && decision.fallbackChain.every((providerId) => providerId === "browser-ai")
+    && decision.fallbackChain.length === 0
     && result.providerId === "browser-ai"
     && result.candidateOnly === true
     && result.externalRequest === false
     && result.dataLeavesDevice === false
+    && Boolean(result.modelId)
+    && result.modelId === decision.modelId
+    && isCryptographicClosedAIModelDigest(result.modelDigest)
+    && result.modelDigest === decision.modelDigest
     && result.provenance.providerId === decision.providerId
     && result.provenance.modelId === result.modelId
     && result.provenance.modelDigest === result.modelDigest
     && result.provenance.externalRequest === false
     && result.provenance.dataLeavesDevice === false
     && result.provenance.privacyMode === decision.privacyMode
-    && result.provenance.fallbackChain.every((providerId) =>
-      providerId === "browser-ai")
+    && result.provenance.fallbackChain.length === 0
     && result.performancePolicy?.policyVersion === "browser-ai-performance-v2"
     && result.performancePolicy.workerExecution === true
     && result.performancePolicy.serialGeneration === true
@@ -183,6 +187,7 @@ const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
   "chapter.expand",
 ]);
 const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360;
+const BROWSER_BOUNDED_EXTENSION_MAX_TOKENS = 320;
 const BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE = {
   "control-token": "QUALITY_OUTPUT_CONTROL_TOKEN",
   "role-envelope": "QUALITY_OUTPUT_ROLE_ENVELOPE",
@@ -695,6 +700,23 @@ export async function executeBrowserBoundedQualityPasses(input: {
       canonicalMutationCount: 0,
     });
   }
+  if (
+    defaultChapterProseContract
+    && requiredGenerativeExecutor === "webllm-worker"
+    && !initialSafetyReasonCode
+  ) {
+    try {
+      assertVerifiedExecutor(result, requiredGenerativeExecutor);
+      assertVerifiedClosedWebLLMBoundary(
+        result,
+        input.decision,
+        performancePolicy.reservedOutputTokens,
+        input.request.requestId,
+      );
+    } catch (error) {
+      throw attachBrowserRuntimeEvidence(error, browserRuntimeEvidence);
+    }
+  }
   // The provider inference proof attests the complete raw model generation.
   // This separate boundary selects the only text that may become an
   // authoritative candidate/receipt/ledger value; it does not rewrite or
@@ -847,7 +869,10 @@ export async function executeBrowserBoundedQualityPasses(input: {
       repairCompletion?.observedHanCharacters ?? null,
     ));
     try {
-      if (initialSafetyRepairReasonCode) {
+      if (
+        defaultChapterProseContract
+        && requiredGenerativeExecutor === "webllm-worker"
+      ) {
         assertVerifiedClosedWebLLMBoundary(
           repairResult,
           input.decision,
@@ -934,8 +959,16 @@ export async function executeBrowserBoundedQualityPasses(input: {
       approvedContext: executionRequest.context,
       threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
     });
-    const runBoundedProseExtension = repairCompletion
-      ? !initialSafetyRepairReasonCode && shouldRunBrowserProseExtension({
+    const extensionBaseCandidates: Array<{
+      stage: "initial" | "repair";
+      result: PlatformAIResult;
+      completion: ReturnType<typeof assessBrowserProseCompletion>;
+      quality: ReturnType<typeof evaluateBrowserCandidateQuality>;
+    }> = [];
+    if (
+      !initialSafetyRepairReasonCode
+      && repairCompletion
+      && shouldRunBrowserProseExtension({
         taskType: input.request.taskType,
         explicitLengthRequested: !defaultChapterProseContract,
         contractSatisfied: repairCompletion.contractSatisfied,
@@ -944,17 +977,62 @@ export async function executeBrowserBoundedQualityPasses(input: {
         finishReason: repairResult.generationFinishReason,
         qualityReasonCodes: repairQuality.reasonCodes,
       })
-      : false;
+    ) {
+      extensionBaseCandidates.push({
+        stage: "repair",
+        result: repairResult,
+        completion: repairCompletion,
+        quality: repairQuality,
+      });
+    }
+    const initialQualityReasonCodes = quality?.reasonCodes ?? [];
+    if (
+      !initialSafetyRepairReasonCode
+      && repairCompletion
+      && !repairCompletion.contractSatisfied
+      && !repairCompletion.safetyCode
+      && repairCompletion.observedHanCharacters
+        < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+      && repairResult.generationFinishReason === "stop"
+      && chapterProseContract
+      && !chapterProseContract.rawBudgetExceeded
+      && quality
+      && initialQualityReasonCodes.length > 0
+      && initialQualityReasonCodes.every((reason) =>
+        reason === "QUALITY_LENGTHCOMPLIANCE_LOW"
+        || reason === "QUALITY_NARRATIVE_TOO_SHORT")
+      && shouldRunBrowserProseExtension({
+        taskType: input.request.taskType,
+        explicitLengthRequested: !defaultChapterProseContract,
+        contractSatisfied: chapterProseContract.contractSatisfied,
+        safetyCode: chapterProseContract.safetyCode,
+        observedHanCharacters: chapterProseContract.observedHanCharacters,
+        finishReason: initialResult.generationFinishReason,
+        qualityReasonCodes: initialQualityReasonCodes,
+      })
+    ) {
+      extensionBaseCandidates.push({
+        stage: "initial",
+        result: initialResult,
+        completion: chapterProseContract,
+        quality,
+      });
+    }
+    extensionBaseCandidates.sort((left, right) =>
+      right.completion.observedHanCharacters - left.completion.observedHanCharacters
+      || right.quality.score - left.quality.score);
+    const extensionBase = extensionBaseCandidates[0] ?? null;
     let extensionResult: PlatformAIResult | null = null;
+    let extensionBaseDigest: string | null = null;
     let extensionDigest: string | null = null;
     if (
       requiredGenerativeExecutor === "webllm-worker"
-      && runBoundedProseExtension
+      && extensionBase
     ) {
-      const repairDigest = await sha256Hex(repairResult.content);
+      extensionBaseDigest = await sha256Hex(extensionBase.result.content);
       const continuationSeed = buildBrowserProseContinuationSeed({
-        baseContent: repairResult.content,
-        baseDigest: repairDigest,
+        baseContent: extensionBase.result.content,
+        baseDigest: extensionBaseDigest,
       });
       if (!continuationSeed) {
         throw Object.assign(explicitEscalationError(
@@ -992,7 +1070,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
                 Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
                 0.92,
               ),
-              maxTokens: 320,
+              maxTokens: BROWSER_BOUNDED_EXTENSION_MAX_TOKENS,
               repetitionPenalty: Math.max(
                 input.request.generationOptions?.repetitionPenalty ?? 1.08,
                 1.12,
@@ -1013,13 +1091,23 @@ export async function executeBrowserBoundedQualityPasses(input: {
           unavailableBrowserRuntimePassEvidence("extension"),
         ]);
       }
-      assertVerifiedExecutor(extensionResult, requiredGenerativeExecutor);
-      assertSameVerifiedBrowserModel(repairResult, extensionResult);
       browserRuntimeEvidence.push(browserRuntimePassEvidence(
         "extension",
         extensionResult,
         assessBrowserProseCompletion(extensionResult.content).observedHanCharacters,
       ));
+      try {
+        assertVerifiedClosedWebLLMBoundary(
+          extensionResult,
+          input.decision,
+          BROWSER_BOUNDED_EXTENSION_MAX_TOKENS,
+          `${input.request.requestId}:bounded-prose-extension`,
+        );
+        assertVerifiedExecutor(extensionResult, requiredGenerativeExecutor);
+        assertSameVerifiedBrowserModel(extensionBase.result, extensionResult);
+      } catch (error) {
+        throw attachBrowserRuntimeEvidence(error, browserRuntimeEvidence);
+      }
       if (extensionResult.generationFinishReason !== "stop") {
         throw Object.assign(explicitEscalationError(
           eligibility,
@@ -1033,7 +1121,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
         });
       }
       const merged = mergeBrowserProseContinuation({
-        baseContent: repairResult.content,
+        baseContent: extensionBase.result.content,
         continuationContent: extensionResult.content,
         anchor: continuationSeed.anchor,
       });
@@ -1138,12 +1226,21 @@ export async function executeBrowserBoundedQualityPasses(input: {
         `initial-finish=${initialResult.generationFinishReason ?? "unavailable"}`,
         `repair-finish=${repairResult.generationFinishReason ?? "unavailable"}`,
         ...(extensionResult
-          ? [`extension-finish=${extensionResult.generationFinishReason ?? "unavailable"}`]
+          ? [
+            `extension-finish=${extensionResult.generationFinishReason ?? "unavailable"}`,
+            `extension-base-stage=${extensionBase?.stage ?? "unavailable"}`,
+          ]
           : []),
         ...(initialDigest
           ? [`initial-output-digest=${initialDigest}`]
           : ["initial-output-disposition=safety-rejected-memory-only"]),
         ...(extensionDigest ? [`extension-output-digest=${extensionDigest}`] : []),
+        ...(extensionBaseDigest
+          ? [`extension-base-digest=${extensionBaseDigest}`]
+          : []),
+        ...(extensionResult && extensionBase?.stage === "initial"
+          ? ["repair-output-disposition=shorter-intermediate-memory-only"]
+          : []),
         `initial-quality-reasons=${repairPlan.reasonCodes.join(",")}`,
         "intermediate-content=pipeline-memory-only",
       ].filter(Boolean).join("; "),
