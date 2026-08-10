@@ -1,5 +1,8 @@
 import { sha256Hex } from "../closed-ai-cache";
-import type { ClosedAIRegenerationContract } from "../closed-agent-os";
+import type {
+  ClosedAIBackendId,
+  ClosedAIRegenerationContract,
+} from "../closed-agent-os";
 
 const REGENERATION_DIRECTIONS = [
   "改變場景中的主動者與第一個具體行動，讓事件以另一條因果鏈展開。",
@@ -12,6 +15,9 @@ const REGENERATION_DIRECTIONS = [
 export type ExplicitRegenerationSource = {
   taskId?: string | null;
   candidateId?: string | null;
+  backendId?: ClosedAIBackendId | null;
+  modelId?: string | null;
+  modelDigest?: string | null;
   content: string;
   contentDigest?: string | null;
   regenerationAttempt?: number;
@@ -32,10 +38,17 @@ function secureSeed(attempt: number) {
 }
 
 export function createExplicitRegenerationContract(input: {
+  previousCandidateId: string;
+  previousTaskId: string;
   previousCandidateDigest: string;
   regenerationAttempt: number;
   extraRequirement?: string;
 }): ClosedAIRegenerationContract {
+  if (!input.previousCandidateId.trim() || !input.previousTaskId.trim()) {
+    throw Object.assign(new Error("Previous candidate identity is invalid."), {
+      code: "REGENERATION_SOURCE_IDENTITY_INVALID",
+    });
+  }
   if (!/^[a-f0-9]{64}$/iu.test(input.previousCandidateDigest)) {
     throw Object.assign(new Error("Previous candidate digest is invalid."), {
       code: "REGENERATION_PREVIOUS_DIGEST_INVALID",
@@ -51,6 +64,8 @@ export function createExplicitRegenerationContract(input: {
   ];
   const extra = input.extraRequirement?.trim().replace(/\s+/gu, " ").slice(0, 280);
   return {
+    previousCandidateId: input.previousCandidateId,
+    previousTaskId: input.previousTaskId,
     regenerationAttempt: input.regenerationAttempt,
     regenerationNonce: crypto.randomUUID(),
     previousCandidateDigest: input.previousCandidateDigest.toLowerCase(),

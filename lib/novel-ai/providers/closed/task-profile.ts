@@ -302,6 +302,7 @@ function outputContract(
 export function buildClosedAIModelPrompt(input: {
   objective: string;
   context: string[];
+  mandatoryInstruction?: string;
   profile: ClosedAIModelProfile;
   qualityPhase?: "draft" | "critic" | "revision";
   agentPlan?: {
@@ -328,15 +329,21 @@ export function buildClosedAIModelPrompt(input: {
       .map((step) => `${step.role}：${step.objective}`)
     : [];
   const workingSources = (input.workingMaterials ?? []).map((item) => item.text);
+  const mandatoryInstruction = input.mandatoryInstruction
+    ?.replace(/\r\n?/gu, "\n")
+    .trim()
+    .slice(0, 800) ?? "";
   const sourceCharacters = input.objective.length
+    + mandatoryInstruction.length
     + input.context.reduce((total, item) => total + item.length, 0)
     + toolSources.reduce((total, item) => total + item.length, 0)
     + planSources.reduce((total, item) => total + item.length, 0)
     + workingSources.reduce((total, item) => total + item.length, 0);
-  const objectiveLimit = Math.min(
+  const objectiveLimit = Math.max(256, Math.min(
     input.profile.backendId === "private-ai-hub" ? 8_000 : 4_000,
     Math.floor(input.profile.maxInputCharacters * 0.35),
-  );
+    input.profile.maxInputCharacters - 1_050 - mandatoryInstruction.length,
+  ));
   const objective = compactText(input.objective, objectiveLimit);
   const seen = new Set<string>();
   const context = input.context
@@ -354,6 +361,7 @@ export function buildClosedAIModelPrompt(input: {
   });
   const structuralReserve = 1_050
     + objective.length
+    + mandatoryInstruction.length
     + (continuityAnchor?.length ?? 0);
   const remaining = Math.max(0, input.profile.maxInputCharacters - structuralReserve);
   const workingBudget = workingSources.length ? Math.floor(remaining * 0.38) : 0;
@@ -417,6 +425,9 @@ export function buildClosedAIModelPrompt(input: {
       }).join("\n\n")
       : "（沒有前一階段素材）",
     "</未核准工作素材>",
+    ...(mandatoryInstruction
+      ? ["<explicit-regeneration>", mandatoryInstruction, "</explicit-regeneration>"]
+      : []),
     "<作者目標>",
     objective,
     "</作者目標>",
@@ -433,6 +444,7 @@ export function buildClosedAIModelPrompt(input: {
       0,
       sourceCharacters
         - objective.length
+        - mandatoryInstruction.length
         - compacted.reduce((total, item) => total + item.length, 0)
         - compactedPlan.reduce((total, item) => total + item.length, 0)
         - compactedTools.reduce((total, item) => total + item.length, 0)

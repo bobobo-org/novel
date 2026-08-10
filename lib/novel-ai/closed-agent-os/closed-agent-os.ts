@@ -46,6 +46,7 @@ import {
   hasVerifiedClosedAIGeneration,
   isCryptographicClosedAIModelDigest,
   type ClosedAIBackendAdapter,
+  type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
   type ClosedAIProgressEvent,
   type ClosedAIProgressPhase,
@@ -116,6 +117,112 @@ function assertClosedAIModelIdentity(
       modelDigestMatch: execution.modelDigest === routed.modelDigest,
     });
   }
+}
+
+const REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
+  "browser-ai",
+  "local-ollama",
+  "private-ai-hub",
+]);
+
+function hasVerifiedRegenerationSourceIdentity(
+  candidate: ClosedAgentCandidate,
+  task: ClosedAgentTaskRecord | null,
+) {
+  const receipt = candidate.executionReceipt;
+  const adapterId = candidate.adapterId ?? null;
+  const adapterDigest = candidate.adapterDigest ?? null;
+  const adapterIdentityVerified = adapterId === null && adapterDigest === null
+    || Boolean(adapterId && isCryptographicClosedAIModelDigest(adapterDigest));
+  const startedAt = Date.parse(receipt?.startedAt ?? "");
+  const completedAt = Date.parse(receipt?.completedAt ?? "");
+  const candidateCreatedAt = Date.parse(candidate.createdAt);
+  return candidate.schemaVersion === CLOSED_AGENT_OS_SCHEMA_VERSION
+    && candidate.kind === "candidate"
+    && task?.schemaVersion === CLOSED_AGENT_OS_SCHEMA_VERSION
+    && task.kind === "task"
+    && (candidate.status === "awaiting-approval" || candidate.status === "rejected")
+    && candidate.candidateOnly
+    && candidate.canonicalMutationCount === 0
+    && candidate.actualExecutor === candidate.backendId
+    && candidate.externalRequest === false
+    && candidate.dataLeftDevice === false
+    && Boolean(candidate.modelId.trim())
+    && isCryptographicClosedAIModelDigest(candidate.modelDigest)
+    && isCryptographicClosedAIModelDigest(candidate.contentDigest)
+    && isCryptographicClosedAIModelDigest(candidate.contextDigest)
+    && adapterIdentityVerified
+    && task?.state === "awaiting-approval"
+    && task.id === candidate.taskId
+    && task.projectId === candidate.projectId
+    && task.backendId === candidate.backendId
+    && task.errorCode === null
+    && receipt?.proofState === "verified"
+    && receipt.taskId === candidate.taskId
+    && receipt.backendId === candidate.backendId
+    && receipt.actualExecutor === candidate.backendId
+    && receipt.modelId === candidate.modelId
+    && receipt.modelDigest === candidate.modelDigest
+    && receipt.contentDigest === candidate.contentDigest
+    && receipt.contextDigest === candidate.contextDigest
+    && receipt.outputCharacters > 0
+    && Number.isFinite(startedAt)
+    && Number.isFinite(completedAt)
+    && Number.isFinite(candidateCreatedAt)
+    && startedAt <= completedAt
+    && completedAt <= candidateCreatedAt
+    && receipt.externalRequest === false
+    && receipt.dataLeftDevice === false;
+}
+
+const REGENERATION_STABLE_NAMESPACE_FIELDS = [
+  "tenantId",
+  "userId",
+  "projectId",
+  "storyId",
+  "canonId",
+  "branchId",
+  "characterId",
+  "agentRole",
+  "privacyLevel",
+] as const satisfies ReadonlyArray<keyof ClosedAINamespace>;
+
+function hasStableRegenerationNamespace(
+  source: ClosedAINamespace,
+  target: ClosedAINamespace,
+) {
+  return REGENERATION_STABLE_NAMESPACE_FIELDS.every(
+    (field) => source[field] === target[field],
+  );
+}
+
+function normalizeRegenerationContent(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-Hant")
+    .replace(/[\p{P}\p{S}\s]+/gu, "")
+    .trim();
+}
+
+function regenerationTrigrams(value: string) {
+  const characters = Array.from(value);
+  if (characters.length < 3) return new Set(characters);
+  const grams = new Set<string>();
+  for (let index = 0; index <= characters.length - 3; index += 1) {
+    grams.add(characters.slice(index, index + 3).join(""));
+  }
+  return grams;
+}
+
+function regenerationSimilarity(left: string, right: string) {
+  const leftGrams = regenerationTrigrams(normalizeRegenerationContent(left));
+  const rightGrams = regenerationTrigrams(normalizeRegenerationContent(right));
+  if (leftGrams.size === 0 && rightGrams.size === 0) return 1;
+  let intersection = 0;
+  for (const item of leftGrams) {
+    if (rightGrams.has(item)) intersection += 1;
+  }
+  return intersection / (leftGrams.size + rightGrams.size - intersection || 1);
 }
 
 export function closedAgentQualityReasonCodes(error: unknown): string[] {
@@ -264,6 +371,7 @@ export class ClosedAgentOS {
     requestInput: ClosedAgentTaskRequest,
   ): Promise<ClosedAgentExecutionResult> {
     let request = requestInput;
+    let regenerationSource: ClosedAgentCandidate | null = null;
     assertClosedAINamespace(request.namespace);
     if (!request.taskId || !request.objective.trim()) {
       throw osError("CLOSED_AGENT_TASK_INVALID");
@@ -271,7 +379,9 @@ export class ClosedAgentOS {
     if (request.regeneration) {
       const regeneration = request.regeneration;
       if (
-        regeneration.cacheBypassReason !== "explicit_regeneration"
+        !regeneration.previousCandidateId?.trim()
+        || !regeneration.previousTaskId?.trim()
+        || regeneration.cacheBypassReason !== "explicit_regeneration"
         || !Number.isSafeInteger(regeneration.regenerationAttempt)
         || regeneration.regenerationAttempt < 1
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
@@ -285,12 +395,179 @@ export class ClosedAgentOS {
       ) {
         throw osError("CLOSED_AGENT_REGENERATION_CONTRACT_INVALID");
       }
-      if (request.preferredBackend !== "local-ollama") {
-        throw osError("CLOSED_AGENT_REGENERATION_REQUIRES_LOCAL_OLLAMA");
+      if (request.taskId === regeneration.previousTaskId) {
+        throw osError("CLOSED_AGENT_REGENERATION_TASK_ID_REUSE", undefined, {
+          fallbackAttempted: false,
+        });
       }
+      if (
+        !request.preferredBackend
+        || !REGENERATION_BACKENDS.has(request.preferredBackend)
+      ) {
+        throw osError("CLOSED_AGENT_REGENERATION_BACKEND_REQUIRED", undefined, {
+          fallbackAttempted: false,
+        });
+      }
+      const source = await this.state.get<ClosedAgentCandidate>(
+        regeneration.previousCandidateId,
+      );
+      if (!source) {
+        throw osError("CLOSED_AGENT_REGENERATION_SOURCE_NOT_FOUND", undefined, {
+          fallbackAttempted: false,
+        });
+      }
+      const sourceTask = await this.state.get<ClosedAgentTaskRecord>(source.taskId);
+      const sourceContentDigest = await sha256Hex(source.content);
+      const expectedAttempt = (source.regeneration?.regenerationAttempt ?? 0) + 1;
+      const sourceLedgerId = `closed-agent:${source.projectId}:${source.taskId}`;
+      const [sourceLedgerVerification, sourceLedgerBlocks] = await Promise.all([
+        this.ledger.verify(sourceLedgerId),
+        this.ledger.repository.list(sourceLedgerId),
+      ]);
+      const sourceGenerationBlock = sourceLedgerBlocks.find(
+        (block) => block.eventType === "candidate-generated",
+      );
+      const sourceGenerationRecord = sourceGenerationBlock?.contentRecordId
+        ? await this.ledger.repository.getContent(
+            sourceGenerationBlock.contentRecordId,
+            {
+              ledgerId: sourceLedgerId,
+              projectId: source.projectId,
+              namespaceDigest: sourceGenerationBlock.namespaceDigest,
+            },
+          )
+        : null;
+      const sourceGeneration = sourceGenerationRecord?.content as {
+        candidateId?: unknown;
+        taskId?: unknown;
+        backendId?: unknown;
+        modelId?: unknown;
+        modelDigest?: unknown;
+        adapterId?: unknown;
+        adapterDigest?: unknown;
+        contentDigest?: unknown;
+        contextDigest?: unknown;
+        executionReceipt?: unknown;
+      } | undefined;
+      const sourceTelemetry = source.generationTelemetry;
+      const legacyGenerationPayload = sourceTelemetry
+        ? {
+            taskId: source.taskId,
+            backendId: source.backendId,
+            modelId: source.modelId,
+            modelDigest: source.modelDigest,
+            adapterId: source.adapterId ?? null,
+            adapterDigest: source.adapterDigest ?? null,
+            contentDigest: source.contentDigest,
+            candidateOnly: true,
+            qualityMode: sourceTelemetry.qualityMode,
+            qualityPasses: sourceTelemetry.qualityPasses,
+            draftDigest: sourceTelemetry.draftDigest,
+            criticDigest: sourceTelemetry.criticDigest,
+          }
+        : null;
+      const legacyGenerationResultBase = sourceTelemetry
+        ? {
+            elapsedMs: sourceTelemetry.elapsedMs,
+            dataLeftDevice: source.dataLeftDevice,
+            externalRequest: source.externalRequest,
+            firstTokenMs: sourceTelemetry.firstTokenMs,
+            outputCharacters: sourceTelemetry.outputCharacters,
+            omittedInputCharacters: sourceTelemetry.omittedInputCharacters,
+            qualityMode: sourceTelemetry.qualityMode,
+            qualityPasses: sourceTelemetry.qualityPasses,
+            draftDigest: sourceTelemetry.draftDigest,
+            criticDigest: sourceTelemetry.criticDigest,
+            actualExecutor: source.actualExecutor,
+            executionReceipt: source.executionReceipt,
+            regeneration: source.regeneration
+              ? {
+                  regenerationAttempt: source.regeneration.regenerationAttempt,
+                  previousCandidateDigest: source.regeneration.previousCandidateDigest,
+                  cacheBypassReason: source.regeneration.cacheBypassReason,
+                  cacheBypassed: true,
+                  previousContentReused: false,
+                  nonceStored: false,
+                }
+              : null,
+          }
+        : null;
+      const legacyGenerationResults = legacyGenerationResultBase
+        ? [
+            [sourceTelemetry!.profileId, sourceTelemetry!.inputCharacters],
+            [null, sourceTelemetry!.inputCharacters],
+            [sourceTelemetry!.profileId, null],
+            [null, null],
+          ].map(([profileId, inputCharacters]) => ({
+            ...legacyGenerationResultBase,
+            profileId,
+            inputCharacters,
+          }))
+        : [];
+      const legacyLedgerProof = Boolean(
+        sourceGenerationBlock
+        && !sourceGenerationRecord
+        && legacyGenerationPayload
+        && legacyGenerationResults.length
+        && sourceGenerationBlock.payloadDigest
+          === await sha256Hex(stableStringify(legacyGenerationPayload))
+        && (await Promise.all(legacyGenerationResults.map((result) => (
+          sha256Hex(stableStringify(result))
+        )))).includes(sourceGenerationBlock.resultDigest ?? ""),
+      );
+      const retainedLedgerProof = Boolean(
+        sourceGenerationBlock
+        && sourceGenerationRecord
+        && sourceGeneration?.candidateId === source.id
+        && sourceGeneration.taskId === source.taskId
+        && sourceGeneration.backendId === source.backendId
+        && sourceGeneration.modelId === source.modelId
+        && sourceGeneration.modelDigest === source.modelDigest
+        && sourceGeneration.adapterId === (source.adapterId ?? null)
+        && sourceGeneration.adapterDigest === (source.adapterDigest ?? null)
+        && sourceGeneration.contentDigest === source.contentDigest
+        && sourceGeneration.contextDigest === source.contextDigest
+        && stableStringify(sourceGeneration.executionReceipt)
+          === stableStringify(source.executionReceipt),
+      );
+      if (
+        source.id !== regeneration.previousCandidateId
+        || source.id !== `closed-agent-candidate:${await sha256Hex(`${source.taskId}|${source.content}`)}`
+        || source.taskId !== regeneration.previousTaskId
+        || source.contentDigest !== regeneration.previousCandidateDigest
+        || sourceContentDigest !== source.contentDigest
+        || regeneration.regenerationAttempt !== expectedAttempt
+        || !hasStableRegenerationNamespace(source.namespace, request.namespace)
+        || !sourceTask
+        || !hasStableRegenerationNamespace(sourceTask.namespace, request.namespace)
+        || sourceTask.taskType !== request.taskType
+        || source.sourceChapterId !== (request.sourceChapterId ?? null)
+        || source.sourceRevision !== (request.sourceRevision ?? null)
+        || !hasVerifiedRegenerationSourceIdentity(source, sourceTask)
+        || !sourceLedgerVerification.valid
+        || !sourceGenerationBlock
+        || (!retainedLedgerProof && !legacyLedgerProof)
+      ) {
+        throw osError("CLOSED_AGENT_REGENERATION_SOURCE_NOT_VERIFIED", undefined, {
+          fallbackAttempted: false,
+        });
+      }
+      if (request.preferredBackend !== source.backendId) {
+        throw osError("CLOSED_AGENT_REGENERATION_BACKEND_MISMATCH", undefined, {
+          sourceBackend: source.backendId,
+          requestedBackend: request.preferredBackend,
+          fallbackAttempted: false,
+        });
+      }
+      regenerationSource = source;
     }
     if (request.signal?.aborted) throw osError("CLOSED_AGENT_TASK_CANCELLED");
     const existing = await this.state.get<ClosedAgentTaskRecord>(request.taskId);
+    if (request.regeneration && existing) {
+      throw osError("CLOSED_AGENT_REGENERATION_TASK_ID_REUSE", undefined, {
+        fallbackAttempted: false,
+      });
+    }
     if (existing && existing.state === "awaiting-approval") {
       const candidates = await this.state.list<ClosedAgentCandidate>(
         request.namespace.projectId,
@@ -368,6 +645,17 @@ export class ClosedAgentOS {
           backendId: route.backend.id,
           routedModelId: route.backend.modelId,
           routedDigestVerified: false,
+        });
+      }
+      if (regenerationSource && (
+        route.backend.id !== regenerationSource.backendId
+        || route.backend.modelId !== regenerationSource.modelId
+        || route.backend.modelDigest !== regenerationSource.modelDigest
+      )) {
+        throw osError("CLOSED_AGENT_REGENERATION_MODEL_IDENTITY_MISMATCH", undefined, {
+          sourceBackend: regenerationSource.backendId,
+          routedBackend: route.backend.id,
+          fallbackAttempted: false,
         });
       }
       this.emitProgress(
@@ -532,6 +820,8 @@ export class ClosedAgentOS {
         ),
         regeneration: request.regeneration
           ? {
+            previousCandidateId: request.regeneration.previousCandidateId,
+            previousTaskId: request.regeneration.previousTaskId,
             regenerationAttempt: request.regeneration.regenerationAttempt,
             regenerationNonce: request.regeneration.regenerationNonce,
             previousCandidateDigest: request.regeneration.previousCandidateDigest,
@@ -574,18 +864,6 @@ export class ClosedAgentOS {
         });
         executionCompletedAt = this.now().toISOString();
         assertClosedAIModelIdentity(route.backend, execution);
-        await this.cache.put({
-          layer: "exact",
-          namespace: request.namespace,
-          input: candidateInput,
-          value: execution,
-          tags: [
-            "closed-agent-candidate",
-            "explicit-regeneration",
-            `task:${request.taskType}`,
-          ],
-          ttlMs: learningCacheTtl(request.learningConfiguration, "exact"),
-        });
         this.emitProgress(
           request,
           "generating",
@@ -708,7 +986,39 @@ export class ClosedAgentOS {
         });
       }
       assertClosedAIModelIdentity(route.backend, execution);
+      if (regenerationSource && (
+        execution.modelId !== regenerationSource.modelId
+        || execution.modelDigest !== regenerationSource.modelDigest
+        || (execution.adapterId ?? null) !== (regenerationSource.adapterId ?? null)
+        || (execution.adapterDigest ?? null) !== (regenerationSource.adapterDigest ?? null)
+      )) {
+        throw osError("CLOSED_AGENT_REGENERATION_EXECUTION_IDENTITY_MISMATCH", undefined, {
+          backendId: execution.backendId,
+          fallbackAttempted: false,
+        });
+      }
       const contentDigest = await sha256Hex(execution.content);
+      if (request.regeneration && regenerationSource) {
+        const normalizedDigestReused = normalizeRegenerationContent(execution.content)
+          === normalizeRegenerationContent(regenerationSource.content);
+        const similarityScore = Number(regenerationSimilarity(
+          regenerationSource.content,
+          execution.content,
+        ).toFixed(6));
+        if (
+          contentDigest === request.regeneration.previousCandidateDigest
+          || normalizedDigestReused
+          || similarityScore >= 0.95
+        ) {
+          throw osError("CLOSED_AGENT_REGENERATION_CONTENT_REUSED", undefined, {
+            normalizedDigestDifferent: !normalizedDigestReused,
+            similarityMetric: "character_trigram_jaccard",
+            similarityScore,
+            fallbackAttempted: false,
+            canonicalMutationCount: 0,
+          });
+        }
+      }
       const contextDigest = request.contextDigest ?? await sha256Hex(
         stableStringify(request.context.map((item) => ({
           id: item.id,
@@ -753,6 +1063,28 @@ export class ClosedAgentOS {
             tokensSaved: execution.browserTokensSaved,
           }
           : null;
+      if (request.regeneration && (
+        !executionReceipt
+        || executionReceipt.taskId !== request.taskId
+        || executionReceipt.backendId !== request.preferredBackend
+        || executionReceipt.actualExecutor !== request.preferredBackend
+        || executionReceipt.modelId !== execution.modelId
+        || executionReceipt.modelDigest !== execution.modelDigest
+        || executionReceipt.contentDigest !== contentDigest
+        || executionReceipt.contextDigest !== contextDigest
+        || executionReceipt.externalRequest
+        || executionReceipt.dataLeftDevice
+        || execution.externalRequest
+        || execution.dataLeftDevice
+      )) {
+        throw osError("CLOSED_AGENT_REGENERATION_EXECUTION_RECEIPT_INVALID", undefined, {
+          fallbackAttempted: false,
+          canonicalMutationCount: 0,
+        });
+      }
+      const candidateId = `closed-agent-candidate:${await sha256Hex(
+        `${request.taskId}|${execution.content}`,
+      )}`;
       this.emitProgress(
         request,
         "evaluating",
@@ -765,11 +1097,23 @@ export class ClosedAgentOS {
         },
       );
       const evaluation = await evaluateClosedAgentCandidate({ request, execution });
+      if (request.regeneration && !evaluation.passed) {
+        throw osError("CLOSED_AGENT_EVALUATION_BLOCKED", undefined, {
+          blockingCodes: evaluation.blockingCodes,
+          canonicalMutationCount: 0,
+        });
+      }
+      // A runtime may finish after ignoring an AbortSignal. Cancellation must
+      // still win before the first durable candidate/ledger write.
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
       await this.ledger.append({
         ledgerId: this.ledgerId(request),
         namespace: request.namespace,
         eventType: "candidate-generated",
         payload: {
+          candidateId,
           taskId: request.taskId,
           backendId: execution.backendId,
           modelId: execution.modelId,
@@ -777,12 +1121,15 @@ export class ClosedAgentOS {
           adapterId: execution.adapterId ?? null,
           adapterDigest: execution.adapterDigest ?? null,
           contentDigest,
+          contextDigest,
+          executionReceipt,
           candidateOnly: true,
           qualityMode: execution.qualityMode,
           qualityPasses: execution.qualityPasses,
           draftDigest: execution.draftDigest,
           criticDigest: execution.criticDigest,
         },
+        retainContent: true,
         result: {
           elapsedMs: execution.elapsedMs,
           dataLeftDevice: execution.dataLeftDevice,
@@ -802,6 +1149,8 @@ export class ClosedAgentOS {
           executionReceipt,
           regeneration: request.regeneration
             ? {
+              previousCandidateId: request.regeneration.previousCandidateId,
+              previousTaskId: request.regeneration.previousTaskId,
               regenerationAttempt: request.regeneration.regenerationAttempt,
               previousCandidateDigest: request.regeneration.previousCandidateDigest,
               cacheBypassReason: request.regeneration.cacheBypassReason,
@@ -864,7 +1213,7 @@ export class ClosedAgentOS {
       const candidate: ClosedAgentCandidate = {
         schemaVersion: CLOSED_AGENT_OS_SCHEMA_VERSION,
         kind: "candidate",
-        id: `closed-agent-candidate:${await sha256Hex(`${request.taskId}|${execution.content}`)}`,
+        id: candidateId,
         projectId: request.namespace.projectId,
         taskId: request.taskId,
         namespace: structuredClone(request.namespace),
@@ -902,6 +1251,8 @@ export class ClosedAgentOS {
         canonicalMutationCount: 0,
         regeneration: request.regeneration
           ? {
+            previousCandidateId: request.regeneration.previousCandidateId,
+            previousTaskId: request.regeneration.previousTaskId,
             regenerationAttempt: request.regeneration.regenerationAttempt,
             previousCandidateDigest: request.regeneration.previousCandidateDigest,
             cacheBypassReason: request.regeneration.cacheBypassReason,
@@ -938,12 +1289,11 @@ export class ClosedAgentOS {
         state: "awaiting-approval",
         updatedAt,
       };
-      await this.state.put(candidate);
-      await this.state.put(task);
       const verification = await this.ledger.verify(this.ledgerId(request));
       if (!verification.valid || !verification.headHash) {
         throw osError("CLOSED_AGENT_LEDGER_INTEGRITY_FAILED");
       }
+      await this.state.putMany([candidate, task]);
       this.emitProgress(
         request,
         "awaiting-approval",
@@ -1532,6 +1882,9 @@ export class ClosedAgentOS {
         qualityPhase,
         workingMaterials,
       });
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
       if (result.backendId !== routedBackend.id) {
         throw osError("CLOSED_AI_BACKEND_IDENTITY_MISMATCH", undefined, {
           selected: routedBackend.id,

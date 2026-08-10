@@ -1092,6 +1092,10 @@ export default function ConversationWorkspace({
       taskId: string;
       placeholderId: string;
       preferredBackend: ClosedAIBackendId;
+      sourceCandidateId: string;
+      sourceTaskId: string;
+      sourceCandidateDigest: string;
+      regenerationAttempt: number;
     };
   }) {
     const placeholder = input.regeneration
@@ -1131,7 +1135,7 @@ export default function ConversationWorkspace({
             objective: input.plan.objective,
           })
         : null;
-      const previousDigest = input.regeneration?.source.contentDigest;
+      const previousDigest = input.regeneration?.sourceCandidateDigest;
       const result = await executeStudioClosedAgent({
         projectId,
         taskType: input.plan.taskType ?? "assistant.general",
@@ -1148,8 +1152,10 @@ export default function ConversationWorkspace({
         })),
         regeneration: previousDigest
           ? createExplicitRegenerationContract({
+            previousCandidateId: input.regeneration!.sourceCandidateId,
+            previousTaskId: input.regeneration!.sourceTaskId,
             previousCandidateDigest: previousDigest,
-            regenerationAttempt: 1,
+            regenerationAttempt: input.regeneration!.regenerationAttempt,
             extraRequirement: "建立新的 taskId 與候選，不覆蓋原訊息；保持 Canon 不變。",
           })
           : undefined,
@@ -1597,13 +1603,11 @@ export default function ConversationWorkspace({
           && invocation.status === "completed"
         ))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-      const sourceBackend = sourceInvocation?.actualExecutor === "browser-ai"
-        || sourceInvocation?.actualExecutor === "local-ollama"
-        || sourceInvocation?.actualExecutor === "private-ai-hub"
-        ? sourceInvocation.actualExecutor
-        : null;
-      const regenerationBackend = await resolveRegenerationBackend({
-        sourceBackend,
+      const regenerationSource = await resolveRegenerationBackend({
+        sourceInvocation,
+        sourceCandidateIds: message.candidateIds,
+        sourceMessageContent: message.content,
+        sourceMessageContentDigest: message.contentDigest,
         taskType: plan.taskType ?? "assistant.general",
         signal: controller.signal,
       });
@@ -1622,7 +1626,11 @@ export default function ConversationWorkspace({
           source: message,
           taskId: prepared.taskId,
           placeholderId: prepared.messageId,
-          preferredBackend: regenerationBackend,
+          preferredBackend: regenerationSource.backendId,
+          sourceCandidateId: regenerationSource.candidateId,
+          sourceTaskId: regenerationSource.taskId,
+          sourceCandidateDigest: regenerationSource.candidateDigest,
+          regenerationAttempt: regenerationSource.regenerationAttempt,
         },
       });
       await loadWorkspace(sessionId);

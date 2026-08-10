@@ -4,6 +4,7 @@ import {
   type ClosedBackendExecutionInput,
   type ClosedBackendExecutionResult,
 } from "../../closed-agent-os/types";
+import { closedAIRegenerationPromptContext } from "../../closed-agent-os/regeneration-prompt";
 /*
  * Keep Private Hub readiness bound to the same immutable model identity used
  * by Closed Agent OS receipts. A successful inference without that identity
@@ -1463,26 +1464,8 @@ export class LoopbackPrivateHubTransport {
     let adapterId: string | null = null;
     let adapterDigest: string | null = null;
     const startedAt = performance.now();
-    const profile = getClosedAIModelProfile(
-      input.request.taskType,
-      "private-ai-hub",
-    );
-    const prompt = buildClosedAIModelPrompt({
-      objective: input.request.objective,
-      context: input.actorContext.map((item) => item.text),
-      profile,
-      qualityPhase: input.qualityPhase,
-      agentPlan: {
-        planDigest: input.plan.planDigest,
-        roles: [...input.plan.roles],
-        steps: input.plan.steps.map((step) => ({
-          role: step.role,
-          objective: step.objective,
-        })),
-      },
-      toolResults: input.toolResults,
-      workingMaterials: input.workingMaterials,
-    });
+    const generation = buildPrivateHubClosedGenerationRequest(input);
+    const { profile, prompt, options } = generation;
     let firstTokenMs: number | null = null;
     let tokenEvents = 0;
     let lastReportedCharacters = 0;
@@ -1494,7 +1477,7 @@ export class LoopbackPrivateHubTransport {
       systemInstruction: profile.systemInstruction,
       taskType: input.request.taskType,
       timeoutMs: profile.timeoutMs,
-      options: profile.options,
+      options,
       cacheNamespace: input.request.namespace,
       signal: input.request.signal,
     })) {
@@ -1588,4 +1571,43 @@ export class LoopbackPrivateHubTransport {
       criticDigest: null,
     };
   }
+}
+
+export function buildPrivateHubClosedGenerationRequest(
+  input: ClosedBackendExecutionInput,
+) {
+  const profile = getClosedAIModelProfile(
+    input.request.taskType,
+    "private-ai-hub",
+  );
+  const regenerationContext = closedAIRegenerationPromptContext(
+    input.request.regeneration,
+  );
+  const prompt = buildClosedAIModelPrompt({
+    objective: input.request.objective,
+    context: input.actorContext.map((item) => item.text),
+    mandatoryInstruction: regenerationContext[0],
+    profile,
+    qualityPhase: input.qualityPhase,
+    agentPlan: {
+      planDigest: input.plan.planDigest,
+      roles: [...input.plan.roles],
+      steps: input.plan.steps.map((step) => ({
+        role: step.role,
+        objective: step.objective,
+      })),
+    },
+    toolResults: input.toolResults,
+    workingMaterials: input.workingMaterials,
+  });
+  return {
+    profile,
+    prompt,
+    options: {
+      ...profile.options,
+      ...(input.request.regeneration
+        ? { seed: input.request.regeneration.modelSeed }
+        : {}),
+    },
+  };
 }

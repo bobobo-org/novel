@@ -56,6 +56,7 @@ import {
 import { sha256Hex } from "@/lib/novel-ai/closed-ai-cache";
 import {
   closedAgentQualityReasonCodes,
+  type ClosedAIBackendId,
   type ClosedAIProgressEvent,
 } from "@/lib/novel-ai/closed-agent-os";
 import {
@@ -295,6 +296,20 @@ type RunTaskOptions = {
   regenerateFrom?: NonNullable<Candidate>;
   extraRequirement?: string;
 };
+
+function closedRegenerationBackend(value: string | null | undefined): ClosedAIBackendId | null {
+  return value === "browser-ai"
+    || value === "local-ollama"
+    || value === "private-ai-hub"
+    ? value
+    : null;
+}
+
+function closedBackendSourceLabel(value: string, storyDevelopment = false) {
+  if (value === "local-ollama") return storyDevelopment ? "本機 AI 劇情發展" : "本機 AI";
+  if (value === "private-ai-hub") return "Private AI Hub";
+  return value === "browser-ai" ? "瀏覽器閉端 AI" : "閉端 AI";
+}
 type StudioRunTask = (task: string, options?: RunTaskOptions) => Promise<void>;
 type Choice = {
   key: "A" | "B" | "C";
@@ -2152,6 +2167,9 @@ export default function StudioClient({
           ? await regenerateStudioClosedAI(taskInput, {
             taskId: regenerationSource.taskId,
             candidateId: regenerationSource.candidateId,
+            backendId: closedRegenerationBackend(regenerationSource.provider),
+            modelId: regenerationSource.modelId,
+            modelDigest: regenerationSource.modelDigest,
             content: regenerationSource.content,
             contentDigest: regenerationSource.contentDigest,
             regenerationAttempt: regenerationSource.regenerationAttempt,
@@ -2167,7 +2185,7 @@ export default function StudioClient({
           task,
           title: assistantTasks.find((item) => item[0] === task)?.[1] || "故事建議",
           content: result.content,
-          source: result.provider === "local-ollama" ? "本機 AI" : "瀏覽器閉端 AI",
+          source: closedBackendSourceLabel(result.provider),
           model: result.model,
           provider: result.provider,
           modelId: result.model,
@@ -2669,6 +2687,9 @@ export default function StudioClient({
           ? await regenerateStudioClosedAI(taskInput, {
             taskId: regenerationSource.taskId,
             candidateId: regenerationSource.candidateId,
+            backendId: closedRegenerationBackend(regenerationSource.provider),
+            modelId: regenerationSource.modelId,
+            modelDigest: regenerationSource.modelDigest,
             content: regenerationSource.content,
             contentDigest: regenerationSource.contentDigest,
             regenerationAttempt: regenerationSource.regenerationAttempt,
@@ -2681,7 +2702,7 @@ export default function StudioClient({
           );
         }
         content = result.content;
-        source = result.provider === "local-ollama" ? "本機 AI 劇情發展" : "瀏覽器閉端 AI";
+        source = closedBackendSourceLabel(result.provider, true);
         model = result.model;
         providerId = result.provider === "local-ollama" ? "ollama" : result.provider;
         const distinctness = ("distinctness" in result

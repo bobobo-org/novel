@@ -1491,12 +1491,16 @@ test("regeneration", async () => {
   assert.ok(distinctness.similarityScore < 0.95);
   assert.equal(distinctness.distinct, true);
   const contract = createExplicitRegenerationContract({
+    previousCandidateId: "candidate-browser-compute-regeneration",
+    previousTaskId: "task-browser-compute-regeneration",
     previousCandidateDigest: "a".repeat(64),
     regenerationAttempt: 1,
   });
   assert.equal(contract.cacheBypassReason, "explicit_regeneration");
   const source = readFileSync(resolve(root, "lib/novel-ai/web/studio-closed-ai.ts"), "utf8");
-  assert.match(source, /Math\.min\(3/u);
+  assert.doesNotMatch(source, /maximumAttempts|for \(let offset/u);
+  assert.match(source, /previousCandidateId/u);
+  assert.match(source, /previousTaskId/u);
   assert.match(source, /REGENERATION_NOT_DISTINCT/u);
 });
 

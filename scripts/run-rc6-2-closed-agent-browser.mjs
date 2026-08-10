@@ -156,6 +156,9 @@ async function readPublicHealthTruth() {
     return {
       httpStatus: response.status,
       cacheControl: response.headers.get("cache-control"),
+      appCommit: body.appCommit,
+      deploymentId: body.deploymentId,
+      releaseTag: body.releaseTag,
       closedAiRuntimeStatus: body.closedAiRuntimeStatus,
       closedAiGenerationVerifiedBackends: body.closedAiGenerationVerifiedBackends,
       closedAiActiveBackend: body.closedAiActiveBackend,
@@ -169,6 +172,9 @@ async function readPublicHealthTruth() {
   }, expectedOrigin);
   assert.equal(truth.httpStatus, 200);
   assert.match(truth.cacheControl ?? "", /no-store/u);
+  assert.match(truth.appCommit ?? "", /^[a-f0-9]{40}$/u);
+  assert.ok(String(truth.deploymentId ?? "").trim());
+  assert.ok(String(truth.releaseTag ?? "").trim());
   assert.equal(truth.closedAiRuntimeStatus, "client_probe_required");
   assert.equal(truth.closedAiGenerationVerifiedBackends, 0);
   assert.equal(truth.closedAiActiveBackend, null);
@@ -278,8 +284,8 @@ async function readChapterTruth(projectId) {
   }, projectId);
 }
 
-async function readCandidateEvidence(projectId) {
-  return page.evaluate(async (id) => {
+async function readCandidateEvidence(projectId, candidateId = null) {
+  return page.evaluate(async ({ id, candidateId: exactCandidateId }) => {
     const requestResult = (request) => new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -310,8 +316,14 @@ async function readCandidateEvidence(projectId) {
       const candidates = records
         .filter((record) => record.kind === "candidate")
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-      const candidate = candidates[0] ?? null;
+      const candidate = exactCandidateId
+        ? candidates.find((record) => record.id === exactCandidateId) ?? null
+        : candidates[0] ?? null;
       if (!candidate) return null;
+      const normalizedContentDigest = [...new Uint8Array(await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(candidate.content.normalize("NFKC")),
+      ))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
       const invocations = (await requestResult(
         appDatabase.transaction("conversationToolInvocations", "readonly")
           .objectStore("conversationToolInvocations").getAll(),
@@ -340,6 +352,9 @@ async function readCandidateEvidence(projectId) {
           modelId: candidate.modelId,
           modelDigest: candidate.modelDigest,
           contentDigest: candidate.contentDigest,
+          normalizedContentDigest,
+          nfkcDigestDiffersFromRaw: normalizedContentDigest !== candidate.contentDigest,
+          containsFullwidthDigestProbe: candidate.content.includes("Ａ，"),
           status: candidate.status,
           candidateOnly: candidate.candidateOnly,
           canonicalMutationCount: candidate.canonicalMutationCount,
@@ -368,9 +383,18 @@ async function readCandidateEvidence(projectId) {
           actualExecutor: invocation.actualExecutor,
           modelId: invocation.modelId,
           modelDigest: invocation.modelDigest,
+          contextDigest: invocation.contextDigest,
           externalRequest: invocation.externalRequest,
           dataLeftDevice: invocation.dataLeftDevice,
           canonicalMutationCount: invocation.canonicalMutationCount,
+          executionReceipt: invocation.executionReceipt ? {
+            providerRunId: invocation.executionReceipt.providerRunId,
+            outputDigest: invocation.executionReceipt.outputDigest,
+            modelId: invocation.executionReceipt.modelId,
+            modelDigest: invocation.executionReceipt.modelDigest,
+            externalRequest: invocation.executionReceipt.externalRequest,
+            dataLeftDevice: invocation.executionReceipt.dataLeftDevice,
+          } : null,
         } : null,
         artifact: artifact ? {
           id: artifact.id,
@@ -401,7 +425,7 @@ async function readCandidateEvidence(projectId) {
       appDatabase.close();
       offloadDatabase.close();
     }
-  }, projectId);
+  }, { id: projectId, candidateId });
 }
 
 function assertCandidateTruth(evidence, expected = {}) {
@@ -420,10 +444,21 @@ function assertCandidateTruth(evidence, expected = {}) {
   assert.equal(evidence.candidate.executionReceipt?.actualExecutor, "browser-ai");
   assert.equal(evidence.candidate.executionReceipt?.modelId, evidence.candidate.modelId);
   assert.equal(evidence.candidate.executionReceipt?.modelDigest, evidence.candidate.modelDigest);
+  assert.equal(evidence.candidate.executionReceipt?.contentDigest, evidence.candidate.contentDigest);
+  assert.match(evidence.candidate.executionReceipt?.contextDigest ?? "", /^[a-f0-9]{64}$/u);
   assert.equal(evidence.candidate.executionReceipt?.proofState, "verified");
   assert.equal(evidence.candidate.executionReceipt?.externalRequest, false);
   assert.equal(evidence.candidate.executionReceipt?.dataLeftDevice, false);
   assert.equal(evidence.invocation?.actualExecutor, "browser-ai");
+  assert.equal(evidence.invocation?.modelId, evidence.candidate.modelId);
+  assert.equal(evidence.invocation?.modelDigest, evidence.candidate.modelDigest);
+  assert.equal(evidence.invocation?.contextDigest, evidence.candidate.executionReceipt?.contextDigest);
+  assert.equal(evidence.invocation?.executionReceipt?.providerRunId, evidence.candidate.taskId);
+  assert.equal(evidence.invocation?.executionReceipt?.outputDigest, evidence.candidate.contentDigest);
+  assert.equal(evidence.invocation?.executionReceipt?.modelId, evidence.candidate.modelId);
+  assert.equal(evidence.invocation?.executionReceipt?.modelDigest, evidence.candidate.modelDigest);
+  assert.equal(evidence.invocation?.executionReceipt?.externalRequest, false);
+  assert.equal(evidence.invocation?.executionReceipt?.dataLeftDevice, false);
   assert.equal(evidence.invocation?.canonicalMutationCount, 0);
   assert.equal(evidence.browserComputeReceipt?.actualExecutor, "webllm-worker");
   assert.equal(evidence.browserComputeReceipt?.browserGenerationUsed, true);
@@ -433,6 +468,34 @@ function assertCandidateTruth(evidence, expected = {}) {
   assert.equal(evidence.browserComputeReceipt?.canonicalMutationCount, 0);
   assert.equal(evidence.browserComputeReceipt?.rawPromptStored, false);
   assert.equal(evidence.browserComputeReceipt?.rawOutputStored, false);
+  assert.equal(evidence.artifact?.candidateDigest, evidence.candidate.normalizedContentDigest);
+  if (expected.nfkcDigestProbe) {
+    assert.equal(evidence.candidate.containsFullwidthDigestProbe, true);
+    assert.equal(evidence.candidate.nfkcDigestDiffersFromRaw, true);
+  }
+  if (expected.previous) {
+    assert.equal(
+      evidence.candidate.regeneration?.previousCandidateId,
+      expected.previous.candidate.id,
+    );
+    assert.equal(
+      evidence.candidate.regeneration?.previousTaskId,
+      expected.previous.candidate.taskId,
+    );
+    assert.equal(
+      evidence.candidate.regeneration?.previousCandidateDigest,
+      expected.previous.candidate.contentDigest,
+    );
+    assert.equal(
+      evidence.candidate.regeneration?.regenerationAttempt,
+      expected.regenerationAttempt,
+    );
+    assert.equal(evidence.candidate.regeneration?.cacheBypassReason, "explicit_regeneration");
+    assert.equal(evidence.candidate.regeneration?.cacheBypassed, true);
+    assert.equal(evidence.candidate.regeneration?.previousContentReused, false);
+    assert.equal(evidence.candidate.regeneration?.newCandidate, true);
+    assert.equal(evidence.candidate.regeneration?.nonceStored, false);
+  }
 }
 
 async function waitForCandidate(projectId, previousTaskId = null) {
@@ -553,35 +616,67 @@ async function runGenerationLifecycle(projectId, setupEvidence) {
 
   const canonBefore = await readChapterTruth(projectId);
   const composer = page.locator('textarea[aria-label="小說專案訊息"]');
-  await composer.fill("請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。只建立候選，不要直接修改 Canon。");
+  await composer.fill("請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。候選第一句必須原樣保留全形字面標記「Ａ，」，不可改成半形。只建立候選，不要直接修改 Canon。");
   await page.getByRole("button", { name: "送出", exact: true }).click();
   const first = await waitForCandidate(projectId);
-  assertCandidateTruth(first);
+  assertCandidateTruth(first, { nfkcDigestProbe: true });
   assert.deepEqual(await readChapterTruth(projectId), canonBefore, "first candidate mutated Canon before approval");
 
   const firstCard = page.locator(`[data-artifact-id="${first.artifact.id}"]`).first();
-  await firstCard.getByRole("button", { name: "放棄", exact: true }).click();
-  await waitForArtifactStatus(first.artifact.id, "rejected");
-  const rejected = await readCandidateEvidence(projectId);
-  assert.equal(rejected.candidate.id, first.candidate.id);
-  assert.equal(rejected.candidate.status, "rejected");
-  assert.equal(rejected.candidate.canonicalMutationCount, 0);
+  const firstArticle = firstCard.locator("xpath=ancestor::article");
+  const directRegenerate = firstArticle.getByRole("button", {
+    name: "重新產生",
+    exact: true,
+  }).last();
+  await directRegenerate.click();
+  await page.waitForFunction(() => (
+    [...document.querySelectorAll("button")].some((button) => (
+      button.textContent?.trim() === "產生中…"
+      && button.getAttribute("aria-busy") === "true"
+      && button.disabled
+    ))
+  ));
+  const second = await waitForCandidate(projectId, first.candidate.taskId);
+  assertCandidateTruth(second, { previous: first, regenerationAttempt: 1 });
+  assert.notEqual(second.candidate.id, first.candidate.id);
+  assert.notEqual(second.candidate.taskId, first.candidate.taskId);
+  assert.notEqual(second.candidate.contentDigest, first.candidate.contentDigest);
+  const firstAfterDirectRegeneration = await readCandidateEvidence(
+    projectId,
+    first.candidate.id,
+  );
+  assert.equal(firstAfterDirectRegeneration.candidate.status, "awaiting-approval");
+  assert.equal(firstAfterDirectRegeneration.artifact.status, "candidate");
+  assert.deepEqual(
+    await readChapterTruth(projectId),
+    canonBefore,
+    "direct regeneration mutated Canon or closed its awaiting sibling",
+  );
+
+  const secondCard = page.locator(`[data-artifact-id="${second.artifact.id}"]`).first();
+  await secondCard.getByRole("button", { name: "放棄", exact: true }).click();
+  await waitForArtifactStatus(second.artifact.id, "rejected");
+  const rejectedSecond = await readCandidateEvidence(projectId, second.candidate.id);
+  assert.equal(rejectedSecond.candidate.status, "rejected");
+  assert.equal(rejectedSecond.candidate.canonicalMutationCount, 0);
   assert.deepEqual(await readChapterTruth(projectId), canonBefore, "reject mutated Canon");
 
-  const firstArticle = firstCard.locator("xpath=ancestor::article");
-  await firstArticle.getByRole("button", { name: "重新產生", exact: true }).last().click();
-  const regenerated = await waitForCandidate(projectId, first.candidate.taskId);
-  assertCandidateTruth(regenerated);
-  assert.notEqual(regenerated.candidate.id, first.candidate.id);
-  assert.notEqual(regenerated.candidate.taskId, first.candidate.taskId);
-  assert.notEqual(regenerated.candidate.contentDigest, first.candidate.contentDigest);
-  assert.equal(regenerated.candidate.regeneration?.previousCandidateDigest, first.candidate.contentDigest);
-  assert.equal(regenerated.candidate.regeneration?.newCandidate, true);
-  assert.deepEqual(await readChapterTruth(projectId), canonBefore, "regeneration mutated Canon before approval");
+  const secondArticle = secondCard.locator("xpath=ancestor::article");
+  const chainedRegenerate = secondArticle.getByRole("button", {
+    name: "重新產生",
+    exact: true,
+  }).last();
+  await chainedRegenerate.click();
+  const third = await waitForCandidate(projectId, second.candidate.taskId);
+  assertCandidateTruth(third, { previous: second, regenerationAttempt: 2 });
+  assert.notEqual(third.candidate.id, second.candidate.id);
+  assert.notEqual(third.candidate.taskId, second.candidate.taskId);
+  assert.notEqual(third.candidate.contentDigest, second.candidate.contentDigest);
+  assert.deepEqual(await readChapterTruth(projectId), canonBefore, "chained regeneration mutated Canon before approval");
 
-  const regeneratedCard = page.locator(`[data-artifact-id="${regenerated.artifact.id}"]`).first();
-  await regeneratedCard.getByRole("button", { name: "採用", exact: true }).click();
-  await waitForArtifactStatus(regenerated.artifact.id, "approved");
+  const thirdCard = page.locator(`[data-artifact-id="${third.artifact.id}"]`).first();
+  await thirdCard.getByRole("button", { name: "採用", exact: true }).click();
+  await waitForArtifactStatus(third.artifact.id, "approved");
   const canonAfterApproval = await readChapterTruth(projectId);
   assert.equal(canonAfterApproval.chapterId, canonBefore.chapterId);
   assert.equal(canonAfterApproval.revision, canonBefore.revision + 1);
@@ -593,7 +688,7 @@ async function runGenerationLifecycle(projectId, setupEvidence) {
   const canonAfterReload = await readChapterTruth(projectId);
   assert.deepEqual(canonAfterReload, canonAfterApproval);
   const persisted = await readCandidateEvidence(projectId);
-  assert.equal(persisted.candidate.id, regenerated.candidate.id);
+  assert.equal(persisted.candidate.id, third.candidate.id);
   assert.equal(persisted.candidate.status, "committed");
   assert.equal(persisted.candidate.canonicalMutationCount, 1);
 
@@ -614,16 +709,23 @@ async function runGenerationLifecycle(projectId, setupEvidence) {
     },
     consumerReadiness,
     firstCandidateBeforeApproval: first.candidate,
-    rejectedCandidate: {
-      id: rejected.candidate.id,
-      taskId: rejected.candidate.taskId,
-      status: rejected.candidate.status,
-      canonicalMutationCount: rejected.candidate.canonicalMutationCount,
+    directRegenerationCandidate: second.candidate,
+    directRegenerationSourceAfterward: {
+      id: firstAfterDirectRegeneration.candidate.id,
+      taskId: firstAfterDirectRegeneration.candidate.taskId,
+      status: firstAfterDirectRegeneration.candidate.status,
+      canonicalMutationCount: firstAfterDirectRegeneration.candidate.canonicalMutationCount,
     },
-    regeneratedCandidateBeforeApproval: regenerated.candidate,
-    browserRuntimeReceipt: regenerated.browserComputeReceipt,
+    rejectedCandidate: {
+      id: rejectedSecond.candidate.id,
+      taskId: rejectedSecond.candidate.taskId,
+      status: rejectedSecond.candidate.status,
+      canonicalMutationCount: rejectedSecond.candidate.canonicalMutationCount,
+    },
+    regeneratedCandidateBeforeApproval: third.candidate,
+    browserRuntimeReceipt: third.browserComputeReceipt,
     approval: {
-      artifactId: regenerated.artifact.id,
+      artifactId: third.artifact.id,
       status: "approved",
       canonRevisionBefore: canonBefore.revision,
       canonRevisionAfter: canonAfterApproval.revision,

@@ -271,7 +271,7 @@ async function main() {
     "",
     `- Product commit: ${productCommit}`,
     `- Product Preview: ${preview.origin}`,
-    "- Explicit regeneration: distinct candidate, cache bypassed, Local Ollama only.",
+    "- Historical observation: this RC3.1 capture used Local Ollama; RC6.2 runtime locks regeneration to the verified source closed backend.",
     "- Native Edge permission: prompt → granted by HUMAN_OPERATOR.",
     "- Canon: unchanged before approval; approved candidate persisted after reload.",
     "- Product / final PR Head runtime parity: blockingMismatch=0, missing=0, unexpected=0.",

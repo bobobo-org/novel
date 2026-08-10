@@ -662,7 +662,7 @@ await test("production-matrix", () => {
 });
 
 await test("source-truth", async () => {
-  const [types, closedAgentOs, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, browserGate, health] = await Promise.all([
+  const [types, closedAgentOs, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/backends.ts", import.meta.url), "utf8"),
@@ -673,6 +673,9 @@ await test("source-truth", async () => {
     readFile(new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-closed-ai-bootstrap.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts", import.meta.url), "utf8"),
     readFile(new URL("./run-rc6-2-closed-agent-browser.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/api/ai/health/route.ts", import.meta.url), "utf8"),
   ]);
@@ -724,8 +727,27 @@ await test("source-truth", async () => {
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消準備/u);
   assert.doesNotMatch(workspace, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
+  assert.match(bootstrapHook, /verifiedConversationRegenerationBackend/u);
   assert.match(bootstrapHook, /sourceBackendStillReady/u);
-  assert.match(bootstrapHook, /inspected\.readiness\.activeBackend/u);
+  assert.doesNotMatch(bootstrapHook, /inspected\.readiness\.activeBackend/u);
+  assert.match(bootstrapHook, /CONVERSATION_REGENERATION_SOURCE_PROOF_INVALID/u);
+  assert.match(bootstrapHook, /candidateId\.startsWith\("closed-agent-candidate:"\)/u);
+  assert.match(bootstrapHook, /normalizedCandidateDigest !== input\.sourceMessageContentDigest/u);
+  assert.match(bootstrapHook, /candidateDigest:\s*candidate\.contentDigest/u);
+  assert.match(workspace, /sourceCandidateIds:\s*message\.candidateIds/u);
+  assert.match(workspace, /sourceCandidateDigest:\s*regenerationSource\.candidateDigest/u);
+  assert.doesNotMatch(messageRow, /outputDigest === message\.contentDigest/u);
+  assert.match(regenerationProof, /input\.artifacts\.length === 0/u);
+  assert.match(regenerationProof, /artifact\.candidateDigest === input\.message\.contentDigest/u);
+  assert.match(regenerationProof, /SHA256_DIGEST\.test\(receipt\?\.outputDigest/u);
+  assert.doesNotMatch(regenerationProof, /outputDigest === input\.message\.contentDigest/u);
+  assert.match(messageRow, /disabled=\{busy\}/u);
+  assert.match(messageRow, /aria-busy=\{busy\}/u);
+  assert.match(approvalHook, /id\.startsWith\("closed-agent-candidate:"\)/u);
+  assert.match(backends, /closedAIRegenerationPromptContext/u);
+  assert.match(backends, /seed:\s*request\.regeneration\.modelSeed/u);
+  assert.match(privateHub, /buildPrivateHubClosedGenerationRequest/u);
+  assert.match(privateHub, /seed:\s*input\.request\.regeneration\.modelSeed/u);
   assert.doesNotMatch(workspace, /getStudioClosedAIBootstrapCoordinator/u);
   assert.match(browserGate, /RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED/u);
   assert.match(browserGate, /getByTestId\("closed-ai-prepare-browser"\)\.click\(\)/u);
@@ -733,9 +755,16 @@ await test("source-truth", async () => {
   assert.match(browserGate, /getByRole\("button", \{ name: "取消準備"/u);
   assert.match(browserGate, /retryAfterCancel:\s*true/u);
   assert.match(browserGate, /readPublicHealthTruth/u);
-  assert.match(browserGate, /firstCard\.getByRole\("button", \{ name: "放棄"/u);
+  assert.match(browserGate, /appCommit:\s*body\.appCommit/u);
+  assert.match(browserGate, /deploymentId:\s*body\.deploymentId/u);
+  assert.match(browserGate, /secondCard\.getByRole\("button", \{ name: "放棄"/u);
   assert.match(browserGate, /name: "重新產生"/u);
-  assert.match(browserGate, /regeneratedCard\.getByRole\("button", \{ name: "採用"/u);
+  assert.match(browserGate, /thirdCard\.getByRole\("button", \{ name: "採用"/u);
+  assert.match(browserGate, /regenerationAttempt:\s*1/u);
+  assert.match(browserGate, /regenerationAttempt:\s*2/u);
+  assert.match(browserGate, /firstAfterDirectRegeneration\.candidate\.status, "awaiting-approval"/u);
+  assert.match(browserGate, /containsFullwidthDigestProbe/u);
+  assert.match(browserGate, /nfkcDigestDiffersFromRaw/u);
   assert.match(browserGate, /page\.reload/u);
   assert.match(browserGate, /actualExecutor, "browser-ai"/u);
   assert.match(browserGate, /consumerReadiness\.generationVerifiedBackends >= 1/u);

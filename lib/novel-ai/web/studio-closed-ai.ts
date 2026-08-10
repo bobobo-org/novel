@@ -6,6 +6,7 @@ import type {
   ClosedAIQualityMode,
   ClosedAIRegenerationContract,
 } from "../closed-agent-os";
+import { isCryptographicClosedAIModelDigest } from "../closed-agent-os/types";
 import type {
   PlatformAIRequest,
   PlatformAIResult,
@@ -63,6 +64,9 @@ export type StudioClosedAITaskInput = {
   sourceChapterId?: string;
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
+  preferredBackend?: ClosedAIBackendId;
+  regenerationSourceModelId?: string;
+  regenerationSourceModelDigest?: string;
   qualityMode?: ClosedAIQualityMode;
   browserComputePolicy?: PlatformAIRequest["browserComputePolicy"];
   generationOptions?: PlatformAIRequest["generationOptions"];
@@ -79,6 +83,15 @@ const BROWSER_TO_LOCAL_RETRY_CODES = new Set([
   "BROWSER_AI_QUALITY_INSUFFICIENT",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+]);
+const CLOSED_REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
+  "browser-ai",
+  "local-ollama",
+  "private-ai-hub",
+]);
+const STRICT_LOCAL_PLATFORM_BACKENDS = new Set<ClosedAIBackendId>([
+  "browser-ai",
+  "local-ollama",
 ]);
 let interactiveChoiceWarmModelId: string | null = null;
 let interactiveChoiceWarmedAt = 0;
@@ -288,12 +301,28 @@ export async function runStudioClosedAI(
   const browserComputePolicy = resolveStudioClosedComputePolicy(
     input.browserComputePolicy,
   );
-  // Explicit regeneration is a user-requested, cache-bypassing operation whose
-  // Closed Agent contract requires the paired Local Ollama runtime. Lock the
-  // route here so a browser-first preference cannot reject the contract or
-  // silently substitute a browser/template/external executor.
   const preferredRegenerationBackend: ClosedAIBackendId | undefined =
-    input.regeneration ? "local-ollama" : undefined;
+    input.regeneration ? input.preferredBackend : undefined;
+  if (input.regeneration && (
+    !preferredRegenerationBackend
+    || !CLOSED_REGENERATION_BACKENDS.has(preferredRegenerationBackend)
+    || !input.regenerationSourceModelId?.trim()
+    || !isCryptographicClosedAIModelDigest(input.regenerationSourceModelDigest)
+  )) {
+    throw Object.assign(
+      new Error("Explicit regeneration requires the verified source backend and model identity."),
+      { code: "REGENERATION_SOURCE_IDENTITY_MISSING", fallbackAttempted: false },
+    );
+  }
+  if (input.regeneration && execute) {
+    throw Object.assign(
+      new Error("Injected platform executors cannot prove persisted regeneration candidates."),
+      {
+        code: "REGENERATION_PLATFORM_EXECUTOR_UNVERIFIED",
+        fallbackAttempted: false,
+      },
+    );
+  }
   const allowPreAuthorizedClosedEscalation =
     hasExplicitLocalComputeAuthorization(browserComputePolicy);
 
@@ -340,16 +369,33 @@ export async function runStudioClosedAI(
       });
     }
     if (
-      !["browser-ai", "local-ollama"].includes(result.candidate.backendId)
+      !CLOSED_REGENERATION_BACKENDS.has(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0
       || (input.regeneration && (
-        result.candidate.backendId !== "local-ollama"
-        || result.candidate.actualExecutor === "not_executed"
+        result.candidate.backendId !== preferredRegenerationBackend
+        || result.candidate.actualExecutor !== preferredRegenerationBackend
+        || result.candidate.modelId !== input.regenerationSourceModelId
+        || result.candidate.modelDigest !== input.regenerationSourceModelDigest
         || result.candidate.externalRequest
         || result.candidate.dataLeftDevice
         || result.cache.candidateHit
         || result.cache.bypassReason !== "explicit_regeneration"
         || !result.candidate.regeneration?.cacheBypassed
+        || result.candidate.regeneration.previousCandidateId
+          !== input.regeneration.previousCandidateId
+        || result.candidate.regeneration.previousTaskId
+          !== input.regeneration.previousTaskId
+        || !result.candidate.executionReceipt
+        || result.candidate.executionReceipt.proofState !== "verified"
+        || result.candidate.executionReceipt.taskId !== result.candidate.taskId
+        || result.candidate.executionReceipt.backendId !== preferredRegenerationBackend
+        || result.candidate.executionReceipt.actualExecutor !== preferredRegenerationBackend
+        || result.candidate.executionReceipt.modelId !== result.candidate.modelId
+        || result.candidate.executionReceipt.modelDigest !== result.candidate.modelDigest
+        || result.candidate.executionReceipt.contentDigest !== result.candidate.contentDigest
+        || result.candidate.executionReceipt.contextDigest !== result.candidate.contextDigest
+        || result.candidate.executionReceipt.externalRequest
+        || result.candidate.executionReceipt.dataLeftDevice
       ))
     ) {
       throw Object.assign(
@@ -415,10 +461,10 @@ export async function runStudioClosedAI(
   });
   const completedAt = new Date().toISOString();
   if (
-    !["browser-ai", "local-ollama"].includes(result.providerId)
+    !STRICT_LOCAL_PLATFORM_BACKENDS.has(result.providerId as ClosedAIBackendId)
     || result.externalRequest
     || result.dataLeavesDevice
-    || (input.regeneration && result.providerId !== "local-ollama")
+    || (input.regeneration && result.providerId !== preferredRegenerationBackend)
   ) {
     throw Object.assign(
       new Error("Closed AI provider returned a result outside the device-only boundary."),
@@ -448,13 +494,27 @@ export async function runStudioClosedAI(
         proofState: "verified",
         dataLeftDevice: result.dataLeavesDevice,
         externalRequest: result.externalRequest,
-        actualExecutor: result.browserCompute?.actualExecutor ?? result.executor,
+        actualExecutor: result.providerId,
         browserComputeReceiptId: result.browserCompute?.receiptId,
         contextTokensBefore: result.browserCompute?.contextTokensBefore,
         contextTokensAfter: result.browserCompute?.contextTokensAfter,
         tokensSaved: result.browserCompute?.tokensSaved,
       }
       : null;
+  if (input.regeneration && (
+    !executionReceipt
+    || executionReceipt.backendId !== preferredRegenerationBackend
+    || executionReceipt.actualExecutor !== preferredRegenerationBackend
+    || executionReceipt.modelId !== input.regenerationSourceModelId
+    || executionReceipt.modelDigest !== input.regenerationSourceModelDigest
+    || executionReceipt.externalRequest
+    || executionReceipt.dataLeftDevice
+  )) {
+    throw Object.assign(
+      new Error("Regeneration execution identity did not match the verified source candidate."),
+      { code: "REGENERATION_EXECUTION_IDENTITY_MISMATCH", fallbackAttempted: false },
+    );
+  }
   return {
     taskId: result.requestId,
     candidateId: null,
@@ -464,10 +524,7 @@ export async function runStudioClosedAI(
     modelDigest: result.modelDigest ?? null,
     content: result.content,
     contentDigest,
-    actualExecutor: result.browserCompute?.actualExecutor
-      ?? result.executor
-      ?? executionReceipt?.backendId
-      ?? "not_executed",
+    actualExecutor: executionReceipt?.backendId ?? "not_executed",
     executionReceipt,
     contextDigest,
     sourceChapterId: input.sourceChapterId ?? null,
@@ -479,6 +536,8 @@ export async function runStudioClosedAI(
     toolExecutions: [],
     regeneration: input.regeneration
       ? {
+        previousCandidateId: input.regeneration.previousCandidateId,
+        previousTaskId: input.regeneration.previousTaskId,
         regenerationAttempt: input.regeneration.regenerationAttempt,
         previousCandidateDigest: input.regeneration.previousCandidateDigest,
         cacheBypassReason: input.regeneration.cacheBypassReason,
@@ -497,11 +556,16 @@ export async function runStudioClosedAI(
 }
 
 export async function regenerateStudioClosedAI(
-  input: Omit<StudioClosedAITaskInput, "regeneration">,
+  input: Omit<
+    StudioClosedAITaskInput,
+    | "regeneration"
+    | "preferredBackend"
+    | "regenerationSourceModelId"
+    | "regenerationSourceModelDigest"
+  >,
   previous: ExplicitRegenerationSource,
   options: {
     extraRequirement?: string;
-    maximumAttempts?: number;
     execute?: PlatformExecutor;
     rejectCandidate?: (candidateId: string) => Promise<unknown>;
   } = {},
@@ -512,64 +576,67 @@ export async function regenerateStudioClosedAI(
       { code: "REGENERATION_SOURCE_IDENTITY_MISSING" },
     );
   }
+  if (
+    !previous.backendId
+    || !CLOSED_REGENERATION_BACKENDS.has(previous.backendId)
+    || !previous.modelId?.trim()
+    || !isCryptographicClosedAIModelDigest(previous.modelDigest)
+  ) {
+    throw Object.assign(
+      new Error("Only a source candidate with verified closed model identity can be regenerated."),
+      { code: "REGENERATION_SOURCE_IDENTITY_MISSING", fallbackAttempted: false },
+    );
+  }
   const previousCandidateDigest = previous.contentDigest
     ?? await digestText(previous.content);
-  const maximumAttempts = Math.min(3, Math.max(1, options.maximumAttempts ?? 3));
   const rejectCandidate = options.rejectCandidate
     ?? rejectStudioClosedAgentCandidate;
-  let lastDistinctness = await assessRegenerationDistinctness(
-    previous.content,
-    previous.content,
-  );
-
-  for (let offset = 1; offset <= maximumAttempts; offset += 1) {
-    const regeneration = createExplicitRegenerationContract({
-      previousCandidateDigest,
-      regenerationAttempt: (previous.regenerationAttempt ?? 0) + offset,
-      extraRequirement: options.extraRequirement,
-    });
-    const result = await runStudioClosedAI(
-      { ...input, regeneration },
-      options.execute,
-    );
-    lastDistinctness = await assessRegenerationDistinctness(
-      previous.content,
-      result.content,
-    );
-    const taskIdentityChanged = result.taskId !== previous.taskId;
-    const candidateIdentityChanged = Boolean(
-      result.candidateId && result.candidateId !== previous.candidateId,
-    );
-    if (
-      lastDistinctness.distinct
-      && taskIdentityChanged
-      && candidateIdentityChanged
-      && ["browser-ai", "local-ollama"].includes(result.provider)
-      && result.actualExecutor !== "not_executed"
-      && !result.externalRequest
-      && !result.dataLeftDevice
-      && result.canonicalMutationCount === 0
-      && result.cache.candidateHit === false
-      && result.cache.bypassReason === "explicit_regeneration"
-    ) {
-      return {
-        ...result,
-        distinctness: lastDistinctness,
-      };
-    }
-    if (result.candidateId) {
-      await rejectCandidate(result.candidateId);
-    }
-  }
-
-  throw Object.assign(
-    new Error("Closed browser/local model repeatedly returned the previous candidate."),
+  const regeneration = createExplicitRegenerationContract({
+    previousCandidateId: previous.candidateId,
+    previousTaskId: previous.taskId,
+    previousCandidateDigest,
+    regenerationAttempt: (previous.regenerationAttempt ?? 0) + 1,
+    extraRequirement: options.extraRequirement,
+  });
+  const result = await runStudioClosedAI(
     {
-      code: "REGENERATION_NOT_DISTINCT",
-      normalizedDigestDifferent: lastDistinctness.normalizedDigestDifferent,
-      similarityMetric: lastDistinctness.similarityMetric,
-      similarityScore: lastDistinctness.similarityScore,
-      attempts: maximumAttempts,
+      ...input,
+      regeneration,
+      preferredBackend: previous.backendId,
+      regenerationSourceModelId: previous.modelId,
+      regenerationSourceModelDigest: previous.modelDigest,
+    },
+    options.execute,
+  );
+  const distinctness = await assessRegenerationDistinctness(
+    previous.content,
+    result.content,
+  );
+  const postconditionPassed = distinctness.distinct
+    && result.taskId !== previous.taskId
+    && Boolean(result.candidateId && result.candidateId !== previous.candidateId)
+    && CLOSED_REGENERATION_BACKENDS.has(result.provider as ClosedAIBackendId)
+    && result.provider === previous.backendId
+    && result.model === previous.modelId
+    && result.modelDigest === previous.modelDigest
+    && result.actualExecutor === previous.backendId
+    && !result.externalRequest
+    && !result.dataLeftDevice
+    && result.canonicalMutationCount === 0
+    && result.cache.candidateHit === false
+    && result.cache.bypassReason === "explicit_regeneration";
+  if (postconditionPassed) return { ...result, distinctness };
+  if (result.candidateId) await rejectCandidate(result.candidateId);
+  throw Object.assign(
+    new Error("The regenerated candidate failed the closed execution postcondition."),
+    {
+      code: distinctness.distinct
+        ? "REGENERATION_POSTCONDITION_FAILED"
+        : "REGENERATION_NOT_DISTINCT",
+      normalizedDigestDifferent: distinctness.normalizedDigestDifferent,
+      similarityMetric: distinctness.similarityMetric,
+      similarityScore: distinctness.similarityScore,
+      attempts: 1,
     },
   );
 }

@@ -16,6 +16,7 @@ import type { ConversationMessageActions } from "./conversation-types";
 import { AttachmentCard } from "./attachment-card";
 import { RpgTurnCard } from "./rpg-turn-card";
 import { ToolProgressCard } from "./tool-progress-card";
+import { hasVerifiedClosedRegenerationProof } from "./conversation-regeneration-proof";
 import styles from "../conversation.module.css";
 
 export const MessageRow = memo(function MessageRow({
@@ -55,12 +56,21 @@ export const MessageRow = memo(function MessageRow({
     ? allMessages.find((candidate) => candidate.id === message.parentMessageId) ?? null
     : null;
   const retryNeedsAttachment = Boolean(retryParent?.attachmentIds.length);
+  const hasVerifiedClosedInvocation = hasVerifiedClosedRegenerationProof({
+    message,
+    invocations: messageInvocations,
+    artifacts: messageArtifacts,
+  });
   const canRegenerate = message.role === "assistant"
     && message.status === "completed"
     && !retryNeedsAttachment
-    && messageInvocations.some((item) => item.toolId.startsWith("closed-agent-os:"))
+    && hasVerifiedClosedInvocation
     && !rpgChoices
-    && !messageArtifacts.some((item) => ["rpg", "learning_rule"].includes(item.artifactType));
+    && !messageArtifacts.some((item) => (
+      ["rpg", "learning_rule"].includes(item.artifactType)
+      || item.status === "approved"
+      || item.status === "superseded"
+    ));
   const hasComparableCandidate = Boolean(
     message.sourceMessageId
     && messageArtifacts.some((artifact) => (
@@ -146,7 +156,16 @@ export const MessageRow = memo(function MessageRow({
           </button>
         ) : null}
         {branchPending ? <span className={styles.emptyNote} role="status">分支建立中，請稍候。</span> : null}
-        {canRegenerate ? <button type="button" onClick={() => actions.regenerateMessage(message)}>重新產生</button> : null}
+        {canRegenerate ? (
+          <button
+            type="button"
+            disabled={busy}
+            aria-busy={busy}
+            onClick={() => actions.regenerateMessage(message)}
+          >
+            {busy ? "產生中…" : "重新產生"}
+          </button>
+        ) : null}
         {(["failed", "cancelled"].includes(message.status)) && !retryNeedsAttachment ? <button type="button" onClick={() => actions.retryMessage(retryParent?.content ?? "")}>重試</button> : null}
         {(["failed", "cancelled"].includes(message.status)) && retryNeedsAttachment ? <span className={styles.emptyNote}>請重新附加原檔後再試</span> : null}
       </div>

@@ -171,6 +171,8 @@ export type ClosedAIContextItem = {
  * copied into candidate records, audit records, or UI telemetry.
  */
 export type ClosedAIRegenerationContract = {
+  previousCandidateId: string;
+  previousTaskId: string;
   regenerationAttempt: number;
   regenerationNonce: string;
   previousCandidateDigest: string;
@@ -180,6 +182,8 @@ export type ClosedAIRegenerationContract = {
 };
 
 export type ClosedAIRegenerationEvidence = {
+  previousCandidateId: string;
+  previousTaskId: string;
   regenerationAttempt: number;
   previousCandidateDigest: string;
   cacheBypassReason: "explicit_regeneration";

@@ -34,6 +34,7 @@ import type {
 } from "../router/platform-types";
 import { BROWSER_AI_LIGHT_TASKS, BACKEND_TRUTH } from "./backend-manifest";
 import { isCryptographicClosedAIModelDigest } from "./types";
+import { closedAIRegenerationPromptContext } from "./regeneration-prompt";
 import type {
   ClosedAIBackendAdapter,
   ClosedAIBackendId,
@@ -179,7 +180,9 @@ function reportGenerationProgress(
   }
 }
 
-function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest {
+export function closedBackendPlatformRequest(
+  input: ClosedBackendExecutionInput,
+): PlatformAIRequest {
   const { request } = input;
   const generationOptions = {
     ...(request.generationOptions ?? {}),
@@ -198,6 +201,10 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
       configuration: controlledLearningConfiguration,
     })]
     : [];
+  const regenerationContext = closedAIRegenerationPromptContext(
+    request.regeneration,
+  );
+  const promptInput = [...regenerationContext, request.objective].join("\n\n");
   return {
     requestId: request.taskId,
     projectId: request.namespace.projectId,
@@ -210,7 +217,7 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
       : "device_only",
     fallbackPolicy: "none",
     preferredProvider: input.plan.backendId,
-    input: request.objective,
+    input: promptInput,
     context: [
       ...serializeClosedActorContext(input.actorContext, request.taskType),
       ...controlledLearningContext,
@@ -241,7 +248,7 @@ function platformRequest(input: ClosedBackendExecutionInput): PlatformAIRequest 
     offlineRequired: input.plan.backendId !== "private-ai-hub",
     estimatedContextSize: Math.ceil(
       (
-        request.objective.length
+        promptInput.length
         + input.actorContext.reduce((sum, item) => sum + item.text.length, 0)
         + input.workingMaterials.reduce((sum, item) => sum + item.text.length, 0)
       ) / 2.5,
@@ -463,7 +470,7 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
     if (snapshot.status !== "ready" || !snapshot.modelId) {
       throw unavailable(this.id, snapshot.status);
     }
-    const request = platformRequest(input);
+    const request = closedBackendPlatformRequest(input);
     const compute = await executeBrowserSovereignFabric({
       request,
       decision: lockedDecision(request, snapshot),
@@ -546,7 +553,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
       throw unavailable(this.id, snapshot.status);
     }
     const browserAssisted = await prepareBrowserAssistedBackendInput(input);
-    const request = platformRequest(browserAssisted.input);
+    const request = closedBackendPlatformRequest(browserAssisted.input);
     const result = await runLocalOllama(
       request,
       lockedDecision(request, snapshot),

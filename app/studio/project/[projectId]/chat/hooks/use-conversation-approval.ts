@@ -46,6 +46,18 @@ function approvalErrorMessage(error: unknown) {
     : "候選處理沒有完成；正式作品維持原狀。";
 }
 
+function exactClosedCandidateId(message: ConversationMessage) {
+  const candidateIds = message.candidateIds.filter((id) => (
+    id.startsWith("closed-agent-candidate:")
+  ));
+  if (candidateIds.length > 1) {
+    throw Object.assign(new Error("Conversation has ambiguous Closed Agent candidate lineage."), {
+      code: "CONVERSATION_CLOSED_CANDIDATE_AMBIGUOUS",
+    });
+  }
+  return candidateIds[0] ?? null;
+}
+
 function approvalApplicationMode(plan: ConversationPlan) {
   if (plan.intent === "rewrite_selection") return "replace" as const;
   if (plan.intent === "chapter_outline") return "summary" as const;
@@ -348,7 +360,7 @@ export function useConversationApprovalController({
           signal: controller.signal,
         });
       } else if (freshArtifact.targetStore === "chapters") {
-        const closedCandidateId = sourceMessage.candidateIds.find((id) => id !== freshArtifact.id);
+        const closedCandidateId = exactClosedCandidateId(sourceMessage);
         const requestMessage = sourceMessage.parentMessageId
           ? await repository.get<ConversationMessage>("conversationMessages", sourceMessage.parentMessageId)
           : null;
@@ -388,13 +400,15 @@ export function useConversationApprovalController({
           await commit();
         }
       } else if (freshArtifact.targetStore === "characters" || freshArtifact.targetStore === "worldRules") {
+        const closedCandidateId = exactClosedCandidateId(sourceMessage);
+        const targetStore = freshArtifact.targetStore;
         const current = await repository.get<Character | WorldRule>(
-          freshArtifact.targetStore,
+          targetStore,
           freshArtifact.targetRecordId,
         );
         const nextCanonicalRecord = buildConversationCanonicalReplacement({
           projectId,
-          store: freshArtifact.targetStore,
+          store: targetStore,
           targetRecordId: freshArtifact.targetRecordId,
           candidateContent: freshArtifact.candidateContent,
           current,
@@ -405,7 +419,7 @@ export function useConversationApprovalController({
         if (!currentSession || !currentMessage || !currentArtifact) {
           throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
         }
-        await conversation.approveArtifact({
+        const commit = async () => conversation.approveArtifact({
           operationId: `conversation-approval:${freshArtifact.id}`,
           idempotencyKey: `conversation-approval:${freshArtifact.id}:${freshArtifact.candidateDigest}`,
           projectId,
@@ -413,7 +427,7 @@ export function useConversationApprovalController({
           artifactId: freshArtifact.id,
           sourceMessageId: sourceMessage.id,
           candidateDigest: freshArtifact.candidateDigest,
-          targetStore: freshArtifact.targetStore,
+          targetStore,
           targetRecordId: freshArtifact.targetRecordId,
           expectedSessionRevision: currentSession.revision,
           expectedArtifactRevision: currentArtifact.revision,
@@ -422,6 +436,17 @@ export function useConversationApprovalController({
           applicationMode: "record_replace",
           nextCanonicalRecord,
         });
+        if (closedCandidateId && editedContent === undefined) {
+          await approveStudioClosedAgentCandidate({
+            candidateId: closedCandidateId,
+            canonicalCommit: async () => {
+              const result = await commit();
+              return { commitId: result.approvalTransaction.operationId };
+            },
+          });
+        } else {
+          await commit();
+        }
       }
       await conversation.invalidateSummariesForCanonChange(
         projectId,
@@ -473,14 +498,17 @@ export function useConversationApprovalController({
           code: "CONVERSATION_ARTIFACT_STALE",
         });
       }
+      const source = await repository.get<ConversationMessage>(
+        "conversationMessages",
+        artifact.sourceMessageId,
+      );
+      const closedCandidateId = source ? exactClosedCandidateId(source) : null;
       await conversation.rejectArtifact(
         projectId,
         sessionId,
         currentArtifact.id,
         currentArtifact.revision,
       );
-      const source = await repository.get<ConversationMessage>("conversationMessages", artifact.sourceMessageId);
-      const closedCandidateId = source?.candidateIds.find((id) => id !== artifact.id);
       if (closedCandidateId) {
         await rejectStudioClosedAgentCandidate(closedCandidateId).catch(() => undefined);
       }

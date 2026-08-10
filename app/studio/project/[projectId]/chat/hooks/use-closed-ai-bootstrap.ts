@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ClosedAIBackendId } from "@/lib/novel-ai/closed-agent-os";
+import {
+  isCryptographicClosedAIModelDigest,
+  type ClosedAIBackendId,
+  type ClosedAgentCandidate,
+} from "@/lib/novel-ai/closed-agent-os";
+import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
+import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
 import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
-import { getStudioClosedAIBootstrapCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
+import {
+  getStudioClosedAgentOS,
+  getStudioClosedAIBootstrapCoordinator,
+} from "@/lib/novel-ai/web/closed-agent-os-service";
 import type {
   ClosedAiBootstrapProgress,
   ClosedAiBootstrapResult,
@@ -20,6 +29,41 @@ export type ClosedAiSetupLifecycle =
   | "cancelled"
   | "failed"
   | "ready";
+
+const CLOSED_REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
+  "browser-ai",
+  "local-ollama",
+  "private-ai-hub",
+]);
+
+function verifiedConversationRegenerationBackend(
+  invocation: ConversationToolInvocation | null,
+): ClosedAIBackendId | null {
+  const receipt = invocation?.executionReceipt;
+  const backend = invocation?.actualExecutor;
+  if (
+    !invocation
+    || invocation.status !== "completed"
+    || !invocation.completedAt
+    || !backend
+    || !CLOSED_REGENERATION_BACKENDS.has(backend as ClosedAIBackendId)
+    || !invocation.modelId?.trim()
+    || !isCryptographicClosedAIModelDigest(invocation.modelDigest)
+    || invocation.externalRequest
+    || invocation.dataLeftDevice
+    || invocation.canonicalMutationCount !== 0
+    || !receipt?.receiptId.trim()
+    || receipt.modelId !== invocation.modelId
+    || receipt.modelDigest !== invocation.modelDigest
+    || receipt.contextDigest !== invocation.contextDigest
+    || !isCryptographicClosedAIModelDigest(receipt.contextDigest)
+    || !isCryptographicClosedAIModelDigest(receipt.outputDigest)
+    || receipt.providerRunId !== invocation.taskId
+    || receipt.externalRequest
+    || receipt.dataLeftDevice
+  ) return null;
+  return backend as ClosedAIBackendId;
+}
 
 export function useClosedAiBootstrap(projectId: string) {
   const [closedAiSetup, setClosedAiSetup] = useState<ClosedAiBootstrapResult | null>(null);
@@ -132,30 +176,93 @@ export function useClosedAiBootstrap(projectId: string) {
   }, []);
 
   const resolveRegenerationBackend = useCallback(async (input: {
-    sourceBackend: ClosedAIBackendId | null;
+    sourceInvocation: ConversationToolInvocation | null;
+    sourceCandidateIds: string[];
+    sourceMessageContent: string;
+    sourceMessageContentDigest: string;
     taskType: PlatformTaskType;
     signal: AbortSignal;
   }) => {
+    const closedCandidateIds = input.sourceCandidateIds.filter((candidateId) => (
+      candidateId.startsWith("closed-agent-candidate:")
+    ));
+    const sourceCandidateId = closedCandidateIds.length === 1
+      ? closedCandidateIds[0]
+      : null;
+    const sourceBackend = verifiedConversationRegenerationBackend(
+      input.sourceInvocation,
+    );
+    const invocation = input.sourceInvocation;
+    if (!sourceBackend || !sourceCandidateId || !invocation) {
+      throw Object.assign(new Error("The source candidate has no verified closed execution proof."), {
+        code: "CONVERSATION_REGENERATION_SOURCE_PROOF_INVALID",
+        externalFallback: false,
+      });
+    }
+    const candidate = await getStudioClosedAgentOS().state.get<ClosedAgentCandidate>(
+      sourceCandidateId,
+    );
+    const invocationReceipt = invocation.executionReceipt;
+    const normalizedSourceMessageDigest = await conversationContentDigest(
+      input.sourceMessageContent,
+    );
+    const normalizedCandidateDigest = candidate
+      ? await conversationContentDigest(candidate.content)
+      : null;
+    if (
+      !candidate
+      || !invocationReceipt
+      || candidate.projectId !== projectId
+      || (candidate.status !== "awaiting-approval" && candidate.status !== "rejected")
+      || candidate.taskId !== invocation.taskId
+      || candidate.backendId !== sourceBackend
+      || candidate.actualExecutor !== sourceBackend
+      || candidate.modelId !== invocation.modelId
+      || candidate.modelDigest !== invocation.modelDigest
+      || candidate.contentDigest !== invocationReceipt.outputDigest
+      || normalizedSourceMessageDigest !== input.sourceMessageContentDigest
+      || normalizedCandidateDigest !== input.sourceMessageContentDigest
+      || candidate.contextDigest !== invocation.contextDigest
+      || candidate.executionReceipt?.proofState !== "verified"
+      || candidate.executionReceipt.taskId !== invocation.taskId
+      || candidate.executionReceipt.backendId !== sourceBackend
+      || candidate.executionReceipt.actualExecutor !== sourceBackend
+      || candidate.executionReceipt.modelId !== invocation.modelId
+      || candidate.executionReceipt.modelDigest !== invocation.modelDigest
+      || candidate.executionReceipt.contentDigest !== invocationReceipt.outputDigest
+      || candidate.executionReceipt.contextDigest !== invocation.contextDigest
+      || candidate.executionReceipt.externalRequest
+      || candidate.executionReceipt.dataLeftDevice
+      || candidate.externalRequest
+      || candidate.dataLeftDevice
+      || candidate.canonicalMutationCount !== 0
+    ) {
+      throw Object.assign(new Error("The source candidate identity does not match its execution receipt."), {
+        code: "CONVERSATION_REGENERATION_SOURCE_PROOF_INVALID",
+        externalFallback: false,
+      });
+    }
     const inspected = await getStudioClosedAIBootstrapCoordinator().inspect({
       projectId,
       taskType: input.taskType,
       signal: input.signal,
     });
-    const sourceBackendStillReady = input.sourceBackend
-      ? inspected.readiness.backends.some((backend) => (
-          backend.id === input.sourceBackend && backend.generationVerified
-        ))
-      : false;
-    const selected = sourceBackendStillReady
-      ? input.sourceBackend
-      : inspected.readiness.activeBackend;
-    if (!selected) {
+    const sourceBackendStillReady = inspected.readiness.backends.some((backend) => (
+      backend.id === sourceBackend && backend.generationVerified
+    ));
+    if (!sourceBackendStillReady) {
       throw Object.assign(new Error("原候選的閉端後端已不可用；請先完成 Browser AI、Local Ollama 或 Private AI Hub 生成實測。"), {
         code: "CONVERSATION_REGENERATION_CLOSED_BACKEND_NOT_READY",
         externalFallback: false,
       });
     }
-    return selected;
+    return {
+      backendId: sourceBackend,
+      candidateId: candidate.id,
+      taskId: candidate.taskId,
+      candidateDigest: candidate.contentDigest,
+      regenerationAttempt: (candidate.regeneration?.regenerationAttempt ?? 0) + 1,
+    };
   }, [projectId]);
 
   return {
