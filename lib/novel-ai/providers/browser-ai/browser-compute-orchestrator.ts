@@ -349,6 +349,85 @@ export function isBrowserCollapsedRepairFreshRecoveryCandidate(input: {
     && input.repairFinishReason === "stop";
 }
 
+export function isBrowserCappedInitialCollapsedRepairFreshRecoveryCandidate(input: {
+  initialContractSatisfied: boolean;
+  initialSafetyCode: string | null;
+  initialFailureCode: string | null;
+  initialRawBudgetExceeded: boolean;
+  initialObservedHanCharacters: number;
+  initialObservedEstimatedTokens: number;
+  initialObservedCodePoints: number;
+  initialFinishReason: string | null | undefined;
+  initialCompletionTokens: number | null | undefined;
+  initialRuntimeTokenCap: number;
+  initialStageHardCap: number;
+  repairContractSatisfied: boolean;
+  repairSafetyCode: string | null;
+  repairFailureCode: string | null;
+  repairRawBudgetExceeded: boolean;
+  repairObservedHanCharacters: number;
+  repairObservedEstimatedTokens: number;
+  repairObservedCodePoints: number;
+  repairFinishReason: string | null | undefined;
+  repairCompletionTokens: number | null | undefined;
+  repairRuntimeTokenCap: number;
+  repairStageHardCap: number;
+}) {
+  const initialCompletionTokens = input.initialCompletionTokens;
+  const initialRuntimeTokenCap = Math.floor(input.initialRuntimeTokenCap);
+  const initialStageHardCap = Math.floor(input.initialStageHardCap);
+  const repairCompletionTokens = input.repairCompletionTokens;
+  const repairRuntimeTokenCap = Math.floor(input.repairRuntimeTokenCap);
+  const repairStageHardCap = Math.floor(input.repairStageHardCap);
+  return !input.initialContractSatisfied
+    && !input.initialSafetyCode
+    && input.initialFailureCode === "minimum-length-unmet"
+    && !input.initialRawBudgetExceeded
+    && input.initialObservedHanCharacters
+      >= BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+    && input.initialObservedHanCharacters < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
+    && input.initialFinishReason === "length"
+    && Number.isSafeInteger(initialCompletionTokens)
+    && Number.isSafeInteger(initialRuntimeTokenCap)
+    && initialRuntimeTokenCap >= 1
+    && Number.isSafeInteger(initialStageHardCap)
+    && initialStageHardCap >= 1
+    && initialRuntimeTokenCap <= initialStageHardCap
+    && (initialCompletionTokens ?? 0)
+      >= Math.max(1, initialRuntimeTokenCap - 8)
+    && (initialCompletionTokens ?? 0) <= initialRuntimeTokenCap
+    && Number.isSafeInteger(input.initialObservedEstimatedTokens)
+    && input.initialObservedEstimatedTokens >= 1
+    && input.initialObservedEstimatedTokens <= initialRuntimeTokenCap
+    && Number.isSafeInteger(input.initialObservedCodePoints)
+    && input.initialObservedCodePoints >= 1
+    && input.initialObservedCodePoints
+      <= (initialCompletionTokens ?? 0) * 4 + 128
+    && !input.repairContractSatisfied
+    && !input.repairSafetyCode
+    && input.repairFailureCode === "minimum-length-unmet"
+    && !input.repairRawBudgetExceeded
+    && input.repairObservedHanCharacters > 0
+    && input.repairObservedHanCharacters
+      < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+    && input.repairFinishReason === "stop"
+    && Number.isSafeInteger(repairCompletionTokens)
+    && (repairCompletionTokens ?? 0) >= 1
+    && Number.isSafeInteger(repairRuntimeTokenCap)
+    && repairRuntimeTokenCap >= 1
+    && Number.isSafeInteger(repairStageHardCap)
+    && repairStageHardCap >= 1
+    && repairRuntimeTokenCap <= repairStageHardCap
+    && (repairCompletionTokens ?? 0) <= repairRuntimeTokenCap
+    && Number.isSafeInteger(input.repairObservedEstimatedTokens)
+    && input.repairObservedEstimatedTokens >= 1
+    && input.repairObservedEstimatedTokens <= repairRuntimeTokenCap
+    && Number.isSafeInteger(input.repairObservedCodePoints)
+    && input.repairObservedCodePoints >= 1
+    && input.repairObservedCodePoints
+      <= (repairCompletionTokens ?? 0) * 4 + 128;
+}
+
 export function isBrowserOversizedStopIsolatedRepairCandidate(input: {
   contractSatisfied: boolean;
   safetyCode: string | null;
@@ -1275,6 +1354,42 @@ export async function executeBrowserBoundedQualityPasses(input: {
         repairFinishReason: repairResult.generationFinishReason,
       }),
     );
+    const cappedInitialCollapsedRepairFreshRecoveryCandidate = Boolean(
+      defaultChapterProseContract
+      && requiredGenerativeExecutor === "webllm-worker"
+      && !repairInternalEnvelopeRecovery
+      && !initialIsolatedRepairReasonCode
+      && chapterProseContract
+      && repairCompletion
+      && isBrowserCappedInitialCollapsedRepairFreshRecoveryCandidate({
+        initialContractSatisfied: chapterProseContract.contractSatisfied,
+        initialSafetyCode: chapterProseContract.safetyCode,
+        initialFailureCode: chapterProseContract.failureCode,
+        initialRawBudgetExceeded: chapterProseContract.rawBudgetExceeded,
+        initialObservedHanCharacters:
+          chapterProseContract.observedHanCharacters,
+        initialObservedEstimatedTokens:
+          chapterProseContract.observedEstimatedTokens,
+        initialObservedCodePoints: chapterProseContract.observedCodePoints,
+        initialFinishReason: initialResult.generationFinishReason,
+        initialCompletionTokens: initialResult.completionTokens,
+        initialRuntimeTokenCap:
+          initialResult.performancePolicy?.maxOutputTokens ?? 0,
+        initialStageHardCap: performancePolicy.reservedOutputTokens,
+        repairContractSatisfied: repairCompletion.contractSatisfied,
+        repairSafetyCode: repairCompletion.safetyCode,
+        repairFailureCode: repairCompletion.failureCode,
+        repairRawBudgetExceeded: repairCompletion.rawBudgetExceeded,
+        repairObservedHanCharacters: repairCompletion.observedHanCharacters,
+        repairObservedEstimatedTokens: repairCompletion.observedEstimatedTokens,
+        repairObservedCodePoints: repairCompletion.observedCodePoints,
+        repairFinishReason: repairResult.generationFinishReason,
+        repairCompletionTokens: repairResult.completionTokens,
+        repairRuntimeTokenCap:
+          repairResult.performancePolicy?.maxOutputTokens ?? 0,
+        repairStageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+      }),
+    );
     const extensionBaseCandidates: Array<{
       stage: "initial" | "repair";
       result: PlatformAIResult;
@@ -1285,6 +1400,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       !repairInternalEnvelopeRecovery
       && !degenerateInitialRepairFreshRecoveryCandidate
       && !collapsedRepairFreshRecoveryCandidate
+      && !cappedInitialCollapsedRepairFreshRecoveryCandidate
       && !initialIsolatedRepairReasonCode
       && repairCompletion
       && shouldRunBrowserProseExtension({
@@ -1308,6 +1424,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       !repairInternalEnvelopeRecovery
       && !degenerateInitialRepairFreshRecoveryCandidate
       && !collapsedRepairFreshRecoveryCandidate
+      && !cappedInitialCollapsedRepairFreshRecoveryCandidate
       && !initialIsolatedRepairReasonCode
       && repairCompletion
       && !repairCompletion.contractSatisfied
@@ -1514,6 +1631,31 @@ export async function executeBrowserBoundedQualityPasses(input: {
         qualityReasonCodes: initialQualityReasonCodes,
       }),
     );
+    const standardStopFreshRecoveryCandidate = Boolean(
+      initialResult.generationFinishReason === "stop"
+      && repairResult.generationFinishReason === "stop"
+      && (
+        repairInternalEnvelopeRecovery
+        || (
+          !repairCompletion?.safetyCode
+          && !repairCompletion?.rawBudgetExceeded
+          && (
+            repairTruncatedFreshRecoveryCandidate
+            || initialTruncatedFreshRecoveryCandidate
+            || degenerateInitialRepairFreshRecoveryCandidate
+            || collapsedRepairFreshRecoveryCandidate
+            || (
+              chapterProseContract
+              && repairCompletion
+              && chapterProseContract.observedHanCharacters
+                < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+              && repairCompletion.observedHanCharacters
+                < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+            )
+          )
+        )
+      )
+    );
     const shouldRunFreshRecovery = Boolean(
       requiredGenerativeExecutor === "webllm-worker"
       && !initialIsolatedRepairReasonCode
@@ -1528,26 +1670,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && !chapterProseContract.rawBudgetExceeded
       && initialResult.content.trim().length > 0
       && (repairInternalEnvelopeRecovery || repairResult.content.trim().length > 0)
-      && initialResult.generationFinishReason === "stop"
-      && repairResult.generationFinishReason === "stop"
       && (
-        repairInternalEnvelopeRecovery
-        || (
-          !repairCompletion.safetyCode
-          && !repairCompletion.rawBudgetExceeded
-          && (
-            repairTruncatedFreshRecoveryCandidate
-            || initialTruncatedFreshRecoveryCandidate
-            || degenerateInitialRepairFreshRecoveryCandidate
-            || collapsedRepairFreshRecoveryCandidate
-            || (
-              chapterProseContract.observedHanCharacters
-                < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
-              && repairCompletion.observedHanCharacters
-                < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
-            )
-          )
-        )
+        cappedInitialCollapsedRepairFreshRecoveryCandidate
+        || standardStopFreshRecoveryCandidate
       )
     );
     if (shouldRunFreshRecovery) {
