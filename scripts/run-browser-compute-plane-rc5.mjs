@@ -305,7 +305,9 @@ test("compute-orchestrator", async () => {
   assert.doesNotMatch(orchestrator, /補修原因：\$\{repairReasonCodes/u);
   assert.match(orchestrator, /workingMaterials: \[\]/u);
   assert.doesNotMatch(orchestrator, /text: compactPipelineMaterial\(initialResult\.content/u);
-  assert.match(orchestrator, /maxTokens: 360/u);
+  assert.match(orchestrator, /const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360/u);
+  assert.match(orchestrator, /maxTokens: BROWSER_BOUNDED_REPAIR_MAX_TOKENS/u);
+  assert.match(orchestrator, /stageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS/u);
   assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
   assert.match(orchestrator, /no provider fallback occurred/u);
 });
@@ -1834,8 +1836,6 @@ test("bounded-prose-extension", async () => {
     new RegExp(discardedTailSentinel, "u"),
     "the returned candidate and finite runtime evidence must not retain discarded tail text",
   );
-  const authoritativeContentDigest = await sha256Hex(salvagedLongLength.result.content);
-  const rawGenerationDigest = await sha256Hex(safeLengthRaw);
   const selectedSnapshot = {
     id: "browser-ai",
     label: "Browser AI",
@@ -1859,129 +1859,335 @@ test("bounded-prose-extension", async () => {
     supportedTaskTypes: "all",
     detailCode: "model_inference_verified",
   };
-  const selectedCacheRepository = new MemoryClosedAICacheRepository();
-  const selectedStateRepository = new MemoryClosedAgentStateRepository();
-  const selectedLedgerRepository = new MemoryVerifiableLedgerRepository();
-  const selectedOs = new ClosedAgentOS({
-    backends: [{
-      id: "browser-ai",
-      snapshot: async () => structuredClone(selectedSnapshot),
-      execute: async (input) => ({
-        backendId: "browser-ai",
-        modelId: salvagedLongLength.result.modelId,
-        modelDigest: salvagedLongLength.result.modelDigest,
-        content: salvagedLongLength.result.content,
-        candidateOnly: true,
-        dataLeftDevice: false,
-        externalRequest: false,
-        elapsedMs: salvagedLongLength.result.elapsedMs,
-        profileId: "browser-length-safe-prefix-v1",
-        firstTokenMs: salvagedLongLength.result.firstTokenMs,
-        inputCharacters: salvagedLongLength.result.inputCharacters,
-        outputCharacters: salvagedLongLength.result.content.length,
-        generatedTokenEvents: salvagedLongLength.result.generatedTokenEvents,
-        omittedInputCharacters: salvagedLongLength.result.omittedInputCharacters,
-        qualityMode: input.plan.qualityMode,
-        qualityPasses: 1,
-        draftDigest: null,
-        criticDigest: null,
-        actualExecutor: "browser-ai",
-        browserComputeReceiptId: "browser-compute:length-safe-prefix",
-        browserFabricReceiptId: "browser-fabric:length-safe-prefix",
-        browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+  const assertAuthoritativeSelectedResult = async ({
+    selectedExecution,
+    rawGeneration,
+    discardedSentinel,
+    taskId,
+  }) => {
+    const authoritativeContent = selectedExecution.result.content;
+    const authoritativeContentDigest = await sha256Hex(authoritativeContent);
+    const rawGenerationDigest = await sha256Hex(rawGeneration);
+    const selectedCacheRepository = new MemoryClosedAICacheRepository();
+    const selectedStateRepository = new MemoryClosedAgentStateRepository();
+    const selectedLedgerRepository = new MemoryVerifiableLedgerRepository();
+    const selectedOs = new ClosedAgentOS({
+      backends: [{
+        id: "browser-ai",
+        snapshot: async () => structuredClone(selectedSnapshot),
+        execute: async (input) => ({
+          backendId: "browser-ai",
+          modelId: selectedExecution.result.modelId,
+          modelDigest: selectedExecution.result.modelDigest,
+          content: authoritativeContent,
+          candidateOnly: true,
+          dataLeftDevice: false,
+          externalRequest: false,
+          elapsedMs: selectedExecution.result.elapsedMs,
+          profileId: "browser-length-safe-prefix-v1",
+          firstTokenMs: selectedExecution.result.firstTokenMs,
+          inputCharacters: selectedExecution.result.inputCharacters,
+          outputCharacters: authoritativeContent.length,
+          generatedTokenEvents: selectedExecution.result.generatedTokenEvents,
+          omittedInputCharacters: selectedExecution.result.omittedInputCharacters,
+          qualityMode: input.plan.qualityMode,
+          qualityPasses: 1,
+          draftDigest: null,
+          criticDigest: null,
+          actualExecutor: "browser-ai",
+          browserComputeReceiptId: `browser-compute:${taskId}`,
+          browserFabricReceiptId: `browser-fabric:${taskId}`,
+          browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+        }),
+      }],
+      cache: new ClosedAICache({ repository: selectedCacheRepository }),
+      ledger: new VerifiableLedger({
+        repository: selectedLedgerRepository,
+        signer: new ApprovalSigner(),
       }),
-    }],
-    cache: new ClosedAICache({ repository: selectedCacheRepository }),
-    ledger: new VerifiableLedger({
-      repository: selectedLedgerRepository,
-      signer: new ApprovalSigner(),
-    }),
-    state: selectedStateRepository,
+      state: selectedStateRepository,
+    });
+    const selectedCandidateResult = await selectedOs.execute({
+      taskId,
+      taskType: "chapter.continue",
+      complexity: "standard",
+      namespace: namespace({
+        modelId: "unrouted",
+        modelDigest: "unrouted",
+      }),
+      objective: "沿用既有角色與場景，續寫一段完整且可審核的候選正文。",
+      context: [],
+      qualityMode: "fast",
+      browserComputePolicy: "browser-first",
+      preferredBackend: "browser-ai",
+      allowedToolIds: [],
+      permissionScopes: [
+        "story:read",
+        "story-bible:read",
+        "candidate:write",
+        "candidate:read",
+        "evaluation:write",
+        "character:read",
+        "world:read",
+      ],
+    });
+    assert.equal(selectedCandidateResult.candidate.content, authoritativeContent);
+    assert.equal(selectedCandidateResult.candidate.contentDigest, authoritativeContentDigest);
+    assert.equal(
+      selectedCandidateResult.candidate.executionReceipt?.contentDigest,
+      authoritativeContentDigest,
+    );
+    assert.notEqual(selectedCandidateResult.candidate.contentDigest, rawGenerationDigest);
+    assert.equal(selectedCandidateResult.candidate.backendId, "browser-ai");
+    assert.equal(selectedCandidateResult.candidate.actualExecutor, "browser-ai");
+    assert.equal(selectedCandidateResult.candidate.modelId, model.modelId);
+    assert.equal(selectedCandidateResult.candidate.modelDigest, model.modelDigest);
+    assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelId, model.modelId);
+    assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelDigest, model.modelDigest);
+    assert.equal(selectedCandidateResult.candidate.executionReceipt?.actualExecutor, "browser-ai");
+    assert.equal(selectedCandidateResult.candidate.canonicalMutationCount, 0);
+    const selectedLedgerId = `closed-agent:${namespace().projectId}:${taskId}`;
+    const selectedBlocks = await selectedLedgerRepository.list(selectedLedgerId);
+    const selectedCandidateBlock = selectedBlocks.find(
+      (block) => block.eventType === "candidate-generated",
+    );
+    assert.ok(selectedCandidateBlock?.contentRecordId);
+    const selectedCandidateRecord = await selectedLedgerRepository.getContent(
+      selectedCandidateBlock.contentRecordId,
+      {
+        ledgerId: selectedLedgerId,
+        projectId: namespace().projectId,
+        namespaceDigest: selectedCandidateBlock.namespaceDigest,
+      },
+    );
+    assert.equal(selectedCandidateRecord?.content?.contentDigest, authoritativeContentDigest);
+    assert.equal(
+      selectedCandidateRecord?.content?.executionReceipt?.contentDigest,
+      authoritativeContentDigest,
+    );
+    const selectedCacheEntries = await selectedCacheRepository.list();
+    assert.ok(selectedCacheEntries.length > 0, "authoritative OS run must write candidate-only cache entries");
+    const selectedExactCache = selectedCacheEntries.find((entry) =>
+      entry.layer === "exact"
+      && entry.value?.content === authoritativeContent);
+    const selectedSemanticCache = selectedCacheEntries.find((entry) =>
+      entry.layer === "semantic"
+      && entry.value?.execution?.content === authoritativeContent);
+    assert.ok(selectedExactCache, "exact cache must contain the selected Browser candidate only");
+    assert.ok(selectedSemanticCache, "semantic cache must contain the selected Browser candidate only");
+    assert.equal(selectedExactCache.value.modelId, model.modelId);
+    assert.equal(selectedExactCache.value.modelDigest, model.modelDigest);
+    assert.equal(selectedSemanticCache.value.execution.modelId, model.modelId);
+    assert.equal(selectedSemanticCache.value.execution.modelDigest, model.modelDigest);
+    assert.doesNotMatch(
+      JSON.stringify({
+        result: selectedCandidateResult,
+        ledgerBlocks: selectedBlocks,
+        ledgerRecord: selectedCandidateRecord,
+        cacheEntries: selectedCacheEntries,
+        state: await selectedStateRepository.list(namespace().projectId),
+      }),
+      new RegExp(discardedSentinel, "u"),
+      "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
+    );
+  };
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: salvagedLongLength,
+    rawGeneration: safeLengthRaw,
+    discardedSentinel: discardedTailSentinel,
+    taskId: "browser-initial-length-safe-prefix-authoritative-candidate",
   });
-  const selectedTaskId = "browser-length-safe-prefix-authoritative-candidate";
-  const selectedCandidateResult = await selectedOs.execute({
-    taskId: selectedTaskId,
-    taskType: "chapter.continue",
-    complexity: "standard",
-    namespace: namespace({
-      modelId: "unrouted",
-      modelDigest: "unrouted",
-    }),
-    objective: "沿用既有角色與場景，續寫一段完整且可審核的候選正文。",
-    context: [],
-    qualityMode: "fast",
-    browserComputePolicy: "browser-first",
-    preferredBackend: "browser-ai",
-    allowedToolIds: [],
-    permissionScopes: [
-      "story:read",
-      "story-bible:read",
-      "candidate:write",
-      "candidate:read",
-      "evaluation:write",
-      "character:read",
-      "world:read",
-    ],
-  });
-  assert.equal(selectedCandidateResult.candidate.content, lengthPrefix);
-  assert.equal(selectedCandidateResult.candidate.contentDigest, authoritativeContentDigest);
-  assert.equal(
-    selectedCandidateResult.candidate.executionReceipt?.contentDigest,
-    authoritativeContentDigest,
-  );
-  assert.notEqual(selectedCandidateResult.candidate.contentDigest, rawGenerationDigest);
-  assert.equal(selectedCandidateResult.candidate.backendId, "browser-ai");
-  assert.equal(selectedCandidateResult.candidate.actualExecutor, "browser-ai");
-  assert.equal(selectedCandidateResult.candidate.modelId, model.modelId);
-  assert.equal(selectedCandidateResult.candidate.modelDigest, model.modelDigest);
-  assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelId, model.modelId);
-  assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelDigest, model.modelDigest);
-  assert.equal(selectedCandidateResult.candidate.executionReceipt?.actualExecutor, "browser-ai");
-  assert.equal(selectedCandidateResult.candidate.canonicalMutationCount, 0);
-  const selectedLedgerId = `closed-agent:${namespace().projectId}:${selectedTaskId}`;
-  const selectedBlocks = await selectedLedgerRepository.list(selectedLedgerId);
-  const selectedCandidateBlock = selectedBlocks.find(
-    (block) => block.eventType === "candidate-generated",
-  );
-  assert.ok(selectedCandidateBlock?.contentRecordId);
-  const selectedCandidateRecord = await selectedLedgerRepository.getContent(
-    selectedCandidateBlock.contentRecordId,
-    {
-      ledgerId: selectedLedgerId,
-      projectId: namespace().projectId,
-      namespaceDigest: selectedCandidateBlock.namespaceDigest,
+
+  // Production Preview trace: the short initial draft triggers the one bounded
+  // repair; the verified repair reaches its real 360-token cap with a complete
+  // 220..320-Han prefix followed by an unfinished tail. Only that prefix may
+  // become the candidate, and no suffix-extension pass may run.
+  const initial85 = exactHanPrefix(acceptedProse.repeat(2), 85);
+  const repairDiscardedTailSentinel = "REPAIR_DISCARDED_TAIL_SENTINEL_X9";
+  const productionRepairLengthRaw = (marker = "") => {
+    const rawBase = `${lengthPrefix}${marker}${"風".repeat(
+      525 - countBrowserProseHanCharacters(lengthPrefix)
+        - countBrowserProseHanCharacters(marker),
+    )}`;
+    assert.ok(rawBase.length <= 648);
+    const raw = `${rawBase}${"A".repeat(648 - rawBase.length)}`;
+    assert.equal(raw.length, 648);
+    assert.equal(countBrowserProseHanCharacters(raw), 525);
+    return raw;
+  };
+  const repairLengthRaw = productionRepairLengthRaw(repairDiscardedTailSentinel);
+  const repair360Policy = {
+    ...structuredClone(performancePolicy),
+    reservedOutputTokens: 360,
+    maxOutputTokens: 360,
+  };
+  const repairedLengthPrefix = await execute(result(initial85, "stop"), [
+    (repairRequest, options) => {
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.equal(repairRequest.generationOptions.maxTokens, 360);
+      return {
+        ...result(
+          repairLengthRaw,
+          "length",
+          `${request.requestId}:bounded-same-model-repair`,
+        ),
+        completionTokens: 359,
+        rawOutputCharacters: 648,
+        normalizedOutputCharacters: 648,
+        performancePolicy: repair360Policy,
+      };
     },
+  ]);
+  assert.equal(repairedLengthPrefix.calls.length, 1);
+  assert.equal(repairedLengthPrefix.quality.decision, "pass");
+  assert.equal(repairedLengthPrefix.result.content, lengthPrefix);
+  assert.equal(repairedLengthPrefix.result.normalizedOutputCharacters, lengthPrefix.length);
+  assert.ok((repairedLengthPrefix.result.rawOutputCharacters ?? 0) > 648);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence.length, 2);
+  assert.deepEqual(
+    repairedLengthPrefix.browserRuntimeEvidence.map((entry) => entry.stage),
+    ["initial", "repair"],
   );
-  assert.equal(selectedCandidateRecord?.content?.contentDigest, authoritativeContentDigest);
-  assert.equal(
-    selectedCandidateRecord?.content?.executionReceipt?.contentDigest,
-    authoritativeContentDigest,
-  );
-  const selectedCacheEntries = await selectedCacheRepository.list();
-  assert.ok(selectedCacheEntries.length > 0, "authoritative OS run must write candidate-only cache entries");
-  const selectedExactCache = selectedCacheEntries.find((entry) =>
-    entry.layer === "exact"
-    && entry.value?.content === lengthPrefix);
-  const selectedSemanticCache = selectedCacheEntries.find((entry) =>
-    entry.layer === "semantic"
-    && entry.value?.execution?.content === lengthPrefix);
-  assert.ok(selectedExactCache, "exact cache must contain the selected Browser candidate only");
-  assert.ok(selectedSemanticCache, "semantic cache must contain the selected Browser candidate only");
-  assert.equal(selectedExactCache.value.modelId, model.modelId);
-  assert.equal(selectedExactCache.value.modelDigest, model.modelDigest);
-  assert.equal(selectedSemanticCache.value.execution.modelId, model.modelId);
-  assert.equal(selectedSemanticCache.value.execution.modelDigest, model.modelDigest);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[0].finishReason, "stop");
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[0].observedHanCharacters, 85);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[1].finishReason, "length");
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[1].completionTokens, 359);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[1].rawOutputCharacters, 648);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[1].normalizedOutputCharacters, 648);
+  assert.equal(repairedLengthPrefix.browserRuntimeEvidence[1].observedHanCharacters, 525);
+  assert.equal(repairedLengthPrefix.result.externalRequest, false);
+  assert.equal(repairedLengthPrefix.result.dataLeavesDevice, false);
   assert.doesNotMatch(
     JSON.stringify({
-      result: selectedCandidateResult,
-      ledgerBlocks: selectedBlocks,
-      ledgerRecord: selectedCandidateRecord,
-      cacheEntries: selectedCacheEntries,
-      state: await selectedStateRepository.list(namespace().projectId),
+      result: repairedLengthPrefix.result,
+      browserRuntimeEvidence: repairedLengthPrefix.browserRuntimeEvidence,
     }),
-    new RegExp(discardedTailSentinel, "u"),
-    "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
+    new RegExp(repairDiscardedTailSentinel, "u"),
   );
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: repairedLengthPrefix,
+    rawGeneration: repairLengthRaw,
+    discardedSentinel: repairDiscardedTailSentinel,
+    taskId: "browser-repair-length-safe-prefix-authoritative-candidate",
+  });
+
+  const assertRepairLengthPrefixRejected = async ({
+    finishReason,
+    completionTokens,
+    raw = repairLengthRaw,
+    runtimePerformancePolicy = repair360Policy,
+    repairOverrides = {},
+    expectedCode = "BROWSER_AI_QUALITY_INSUFFICIENT",
+    expectedReasonCode = "QUALITY_OUTPUT_TRUNCATED",
+    expectedEvidenceLength = 2,
+  }) => {
+    let repairCalls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: result(initial85, "stop"),
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async (repairRequest, _repairDecision, _progress, options) => {
+          repairCalls += 1;
+          assert.equal(repairCalls, 1, "invalid repair evidence must not run an extension pass");
+          assert.equal(repairRequest.generationOptions.maxTokens, 360);
+          assert.equal(options.unapprovedContinuationSeed, undefined);
+          return {
+            ...result(
+              raw,
+              finishReason,
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens,
+            rawOutputCharacters: raw.length,
+            normalizedOutputCharacters: raw.length,
+            performancePolicy: runtimePerformancePolicy,
+            ...repairOverrides,
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === expectedCode
+          && (expectedReasonCode === null
+            || error.qualityReasonCodes?.includes(expectedReasonCode))
+          && evidence.length === expectedEvidenceLength
+          && (expectedEvidenceLength !== 2
+            || (evidence[0].stage === "initial"
+              && evidence[1].stage === "repair"))
+          && error.canonicalMutationCount === 0;
+      },
+    );
+    assert.equal(repairCalls, 1);
+  };
+  for (const invalidRepairEvidence of [
+    { finishReason: "stop", completionTokens: 359 },
+    { finishReason: null, completionTokens: 359 },
+    { finishReason: "length", completionTokens: null },
+    { finishReason: "length", completionTokens: 351 },
+    { finishReason: "length", completionTokens: 361 },
+    {
+      finishReason: "length",
+      completionTokens: 359,
+      runtimePerformancePolicy: null,
+    },
+    {
+      finishReason: "length",
+      completionTokens: 359,
+      runtimePerformancePolicy: {
+        ...structuredClone(repair360Policy),
+        policyVersion: "attacker-policy",
+      },
+    },
+    {
+      finishReason: "length",
+      completionTokens: 383,
+      runtimePerformancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 384,
+        maxOutputTokens: 384,
+      },
+    },
+  ]) {
+    await assertRepairLengthPrefixRejected(invalidRepairEvidence);
+  }
+  await assertRepairLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 359,
+    raw: `${lengthPrefix}${"風".repeat(2_000)}`,
+  });
+  await assertRepairLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 359,
+    raw: `${"霧".repeat(525)}${"A".repeat(123)}`,
+  });
+  await assertRepairLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 359,
+    raw: productionRepairLengthRaw("<|im_end|>"),
+    expectedReasonCode: "QUALITY_TASK_FORM_MISMATCH",
+  });
+  await assertRepairLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 359,
+    repairOverrides: { executor: "chromium-prompt-api" },
+    expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+    expectedReasonCode: null,
+    expectedEvidenceLength: 0,
+  });
+  await assertRepairLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 359,
+    repairOverrides: { modelDigest: "runtime-managed" },
+    expectedCode: "BROWSER_AI_BOUNDED_REPAIR_MODEL_MISMATCH",
+    expectedReasonCode: null,
+    expectedEvidenceLength: 0,
+  });
+
   const actual320Policy = {
     ...structuredClone(performancePolicy),
     reservedOutputTokens: 320,
@@ -2259,28 +2465,45 @@ test("bounded-prose-extension", async () => {
       request,
       decision,
       executionRequest: request,
-      initialResult: initial219,
+      initialResult: result(initial18, "stop"),
       eligibility,
       performancePolicy,
       requiredGenerativeExecutor: "webllm-worker",
       runPass: async (_passRequest, _passDecision, _progress, options) => {
         extensionLengthCalls += 1;
         if (extensionLengthCalls === 1) {
-          return result(shortRepair, "stop", `${request.requestId}:bounded-same-model-repair`);
+          return result(repair188, "stop", `${request.requestId}:bounded-same-model-repair`);
         }
         const seed = options.unapprovedContinuationSeed;
         assert.ok(seed);
-        return result(
-          suffix,
-          "length",
-          `${request.requestId}:bounded-prose-extension`,
-        );
+        return {
+          ...result(
+            novelExtensionSuffix,
+            "length",
+            `${request.requestId}:bounded-prose-extension`,
+          ),
+          completionTokens: 319,
+          rawOutputCharacters: novelExtensionSuffix.length,
+          normalizedOutputCharacters: novelExtensionSuffix.length,
+          performancePolicy: actual320Policy,
+        };
       },
     }),
-    (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
-      && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED"),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED")
+        && evidence.length === 3
+        && evidence[2].stage === "extension"
+        && evidence[2].finishReason === "length"
+        && evidence[2].completionTokens === 319;
+    },
   );
-  assert.equal(extensionLengthCalls, 2);
+  assert.equal(
+    extensionLengthCalls,
+    2,
+    "a length-at-cap extension must remain fail-closed rather than use repair prefix salvage",
+  );
 
   let extensionThrowCalls = 0;
   await assert.rejects(

@@ -126,6 +126,7 @@ const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
   "chapter.continue",
   "chapter.expand",
 ]);
+const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360;
 
 function browserProseMergeReasonCode(reason: string | null) {
   switch (reason) {
@@ -230,6 +231,51 @@ function attachBrowserRuntimeEvidence(
     code,
     browserRuntimeEvidence: evidence,
   });
+}
+
+function selectVerifiedBrowserLengthSafePrefix(input: {
+  completion: ReturnType<typeof assessBrowserProseCompletion>;
+  result: PlatformAIResult;
+  stageHardCap: number;
+  requiredGenerativeExecutor: VerifiedBrowserExecutor | undefined;
+}) {
+  const completion = input.completion;
+  if (
+    !completion.rawBudgetExceeded
+    || completion.contractSatisfied
+    || !completion.salvageableContent
+  ) return null;
+  const runtimePerformancePolicy = input.result.performancePolicy;
+  const runtimeCompletionTokenCap =
+    runtimePerformancePolicy?.policyVersion === "browser-ai-performance-v2"
+    && runtimePerformancePolicy.workerExecution === true
+    && runtimePerformancePolicy.serialGeneration === true
+    && Number.isSafeInteger(runtimePerformancePolicy.maxOutputTokens)
+    && runtimePerformancePolicy.maxOutputTokens >= 1
+    && runtimePerformancePolicy.maxOutputTokens
+      <= Math.floor(input.stageHardCap)
+      ? runtimePerformancePolicy.maxOutputTokens
+      : null;
+  const completionTokens = input.result.completionTokens;
+  if (!(
+    input.requiredGenerativeExecutor === "webllm-worker"
+    && input.result.executor === "webllm-worker"
+    && Boolean(input.result.modelId)
+    && isCryptographicClosedAIModelDigest(input.result.modelDigest)
+    && input.result.generationFinishReason === "length"
+    && runtimeCompletionTokenCap !== null
+    && Number.isSafeInteger(completionTokens)
+    && (completionTokens ?? 0) >= Math.max(1, runtimeCompletionTokenCap - 8)
+    && (completionTokens ?? 0) <= runtimeCompletionTokenCap
+    && completion.selectedEstimatedTokens <= runtimeCompletionTokenCap
+    && completion.observedCodePoints <= (completionTokens ?? 0) * 4 + 128
+  )) return null;
+  return {
+    ...completion,
+    content: completion.salvageableContent,
+    contractSatisfied: true,
+    failureCode: null,
+  };
 }
 
 export async function executeBrowserInitialPass(input: {
@@ -564,35 +610,13 @@ export async function executeBrowserBoundedQualityPasses(input: {
     chapterProseContract?.rawBudgetExceeded
     && !chapterProseContract.contractSatisfied
   ) {
-    const runtimePerformancePolicy = result.performancePolicy;
-    const runtimeCompletionTokenCap =
-      runtimePerformancePolicy?.policyVersion === "browser-ai-performance-v2"
-      && runtimePerformancePolicy.workerExecution === true
-      && runtimePerformancePolicy.serialGeneration === true
-      && Number.isSafeInteger(runtimePerformancePolicy.maxOutputTokens)
-      && runtimePerformancePolicy.maxOutputTokens >= 1
-      && runtimePerformancePolicy.maxOutputTokens
-        <= Math.floor(performancePolicy.reservedOutputTokens)
-        ? runtimePerformancePolicy.maxOutputTokens
-        : null;
-    const completionTokens = result.completionTokens;
-    const lengthLimitedPrefixAllowed = Boolean(
-      chapterProseContract.salvageableContent
-      && requiredGenerativeExecutor === "webllm-worker"
-      && result.executor === "webllm-worker"
-      && Boolean(result.modelId)
-      && isCryptographicClosedAIModelDigest(result.modelDigest)
-      && result.generationFinishReason === "length"
-      && runtimeCompletionTokenCap !== null
-      && Number.isSafeInteger(completionTokens)
-      && (completionTokens ?? 0) >= Math.max(1, (runtimeCompletionTokenCap ?? 0) - 8)
-      && (completionTokens ?? 0) <= (runtimeCompletionTokenCap ?? 0)
-      && chapterProseContract.selectedEstimatedTokens
-        <= (runtimeCompletionTokenCap ?? 0)
-      && chapterProseContract.observedCodePoints
-        <= (completionTokens ?? 0) * 4 + 128
-    );
-    if (!lengthLimitedPrefixAllowed || !chapterProseContract.salvageableContent) {
+    const selectedCompletion = selectVerifiedBrowserLengthSafePrefix({
+      completion: chapterProseContract,
+      result,
+      stageHardCap: performancePolicy.reservedOutputTokens,
+      requiredGenerativeExecutor,
+    });
+    if (!selectedCompletion) {
       throw Object.assign(explicitEscalationError(
         eligibility,
         "BROWSER_AI_QUALITY_INSUFFICIENT",
@@ -606,12 +630,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
         canonicalMutationCount: 0,
       });
     }
-    chapterProseContract = {
-      ...chapterProseContract,
-      content: chapterProseContract.salvageableContent,
-      contractSatisfied: true,
-      failureCode: null,
-    };
+    chapterProseContract = selectedCompletion;
   }
   if (
     chapterProseContract
@@ -693,7 +712,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
               Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
               0.92,
             ),
-            maxTokens: 360,
+            maxTokens: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
             repetitionPenalty: Math.max(
               input.request.generationOptions?.repetitionPenalty ?? 1.08,
               1.12,
@@ -715,7 +734,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     }
     assertVerifiedExecutor(repairResult, requiredGenerativeExecutor);
     assertSameVerifiedBrowserModel(initialResult, repairResult);
-    const repairCompletion = defaultChapterProseContract
+    let repairCompletion = defaultChapterProseContract
       ? assessBrowserProseCompletion(repairResult.content)
       : null;
     browserRuntimeEvidence.push(browserRuntimePassEvidence(
@@ -739,6 +758,44 @@ export async function executeBrowserBoundedQualityPasses(input: {
         fallbackAttempted: false,
         canonicalMutationCount: 0,
       });
+    }
+    if (repairCompletion?.safetyCode) {
+      throw Object.assign(explicitEscalationError(
+        eligibility,
+        "BROWSER_AI_QUALITY_INSUFFICIENT",
+      ), {
+        qualityDecision: "block",
+        qualityReasonCodes: ["QUALITY_TASK_FORM_MISMATCH"],
+        browserRuntimeEvidence,
+        fallbackAttempted: false,
+        canonicalMutationCount: 0,
+      });
+    }
+    if (
+      repairCompletion?.rawBudgetExceeded
+      && !repairCompletion.contractSatisfied
+    ) {
+      const selectedCompletion = selectVerifiedBrowserLengthSafePrefix({
+        completion: repairCompletion,
+        result: repairResult,
+        stageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+        requiredGenerativeExecutor,
+      });
+      if (!selectedCompletion) {
+        throw Object.assign(explicitEscalationError(
+          eligibility,
+          "BROWSER_AI_QUALITY_INSUFFICIENT",
+        ), {
+          qualityDecision: "block",
+          qualityReasonCodes: ["QUALITY_OUTPUT_TRUNCATED"],
+          observedHanCharacters: repairCompletion.observedHanCharacters,
+          requiredHanCharacters: [220, 320],
+          browserRuntimeEvidence,
+          fallbackAttempted: false,
+          canonicalMutationCount: 0,
+        });
+      }
+      repairCompletion = selectedCompletion;
     }
     const acceptedRepairContent = repairCompletion?.content ?? repairResult.content;
     let acceptedResult: PlatformAIResult = {
