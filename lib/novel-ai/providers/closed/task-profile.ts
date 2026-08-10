@@ -290,7 +290,7 @@ function outputContract(
       "<最終輸出契約>",
       "只輸出可直接接在目前章節末尾的繁體中文小說正文。",
       "第一句必須承接已核准資料中的最後可見動作、場景或人物反應；內容必須包含具體行動、感官變化，以及一次有後果的選擇或代價。",
-      "不得重貼、縮寫或改述現有章節；新正文至少達到作者要求篇幅的六成，並必須推進一個現有章節沒有的新事件。",
+      "篇幅依作者要求；未指定時輸出二百二十至三百二十個繁體中文字。不得重貼現有章節，並須推進新事件。",
       "禁止輸出問題清單、分析、建議、爭議環節、摘要、標題、編號、Markdown 或任何對作者說明。不得反問作者。",
       "若資料不足，仍以不違反既有資料的可見行動推進場景，不得改成評論。",
       "</最終輸出契約>",
@@ -405,7 +405,7 @@ export function buildClosedAIModelPrompt(input: {
       : "直接產生第一版完整候選；輸出前逐項核對作者要求，但不要描述內部推理。";
   const proseCompletionBudget = phase !== "critic"
     && DIRECT_PROSE_TASKS.has(input.profile.taskType)
-    ? `本輪最多生成 ${input.profile.options.num_predict} tokens。請預留至少 16 tokens 收束段落；寧可提前在完整句結束，也不得在句中截斷，最後一字必須是完整的中文句末標點。`
+    ? "本輪可用生成上限由實際執行策略決定。請預留至少 16 tokens 收束段落；寧可提前在完整句結束，也不得在句中截斷，最後一字必須是完整的中文句末標點。"
     : null;
   const finalOutputContract = outputContract(input.profile.taskType, phase);
   const prompt = [

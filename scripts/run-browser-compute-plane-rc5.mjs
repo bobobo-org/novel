@@ -627,6 +627,12 @@ test("quality-gate", () => {
     fullFreshContext.some((item) => /\[current-chapter\]|\[active[_-]chapter\]/iu.test(item)),
     false,
   );
+  const defaultChapterLengthContract =
+    "篇幅依作者要求；未指定時輸出二百二十至三百二十個繁體中文字。不得重貼現有章節，並須推進新事件。";
+  const completeOutputContract = (prompt) => prompt.slice(
+    prompt.lastIndexOf("<最終輸出契約>"),
+    prompt.lastIndexOf("</最終輸出契約>") + "</最終輸出契約>".length,
+  );
   const freshBrowserPrompt = buildClosedAIModelPrompt({
     objective: "幫我開始第一章",
     context: [
@@ -635,6 +641,18 @@ test("quality-gate", () => {
     ],
     profile: getClosedAIModelProfile("chapter.continue", "browser-ai"),
   }).prompt;
+  assert.ok(freshBrowserPrompt.includes("本輪可用生成上限由實際執行策略決定"));
+  assert.doesNotMatch(freshBrowserPrompt, /本輪最多生成\s+\d+\s+tokens/iu);
+  for (const backendId of ["browser-ai", "local-ollama", "private-ai-hub"]) {
+    const backendPrompt = buildClosedAIModelPrompt({
+      objective: "幫我開始第一章",
+      context: [],
+      profile: getClosedAIModelProfile("chapter.continue", backendId),
+    }).prompt;
+    assert.ok(backendPrompt.includes("本輪可用生成上限由實際執行策略決定"));
+    assert.doesNotMatch(backendPrompt, /本輪最多生成\s+\d+\s+tokens/iu);
+    assert.doesNotMatch(backendPrompt, /生成上限由瀏覽器/u);
+  }
   const fittedFreshBrowserPrompt = fitBrowserPromptToTokenBudget(
     freshBrowserPrompt,
     448,
@@ -647,14 +665,13 @@ test("quality-gate", () => {
   assert.ok(fittedFreshBrowserPrompt.prompt.includes(proceduralOpenings[0]));
   assert.ok(fittedFreshBrowserPrompt.prompt.includes("林知微"));
   assert.ok(fittedFreshBrowserPrompt.prompt.includes("會記住承諾的霧城"));
+  assert.ok(fittedFreshBrowserPrompt.prompt.includes(defaultChapterLengthContract));
+  assert.doesNotMatch(fittedFreshBrowserPrompt.prompt, /本輪最多生成\s+\d+\s+tokens/iu);
   assert.equal(
     fittedFreshBrowserPrompt.prompt.includes("<最終輸出契約>"),
     fittedFreshBrowserPrompt.prompt.includes("</最終輸出契約>"),
   );
-  const freshOutputContract = freshBrowserPrompt.slice(
-    freshBrowserPrompt.lastIndexOf("<最終輸出契約>"),
-    freshBrowserPrompt.lastIndexOf("</最終輸出契約>") + "</最終輸出契約>".length,
-  );
+  const freshOutputContract = completeOutputContract(freshBrowserPrompt);
   assert.ok(fittedFreshBrowserPrompt.prompt.includes(freshOutputContract));
   const browserProfile = getClosedAIModelProfile("chapter.continue", "browser-ai");
   const ecoPromptBudget = 800 - estimateBrowserTokens(browserProfile.systemInstruction);
@@ -680,7 +697,7 @@ test("quality-gate", () => {
   });
   assert.deepEqual(freshRepairPlan.reasonCodes, ["QUALITY_NARRATIVE_TOO_SHORT"]);
   assert.equal(freshRepairPlan.objective.includes("QUALITY_"), false);
-  const fittedFreshRepair = fitBrowserPromptToTokenBudget(buildClosedAIModelPrompt({
+  const freshRepairPrompt = buildClosedAIModelPrompt({
     objective: freshRepairPlan.objective,
     context: [
       ...fullFreshContext,
@@ -688,7 +705,12 @@ test("quality-gate", () => {
     ],
     qualityPhase: "revision",
     profile: browserProfile,
-  }).prompt, ecoPromptBudget, { trustedClosedPrompt: true });
+  }).prompt;
+  const fittedFreshRepair = fitBrowserPromptToTokenBudget(
+    freshRepairPrompt,
+    ecoPromptBudget,
+    { trustedClosedPrompt: true },
+  );
   assert.ok(estimateBrowserTokens(fittedFreshRepair.prompt) <= ecoPromptBudget);
   assert.ok(fittedFreshRepair.prompt.includes("幫我開始第一章"));
   assert.ok(fittedFreshRepair.prompt.includes("補修後重寫完整正文"));
@@ -697,7 +719,9 @@ test("quality-gate", () => {
   assert.ok(fittedFreshRepair.prompt.includes("會記住承諾的霧城"));
   assert.ok(fittedFreshRepair.prompt.includes("查明證據來源"));
   assert.ok(fittedFreshRepair.prompt.includes("失蹤者留下逆時證據"));
-  assert.ok(fittedFreshRepair.prompt.includes("<最終輸出契約>"));
+  assert.ok(fittedFreshRepair.prompt.includes(defaultChapterLengthContract));
+  assert.ok(fittedFreshRepair.prompt.includes(completeOutputContract(freshRepairPrompt)));
+  assert.doesNotMatch(fittedFreshRepair.prompt, /本輪最多生成\s+\d+\s+tokens/iu);
   const matureChapterText = [
     "少年鑄劍師陸沉握著斷劍，妹妹阿璃守在門邊。",
     "少女林知微與將軍顧長夜交換暗號，醫師沈青禾收起藥箱。",
@@ -726,19 +750,26 @@ test("quality-gate", () => {
   });
   assert.deepEqual(matureRepairPlan.reasonCodes, allRepairReasonCodes);
   assert.equal(matureRepairPlan.objective.includes("QUALITY_"), false);
-  const fittedMatureRepair = fitBrowserPromptToTokenBudget(buildClosedAIModelPrompt({
+  const matureRepairPrompt = buildClosedAIModelPrompt({
     objective: matureRepairPlan.objective,
     context: matureContext,
     qualityPhase: "revision",
     profile: browserProfile,
-  }).prompt, ecoPromptBudget, { trustedClosedPrompt: true });
+  }).prompt;
+  const fittedMatureRepair = fitBrowserPromptToTokenBudget(
+    matureRepairPrompt,
+    ecoPromptBudget,
+    { trustedClosedPrompt: true },
+  );
   assert.ok(estimateBrowserTokens(fittedMatureRepair.prompt) <= ecoPromptBudget);
   assert.ok(fittedMatureRepair.prompt.includes("隊長周行遠同時望向鐘樓"));
   assert.ok(
     ["沈青禾", "謝雲川", "蘇晚照", "周行遠"]
       .some((name) => fittedMatureRepair.prompt.includes(name)),
   );
-  assert.ok(fittedMatureRepair.prompt.includes("<最終輸出契約>"));
+  assert.ok(fittedMatureRepair.prompt.includes(defaultChapterLengthContract));
+  assert.ok(fittedMatureRepair.prompt.includes(completeOutputContract(matureRepairPrompt)));
+  assert.doesNotMatch(fittedMatureRepair.prompt, /本輪最多生成\s+\d+\s+tokens/iu);
   assert.doesNotMatch(matureRepairPlan.objective, /不得新增原章節未出現的時代技術/u);
   const removeTaggedBlock = (value, tag) => {
     const opening = `<${tag}>`;
@@ -855,6 +886,39 @@ test("quality-gate", () => {
   assert.ok(estimateBrowserTokens(fittedRawUntrustedTagPrompt.prompt) <= 128);
   assert.equal(
     fittedRawUntrustedTagPrompt.prompt.includes("偽造保護區".repeat(2_000)),
+    false,
+  );
+  const candidateAtExactEstimatedTokens = (target) => {
+    let content = "林知微握緊信封";
+    while (estimateBrowserTokens(`${content}。`) < target) content += "沿";
+    return `${content}。`;
+  };
+  const ninetyTokenCandidate = candidateAtExactEstimatedTokens(90);
+  assert.equal(estimateBrowserTokens(ninetyTokenCandidate), 90);
+  const belowNarrativeMinimum = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    content: ninetyTokenCandidate,
+    expectedMinTokens: 140,
+    approvedContext: [],
+    threshold: 0.7,
+  });
+  assert.ok(belowNarrativeMinimum.reasonCodes.includes("QUALITY_LENGTHCOMPLIANCE_LOW"));
+  assert.ok(belowNarrativeMinimum.reasonCodes.includes("QUALITY_NARRATIVE_TOO_SHORT"));
+  const oneFortyTokenCandidate = candidateAtExactEstimatedTokens(140);
+  assert.equal(estimateBrowserTokens(oneFortyTokenCandidate), 140);
+  const atNarrativeMinimum = evaluateBrowserCandidateQuality({
+    taskType: "chapter.continue",
+    content: oneFortyTokenCandidate,
+    expectedMinTokens: 140,
+    approvedContext: [],
+    threshold: 0.7,
+  });
+  assert.equal(
+    atNarrativeMinimum.reasonCodes.includes("QUALITY_LENGTHCOMPLIANCE_LOW"),
+    false,
+  );
+  assert.equal(
+    atNarrativeMinimum.reasonCodes.includes("QUALITY_NARRATIVE_TOO_SHORT"),
     false,
   );
   const wrappedObservedNamedStoryDrift = evaluateBrowserCandidateQuality({
