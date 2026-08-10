@@ -63,6 +63,7 @@ import {
   type ClosedAgentToolExecutionEvidence,
   type ClosedBackendExecutionResult,
 } from "./types";
+import { isClosedAgentBrowserRuntimeDiagnosticCode } from "./safe-runtime-diagnostics";
 
 type ClosedAgentOSOptions = {
   backends?: ClosedAIBackendAdapter[];
@@ -263,16 +264,19 @@ export function closedAgentQualityReasonCodes(error: unknown): string[] {
     qualityReasonCodes?: unknown;
     reasonCodes?: unknown;
     blockingCodes?: unknown;
+    causeCode?: unknown;
   };
   const values = [
     ...(Array.isArray(candidate.qualityReasonCodes) ? candidate.qualityReasonCodes : []),
     ...(Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : []),
     ...(Array.isArray(candidate.blockingCodes) ? candidate.blockingCodes : []),
+    candidate.causeCode,
   ];
   return [...new Set(values
     .filter((value): value is string => typeof value === "string")
     .filter((value) => CLOSED_AGENT_QUALITY_REASON_CODES.has(value)
-      || CLOSED_AGENT_EVALUATOR_BLOCKING_CODES.has(value)))]
+      || CLOSED_AGENT_EVALUATOR_BLOCKING_CODES.has(value)
+      || isClosedAgentBrowserRuntimeDiagnosticCode(value)))]
     .slice(0, 8);
 }
 

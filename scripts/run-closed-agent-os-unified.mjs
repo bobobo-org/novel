@@ -31,6 +31,10 @@ import {
   capabilityStatus,
   resolveCapabilityCatalog,
 } from "../lib/novel-ai/capabilities/index.ts";
+import {
+  CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
+  safeClosedAgentBrowserRuntimeCauseCode,
+} from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 
 const tests = [];
 const results = [];
@@ -69,7 +73,21 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     qualityReasonCodes: ["QUALITY_ATTACKER_FAKE"],
     reasonCodes: ["QUALITY_SECRET_VALUE"],
     blockingCodes: ["CANDIDATE_ATTACKER_FAKE"],
+    causeCode: "BROWSER_WEBLLM_ATTACKER_FAKE",
   }), []);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    causeCode: "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  }), ["BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED"]);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    causeCode: "private prompt and output",
+  }), []);
+  for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {
+    assert.equal(safeClosedAgentBrowserRuntimeCauseCode({ code }), code);
+  }
+  assert.equal(
+    safeClosedAgentBrowserRuntimeCauseCode({ code: "BROWSER_WEBLLM_ATTACKER_FAKE" }),
+    "BROWSER_WEBLLM_GENERATION_FAILED",
+  );
 });
 
 function namespace(overrides = {}) {

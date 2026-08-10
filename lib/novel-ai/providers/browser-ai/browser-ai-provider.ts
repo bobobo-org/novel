@@ -9,6 +9,7 @@ import {
 } from "./browser-task-model";
 import { taskComplexity } from "../../closed-agent-os/backend-manifest";
 import { isCryptographicClosedAIModelDigest } from "../../closed-agent-os/types";
+import { safeClosedAgentBrowserRuntimeCauseCode } from "../../closed-agent-os/safe-runtime-diagnostics";
 import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
@@ -666,10 +667,7 @@ export async function runBrowserAI(
     } catch (error) {
       cancelBrowserWebLLMGeneration();
       if (isAbortError(error, request.signal)) throw error;
-      const causeCode = String(
-        (error as { code?: unknown } | null)?.code
-        ?? "BROWSER_WEBLLM_GENERATION_FAILED",
-      );
+      const causeCode = safeClosedAgentBrowserRuntimeCauseCode(error);
       if (options.requiredGenerativeExecutor === "webllm-worker") {
         throw Object.assign(
           new Error("The required WebLLM worker failed; no alternate executor was used."),

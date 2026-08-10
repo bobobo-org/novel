@@ -6,10 +6,6 @@ import type {
 import { sha256Hex } from "../../closed-ai-cache";
 import { isCryptographicClosedAIModelDigest } from "../../closed-agent-os/types";
 import {
-  currentChapterContext,
-  extractNarrativeCharacterAnchors,
-} from "../closed/continuity-anchors";
-import {
   BROWSER_LANGUAGE_MODEL_ID,
   detectBrowserAI,
   getBrowserAIInferenceProof,
@@ -110,6 +106,20 @@ const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
   "QUALITY_WORLD_REGISTER_DRIFT",
   "QUALITY_OUTPUT_TRUNCATED",
 ]);
+
+export function buildBrowserBoundedSameModelRepairPlan(input: {
+  authorObjective: string;
+  reasonCodes: string[];
+}) {
+  return {
+    objective: [
+      input.authorObjective.trim(),
+      "補修後重寫完整正文。",
+    ].filter(Boolean).join("\n"),
+    reasonCodes: [...new Set(input.reasonCodes.filter((reason) =>
+      BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason)))],
+  };
+}
 
 function minimumCandidateTokens(
   taskType: PlatformAIRequest["taskType"],
@@ -517,22 +527,15 @@ export async function executeBrowserCompute(input: {
   ) {
     const initialResult = result;
     const initialDigest = await sha256Hex(initialResult.content);
-    const characterAnchors = extractNarrativeCharacterAnchors(
-      currentChapterContext(executionRequest.context) ?? "",
-    );
-    const characterAnchorRequirement = characterAnchors.length
-      ? `角色姓名硬錨點：${characterAnchors.join("、")}。正文前八十字內必須原樣出現至少一名，且不得用新姓名替換主角。`
-      : "必須原樣保留目前章節既有的人物、地點或核心物件，不得切換成另一篇故事。";
+    const repairPlan = buildBrowserBoundedSameModelRepairPlan({
+      authorObjective: input.request.input,
+      reasonCodes: repairReasonCodes,
+    });
     const repairResult = await runBrowserAI(
       {
         ...executionRequest,
         requestId: `${input.request.requestId}:bounded-same-model-repair`,
-        input: [
-          input.request.input,
-          "前一版未通過續寫品質檢查，請重新輸出一份完整替代正文。",
-          characterAnchorRequirement,
-          "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；不得新增原章節未出現的時代技術、交通、職業制度或地名；使用既有人物與場景，至少推進一個新事件並造成一項新後果；第一句不得重寫章節開頭；輸出二百二十至三百二十個繁體中文字，並以完整句號或引號收尾。",
-        ].join("\n"),
+        input: repairPlan.objective,
         qualityPhase: "revision",
         workingMaterials: [],
         generationOptions: {
@@ -581,7 +584,7 @@ export async function executeBrowserCompute(input: {
         repairResult.runtimeStats,
         "bounded-same-model-repair=1",
         `initial-output-digest=${initialDigest}`,
-        `initial-quality-reasons=${repairReasonCodes.join(",")}`,
+        `initial-quality-reasons=${repairPlan.reasonCodes.join(",")}`,
         "intermediate-content=pipeline-memory-only",
       ].filter(Boolean).join("; "),
       provenance: {

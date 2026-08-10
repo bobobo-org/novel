@@ -1,0 +1,31 @@
+export const CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES = Object.freeze([
+  "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING",
+  "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  "BROWSER_WEBLLM_EMPTY_RESPONSE",
+  "BROWSER_WEBLLM_MODEL_NOT_INSTALLED",
+  "BROWSER_WEBLLM_MODEL_NOT_SELECTED",
+  "BROWSER_GPU_QUEUE_BACKPRESSURE",
+  "BROWSER_GPU_MEMORY_BUDGET_EXCEEDED",
+  "BROWSER_GPU_JOB_TIMEOUT",
+  "BROWSER_GPU_RECOVERY_FAILED",
+  "BROWSER_WEBLLM_GPU_DEVICE_LOST",
+  "BROWSER_WEBLLM_WORKER_CRASHED",
+  "BROWSER_WEBLLM_WORKER_MESSAGE_FAILED",
+  "BROWSER_WEBLLM_GENERATION_FAILED",
+] as const);
+
+const CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODE_SET = new Set<string>(
+  CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
+);
+
+export function isClosedAgentBrowserRuntimeDiagnosticCode(value: unknown): value is string {
+  return typeof value === "string"
+    && CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODE_SET.has(value);
+}
+
+export function safeClosedAgentBrowserRuntimeCauseCode(error: unknown) {
+  const code = (error as { code?: unknown } | null)?.code;
+  return isClosedAgentBrowserRuntimeDiagnosticCode(code)
+    ? code
+    : "BROWSER_WEBLLM_GENERATION_FAILED";
+}

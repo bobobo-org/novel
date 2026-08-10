@@ -29,6 +29,9 @@ import {
   BROWSER_WEBLLM_MODELS,
   detectBrowserWebLLMDevice,
 } from "../lib/novel-ai/providers/browser-ai/webllm-model-registry.ts";
+import {
+  CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
+} from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 
 const mode = process.argv[2] ?? "all";
 const results = [];
@@ -471,10 +474,12 @@ await test("bootstrap-immediate-cancel-retry", async () => {
 await test("candidate-executor-contract", async () => {
   const snapshot = backend("browser-ai");
   let executionContent = null;
+  let executionError = null;
   const backendAdapter = {
     id: "browser-ai",
     snapshot: async () => structuredClone(snapshot),
     execute: async (input) => {
+      if (executionError) throw executionError;
       const content = executionContent ?? [
         "暴雨停歇後，檔案館的鐵門終於打開。",
         "明檀先核對已核准的地圖與人物關係，再沿著東側階梯前進；她沒有改寫既有設定，也沒有把任何作品資料送出裝置。",
@@ -576,6 +581,31 @@ await test("candidate-executor-contract", async () => {
       "CANDIDATE_ATTACKER_FAKE",
     ],
   }), ["CANDIDATE_SIMPLIFIED_CHINESE_REMAINS"]);
+
+  executionContent = null;
+  executionError = Object.assign(
+    new Error("private prompt and output must not reach progress"),
+    {
+      code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+      causeCode: "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+    },
+  );
+  const runtimeFailureProgress = [];
+  await assert.rejects(
+    os.execute({
+      ...request,
+      taskId: "rc6-2-browser-runtime-safe-progress",
+      objective: "另一段敏感作者內容。",
+      onProgress: (event) => runtimeFailureProgress.push(event),
+    }),
+    (error) => error?.code === "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+  );
+  assert.ok(runtimeFailureProgress.some((event) => event.label.includes(
+    "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  )));
+  assert.equal(runtimeFailureProgress.some((event) => event.label.includes(
+    "private prompt and output",
+  )), false);
 });
 
 await test("model-identity-mismatch", async () => {
@@ -793,6 +823,11 @@ await test("source-truth", async () => {
   assert.match(browserGate, /installSanitizedQualityObserver/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
+  assert.match(browserGate, /for \(const code of allowed\)/u);
+  assert.doesNotMatch(browserGate, /const codePattern/u);
+  for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {
+    assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
+  }
   assert.match(browserGate, /assertMaliciousDomDiagnosticsAreRejected/u);
   assert.match(browserGate, /QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE/u);
   assert.doesNotMatch(browserGate, /error\.message\.slice|String\(error\)\.slice/u);

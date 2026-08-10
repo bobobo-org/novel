@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  buildBrowserBoundedSameModelRepairPlan,
   executeBrowserDeterministicOperation,
 } from "../lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts";
 import {
@@ -264,7 +265,10 @@ test("compute-orchestrator", async () => {
   assert.match(orchestrator, /input: input\.request\.input/u);
   assert.match(orchestrator, /bounded-same-model-repair/u);
   assert.match(orchestrator, /BOUNDED_SAME_MODEL_REPAIR_REASONS/u);
-  assert.match(orchestrator, /角色姓名硬錨點/u);
+  assert.match(orchestrator, /buildBrowserBoundedSameModelRepairPlan/u);
+  assert.match(orchestrator, /補修後重寫完整正文/u);
+  assert.match(orchestrator, /initial-quality-reasons=\$\{repairPlan\.reasonCodes\.join/u);
+  assert.doesNotMatch(orchestrator, /補修原因：\$\{repairReasonCodes/u);
   assert.match(orchestrator, /workingMaterials: \[\]/u);
   assert.doesNotMatch(orchestrator, /text: compactPipelineMaterial\(initialResult\.content/u);
   assert.match(orchestrator, /maxTokens: 360/u);
@@ -652,6 +656,90 @@ test("quality-gate", () => {
     freshBrowserPrompt.lastIndexOf("</最終輸出契約>") + "</最終輸出契約>".length,
   );
   assert.ok(fittedFreshBrowserPrompt.prompt.includes(freshOutputContract));
+  const browserProfile = getClosedAIModelProfile("chapter.continue", "browser-ai");
+  const ecoPromptBudget = 800 - estimateBrowserTokens(browserProfile.systemInstruction);
+  assert.equal(ecoPromptBudget, 448);
+  const legacyRepairObjective = [
+    "幫我開始第一章",
+    "前一版未通過續寫品質檢查，請重新輸出一份完整替代正文。",
+    "必須原樣保留目前章節既有的人物、地點或核心物件，不得切換成另一篇故事。",
+    "硬性要求：只寫目前章節最後一句之後的新情節；不得摘錄、縮寫或重排原章節；不得新增原章節未出現的時代技術、交通、職業制度或地名；使用既有人物與場景，至少推進一個新事件並造成一項新後果；第一句不得重寫章節開頭；輸出二百二十至三百二十個繁體中文字，並以完整句號或引號收尾。",
+  ].join("\n");
+  assert.throws(
+    () => fitBrowserPromptToTokenBudget(buildClosedAIModelPrompt({
+      objective: legacyRepairObjective,
+      context: [],
+      qualityPhase: "revision",
+      profile: browserProfile,
+    }).prompt, ecoPromptBudget, { trustedClosedPrompt: true }),
+    (error) => error?.code === "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  );
+  const freshRepairPlan = buildBrowserBoundedSameModelRepairPlan({
+    authorObjective: "幫我開始第一章",
+    reasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT", "QUALITY_ATTACKER_FAKE"],
+  });
+  assert.deepEqual(freshRepairPlan.reasonCodes, ["QUALITY_NARRATIVE_TOO_SHORT"]);
+  assert.equal(freshRepairPlan.objective.includes("QUALITY_"), false);
+  const fittedFreshRepair = fitBrowserPromptToTokenBudget(buildClosedAIModelPrompt({
+    objective: freshRepairPlan.objective,
+    context: [
+      ...fullFreshContext,
+      `[story-bible]\n${"低優先補充核准資料。".repeat(2_000)}`,
+    ],
+    qualityPhase: "revision",
+    profile: browserProfile,
+  }).prompt, ecoPromptBudget, { trustedClosedPrompt: true });
+  assert.ok(estimateBrowserTokens(fittedFreshRepair.prompt) <= ecoPromptBudget);
+  assert.ok(fittedFreshRepair.prompt.includes("幫我開始第一章"));
+  assert.ok(fittedFreshRepair.prompt.includes("補修後重寫完整正文"));
+  assert.ok(fittedFreshRepair.prompt.includes(proceduralOpenings[0]));
+  assert.ok(fittedFreshRepair.prompt.includes("林知微"));
+  assert.ok(fittedFreshRepair.prompt.includes("會記住承諾的霧城"));
+  assert.ok(fittedFreshRepair.prompt.includes("查明證據來源"));
+  assert.ok(fittedFreshRepair.prompt.includes("失蹤者留下逆時證據"));
+  assert.ok(fittedFreshRepair.prompt.includes("<最終輸出契約>"));
+  const matureChapterText = [
+    "少年鑄劍師陸沉握著斷劍，妹妹阿璃守在門邊。",
+    "少女林知微與將軍顧長夜交換暗號，醫師沈青禾收起藥箱。",
+    "師兄謝雲川、師姐蘇晚照與隊長周行遠同時望向鐘樓。",
+  ].join("");
+  const matureContext = serializeClosedActorContext([{
+    id: "chapter-active:mature-repair",
+    kind: "canon",
+    text: `[ACTIVE_CHAPTER]\n${JSON.stringify({
+      title: "第十二章",
+      content: `${"核准章節內容。".repeat(1_000)}${matureChapterText}`,
+      summary: "八名角色在鐘樓前會合。",
+    })}`,
+  }], "chapter.continue");
+  const allRepairReasonCodes = [
+    "QUALITY_NARRATIVE_TOO_SHORT",
+    "QUALITY_CONTEXT_COPY_EXCESSIVE",
+    "QUALITY_NARRATIVE_PROGRESS_MISSING",
+    "QUALITY_CONTEXT_CHARACTER_MISSING",
+    "QUALITY_WORLD_REGISTER_DRIFT",
+    "QUALITY_OUTPUT_TRUNCATED",
+  ];
+  const matureRepairPlan = buildBrowserBoundedSameModelRepairPlan({
+    authorObjective: "續寫鐘樓前的選擇。",
+    reasonCodes: allRepairReasonCodes,
+  });
+  assert.deepEqual(matureRepairPlan.reasonCodes, allRepairReasonCodes);
+  assert.equal(matureRepairPlan.objective.includes("QUALITY_"), false);
+  const fittedMatureRepair = fitBrowserPromptToTokenBudget(buildClosedAIModelPrompt({
+    objective: matureRepairPlan.objective,
+    context: matureContext,
+    qualityPhase: "revision",
+    profile: browserProfile,
+  }).prompt, ecoPromptBudget, { trustedClosedPrompt: true });
+  assert.ok(estimateBrowserTokens(fittedMatureRepair.prompt) <= ecoPromptBudget);
+  assert.ok(fittedMatureRepair.prompt.includes("隊長周行遠同時望向鐘樓"));
+  assert.ok(
+    ["沈青禾", "謝雲川", "蘇晚照", "周行遠"]
+      .some((name) => fittedMatureRepair.prompt.includes(name)),
+  );
+  assert.ok(fittedMatureRepair.prompt.includes("<最終輸出契約>"));
+  assert.doesNotMatch(matureRepairPlan.objective, /不得新增原章節未出現的時代技術/u);
   const removeTaggedBlock = (value, tag) => {
     const opening = `<${tag}>`;
     const closing = `</${tag}>`;

@@ -55,6 +55,19 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "CANDIDATE_ONLY_CONTRACT_MISSING",
   "CANDIDATE_DEVICE_BOUNDARY_VIOLATION",
   "ABC_CHOICES_INVALID_STRUCTURE",
+  "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING",
+  "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  "BROWSER_WEBLLM_EMPTY_RESPONSE",
+  "BROWSER_WEBLLM_MODEL_NOT_INSTALLED",
+  "BROWSER_WEBLLM_MODEL_NOT_SELECTED",
+  "BROWSER_GPU_QUEUE_BACKPRESSURE",
+  "BROWSER_GPU_MEMORY_BUDGET_EXCEEDED",
+  "BROWSER_GPU_JOB_TIMEOUT",
+  "BROWSER_GPU_RECOVERY_FAILED",
+  "BROWSER_WEBLLM_GPU_DEVICE_LOST",
+  "BROWSER_WEBLLM_WORKER_CRASHED",
+  "BROWSER_WEBLLM_WORKER_MESSAGE_FAILED",
+  "BROWSER_WEBLLM_GENERATION_FAILED",
 ]);
 const SAFE_DIAGNOSTIC_CODE_SET = new Set(SAFE_DIAGNOSTIC_CODES);
 const SAFE_FAILURE_CODES = new Set([
@@ -193,12 +206,12 @@ async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
 async function installSanitizedQualityObserver() {
   await page.evaluate((allowedCodes) => {
     const allowed = new Set(allowedCodes);
-    const codePattern = /(?:QUALITY|CANDIDATE)_[A-Z0-9_]+|CHARACTER_KNOWLEDGE_BOUNDARY_LEAK|ABC_CHOICES_INVALID_STRUCTURE/gu;
     const codes = new Set();
     const collect = () => {
       for (const node of document.querySelectorAll('[role="status"]')) {
-        for (const code of node.textContent?.match(codePattern) ?? []) {
-          if (allowed.has(code) && codes.size < 12) codes.add(code);
+        const text = node.textContent ?? "";
+        for (const code of allowed) {
+          if (text.includes(code) && codes.size < 12) codes.add(code);
         }
       }
     };
@@ -225,7 +238,7 @@ async function assertMaliciousDomDiagnosticsAreRejected() {
     const node = document.createElement("div");
     node.hidden = true;
     node.setAttribute("role", "status");
-    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE";
+    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE";
     document.body.append(node);
     await new Promise((resolve) => setTimeout(resolve, 0));
     node.remove();
