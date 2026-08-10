@@ -517,7 +517,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       authorObjective: input.request.input,
     }),
   );
-  const chapterProseContract = defaultChapterProseContract
+  let chapterProseContract = defaultChapterProseContract
     ? assessBrowserProseCompletion(result.content)
     : null;
   const browserRuntimeEvidence: ClosedAgentBrowserRuntimeEvidence[] = [
@@ -551,6 +551,82 @@ export async function executeBrowserBoundedQualityPasses(input: {
     ), {
       qualityDecision: "block",
       qualityReasonCodes: ["QUALITY_TASK_FORM_MISMATCH"],
+      browserRuntimeEvidence,
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    });
+  }
+  // The provider inference proof attests the complete raw model generation.
+  // This separate boundary selects the only text that may become an
+  // authoritative candidate/receipt/ledger value; it does not rewrite or
+  // reinterpret the raw-generation proof digest.
+  if (
+    chapterProseContract?.rawBudgetExceeded
+    && !chapterProseContract.contractSatisfied
+  ) {
+    const runtimePerformancePolicy = result.performancePolicy;
+    const runtimeCompletionTokenCap =
+      runtimePerformancePolicy?.policyVersion === "browser-ai-performance-v2"
+      && runtimePerformancePolicy.workerExecution === true
+      && runtimePerformancePolicy.serialGeneration === true
+      && Number.isSafeInteger(runtimePerformancePolicy.maxOutputTokens)
+      && runtimePerformancePolicy.maxOutputTokens >= 1
+      && runtimePerformancePolicy.maxOutputTokens
+        <= Math.floor(performancePolicy.reservedOutputTokens)
+        ? runtimePerformancePolicy.maxOutputTokens
+        : null;
+    const completionTokens = result.completionTokens;
+    const lengthLimitedPrefixAllowed = Boolean(
+      chapterProseContract.salvageableContent
+      && requiredGenerativeExecutor === "webllm-worker"
+      && result.executor === "webllm-worker"
+      && Boolean(result.modelId)
+      && isCryptographicClosedAIModelDigest(result.modelDigest)
+      && result.generationFinishReason === "length"
+      && runtimeCompletionTokenCap !== null
+      && Number.isSafeInteger(completionTokens)
+      && (completionTokens ?? 0) >= Math.max(1, (runtimeCompletionTokenCap ?? 0) - 8)
+      && (completionTokens ?? 0) <= (runtimeCompletionTokenCap ?? 0)
+      && chapterProseContract.selectedEstimatedTokens
+        <= (runtimeCompletionTokenCap ?? 0)
+      && chapterProseContract.observedCodePoints
+        <= (completionTokens ?? 0) * 4 + 128
+    );
+    if (!lengthLimitedPrefixAllowed || !chapterProseContract.salvageableContent) {
+      throw Object.assign(explicitEscalationError(
+        eligibility,
+        "BROWSER_AI_QUALITY_INSUFFICIENT",
+      ), {
+        qualityDecision: "block",
+        qualityReasonCodes: ["QUALITY_OUTPUT_TRUNCATED"],
+        observedHanCharacters: chapterProseContract.observedHanCharacters,
+        requiredHanCharacters: [220, 320],
+        browserRuntimeEvidence,
+        fallbackAttempted: false,
+        canonicalMutationCount: 0,
+      });
+    }
+    chapterProseContract = {
+      ...chapterProseContract,
+      content: chapterProseContract.salvageableContent,
+      contractSatisfied: true,
+      failureCode: null,
+    };
+  }
+  if (
+    chapterProseContract
+    && !chapterProseContract.contractSatisfied
+    && result.generationFinishReason === "length"
+    && chapterProseContract.observedHanCharacters >= 220
+  ) {
+    throw Object.assign(explicitEscalationError(
+      eligibility,
+      "BROWSER_AI_QUALITY_INSUFFICIENT",
+    ), {
+      qualityDecision: "block",
+      qualityReasonCodes: ["QUALITY_OUTPUT_TRUNCATED"],
+      observedHanCharacters: chapterProseContract.observedHanCharacters,
+      requiredHanCharacters: [220, 320],
       browserRuntimeEvidence,
       fallbackAttempted: false,
       canonicalMutationCount: 0,

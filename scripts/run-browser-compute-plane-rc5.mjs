@@ -83,6 +83,20 @@ import {
 import { resolveClosedAIRoute } from "../lib/novel-ai/closed-agent-os/router.ts";
 import { closedAgentBrowserRuntimeEvidence } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 import {
+  ClosedAgentOS,
+  MemoryClosedAgentStateRepository,
+} from "../lib/novel-ai/closed-agent-os/index.ts";
+import {
+  ClosedAICache,
+  MemoryClosedAICacheRepository,
+  sha256Hex,
+} from "../lib/novel-ai/closed-ai-cache/index.ts";
+import {
+  ApprovalSigner,
+  MemoryVerifiableLedgerRepository,
+  VerifiableLedger,
+} from "../lib/novel-ai/verifiable-ledger/index.ts";
+import {
   boundedLocalQualityRepairRequest,
   shouldRunBoundedLocalQualityRepair,
 } from "../lib/novel-ai/closed-agent-os/backends.ts";
@@ -826,8 +840,65 @@ test("quality-gate", () => {
   assert.equal(assessBrowserProseCompletion(prose220).contractSatisfied, true);
   assert.equal(assessBrowserProseCompletion(prose320).contractSatisfied, true);
   assert.equal(
-    assessBrowserProseCompletion(`${"霧".repeat(220)}。」』`).content.endsWith("。」』"),
+    assessBrowserProseCompletion(`「『（【${"霧".repeat(220)}。】）』」`).content.endsWith("。】）』」"),
     true,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`「${"霧".repeat(220)}。`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`${"霧".repeat(220)}。」』`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`「『${"霧".repeat(220)}。」』`).contractSatisfied,
+    false,
+  );
+  const bookTitlePrefix = assessBrowserProseCompletion(
+    `《${"霧".repeat(260)}。》${"風".repeat(20)}`,
+  );
+  assert.equal(bookTitlePrefix.contractSatisfied, true);
+  assert.ok(bookTitlePrefix.content.endsWith("。》"));
+  const asciiParenthesisPrefix = assessBrowserProseCompletion(
+    `(${"霧".repeat(260)}。)${"風".repeat(20)}`,
+  );
+  assert.equal(asciiParenthesisPrefix.contractSatisfied, true);
+  assert.ok(asciiParenthesisPrefix.content.endsWith("。)"));
+  const asciiDoubleQuotePrefix = assessBrowserProseCompletion(
+    `"${"霧".repeat(260)}。"${"風".repeat(20)}`,
+  );
+  assert.equal(asciiDoubleQuotePrefix.contractSatisfied, true);
+  assert.ok(asciiDoubleQuotePrefix.content.endsWith("。\""));
+  const latinApostrophe = assessBrowserProseCompletion(
+    `O’Connor，${"霧".repeat(220)}。`,
+  );
+  assert.equal(latinApostrophe.contractSatisfied, true);
+  assert.ok(latinApostrophe.content.startsWith("O’Connor，"));
+  const quotedLatinApostrophe = assessBrowserProseCompletion(
+    `‘O’Connor，${"霧".repeat(220)}。’`,
+  );
+  assert.equal(quotedLatinApostrophe.contractSatisfied, true);
+  assert.ok(quotedLatinApostrophe.content.startsWith("‘O’Connor，"));
+  assert.equal(
+    assessBrowserProseCompletion(`《${"霧".repeat(220)}。`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`${"霧".repeat(220)}。》`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`(${"霧".repeat(220)}。]`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`"${"霧".repeat(220)}。`).contractSatisfied,
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(`${"霧".repeat(220)}。"`).contractSatisfied,
+    false,
   );
   assert.equal(assessBrowserProseCompletion(`${"霧".repeat(321)}。`).contractSatisfied, false);
   assert.equal(assessBrowserProseCompletion("霧".repeat(220)).contractSatisfied, false);
@@ -882,9 +953,55 @@ test("quality-gate", () => {
   assert.equal(assessBrowserProseCompletion(
     `${"霧".repeat(220)}base-digest=${"a".repeat(64)}。`,
   ).safetyCode, "internal-envelope");
-  assert.equal(assessBrowserProseCompletion(
+  const overBudgetCompletion = assessBrowserProseCompletion(
     `${"A".repeat(700)}${"霧".repeat(220)}。`,
-  ).safetyCode, "output-budget-exceeded");
+  );
+  assert.equal(overBudgetCompletion.safetyCode, null);
+  assert.equal(overBudgetCompletion.failureCode, "output-budget-exceeded");
+  const safeLengthPrefix = `${"霧".repeat(260)}。`;
+  const safeLengthRawBase = `${safeLengthPrefix}${"風".repeat(307)}`;
+  const safeLengthRaw = `${safeLengthRawBase}${"A".repeat(657 - safeLengthRawBase.length)}`;
+  assert.equal(safeLengthRaw.length, 657);
+  assert.equal(countBrowserProseHanCharacters(safeLengthRaw), 567);
+  const salvagedLengthCompletion = assessBrowserProseCompletion(safeLengthRaw);
+  assert.equal(salvagedLengthCompletion.contractSatisfied, false);
+  assert.equal(salvagedLengthCompletion.content, null);
+  assert.equal(salvagedLengthCompletion.salvageableContent, safeLengthPrefix);
+  assert.equal(salvagedLengthCompletion.rawBudgetExceeded, true);
+  assert.equal(salvagedLengthCompletion.failureCode, "output-budget-exceeded");
+  assert.equal(salvagedLengthCompletion.selectedHanCharacters, 260);
+  assert.ok(salvagedLengthCompletion.selectedEstimatedTokens <= 384);
+  assert.ok(salvagedLengthCompletion.selectedCodePoints <= 640);
+  assert.ok(salvagedLengthCompletion.observedEstimatedTokens > 384);
+  assert.equal(salvagedLengthCompletion.observedCodePoints, 657);
+  for (const [marker, expectedSafetyCode] of [
+    ["<|im_end|>", "control-token"],
+    ["<assistant>", "role-envelope"],
+    ["<作者目標>", "internal-envelope"],
+  ]) {
+    const maliciousLengthRawBase = `${safeLengthPrefix}${marker}${"風".repeat(
+      567
+        - countBrowserProseHanCharacters(safeLengthPrefix)
+        - countBrowserProseHanCharacters(marker),
+    )}`;
+    const maliciousLengthRaw = `${maliciousLengthRawBase}${"A".repeat(
+      657 - maliciousLengthRawBase.length,
+    )}`;
+    assert.equal(maliciousLengthRaw.length, 657);
+    assert.equal(countBrowserProseHanCharacters(maliciousLengthRaw), 567);
+    assert.equal(
+      assessBrowserProseCompletion(maliciousLengthRaw).safetyCode,
+      expectedSafetyCode,
+    );
+  }
+  const noBoundedSentence = `${"霧".repeat(567)}${"A".repeat(89)}。`;
+  assert.equal(noBoundedSentence.length, 657);
+  assert.equal(assessBrowserProseCompletion(noBoundedSentence).contractSatisfied, false);
+  assert.equal(assessBrowserProseCompletion(noBoundedSentence).salvageableContent, null);
+  assert.equal(
+    assessBrowserProseCompletion(noBoundedSentence).failureCode,
+    "output-budget-exceeded",
+  );
 
   const shortRepair = `${"霧".repeat(80)}。`;
   const continuationSeed = buildBrowserProseContinuationSeed({
@@ -942,11 +1059,11 @@ test("quality-gate", () => {
   assert.equal(assessBrowserProseCompletion(mergedContinuation.content).selectedHanCharacters, 220);
   const ellipsisContinuation = mergeBrowserProseContinuation({
     baseContent: shortRepair,
-    continuationContent: `${"風".repeat(requiredSuffixHan)}……」』）】`,
+    continuationContent: `「『（【${"風".repeat(requiredSuffixHan)}……】）』」`,
     anchor: continuationSeed.anchor,
   });
   assert.equal(ellipsisContinuation.contractSatisfied, true);
-  assert.ok(ellipsisContinuation.content.endsWith("……」』）】"));
+  assert.ok(ellipsisContinuation.content.endsWith("……】）』」"));
   assert.equal(mergeBrowserProseContinuation({
     baseContent: shortRepair,
     continuationContent: `${"風".repeat(requiredSuffixHan)}。`,
@@ -1509,6 +1626,7 @@ test("bounded-prose-extension", async () => {
     completionTokens: 80,
     rawOutputCharacters: content.length,
     normalizedOutputCharacters: content.length,
+    performancePolicy: structuredClone(performancePolicy),
   });
   await assert.rejects(
     () => executeBrowserInitialPass({
@@ -1680,6 +1798,336 @@ test("bounded-prose-extension", async () => {
   assert.equal(exactTrace.result.externalRequest, false);
   assert.equal(exactTrace.result.dataLeavesDevice, false);
   assert.equal(assessBrowserProseCompletion(exactTrace.result.content).contractSatisfied, true);
+
+  const lengthPrefix = exactHanPrefix(acceptedProse.repeat(3), 260);
+  const productionLengthRaw = (marker = "") => {
+    const rawBase = `${lengthPrefix}${marker}${"風".repeat(
+      567 - countBrowserProseHanCharacters(lengthPrefix) - countBrowserProseHanCharacters(marker),
+    )}`;
+    assert.ok(rawBase.length <= 657);
+    const raw = `${rawBase}${"A".repeat(657 - rawBase.length)}`;
+    assert.equal(raw.length, 657);
+    assert.equal(countBrowserProseHanCharacters(raw), 567);
+    return raw;
+  };
+  assert.equal(performancePolicy.reservedOutputTokens, 384);
+  const discardedTailSentinel = "DISCARDED_TAIL_SENTINEL_X9";
+  const safeLengthRaw = productionLengthRaw(discardedTailSentinel);
+  const safeLengthInitial = {
+    ...result(safeLengthRaw, "length"),
+    completionTokens: 383,
+    rawOutputCharacters: 657,
+    normalizedOutputCharacters: 657,
+  };
+  const salvagedLongLength = await execute(safeLengthInitial, []);
+  assert.equal(salvagedLongLength.calls.length, 0);
+  assert.equal(salvagedLongLength.quality.decision, "pass");
+  assert.equal(salvagedLongLength.result.content, lengthPrefix);
+  assert.equal(salvagedLongLength.result.rawOutputCharacters, 657);
+  assert.equal(salvagedLongLength.result.normalizedOutputCharacters, lengthPrefix.length);
+  assert.equal(salvagedLongLength.result.completionTokens, 383);
+  assert.doesNotMatch(
+    JSON.stringify({
+      result: salvagedLongLength.result,
+      browserRuntimeEvidence: salvagedLongLength.browserRuntimeEvidence,
+    }),
+    new RegExp(discardedTailSentinel, "u"),
+    "the returned candidate and finite runtime evidence must not retain discarded tail text",
+  );
+  const authoritativeContentDigest = await sha256Hex(salvagedLongLength.result.content);
+  const rawGenerationDigest = await sha256Hex(safeLengthRaw);
+  const selectedSnapshot = {
+    id: "browser-ai",
+    label: "Browser AI",
+    status: "ready",
+    runtimeTruth: {
+      installed: true,
+      configured: true,
+      reachable: true,
+      modelAvailable: true,
+      runtimeVerified: true,
+      generationVerified: true,
+      verificationSource: "browser-runtime-generation",
+      verifiedAt: "2026-08-10T00:00:00.000Z",
+    },
+    modelId: model.modelId,
+    modelDigest: model.modelDigest,
+    local: true,
+    dataBoundary: "device",
+    maximumComplexity: "standard",
+    capabilities: ["text", "streaming"],
+    supportedTaskTypes: "all",
+    detailCode: "model_inference_verified",
+  };
+  const selectedCacheRepository = new MemoryClosedAICacheRepository();
+  const selectedStateRepository = new MemoryClosedAgentStateRepository();
+  const selectedLedgerRepository = new MemoryVerifiableLedgerRepository();
+  const selectedOs = new ClosedAgentOS({
+    backends: [{
+      id: "browser-ai",
+      snapshot: async () => structuredClone(selectedSnapshot),
+      execute: async (input) => ({
+        backendId: "browser-ai",
+        modelId: salvagedLongLength.result.modelId,
+        modelDigest: salvagedLongLength.result.modelDigest,
+        content: salvagedLongLength.result.content,
+        candidateOnly: true,
+        dataLeftDevice: false,
+        externalRequest: false,
+        elapsedMs: salvagedLongLength.result.elapsedMs,
+        profileId: "browser-length-safe-prefix-v1",
+        firstTokenMs: salvagedLongLength.result.firstTokenMs,
+        inputCharacters: salvagedLongLength.result.inputCharacters,
+        outputCharacters: salvagedLongLength.result.content.length,
+        generatedTokenEvents: salvagedLongLength.result.generatedTokenEvents,
+        omittedInputCharacters: salvagedLongLength.result.omittedInputCharacters,
+        qualityMode: input.plan.qualityMode,
+        qualityPasses: 1,
+        draftDigest: null,
+        criticDigest: null,
+        actualExecutor: "browser-ai",
+        browserComputeReceiptId: "browser-compute:length-safe-prefix",
+        browserFabricReceiptId: "browser-fabric:length-safe-prefix",
+        browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+      }),
+    }],
+    cache: new ClosedAICache({ repository: selectedCacheRepository }),
+    ledger: new VerifiableLedger({
+      repository: selectedLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    state: selectedStateRepository,
+  });
+  const selectedTaskId = "browser-length-safe-prefix-authoritative-candidate";
+  const selectedCandidateResult = await selectedOs.execute({
+    taskId: selectedTaskId,
+    taskType: "chapter.continue",
+    complexity: "standard",
+    namespace: namespace({
+      modelId: "unrouted",
+      modelDigest: "unrouted",
+    }),
+    objective: "沿用既有角色與場景，續寫一段完整且可審核的候選正文。",
+    context: [],
+    qualityMode: "fast",
+    browserComputePolicy: "browser-first",
+    preferredBackend: "browser-ai",
+    allowedToolIds: [],
+    permissionScopes: [
+      "story:read",
+      "story-bible:read",
+      "candidate:write",
+      "candidate:read",
+      "evaluation:write",
+      "character:read",
+      "world:read",
+    ],
+  });
+  assert.equal(selectedCandidateResult.candidate.content, lengthPrefix);
+  assert.equal(selectedCandidateResult.candidate.contentDigest, authoritativeContentDigest);
+  assert.equal(
+    selectedCandidateResult.candidate.executionReceipt?.contentDigest,
+    authoritativeContentDigest,
+  );
+  assert.notEqual(selectedCandidateResult.candidate.contentDigest, rawGenerationDigest);
+  assert.equal(selectedCandidateResult.candidate.backendId, "browser-ai");
+  assert.equal(selectedCandidateResult.candidate.actualExecutor, "browser-ai");
+  assert.equal(selectedCandidateResult.candidate.modelId, model.modelId);
+  assert.equal(selectedCandidateResult.candidate.modelDigest, model.modelDigest);
+  assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelId, model.modelId);
+  assert.equal(selectedCandidateResult.candidate.executionReceipt?.modelDigest, model.modelDigest);
+  assert.equal(selectedCandidateResult.candidate.executionReceipt?.actualExecutor, "browser-ai");
+  assert.equal(selectedCandidateResult.candidate.canonicalMutationCount, 0);
+  const selectedLedgerId = `closed-agent:${namespace().projectId}:${selectedTaskId}`;
+  const selectedBlocks = await selectedLedgerRepository.list(selectedLedgerId);
+  const selectedCandidateBlock = selectedBlocks.find(
+    (block) => block.eventType === "candidate-generated",
+  );
+  assert.ok(selectedCandidateBlock?.contentRecordId);
+  const selectedCandidateRecord = await selectedLedgerRepository.getContent(
+    selectedCandidateBlock.contentRecordId,
+    {
+      ledgerId: selectedLedgerId,
+      projectId: namespace().projectId,
+      namespaceDigest: selectedCandidateBlock.namespaceDigest,
+    },
+  );
+  assert.equal(selectedCandidateRecord?.content?.contentDigest, authoritativeContentDigest);
+  assert.equal(
+    selectedCandidateRecord?.content?.executionReceipt?.contentDigest,
+    authoritativeContentDigest,
+  );
+  const selectedCacheEntries = await selectedCacheRepository.list();
+  assert.ok(selectedCacheEntries.length > 0, "authoritative OS run must write candidate-only cache entries");
+  const selectedExactCache = selectedCacheEntries.find((entry) =>
+    entry.layer === "exact"
+    && entry.value?.content === lengthPrefix);
+  const selectedSemanticCache = selectedCacheEntries.find((entry) =>
+    entry.layer === "semantic"
+    && entry.value?.execution?.content === lengthPrefix);
+  assert.ok(selectedExactCache, "exact cache must contain the selected Browser candidate only");
+  assert.ok(selectedSemanticCache, "semantic cache must contain the selected Browser candidate only");
+  assert.equal(selectedExactCache.value.modelId, model.modelId);
+  assert.equal(selectedExactCache.value.modelDigest, model.modelDigest);
+  assert.equal(selectedSemanticCache.value.execution.modelId, model.modelId);
+  assert.equal(selectedSemanticCache.value.execution.modelDigest, model.modelDigest);
+  assert.doesNotMatch(
+    JSON.stringify({
+      result: selectedCandidateResult,
+      ledgerBlocks: selectedBlocks,
+      ledgerRecord: selectedCandidateRecord,
+      cacheEntries: selectedCacheEntries,
+      state: await selectedStateRepository.list(namespace().projectId),
+    }),
+    new RegExp(discardedTailSentinel, "u"),
+    "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
+  );
+  const actual320Policy = {
+    ...structuredClone(performancePolicy),
+    reservedOutputTokens: 320,
+    maxOutputTokens: 320,
+  };
+  const salvagedAtActual320 = await execute({
+    ...safeLengthInitial,
+    completionTokens: 319,
+    performancePolicy: actual320Policy,
+  }, []);
+  assert.equal(salvagedAtActual320.result.content, lengthPrefix);
+  assert.equal(salvagedAtActual320.result.completionTokens, 319);
+
+  const assertLengthPrefixRejected = async ({
+    finishReason,
+    completionTokens,
+    raw = safeLengthRaw,
+    runtimePerformancePolicy = performancePolicy,
+    initialOverrides = {},
+  }) => {
+    let calls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: {
+          ...result(raw, finishReason),
+          completionTokens,
+          rawOutputCharacters: raw.length,
+          normalizedOutputCharacters: raw.length,
+          performancePolicy: runtimePerformancePolicy,
+          ...initialOverrides,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async () => {
+          calls += 1;
+          throw new Error("invalid length-prefix evidence must fail before another model pass");
+        },
+      }),
+      (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED")
+        && !error.qualityReasonCodes.includes("QUALITY_TASK_FORM_MISMATCH")
+        && closedAgentBrowserRuntimeEvidence(error).length === 1
+        && error.canonicalMutationCount === 0,
+    );
+    assert.equal(calls, 0);
+  };
+  for (const invalidEvidence of [
+    { finishReason: "stop", completionTokens: 383 },
+    { finishReason: "length", completionTokens: null },
+    { finishReason: "length", completionTokens: 0 },
+    { finishReason: "length", completionTokens: 375 },
+    { finishReason: "length", completionTokens: 385 },
+    { finishReason: "length", completionTokens: 383, runtimePerformancePolicy: null },
+    {
+      finishReason: "length",
+      completionTokens: 383,
+      runtimePerformancePolicy: {
+        ...structuredClone(performancePolicy),
+        policyVersion: "attacker-policy",
+      },
+    },
+    {
+      finishReason: "length",
+      completionTokens: 321,
+      runtimePerformancePolicy: actual320Policy,
+    },
+    {
+      finishReason: "length",
+      completionTokens: 383,
+      initialOverrides: { executor: "chromium-prompt-api" },
+    },
+    {
+      finishReason: "length",
+      completionTokens: 383,
+      initialOverrides: { modelDigest: "runtime-managed" },
+    },
+  ]) {
+    await assertLengthPrefixRejected(invalidEvidence);
+  }
+  await assertLengthPrefixRejected({
+    finishReason: "length",
+    completionTokens: 383,
+    raw: `${lengthPrefix}${"風".repeat(2_000)}`,
+  });
+
+  let maliciousLengthCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(productionLengthRaw("<|im_end|>"), "length"),
+        completionTokens: 383,
+        rawOutputCharacters: 657,
+        normalizedOutputCharacters: 657,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async () => {
+        maliciousLengthCalls += 1;
+        throw new Error("malicious raw output must fail before another model pass");
+      },
+    }),
+    (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+      && error.qualityReasonCodes.includes("QUALITY_TASK_FORM_MISMATCH")
+      && closedAgentBrowserRuntimeEvidence(error).length === 1
+      && closedAgentBrowserRuntimeEvidence(error)[0].finishReason === "length"
+      && closedAgentBrowserRuntimeEvidence(error)[0].completionTokens === 383
+      && error.canonicalMutationCount === 0,
+  );
+  assert.equal(maliciousLengthCalls, 0);
+
+  const noBoundedSentenceRaw = `${"霧".repeat(567)}${"A".repeat(89)}。`;
+  let noBoundedSentenceCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(noBoundedSentenceRaw, "length"),
+        completionTokens: 383,
+        rawOutputCharacters: 657,
+        normalizedOutputCharacters: 657,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async () => {
+        noBoundedSentenceCalls += 1;
+        throw new Error("unbounded sentence must fail before another model pass");
+      },
+    }),
+    (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+      && error.qualityReasonCodes.includes("QUALITY_OUTPUT_TRUNCATED")
+      && !error.qualityReasonCodes.includes("QUALITY_TASK_FORM_MISMATCH")
+      && closedAgentBrowserRuntimeEvidence(error).length === 1
+      && error.canonicalMutationCount === 0,
+  );
+  assert.equal(noBoundedSentenceCalls, 0);
 
   const exactHanFromBase = exactHanPrefix(repair188, 16).slice(0, -1);
   const exactMergeFailureFixtures = [

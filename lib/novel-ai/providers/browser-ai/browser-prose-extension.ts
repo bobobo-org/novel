@@ -92,6 +92,63 @@ function containsRepeatedBaseWindow(base: string, suffix: string, windowSize = 1
   return false;
 }
 
+const PROSE_DELIMITER_PAIRS = new Map<string, string>([
+  ["「", "」"],
+  ["『", "』"],
+  ["“", "”"],
+  ["‘", "’"],
+  ["（", "）"],
+  ["【", "】"],
+  ["《", "》"],
+  ["〈", "〉"],
+  ["〔", "〕"],
+  ["［", "］"],
+  ["(", ")"],
+  ["[", "]"],
+  ["{", "}"],
+] as const);
+const PROSE_DELIMITER_OPEN_BY_CLOSE = new Map<string, string>(
+  [...PROSE_DELIMITER_PAIRS].map(([open, close]) => [close, open] as const),
+);
+const PROSE_SYMMETRIC_DELIMITERS = new Set(["\""]);
+
+function isProseDelimiterCloser(value: string) {
+  return PROSE_DELIMITER_OPEN_BY_CLOSE.has(value)
+    || PROSE_SYMMETRIC_DELIMITERS.has(value);
+}
+
+function hasBalancedProseDelimiters(value: string) {
+  const stack: string[] = [];
+  const characters = Array.from(value);
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index];
+    const previousIsWord = /[\p{L}\p{N}]/u.test(characters[index - 1] ?? "");
+    const nextIsWord = /[\p{L}\p{N}]/u.test(characters[index + 1] ?? "");
+    if (PROSE_SYMMETRIC_DELIMITERS.has(character)) {
+      if (stack.at(-1) === character) stack.pop();
+      else stack.push(character);
+      continue;
+    }
+    if (
+      (character === "‘" || character === "’")
+      && previousIsWord
+      && nextIsWord
+    ) continue;
+    if (
+      character === "’"
+      && stack.at(-1) !== "‘"
+      && (previousIsWord || nextIsWord)
+    ) continue;
+    if (PROSE_DELIMITER_PAIRS.has(character)) {
+      stack.push(character);
+      continue;
+    }
+    const expectedOpen = PROSE_DELIMITER_OPEN_BY_CLOSE.get(character);
+    if (expectedOpen && stack.pop() !== expectedOpen) return false;
+  }
+  return stack.length === 0;
+}
+
 export function browserProseSafetyCode(value: string): BrowserProseSafetyCode | null {
   const normalized = normalizedOutput(value).normalize("NFKC");
   if ([...normalized.matchAll(MODEL_CONTROL_TOKEN)].some((match) =>
@@ -159,16 +216,20 @@ export function assessBrowserProseCompletion(
   const observedHanCharacters = countBrowserProseHanCharacters(normalized);
   const observedEstimatedTokens = estimateBrowserTokens(normalized);
   const observedCodePoints = Array.from(normalized).length;
-  if (
-    safetyCode
-    || observedEstimatedTokens > BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS
-    || observedCodePoints > BROWSER_PROSE_MAXIMUM_CODE_POINTS
-  ) {
+  const rawBudgetExceeded =
+    observedEstimatedTokens > BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS
+    || observedCodePoints > BROWSER_PROSE_MAXIMUM_CODE_POINTS;
+  if (safetyCode) {
     return {
       content: null,
+      salvageableContent: null,
       contractSatisfied: false,
-      safetyCode: safetyCode ?? "output-budget-exceeded",
+      safetyCode,
+      failureCode: null,
+      rawBudgetExceeded,
       selectedHanCharacters: 0,
+      selectedEstimatedTokens: 0,
+      selectedCodePoints: 0,
       observedHanCharacters,
       observedEstimatedTokens,
       observedCodePoints,
@@ -179,24 +240,57 @@ export function assessBrowserProseCompletion(
   // Keep the default prose contract aligned with the quality gate's accepted
   // complete endings. Consume repeated ellipses and every trailing closer so
   // the selected candidate never drops a balanced quote/bracket.
-  const sentenceEnd = /(?:[。！？]|…+)[」』”’）】]*/gu;
+  const sentenceEnd = /(?:[。！？]|…+)/gu;
   let selectedContent: string | null = null;
   let selectedHanCharacters = 0;
+  let selectedEstimatedTokens = 0;
+  let selectedCodePoints = 0;
+  let candidateExceededBudget = false;
   for (const match of normalized.matchAll(sentenceEnd)) {
-    const end = (match.index ?? 0) + match[0].length;
+    let end = (match.index ?? 0) + match[0].length;
+    while (end < normalized.length) {
+      const codePoint = normalized.codePointAt(end);
+      if (codePoint === undefined) break;
+      const nextCharacter = String.fromCodePoint(codePoint);
+      if (!isProseDelimiterCloser(nextCharacter)) break;
+      end += nextCharacter.length;
+    }
     const candidate = normalized.slice(0, end).trim();
     const hanCharacters = countBrowserProseHanCharacters(candidate);
     if (hanCharacters > maximum) break;
-    if (hanCharacters >= minimum) {
+    if (hanCharacters >= minimum && hasBalancedProseDelimiters(candidate)) {
+      const estimatedTokens = estimateBrowserTokens(candidate);
+      const codePoints = Array.from(candidate).length;
+      if (
+        estimatedTokens > BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS
+        || codePoints > BROWSER_PROSE_MAXIMUM_CODE_POINTS
+      ) {
+        candidateExceededBudget = true;
+        break;
+      }
       selectedContent = candidate;
       selectedHanCharacters = hanCharacters;
+      selectedEstimatedTokens = estimatedTokens;
+      selectedCodePoints = codePoints;
     }
   }
+  const acceptedContent = rawBudgetExceeded ? null : selectedContent;
   return {
-    content: selectedContent,
-    contractSatisfied: selectedContent !== null,
+    content: acceptedContent,
+    salvageableContent: rawBudgetExceeded ? selectedContent : null,
+    contractSatisfied: acceptedContent !== null,
     safetyCode: null,
+    failureCode: rawBudgetExceeded || candidateExceededBudget
+        ? "output-budget-exceeded"
+        : acceptedContent
+          ? null
+          : observedHanCharacters < minimum
+          ? "minimum-length-unmet"
+          : "complete-sentence-unavailable",
+    rawBudgetExceeded,
     selectedHanCharacters,
+    selectedEstimatedTokens,
+    selectedCodePoints,
     observedHanCharacters,
     observedEstimatedTokens,
     observedCodePoints,
@@ -281,7 +375,10 @@ export function mergeBrowserProseContinuation(input: {
     return {
       content: null,
       contractSatisfied: false,
-      reason: completion.safetyCode ?? "combined-contract-unsatisfied",
+      reason: completion.safetyCode
+        ?? (completion.failureCode === "output-budget-exceeded"
+          ? "output-budget-exceeded"
+          : "combined-contract-unsatisfied"),
       observedHanCharacters: completion.observedHanCharacters,
     } as const;
   }
