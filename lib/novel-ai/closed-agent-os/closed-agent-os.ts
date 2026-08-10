@@ -1275,12 +1275,17 @@ export class ClosedAgentOS {
           privacyLevel: request.namespace.privacyLevel,
           context: request.context,
         });
+      const expectedReplayNamespace = {
+        ...request.namespace,
+        modelId: candidate.modelId,
+        modelDigest: candidate.modelDigest,
+      };
       if (
         existing.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
         || existing.taskType !== request.taskType
         || existing.projectId !== candidate.projectId
-        || !sameClosedAINamespace(candidate.namespace, request.namespace)
-        || !sameClosedAINamespace(existing.namespace, request.namespace)
+        || !sameClosedAINamespace(candidate.namespace, expectedReplayNamespace)
+        || !sameClosedAINamespace(existing.namespace, expectedReplayNamespace)
         || candidate.contextDigest !== replayContextDigest
         || candidate.requestContractDigest !== requestContractDigest
         || candidate.sourceChapterId !== (request.sourceChapterId ?? null)

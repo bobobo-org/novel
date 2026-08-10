@@ -536,8 +536,8 @@ test("Deep quality mode performs draft, critic and revision without persisting t
   });
   assert.deepEqual(phases, ["draft", "critic", "revision"]);
   assert.equal(result.candidate.generationTelemetry.qualityPasses, 3);
-  assert.match(result.candidate.generationTelemetry.draftDigest, /^[a-f0-9]{64}$/u);
-  assert.match(result.candidate.generationTelemetry.criticDigest, /^[a-f0-9]{64}$/u);
+  assert.equal(result.candidate.generationTelemetry.draftDigest, null);
+  assert.equal(result.candidate.generationTelemetry.criticDigest, null);
   const persisted = JSON.stringify([
     ...(await os.cache.repository.list()),
     ...(await os.state.list("project-optimization")),
@@ -594,7 +594,7 @@ test("Studio tools expose acceptance and approved context metadata without raw s
 });
 
 test("Closed Agent OS exposes one safe receipt per underlying tool without raw values", async () => {
-  const { os } = createOS();
+  const { os, calls } = createOS();
   const request = {
     taskId: "optimization-tool-receipts",
     namespace: namespace({ projectId: "project-tool-receipts" }),
@@ -647,6 +647,20 @@ test("Closed Agent OS exposes one safe receipt per underlying tool without raw v
   const replay = await os.execute(request);
   assert.deepEqual(replay.toolExecutions, result.toolExecutions);
   assert.equal(replay.route.reasonCode, "IDEMPOTENT_REPLAY");
+  const executionsAfterReplay = calls.executions;
+  for (const namespaceOverride of [
+    { modelId: "tampered-model" },
+    { modelDigest: "f".repeat(64) },
+  ]) {
+    await assert.rejects(
+      os.execute({
+        ...request,
+        namespace: { ...request.namespace, ...namespaceOverride },
+      }),
+      (error) => error?.code === "CLOSED_AGENT_IDEMPOTENCY_CONFLICT",
+    );
+  }
+  assert.equal(calls.executions, executionsAfterReplay);
 });
 
 test("Local Bridge control probes are coalesced and session-scoped", async () => {
