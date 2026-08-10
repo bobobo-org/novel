@@ -1163,7 +1163,47 @@ test("quality-gate", () => {
   assert.match(fittedExtensionPrompt.prompt, /未核准、非 Canon；僅供承接，禁止輸出或重貼/u);
   assert.ok(fittedExtensionPrompt.prompt.includes("<最終輸出契約>"));
   assert.ok(fittedExtensionPrompt.prompt.includes("</最終輸出契約>"));
-  assert.ok(fittedExtensionPrompt.prompt.includes("新片段至少140、最多240"));
+  assert.ok(fittedExtensionPrompt.prompt.includes(
+    "新片段穩健目標156至240個繁體中文漢字；硬下限140，不得少於",
+  ));
+  for (const [baseHanCharacters, robustTarget, maximum, hardMinimum] of [
+    [48, 188, 272, 172],
+    [88, 148, 232, 132],
+    [108, 128, 212, 112],
+    [188, 48, 132, 32],
+    [219, 17, 101, 1],
+  ]) {
+    const fittedBoundaryPrompt = fitBrowserPromptToTokenBudget(
+      buildClosedAIModelPrompt({
+        objective: extensionObjective,
+        context: [
+          ...fullFreshContext,
+          `[story-bible]\n${"低優先補充核准資料。".repeat(2_000)}`,
+        ],
+        qualityPhase: "revision",
+        profile: browserProfile,
+        unapprovedContinuationSeed: {
+          ...continuationSeed,
+          baseHanCharacters,
+        },
+      }).prompt,
+      ecoPromptBudget,
+      { trustedClosedPrompt: true },
+    );
+    assert.ok(estimateBrowserTokens(fittedBoundaryPrompt.prompt) <= ecoPromptBudget);
+    assert.ok(fittedBoundaryPrompt.prompt.includes(
+      `新片段穩健目標${robustTarget}至${maximum}個繁體中文漢字；硬下限${hardMinimum}，不得少於`,
+    ));
+    assert.ok(fittedBoundaryPrompt.prompt.includes("全文須有220至320個繁體中文字"));
+    assert.equal(
+      (fittedBoundaryPrompt.prompt.match(/<最終輸出契約>/gu) ?? []).length,
+      1,
+    );
+    assert.equal(
+      (fittedBoundaryPrompt.prompt.match(/<\/最終輸出契約>/gu) ?? []).length,
+      1,
+    );
+  }
   assert.ok(fittedExtensionPrompt.prompt.includes("林知微"));
   assert.ok(fittedExtensionPrompt.prompt.includes("霧城"));
   assert.doesNotMatch(fittedExtensionPrompt.prompt, /完整、可直接審核的最終候選/u);
@@ -2079,6 +2119,9 @@ test("bounded-prose-extension", async () => {
     assessBrowserProseCompletion(shortRepairFallback.result.content).contractSatisfied,
     true,
   );
+  assert.equal(countBrowserProseHanCharacters(shortRepairFallback.result.content), 220);
+  assert.equal(countBrowserProseHanCharacters(extension132), 132);
+  assert.ok(132 < 148, "robust target must not become a higher acceptance threshold");
   assert.equal(shortRepairFallback.quality.decision, "pass");
   assert.match(shortRepairFallback.result.runtimeStats, /extension-base-stage=initial/u);
   assert.match(
@@ -2089,6 +2132,135 @@ test("bounded-prose-extension", async () => {
     shortRepairFallback.result.runtimeStats,
     /repair-output-disposition=shorter-intermediate-memory-only/u,
   );
+  const initial108 = exactHanPrefix(acceptedProse.repeat(2), 108);
+  const repair13Sentinel = "壞稿絕不可留存甲乙丙丁戊己？！";
+  const extension109 = exactHanPrefix(suffix.repeat(3), 109);
+  const extension128 = exactHanPrefix(suffix.repeat(3), 128);
+  assert.equal(countBrowserProseHanCharacters(initial108), 108);
+  assert.equal(countBrowserProseHanCharacters(repair13Sentinel), 13);
+  assert.equal(countBrowserProseHanCharacters(extension109), 109);
+  assert.equal(countBrowserProseHanCharacters(extension128), 128);
+  assert.deepEqual(evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: initial108,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  }).reasonCodes, ["QUALITY_NARRATIVE_TOO_SHORT"]);
+  const assertDynamic108ExtensionPrompt = (extensionRequest, options) => {
+    const seed = options.unapprovedContinuationSeed;
+    assert.ok(seed);
+    assert.equal(seed.baseHanCharacters, 108);
+    const prompt = buildClosedAIModelPrompt({
+      objective: extensionRequest.input,
+      context: extensionRequest.context,
+      profile: getClosedAIModelProfile("chapter.continue", "browser-ai"),
+      qualityPhase: extensionRequest.qualityPhase,
+      agentPlan: extensionRequest.agentPlan,
+      toolResults: extensionRequest.toolResults,
+      workingMaterials: extensionRequest.workingMaterials,
+      unapprovedContinuationSeed: seed,
+    }).prompt;
+    assert.ok(prompt.includes(
+      "新片段穩健目標128至212個繁體中文漢字；硬下限112，不得少於",
+    ));
+  };
+  let undersizedExtensionCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(initial108, "stop"),
+        completionTokens: 68,
+        rawOutputCharacters: 119,
+        normalizedOutputCharacters: 119,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async (passRequest, _passDecision, _progress, options) => {
+        undersizedExtensionCalls += 1;
+        if (undersizedExtensionCalls === 1) {
+          return {
+            ...result(
+              repair13Sentinel,
+              "stop",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: 10,
+            rawOutputCharacters: 15,
+            normalizedOutputCharacters: 15,
+          };
+        }
+        assert.equal(undersizedExtensionCalls, 2);
+        assertDynamic108ExtensionPrompt(passRequest, options);
+        return {
+          ...result(
+            extension109,
+            "stop",
+            `${request.requestId}:bounded-prose-extension`,
+          ),
+          completionTokens: 79,
+          rawOutputCharacters: 126,
+          normalizedOutputCharacters: 126,
+        };
+      },
+    }),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_CONTINUATION_CONTRACT_UNSATISFIED")
+        && error.qualityReasonCodes?.includes("QUALITY_LENGTHCOMPLIANCE_LOW")
+        && error.qualityReasonCodes?.includes("QUALITY_NARRATIVE_TOO_SHORT")
+        && error.canonicalMutationCount === 0
+        && evidence.length === 3
+        && evidence[0].completionTokens === 68
+        && evidence[0].observedHanCharacters === 108
+        && evidence[1].completionTokens === 10
+        && evidence[1].observedHanCharacters === 13
+        && evidence[2].completionTokens === 79
+        && evidence[2].observedHanCharacters === 109;
+    },
+  );
+  assert.equal(undersizedExtensionCalls, 2, "undersized suffix must not trigger a fourth pass");
+  const robustDynamicExtension = await execute({
+    ...result(initial108, "stop"),
+    completionTokens: 68,
+    rawOutputCharacters: 119,
+    normalizedOutputCharacters: 119,
+  }, [
+    {
+      ...result(
+        repair13Sentinel,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 10,
+      rawOutputCharacters: 15,
+      normalizedOutputCharacters: 15,
+    },
+    (passRequest, options) => {
+      assertDynamic108ExtensionPrompt(passRequest, options);
+      return result(
+        extension128,
+        "stop",
+        `${request.requestId}:bounded-prose-extension`,
+      );
+    },
+  ]);
+  assert.equal(countBrowserProseHanCharacters(robustDynamicExtension.result.content), 236);
+  assert.equal(robustDynamicExtension.quality.decision, "pass");
+  assert.match(robustDynamicExtension.result.runtimeStats, /extension-base-stage=initial/u);
+  assert.doesNotMatch(JSON.stringify(robustDynamicExtension), new RegExp(repair13Sentinel, "u"));
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: robustDynamicExtension,
+    rawGeneration: repair13Sentinel,
+    discardedSentinel: repair13Sentinel,
+    taskId: "browser-dynamic-extension-margin-authoritative-candidate",
+  });
   const assertShortRepairFallbackRejected = async ({
     initialContent = initial88,
     initialOverrides = {},

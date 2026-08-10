@@ -39,6 +39,8 @@ export type ClosedProviderGenerationProgress = {
   tokenEvents: number;
 };
 
+export const CLOSED_AI_CONTINUATION_SUFFIX_SAFETY_MARGIN_HAN_CHARACTERS = 16;
+
 const CLASSIFICATION_TASKS = new Set<PlatformTaskType>([
   "drama.chapterClassify",
   "drama.sceneClassify",
@@ -293,10 +295,21 @@ function outputContract(
   if (phase === "critic") return null;
   if (taskType === "chapter.continue") {
     if (continuationSeed) {
+      const maximumSuffixHanCharacters =
+        continuationSeed.maximumCombinedHanCharacters
+        - continuationSeed.baseHanCharacters;
+      const requiredMinimumSuffixHanCharacters =
+        continuationSeed.minimumCombinedHanCharacters
+        - continuationSeed.baseHanCharacters;
+      const robustMinimumSuffixTargetHanCharacters = Math.min(
+        maximumSuffixHanCharacters,
+        requiredMinimumSuffixHanCharacters
+          + CLOSED_AI_CONTINUATION_SUFFIX_SAFETY_MARGIN_HAN_CHARACTERS,
+      );
       return [
         "<最終輸出契約>",
         "只輸出接在未核准短稿之後的新正文；不得輸出或重貼錨點、標籤或錨點之前內容。",
-        `新片段至少${continuationSeed.minimumCombinedHanCharacters - continuationSeed.baseHanCharacters}、最多${continuationSeed.maximumCombinedHanCharacters - continuationSeed.baseHanCharacters}個繁體中文漢字。`,
+        `新片段穩健目標${robustMinimumSuffixTargetHanCharacters}至${maximumSuffixHanCharacters}個繁體中文漢字；硬下限${requiredMinimumSuffixHanCharacters}，不得少於。`,
         `應用程式會在本機合併，全文須有${continuationSeed.minimumCombinedHanCharacters}至${continuationSeed.maximumCombinedHanCharacters}個繁體中文字並以中文句末標點收尾。`,
         "禁止角色標籤、控制標記、分析、標題、Markdown 或對作者說明。",
         "</最終輸出契約>",
