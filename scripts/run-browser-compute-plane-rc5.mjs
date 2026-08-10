@@ -10,6 +10,7 @@ import {
   executeBrowserInitialPass,
   isBrowserCollapsedRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialRepairFreshRecoveryCandidate,
+  isBrowserOversizedStopIsolatedRepairCandidate,
   isBrowserTruncatedFreshRecoveryCandidate,
 } from "../lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts";
 import {
@@ -1479,6 +1480,49 @@ test("quality-gate", () => {
       ],
     }), false);
   }
+  const oversizedStopIsolatedRepairInput = {
+    contractSatisfied: false,
+    safetyCode: null,
+    failureCode: "output-budget-exceeded",
+    rawBudgetExceeded: true,
+    observedHanCharacters: 555,
+    observedEstimatedTokens: 626,
+    observedCodePoints: 648,
+    finishReason: "stop",
+    completionTokens: 375,
+    runtimeTokenCap: 384,
+    stageHardCap: 384,
+  };
+  assert.equal(
+    isBrowserOversizedStopIsolatedRepairCandidate(
+      oversizedStopIsolatedRepairInput,
+    ),
+    true,
+  );
+  for (const [overrides, expected] of [
+    [{ contractSatisfied: true }, false],
+    [{ safetyCode: "internal-envelope" }, false],
+    [{ failureCode: "complete-sentence-unavailable" }, false],
+    [{ rawBudgetExceeded: false }, false],
+    [{ observedHanCharacters: 320 }, false],
+    [{ observedEstimatedTokens: 384, observedCodePoints: 640 }, false],
+    [{ observedEstimatedTokens: 385, observedCodePoints: 640 }, true],
+    [{ observedEstimatedTokens: 384, observedCodePoints: 641 }, true],
+    [{ finishReason: "length" }, false],
+    [{ finishReason: "abort" }, false],
+    [{ completionTokens: null }, false],
+    [{ completionTokens: 0 }, false],
+    [{ completionTokens: 385 }, false],
+    [{ runtimeTokenCap: 320 }, false],
+    [{ runtimeTokenCap: 385 }, false],
+    [{ stageHardCap: 0 }, false],
+    [{ observedCodePoints: 1_629 }, false],
+  ]) {
+    assert.equal(isBrowserOversizedStopIsolatedRepairCandidate({
+      ...oversizedStopIsolatedRepairInput,
+      ...overrides,
+    }), expected);
+  }
   assert.equal(shouldRunBrowserProseExtension({
     taskType: "chapter.continue",
     explicitLengthRequested: false,
@@ -2792,6 +2836,244 @@ test("bounded-prose-extension", async () => {
     return raw;
   };
   assert.equal(performancePolicy.reservedOutputTokens, 384);
+  const oversizedStopSentinel = "OVERSIZED_STOP_REJECTED_X9";
+  const oversizedStopRawBase = `${lengthPrefix}${oversizedStopSentinel}${"風".repeat(
+    555 - countBrowserProseHanCharacters(lengthPrefix),
+  )}`;
+  assert.ok(oversizedStopRawBase.length <= 648);
+  const oversizedStopRaw = `${oversizedStopRawBase}${"A".repeat(
+    648 - oversizedStopRawBase.length,
+  )}`;
+  const oversizedStopCompletion = assessBrowserProseCompletion(oversizedStopRaw);
+  assert.equal(oversizedStopRaw.length, 648);
+  assert.equal(Array.from(oversizedStopRaw).length, 648);
+  assert.equal(countBrowserProseHanCharacters(oversizedStopRaw), 555);
+  assert.equal(oversizedStopCompletion.contractSatisfied, false);
+  assert.equal(oversizedStopCompletion.failureCode, "output-budget-exceeded");
+  assert.equal(oversizedStopCompletion.rawBudgetExceeded, true);
+  assert.equal(oversizedStopCompletion.salvageableContent, lengthPrefix);
+  const oversizedStopRepair240 = exactTraceRecovery240;
+  const isolatedOversizedStopRepair = await execute({
+    ...result(oversizedStopRaw, "stop"),
+    completionTokens: 375,
+    rawOutputCharacters: 648,
+    normalizedOutputCharacters: 648,
+  }, [
+    (repairRequest, options) => {
+      assert.equal(
+        repairRequest.requestId,
+        `${request.requestId}:bounded-same-model-repair`,
+      );
+      assert.equal(repairRequest.qualityPhase, "draft");
+      assert.equal(repairRequest.input.includes(request.input), true);
+      assert.equal(repairRequest.agentPlan, undefined);
+      assert.deepEqual(repairRequest.toolResults, []);
+      assert.deepEqual(repairRequest.workingMaterials, []);
+      assert.equal(repairRequest.unapprovedContinuationSeed, undefined);
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.equal(repairRequest.generationOptions.maxTokens, 360);
+      assert.doesNotMatch(
+        JSON.stringify({ repairRequest, options }),
+        new RegExp(oversizedStopSentinel, "u"),
+      );
+      return {
+        ...result(
+          oversizedStopRepair240,
+          "stop",
+          `${request.requestId}:bounded-same-model-repair`,
+        ),
+        completionTokens: 252,
+        rawOutputCharacters: oversizedStopRepair240.length,
+        normalizedOutputCharacters: oversizedStopRepair240.length,
+      };
+    },
+  ]);
+  assert.equal(isolatedOversizedStopRepair.calls.length, 1);
+  assert.deepEqual(
+    isolatedOversizedStopRepair.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.normalizedOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 375, 648, 648, 555],
+      [
+        "repair",
+        "stop",
+        252,
+        oversizedStopRepair240.length,
+        oversizedStopRepair240.length,
+        240,
+      ],
+    ],
+  );
+  assert.equal(isolatedOversizedStopRepair.result.content, oversizedStopRepair240);
+  assert.equal(isolatedOversizedStopRepair.quality.decision, "pass");
+  assert.match(
+    isolatedOversizedStopRepair.result.runtimeStats,
+    /initial-output-disposition=oversized-stop-rejected-memory-only/u,
+  );
+  assert.match(isolatedOversizedStopRepair.result.runtimeStats, /bounded-prose-extension=0/u);
+  assert.match(isolatedOversizedStopRepair.result.runtimeStats, /bounded-fresh-recovery=0/u);
+  assert.doesNotMatch(
+    JSON.stringify(isolatedOversizedStopRepair),
+    new RegExp(oversizedStopSentinel, "u"),
+  );
+  const oversizedStopRepair134 = exactHanPrefix(acceptedProse.repeat(2), 134);
+  let oversizedStopFailureCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(oversizedStopRaw, "stop"),
+        completionTokens: 375,
+        rawOutputCharacters: 648,
+        normalizedOutputCharacters: 648,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async () => {
+        oversizedStopFailureCalls += 1;
+        assert.equal(
+          oversizedStopFailureCalls,
+          1,
+          "isolated oversized repair failure must not run a third pass",
+        );
+        return {
+          ...result(
+            oversizedStopRepair134,
+            "stop",
+            `${request.requestId}:bounded-same-model-repair`,
+          ),
+          completionTokens: 96,
+          rawOutputCharacters: oversizedStopRepair134.length,
+          normalizedOutputCharacters: oversizedStopRepair134.length,
+        };
+      },
+    }),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_LENGTHCOMPLIANCE_LOW")
+        && error.qualityReasonCodes?.includes("QUALITY_NARRATIVE_TOO_SHORT")
+        && evidence.length === 2
+        && evidence[0]?.stage === "initial"
+        && evidence[0]?.observedHanCharacters === 555
+        && evidence[1]?.stage === "repair"
+        && evidence[1]?.observedHanCharacters === 134
+        && error.fallbackAttempted === false
+        && error.canonicalMutationCount === 0
+        && !new RegExp(oversizedStopSentinel, "u").test(JSON.stringify(error));
+    },
+  );
+  assert.equal(oversizedStopFailureCalls, 1);
+  const oversizedStopRepair321 = exactHanPrefix(acceptedProse.repeat(4), 321);
+  for (const invalidRepair of [
+    {
+      content: oversizedStopRepair240,
+      finishReason: "length",
+      completionTokens: 252,
+      expectedCode: "BROWSER_AI_QUALITY_INSUFFICIENT",
+      expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+    },
+    {
+      content: `<|im_end|>${oversizedStopRepair240}`,
+      finishReason: "stop",
+      completionTokens: 252,
+      expectedCode: "BROWSER_AI_QUALITY_INSUFFICIENT",
+      expectedReasonCode: "QUALITY_OUTPUT_CONTROL_TOKEN",
+    },
+    {
+      content: oversizedStopRaw,
+      finishReason: "stop",
+      completionTokens: 359,
+      expectedCode: "BROWSER_AI_QUALITY_INSUFFICIENT",
+      expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+    },
+    {
+      content: oversizedStopRepair321,
+      finishReason: "stop",
+      completionTokens: 300,
+      expectedCode: "BROWSER_AI_QUALITY_INSUFFICIENT",
+      expectedReasonCode: "QUALITY_OUTPUT_TRUNCATED",
+    },
+    {
+      content: oversizedStopRepair240,
+      finishReason: "stop",
+      completionTokens: 252,
+      resultOverrides: { requestId: "attacker-repair-request" },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    },
+    {
+      content: oversizedStopRepair240,
+      finishReason: "stop",
+      completionTokens: 252,
+      resultOverrides: { modelDigest: "runtime-managed" },
+      expectedCode: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      expectedReasonCode: null,
+    },
+    {
+      content: oversizedStopRepair240,
+      finishReason: "stop",
+      completionTokens: 252,
+      resultOverrides: { executor: "chromium-prompt-api" },
+      expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
+      expectedReasonCode: null,
+    },
+  ]) {
+    let invalidRepairCalls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: {
+          ...result(oversizedStopRaw, "stop"),
+          completionTokens: 375,
+          rawOutputCharacters: 648,
+          normalizedOutputCharacters: 648,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async () => {
+          invalidRepairCalls += 1;
+          assert.equal(invalidRepairCalls, 1);
+          return {
+            ...result(
+              invalidRepair.content,
+              invalidRepair.finishReason,
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: invalidRepair.completionTokens,
+            rawOutputCharacters: invalidRepair.content.length,
+            normalizedOutputCharacters: invalidRepair.content.length,
+            ...invalidRepair.resultOverrides,
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === invalidRepair.expectedCode
+          && (invalidRepair.expectedReasonCode === null
+            || error.qualityReasonCodes?.includes(invalidRepair.expectedReasonCode))
+          && evidence.length === 2
+          && evidence[0]?.stage === "initial"
+          && evidence[1]?.stage === "repair"
+          && error.fallbackAttempted === false
+          && error.canonicalMutationCount === 0
+          && !new RegExp(oversizedStopSentinel, "u").test(JSON.stringify(error));
+      },
+    );
+    assert.equal(invalidRepairCalls, 1);
+  }
   const discardedTailSentinel = "DISCARDED_TAIL_SENTINEL_X9";
   const safeLengthRaw = productionLengthRaw(discardedTailSentinel);
   const safeLengthInitial = {
@@ -2990,6 +3272,12 @@ test("bounded-prose-extension", async () => {
       "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
     );
   };
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: isolatedOversizedStopRepair,
+    rawGeneration: oversizedStopRaw,
+    discardedSentinel: oversizedStopSentinel,
+    taskId: "browser-oversized-stop-isolated-repair-candidate",
+  });
   await assertAuthoritativeSelectedResult({
     selectedExecution: collapsedRepairRecovery,
     rawGeneration: `${collapsedInitial58}\n${collapsedRepair33}`,
@@ -4905,7 +5193,11 @@ test("bounded-prose-extension", async () => {
     assert.equal(calls, 0);
   };
   for (const invalidEvidence of [
-    { finishReason: "stop", completionTokens: 383 },
+    {
+      finishReason: "stop",
+      completionTokens: 375,
+      runtimePerformancePolicy: actual320Policy,
+    },
     { finishReason: "length", completionTokens: null },
     { finishReason: "length", completionTokens: 0 },
     { finishReason: "length", completionTokens: 375 },
@@ -4949,6 +5241,11 @@ test("bounded-prose-extension", async () => {
   ]) {
     await assertLengthPrefixRejected(invalidEvidence);
   }
+  await assertLengthPrefixRejected({
+    finishReason: "stop",
+    completionTokens: 375,
+    raw: `${lengthPrefix}${"風".repeat(2_000)}`,
+  });
   await assertLengthPrefixRejected({
     finishReason: "length",
     completionTokens: 383,

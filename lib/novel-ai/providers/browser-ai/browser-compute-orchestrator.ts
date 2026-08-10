@@ -41,6 +41,9 @@ import {
 import { browserWebLLMRuntimeSnapshot } from "./browser-webllm-runtime";
 import {
   assessBrowserProseCompletion,
+  BROWSER_PROSE_MAXIMUM_CODE_POINTS,
+  BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS,
+  BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS,
   BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS,
   BROWSER_PROSE_MINIMUM_HAN_CHARACTERS,
   browserProseSafetyCode,
@@ -344,6 +347,46 @@ export function isBrowserCollapsedRepairFreshRecoveryCandidate(input: {
     && input.repairObservedHanCharacters
       < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
     && input.repairFinishReason === "stop";
+}
+
+export function isBrowserOversizedStopIsolatedRepairCandidate(input: {
+  contractSatisfied: boolean;
+  safetyCode: string | null;
+  failureCode: string | null;
+  rawBudgetExceeded: boolean;
+  observedHanCharacters: number;
+  observedEstimatedTokens: number;
+  observedCodePoints: number;
+  finishReason: string | null | undefined;
+  completionTokens: number | null | undefined;
+  runtimeTokenCap: number;
+  stageHardCap: number;
+}) {
+  const completionTokens = input.completionTokens;
+  const runtimeTokenCap = Math.floor(input.runtimeTokenCap);
+  const stageHardCap = Math.floor(input.stageHardCap);
+  // This mirrors the deterministic raw-budget OR. The provider's public
+  // character metric is UTF-16 length, so requiring the code-point branch
+  // alone would strand valid oversized-Han traces containing astral glyphs.
+  return !input.contractSatisfied
+    && !input.safetyCode
+    && input.failureCode === "output-budget-exceeded"
+    && input.rawBudgetExceeded
+    && input.observedHanCharacters > BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS
+    && (
+      input.observedEstimatedTokens > BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS
+      || input.observedCodePoints > BROWSER_PROSE_MAXIMUM_CODE_POINTS
+    )
+    && input.finishReason === "stop"
+    && Number.isSafeInteger(completionTokens)
+    && (completionTokens ?? 0) >= 1
+    && Number.isSafeInteger(runtimeTokenCap)
+    && runtimeTokenCap >= 1
+    && Number.isSafeInteger(stageHardCap)
+    && stageHardCap >= 1
+    && runtimeTokenCap <= stageHardCap
+    && (completionTokens ?? 0) <= runtimeTokenCap
+    && input.observedCodePoints <= (completionTokens ?? 0) * 4 + 128;
 }
 
 const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
@@ -794,6 +837,29 @@ export async function executeBrowserBoundedQualityPasses(input: {
   )
     ? initialSafetyReasonCode
     : null;
+  const initialStopBudgetRepairReasonCode = Boolean(
+    defaultChapterProseContract
+    && requiredGenerativeExecutor === "webllm-worker"
+    && !initialSafetyReasonCode
+    && chapterProseContract
+    && isBrowserOversizedStopIsolatedRepairCandidate({
+      contractSatisfied: chapterProseContract.contractSatisfied,
+      safetyCode: chapterProseContract.safetyCode,
+      failureCode: chapterProseContract.failureCode,
+      rawBudgetExceeded: chapterProseContract.rawBudgetExceeded,
+      observedHanCharacters: chapterProseContract.observedHanCharacters,
+      observedEstimatedTokens: chapterProseContract.observedEstimatedTokens,
+      observedCodePoints: chapterProseContract.observedCodePoints,
+      finishReason: result.generationFinishReason,
+      completionTokens: result.completionTokens,
+      runtimeTokenCap: result.performancePolicy?.maxOutputTokens ?? 0,
+      stageHardCap: performancePolicy.reservedOutputTokens,
+    })
+  )
+    ? "QUALITY_OUTPUT_TRUNCATED"
+    : null;
+  const initialIsolatedRepairReasonCode =
+    initialSafetyRepairReasonCode ?? initialStopBudgetRepairReasonCode;
   const browserRuntimeEvidence: ClosedAgentBrowserRuntimeEvidence[] = [
     browserRuntimePassEvidence(
       "initial",
@@ -852,7 +918,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
   // authoritative candidate/receipt/ledger value; it does not rewrite or
   // reinterpret the raw-generation proof digest.
   if (
-    !initialSafetyRepairReasonCode
+    !initialIsolatedRepairReasonCode
     && chapterProseContract?.rawBudgetExceeded
     && !chapterProseContract.contractSatisfied
   ) {
@@ -911,7 +977,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     input.request.taskType,
     eligibility.tier,
   );
-  let quality = initialSafetyRepairReasonCode
+  let quality = initialIsolatedRepairReasonCode
     ? null
     : evaluateBrowserCandidateQuality({
       taskType: input.request.taskType,
@@ -925,8 +991,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         input.deferTraditionalChineseNormalization,
     });
   const repairReasonCodes = [...new Set([
-    ...(initialSafetyRepairReasonCode
-      ? [initialSafetyRepairReasonCode]
+    ...(initialIsolatedRepairReasonCode
+      ? [initialIsolatedRepairReasonCode]
       : (quality?.reasonCodes ?? []).filter((reason) =>
         BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason))),
     ...(chapterProseContract && !chapterProseContract.contractSatisfied
@@ -941,7 +1007,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     && repairReasonCodes.length > 0
   ) {
     const initialResult = result;
-    const initialDigest = initialSafetyRepairReasonCode
+    const initialDigest = initialIsolatedRepairReasonCode
       ? null
       : await sha256Hex(initialResult.content);
     const repairPlan = buildBrowserBoundedSameModelRepairPlan({
@@ -950,37 +1016,41 @@ export async function executeBrowserBoundedQualityPasses(input: {
     });
     let repairResult: PlatformAIResult;
     try {
-      repairResult = await runPass(
-        {
-          ...executionRequest,
-          requestId: `${input.request.requestId}:bounded-same-model-repair`,
-          input: repairPlan.objective,
-          qualityPhase: "revision",
-          agentPlan: initialSafetyRepairReasonCode
-            ? undefined
-            : executionRequest.agentPlan,
-          toolResults: initialSafetyRepairReasonCode
-            ? []
-            : executionRequest.toolResults,
-          workingMaterials: [],
-          generationOptions: {
-            ...input.request.generationOptions,
-            seed: passSeed(input.request.generationOptions?.seed, 97),
-            temperature: Math.min(
-              Math.max(input.request.generationOptions?.temperature ?? 0.68, 0.66),
-              0.74,
-            ),
-            topP: Math.min(
-              Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
-              0.92,
-            ),
-            maxTokens: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
-            repetitionPenalty: Math.max(
-              input.request.generationOptions?.repetitionPenalty ?? 1.08,
-              1.12,
-            ),
-          },
+      const repairRequest: PlatformAIRequest = {
+        ...executionRequest,
+        requestId: `${input.request.requestId}:bounded-same-model-repair`,
+        input: repairPlan.objective,
+        qualityPhase: initialStopBudgetRepairReasonCode ? "draft" : "revision",
+        agentPlan: initialIsolatedRepairReasonCode
+          ? undefined
+          : executionRequest.agentPlan,
+        toolResults: initialIsolatedRepairReasonCode
+          ? []
+          : executionRequest.toolResults,
+        workingMaterials: [],
+        generationOptions: {
+          ...input.request.generationOptions,
+          seed: passSeed(input.request.generationOptions?.seed, 97),
+          temperature: Math.min(
+            Math.max(input.request.generationOptions?.temperature ?? 0.68, 0.66),
+            0.74,
+          ),
+          topP: Math.min(
+            Math.max(input.request.generationOptions?.topP ?? 0.88, 0.86),
+            0.92,
+          ),
+          maxTokens: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+          repetitionPenalty: Math.max(
+            input.request.generationOptions?.repetitionPenalty ?? 1.08,
+            1.12,
+          ),
         },
+      };
+      if (initialIsolatedRepairReasonCode) {
+        Reflect.deleteProperty(repairRequest, "unapprovedContinuationSeed");
+      }
+      repairResult = await runPass(
+        repairRequest,
         input.decision,
         input.onProgress,
         {
@@ -1021,11 +1091,14 @@ export async function executeBrowserBoundedQualityPasses(input: {
     } catch (error) {
       throw attachBrowserRuntimeEvidence(error, browserRuntimeEvidence);
     }
+    const repairFinishReasonAccepted = initialStopBudgetRepairReasonCode
+      ? repairResult.generationFinishReason === "stop"
+      : repairResult.generationFinishReason === "stop"
+        || repairResult.generationFinishReason === "length";
     if (
       repairCompletion
       && requiredGenerativeExecutor === "webllm-worker"
-      && repairResult.generationFinishReason !== "stop"
-      && repairResult.generationFinishReason !== "length"
+      && !repairFinishReasonAccepted
     ) {
       throw Object.assign(explicitEscalationError(
         eligibility,
@@ -1041,7 +1114,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     const repairInternalEnvelopeRecovery = Boolean(
       repairCompletion?.safetyCode === "internal-envelope"
       && !repairCompletion.rawBudgetExceeded
-      && !initialSafetyRepairReasonCode
+      && !initialIsolatedRepairReasonCode
       && defaultChapterProseContract
       && requiredGenerativeExecutor === "webllm-worker"
       && repairResult.generationFinishReason === "stop"
@@ -1063,6 +1136,43 @@ export async function executeBrowserBoundedQualityPasses(input: {
       ), {
         qualityDecision: "block",
         qualityReasonCodes: [repairSafetyReasonCode],
+        browserRuntimeEvidence,
+        fallbackAttempted: false,
+        canonicalMutationCount: 0,
+      });
+    }
+    if (
+      initialStopBudgetRepairReasonCode
+      && repairCompletion
+      && (
+        repairResult.generationFinishReason !== "stop"
+        || repairCompletion.rawBudgetExceeded
+        || !repairCompletion.contractSatisfied
+        || !repairCompletion.content
+        || repairCompletion.observedHanCharacters
+          < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
+        || repairCompletion.observedHanCharacters
+          > BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS
+        || repairCompletion.selectedHanCharacters
+          !== repairCompletion.observedHanCharacters
+        || repairCompletion.selectedCodePoints
+          !== repairCompletion.observedCodePoints
+      )
+    ) {
+      throw Object.assign(explicitEscalationError(
+        eligibility,
+        "BROWSER_AI_QUALITY_INSUFFICIENT",
+      ), {
+        qualityDecision: "block",
+        qualityReasonCodes: repairCompletion.observedHanCharacters
+          < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
+          ? ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"]
+          : ["QUALITY_OUTPUT_TRUNCATED"],
+        observedHanCharacters: repairCompletion.observedHanCharacters,
+        requiredHanCharacters: [
+          BROWSER_PROSE_MINIMUM_HAN_CHARACTERS,
+          BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS,
+        ],
         browserRuntimeEvidence,
         fallbackAttempted: false,
         canonicalMutationCount: 0,
@@ -1146,7 +1256,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       defaultChapterProseContract
       && requiredGenerativeExecutor === "webllm-worker"
       && !repairInternalEnvelopeRecovery
-      && !initialSafetyRepairReasonCode
+      && !initialIsolatedRepairReasonCode
       && chapterProseContract
       && repairCompletion
       && isBrowserCollapsedRepairFreshRecoveryCandidate({
@@ -1175,7 +1285,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       !repairInternalEnvelopeRecovery
       && !degenerateInitialRepairFreshRecoveryCandidate
       && !collapsedRepairFreshRecoveryCandidate
-      && !initialSafetyRepairReasonCode
+      && !initialIsolatedRepairReasonCode
       && repairCompletion
       && shouldRunBrowserProseExtension({
         taskType: input.request.taskType,
@@ -1198,7 +1308,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       !repairInternalEnvelopeRecovery
       && !degenerateInitialRepairFreshRecoveryCandidate
       && !collapsedRepairFreshRecoveryCandidate
-      && !initialSafetyRepairReasonCode
+      && !initialIsolatedRepairReasonCode
       && repairCompletion
       && !repairCompletion.contractSatisfied
       && !repairCompletion.safetyCode
@@ -1406,7 +1516,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     );
     const shouldRunFreshRecovery = Boolean(
       requiredGenerativeExecutor === "webllm-worker"
-      && !initialSafetyRepairReasonCode
+      && !initialIsolatedRepairReasonCode
       && defaultChapterProseContract
       && !extensionBase
       && !extensionResult
@@ -1665,7 +1775,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
           : []),
         ...(initialDigest
           ? [`initial-output-digest=${initialDigest}`]
-          : ["initial-output-disposition=safety-rejected-memory-only"]),
+          : [initialStopBudgetRepairReasonCode
+            ? "initial-output-disposition=oversized-stop-rejected-memory-only"
+            : "initial-output-disposition=safety-rejected-memory-only"]),
         ...(extensionDigest ? [`extension-output-digest=${extensionDigest}`] : []),
         ...(extensionBaseDigest
           ? [`extension-base-digest=${extensionBaseDigest}`]
@@ -1688,6 +1800,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
           ...acceptedResult.provenance.warnings,
           initialSafetyRepairReasonCode
             ? "One isolated safety repair ran on the same verified Browser executor; rejected initial text remained in memory, was not reused as model input, and no provider fallback occurred."
+            : initialStopBudgetRepairReasonCode
+              ? "One isolated oversized-output repair ran on the same verified Browser executor; rejected initial text remained in memory, was not reused as model input, and no provider fallback occurred."
             : recoveryResult
               ? "One bounded repair and one fresh recovery draft ran on the same verified Browser executor; both rejected intermediate texts remained in memory, were not reused as model input, and no provider fallback occurred."
             : "One bounded repair and at most one normal-EOS suffix extension ran on the same verified Browser executor; rejected intermediate text remained in memory and no provider fallback occurred.",
