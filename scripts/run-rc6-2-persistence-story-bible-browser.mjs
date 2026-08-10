@@ -155,6 +155,38 @@ async function storyBiblesByProject(page, projectIds) {
   }, projectIds);
 }
 
+async function waitForPersistedStoryBible(page, projectId, {
+  afterRevision,
+  expectedFields,
+  timeoutMs = 20_000,
+}) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  const listFields = {
+    foreshadowing: "foreshadowing",
+    unresolved: "unresolvedThreads",
+    contradictions: "forbiddenContradictions",
+    preferences: "authorPreferences",
+  };
+  while (Date.now() < deadline) {
+    const records = await storyBiblesByProject(page, [projectId]);
+    latest = records[projectId]?.[0] ?? null;
+    const fieldsMatch = Object.entries(expectedFields).every(([field, expected]) => {
+      if (field === "theme" || field === "style") return latest?.[field]?.value === expected;
+      const stored = latest?.[listFields[field]];
+      return Array.isArray(stored) && stored.join("\n") === expected;
+    });
+    if (Number(latest?.revision) > afterRevision && fieldsMatch) return latest;
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`STORY_BIBLE_PERSISTENCE_TIMEOUT:${JSON.stringify({
+    projectId,
+    afterRevision,
+    observedRevision: latest?.revision ?? null,
+    expectedFieldNames: Object.keys(expectedFields),
+  })}`);
+}
+
 async function blockedUpgradeAndRetry(browser) {
   const context = await browser.newContext({ locale: "zh-TW", serviceWorkers: "block" });
   const blockerPage = await context.newPage();
@@ -293,6 +325,9 @@ try {
     contradictions: "第一作品禁止矛盾",
     preferences: "第一作品作者偏好",
   };
+  const initialFirstRevision = Number(
+    await page.getByTestId("story-bible-record").getAttribute("data-revision"),
+  );
   await page.getByTestId("story-bible-theme").fill(firstValues.theme);
   await page.getByTestId("story-bible-style").fill(firstValues.style);
   await page.getByTestId("story-bible-foreshadowing").fill(firstValues.foreshadowing);
@@ -301,8 +336,15 @@ try {
   await page.getByTestId("story-bible-preferences").fill(firstValues.preferences);
   await page.getByTestId("story-bible-save").click();
   await page.locator('.p2InlineEditor [role="status"]').filter({ hasText: "Story Bible 已保存" }).waitFor();
-  const firstRevision = Number(await page.getByTestId("story-bible-record").getAttribute("data-revision"));
-  check("Story Bible write increments revision", firstRevision >= 2, { firstRevision });
+  const persistedFirstStoryBible = await waitForPersistedStoryBible(page, firstProjectId, {
+    afterRevision: initialFirstRevision,
+    expectedFields: firstValues,
+  });
+  const firstRevision = Number(persistedFirstStoryBible.revision);
+  check("Story Bible write increments revision", firstRevision > initialFirstRevision, {
+    initialFirstRevision,
+    firstRevision,
+  });
   await page.reload({ waitUntil: "networkidle" });
   check("Story Bible reload restores every edited field", await page.getByTestId("story-bible-theme").inputValue() === firstValues.theme
     && await page.getByTestId("story-bible-style").inputValue() === firstValues.style
@@ -331,9 +373,16 @@ try {
     theme: "RC6.2 第二作品唯一主題 3c1b",
     foreshadowing: "第二作品伏筆 beta-only",
   };
+  const initialSecondRevision = Number(
+    await page.getByTestId("story-bible-record").getAttribute("data-revision"),
+  );
   await page.getByTestId("story-bible-theme").fill(secondValues.theme);
   await page.getByTestId("story-bible-foreshadowing").fill(secondValues.foreshadowing);
   await page.getByTestId("story-bible-save").click();
+  await waitForPersistedStoryBible(page, secondProjectId, {
+    afterRevision: initialSecondRevision,
+    expectedFields: secondValues,
+  });
   await page.locator('.p2InlineEditor [role="status"]').filter({ hasText: "Story Bible 已保存" }).waitFor();
   await page.reload({ waitUntil: "networkidle" });
   check("second Story Bible reload is exact", await page.getByTestId("story-bible-theme").inputValue() === secondValues.theme
