@@ -42,6 +42,9 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "QUALITY_CONTEXT_ANCHOR_MISSING",
   "QUALITY_CONTEXT_CHARACTER_MISSING",
   "QUALITY_OUTPUT_TRUNCATED",
+  "QUALITY_OUTPUT_CONTROL_TOKEN",
+  "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
   "QUALITY_NARRATIVE_TOO_SHORT",
   "QUALITY_CONTEXT_COPY_EXCESSIVE",
   "QUALITY_NARRATIVE_PROGRESS_MISSING",
@@ -347,7 +350,7 @@ async function assertMaliciousDomDiagnosticsAreRejected() {
     const node = document.createElement("div");
     node.hidden = true;
     node.setAttribute("role", "status");
-    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
+    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
     document.body.append(node);
     await new Promise((resolve) => setTimeout(resolve, 0));
     node.remove();

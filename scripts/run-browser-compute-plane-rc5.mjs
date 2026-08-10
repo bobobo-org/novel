@@ -1998,6 +1998,489 @@ test("bounded-prose-extension", async () => {
     taskId: "browser-initial-length-safe-prefix-authoritative-candidate",
   });
 
+  const repair360Policy = {
+    ...structuredClone(performancePolicy),
+    reservedOutputTokens: 360,
+    maxOutputTokens: 360,
+  };
+  const initialSafetyFixtures = [
+    {
+      safetyCode: "control-token",
+      reasonCode: "QUALITY_OUTPUT_CONTROL_TOKEN",
+      marker: "<|im_end|>",
+      sentinel: "RAW_CONTROL_X9",
+    },
+    {
+      safetyCode: "role-envelope",
+      reasonCode: "QUALITY_OUTPUT_ROLE_ENVELOPE",
+      marker: "\nassistant:",
+      sentinel: "RAW_ROLE_X9",
+    },
+    {
+      safetyCode: "internal-envelope",
+      reasonCode: "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
+      marker: "<作者目標>",
+      sentinel: "RAW_INTERNAL_X9",
+    },
+  ];
+  const productionInitialSafetyRaw = ({ marker, sentinel }) => {
+    const rawBase = `${"霧".repeat(
+      215 - countBrowserProseHanCharacters(marker),
+    )}。${marker}${sentinel}`;
+    assert.ok(rawBase.length <= 252);
+    const raw = `${rawBase}${"A".repeat(252 - rawBase.length)}`;
+    assert.equal(raw.length, 252);
+    assert.equal(countBrowserProseHanCharacters(raw), 215);
+    return raw;
+  };
+  const safetyRecoveryExecutions = [];
+  for (const fixture of initialSafetyFixtures) {
+    const unsafeInitial = productionInitialSafetyRaw(fixture);
+    assert.equal(assessBrowserProseCompletion(unsafeInitial).safetyCode, fixture.safetyCode);
+    const recovered = await execute({
+      ...result(unsafeInitial, "stop"),
+      completionTokens: 164,
+      rawOutputCharacters: 252,
+      normalizedOutputCharacters: 252,
+    }, [
+      (repairRequest, options) => {
+        const serializedRepairInput = JSON.stringify({ repairRequest, options });
+        assert.doesNotMatch(serializedRepairInput, new RegExp(fixture.sentinel, "u"));
+        assert.ok(!serializedRepairInput.includes(fixture.marker));
+        assert.equal(
+          repairRequest.input,
+          `${request.input}\n補修後重寫完整正文。`,
+        );
+        assert.deepEqual(repairRequest.context, request.context);
+        assert.equal(repairRequest.agentPlan, undefined);
+        assert.deepEqual(repairRequest.toolResults, []);
+        assert.deepEqual(repairRequest.workingMaterials, []);
+        assert.equal(options.unapprovedContinuationSeed, undefined);
+        const builtRepairPrompt = buildClosedAIModelPrompt({
+          objective: repairRequest.input,
+          context: repairRequest.context,
+          profile: getClosedAIModelProfile(repairRequest.taskType, "browser-ai"),
+          qualityPhase: repairRequest.qualityPhase,
+          agentPlan: repairRequest.agentPlan,
+          toolResults: repairRequest.toolResults,
+          workingMaterials: repairRequest.workingMaterials,
+        });
+        assert.doesNotMatch(builtRepairPrompt.prompt, new RegExp(fixture.sentinel, "u"));
+        return {
+          ...result(
+            acceptedProse,
+            "stop",
+            `${request.requestId}:bounded-same-model-repair`,
+          ),
+          performancePolicy: repair360Policy,
+        };
+      },
+    ]);
+    assert.equal(recovered.calls.length, 1);
+    assert.equal(recovered.quality.decision, "pass");
+    assert.equal(recovered.result.content, acceptedProse);
+    assert.equal(recovered.result.externalRequest, false);
+    assert.equal(recovered.result.dataLeavesDevice, false);
+    assert.deepEqual(
+      recovered.browserRuntimeEvidence.map((entry) => entry.stage),
+      ["initial", "repair"],
+    );
+    assert.equal(recovered.browserRuntimeEvidence[0].finishReason, "stop");
+    assert.equal(recovered.browserRuntimeEvidence[0].completionTokens, 164);
+    assert.equal(recovered.browserRuntimeEvidence[0].rawOutputCharacters, 252);
+    assert.equal(recovered.browserRuntimeEvidence[0].observedHanCharacters, 215);
+    assert.match(recovered.result.runtimeStats, /initial-output-disposition=safety-rejected-memory-only/u);
+    assert.match(recovered.result.runtimeStats, new RegExp(fixture.reasonCode, "u"));
+    assert.match(recovered.result.runtimeStats, /QUALITY_NARRATIVE_TOO_SHORT/u);
+    assert.doesNotMatch(recovered.result.runtimeStats, /initial-output-digest=/u);
+    assert.doesNotMatch(
+      JSON.stringify({
+        result: recovered.result,
+        evidence: recovered.browserRuntimeEvidence,
+        repairCalls: recovered.calls,
+      }),
+      new RegExp(fixture.sentinel, "u"),
+    );
+    safetyRecoveryExecutions.push({ fixture, unsafeInitial, recovered });
+  }
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: safetyRecoveryExecutions[0].recovered,
+    rawGeneration: safetyRecoveryExecutions[0].unsafeInitial,
+    discardedSentinel: safetyRecoveryExecutions[0].fixture.sentinel,
+    taskId: "browser-initial-safety-repair-authoritative-candidate",
+  });
+
+  for (const fixture of initialSafetyFixtures) {
+    const unsafeInitial = productionInitialSafetyRaw(fixture);
+    let repeatedSafetyCalls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: {
+          ...result(unsafeInitial, "stop"),
+          completionTokens: 164,
+          rawOutputCharacters: 252,
+          normalizedOutputCharacters: 252,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async (repairRequest, _repairDecision, _progress, options) => {
+          repeatedSafetyCalls += 1;
+          assert.equal(repeatedSafetyCalls, 1);
+          assert.doesNotMatch(
+            JSON.stringify({ repairRequest, options }),
+            new RegExp(fixture.sentinel, "u"),
+          );
+          return {
+            ...result(
+              unsafeInitial,
+              "stop",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: 164,
+            rawOutputCharacters: 252,
+            normalizedOutputCharacters: 252,
+            performancePolicy: repair360Policy,
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+          && error.qualityReasonCodes.length === 1
+          && error.qualityReasonCodes[0] === fixture.reasonCode
+          && evidence.length === 2
+          && evidence[0].stage === "initial"
+          && evidence[1].stage === "repair"
+          && error.canonicalMutationCount === 0;
+      },
+    );
+    assert.equal(repeatedSafetyCalls, 1);
+  }
+
+  const safetyShortInitial = productionInitialSafetyRaw(initialSafetyFixtures[0]);
+  let safetyShortCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(safetyShortInitial, "stop"),
+        completionTokens: 164,
+        rawOutputCharacters: 252,
+        normalizedOutputCharacters: 252,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async () => {
+        safetyShortCalls += 1;
+        assert.equal(safetyShortCalls, 1, "safety recovery must not run a suffix extension");
+        return {
+          ...result(
+            shortRepair,
+            "stop",
+            `${request.requestId}:bounded-same-model-repair`,
+          ),
+          performancePolicy: repair360Policy,
+        };
+      },
+    }),
+    (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+      && error.qualityReasonCodes.includes("QUALITY_LENGTHCOMPLIANCE_LOW")
+      && error.qualityReasonCodes.includes("QUALITY_NARRATIVE_TOO_SHORT")
+      && closedAgentBrowserRuntimeEvidence(error).length === 2
+      && error.canonicalMutationCount === 0,
+  );
+  assert.equal(safetyShortCalls, 1);
+
+  const frozenSafetyProviderError = Object.freeze(Object.assign(
+    new Error(initialSafetyFixtures[0].sentinel),
+    { code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED" },
+  ));
+  let safetyThrowCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(safetyShortInitial, "stop"),
+        completionTokens: 164,
+        rawOutputCharacters: 252,
+        normalizedOutputCharacters: 252,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async () => {
+        safetyThrowCalls += 1;
+        throw frozenSafetyProviderError;
+      },
+    }),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      return error !== frozenSafetyProviderError
+        && error.code === "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED"
+        && !error.message.includes(initialSafetyFixtures[0].sentinel)
+        && evidence.length === 2
+        && evidence[1].stage === "repair"
+        && evidence[1].finishReason === "unavailable";
+    },
+  );
+  assert.equal(safetyThrowCalls, 1);
+
+  const assertInitialSafetyRepairUnavailable = async ({
+    requestOverride = request,
+    decisionOverride = decision,
+    requiredGenerativeExecutor = "webllm-worker",
+    initialOverrides = {},
+  } = {}) => {
+    const unsafeInitial = productionInitialSafetyRaw(initialSafetyFixtures[1]);
+    let calls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request: requestOverride,
+        decision: decisionOverride,
+        executionRequest: requestOverride,
+        initialResult: {
+          ...result(unsafeInitial, "stop"),
+          completionTokens: 164,
+          rawOutputCharacters: 252,
+          normalizedOutputCharacters: 252,
+          ...initialOverrides,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor,
+        runPass: async () => {
+          calls += 1;
+          throw new Error("non-eligible safety output must block before repair");
+        },
+      }),
+      (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes.length === 1
+        && error.qualityReasonCodes[0] === "QUALITY_OUTPUT_ROLE_ENVELOPE"
+        && closedAgentBrowserRuntimeEvidence(error).length === 1
+        && error.canonicalMutationCount === 0,
+    );
+    assert.equal(calls, 0);
+  };
+  await assertInitialSafetyRepairUnavailable({
+    requestOverride: { ...request, taskType: "story.summary" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    requestOverride: { ...request, input: "寫500字" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { executor: "chromium-prompt-api" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { modelDigest: "runtime-managed" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { modelId: "wrong-model" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    requiredGenerativeExecutor: null,
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { generationFinishReason: "length" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { requestId: "stale-browser-request" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { providerId: "private-ai-hub" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { candidateOnly: false },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { externalRequest: true },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { dataLeavesDevice: true },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: { performancePolicy: null },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        policyVersion: "attacker-policy",
+      },
+    },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        workerExecution: false,
+      },
+    },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        serialGeneration: false,
+      },
+    },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    initialOverrides: {
+      performancePolicy: {
+        ...structuredClone(performancePolicy),
+        reservedOutputTokens: 385,
+        maxOutputTokens: 385,
+      },
+    },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, providerId: "private-ai-hub" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, externalRequest: true },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, dataLeavesDevice: true },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, modelId: "wrong-model" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, privacyMode: "external-approved" },
+  });
+  await assertInitialSafetyRepairUnavailable({
+    decisionOverride: { ...decision, fallbackChain: ["private-ai-hub"] },
+  });
+  for (const provenanceOverride of [
+    { providerId: "private-ai-hub" },
+    { modelId: "wrong-model" },
+    { modelDigest: "runtime-managed" },
+    { externalRequest: true },
+    { dataLeavesDevice: true },
+    { privacyMode: "external-approved" },
+    { fallbackChain: ["private-ai-hub"] },
+  ]) {
+    await assertInitialSafetyRepairUnavailable({
+      initialOverrides: {
+        provenance: { ...structuredClone(decision), ...provenanceOverride },
+      },
+    });
+  }
+
+  const safetyRepairBoundaryOverrides = [
+    { override: { providerId: "private-ai-hub" }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { candidateOnly: false }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { externalRequest: true }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { dataLeavesDevice: true }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { performancePolicy: null }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    {
+      override: {
+        performancePolicy: {
+          ...structuredClone(repair360Policy),
+          workerExecution: false,
+        },
+      },
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    },
+    {
+      override: {
+        performancePolicy: {
+          ...structuredClone(repair360Policy),
+          serialGeneration: false,
+        },
+      },
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    },
+    {
+      override: {
+        performancePolicy: {
+          ...structuredClone(repair360Policy),
+          reservedOutputTokens: 361,
+          maxOutputTokens: 361,
+        },
+      },
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    },
+    {
+      override: {
+        performancePolicy: {
+          ...structuredClone(performancePolicy),
+          reservedOutputTokens: 384,
+          maxOutputTokens: 384,
+        },
+      },
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    },
+    ...[
+      { providerId: "private-ai-hub" },
+      { modelId: "wrong-model" },
+      { modelDigest: "runtime-managed" },
+      { externalRequest: true },
+      { dataLeavesDevice: true },
+      { privacyMode: "external-approved" },
+      { fallbackChain: ["private-ai-hub"] },
+    ].map((provenanceOverride) => ({
+      override: {
+        provenance: { ...structuredClone(decision), ...provenanceOverride },
+      },
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+    })),
+    { override: { requestId: "stale-browser-repair" }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { executor: "chromium-prompt-api" }, code: "BROWSER_AI_T2_EXECUTOR_MISMATCH" },
+    { override: { modelId: "wrong-model" }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+    { override: { modelDigest: "runtime-managed" }, code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH" },
+  ];
+  for (const fixture of safetyRepairBoundaryOverrides) {
+    let calls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: request,
+        initialResult: {
+          ...result(safetyShortInitial, "stop"),
+          completionTokens: 164,
+          rawOutputCharacters: 252,
+          normalizedOutputCharacters: 252,
+        },
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        runPass: async () => {
+          calls += 1;
+          assert.equal(calls, 1);
+          return {
+            ...result(
+              acceptedProse,
+              "stop",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            performancePolicy: repair360Policy,
+            ...fixture.override,
+          };
+        },
+      }),
+      (error) => {
+        const evidence = closedAgentBrowserRuntimeEvidence(error);
+        return error.code === fixture.code
+          && evidence.length === 2
+          && evidence[0].stage === "initial"
+          && evidence[1].stage === "repair"
+          && error.canonicalMutationCount === 0;
+      },
+    );
+    assert.equal(calls, 1);
+  }
+
   // Production Preview trace: the short initial draft triggers the one bounded
   // repair; the verified repair reaches its real 360-token cap with a complete
   // 220..320-Han prefix followed by an unfinished tail. Only that prefix may
@@ -2016,11 +2499,6 @@ test("bounded-prose-extension", async () => {
     return raw;
   };
   const repairLengthRaw = productionRepairLengthRaw(repairDiscardedTailSentinel);
-  const repair360Policy = {
-    ...structuredClone(performancePolicy),
-    reservedOutputTokens: 360,
-    maxOutputTokens: 360,
-  };
   const repairedLengthPrefix = await execute(result(initial85, "stop"), [
     (repairRequest, options) => {
       assert.equal(options.unapprovedContinuationSeed, undefined);
@@ -2169,7 +2647,7 @@ test("bounded-prose-extension", async () => {
     finishReason: "length",
     completionTokens: 359,
     raw: productionRepairLengthRaw("<|im_end|>"),
-    expectedReasonCode: "QUALITY_TASK_FORM_MISMATCH",
+    expectedReasonCode: "QUALITY_OUTPUT_CONTROL_TOKEN",
   });
   await assertRepairLengthPrefixRejected({
     finishReason: "length",
@@ -2177,7 +2655,7 @@ test("bounded-prose-extension", async () => {
     repairOverrides: { executor: "chromium-prompt-api" },
     expectedCode: "BROWSER_AI_T2_EXECUTOR_MISMATCH",
     expectedReasonCode: null,
-    expectedEvidenceLength: 0,
+    expectedEvidenceLength: 2,
   });
   await assertRepairLengthPrefixRejected({
     finishReason: "length",
@@ -2185,7 +2663,7 @@ test("bounded-prose-extension", async () => {
     repairOverrides: { modelDigest: "runtime-managed" },
     expectedCode: "BROWSER_AI_BOUNDED_REPAIR_MODEL_MISMATCH",
     expectedReasonCode: null,
-    expectedEvidenceLength: 0,
+    expectedEvidenceLength: 2,
   });
 
   const actual320Policy = {
@@ -2298,7 +2776,7 @@ test("bounded-prose-extension", async () => {
       },
     }),
     (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
-      && error.qualityReasonCodes.includes("QUALITY_TASK_FORM_MISMATCH")
+      && error.qualityReasonCodes.includes("QUALITY_OUTPUT_CONTROL_TOKEN")
       && closedAgentBrowserRuntimeEvidence(error).length === 1
       && closedAgentBrowserRuntimeEvidence(error)[0].finishReason === "length"
       && closedAgentBrowserRuntimeEvidence(error)[0].completionTokens === 383

@@ -834,6 +834,9 @@ await test("source-truth", async () => {
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
   for (const code of [
+    "QUALITY_OUTPUT_CONTROL_TOKEN",
+    "QUALITY_OUTPUT_ROLE_ENVELOPE",
+    "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
     "QUALITY_CONTINUATION_CONTROL_TOKEN",
     "QUALITY_CONTINUATION_ROLE_ENVELOPE",
     "QUALITY_CONTINUATION_INTERNAL_ENVELOPE",
@@ -851,7 +854,7 @@ await test("source-truth", async () => {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
   }
   assert.match(browserGate, /assertMaliciousDomDiagnosticsAreRejected/u);
-  assert.match(browserGate, /QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE/u);
+  assert.match(browserGate, /QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE/u);
   assert.doesNotMatch(browserGate, /error\.message\.slice|String\(error\)\.slice/u);
   assert.doesNotMatch(browserGate, /RC6_2_CLOSED_AI_SETUP_FAILED:\$\{\(await card\.textContent/u);
   assert.match(browserGate, /page\.reload/u);

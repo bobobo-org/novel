@@ -41,10 +41,12 @@ import {
 import { browserWebLLMRuntimeSnapshot } from "./browser-webllm-runtime";
 import {
   assessBrowserProseCompletion,
+  browserProseSafetyCode,
   buildBrowserProseContinuationSeed,
   mergeBrowserProseContinuation,
   shouldEnforceDefaultBrowserProseContract,
   shouldRunBrowserProseExtension,
+  type BrowserProseSafetyCode,
 } from "./browser-prose-extension";
 import {
   BROWSER_WEBLLM_MODELS,
@@ -110,6 +112,60 @@ function assertSameVerifiedBrowserModel(
   );
 }
 
+function hasVerifiedClosedWebLLMBoundary(
+  result: PlatformAIResult,
+  decision: PlatformRouterDecision,
+  stageHardCap: number,
+  expectedRequestId: string,
+) {
+  return result.requestId === expectedRequestId
+    && decision.providerId === "browser-ai"
+    && decision.privacyMode === "strict-local"
+    && decision.externalRequest === false
+    && decision.dataLeavesDevice === false
+    && decision.fallbackChain.every((providerId) => providerId === "browser-ai")
+    && result.providerId === "browser-ai"
+    && result.candidateOnly === true
+    && result.externalRequest === false
+    && result.dataLeavesDevice === false
+    && result.provenance.providerId === decision.providerId
+    && result.provenance.modelId === result.modelId
+    && result.provenance.modelDigest === result.modelDigest
+    && result.provenance.externalRequest === false
+    && result.provenance.dataLeavesDevice === false
+    && result.provenance.privacyMode === decision.privacyMode
+    && result.provenance.fallbackChain.every((providerId) =>
+      providerId === "browser-ai")
+    && result.performancePolicy?.policyVersion === "browser-ai-performance-v2"
+    && result.performancePolicy.workerExecution === true
+    && result.performancePolicy.serialGeneration === true
+    && Number.isSafeInteger(result.performancePolicy.maxOutputTokens)
+    && result.performancePolicy.maxOutputTokens >= 1
+    && result.performancePolicy.maxOutputTokens <= Math.floor(stageHardCap);
+}
+
+function assertVerifiedClosedWebLLMBoundary(
+  result: PlatformAIResult,
+  decision: PlatformRouterDecision,
+  stageHardCap: number,
+  expectedRequestId: string,
+) {
+  if (hasVerifiedClosedWebLLMBoundary(
+    result,
+    decision,
+    stageHardCap,
+    expectedRequestId,
+  )) return;
+  throw Object.assign(
+    new Error("Bounded Browser repair violated the verified closed execution boundary."),
+    {
+      code: "BROWSER_AI_CLOSED_BOUNDARY_MISMATCH",
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    },
+  );
+}
+
 function passSeed(seed: number | undefined, offset: number) {
   return seed === undefined ? undefined : (seed + offset) >>> 0;
 }
@@ -127,6 +183,18 @@ const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
   "chapter.expand",
 ]);
 const BROWSER_BOUNDED_REPAIR_MAX_TOKENS = 360;
+const BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE = {
+  "control-token": "QUALITY_OUTPUT_CONTROL_TOKEN",
+  "role-envelope": "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  "internal-envelope": "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
+} as const satisfies Record<BrowserProseSafetyCode, string>;
+const BROWSER_OUTPUT_SAFETY_REASON_CODES = new Set<string>(
+  Object.values(BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE),
+);
+
+function browserProseSafetyReasonCode(code: BrowserProseSafetyCode) {
+  return BROWSER_OUTPUT_SAFETY_REASON_CODE_BY_PROSE_CODE[code];
+}
 
 function browserProseMergeReasonCode(reason: string | null) {
   switch (reason) {
@@ -158,7 +226,8 @@ export function buildBrowserBoundedSameModelRepairPlan(input: {
   reasonCodes: string[];
 }) {
   const reasonCodes = [...new Set(input.reasonCodes.filter((reason) =>
-    BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason)))];
+    BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason)
+    || BROWSER_OUTPUT_SAFETY_REASON_CODES.has(reason)))];
   return {
     objective: [
       input.authorObjective.trim(),
@@ -566,6 +635,30 @@ export async function executeBrowserBoundedQualityPasses(input: {
   let chapterProseContract = defaultChapterProseContract
     ? assessBrowserProseCompletion(result.content)
     : null;
+  const initialSafetyCode = chapterProseContract?.safetyCode
+    ?? browserProseSafetyCode(result.content);
+  const initialSafetyReasonCode = initialSafetyCode
+    ? browserProseSafetyReasonCode(initialSafetyCode)
+    : null;
+  const initialSafetyRepairReasonCode = Boolean(
+    chapterProseContract?.safetyCode
+    && requiredGenerativeExecutor === "webllm-worker"
+    && result.generationFinishReason === "stop"
+    && result.executor === requiredGenerativeExecutor
+    && Boolean(result.modelId)
+    && result.modelId === input.decision.modelId
+    && isCryptographicClosedAIModelDigest(result.modelDigest)
+    && result.modelDigest === input.decision.modelDigest
+    && hasVerifiedClosedWebLLMBoundary(
+      result,
+      input.decision,
+      performancePolicy.reservedOutputTokens,
+      input.request.requestId,
+    )
+    && BOUNDED_SAME_MODEL_REPAIR_TASKS.has(input.request.taskType)
+  )
+    ? initialSafetyReasonCode
+    : null;
   const browserRuntimeEvidence: ClosedAgentBrowserRuntimeEvidence[] = [
     browserRuntimePassEvidence(
       "initial",
@@ -590,13 +683,13 @@ export async function executeBrowserBoundedQualityPasses(input: {
       canonicalMutationCount: 0,
     });
   }
-  if (chapterProseContract?.safetyCode) {
+  if (initialSafetyReasonCode && !initialSafetyRepairReasonCode) {
     throw Object.assign(explicitEscalationError(
       eligibility,
       "BROWSER_AI_QUALITY_INSUFFICIENT",
     ), {
       qualityDecision: "block",
-      qualityReasonCodes: ["QUALITY_TASK_FORM_MISMATCH"],
+      qualityReasonCodes: [initialSafetyReasonCode],
       browserRuntimeEvidence,
       fallbackAttempted: false,
       canonicalMutationCount: 0,
@@ -607,7 +700,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
   // authoritative candidate/receipt/ledger value; it does not rewrite or
   // reinterpret the raw-generation proof digest.
   if (
-    chapterProseContract?.rawBudgetExceeded
+    !initialSafetyRepairReasonCode
+    && chapterProseContract?.rawBudgetExceeded
     && !chapterProseContract.contractSatisfied
   ) {
     const selectedCompletion = selectVerifiedBrowserLengthSafePrefix({
@@ -663,18 +757,22 @@ export async function executeBrowserBoundedQualityPasses(input: {
     input.request.taskType,
     eligibility.tier,
   );
-  let quality = evaluateBrowserCandidateQuality({
-    taskType: input.request.taskType,
-    content: result.content,
-    expectedMinTokens,
-    expectedMaxTokens: performancePolicy.reservedOutputTokens,
-    requiresStructuredOutput: input.request.requiresStructured,
-    approvedContext: executionRequest.context,
-    threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
-  });
+  let quality = initialSafetyRepairReasonCode
+    ? null
+    : evaluateBrowserCandidateQuality({
+      taskType: input.request.taskType,
+      content: result.content,
+      expectedMinTokens,
+      expectedMaxTokens: performancePolicy.reservedOutputTokens,
+      requiresStructuredOutput: input.request.requiresStructured,
+      approvedContext: executionRequest.context,
+      threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
+    });
   const repairReasonCodes = [...new Set([
-    ...quality.reasonCodes.filter((reason) =>
-      BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason)),
+    ...(initialSafetyRepairReasonCode
+      ? [initialSafetyRepairReasonCode]
+      : (quality?.reasonCodes ?? []).filter((reason) =>
+        BOUNDED_SAME_MODEL_REPAIR_REASONS.has(reason))),
     ...(chapterProseContract && !chapterProseContract.contractSatisfied
       ? [chapterProseContract.observedHanCharacters < 220
         ? "QUALITY_NARRATIVE_TOO_SHORT"
@@ -687,7 +785,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
     && repairReasonCodes.length > 0
   ) {
     const initialResult = result;
-    const initialDigest = await sha256Hex(initialResult.content);
+    const initialDigest = initialSafetyRepairReasonCode
+      ? null
+      : await sha256Hex(initialResult.content);
     const repairPlan = buildBrowserBoundedSameModelRepairPlan({
       authorObjective: input.request.input,
       reasonCodes: repairReasonCodes,
@@ -700,6 +800,12 @@ export async function executeBrowserBoundedQualityPasses(input: {
           requestId: `${input.request.requestId}:bounded-same-model-repair`,
           input: repairPlan.objective,
           qualityPhase: "revision",
+          agentPlan: initialSafetyRepairReasonCode
+            ? undefined
+            : executionRequest.agentPlan,
+          toolResults: initialSafetyRepairReasonCode
+            ? []
+            : executionRequest.toolResults,
           workingMaterials: [],
           generationOptions: {
             ...input.request.generationOptions,
@@ -732,8 +838,6 @@ export async function executeBrowserBoundedQualityPasses(input: {
         unavailableBrowserRuntimePassEvidence("repair"),
       ]);
     }
-    assertVerifiedExecutor(repairResult, requiredGenerativeExecutor);
-    assertSameVerifiedBrowserModel(initialResult, repairResult);
     let repairCompletion = defaultChapterProseContract
       ? assessBrowserProseCompletion(repairResult.content)
       : null;
@@ -742,6 +846,20 @@ export async function executeBrowserBoundedQualityPasses(input: {
       repairResult,
       repairCompletion?.observedHanCharacters ?? null,
     ));
+    try {
+      if (initialSafetyRepairReasonCode) {
+        assertVerifiedClosedWebLLMBoundary(
+          repairResult,
+          input.decision,
+          BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+          `${input.request.requestId}:bounded-same-model-repair`,
+        );
+      }
+      assertVerifiedExecutor(repairResult, requiredGenerativeExecutor);
+      assertSameVerifiedBrowserModel(initialResult, repairResult);
+    } catch (error) {
+      throw attachBrowserRuntimeEvidence(error, browserRuntimeEvidence);
+    }
     if (
       repairCompletion
       && requiredGenerativeExecutor === "webllm-worker"
@@ -760,12 +878,15 @@ export async function executeBrowserBoundedQualityPasses(input: {
       });
     }
     if (repairCompletion?.safetyCode) {
+      const repairSafetyReasonCode = browserProseSafetyReasonCode(
+        repairCompletion.safetyCode,
+      );
       throw Object.assign(explicitEscalationError(
         eligibility,
         "BROWSER_AI_QUALITY_INSUFFICIENT",
       ), {
         qualityDecision: "block",
-        qualityReasonCodes: ["QUALITY_TASK_FORM_MISMATCH"],
+        qualityReasonCodes: [repairSafetyReasonCode],
         browserRuntimeEvidence,
         fallbackAttempted: false,
         canonicalMutationCount: 0,
@@ -814,7 +935,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       threshold: eligibility.tier === "T1" ? 0.58 : 0.7,
     });
     const runBoundedProseExtension = repairCompletion
-      ? shouldRunBrowserProseExtension({
+      ? !initialSafetyRepairReasonCode && shouldRunBrowserProseExtension({
         taskType: input.request.taskType,
         explicitLengthRequested: !defaultChapterProseContract,
         contractSatisfied: repairCompletion.contractSatisfied,
@@ -967,8 +1088,6 @@ export async function executeBrowserBoundedQualityPasses(input: {
         qualityDecision: "block",
         qualityReasonCodes: repairResult.generationFinishReason !== "stop"
           ? ["QUALITY_OUTPUT_TRUNCATED"]
-          : repairCompletion.safetyCode
-          ? ["QUALITY_TASK_FORM_MISMATCH"]
           : repairCompletion.observedHanCharacters < 220
             ? ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"]
             : ["QUALITY_OUTPUT_TRUNCATED"],
@@ -1021,7 +1140,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
         ...(extensionResult
           ? [`extension-finish=${extensionResult.generationFinishReason ?? "unavailable"}`]
           : []),
-        `initial-output-digest=${initialDigest}`,
+        ...(initialDigest
+          ? [`initial-output-digest=${initialDigest}`]
+          : ["initial-output-disposition=safety-rejected-memory-only"]),
         ...(extensionDigest ? [`extension-output-digest=${extensionDigest}`] : []),
         `initial-quality-reasons=${repairPlan.reasonCodes.join(",")}`,
         "intermediate-content=pipeline-memory-only",
@@ -1030,13 +1151,29 @@ export async function executeBrowserBoundedQualityPasses(input: {
         ...acceptedResult.provenance,
         warnings: [
           ...acceptedResult.provenance.warnings,
-          "One bounded repair and at most one normal-EOS suffix extension ran on the same verified Browser executor; rejected intermediate text remained in memory and no provider fallback occurred.",
+          initialSafetyRepairReasonCode
+            ? "One isolated safety repair ran on the same verified Browser executor; rejected initial text remained in memory, was not reused as model input, and no provider fallback occurred."
+            : "One bounded repair and at most one normal-EOS suffix extension ran on the same verified Browser executor; rejected intermediate text remained in memory and no provider fallback occurred.",
         ],
       },
     };
     quality = repairQuality;
   }
 
+  if (!quality) {
+    throw Object.assign(explicitEscalationError(
+      eligibility,
+      "BROWSER_AI_QUALITY_INSUFFICIENT",
+    ), {
+      qualityDecision: "block",
+      qualityReasonCodes: initialSafetyReasonCode
+        ? [initialSafetyReasonCode]
+        : ["QUALITY_TASK_FORM_MISMATCH"],
+      browserRuntimeEvidence,
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    });
+  }
   return { result, quality, browserRuntimeEvidence };
 }
 
@@ -1167,7 +1304,8 @@ export async function executeBrowserCompute(input: {
   // Closed Agent OS owns planning, critique and revision. A browser task node
   // normally performs one model pass. Direct continuation tasks may run one
   // bounded repair on the same verified executor when the first output ends
-  // early or merely copies context; this never switches providers or mutates Canon.
+  // early, merely copies context, or contains a finite output-safety violation;
+  // this never switches providers or mutates Canon.
   let result = await executeBrowserInitialPass({
     request: executionRequest,
     decision: input.decision,
