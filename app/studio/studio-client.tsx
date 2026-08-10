@@ -2090,7 +2090,6 @@ export default function StudioClient({
         signal: taskController.signal,
         onProgress: (event: ClosedAIProgressEvent) => {
           setAssistantProgress(event);
-          if (event.delta) setAssistantStreamText((value) => value + event.delta);
           setAssistantStreamEvents((value) => Math.max(
             value + 1,
             event.generatedTokenEvents ?? 0,

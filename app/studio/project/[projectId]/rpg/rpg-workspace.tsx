@@ -901,7 +901,6 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           signal: controller.signal,
           onProgress: (event) => {
             if (controller.signal.aborted || turnRunIdRef.current !== runId) return;
-            if (event.delta) setTurnDraft((current) => `${current}${event.delta}`);
             const generated = event.generatedCharacters ?? 0;
             setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；仍是候選，尚未寫入 Canon。`);
           },

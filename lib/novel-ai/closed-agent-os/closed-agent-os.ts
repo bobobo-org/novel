@@ -2844,11 +2844,15 @@ export class ClosedAgentOS {
           const ratio = Math.max(0, Math.min(1, event.percent / 100));
           try {
             request.onProgress?.({
-              ...event,
               taskId: request.taskId,
               phase: range.phase,
               label: `${range.label}｜${event.label}`,
               percent: Math.round(range.start + (range.end - range.start) * ratio),
+              occurredAt: event.occurredAt,
+              backendId: event.backendId,
+              generatedCharacters: event.generatedCharacters,
+              generatedTokenEvents: event.generatedTokenEvents,
+              cacheHit: event.cacheHit,
             });
           } catch {
             // The quality transaction is not controlled by UI observers.

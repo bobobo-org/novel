@@ -169,14 +169,9 @@ export function shouldRunBrowserProseExtension(input: {
   finishReason: string | null | undefined;
   qualityReasonCodes: string[];
 }) {
-  const hasTruncatedOutput = input.qualityReasonCodes.includes(
-    "QUALITY_OUTPUT_TRUNCATED",
-  );
-  const continuationCompatibleReasons = input.qualityReasonCodes.every((reason) =>
+  const lengthOnly = input.qualityReasonCodes.every((reason) =>
     reason === "QUALITY_LENGTHCOMPLIANCE_LOW"
-    || reason === "QUALITY_NARRATIVE_TOO_SHORT"
-    || reason === "QUALITY_OUTPUT_TRUNCATED"
-    || (reason === "QUALITY_TASKUSEFULNESS_LOW" && hasTruncatedOutput));
+    || reason === "QUALITY_NARRATIVE_TOO_SHORT");
   return input.taskType === "chapter.continue"
     && !input.explicitLengthRequested
     && !input.contractSatisfied
@@ -185,7 +180,7 @@ export function shouldRunBrowserProseExtension(input: {
       >= BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
     && input.observedHanCharacters < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
     && input.finishReason === "stop"
-    && continuationCompatibleReasons;
+    && lengthOnly;
 }
 
 export function assessBrowserProseCompletion(

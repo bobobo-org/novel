@@ -284,6 +284,17 @@ class MockBackend {
       workingMaterials: structuredClone(input.workingMaterials),
       learningConfiguration: structuredClone(input.request.learningConfiguration ?? {}),
     });
+    if (this.options.progressEvent) {
+      input.request.onProgress?.({
+        taskId: input.request.taskId,
+        phase: "generating",
+        label: `${this.id} generated content`,
+        percent: 50,
+        occurredAt: "2026-08-10T00:00:00.000Z",
+        backendId: this.id,
+        ...structuredClone(this.options.progressEvent),
+      });
+    }
     if (this.options.executeError) throw this.options.executeError;
     const content = this.options.contentByPhase?.[input.qualityPhase]
       ?? `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`;
@@ -798,6 +809,32 @@ test("failed Browser execution exposes only finite transient runtime evidence", 
   assert.doesNotMatch(failed.label, /private prompt|raw output/iu);
 });
 
+test("quality progress strips unapproved model deltas before every consumer", async () => {
+  const rejectedDeltaSentinel = "REJECTED_PROGRESS_DELTA_X9";
+  const progress = [];
+  const { os } = createMockOS({
+    browser: {
+      progressEvent: {
+        generatedCharacters: 37,
+        generatedTokenEvents: 11,
+        delta: rejectedDeltaSentinel,
+      },
+    },
+  });
+  const value = await os.execute(request(
+    "task-browser-progress-sanitized",
+    "story.summary",
+    "light",
+    { onProgress: (event) => progress.push(event) },
+  ));
+  assert.ok(value.candidate);
+  const generation = progress.find((event) =>
+    event.generatedCharacters === 37 && event.generatedTokenEvents === 11);
+  assert.ok(generation, "numeric Browser progress must remain observable");
+  assert.equal(Object.hasOwn(generation, "delta"), false);
+  assert.doesNotMatch(JSON.stringify(progress), new RegExp(rejectedDeltaSentinel, "u"));
+});
+
 test("unsafe raw passes stop before working material and durable candidate writes", async () => {
   const unsafeFixtures = [{
     label: "generic-control",
@@ -815,6 +852,14 @@ test("unsafe raw passes stop before working material and durable candidate write
     label: "role-xml",
     content: "<assistant>不可保存的角色內容</assistant>",
     reason: "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  }, {
+    label: "simplified-role",
+    content: "用户：不可保存的角色內容",
+    reason: "QUALITY_OUTPUT_ROLE_ENVELOPE",
+  }, {
+    label: "simplified-internal-envelope",
+    content: "<作者目标>不可保存的提示內容</作者目标>",
+    reason: "QUALITY_OUTPUT_INTERNAL_ENVELOPE",
   }, {
     label: "credential",
     content: `sk-proj-${"a".repeat(24)}`,

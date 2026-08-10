@@ -797,6 +797,11 @@ await test("source-truth", async () => {
   );
   assert.doesNotMatch(backends, /unknown-local-digest|unknown-local-model/u);
   assert.match(backends, /Local Ollama returned no verified model identity/u);
+  assert.doesNotMatch(
+    backends,
+    /delta:\s*(?:progress|stream)(?:\?\.)?\.delta/u,
+    "Closed backend progress must expose numeric counters, never rejected model text",
+  );
   assert.match(
     provider,
     /inferenceMode:\s*BrowserAIInferenceProof\["inferenceMode"\]\s*=\s*"task-model"/u,

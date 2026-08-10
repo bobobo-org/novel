@@ -160,7 +160,7 @@ function reportGenerationProgress(
   label: string,
   generatedCharacters: number,
   percent: number,
-  stream?: { delta?: string; generatedTokenEvents?: number },
+  stream?: { generatedTokenEvents?: number },
 ) {
   try {
     input.request.onProgress?.({
@@ -171,7 +171,6 @@ function reportGenerationProgress(
       occurredAt: new Date().toISOString(),
       backendId: input.plan.backendId,
       generatedCharacters,
-      delta: stream?.delta,
       generatedTokenEvents: stream?.generatedTokenEvents,
     });
   } catch {
@@ -483,7 +482,6 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
         progress.generatedCharacters,
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
         {
-          delta: progress.delta,
           generatedTokenEvents: progress.generatedTokenEvents,
         },
       ),

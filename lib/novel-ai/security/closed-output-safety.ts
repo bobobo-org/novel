@@ -29,8 +29,13 @@ const MODEL_CONTROL_TOKEN = /<\|[^|<>\r\n]+\|>/iu;
 const MODEL_INSTRUCTION_TOKEN = /(?:\[\/?INST\]|<\/?s>)/iu;
 const CREDENTIAL = /\b(?:vcp|sbp|gh[pousr])_[A-Za-z0-9_-]{16,}\b|\bgithub_pat_[A-Za-z0-9_]{16,}\b|\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b|\bxox[baprs]-[A-Za-z0-9-]{12,}\b|\bAIza[A-Za-z0-9_-]{20,}\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*\b|\b(?:authorization|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|cookie)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,}|-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/iu;
 const RAW_REASONING = /\b(?:chain[-_ ]?of[-_ ]?thought|raw[_-]?reasoning|hidden reasoning|system[_-]?prompt)\b|(?:<|&lt;)\/?(?:think|analysis)(?:>|&gt;)|(?:^|\n)\s*(?:analysis|reasoning)\s*[:：]/iu;
-const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?=[:：]|$)|(?:<|&lt;)\/?\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?:>|&gt;))/iu;
-const INTERNAL_OUTPUT_ENVELOPE = /(?:<\/?(?:unapproved-continuation-seed|作者目標|最終輸出契約|品質階段|工作類型|explicit-regeneration)>|\[\/?EXISTING_STORY_REFERENCE\]|base-digest=|base-han=|anchor-(?:begin|end))/iu;
+const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用[戶户]|[開开𫔭][發发]者|工具)\s*(?=[:：]|$)|(?:<|&lt;|&#0*60;|&#x0*3c;)\/?\s*(?:system|assistant|user|developer|tool|助手|使用者|用[戶户]|[開开𫔭][發发]者|工具)\s*\/?\s*(?:>|&gt;|&#0*62;|&#x0*3e;))/iu;
+// The Browser provider scans before the OS-owned Simplified-to-Traditional
+// pass. Keep prompt-envelope detection closed over every one-pass Chinese tag
+// preimage so normalization cannot create a newly unsafe final candidate.
+const INTERNAL_STRUCTURAL_TAG = /(?:(?:<|&lt;|&#0*60;|&#x0*3c;)\s*\/?\s*(?:unapproved-continuation-seed|作者目[標标]|最[終终][輸输]出契[約约]|(?:品[質质]|[質质]量)[階阶]段|工作[類类]型|已[核覈][准準][資资]料|代理[計计][畫画劃划㓰]|本[機机]工具[證证][據据]|未[核覈][准準]工作素材|既有章[節节]\s*[（(]\s*[僅仅]供辨[識识]\s*[，,]\s*禁止[輸输]出\s*[）)]|[續续][寫写]起[點点]\s*[（(]\s*只承接\s*[，,]\s*不得重[寫写]\s*[）)]|explicit-regeneration)\s*\/?\s*(?:>|&gt;|&#0*62;|&#x0*3e;))/iu;
+const INTERNAL_STORY_REFERENCE = /(?:(?:\[|&#0*91;|&#x0*5b;)\s*\/?\s*EXISTING_STORY_REFERENCE\s*(?:\]|&#0*93;|&#x0*5d;))/iu;
+const INTERNAL_TELEMETRY_ENVELOPE = /(?<![A-Za-z0-9_-])(?:(?:extension-)?base-(?:digest|han)=|anchor-(?:begin|end)(?![A-Za-z0-9_-]))/iu;
 
 export function closedOutputSafetyCode(
   value: string,
@@ -46,7 +51,11 @@ export function closedOutputSafetyCode(
     return "control-token";
   }
   if (MODEL_ROLE_ENVELOPE.test(normalized)) return "role-envelope";
-  if (INTERNAL_OUTPUT_ENVELOPE.test(normalized)) return "internal-envelope";
+  if (
+    INTERNAL_STRUCTURAL_TAG.test(normalized)
+    || INTERNAL_STORY_REFERENCE.test(normalized)
+    || INTERNAL_TELEMETRY_ENVELOPE.test(normalized)
+  ) return "internal-envelope";
   return null;
 }
 

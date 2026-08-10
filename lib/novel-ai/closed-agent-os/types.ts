@@ -147,9 +147,8 @@ export type ClosedAIProgressEvent = {
   percent: number;
   occurredAt: string;
   backendId?: ClosedAIBackendId;
+  /** Finite counters only; unapproved model text never crosses this boundary. */
   generatedCharacters?: number;
-  /** User-visible model output only; never contains prompts or chain-of-thought. */
-  delta?: string;
   generatedTokenEvents?: number;
   cacheHit?: boolean;
 };
