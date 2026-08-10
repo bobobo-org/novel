@@ -96,6 +96,14 @@ export type BrowserAIExecutionOptions = {
    * task-model result.
    */
   requiredGenerativeExecutor?: "webllm-worker" | "chromium-prompt-api";
+  /** Internal-only, in-memory suffix anchor. Never accepted from PlatformAIRequest. */
+  unapprovedContinuationSeed?: {
+    anchor: string;
+    baseDigest: string;
+    baseHanCharacters: number;
+    minimumCombinedHanCharacters: number;
+    maximumCombinedHanCharacters: number;
+  };
 };
 
 function validStructuredBenchmarkOutput(content: string) {
@@ -599,6 +607,7 @@ export async function runBrowserAI(
       agentPlan: request.agentPlan,
       toolResults: request.toolResults,
       workingMaterials: request.workingMaterials,
+      unapprovedContinuationSeed: options.unapprovedContinuationSeed,
     });
     try {
       const generated = await generateWithBrowserWebLLM({
@@ -656,13 +665,23 @@ export async function runBrowserAI(
         outputCharacters: normalized.length,
         generatedTokenEvents: generated.generatedTokenEvents,
         omittedInputCharacters: prompt.omittedCharacters + generated.omittedInputCharacters,
-        runtimeStats: generated.runtimeStats,
+        runtimeStats: [
+          generated.runtimeStats,
+          `finish-reason=${generated.finishReason ?? "unavailable"}`,
+          `completion-tokens=${generated.completionTokens ?? "unavailable"}`,
+          `raw-output-characters=${generated.outputCharacters}`,
+          `normalized-output-characters=${normalized.length}`,
+        ].filter(Boolean).join("; "),
         tokensPerSecond: generated.tokensPerSecond,
         estimatedMemoryMB: generated.estimatedVramMB,
         executor: "webllm-worker",
         performancePolicy: generated.performancePolicy,
         queueWaitMs: generated.queueWaitMs,
         engineReused: generated.engineReused,
+        generationFinishReason: generated.finishReason,
+        completionTokens: generated.completionTokens,
+        rawOutputCharacters: generated.outputCharacters,
+        normalizedOutputCharacters: normalized.length,
       };
     } catch (error) {
       cancelBrowserWebLLMGeneration();

@@ -196,6 +196,7 @@
     "test:ai:browser:semantic-index": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs semantic-index",
     "test:ai:browser:context-compression": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs context-compression",
     "test:ai:browser:quality-gate": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs quality-gate",
+    "test:ai:browser:bounded-prose-extension": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs bounded-prose-extension",
     "test:ai:browser:offload-routing": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs offload-routing",
     "test:ai:browser:browser-assisted-local": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs browser-assisted-local",
     "test:ai:browser:explicit-escalation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs explicit-escalation",

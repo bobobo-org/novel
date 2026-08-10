@@ -70,6 +70,16 @@ const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "BROWSER_WEBLLM_GENERATION_FAILED",
 ]);
 const SAFE_DIAGNOSTIC_CODE_SET = new Set(SAFE_DIAGNOSTIC_CODES);
+const SAFE_RUNTIME_STAGES = Object.freeze(["initial", "repair", "extension"]);
+const SAFE_RUNTIME_FINISH_REASONS = Object.freeze([
+  "stop",
+  "length",
+  "tool_calls",
+  "abort",
+  "unavailable",
+]);
+const SAFE_RUNTIME_STAGE_SET = new Set(SAFE_RUNTIME_STAGES);
+const SAFE_RUNTIME_FINISH_REASON_SET = new Set(SAFE_RUNTIME_FINISH_REASONS);
 const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_GATE_FAILED",
   "RC6_2_CLOSED_AI_SETUP_FAILED",
@@ -90,6 +100,60 @@ function sanitizeDiagnosticCodes(values) {
   return [...new Set(values.filter(
     (value) => typeof value === "string" && SAFE_DIAGNOSTIC_CODE_SET.has(value),
   ))].sort().slice(0, 12);
+}
+
+function sanitizeRuntimeInteger(value, maximum) {
+  return value === null
+    || (
+      typeof value === "number"
+      && Number.isInteger(value)
+      && value >= 0
+      && value <= maximum
+    )
+    ? value
+    : null;
+}
+
+function sanitizeBrowserRuntimeEvidence(values) {
+  if (!Array.isArray(values)) return [];
+  const stages = new Set();
+  return values.flatMap((value) => {
+    if (
+      !value
+      || typeof value !== "object"
+      || !SAFE_RUNTIME_STAGE_SET.has(value.stage)
+      || !SAFE_RUNTIME_FINISH_REASON_SET.has(value.finishReason)
+      || stages.has(value.stage)
+    ) return [];
+    stages.add(value.stage);
+    const completionTokens = sanitizeRuntimeInteger(value.completionTokens, 4_096);
+    const rawOutputCharacters = sanitizeRuntimeInteger(value.rawOutputCharacters, 20_000);
+    const normalizedOutputCharacters = sanitizeRuntimeInteger(
+      value.normalizedOutputCharacters,
+      20_000,
+    );
+    const observedHanCharacters = sanitizeRuntimeInteger(
+      value.observedHanCharacters,
+      10_000,
+    );
+    if (
+      value.completionTokens !== completionTokens
+      || value.rawOutputCharacters !== rawOutputCharacters
+      || value.normalizedOutputCharacters !== normalizedOutputCharacters
+      || value.observedHanCharacters !== observedHanCharacters
+    ) return [];
+    return [{
+      stage: value.stage,
+      finishReason: value.finishReason,
+      completionTokens,
+      rawOutputCharacters,
+      normalizedOutputCharacters,
+      observedHanCharacters,
+    }];
+  }).slice(0, 3).sort(
+    (left, right) => SAFE_RUNTIME_STAGES.indexOf(left.stage)
+      - SAFE_RUNTIME_STAGES.indexOf(right.stage),
+  );
 }
 
 function gateError(code) {
@@ -204,14 +268,39 @@ async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
 }
 
 async function installSanitizedQualityObserver() {
-  await page.evaluate((allowedCodes) => {
+  await page.evaluate(({ allowedCodes, allowedStages, allowedFinishReasons }) => {
     const allowed = new Set(allowedCodes);
+    const stages = new Set(allowedStages);
+    const finishReasons = new Set(allowedFinishReasons);
     const codes = new Set();
+    const evidence = new Map();
+    const runtimeEvidencePattern = /BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})/gu;
+    const parseRuntimeInteger = (value, maximum) => {
+      if (value === "u") return null;
+      const parsed = Number(value);
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= maximum
+        ? parsed
+        : undefined;
+    };
     const collect = () => {
       for (const node of document.querySelectorAll('[role="status"]')) {
         const text = node.textContent ?? "";
         for (const code of allowed) {
           if (text.includes(code) && codes.size < 12) codes.add(code);
+        }
+        for (const match of text.matchAll(runtimeEvidencePattern)) {
+          const [, stage, finishReason, completion, raw, normalized, han] = match;
+          if (!stages.has(stage) || !finishReasons.has(finishReason)) continue;
+          const value = {
+            stage,
+            finishReason,
+            completionTokens: parseRuntimeInteger(completion, 4_096),
+            rawOutputCharacters: parseRuntimeInteger(raw, 20_000),
+            normalizedOutputCharacters: parseRuntimeInteger(normalized, 20_000),
+            observedHanCharacters: parseRuntimeInteger(han, 10_000),
+          };
+          if (Object.values(value).some((item) => item === undefined)) continue;
+          if (!evidence.has(stage) && evidence.size < 3) evidence.set(stage, value);
         }
       }
     };
@@ -220,9 +309,13 @@ async function installSanitizedQualityObserver() {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     Object.defineProperty(window, "__rc62SanitizedQualityObserver", {
       configurable: true,
-      value: { codes, observer },
+      value: { codes, evidence, observer },
     });
-  }, SAFE_DIAGNOSTIC_CODES);
+  }, {
+    allowedCodes: SAFE_DIAGNOSTIC_CODES,
+    allowedStages: SAFE_RUNTIME_STAGES,
+    allowedFinishReasons: SAFE_RUNTIME_FINISH_REASONS,
+  });
 }
 
 async function readSanitizedQualityCodes() {
@@ -233,18 +326,30 @@ async function readSanitizedQualityCodes() {
   return sanitizeDiagnosticCodes(values);
 }
 
+async function readSanitizedBrowserRuntimeEvidence() {
+  const values = await page.evaluate(() => {
+    const state = window.__rc62SanitizedQualityObserver;
+    return state?.evidence ? [...state.evidence.values()] : [];
+  });
+  return sanitizeBrowserRuntimeEvidence(values);
+}
+
 async function assertMaliciousDomDiagnosticsAreRejected() {
   await page.evaluate(async () => {
     const node = document.createElement("div");
     node.hidden = true;
     node.setAttribute("role", "status");
-    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE";
+    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE BROWSER_WEBLLM_ATTACKER_FAKE QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
     document.body.append(node);
     await new Promise((resolve) => setTimeout(resolve, 0));
     node.remove();
   });
   assert.deepEqual(await readSanitizedQualityCodes(), ["QUALITY_EMPTY_CANDIDATE"]);
-  await page.evaluate(() => window.__rc62SanitizedQualityObserver?.codes?.clear());
+  assert.deepEqual(await readSanitizedBrowserRuntimeEvidence(), []);
+  await page.evaluate(() => {
+    window.__rc62SanitizedQualityObserver?.codes?.clear();
+    window.__rc62SanitizedQualityObserver?.evidence?.clear();
+  });
 }
 
 async function inspectFreshSetup() {
@@ -899,6 +1004,7 @@ try {
   }, null, 2));
 } catch (error) {
   const diagnosticCodes = await readSanitizedQualityCodes().catch(() => []);
+  const browserRuntimeEvidence = await readSanitizedBrowserRuntimeEvidence().catch(() => []);
   console.error(JSON.stringify({
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v1",
     status: "FAIL",
@@ -910,6 +1016,7 @@ try {
     error: {
       code: safeFailureCode(error),
       diagnosticCodes: sanitizeDiagnosticCodes(diagnosticCodes),
+      browserRuntimeEvidence: sanitizeBrowserRuntimeEvidence(browserRuntimeEvidence),
     },
     completedAt: new Date().toISOString(),
   }, null, 2));

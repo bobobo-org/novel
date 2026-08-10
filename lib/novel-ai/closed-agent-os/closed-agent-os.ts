@@ -63,7 +63,10 @@ import {
   type ClosedAgentToolExecutionEvidence,
   type ClosedBackendExecutionResult,
 } from "./types";
-import { isClosedAgentBrowserRuntimeDiagnosticCode } from "./safe-runtime-diagnostics";
+import {
+  closedAgentBrowserRuntimeEvidenceProgress,
+  isClosedAgentBrowserRuntimeDiagnosticCode,
+} from "./safe-runtime-diagnostics";
 
 type ClosedAgentOSOptions = {
   backends?: ClosedAIBackendAdapter[];
@@ -1368,6 +1371,10 @@ export class ClosedAgentOS {
       const qualityReasonSummary = qualityReasonCodes.length
         ? `：${qualityReasonCodes.join("、")}`
         : "";
+      const browserRuntimeEvidence = closedAgentBrowserRuntimeEvidenceProgress(cause);
+      const browserRuntimeEvidenceSummary = browserRuntimeEvidence
+        ? ` ${browserRuntimeEvidence}`
+        : "";
       task = {
         ...task,
         state: request.signal?.aborted
@@ -1384,7 +1391,7 @@ export class ClosedAgentOS {
         task.state === "cancelled" ? "cancelled" : "failed",
         task.state === "cancelled"
           ? "工作已取消，未修改 Memory 或 Canon"
-          : `工作安全停止（${code}${qualityReasonSummary}）`,
+          : `工作安全停止（${code}${qualityReasonSummary}）${browserRuntimeEvidenceSummary}`,
         100,
         task.backendId ? { backendId: task.backendId } : {},
       );

@@ -70,6 +70,60 @@ export type BrowserWebLLMProgress = {
   text: string;
 };
 
+export type BrowserWebLLMFinishReason = "stop" | "length" | "tool_calls" | "abort";
+
+const BROWSER_WEBLLM_FINISH_REASONS = new Set<BrowserWebLLMFinishReason>([
+  "stop",
+  "length",
+  "tool_calls",
+  "abort",
+]);
+
+export function normalizeBrowserWebLLMFinishReason(
+  value: unknown,
+): BrowserWebLLMFinishReason | null {
+  return typeof value === "string"
+    && BROWSER_WEBLLM_FINISH_REASONS.has(value as BrowserWebLLMFinishReason)
+    ? value as BrowserWebLLMFinishReason
+    : null;
+}
+
+export type BrowserWebLLMStreamTelemetry = {
+  finishReason: BrowserWebLLMFinishReason | null;
+  completionTokens: number | null;
+};
+
+export function observeBrowserWebLLMStreamTelemetry(
+  state: BrowserWebLLMStreamTelemetry,
+  input: { finishReason: unknown; completionTokens: unknown },
+): BrowserWebLLMStreamTelemetry {
+  const completionTokens = typeof input.completionTokens === "number"
+    && Number.isFinite(input.completionTokens)
+    && input.completionTokens >= 0
+    ? Math.round(input.completionTokens)
+    : null;
+  return {
+    finishReason: normalizeBrowserWebLLMFinishReason(input.finishReason)
+      ?? state.finishReason,
+    completionTokens: completionTokens ?? state.completionTokens,
+  };
+}
+
+export function browserWebLLMGenerationOptions(input: {
+  performancePolicy: BrowserAIPerformancePolicy;
+  seed?: number;
+}) {
+  return {
+    stream: true as const,
+    stream_options: { include_usage: true },
+    temperature: input.performancePolicy.temperature,
+    top_p: input.performancePolicy.topP,
+    max_tokens: input.performancePolicy.maxOutputTokens,
+    repetition_penalty: input.performancePolicy.repetitionPenalty,
+    seed: input.seed,
+  };
+}
+
 export type BrowserWebLLMRuntimeSnapshot = {
   runtime: "webllm-worker";
   supported: boolean;
@@ -94,6 +148,8 @@ export type BrowserWebLLMRuntimeSnapshot = {
     omittedInputCharacters: number;
     queueWaitMs: number;
     engineReused: boolean;
+    finishReason: BrowserWebLLMFinishReason | null;
+    completionTokens: number | null;
     performancePolicy: BrowserAIPerformancePolicy;
     externalRequest: false;
     dataLeftDevice: false;
@@ -174,6 +230,8 @@ export type BrowserWebLLMGenerationResult = {
   omittedInputCharacters: number;
   queueWaitMs: number;
   engineReused: boolean;
+  finishReason: BrowserWebLLMFinishReason | null;
+  completionTokens: number | null;
   performancePolicy: BrowserAIPerformancePolicy;
   externalRequest: false;
   dataLeftDevice: false;
@@ -876,6 +934,8 @@ async function runBrowserWebLLMGeneration(
   let content = "";
   let generatedTokenEvents = 0;
   let firstTokenMs: number | null = null;
+  let finishReason: BrowserWebLLMFinishReason | null = null;
+  let completionTokens: number | null = null;
   try {
     const structuredInstruction = input.jsonMode
       ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
@@ -889,20 +949,24 @@ async function runBrowserWebLLMGeneration(
       response_format: input.jsonMode
         ? { type: "json_object", schema: JSON.stringify(input.jsonSchema ?? { type: "object" }) }
         : { type: "text" },
-      stream: true,
-      stream_options: { include_usage: true },
-      temperature: performancePolicy.temperature,
-      top_p: performancePolicy.topP,
-      max_tokens: performancePolicy.maxOutputTokens,
-      repetition_penalty: performancePolicy.repetitionPenalty,
-      seed: input.seed,
+      ...browserWebLLMGenerationOptions({ performancePolicy, seed: input.seed }),
     });
     for await (const chunk of chunks) {
       if (input.signal?.aborted) {
         engine.interruptGenerate();
         throw new DOMException("已取消生成。", "AbortError");
       }
-      const delta = chunk.choices[0]?.delta?.content ?? "";
+      const choice = chunk.choices[0];
+      const telemetry = observeBrowserWebLLMStreamTelemetry(
+        { finishReason, completionTokens },
+        {
+          finishReason: choice?.finish_reason,
+          completionTokens: chunk.usage?.completion_tokens,
+        },
+      );
+      finishReason = telemetry.finishReason;
+      completionTokens = telemetry.completionTokens;
+      const delta = choice?.delta?.content ?? "";
       if (!delta) continue;
       if (firstTokenMs === null) firstTokenMs = Math.round(performance.now() - started);
       content += delta;
@@ -958,6 +1022,8 @@ async function runBrowserWebLLMGeneration(
       omittedInputCharacters: fittedPrompt.omittedCharacters,
       queueWaitMs,
       engineReused,
+      finishReason,
+      completionTokens,
       performancePolicy,
       externalRequest: false,
       dataLeftDevice: false,
@@ -978,6 +1044,8 @@ async function runBrowserWebLLMGeneration(
       omittedInputCharacters: result.omittedInputCharacters,
       queueWaitMs: result.queueWaitMs,
       engineReused: result.engineReused,
+      finishReason: result.finishReason,
+      completionTokens: result.completionTokens,
       performancePolicy: result.performancePolicy,
       externalRequest: false,
       dataLeftDevice: false,

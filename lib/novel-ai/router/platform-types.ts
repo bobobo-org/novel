@@ -93,6 +93,10 @@ export type PlatformAIResult = {
   executor?: "webllm-worker" | "chromium-prompt-api" | "browser-task-model" | string;
   queueWaitMs?: number;
   engineReused?: boolean;
+  generationFinishReason?: "stop" | "length" | "tool_calls" | "abort" | null;
+  completionTokens?: number | null;
+  rawOutputCharacters?: number;
+  normalizedOutputCharacters?: number;
   performancePolicy?: {
     policyVersion: string;
     tier: string;

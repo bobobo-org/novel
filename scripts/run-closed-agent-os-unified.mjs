@@ -33,6 +33,8 @@ import {
 } from "../lib/novel-ai/capabilities/index.ts";
 import {
   CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
+  closedAgentBrowserRuntimeEvidence,
+  closedAgentBrowserRuntimeEvidenceProgress,
   safeClosedAgentBrowserRuntimeCauseCode,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 
@@ -88,6 +90,43 @@ test("quality failure reasons expose only safe deterministic codes", () => {
     safeClosedAgentBrowserRuntimeCauseCode({ code: "BROWSER_WEBLLM_ATTACKER_FAKE" }),
     "BROWSER_WEBLLM_GENERATION_FAILED",
   );
+  const runtimeEvidence = [{
+    stage: "initial",
+    finishReason: "stop",
+    completionTokens: 83,
+    rawOutputCharacters: 91,
+    normalizedOutputCharacters: 89,
+    observedHanCharacters: 72,
+  }, {
+    stage: "repair",
+    finishReason: "length",
+    completionTokens: null,
+    rawOutputCharacters: 130,
+    normalizedOutputCharacters: 128,
+    observedHanCharacters: 104,
+  }];
+  assert.deepEqual(closedAgentBrowserRuntimeEvidence({
+    browserRuntimeEvidence: runtimeEvidence,
+  }), runtimeEvidence);
+  assert.equal(
+    closedAgentBrowserRuntimeEvidenceProgress({ browserRuntimeEvidence: runtimeEvidence }),
+    "BROWSER_RUNTIME_EVIDENCE:initial:stop:83:91:89:72 BROWSER_RUNTIME_EVIDENCE:repair:length:u:130:128:104",
+  );
+  assert.deepEqual(closedAgentBrowserRuntimeEvidence({
+    code: "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+    cause: { browserRuntimeEvidence: runtimeEvidence },
+  }), runtimeEvidence);
+  assert.deepEqual(closedAgentBrowserRuntimeEvidence({
+    browserRuntimeEvidence: [
+      { ...runtimeEvidence[0], finishReason: "attacker" },
+      { ...runtimeEvidence[1], completionTokens: 999_999 },
+      { ...runtimeEvidence[1], stage: "private-output" },
+      "raw candidate output",
+    ],
+  }), []);
+  const cyclicCause = {};
+  cyclicCause.cause = cyclicCause;
+  assert.deepEqual(closedAgentBrowserRuntimeEvidence(cyclicCause), []);
 });
 
 function namespace(overrides = {}) {
@@ -187,6 +226,7 @@ class MockBackend {
       taskId: input.request.taskId,
       learningConfiguration: structuredClone(input.request.learningConfiguration ?? {}),
     });
+    if (this.options.executeError) throw this.options.executeError;
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
@@ -660,6 +700,42 @@ test("policy-aware light, quality-first standard and heavy routing use the three
     "private-ai-hub",
     "private-ai-hub",
   ]);
+});
+
+test("failed Browser execution exposes only finite transient runtime evidence", async () => {
+  const runtimeError = Object.assign(new Error("private prompt and raw output"), {
+    code: "BROWSER_AI_QUALITY_INSUFFICIENT",
+    qualityReasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT"],
+    browserRuntimeEvidence: [{
+      stage: "initial",
+      finishReason: "stop",
+      completionTokens: 83,
+      rawOutputCharacters: 91,
+      normalizedOutputCharacters: 89,
+      observedHanCharacters: 72,
+    }, {
+      stage: "repair",
+      finishReason: "unavailable",
+      completionTokens: null,
+      rawOutputCharacters: null,
+      normalizedOutputCharacters: null,
+      observedHanCharacters: null,
+    }],
+  });
+  const progress = [];
+  const { os } = createMockOS({ browser: { executeError: runtimeError } });
+  await assert.rejects(
+    () => os.execute(request("task-browser-runtime-evidence", "story.summary", "light", {
+      onProgress: (event) => progress.push(event),
+    })),
+    (error) => error === runtimeError,
+  );
+  const failed = progress.findLast((event) => event.phase === "failed");
+  assert.ok(failed);
+  assert.match(failed.label, /QUALITY_NARRATIVE_TOO_SHORT/u);
+  assert.match(failed.label, /BROWSER_RUNTIME_EVIDENCE:initial:stop:83:91:89:72/u);
+  assert.match(failed.label, /BROWSER_RUNTIME_EVIDENCE:repair:unavailable:u:u:u:u/u);
+  assert.doesNotMatch(failed.label, /private prompt|raw output/iu);
 });
 
 test("native browser generator without a cryptographic model digest fails closed", () => {

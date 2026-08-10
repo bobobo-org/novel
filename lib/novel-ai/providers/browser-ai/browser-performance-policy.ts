@@ -259,15 +259,16 @@ export function fitBrowserPromptToTokenBudget(
     outerTaggedPromptBlock(prompt, "工作類型"),
     outerTaggedPromptBlock(prompt, "品質階段"),
     outerTaggedPromptBlock(prompt, "explicit-regeneration", "before-author"),
+    outerTaggedPromptBlock(prompt, "unapproved-continuation-seed", "before-author"),
     outerTaggedPromptBlock(prompt, "作者目標", "last"),
     outerTaggedPromptBlock(prompt, "最終輸出契約", "last", "last"),
   ];
   const taskType = taggedPromptBlockValue(taggedBlocks[0] ?? "", "工作類型");
   const qualityPhase = taggedPromptBlockValue(taggedBlocks[1] ?? "", "品質階段");
-  const objectiveValue = taggedPromptBlockValue(taggedBlocks[3] ?? "", "作者目標");
+  const objectiveValue = taggedPromptBlockValue(taggedBlocks[4] ?? "", "作者目標");
   const outputRequired = DIRECT_PROSE_PROMPT_TASKS.has(taskType)
     && qualityPhase !== "critic";
-  if (!taskType || !qualityPhase || !objectiveValue || (outputRequired && !taggedBlocks[4])) {
+  if (!taskType || !qualityPhase || !objectiveValue || (outputRequired && !taggedBlocks[5])) {
     throw Object.assign(
       new Error("BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING"),
       { code: "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING" },
@@ -301,6 +302,7 @@ export function fitBrowserPromptToTokenBudget(
     taskTypeBlock = "",
     qualityPhaseBlock = "",
     regeneration = "",
+    continuationSeed = "",
     objective = "",
     outputContract = "",
   ] = taggedBlocks;
@@ -309,6 +311,7 @@ export function fitBrowserPromptToTokenBudget(
     qualityPhaseBlock,
     fittedLowerPriority.trim(),
     regeneration,
+    continuationSeed,
     objective,
     outputContract,
   ].filter(Boolean).join("\n");

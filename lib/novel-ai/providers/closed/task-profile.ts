@@ -283,9 +283,25 @@ function directProseContinuityAnchor(input: {
 function outputContract(
   taskType: PlatformTaskType,
   phase: "draft" | "critic" | "revision",
+  continuationSeed?: {
+    anchor: string;
+    baseHanCharacters: number;
+    minimumCombinedHanCharacters: number;
+    maximumCombinedHanCharacters: number;
+  },
 ) {
   if (phase === "critic") return null;
   if (taskType === "chapter.continue") {
+    if (continuationSeed) {
+      return [
+        "<最終輸出契約>",
+        "先原樣輸出完整錨點，再只續寫新正文；不得重寫錨點之前內容。",
+        `錨點後新增至少${continuationSeed.minimumCombinedHanCharacters - continuationSeed.baseHanCharacters}、最多${continuationSeed.maximumCombinedHanCharacters - continuationSeed.baseHanCharacters}個繁體中文漢字；重複錨點不計入新增字數。`,
+        `合併只保留一次錨點，全文須有${continuationSeed.minimumCombinedHanCharacters}至${continuationSeed.maximumCombinedHanCharacters}個繁體中文字並以中文句末標點收尾。`,
+        "禁止角色標籤、控制標記、分析、標題、Markdown 或對作者說明。",
+        "</最終輸出契約>",
+      ].join("\n");
+    }
     return [
       "<最終輸出契約>",
       "只輸出可直接接在目前章節末尾的繁體中文小說正文。",
@@ -323,6 +339,13 @@ export function buildClosedAIModelPrompt(input: {
     text: string;
     digest: string;
   }>;
+  unapprovedContinuationSeed?: {
+    anchor: string;
+    baseDigest: string;
+    baseHanCharacters: number;
+    minimumCombinedHanCharacters: number;
+    maximumCombinedHanCharacters: number;
+  };
 }): ClosedAIPromptBuild {
   const phase = input.qualityPhase ?? "draft";
   const toolSources = (input.toolResults ?? []).map((item) =>
@@ -342,8 +365,38 @@ export function buildClosedAIModelPrompt(input: {
     .trim()
     .slice(0, 800) ?? "";
   const mandatoryInstruction = escapePromptMarkup(rawMandatoryInstruction);
+  const continuationSeed = input.unapprovedContinuationSeed;
+  if (continuationSeed && (
+    input.profile.taskType !== "chapter.continue"
+    || phase !== "revision"
+    || !continuationSeed.anchor.trim()
+    || continuationSeed.anchor !== continuationSeed.anchor.trim()
+    || /[\r\n]/u.test(continuationSeed.anchor)
+    || Array.from(continuationSeed.anchor).length > 64
+    || !/^[a-f0-9]{64}$/u.test(continuationSeed.baseDigest)
+    || !Number.isInteger(continuationSeed.baseHanCharacters)
+    || !Number.isInteger(continuationSeed.minimumCombinedHanCharacters)
+    || !Number.isInteger(continuationSeed.maximumCombinedHanCharacters)
+    || continuationSeed.baseHanCharacters < 1
+    || continuationSeed.baseHanCharacters >= 220
+    || continuationSeed.minimumCombinedHanCharacters !== 220
+    || continuationSeed.maximumCombinedHanCharacters !== 320
+  )) {
+    throw Object.assign(new Error("CLOSED_AI_CONTINUATION_SEED_INVALID"), {
+      code: "CLOSED_AI_CONTINUATION_SEED_INVALID",
+    });
+  }
+  const continuationSeedBlock = continuationSeed
+    ? [
+      "<unapproved-continuation-seed>",
+      "未核准、非 Canon；先原樣輸出：",
+      escapePromptMarkup(continuationSeed.anchor),
+      "</unapproved-continuation-seed>",
+    ].join("\n")
+    : null;
   const sourceCharacters = input.objective.length
     + rawMandatoryInstruction.length
+    + (continuationSeed?.anchor.length ?? 0)
     + input.context.reduce((total, item) => total + item.length, 0)
     + toolSources.reduce((total, item) => total + item.length, 0)
     + planSources.reduce((total, item) => total + item.length, 0)
@@ -363,14 +416,17 @@ export function buildClosedAIModelPrompt(input: {
       seen.add(key);
       return true;
     });
-  const continuityAnchor = directProseContinuityAnchor({
-    taskType: input.profile.taskType,
-    phase,
-    context,
-  });
+  const continuityAnchor = continuationSeed
+    ? null
+    : directProseContinuityAnchor({
+      taskType: input.profile.taskType,
+      phase,
+      context,
+    });
   const structuralReserve = 1_050
     + objective.length
     + mandatoryInstruction.length
+    + (continuationSeedBlock?.length ?? 0)
     + (continuityAnchor?.length ?? 0);
   const remaining = Math.max(0, input.profile.maxInputCharacters - structuralReserve);
   const workingBudget = workingSources.length ? Math.floor(remaining * 0.38) : 0;
@@ -398,7 +454,9 @@ export function buildClosedAIModelPrompt(input: {
     evidenceBudget - compactedPlan.reduce((sum, item) => sum + item.length, 0),
   );
   const compactedWorking = compactCollection(workingSources, workingBudget);
-  const phaseInstruction = phase === "critic"
+  const phaseInstruction = continuationSeed
+    ? "只輸出未核准短稿的續段：先原樣輸出錨點，再接著輸出新片段；應用程式會在本機完成合併。"
+    : phase === "critic"
     ? "只輸出精簡的缺陷與修訂檢查清單；逐項對照作者目標、已核准資料、角色、因果、風險與缺漏。不要輸出思考過程，也不要直接提交最終成品。"
     : phase === "revision"
       ? "吸收檢查結果後，只輸出完整、可直接審核的最終候選。不要提及草稿、批評、代理流程或內部推理。"
@@ -407,7 +465,11 @@ export function buildClosedAIModelPrompt(input: {
     && DIRECT_PROSE_TASKS.has(input.profile.taskType)
     ? "本輪可用生成上限由實際執行策略決定。請預留至少 16 tokens 收束段落；寧可提前在完整句結束，也不得在句中截斷，最後一字必須是完整的中文句末標點。"
     : null;
-  const finalOutputContract = outputContract(input.profile.taskType, phase);
+  const finalOutputContract = outputContract(
+    input.profile.taskType,
+    phase,
+    continuationSeed,
+  );
   const prompt = [
     `<工作類型>${input.profile.taskType}</工作類型>`,
     `<品質階段>${phase}</品質階段>`,
@@ -440,6 +502,7 @@ export function buildClosedAIModelPrompt(input: {
     ...(mandatoryInstruction
       ? ["<explicit-regeneration>", mandatoryInstruction, "</explicit-regeneration>"]
       : []),
+    ...(continuationSeedBlock ? [continuationSeedBlock] : []),
     "<作者目標>",
     objective,
     "</作者目標>",
@@ -457,6 +520,7 @@ export function buildClosedAIModelPrompt(input: {
       sourceCharacters
         - objective.length
         - mandatoryInstruction.length
+        - (continuationSeed?.anchor.length ?? 0)
         - compacted.reduce((total, item) => total + item.length, 0)
         - compactedPlan.reduce((total, item) => total + item.length, 0)
         - compactedTools.reduce((total, item) => total + item.length, 0)
