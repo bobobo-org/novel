@@ -1,0 +1,693 @@
+import assert from "node:assert/strict";
+import { chromium } from "@playwright/test";
+
+const mode = process.argv[2] ?? "generation";
+if (!new Set(["setup", "generation", "all"]).has(mode)) {
+  throw new Error(`RC6_2_CLOSED_AI_UNKNOWN_MODE:${mode}`);
+}
+
+const configuredOrigin = process.env.RC6_2_CLOSED_AI_BASE_URL?.trim();
+if (!configuredOrigin) {
+  throw new Error("RC6_2_CLOSED_AI_BASE_URL_REQUIRED");
+}
+const expectedOrigin = new URL(configuredOrigin).origin;
+if (
+  new URL(expectedOrigin).protocol !== "https:"
+  && process.env.RC6_2_CLOSED_AI_ALLOW_HTTP_LOCAL !== "1"
+) {
+  throw new Error("RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED");
+}
+
+const setupTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_SETUP_TIMEOUT_MS ?? 1_800_000);
+const generationTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_GENERATION_TIMEOUT_MS ?? 1_200_000);
+const headless = process.env.RC6_2_CLOSED_AI_HEADLESS !== "0";
+const modelRequests = [];
+const prohibitedExternalAiRequests = [];
+let browser;
+let context;
+let page;
+
+function isModelPayload(urlValue) {
+  const url = new URL(urlValue);
+  return url.hostname === "huggingface.co"
+    || (
+      url.hostname === "raw.githubusercontent.com"
+      && url.pathname.includes("binary-mlc-llm-libs")
+    );
+}
+
+function isProhibitedExternalAi(urlValue) {
+  const hostname = new URL(urlValue).hostname.toLowerCase();
+  return [
+    "api.openai.com",
+    "api.x.ai",
+    "api.groq.com",
+    "generativelanguage.googleapis.com",
+    "api.anthropic.com",
+  ].some((blocked) => hostname === blocked || hostname.endsWith(`.${blocked}`));
+}
+
+async function launch() {
+  const launchOptions = {
+    headless,
+    args: ["--enable-unsafe-webgpu", "--ignore-gpu-blocklist"],
+  };
+  const channel = process.env.RC6_2_CLOSED_AI_BROWSER_CHANNEL?.trim();
+  if (channel) return chromium.launch({ ...launchOptions, channel });
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (error) {
+    try {
+      return await chromium.launch({ ...launchOptions, channel: "msedge" });
+    } catch {
+      throw error;
+    }
+  }
+}
+
+async function assertExactOrigin() {
+  assert.equal(new URL(page.url()).origin, expectedOrigin, "browser was redirected away from the exact gate origin");
+}
+
+async function createProject() {
+  await page.goto(`${expectedOrigin}/studio/create`, {
+    waitUntil: "domcontentloaded",
+    timeout: 90_000,
+  });
+  await assertExactOrigin();
+  await page.getByTestId("canonical-create-flow").waitFor({
+    state: "visible",
+    timeout: 90_000,
+  });
+  await page.getByTestId("p2-project-title").fill(
+    `RC6.2 Browser AI Production Gate ${crypto.randomUUID().slice(0, 8)}`,
+  );
+  await page.getByTestId("create-play-mode-general").click();
+  await page.locator(".p2CreationAssistantActions button").first().click();
+  await page.locator(".p2FoundationReady").waitFor({ state: "visible", timeout: 90_000 });
+  const stepBar = page.locator(".p2StepBar");
+  const next = page.locator(".p2CreatePanel > footer button.gold");
+  for (let expectedStep = 2; expectedStep <= 3; expectedStep += 1) {
+    const previous = await stepBar.getAttribute("aria-label");
+    await next.click();
+    await page.waitForFunction(
+      ({ selector, previousLabel }) => (
+        document.querySelector(selector)?.getAttribute("aria-label") !== previousLabel
+      ),
+      { selector: ".p2StepBar", previousLabel: previous },
+    );
+    assert.match(await stepBar.getAttribute("aria-label") ?? "", new RegExp(String(expectedStep), "u"));
+  }
+  await next.click();
+  const primary = page.locator(".p2CreateSuccess a.primaryAction");
+  await primary.waitFor({ state: "visible", timeout: 90_000 });
+  const href = await primary.getAttribute("href");
+  assert.match(href ?? "", /^\/studio\/project\/[^/]+\/chat$/u);
+  const projectId = href.split("/")[3];
+  await primary.click();
+  await page.getByTestId("conversation-first-workspace").waitFor({
+    state: "visible",
+    timeout: 90_000,
+  });
+  await assertExactOrigin();
+  return projectId;
+}
+
+async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await locator.getAttribute("aria-busy") === "false") return;
+    await page.waitForTimeout(250);
+  }
+  throw new Error("RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT");
+}
+
+async function inspectFreshSetup() {
+  const card = page.getByTestId("closed-ai-setup-card");
+  await card.waitFor({ state: "visible", timeout: 90_000 });
+  await waitUntilNotBusy(card);
+  assert.equal(await card.getAttribute("data-status"), "setup_required");
+  const text = await card.textContent() ?? "";
+  assert.match(text, /Qwen2\.5 0\.5B/u);
+  assert.match(text, /約 294\.5 MB 本機儲存（十進位 MB）/u);
+  assert.equal(await card.getAttribute("data-estimated-download-bytes"), "294543984");
+  assert.match(text, /此瀏覽器／此裝置/u);
+  assert.match(text, /作品資料不離開裝置/u);
+  assert.match(text, /改用 Local Ollama/u);
+  assert.match(text, /連接 Private AI Hub/u);
+  assert.equal(modelRequests.length, 0, "fresh inspection triggered an automatic model download");
+  return {
+    status: "setup_required",
+    model: "Qwen2.5 0.5B",
+    estimatedDownloadBytes: 294_543_984,
+    estimatedDownloadMB: 294.5,
+    automaticModelRequests: 0,
+    explicitAction: "closed-ai-prepare-browser",
+  };
+}
+
+async function readPublicHealthTruth() {
+  const truth = await page.evaluate(async (origin) => {
+    const response = await fetch(`${origin}/api/ai/health?rc6_2=${Date.now()}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    const body = await response.json();
+    return {
+      httpStatus: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      closedAiRuntimeStatus: body.closedAiRuntimeStatus,
+      closedAiGenerationVerifiedBackends: body.closedAiGenerationVerifiedBackends,
+      closedAiActiveBackend: body.closedAiActiveBackend,
+      closedAiExternalFallback: body.closedAiExternalFallback,
+      browserAiStatus: body.browserAiStatus,
+      browserClosedAiStatus: body.browserClosedAiStatus,
+      threeClosedAISharedSystemStatus: body.threeClosedAISharedSystemStatus,
+      threeClosedAiArchitectureStatus: body.threeClosedAiArchitectureStatus,
+      serverRuntimeTruth: body.closedAiServerRuntimeTruth,
+    };
+  }, expectedOrigin);
+  assert.equal(truth.httpStatus, 200);
+  assert.match(truth.cacheControl ?? "", /no-store/u);
+  assert.equal(truth.closedAiRuntimeStatus, "client_probe_required");
+  assert.equal(truth.closedAiGenerationVerifiedBackends, 0);
+  assert.equal(truth.closedAiActiveBackend, null);
+  assert.equal(truth.closedAiExternalFallback, false);
+  assert.equal(truth.browserAiStatus, "client_probe_required");
+  assert.equal(truth.browserClosedAiStatus, "setup_required");
+  assert.equal(truth.threeClosedAISharedSystemStatus, "not_verified");
+  assert.equal(truth.threeClosedAiArchitectureStatus, "not_verified");
+  assert.equal(truth.serverRuntimeTruth?.generationVerifiedBackends, 0);
+  assert.equal(truth.serverRuntimeTruth?.activeBackend, null);
+  assert.equal(truth.serverRuntimeTruth?.externalFallback, false);
+  assert.ok(truth.serverRuntimeTruth?.backends?.every(
+    (backend) => backend.generationVerified === false,
+  ));
+  return truth;
+}
+
+async function waitForBrowserAiReady(card) {
+  const startedAt = Date.now();
+  let nextHeartbeat = startedAt + 30_000;
+  while (Date.now() - startedAt < setupTimeoutMs) {
+    if (await card.count() === 0 || !(await card.isVisible().catch(() => false))) return;
+    const busy = await card.getAttribute("aria-busy");
+    const retry = await card.getByTestId("closed-ai-prepare-browser").textContent().catch(() => "");
+    if (busy === "false" && /重試/u.test(retry ?? "")) {
+      throw new Error(`RC6_2_CLOSED_AI_SETUP_FAILED:${(await card.textContent() ?? "").slice(0, 500)}`);
+    }
+    if (Date.now() >= nextHeartbeat) {
+      process.stderr.write(`[RC6.2 Closed AI] setup in progress (${Math.round((Date.now() - startedAt) / 1_000)}s)\n`);
+      nextHeartbeat += 30_000;
+    }
+    await page.waitForTimeout(1_000);
+  }
+  throw new Error("RC6_2_CLOSED_AI_SETUP_TIMEOUT");
+}
+
+async function readModelMetadata() {
+  return page.evaluate(async () => {
+    const databaseNames = (await indexedDB.databases()).map((database) => database.name);
+    if (!databaseNames.includes("novel-browser-webllm-v1")) return null;
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-browser-webllm-v1");
+      request.onupgradeneeded = () => {
+        request.transaction?.abort();
+        reject(new Error("RC6_2_BROWSER_MODEL_DATABASE_SCHEMA_MISSING"));
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const records = await new Promise((resolve, reject) => {
+        const request = database.transaction("runtime-records", "readonly")
+          .objectStore("runtime-records").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const selected = records.find((record) => record.kind === "setting" && record.key === "selected-model");
+      const model = records.find((record) => record.kind === "model" && record.modelId === selected?.modelId);
+      return model ? {
+        modelId: model.modelId,
+        modelDigest: model.modelDigest,
+        installStatus: model.installStatus,
+        cacheVerified: model.cacheVerified,
+        shardIntegrityVerified: model.shardIntegrityVerified,
+        shardManifestDigest: model.shardManifestDigest,
+        verifiedShardCount: model.verifiedShardCount,
+        shardVerifiedAt: model.shardVerifiedAt,
+      } : null;
+    } finally {
+      database.close();
+    }
+  });
+}
+
+async function readChapterTruth(projectId) {
+  return page.evaluate(async (id) => {
+    const requestResult = (request) => new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const project = await requestResult(
+        database.transaction("projects", "readonly").objectStore("projects").get(id),
+      );
+      const chapter = await requestResult(
+        database.transaction("chapters", "readonly").objectStore("chapters").get(project.activeChapterId),
+      );
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(chapter.content ?? ""),
+      );
+      return {
+        chapterId: chapter.id,
+        revision: chapter.revision,
+        contentDigest: [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      };
+    } finally {
+      database.close();
+    }
+  }, projectId);
+}
+
+async function readCandidateEvidence(projectId) {
+  return page.evaluate(async (id) => {
+    const requestResult = (request) => new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const databaseNames = (await indexedDB.databases()).map((database) => database.name);
+    if (
+      !databaseNames.includes("novel-closed-agent-state")
+      || !databaseNames.includes("novel-intelligence-platform")
+      || !databaseNames.includes("novel-browser-offload-metrics-v1")
+    ) return null;
+    const open = (name) => new Promise((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onupgradeneeded = () => {
+        request.transaction?.abort();
+        reject(new Error(`RC6_2_REQUIRED_DATABASE_MISSING:${name}`));
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const closedDatabase = await open("novel-closed-agent-state");
+    const appDatabase = await open("novel-intelligence-platform");
+    const offloadDatabase = await open("novel-browser-offload-metrics-v1");
+    try {
+      const records = await requestResult(
+        closedDatabase.transaction("records", "readonly")
+          .objectStore("records").index("projectId").getAll(id),
+      );
+      const candidates = records
+        .filter((record) => record.kind === "candidate")
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      const candidate = candidates[0] ?? null;
+      if (!candidate) return null;
+      const invocations = (await requestResult(
+        appDatabase.transaction("conversationToolInvocations", "readonly")
+          .objectStore("conversationToolInvocations").getAll(),
+      )).filter((record) => record.projectId === id);
+      const invocation = invocations.find((record) => record.taskId === candidate.taskId) ?? null;
+      const artifacts = (await requestResult(
+        appDatabase.transaction("conversationArtifacts", "readonly")
+          .objectStore("conversationArtifacts").getAll(),
+      )).filter((record) => record.projectId === id);
+      const artifact = artifacts.find((record) => record.sourceMessageId === invocation?.messageId)
+        ?? artifacts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+        ?? null;
+      const computeReceipts = await requestResult(
+        offloadDatabase.transaction("execution-receipts", "readonly")
+          .objectStore("execution-receipts").getAll(),
+      );
+      const computeReceipt = computeReceipts.find(
+        (record) => record.receiptId === candidate.generationTelemetry?.browserComputeReceiptId,
+      ) ?? null;
+      return {
+        candidate: {
+          id: candidate.id,
+          taskId: candidate.taskId,
+          backendId: candidate.backendId,
+          actualExecutor: candidate.actualExecutor,
+          modelId: candidate.modelId,
+          modelDigest: candidate.modelDigest,
+          contentDigest: candidate.contentDigest,
+          status: candidate.status,
+          candidateOnly: candidate.candidateOnly,
+          canonicalMutationCount: candidate.canonicalMutationCount,
+          externalRequest: candidate.externalRequest,
+          dataLeftDevice: candidate.dataLeftDevice,
+          regeneration: candidate.regeneration ?? null,
+          executionReceipt: candidate.executionReceipt ? {
+            taskId: candidate.executionReceipt.taskId,
+            backendId: candidate.executionReceipt.backendId,
+            actualExecutor: candidate.executionReceipt.actualExecutor,
+            modelId: candidate.executionReceipt.modelId,
+            modelDigest: candidate.executionReceipt.modelDigest,
+            proofState: candidate.executionReceipt.proofState,
+            contentDigest: candidate.executionReceipt.contentDigest,
+            contextDigest: candidate.executionReceipt.contextDigest,
+            externalRequest: candidate.executionReceipt.externalRequest,
+            dataLeftDevice: candidate.executionReceipt.dataLeftDevice,
+            browserComputeReceiptId: candidate.executionReceipt.browserComputeReceiptId,
+            browserFabricReceiptId: candidate.executionReceipt.browserFabricReceiptId,
+          } : null,
+        },
+        invocation: invocation ? {
+          id: invocation.id,
+          taskId: invocation.taskId,
+          status: invocation.status,
+          actualExecutor: invocation.actualExecutor,
+          modelId: invocation.modelId,
+          modelDigest: invocation.modelDigest,
+          externalRequest: invocation.externalRequest,
+          dataLeftDevice: invocation.dataLeftDevice,
+          canonicalMutationCount: invocation.canonicalMutationCount,
+        } : null,
+        artifact: artifact ? {
+          id: artifact.id,
+          sourceMessageId: artifact.sourceMessageId,
+          status: artifact.status,
+          candidateDigest: artifact.candidateDigest,
+          targetStore: artifact.targetStore,
+          targetRecordId: artifact.targetRecordId,
+          sourceRevision: artifact.sourceRevision,
+        } : null,
+        browserComputeReceipt: computeReceipt ? {
+          receiptId: computeReceipt.receiptId,
+          actualExecutor: computeReceipt.actualExecutor,
+          modelId: computeReceipt.modelId,
+          modelDigest: computeReceipt.modelDigest,
+          browserGenerationUsed: computeReceipt.browserGenerationUsed,
+          externalAIUsed: computeReceipt.externalAIUsed,
+          dataLeftDevice: computeReceipt.dataLeftDevice,
+          candidateOnly: computeReceipt.candidateOnly,
+          canonicalMutationCount: computeReceipt.canonicalMutationCount,
+          rawPromptStored: computeReceipt.rawPromptStored,
+          rawOutputStored: computeReceipt.rawOutputStored,
+        } : null,
+        candidateCount: candidates.length,
+      };
+    } finally {
+      closedDatabase.close();
+      appDatabase.close();
+      offloadDatabase.close();
+    }
+  }, projectId);
+}
+
+function assertCandidateTruth(evidence, expected = {}) {
+  assert.ok(evidence?.candidate);
+  assert.equal(evidence.candidate.backendId, "browser-ai");
+  assert.equal(evidence.candidate.actualExecutor, "browser-ai");
+  assert.match(evidence.candidate.modelId, /^Qwen2\.5-0\.5B-/u);
+  assert.match(evidence.candidate.modelDigest, /^[a-f0-9]{64}$/u);
+  assert.equal(evidence.candidate.status, expected.status ?? "awaiting-approval");
+  assert.equal(evidence.candidate.candidateOnly, true);
+  assert.equal(evidence.candidate.canonicalMutationCount, expected.canonicalMutationCount ?? 0);
+  assert.equal(evidence.candidate.externalRequest, false);
+  assert.equal(evidence.candidate.dataLeftDevice, false);
+  assert.equal(evidence.candidate.executionReceipt?.taskId, evidence.candidate.taskId);
+  assert.equal(evidence.candidate.executionReceipt?.backendId, "browser-ai");
+  assert.equal(evidence.candidate.executionReceipt?.actualExecutor, "browser-ai");
+  assert.equal(evidence.candidate.executionReceipt?.modelId, evidence.candidate.modelId);
+  assert.equal(evidence.candidate.executionReceipt?.modelDigest, evidence.candidate.modelDigest);
+  assert.equal(evidence.candidate.executionReceipt?.proofState, "verified");
+  assert.equal(evidence.candidate.executionReceipt?.externalRequest, false);
+  assert.equal(evidence.candidate.executionReceipt?.dataLeftDevice, false);
+  assert.equal(evidence.invocation?.actualExecutor, "browser-ai");
+  assert.equal(evidence.invocation?.canonicalMutationCount, 0);
+  assert.equal(evidence.browserComputeReceipt?.actualExecutor, "webllm-worker");
+  assert.equal(evidence.browserComputeReceipt?.browserGenerationUsed, true);
+  assert.equal(evidence.browserComputeReceipt?.externalAIUsed, false);
+  assert.equal(evidence.browserComputeReceipt?.dataLeftDevice, false);
+  assert.equal(evidence.browserComputeReceipt?.candidateOnly, true);
+  assert.equal(evidence.browserComputeReceipt?.canonicalMutationCount, 0);
+  assert.equal(evidence.browserComputeReceipt?.rawPromptStored, false);
+  assert.equal(evidence.browserComputeReceipt?.rawOutputStored, false);
+}
+
+async function waitForCandidate(projectId, previousTaskId = null) {
+  const startedAt = Date.now();
+  let nextHeartbeat = startedAt + 30_000;
+  while (Date.now() - startedAt < generationTimeoutMs) {
+    const evidence = await readCandidateEvidence(projectId).catch(() => null);
+    if (
+      evidence?.candidate.status === "awaiting-approval"
+      && evidence.candidate.taskId !== previousTaskId
+      && evidence.invocation?.status === "completed"
+      && evidence.artifact?.status === "candidate"
+    ) return evidence;
+    const failedInvocation = await page.evaluate(async (id) => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("novel-intelligence-platform");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        const records = await new Promise((resolve, reject) => {
+          const request = database.transaction("conversationToolInvocations", "readonly")
+            .objectStore("conversationToolInvocations").getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const failed = records
+          .filter((record) => record.projectId === id && record.status === "failed")
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+        return failed ? { taskId: failed.taskId, safeErrorCode: failed.safeErrorCode } : null;
+      } finally {
+        database.close();
+      }
+    }, projectId);
+    if (failedInvocation && failedInvocation.taskId !== previousTaskId) {
+      throw new Error(`RC6_2_CLOSED_AI_GENERATION_FAILED:${JSON.stringify(failedInvocation)}`);
+    }
+    if (Date.now() >= nextHeartbeat) {
+      process.stderr.write(`[RC6.2 Closed AI] candidate generation in progress (${Math.round((Date.now() - startedAt) / 1_000)}s)\n`);
+      nextHeartbeat += 30_000;
+    }
+    await page.waitForTimeout(1_000);
+  }
+  throw new Error("RC6_2_CLOSED_AI_GENERATION_TIMEOUT");
+}
+
+async function waitForArtifactStatus(artifactId, status, timeoutMs = 90_000) {
+  await page.waitForFunction(
+    ({ id, expected }) => document.querySelector(`[data-artifact-id="${CSS.escape(id)}"]`)?.getAttribute("data-status") === expected,
+    { id: artifactId, expected: status },
+    { timeout: timeoutMs },
+  );
+}
+
+async function runGenerationLifecycle(projectId, setupEvidence) {
+  const card = page.getByTestId("closed-ai-setup-card");
+  const beforeClickRequests = modelRequests.length;
+  await card.getByTestId("closed-ai-prepare-browser").click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="closed-ai-setup-card"]')?.getAttribute("aria-busy") === "true",
+  );
+  assert.equal(await card.getAttribute("data-setup-lifecycle"), "preparing");
+  const earlyRequestDeadline = Date.now() + 15_000;
+  while (
+    modelRequests.length === beforeClickRequests
+    && Date.now() < earlyRequestDeadline
+  ) {
+    await page.waitForTimeout(100);
+  }
+  assert.ok(
+    modelRequests.length > beforeClickRequests,
+    "explicit setup did not start a real model request before cancellation",
+  );
+  await card.getByRole("button", { name: "取消準備", exact: true }).click();
+  await waitUntilNotBusy(card);
+  assert.equal(await card.getAttribute("data-setup-lifecycle"), "cancelled");
+  assert.match(await card.textContent() ?? "", /已取消準備/u);
+  assert.equal(
+    await card.getByTestId("closed-ai-prepare-browser").textContent(),
+    "重試 Browser AI",
+  );
+  const metadataAfterCancel = await readModelMetadata().catch(() => null);
+  assert.notEqual(
+    metadataAfterCancel?.cacheVerified,
+    true,
+    "cancelled setup was incorrectly promoted to a verified model",
+  );
+  const requestsAtCancel = modelRequests.length;
+  await card.getByTestId("closed-ai-prepare-browser").click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="closed-ai-setup-card"]')?.getAttribute("data-setup-lifecycle") === "preparing",
+  );
+  await waitForBrowserAiReady(card);
+  assert.ok(
+    modelRequests.length > requestsAtCancel,
+    "retry did not resume a real model payload request after cancellation",
+  );
+  const composerTruth = page.getByTestId("conversation-message-composer");
+  const consumerReadiness = {
+    generationVerifiedBackends: Number(
+      await composerTruth.getAttribute("data-closed-ai-generation-verified-backends"),
+    ),
+    activeBackend: await composerTruth.getAttribute("data-closed-ai-active-backend"),
+    externalFallback: await composerTruth.getAttribute("data-closed-ai-external-fallback") === "true",
+    silentExternalFallback: await composerTruth.getAttribute("data-closed-ai-silent-external-fallback") === "true",
+  };
+  assert.ok(consumerReadiness.generationVerifiedBackends >= 1);
+  assert.equal(consumerReadiness.activeBackend, "browser-ai");
+  assert.equal(consumerReadiness.externalFallback, false);
+  assert.equal(consumerReadiness.silentExternalFallback, false);
+  const modelMetadata = await readModelMetadata();
+  assert.ok(modelMetadata);
+  assert.equal(modelMetadata.installStatus, "ready");
+  assert.equal(modelMetadata.cacheVerified, true);
+  assert.equal(modelMetadata.shardIntegrityVerified, true);
+  assert.ok(modelMetadata.verifiedShardCount > 0);
+  assert.match(modelMetadata.shardManifestDigest, /^[a-f0-9]{64}$/u);
+
+  const canonBefore = await readChapterTruth(projectId);
+  const composer = page.locator('textarea[aria-label="小說專案訊息"]');
+  await composer.fill("請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。只建立候選，不要直接修改 Canon。");
+  await page.getByRole("button", { name: "送出", exact: true }).click();
+  const first = await waitForCandidate(projectId);
+  assertCandidateTruth(first);
+  assert.deepEqual(await readChapterTruth(projectId), canonBefore, "first candidate mutated Canon before approval");
+
+  const firstCard = page.locator(`[data-artifact-id="${first.artifact.id}"]`).first();
+  await firstCard.getByRole("button", { name: "放棄", exact: true }).click();
+  await waitForArtifactStatus(first.artifact.id, "rejected");
+  const rejected = await readCandidateEvidence(projectId);
+  assert.equal(rejected.candidate.id, first.candidate.id);
+  assert.equal(rejected.candidate.status, "rejected");
+  assert.equal(rejected.candidate.canonicalMutationCount, 0);
+  assert.deepEqual(await readChapterTruth(projectId), canonBefore, "reject mutated Canon");
+
+  const firstArticle = firstCard.locator("xpath=ancestor::article");
+  await firstArticle.getByRole("button", { name: "重新產生", exact: true }).last().click();
+  const regenerated = await waitForCandidate(projectId, first.candidate.taskId);
+  assertCandidateTruth(regenerated);
+  assert.notEqual(regenerated.candidate.id, first.candidate.id);
+  assert.notEqual(regenerated.candidate.taskId, first.candidate.taskId);
+  assert.notEqual(regenerated.candidate.contentDigest, first.candidate.contentDigest);
+  assert.equal(regenerated.candidate.regeneration?.previousCandidateDigest, first.candidate.contentDigest);
+  assert.equal(regenerated.candidate.regeneration?.newCandidate, true);
+  assert.deepEqual(await readChapterTruth(projectId), canonBefore, "regeneration mutated Canon before approval");
+
+  const regeneratedCard = page.locator(`[data-artifact-id="${regenerated.artifact.id}"]`).first();
+  await regeneratedCard.getByRole("button", { name: "採用", exact: true }).click();
+  await waitForArtifactStatus(regenerated.artifact.id, "approved");
+  const canonAfterApproval = await readChapterTruth(projectId);
+  assert.equal(canonAfterApproval.chapterId, canonBefore.chapterId);
+  assert.equal(canonAfterApproval.revision, canonBefore.revision + 1);
+  assert.notEqual(canonAfterApproval.contentDigest, canonBefore.contentDigest);
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
+  await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 90_000 });
+  await assertExactOrigin();
+  const canonAfterReload = await readChapterTruth(projectId);
+  assert.deepEqual(canonAfterReload, canonAfterApproval);
+  const persisted = await readCandidateEvidence(projectId);
+  assert.equal(persisted.candidate.id, regenerated.candidate.id);
+  assert.equal(persisted.candidate.status, "committed");
+  assert.equal(persisted.candidate.canonicalMutationCount, 1);
+
+  return {
+    setup: {
+      ...setupEvidence,
+      explicitInstallClicked: true,
+      cancellation: {
+        lifecycle: "cancelled",
+        cancelledBeforeVerification: true,
+        modelPayloadRequestCountAtCancel: requestsAtCancel,
+        incompleteModelPromoted: false,
+      },
+      retryAfterCancel: true,
+      modelPayloadRequestCount: modelRequests.length,
+      modelPayloadHosts: [...new Set(modelRequests.map((item) => item.host))].sort(),
+      metadata: modelMetadata,
+    },
+    consumerReadiness,
+    firstCandidateBeforeApproval: first.candidate,
+    rejectedCandidate: {
+      id: rejected.candidate.id,
+      taskId: rejected.candidate.taskId,
+      status: rejected.candidate.status,
+      canonicalMutationCount: rejected.candidate.canonicalMutationCount,
+    },
+    regeneratedCandidateBeforeApproval: regenerated.candidate,
+    browserRuntimeReceipt: regenerated.browserComputeReceipt,
+    approval: {
+      artifactId: regenerated.artifact.id,
+      status: "approved",
+      canonRevisionBefore: canonBefore.revision,
+      canonRevisionAfter: canonAfterApproval.revision,
+      persistedAfterReload: true,
+    },
+  };
+}
+
+try {
+  browser = await launch();
+  context = await browser.newContext({
+    locale: "zh-TW",
+    viewport: { width: 1440, height: 900 },
+    serviceWorkers: "block",
+  });
+  page = await context.newPage();
+  page.on("request", (request) => {
+    const url = request.url();
+    if (isModelPayload(url)) {
+      const parsed = new URL(url);
+      modelRequests.push({ host: parsed.host, path: parsed.pathname });
+    }
+    if (isProhibitedExternalAi(url)) {
+      prohibitedExternalAiRequests.push(new URL(url).host);
+    }
+  });
+  const projectId = await createProject();
+  const publicHealth = await readPublicHealthTruth();
+  const setup = await inspectFreshSetup();
+  const lifecycle = mode === "setup"
+    ? { setup }
+    : await runGenerationLifecycle(projectId, setup);
+  assert.deepEqual(prohibitedExternalAiRequests, []);
+  console.log(JSON.stringify({
+    schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v1",
+    status: "PASS",
+    mode,
+    exactOrigin: expectedOrigin,
+    freshBrowserContext: true,
+    mocksInstalled: false,
+    prohibitedExternalAiRequestCount: 0,
+    projectId,
+    publicHealth,
+    ...lifecycle,
+    completedAt: new Date().toISOString(),
+  }, null, 2));
+} catch (error) {
+  const safeError = {
+    name: error instanceof Error ? error.name : "Error",
+    message: error instanceof Error ? error.message.slice(0, 1_000) : String(error).slice(0, 1_000),
+  };
+  console.error(JSON.stringify({
+    schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v1",
+    status: "FAIL",
+    mode,
+    exactOrigin: expectedOrigin,
+    freshBrowserContext: true,
+    modelPayloadRequestCount: modelRequests.length,
+    prohibitedExternalAiRequestCount: prohibitedExternalAiRequests.length,
+    error: safeError,
+    completedAt: new Date().toISOString(),
+  }, null, 2));
+  process.exitCode = 1;
+} finally {
+  await context?.close().catch(() => undefined);
+  await browser?.close().catch(() => undefined);
+}

@@ -73,6 +73,9 @@ function localProof(modelId, instanceId) {
   };
 }
 
+const privateModelDigest = "d".repeat(64);
+let privateProofDigest = privateModelDigest;
+
 function privateHubProof(modelId, instanceId) {
   return {
     proofVersion: "private-hub-model-inference-proof-v1",
@@ -81,7 +84,7 @@ function privateHubProof(modelId, instanceId) {
     deploymentKind: "self_hosted_loopback_private_node",
     instanceId,
     modelId,
-    modelDigest: "private-model-digest",
+    modelDigest: privateProofDigest,
     verifiedAt: new Date().toISOString(),
     latencyMs: MODEL_RESPONSE_DELAY_MS,
     outputDigest: "b".repeat(64),
@@ -115,6 +118,15 @@ globalThis.fetch = async (url, init = {}) => {
         ? localProof(modelId, localInstanceId)
         : privateHubProof(modelId, privateInstanceId),
     );
+  }
+  if (href.endsWith("/models") && href.includes(":3227")) {
+    return Response.json({
+      models: [{
+        modelId,
+        modelDigest: privateModelDigest,
+        capabilities: { textGeneration: { value: true } },
+      }],
+    });
   }
   throw new Error(`Unexpected timeout regression request: ${href}`);
 };
@@ -173,6 +185,21 @@ try {
     requestedTimeouts.at(-1),
     PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS,
   );
+  privateProofDigest = "browser-managed-model-digest-unavailable";
+  await assert.rejects(
+    privateHub.verifyModel(modelId, undefined, privateModelDigest),
+    (error) => error?.code === "OLLAMA_INVALID_RESPONSE",
+  );
+  privateProofDigest = "e".repeat(64);
+  await assert.rejects(
+    privateHub.verifyModel(modelId, undefined, privateModelDigest),
+    (error) => error?.code === "OLLAMA_INVALID_RESPONSE",
+  );
+  await assert.rejects(
+    privateHub.verifyModel(modelId, undefined, null),
+    (error) => error?.code === "LOCAL_REQUEST_IDENTITY_MISMATCH",
+  );
+  privateProofDigest = privateModelDigest;
 
   console.log(JSON.stringify({
     suite: "closed-ai-model-verification-timeout",
@@ -188,6 +215,7 @@ try {
     scaledModelResponseDelayMs: MODEL_RESPONSE_DELAY_MS,
     localBridge: "PASS",
     privateHub: "PASS",
+    privateHubIdentityNegativeCases: 3,
   }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;

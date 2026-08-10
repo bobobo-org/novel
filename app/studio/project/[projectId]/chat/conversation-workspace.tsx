@@ -8,7 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
+import type {
+  ClosedAIBackendId,
+  ClosedAIProgressEvent,
+} from "@/lib/novel-ai/closed-agent-os";
 import { createExplicitRegenerationContract } from "@/lib/novel-ai/web/explicit-regeneration";
 import {
   type Chapter,
@@ -69,6 +72,7 @@ import {
   toExecutionReceipt,
   useConversationOperationController,
 } from "./hooks/use-conversation-operation";
+import { useClosedAiBootstrap } from "./hooks/use-closed-ai-bootstrap";
 import {
   artifactStory,
   parseRpgChoices,
@@ -190,6 +194,16 @@ export default function ConversationWorkspace({
   const [artifactDraft, setArtifactDraft] = useState("");
   const [artifactView, setArtifactView] = useState<"candidate" | "diff" | "comparison">("candidate");
   const [artifactBefore, setArtifactBefore] = useState("");
+  const {
+    closedAiSetup,
+    closedAiSetupProgress,
+    closedAiSetupBusy,
+    closedAiSetupError,
+    closedAiSetupLifecycle,
+    prepareClosedAi,
+    cancelClosedAiSetup,
+    resolveRegenerationBackend,
+  } = useClosedAiBootstrap(projectId);
   const abortRef = useRef<AbortController | null>(null);
   const runRef = useRef(0);
   const operationLockRef = useRef(false);
@@ -1077,6 +1091,7 @@ export default function ConversationWorkspace({
       source: ConversationMessage;
       taskId: string;
       placeholderId: string;
+      preferredBackend: ClosedAIBackendId;
     };
   }) {
     const placeholder = input.regeneration
@@ -1138,9 +1153,13 @@ export default function ConversationWorkspace({
             extraRequirement: "建立新的 taskId 與候選，不覆蓋原訊息；保持 Canon 不變。",
           })
           : undefined,
-        preferredBackend: previousDigest ? "local-ollama" : undefined,
-        browserComputePolicy: previousDigest ? "quality-first" : "browser-first",
-        allowPreAuthorizedClosedEscalation: Boolean(previousDigest),
+        preferredBackend: previousDigest
+          ? input.regeneration?.preferredBackend
+          : undefined,
+        browserComputePolicy: input.regeneration?.preferredBackend === "local-ollama"
+          ? "quality-first"
+          : "browser-first",
+        allowPreAuthorizedClosedEscalation: false,
         signal: input.signal,
         onProgress: (event) => setProgress(progressLabel(event)),
       });
@@ -1571,6 +1590,23 @@ export default function ConversationWorkspace({
           code: "CONVERSATION_REGENERATION_SPECIALIZED_FLOW_REQUIRED",
         });
       }
+      const sourceInvocation = (await conversation.listToolInvocations(projectId, sessionId))
+        .filter((invocation) => (
+          invocation.messageId === message.id
+          && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+          && invocation.status === "completed"
+        ))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
+      const sourceBackend = sourceInvocation?.actualExecutor === "browser-ai"
+        || sourceInvocation?.actualExecutor === "local-ollama"
+        || sourceInvocation?.actualExecutor === "private-ai-hub"
+        ? sourceInvocation.actualExecutor
+        : null;
+      const regenerationBackend = await resolveRegenerationBackend({
+        sourceBackend,
+        taskType: plan.taskType ?? "assistant.general",
+        signal: controller.signal,
+      });
       const prepared = await conversation.prepareRegeneration({
         projectId,
         sessionId,
@@ -1586,6 +1622,7 @@ export default function ConversationWorkspace({
           source: message,
           taskId: prepared.taskId,
           placeholderId: prepared.messageId,
+          preferredBackend: regenerationBackend,
         },
       });
       await loadWorkspace(sessionId);
@@ -1757,6 +1794,7 @@ export default function ConversationWorkspace({
       composer={(
         <MessageComposer
           active={Boolean(activeSession)}
+          projectId={projectId}
           busy={busy}
           busyReason={branchPending ? "分支建立中；訊息與附件操作已暫停。" : null}
           canStop={canStop}
@@ -1764,6 +1802,11 @@ export default function ConversationWorkspace({
           localAttachments={localAttachments}
           rightsConfirmed={rightsConfirmed}
           latestInvocation={latestInvocation}
+          closedAiSetup={closedAiSetup}
+          closedAiSetupProgress={closedAiSetupProgress}
+          closedAiSetupBusy={closedAiSetupBusy}
+          closedAiSetupError={closedAiSetupError}
+          closedAiSetupLifecycle={closedAiSetupLifecycle}
           onDraftChange={setDraft}
           onFilesSelected={onFilesSelected}
           onRightsConfirmedChange={setRightsConfirmed}
@@ -1772,6 +1815,8 @@ export default function ConversationWorkspace({
           onToggleArtifacts={() => setArtifactOpen((value) => !value)}
           onStop={stopGeneration}
           onSend={() => { void sendRequest(); }}
+          onPrepareClosedAi={() => { void prepareClosedAi(); }}
+          onCancelClosedAiSetup={cancelClosedAiSetup}
         />
       )}
       artifactDrawer={artifactOpen ? (

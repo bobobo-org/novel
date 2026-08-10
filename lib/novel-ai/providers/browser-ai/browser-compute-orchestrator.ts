@@ -4,6 +4,7 @@ import type {
   PlatformRouterDecision,
 } from "../../router/platform-types";
 import { sha256Hex } from "../../closed-ai-cache";
+import { isCryptographicClosedAIModelDigest } from "../../closed-agent-os/types";
 import {
   currentChapterContext,
   extractNarrativeCharacterAnchors,
@@ -388,6 +389,7 @@ export async function executeBrowserCompute(input: {
       proof?.state === "inference_verified"
       && proof.inferenceMode === "generative-model"
       && proof.modelId === BROWSER_LANGUAGE_MODEL_ID
+      && isCryptographicClosedAIModelDigest(proof.modelDigest)
       )
     );
   const rawContextTokens = estimateBrowserTokens(

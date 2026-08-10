@@ -15,8 +15,6 @@ import { listExternalAIProviderStatus } from "@/lib/novel-ai/providers/external/
 
 export const runtime = "nodejs";
 
-const BUILD_TIMESTAMP = process.env.BUILD_TIMESTAMP || "2026-07-16T08:30:00Z";
-
 export async function GET(req: Request) {
   const denied = requireAdmin(req);
   if (denied) return denied;
@@ -203,8 +201,9 @@ export async function GET(req: Request) {
     sqliteBackup100MbP95: "baseline_not_100mb",
     sqliteRestore100MbP95: "baseline_not_100mb",
     sqlitePeakRssMb: 101.92,
-    lastL0BFullTestAt: BUILD_TIMESTAMP,
-    lastL0BFullCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0b-full",
+    lastL0BFullTestAt: null,
+    lastL0BFullCommit: null,
+    l0bFullTestEvidenceStatus: "not_bound_to_current_build",
     sqliteBackupP50: 5,
     sqliteBackupP95: 86,
     sqliteRestoreP50: 5,
@@ -212,8 +211,9 @@ export async function GET(req: Request) {
     sqliteRecoveryState: "healthy",
     sqliteLastRecoveryErrorCode: null,
     sqliteBackupCount: 20,
-    sqliteLastBackupAt: BUILD_TIMESTAMP,
-    sqliteLastRestoreAt: BUILD_TIMESTAMP,
+    sqliteLastBackupAt: null,
+    sqliteLastRestoreAt: null,
+    sqliteBackupRestoreEvidenceStatus: "not_bound_to_current_build",
     sqliteLastIntegrityCheck: "ok",
     ...sqliteDiagnostics,
     persistenceStatus: "supabase-production-ready",

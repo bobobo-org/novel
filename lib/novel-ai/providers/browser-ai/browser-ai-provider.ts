@@ -8,6 +8,7 @@ import {
   runPackagedBrowserTaskModel,
 } from "./browser-task-model";
 import { taskComplexity } from "../../closed-agent-os/backend-manifest";
+import { isCryptographicClosedAIModelDigest } from "../../closed-agent-os/types";
 import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
@@ -43,7 +44,12 @@ export type BrowserAICapability = {
   generativeRuntime: "webllm-worker" | "chromium-prompt-api" | null;
   webLlmSupported: boolean;
   webLlmInstalled: boolean;
-  webLlmStatus: "ready" | "install_required" | "unsupported" | "error";
+  webLlmStatus:
+    | "ready"
+    | "install_required"
+    | "installing"
+    | "unsupported"
+    | "error";
   webLlmModelId: BrowserWebLLMModelId | null;
   webLlmModelDigest: string | null;
   webLlmDeviceTier: BrowserWebLLMDeviceTier;
@@ -232,6 +238,18 @@ async function recordInferenceProof(
       retryable: true,
     });
   }
+  if (
+    inferenceMode === "generative-model"
+    && !isCryptographicClosedAIModelDigest(modelDigest)
+  ) {
+    throw Object.assign(
+      new Error("瀏覽器生成模型沒有可驗證的 SHA-256 模型摘要，不能標記為正式可用。"),
+      {
+        code: "BROWSER_AI_MODEL_DIGEST_NOT_VERIFIABLE",
+        retryable: false,
+      },
+    );
+  }
   browserInferenceProof = {
     proofVersion: "browser-ai-inference-proof-v1",
     state: "inference_verified",
@@ -256,14 +274,22 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
   browserInferenceProof = null;
   const capability = await detectBrowserAI();
   if (capability.status !== "ready") {
+    const nativePromptAvailable = capability.promptAvailability === "available"
+      || capability.promptAvailability === "readily";
+    const digestNotVerifiable = nativePromptAvailable
+      && !capability.webLlmSupported;
     throw Object.assign(new Error(
-      capability.status === "runtime_not_installed"
+      digestNotVerifiable
+        ? "瀏覽器內建 Prompt API 沒有可驗證的模型摘要，不能作為正式閉端生成後端。"
+        : capability.status === "runtime_not_installed"
         ? "此裝置支援瀏覽器 AI，但模型尚未下載完成。"
         : "此裝置目前不支援瀏覽器內建 AI。",
     ), {
-      code: capability.status === "runtime_not_installed"
-        ? "BROWSER_AI_MODEL_NOT_READY"
-        : "BROWSER_AI_UNSUPPORTED",
+      code: digestNotVerifiable
+        ? "BROWSER_AI_MODEL_DIGEST_NOT_VERIFIABLE"
+        : capability.status === "runtime_not_installed"
+          ? "BROWSER_AI_MODEL_NOT_READY"
+          : "BROWSER_AI_UNSUPPORTED",
       retryable: capability.status === "runtime_not_installed",
     });
   }
@@ -336,104 +362,13 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
       );
     }
   }
-  const languageFactory = languageModelFactory();
-  const promptAvailability = languageFactory
-    ? await browserLanguageModelAvailability(languageFactory)
-    : "unavailable";
-  if (
-    languageFactory
-    && (promptAvailability === "available" || promptAvailability === "readily")
-  ) {
-    let session: BrowserLanguageModelSession | null = null;
-    try {
-      session = await withBrowserDeadline(
-        languageFactory.create({
-          initialPrompts: [{
-            role: "system",
-            content: "你是裝置內小說助手。只用繁體中文簡短回答，不新增輸入不存在的事實。",
-          }],
-          signal,
-        }),
-        BROWSER_INFERENCE_TIMEOUT_MS,
-        "BROWSER_AI_PROMPT_CREATE_TIMEOUT",
-      );
-      const output = await withBrowserDeadline(
-        session.prompt(
-          "請用一句話摘要：林昭進入圖書館，發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。",
-          { signal },
-        ),
-        BROWSER_INFERENCE_TIMEOUT_MS,
-        "BROWSER_AI_PROMPT_INFERENCE_TIMEOUT",
-      );
-      return recordInferenceProof(
-        output,
-        startedAt,
-        BROWSER_LANGUAGE_MODEL_ID,
-        BROWSER_MANAGED_MODEL_DIGEST,
-        "generative-model",
-      );
-    } catch {
-      // Keep probing the native summarizer and packaged task model below.
-    } finally {
-      session?.destroy?.();
-    }
-  }
-  const factory = summarizerFactory();
-  const availability = factory
-    ? await browserSummarizerAvailability(factory)
-    : "unavailable";
-  if (!factory || (availability !== "available" && availability !== "readily")) {
-    const result = runPackagedBrowserTaskModel(
-      "story.summary",
-      "林昭進入圖書館。她發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。守門人聲稱整晚沒有人進出。",
-    );
-    return recordInferenceProof(
-      result.content,
-      startedAt,
-      result.modelId,
-      result.modelDigest,
-    );
-  }
-  let summarizer: BrowserSummarizer | null = null;
-  try {
-    summarizer = await withBrowserDeadline(
-      factory.create({
-        type: "key-points",
-        format: "plain-text",
-        length: "short",
-        sharedContext: "這是裝置內模型健康測試。只摘要輸入，不增加新事實。",
-      }),
-      BROWSER_INFERENCE_TIMEOUT_MS,
-      "BROWSER_AI_CREATE_TIMEOUT",
-    );
-    const output = await withBrowserDeadline(
-      summarizer.summarize(
-        "林昭進入圖書館，發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。",
-        { context: "請以繁體中文輸出一句摘要。", signal },
-      ),
-      BROWSER_INFERENCE_TIMEOUT_MS,
-      "BROWSER_AI_INFERENCE_TIMEOUT",
-    );
-    return recordInferenceProof(
-      output,
-      startedAt,
-      "chrome-built-in-summarizer",
-      "browser-managed-model-digest-unavailable",
-    );
-  } catch {
-    const result = runPackagedBrowserTaskModel(
-      "story.summary",
-      "林昭進入圖書館。她發現帳冊失蹤，並在窗邊找到一枚濕泥腳印。守門人聲稱整晚沒有人進出。",
-    );
-    return recordInferenceProof(
-      result.content,
-      startedAt,
-      result.modelId,
-      result.modelDigest,
-    );
-  } finally {
-    summarizer?.destroy?.();
-  }
+  throw Object.assign(
+    new Error("瀏覽器沒有通過可驗證模型摘要約束的生成 runtime。"),
+    {
+      code: "BROWSER_AI_GENERATIVE_PROOF_UNAVAILABLE",
+      retryable: false,
+    },
+  );
 }
 
 function summarizerFactory(): BrowserSummarizerFactory | null {
@@ -495,7 +430,7 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
   const promptAvailability = languageFactory
     ? await browserLanguageModelAvailability(languageFactory)
     : "unavailable";
-  const nativeGenerativeReady = promptAvailability === "available"
+  const nativePromptAvailable = promptAvailability === "available"
     || promptAvailability === "readily";
   const webLlm = await withBrowserDeadline(
     browserWebLLMRuntimeSnapshot(),
@@ -505,16 +440,19 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
   const selectedWebLlm = webLlm?.models.find((model) => (
     model.modelId === webLlm.selectedModelId
   )) ?? null;
+  const webLlmInstalling = selectedWebLlm?.installStatus === "installing";
   const webLlmInstalled = selectedWebLlm?.installStatus === "ready"
-    && selectedWebLlm.cacheVerified;
+    && selectedWebLlm.cacheVerified
+    && isCryptographicClosedAIModelDigest(selectedWebLlm.modelDigest);
   const webLlmModelId = webLlmInstalled ? selectedWebLlm.modelId : null;
   const webLlmModelDigest = webLlmInstalled ? selectedWebLlm.modelDigest : null;
-  const generativeModelReady = webLlmInstalled || nativeGenerativeReady;
+  // Chromium Prompt API does not expose a verifiable immutable model digest.
+  // It remains an availability signal only; production generation readiness
+  // is limited to a verified WebLLM model with a SHA-256 identity.
+  const generativeModelReady = webLlmInstalled;
   const generativeRuntime = webLlmInstalled
     ? "webllm-worker" as const
-    : nativeGenerativeReady
-      ? "chromium-prompt-api" as const
-      : null;
+    : null;
   const ready = summaryAvailability === "available" || summaryAvailability === "readily";
   const downloadable = summaryAvailability === "downloadable" || summaryAvailability === "after-download";
   return {
@@ -523,22 +461,28 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     worker,
     storageQuota: estimate.quota ?? null,
     storageUsage: estimate.usage ?? null,
-    status: "ready",
+    status: webLlmInstalled
+      ? "ready"
+      : webLlmInstalling || webLlm?.supported
+        ? "runtime_not_installed"
+        : "degraded",
     reason: webLlmInstalled
       ? "browser_hybrid_runtime_webllm_ready"
-      : nativeGenerativeReady
-        ? "browser_hybrid_runtime_native_prompt_ready"
-      : ready
-        ? "browser_hybrid_runtime_native_summary_ready"
+      : webLlmInstalling
+        ? "browser_hybrid_runtime_webllm_preparing"
         : webLlm?.supported
           ? "browser_hybrid_runtime_webllm_install_required"
+        : nativePromptAvailable
+          ? "browser_native_prompt_digest_not_verifiable"
+        : ready
+          ? "browser_hybrid_runtime_native_summary_task_only"
         : languageFactory && (
           promptAvailability === "downloadable"
           || promptAvailability === "downloading"
           || promptAvailability === "after-download"
         )
           ? "browser_hybrid_runtime_native_prompt_download_required"
-          : "browser_hybrid_runtime_packaged_ready",
+          : "browser_hybrid_runtime_packaged_task_only",
     summaryAvailability: ready
       ? summaryAvailability
       : downloadable
@@ -551,6 +495,8 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     webLlmInstalled,
     webLlmStatus: webLlmInstalled
       ? "ready"
+      : webLlmInstalling
+        ? "installing"
       : webLlm?.supported
         ? "install_required"
         : webLlm
@@ -561,38 +507,45 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
     webLlmDeviceTier: webLlm?.device.tier ?? "unsupported",
     webLlmCacheBackend: webLlm?.cacheBackend ?? null,
     modelId: webLlmModelId
-      ?? (nativeGenerativeReady ? BROWSER_LANGUAGE_MODEL_ID : BROWSER_TASK_MODEL.modelId),
+      ?? BROWSER_TASK_MODEL.modelId,
     modelDigest: webLlmModelDigest
-      ?? (nativeGenerativeReady
-        ? BROWSER_MANAGED_MODEL_DIGEST
-        : BROWSER_TASK_MODEL.modelDigest),
+      ?? BROWSER_TASK_MODEL.modelDigest,
   };
 }
 
-export async function browserProviderSnapshot(): Promise<PlatformProviderSnapshot> {
-  const capability = await detectBrowserAI();
+export async function browserProviderSnapshot(
+  capability?: BrowserAICapability,
+): Promise<PlatformProviderSnapshot> {
+  const resolvedCapability = capability ?? await detectBrowserAI();
+  const productionGenerationReady = resolvedCapability.generativeModelReady
+    && resolvedCapability.generativeRuntime === "webllm-worker"
+    && resolvedCapability.webLlmInstalled
+    && isCryptographicClosedAIModelDigest(resolvedCapability.modelDigest);
+  const providerStatus: PlatformProviderSnapshot["status"] = productionGenerationReady
+    ? "ready"
+    : resolvedCapability.status === "runtime_unavailable"
+      ? "runtime_unavailable"
+      : resolvedCapability.webLlmSupported
+        ? "runtime_not_installed"
+        : "degraded";
   return {
     id: "browser-ai",
-    status: capability.status,
+    status: providerStatus,
     capabilities: [
       "text",
       "offline",
-      ...(capability.webLlmInstalled ? ["streaming" as const] : []),
-      ...(capability.generativeModelReady ? ["structured" as const] : []),
+      ...(resolvedCapability.webLlmInstalled ? ["streaming" as const] : []),
+      ...(productionGenerationReady ? ["structured" as const] : []),
     ],
-    modelId: capability.modelId,
-    modelDigest: capability.status === "ready" ? capability.modelDigest : null,
-    maxContext: capability.status === "ready"
-      ? capability.webLlmInstalled
-        ? 4_096
-        : capability.generativeModelReady
-          ? 8_192
-        : 16_384
+    modelId: resolvedCapability.modelId,
+    modelDigest: productionGenerationReady ? resolvedCapability.modelDigest : null,
+    maxContext: productionGenerationReady
+      ? 4_096
       : 0,
     local: true,
     requiresInternet: false,
-    taskTypes: capability.generativeModelReady ? undefined : BROWSER_LIGHT_TASKS,
-    detail: capability.reason,
+    taskTypes: productionGenerationReady ? undefined : BROWSER_LIGHT_TASKS,
+    detail: resolvedCapability.reason,
   };
 }
 

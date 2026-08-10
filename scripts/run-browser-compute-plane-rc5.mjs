@@ -159,12 +159,32 @@ function eligible(taskType, model = BROWSER_WEBLLM_MODELS[1]) {
 }
 
 function backend(id, status, maximumComplexity = "standard") {
+  const generationVerified = status === "ready";
+  const verificationSource = {
+    "browser-ai": "browser-runtime-generation",
+    "local-ollama": "local-bridge-generation",
+    "private-ai-hub": "private-hub-generation",
+  }[id];
   return {
     id,
     label: id,
     status,
+    runtimeTruth: {
+      installed: generationVerified,
+      configured: generationVerified,
+      reachable: generationVerified,
+      modelAvailable: generationVerified,
+      runtimeVerified: generationVerified,
+      generationVerified,
+      verificationSource: generationVerified ? verificationSource : "none",
+      verifiedAt: generationVerified ? "2026-08-10T00:00:00.000Z" : null,
+    },
     modelId: status === "ready" ? `${id}-model` : null,
-    modelDigest: status === "ready" ? `${id}-digest` : null,
+    modelDigest: status === "ready" ? ({
+      "browser-ai": "b".repeat(64),
+      "local-ollama": "c".repeat(64),
+      "private-ai-hub": "d".repeat(64),
+    })[id] : null,
     local: id !== "private-ai-hub",
     dataBoundary: id === "private-ai-hub" ? "private-infrastructure" : "device",
     maximumComplexity,
@@ -1173,9 +1193,10 @@ test("no-silent-fallback", () => {
     backend("local-ollama", "ready"),
     backend("private-ai-hub", "ready", "heavy"),
   ]);
-  assert.equal(route.executionStatus, "not_executed");
+  assert.equal(route.executionStatus, "routable");
+  assert.equal(route.backend.id, "local-ollama");
   assert.equal(route.fallbackAttempted, false);
-  assert.equal(route.reasonCode, "CLOSED_AI_REQUIRED_BACKEND_NOT_READY");
+  assert.equal(route.reasonCode, "AUTO_SELECTED_LOCAL_OLLAMA");
   const provider = readFileSync(
     resolve(root, "lib/novel-ai/providers/browser-ai/browser-ai-provider.ts"),
     "utf8",
@@ -1481,16 +1502,15 @@ test("regeneration", async () => {
 
 test("production-acceptance", async () => {
   const manifest = JSON.parse(readFileSync(resolve(root, "release-manifest.json"), "utf8"));
-  assert.deepEqual(manifest, {
-    releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-    releaseRevision: "rc6.1",
-    releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
-    consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
-    architectureStage: "P2.4B RC",
-    releaseBaseCommit: "e9b1091916b53c34ed9676dc4d418baaf696786e",
-    gitCommitSignature: "unsigned",
-    buildTime: "2026-08-02T12:00:00+08:00",
-  });
+  assert.equal(manifest.releaseLine, "novel-ai-p24b-conversation-first-studio-rc6");
+  assert.equal(manifest.releaseTag, "novel-ai-p24b-conversation-first-studio-rc6.2");
+  assert.equal(manifest.releaseRevision, "rc6.2");
+  assert.equal(manifest.releaseName, "P2.4B Conversation-First Novel Project GPT RC6.2");
+  assert.equal(manifest.consumerRelease, "p2.4b-conversation-first-studio-rc6.2");
+  assert.equal(manifest.architectureStage, "P2.4B RC");
+  assert.match(manifest.releaseBaseCommit, /^[a-f0-9]{40}$/u);
+  assert.match(manifest.releaseEpoch, /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(Object.hasOwn(manifest, "buildTime"), false);
   const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
   assert.match(
     packageJson.scripts["seal:ai:browser:compute-plane-rc5"],

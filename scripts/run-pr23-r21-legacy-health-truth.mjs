@@ -30,13 +30,20 @@ assert.match(
 );
 assert.match(
   legacyHealth,
-  /closedAiRuntimeStatus:\s*"client_probe_required"/u,
+  /const CLOSED_AI_SERVER_RUNTIME_TRUTH = \{[\s\S]*?status:\s*"client_probe_required"[\s\S]*?generationVerifiedBackends:\s*0[\s\S]*?activeBackend:\s*null[\s\S]*?externalFallback:\s*false[\s\S]*?silentExternalFallback:\s*false/u,
+);
+assert.match(
+  legacyHealth,
+  /closedAiRuntimeStatus:\s*CLOSED_AI_SERVER_RUNTIME_TRUTH\.status/u,
 );
 assert.match(
   legacyHealth,
   /closedAiActualExecutor:\s*"client_execution_receipt_required"/u,
 );
-assert.match(legacyHealth, /closedAiSilentExternalFallback:\s*false/u);
+assert.match(
+  legacyHealth,
+  /closedAiSilentExternalFallback:\s*CLOSED_AI_SERVER_RUNTIME_TRUTH\.silentExternalFallback/u,
+);
 assert.match(legacyHealth, /legacyCloudAnalysis:\s*\{/u);
 assert.match(
   legacyHealth,

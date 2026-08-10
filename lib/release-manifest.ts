@@ -7,12 +7,16 @@ export type ReleaseProvenance = {
   appCommit: string;
   releaseProductCommit: string;
   releaseBaseCommit: string;
+  releaseLine: string;
   releaseTag: string;
   releaseRevision: string;
   releaseBuild: string;
+  releaseName: string;
+  consumerRelease: string;
   architectureStage: string;
   gitCommitSignature: "unsigned" | "verified";
-  sealedAt: string;
+  releaseEpoch: string;
+  provenanceGeneratedAt: string;
   source: string;
   integrity: {
     algorithm: string;
@@ -21,8 +25,16 @@ export type ReleaseProvenance = {
 };
 
 const allowedArchitectureStages = new Set<string>(contract.allowedArchitectureStages);
+for (const [field, expected] of Object.entries(contract.immutableReleaseIdentity ?? {})) {
+  if (manifest[field as keyof typeof manifest] !== expected) {
+    throw new Error(`Immutable RC6.2 release identity mismatch: ${field}`);
+  }
+}
 if (!allowedArchitectureStages.has(manifest.architectureStage)) {
   throw new Error(`Unsupported release architecture stage: ${manifest.architectureStage}`);
+}
+if (!(new RegExp(contract.releaseLinePattern)).test(manifest.releaseLine)) {
+  throw new Error(`Invalid release line: ${manifest.releaseLine}`);
 }
 if (!(new RegExp(contract.releaseTagPattern)).test(manifest.releaseTag)) {
   throw new Error(`Invalid release tag: ${manifest.releaseTag}`);
@@ -39,8 +51,8 @@ if (!(new RegExp(contract.consumerReleasePattern)).test(manifest.consumerRelease
 if (!contract.allowedGitCommitSignatures.includes(manifest.gitCommitSignature)) {
   throw new Error(`Invalid Git commit signature truth: ${manifest.gitCommitSignature}`);
 }
-if (Number.isNaN(Date.parse(manifest.buildTime))) {
-  throw new Error(`Invalid release build time: ${manifest.buildTime}`);
+if (Number.isNaN(Date.parse(manifest.releaseEpoch))) {
+  throw new Error(`Invalid release epoch: ${manifest.releaseEpoch}`);
 }
 const allowedProvenanceSchemas = new Set<string>(
   contract.allowedProvenanceSchemaVersions ?? [contract.provenanceSchemaVersion],
@@ -60,11 +72,18 @@ if (provenance.releaseProductCommit !== provenance.appCommit) {
 if (provenance.releaseBaseCommit !== manifest.releaseBaseCommit) {
   throw new Error("Release provenance does not match the RC6 base commit.");
 }
-if (provenance.releaseTag !== manifest.releaseTag
+if (provenance.releaseLine !== manifest.releaseLine
+  || provenance.releaseTag !== manifest.releaseTag
   || provenance.releaseRevision !== manifest.releaseRevision
+  || provenance.releaseName !== manifest.releaseName
+  || provenance.consumerRelease !== manifest.consumerRelease
   || provenance.architectureStage !== manifest.architectureStage
   || provenance.gitCommitSignature !== manifest.gitCommitSignature) {
   throw new Error("Release provenance does not match the release manifest.");
+}
+if (provenance.releaseEpoch !== new Date(manifest.releaseEpoch).toISOString()
+  || Number.isNaN(Date.parse(provenance.provenanceGeneratedAt))) {
+  throw new Error("Release provenance temporal metadata is invalid.");
 }
 if (provenance.releaseBuild !== `${manifest.releaseRevision}+${provenance.appCommit}`
   || !(new RegExp(contract.releaseBuildPattern)).test(provenance.releaseBuild)) {

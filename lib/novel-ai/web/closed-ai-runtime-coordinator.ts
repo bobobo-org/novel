@@ -31,6 +31,10 @@ import {
   FAST_LOCAL_WRITER_MODEL,
   RECOMMENDED_LOCAL_WRITER_MODEL,
 } from "../model-orchestration/recommended-models";
+import {
+  resolveClosedAiConsumerReadiness,
+  type ClosedAiConsumerReadiness,
+} from "./closed-ai-consumer-readiness";
 
 export const CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION =
   "closed-ai-runtime-coordinator-v1" as const;
@@ -72,7 +76,7 @@ export type ClosedAIRuntimeSnapshot = {
     allowedTaskCount: number;
   };
   browserGenerativeModel: {
-    status: "ready" | "device_dependent" | "unavailable";
+    status: "ready" | "available" | "setup_required" | "unavailable";
     generative: true;
     modelId: string | null;
     maximumComplexity: "standard";
@@ -112,6 +116,7 @@ export type ClosedAIRuntimeSnapshot = {
   nextAction: ClosedAIRouteResolution["recommendedNextAction"];
   route: ClosedAIRouteResolution;
   backends: ClosedAIBackendSnapshot[];
+  consumerReadiness: ClosedAiConsumerReadiness;
 };
 
 type SnapshotReader = (
@@ -290,12 +295,12 @@ function deriveState(
   }
   if (
     relevant?.detailCode.includes("pair")
-    || relevant?.status === "runtime_required"
+    || relevant?.status === "setup_required"
   ) {
     return "pairing_required";
   }
   if (
-    relevant?.status === "contract_ready_runtime_not_connected"
+    relevant?.status === "unreachable"
     || relevant?.detailCode.includes("unreachable")
   ) {
     return "service_not_running";
@@ -547,7 +552,17 @@ export class ClosedAIRuntimeCoordinator {
     const local = backends.find((item) => item.id === "local-ollama") ?? {
       id: "local-ollama" as const,
       label: "Local Ollama",
-      status: "runtime_required" as const,
+      status: "unreachable" as const,
+      runtimeTruth: {
+        installed: false,
+        configured: false,
+        reachable: false,
+        modelAvailable: false,
+        runtimeVerified: false,
+        generationVerified: false,
+        verificationSource: "none" as const,
+        verifiedAt: null,
+      },
       modelId: null,
       modelDigest: null,
       local: true,
@@ -560,7 +575,17 @@ export class ClosedAIRuntimeCoordinator {
     const privateHub = backends.find((item) => item.id === "private-ai-hub") ?? {
       id: "private-ai-hub" as const,
       label: "Private Hub",
-      status: "contract_ready_runtime_not_connected" as const,
+      status: "unreachable" as const,
+      runtimeTruth: {
+        installed: false,
+        configured: false,
+        reachable: false,
+        modelAvailable: false,
+        runtimeVerified: false,
+        generationVerified: false,
+        verificationSource: "none" as const,
+        verifiedAt: null,
+      },
       modelId: null,
       modelDigest: null,
       local: true,
@@ -589,6 +614,10 @@ export class ClosedAIRuntimeCoordinator {
       localRuntimeReady: local.status === "ready",
       loopbackSessionEstablished: Boolean(localSession),
     });
+    const consumerReadiness = resolveClosedAiConsumerReadiness(
+      backends,
+      selected?.id ?? null,
+    );
     return {
       schemaVersion: CLOSED_AI_RUNTIME_COORDINATOR_SCHEMA_VERSION,
       state: deriveState(route, backends, effectiveLocalNetworkPermission),
@@ -605,11 +634,13 @@ export class ClosedAIRuntimeCoordinator {
           : browser?.supportedTaskTypes.length ?? 0,
       },
       browserGenerativeModel: {
-        status: browserCapability.generativeModelReady
+        status: browser?.runtimeTruth?.generationVerified
           ? "ready"
-          : browserCapability.promptAvailability === "unavailable"
-            ? "unavailable"
-            : "device_dependent",
+          : browserCapability.generativeModelReady
+            ? "available"
+            : browser?.status === "unsupported"
+              ? "unavailable"
+              : "setup_required",
         generative: true,
         modelId: browserCapability.generativeModelReady
           ? browserCapability.modelId
@@ -645,11 +676,11 @@ export class ClosedAIRuntimeCoordinator {
       plannedBackend: selected?.id ?? null,
       plannedModel: selected?.modelId ?? null,
       plannedModelProof: selected?.id === "browser-ai"
-        ? browserCapability.generativeModelReady
-          ? selectedProof
-            ? "verified"
-            : "not_verified"
-          : "not_applicable"
+        ? browser?.runtimeTruth?.generationVerified
+          ? "verified"
+          : browserCapability.generativeModelReady
+            ? "not_verified"
+            : "not_applicable"
         : selectedProof
           ? "verified"
           : "not_verified",
@@ -672,6 +703,7 @@ export class ClosedAIRuntimeCoordinator {
       nextAction: route.recommendedNextAction,
       route,
       backends,
+      consumerReadiness,
     };
   }
 }

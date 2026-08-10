@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOSED_AI_BACKEND_IDS,
   closedAgentQualityReasonCodes,
+  hasVerifiedClosedAIGeneration,
   resolveClosedAIRoute,
   type ClosedAgentOS,
   type ClosedAIBackendId,
@@ -237,11 +238,14 @@ function workspacePreferenceKey(projectId: string) {
 }
 
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
-  if (status === "ready") return "模型運作中";
-  if (status === "contract_ready_runtime_not_connected") return "安全契約完成，算力未連線";
-  if (status === "runtime_required") return "需要本機執行環境";
+  if (status === "ready") return "真實生成已實測";
+  if (status === "available") return "Runtime 可用，等待生成實測";
+  if (status === "setup_required") return "需要完成設定";
+  if (status === "preparing") return "模型準備中";
   if (status === "degraded") return "功能降級";
-  return "已停用";
+  if (status === "unreachable") return "目前無法連線";
+  if (status === "failed") return "驗證失敗";
+  return "此裝置不支援";
 }
 
 function candidateStatusLabel(status: ClosedAgentCandidate["status"]) {
@@ -270,7 +274,11 @@ function backendCanRun(
   snapshot: ClosedAIBackendSnapshot | undefined,
   task: (typeof TASKS)[number] | undefined,
 ) {
-  if (!snapshot || !task || snapshot.status !== "ready") return false;
+  if (
+    !snapshot
+    || !task
+    || !hasVerifiedClosedAIGeneration(snapshot)
+  ) return false;
   if (COMPLEXITY_RANK[snapshot.maximumComplexity] < COMPLEXITY_RANK[task.complexity]) {
     return false;
   }
@@ -1221,6 +1229,16 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             id: "local-ollama",
             label: previous?.label ?? "個人本機 Ollama",
             status: "ready",
+            runtimeTruth: {
+              installed: true,
+              configured: true,
+              reachable: true,
+              modelAvailable: true,
+              runtimeVerified: true,
+              generationVerified: true,
+              verificationSource: "local-bridge-generation",
+              verifiedAt: localResult.value.proof.verifiedAt,
+            },
             modelId: localResult.value.model.modelId,
             modelDigest: localResult.value.proof.modelDigest
               ?? localResult.value.model.modelDigest
@@ -2139,7 +2157,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.deckMetrics}>
             <span><strong>{TASKS.length}</strong> 種小說任務</span>
             <span><strong>{localModels.length + hubModels.length}</strong> 個已偵測私有模型</span>
-            <span><strong>{snapshots.filter((item) => item.status === "ready").length}/3</strong> 後端已實測</span>
+            <span><strong>{snapshots.filter(hasVerifiedClosedAIGeneration).length}/3</strong> 後端已實測生成</span>
             <span><strong>{trainingModels.length}</strong> 個偏好模型成果</span>
           </div>
         </div>

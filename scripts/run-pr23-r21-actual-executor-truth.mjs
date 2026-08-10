@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   ClosedAgentOS,
+  hasVerifiedClosedAIGeneration,
   MemoryClosedAgentStateRepository,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
 import {
@@ -43,12 +44,33 @@ function namespace(projectId) {
 }
 
 function snapshot(id, options = {}) {
+  const status = options.status ?? "ready";
+  const generationVerified = status === "ready";
+  const verificationSource = {
+    "browser-ai": "browser-runtime-generation",
+    "local-ollama": "local-bridge-generation",
+    "private-ai-hub": "private-hub-generation",
+  }[id];
   return {
     id,
     label: id,
-    status: options.status ?? "ready",
+    status,
+    runtimeTruth: {
+      installed: generationVerified,
+      configured: generationVerified,
+      reachable: generationVerified,
+      modelAvailable: generationVerified,
+      runtimeVerified: generationVerified,
+      generationVerified,
+      verificationSource: generationVerified ? verificationSource : "none",
+      verifiedAt: generationVerified ? "2026-08-10T00:00:00.000Z" : null,
+    },
     modelId: options.modelId ?? `${id}-model-v1`,
-    modelDigest: options.modelDigest ?? `${id}-digest-v1`,
+    modelDigest: options.modelDigest ?? {
+      "browser-ai": "b".repeat(64),
+      "local-ollama": "c".repeat(64),
+      "private-ai-hub": "d".repeat(64),
+    }[id],
     local: id !== "private-ai-hub",
     dataBoundary: id === "private-ai-hub"
       ? "private-infrastructure"
@@ -197,6 +219,13 @@ await check("route refresh is planning, not execution", async () => {
   assert.equal(before.plannedBackend, "local-ollama");
   assert.equal(before.actualExecutor, "not_executed");
   assert.equal(before.executionReceipt, null);
+});
+
+await check("non-cryptographic model digest cannot become verified execution truth", async () => {
+  const invalidDigestSnapshot = snapshot("local-ollama", {
+    modelDigest: "local-ollama-digest-v1",
+  });
+  assert.equal(hasVerifiedClosedAIGeneration(invalidDigestSnapshot), false);
 });
 
 let localReceipt;

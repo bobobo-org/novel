@@ -221,8 +221,8 @@ test("專業工具保留Legacy入口", () =>
 test("健康狀態回報正式故事庫", () =>
   health.includes("storyLibraryClassicTopicCount") &&
   health.includes("progressiveCreationStatus"));
-test("Browser AI誠實標示裝置相依", () =>
-  health.includes('browserAiStatus: "runtime_ready_device_dependent"'));
+test("Browser AI由客戶端生成實測決定", () =>
+  health.includes('browserAiStatus: "client_probe_required"'));
 test("Ollama誠實標示需要本機環境", () =>
   health.includes('ollamaConsumerStatus: "runtime_required"'));
 const failed = results.filter((result) => result.status === "FAIL");

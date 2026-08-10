@@ -1,0 +1,685 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import {
+  ClosedAgentOS,
+  MemoryClosedAgentStateRepository,
+  hasVerifiedClosedAIGeneration,
+  resolveClosedAIRoute,
+} from "../lib/novel-ai/closed-agent-os/index.ts";
+import {
+  ClosedAICache,
+  MemoryClosedAICacheRepository,
+} from "../lib/novel-ai/closed-ai-cache/index.ts";
+import {
+  ApprovalSigner,
+  MemoryVerifiableLedgerRepository,
+  VerifiableLedger,
+} from "../lib/novel-ai/verifiable-ledger/index.ts";
+import {
+  resolveClosedAiConsumerReadiness,
+} from "../lib/novel-ai/web/closed-ai-consumer-readiness.ts";
+import {
+  ClosedAiBootstrapCoordinator,
+} from "../lib/novel-ai/web/closed-ai-bootstrap-coordinator.ts";
+import {
+  browserProviderSnapshot,
+} from "../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts";
+
+const mode = process.argv[2] ?? "all";
+const results = [];
+
+async function test(name, fn) {
+  if (mode !== "all" && mode !== name) return;
+  try {
+    await fn();
+    results.push({ name, status: "PASS" });
+  } catch (error) {
+    results.push({ name, status: "FAIL", error: error?.stack ?? String(error) });
+  }
+}
+
+const verifiedAt = "2026-08-10T00:00:00.000Z";
+const sourceByBackend = {
+  "browser-ai": "browser-runtime-generation",
+  "local-ollama": "local-bridge-generation",
+  "private-ai-hub": "private-hub-generation",
+};
+const labelByBackend = {
+  "browser-ai": "瀏覽器 AI",
+  "local-ollama": "Local Ollama",
+  "private-ai-hub": "Private AI Hub",
+};
+
+function backend(id, ready = true) {
+  return {
+    id,
+    label: labelByBackend[id],
+    status: ready ? "ready" : "setup_required",
+    runtimeTruth: {
+      installed: ready,
+      configured: ready,
+      reachable: ready,
+      modelAvailable: ready,
+      runtimeVerified: ready,
+      generationVerified: ready,
+      verificationSource: ready ? sourceByBackend[id] : "none",
+      verifiedAt: ready ? verifiedAt : null,
+    },
+    modelId: ready ? `${id}-real-model` : null,
+    modelDigest: ready ? "a".repeat(64) : null,
+    local: id !== "private-ai-hub",
+    dataBoundary: id === "private-ai-hub" ? "private-infrastructure" : "device",
+    maximumComplexity: id === "private-ai-hub"
+      ? "heavy"
+      : id === "browser-ai"
+        ? "standard"
+        : "standard",
+    capabilities: ["text", "streaming"],
+    supportedTaskTypes: "all",
+    detailCode: ready ? "model_inference_verified" : "setup_required",
+  };
+}
+
+function task(taskType = "chapter.continue", privacyLevel = "device_only") {
+  return {
+    taskType,
+    complexity: taskType === "character.multiAgentSimulation" ? "heavy" : "standard",
+    namespace: {
+      tenantId: "test",
+      userId: "test",
+      projectId: "test",
+      storyId: "test",
+      canonId: "test",
+      branchId: "main",
+      characterId: "shared",
+      agentRole: "test",
+      modelId: "unrouted",
+      modelDigest: "unrouted",
+      promptProfileVersion: "test",
+      storyBibleRevision: "1",
+      knowledgeScopeRevision: "1",
+      privacyLevel,
+    },
+    browserComputePolicy: "browser-first",
+  };
+}
+
+await test("state-model", () => {
+  for (const id of ["browser-ai", "local-ollama", "private-ai-hub"]) {
+    assert.equal(hasVerifiedClosedAIGeneration(backend(id)), true);
+  }
+  const inconsistent = backend("browser-ai");
+  inconsistent.runtimeTruth.runtimeVerified = false;
+  assert.equal(hasVerifiedClosedAIGeneration(inconsistent), false);
+  const wrongSource = backend("browser-ai");
+  wrongSource.runtimeTruth.verificationSource = "local-bridge-generation";
+  assert.equal(hasVerifiedClosedAIGeneration(wrongSource), false);
+  for (const invalidDigest of [
+    "browser-managed-model-digest-unavailable",
+    "a".repeat(63),
+    "a".repeat(65),
+    "g".repeat(64),
+    "sha256:" + "a".repeat(64),
+  ]) {
+    const invalid = backend("browser-ai");
+    invalid.modelDigest = invalidDigest;
+    assert.equal(
+      hasVerifiedClosedAIGeneration(invalid),
+      false,
+      `invalid model digest was accepted: ${invalidDigest}`,
+    );
+  }
+});
+
+await test("consumer-readiness", () => {
+  const readiness = resolveClosedAiConsumerReadiness([
+    backend("browser-ai"),
+    backend("local-ollama", false),
+    backend("private-ai-hub", false),
+  ], "browser-ai");
+  assert.deepEqual({
+    closedMode: readiness.closedMode,
+    totalBackends: readiness.totalBackends,
+    readyBackends: readiness.readyBackends,
+    generationVerifiedBackends: readiness.generationVerifiedBackends,
+    activeBackend: readiness.activeBackend,
+    userActionRequired: readiness.userActionRequired,
+    externalFallback: readiness.externalFallback,
+  }, {
+    closedMode: true,
+    totalBackends: 3,
+    readyBackends: 1,
+    generationVerifiedBackends: 1,
+    activeBackend: "browser-ai",
+    userActionRequired: false,
+    externalFallback: false,
+  });
+});
+
+await test("packaged-provider-rejected", async () => {
+  const packaged = backend("browser-ai", false);
+  packaged.status = "available";
+  packaged.runtimeTruth = {
+    installed: true,
+    configured: true,
+    reachable: true,
+    modelAvailable: true,
+    runtimeVerified: true,
+    generationVerified: false,
+    verificationSource: "none",
+    verifiedAt: null,
+  };
+  packaged.modelId = "browser-packaged-task-model-v2";
+  packaged.modelDigest = "b".repeat(64);
+  const contradictoryTestProvider = backend("browser-ai");
+  contradictoryTestProvider.modelId = "deterministic-test-provider";
+  contradictoryTestProvider.runtimeTruth.verificationSource = "none";
+  const unknownMock = { ...backend("local-ollama"), id: "mock-provider" };
+  for (const snapshot of [packaged, contradictoryTestProvider, unknownMock]) {
+    const readiness = resolveClosedAiConsumerReadiness([snapshot]);
+    assert.equal(readiness.generationVerifiedBackends, 0);
+    assert.equal(readiness.activeBackend, null);
+  }
+  const route = resolveClosedAIRoute(task(), [packaged]);
+  assert.equal(route.executionStatus, "not_executed");
+  assert.equal(route.reasonCode, "CLOSED_AI_REQUIRED_BACKEND_NOT_READY");
+  const capabilityBase = {
+    webGpu: true,
+    wasm: true,
+    worker: true,
+    storageQuota: 2_000_000_000,
+    storageUsage: 0,
+    status: "ready",
+    summaryAvailability: "packaged-task-runtime-ready",
+    promptAvailability: "unavailable",
+    webLlmSupported: false,
+    webLlmInstalled: false,
+    webLlmStatus: "unsupported",
+    webLlmModelId: null,
+    webLlmModelDigest: null,
+    webLlmDeviceTier: "unsupported",
+    webLlmCacheBackend: null,
+  };
+  const packagedSnapshot = await browserProviderSnapshot({
+    ...capabilityBase,
+    reason: "browser_hybrid_runtime_packaged_task_only",
+    generativeModelReady: false,
+    generativeRuntime: null,
+    modelId: "browser-packaged-task-model-v2",
+    modelDigest: "b".repeat(64),
+  });
+  assert.equal(packagedSnapshot.status, "degraded");
+  assert.equal(packagedSnapshot.modelDigest, null);
+  const nativePromptSnapshot = await browserProviderSnapshot({
+    ...capabilityBase,
+    reason: "browser_native_prompt_digest_not_verifiable",
+    promptAvailability: "readily",
+    generativeModelReady: true,
+    generativeRuntime: "chromium-prompt-api",
+    modelId: "chrome-built-in-language-model",
+    modelDigest: "browser-managed-model-digest-unavailable",
+  });
+  assert.equal(nativePromptSnapshot.status, "degraded");
+  assert.equal(nativePromptSnapshot.modelDigest, null);
+});
+
+await test("bootstrap-no-download", async () => {
+  const selectedModelId = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+  for (const alreadyInstalled of [false, true]) {
+    let generationVerified = false;
+    let installCalls = 0;
+    let verifyCalls = 0;
+    const capability = {
+      webGpu: true,
+      wasm: true,
+      worker: true,
+      storageQuota: 2_000_000_000,
+      storageUsage: 0,
+      status: alreadyInstalled ? "ready" : "runtime_not_installed",
+      reason: alreadyInstalled ? "browser_hybrid_runtime_ready" : "browser_hybrid_runtime_install_required",
+      summaryAvailability: "available",
+      promptAvailability: "unavailable",
+      generativeModelReady: alreadyInstalled,
+      generativeRuntime: alreadyInstalled ? "webllm-worker" : null,
+      webLlmSupported: true,
+      webLlmInstalled: alreadyInstalled,
+      webLlmStatus: alreadyInstalled ? "ready" : "install_required",
+      webLlmModelId: selectedModelId,
+      webLlmModelDigest: "a".repeat(64),
+      webLlmDeviceTier: "low",
+      webLlmCacheBackend: "cache",
+      modelId: alreadyInstalled ? selectedModelId : "browser-packaged-task-model-v2",
+      modelDigest: "a".repeat(64),
+    };
+    const runtime = {
+      refresh: async () => ({
+        backends: [
+          backend("browser-ai", generationVerified),
+          backend("local-ollama", false),
+          backend("private-ai-hub", false),
+        ],
+        plannedBackend: generationVerified ? "browser-ai" : null,
+      }),
+    };
+    const coordinator = new ClosedAiBootstrapCoordinator(runtime, {
+      detectCapability: async () => capability,
+      runtimeSnapshot: async () => ({
+        device: { allowedModelIds: [selectedModelId] },
+      }),
+      repairCache: async () => undefined,
+      installModel: async () => { installCalls += 1; },
+      prewarmModel: async () => undefined,
+      verifyGeneration: async () => {
+        verifyCalls += 1;
+        generationVerified = true;
+        return {
+          inferenceMode: "generative-model",
+          modelId: selectedModelId,
+          modelDigest: "a".repeat(64),
+        };
+      },
+    });
+    const result = await coordinator.bootstrap({ projectId: "fresh-browser" });
+    assert.equal(installCalls, 0, "automatic bootstrap must never download a model");
+    assert.equal(verifyCalls, alreadyInstalled ? 1 : 0);
+    assert.equal(result.status, alreadyInstalled ? "ready" : "setup_required");
+  }
+});
+
+await test("bootstrap-immediate-cancel-retry", async () => {
+  const selectedModelId = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+  let installed = false;
+  let generationVerified = false;
+  let installCalls = 0;
+  let firstInstallStartedResolve;
+  const firstInstallStarted = new Promise((resolve) => {
+    firstInstallStartedResolve = resolve;
+  });
+  const capability = () => ({
+    webGpu: true,
+    wasm: true,
+    worker: true,
+    storageQuota: 2_000_000_000,
+    storageUsage: 0,
+    status: installed ? "ready" : "runtime_not_installed",
+    reason: installed
+      ? "browser_hybrid_runtime_webllm_ready"
+      : "browser_hybrid_runtime_webllm_install_required",
+    summaryAvailability: "packaged-task-runtime-ready",
+    promptAvailability: "unavailable",
+    generativeModelReady: installed,
+    generativeRuntime: installed ? "webllm-worker" : null,
+    webLlmSupported: true,
+    webLlmInstalled: installed,
+    webLlmStatus: installed ? "ready" : "install_required",
+    webLlmModelId: installed ? selectedModelId : null,
+    webLlmModelDigest: installed ? "a".repeat(64) : null,
+    webLlmDeviceTier: "low",
+    webLlmCacheBackend: "cache",
+    modelId: installed ? selectedModelId : "browser-packaged-task-model-v2",
+    modelDigest: "a".repeat(64),
+  });
+  const runtime = {
+    refresh: async () => ({
+      backends: [
+        backend("browser-ai", generationVerified),
+        backend("local-ollama", false),
+        backend("private-ai-hub", false),
+      ],
+      plannedBackend: generationVerified ? "browser-ai" : null,
+    }),
+  };
+  const coordinator = new ClosedAiBootstrapCoordinator(runtime, {
+    detectCapability: async () => capability(),
+    runtimeSnapshot: async () => ({
+      device: { allowedModelIds: [selectedModelId] },
+    }),
+    repairCache: async () => undefined,
+    installModel: async (_modelId, options) => {
+      installCalls += 1;
+      if (installCalls === 1) {
+        firstInstallStartedResolve();
+        await new Promise((_, reject) => {
+          const rejectAborted = () => reject(Object.assign(
+            new Error("first install cancelled"),
+            { code: "BROWSER_MODEL_INSTALL_CANCELLED" },
+          ));
+          if (options.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          options.signal?.addEventListener("abort", rejectAborted, { once: true });
+        });
+        return;
+      }
+      installed = true;
+    },
+    prewarmModel: async () => undefined,
+    verifyGeneration: async () => {
+      generationVerified = true;
+      return {
+        inferenceMode: "generative-model",
+        modelId: selectedModelId,
+        modelDigest: "a".repeat(64),
+      };
+    },
+  });
+  const firstController = new AbortController();
+  const first = coordinator.prepareBrowserAi({
+    projectId: "cancel-retry-browser",
+    userInitiated: true,
+    signal: firstController.signal,
+  });
+  const firstOutcome = first.then(
+    () => null,
+    (error) => error,
+  );
+  await firstInstallStarted;
+  firstController.abort("TEST_IMMEDIATE_CANCEL");
+  const secondController = new AbortController();
+  const second = coordinator.prepareBrowserAi({
+    projectId: "cancel-retry-browser",
+    userInitiated: true,
+    signal: secondController.signal,
+  });
+  const [firstError, secondResult] = await Promise.all([firstOutcome, second]);
+  assert.equal(firstError?.code, "BROWSER_MODEL_INSTALL_CANCELLED");
+  assert.equal(secondResult.status, "ready");
+  assert.equal(secondResult.readiness.generationVerifiedBackends, 1);
+  assert.equal(installCalls, 2, "immediate retry reused the cancelled install promise");
+});
+
+await test("candidate-executor-contract", async () => {
+  const snapshot = backend("browser-ai");
+  const backendAdapter = {
+    id: "browser-ai",
+    snapshot: async () => structuredClone(snapshot),
+    execute: async (input) => {
+      const content = [
+        "暴雨停歇後，檔案館的鐵門終於打開。",
+        "明檀先核對已核准的地圖與人物關係，再沿著東側階梯前進；她沒有改寫既有設定，也沒有把任何作品資料送出裝置。",
+        "遠處的燈影揭露了新的線索，但這段內容仍只是等待作者核准的候選稿。",
+      ].join("");
+      return {
+        backendId: "browser-ai",
+        modelId: snapshot.modelId,
+        modelDigest: snapshot.modelDigest,
+        content,
+        candidateOnly: true,
+        dataLeftDevice: false,
+        externalRequest: false,
+        elapsedMs: 30,
+        profileId: "browser-production-candidate-v1",
+        firstTokenMs: 10,
+        inputCharacters: input.request.objective.length,
+        outputCharacters: content.length,
+        generatedTokenEvents: 24,
+        omittedInputCharacters: 0,
+        qualityMode: input.plan.qualityMode,
+        qualityPasses: 1,
+        draftDigest: null,
+        criticDigest: null,
+        actualExecutor: "webllm-worker",
+        browserComputeReceiptId: "browser-compute-receipt:real-runtime-proof",
+        browserFabricReceiptId: "browser-fabric-receipt:real-runtime-proof",
+        browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+      };
+    },
+  };
+  const os = new ClosedAgentOS({
+    backends: [backendAdapter],
+    cache: new ClosedAICache({
+      repository: new MemoryClosedAICacheRepository(),
+    }),
+    ledger: new VerifiableLedger({
+      repository: new MemoryVerifiableLedgerRepository(),
+      signer: new ApprovalSigner(),
+    }),
+    state: new MemoryClosedAgentStateRepository(),
+  });
+  const request = {
+    ...task(),
+    taskId: "rc6-2-browser-candidate-contract",
+    objective: "依照已核准設定續寫一段候選稿，不得直接修改正典。",
+    context: [],
+    qualityMode: "fast",
+    preferredBackend: "browser-ai",
+    allowedToolIds: [],
+    permissionScopes: [
+      "story:read",
+      "story-bible:read",
+      "candidate:write",
+      "candidate:read",
+      "evaluation:write",
+      "character:read",
+      "world:read",
+    ],
+  };
+  const result = await os.execute(request);
+  assert.equal(result.candidate.taskId, request.taskId);
+  assert.equal(result.candidate.backendId, "browser-ai");
+  assert.equal(result.candidate.actualExecutor, "browser-ai");
+  assert.equal(result.candidate.executionReceipt?.actualExecutor, "browser-ai");
+  assert.equal(result.candidate.executionReceipt?.modelId, snapshot.modelId);
+  assert.equal(result.candidate.executionReceipt?.modelDigest, snapshot.modelDigest);
+  assert.match(result.candidate.executionReceipt?.modelDigest ?? "", /^[a-f0-9]{64}$/u);
+  assert.equal(result.candidate.executionReceipt?.externalRequest, false);
+  assert.equal(result.candidate.executionReceipt?.dataLeftDevice, false);
+  assert.equal(result.candidate.canonicalMutationCount, 0);
+  assert.equal(
+    result.candidate.generationTelemetry?.browserComputeReceiptId,
+    "browser-compute-receipt:real-runtime-proof",
+  );
+  assert.equal(
+    result.candidate.generationTelemetry?.browserFabricReceiptId,
+    "browser-fabric-receipt:real-runtime-proof",
+  );
+});
+
+await test("model-identity-mismatch", async () => {
+  const snapshot = backend("browser-ai");
+  const cases = [
+    {
+      name: "model-id-mismatch",
+      modelId: "different-browser-model",
+      modelDigest: snapshot.modelDigest,
+    },
+    {
+      name: "digest-mismatch",
+      modelId: snapshot.modelId,
+      modelDigest: "b".repeat(64),
+    },
+    {
+      name: "non-cryptographic-digest",
+      modelId: snapshot.modelId,
+      modelDigest: "browser-managed-model-digest-unavailable",
+    },
+  ];
+  for (const identityCase of cases) {
+    const adapter = {
+      id: "browser-ai",
+      snapshot: async () => structuredClone(snapshot),
+      execute: async () => ({
+        backendId: "browser-ai",
+        modelId: identityCase.modelId,
+        modelDigest: identityCase.modelDigest,
+        content: "這是一段不應建立憑證或候選的錯誤模型身分輸出。",
+        candidateOnly: true,
+        dataLeftDevice: false,
+        externalRequest: false,
+        elapsedMs: 1,
+        qualityMode: "fast",
+        qualityPasses: 1,
+        draftDigest: null,
+        criticDigest: null,
+      }),
+    };
+    const os = new ClosedAgentOS({
+      backends: [adapter],
+      cache: new ClosedAICache({
+        repository: new MemoryClosedAICacheRepository(),
+      }),
+      ledger: new VerifiableLedger({
+        repository: new MemoryVerifiableLedgerRepository(),
+        signer: new ApprovalSigner(),
+      }),
+      state: new MemoryClosedAgentStateRepository(),
+    });
+    await assert.rejects(
+      os.execute({
+        ...task(),
+        taskId: `rc6-2-${identityCase.name}`,
+        objective: "驗證錯誤模型身分必須在建立 verified receipt 前失敗。",
+        context: [],
+        qualityMode: "fast",
+        preferredBackend: "browser-ai",
+        allowedToolIds: [],
+        permissionScopes: [
+          "story:read",
+          "story-bible:read",
+          "candidate:write",
+          "candidate:read",
+          "evaluation:write",
+          "character:read",
+          "world:read",
+        ],
+      }),
+      (error) => error?.code === "CLOSED_AI_MODEL_IDENTITY_MISMATCH",
+      identityCase.name,
+    );
+  }
+});
+
+await test("production-matrix", () => {
+  const cases = [
+    { name: "Browser only", ids: ["browser-ai"], expected: "browser-ai" },
+    { name: "Local only", ids: ["local-ollama"], expected: "local-ollama" },
+    { name: "Private Hub only", ids: ["private-ai-hub"], expected: "private-ai-hub", heavy: true },
+    { name: "Browser + Local", ids: ["browser-ai", "local-ollama"], expected: "browser-ai" },
+    { name: "Browser + Hub", ids: ["browser-ai", "private-ai-hub"], expected: "browser-ai" },
+    { name: "Local + Hub", ids: ["local-ollama", "private-ai-hub"], expected: "local-ollama" },
+    { name: "All three", ids: ["browser-ai", "local-ollama", "private-ai-hub"], expected: "browser-ai" },
+    { name: "None available", ids: [], expected: null },
+  ];
+  for (const matrixCase of cases) {
+    const snapshots = matrixCase.ids.map((id) => backend(id));
+    const request = matrixCase.heavy
+      ? task("character.multiAgentSimulation", "private_infrastructure_only")
+      : task();
+    const route = resolveClosedAIRoute(request, snapshots);
+    if (matrixCase.expected) {
+      assert.equal(route.executionStatus, "routable", matrixCase.name);
+      assert.equal(route.backend.id, matrixCase.expected, matrixCase.name);
+      assert.equal(route.fallbackAttempted, false, matrixCase.name);
+    } else {
+      assert.equal(route.executionStatus, "not_executed", matrixCase.name);
+      assert.equal(route.reasonCode, "CLOSED_AI_REQUIRED_BACKEND_NOT_READY", matrixCase.name);
+    }
+    assert.equal(
+      JSON.stringify(route).match(/openai|grok|gemini|claude/giu),
+      null,
+      `${matrixCase.name} must not contain an external route`,
+    );
+  }
+});
+
+await test("source-truth", async () => {
+  const [types, closedAgentOs, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, browserGate, health] = await Promise.all([
+    readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/closed-agent-os/backends.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/providers/private-ai-hub/private-hub-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/web/closed-agent-os-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/web/closed-ai-bootstrap-coordinator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-closed-ai-bootstrap.ts", import.meta.url), "utf8"),
+    readFile(new URL("./run-rc6-2-closed-agent-browser.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ai/health/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(types, /CRYPTOGRAPHIC_MODEL_DIGEST_PATTERN = \/\^\[a-f0-9\]\{64\}\$\//u);
+  assert.match(types, /isCryptographicClosedAIModelDigest\(snapshot\.modelDigest\)/u);
+  assert.match(closedAgentOs, /CLOSED_AI_MODEL_IDENTITY_MISMATCH/u);
+  assert.match(closedAgentOs, /execution\.modelId !== routed\.modelId/u);
+  assert.match(closedAgentOs, /execution\.modelDigest !== routed\.modelDigest/u);
+  assert.match(closedAgentOs, /isCryptographicClosedAIModelDigest\(\s*execution\.modelDigest/u);
+  assert.match(backends, /proof\?\.inferenceMode === "generative-model"/u);
+  assert.match(backends, /proof\.modelId === capability\.modelId/u);
+  assert.match(backends, /proof\.modelDigest === capability\.modelDigest/u);
+  assert.doesNotMatch(backends, /unknown-local-digest|unknown-local-model/u);
+  assert.match(backends, /Local Ollama returned no verified model identity/u);
+  assert.match(
+    provider,
+    /inferenceMode:\s*BrowserAIInferenceProof\["inferenceMode"\]\s*=\s*"task-model"/u,
+  );
+  assert.match(provider, /"generative-model"/u);
+  assert.match(provider, /BROWSER_AI_MODEL_DIGEST_NOT_VERIFIABLE/u);
+  assert.match(provider, /const productionGenerationReady = resolvedCapability\.generativeModelReady/u);
+  assert.match(provider, /resolvedCapability\.generativeRuntime === "webllm-worker"/u);
+  assert.match(privateHub, /body\.modelDigest === expected\.modelDigest/u);
+  assert.match(privateHub, /isCryptographicClosedAIModelDigest\(body\.modelDigest\)/u);
+  assert.match(privateHub, /validPrivateHubVerificationTimestamp\(body\.verifiedAt\)/u);
+  assert.match(privateHub, /proof\.modelDigest === catalogModelDigest/u);
+  assert.doesNotMatch(privateHub, /unknown-model-digest/u);
+  assert.match(bootstrap, /userInitiated:\s*true/u);
+  assert.match(bootstrap, /BROWSER_GENERATIVE_VERIFICATION_REQUIRED/u);
+  assert.match(bootstrap, /if \(active\.signal\?\.aborted\)/u);
+  assert.match(bootstrap, /active\.signal === input\.signal/u);
+  const automaticBootstrap = bootstrap.slice(
+    bootstrap.indexOf("async bootstrap("),
+    bootstrap.indexOf("/** Model download is only reachable"),
+  );
+  assert.doesNotMatch(automaticBootstrap, /installModel/u);
+  assert.match(service, /externalFallback:\s*false/u);
+  assert.doesNotMatch(service, /openai|grok/iu);
+  assert.match(composer, /取消準備/u);
+  assert.match(composer, /重試 Browser AI/u);
+  assert.match(composer, /closedAiSetupError\s*\n\s*\?\? closedAiSetupProgress\?\.message/u);
+  assert.match(composer, /約 \{downloadMegabytes\} MB 本機儲存/u);
+  assert.match(composer, /data-estimated-download-bytes/u);
+  assert.match(composer, /作品資料<\/dt><dd>不離開裝置/u);
+  assert.match(composer, /data-closed-ai-generation-verified-backends/u);
+  assert.match(composer, /data-closed-ai-active-backend/u);
+  assert.match(composer, /data-closed-ai-external-fallback/u);
+  assert.match(composer, /data-setup-lifecycle=\{closedAiSetupLifecycle\}/u);
+  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
+  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消準備/u);
+  assert.doesNotMatch(workspace, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
+  assert.match(bootstrapHook, /sourceBackendStillReady/u);
+  assert.match(bootstrapHook, /inspected\.readiness\.activeBackend/u);
+  assert.doesNotMatch(workspace, /getStudioClosedAIBootstrapCoordinator/u);
+  assert.match(browserGate, /RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED/u);
+  assert.match(browserGate, /getByTestId\("closed-ai-prepare-browser"\)\.click\(\)/u);
+  assert.match(browserGate, /data-setup-lifecycle"\), "cancelled"/u);
+  assert.match(browserGate, /getByRole\("button", \{ name: "取消準備"/u);
+  assert.match(browserGate, /retryAfterCancel:\s*true/u);
+  assert.match(browserGate, /readPublicHealthTruth/u);
+  assert.match(browserGate, /firstCard\.getByRole\("button", \{ name: "放棄"/u);
+  assert.match(browserGate, /name: "重新產生"/u);
+  assert.match(browserGate, /regeneratedCard\.getByRole\("button", \{ name: "採用"/u);
+  assert.match(browserGate, /page\.reload/u);
+  assert.match(browserGate, /actualExecutor, "browser-ai"/u);
+  assert.match(browserGate, /consumerReadiness\.generationVerifiedBackends >= 1/u);
+  assert.match(browserGate, /consumerReadiness\.activeBackend, "browser-ai"/u);
+  assert.match(browserGate, /consumerReadiness\.externalFallback, false/u);
+  assert.match(browserGate, /data-estimated-download-bytes/u);
+  assert.match(browserGate, /"294543984"/u);
+  assert.doesNotMatch(browserGate, /page\.route|addInitScript|mock-provider|test-provider/iu);
+  assert.match(health, /closedAiGenerationVerifiedBackends: CLOSED_AI_SERVER_RUNTIME_TRUTH\.generationVerifiedBackends/u);
+  assert.match(health, /browserAiStatus: "client_probe_required"/u);
+  assert.match(health, /browserClosedAiStatus: "setup_required"/u);
+  assert.match(health, /threeClosedAISharedSystemStatus: "not_verified"/u);
+  assert.match(health, /threeClosedAiArchitectureStatus: "not_verified"/u);
+  assert.doesNotMatch(health, /browserClosedAiStatus: "ready_with_packaged_extractive_fallback"/u);
+});
+
+const failed = results.filter((item) => item.status === "FAIL");
+console.log(JSON.stringify({
+  schemaVersion: "p24b-rc6-2-closed-agent-runtime-tests-v1",
+  mode,
+  pass: results.length - failed.length,
+  fail: failed.length,
+  results,
+}, null, 2));
+if (failed.length) process.exitCode = 1;

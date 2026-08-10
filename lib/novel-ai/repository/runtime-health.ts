@@ -1,8 +1,14 @@
 import type { NovelRepository } from "./contracts";
 import { createNovelRepository } from "./index";
+import {
+  INDEXEDDB_MIGRATION_VERSION,
+  INDEXEDDB_STORAGE_SCHEMA_VERSION,
+  persistenceFailure,
+  type PersistenceFailure,
+} from "./persistence-recovery";
 
 export const PERSISTENCE_RUNTIME_HEALTH_SCHEMA_VERSION =
-  "persistence-runtime-health-v2" as const;
+  "persistence-runtime-health-v3" as const;
 
 export type PersistenceRuntimeMode =
   | "LOCAL_ONLY"
@@ -23,13 +29,26 @@ export type CloudPersistenceSnapshot = {
 
 export type PersistenceRuntimeHealth = {
   schemaVersion: typeof PERSISTENCE_RUNTIME_HEALTH_SCHEMA_VERSION;
+  migrationVersion: typeof INDEXEDDB_MIGRATION_VERSION;
+  persistenceBackend: "indexeddb";
+  degraded: boolean;
+  memoryFallback: false;
+  databaseErrorCode: PersistenceFailure["databaseErrorCode"] | null;
+  fallbackReason: PersistenceFailure["fallbackReason"] | null;
   mode: PersistenceRuntimeMode;
   localCanonicalStorage: {
+    schemaVersion: typeof INDEXEDDB_STORAGE_SCHEMA_VERSION;
+    migrationVersion: typeof INDEXEDDB_MIGRATION_VERSION;
     provider: "IndexedDB";
+    backend: "indexeddb";
     role: "materialized-replica-and-offline-outbox";
     status: "ready" | "blocked";
+    degraded: boolean;
+    memoryFallback: false;
     repositoryKind: NovelRepository["kind"];
-    errorCode: string | null;
+    databaseErrorCode: PersistenceFailure["databaseErrorCode"] | null;
+    fallbackReason: PersistenceFailure["fallbackReason"] | null;
+    errorCode: PersistenceFailure["databaseErrorCode"] | null;
   };
   cloudPersistence: CloudPersistenceSnapshot;
   localFeaturesAvailable: boolean;
@@ -106,19 +125,15 @@ export async function resolvePersistenceRuntimeHealth(options: {
 } = {}): Promise<PersistenceRuntimeHealth> {
   const repository = options.repository ?? createNovelRepository();
   let localReady = repository.kind === "indexeddb" && repository.isAvailable();
-  let localErrorCode: string | null = localReady
+  let localFailure: PersistenceFailure | null = localReady
     ? null
-    : "INDEXEDDB_UNAVAILABLE";
+    : persistenceFailure(new Error("INDEXEDDB_UNAVAILABLE"), "INDEXEDDB_UNAVAILABLE");
   if (localReady) {
     try {
       await repository.list("projects");
     } catch (error) {
       localReady = false;
-      localErrorCode = String(
-        (error as { code?: string })?.code
-        || (error as Error)?.message
-        || "INDEXEDDB_OPEN_FAILED",
-      );
+      localFailure = persistenceFailure(error, "INDEXEDDB_OPEN_FAILED");
     }
   }
   const cloud = await (options.cloudReader ?? readCloudPersistenceHealth)(
@@ -130,13 +145,26 @@ export async function resolvePersistenceRuntimeHealth(options: {
   });
   return {
     schemaVersion: PERSISTENCE_RUNTIME_HEALTH_SCHEMA_VERSION,
+    migrationVersion: INDEXEDDB_MIGRATION_VERSION,
+    persistenceBackend: "indexeddb",
+    degraded: !localReady,
+    memoryFallback: false,
+    databaseErrorCode: localFailure?.databaseErrorCode ?? null,
+    fallbackReason: localFailure?.fallbackReason ?? null,
     mode,
     localCanonicalStorage: {
+      schemaVersion: INDEXEDDB_STORAGE_SCHEMA_VERSION,
+      migrationVersion: INDEXEDDB_MIGRATION_VERSION,
       provider: "IndexedDB",
+      backend: "indexeddb",
       role: "materialized-replica-and-offline-outbox",
       status: localReady ? "ready" : "blocked",
+      degraded: !localReady,
+      memoryFallback: false,
       repositoryKind: repository.kind,
-      errorCode: localErrorCode,
+      databaseErrorCode: localFailure?.databaseErrorCode ?? null,
+      fallbackReason: localFailure?.fallbackReason ?? null,
+      errorCode: localFailure?.databaseErrorCode ?? null,
     },
     cloudPersistence: cloud,
     localFeaturesAvailable: localReady,

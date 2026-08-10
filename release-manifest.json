@@ -1,10 +1,12 @@
 {
-  "releaseTag": "novel-ai-p24b-conversation-first-studio-rc6",
-  "releaseRevision": "rc6.1",
-  "releaseName": "P2.4B Conversation-First Novel Project GPT RC6.1",
-  "consumerRelease": "p2.4b-conversation-first-studio-rc6.1",
+  "releaseLine": "novel-ai-p24b-conversation-first-studio-rc6",
+  "releaseTag": "novel-ai-p24b-conversation-first-studio-rc6.2",
+  "releaseRevision": "rc6.2",
+  "releaseName": "P2.4B Conversation-First Novel Project GPT RC6.2",
+  "consumerRelease": "p2.4b-conversation-first-studio-rc6.2",
   "architectureStage": "P2.4B RC",
   "releaseBaseCommit": "e9b1091916b53c34ed9676dc4d418baaf696786e",
   "gitCommitSignature": "unsigned",
-  "buildTime": "2026-08-02T12:00:00+08:00"
+  "releaseEpoch": "2026-08-09T22:48:18.000Z",
+  "legacyTagTruth": "RC6_LEGACY_TAG_WAS_MISSING"
 }

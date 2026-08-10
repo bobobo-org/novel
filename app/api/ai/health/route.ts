@@ -17,16 +17,14 @@ import { CONTROLLED_LEARNING_HEALTH } from "@/lib/novel-ai/controlled-learning-o
 import { VERIFIABLE_LEDGER_HEALTH } from "@/lib/novel-ai/verifiable-ledger";
 import { CLOSED_AGENT_OS_HEALTH } from "@/lib/novel-ai/closed-agent-os";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
-import { releaseProvenanceStatus } from "@/lib/novel-ai/runtime-truth";
+import { releaseIdentity } from "@/lib/novel-ai/runtime-truth";
 import { storyLibraryStats } from "@/lib/novel-data/story-library";
 import { featureFlags } from "@/lib/novel-ai/reliability/feature-flags";
 import { capabilityStatus, capabilityTruthMatrix, resolveCapabilityCatalog } from "@/lib/novel-ai/capabilities";
 import { listExternalAIProviderStatus } from "@/lib/novel-ai/providers/external/external-provider-runtime";
+import { buildPublicPersistenceTruth } from "@/lib/novel-ai/repository/public-persistence-truth";
 
 export const runtime = "nodejs";
-
-const deploymentProvenance = releaseProvenanceStatus();
-const releaseProvenanceVerified = deploymentProvenance === "verified";
 
 function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>, id: string) {
   const capability = catalog[id];
@@ -37,17 +35,27 @@ function releaseCapability(catalog: ReturnType<typeof resolveCapabilityCatalog>,
   };
 }
 
-const RELEASE_META = {
+function releaseMeta() {
+  const runtimeReleaseIdentity = releaseIdentity();
+  const deploymentProvenance = runtimeReleaseIdentity.provenanceStatus;
+  const releaseProvenanceVerified = deploymentProvenance === "verified";
+  return {
   appCommit: releaseProvenanceVerified ? RELEASE_MANIFEST.appCommit : "provenance-unavailable",
   releaseProductCommit: releaseProvenanceVerified
     ? RELEASE_MANIFEST.releaseProductCommit
     : "provenance-unavailable",
   releaseBaseCommit: RELEASE_MANIFEST.releaseBaseCommit,
+  releaseLine: RELEASE_MANIFEST.releaseLine,
   releaseRevision: RELEASE_MANIFEST.releaseRevision,
   releaseBuild: releaseProvenanceVerified
     ? RELEASE_MANIFEST.releaseBuild
     : "provenance-unavailable",
-  buildTimestamp: process.env.BUILD_TIMESTAMP || RELEASE_MANIFEST.buildTime,
+  releaseEpoch: runtimeReleaseIdentity.releaseEpoch,
+  buildStartedAt: runtimeReleaseIdentity.buildStartedAt,
+  buildCompletedAt: runtimeReleaseIdentity.buildCompletedAt,
+  deployedAt: runtimeReleaseIdentity.deployedAt,
+  temporalProvenanceStatus: runtimeReleaseIdentity.temporalProvenanceStatus,
+  buildTimestamp: runtimeReleaseIdentity.buildCompletedAt,
   releaseTag: RELEASE_MANIFEST.releaseTag,
   releaseName: RELEASE_MANIFEST.releaseName,
   consumerRelease: RELEASE_MANIFEST.consumerRelease,
@@ -71,7 +79,8 @@ const RELEASE_META = {
   professionalScrollIsolationStatus: "ready",
   professionalMobileLayoutStatus: "ready",
   uiConvergenceGateStatus: "ready",
-};
+  };
+}
 
 const L0A2E2D_TEST_META = {
   fullRegressionPassCount: 189,
@@ -94,6 +103,27 @@ const L0A2E2D_TEST_META = {
   lastFullAdoptionCommit: process.env.VERCEL_GIT_COMMIT_SHA || "local-l0a2e2d",
 };
 
+/**
+ * This route executes on the server and cannot observe a visitor's Browser AI,
+ * loopback Ollama, or private-hub generation proof. Public health therefore
+ * reports a fail-closed client probe requirement instead of promoting an
+ * extractive/task-only runtime (or an architecture contract) to generation
+ * readiness.
+ */
+const CLOSED_AI_SERVER_RUNTIME_TRUTH = {
+  observationScope: "server",
+  status: "client_probe_required",
+  generationVerifiedBackends: 0,
+  activeBackend: null,
+  externalFallback: false,
+  silentExternalFallback: false,
+  backends: [
+    { id: "browser-ai", status: "setup_required", generationVerified: false },
+    { id: "local-ollama", status: "client_probe_required", generationVerified: false },
+    { id: "private-ai-hub", status: "client_probe_required", generationVerified: false },
+  ],
+} as const;
+
 function deploymentId() {
   return process.env.VERCEL_DEPLOYMENT_ID
     || process.env.VERCEL_URL
@@ -102,6 +132,7 @@ function deploymentId() {
 }
 
 export async function GET() {
+  const RELEASE_META = releaseMeta();
   const externalAIProviders = listExternalAIProviderStatus();
   const started = Date.now();
   const capabilityCatalog = resolveCapabilityCatalog();
@@ -124,15 +155,10 @@ export async function GET() {
   }
   const configured = meta.configured;
   const ping = configured ? await pingModel() : { ok: false, elapsedMs: 0, error: "MODEL_NOT_CONFIGURED" };
-  const writeTest = persistence.writeTestStatus && typeof persistence.writeTestStatus === "object"
-    ? {
-        status: persistence.writeTestStatus.status,
-        lastRunAt: persistence.writeTestStatus.lastRunAt,
-        latencyMs: persistence.writeTestStatus.latencyMs,
-        cleanupStatus: persistence.writeTestStatus.cleanupStatus,
-        errorCode: persistence.writeTestStatus.errorCode,
-      }
-    : persistence.writeTestStatus;
+  const publicPersistenceTruth = buildPublicPersistenceTruth({
+    serverPersistence: persistence,
+    serverStoryBible: storyBible,
+  });
 
   return NextResponse.json({
     ...RELEASE_META,
@@ -144,9 +170,14 @@ export async function GET() {
       persistence: "/api/persistence/health",
       closedAIContract: "/api/ai/closed/contract",
     },
-    closedAiRuntimeStatus: "client_probe_required",
+    ...publicPersistenceTruth,
+    closedAiRuntimeStatus: CLOSED_AI_SERVER_RUNTIME_TRUTH.status,
     closedAiActualExecutor: "client_execution_receipt_required",
-    closedAiSilentExternalFallback: false,
+    closedAiGenerationVerifiedBackends: CLOSED_AI_SERVER_RUNTIME_TRUTH.generationVerifiedBackends,
+    closedAiActiveBackend: CLOSED_AI_SERVER_RUNTIME_TRUTH.activeBackend,
+    closedAiExternalFallback: CLOSED_AI_SERVER_RUNTIME_TRUTH.externalFallback,
+    closedAiSilentExternalFallback: CLOSED_AI_SERVER_RUNTIME_TRUTH.silentExternalFallback,
+    closedAiServerRuntimeTruth: CLOSED_AI_SERVER_RUNTIME_TRUTH,
     deploymentId: deploymentId(),
     productionVisualEvidenceStatus: "ready",
     initialHtmlConsumerShellStatus: "ready",
@@ -179,17 +210,23 @@ export async function GET() {
     },
     analyzerVersion: versions.storyAnalyzerVersion,
     benchmarkVersion: versions.candidateAnalyzerVersion,
-    databaseProvider: "supabase-postgres",
-    database: persistence.storeType,
-    storeType: persistence.storeType,
-    persistenceStatus: persistence.persistenceStatus,
-    databaseStatus: persistence.databaseStatus,
-    databaseLatencyMs: persistence.databaseLatencyMs,
-    migrationVersion: [persistence.migrationVersion, storyBible.storyBibleMigrationVersion].filter(Boolean).join(","),
-    writeTestStatus: writeTest,
-    lastSuccessfulWriteAt: persistence.lastSuccessfulWriteAt,
-    lastDatabaseError: persistence.lastDatabaseError ? "database_error_available_in_admin_logs" : null,
-    dualWriteStatus: persistence.dualWriteStatus,
+    databaseProvider: "client-indexeddb",
+    database: "client_probe_required",
+    storeType: "client_probe_required",
+    persistenceStatus: "client_probe_required",
+    databaseStatus: "client_probe_required",
+    databaseLatencyMs: null,
+    migrationVersion: "client_probe_required",
+    writeTestStatus: {
+      status: "client_probe_required",
+      lastRunAt: null,
+      latencyMs: null,
+      cleanupStatus: null,
+      errorCode: null,
+    },
+    lastSuccessfulWriteAt: null,
+    lastDatabaseError: null,
+    dualWriteStatus: "client_probe_required",
     key: "server-only",
     responseTimeMs: Date.now() - started,
     averageResponseTimeMs: runs.averageLatencyMs,
@@ -203,31 +240,31 @@ export async function GET() {
     trainingExamples: stats.trainingExamples,
     feedback: stats.feedback,
     settings: meta.settings,
-    storyBibleStatus: storyBible.storyBibleStatus,
+    storyBibleStatus: "client_probe_required",
     storyBibleSchemaVersion: storyBible.storyBibleSchemaVersion,
-    storyBibleExtractionStatus: storyBible.storyBibleExtractionStatus,
-    storyBibleMigrationVersion: storyBible.storyBibleMigrationVersion,
-    storyBibleRecentExtractionAt: "storyBibleRecentExtractionAt" in storyBible ? storyBible.storyBibleRecentExtractionAt : null,
-    storyBibleApprovalStatus: "storyBibleApprovalStatus" in storyBible ? storyBible.storyBibleApprovalStatus : "unavailable",
-    storyBibleVersioningStatus: "storyBibleVersioningStatus" in storyBible ? storyBible.storyBibleVersioningStatus : "unavailable",
-    storyBibleConflictEngineStatus: "storyBibleConflictEngineStatus" in storyBible ? storyBible.storyBibleConflictEngineStatus : "unavailable",
-    storyBibleProvenanceStatus: "storyBibleProvenanceStatus" in storyBible ? storyBible.storyBibleProvenanceStatus : "unavailable",
-    storyBibleDiffStatus: "storyBibleDiffStatus" in storyBible ? storyBible.storyBibleDiffStatus : "unavailable",
-    storyBibleIntegrityStatus: "storyBibleIntegrityStatus" in storyBible ? storyBible.storyBibleIntegrityStatus : "unavailable",
-    storyBibleExportStatus: "storyBibleExportStatus" in storyBible ? storyBible.storyBibleExportStatus : "unavailable",
-    storyBibleRevertStatus: "storyBibleRevertStatus" in storyBible ? storyBible.storyBibleRevertStatus : "not_implemented",
-    extractionAtomicTransactionStatus: "extractionAtomicTransactionStatus" in storyBible ? storyBible.extractionAtomicTransactionStatus : "unavailable",
-    extractionAtomicRpcVersion: "extractionAtomicRpcVersion" in storyBible ? storyBible.extractionAtomicRpcVersion : "",
-    extractionIdempotencyStatus: "extractionIdempotencyStatus" in storyBible ? storyBible.extractionIdempotencyStatus : "unavailable",
-    extractionSourceDedupStatus: "extractionSourceDedupStatus" in storyBible ? storyBible.extractionSourceDedupStatus : "unavailable",
-    sourceNaturalKeyVersion: "sourceNaturalKeyVersion" in storyBible ? storyBible.sourceNaturalKeyVersion : "",
-    sourceDedupScope: "sourceDedupScope" in storyBible ? storyBible.sourceDedupScope : "unavailable",
-    sourceDedupConcurrencyStatus: "sourceDedupConcurrencyStatus" in storyBible ? storyBible.sourceDedupConcurrencyStatus : "unavailable",
-    supabaseExtractionRuntimeContractStatus: "supabaseExtractionRuntimeContractStatus" in storyBible ? storyBible.supabaseExtractionRuntimeContractStatus : "unavailable",
-    memoryExtractionRuntimeContractStatus: "memoryExtractionRuntimeContractStatus" in storyBible ? storyBible.memoryExtractionRuntimeContractStatus : "unavailable",
-    extractionContractParityStatus: "extractionContractParityStatus" in storyBible ? storyBible.extractionContractParityStatus : "unavailable",
-    extractionRollbackMatrixStatus: "extractionRollbackMatrixStatus" in storyBible ? storyBible.extractionRollbackMatrixStatus : "unavailable",
-    extractionFaultInjectionStatus: "extractionFaultInjectionStatus" in storyBible ? storyBible.extractionFaultInjectionStatus : "unavailable",
+    storyBibleExtractionStatus: "client_probe_required",
+    storyBibleMigrationVersion: "client_probe_required",
+    storyBibleRecentExtractionAt: null,
+    storyBibleApprovalStatus: "client_probe_required",
+    storyBibleVersioningStatus: "client_probe_required",
+    storyBibleConflictEngineStatus: "client_probe_required",
+    storyBibleProvenanceStatus: "client_probe_required",
+    storyBibleDiffStatus: "client_probe_required",
+    storyBibleIntegrityStatus: "client_probe_required",
+    storyBibleExportStatus: "client_probe_required",
+    storyBibleRevertStatus: "client_probe_required",
+    extractionAtomicTransactionStatus: "client_probe_required",
+    extractionAtomicRpcVersion: "client_probe_required",
+    extractionIdempotencyStatus: "client_probe_required",
+    extractionSourceDedupStatus: "client_probe_required",
+    sourceNaturalKeyVersion: "client_probe_required",
+    sourceDedupScope: "client_probe_required",
+    sourceDedupConcurrencyStatus: "client_probe_required",
+    supabaseExtractionRuntimeContractStatus: "client_probe_required",
+    memoryExtractionRuntimeContractStatus: "test_only",
+    extractionContractParityStatus: "client_probe_required",
+    extractionRollbackMatrixStatus: "client_probe_required",
+    extractionFaultInjectionStatus: "client_probe_required",
     extractionConcurrencyStatus: "ready",
     localCanonicalAuthorityStatus: "ready",
     storageAdapterStatus: "ready",
@@ -297,8 +334,9 @@ export async function GET() {
     sqliteBackup100MbP95: "baseline_not_100mb",
     sqliteRestore100MbP95: "baseline_not_100mb",
     sqlitePeakRssMb: 101.92,
-    lastL0BFullTestAt: RELEASE_META.buildTimestamp,
-    lastL0BFullCommit: RELEASE_META.appCommit,
+    lastL0BFullTestAt: null,
+    lastL0BFullCommit: null,
+    l0bFullTestEvidenceStatus: "not_bound_to_current_build",
     sqliteBackupP50: 5,
     sqliteBackupP95: 86,
     sqliteRestoreP50: 5,
@@ -306,10 +344,11 @@ export async function GET() {
     sqliteRecoveryState: "healthy",
     sqliteLastRecoveryErrorCode: null,
     sqliteBackupCount: 20,
-    sqliteLastBackupAt: RELEASE_META.buildTimestamp,
-    sqliteLastRestoreAt: RELEASE_META.buildTimestamp,
+    sqliteLastBackupAt: null,
+    sqliteLastRestoreAt: null,
+    sqliteBackupRestoreEvidenceStatus: "not_bound_to_current_build",
     sqliteLastIntegrityCheck: "ok",
-    indexedDbStorageStatus: "schema_only",
+    indexedDbStorageStatus: "client_probe_required",
     ollamaStatus: "local_runtime_required",
     cloudOptionalStatus: "architecture_ready",
     aiProviderContractStatus: "ready",
@@ -485,7 +524,7 @@ export async function GET() {
     closedAICache: CLOSED_AI_CACHE_HEALTH,
     controlledLearningOS: CONTROLLED_LEARNING_HEALTH,
     verifiableLedger: VERIFIABLE_LEDGER_HEALTH,
-    threeClosedAISharedSystemStatus: "ready",
+    threeClosedAISharedSystemStatus: "not_verified",
     threeClosedAIBackendIds: ["browser-ai", "local-ollama", "private-ai-hub"],
     privateAIHubRuntimeTruthStatus: "self_hosted_loopback_runtime_ready_pairing_required",
     externalRequestCount: 0,
@@ -504,7 +543,7 @@ export async function GET() {
     progressiveCreationStatus: "ready",
     optionalStoryFieldsStatus: "ready",
     closedCreationAssistantStatus: "handoff_ready_pairing_required",
-    browserAiStatus: "runtime_ready_device_dependent",
+    browserAiStatus: "client_probe_required",
     ollamaConsumerStatus: "runtime_required",
     localStoryRecommendationStatus: "closed_agent_handoff_ready",
     externalAiConsumerDefault: "disabled",
@@ -657,10 +696,18 @@ export async function GET() {
     directStorageBoundaryStatus: "ready",
     silentStorageFallbackBlocked: true,
     ...L0A2E2D_TEST_META,
-    primaryStorage: "SUPABASE_CLOUD_WITH_INDEXEDDB_REPLICA",
-    canonicalAuthority: "SUPABASE_AFTER_REMOTE_REVISION_AND_HASH_VERIFICATION",
+    primaryStorage: "INDEXEDDB_BROWSER_ACTIVE_PROJECT",
+    canonicalAuthority: "INDEXEDDB_CLIENT_PROJECT",
     canonApprovalAuthority: "HUMAN_APPROVED_TRANSACTIONS",
-    storageAdapterType: "supabase-canonical-with-indexeddb-outbox-fallback",
+    storageAdapterType: "indexeddb-canonical-client",
+    primaryStorageRuntimeStatus: "client_probe_required",
+    legacyServerStorage: {
+      scope: "legacy_analysis_training_only",
+      affectsActiveProjectPersistence: false,
+      primaryStorage: "SUPABASE_CLOUD_WITH_INDEXEDDB_REPLICA",
+      canonicalAuthority: "SUPABASE_AFTER_REMOTE_REVISION_AND_HASH_VERIFICATION",
+      storageAdapterType: "supabase-canonical-with-indexeddb-outbox-fallback",
+    },
     storageCapabilities: {
       SUPABASE_CLOUD: getStorageCapabilities("SUPABASE_CLOUD"),
       SQLITE_LOCAL: getStorageCapabilities("SQLITE_LOCAL"),
@@ -675,8 +722,8 @@ export async function GET() {
     offlineCapable: true,
     offlineDataLayerStatus: "ready",
     fullOfflineAIStatus: "ready_after_local_model_install",
-    browserClosedAiStatus: "ready_with_packaged_extractive_fallback",
-    threeClosedAiArchitectureStatus: "ready",
+    browserClosedAiStatus: "setup_required",
+    threeClosedAiArchitectureStatus: "not_verified",
     continualLearningStatus: "ready_l0_l1_controlled",
     offlinePreferenceTrainingStatus: capabilityStatus(
       capabilityCatalog,

@@ -47,18 +47,25 @@ export function createReleaseBuildIdentity({
   return `${releaseRevision}+${appCommit.toLowerCase()}`;
 }
 
-function resolveSealedAt({ env, cwd, appCommit, git }) {
-  if (env.NOVEL_BUILD_SEALED_AT) {
-    const explicit = new Date(env.NOVEL_BUILD_SEALED_AT);
-    if (Number.isNaN(explicit.getTime())) throw new Error("INVALID_BUILD_SEALED_AT");
-    return explicit.toISOString();
+function normalizeTimestamp(name, value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new Error(`INVALID_${name}`);
+  return parsed.toISOString();
+}
+
+function resolveProvenanceGeneratedAt({ env = process.env, now = () => new Date() } = {}) {
+  return normalizeTimestamp(
+    "PROVENANCE_GENERATED_AT",
+    env.NOVEL_PROVENANCE_GENERATED_AT || env.NOVEL_BUILD_SEALED_AT || now(),
+  );
+}
+
+function assertImmutableReleaseIdentity() {
+  for (const [field, expected] of Object.entries(releaseContract.immutableReleaseIdentity || {})) {
+    if (releaseManifest[field] !== expected) {
+      throw new Error(`IMMUTABLE_RELEASE_IDENTITY_MISMATCH:${field}`);
+    }
   }
-  try {
-    const commitTime = git(["show", "-s", "--format=%cI", appCommit], cwd);
-    const parsed = new Date(commitTime);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-  } catch {}
-  return new Date(releaseManifest.buildTime).toISOString();
 }
 
 export function provenancePayload(provenance) {
@@ -67,17 +74,26 @@ export function provenancePayload(provenance) {
     appCommit: provenance.appCommit,
     releaseProductCommit: provenance.releaseProductCommit,
     releaseBaseCommit: provenance.releaseBaseCommit,
+    releaseLine: provenance.releaseLine,
     releaseTag: provenance.releaseTag,
     releaseRevision: provenance.releaseRevision,
     releaseBuild: provenance.releaseBuild,
+    releaseName: provenance.releaseName,
+    consumerRelease: provenance.consumerRelease,
     architectureStage: provenance.architectureStage,
     gitCommitSignature: provenance.gitCommitSignature,
-    sealedAt: provenance.sealedAt,
+    releaseEpoch: provenance.releaseEpoch,
+    provenanceGeneratedAt: provenance.provenanceGeneratedAt,
     source: provenance.source,
   };
 }
 
 export function verifyReleaseProvenance(provenance) {
+  try {
+    assertImmutableReleaseIdentity();
+  } catch {
+    return false;
+  }
   const allowedSchemas = releaseContract.allowedProvenanceSchemaVersions
     ?? [releaseContract.provenanceSchemaVersion];
   if (!allowedSchemas.includes(provenance.schemaVersion)) return false;
@@ -85,13 +101,18 @@ export function verifyReleaseProvenance(provenance) {
   if (!FULL_COMMIT.test(provenance.appCommit)) return false;
   if (provenance.releaseProductCommit !== provenance.appCommit) return false;
   if (provenance.releaseBaseCommit !== releaseManifest.releaseBaseCommit) return false;
+  if (provenance.releaseLine !== releaseManifest.releaseLine) return false;
   if (provenance.releaseTag !== releaseManifest.releaseTag) return false;
   if (provenance.releaseRevision !== releaseManifest.releaseRevision) return false;
+  if (provenance.releaseName !== releaseManifest.releaseName) return false;
+  if (provenance.consumerRelease !== releaseManifest.consumerRelease) return false;
   if (provenance.releaseBuild !== createReleaseBuildIdentity({
     releaseRevision: provenance.releaseRevision,
     appCommit: provenance.appCommit,
   })) return false;
   if (provenance.architectureStage !== releaseManifest.architectureStage) return false;
+  if (provenance.releaseEpoch !== normalizeTimestamp("RELEASE_EPOCH", releaseManifest.releaseEpoch)) return false;
+  if (!Number.isFinite(Date.parse(provenance.provenanceGeneratedAt))) return false;
   if (provenance.gitCommitSignature !== releaseManifest.gitCommitSignature
     || !releaseContract.allowedGitCommitSignatures.includes(provenance.gitCommitSignature)) return false;
   if (provenance.integrity?.algorithm !== releaseContract.provenanceHashAlgorithm) return false;
@@ -107,19 +128,25 @@ export function generateReleaseProvenance({
   git = readGit,
   outputPath = "generated/release-provenance.json",
   write = true,
+  now = () => new Date(),
 } = {}) {
+  assertImmutableReleaseIdentity();
   const resolved = resolveBuildCommit({ env, cwd, git });
   const payload = {
     schemaVersion: releaseContract.provenanceSchemaVersion,
     appCommit: resolved.appCommit,
     releaseProductCommit: resolved.appCommit,
     releaseBaseCommit: releaseManifest.releaseBaseCommit,
+    releaseLine: releaseManifest.releaseLine,
     releaseTag: releaseManifest.releaseTag,
     releaseRevision: releaseManifest.releaseRevision,
     releaseBuild: createReleaseBuildIdentity({ appCommit: resolved.appCommit }),
+    releaseName: releaseManifest.releaseName,
+    consumerRelease: releaseManifest.consumerRelease,
     architectureStage: releaseManifest.architectureStage,
     gitCommitSignature: releaseManifest.gitCommitSignature,
-    sealedAt: resolveSealedAt({ env, cwd, appCommit: resolved.appCommit, git }),
+    releaseEpoch: normalizeTimestamp("RELEASE_EPOCH", releaseManifest.releaseEpoch),
+    provenanceGeneratedAt: resolveProvenanceGeneratedAt({ env, now }),
     source: resolved.source,
   };
   const provenance = {
@@ -147,7 +174,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     releaseBuild: provenance.releaseBuild,
     releaseProductCommit: provenance.releaseProductCommit,
     releaseBaseCommit: provenance.releaseBaseCommit,
+    releaseLine: provenance.releaseLine,
     gitCommitSignature: provenance.gitCommitSignature,
+    provenanceGeneratedAt: provenance.provenanceGeneratedAt,
     source: provenance.source,
     payloadHash: provenance.integrity.payloadHash,
   }));

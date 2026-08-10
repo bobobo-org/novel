@@ -482,6 +482,94 @@
   background: linear-gradient(180deg, transparent, rgba(8, 13, 22, 0.96) 28%);
 }
 
+.closedAiSetupCard {
+  display: grid;
+  width: min(100%, 880px);
+  gap: 12px;
+  margin: 0 auto 10px;
+  padding: 16px;
+  border: 1px solid rgba(92, 211, 181, 0.42);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(14, 45, 47, 0.98), rgba(20, 28, 48, 0.98));
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.32);
+}
+
+.closedAiSetupCard[data-status="unsupported"] {
+  border-color: rgba(241, 182, 88, 0.48);
+  background: linear-gradient(145deg, rgba(58, 39, 22, 0.98), rgba(27, 28, 43, 0.98));
+}
+
+.closedAiSetupCard small,
+.closedAiSetupTruth { color: var(--muted); }
+
+.closedAiSetupCard h2,
+.closedAiSetupCard p,
+.closedAiSetupFacts { margin: 0; }
+
+.closedAiSetupCard h2 {
+  margin-top: 3px;
+  font-size: 1.05rem;
+}
+
+.closedAiSetupCard p {
+  margin-top: 7px;
+  line-height: 1.5;
+}
+
+.closedAiSetupFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.closedAiSetupFacts div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.closedAiSetupFacts dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.closedAiSetupFacts dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.79rem;
+  text-overflow: ellipsis;
+}
+
+.closedAiSetupActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.closedAiSetupActions a,
+.closedAiSetupActions button {
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.055);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.closedAiSetupActions .primaryAction {
+  border-color: rgba(92, 211, 181, 0.65);
+  background: rgba(46, 145, 120, 0.34);
+}
+
+.closedAiSetupTruth { font-size: 0.72rem; }
+
 .composer {
   display: grid;
   width: min(100%, 880px);
@@ -751,6 +839,7 @@
   .starterGrid { grid-template-columns: 1fr; }
   .welcome { padding: 22px 17px; border-radius: 17px; }
   .composer { border-radius: 15px; }
+  .closedAiSetupFacts { grid-template-columns: 1fr; }
   .composerMeta { font-size: 0.69rem; }
 }
 

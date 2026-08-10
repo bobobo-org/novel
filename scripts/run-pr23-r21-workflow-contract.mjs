@@ -23,6 +23,7 @@ const jobNames = [
   "production_env_repair",
   "restore_known_stable",
   "production_build",
+  "post_build_secret_scan",
   "staged_deploy",
   "runtime_gates",
   "alias_cutover",
@@ -35,7 +36,8 @@ for (const [left, right] of [
   ["preview", "production_env_audit"],
   ["production_env_audit", "production_env_repair"],
   ["production_env_repair", "production_build"],
-  ["production_build", "staged_deploy"],
+  ["production_build", "post_build_secret_scan"],
+  ["post_build_secret_scan", "staged_deploy"],
   ["staged_deploy", "runtime_gates"],
   ["runtime_gates", "alias_cutover"],
 ]) assert.ok(indexes[left] < indexes[right], `${left} must precede ${right}`);
@@ -52,6 +54,7 @@ const previewJob = section("preview");
 const auditJob = section("production_env_audit");
 const repairJob = section("production_env_repair");
 const buildJob = section("production_build");
+const postBuildSecretScanJob = section("post_build_secret_scan");
 const stagedJob = section("staged_deploy");
 const runtimeJob = section("runtime_gates");
 const aliasJob = section("alias_cutover");
@@ -125,15 +128,21 @@ assert.match(buildJob, /tar --create --gzip/u);
 assert.match(buildJob, /--file "\$RUNNER_TEMP\/production-prebuilt\.tgz"/u);
 assert.match(buildJob, /--exclude='\.next\/cache'/u);
 assert.match(buildJob, /\.vercel\/output \.next/u);
-assert.match(buildJob, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
+assert.match(buildJob, /path:\s*\|[\s\S]*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
 assert.match(buildJob, /include-hidden-files:\s*true/u);
 assert.match(buildJob, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
 assert.match(buildJob, /overwrite:\s*true/u);
 assert.doesNotMatch(buildJob, /production-prebuilt-[^\n]*github\.run_attempt/u);
 assert.doesNotMatch(buildJob, /vercel deploy/u);
 assert.doesNotMatch(buildJob, /vercel-dual-alias-cutover/u);
+assert.match(buildJob, /vercel build --prod[\s\S]*tar --create --gzip[\s\S]*scan-sealed-production-artifact\.mjs[\s\S]*Upload sealed prebuilt Production artifact/u);
+assert.match(postBuildSecretScanJob, /needs:\s*production_build/u);
+assert.match(postBuildSecretScanJob, /actions\/download-artifact@[a-f0-9]{40}/u);
+assert.match(postBuildSecretScanJob, /scan-sealed-production-artifact\.mjs/u);
+assert.match(postBuildSecretScanJob, /--expected-digest/u);
+assert.match(postBuildSecretScanJob, /--prior-receipt/u);
 
-assert.match(stagedJob, /needs:\s*production_build/u);
+assert.match(stagedJob, /needs:\s*\[production_build, post_build_secret_scan\]/u);
 assert.match(stagedJob, /actions\/download-artifact@[a-f0-9]{40}/u);
 assert.match(stagedJob, /vercel deploy --prebuilt --prod --skip-domain/u);
 assert.match(stagedJob, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
@@ -221,7 +230,8 @@ for (const budget of [
   "PUBLIC_GATE_FETCH_TIMEOUT_MS: 10000",
   "ROLLBACK_DEADLINE_MS: 240000",
 ]) assert.ok(aliasJob.includes(budget), `alias cutover deadline budget missing: ${budget}`);
-assert.match(aliasJob, /Download latest Last Known Good identity[\s\S]*continue-on-error:\s*true/u);
+assert.match(aliasJob, /production-last-known-good\.mjs download/u);
+assert.doesNotMatch(aliasJob, /actions\/download-artifact/u);
 assert.match(aliasJob, /timeout-minutes:\s*20/u);
 
 assert.match(restoreJob, /inputs\.operation == 'restore-known-stable' && github\.ref == 'refs\/heads\/main'/u);
@@ -229,7 +239,8 @@ assert.match(restoreJob, /production-last-known-good\.mjs discover/u);
 assert.match(restoreJob, /production-last-known-good\.mjs select/u);
 assert.match(restoreJob, /DISABLE_CURRENT_CAPTURE:\s*'true'/u);
 assert.match(restoreJob, /EMERGENCY_RECOVERY_DEPLOYMENT_ID/u);
-assert.match(restoreJob, /Download latest Last Known Good identity[\s\S]*continue-on-error:\s*true/u);
+assert.match(restoreJob, /production-last-known-good\.mjs download/u);
+assert.doesNotMatch(restoreJob, /actions\/download-artifact/u);
 assert.match(restoreJob, /ROLLBACK_TARGET_SELECTION_DEADLINE_MS:\s*60000/u);
 assert.match(restoreJob, /ROLLBACK_DEADLINE_MS:\s*240000/u);
 
@@ -357,7 +368,8 @@ console.log(JSON.stringify({
     "validate",
     "production-env-audit",
     "production-env-repair",
-    "build",
+    "production-build",
+    "post-build-secret-scan",
     "staged-deploy",
     "runtime-gates",
     "alias-cutover",

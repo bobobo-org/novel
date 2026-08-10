@@ -1,10 +1,11 @@
 import { taskComplexity } from "./backend-manifest";
 import { learningPreferredBackend } from "../controlled-learning-os";
-import type {
-  ClosedAIBackendId,
-  ClosedAIBackendSnapshot,
-  ClosedAgentTaskRequest,
-  ClosedAITaskComplexity,
+import {
+  hasVerifiedClosedAIGeneration,
+  type ClosedAIBackendId,
+  type ClosedAIBackendSnapshot,
+  type ClosedAgentTaskRequest,
+  type ClosedAITaskComplexity,
 } from "./types";
 
 const complexityRank: Record<ClosedAITaskComplexity, number> = {
@@ -18,7 +19,7 @@ function supports(
   request: Pick<ClosedAgentTaskRequest, "taskType" | "namespace">,
   complexity: ClosedAITaskComplexity,
 ) {
-  if (backend.status !== "ready") return false;
+  if (!hasVerifiedClosedAIGeneration(backend)) return false;
   if (complexityRank[backend.maximumComplexity] < complexityRank[complexity]) return false;
   if (backend.supportedTaskTypes !== "all" && !backend.supportedTaskTypes.includes(request.taskType)) return false;
   if (request.namespace.privacyLevel === "device_only" && backend.dataBoundary !== "device") return false;
@@ -73,7 +74,8 @@ export type ClosedAIRouteResolution =
       | "pair_local_ai"
       | "verify_model"
       | "configure_local_ai"
-      | "pair_private_hub";
+      | "pair_private_hub"
+      | "prepare_browser_ai";
     compatibleBackendIds: ClosedAIBackendId[];
     fallbackAttempted: false;
   };
@@ -90,9 +92,12 @@ function routeOrder(
     policy === "quality-first"
     || (policy === "balanced" && allowPreAuthorizedClosedEscalation)
   ) {
-    return ["local-ollama"] as const;
+    return ["local-ollama", "browser-ai"] as const;
   }
-  return ["browser-ai"] as const;
+  // Both routes remain closed and device-only. This is selection before
+  // execution, not an error fallback: actualExecutor still comes from the
+  // selected backend receipt and external providers never enter the list.
+  return ["browser-ai", "local-ollama"] as const;
 }
 
 function requiredCapability(complexity: ClosedAITaskComplexity) {
@@ -106,6 +111,14 @@ function nextAction(
   complexity: ClosedAITaskComplexity,
 ) {
   if (complexity === "heavy") return "pair_private_hub" as const;
+  const browser = snapshots.find((snapshot) => snapshot.id === "browser-ai");
+  if (
+    browser
+    && !browser.runtimeTruth?.generationVerified
+    && ["available", "setup_required", "preparing"].includes(browser.status)
+  ) {
+    return "prepare_browser_ai" as const;
+  }
   const local = snapshots.find((snapshot) => snapshot.id === "local-ollama");
   if (local?.detailCode === "LOCAL_NETWORK_PERMISSION_DENIED") {
     return "allow_local_network" as const;
@@ -118,11 +131,11 @@ function nextAction(
   }
   if (
     local?.detailCode?.includes("pair")
-    || local?.status === "runtime_required"
+    || local?.status === "setup_required"
   ) {
     return "pair_local_ai" as const;
   }
-  if (local?.status === "contract_ready_runtime_not_connected") {
+  if (local?.status === "unreachable") {
     return "start_local_ai_service" as const;
   }
   return "configure_local_ai" as const;

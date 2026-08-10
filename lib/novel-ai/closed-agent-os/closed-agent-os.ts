@@ -43,6 +43,8 @@ import {
 } from "./tool-registry";
 import {
   CLOSED_AGENT_OS_SCHEMA_VERSION,
+  hasVerifiedClosedAIGeneration,
+  isCryptographicClosedAIModelDigest,
   type ClosedAIBackendAdapter,
   type ClosedAIBackendSnapshot,
   type ClosedAIProgressEvent,
@@ -86,6 +88,36 @@ function osError(code: string, message = code, details: Record<string, unknown> 
   return Object.assign(new Error(message), { code, ...details });
 }
 
+function assertClosedAIModelIdentity(
+  routed: ClosedAIBackendSnapshot,
+  execution: ClosedBackendExecutionResult,
+) {
+  const routedDigestVerified = isCryptographicClosedAIModelDigest(
+    routed.modelDigest,
+  );
+  const executionDigestVerified = isCryptographicClosedAIModelDigest(
+    execution.modelDigest,
+  );
+  if (
+    !routed.modelId
+    || !routedDigestVerified
+    || !execution.modelId
+    || !executionDigestVerified
+    || execution.modelId !== routed.modelId
+    || execution.modelDigest !== routed.modelDigest
+  ) {
+    throw osError("CLOSED_AI_MODEL_IDENTITY_MISMATCH", undefined, {
+      backendId: routed.id,
+      routedModelId: routed.modelId,
+      executionModelId: execution.modelId,
+      routedDigestVerified,
+      executionDigestVerified,
+      modelIdMatch: execution.modelId === routed.modelId,
+      modelDigestMatch: execution.modelDigest === routed.modelDigest,
+    });
+  }
+}
+
 export function closedAgentQualityReasonCodes(error: unknown): string[] {
   if (!error || typeof error !== "object") return [];
   const candidate = error as {
@@ -114,9 +146,17 @@ function unavailableBackendSnapshot(
   return {
     id: backend.id,
     label: truth.label,
-    status: backend.id === "private-ai-hub"
-      ? "contract_ready_runtime_not_connected"
-      : "runtime_required",
+    status: "unreachable",
+    runtimeTruth: {
+      installed: false,
+      configured: false,
+      reachable: false,
+      modelAvailable: false,
+      runtimeVerified: false,
+      generationVerified: false,
+      verificationSource: "none",
+      verifiedAt: null,
+    },
     modelId: null,
     modelDigest: null,
     local: backend.id !== "private-ai-hub",
@@ -320,6 +360,16 @@ export class ClosedAgentOS {
       const route = selectClosedAIBackend(request, snapshots);
       const backend = this.backends.get(route.backend.id);
       if (!backend) throw osError("CLOSED_AI_BACKEND_ADAPTER_MISSING");
+      if (
+        !route.backend.modelId
+        || !isCryptographicClosedAIModelDigest(route.backend.modelDigest)
+      ) {
+        throw osError("CLOSED_AI_MODEL_IDENTITY_MISMATCH", undefined, {
+          backendId: route.backend.id,
+          routedModelId: route.backend.modelId,
+          routedDigestVerified: false,
+        });
+      }
       this.emitProgress(
         request,
         "routing",
@@ -331,8 +381,8 @@ export class ClosedAgentOS {
         ...request,
         namespace: {
           ...request.namespace,
-          modelId: route.backend.modelId ?? `${route.backend.id}:runtime-managed`,
-          modelDigest: route.backend.modelDigest ?? `${route.backend.id}:digest-runtime-managed`,
+          modelId: route.backend.modelId,
+          modelDigest: route.backend.modelDigest,
         },
       };
       const activeLearning = await this.learning.activeConfiguration(request.namespace);
@@ -516,12 +566,14 @@ export class ClosedAgentOS {
         executionStartedAt = this.now().toISOString();
         execution = await this.executeQualityPipeline({
           backend,
+          routedBackend: route.backend,
           request,
           plan,
           actorContext,
           toolResults,
         });
         executionCompletedAt = this.now().toISOString();
+        assertClosedAIModelIdentity(route.backend, execution);
         await this.cache.put({
           layer: "exact",
           namespace: request.namespace,
@@ -564,6 +616,7 @@ export class ClosedAgentOS {
           && semanticLookup.entry.value.execution.backendId === route.backend.id
         ) {
           execution = semanticLookup.entry.value.execution;
+          assertClosedAIModelIdentity(route.backend, execution);
           candidateCacheHit = true;
           this.emitProgress(
             request,
@@ -585,12 +638,14 @@ export class ClosedAgentOS {
               executionStartedAt = this.now().toISOString();
               const generated = await this.executeQualityPipeline({
                 backend,
+                routedBackend: route.backend,
                 request,
                 plan,
                 actorContext,
                 toolResults,
               });
               executionCompletedAt = this.now().toISOString();
+              assertClosedAIModelIdentity(route.backend, generated);
               return generated;
             },
             {
@@ -599,6 +654,7 @@ export class ClosedAgentOS {
             },
           );
           execution = exactResult.value;
+          assertClosedAIModelIdentity(route.backend, execution);
           candidateCacheHit = exactResult.cacheHit;
           if (exactResult.cacheHit) {
             this.emitProgress(
@@ -651,6 +707,7 @@ export class ClosedAgentOS {
           actual: execution.backendId,
         });
       }
+      assertClosedAIModelIdentity(route.backend, execution);
       const contentDigest = await sha256Hex(execution.content);
       const contextDigest = request.contextDigest ?? await sha256Hex(
         stableStringify(request.context.map((item) => ({
@@ -669,8 +726,7 @@ export class ClosedAgentOS {
         && executionStartedAt
         && executionCompletedAt
         && outputCharacters > 0
-        && Boolean(execution.modelId)
-        && Boolean(execution.modelDigest)
+        && isCryptographicClosedAIModelDigest(execution.modelDigest)
           ? {
             taskId: request.taskId,
             backendId: execution.backendId,
@@ -685,7 +741,10 @@ export class ClosedAgentOS {
             proofState: "verified",
             dataLeftDevice: execution.dataLeftDevice,
             externalRequest: execution.externalRequest,
-            actualExecutor: execution.actualExecutor ?? execution.backendId,
+            // Consumer-facing execution identity is the verified Closed AI
+            // backend. Browser sub-runtime truth (WebLLM/Prompt API) remains
+            // independently auditable through its compute and Fabric receipts.
+            actualExecutor: execution.backendId,
             browserComputeReceiptId: execution.browserComputeReceiptId,
             browserFabricReceiptId: execution.browserFabricReceiptId,
             browserFabricPlannedGraph: execution.browserFabricPlannedGraph,
@@ -1364,11 +1423,19 @@ export class ClosedAgentOS {
       this.state.list<ClosedAgentApprovalRecord>(projectId, "approval"),
       this.state.list<ClosedAgentMemoryRecord>(projectId, "memory"),
     ]);
+    const generationVerifiedBackends = backends.filter(
+      hasVerifiedClosedAIGeneration,
+    );
     return {
       schemaVersion: CLOSED_AGENT_OS_SCHEMA_VERSION,
-      status: "ready" as const,
+      status: generationVerifiedBackends.length > 0
+        ? "ready" as const
+        : "setup_required" as const,
       oneSharedSystem: true,
       backends,
+      readyBackends: generationVerifiedBackends.length,
+      generationVerifiedBackends: generationVerifiedBackends.length,
+      externalFallback: false,
       cache,
       learning,
       queue: {
@@ -1387,6 +1454,7 @@ export class ClosedAgentOS {
 
   private async executeQualityPipeline(input: {
     backend: ClosedAIBackendAdapter;
+    routedBackend: ClosedAIBackendSnapshot;
     request: ClosedAgentTaskRequest;
     plan: ClosedAgentPlan;
     actorContext: ClosedAgentTaskRequest["context"];
@@ -1394,6 +1462,7 @@ export class ClosedAgentOS {
   }): Promise<ClosedBackendExecutionResult> {
     const {
       backend,
+      routedBackend,
       request,
       plan,
       actorContext,
@@ -1463,6 +1532,13 @@ export class ClosedAgentOS {
         qualityPhase,
         workingMaterials,
       });
+      if (result.backendId !== routedBackend.id) {
+        throw osError("CLOSED_AI_BACKEND_IDENTITY_MISMATCH", undefined, {
+          selected: routedBackend.id,
+          actual: result.backendId,
+        });
+      }
+      assertClosedAIModelIdentity(routedBackend, result);
       if (!result.content.trim()) {
         throw osError("CLOSED_AGENT_QUALITY_PASS_EMPTY", undefined, {
           qualityPhase,

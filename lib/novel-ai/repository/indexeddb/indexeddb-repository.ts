@@ -32,13 +32,31 @@ import {
 } from "../../conversation/approval-transaction";
 import { assertConversationRecordSafe } from "../../conversation/record-security";
 import { sha256Hex } from "../../closed-ai-cache";
+import {
+  asIndexedDbRepositoryError,
+  INDEXEDDB_DATABASE_VERSION,
+  IndexedDbRepositoryError,
+} from "../persistence-recovery";
 
 const DB_NAME = "novel-intelligence-platform";
-const DB_VERSION = 8;
+const DB_VERSION = INDEXEDDB_DATABASE_VERSION;
 const REQUEST_STORE = "requestLedger";
+const REQUIRED_STORES = [...new Set([...NOVEL_STORES, REQUEST_STORE])];
 
-function request<T>(value: IDBRequest<T>): Promise<T> { return new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error ?? new Error("INDEXEDDB_REQUEST_FAILED")); }); }
-function complete(tx: IDBTransaction): Promise<void> { return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error("INDEXEDDB_TRANSACTION_ABORTED")); tx.onerror = () => reject(tx.error ?? new Error("INDEXEDDB_TRANSACTION_FAILED")); }); }
+function request<T>(value: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    value.onsuccess = () => resolve(value.result);
+    value.onerror = () => reject(asIndexedDbRepositoryError(value.error, "INDEXEDDB_REQUEST_FAILED"));
+  });
+}
+
+function complete(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(asIndexedDbRepositoryError(tx.error, "INDEXEDDB_TRANSACTION_ABORTED"));
+    tx.onerror = () => reject(asIndexedDbRepositoryError(tx.error, "INDEXEDDB_TRANSACTION_FAILED"));
+  });
+}
 
 export class IndexedDbNovelRepository implements NovelRepository {
   readonly kind = "indexeddb" as const;
@@ -51,58 +69,96 @@ export class IndexedDbNovelRepository implements NovelRepository {
   private inject(point: string) { this.approvalFaultInjector?.(point); }
   isAvailable() { return typeof indexedDB !== "undefined"; }
   private open() {
-    if (!this.isAvailable()) return Promise.reject(new Error("INDEXEDDB_UNAVAILABLE"));
-    if (!this.dbPromise) this.dbPromise = new Promise((resolve, reject) => {
-      const open = indexedDB.open(DB_NAME, DB_VERSION);
-      open.onupgradeneeded = () => {
-        const db = open.result, tx = open.transaction!;
-        for (const name of [...NOVEL_STORES, REQUEST_STORE]) {
-          const store = db.objectStoreNames.contains(name) ? tx.objectStore(name) : db.createObjectStore(name, { keyPath: name === REQUEST_STORE ? "requestId" : "id" });
-          if (name !== REQUEST_STORE && !store.indexNames.contains("projectId")) store.createIndex("projectId", "projectId", { unique: false });
-          if (name === "acceptedChoices") for (const [index, key, unique] of [["chapterId","chapterId",false],["candidateId","candidateId",true],["branchId","branchId",true],["acceptedChoiceId","acceptedChoiceId",true]] as const) if (!store.indexNames.contains(index)) store.createIndex(index, key, { unique });
-          if (name === "storyBranches") for (const [index, key, unique] of [["chapterId","chapterId",false],["parentBranchId","parentBranchId",false],["candidateId","sourceCandidateId",true],["branchId","branchId",true],["acceptedChoiceId","acceptedChoiceId",true],["status","status",false]] as const) if (!store.indexNames.contains(index)) store.createIndex(index, key, { unique });
-          if (name === "operationJournal" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
-          if (name === "idempotencyRecords" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
-          if (name === "approvalTransactions" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
-          if (name === "rpgTurnReceipts") {
-            if (!store.indexNames.contains("acceptedChoiceId")) store.createIndex("acceptedChoiceId", "acceptedChoiceId", { unique: true });
-            if (!store.indexNames.contains("operationId")) store.createIndex("operationId", "operationId", { unique: true });
-            if (!store.indexNames.contains("chapterId")) store.createIndex("chapterId", "chapterId", { unique: false });
+    if (!this.isAvailable()) return Promise.reject(new IndexedDbRepositoryError("INDEXEDDB_UNAVAILABLE"));
+    if (!this.dbPromise) {
+      let settled = false;
+      const pending = new Promise<IDBDatabase>((resolve, reject) => {
+        const fail = (error: unknown, fallback: Parameters<typeof asIndexedDbRepositoryError>[1]) => {
+          if (settled) return;
+          settled = true;
+          reject(asIndexedDbRepositoryError(error, fallback));
+        };
+        const open = indexedDB.open(DB_NAME, DB_VERSION);
+        open.onupgradeneeded = () => {
+          try {
+            const db = open.result, tx = open.transaction!;
+            for (const name of REQUIRED_STORES) {
+              const store = db.objectStoreNames.contains(name) ? tx.objectStore(name) : db.createObjectStore(name, { keyPath: name === REQUEST_STORE ? "requestId" : "id" });
+              if (name !== REQUEST_STORE && !store.indexNames.contains("projectId")) store.createIndex("projectId", "projectId", { unique: false });
+              if (name === "acceptedChoices") for (const [index, key, unique] of [["chapterId","chapterId",false],["candidateId","candidateId",true],["branchId","branchId",true],["acceptedChoiceId","acceptedChoiceId",true]] as const) if (!store.indexNames.contains(index)) store.createIndex(index, key, { unique });
+              if (name === "storyBranches") for (const [index, key, unique] of [["chapterId","chapterId",false],["parentBranchId","parentBranchId",false],["candidateId","sourceCandidateId",true],["branchId","branchId",true],["acceptedChoiceId","acceptedChoiceId",true],["status","status",false]] as const) if (!store.indexNames.contains(index)) store.createIndex(index, key, { unique });
+              if (name === "operationJournal" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+              if (name === "idempotencyRecords" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+              if (name === "approvalTransactions" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+              if (name === "rpgTurnReceipts") {
+                if (!store.indexNames.contains("acceptedChoiceId")) store.createIndex("acceptedChoiceId", "acceptedChoiceId", { unique: true });
+                if (!store.indexNames.contains("operationId")) store.createIndex("operationId", "operationId", { unique: true });
+                if (!store.indexNames.contains("chapterId")) store.createIndex("chapterId", "chapterId", { unique: false });
+              }
+              if (name === "dramaApprovals" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+              if (name === "narrativeCanonLinks" && !store.indexNames.contains("dramaProjectId")) store.createIndex("dramaProjectId", "dramaProjectId", { unique: true });
+              if (name === "characterAgentApprovals" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
+              if (name === "characterRelationshipEvents") {
+                if (!store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
+                if (!store.indexNames.contains("sourceEventScope")) store.createIndex("sourceEventScope", "sourceEventScope", { unique: true });
+              }
+              if (name === "characterAgentProfiles" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
+              if (name === "characterMemories" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
+              if (name === "characterRelationships") {
+                if (!store.indexNames.contains("fromCharacterId")) store.createIndex("fromCharacterId", "fromCharacterId", { unique: false });
+                if (!store.indexNames.contains("toCharacterId")) store.createIndex("toCharacterId", "toCharacterId", { unique: false });
+              }
+              if (name === "conversationSessions") {
+                if (!store.indexNames.contains("status")) store.createIndex("status", "status", { unique: false });
+                if (!store.indexNames.contains("lastMessageAt")) store.createIndex("lastMessageAt", "lastMessageAt", { unique: false });
+              }
+              if (["conversationMessages", "conversationToolInvocations", "conversationAttachments", "conversationArtifacts", "conversationSummaries", "conversationApprovalTransactions", "learningImportSessions"].includes(name)
+                && !store.indexNames.contains("sessionId")) {
+                store.createIndex("sessionId", "sessionId", { unique: false });
+              }
+              if (name === "conversationMessages" && !store.indexNames.contains("sourceMessageId")) store.createIndex("sourceMessageId", "sourceMessageId", { unique: false });
+              if (name === "conversationToolInvocations") {
+                if (!store.indexNames.contains("messageId")) store.createIndex("messageId", "messageId", { unique: false });
+                if (!store.indexNames.contains("taskId")) store.createIndex("taskId", "taskId", { unique: true });
+              }
+              if (name === "conversationAttachments" && !store.indexNames.contains("contentHash")) store.createIndex("contentHash", "contentHash", { unique: false });
+              if (name === "conversationArtifacts" && !store.indexNames.contains("sourceMessageId")) store.createIndex("sourceMessageId", "sourceMessageId", { unique: false });
+              if (name === "conversationApprovalTransactions" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
+              if (name === "learningImportSessions" && !store.indexNames.contains("importSessionId")) store.createIndex("importSessionId", "importSessionId", { unique: true });
+            }
+          } catch (error) {
+            try { open.transaction?.abort(); } catch { /* the upgrade transaction already stopped */ }
+            fail(error, "INDEXEDDB_OPEN_FAILED");
           }
-          if (name === "dramaApprovals" && !store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
-          if (name === "narrativeCanonLinks" && !store.indexNames.contains("dramaProjectId")) store.createIndex("dramaProjectId", "dramaProjectId", { unique: true });
-          if (name === "characterAgentApprovals" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
-          if (name === "characterRelationshipEvents") {
-            if (!store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
-            if (!store.indexNames.contains("sourceEventScope")) store.createIndex("sourceEventScope", "sourceEventScope", { unique: true });
+        };
+        open.onsuccess = () => {
+          const db = open.result;
+          if (settled) {
+            db.close();
+            return;
           }
-          if (name === "characterAgentProfiles" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
-          if (name === "characterMemories" && !store.indexNames.contains("characterId")) store.createIndex("characterId", "characterId", { unique: false });
-          if (name === "characterRelationships") {
-            if (!store.indexNames.contains("fromCharacterId")) store.createIndex("fromCharacterId", "fromCharacterId", { unique: false });
-            if (!store.indexNames.contains("toCharacterId")) store.createIndex("toCharacterId", "toCharacterId", { unique: false });
+          const missingStores = REQUIRED_STORES.filter((name) => !db.objectStoreNames.contains(name));
+          if (missingStores.length > 0) {
+            db.close();
+            fail(new IndexedDbRepositoryError("INDEXEDDB_SCHEMA_MISMATCH"), "INDEXEDDB_SCHEMA_MISMATCH");
+            return;
           }
-          if (name === "conversationSessions") {
-            if (!store.indexNames.contains("status")) store.createIndex("status", "status", { unique: false });
-            if (!store.indexNames.contains("lastMessageAt")) store.createIndex("lastMessageAt", "lastMessageAt", { unique: false });
-          }
-          if (["conversationMessages", "conversationToolInvocations", "conversationAttachments", "conversationArtifacts", "conversationSummaries", "conversationApprovalTransactions", "learningImportSessions"].includes(name)
-            && !store.indexNames.contains("sessionId")) {
-            store.createIndex("sessionId", "sessionId", { unique: false });
-          }
-          if (name === "conversationMessages" && !store.indexNames.contains("sourceMessageId")) store.createIndex("sourceMessageId", "sourceMessageId", { unique: false });
-          if (name === "conversationToolInvocations") {
-            if (!store.indexNames.contains("messageId")) store.createIndex("messageId", "messageId", { unique: false });
-            if (!store.indexNames.contains("taskId")) store.createIndex("taskId", "taskId", { unique: true });
-          }
-          if (name === "conversationAttachments" && !store.indexNames.contains("contentHash")) store.createIndex("contentHash", "contentHash", { unique: false });
-          if (name === "conversationArtifacts" && !store.indexNames.contains("sourceMessageId")) store.createIndex("sourceMessageId", "sourceMessageId", { unique: false });
-          if (name === "conversationApprovalTransactions" && !store.indexNames.contains("idempotencyScope")) store.createIndex("idempotencyScope", "idempotencyScope", { unique: true });
-          if (name === "learningImportSessions" && !store.indexNames.contains("importSessionId")) store.createIndex("importSessionId", "importSessionId", { unique: true });
-        }
-      };
-      open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error ?? new Error("INDEXEDDB_OPEN_FAILED")); open.onblocked = () => reject(new Error("INDEXEDDB_UPGRADE_BLOCKED"));
-    });
+          settled = true;
+          db.onversionchange = () => {
+            db.close();
+            this.dbPromise = null;
+          };
+          resolve(db);
+        };
+        open.onerror = () => fail(open.error, "INDEXEDDB_OPEN_FAILED");
+        open.onblocked = () => fail(new IndexedDbRepositoryError("INDEXEDDB_UPGRADE_BLOCKED"), "INDEXEDDB_UPGRADE_BLOCKED");
+      });
+      const retryable = pending.catch((error) => {
+        this.dbPromise = null;
+        throw asIndexedDbRepositoryError(error, "INDEXEDDB_OPEN_FAILED");
+      });
+      this.dbPromise = retryable;
+    }
     return this.dbPromise;
   }
   async get<T extends DomainRecord>(store: NovelStoreName, id: string) { const db = await this.open(); return (await request(db.transaction(store).objectStore(store).get(id)) as T | undefined) ?? null; }

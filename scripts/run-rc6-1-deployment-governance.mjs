@@ -51,6 +51,7 @@ const jobOrder = [
   "production_env_audit",
   "production_env_repair",
   "production_build",
+  "post_build_secret_scan",
   "staged_deploy",
   "runtime_gates",
   "alias_cutover",
@@ -78,7 +79,8 @@ function testOrdering() {
   assert.match(jobSection("production_env_audit"), /needs:\s*validate/u);
   assert.match(jobSection("production_env_repair"), /needs:\s*\[validate,\s*production_env_audit\]/u);
   assert.match(jobSection("production_build"), /needs:\s*production_env_repair/u);
-  assert.match(jobSection("staged_deploy"), /needs:\s*production_build/u);
+  assert.match(jobSection("post_build_secret_scan"), /needs:\s*production_build/u);
+  assert.match(jobSection("staged_deploy"), /needs:\s*\[production_build, post_build_secret_scan\]/u);
   assert.match(jobSection("runtime_gates"), /needs:\s*staged_deploy/u);
   assert.match(jobSection("alias_cutover"), /needs:\s*\[staged_deploy,\s*runtime_gates\]/u);
   assert.match(jobSection("production_build"), /include-hidden-files:\s*true/u);
@@ -96,7 +98,7 @@ function testOrdering() {
   assert.match(productionBuild, /--file "\$RUNNER_TEMP\/production-prebuilt\.tgz"/u);
   assert.match(productionBuild, /--exclude='\.next\/cache'/u);
   assert.match(productionBuild, /\.vercel\/output \.next/u);
-  assert.match(productionBuild, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
+  assert.match(productionBuild, /path:\s*\|[\s\S]*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
   assert.match(productionBuild, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
   assert.match(productionBuild, /overwrite:\s*true/u);
   assert.doesNotMatch(productionBuild, /production-prebuilt-[^\n]*github\.run_attempt/u);
@@ -1511,6 +1513,8 @@ function rollbackFetcher(validDeploymentIds) {
       appCommit: commit,
       provenanceStatus: "verified",
       environment: "production",
+      releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
+      releaseRevision: "rc6.1",
     }), { status: commit ? 200 : 404, headers: { "content-type": "application/json" } });
   };
 }
@@ -1589,6 +1593,7 @@ async function testLastKnownGoodAndRollback() {
         return new Response(JSON.stringify({ artifacts: [{
           id: 7,
           name: `production-last-known-good-${lkgCommit}`,
+          digest: `sha256:${"d".repeat(64)}`,
           expired: false,
           created_at: "2026-08-10T01:00:00.000Z",
           workflow_run: { id: 9, head_branch: "main", head_sha: lkgCommit },
@@ -1611,6 +1616,7 @@ async function testLastKnownGoodAndRollback() {
       ? new Response(JSON.stringify({ artifacts: [{
         id: 7,
         name: `production-last-known-good-${lkgCommit}`,
+        digest: `sha256:${"d".repeat(64)}`,
         expired: false,
         created_at: "2026-08-10T01:00:00.000Z",
         workflow_run: { id: 9, head_branch: "main", head_sha: lkgCommit },
@@ -1645,6 +1651,7 @@ async function testLastKnownGoodAndRollback() {
           artifacts: [{
             id: 777,
             name: `production-last-known-good-${lkgCommit}`,
+            digest: `sha256:${"d".repeat(64)}`,
             expired: false,
             created_at: "2026-08-10T01:00:00.000Z",
             workflow_run: { id: 999, head_branch: "main", head_sha: lkgCommit },
@@ -1693,7 +1700,8 @@ async function testLastKnownGoodAndRollback() {
   const aliasJob = jobSection("alias_cutover");
   assert.match(aliasJob, /Write Last Known Good only after public verification passes/u);
   assert.match(aliasJob, /if:\s*steps\.cutover\.outcome == 'success' && steps\.public_gate\.outcome == 'success'/u);
-  assert.match(aliasJob, /Download latest Last Known Good identity[\s\S]*continue-on-error:\s*true/u);
+  assert.match(aliasJob, /production-last-known-good\.mjs download/u);
+  assert.doesNotMatch(aliasJob, /actions\/download-artifact/u);
   assert.match(lkgSource, /safeDiscoverLatestLastKnownGoodArtifact/u);
   assert.match(lkgSource, /parseLastKnownGoodCandidate/u);
 }

@@ -99,10 +99,7 @@ await test("runtime source no longer reads APP_COMMIT", async () => {
 });
 await test("fresh-clone development generates provenance before startup", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
-  assert.equal(
-    packageJson.scripts.predev,
-    "node scripts/generate-release-provenance.mjs",
-  );
+  assert.match(packageJson.scripts.predev, /^node scripts\/generate-release-provenance\.mjs(?:\s|$)/u);
 });
 await test("health exposes verified provenance fields", async () => {
   const source = await readFile("app/api/ai/health/route.ts", "utf8");

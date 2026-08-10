@@ -85,12 +85,34 @@ function namespace(overrides = {}) {
 
 function backend(id, options = {}) {
   const privateHub = id === "private-ai-hub";
+  const status = options.status ?? "ready";
+  const generationVerified = status === "ready"
+    && options.generationVerified !== false;
+  const verificationSource = {
+    "browser-ai": "browser-runtime-generation",
+    "local-ollama": "local-bridge-generation",
+    "private-ai-hub": "private-hub-generation",
+  }[id];
   return {
     id,
     label: id,
-    status: options.status ?? "ready",
+    status,
+    runtimeTruth: {
+      installed: generationVerified,
+      configured: generationVerified,
+      reachable: generationVerified,
+      modelAvailable: generationVerified,
+      runtimeVerified: generationVerified,
+      generationVerified,
+      verificationSource: generationVerified ? verificationSource : "none",
+      verifiedAt: generationVerified ? "2026-08-10T00:00:00.000Z" : null,
+    },
     modelId: options.modelId ?? `${id}-model`,
-    modelDigest: options.modelDigest ?? `${id}-digest`,
+    modelDigest: options.modelDigest ?? ({
+      "browser-ai": "b".repeat(64),
+      "local-ollama": "c".repeat(64),
+      "private-ai-hub": "d".repeat(64),
+    })[id],
     local: !privateHub,
     dataBoundary: privateHub ? "private-infrastructure" : "device",
     maximumComplexity: options.maximumComplexity
@@ -119,16 +141,25 @@ function browserCapability(generativeModelReady = false) {
     worker: true,
     storageQuota: 1_000_000,
     storageUsage: 0,
-    status: "ready",
+    status: generativeModelReady ? "ready" : "runtime_not_installed",
     reason: generativeModelReady
-      ? "browser_hybrid_runtime_native_prompt_ready"
-      : "browser_hybrid_runtime_packaged_ready",
+      ? "browser_hybrid_runtime_webllm_ready"
+      : "browser_hybrid_runtime_webllm_install_required",
     summaryAvailability: "packaged-task-runtime-ready",
-    promptAvailability: generativeModelReady ? "readily" : "unavailable",
+    promptAvailability: "unavailable",
     generativeModelReady,
+    generativeRuntime: generativeModelReady ? "webllm-worker" : null,
+    webLlmSupported: true,
+    webLlmInstalled: generativeModelReady,
+    webLlmStatus: generativeModelReady ? "ready" : "install_required",
+    webLlmModelId: generativeModelReady ? "Qwen2.5-0.5B-Instruct-q4f16_1-MLC" : null,
+    webLlmModelDigest: generativeModelReady ? "b".repeat(64) : null,
+    webLlmDeviceTier: "low",
+    webLlmCacheBackend: "cache",
     modelId: generativeModelReady
-      ? "chrome-built-in-language-model"
+      ? "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
       : "novel-browser-task-runtime-v2",
+    modelDigest: generativeModelReady ? "b".repeat(64) : "a".repeat(64),
   };
 }
 
@@ -346,11 +377,11 @@ test("client-runtime-coordinator", "ready Local Ollama never waits for optional 
     },
     model: {
       modelId: preferredModelId,
-      modelDigest: "local-fast-path-digest",
+      modelDigest: "c".repeat(64),
     },
     proof: {
       modelId: preferredModelId,
-      modelDigest: "local-fast-path-digest",
+      modelDigest: "c".repeat(64),
     },
   };
   const localClient = {
@@ -445,11 +476,16 @@ test("client-runtime-coordinator", "denied Local Network Access suppresses repea
 });
 
 test("client-runtime-coordinator", "twenty-scenario runtime and persistence matrix has no silent fallback", async () => {
-  const browserTask = backend("browser-ai");
+  const browserTask = backend("browser-ai", {
+    status: "available",
+    generationVerified: false,
+    modelId: "novel-browser-task-runtime-v2",
+    detailCode: "browser_hybrid_runtime_packaged_ready",
+  });
   const browserGenerative = backend("browser-ai", {
     maximumComplexity: "standard",
     supportedTaskTypes: "all",
-    detailCode: "browser_hybrid_runtime_native_prompt_ready",
+    detailCode: "browser_hybrid_runtime_webllm_ready",
   });
   const localReady = backend("local-ollama");
   const localUnpaired = backend("local-ollama", {
@@ -475,8 +511,8 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
     ["cloud-healthy-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "healthy" }) === "LOCAL_PLUS_CLOUD"],
     ["cloud-down-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "unreachable" }) === "CLOUD_DEGRADED"],
     ["cloud-healthy-indexeddb-blocked", derivePersistenceRuntimeMode({ localReady: false, cloudStatus: "healthy" }) === "LOCAL_BLOCKED"],
-    ["browser-packaged-task-only", route("story.summary", [browserTask]).backend?.id === "browser-ai"],
-    ["browser-native-prompt-ready", route("chapter.continue", [browserGenerative]).backend?.id === "browser-ai"],
+    ["browser-packaged-task-only", route("story.summary", [browserTask]).executionStatus === "not_executed"],
+    ["browser-webllm-ready", route("chapter.continue", [browserGenerative]).backend?.id === "browser-ai"],
     ["bridge-running-unpaired", route("chapter.continue", [localUnpaired]).executionStatus === "not_executed"],
     ["bridge-paired-model-unverified", route("chapter.continue", [localUnverified]).recommendedNextAction === "verify_model"],
     ["bridge-paired-model-verified", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
@@ -488,13 +524,13 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
     ["local-network-denied", route("chapter.continue", [backend("local-ollama", { status: "runtime_required", detailCode: "LOCAL_NETWORK_PERMISSION_DENIED" })]).recommendedNextAction === "allow_local_network"],
     ["local-network-granted", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
     ["desktop", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
-    ["mobile", route("story.summary", [browserTask]).executionStatus === "routable"],
-    ["offline", route("story.summary", [browserTask]).backend?.dataBoundary === "device"],
+    ["mobile", route("story.summary", [browserGenerative]).executionStatus === "routable"],
+    ["offline", route("story.summary", [browserGenerative]).backend?.dataBoundary === "device"],
   ];
   assert.equal(checks.length, 20);
   assert.deepEqual(checks.filter(([, passed]) => !passed), []);
   const routed = [
-    route("story.summary", [browserTask]),
+    route("story.summary", [browserGenerative]),
     route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }),
     route("character.privateArc", [privateReady], {
       namespace: { privacyLevel: "private_infrastructure_only" },
@@ -534,18 +570,32 @@ test("route-discovery-execution-parity", "route resolution and execution lock th
 });
 
 test("browser-task-vs-generative", "packaged browser task model cannot generate standard prose", async () => {
-  const packaged = backend("browser-ai");
+  const packaged = backend("browser-ai", {
+    status: "available",
+    generationVerified: false,
+    modelId: "novel-browser-task-runtime-v2",
+    detailCode: "browser_hybrid_runtime_packaged_ready",
+  });
   const nativePrompt = backend("browser-ai", {
     maximumComplexity: "standard",
     supportedTaskTypes: "all",
-    detailCode: "browser_hybrid_runtime_native_prompt_ready",
+    modelId: "chrome-built-in-language-model",
+    modelDigest: "browser-managed-model-digest-unavailable",
+    detailCode: "browser_native_prompt_digest_not_verifiable",
+  });
+  const verifiedWebLlm = backend("browser-ai", {
+    maximumComplexity: "standard",
+    supportedTaskTypes: "all",
+    detailCode: "browser_hybrid_runtime_webllm_ready",
   });
   const light = route("story.summary", [packaged]);
   const standardBlocked = route("chapter.continue", [packaged]);
   const standardNative = route("chapter.continue", [nativePrompt]);
-  assert.equal(light.executionStatus, "routable");
+  const standardWebLlm = route("chapter.continue", [verifiedWebLlm]);
+  assert.equal(light.executionStatus, "not_executed");
   assert.equal(standardBlocked.executionStatus, "not_executed");
-  assert.equal(standardNative.executionStatus, "routable");
+  assert.equal(standardNative.executionStatus, "not_executed");
+  assert.equal(standardWebLlm.executionStatus, "routable");
   const result = runPackagedBrowserTaskModel(
     "story.summary",
     "The storm reached the city. The protagonist protected the archive and discovered a hidden map.",
@@ -561,7 +611,8 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
   );
   return {
     packagedTaskModelProseGeneration: 0,
-    nativePromptMaximumComplexity: "standard",
+    nativePromptGenerationVerified: false,
+    webLlmMaximumComplexity: "standard",
   };
 });
 

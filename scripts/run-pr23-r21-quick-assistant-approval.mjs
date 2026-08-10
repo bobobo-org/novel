@@ -31,6 +31,8 @@ import {
   commitStudioCandidateToChapter,
 } from "../lib/novel-ai/web/studio-canonical-approval.ts";
 
+const LOCAL_MODEL_DIGEST = "c".repeat(64);
+
 class LocalBackend {
   constructor() {
     this.id = "local-ollama";
@@ -42,8 +44,18 @@ class LocalBackend {
       id: this.id,
       label: "Local Ollama",
       status: "ready",
+      runtimeTruth: {
+        installed: true,
+        configured: true,
+        reachable: true,
+        modelAvailable: true,
+        runtimeVerified: true,
+        generationVerified: true,
+        verificationSource: "local-bridge-generation",
+        verifiedAt: "2026-08-10T00:00:00.000Z",
+      },
       modelId: "qwen2.5:3b",
-      modelDigest: "sha256:model-qwen25-3b-test",
+      modelDigest: LOCAL_MODEL_DIGEST,
       local: true,
       dataBoundary: "device",
       maximumComplexity: "standard",
@@ -59,7 +71,7 @@ class LocalBackend {
     return {
       backendId: this.id,
       modelId: "qwen2.5:3b",
-      modelDigest: "sha256:model-qwen25-3b-test",
+      modelDigest: LOCAL_MODEL_DIGEST,
       content,
       candidateOnly: true,
       dataLeftDevice: false,

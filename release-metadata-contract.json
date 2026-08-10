@@ -1,10 +1,19 @@
 {
-  "schemaVersion": "p24b-release-metadata-contract-v1",
-  "provenanceSchemaVersion": "p24b-rc6.1-build-provenance-v1",
+  "schemaVersion": "p24b-release-metadata-contract-v2",
+  "provenanceSchemaVersion": "p24b-rc6.2-build-provenance-v1",
   "allowedProvenanceSchemaVersions": [
+    "p24b-rc6.2-build-provenance-v1",
     "p24b-rc6.1-build-provenance-v1",
     "p21-build-provenance-v1"
   ],
+  "immutableReleaseIdentity": {
+    "releaseLine": "novel-ai-p24b-conversation-first-studio-rc6",
+    "releaseTag": "novel-ai-p24b-conversation-first-studio-rc6.2",
+    "releaseRevision": "rc6.2",
+    "releaseName": "P2.4B Conversation-First Novel Project GPT RC6.2",
+    "consumerRelease": "p2.4b-conversation-first-studio-rc6.2",
+    "architectureStage": "P2.4B RC"
+  },
   "provenanceHashAlgorithm": "sha256",
   "allowedProvenanceSources": [
     "vercel_git_commit_sha",
@@ -20,7 +29,8 @@
     "P2.4A RC",
     "P2.4B RC"
   ],
-  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$",
+  "releaseLinePattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+$",
+  "releaseTagPattern": "^novel-ai-(?:p21|p23|p24a|p24b)-[a-z0-9-]+(?:\\.[0-9]+)?$",
   "releaseRevisionPattern": "^rc[0-9]+(?:\\.[0-9]+)*$",
   "releaseBuildPattern": "^rc[0-9]+(?:\\.[0-9]+)*\\+[0-9a-f]{40}$",
   "releaseBaseCommitPattern": "^[0-9a-f]{40}$",
@@ -29,5 +39,11 @@
     "unsigned",
     "verified"
   ],
-  "buildTimeFormat": "iso-8601"
+  "releaseEpochFormat": "iso-8601",
+  "temporalProvenanceFields": [
+    "buildStartedAt",
+    "buildCompletedAt",
+    "deployedAt"
+  ],
+  "legacyTagTruth": "RC6_LEGACY_TAG_WAS_MISSING"
 }

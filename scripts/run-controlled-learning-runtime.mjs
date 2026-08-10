@@ -59,6 +59,19 @@ function errorCode(code, detailCode) {
     && (!detailCode || error?.detailCodes?.includes(detailCode));
 }
 
+function verifiedRuntimeTruth(verificationSource) {
+  return {
+    installed: true,
+    configured: true,
+    reachable: true,
+    modelAvailable: true,
+    runtimeVerified: true,
+    generationVerified: true,
+    verificationSource,
+    verifiedAt: "2026-08-10T00:00:00.000Z",
+  };
+}
+
 async function learningWithConsent(overrides = {}) {
   const learning = new ControlledLearningOS({
     repository: new MemoryControlledLearningRepository(),
@@ -485,8 +498,9 @@ test("adopted L0/L1 policy changes router, planner, cache, retrieval and tool be
       id: "browser-ai",
       label: "Browser AI",
       status: "ready",
+      runtimeTruth: verifiedRuntimeTruth("browser-runtime-generation"),
       modelId: "browser-model",
-      modelDigest: "browser-digest",
+      modelDigest: "b".repeat(64),
       local: true,
       dataBoundary: "device",
       maximumComplexity: "light",
@@ -498,8 +512,9 @@ test("adopted L0/L1 policy changes router, planner, cache, retrieval and tool be
       id: "local-ollama",
       label: "Local Ollama",
       status: "ready",
+      runtimeTruth: verifiedRuntimeTruth("local-bridge-generation"),
       modelId: "local-model",
-      modelDigest: "local-digest",
+      modelDigest: "c".repeat(64),
       local: true,
       dataBoundary: "device",
       maximumComplexity: "standard",
@@ -511,8 +526,9 @@ test("adopted L0/L1 policy changes router, planner, cache, retrieval and tool be
       id: "private-ai-hub",
       label: "Private Hub",
       status: "ready",
+      runtimeTruth: verifiedRuntimeTruth("private-hub-generation"),
       modelId: "private-model",
-      modelDigest: "private-digest",
+      modelDigest: "d".repeat(64),
       local: false,
       dataBoundary: "private-infrastructure",
       maximumComplexity: "heavy",

@@ -37,8 +37,17 @@ env:
   LEGACY_BOOTSTRAP_COMMIT: d0e80323dc68bf08cb541e46c6b9114a71e05cd9
   EMERGENCY_RECOVERY_DEPLOYMENT_ID: dpl_ECbrLCX4RsdhUUjYj7cZrhY27oJV
   EMERGENCY_RECOVERY_COMMIT: 5cf5e819a95d9f98d485a2bec1c39ae68c1d4a1f
-  EXPECTED_RELEASE_TAG: novel-ai-p24b-conversation-first-studio-rc6
-  EXPECTED_RELEASE_REVISION: rc6.1
+  EXPECTED_RELEASE_LINE: novel-ai-p24b-conversation-first-studio-rc6
+  EXPECTED_RELEASE_TAG: novel-ai-p24b-conversation-first-studio-rc6.2
+  EXPECTED_RELEASE_REVISION: rc6.2
+  EXPECTED_RELEASE_NAME: P2.4B Conversation-First Novel Project GPT RC6.2
+  EXPECTED_CONSUMER_RELEASE: p2.4b-conversation-first-studio-rc6.2
+  EXPECTED_ARCHITECTURE_STAGE: P2.4B RC
+  EXPECTED_LKG_APP_COMMIT: e84972aaec80885f9e2ab58e56252fb7b93522ea
+  EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3
+  EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3
+  EXPECTED_LKG_RELEASE_TAG: novel-ai-p24b-conversation-first-studio-rc6
+  EXPECTED_LKG_RELEASE_REVISION: rc6.1
 
 jobs:
   validate:
@@ -81,6 +90,20 @@ jobs:
 
       - name: Seal exact-SHA validation release provenance
         run: node scripts/generate-release-provenance.mjs
+
+      - name: Verify immutable RC6.2 release policy and exact Product SHA
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ env.VERCEL_GIT_COMMIT_SHA }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/immutable-release-tag-proof.json
+        run: node scripts/verify-immutable-release-tag.mjs policy
+
+      - name: Verify final remote RC6.2 annotated tag is immutable
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/immutable-release-tag-proof.json
+        run: node scripts/verify-immutable-release-tag.mjs remote
 
       - name: Verify RC6 release hardening
         shell: bash
@@ -150,7 +173,10 @@ jobs:
             pnpm test:ci:rc6-1-deployment-governance
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/truth-gates.log"
 
-      - name: Run RC6.1 post-release hardening gates
+      - name: Run RC6.2 post-release hardening and runtime closure gates
+        env:
+          RC6_2_START_SERVER: '1'
+          RC6_2_BASE_URL: http://127.0.0.1:3136
         run: |
           set -euo pipefail
           {
@@ -159,6 +185,10 @@ jobs:
             pnpm test:ci:artifact-attestation
             pnpm test:ci:build-provenance
             pnpm test:ci:signature-vs-provenance-truth
+            pnpm test:ci:rc6-2-runtime-closure
+            pnpm test:ai:closed-ai-runtime-rc6-2
+            pnpm test:ai:rc6.2:persistence-contract
+            pnpm test:ai:rc6.2:persistence-browser
             pnpm test:studio:conversation-component-contract
             pnpm test:studio:conversation-lazy-tools
             pnpm test:studio:conversation-long-session
@@ -167,7 +197,7 @@ jobs:
             pnpm test:ai:attachment-worker-cancellation
             pnpm test:ai:attachment-worker-memory-release
             pnpm test:ai:attachment-late-result-rejected
-          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/rc6-1-hardening.log"
+          } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/rc6-2-hardening.log"
 
       - name: Verify secrets, Companion ZIP, and evidence schemas
         run: |
@@ -282,6 +312,7 @@ jobs:
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
           EXPECTED_COMMIT: ${{ env.VERCEL_GIT_COMMIT_SHA }}
+          EXPECTED_RELEASE_TAG: novel-ai-p24b-conversation-first-studio-rc6.2
         run: |
           set -euo pipefail
           identity_url="$PREVIEW_URL/api/release/identity?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -291,7 +322,7 @@ jobs:
               environment="$(jq -r '.environment // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
-              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "novel-ai-p24b-conversation-first-studio-rc6" ]]; then
+              if [[ "$app_commit" == "$EXPECTED_COMMIT" && "$environment" == "preview" && "$provenance_status" == "verified" && "$release_tag" == "$EXPECTED_RELEASE_TAG" ]]; then
                 printf '### RC6 Preview\n\n- URL: %s\n- Commit: `%s`\n- Release identity: verified\n' "$PREVIEW_URL" "$EXPECTED_COMMIT" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
@@ -454,21 +485,53 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/production-last-known-good.mjs discover
 
+      - name: Require the latest successful Last Known Good artifact
+        shell: bash
+        run: test "${{ steps.lkg.outputs.available }}" = true
+
       - name: Download latest Last Known Good identity
         if: steps.lkg.outputs.available == 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ steps.lkg.outputs.artifact_name }}
-          path: ${{ runner.temp }}/last-known-good
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.lkg.outputs.run_id }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LAST_KNOWN_GOOD_ARTIFACT_ID: ${{ steps.lkg.outputs.artifact_id }}
+          LAST_KNOWN_GOOD_ARTIFACT_NAME: ${{ steps.lkg.outputs.artifact_name }}
+          LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
+          LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
+          LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
+          LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+          EXPECTED_LKG_APP_COMMIT: ''
+          EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: ''
+          EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: ''
+          EXPECTED_LKG_RELEASE_TAG: ''
+          EXPECTED_LKG_RELEASE_REVISION: ''
+        run: node scripts/production-last-known-good.mjs download
+
+      - name: Prove latest Last Known Good selection independently
+        if: steps.lkg.outputs.available == 'true'
+        id: lkg_live_selection
+        env:
+          DISABLE_CURRENT_CAPTURE: 'true'
+          LAST_KNOWN_GOOD_AVAILABLE: 'true'
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+          ROLLBACK_SELECTION_PROOF_PATH: ${{ runner.temp }}/lkg-independent-selection-proof.json
+        run: node scripts/production-last-known-good.mjs select
+
+      - name: Require independent Last Known Good selection proof
+        if: steps.lkg.outputs.available == 'true'
+        shell: bash
+        run: test "${{ steps.lkg_live_selection.outputs.source }}" = last-known-good
 
       - name: Select verified Last Known Good or emergency fallback
         id: rollback
         env:
           DISABLE_CURRENT_CAPTURE: 'true'
-          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good/last-known-good-production.json', runner.temp) || '' }}
+          LAST_KNOWN_GOOD_AVAILABLE: ${{ steps.lkg.outputs.available }}
+          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good-production.json', runner.temp) || '' }}
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good-artifact-proof.json', runner.temp) || '' }}
           EMERGENCY_PRIMARY_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
           EMERGENCY_PRIMARY_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
           EMERGENCY_MIRROR_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
@@ -489,6 +552,11 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      build_started_at: ${{ steps.production_build_window.outputs.build_started_at }}
+      build_completed_at: ${{ steps.production_build_window.outputs.build_completed_at }}
+      archive_sha256: ${{ steps.preupload_secret_scan.outputs.archive_sha256 }}
+      preupload_scan_receipt_digest: ${{ steps.preupload_secret_scan.outputs.receipt_digest }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -519,8 +587,18 @@ jobs:
       - name: Provision and verify encrypted cloud sync private storage
         run: node scripts/provision-cloud-sync-storage.mjs --env-file .vercel/.env.production.local --required
 
-      - name: Build (production)
-        run: pnpm exec vercel build --prod --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+      - name: Build production and record the actual build window
+        id: production_build_window
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_started_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
+          export NOVEL_BUILD_STARTED_AT="$build_started_at"
+          pnpm exec vercel build --prod --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+          build_completed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
+          node -e 'const [s,c]=process.argv.slice(1).map(Date.parse); if(!Number.isFinite(s)||!Number.isFinite(c)||s>c) process.exit(1)' "$build_started_at" "$build_completed_at"
+          echo "build_started_at=$build_started_at" >> "$GITHUB_OUTPUT"
+          echo "build_completed_at=$build_completed_at" >> "$GITHUB_OUTPUT"
 
       - name: Verify Conversation production bundle budget
         run: pnpm test:studio:conversation-bundle-budget
@@ -536,26 +614,118 @@ jobs:
           tar --create --gzip \
             --file "$RUNNER_TEMP/production-prebuilt.tgz" \
             --exclude='.next/cache' \
-            .vercel/output .next
+            .vercel/output .next \
+            public/generated/manual-learning-worker.js \
+            release-manifest.json release-metadata-contract.json \
+            generated/release-provenance.json
+
+      - name: Scan sealed Production bytes before immutable artifact upload
+        id: preupload_secret_scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/production-prebuilt-preupload-secret-scan.json"
+          node scripts/scan-sealed-production-artifact.mjs \
+            --root .vercel/output \
+            --root .next \
+            --root public/generated/manual-learning-worker.js \
+            --root release-manifest.json \
+            --root release-metadata-contract.json \
+            --root generated/release-provenance.json \
+            --env-file .vercel/.env.production.local \
+            --archive "$RUNNER_TEMP/production-prebuilt.tgz" \
+            --report "$receipt"
+          archive_sha256="$(jq -er '.archiveSha256 | select(test("^[0-9a-f]{64}$"))' "$receipt")"
+          receipt_digest="$(jq -er '.receiptDigest | select(test("^[0-9a-f]{64}$"))' "$receipt")"
+          test "$(jq -r '.status' "$receipt")" = PASS
+          test "$(jq -r '.trueCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.clientCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.sourceMapCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.workerCredentialHits' "$receipt")" = 0
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "receipt_digest=$receipt_digest" >> "$GITHUB_OUTPUT"
 
       - name: Upload sealed prebuilt Production artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/production-prebuilt.tgz
+          path: |
+            ${{ runner.temp }}/production-prebuilt.tgz
+            ${{ runner.temp }}/production-prebuilt-preupload-secret-scan.json
           if-no-files-found: error
           include-hidden-files: true
           overwrite: true
           retention-days: 7
 
+  post_build_secret_scan:
+    name: post-build sealed artifact secret scan
+    needs: production_build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      receipt_digest: ${{ steps.immutable_secret_scan.outputs.receipt_digest }}
+    steps:
+      - name: Checkout exact Product commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Download immutable prebuilt Production artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-prebuilt-scan
+
+      - name: Independently rescan downloaded sealed bytes
+        id: immutable_secret_scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/production-prebuilt-scan/production-prebuilt.tgz"
+          prior="$RUNNER_TEMP/production-prebuilt-scan/production-prebuilt-preupload-secret-scan.json"
+          receipt="$RUNNER_TEMP/production-prebuilt-post-build-secret-scan.json"
+          node scripts/scan-sealed-production-artifact.mjs \
+            --archive "$archive" \
+            --expected-digest "${{ needs.production_build.outputs.archive_sha256 }}" \
+            --prior-receipt "$prior" \
+            --report "$receipt"
+          test "$(jq -r '.status' "$receipt")" = PASS
+          test "$(jq -r '.trueCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.clientCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.sourceMapCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.workerCredentialHits' "$receipt")" = 0
+          test "$(jq -r '.archiveSha256' "$receipt")" = "${{ needs.production_build.outputs.archive_sha256 }}"
+          receipt_digest="$(jq -er '.receiptDigest | select(test("^[0-9a-f]{64}$"))' "$receipt")"
+          echo "receipt_digest=$receipt_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload sanitized immutable secret scan receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-post-build-secret-scan-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-prebuilt-post-build-secret-scan.json
+          if-no-files-found: error
+          retention-days: 30
+
   staged_deploy:
     name: staged deploy
-    needs: production_build
+    needs: [production_build, post_build_secret_scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       url: ${{ steps.production.outputs.url }}
+      deployed_at: ${{ steps.production.outputs.deployed_at }}
+      build_started_at: ${{ needs.production_build.outputs.build_started_at }}
+      build_completed_at: ${{ needs.production_build.outputs.build_completed_at }}
+      archive_sha256: ${{ needs.production_build.outputs.archive_sha256 }}
+      post_build_scan_receipt_digest: ${{ needs.post_build_secret_scan.outputs.receipt_digest }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -592,6 +762,8 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/production-prebuilt/production-prebuilt.tgz"
           test -f "$archive"
+          actual_digest="$(sha256sum "$archive" | awk '{print $1}')"
+          test "$actual_digest" = "${{ needs.production_build.outputs.archive_sha256 }}"
           tar --extract --gzip --file "$archive" --directory "$GITHUB_WORKSPACE"
 
       - name: Verify restored Build Output API artifact
@@ -611,8 +783,15 @@ jobs:
           set -euo pipefail
           deployment_stdout="$RUNNER_TEMP/vercel-staged-deploy.stdout"
           deploy_log="$RUNNER_TEMP/vercel-staged-deploy.stderr.log"
+          build_started_at="${{ needs.production_build.outputs.build_started_at }}"
+          build_completed_at="${{ needs.production_build.outputs.build_completed_at }}"
+          deployed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
+          node -e 'const [s,c,d]=process.argv.slice(1).map(Date.parse); if(![s,c,d].every(Number.isFinite)||s>c||c>d) process.exit(1)' "$build_started_at" "$build_completed_at" "$deployed_at"
           set +e
-          { pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" > "$deployment_stdout"; } 2>&1 \
+          { pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" \
+              --env "NOVEL_BUILD_STARTED_AT=$build_started_at" \
+              --env "NOVEL_BUILD_COMPLETED_AT=$build_completed_at" \
+              --env "NOVEL_DEPLOYED_AT=$deployed_at" > "$deployment_stdout"; } 2>&1 \
             | perl -pe 'BEGIN { $| = 1; $token = $ENV{"VERCEL_TOKEN"} // ""; } s/\Q$token\E/[REDACTED]/g if length $token' \
             | tee "$deploy_log" >&2
           pipeline_status=("${PIPESTATUS[@]}")
@@ -636,6 +815,7 @@ jobs:
           fi
           deployment_url="${deployment_url%/}"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "deployed_at=$deployed_at" >> "$GITHUB_OUTPUT"
 
   runtime_gates:
     name: runtime gates
@@ -645,11 +825,29 @@ jobs:
     timeout-minutes: 15
     outputs:
       deployment_id: ${{ steps.staged.outputs.deployment_id }}
+      temporal_proof_digest: ${{ steps.temporal.outputs.proof_digest }}
     env:
       STAGED_URL: ${{ needs.staged_deploy.outputs.url }}
+      NOVEL_BUILD_STARTED_AT: ${{ needs.staged_deploy.outputs.build_started_at }}
+      NOVEL_BUILD_COMPLETED_AT: ${{ needs.staged_deploy.outputs.build_completed_at }}
+      NOVEL_DEPLOYED_AT: ${{ needs.staged_deploy.outputs.deployed_at }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       EXPECTED_XAI_MODEL_ID: grok-4.5
       XAI_EXPECTED: ${{ secrets.XAI_API_KEY != '' }}
     steps:
+      - name: Checkout exact Product commit for runtime proof
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js for runtime proof
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
       - name: Verify staged production identity
         id: staged
         shell: bash
@@ -664,7 +862,16 @@ jobs:
               environment="$(jq -r '.environment // empty' <<<"$body")"
               release_tag="$(jq -r '.releaseTag // empty' <<<"$body")"
               release_revision="$(jq -r '.releaseRevision // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$environment" == "production" && "$release_tag" == "$EXPECTED_RELEASE_TAG" && "$release_revision" == "$EXPECTED_RELEASE_REVISION" ]]; then
+              release_line="$(jq -r '.releaseLine // empty' <<<"$body")"
+              release_name="$(jq -r '.releaseName // empty' <<<"$body")"
+              consumer_release="$(jq -r '.consumerRelease // empty' <<<"$body")"
+              architecture_stage="$(jq -r '.architectureStage // empty' <<<"$body")"
+              temporal_status="$(jq -r '.temporalProvenanceStatus // empty' <<<"$body")"
+              build_started_at="$(jq -r '.buildStartedAt // empty' <<<"$body")"
+              build_completed_at="$(jq -r '.buildCompletedAt // empty' <<<"$body")"
+              deployed_at="$(jq -r '.deployedAt // empty' <<<"$body")"
+              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$temporal_status" == "verified" && "$environment" == "production" && "$release_line" == "$EXPECTED_RELEASE_LINE" && "$release_tag" == "$EXPECTED_RELEASE_TAG" && "$release_revision" == "$EXPECTED_RELEASE_REVISION" && "$release_name" == "$EXPECTED_RELEASE_NAME" && "$consumer_release" == "$EXPECTED_CONSUMER_RELEASE" && "$architecture_stage" == "$EXPECTED_ARCHITECTURE_STAGE" && "$build_started_at" == "$NOVEL_BUILD_STARTED_AT" && "$build_completed_at" == "$NOVEL_BUILD_COMPLETED_AT" && "$deployed_at" == "$NOVEL_DEPLOYED_AT" ]]; then
+                printf '%s' "$body" > "$RUNNER_TEMP/staged-release-identity.json"
                 echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -673,6 +880,29 @@ jobs:
           done
           echo "Staged release identity did not match commit $GITHUB_SHA." >&2
           exit 1
+
+      - name: Bind runtime build/deploy truth to Vercel v13 createdAt
+        id: temporal
+        env:
+          STAGED_DEPLOYMENT_ID: ${{ steps.staged.outputs.deployment_id }}
+          EXPECTED_APP_COMMIT: ${{ github.sha }}
+          RUNTIME_IDENTITY_PATH: ${{ runner.temp }}/staged-release-identity.json
+          TEMPORAL_PROOF_PATH: ${{ runner.temp }}/staged-deployment-temporal-proof.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          export EXPECTED_PRODUCT_COMMIT_TIME="$(git show -s --format=%cI "$GITHUB_SHA")"
+          node scripts/verify-deployment-temporal-provenance.mjs
+          proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$TEMPORAL_PROOF_PATH")"
+          echo "proof_digest=$proof_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload sanitized staged temporal provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-temporal-proof-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/staged-deployment-temporal-proof.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Verify staged demand-loaded manual learning Worker asset
         shell: bash
@@ -801,6 +1031,13 @@ jobs:
         with:
           node-version: 24
 
+      - name: Re-verify immutable annotated RC6.2 tag for Production evidence
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+        run: node scripts/verify-immutable-release-tag.mjs remote
+
       - name: Capture current dual-alias transaction identity
         id: aliases_before
         continue-on-error: true
@@ -812,15 +1049,40 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/production-last-known-good.mjs discover
 
+      - name: Require exact prior RC6.1 Last Known Good before cutover
+        shell: bash
+        run: test "${{ steps.lkg.outputs.available }}" = true
+
       - name: Download latest Last Known Good identity
         if: steps.lkg.outputs.available == 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ steps.lkg.outputs.artifact_name }}
-          path: ${{ runner.temp }}/last-known-good
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.lkg.outputs.run_id }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LAST_KNOWN_GOOD_ARTIFACT_ID: ${{ steps.lkg.outputs.artifact_id }}
+          LAST_KNOWN_GOOD_ARTIFACT_NAME: ${{ steps.lkg.outputs.artifact_name }}
+          LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
+          LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
+          LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
+          LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+        run: node scripts/production-last-known-good.mjs download
+
+      - name: Prove exact RC6.1 Last Known Good selection independently for cutover
+        if: steps.lkg.outputs.available == 'true'
+        id: lkg_live_selection
+        env:
+          DISABLE_CURRENT_CAPTURE: 'true'
+          LAST_KNOWN_GOOD_AVAILABLE: 'true'
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+          ROLLBACK_SELECTION_PROOF_PATH: ${{ runner.temp }}/lkg-independent-selection-proof.json
+        run: node scripts/production-last-known-good.mjs select
+
+      - name: Require independent cutover Last Known Good selection proof
+        if: steps.lkg.outputs.available == 'true'
+        shell: bash
+        run: test "${{ steps.lkg_live_selection.outputs.source }}" = last-known-good
 
       - name: Select and verify rollback target in dynamic priority order
         id: rollback
@@ -829,12 +1091,21 @@ jobs:
           CURRENT_PRIMARY_COMMIT: ${{ steps.aliases_before.outputs.primary_app_commit }}
           CURRENT_MIRROR_DEPLOYMENT: ${{ steps.aliases_before.outputs.mirror_deployment_id }}
           CURRENT_MIRROR_COMMIT: ${{ steps.aliases_before.outputs.mirror_app_commit }}
-          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good/last-known-good-production.json', runner.temp) || '' }}
+          LAST_KNOWN_GOOD_AVAILABLE: ${{ steps.lkg.outputs.available }}
+          LAST_KNOWN_GOOD_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good-production.json', runner.temp) || '' }}
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ steps.lkg.outputs.available == 'true' && format('{0}/last-known-good-artifact-proof.json', runner.temp) || '' }}
           EMERGENCY_PRIMARY_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
           EMERGENCY_PRIMARY_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
           EMERGENCY_MIRROR_DEPLOYMENT: ${{ env.EMERGENCY_RECOVERY_DEPLOYMENT_ID }}
           EMERGENCY_MIRROR_COMMIT: ${{ env.EMERGENCY_RECOVERY_COMMIT }}
         run: node scripts/production-last-known-good.mjs select
+
+      - name: Recheck immutable GitHub Release immediately before alias cutover
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+        run: node scripts/verify-immutable-release-tag.mjs remote
 
       - name: Cut over both aliases with atomic compensation
         id: cutover
@@ -867,6 +1138,25 @@ jobs:
           MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
         run: node scripts/vercel-dual-alias-cutover.mjs restore
 
+      - name: Final immutable GitHub Release recheck after public cutover
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        id: immutable_tag_final
+        continue-on-error: true
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+        run: node scripts/verify-immutable-release-tag.mjs remote
+
+      - name: Compensating rollback after immutable Release recheck failure
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
+
       - name: Upload post-cutover verification evidence
         if: always() && steps.cutover.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -877,7 +1167,7 @@ jobs:
           retention-days: 30
 
       - name: Write Last Known Good only after public verification passes
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
         env:
           PRIMARY_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
           MIRROR_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
@@ -888,11 +1178,63 @@ jobs:
         run: node scripts/production-last-known-good.mjs write
 
       - name: Publish dynamic Last Known Good identity
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-last-known-good-${{ github.sha }}
           path: ${{ runner.temp }}/last-known-good-production.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create sanitized post-Production new-LUNA control-plane evidence
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lkg_digest="$(jq -er '.provenanceDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/last-known-good-production.json")"
+          prior_lkg_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          prior_lkg_artifact_id="$(jq -er '.artifactId' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          prior_lkg_run_id="$(jq -er '.runId' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          prior_lkg_head_sha="$(jq -er '.headSha | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          immutable_tag_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/immutable-release-tag-proof.json")"
+          lkg_selection_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/lkg-independent-selection-proof.json")"
+          public_post_cutover_receipt_digest="$(sha256sum "$RUNNER_TEMP/post-cutover-public-verification.json" | awk '{print $1}')"
+          generated_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
+          jq -n \
+            --arg schemaVersion 'p24b-rc6.2-new-luna-production-control-plane-evidence-v1' \
+            --arg generatedAt "$generated_at" \
+            --arg appCommit "$GITHUB_SHA" \
+            --arg deploymentId "${{ needs.runtime_gates.outputs.deployment_id }}" \
+            --arg releaseLine "$EXPECTED_RELEASE_LINE" \
+            --arg releaseTag "$EXPECTED_RELEASE_TAG" \
+            --arg releaseRevision "$EXPECTED_RELEASE_REVISION" \
+            --arg buildStartedAt "${{ needs.staged_deploy.outputs.build_started_at }}" \
+            --arg buildCompletedAt "${{ needs.staged_deploy.outputs.build_completed_at }}" \
+            --arg deployedAt "${{ needs.staged_deploy.outputs.deployed_at }}" \
+            --arg archiveSha256 "${{ needs.staged_deploy.outputs.archive_sha256 }}" \
+            --arg postBuildSecretScanReceiptDigest "${{ needs.staged_deploy.outputs.post_build_scan_receipt_digest }}" \
+            --arg temporalProofDigest "${{ needs.runtime_gates.outputs.temporal_proof_digest }}" \
+            --arg lastKnownGoodProvenanceDigest "$lkg_digest" \
+            --arg priorLastKnownGoodArtifactProofDigest "$prior_lkg_proof_digest" \
+            --arg priorLastKnownGoodArtifactId "$prior_lkg_artifact_id" \
+            --arg priorLastKnownGoodRunId "$prior_lkg_run_id" \
+            --arg priorLastKnownGoodHeadSha "$prior_lkg_head_sha" \
+            --arg immutableReleaseTagProofDigest "$immutable_tag_proof_digest" \
+            --arg priorLastKnownGoodSelectionProofDigest "$lkg_selection_proof_digest" \
+            --arg publicPostCutoverReceiptDigest "$public_post_cutover_receipt_digest" \
+            '{schemaVersion:$schemaVersion,status:"CONTROL_PLANE_PASS",generatedAt:$generatedAt,appCommit:$appCommit,deploymentId:$deploymentId,releaseLine:$releaseLine,releaseTag:$releaseTag,releaseRevision:$releaseRevision,legacyTagTruth:"RC6_LEGACY_TAG_WAS_MISSING",buildStartedAt:$buildStartedAt,buildCompletedAt:$buildCompletedAt,deployedAt:$deployedAt,archiveSha256:$archiveSha256,postBuildSecretScanReceiptDigest:$postBuildSecretScanReceiptDigest,temporalProofDigest:$temporalProofDigest,lastKnownGoodProvenanceDigest:$lastKnownGoodProvenanceDigest,priorLastKnownGoodArtifactProofDigest:$priorLastKnownGoodArtifactProofDigest,priorLastKnownGoodArtifactId:$priorLastKnownGoodArtifactId,priorLastKnownGoodRunId:$priorLastKnownGoodRunId,priorLastKnownGoodHeadSha:$priorLastKnownGoodHeadSha,immutableReleaseTagProofDigest:$immutableReleaseTagProofDigest,priorLastKnownGoodSelectionProofDigest:$priorLastKnownGoodSelectionProofDigest,publicPostCutoverReceiptDigest:$publicPostCutoverReceiptDigest,publicAliasGate:"PASS",freshProductionBrowserGateStatus:"pending_external_real_browser_gate",fullNewLunaHandoffStatus:"not_yet_produced",sanitized:true,rawSecretsIncluded:false}' \
+            > "$RUNNER_TEMP/new-luna-production-control-plane-evidence.json"
+
+      - name: Publish sanitized post-Production new-LUNA control-plane evidence
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-new-luna-control-plane-evidence-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/new-luna-production-control-plane-evidence.json
+            ${{ runner.temp }}/immutable-release-tag-proof.json
+            ${{ runner.temp }}/last-known-good-artifact-proof.json
+            ${{ runner.temp }}/lkg-independent-selection-proof.json
           if-no-files-found: error
           retention-days: 90
 
@@ -906,4 +1248,10 @@ jobs:
         if: steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
         run: |
           echo "Public Production verification failed and both aliases were rolled back." >&2
+          exit 1
+
+      - name: Fail after immutable Release compensating rollback
+        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
+        run: |
+          echo "Immutable GitHub Release verification failed and both aliases were rolled back." >&2
           exit 1

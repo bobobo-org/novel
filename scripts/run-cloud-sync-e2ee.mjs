@@ -388,7 +388,6 @@ test("private Storage provisioning is gated, server-only and preserves the addit
   assert.match(gateway, /import "server-only"/u);
   assert.match(gateway, /persistSession:\s*false/u);
   assert.match(workflow, /provision-cloud-sync-storage\.mjs --env-file \.vercel\/\.env\.production\.local --required/u);
-  assert.ok(workflow.indexOf("Provision and verify encrypted cloud sync private storage") < workflow.indexOf("Build (production)"));
   assert.match(workflow, /Verify staged encrypted cloud sync runtime/u);
   assert.match(workflow, /cloud_sync_e2ee_storage_001/u);
   assert.match(workflow, /private-object-storage/u);
@@ -402,6 +401,11 @@ test("private Storage provisioning is gated, server-only and preserves the addit
   };
   const auditJob = workflowJob("production_env_audit");
   const repairJob = workflowJob("production_env_repair");
+  const buildJob = workflowJob("production_build");
+  assert.ok(
+    buildJob.indexOf("Provision and verify encrypted cloud sync private storage")
+      < buildJob.indexOf("pnpm exec vercel build --prod"),
+  );
   assert.match(auditJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
   assert.match(repairJob, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
   for (const name of ["production_build", "staged_deploy", "runtime_gates", "alias_cutover"]) {

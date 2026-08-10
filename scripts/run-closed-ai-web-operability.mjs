@@ -120,6 +120,22 @@ const approvedContext = [
   "【世界規則】城門在午夜後只能由兩名守衛共同開啟。",
 ].join("\n");
 
+function modelDigestForBackend(id) {
+  return {
+    "browser-ai": "b".repeat(64),
+    "local-ollama": "c".repeat(64),
+    "private-ai-hub": "d".repeat(64),
+  }[id];
+}
+
+function verificationSourceForBackend(id) {
+  return {
+    "browser-ai": "browser-runtime-generation",
+    "local-ollama": "local-bridge-generation",
+    "private-ai-hub": "private-hub-generation",
+  }[id];
+}
+
 class OperabilityBackend {
   constructor(id, maximumComplexity, calls) {
     this.id = id;
@@ -132,8 +148,18 @@ class OperabilityBackend {
       id: this.id,
       label: this.id,
       status: "ready",
+      runtimeTruth: {
+        installed: true,
+        configured: true,
+        reachable: true,
+        modelAvailable: true,
+        runtimeVerified: true,
+        generationVerified: true,
+        verificationSource: verificationSourceForBackend(this.id),
+        verifiedAt: "2026-08-10T00:00:00.000Z",
+      },
       modelId: `${this.id}-operability-model`,
-      modelDigest: `${this.id}-operability-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       local: this.id !== "private-ai-hub",
       dataBoundary: this.id === "private-ai-hub"
         ? "private-infrastructure"
@@ -159,7 +185,7 @@ class OperabilityBackend {
     return {
       backendId: this.id,
       modelId: `${this.id}-operability-model`,
-      modelDigest: `${this.id}-operability-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       content: `「${input.request.taskType}」功能已透過 ${this.id} 真實執行管線建立候選。此結果保留角色選擇、世界規則與人工核准邊界，並提供可驗證的作者用途。`,
       candidateOnly: true,
       dataLeftDevice: this.id === "private-ai-hub",
@@ -213,7 +239,7 @@ function namespace(task, index) {
     characterId: "shared",
     agentRole: "closed-agent-os",
     modelId: `${backendId}-operability-model`,
-    modelDigest: `${backendId}-operability-digest`,
+    modelDigest: modelDigestForBackend(backendId),
     promptProfileVersion: "closed-agent-prompt-v2",
     storyBibleRevision: "1",
     knowledgeScopeRevision: "1",
@@ -424,7 +450,22 @@ await test("Private Hub model identity is scoped to the executing project", asyn
       requestedProjects.push(projectId);
       return [];
     },
-    getModelVerification: () => ({ state: "inference_verified" }),
+    getModelVerification: () => ({
+      proofVersion: "private-hub-model-inference-proof-v1",
+      state: "inference_verified",
+      providerKind: "private_ai_hub",
+      deploymentKind: "self_hosted_loopback_private_node",
+      instanceId: "test-instance",
+      modelId: "qwen2.5:3b",
+      modelDigest: "b".repeat(64),
+      verifiedAt: new Date().toISOString(),
+      latencyMs: 8,
+      outputDigest: "c".repeat(64),
+      outputBytes: 16,
+      evalCount: 4,
+      externalRequest: false,
+      dataLeftDevice: false,
+    }),
     getActiveAdapter: (projectId) => projectId === "project-right" ? adapter : null,
   };
   configurePrivateHubClient(client);
@@ -459,6 +500,16 @@ await test("Private Hub performs one control-plane probe per routed task", async
         id: "private-ai-hub",
         label: "私有 AI Hub",
         status: "ready",
+        runtimeTruth: {
+          installed: true,
+          configured: true,
+          reachable: true,
+          modelAvailable: true,
+          runtimeVerified: true,
+          generationVerified: true,
+          verificationSource: "private-hub-generation",
+          verifiedAt: "2026-08-10T00:00:00.000Z",
+        },
         modelId: "qwen2.5:3b",
         modelDigest: "c".repeat(64),
         local: true,

@@ -57,6 +57,14 @@ function permissions() {
   ];
 }
 
+function modelDigestForBackend(id) {
+  return {
+    "browser-ai": "b".repeat(64),
+    "local-ollama": "c".repeat(64),
+    "private-ai-hub": "d".repeat(64),
+  }[id];
+}
+
 class TestBackend {
   constructor(id, calls, status = "ready") {
     this.id = id;
@@ -65,12 +73,28 @@ class TestBackend {
   }
 
   async snapshot() {
+    const generationVerified = this.status === "ready";
+    const verificationSource = {
+      "browser-ai": "browser-runtime-generation",
+      "local-ollama": "local-bridge-generation",
+      "private-ai-hub": "private-hub-generation",
+    }[this.id];
     return {
       id: this.id,
       label: this.id,
       status: this.status,
+      runtimeTruth: {
+        installed: generationVerified,
+        configured: generationVerified,
+        reachable: generationVerified,
+        modelAvailable: generationVerified,
+        runtimeVerified: generationVerified,
+        generationVerified,
+        verificationSource: generationVerified ? verificationSource : "none",
+        verifiedAt: generationVerified ? "2026-08-10T00:00:00.000Z" : null,
+      },
       modelId: this.status === "ready" ? `${this.id}-model` : null,
-      modelDigest: this.status === "ready" ? `${this.id}-digest` : null,
+      modelDigest: this.status === "ready" ? modelDigestForBackend(this.id) : null,
       local: this.id !== "private-ai-hub",
       dataBoundary: this.id === "private-ai-hub"
         ? "private-infrastructure"
@@ -105,7 +129,7 @@ class TestBackend {
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
-      modelDigest: `${this.id}-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       content,
       candidateOnly: true,
       dataLeftDevice: this.id === "private-ai-hub",

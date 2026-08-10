@@ -90,6 +90,32 @@ function errorCode(code) {
   return (error) => error?.code === code;
 }
 
+function verifiedRuntimeTruth(id, ready) {
+  const source = {
+    "browser-ai": "browser-runtime-generation",
+    "local-ollama": "local-bridge-generation",
+    "private-ai-hub": "private-hub-generation",
+  }[id];
+  return {
+    installed: ready,
+    configured: ready,
+    reachable: ready,
+    modelAvailable: ready,
+    runtimeVerified: ready,
+    generationVerified: ready,
+    verificationSource: ready ? source : "none",
+    verifiedAt: ready ? "2026-08-10T00:00:00.000Z" : null,
+  };
+}
+
+function modelDigestForBackend(id) {
+  return {
+    "browser-ai": "b".repeat(64),
+    "local-ollama": "c".repeat(64),
+    "private-ai-hub": "d".repeat(64),
+  }[id];
+}
+
 class MockBackend {
   constructor(id, maximumComplexity, calls, options = {}) {
     this.id = id;
@@ -99,12 +125,14 @@ class MockBackend {
   }
 
   async snapshot() {
+    const status = this.options.status ?? "ready";
     return {
       id: this.id,
       label: this.id,
-      status: this.options.status ?? "ready",
+      status,
+      runtimeTruth: verifiedRuntimeTruth(this.id, status === "ready"),
       modelId: `${this.id}-model`,
-      modelDigest: `${this.id}-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       local: this.id !== "private-ai-hub",
       dataBoundary: this.id === "private-ai-hub" ? "private-infrastructure" : "device",
       maximumComplexity: this.maximumComplexity,
@@ -126,7 +154,7 @@ class MockBackend {
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
-      modelDigest: `${this.id}-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       content: `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`,
       candidateOnly: true,
       dataLeftDevice: this.id === "private-ai-hub",
@@ -427,7 +455,7 @@ test("knowledge sources become non-copying L1 candidates with signed lineage and
   const { os } = createMockOS();
   const boundNamespace = namespace({
     modelId: "local-ollama-model",
-    modelDigest: "local-ollama-digest",
+    modelDigest: modelDigestForBackend("local-ollama"),
   });
   await os.learning.setConsent({ namespace: boundNamespace, enabled: true });
   const sourceText = [
@@ -598,14 +626,16 @@ test("policy-aware light, quality-first standard and heavy routing use the three
   ]);
 });
 
-test("automatic routing uses a verified native browser generator when Local Ollama is unavailable", () => {
-  const route = selectClosedAIBackend(
-    request("task-native-browser", "chapter.continue", "standard"),
-    [
+test("native browser generator without a cryptographic model digest fails closed", () => {
+  assert.throws(
+    () => selectClosedAIBackend(
+      request("task-native-browser", "chapter.continue", "standard"),
+      [
       {
         id: "browser-ai",
         label: "瀏覽器 AI",
         status: "ready",
+        runtimeTruth: verifiedRuntimeTruth("browser-ai", true),
         modelId: "chrome-built-in-language-model",
         modelDigest: "browser-managed-model-digest-unavailable",
         local: true,
@@ -619,6 +649,7 @@ test("automatic routing uses a verified native browser generator when Local Olla
         id: "local-ollama",
         label: "個人本機 Ollama",
         status: "runtime_required",
+        runtimeTruth: verifiedRuntimeTruth("local-ollama", false),
         modelId: null,
         modelDigest: null,
         local: true,
@@ -632,6 +663,7 @@ test("automatic routing uses a verified native browser generator when Local Olla
         id: "private-ai-hub",
         label: "私有 AI Hub",
         status: "runtime_required",
+        runtimeTruth: verifiedRuntimeTruth("private-ai-hub", false),
         modelId: null,
         modelDigest: null,
         local: true,
@@ -641,12 +673,10 @@ test("automatic routing uses a verified native browser generator when Local Olla
         supportedTaskTypes: "all",
         detailCode: "pairing_required",
       },
-    ],
+      ],
+    ),
+    errorCode("CLOSED_AI_REQUIRED_BACKEND_NOT_READY"),
   );
-  assert.equal(route.backend.id, "browser-ai");
-  assert.equal(route.automatic, true);
-  assert.equal(route.fallbackAttempted, false);
-  assert.equal(route.reasonCode, "AUTO_SELECTED_BROWSER_AI");
 });
 
 test("shared OS uses semantic and retrieval caches without promoting cache authority", async () => {
@@ -859,7 +889,7 @@ test("shared Agent OS applies adopted learning and records only consented outcom
   const { os, calls } = createMockOS();
   const boundNamespace = namespace({
     modelId: "local-ollama-model",
-    modelDigest: "local-ollama-digest",
+    modelDigest: modelDigestForBackend("local-ollama"),
   });
   await os.learning.setConsent({ namespace: boundNamespace, enabled: true });
   const seed = await os.learning.collectExperience({
@@ -1010,16 +1040,17 @@ test("product UI and health expose the unified system truth", () => {
   assert.match(ui, /尚未取得此網站的短期工作階段/);
   assert.match(ui, /Ollama 尚未啟動或沒有可用模型/);
   assert.match(ui, /automaticConnectionFailure\(error, "Local Ollama"\)/);
-  assert.match(ui, /模型運作中/);
+  assert.match(ui, /裝置內生成模型已就緒/);
   assert.match(navigation, /\["closed-ai","閉端 AI 中心"\]/);
-  assert.match(health, /threeClosedAISharedSystemStatus: "ready"/);
+  assert.match(health, /threeClosedAISharedSystemStatus: "not_verified"/);
   assert.match(
     health,
     /privateAIHubRuntimeTruthStatus: "self_hosted_loopback_runtime_ready_pairing_required"/,
   );
-  assert.match(health, /browserAiStatus: "runtime_ready_device_dependent"/);
-  assert.match(health, /browserClosedAiStatus: "ready_with_packaged_extractive_fallback"/);
-  assert.match(health, /threeClosedAiArchitectureStatus: "ready"/);
+  assert.match(health, /browserAiStatus: "client_probe_required"/);
+  assert.match(health, /browserClosedAiStatus: "setup_required"/);
+  assert.match(health, /threeClosedAiArchitectureStatus: "not_verified"/);
+  assert.match(health, /closedAiGenerationVerifiedBackends: CLOSED_AI_SERVER_RUNTIME_TRUTH\.generationVerifiedBackends/);
   assert.match(health, /continualLearningStatus: "ready_l0_l1_controlled"/);
   assert.match(
     health,

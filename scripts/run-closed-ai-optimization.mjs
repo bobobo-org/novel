@@ -71,6 +71,31 @@ function namespace(overrides = {}) {
   };
 }
 
+function modelDigestForBackend(id) {
+  return {
+    "browser-ai": "b".repeat(64),
+    "local-ollama": "c".repeat(64),
+    "private-ai-hub": "d".repeat(64),
+  }[id];
+}
+
+function verifiedRuntimeTruth(id) {
+  return {
+    installed: true,
+    configured: true,
+    reachable: true,
+    modelAvailable: true,
+    runtimeVerified: true,
+    generationVerified: true,
+    verificationSource: {
+      "browser-ai": "browser-runtime-generation",
+      "local-ollama": "local-bridge-generation",
+      "private-ai-hub": "private-hub-generation",
+    }[id],
+    verifiedAt: "2026-08-10T00:00:00.000Z",
+  };
+}
+
 class OptimizationBackend {
   constructor(id, complexity, calls) {
     this.id = id;
@@ -84,8 +109,9 @@ class OptimizationBackend {
       id: this.id,
       label: this.id,
       status: "ready",
+      runtimeTruth: verifiedRuntimeTruth(this.id),
       modelId: `${this.id}-model`,
-      modelDigest: `${this.id}-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       local: this.id !== "private-ai-hub",
       dataBoundary: this.id === "private-ai-hub"
         ? "private-infrastructure"
@@ -124,7 +150,7 @@ class OptimizationBackend {
     return {
       backendId: this.id,
       modelId: `${this.id}-model`,
-      modelDigest: `${this.id}-digest`,
+      modelDigest: modelDigestForBackend(this.id),
       content,
       candidateOnly: true,
       dataLeftDevice: false,
@@ -438,8 +464,9 @@ test("Deep quality mode performs draft, critic and revision without persisting t
         id: "private-ai-hub",
         label: "私有 AI Hub",
         status: "ready",
+        runtimeTruth: verifiedRuntimeTruth("private-ai-hub"),
         modelId: "quality-model",
-        modelDigest: "quality-model-digest",
+        modelDigest: "e".repeat(64),
         local: false,
         dataBoundary: "private-infrastructure",
         maximumComplexity: "heavy",
@@ -464,7 +491,7 @@ test("Deep quality mode performs draft, critic and revision without persisting t
       return {
         backendId: "private-ai-hub",
         modelId: "quality-model",
-        modelDigest: "quality-model-digest",
+        modelDigest: "e".repeat(64),
         content,
         candidateOnly: true,
         dataLeftDevice: false,

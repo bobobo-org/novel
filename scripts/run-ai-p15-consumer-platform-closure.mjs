@@ -64,7 +64,7 @@ test("章節完成可觸發完整備份", () =>
 test("備份包含消費者故事資料快照", () => studio.includes('storyBibleStatus: "consumer_snapshot"') && studio.includes("unresolvedThreads"));
 test("備份包含閱讀進度", () => studio.includes("readingProgress") && studio.includes("novel_reader_progress_"));
 test("專業工具首頁有真實狀態來源", () => professional.includes("/api/ai/health") && professional.includes("discoverStudioClosedAI"));
-test("Browser AI誠實標示裝置相依", () => health.includes('browserAiStatus: "runtime_ready_device_dependent"'));
+test("Browser AI由客戶端生成實測決定", () => health.includes('browserAiStatus: "client_probe_required"'));
 test("Ollama消費者接線誠實標示需本機環境", () => health.includes('ollamaConsumerIntegrationStatus: "runtime_required"'));
 test("IndexedDB遷移誠實標示由瀏覽器執行", () =>
   health.includes('indexedDbMigrationStatus: "client_runtime_migration_ready"'));

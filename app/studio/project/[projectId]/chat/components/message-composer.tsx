@@ -1,12 +1,20 @@
+import Link from "next/link";
 import type { ChangeEvent } from "react";
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
+import type {
+  ClosedAiBootstrapProgress,
+  ClosedAiBootstrapResult,
+} from "@/lib/novel-ai/web/closed-ai-bootstrap-coordinator";
+import { BROWSER_WEBLLM_MODELS } from "@/lib/novel-ai/providers/browser-ai/webllm-model-registry";
 import { useConversationComposer } from "../hooks/use-conversation-composer";
+import type { ClosedAiSetupLifecycle } from "../hooks/use-closed-ai-bootstrap";
 import { AttachmentTray } from "./attachment-tray";
 import type { LocalAttachment } from "./conversation-types";
 import styles from "../conversation.module.css";
 
 export function MessageComposer({
   active,
+  projectId,
   busy,
   busyReason,
   canStop,
@@ -14,6 +22,11 @@ export function MessageComposer({
   localAttachments,
   rightsConfirmed,
   latestInvocation,
+  closedAiSetup,
+  closedAiSetupProgress,
+  closedAiSetupBusy,
+  closedAiSetupError,
+  closedAiSetupLifecycle,
   onDraftChange,
   onFilesSelected,
   onRightsConfirmedChange,
@@ -22,8 +35,11 @@ export function MessageComposer({
   onToggleArtifacts,
   onStop,
   onSend,
+  onPrepareClosedAi,
+  onCancelClosedAiSetup,
 }: {
   active: boolean;
+  projectId: string;
   busy: boolean;
   busyReason: string | null;
   canStop: boolean;
@@ -31,6 +47,11 @@ export function MessageComposer({
   localAttachments: LocalAttachment[];
   rightsConfirmed: boolean;
   latestInvocation: ConversationToolInvocation | null;
+  closedAiSetup: ClosedAiBootstrapResult | null;
+  closedAiSetupProgress: ClosedAiBootstrapProgress | null;
+  closedAiSetupBusy: boolean;
+  closedAiSetupError: string | null;
+  closedAiSetupLifecycle: ClosedAiSetupLifecycle;
   onDraftChange: (value: string) => void;
   onFilesSelected: (event: ChangeEvent<HTMLInputElement>) => void;
   onRightsConfirmedChange: (confirmed: boolean) => void;
@@ -39,6 +60,8 @@ export function MessageComposer({
   onToggleArtifacts: () => void;
   onStop: () => void;
   onSend: () => void;
+  onPrepareClosedAi: () => void;
+  onCancelClosedAiSetup: () => void;
 }) {
   const composer = useConversationComposer({
     active,
@@ -47,8 +70,79 @@ export function MessageComposer({
     attachmentCount: localAttachments.length,
     onSend,
   });
+  const selectedModel = BROWSER_WEBLLM_MODELS.find(
+    (model) => model.modelId === closedAiSetup?.selectedModelId,
+  );
+  const showSetup = Boolean(
+    closedAiSetup
+    && closedAiSetup.status !== "ready",
+  );
+  const downloadMegabytes = closedAiSetup
+    ? (closedAiSetup.setup.estimatedDownloadBytes / 1_000_000).toFixed(1)
+    : "0.0";
   return (
-    <footer className={styles.composerWrap} data-testid="conversation-message-composer" aria-busy={busy}>
+    <footer
+      className={styles.composerWrap}
+      data-testid="conversation-message-composer"
+      data-closed-ai-generation-verified-backends={closedAiSetup?.readiness.generationVerifiedBackends ?? 0}
+      data-closed-ai-active-backend={closedAiSetup?.readiness.activeBackend ?? "none"}
+      data-closed-ai-external-fallback={closedAiSetup?.readiness.externalFallback ?? false}
+      data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
+      aria-busy={busy}
+    >
+      {showSetup ? (
+        <section
+          className={styles.closedAiSetupCard}
+          data-testid="closed-ai-setup-card"
+          data-status={closedAiSetup?.status}
+          data-setup-lifecycle={closedAiSetupLifecycle}
+          data-estimated-download-bytes={closedAiSetup?.setup.estimatedDownloadBytes ?? 0}
+          aria-busy={closedAiSetupBusy}
+        >
+          <div>
+            <small>第一次使用 · Closed Agent OS</small>
+            <h2>{closedAiSetup?.status === "unsupported"
+              ? "這台裝置無法使用 Browser AI"
+              : closedAiSetupLifecycle === "cancelled"
+                ? "Browser AI 準備已取消"
+              : closedAiSetupBusy
+                ? "正在準備 Browser AI"
+                : "準備裝置內 Browser AI"}</h2>
+            <p>{closedAiSetupError
+              ?? closedAiSetupProgress?.message
+              ?? closedAiSetup?.safeMessage}</p>
+          </div>
+          {selectedModel ? (
+            <dl className={styles.closedAiSetupFacts}>
+              <div><dt>模型</dt><dd>{selectedModel.displayName}</dd></div>
+              <div><dt>需要空間</dt><dd>約 {downloadMegabytes} MB 本機儲存（十進位 MB）</dd></div>
+              <div><dt>執行位置</dt><dd>此瀏覽器／此裝置</dd></div>
+              <div><dt>作品資料</dt><dd>不離開裝置</dd></div>
+            </dl>
+          ) : null}
+          <div className={styles.closedAiSetupActions}>
+            {closedAiSetup?.status !== "unsupported" ? (
+              closedAiSetupBusy
+                ? <button type="button" onClick={onCancelClosedAiSetup}>取消準備</button>
+                : <button
+                    className={styles.primaryAction}
+                    type="button"
+                    data-testid="closed-ai-prepare-browser"
+                    onClick={onPrepareClosedAi}
+                  >{closedAiSetupError ? "重試 Browser AI" : "準備 Browser AI"}</button>
+            ) : null}
+            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?backend=local-ollama`}>
+              改用 Local Ollama
+            </Link>
+            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?backend=private-ai-hub`}>
+              連接 Private AI Hub
+            </Link>
+          </div>
+          <p className={styles.closedAiSetupTruth}>
+            只有模型下載、完整性驗證、runtime 初始化、預熱與最小生成實測全部通過，才會顯示就緒；不會改用外部 AI 或規則模板冒充。
+          </p>
+        </section>
+      ) : null}
       <div className={styles.composer}>
         <AttachmentTray
           attachments={localAttachments}

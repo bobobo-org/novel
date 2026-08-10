@@ -33,9 +33,14 @@ import {
   cancelBrowserWebLLMGeneration,
   generateWithBrowserWebLLM,
 } from "@/lib/novel-ai/providers/browser-ai/browser-webllm-runtime";
-import { createNovelRepository } from "@/lib/novel-ai/repository";
+import {
+  createNovelRepository,
+  persistenceFailureOrNull,
+  type PersistenceFailure,
+} from "@/lib/novel-ai/repository";
 import { createProjectBackup } from "@/lib/novel-ai/repository/backup";
 import { mirrorProjectToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import PersistenceRecoveryNotice from "../persistence-recovery-notice";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
 
@@ -339,6 +344,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const [aiCandidate, setAiCandidate] = useState<AICandidate | null>(null);
   const [aiStatus, setAiStatus] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [persistenceIssue, setPersistenceIssue] = useState<PersistenceFailure | null>(null);
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
   const aiController = useRef<AbortController | null>(null);
@@ -358,7 +364,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       } catch (error) {
         if (!active) return;
         setDraft(createDraft());
-        setMessage(error instanceof Error ? error.message : "無法讀取原作品；已改為建立全新作品。");
+        const nextFailure = persistenceFailureOrNull(error);
+        setPersistenceIssue(nextFailure);
+        setMessage(nextFailure
+          ? "無法安全讀取原作品；系統沒有改用暫存資料，也不會把它當成全新作品繼續建立。"
+          : error instanceof Error ? error.message : "無法讀取原作品；已改為建立全新作品。");
       } finally {
         if (active) setReady(true);
       }
@@ -619,6 +629,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       setAiBusy(false);
     }
     setSaving(true);
+    setPersistenceIssue(null);
     setMessage("正在建立獨立作品、第一章與可還原備份……");
     try {
       const repository = createNovelRepository();
@@ -654,7 +665,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       setCreatedId(project.id);
       setMessage(`作品已建立並鎖定為「${STORY_PLAY_MODE_LABELS[currentPlayMode]}」。起始種子、第一章與完整備份均已保存。`);
     } catch (error) {
-      setMessage(`建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`);
+      const nextFailure = persistenceFailureOrNull(error);
+      setPersistenceIssue(nextFailure);
+      setMessage(nextFailure
+        ? "建立失敗：本機作品庫已安全停止。既有作品沒有被覆寫，也沒有改用 memory 替代庫。"
+        : `建立失敗：${error instanceof Error ? error.message : "請稍後再試"}。既有作品沒有被修改。`);
     } finally {
       setSaving(false);
     }
@@ -662,10 +677,32 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
 
   if (!ready) return <main className="p2CreateShell"><p>正在讀取你的創作資料……</p></main>;
 
+  if (persistenceIssue && cloneFrom) {
+    return (
+      <main
+        className="p2CreateShell"
+        data-persistence-backend="indexeddb"
+        data-persistence-degraded="true"
+        data-memory-fallback="false"
+      >
+        <PersistenceRecoveryNotice
+          failure={persistenceIssue}
+          onRetry={() => window.location.reload()}
+        />
+      </main>
+    );
+  }
+
   if (createdId) {
     const primaryHref = `/studio/project/${encodeURIComponent(createdId)}/chat`;
     return (
-      <main className="p2CreateShell">
+      <main
+        className="p2CreateShell"
+        data-testid="create-indexeddb-runtime"
+        data-persistence-backend="indexeddb"
+        data-persistence-degraded="false"
+        data-memory-fallback="false"
+      >
         <section className="p2CreateSuccess">
           <span>建立完成</span>
           <h1>{draft.title.trim()}</h1>
@@ -828,6 +865,12 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
               : <button className="gold" disabled={saving} onClick={() => void finish()}>{saving ? "建立中……" : `建立「${currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選玩法"}」作品`}</button>}
           </footer>
           {message ? <p className="p2CreateMessage" role="status" aria-live="polite">{message}</p> : null}
+          {persistenceIssue ? (
+            <PersistenceRecoveryNotice
+              failure={persistenceIssue}
+              onRetry={() => window.location.reload()}
+            />
+          ) : null}
         </section>
 
         <aside className="p2SeedPreview">

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const expected = {
-  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-  releaseRevision: "rc6.1",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
+  releaseLine: "novel-ai-p24b-conversation-first-studio-rc6",
+  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.2",
+  releaseRevision: "rc6.2",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.2",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.2",
   architectureStage: "P2.4B RC",
   packageManager: "pnpm@10.34.5",
   vercelVersion: "56.3.2",
@@ -54,12 +55,14 @@ const manifest = JSON.parse(manifestText);
 const packageJson = JSON.parse(packageText);
 
 assert.deepEqual({
+  releaseLine: manifest.releaseLine,
   releaseTag: manifest.releaseTag,
   releaseRevision: manifest.releaseRevision,
   releaseName: manifest.releaseName,
   consumerRelease: manifest.consumerRelease,
   architectureStage: manifest.architectureStage,
 }, {
+  releaseLine: expected.releaseLine,
   releaseTag: expected.releaseTag,
   releaseRevision: expected.releaseRevision,
   releaseName: expected.releaseName,

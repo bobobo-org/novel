@@ -25,6 +25,7 @@ import {
   STUDIO_CLOSED_AGENT_TOOL_IDS,
 } from "./studio-closed-agent-tools";
 import { ClosedAIRuntimeCoordinator } from "./closed-ai-runtime-coordinator";
+import { ClosedAiBootstrapCoordinator } from "./closed-ai-bootstrap-coordinator";
 import { composeProjectContext } from "./project-context-composer";
 import {
   prewarmStudioProjectAICache,
@@ -44,6 +45,9 @@ export const STUDIO_CLOSED_AGENT_PERMISSION_SCOPES = [
 let studioClosedAgentOS: ClosedAgentOS | null = null;
 let studioClosedAIRuntime:
   | { origin: string; coordinator: ClosedAIRuntimeCoordinator }
+  | null = null;
+let studioClosedAIBootstrap:
+  | { origin: string; coordinator: ClosedAiBootstrapCoordinator }
   | null = null;
 
 export function getStudioClosedAgentOS() {
@@ -96,8 +100,25 @@ export function getStudioClosedAIRuntimeCoordinator(
           os.backendSnapshots(signal, namespace),
       }),
     };
+    studioClosedAIBootstrap = null;
   }
   return studioClosedAIRuntime.coordinator;
+}
+
+export function getStudioClosedAIBootstrapCoordinator(
+  origin = typeof window === "undefined"
+    ? "https://novel-orcin.vercel.app"
+    : window.location.origin,
+) {
+  if (!studioClosedAIBootstrap || studioClosedAIBootstrap.origin !== origin) {
+    studioClosedAIBootstrap = {
+      origin,
+      coordinator: new ClosedAiBootstrapCoordinator(
+        getStudioClosedAIRuntimeCoordinator(origin),
+      ),
+    };
+  }
+  return studioClosedAIBootstrap.coordinator;
 }
 
 export type StudioClosedAgentContext = Omit<
@@ -199,6 +220,38 @@ export async function executeStudioClosedAgent(
     await runtime.connectLocalAutomatically(input.signal);
   }
   const complexity = taskComplexity(input.taskType);
+  if (
+    typeof window !== "undefined"
+    && complexity !== "heavy"
+    && !input.preferredBackend
+    && (input.browserComputePolicy ?? "browser-first") !== "quality-first"
+  ) {
+    const bootstrap = await getStudioClosedAIBootstrapCoordinator().bootstrap({
+      projectId: input.projectId,
+      taskType: input.taskType,
+      signal: input.signal,
+      onProgress: (progress) => input.onProgress?.({
+        taskId,
+        phase: progress.step === "model_download" || progress.step === "integrity_verify"
+          ? "probing"
+          : "routing",
+        label: progress.message.trim(),
+        percent: Math.min(45, Math.max(1, Math.round(progress.percent * 0.45))),
+        occurredAt: new Date().toISOString(),
+        backendId: "browser-ai",
+      }),
+    });
+    if (bootstrap.readiness.generationVerifiedBackends < 1) {
+      throw Object.assign(new Error(bootstrap.safeMessage), {
+        code: bootstrap.status === "unsupported"
+          ? "CLOSED_AI_BROWSER_UNSUPPORTED_SETUP_REQUIRED"
+          : "CLOSED_AI_SETUP_REQUIRED",
+        userActionRequired: true,
+        externalFallback: false,
+        setup: bootstrap.setup,
+      });
+    }
+  }
   const privacyLevel = complexity === "heavy"
     ? "private_infrastructure_only"
     : "device_only";

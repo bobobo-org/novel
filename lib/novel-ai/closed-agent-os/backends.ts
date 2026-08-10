@@ -1,5 +1,7 @@
 import {
   browserProviderSnapshot,
+  detectBrowserAI,
+  getBrowserAIInferenceProof,
 } from "../providers/browser-ai/browser-ai-provider";
 import { executeBrowserSovereignFabric } from "../browser-fabric";
 import {
@@ -31,9 +33,11 @@ import type {
   PlatformRouterDecision,
 } from "../router/platform-types";
 import { BROWSER_AI_LIGHT_TASKS, BACKEND_TRUTH } from "./backend-manifest";
+import { isCryptographicClosedAIModelDigest } from "./types";
 import type {
   ClosedAIBackendAdapter,
   ClosedAIBackendId,
+  ClosedAIBackendRuntimeTruth,
   ClosedAIBackendSnapshot,
   ClosedBackendExecutionInput,
   ClosedBackendExecutionResult,
@@ -42,19 +46,68 @@ import type {
 function mapStatus(
   id: ClosedAIBackendId,
   snapshot: PlatformProviderSnapshot,
+  runtimeTruth: ClosedAIBackendRuntimeTruth,
 ): ClosedAIBackendSnapshot["status"] {
-  if (snapshot.status === "ready") return "ready";
-  if (id === "private-ai-hub" && snapshot.status === "contract_ready") {
-    return "contract_ready_runtime_not_connected";
+  if (runtimeTruth.generationVerified) return "ready";
+  if (snapshot.detail?.includes("preparing")) return "preparing";
+  if (snapshot.status === "disabled") return "unsupported";
+  if (snapshot.status === "contract_ready") return "unreachable";
+  if (snapshot.status === "runtime_unavailable") return "unreachable";
+  if (snapshot.status === "runtime_not_installed" || snapshot.status === "auth_required") {
+    return "setup_required";
   }
-  if (snapshot.status === "disabled") return "disabled";
   if (snapshot.status === "degraded") return "degraded";
-  return "runtime_required";
+  if (runtimeTruth.runtimeVerified || runtimeTruth.modelAvailable) return "available";
+  return id === "browser-ai" ? "unsupported" : "setup_required";
+}
+
+function runtimeTruthFromPlatform(
+  id: ClosedAIBackendId,
+  snapshot: PlatformProviderSnapshot,
+  proof: { verifiedAt?: string | null } | null = null,
+): ClosedAIBackendRuntimeTruth {
+  const reachable = ![
+    "runtime_unavailable",
+    "disabled",
+    "contract_ready",
+  ].includes(snapshot.status);
+  const configured = Boolean(snapshot.modelId);
+  const modelAvailable = Boolean(
+    snapshot.modelId
+    && isCryptographicClosedAIModelDigest(snapshot.modelDigest),
+  );
+  const runtimeVerified = reachable
+    && configured
+    && (snapshot.maxContext > 0 || Boolean(proof));
+  const generationVerified = Boolean(
+    proof
+    && snapshot.status === "ready"
+    && snapshot.modelId
+    && isCryptographicClosedAIModelDigest(snapshot.modelDigest),
+  );
+  return {
+    installed: reachable && snapshot.status !== "runtime_not_installed",
+    configured,
+    reachable,
+    modelAvailable,
+    runtimeVerified,
+    generationVerified,
+    verificationSource: generationVerified
+      ? id === "local-ollama"
+        ? "local-bridge-generation"
+        : id === "private-ai-hub"
+          ? "private-hub-generation"
+          : "browser-runtime-generation"
+      : "none",
+    verifiedAt: generationVerified ? proof?.verifiedAt ?? null : null,
+  };
 }
 
 function snapshotFromPlatform(
   id: ClosedAIBackendId,
   snapshot: PlatformProviderSnapshot,
+  runtimeTruth = runtimeTruthFromPlatform(id, snapshot),
+  statusOverride?: ClosedAIBackendSnapshot["status"],
 ): ClosedAIBackendSnapshot {
   const truth = BACKEND_TRUTH[id];
   const browserGenerativeReady = id === "browser-ai"
@@ -68,7 +121,8 @@ function snapshotFromPlatform(
   return {
     id,
     label: truth.label,
-    status: mapStatus(id, snapshot),
+    status: statusOverride ?? mapStatus(id, snapshot, runtimeTruth),
+    runtimeTruth,
     modelId: snapshot.modelId,
     modelDigest: snapshot.modelDigest ?? null,
     local: id !== "private-ai-hub",
@@ -333,10 +387,18 @@ function localExecutionResult(
   input: ClosedBackendExecutionInput,
   qualityPasses = 1,
 ): ClosedBackendExecutionResult {
+  if (
+    !result.modelId
+    || !isCryptographicClosedAIModelDigest(result.modelDigest)
+  ) {
+    throw Object.assign(new Error("Local Ollama returned no verified model identity."), {
+      code: "CLOSED_AI_MODEL_IDENTITY_MISMATCH",
+    });
+  }
   return {
     backendId: "local-ollama",
-    modelId: result.modelId ?? "unknown-local-model",
-    modelDigest: result.modelDigest ?? "unknown-local-digest",
+    modelId: result.modelId,
+    modelDigest: result.modelDigest,
     content: result.content,
     candidateOnly: true,
     dataLeftDevice: false,
@@ -360,7 +422,40 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
   readonly id = "browser-ai" as const;
 
   async snapshot() {
-    return snapshotFromPlatform(this.id, await browserProviderSnapshot());
+    const capability = await detectBrowserAI();
+    const platform = await browserProviderSnapshot(capability);
+    const proof = getBrowserAIInferenceProof();
+    const generationVerified = Boolean(
+      proof?.inferenceMode === "generative-model"
+      && capability.generativeModelReady
+      && proof.modelId === capability.modelId
+      && proof.modelDigest === capability.modelDigest
+      && isCryptographicClosedAIModelDigest(proof?.modelDigest)
+      && isCryptographicClosedAIModelDigest(capability.modelDigest),
+    );
+    const nativePromptSupported = capability.promptAvailability !== "unavailable";
+    const runtimeTruth: ClosedAIBackendRuntimeTruth = {
+      installed: capability.generativeModelReady,
+      configured: capability.generativeModelReady && Boolean(capability.modelId),
+      reachable: capability.webLlmSupported || nativePromptSupported,
+      modelAvailable: capability.generativeModelReady,
+      runtimeVerified: capability.generativeModelReady,
+      generationVerified,
+      verificationSource: generationVerified
+        ? "browser-runtime-generation"
+        : "none",
+      verifiedAt: generationVerified ? proof?.verifiedAt ?? null : null,
+    };
+    const status: ClosedAIBackendSnapshot["status"] = generationVerified
+      ? "ready"
+      : capability.webLlmStatus === "installing"
+        ? "preparing"
+        : capability.generativeModelReady
+          ? "available"
+          : capability.webLlmSupported || nativePromptSupported
+            ? "setup_required"
+            : "unsupported";
+    return snapshotFromPlatform(this.id, platform, runtimeTruth, status);
   }
 
   async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendExecutionResult> {
@@ -409,7 +504,7 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       qualityPasses: 1,
       draftDigest: null,
       criticDigest: null,
-      actualExecutor: result.browserCompute?.actualExecutor ?? result.executor,
+      actualExecutor: this.id,
       browserComputeReceiptId: result.browserCompute?.receiptId,
       browserFabricReceiptId: compute.fabric.receipt.receiptId,
       browserFabricPlannedGraph: compute.fabric.plannedGraph,
@@ -425,9 +520,14 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
   private verifiedSnapshot: ClosedAIBackendSnapshot | null = null;
 
   async snapshot(signal?: AbortSignal) {
+    const platform = await probeLocalOllama(undefined, signal);
+    const proof = platform.modelId
+      ? getConfiguredLocalBridgeClient()?.getModelVerification(platform.modelId) ?? null
+      : null;
     const snapshot = snapshotFromPlatform(
       this.id,
-      await probeLocalOllama(undefined, signal),
+      platform,
+      runtimeTruthFromPlatform(this.id, platform, proof),
     );
     this.verifiedSnapshot = snapshot.status === "ready" ? snapshot : null;
     return snapshot;
@@ -565,7 +665,7 @@ export class PrivateAIHubBackendAdapter implements ClosedAIBackendAdapter {
 
   async execute(input: ClosedBackendExecutionInput) {
     if (!this.transport) {
-      throw unavailable(this.id, "contract_ready_runtime_not_connected");
+      throw unavailable(this.id, "unreachable");
     }
     const browserAssisted = await prepareBrowserAssistedBackendInput(input);
     const result = await this.transport.execute(browserAssisted.input);

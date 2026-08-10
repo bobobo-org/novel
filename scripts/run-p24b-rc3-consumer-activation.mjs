@@ -10,10 +10,10 @@ import {
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
-  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6",
-  releaseRevision: "rc6.1",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.1",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6.1",
+  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.2",
+  releaseRevision: "rc6.2",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.2",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.2",
   architectureStage: "P2.4B RC",
 };
 const cases = [];
@@ -46,7 +46,7 @@ async function consumerFrontdoorDefault() {
   assert.doesNotMatch(config, /source:\s*["']\/["']/);
   assert.match(frontdoor, /data-testid="modern-consumer-frontdoor"/);
   for (const label of [
-    "開始新故事", "繼續寫作", "AI 寫作助手", "互動故事／RPG",
+    "開始新故事", "繼續小說專案", "小說專案助手", "互動故事／RPG",
     "角色與世界", "我的作品", "本機 AI 設定", "進階工具",
   ]) assert.ok(frontdoor.includes(label), `missing frontdoor entry: ${label}`);
   for (const truth of ["本機裝置", "未設定", "等待配對", "已就緒", "預設未使用"]) {
@@ -126,8 +126,8 @@ async function frontdoorProjectRouting() {
   ]);
   assert.match(frontdoor, /safeProjectId/);
   assert.match(frontdoor, /projectCount === 1 && recentId/);
-  assert.match(frontdoor, /`\/studio\/project\/\$\{encodeURIComponent\(recentId\)\}\/write`/);
-  assert.match(frontdoor, /projectCount > 0[\s\S]*?"\/professional\?intent=write"/);
+  assert.match(frontdoor, /`\/studio\/project\/\$\{encodeURIComponent\(recentId\)\}\/chat`/);
+  assert.match(frontdoor, /projectCount > 0[\s\S]*?"\/professional\?intent=chat"/);
   assert.match(frontdoor, /從 \$\{projectCount\} 部正式作品中選擇，不會誤開別部作品/);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
@@ -183,9 +183,11 @@ async function interactiveStoryOutputAcceptance() {
     /ensureStudioCanonicalProject\([\s\S]*sourceChapterId:\s*canonical\.chapter\.id[\s\S]*sourceRevision:\s*canonical\.chapter\.revision/u
       .test(branchChoiceRuntime);
   const modernRuntimeIsRevisionBound =
-    /sourceChapterId:\s*data\.chapter\.id[\s\S]*sourceRevision:\s*data\.chapter\.revision/u
+    /loadRpgChatSnapshot\(repository, projectId, rules\)/u
       .test(rpgWorkspace)
-    && /result\.sourceChapterId\s*!==\s*data\.chapter\.id[\s\S]*result\.sourceRevision\s*!==\s*data\.chapter\.revision/u
+    && /snapshot\.chapter\.id\s*!==\s*data\.chapter\.id[\s\S]*snapshot\.chapter\.revision\s*!==\s*data\.chapter\.revision/u
+      .test(rpgWorkspace)
+    && /generateRpgChatTurnCandidate\(\{[\s\S]*snapshot,/u
       .test(rpgWorkspace);
   assert.equal(
     legacyRuntimeIsRevisionBound || modernRuntimeIsRevisionBound,
@@ -342,7 +344,7 @@ async function rc3ReleaseIdentity() {
     Object.fromEntries(Object.keys(expectedIdentity).map((key) => [key, manifest[key]])),
     expectedIdentity,
   );
-  assert.match(manifest.buildTime, /^2026-08-/);
+  assert.equal(manifest.releaseEpoch, "2026-08-09T22:48:18.000Z");
   assert.match(manifest.consumerRelease, new RegExp(contract.consumerReleasePattern));
   assert.equal(provenance.releaseTag, expectedIdentity.releaseTag);
   assert.match(provenance.appCommit, /^[0-9a-f]{40}$/);

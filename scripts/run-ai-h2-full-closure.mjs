@@ -182,7 +182,7 @@ async function runFinalGates(production, cleanup) {
   assert("Production release tag is H2 full when required", !requireProduction || production.checks.every((c) => c.releaseTag === releaseTag), production.checks);
   assert("Production h2FullClosureStatus is ready when required", !requireProduction || production.checks.every((c) => c.h2FullClosureStatus === "ready"), production.checks);
   assert("Production fullOfflineAIStatus is not final ready", production.checks.every((c) => c.fullOfflineAIStatus !== "ready" && c.fullOfflineAIStatus !== "final_ready"), production.checks);
-  assert("Browser AI packaged fallback is ready", production.checks.every((c) => !c.browserClosedAiStatus || c.browserClosedAiStatus === "ready_with_packaged_extractive_fallback"), production.checks);
+  assert("Browser AI generation stays setup-required until a client proof exists", production.checks.every((c) => !c.browserClosedAiStatus || c.browserClosedAiStatus === "setup_required"), production.checks);
   assert("HTML release marker matches when required", !requireProduction || production.htmlReleaseTagPresent, production);
 
   writeArtifact("browser-matrix.json", { status: statusOf("H2W.3 Whole Novel Workspace"), sourceSuite: "H2W.3 Whole Novel Workspace" });

@@ -32,16 +32,43 @@ export type ClosedAgentRole =
   | "evaluator";
 
 export type ClosedAIBackendStatus =
+  | "unsupported"
+  | "available"
+  | "setup_required"
+  | "preparing"
   | "ready"
-  | "runtime_required"
-  | "contract_ready_runtime_not_connected"
-  | "disabled"
-  | "degraded";
+  | "degraded"
+  | "unreachable"
+  | "failed";
+
+export type ClosedAIBackendVerificationSource =
+  | "browser-runtime-generation"
+  | "local-bridge-generation"
+  | "private-hub-generation"
+  | "none";
+
+/**
+ * Runtime truth is intentionally separate from provider availability. A
+ * backend only becomes production-ready after a real minimal generation has
+ * completed on that exact runtime and model. Deterministic/task-only helpers
+ * can be available, but can never satisfy `generationVerified`.
+ */
+export type ClosedAIBackendRuntimeTruth = {
+  installed: boolean;
+  configured: boolean;
+  reachable: boolean;
+  modelAvailable: boolean;
+  runtimeVerified: boolean;
+  generationVerified: boolean;
+  verificationSource: ClosedAIBackendVerificationSource;
+  verifiedAt: string | null;
+};
 
 export type ClosedAIBackendSnapshot = {
   id: ClosedAIBackendId;
   label: string;
   status: ClosedAIBackendStatus;
+  runtimeTruth: ClosedAIBackendRuntimeTruth;
   modelId: string | null;
   modelDigest: string | null;
   local: boolean;
@@ -54,6 +81,47 @@ export type ClosedAIBackendSnapshot = {
   controlLatencyMs?: number | null;
   qualityClass?: "fast" | "balanced" | "quality_local_browser" | "standard" | "heavy";
 };
+
+const CLOSED_AI_VERIFICATION_SOURCE_BY_BACKEND: Record<
+  ClosedAIBackendId,
+  Exclude<ClosedAIBackendVerificationSource, "none">
+> = {
+  "browser-ai": "browser-runtime-generation",
+  "local-ollama": "local-bridge-generation",
+  "private-ai-hub": "private-hub-generation",
+};
+
+const CRYPTOGRAPHIC_MODEL_DIGEST_PATTERN = /^[a-f0-9]{64}$/iu;
+
+/**
+ * Production generation truth requires an immutable SHA-256 model identity.
+ * Runtime-managed sentinels and human-readable labels are availability hints,
+ * not cryptographic evidence, and must fail closed.
+ */
+export function isCryptographicClosedAIModelDigest(
+  digest: unknown,
+): digest is string {
+  return typeof digest === "string"
+    && CRYPTOGRAPHIC_MODEL_DIGEST_PATTERN.test(digest);
+}
+
+export function hasVerifiedClosedAIGeneration(
+  snapshot: ClosedAIBackendSnapshot,
+) {
+  const truth = snapshot.runtimeTruth;
+  if (!truth) return false;
+  return snapshot.status === "ready"
+    && truth.installed
+    && truth.configured
+    && truth.reachable
+    && truth.modelAvailable
+    && truth.runtimeVerified
+    && truth.generationVerified
+    && truth.verificationSource === CLOSED_AI_VERIFICATION_SOURCE_BY_BACKEND[snapshot.id]
+    && Boolean(truth.verifiedAt && Number.isFinite(Date.parse(truth.verifiedAt)))
+    && Boolean(snapshot.modelId)
+    && isCryptographicClosedAIModelDigest(snapshot.modelDigest);
+}
 
 export type ClosedAIProgressPhase =
   | "queued"

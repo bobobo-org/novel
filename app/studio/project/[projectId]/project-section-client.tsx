@@ -23,8 +23,10 @@ import {
 } from "@/lib/novel-ai/domain";
 import {
   createNovelRepository,
+  persistenceFailureOrNull,
   type NovelRepository,
   type NovelStoreName,
+  type PersistenceFailure,
 } from "@/lib/novel-ai/repository";
 import {
   backupDownload,
@@ -55,6 +57,7 @@ import {
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
+import PersistenceRecoveryNotice from "../../persistence-recovery-notice";
 
 type Section =
   | "characters"
@@ -109,6 +112,13 @@ function listText(value: string[] | undefined) {
 function closedAIHref(projectId: string, task: string, objective: string) {
   const query = new URLSearchParams({ task, objective, source: "project-data" });
   return `/studio/project/${encodeURIComponent(projectId)}/closed-ai?${query.toString()}`;
+}
+
+function storyBibleChatHref(projectId: string) {
+  const query = new URLSearchParams({
+    prompt: "請讀取這部作品目前的 Story Bible，協助我檢查人物、世界、時間線、伏筆與禁止矛盾；先說明證據，不要直接修改 Canon。",
+  });
+  return `/studio/project/${encodeURIComponent(projectId)}/chat?${query.toString()}`;
 }
 
 async function updateStoryBibleReferences(
@@ -292,9 +302,12 @@ export default function ProjectSectionClient({
   section: Section;
 }) {
   const [data, setData] = useState<Data | null>(null);
+  const [failure, setFailure] = useState<PersistenceFailure | null>(null);
   const [error, setError] = useState("");
+  const [retrying, setRetrying] = useState(false);
 
   async function load() {
+    setRetrying(true);
     try {
       const repo = createNovelRepository();
       const [
@@ -333,9 +346,14 @@ export default function ProjectSectionClient({
         achievements,
         backups: backups.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
       });
+      setFailure(null);
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "資料載入失敗");
+      const nextFailure = persistenceFailureOrNull(cause);
+      setFailure(nextFailure);
+      setError(nextFailure ? "" : cause instanceof Error ? cause.message : "資料載入失敗");
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -344,11 +362,23 @@ export default function ProjectSectionClient({
     return () => window.clearTimeout(timer);
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (failure) {
+    return (
+      <main
+        className="p2ProjectShell"
+        data-persistence-backend="indexeddb"
+        data-persistence-degraded="true"
+        data-memory-fallback="false"
+      >
+        <PersistenceRecoveryNotice failure={failure} retrying={retrying} onRetry={load} />
+      </main>
+    );
+  }
   if (error) {
     return (
       <main className="p2ProjectShell">
         <p role="alert">資料載入失敗：{error}</p>
-        <button onClick={() => void load()}>重新載入</button>
+        <button type="button" disabled={retrying} onClick={() => void load()}>重新載入</button>
       </main>
     );
   }
@@ -364,11 +394,17 @@ export default function ProjectSectionClient({
 
   const [title, description] = titles[section];
   return (
-    <main className="p2ProjectShell">
+    <main
+      className="p2ProjectShell"
+      data-testid="project-indexeddb-runtime"
+      data-persistence-backend="indexeddb"
+      data-persistence-degraded="false"
+      data-memory-fallback="false"
+    >
       <header>
         <Link href="/studio">我的作品</Link>
         <div><small>{data.project.title}</small><h1>{title}</h1></div>
-        <span>本機保存</span>
+        <span data-testid="indexeddb-ready">IndexedDB 本機保存正常</span>
       </header>
       <ProjectNavigation projectId={projectId} active={section} />
       <section className="p2ProjectSection">
@@ -422,10 +458,12 @@ function SectionBody({
     );
   }
   if (section === "story-bible") {
+    const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0] ?? null;
     return (
       <StoryBibleEditor
+        key={`${project.id}:${storyBible?.id ?? project.storyBibleId}`}
         project={project}
-        storyBible={data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0] ?? null}
+        storyBible={storyBible}
         onChanged={onChanged}
       />
     );
@@ -1481,6 +1519,7 @@ function StoryBibleEditor({
     listText(storyBible?.authorPreferences),
   );
   const [message, setMessage] = useState("");
+  const [failure, setFailure] = useState<PersistenceFailure | null>(null);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -1513,34 +1552,55 @@ function StoryBibleEditor({
         forbiddenContradictions: lines(forbiddenContradictions),
         authorPreferences: lines(authorPreferences),
       }, storyBible?.revision);
+      setFailure(null);
       setMessage("Story Bible 已保存；空白欄位仍保持空白，不會被 AI 自動補成 Canon。");
       await onChanged();
     } catch (cause) {
-      setMessage(`儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+      const nextFailure = persistenceFailureOrNull(cause);
+      setFailure(nextFailure);
+      setMessage(nextFailure
+        ? "Story Bible 未保存；本機作品庫已安全停止，既有 Canon 沒有被替換。"
+        : `儲存失敗：${cause instanceof Error ? cause.message : "請重新讀取後再試"}`);
     }
   }
 
   return (
     <>
       <div className="p2SectionToolbar">
+        <Link
+          data-testid="story-bible-conversation-link"
+          data-project-id={project.id}
+          href={storyBibleChatHref(project.id)}
+        >
+          在專案對話中讀取 Story Bible
+        </Link>
         <Link href={closedAIHref(project.id, "story.storyBibleCandidate", "根據已核准章節提出 Story Bible 更新候選；不得直接寫入 Canon。")}>
           用 Private Hub 建立 Story Bible 候選
         </Link>
       </div>
-      <form className="p2InlineEditor" onSubmit={(event) => void save(event)}>
+      <form
+        className="p2InlineEditor"
+        data-testid="story-bible-editor"
+        data-project-id={project.id}
+        onSubmit={(event) => void save(event)}
+      >
         <h3>編輯 Story Bible</h3>
         <p>每行一項。只有按下儲存才會成為正式故事設定。</p>
-        <label>主題<input value={theme} onChange={(event) => setTheme(event.target.value)} /></label>
-        <label>敘事風格<input value={style} onChange={(event) => setStyle(event.target.value)} /></label>
-        <label>伏筆<textarea value={foreshadowing} onChange={(event) => setForeshadowing(event.target.value)} /></label>
-        <label>未解線索<textarea value={unresolvedThreads} onChange={(event) => setUnresolvedThreads(event.target.value)} /></label>
-        <label>禁止矛盾<textarea value={forbiddenContradictions} onChange={(event) => setForbiddenContradictions(event.target.value)} /></label>
-        <label>作者偏好<textarea value={authorPreferences} onChange={(event) => setAuthorPreferences(event.target.value)} /></label>
-        <button type="submit">儲存 Story Bible</button>
+        <label>主題<input data-testid="story-bible-theme" value={theme} onChange={(event) => setTheme(event.target.value)} /></label>
+        <label>敘事風格<input data-testid="story-bible-style" value={style} onChange={(event) => setStyle(event.target.value)} /></label>
+        <label>伏筆<textarea data-testid="story-bible-foreshadowing" value={foreshadowing} onChange={(event) => setForeshadowing(event.target.value)} /></label>
+        <label>未解線索<textarea data-testid="story-bible-unresolved" value={unresolvedThreads} onChange={(event) => setUnresolvedThreads(event.target.value)} /></label>
+        <label>禁止矛盾<textarea data-testid="story-bible-contradictions" value={forbiddenContradictions} onChange={(event) => setForbiddenContradictions(event.target.value)} /></label>
+        <label>作者偏好<textarea data-testid="story-bible-preferences" value={authorPreferences} onChange={(event) => setAuthorPreferences(event.target.value)} /></label>
+        <button data-testid="story-bible-save" type="submit">儲存 Story Bible</button>
         {message && <p role="status">{message}</p>}
       </form>
+      {failure ? <PersistenceRecoveryNotice failure={failure} onRetry={async () => {
+        setFailure(null);
+        await onChanged();
+      }} /> : null}
       {storyBible ? (
-        <article className="p2StoryBibleRecord" data-testid="story-bible-record" data-record-id={storyBible.id} data-revision={storyBible.revision}>
+        <article className="p2StoryBibleRecord" data-testid="story-bible-record" data-project-id={project.id} data-record-id={storyBible.id} data-revision={storyBible.revision}>
           <h3>目前正式版本</h3>
           <p>主題：{storyBible.theme.value || "未設定"}／風格：{storyBible.style.value || "未設定"}</p>
           <section><h4>伏筆</h4>{storyBible.foreshadowing.length ? <ul>{storyBible.foreshadowing.map((item) => <li key={item}>{item}</li>)}</ul> : <p>尚未設定</p>}</section>

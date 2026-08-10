@@ -2,6 +2,8 @@ export * from "./contracts";
 export * from "./indexeddb/indexeddb-repository";
 export * from "./memory/memory-repository";
 export * from "./unavailable/unavailable-repository";
+export * from "./persistence-recovery";
+export * from "./public-persistence-truth";
 
 import { IndexedDbNovelRepository } from "./indexeddb/indexeddb-repository";
 import { MemoryNovelRepository } from "./memory/memory-repository";

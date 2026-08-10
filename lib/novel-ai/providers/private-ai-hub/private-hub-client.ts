@@ -1,8 +1,14 @@
-import type {
-  ClosedAIBackendSnapshot,
-  ClosedBackendExecutionInput,
-  ClosedBackendExecutionResult,
+import {
+  isCryptographicClosedAIModelDigest,
+  type ClosedAIBackendSnapshot,
+  type ClosedBackendExecutionInput,
+  type ClosedBackendExecutionResult,
 } from "../../closed-agent-os/types";
+/*
+ * Keep Private Hub readiness bound to the same immutable model identity used
+ * by Closed Agent OS receipts. A successful inference without that identity
+ * is availability, not production verification.
+ */
 import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
@@ -60,7 +66,7 @@ export type PrivateHubInferenceProof = {
   deploymentKind: "self_hosted_loopback_private_node";
   instanceId: string;
   modelId: string;
-  modelDigest: string | null;
+  modelDigest: string;
   verifiedAt: string;
   latencyMs: number;
   outputDigest: string;
@@ -225,18 +231,40 @@ async function sha256Hex(value: string) {
     .join("");
 }
 
+async function privateHubRoutedModelDigest(
+  catalogModelDigest: unknown,
+  adapterDigest?: unknown,
+) {
+  if (!isCryptographicClosedAIModelDigest(catalogModelDigest)) return null;
+  if (adapterDigest === undefined || adapterDigest === null) {
+    return catalogModelDigest;
+  }
+  if (!isCryptographicClosedAIModelDigest(adapterDigest)) return null;
+  return sha256Hex(`${catalogModelDigest}|${adapterDigest}`);
+}
+
+function validPrivateHubVerificationTimestamp(value: unknown) {
+  const verifiedAt = Date.parse(String(value ?? ""));
+  return Number.isFinite(verifiedAt)
+    && verifiedAt > 0
+    && verifiedAt <= Date.now() + 60_000;
+}
+
 function validateInferenceProof(
   body: PrivateHubBody,
   session: PrivateHubSession | null,
-  modelId: string,
+  expected: { modelId: string; modelDigest: string },
 ): body is PrivateHubBody & PrivateHubInferenceProof {
   return body.proofVersion === "private-hub-model-inference-proof-v1"
     && body.state === "inference_verified"
     && body.providerKind === "private_ai_hub"
     && body.deploymentKind === "self_hosted_loopback_private_node"
     && body.instanceId === session?.instanceId
-    && body.modelId === modelId
+    && body.modelId === expected.modelId
+    && body.modelDigest === expected.modelDigest
+    && isCryptographicClosedAIModelDigest(body.modelDigest)
     && typeof body.verifiedAt === "string"
+    && validPrivateHubVerificationTimestamp(body.verifiedAt)
     && typeof body.latencyMs === "number"
     && typeof body.outputDigest === "string"
     && /^[a-f0-9]{64}$/i.test(body.outputDigest)
@@ -313,10 +341,13 @@ export class PrivateHubClient {
       : null;
   }
 
-  getModelVerification(modelId?: string) {
+  getModelVerification(modelId?: string, modelDigest?: string | null) {
     if (!this.modelVerification || !this.session) return null;
     if (this.modelVerification.instanceId !== this.session.instanceId) return null;
+    if (!isCryptographicClosedAIModelDigest(this.modelVerification.modelDigest)) return null;
+    if (!validPrivateHubVerificationTimestamp(this.modelVerification.verifiedAt)) return null;
     if (modelId && this.modelVerification.modelId !== modelId) return null;
+    if (modelDigest !== undefined && this.modelVerification.modelDigest !== modelDigest) return null;
     return { ...this.modelVerification };
   }
 
@@ -420,7 +451,11 @@ export class PrivateHubClient {
           { retryable: true, stage: "private-session-recovery" },
         );
       }
-      const proof = await this.verifyModel(selected.modelId, signal);
+      const proof = await this.verifyModel(
+        selected.modelId,
+        signal,
+        selected.modelDigest ?? null,
+      );
       if (
         proof.instanceId !== remembered.instanceId
         || proof.modelId !== selected.modelId
@@ -737,8 +772,14 @@ export class PrivateHubClient {
           { retryable: true, stage: "private-automatic-connection" },
         );
       }
-      const proof = this.getModelVerification(selected.modelId)
-        ?? await this.verifyModel(selected.modelId, signal);
+      const proof = this.getModelVerification(
+        selected.modelId,
+        selected.modelDigest ?? null,
+      ) ?? await this.verifyModel(
+        selected.modelId,
+        signal,
+        selected.modelDigest ?? null,
+      );
       const session = this.getSessionMetadata();
       if (!session) {
         throw new AiProviderError(
@@ -834,7 +875,26 @@ export class PrivateHubClient {
     }
   }
 
-  async verifyModel(modelId: string, signal?: AbortSignal) {
+  async verifyModel(
+    modelId: string,
+    signal?: AbortSignal,
+    expectedModelDigest?: string | null,
+  ) {
+    let catalogDigest = expectedModelDigest;
+    if (catalogDigest === undefined) {
+      const catalog = await this.models(signal);
+      catalogDigest = catalog.models.find((model) => (
+        model.modelId === modelId
+        && model.capabilities?.textGeneration?.value === true
+      ))?.modelDigest ?? null;
+    }
+    if (!isCryptographicClosedAIModelDigest(catalogDigest)) {
+      throw new AiProviderError(
+        "LOCAL_REQUEST_IDENTITY_MISMATCH",
+        "Private Hub catalog has no cryptographic model identity.",
+        { retryable: false, stage: "private-hub-model-verification" },
+      );
+    }
     const body = await this.parse(await this.fetchHub(
       "/model/verify",
       {
@@ -845,7 +905,10 @@ export class PrivateHubClient {
       signal,
       PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS,
     ));
-    if (!validateInferenceProof(body, this.session, modelId)) {
+    if (!validateInferenceProof(body, this.session, {
+      modelId,
+      modelDigest: catalogDigest,
+    })) {
       throw new AiProviderError(
         "OLLAMA_INVALID_RESPONSE",
         "Private Hub model verification proof is incomplete.",
@@ -1176,7 +1239,17 @@ export class LoopbackPrivateHubTransport {
       return {
         id: "private-ai-hub",
         label: "私有 AI Hub",
-        status: "contract_ready_runtime_not_connected",
+        status: "unreachable",
+        runtimeTruth: {
+          installed: false,
+          configured: false,
+          reachable: false,
+          modelAvailable: false,
+          runtimeVerified: false,
+          generationVerified: false,
+          verificationSource: "none",
+          verifiedAt: null,
+        },
         modelId: null,
         modelDigest: null,
         local: true,
@@ -1193,7 +1266,17 @@ export class LoopbackPrivateHubTransport {
         return {
           id: "private-ai-hub",
           label: "私有 AI Hub",
-          status: "runtime_required",
+          status: "setup_required",
+          runtimeTruth: {
+            installed: true,
+            configured: false,
+            reachable: true,
+            modelAvailable: false,
+            runtimeVerified: false,
+            generationVerified: false,
+            verificationSource: "none",
+            verifiedAt: null,
+          },
           modelId: null,
           modelDigest: null,
           local: true,
@@ -1216,22 +1299,53 @@ export class LoopbackPrivateHubTransport {
       const model = textModels.find((item) => item.modelId === configuredModelId)
         ?? textModels[0]
         ?? null;
-      const proof = model ? client.getModelVerification(model.modelId) : null;
       const adapter = projectId
         ? client.getActiveAdapter(projectId)
         : null;
-      const compositeDigest = model
-        ? await sha256Hex([
-          model.modelDigest || "unknown-model-digest",
-          adapter?.artifactDigest || "no-active-adapter",
-        ].join("|"))
+      const catalogModelDigest = isCryptographicClosedAIModelDigest(
+        model?.modelDigest,
+      )
+        ? model.modelDigest
         : null;
+      const proof = model && catalogModelDigest
+        ? client.getModelVerification(model.modelId, catalogModelDigest)
+        : null;
+      const routedModelDigest = model
+        ? await privateHubRoutedModelDigest(
+          catalogModelDigest,
+          adapter?.artifactDigest,
+        )
+        : null;
+      const generationIdentityVerified = Boolean(
+        model
+        && catalogModelDigest
+        && routedModelDigest
+        && proof
+        && proof.modelId === model.modelId
+        && proof.modelDigest === catalogModelDigest,
+      );
       return {
         id: "private-ai-hub",
         label: "私有 AI Hub",
-        status: model && proof ? "ready" : model ? "degraded" : "runtime_required",
+        status: generationIdentityVerified
+          ? "ready"
+          : model
+            ? "degraded"
+            : "setup_required",
+        runtimeTruth: {
+          installed: true,
+          configured: Boolean(model),
+          reachable: true,
+          modelAvailable: Boolean(model && routedModelDigest),
+          runtimeVerified: generationIdentityVerified,
+          generationVerified: generationIdentityVerified,
+          verificationSource: generationIdentityVerified
+            ? "private-hub-generation"
+            : "none",
+          verifiedAt: generationIdentityVerified ? proof?.verifiedAt ?? null : null,
+        },
         modelId: model?.modelId ?? null,
-        modelDigest: compositeDigest,
+        modelDigest: routedModelDigest,
         local: true,
         dataBoundary: "private-infrastructure",
         maximumComplexity: "heavy",
@@ -1239,19 +1353,31 @@ export class LoopbackPrivateHubTransport {
         supportedTaskTypes: "all",
         maxContext: Number(model?.contextLength?.value ?? 0),
         controlLatencyMs: Math.round(performance.now() - startedAt),
-        detailCode: model && proof
+        detailCode: generationIdentityVerified
           ? adapter
             ? `model_and_adapter_verified:${adapter.modelId}`
             : "model_inference_verified:no_active_adapter"
           : model
-            ? "model_inference_not_verified"
+            ? catalogModelDigest
+              ? "model_inference_not_verified"
+              : "model_identity_not_verifiable"
             : "private_hub_model_not_available",
       };
     } catch {
       return {
         id: "private-ai-hub",
         label: "私有 AI Hub",
-        status: "contract_ready_runtime_not_connected",
+        status: "unreachable",
+        runtimeTruth: {
+          installed: false,
+          configured: false,
+          reachable: false,
+          modelAvailable: false,
+          runtimeVerified: false,
+          generationVerified: false,
+          verificationSource: "none",
+          verifiedAt: null,
+        },
         modelId: null,
         modelDigest: null,
         local: true,
@@ -1288,13 +1414,47 @@ export class LoopbackPrivateHubTransport {
     if (
       !routedModelId
       || routedModelId.endsWith(":runtime-managed")
-      || !routedModelDigest
-      || routedModelDigest.endsWith(":digest-runtime-managed")
+      || !isCryptographicClosedAIModelDigest(routedModelDigest)
     ) {
       throw Object.assign(
         new Error("Private Hub task has no verified routed model identity."),
         {
           code: "CLOSED_AI_SELECTED_BACKEND_NOT_READY",
+        },
+      );
+    }
+    const catalog = await client.models(input.request.signal);
+    const catalogModel = catalog.models.find((model) => (
+      model.modelId === routedModelId
+      && model.capabilities?.textGeneration?.value === true
+    )) ?? null;
+    const catalogModelDigest = isCryptographicClosedAIModelDigest(
+      catalogModel?.modelDigest,
+    )
+      ? catalogModel.modelDigest
+      : null;
+    const proof = catalogModelDigest
+      ? client.getModelVerification(routedModelId, catalogModelDigest)
+      : null;
+    const activeAdapter = client.getActiveAdapter(
+      input.request.namespace.projectId,
+    );
+    const expectedRoutedModelDigest = await privateHubRoutedModelDigest(
+      catalogModelDigest,
+      activeAdapter?.artifactDigest,
+    );
+    if (
+      !catalogModel
+      || !catalogModelDigest
+      || !proof
+      || proof.modelId !== routedModelId
+      || proof.modelDigest !== catalogModelDigest
+      || expectedRoutedModelDigest !== routedModelDigest
+    ) {
+      throw Object.assign(
+        new Error("Private Hub routed model identity no longer matches its verified catalog proof."),
+        {
+          code: "CLOSED_AI_MODEL_IDENTITY_MISMATCH",
         },
       );
     }
@@ -1343,6 +1503,15 @@ export class LoopbackPrivateHubTransport {
         adapterDigest = typeof event.adapterDigest === "string"
           ? event.adapterDigest
           : null;
+        if (
+          adapterId !== (activeAdapter?.modelId ?? null)
+          || adapterDigest !== (activeAdapter?.artifactDigest ?? null)
+        ) {
+          throw Object.assign(
+            new Error("Private Hub generation started with a different adapter identity."),
+            { code: "CLOSED_AI_MODEL_IDENTITY_MISMATCH" },
+          );
+        }
       }
       if (event.type === "token") {
         const text = event.text ?? "";

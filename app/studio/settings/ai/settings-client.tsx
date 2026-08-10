@@ -213,13 +213,17 @@ export default function AISettingsClient() {
         modelError = errorGuidance[code] || "目前無法讀取本機模型，請重新檢查 Ollama。";
       }
     }
-    const browserStatus = browser.status !== "ready"
-      ? "此瀏覽器環境目前無法執行裝置內 AI"
-      : browser.generativeModelReady
+    const nativePromptAvailable = browser.promptAvailability === "available"
+      || browser.promptAvailability === "readily";
+    const browserStatus = browser.generativeModelReady
         ? `裝置內生成模型已就緒（${browser.generativeRuntime === "webllm-worker" ? "WebLLM" : "Chromium Prompt API"}）`
-        : browser.webLlmSupported
-          ? "輕量摘要與檢索可用；生成模型尚未安裝"
-          : "輕量摘要與檢索可用；此裝置未提供生成模型";
+      : browser.webLlmSupported
+        ? "輕量摘要與檢索可用；可安裝具 SHA-256 模型摘要的 Browser AI 生成模型"
+        : nativePromptAvailable
+          ? "內建 Prompt API 沒有可驗證模型摘要，不能標記為正式生成後端"
+          : browser.status === "runtime_unavailable"
+            ? "此瀏覽器環境目前無法執行裝置內 AI"
+            : "輕量摘要與檢索可用；此裝置未提供可驗證生成模型";
     const hubProof = hubClient.getModelVerification();
     setStatus((value) => ({
       ...value,
