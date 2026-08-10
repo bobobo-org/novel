@@ -756,9 +756,12 @@ await test("source-truth", async () => {
     );
     assert.match(source, /import\([\s\S]{0,80}language\/traditional-chinese/u);
   }
-  const [types, closedAgentOs, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
+  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/conversation/repository.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/conversation/record-security.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/backends.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/providers/private-ai-hub/private-hub-client.ts", import.meta.url), "utf8"),
@@ -776,8 +779,11 @@ await test("source-truth", async () => {
   assert.match(types, /CRYPTOGRAPHIC_MODEL_DIGEST_PATTERN = \/\^\[a-f0-9\]\{64\}\$\//u);
   assert.match(types, /isCryptographicClosedAIModelDigest\(snapshot\.modelDigest\)/u);
   assert.match(closedAgentOs, /CLOSED_AI_MODEL_IDENTITY_MISMATCH/u);
-  assert.match(closedAgentOs, /CLOSED_AGENT_EVALUATOR_BLOCKING_CODES/u);
   assert.match(closedAgentOs, /Array\.isArray\(candidate\.blockingCodes\)/u);
+  assert.match(closedAgentOs, /filter\(isClosedAgentFailureDiagnosticCode\)/u);
+  assert.match(safeRuntimeDiagnostics, /CLOSED_AGENT_FAILURE_DIAGNOSTIC_CODES/u);
+  assert.match(safeRuntimeDiagnostics, /CLOSED_AGENT_EVALUATION_BLOCKED/u);
+  assert.match(safeRuntimeDiagnostics, /CANDIDATE_RAW_REASONING_LEAK/u);
   assert.doesNotMatch(closedAgentOs, /\^QUALITY_\[A-Z0-9_\]\+\$/u);
   assert.match(closedAgentOs, /execution\.modelId !== routed\.modelId/u);
   assert.match(closedAgentOs, /execution\.modelDigest !== routed\.modelDigest/u);
@@ -857,6 +863,32 @@ await test("source-truth", async () => {
   assert.doesNotMatch(regenerationProof, /outputDigest === input\.message\.contentDigest/u);
   assert.match(messageRow, /disabled=\{busy\}/u);
   assert.match(messageRow, /aria-busy=\{busy\}/u);
+  assert.match(safeRuntimeDiagnostics, /"closed-agent-failure-evidence-v1"/u);
+  assert.match(safeRuntimeDiagnostics, /values\.length > 3/u);
+  assert.match(safeRuntimeDiagnostics, /stages\[0\] !== "initial"/u);
+  assert.match(safeRuntimeDiagnostics, /stages\[1\] !== "repair"/u);
+  assert.match(safeRuntimeDiagnostics, /stages\[2\] === "extension"/u);
+  assert.match(safeRuntimeDiagnostics, /stages\[2\] === "recovery"/u);
+  assert.match(safeRuntimeDiagnostics, /candidate\.finishReason !== "unavailable"/u);
+  assert.match(safeRuntimeDiagnostics, /candidate\.completionTokens === null/u);
+  assert.match(safeRuntimeDiagnostics, /exactClosedAgentBrowserRuntimeEvidence/u);
+  assert.match(safeRuntimeDiagnostics, /"browserRuntimeEvidence" in candidate/u);
+  assert.match(safeRuntimeDiagnostics, /CLOSED_AGENT_FAILURE_EVIDENCE_INVALID/u);
+  assert.match(safeRuntimeDiagnostics, /value\.length > 4_096/u);
+  assert.match(conversationRepository, /CONVERSATION_FAILURE_EVIDENCE_REQUIRED/u);
+  assert.match(conversationRepository, /parseClosedAgentFailureEvidence\(input\.safeProgress\.message\)/u);
+  assert.match(recordSecurity, /CONVERSATION_LOCAL_TOOL_IDS\.closedAgentPlan/u);
+  assert.match(recordSecurity, /parseClosedAgentFailureEvidence\(invocation\.safeProgress\.message\)/u);
+  assert.match(workspace, /createClosedAgentFailureEvidence\(error\)/u);
+  assert.match(workspace, /serializeClosedAgentFailureEvidence\(failureEvidence\)/u);
+  assert.match(workspace, /stage:\s*CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
+  assert.match(workspace, /failureEvidencePersistenceFailed = Boolean\(persistedFailureEvidence\)/u);
+  assert.match(workspace, /CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED/u);
+  assert.match(messageRow, /selectClosedAgentFailureEvidenceInvocation/u);
+  assert.match(messageRow, /data-testid="conversation-closed-agent-failure-evidence"/u);
+  assert.match(messageRow, /data-failure-evidence=\{failureInvocation\.safeProgress\?\.message\}/u);
+  assert.match(messageRow, /data-invocation-id=\{failureInvocation\.id\}/u);
+  assert.match(messageRow, /data-task-id=\{failureInvocation\.taskId\}/u);
   assert.match(approvalHook, /id\.startsWith\("closed-agent-candidate:"\)/u);
   assert.match(backends, /closedAIRegenerationPromptContext/u);
   assert.match(backends, /seed:\s*request\.regeneration\.modelSeed/u);
@@ -877,7 +909,6 @@ await test("source-truth", async () => {
   assert.match(browserGate, /regenerationAttempt:\s*1/u);
   assert.match(browserGate, /regenerationAttempt:\s*2/u);
   assert.match(browserGate, /firstAfterDirectRegeneration\.candidate\.status, "awaiting-approval"/u);
-  assert.match(browserGate, /installSanitizedQualityObserver/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
   for (const code of [
@@ -901,20 +932,29 @@ await test("source-truth", async () => {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
   }
   assert.ok(browserGate.includes('"recovery"'), "recovery runtime stage missing from browser gate allowlist");
-  assert.match(browserGate, /initial\|repair\|extension\|recovery/u);
-  assert.match(browserGate, /text\.match\(diagnosticTokenPattern\)/u);
-  assert.match(browserGate, /allowed\.has\(token\)/u);
-  assert.ok(browserGate.includes("const diagnosticTokenPattern = /(?<!["));
-  assert.ok(browserGate.includes("\\p{L}\\p{N}_"));
-  assert.match(browserGate, /xQUALITY_OUTPUT_CREDENTIAL_LEAK/u);
-  assert.match(browserGate, /惡QUALITY_OUTPUT_ROLE_ENVELOPE/u);
-  assert.doesNotMatch(browserGate, /for \(const code of allowed\)/u);
-  assert.doesNotMatch(browserGate, /const codePattern/u);
+  assert.match(browserGate, /FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1"/u);
+  assert.match(browserGate, /parsePersistedFailureEvidence/u);
+  assert.match(browserGate, /readFailedClosedAgentInvocation/u);
+  assert.match(browserGate, /record\.toolId === "closed-agent-os:conversation-plan"/u);
+  assert.match(browserGate, /invocation\.safeProgress\?\.stage, "closed-agent-failure-evidence"/u);
+  assert.match(browserGate, /invocation\.safeProgress\?\.percent, 100/u);
+  assert.match(browserGate, /assertProductFailureEvidenceDom/u);
+  assert.match(browserGate, /composer\?\.getAttribute\("aria-busy"\) !== "false"/u);
+  assert.match(browserGate, /conversation-message-timeline/u);
+  assert.match(browserGate, /conversation-closed-agent-failure-evidence/u);
+  assert.match(browserGate, /data-invocation-id/u);
+  assert.match(browserGate, /data-task-id/u);
+  assert.match(browserGate, /exact failed invocation disappeared after reload/u);
+  assert.doesNotMatch(browserGate, /MutationObserver/u);
+  assert.doesNotMatch(browserGate, /querySelectorAll\('\[role="status"\], \[role="alert"\]'\)/u);
+  assert.doesNotMatch(browserGate, /diagnosticTokenPattern|runtimeEvidencePattern/u);
   for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {
     assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
   }
   assert.match(browserGate, /assertMaliciousDomDiagnosticsAreRejected/u);
-  assert.match(browserGate, /QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE/u);
+  assert.match(browserGate, /QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20/u);
+  assert.match(browserGate, /schemaVersion\}-attacker/u);
+  assert.match(browserGate, /authoritativeFailureEvidence, null/u);
   assert.doesNotMatch(browserGate, /error\.message\.slice|String\(error\)\.slice/u);
   assert.doesNotMatch(browserGate, /RC6_2_CLOSED_AI_SETUP_FAILED:\$\{\(await card\.textContent/u);
   assert.match(browserGate, /page\.reload/u);

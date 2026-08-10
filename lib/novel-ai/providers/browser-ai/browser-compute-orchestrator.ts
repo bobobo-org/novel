@@ -247,6 +247,11 @@ const BROWSER_TRUNCATED_FRESH_RECOVERY_REASONS = new Set([
   "QUALITY_TASKUSEFULNESS_LOW",
 ]);
 
+const BROWSER_LENGTH_ONLY_FRESH_RECOVERY_REASONS = new Set([
+  "QUALITY_LENGTHCOMPLIANCE_LOW",
+  "QUALITY_NARRATIVE_TOO_SHORT",
+]);
+
 export function isBrowserTruncatedFreshRecoveryCandidate(input: {
   contractSatisfied: boolean;
   safetyCode: string | null;
@@ -268,6 +273,40 @@ export function isBrowserTruncatedFreshRecoveryCandidate(input: {
     && input.qualityReasonCodes.includes("QUALITY_TASKUSEFULNESS_LOW")
     && input.qualityReasonCodes.every((reason) =>
       BROWSER_TRUNCATED_FRESH_RECOVERY_REASONS.has(reason));
+}
+
+export function isBrowserDegenerateInitialRepairFreshRecoveryCandidate(input: {
+  initialContractSatisfied: boolean;
+  initialSafetyCode: string | null;
+  initialFailureCode: string | null;
+  initialRawBudgetExceeded: boolean;
+  initialObservedHanCharacters: number;
+  initialFinishReason: string | null | undefined;
+  repairContractSatisfied: boolean;
+  repairSafetyCode: string | null;
+  repairFailureCode: string | null;
+  repairRawBudgetExceeded: boolean;
+  repairObservedHanCharacters: number;
+  repairFinishReason: string | null | undefined;
+  repairQualityReasonCodes: string[];
+}) {
+  return !input.initialContractSatisfied
+    && !input.initialSafetyCode
+    && input.initialFailureCode === "minimum-length-unmet"
+    && !input.initialRawBudgetExceeded
+    && input.initialObservedHanCharacters
+      < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+    && input.initialFinishReason === "stop"
+    && !input.repairContractSatisfied
+    && !input.repairSafetyCode
+    && input.repairFailureCode === "minimum-length-unmet"
+    && !input.repairRawBudgetExceeded
+    && input.repairObservedHanCharacters
+      >= BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS
+    && input.repairObservedHanCharacters < BROWSER_PROSE_MINIMUM_HAN_CHARACTERS
+    && input.repairFinishReason === "stop"
+    && input.repairQualityReasonCodes.every((reason) =>
+      BROWSER_LENGTH_ONLY_FRESH_RECOVERY_REASONS.has(reason));
 }
 
 const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
@@ -1043,6 +1082,29 @@ export async function executeBrowserBoundedQualityPasses(input: {
           input.deferTraditionalChineseNormalization,
       });
     }
+    const initialQualityReasonCodes = quality?.reasonCodes ?? [];
+    const degenerateInitialRepairFreshRecoveryCandidate = Boolean(
+      defaultChapterProseContract
+      && requiredGenerativeExecutor === "webllm-worker"
+      && initialResult.content.trim().length > 0
+      && chapterProseContract
+      && repairCompletion
+      && isBrowserDegenerateInitialRepairFreshRecoveryCandidate({
+        initialContractSatisfied: chapterProseContract.contractSatisfied,
+        initialSafetyCode: chapterProseContract.safetyCode,
+        initialFailureCode: chapterProseContract.failureCode,
+        initialRawBudgetExceeded: chapterProseContract.rawBudgetExceeded,
+        initialObservedHanCharacters: chapterProseContract.observedHanCharacters,
+        initialFinishReason: initialResult.generationFinishReason,
+        repairContractSatisfied: repairCompletion.contractSatisfied,
+        repairSafetyCode: repairCompletion.safetyCode,
+        repairFailureCode: repairCompletion.failureCode,
+        repairRawBudgetExceeded: repairCompletion.rawBudgetExceeded,
+        repairObservedHanCharacters: repairCompletion.observedHanCharacters,
+        repairFinishReason: repairResult.generationFinishReason,
+        repairQualityReasonCodes: repairQuality.reasonCodes,
+      }),
+    );
     const extensionBaseCandidates: Array<{
       stage: "initial" | "repair";
       result: PlatformAIResult;
@@ -1051,6 +1113,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     }> = [];
     if (
       !repairInternalEnvelopeRecovery
+      && !degenerateInitialRepairFreshRecoveryCandidate
       && !initialSafetyRepairReasonCode
       && repairCompletion
       && shouldRunBrowserProseExtension({
@@ -1070,9 +1133,9 @@ export async function executeBrowserBoundedQualityPasses(input: {
         quality: repairQuality,
       });
     }
-    const initialQualityReasonCodes = quality?.reasonCodes ?? [];
     if (
       !repairInternalEnvelopeRecovery
+      && !degenerateInitialRepairFreshRecoveryCandidate
       && !initialSafetyRepairReasonCode
       && repairCompletion
       && !repairCompletion.contractSatisfied
@@ -1303,6 +1366,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
           && (
             repairTruncatedFreshRecoveryCandidate
             || initialTruncatedFreshRecoveryCandidate
+            || degenerateInitialRepairFreshRecoveryCandidate
             || (
               chapterProseContract.observedHanCharacters
                 < BROWSER_PROSE_MINIMUM_CONTINUATION_BASE_HAN_CHARACTERS

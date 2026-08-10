@@ -17,6 +17,9 @@ import { AttachmentCard } from "./attachment-card";
 import { RpgTurnCard } from "./rpg-turn-card";
 import { ToolProgressCard } from "./tool-progress-card";
 import { closedRegenerationProofStatus } from "./conversation-regeneration-proof";
+import {
+  selectClosedAgentFailureEvidenceInvocation,
+} from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
 import styles from "../conversation.module.css";
 
 export const MessageRow = memo(function MessageRow({
@@ -50,8 +53,14 @@ export const MessageRow = memo(function MessageRow({
   const rpgChoices = rpg.parsed;
   const rpgChoicesConsumed = rpg.consumed;
   const messageArtifacts = artifactsByMessage.get(message.id) ?? [];
-  const invocation = invocationsByMessage.get(message.id);
   const messageInvocations = allInvocations.filter((item) => item.messageId === message.id);
+  const invocation = invocationsByMessage.get(message.id);
+  const persistedFailure = selectClosedAgentFailureEvidenceInvocation(
+    messageInvocations,
+    message.id,
+  );
+  const failureInvocation = persistedFailure?.invocation ?? null;
+  const failureEvidence = persistedFailure?.evidence ?? null;
   const retryParent = message.parentMessageId
     ? allMessages.find((candidate) => candidate.id === message.parentMessageId) ?? null
     : null;
@@ -118,6 +127,20 @@ export const MessageRow = memo(function MessageRow({
       })}
       {invocation && ["pending", "running"].includes(invocation.status) ? (
         <ToolProgressCard progress={invocation.safeProgress?.message ?? progress} canStop={canStop} onStop={actions.stopGeneration} />
+      ) : null}
+      {failureInvocation && failureEvidence ? (
+        <section
+          className={styles.resultCard}
+          role="alert"
+          data-testid="conversation-closed-agent-failure-evidence"
+          data-failure-evidence-schema={failureEvidence.schemaVersion}
+          data-failure-evidence={failureInvocation.safeProgress?.message}
+          data-invocation-id={failureInvocation.id}
+          data-task-id={failureInvocation.taskId}
+        >
+          <strong>{failureEvidence.safeCode}</strong>
+          <p>本機閉端 AI 已安全停止；未完成內容與 Canon 均未修改。</p>
+        </section>
       ) : null}
       {messageArtifacts.map((artifact) => (
         <CandidateCard

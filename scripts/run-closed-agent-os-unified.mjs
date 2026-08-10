@@ -35,7 +35,11 @@ import {
   CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
   closedAgentBrowserRuntimeEvidence,
   closedAgentBrowserRuntimeEvidenceProgress,
+  createClosedAgentFailureEvidence,
+  parseClosedAgentFailureEvidence,
   safeClosedAgentBrowserRuntimeCauseCode,
+  selectClosedAgentFailureEvidenceInvocation,
+  serializeClosedAgentFailureEvidence,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 import { createExplicitRegenerationContract } from "../lib/novel-ai/web/explicit-regeneration.ts";
 
@@ -807,6 +811,164 @@ test("failed Browser execution exposes only finite transient runtime evidence", 
   assert.match(failed.label, /BROWSER_RUNTIME_EVIDENCE:initial:stop:83:91:89:72/u);
   assert.match(failed.label, /BROWSER_RUNTIME_EVIDENCE:repair:unavailable:u:u:u:u/u);
   assert.doesNotMatch(failed.label, /private prompt|raw output/iu);
+});
+
+test("failed Browser evidence is canonical, finite, ordered and contains no raw prose", () => {
+  const rawSentinel = "PRIVATE_PROMPT_AND_REJECTED_MODEL_PROSE_X9";
+  const evidence = createClosedAgentFailureEvidence(Object.assign(new Error(rawSentinel), {
+    code: "BROWSER_AI_QUALITY_INSUFFICIENT",
+    qualityReasonCodes: [
+      "QUALITY_NARRATIVE_TOO_SHORT",
+      "ATTACKER_DIAGNOSTIC_CODE",
+      "QUALITY_LENGTHCOMPLIANCE_LOW",
+      "QUALITY_NARRATIVE_TOO_SHORT",
+    ],
+    browserRuntimeEvidence: [{
+      stage: "initial",
+      finishReason: "stop",
+      completionTokens: 19,
+      rawOutputCharacters: 27,
+      normalizedOutputCharacters: 27,
+      observedHanCharacters: 25,
+    }, {
+      stage: "repair",
+      finishReason: "stop",
+      completionTokens: 160,
+      rawOutputCharacters: 281,
+      normalizedOutputCharacters: 281,
+      observedHanCharacters: 212,
+    }, {
+      stage: "recovery",
+      finishReason: "unavailable",
+      completionTokens: null,
+      rawOutputCharacters: null,
+      normalizedOutputCharacters: null,
+      observedHanCharacters: null,
+    }],
+  }));
+  const serialized = serializeClosedAgentFailureEvidence(evidence);
+  assert.deepEqual(parseClosedAgentFailureEvidence(serialized), evidence);
+  assert.deepEqual(evidence.diagnosticCodes, [
+    "QUALITY_LENGTHCOMPLIANCE_LOW",
+    "QUALITY_NARRATIVE_TOO_SHORT",
+  ]);
+  assert.doesNotMatch(serialized, new RegExp(rawSentinel, "u"));
+  assert.doesNotMatch(serialized, /ATTACKER_DIAGNOSTIC_CODE/u);
+
+  const parsed = JSON.parse(serialized);
+  assert.equal(parseClosedAgentFailureEvidence(JSON.stringify({
+    ...parsed,
+    browserRuntimeEvidence: [parsed.browserRuntimeEvidence[1], parsed.browserRuntimeEvidence[0]],
+  })), null, "repair cannot precede initial");
+  assert.equal(parseClosedAgentFailureEvidence(JSON.stringify({
+    ...parsed,
+    browserRuntimeEvidence: [{
+      ...parsed.browserRuntimeEvidence[2],
+      completionTokens: 1,
+    }],
+  })), null, "unavailable evidence must not claim numeric metrics");
+  assert.equal(parseClosedAgentFailureEvidence(JSON.stringify({
+    ...parsed,
+    diagnosticCodes: [...parsed.diagnosticCodes, "ATTACKER_DIAGNOSTIC_CODE"],
+  })), null, "non-allowlisted codes cannot enter the envelope");
+  assert.equal(parseClosedAgentFailureEvidence(`${serialized} `), null, "non-canonical text is rejected");
+
+  const extensionEvidence = {
+    stage: "extension",
+    finishReason: "stop",
+    completionTokens: 64,
+    rawOutputCharacters: 72,
+    normalizedOutputCharacters: 72,
+    observedHanCharacters: 60,
+  };
+  const invalidEntry = {
+    stage: "attacker",
+    finishReason: "stop",
+    completionTokens: 1,
+    rawOutputCharacters: 1,
+    normalizedOutputCharacters: 1,
+    observedHanCharacters: 1,
+  };
+  for (const sourceRuntimeEvidence of [
+    [
+      parsed.browserRuntimeEvidence[0],
+      parsed.browserRuntimeEvidence[1],
+      extensionEvidence,
+      parsed.browserRuntimeEvidence[2],
+    ],
+    [
+      invalidEntry,
+      parsed.browserRuntimeEvidence[0],
+      parsed.browserRuntimeEvidence[1],
+      parsed.browserRuntimeEvidence[2],
+    ],
+    [
+      parsed.browserRuntimeEvidence[0],
+      invalidEntry,
+      parsed.browserRuntimeEvidence[2],
+    ],
+  ]) {
+    const rejectedSource = createClosedAgentFailureEvidence(Object.assign(
+      new Error("MALFORMED_RUNTIME_SOURCE_RAW_X9"),
+      {
+        code: "BROWSER_AI_QUALITY_INSUFFICIENT",
+        browserRuntimeEvidence: sourceRuntimeEvidence,
+      },
+    ));
+    assert.equal(rejectedSource.safeCode, "CLOSED_AGENT_FAILURE_EVIDENCE_INVALID");
+    assert.deepEqual(rejectedSource.browserRuntimeEvidence, []);
+    const rejectedSerialized = serializeClosedAgentFailureEvidence(rejectedSource);
+    assert.deepEqual(
+      parseClosedAgentFailureEvidence(rejectedSerialized),
+      rejectedSource,
+    );
+    assert.doesNotMatch(rejectedSerialized, /MALFORMED_RUNTIME_SOURCE_RAW_X9/u);
+  }
+});
+
+test("persistent failure selection ignores later same-message subtools and input ordering", () => {
+  const evidence = createClosedAgentFailureEvidence(Object.assign(new Error("discarded raw"), {
+    code: "BROWSER_AI_QUALITY_INSUFFICIENT",
+    qualityReasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT"],
+    browserRuntimeEvidence: [{
+      stage: "initial",
+      finishReason: "stop",
+      completionTokens: 19,
+      rawOutputCharacters: 27,
+      normalizedOutputCharacters: 27,
+      observedHanCharacters: 25,
+    }],
+  }));
+  const serialized = serializeClosedAgentFailureEvidence(evidence);
+  const main = {
+    id: "main-invocation",
+    messageId: "assistant-message",
+    taskId: "main-task",
+    toolId: "closed-agent-os:conversation-plan",
+    status: "failed",
+    updatedAt: "2026-08-10T20:00:00.000Z",
+    revision: 2,
+    safeProgress: {
+      stage: "closed-agent-failure-evidence",
+      percent: 100,
+      message: serialized,
+    },
+  };
+  const laterSubtool = {
+    ...main,
+    id: "later-subtool",
+    taskId: "later-subtool-task",
+    toolId: "closed-agent-os:story-context-index",
+    updatedAt: "2026-08-10T20:00:01.000Z",
+  };
+  for (const invocations of [[main, laterSubtool], [laterSubtool, main]]) {
+    const selected = selectClosedAgentFailureEvidenceInvocation(
+      invocations,
+      "assistant-message",
+    );
+    assert.equal(selected?.invocation.id, main.id);
+    assert.deepEqual(selected?.evidence, evidence);
+  }
 });
 
 test("quality progress strips unapproved model deltas before every consumer", async () => {

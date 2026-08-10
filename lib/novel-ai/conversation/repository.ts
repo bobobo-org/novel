@@ -27,6 +27,10 @@ import {
 import { conversationContentDigest } from "./approval-transaction";
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
+import {
+  CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+  parseClosedAgentFailureEvidence,
+} from "../closed-agent-os/safe-runtime-diagnostics";
 
 const MAX_MESSAGE_CHARACTERS = 262_144;
 const SHA256_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
@@ -141,6 +145,25 @@ function assertSafeToolMetadata(input: {
   }
   if (input.safeErrorCode && !/^[A-Z0-9_.:-]{1,96}$/u.test(input.safeErrorCode)) {
     throw new RepositoryOperationError("CONVERSATION_SAFE_ERROR_CODE_INVALID");
+  }
+  if (
+    input.status === "failed"
+    && input.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+    && input.safeErrorCode !== "CONVERSATION_RELOAD_INTERRUPTED"
+    && input.safeProgress?.stage !== CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE
+  ) {
+    throw new RepositoryOperationError("CONVERSATION_FAILURE_EVIDENCE_REQUIRED");
+  }
+  if (input.safeProgress?.stage === CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE) {
+    const evidence = parseClosedAgentFailureEvidence(input.safeProgress.message);
+    if (
+      input.status !== "failed"
+      || input.safeProgress.percent !== 100
+      || !evidence
+      || evidence.safeCode !== input.safeErrorCode
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_FAILURE_EVIDENCE_INVALID");
+    }
   }
   const closedProof = input.executionReceipt;
   const hasAnyClosedProof = Boolean(closedProof) && (

@@ -26,6 +26,9 @@ const prohibitedExternalAiRequests = [];
 let browser;
 let context;
 let page;
+let authoritativeFailureEvidence = null;
+
+const FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1";
 
 const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
@@ -98,6 +101,30 @@ const SAFE_RUNTIME_FINISH_REASONS = Object.freeze([
 ]);
 const SAFE_RUNTIME_STAGE_SET = new Set(SAFE_RUNTIME_STAGES);
 const SAFE_RUNTIME_FINISH_REASON_SET = new Set(SAFE_RUNTIME_FINISH_REASONS);
+const PERSISTED_FAILURE_SAFE_CODES = Object.freeze([
+  "CLOSED_AGENT_TASK_FAILED",
+  "CLOSED_AGENT_EVALUATION_BLOCKED",
+  "CLOSED_AGENT_FAILURE_EVIDENCE_INVALID",
+  "CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED",
+  "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+  "BROWSER_AI_QUALITY_INSUFFICIENT",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
+  "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING",
+  "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
+  "BROWSER_WEBLLM_EMPTY_RESPONSE",
+  "BROWSER_WEBLLM_MODEL_NOT_INSTALLED",
+  "BROWSER_WEBLLM_MODEL_NOT_SELECTED",
+  "BROWSER_GPU_QUEUE_BACKPRESSURE",
+  "BROWSER_GPU_MEMORY_BUDGET_EXCEEDED",
+  "BROWSER_GPU_JOB_TIMEOUT",
+  "BROWSER_GPU_RECOVERY_FAILED",
+  "BROWSER_WEBLLM_GPU_DEVICE_LOST",
+  "BROWSER_WEBLLM_WORKER_CRASHED",
+  "BROWSER_WEBLLM_WORKER_MESSAGE_FAILED",
+  "BROWSER_WEBLLM_GENERATION_FAILED",
+]);
+const PERSISTED_FAILURE_SAFE_CODE_SET = new Set(PERSISTED_FAILURE_SAFE_CODES);
 const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_GATE_FAILED",
   "RC6_2_CLOSED_AI_SETUP_FAILED",
@@ -105,12 +132,7 @@ const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT",
   "RC6_2_CLOSED_AI_GENERATION_FAILED",
   "RC6_2_CLOSED_AI_GENERATION_TIMEOUT",
-  "BROWSER_AI_QUALITY_INSUFFICIENT",
-  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
-  "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING",
-  "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED",
-  "CLOSED_AGENT_EVALUATION_BLOCKED",
-  "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+  ...PERSISTED_FAILURE_SAFE_CODES,
 ]);
 
 function sanitizeDiagnosticCodes(values) {
@@ -133,17 +155,15 @@ function sanitizeRuntimeInteger(value, maximum) {
 }
 
 function sanitizeBrowserRuntimeEvidence(values) {
-  if (!Array.isArray(values)) return [];
-  const stages = new Set();
-  return values.flatMap((value) => {
+  if (!Array.isArray(values) || values.length > 3) return [];
+  const sanitized = values.flatMap((value) => {
     if (
       !value
       || typeof value !== "object"
       || !SAFE_RUNTIME_STAGE_SET.has(value.stage)
       || !SAFE_RUNTIME_FINISH_REASON_SET.has(value.finishReason)
-      || stages.has(value.stage)
+      || Object.keys(value).length !== 6
     ) return [];
-    stages.add(value.stage);
     const completionTokens = sanitizeRuntimeInteger(value.completionTokens, 4_096);
     const rawOutputCharacters = sanitizeRuntimeInteger(value.rawOutputCharacters, 20_000);
     const normalizedOutputCharacters = sanitizeRuntimeInteger(
@@ -159,6 +179,15 @@ function sanitizeBrowserRuntimeEvidence(values) {
       || value.rawOutputCharacters !== rawOutputCharacters
       || value.normalizedOutputCharacters !== normalizedOutputCharacters
       || value.observedHanCharacters !== observedHanCharacters
+      || (
+        value.finishReason === "unavailable"
+        && [
+          completionTokens,
+          rawOutputCharacters,
+          normalizedOutputCharacters,
+          observedHanCharacters,
+        ].some((metric) => metric !== null)
+      )
     ) return [];
     return [{
       stage: value.stage,
@@ -168,10 +197,52 @@ function sanitizeBrowserRuntimeEvidence(values) {
       normalizedOutputCharacters,
       observedHanCharacters,
     }];
-  }).slice(0, 3).sort(
-    (left, right) => SAFE_RUNTIME_STAGES.indexOf(left.stage)
-      - SAFE_RUNTIME_STAGES.indexOf(right.stage),
-  );
+  });
+  if (sanitized.length !== values.length) return [];
+  const stages = sanitized.map((value) => value.stage);
+  if (
+    (stages.length > 0 && stages[0] !== "initial")
+    || (stages[1] !== undefined && stages[1] !== "repair")
+    || (stages[2] !== undefined && !["extension", "recovery"].includes(stages[2]))
+  ) return [];
+  return sanitized;
+}
+
+function parsePersistedFailureEvidence(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4_096) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      !parsed
+      || typeof parsed !== "object"
+      || Object.keys(parsed).length !== 4
+      || parsed.schemaVersion !== FAILURE_EVIDENCE_SCHEMA_VERSION
+      || !PERSISTED_FAILURE_SAFE_CODE_SET.has(parsed.safeCode)
+      || !Array.isArray(parsed.diagnosticCodes)
+      || parsed.diagnosticCodes.length > 12
+      || parsed.diagnosticCodes.some((code) => (
+        typeof code !== "string" || !SAFE_DIAGNOSTIC_CODE_SET.has(code)
+      ))
+      || new Set(parsed.diagnosticCodes).size !== parsed.diagnosticCodes.length
+      || [...parsed.diagnosticCodes].sort().some((code, index) => (
+        code !== parsed.diagnosticCodes[index]
+      ))
+      || !Array.isArray(parsed.browserRuntimeEvidence)
+    ) return null;
+    const browserRuntimeEvidence = sanitizeBrowserRuntimeEvidence(
+      parsed.browserRuntimeEvidence,
+    );
+    if (browserRuntimeEvidence.length !== parsed.browserRuntimeEvidence.length) return null;
+    const normalized = {
+      schemaVersion: FAILURE_EVIDENCE_SCHEMA_VERSION,
+      safeCode: parsed.safeCode,
+      diagnosticCodes: [...parsed.diagnosticCodes],
+      browserRuntimeEvidence,
+    };
+    return JSON.stringify(normalized) === value ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 function gateError(code) {
@@ -285,112 +356,86 @@ async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
   throw gateError("RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT");
 }
 
-async function installSanitizedQualityObserver() {
-  await page.evaluate(({ allowedCodes, allowedStages, allowedFinishReasons }) => {
-    const allowed = new Set(allowedCodes);
-    const stages = new Set(allowedStages);
-    const finishReasons = new Set(allowedFinishReasons);
-    const codes = new Set();
-    const evidence = new Map();
-    const diagnosticTokenPattern = /(?<![\p{L}\p{N}_])[A-Z][A-Z0-9_]{0,95}(?![\p{L}\p{N}_])/gu;
-    const runtimeEvidencePattern = /(?<![\p{L}\p{N}_:])BROWSER_RUNTIME_EVIDENCE:(initial|repair|extension|recovery):(stop|length|tool_calls|abort|unavailable):(u|\d{1,4}):(u|\d{1,5}):(u|\d{1,5}):(u|\d{1,5})(?=$|[^\p{L}\p{N}_:])/gu;
-    const parseRuntimeInteger = (value, maximum) => {
-      if (value === "u") return null;
-      const parsed = Number(value);
-      return Number.isInteger(parsed) && parsed >= 0 && parsed <= maximum
-        ? parsed
-        : undefined;
-    };
-    const collect = () => {
-      for (const node of document.querySelectorAll('[role="status"]')) {
-        const text = node.textContent ?? "";
-        for (const token of text.match(diagnosticTokenPattern) ?? []) {
-          if (allowed.has(token) && codes.size < 12) codes.add(token);
-        }
-        for (const match of text.matchAll(runtimeEvidencePattern)) {
-          const [, stage, finishReason, completion, raw, normalized, han] = match;
-          if (!stages.has(stage) || !finishReasons.has(finishReason)) continue;
-          const value = {
-            stage,
-            finishReason,
-            completionTokens: parseRuntimeInteger(completion, 4_096),
-            rawOutputCharacters: parseRuntimeInteger(raw, 20_000),
-            normalizedOutputCharacters: parseRuntimeInteger(normalized, 20_000),
-            observedHanCharacters: parseRuntimeInteger(han, 10_000),
-          };
-          if (Object.values(value).some((item) => item === undefined)) continue;
-          if (!evidence.has(stage) && evidence.size < 3) evidence.set(stage, value);
-        }
-      }
-    };
-    collect();
-    const observer = new MutationObserver(collect);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    Object.defineProperty(window, "__rc62SanitizedQualityObserver", {
-      configurable: true,
-      value: { codes, evidence, observer },
-    });
-  }, {
-    allowedCodes: SAFE_DIAGNOSTIC_CODES,
-    allowedStages: SAFE_RUNTIME_STAGES,
-    allowedFinishReasons: SAFE_RUNTIME_FINISH_REASONS,
-  });
-}
-
 async function readSanitizedQualityCodes() {
-  const values = await page.evaluate(() => {
-    const state = window.__rc62SanitizedQualityObserver;
-    return state?.codes ? [...state.codes].sort() : [];
-  });
-  return sanitizeDiagnosticCodes(values);
+  return sanitizeDiagnosticCodes(authoritativeFailureEvidence?.diagnosticCodes ?? []);
 }
 
 async function readSanitizedBrowserRuntimeEvidence() {
-  const values = await page.evaluate(() => {
-    const state = window.__rc62SanitizedQualityObserver;
-    return state?.evidence ? [...state.evidence.values()] : [];
-  });
-  return sanitizeBrowserRuntimeEvidence(values);
+  return sanitizeBrowserRuntimeEvidence(
+    authoritativeFailureEvidence?.browserRuntimeEvidence ?? [],
+  );
+}
+
+async function assertProductFailureEvidenceDom(invocation, serialized) {
+  const expected = {
+    invocationId: invocation.id,
+    taskId: invocation.taskId,
+    schemaVersion: FAILURE_EVIDENCE_SCHEMA_VERSION,
+    serialized,
+  };
+  await page.waitForFunction((value) => {
+    const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
+    const composer = document.querySelector('[data-testid="conversation-message-composer"]');
+    if (!timeline || composer?.getAttribute("aria-busy") !== "false") return false;
+    const matches = [...timeline.querySelectorAll(
+      '[data-testid="conversation-closed-agent-failure-evidence"]',
+    )].filter((node) => (
+      node.getAttribute("data-invocation-id") === value.invocationId
+      && node.getAttribute("data-task-id") === value.taskId
+      && node.getAttribute("data-failure-evidence-schema") === value.schemaVersion
+      && node.getAttribute("data-failure-evidence") === value.serialized
+    ));
+    return matches.length === 1
+      && matches[0].getAttribute("role") === "alert"
+      && !matches[0].hidden;
+  }, expected, { timeout: 30_000 });
+  const values = await page.evaluate((value) => {
+    const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
+    return [...(timeline?.querySelectorAll(
+      '[data-testid="conversation-closed-agent-failure-evidence"]',
+    ) ?? [])].filter((node) => (
+      node.getAttribute("data-invocation-id") === value.invocationId
+      && node.getAttribute("data-task-id") === value.taskId
+    )).map((node) => node.getAttribute("data-failure-evidence"));
+  }, expected);
+  assert.deepEqual(values, [serialized]);
+  assert.deepEqual(parsePersistedFailureEvidence(values[0]), invocation.failureEvidence);
 }
 
 async function assertMaliciousDomDiagnosticsAreRejected() {
-  await page.evaluate(async () => {
-    const node = document.createElement("div");
-    node.hidden = true;
-    node.setAttribute("role", "status");
-    node.textContent = "private prompt and output QUALITY_ATTACKER_FAKE QUALITY_OUTPUT_ATTACKER_FAKE CANDIDATE_ATTACKER_FAKE CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID_ATTACKER CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID_ATTACKER xQUALITY_OUTPUT_CREDENTIAL_LEAK QUALITY_OUTPUT_RAW_REASONING_LEAKx 惡QUALITY_OUTPUT_ROLE_ENVELOPE QUALITY_OUTPUT_CONTROL_TOKEN惡 BROWSER_WEBLLM_ATTACKER_FAKE BROWSER_RUNTIME_EVIDENCE:initial:attacker:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20_ATTACKER xBROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20x 惡BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20 BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20惡 BROWSER_RUNTIME_EVIDENCE:repair:stop:9999:99999:99999:99999";
-    document.body.append(node);
+  await page.evaluate(async (schemaVersion) => {
+    const arbitraryStatus = document.createElement("div");
+    arbitraryStatus.hidden = true;
+    arbitraryStatus.setAttribute("role", "status");
+    arbitraryStatus.textContent = "private prompt and output QUALITY_EMPTY_CANDIDATE BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20";
+    const nearMatch = document.createElement("div");
+    nearMatch.hidden = true;
+    nearMatch.setAttribute("role", "alert");
+    nearMatch.setAttribute("data-testid", "conversation-closed-agent-failure-evidence");
+    nearMatch.setAttribute("data-failure-evidence-schema", `${schemaVersion}-attacker`);
+    nearMatch.setAttribute("data-failure-evidence", JSON.stringify({
+      schemaVersion,
+      safeCode: "BROWSER_AI_QUALITY_INSUFFICIENT",
+      diagnosticCodes: ["QUALITY_EMPTY_CANDIDATE"],
+      browserRuntimeEvidence: [{
+        stage: "initial",
+        finishReason: "stop",
+        completionTokens: 12,
+        rawOutputCharacters: 30,
+        normalizedOutputCharacters: 30,
+        observedHanCharacters: 20,
+      }],
+    }));
+    nearMatch.setAttribute("data-invocation-id", "attacker-invocation");
+    nearMatch.setAttribute("data-task-id", "attacker-task");
+    document.body.append(arbitraryStatus, nearMatch);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    node.remove();
-  });
+    arbitraryStatus.remove();
+    nearMatch.remove();
+  }, FAILURE_EVIDENCE_SCHEMA_VERSION);
+  assert.equal(authoritativeFailureEvidence, null);
   assert.deepEqual(await readSanitizedQualityCodes(), []);
   assert.deepEqual(await readSanitizedBrowserRuntimeEvidence(), []);
-  await page.evaluate(async () => {
-    const node = document.createElement("div");
-    node.hidden = true;
-    node.setAttribute("role", "status");
-    node.textContent = "QUALITY_EMPTY_CANDIDATE CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID BROWSER_RUNTIME_EVIDENCE:initial:stop:12:30:30:20";
-    document.body.append(node);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    node.remove();
-  });
-  assert.deepEqual(await readSanitizedQualityCodes(), [
-    "CANDIDATE_TRADITIONAL_CHINESE_INTEGRITY_INVALID",
-    "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
-    "QUALITY_EMPTY_CANDIDATE",
-  ]);
-  assert.deepEqual(await readSanitizedBrowserRuntimeEvidence(), [{
-    stage: "initial",
-    finishReason: "stop",
-    completionTokens: 12,
-    rawOutputCharacters: 30,
-    normalizedOutputCharacters: 30,
-    observedHanCharacters: 20,
-  }]);
-  await page.evaluate(() => {
-    window.__rc62SanitizedQualityObserver?.codes?.clear();
-    window.__rc62SanitizedQualityObserver?.evidence?.clear();
-  });
 }
 
 async function inspectFreshSetup() {
@@ -763,6 +808,82 @@ function assertCandidateTruth(evidence, expected = {}) {
   }
 }
 
+async function readFailedClosedAgentInvocation(projectId, exact = {}) {
+  return page.evaluate(async ({ id, invocationId, taskId }) => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const records = await new Promise((resolve, reject) => {
+        const request = database.transaction("conversationToolInvocations", "readonly")
+          .objectStore("conversationToolInvocations").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const failed = records
+        .filter((record) => (
+          record.projectId === id
+          && record.status === "failed"
+          && record.toolId === "closed-agent-os:conversation-plan"
+          && (!invocationId || record.id === invocationId)
+          && (!taskId || record.taskId === taskId)
+        ))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+      return failed ? {
+        id: failed.id,
+        taskId: failed.taskId,
+        toolId: failed.toolId,
+        status: failed.status,
+        safeErrorCode: failed.safeErrorCode,
+        safeProgress: failed.safeProgress,
+      } : null;
+    } finally {
+      database.close();
+    }
+  }, {
+    id: projectId,
+    invocationId: exact.invocationId ?? null,
+    taskId: exact.taskId ?? null,
+  });
+}
+
+async function attestPersistedFailureEvidence(projectId, invocation) {
+  assert.equal(invocation.toolId, "closed-agent-os:conversation-plan");
+  assert.equal(invocation.status, "failed");
+  assert.equal(invocation.safeProgress?.stage, "closed-agent-failure-evidence");
+  assert.equal(invocation.safeProgress?.percent, 100);
+  const serialized = invocation.safeProgress?.message;
+  const failureEvidence = parsePersistedFailureEvidence(serialized);
+  assert.ok(failureEvidence, "failed invocation did not contain canonical finite evidence");
+  assert.equal(failureEvidence.safeCode, invocation.safeErrorCode);
+  await assertProductFailureEvidenceDom(
+    { ...invocation, failureEvidence },
+    serialized,
+  );
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
+  await page.getByTestId("conversation-first-workspace").waitFor({
+    state: "visible",
+    timeout: 90_000,
+  });
+  await assertExactOrigin();
+  const reloaded = await readFailedClosedAgentInvocation(projectId, {
+    invocationId: invocation.id,
+    taskId: invocation.taskId,
+  });
+  assert.ok(reloaded, "exact failed invocation disappeared after reload");
+  assert.equal(reloaded.safeErrorCode, invocation.safeErrorCode);
+  assert.deepEqual(reloaded.safeProgress, invocation.safeProgress);
+  await assertProductFailureEvidenceDom(
+    { ...reloaded, failureEvidence },
+    serialized,
+  );
+  authoritativeFailureEvidence = failureEvidence;
+  return failureEvidence.safeCode;
+}
+
 async function waitForCandidate(projectId, previousTaskId = null) {
   const startedAt = Date.now();
   let nextHeartbeat = startedAt + 30_000;
@@ -774,33 +895,10 @@ async function waitForCandidate(projectId, previousTaskId = null) {
       && evidence.invocation?.status === "completed"
       && evidence.artifact?.status === "candidate"
     ) return evidence;
-    const failedInvocation = await page.evaluate(async (id) => {
-      const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("novel-intelligence-platform");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      try {
-        const records = await new Promise((resolve, reject) => {
-          const request = database.transaction("conversationToolInvocations", "readonly")
-            .objectStore("conversationToolInvocations").getAll();
-          request.onsuccess = () => resolve(request.result);
-          request.onerror = () => reject(request.error);
-        });
-        const failed = records
-          .filter((record) => record.projectId === id && record.status === "failed")
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-        return failed ? { taskId: failed.taskId, safeErrorCode: failed.safeErrorCode } : null;
-      } finally {
-        database.close();
-      }
-    }, projectId);
+    const failedInvocation = await readFailedClosedAgentInvocation(projectId);
     if (failedInvocation && failedInvocation.taskId !== previousTaskId) {
-      throw gateError(
-        SAFE_FAILURE_CODES.has(failedInvocation.safeErrorCode)
-          ? failedInvocation.safeErrorCode
-          : "RC6_2_CLOSED_AI_GENERATION_FAILED",
-      );
+      const safeCode = await attestPersistedFailureEvidence(projectId, failedInvocation);
+      throw gateError(safeCode);
     }
     if (Date.now() >= nextHeartbeat) {
       process.stderr.write(`[RC6.2 Closed AI] candidate generation in progress (${Math.round((Date.now() - startedAt) / 1_000)}s)\n`);
@@ -884,7 +982,6 @@ async function runGenerationLifecycle(projectId, setupEvidence) {
   assert.match(modelMetadata.shardManifestDigest, /^[a-f0-9]{64}$/u);
 
   const canonBefore = await readChapterTruth(projectId);
-  await installSanitizedQualityObserver();
   await assertMaliciousDomDiagnosticsAreRejected();
   const composer = page.locator('textarea[aria-label="小說專案訊息"]');
   await composer.fill("幫我開始第一章");

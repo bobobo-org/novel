@@ -8,6 +8,7 @@ import {
   executeBrowserDeterministicOperation,
   executeBrowserBoundedQualityPasses,
   executeBrowserInitialPass,
+  isBrowserDegenerateInitialRepairFreshRecoveryCandidate,
   isBrowserTruncatedFreshRecoveryCandidate,
 } from "../lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts";
 import {
@@ -1328,6 +1329,78 @@ test("quality-gate", () => {
       ],
     }), false);
   }
+  const degenerateInitialRepairFreshRecoveryInput = {
+    initialContractSatisfied: false,
+    initialSafetyCode: null,
+    initialFailureCode: "minimum-length-unmet",
+    initialRawBudgetExceeded: false,
+    initialObservedHanCharacters: 25,
+    initialFinishReason: "stop",
+    repairContractSatisfied: false,
+    repairSafetyCode: null,
+    repairFailureCode: "minimum-length-unmet",
+    repairRawBudgetExceeded: false,
+    repairObservedHanCharacters: 212,
+    repairFinishReason: "stop",
+    repairQualityReasonCodes: [],
+  };
+  assert.equal(
+    isBrowserDegenerateInitialRepairFreshRecoveryCandidate(
+      degenerateInitialRepairFreshRecoveryInput,
+    ),
+    true,
+  );
+  for (const [overrides, expected] of [
+    [{ initialObservedHanCharacters: 47 }, true],
+    [{ initialObservedHanCharacters: 48 }, false],
+    [{ initialFinishReason: "length" }, false],
+    [{ initialSafetyCode: "role-envelope" }, false],
+    [{ initialRawBudgetExceeded: true }, false],
+    [{ initialContractSatisfied: true }, false],
+    [{ initialFailureCode: "incomplete-ending" }, false],
+    [{ repairObservedHanCharacters: 47 }, false],
+    [{ repairObservedHanCharacters: 48 }, true],
+    [{ repairObservedHanCharacters: 219 }, true],
+    [{ repairObservedHanCharacters: 220 }, false],
+    [{ repairFinishReason: "length" }, false],
+    [{ repairSafetyCode: "internal-envelope" }, false],
+    [{ repairRawBudgetExceeded: true }, false],
+    [{ repairContractSatisfied: true }, false],
+    [{ repairFailureCode: "incomplete-ending" }, false],
+    [{ repairQualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW"] }, true],
+    [{ repairQualityReasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT"] }, true],
+    [{ repairQualityReasonCodes: [
+      "QUALITY_LENGTHCOMPLIANCE_LOW",
+      "QUALITY_NARRATIVE_TOO_SHORT",
+    ] }, true],
+  ]) {
+    assert.equal(isBrowserDegenerateInitialRepairFreshRecoveryCandidate({
+      ...degenerateInitialRepairFreshRecoveryInput,
+      ...overrides,
+    }), expected);
+  }
+  for (const nonLengthReason of [
+    "QUALITY_TRADITIONALCHINESE_LOW",
+    "QUALITY_CANONCOMPLIANCE_LOW",
+    "QUALITY_CHARACTERVOICE_LOW",
+    "QUALITY_CONTINUITY_LOW",
+    "QUALITY_CONTEXT_CHARACTER_MISSING",
+    "QUALITY_CONTEXT_ANCHOR_MISSING",
+    "QUALITY_TASK_FORM_MISMATCH",
+    "QUALITY_CONTEXT_COPY_EXCESSIVE",
+    "QUALITY_NARRATIVE_PROGRESS_MISSING",
+    "QUALITY_WORLD_REGISTER_DRIFT",
+    "QUALITY_SPECIFICITY_LOW",
+    "QUALITY_REPETITION_LOW",
+    "QUALITY_STRUCTUREDOUTPUT_LOW",
+    "QUALITY_EMPTY_CANDIDATE",
+    "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+  ]) {
+    assert.equal(isBrowserDegenerateInitialRepairFreshRecoveryCandidate({
+      ...degenerateInitialRepairFreshRecoveryInput,
+      repairQualityReasonCodes: [nonLengthReason],
+    }), false);
+  }
   assert.equal(shouldRunBrowserProseExtension({
     taskType: "chapter.continue",
     explicitLengthRequested: false,
@@ -2162,6 +2235,7 @@ test("bounded-prose-extension", async () => {
   // then a 64-Han suffix-only extension. The merged candidate must be prose,
   // pass the unchanged quality threshold, and remain on the same closed model.
   const initial18 = exactHanPrefix("霧門忽然開啟林知微握緊信封踏入鐘樓暗影深處", 18);
+  const initial58 = exactHanPrefix(acceptedProse, 58);
   const repair188 = exactHanPrefix(acceptedProse.repeat(2), 188);
   const fixtureSeed = buildBrowserProseContinuationSeed({
     baseContent: repair188,
@@ -2172,7 +2246,7 @@ test("bounded-prose-extension", async () => {
     "遠處石橋忽然斷裂，翻湧河水捲走追兵火把。她趁黑躍上貨船，把密信交給沉默船夫；鐘樓再響，宣告回城退路徹底封閉。".repeat(2),
     64,
   );
-  const exactTrace = await execute(result(initial18, "stop"), [
+  const exactTrace = await execute(result(initial58, "stop"), [
     result(repair188, "stop", `${request.requestId}:bounded-same-model-repair`),
     (_passRequest, options) => {
       const seed = options.unapprovedContinuationSeed;
@@ -2187,6 +2261,7 @@ test("bounded-prose-extension", async () => {
     },
   ]);
   assert.equal(countBrowserProseHanCharacters(initial18), 18);
+  assert.equal(countBrowserProseHanCharacters(initial58), 58);
   assert.equal(countBrowserProseHanCharacters(repair188), 188);
   assert.equal(exactTrace.calls.length, 2);
   assert.equal(exactTrace.quality.decision, "pass");
@@ -2299,6 +2374,117 @@ test("bounded-prose-extension", async () => {
   assert.match(exactTruncationTrace.result.runtimeStats, /bounded-fresh-recovery=1/u);
   assert.doesNotMatch(exactTruncationTrace.result.runtimeStats, /extension-base-digest=/u);
 
+  // Match the second Fresh Edge failure topology exactly: a degenerate
+  // 25-Han initial draft followed by a safe, complete 212-Han repair. This
+  // topology must spend its third and final pass on a standalone fresh draft,
+  // never on a suffix that can fail the merge contract.
+  const cleanInitial25 = exactHanPrefix(
+    "短稿識別記號霧門忽然開啟林知微握緊信封踏入鐘樓暗影深處",
+    25,
+  );
+  const cleanRepairSentinel = "鐘樓底層忽然浮出逆行水痕";
+  const cleanRepairSentinelHan = countBrowserProseHanCharacters(cleanRepairSentinel);
+  const cleanRepair212 = `${cleanRepairSentinel}，${exactHanPrefix(
+    acceptedProse.repeat(3),
+    212 - cleanRepairSentinelHan,
+  )}`;
+  const cleanRepairQuality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: cleanRepair212,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  });
+  assert.equal(countBrowserProseHanCharacters(cleanInitial25), 25);
+  assert.equal(countBrowserProseHanCharacters(cleanRepair212), 212);
+  assert.equal(
+    assessBrowserProseCompletion(cleanRepair212).failureCode,
+    "minimum-length-unmet",
+  );
+  assert.equal(cleanRepairQuality.reasonCodes.every((reason) =>
+    reason === "QUALITY_LENGTHCOMPLIANCE_LOW"
+    || reason === "QUALITY_NARRATIVE_TOO_SHORT"), true);
+  const exactCleanShortTrace = await execute({
+    ...result(cleanInitial25, "stop"),
+    completionTokens: 19,
+    rawOutputCharacters: 27,
+    normalizedOutputCharacters: 27,
+  }, [
+    {
+      ...result(
+        cleanRepair212,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 160,
+      rawOutputCharacters: 281,
+      normalizedOutputCharacters: 281,
+    },
+    (recoveryRequest, options) => {
+      assert.equal(
+        recoveryRequest.requestId,
+        `${request.requestId}:bounded-fresh-recovery`,
+      );
+      assert.equal(recoveryRequest.qualityPhase, "draft");
+      assert.equal(recoveryRequest.input, buildBrowserFreshRecoveryObjective(request.input));
+      assert.equal(recoveryRequest.agentPlan, undefined);
+      assert.deepEqual(recoveryRequest.toolResults, []);
+      assert.deepEqual(recoveryRequest.workingMaterials, []);
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.doesNotMatch(
+        JSON.stringify({ recoveryRequest, options }),
+        /短稿識別記號|鐘樓底層忽然浮出逆行水痕/u,
+      );
+      return {
+        ...result(
+          exactTraceRecovery240,
+          "stop",
+          `${request.requestId}:bounded-fresh-recovery`,
+        ),
+        completionTokens: 252,
+        rawOutputCharacters: exactTraceRecovery240.length,
+        normalizedOutputCharacters: exactTraceRecovery240.length,
+      };
+    },
+  ]);
+  assert.deepEqual(
+    exactCleanShortTrace.calls.map((call) => call.request.requestId),
+    [
+      `${request.requestId}:bounded-same-model-repair`,
+      `${request.requestId}:bounded-fresh-recovery`,
+    ],
+  );
+  assert.deepEqual(
+    exactCleanShortTrace.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.normalizedOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 19, 27, 27, 25],
+      ["repair", "stop", 160, 281, 281, 212],
+      [
+        "recovery",
+        "stop",
+        252,
+        exactTraceRecovery240.length,
+        exactTraceRecovery240.length,
+        240,
+      ],
+    ],
+  );
+  assert.equal(exactCleanShortTrace.result.content, exactTraceRecovery240);
+  assert.equal(exactCleanShortTrace.quality.decision, "pass");
+  assert.match(exactCleanShortTrace.result.runtimeStats, /bounded-prose-extension=0/u);
+  assert.match(exactCleanShortTrace.result.runtimeStats, /bounded-fresh-recovery=1/u);
+  assert.doesNotMatch(
+    JSON.stringify(exactCleanShortTrace),
+    /短稿識別記號|鐘樓底層忽然浮出逆行水痕/u,
+  );
   const lengthPrefix = exactHanPrefix(acceptedProse.repeat(3), 260);
   const productionLengthRaw = (marker = "") => {
     const rawBase = `${lengthPrefix}${marker}${"風".repeat(
@@ -2509,6 +2695,12 @@ test("bounded-prose-extension", async () => {
       "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
     );
   };
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: exactCleanShortTrace,
+    rawGeneration: `${cleanInitial25}\n${cleanRepair212}`,
+    discardedSentinel: "短稿識別記號|鐘樓底層忽然浮出逆行水痕",
+    taskId: "browser-degenerate-initial-clean-repair-fresh-recovery-candidate",
+  });
   await assertAuthoritativeSelectedResult({
     selectedExecution: exactTruncationTrace,
     rawGeneration: repair179Truncated,
@@ -4559,7 +4751,7 @@ test("bounded-prose-extension", async () => {
         request,
         decision,
         executionRequest: request,
-        initialResult: result(initial18, "stop"),
+        initialResult: result(initial58, "stop"),
         eligibility,
         performancePolicy,
         requiredGenerativeExecutor: "webllm-worker",
@@ -4650,7 +4842,7 @@ test("bounded-prose-extension", async () => {
       request,
       decision,
       executionRequest: request,
-      initialResult: result(initial18, "stop"),
+      initialResult: result(initial58, "stop"),
       eligibility,
       performancePolicy,
       requiredGenerativeExecutor: "webllm-worker",

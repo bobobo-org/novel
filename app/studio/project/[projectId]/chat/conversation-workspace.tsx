@@ -12,6 +12,11 @@ import type {
   ClosedAIBackendId,
   ClosedAIProgressEvent,
 } from "@/lib/novel-ai/closed-agent-os";
+import {
+  CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+  createClosedAgentFailureEvidence,
+  serializeClosedAgentFailureEvidence,
+} from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
 import { createExplicitRegenerationContract } from "@/lib/novel-ai/web/explicit-regeneration";
 import {
   type Chapter,
@@ -1297,6 +1302,14 @@ export default function ConversationWorkspace({
       if (artifact) setDrawer({ kind: "artifact", artifactId: artifact.id });
       return { result, artifact, invocation };
     } catch (error) {
+      const cancelled = input.signal.aborted;
+      const failureEvidence = cancelled
+        ? null
+        : createClosedAgentFailureEvidence(error);
+      const persistedSafeCode = failureEvidence?.safeCode ?? errorCode(error);
+      const persistedFailureEvidence = failureEvidence
+        ? serializeClosedAgentFailureEvidence(failureEvidence)
+        : "";
       const currentPlaceholder = await repository.get<ConversationMessage>("conversationMessages", placeholder.id);
       if (currentPlaceholder) {
         await conversation.updateMessageStatus({
@@ -1304,23 +1317,47 @@ export default function ConversationWorkspace({
           sessionId: input.sessionId,
           messageId: currentPlaceholder.id,
           expectedRevision: currentPlaceholder.revision,
-          status: input.signal.aborted ? "cancelled" : "failed",
-          content: `這次執行沒有完成：${errorCode(error)}。Canon 維持原狀。`,
+          status: cancelled ? "cancelled" : "failed",
+          content: `這次執行沒有完成：${persistedSafeCode}。Canon 維持原狀。`,
         }).catch(() => undefined);
       }
-      if (!invocationCompleted) await conversation.updateToolInvocationStatus({
-        projectId,
-        sessionId: input.sessionId,
-        invocationId: invocation.id,
-        expectedRevision: invocation.revision,
-        status: input.signal.aborted ? "cancelled" : "failed",
-        safeErrorCode: errorCode(error),
-        canonicalMutationCount: 0,
-      }).catch(() => undefined);
+      let failureEvidencePersistenceFailed = false;
+      if (!invocationCompleted) {
+        await conversation.updateToolInvocationStatus({
+          projectId,
+          sessionId: input.sessionId,
+          invocationId: invocation.id,
+          expectedRevision: invocation.revision,
+          status: cancelled ? "cancelled" : "failed",
+          safeErrorCode: persistedSafeCode,
+          canonicalMutationCount: 0,
+          ...(persistedFailureEvidence
+            ? {
+                safeProgress: {
+                  stage: CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+                  percent: 100,
+                  message: persistedFailureEvidence,
+                },
+              }
+            : {}),
+        }).catch(() => {
+          failureEvidencePersistenceFailed = Boolean(persistedFailureEvidence);
+        });
+      }
       if (closedCandidateId) {
         await rejectStudioClosedAgentCandidate(closedCandidateId).catch(() => undefined);
       }
-      throw error;
+      if (failureEvidencePersistenceFailed) {
+        throw Object.assign(
+          new Error("本機失敗證據未能安全保存；Canon 維持原狀。"),
+          { code: "CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED" },
+        );
+      }
+      if (!failureEvidence) throw error;
+      throw Object.assign(
+        new Error("本機閉端 AI 已安全停止；未完成內容與 Canon 均未修改。"),
+        { code: failureEvidence.safeCode },
+      );
     }
   }
 

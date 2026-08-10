@@ -10,6 +10,11 @@ import type {
   LearningImportSession,
 } from "../domain";
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
+import {
+  CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+  parseClosedAgentFailureEvidence,
+} from "../closed-agent-os/safe-runtime-diagnostics";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 
 const CONVERSATION_STORE_PREFIX = "conversation";
 const MAX_PERSISTED_CONVERSATION_TEXT = 262_144;
@@ -135,6 +140,10 @@ export async function assertConversationRecordSafe(store: string, record: Domain
   if (store === "conversationToolInvocations") {
     const invocation = record as ConversationToolInvocation;
     const receipt = invocation.executionReceipt;
+    const failureEvidence = invocation.safeProgress?.stage
+      === CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE
+      ? parseClosedAgentFailureEvidence(invocation.safeProgress.message)
+      : null;
     const hasAnyClosedProof = Boolean(receipt) && (
       receipt!.closedAgentSchemaVersion !== undefined
       || receipt!.closedAgentBackendId !== undefined
@@ -170,6 +179,16 @@ export async function assertConversationRecordSafe(store: string, record: Domain
       || !["pending", "running", "completed", "failed", "cancelled"].includes(invocation.status)
       || (invocation.status === "completed" && !invocation.executionReceipt)
       || (invocation.status === "failed" && !invocation.safeErrorCode)
+      || (invocation.status === "failed"
+        && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+        && invocation.safeErrorCode !== "CONVERSATION_RELOAD_INTERRUPTED"
+        && invocation.safeProgress?.stage !== CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE)
+      || (invocation.safeProgress?.stage === CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE && (
+        invocation.status !== "failed"
+        || invocation.safeProgress.percent !== 100
+        || !failureEvidence
+        || failureEvidence.safeCode !== invocation.safeErrorCode
+      ))
       || invocation.canonicalMutationCount < 0
       || invocation.canonicalMutationCount > 1
       || (invocation.dataLeftDevice && !invocation.externalRequest)

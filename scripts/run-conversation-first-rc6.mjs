@@ -81,6 +81,12 @@ import {
 import {
   validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
+import {
+  CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+  createClosedAgentFailureEvidence,
+  parseClosedAgentFailureEvidence,
+  serializeClosedAgentFailureEvidence,
+} from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 
 const mode = process.argv[2] ?? "all";
 const harness = new Rc6TestHarness("P2.4B RC6 conversation-first runtime gate", mode);
@@ -894,6 +900,113 @@ harness.test("persistence", "pending generation can be cancelled and restored af
   assert(cancelled.completedAt);
 });
 
+harness.test("persistence", "failed Closed Agent evidence survives reload as a finite sanitized envelope", async () => {
+  const projectId = `project-failure-evidence:${crypto.randomUUID()}`;
+  const { repository, service } = await setup(projectId, new IndexedDbNovelRepository());
+  const session = await service.createSession({ projectId });
+  const message = await service.appendMessage({
+    projectId,
+    sessionId: session.id,
+    role: "assistant",
+    content: "",
+    status: "streaming",
+  });
+  const invocation = await service.saveToolInvocation({
+    projectId,
+    sessionId: session.id,
+    messageId: message.id,
+    taskId: `task:${crypto.randomUUID()}`,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
+    taskType: "chapter.continue",
+    inputDigest: await sha256Hex(`input:${projectId}`),
+    contextDigest: await sha256Hex(`context:${projectId}`),
+    status: "running",
+    canonicalMutationCount: 0,
+  });
+  const rawSentinel = "PRIVATE_PROMPT_REJECTED_PROSE_PERSISTENCE_X9";
+  const evidence = createClosedAgentFailureEvidence(Object.assign(new Error(rawSentinel), {
+    code: "BROWSER_AI_QUALITY_INSUFFICIENT",
+    qualityReasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT", rawSentinel],
+    browserRuntimeEvidence: [{
+      stage: "initial",
+      finishReason: "stop",
+      completionTokens: 19,
+      rawOutputCharacters: 27,
+      normalizedOutputCharacters: 27,
+      observedHanCharacters: 25,
+    }, {
+      stage: "repair",
+      finishReason: "stop",
+      completionTokens: 160,
+      rawOutputCharacters: 281,
+      normalizedOutputCharacters: 281,
+      observedHanCharacters: 212,
+    }],
+  }));
+  const serialized = serializeClosedAgentFailureEvidence(evidence);
+  await service.updateToolInvocationStatus({
+    projectId,
+    sessionId: session.id,
+    invocationId: invocation.id,
+    expectedRevision: invocation.revision,
+    status: "failed",
+    safeErrorCode: evidence.safeCode,
+    canonicalMutationCount: 0,
+    safeProgress: {
+      stage: CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+      percent: 100,
+      message: serialized,
+    },
+  });
+
+  const reloaded = new ConversationRepositoryService(repository);
+  const persisted = (await reloaded.listToolInvocations(projectId, session.id))
+    .find((candidate) => candidate.id === invocation.id);
+  assert(persisted);
+  assert.equal(persisted.status, "failed");
+  assert.equal(persisted.safeProgress?.message, serialized);
+  assert.deepEqual(parseClosedAgentFailureEvidence(persisted.safeProgress?.message), evidence);
+  assert.doesNotMatch(JSON.stringify(persisted), new RegExp(rawSentinel, "u"));
+
+  const secondMessage = await service.appendMessage({
+    projectId,
+    sessionId: session.id,
+    role: "assistant",
+    content: "",
+    status: "streaming",
+  });
+  const secondInvocation = await service.saveToolInvocation({
+    projectId,
+    sessionId: session.id,
+    messageId: secondMessage.id,
+    taskId: `task:${crypto.randomUUID()}`,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
+    taskType: "chapter.continue",
+    inputDigest: await sha256Hex(`input-2:${projectId}`),
+    contextDigest: await sha256Hex(`context-2:${projectId}`),
+    status: "running",
+    canonicalMutationCount: 0,
+  });
+  await assert.rejects(
+    () => service.updateToolInvocationStatus({
+      projectId,
+      sessionId: session.id,
+      invocationId: secondInvocation.id,
+      expectedRevision: secondInvocation.revision,
+      status: "failed",
+      safeErrorCode: evidence.safeCode,
+      canonicalMutationCount: 0,
+      safeProgress: { stage: "failed", percent: 100, message: rawSentinel },
+    }),
+    errorWithCode("CONVERSATION_FAILURE_EVIDENCE_REQUIRED"),
+  );
+  assert.equal(
+    (await repository.get("conversationToolInvocations", secondInvocation.id)).status,
+    "running",
+    "a rejected evidence write must not fabricate a failed durable invocation",
+  );
+});
+
 harness.test("persistence", "terminal messages and invocations cannot resurrect; explicit retry creates new evidence IDs", async () => {
   const repositories = [
     ["memory", () => new MemoryNovelRepository()],
@@ -1418,10 +1531,19 @@ harness.test("approval", "failed receipts and output-unbound receipts cannot app
       "conversationToolInvocations",
       failedState.message.toolInvocationIds[0],
     );
+    const failedEvidence = createClosedAgentFailureEvidence(Object.assign(
+      new Error("discarded failed receipt detail"),
+      { code: "CLOSED_AGENT_TASK_FAILED" },
+    ));
     await failedState.repository.put("conversationToolInvocations", {
       ...failedInvocation,
       status: "failed",
-      safeErrorCode: "LOCAL_MODEL_FAILED",
+      safeErrorCode: failedEvidence.safeCode,
+      safeProgress: {
+        stage: CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
+        percent: 100,
+        message: serializeClosedAgentFailureEvidence(failedEvidence),
+      },
     }, failedInvocation.revision);
     await assert.rejects(
       () => failedState.repository.approveConversationArtifactTransaction(failedState.approvalInput),
