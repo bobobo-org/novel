@@ -8,6 +8,7 @@ import {
   executeBrowserDeterministicOperation,
   executeBrowserBoundedQualityPasses,
   executeBrowserInitialPass,
+  isBrowserCollapsedRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialRepairFreshRecoveryCandidate,
   isBrowserTruncatedFreshRecoveryCandidate,
 } from "../lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts";
@@ -1401,6 +1402,83 @@ test("quality-gate", () => {
       repairQualityReasonCodes: [nonLengthReason],
     }), false);
   }
+  const collapsedRepairFreshRecoveryInput = {
+    initialContractSatisfied: false,
+    initialSafetyCode: null,
+    initialFailureCode: "minimum-length-unmet",
+    initialRawBudgetExceeded: false,
+    initialObservedHanCharacters: 58,
+    initialFinishReason: "stop",
+    initialQualityReasonCodes: [
+      "QUALITY_LENGTHCOMPLIANCE_LOW",
+      "QUALITY_NARRATIVE_TOO_SHORT",
+    ],
+    repairContractSatisfied: false,
+    repairSafetyCode: null,
+    repairFailureCode: "minimum-length-unmet",
+    repairRawBudgetExceeded: false,
+    repairObservedHanCharacters: 33,
+    repairFinishReason: "stop",
+  };
+  assert.equal(
+    isBrowserCollapsedRepairFreshRecoveryCandidate(
+      collapsedRepairFreshRecoveryInput,
+    ),
+    true,
+  );
+  for (const [overrides, expected] of [
+    [{ initialObservedHanCharacters: 47 }, false],
+    [{ initialObservedHanCharacters: 48 }, true],
+    [{ initialObservedHanCharacters: 219 }, true],
+    [{ initialObservedHanCharacters: 220 }, false],
+    [{ initialFinishReason: "length" }, false],
+    [{ initialSafetyCode: "role-envelope" }, false],
+    [{ initialRawBudgetExceeded: true }, false],
+    [{ initialContractSatisfied: true }, false],
+    [{ initialFailureCode: "complete-sentence-unavailable" }, false],
+    [{ repairObservedHanCharacters: 0 }, false],
+    [{ repairObservedHanCharacters: 1 }, true],
+    [{ repairObservedHanCharacters: 47 }, true],
+    [{ repairObservedHanCharacters: 48 }, false],
+    [{ repairFinishReason: "length" }, false],
+    [{ repairSafetyCode: "internal-envelope" }, false],
+    [{ repairRawBudgetExceeded: true }, false],
+    [{ repairContractSatisfied: true }, false],
+    [{ repairFailureCode: "complete-sentence-unavailable" }, false],
+    [{ initialQualityReasonCodes: [] }, false],
+    [{ initialQualityReasonCodes: ["QUALITY_NARRATIVE_TOO_SHORT"] }, false],
+    [{ initialQualityReasonCodes: ["QUALITY_LENGTHCOMPLIANCE_LOW"] }, true],
+  ]) {
+    assert.equal(isBrowserCollapsedRepairFreshRecoveryCandidate({
+      ...collapsedRepairFreshRecoveryInput,
+      ...overrides,
+    }), expected);
+  }
+  for (const nonLengthReason of [
+    "QUALITY_TRADITIONALCHINESE_LOW",
+    "QUALITY_CANONCOMPLIANCE_LOW",
+    "QUALITY_CHARACTERVOICE_LOW",
+    "QUALITY_CONTINUITY_LOW",
+    "QUALITY_CONTEXT_CHARACTER_MISSING",
+    "QUALITY_CONTEXT_ANCHOR_MISSING",
+    "QUALITY_TASK_FORM_MISMATCH",
+    "QUALITY_CONTEXT_COPY_EXCESSIVE",
+    "QUALITY_NARRATIVE_PROGRESS_MISSING",
+    "QUALITY_WORLD_REGISTER_DRIFT",
+    "QUALITY_SPECIFICITY_LOW",
+    "QUALITY_REPETITION_LOW",
+    "QUALITY_STRUCTUREDOUTPUT_LOW",
+    "QUALITY_EMPTY_CANDIDATE",
+    "CHARACTER_KNOWLEDGE_BOUNDARY_LEAK",
+  ]) {
+    assert.equal(isBrowserCollapsedRepairFreshRecoveryCandidate({
+      ...collapsedRepairFreshRecoveryInput,
+      initialQualityReasonCodes: [
+        "QUALITY_LENGTHCOMPLIANCE_LOW",
+        nonLengthReason,
+      ],
+    }), false);
+  }
   assert.equal(shouldRunBrowserProseExtension({
     taskType: "chapter.continue",
     explicitLengthRequested: false,
@@ -2149,14 +2227,15 @@ test("bounded-prose-extension", async () => {
   ].join("");
   assert.equal(assessBrowserProseCompletion(acceptedProse).contractSatisfied, true);
   const shortRepair = "林知微推開霧城鐘樓的木門，潮濕冷風捲起失蹤者留下的紙頁。她拾起紙頁，看見明日日期，立刻選擇追向樓梯上的腳步聲，卻讓門外守衛發現藏起的銅鑰。鐘聲驟停，她仍跨過門檻，決定承擔被捕的代價。";
-  const suffix = [
+  const suffixParts = [
     "守衛撞開木門，她便扯下鐘繩纏住門閂，沿著石階滑進地下。",
     "牆後齒輪被鐘聲震動，露出一封沾水的密信；信上寫著她尚未作出的承諾。",
     "林知微把密信藏進袖口，卻故意留下銅鑰，引守衛走向相反的甬道。",
     "水道盡頭亮起第二盞燈，失蹤者的影子在霧裡舉起同樣的紙頁。",
     "她沒有呼喊，反而跨過裂橋追去；身後鐘樓封死，回城的路也隨之消失。",
     "橋下傳來守衛落水的呼聲，她停了一瞬，仍把唯一的繩索拋回霧中。",
-  ].join("");
+  ];
+  const suffix = suffixParts.join("");
   const exactHanPrefix = (source, target) => {
     let value = "";
     let han = 0;
@@ -2268,6 +2347,222 @@ test("bounded-prose-extension", async () => {
   assert.equal(exactTrace.result.externalRequest, false);
   assert.equal(exactTrace.result.dataLeavesDevice, false);
   assert.equal(assessBrowserProseCompletion(exactTrace.result.content).contractSatisfied, true);
+
+  // Match the Fresh Edge failure topology without retaining its prose: a
+  // severely undersized 58-Han initial pass followed by a collapsed 33-Han
+  // repair. Spend the third and final inference on a standalone fresh draft,
+  // never on a suffix whose rejected base is too weak for reliable recovery.
+  const collapsedInitialSentinel = "她便扯下鐘繩";
+  const collapsedRepairSentinel = "水道盡頭亮起";
+  const exactHanText = (source, target) => {
+    const value = Array.from(source)
+      .filter((character) => /\p{Script=Han}/u.test(character))
+      .slice(0, target)
+      .join("");
+    assert.equal(countBrowserProseHanCharacters(value), target);
+    return value;
+  };
+  const collapsedInitial58 = `${exactHanText(suffixParts[0], 19)}。${
+    exactHanText(suffixParts[1], 19)
+  }。\n${exactHanText(suffixParts[2], 20)}。`;
+  const collapsedRepair33 = `${exactHanText(suffixParts[3], 16)}。\n${
+    exactHanText(suffixParts[4], 17)
+  }。`;
+  const collapsedRecovery240 = exactHanPrefix(acceptedProse.repeat(3), 240);
+  const collapsedInitialQuality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: collapsedInitial58,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+  });
+  assert.equal(countBrowserProseHanCharacters(collapsedInitial58), 58);
+  assert.equal(Array.from(collapsedInitial58).length, 62);
+  assert.equal(countBrowserProseHanCharacters(collapsedRepair33), 33);
+  assert.equal(Array.from(collapsedRepair33).length, 36);
+  assert.equal(countBrowserProseHanCharacters(collapsedRecovery240), 240);
+  assert.ok(collapsedInitial58.includes(collapsedInitialSentinel));
+  assert.ok(collapsedRepair33.includes(collapsedRepairSentinel));
+  assert.deepEqual(collapsedInitialQuality.reasonCodes, [
+    "QUALITY_LENGTHCOMPLIANCE_LOW",
+    "QUALITY_NARRATIVE_TOO_SHORT",
+  ]);
+  assert.equal(
+    assessBrowserProseCompletion(collapsedInitial58).failureCode,
+    "minimum-length-unmet",
+  );
+  assert.equal(
+    assessBrowserProseCompletion(collapsedRepair33).failureCode,
+    "minimum-length-unmet",
+  );
+  const collapsedRepairRecovery = await execute({
+    ...result(collapsedInitial58, "stop"),
+    completionTokens: 43,
+    rawOutputCharacters: 62,
+    normalizedOutputCharacters: 62,
+  }, [
+    {
+      ...result(
+        collapsedRepair33,
+        "stop",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 21,
+      rawOutputCharacters: 36,
+      normalizedOutputCharacters: 36,
+    },
+    (recoveryRequest, options) => {
+      assert.equal(
+        recoveryRequest.requestId,
+        `${request.requestId}:bounded-fresh-recovery`,
+      );
+      assert.equal(recoveryRequest.qualityPhase, "draft");
+      assert.equal(recoveryRequest.input, buildBrowserFreshRecoveryObjective(request.input));
+      assert.equal(recoveryRequest.agentPlan, undefined);
+      assert.deepEqual(recoveryRequest.toolResults, []);
+      assert.deepEqual(recoveryRequest.workingMaterials, []);
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.doesNotMatch(
+        JSON.stringify({ recoveryRequest, options }),
+        new RegExp(`${collapsedInitialSentinel}|${collapsedRepairSentinel}`, "u"),
+      );
+      return {
+        ...result(
+          collapsedRecovery240,
+          "stop",
+          `${request.requestId}:bounded-fresh-recovery`,
+        ),
+        completionTokens: 252,
+        rawOutputCharacters: collapsedRecovery240.length,
+        normalizedOutputCharacters: collapsedRecovery240.length,
+      };
+    },
+  ]);
+  assert.equal(collapsedRepairRecovery.calls.length, 2);
+  assert.deepEqual(
+    collapsedRepairRecovery.calls.map((call) => call.request.requestId),
+    [
+      `${request.requestId}:bounded-same-model-repair`,
+      `${request.requestId}:bounded-fresh-recovery`,
+    ],
+  );
+  assert.deepEqual(
+    collapsedRepairRecovery.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.normalizedOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 43, 62, 62, 58],
+      ["repair", "stop", 21, 36, 36, 33],
+      [
+        "recovery",
+        "stop",
+        252,
+        collapsedRecovery240.length,
+        collapsedRecovery240.length,
+        240,
+      ],
+    ],
+  );
+  assert.equal(collapsedRepairRecovery.result.content, collapsedRecovery240);
+  assert.equal(collapsedRepairRecovery.quality.decision, "pass");
+  assert.equal(
+    assessBrowserProseCompletion(collapsedRepairRecovery.result.content)
+      .contractSatisfied,
+    true,
+  );
+  assert.match(
+    collapsedRepairRecovery.result.runtimeStats,
+    /bounded-prose-extension=0/u,
+  );
+  assert.match(
+    collapsedRepairRecovery.result.runtimeStats,
+    /bounded-fresh-recovery=1/u,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(collapsedRepairRecovery),
+    new RegExp(`${collapsedInitialSentinel}|${collapsedRepairSentinel}`, "u"),
+  );
+  const collapsedRecovery134 = exactHanPrefix(acceptedProse.repeat(2), 134);
+  let collapsedFailureCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(collapsedInitial58, "stop"),
+        completionTokens: 43,
+        rawOutputCharacters: 62,
+        normalizedOutputCharacters: 62,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async (passRequest) => {
+        collapsedFailureCalls += 1;
+        if (collapsedFailureCalls === 1) {
+          assert.equal(
+            passRequest.requestId,
+            `${request.requestId}:bounded-same-model-repair`,
+          );
+          return {
+            ...result(
+              collapsedRepair33,
+              "stop",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: 21,
+            rawOutputCharacters: 36,
+            normalizedOutputCharacters: 36,
+          };
+        }
+        assert.equal(collapsedFailureCalls, 2, "fresh recovery must be the final pass");
+        assert.equal(
+          passRequest.requestId,
+          `${request.requestId}:bounded-fresh-recovery`,
+        );
+        return {
+          ...result(
+            collapsedRecovery134,
+            "stop",
+            `${request.requestId}:bounded-fresh-recovery`,
+          ),
+          completionTokens: 96,
+          rawOutputCharacters: collapsedRecovery134.length,
+          normalizedOutputCharacters: collapsedRecovery134.length,
+        };
+      },
+    }),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_LENGTHCOMPLIANCE_LOW")
+        && error.qualityReasonCodes?.includes("QUALITY_NARRATIVE_TOO_SHORT")
+        && !error.qualityReasonCodes?.includes(
+          "QUALITY_CONTINUATION_CONTRACT_UNSATISFIED",
+        )
+        && error.fallbackAttempted === false
+        && error.canonicalMutationCount === 0
+        && evidence.length === 3
+        && evidence[0]?.stage === "initial"
+        && evidence[0]?.observedHanCharacters === 58
+        && evidence[1]?.stage === "repair"
+        && evidence[1]?.observedHanCharacters === 33
+        && evidence[2]?.stage === "recovery"
+        && evidence[2]?.observedHanCharacters === 134
+        && !new RegExp(
+          `${collapsedInitialSentinel}|${collapsedRepairSentinel}`,
+          "u",
+        ).test(JSON.stringify(error));
+    },
+  );
+  assert.equal(collapsedFailureCalls, 2, "recovery failure must not run a fourth pass");
 
   // Match the Fresh Edge failure trace: a tiny initial pass followed by a
   // normal-EOS 179-Han repair whose final sentence is unfinished. The
@@ -2695,6 +2990,12 @@ test("bounded-prose-extension", async () => {
       "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
     );
   };
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: collapsedRepairRecovery,
+    rawGeneration: `${collapsedInitial58}\n${collapsedRepair33}`,
+    discardedSentinel: `${collapsedInitialSentinel}|${collapsedRepairSentinel}`,
+    taskId: "browser-collapsed-repair-fresh-recovery-candidate",
+  });
   await assertAuthoritativeSelectedResult({
     selectedExecution: exactCleanShortTrace,
     rawGeneration: `${cleanInitial25}\n${cleanRepair212}`,
