@@ -33,7 +33,7 @@ const BROWSER_WEBLLM_PINNED_SPECIAL_TOKEN_SET = new Set<string>(
   BROWSER_WEBLLM_PINNED_SPECIAL_TOKENS,
 );
 const MODEL_CONTROL_TOKEN = /<\|[^|<>\r\n]+\|>/giu;
-const MODEL_ROLE_ENVELOPE = /(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?=[:：]|$)/iu;
+const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?=[:：]|$)|(?:<|&lt;)\/?\s*(?:system|assistant|user|developer|tool|助手|使用者|用戶|開發者|工具)\s*(?:>|&gt;))/iu;
 const INTERNAL_CONTINUATION_ENVELOPE = /(?:<\/?(?:unapproved-continuation-seed|作者目標|最終輸出契約|品質階段|工作類型|explicit-regeneration)>|base-digest=|base-han=|anchor-(?:begin|end))/iu;
 
 function normalizedOutput(value: string) {
@@ -45,6 +45,13 @@ function continuationAnchor(value: string) {
     .slice(-BROWSER_PROSE_CONTINUATION_ANCHOR_CHARACTERS)
     .join("")
     .trim();
+}
+
+function continuationPromptAnchor(value: string) {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
 }
 
 function similarityText(value: string) {
@@ -169,7 +176,10 @@ export function assessBrowserProseCompletion(
       maximumHanCharacters: maximum,
     };
   }
-  const sentenceEnd = /[。！？][」』”’]*/gu;
+  // Keep the default prose contract aligned with the quality gate's accepted
+  // complete endings. Consume repeated ellipses and every trailing closer so
+  // the selected candidate never drops a balanced quote/bracket.
+  const sentenceEnd = /(?:[。！？]|…+)[」』”’）】]*/gu;
   let selectedContent: string | null = null;
   let selectedHanCharacters = 0;
   for (const match of normalized.matchAll(sentenceEnd)) {
@@ -236,19 +246,20 @@ export function mergeBrowserProseContinuation(input: {
       reason: "seed-anchor-invalid",
     } as const;
   }
-  if (!input.anchor || !continuationContent.startsWith(input.anchor)) {
+  const promptAnchor = continuationPromptAnchor(input.anchor);
+  if (!input.anchor || !continuationContent) {
     return {
       content: null,
       contractSatisfied: false,
-      reason: "anchor-mismatch",
+      reason: "suffix-empty",
     } as const;
   }
-  const suffix = continuationContent.slice(input.anchor.length).trimStart();
-  if (!suffix || suffix.includes(input.anchor)) {
+  const suffix = continuationContent;
+  if (suffix.includes(input.anchor) || suffix.includes(promptAnchor)) {
     return {
       content: null,
       contractSatisfied: false,
-      reason: suffix ? "anchor-repeated" : "suffix-empty",
+      reason: "anchor-repeated",
     } as const;
   }
   const normalizedBase = similarityText(baseContent);

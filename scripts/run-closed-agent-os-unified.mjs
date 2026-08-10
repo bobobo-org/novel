@@ -58,6 +58,16 @@ test("quality failure reasons expose only safe deterministic codes", () => {
   assert.deepEqual(closedAgentQualityReasonCodes({
     reasonCodes: ["QUALITY_WORLD_REGISTER_DRIFT"],
   }), ["QUALITY_WORLD_REGISTER_DRIFT"]);
+  assert.deepEqual(closedAgentQualityReasonCodes({
+    qualityReasonCodes: [
+      "QUALITY_TASK_FORM_MISMATCH",
+      "QUALITY_CONTINUATION_INTERNAL_ENVELOPE",
+      "QUALITY_CONTINUATION_ATTACKER_FAKE",
+    ],
+  }), [
+    "QUALITY_TASK_FORM_MISMATCH",
+    "QUALITY_CONTINUATION_INTERNAL_ENVELOPE",
+  ]);
   const evaluatorCodes = [
     "CANDIDATE_EMPTY",
     "CANDIDATE_CREDENTIAL_LEAK",

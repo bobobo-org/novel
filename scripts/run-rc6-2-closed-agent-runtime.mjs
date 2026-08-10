@@ -833,6 +833,18 @@ await test("source-truth", async () => {
   assert.match(browserGate, /installSanitizedQualityObserver/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
+  for (const code of [
+    "QUALITY_CONTINUATION_CONTROL_TOKEN",
+    "QUALITY_CONTINUATION_ROLE_ENVELOPE",
+    "QUALITY_CONTINUATION_INTERNAL_ENVELOPE",
+    "QUALITY_CONTINUATION_ANCHOR_INVALID",
+    "QUALITY_CONTINUATION_ANCHOR_REPEATED",
+    "QUALITY_CONTINUATION_SUFFIX_EMPTY",
+    "QUALITY_CONTINUATION_BASE_REPEATED",
+    "QUALITY_CONTINUATION_CONTRACT_UNSATISFIED",
+  ]) {
+    assert.ok(browserGate.includes(`"${code}"`), `${code} missing from browser gate allowlist`);
+  }
   assert.match(browserGate, /for \(const code of allowed\)/u);
   assert.doesNotMatch(browserGate, /const codePattern/u);
   for (const code of CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES) {

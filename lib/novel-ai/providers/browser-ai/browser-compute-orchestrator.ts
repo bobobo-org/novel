@@ -127,6 +127,22 @@ const BOUNDED_SAME_MODEL_REPAIR_TASKS = new Set<PlatformAIRequest["taskType"]>([
   "chapter.expand",
 ]);
 
+function browserProseMergeReasonCode(reason: string | null) {
+  switch (reason) {
+    case "control-token": return "QUALITY_CONTINUATION_CONTROL_TOKEN";
+    case "role-envelope": return "QUALITY_CONTINUATION_ROLE_ENVELOPE";
+    case "internal-envelope": return "QUALITY_CONTINUATION_INTERNAL_ENVELOPE";
+    case "seed-anchor-invalid": return "QUALITY_CONTINUATION_ANCHOR_INVALID";
+    case "anchor-repeated": return "QUALITY_CONTINUATION_ANCHOR_REPEATED";
+    case "suffix-empty": return "QUALITY_CONTINUATION_SUFFIX_EMPTY";
+    case "base-repeated": return "QUALITY_CONTINUATION_BASE_REPEATED";
+    case "combined-contract-unsatisfied":
+    case "output-budget-exceeded":
+      return "QUALITY_CONTINUATION_CONTRACT_UNSATISFIED";
+    default: return null;
+  }
+}
+
 const BOUNDED_SAME_MODEL_REPAIR_REASONS = new Set([
   "QUALITY_NARRATIVE_TOO_SHORT",
   "QUALITY_CONTEXT_COPY_EXCESSIVE",
@@ -768,6 +784,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
         anchor: continuationSeed.anchor,
       });
       if (!merged.contractSatisfied || !merged.content) {
+        const mergeReasonCode = browserProseMergeReasonCode(merged.reason);
         throw Object.assign(explicitEscalationError(
           eligibility,
           "BROWSER_AI_QUALITY_INSUFFICIENT",
@@ -775,8 +792,12 @@ export async function executeBrowserBoundedQualityPasses(input: {
           qualityDecision: "block",
           qualityReasonCodes: merged.reason === "combined-contract-unsatisfied"
             && (merged.observedHanCharacters ?? 0) < 220
-            ? ["QUALITY_LENGTHCOMPLIANCE_LOW", "QUALITY_NARRATIVE_TOO_SHORT"]
-            : ["QUALITY_TASK_FORM_MISMATCH"],
+            ? [
+              "QUALITY_LENGTHCOMPLIANCE_LOW",
+              "QUALITY_NARRATIVE_TOO_SHORT",
+              ...(mergeReasonCode ? [mergeReasonCode] : []),
+            ]
+            : [mergeReasonCode ?? "QUALITY_TASK_FORM_MISMATCH"],
           observedHanCharacters: merged.observedHanCharacters ?? null,
           requiredHanCharacters: [220, 320],
           browserRuntimeEvidence,

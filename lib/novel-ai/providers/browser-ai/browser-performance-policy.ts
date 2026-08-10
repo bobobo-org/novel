@@ -266,9 +266,29 @@ export function fitBrowserPromptToTokenBudget(
   const taskType = taggedPromptBlockValue(taggedBlocks[0] ?? "", "工作類型");
   const qualityPhase = taggedPromptBlockValue(taggedBlocks[1] ?? "", "品質階段");
   const objectiveValue = taggedPromptBlockValue(taggedBlocks[4] ?? "", "作者目標");
+  const continuationSeedBlock = taggedBlocks[3] ?? "";
+  const continuationSeedValue = taggedPromptBlockValue(
+    continuationSeedBlock,
+    "unapproved-continuation-seed",
+  );
+  const continuationSeedPrefix = "未核准、非 Canon；僅供承接，禁止輸出或重貼：\n";
+  const continuationAnchor = continuationSeedValue.startsWith(continuationSeedPrefix)
+    ? continuationSeedValue.slice(continuationSeedPrefix.length).trim()
+    : "";
   const outputRequired = DIRECT_PROSE_PROMPT_TASKS.has(taskType)
     && qualityPhase !== "critic";
-  if (!taskType || !qualityPhase || !objectiveValue || (outputRequired && !taggedBlocks[5])) {
+  if (
+    !taskType
+    || !qualityPhase
+    || !objectiveValue
+    || (outputRequired && !taggedBlocks[5])
+    || (continuationSeedBlock && (
+      taskType !== "chapter.continue"
+      || qualityPhase !== "revision"
+      || !continuationAnchor
+      || continuationAnchor.includes("\n")
+    ))
+  ) {
     throw Object.assign(
       new Error("BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING"),
       { code: "BROWSER_AI_MANDATORY_PROMPT_CONTRACT_MISSING" },
