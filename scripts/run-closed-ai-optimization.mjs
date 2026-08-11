@@ -147,10 +147,19 @@ class OptimizationBackend {
           "- 林昭設局引出幕後買家，能快速逼近核心，卻可能讓無辜證人暴露。",
         ].join("\n")
       : `這是由 ${this.id} 產生的繁體中文候選，包含足夠內容供評估、證據封存與作者人工核准。`;
+    const modelId = this.id === "browser-ai"
+      ? BROWSER_TASK_MODEL.modelId
+      : `${this.id}-model`;
+    const modelDigest = this.id === "browser-ai"
+      ? BROWSER_TASK_MODEL.modelDigest
+      : modelDigestForBackend(this.id);
     return {
       backendId: this.id,
-      modelId: `${this.id}-model`,
-      modelDigest: modelDigestForBackend(this.id),
+      modelId,
+      modelDigest,
+      ...(this.id === "browser-ai"
+        ? { contextAttestation: "not_required" }
+        : {}),
       content,
       candidateOnly: true,
       dataLeftDevice: false,
@@ -621,6 +630,9 @@ test("Closed Agent OS exposes one safe receipt per underlying tool without raw v
     ],
   };
   const result = await os.execute(request);
+  assert.equal(result.candidate.modelId, BROWSER_TASK_MODEL.modelId);
+  assert.equal(result.candidate.modelDigest, BROWSER_TASK_MODEL.modelDigest);
+  assert.equal(result.candidate.executionReceipt?.contextAttestation, "not_required");
   assert.deepEqual(
     result.toolExecutions.map((execution) => execution.toolId),
     ["acceptance-checklist", "story-context-index"],
@@ -835,6 +847,9 @@ test("Closed Agent OS reports ordered progress and immutable performance evidenc
   );
   assert.equal(result.candidate.generationTelemetry.qualityMode, "fast");
   assert.equal(result.candidate.generationTelemetry.qualityPasses, 1);
+  assert.equal(result.candidate.modelId, BROWSER_TASK_MODEL.modelId);
+  assert.equal(result.candidate.modelDigest, BROWSER_TASK_MODEL.modelDigest);
+  assert.equal(result.candidate.executionReceipt?.contextAttestation, "not_required");
   assert.equal(result.candidate.generationTelemetry.firstTokenMs, 4);
   assert.equal(result.candidate.canonicalMutationCount, 0);
   assert.equal(calls.executions, 1);
