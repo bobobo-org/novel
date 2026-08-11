@@ -16,6 +16,7 @@ import {
   isBrowserOversizedStopIsolatedRepairCandidate,
   isBrowserTargetRangeOversizedRepairFreshRecoveryCandidate,
   isBrowserTruncatedFreshRecoveryCandidate,
+  isBrowserTruncatedInitialNearCapOversizedRepairFreshRecoveryCandidate,
 } from "../lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts";
 import {
   BROWSER_T0_OPERATIONS,
@@ -2200,6 +2201,150 @@ test("quality-gate", () => {
       expected,
     );
   }
+  const truncatedInitialNearCapOversizedRepairInput = {
+    initial: {
+      contractSatisfied: false,
+      safetyCode: null,
+      failureCode: "minimum-length-unmet",
+      rawBudgetExceeded: false,
+      observedHanCharacters: 106,
+      observedEstimatedTokens: 118,
+      observedCodePoints: 118,
+      selectedHanCharacters: 0,
+      selectedEstimatedTokens: 0,
+      selectedCodePoints: 0,
+      salvageableContentAvailable: false,
+      finishReason: "stop",
+      completionTokens: 71,
+      runtimeTokenCap: 384,
+      stageHardCap: 384,
+      contentCharacters: 118,
+      reportedOutputCharacters: 118,
+      reportedRawOutputCharacters: 118,
+      reportedNormalizedOutputCharacters: undefined,
+      normalizationDeferred: true,
+      qualityReasonCodes: [
+        "QUALITY_OUTPUT_TRUNCATED",
+        "QUALITY_TASKUSEFULNESS_LOW",
+      ],
+    },
+    repair: {
+      contractSatisfied: false,
+      safetyCode: null,
+      failureCode: "output-budget-exceeded",
+      rawBudgetExceeded: true,
+      observedHanCharacters: 543,
+      observedEstimatedTokens: 609,
+      observedCodePoints: 624,
+      selectedHanCharacters: 0,
+      selectedEstimatedTokens: 0,
+      selectedCodePoints: 0,
+      salvageableContentAvailable: false,
+      finishReason: "length",
+      completionTokens: 359,
+      runtimeTokenCap: 360,
+      stageHardCap: 360,
+      contentCharacters: 624,
+      reportedOutputCharacters: 624,
+      reportedRawOutputCharacters: 624,
+      reportedNormalizedOutputCharacters: undefined,
+      normalizationDeferred: true,
+    },
+  };
+  assert.equal(
+    isBrowserTruncatedInitialNearCapOversizedRepairFreshRecoveryCandidate(
+      truncatedInitialNearCapOversizedRepairInput,
+    ),
+    true,
+  );
+  assert.equal(
+    isBrowserTruncatedInitialNearCapOversizedRepairFreshRecoveryCandidate({
+      initial: {
+        ...truncatedInitialNearCapOversizedRepairInput.initial,
+        reportedNormalizedOutputCharacters: 118,
+        normalizationDeferred: false,
+      },
+      repair: {
+        ...truncatedInitialNearCapOversizedRepairInput.repair,
+        reportedNormalizedOutputCharacters: 624,
+        normalizationDeferred: false,
+      },
+    }),
+    true,
+  );
+  for (const [stage, overrides, expected] of [
+    ["initial", { contractSatisfied: true }, false],
+    ["initial", { safetyCode: "internal-envelope" }, false],
+    ["initial", { failureCode: "complete-sentence-unavailable" }, false],
+    ["initial", { rawBudgetExceeded: true }, false],
+    ["initial", { observedHanCharacters: 47 }, false],
+    ["initial", { observedHanCharacters: 48 }, true],
+    ["initial", {
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 237,
+      observedCodePoints: 219,
+      contentCharacters: 219,
+      reportedOutputCharacters: 219,
+      reportedRawOutputCharacters: 219,
+    }, true],
+    ["initial", { observedHanCharacters: 220 }, false],
+    ["initial", { observedEstimatedTokens: 385 }, false],
+    ["initial", { observedCodePoints: 641 }, false],
+    ["initial", { finishReason: "length" }, false],
+    ["initial", { completionTokens: 0 }, false],
+    ["initial", { completionTokens: 384.5 }, false],
+    ["initial", { runtimeTokenCap: 383 }, false],
+    ["initial", { stageHardCap: 383 }, false],
+    ["initial", { contentCharacters: 117 }, false],
+    ["initial", { reportedOutputCharacters: 117 }, false],
+    ["initial", { reportedRawOutputCharacters: 117 }, false],
+    ["initial", { reportedNormalizedOutputCharacters: 118 }, false],
+    ["initial", { qualityReasonCodes: ["QUALITY_OUTPUT_TRUNCATED"] }, false],
+    ["initial", { qualityReasonCodes: ["QUALITY_TASKUSEFULNESS_LOW"] }, false],
+    ["initial", {
+      qualityReasonCodes: [
+        "QUALITY_OUTPUT_TRUNCATED",
+        "QUALITY_TASKUSEFULNESS_LOW",
+        "QUALITY_CONTEXT_ANCHOR_MISSING",
+      ],
+    }, false],
+    ["repair", { contractSatisfied: true }, false],
+    ["repair", { safetyCode: "role-envelope" }, false],
+    ["repair", { failureCode: "minimum-length-unmet" }, false],
+    ["repair", { rawBudgetExceeded: false }, false],
+    ["repair", { observedHanCharacters: 320 }, false],
+    ["repair", { observedHanCharacters: 321 }, true],
+    ["repair", { observedEstimatedTokens: 384 }, false],
+    ["repair", { observedCodePoints: 641 }, false],
+    ["repair", { selectedHanCharacters: 1 }, false],
+    ["repair", { selectedEstimatedTokens: 1 }, false],
+    ["repair", { selectedCodePoints: 1 }, false],
+    ["repair", { salvageableContentAvailable: true }, false],
+    ["repair", { finishReason: "stop" }, false],
+    ["repair", { finishReason: "abort" }, false],
+    ["repair", { completionTokens: 351 }, false],
+    ["repair", { completionTokens: 352 }, true],
+    ["repair", { completionTokens: 361 }, false],
+    ["repair", { completionTokens: 359.5 }, false],
+    ["repair", { runtimeTokenCap: 359 }, false],
+    ["repair", { stageHardCap: 359 }, false],
+    ["repair", { contentCharacters: 623 }, false],
+    ["repair", { contentCharacters: 641 }, false],
+    ["repair", { reportedOutputCharacters: 623 }, false],
+    ["repair", { reportedRawOutputCharacters: 623 }, false],
+    ["repair", { reportedNormalizedOutputCharacters: 624 }, false],
+  ]) {
+    assert.equal(
+      isBrowserTruncatedInitialNearCapOversizedRepairFreshRecoveryCandidate({
+        ...truncatedInitialNearCapOversizedRepairInput,
+        [stage]: {
+          ...truncatedInitialNearCapOversizedRepairInput[stage],
+          ...overrides,
+        },
+      }),
+      expected,
+    );
+  }
   const oversizedStopIsolatedRepairInput = {
     contractSatisfied: false,
     safetyCode: null,
@@ -4003,6 +4148,275 @@ test("bounded-prose-extension", async () => {
     "capped-length recovery failure must not run a fourth pass",
   );
 
+  // Match the safe Fresh trace without retaining its prose: a normal-EOS
+  // 106-Han initial pass is followed by a dense 543-Han repair that reaches
+  // the exact 360-token cap without a complete salvageable prefix. Both drafts
+  // are discarded before the third/final standalone grammar recovery.
+  const nearCapInitialSentinel = "INIT106_X9ZZ";
+  const nearCapRepairSentinel = "REPAIR543_X9";
+  const uniqueHan = (count, start) => Array.from(
+    { length: count },
+    (_, index) => String.fromCodePoint(start + index),
+  ).join("");
+  const nearCapInitial106 = `${uniqueHan(106, 0x4e00)}${nearCapInitialSentinel}`;
+  const nearCapRepair543 = `${uniqueHan(543, 0x5200)}${nearCapRepairSentinel}${
+    "R".repeat(81 - nearCapRepairSentinel.length)
+  }`;
+  const nearCapInitialCompletion = assessBrowserProseCompletion(nearCapInitial106);
+  const nearCapRepairCompletion = assessBrowserProseCompletion(nearCapRepair543);
+  const nearCapInitialQuality = evaluateBrowserCandidateQuality({
+    taskType: request.taskType,
+    content: nearCapInitial106,
+    expectedMinTokens: 140,
+    expectedMaxTokens: performancePolicy.reservedOutputTokens,
+    approvedContext: request.context,
+    threshold: 0.7,
+    deferTraditionalChineseQuality: true,
+  });
+  assert.deepEqual({
+    length: nearCapInitial106.length,
+    han: nearCapInitialCompletion.observedHanCharacters,
+    estimatedTokens: nearCapInitialCompletion.observedEstimatedTokens,
+    codePoints: nearCapInitialCompletion.observedCodePoints,
+    failureCode: nearCapInitialCompletion.failureCode,
+    rawBudgetExceeded: nearCapInitialCompletion.rawBudgetExceeded,
+  }, {
+    length: 118,
+    han: 106,
+    estimatedTokens: 118,
+    codePoints: 118,
+    failureCode: "minimum-length-unmet",
+    rawBudgetExceeded: false,
+  });
+  assert.deepEqual({
+    length: nearCapRepair543.length,
+    han: nearCapRepairCompletion.observedHanCharacters,
+    estimatedTokens: nearCapRepairCompletion.observedEstimatedTokens,
+    codePoints: nearCapRepairCompletion.observedCodePoints,
+    failureCode: nearCapRepairCompletion.failureCode,
+    rawBudgetExceeded: nearCapRepairCompletion.rawBudgetExceeded,
+    salvageableContent: nearCapRepairCompletion.salvageableContent,
+    selectedHanCharacters: nearCapRepairCompletion.selectedHanCharacters,
+  }, {
+    length: 624,
+    han: 543,
+    estimatedTokens: 609,
+    codePoints: 624,
+    failureCode: "output-budget-exceeded",
+    rawBudgetExceeded: true,
+    salvageableContent: null,
+    selectedHanCharacters: 0,
+  });
+  assert.equal(
+    isBrowserTruncatedFreshRecoveryCandidate({
+      ...nearCapInitialCompletion,
+      finishReason: "stop",
+      qualityReasonCodes: nearCapInitialQuality.reasonCodes,
+    }),
+    true,
+  );
+  const deferredPassResult = (
+    content,
+    finishReason,
+    requestId = request.requestId,
+  ) => {
+    const value = result(content, finishReason, requestId);
+    delete value.normalizedOutputCharacters;
+    return value;
+  };
+  const nearCapRejectedDigests = [
+    await sha256Hex(nearCapInitial106),
+    await sha256Hex(nearCapRepair543),
+  ];
+  const nearCapFreshRecovery = await execute({
+    ...deferredPassResult(nearCapInitial106, "stop"),
+    completionTokens: 71,
+    rawOutputCharacters: 118,
+  }, [
+    (repairRequest, options) => {
+      assert.match(repairRequest.requestId, /:bounded-same-model-repair$/u);
+      assert.equal(options.outputConstraint, undefined);
+      assert.doesNotMatch(
+        JSON.stringify({ repairRequest, options }),
+        new RegExp(nearCapInitialSentinel, "u"),
+      );
+      return {
+        ...deferredPassResult(
+          nearCapRepair543,
+          "length",
+          `${request.requestId}:bounded-same-model-repair`,
+        ),
+        completionTokens: 359,
+        rawOutputCharacters: 624,
+      };
+    },
+    (recoveryRequest, options) => {
+      assertBoundedFreshRecoveryRequest(recoveryRequest, options);
+      assert.equal(
+        recoveryRequest.input,
+        buildBrowserFreshRecoveryObjective(request.input),
+      );
+      assert.deepEqual(recoveryRequest.context, request.context);
+      assert.equal(recoveryRequest.agentPlan, undefined);
+      assert.deepEqual(recoveryRequest.toolResults, []);
+      assert.deepEqual(recoveryRequest.workingMaterials, []);
+      assert.equal(recoveryRequest.unapprovedContinuationSeed, undefined);
+      assert.equal(options.unapprovedContinuationSeed, undefined);
+      assert.doesNotMatch(
+        JSON.stringify({ recoveryRequest, options }),
+        new RegExp(`${nearCapInitialSentinel}|${nearCapRepairSentinel}`, "u"),
+      );
+      return {
+        ...deferredPassResult(
+          collapsedRecovery240,
+          "stop",
+          `${request.requestId}:bounded-fresh-recovery`,
+        ),
+        completionTokens: 252,
+        rawOutputCharacters: collapsedRecovery240.length,
+      };
+    },
+  ], request, true);
+  assert.deepEqual(
+    nearCapFreshRecovery.calls.map((call) => call.request.requestId),
+    [
+      `${request.requestId}:bounded-same-model-repair`,
+      `${request.requestId}:bounded-fresh-recovery`,
+    ],
+  );
+  assert.deepEqual(
+    nearCapFreshRecovery.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.normalizedOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 71, 118, 118, 106],
+      ["repair", "length", 359, 624, 624, 543],
+      [
+        "recovery",
+        "stop",
+        252,
+        collapsedRecovery240.length,
+        collapsedRecovery240.length,
+        240,
+      ],
+    ],
+  );
+  assert.equal(nearCapFreshRecovery.result.content, collapsedRecovery240);
+  assert.equal(nearCapFreshRecovery.result.normalizedOutputCharacters, undefined);
+  assert.equal(nearCapFreshRecovery.quality.decision, "pass");
+  assert.equal(nearCapFreshRecovery.result.externalRequest, false);
+  assert.equal(nearCapFreshRecovery.result.dataLeavesDevice, false);
+  assert.match(nearCapFreshRecovery.result.runtimeStats, /bounded-fresh-recovery=1/u);
+  assert.doesNotMatch(
+    nearCapFreshRecovery.result.runtimeStats,
+    /initial-output-digest|repair-output-digest/u,
+  );
+  const serializedNearCapRecovery = JSON.stringify(nearCapFreshRecovery);
+  assert.doesNotMatch(
+    serializedNearCapRecovery,
+    new RegExp(`${nearCapInitialSentinel}|${nearCapRepairSentinel}`, "u"),
+  );
+  for (const digest of nearCapRejectedDigests) {
+    assert.equal(serializedNearCapRecovery.includes(digest), false);
+  }
+  const nearCapSalvageRepairSentinel = "SALVAGE543_X9";
+  const nearCapSalvageRepairBase = `${collapsedRecovery240}${
+    uniqueHan(303, 0x5600)
+  }${nearCapSalvageRepairSentinel}`;
+  assert.ok(nearCapSalvageRepairBase.length <= 624);
+  const nearCapSalvageRepair543 = `${nearCapSalvageRepairBase}${
+    "S".repeat(624 - nearCapSalvageRepairBase.length)
+  }`;
+  const nearCapSalvageCompletion = assessBrowserProseCompletion(
+    nearCapSalvageRepair543,
+  );
+  assert.equal(nearCapSalvageCompletion.observedHanCharacters, 543);
+  assert.equal(nearCapSalvageCompletion.rawBudgetExceeded, true);
+  assert.equal(nearCapSalvageCompletion.salvageableContent, collapsedRecovery240);
+  const nearCapSalvagedRepair = await execute({
+    ...deferredPassResult(nearCapInitial106, "stop"),
+    completionTokens: 71,
+    rawOutputCharacters: 118,
+  }, [{
+    ...deferredPassResult(
+      nearCapSalvageRepair543,
+      "length",
+      `${request.requestId}:bounded-same-model-repair`,
+    ),
+    completionTokens: 359,
+    rawOutputCharacters: 624,
+  }], request, true);
+  assert.equal(nearCapSalvagedRepair.calls.length, 1);
+  assert.equal(nearCapSalvagedRepair.result.content, collapsedRecovery240);
+  assert.match(nearCapSalvagedRepair.result.runtimeStats, /bounded-fresh-recovery=0/u);
+  assert.doesNotMatch(
+    JSON.stringify(nearCapSalvagedRepair),
+    new RegExp(nearCapSalvageRepairSentinel, "u"),
+  );
+  let nearCapFailureCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...deferredPassResult(nearCapInitial106, "stop"),
+        completionTokens: 71,
+        rawOutputCharacters: 118,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      deferTraditionalChineseNormalization: true,
+      runPass: async () => {
+        nearCapFailureCalls += 1;
+        assert.ok(
+          nearCapFailureCalls <= 2,
+          "near-cap oversized repair recovery must not run a fourth pass",
+        );
+        if (nearCapFailureCalls === 1) {
+          return {
+            ...deferredPassResult(
+              nearCapRepair543,
+              "length",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: 359,
+            rawOutputCharacters: 624,
+          };
+        }
+        return {
+          ...deferredPassResult(
+            collapsedRecovery134,
+            "stop",
+            `${request.requestId}:bounded-fresh-recovery`,
+          ),
+          completionTokens: 96,
+          rawOutputCharacters: collapsedRecovery134.length,
+        };
+      },
+    }),
+    (error) => {
+      const serialized = JSON.stringify(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_NARRATIVE_TOO_SHORT")
+        && closedAgentBrowserRuntimeEvidence(error).length === 3
+        && error.fallbackAttempted === false
+        && error.canonicalMutationCount === 0
+        && !new RegExp(
+          `${nearCapInitialSentinel}|${nearCapRepairSentinel}`,
+          "u",
+        ).test(serialized)
+        && nearCapRejectedDigests.every((digest) => !serialized.includes(digest));
+    },
+  );
+  assert.equal(nearCapFailureCalls, 2);
+
   // Match the target-range oversized repair trace. The 317-Han repair contains
   // a valid complete prefix, but its full 666-character stop output exceeds the
   // closed raw budget without near-cap length evidence. Discard it wholesale
@@ -5438,12 +5852,16 @@ test("bounded-prose-extension", async () => {
   const assertAuthoritativeSelectedResult = async ({
     selectedExecution,
     rawGeneration,
+    rejectedGenerations = [rawGeneration],
     discardedSentinel,
     taskId,
   }) => {
     const authoritativeContent = selectedExecution.result.content;
     const authoritativeContentDigest = await sha256Hex(authoritativeContent);
     const rawGenerationDigest = await sha256Hex(rawGeneration);
+    const rejectedGenerationDigests = await Promise.all(
+      rejectedGenerations.map((generation) => sha256Hex(generation)),
+    );
     const selectedCacheRepository = new MemoryClosedAICacheRepository();
     const selectedStateRepository = new MemoryClosedAgentStateRepository();
     const selectedLedgerRepository = new MemoryVerifiableLedgerRepository();
@@ -5599,17 +6017,25 @@ test("bounded-prose-extension", async () => {
         selectedCandidateResult.candidate.traditionalChineseNormalization,
       );
     }
-    assert.doesNotMatch(
-      JSON.stringify({
+    const serializedAuthoritativeState = JSON.stringify({
         result: selectedCandidateResult,
         ledgerBlocks: selectedBlocks,
         ledgerRecord: selectedCandidateRecord,
         cacheEntries: selectedCacheEntries,
         state: await selectedStateRepository.list(namespace().projectId),
-      }),
+      });
+    assert.doesNotMatch(
+      serializedAuthoritativeState,
       new RegExp(discardedSentinel, "u"),
       "discarded raw tail text must not enter the authoritative OS candidate, receipt, cache, ledger, or state",
     );
+    for (const digest of rejectedGenerationDigests) {
+      assert.equal(
+        serializedAuthoritativeState.includes(digest),
+        false,
+        "discarded output digests must not enter authoritative state",
+      );
+    }
   };
   await assertAuthoritativeSelectedResult({
     selectedExecution: isolatedOversizedStopRepair,
@@ -5636,6 +6062,14 @@ test("bounded-prose-extension", async () => {
     discardedSentinel:
       `${targetRangeInitialSentinel}|${targetRangeRepairSentinel}`,
     taskId: "browser-target-range-oversized-repair-fresh-recovery-candidate",
+  });
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: nearCapFreshRecovery,
+    rawGeneration: `${nearCapInitial106}\n${nearCapRepair543}`,
+    rejectedGenerations: [nearCapInitial106, nearCapRepair543],
+    discardedSentinel:
+      `${nearCapInitialSentinel}|${nearCapRepairSentinel}`,
+    taskId: "browser-near-cap-oversized-repair-fresh-recovery-candidate",
   });
   await assertAuthoritativeSelectedResult({
     selectedExecution: collapsedOversizedInitialRecovery,
@@ -8559,6 +8993,59 @@ test("worker-recovery", async () => {
   assert.equal(recoveries, 1);
   assert.equal(queue.snapshot().workerRestartCount, 1);
 
+  let proofBoundAttempts = 0;
+  let proofBoundRecoveries = 0;
+  let releaseProofBoundRecovery;
+  let resolveProofBoundRecoveryStarted;
+  const proofBoundRecoveryStarted = new Promise((resolveStarted) => {
+    resolveProofBoundRecoveryStarted = resolveStarted;
+  });
+  let proofBoundNextExecuted = false;
+  const proofBoundQueue = new BrowserGPUQueue({
+    idleReleaseMs: 1,
+    onRecover: () => {
+      proofBoundRecoveries += 1;
+      resolveProofBoundRecoveryStarted();
+      return new Promise((resolveRecovery) => {
+        releaseProofBoundRecovery = resolveRecovery;
+      });
+    },
+  });
+  const proofBoundFailure = proofBoundQueue.enqueue({
+    id: "proof-bound-single-attempt",
+    maxAttempts: 1,
+    memoryBudgetMB: 256,
+    execute: async () => {
+      proofBoundAttempts += 1;
+      throw Object.assign(new Error("worker crashed"), {
+        code: "BROWSER_WEBLLM_WORKER_CRASHED",
+      });
+    },
+  });
+  const proofBoundNext = proofBoundQueue.enqueue({
+    id: "after-proof-bound-failure",
+    memoryBudgetMB: 256,
+    execute: async () => {
+      proofBoundNextExecuted = true;
+      return "after-proof-bound-failure";
+    },
+  });
+  await assert.rejects(
+    proofBoundFailure,
+    (error) => error.code === "BROWSER_WEBLLM_WORKER_CRASHED",
+  );
+  await proofBoundRecoveryStarted;
+  assert.equal(proofBoundAttempts, 1);
+  assert.equal(proofBoundRecoveries, 1);
+  assert.equal(proofBoundQueue.snapshot().workerRestartCount, 1);
+  assert.equal(proofBoundNextExecuted, false);
+  assert.equal(
+    proofBoundQueue.snapshot().activeJobId,
+    "proof-bound-single-attempt",
+  );
+  releaseProofBoundRecovery();
+  assert.equal(await proofBoundNext, "after-proof-bound-failure");
+
   let resolveRecoverableTimeoutStarted;
   const recoverableTimeoutStarted = new Promise((resolveStarted) => {
     resolveRecoverableTimeoutStarted = resolveStarted;
@@ -8852,6 +9339,10 @@ test("worker-recovery", async () => {
   assert.ok(releaseSource.indexOf("terminateWorker(worker)") < releaseSource.indexOf("await unloadEngineWithinDeadline"));
   assert.match(runtimeSource, /Promise\.race\(\[\s*unloadOperation/u);
   assert.match(runtimeSource, /onRecover: forceReleaseActiveEngine/u);
+  assert.match(
+    runtimeSource,
+    /maxAttempts: input\.contextAttestation === "required" \? 1 : 2/u,
+  );
 });
 
 test("gpu-device-lost", async () => {

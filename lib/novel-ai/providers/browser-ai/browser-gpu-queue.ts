@@ -5,6 +5,7 @@ type QueueItem<T> = {
   priority: BrowserGPUQueuePriority;
   enqueuedAt: number;
   timeoutMs: number;
+  maxAttempts: 1 | 2;
   memoryBudgetMB: number;
   signal?: AbortSignal;
   execute: (input: {
@@ -78,6 +79,7 @@ export class BrowserGPUQueue {
     id: string;
     priority?: BrowserGPUQueuePriority;
     timeoutMs?: number;
+    maxAttempts?: 1 | 2;
     memoryBudgetMB: number;
     signal?: AbortSignal;
     execute: (input: {
@@ -110,6 +112,7 @@ export class BrowserGPUQueue {
         priority: input.priority ?? "normal",
         enqueuedAt: performance.now(),
         timeoutMs: input.timeoutMs ?? 120_000,
+        maxAttempts: input.maxAttempts === 1 ? 1 : 2,
         memoryBudgetMB: input.memoryBudgetMB,
         signal: input.signal,
         execute: input.execute,
@@ -183,13 +186,25 @@ export class BrowserGPUQueue {
           item.resolve(result);
           break;
         } catch (error) {
-          if (attempt === 1 && isRecoverable(error)) {
+          if (isRecoverable(error)) {
             const code = String((error as { code?: string }).code ?? "");
             if (code.includes("GPU_DEVICE_LOST")) this.gpuDeviceLostCount += 1;
             this.workerRestartCount += 1;
             const recoveryOperation = Promise.resolve().then(
               () => this.options.onRecover?.(),
             );
+            if (attempt >= item.maxAttempts) {
+              // Proof-bound Closed Browser calls may not add a transparent
+              // fourth inference. Return the original failure, but keep the
+              // queue lease fenced until the crashed worker has been reset.
+              item.reject(error);
+              try {
+                await recoveryOperation;
+              } catch {
+                // The original recoverable failure remains the public result.
+              }
+              break;
+            }
             try {
               await Promise.race([
                 recoveryOperation,

@@ -1279,6 +1279,7 @@ export async function generateWithBrowserWebLLM(
       ? "background"
       : "interactive",
     timeoutMs: 180_000,
+    maxAttempts: input.contextAttestation === "required" ? 1 : 2,
     memoryBudgetMB: selected.estimatedVramMB,
     signal: input.signal,
     execute: async ({ signal }) => {
