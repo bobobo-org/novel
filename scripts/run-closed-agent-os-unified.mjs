@@ -2278,8 +2278,41 @@ test("approval and rejection share one cross-instance terminal decision lock", a
       signer: new ApprovalSigner(),
     }),
   });
+  const assertDecisionRace = async ({
+    results,
+    rejectIndex,
+    candidate,
+  }) => {
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+    const rejectWon = results[rejectIndex]?.status === "fulfilled";
+    const losingResult = results[rejectWon ? 1 - rejectIndex : rejectIndex];
+    assert.equal(losingResult?.status, "rejected");
+    assert.equal(
+      losingResult.reason?.code,
+      rejectWon
+        ? "CLOSED_AGENT_APPROVAL_GATE_FAILED"
+        : "CLOSED_AGENT_REJECTION_GATE_FAILED",
+    );
+    assert.equal(
+      (await state.get(candidate.id))?.status,
+      rejectWon ? "rejected" : "approved",
+    );
+    const blocks = await ledgerRepository.list(
+      `closed-agent:project-a:${candidate.taskId}`,
+    );
+    assert.equal(
+      blocks.filter((block) => block.eventType === "approval-signed").length,
+      rejectWon ? 0 : 1,
+    );
+    assert.equal(
+      (await state.list("project-a", "rejection"))
+        .filter((record) => record.candidateId === candidate.id).length,
+      rejectWon ? 1 : 0,
+    );
+  };
   const execution = await firstRuntime.os.execute(request(
-    "task-reject-wins-decision",
+    "task-terminal-decision-race-a",
     "story.summary",
     "light",
   ));
@@ -2291,15 +2324,14 @@ test("approval and rejection share one cross-instance terminal decision lock", a
       humanApproved: true,
     }),
   ]);
-  assert.deepEqual(rejectFirst.map((result) => result.status), ["fulfilled", "rejected"]);
-  assert.equal((await state.get(execution.candidate.id))?.status, "rejected");
-  const rejectWinBlocks = await ledgerRepository.list(
-    `closed-agent:project-a:${execution.candidate.taskId}`,
-  );
-  assert.equal(rejectWinBlocks.filter((block) => block.eventType === "approval-signed").length, 0);
+  await assertDecisionRace({
+    results: rejectFirst,
+    rejectIndex: 0,
+    candidate: execution.candidate,
+  });
 
   const approvalExecution = await firstRuntime.os.execute(request(
-    "task-approval-wins-decision",
+    "task-terminal-decision-race-b",
     "story.summary",
     "light",
   ));
@@ -2311,13 +2343,11 @@ test("approval and rejection share one cross-instance terminal decision lock", a
     }),
     secondRuntime.os.rejectCandidate(approvalExecution.candidate.id),
   ]);
-  assert.deepEqual(approveFirst.map((result) => result.status), ["fulfilled", "rejected"]);
-  assert.equal((await state.get(approvalExecution.candidate.id))?.status, "approved");
-  assert.equal(
-    (await state.list("project-a", "rejection"))
-      .filter((record) => record.candidateId === approvalExecution.candidate.id).length,
-    0,
-  );
+  await assertDecisionRace({
+    results: approveFirst,
+    rejectIndex: 1,
+    candidate: approvalExecution.candidate,
+  });
 });
 
 test("preseeded rejection causation cannot replace the expected learning payload", async () => {
