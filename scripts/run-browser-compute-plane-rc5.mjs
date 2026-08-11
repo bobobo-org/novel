@@ -11,7 +11,7 @@ import {
   isBrowserCappedInitialCollapsedRepairFreshRecoveryCandidate,
   isBrowserCollapsedRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialNearCapInternalEnvelopeRepairFreshRecoveryCandidate,
-  isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate,
+  isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialRepairFreshRecoveryCandidate,
   isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate,
   isBrowserOversizedInitialCollapsedRepairFreshRecoveryCandidate,
@@ -2397,13 +2397,13 @@ test("quality-gate", () => {
     },
   };
   assert.equal(
-    isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate(
+    isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate(
       degenerateInitialOversizedStopRepairInput,
     ),
     true,
   );
   assert.equal(
-    isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate({
+    isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate({
       initial: {
         ...degenerateInitialOversizedStopRepairInput.initial,
         reportedNormalizedOutputCharacters: 31,
@@ -2437,9 +2437,28 @@ test("quality-gate", () => {
       reportedOutputCharacters: 47,
       reportedRawOutputCharacters: 47,
     },
+    {
+      ...degenerateInitialOversizedStopRepairInput.initial,
+      observedHanCharacters: 48,
+      observedEstimatedTokens: 52,
+      observedCodePoints: 48,
+      contentCharacters: 48,
+      reportedOutputCharacters: 48,
+      reportedRawOutputCharacters: 48,
+    },
+    {
+      ...degenerateInitialOversizedStopRepairInput.initial,
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 384,
+      observedCodePoints: 640,
+      completionTokens: 384,
+      contentCharacters: 640,
+      reportedOutputCharacters: 640,
+      reportedRawOutputCharacters: 640,
+    },
   ]) {
     assert.equal(
-      isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate({
+      isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate({
         ...degenerateInitialOversizedStopRepairInput,
         initial,
       }),
@@ -2452,7 +2471,7 @@ test("quality-gate", () => {
       observedHanCharacters: 480,
       observedEstimatedTokens: 513,
       observedCodePoints: 513,
-      completionTokens: 336,
+      completionTokens: 304,
       contentCharacters: 513,
       reportedOutputCharacters: 513,
       reportedRawOutputCharacters: 513,
@@ -2476,7 +2495,7 @@ test("quality-gate", () => {
     },
   ]) {
     assert.equal(
-      isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate({
+      isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate({
         ...degenerateInitialOversizedStopRepairInput,
         repair,
       }),
@@ -2489,11 +2508,33 @@ test("quality-gate", () => {
     ["initial", { failureCode: null }],
     ["initial", { rawBudgetExceeded: true }],
     ["initial", { observedHanCharacters: 0 }],
-    ["initial", { observedHanCharacters: 48 }],
+    ["initial", {
+      observedHanCharacters: 220,
+      observedEstimatedTokens: 238,
+      observedCodePoints: 220,
+      contentCharacters: 220,
+      reportedOutputCharacters: 220,
+      reportedRawOutputCharacters: 220,
+    }],
     ["initial", { observedEstimatedTokens: 0 }],
-    ["initial", { observedEstimatedTokens: 65 }],
+    ["initial", {
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 385,
+      observedCodePoints: 219,
+      contentCharacters: 357,
+      reportedOutputCharacters: 357,
+      reportedRawOutputCharacters: 357,
+    }],
     ["initial", { observedCodePoints: 27 }],
-    ["initial", { observedCodePoints: 65 }],
+    ["initial", {
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 384,
+      observedCodePoints: 641,
+      completionTokens: 129,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    }],
     ["initial", { selectedHanCharacters: 1 }],
     ["initial", { selectedEstimatedTokens: 1 }],
     ["initial", { selectedCodePoints: 1 }],
@@ -2501,12 +2542,24 @@ test("quality-gate", () => {
     ["initial", { salvageableContentAvailable: true }],
     ["initial", { finishReason: "length" }],
     ["initial", { completionTokens: 0 }],
-    ["initial", { completionTokens: 65 }],
+    ["initial", { completionTokens: 385 }],
     ["initial", { completionTokens: 23.5 }],
     ["initial", { runtimeTokenCap: 383 }],
     ["initial", { stageHardCap: 383 }],
-    ["initial", { contentCharacters: 30 }],
-    ["initial", { contentCharacters: 65 }],
+    ["initial", {
+      contentCharacters: 30,
+      reportedOutputCharacters: 30,
+      reportedRawOutputCharacters: 30,
+    }],
+    ["initial", {
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 384,
+      observedCodePoints: 640,
+      completionTokens: 128,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    }],
     ["initial", { reportedOutputCharacters: 30 }],
     ["initial", { reportedRawOutputCharacters: 30 }],
     ["initial", { reportedNormalizedOutputCharacters: 31 }],
@@ -2517,9 +2570,22 @@ test("quality-gate", () => {
     ["repair", { observedHanCharacters: 479 }],
     ["repair", { observedHanCharacters: 561 }],
     ["repair", { observedEstimatedTokens: 512 }],
-    ["repair", { observedEstimatedTokens: 641 }],
+    ["repair", {
+      observedEstimatedTokens: 641,
+      contentCharacters: 594,
+      reportedOutputCharacters: 594,
+      reportedRawOutputCharacters: 594,
+    }],
     ["repair", { observedCodePoints: 507 }],
-    ["repair", { observedCodePoints: 641 }],
+    ["repair", {
+      observedHanCharacters: 560,
+      observedEstimatedTokens: 640,
+      observedCodePoints: 641,
+      completionTokens: 360,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    }],
     ["repair", { selectedHanCharacters: 1 }],
     ["repair", { selectedEstimatedTokens: 1 }],
     ["repair", { selectedCodePoints: 1 }],
@@ -2563,19 +2629,35 @@ test("quality-gate", () => {
     }],
     ["repair", { finishReason: "length" }],
     ["repair", { finishReason: "abort" }],
-    ["repair", { completionTokens: 335 }],
+    ["repair", { completionTokens: 303 }],
     ["repair", { completionTokens: 361 }],
     ["repair", { completionTokens: 341.5 }],
     ["repair", { runtimeTokenCap: 359 }],
     ["repair", { stageHardCap: 359 }],
-    ["repair", { contentCharacters: 512 }],
-    ["repair", { contentCharacters: 641 }],
+    ["repair", {
+      observedHanCharacters: 480,
+      observedEstimatedTokens: 513,
+      observedCodePoints: 480,
+      completionTokens: 304,
+      contentCharacters: 512,
+      reportedOutputCharacters: 512,
+      reportedRawOutputCharacters: 512,
+    }],
+    ["repair", {
+      observedHanCharacters: 560,
+      observedEstimatedTokens: 640,
+      observedCodePoints: 640,
+      completionTokens: 360,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    }],
     ["repair", { reportedOutputCharacters: 591 }],
     ["repair", { reportedRawOutputCharacters: 591 }],
     ["repair", { reportedNormalizedOutputCharacters: 592 }],
   ]) {
     assert.equal(
-      isBrowserDegenerateInitialOversizedStopRepairFreshRecoveryCandidate({
+      isBrowserUnderlengthInitialDenseOversizedStopRepairFreshRecoveryCandidate({
         ...degenerateInitialOversizedStopRepairInput,
         [stage]: {
           ...degenerateInitialOversizedStopRepairInput[stage],
@@ -8894,6 +8976,236 @@ test("bounded-prose-extension", async () => {
       "failed degenerate oversized recovery must not run a fourth pass",
     );
   }
+
+  // Match the safe d43 Fresh topology with constructed evidence only. This
+  // second point proves the selector is a finite policy over safe underlength
+  // drafts, rather than a special case for the earlier 28-Han sample.
+  const underlengthDenseInitialSentinel = "M144";
+  const underlengthDenseRepairSentinel = "D506";
+  const underlengthDenseInitialBase = `${uniqueHan(
+    144,
+    0x8000,
+  )}${underlengthDenseInitialSentinel}`;
+  assert.ok(underlengthDenseInitialBase.length <= 160);
+  const underlengthDenseInitial144 = `${underlengthDenseInitialBase}${
+    "I".repeat(160 - underlengthDenseInitialBase.length)
+  }`;
+  const underlengthDenseRepairBase = `${uniqueHan(
+    506,
+    0x8200,
+  )}${underlengthDenseRepairSentinel}`;
+  assert.ok(underlengthDenseRepairBase.length <= 568);
+  const underlengthDenseRepair506 = `${underlengthDenseRepairBase}${
+    "R".repeat(568 - underlengthDenseRepairBase.length)
+  }`;
+  const underlengthDenseInitialAssessment = assessBrowserProseCompletion(
+    underlengthDenseInitial144,
+  );
+  const underlengthDenseRepairAssessment = assessBrowserProseCompletion(
+    underlengthDenseRepair506,
+  );
+  assert.deepEqual({
+    characters: underlengthDenseInitial144.length,
+    han: underlengthDenseInitialAssessment.observedHanCharacters,
+    estimatedTokens: underlengthDenseInitialAssessment.observedEstimatedTokens,
+    codePoints: underlengthDenseInitialAssessment.observedCodePoints,
+    failureCode: underlengthDenseInitialAssessment.failureCode,
+    rawBudgetExceeded: underlengthDenseInitialAssessment.rawBudgetExceeded,
+    selectedHanCharacters:
+      underlengthDenseInitialAssessment.selectedHanCharacters,
+    content: underlengthDenseInitialAssessment.content,
+    salvageableContent: underlengthDenseInitialAssessment.salvageableContent,
+  }, {
+    characters: 160,
+    han: 144,
+    estimatedTokens: 160,
+    codePoints: 160,
+    failureCode: "minimum-length-unmet",
+    rawBudgetExceeded: false,
+    selectedHanCharacters: 0,
+    content: null,
+    salvageableContent: null,
+  });
+  assert.deepEqual({
+    characters: underlengthDenseRepair506.length,
+    han: underlengthDenseRepairAssessment.observedHanCharacters,
+    estimatedTokens: underlengthDenseRepairAssessment.observedEstimatedTokens,
+    codePoints: underlengthDenseRepairAssessment.observedCodePoints,
+    failureCode: underlengthDenseRepairAssessment.failureCode,
+    rawBudgetExceeded: underlengthDenseRepairAssessment.rawBudgetExceeded,
+    selectedHanCharacters:
+      underlengthDenseRepairAssessment.selectedHanCharacters,
+    content: underlengthDenseRepairAssessment.content,
+    salvageableContent: underlengthDenseRepairAssessment.salvageableContent,
+  }, {
+    characters: 568,
+    han: 506,
+    estimatedTokens: 564,
+    codePoints: 568,
+    failureCode: "output-budget-exceeded",
+    rawBudgetExceeded: true,
+    selectedHanCharacters: 0,
+    content: null,
+    salvageableContent: null,
+  });
+  const underlengthDenseRejectedDigests = [
+    await sha256Hex(underlengthDenseInitial144),
+    await sha256Hex(underlengthDenseRepair506),
+  ];
+  const underlengthDenseInitialResult = {
+    ...result(underlengthDenseInitial144, "stop"),
+    completionTokens: 100,
+    rawOutputCharacters: 160,
+    normalizedOutputCharacters: undefined,
+    browserModelContextInvocationProof:
+      await degenerateOversizedInvocationProof(request.requestId, "initial", 0),
+  };
+  const underlengthDenseRepairResult = {
+    ...result(
+      underlengthDenseRepair506,
+      "stop",
+      `${request.requestId}:bounded-same-model-repair`,
+    ),
+    completionTokens: 324,
+    rawOutputCharacters: 568,
+    normalizedOutputCharacters: undefined,
+    browserModelContextInvocationProof:
+      await degenerateOversizedInvocationProof(
+        `${request.requestId}:bounded-same-model-repair`,
+        "repair",
+        1,
+      ),
+  };
+  const underlengthDenseRecovery = await execute(
+    underlengthDenseInitialResult,
+    [
+      underlengthDenseRepairResult,
+      async (recoveryRequest, options) => {
+        assertBoundedFreshRecoveryRequest(recoveryRequest, options);
+        assert.equal(
+          recoveryRequest.input,
+          buildBrowserFreshRecoveryObjective(request.input),
+        );
+        assert.deepEqual(
+          recoveryRequest.context,
+          degenerateOversizedAttestedRequest.context,
+        );
+        assert.equal(options.unapprovedContinuationSeed, undefined);
+        const serializedRecoveryInput = JSON.stringify({ recoveryRequest, options });
+        for (const rejectedValue of [
+          underlengthDenseInitial144,
+          underlengthDenseRepair506,
+          underlengthDenseInitialSentinel,
+          underlengthDenseRepairSentinel,
+          ...underlengthDenseRejectedDigests,
+        ]) {
+          assert.equal(serializedRecoveryInput.includes(rejectedValue), false);
+        }
+        return {
+          ...result(
+            exactTraceRecovery240,
+            "stop",
+            `${request.requestId}:bounded-fresh-recovery`,
+          ),
+          completionTokens: 252,
+          rawOutputCharacters: exactTraceRecovery240.length,
+          normalizedOutputCharacters: undefined,
+          browserModelContextInvocationProof:
+            await degenerateOversizedInvocationProof(
+              `${request.requestId}:bounded-fresh-recovery`,
+              "recovery",
+              2,
+            ),
+        };
+      },
+    ],
+    degenerateOversizedAttestedRequest,
+    true,
+  );
+  assert.deepEqual(
+    underlengthDenseRecovery.calls.map((call) => call.request.requestId),
+    [
+      `${request.requestId}:bounded-same-model-repair`,
+      `${request.requestId}:bounded-fresh-recovery`,
+    ],
+  );
+  assert.deepEqual(
+    underlengthDenseRecovery.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 100, 160, 144],
+      ["repair", "stop", 324, 568, 506],
+      ["recovery", "stop", 252, exactTraceRecovery240.length, 240],
+    ],
+  );
+  assert.equal(underlengthDenseRecovery.result.content, exactTraceRecovery240);
+  assert.equal(underlengthDenseRecovery.quality.decision, "pass");
+  assert.equal(underlengthDenseRecovery.result.externalRequest, false);
+  assert.equal(underlengthDenseRecovery.result.dataLeavesDevice, false);
+  assert.ok(
+    await verifyBrowserFinalModelContextAttestation(
+      underlengthDenseRecovery.result.finalModelContextAttestation,
+    ),
+  );
+  assert.equal(
+    underlengthDenseRecovery.result
+      .finalModelContextAttestation.acceptedDisposition,
+    "standalone",
+  );
+  assert.equal(
+    underlengthDenseRecovery.result.finalModelContextAttestation.acceptedStage,
+    "recovery",
+  );
+  assert.deepEqual(
+    underlengthDenseRecovery.result.finalModelContextAttestation.executedStages,
+    ["initial", "repair", "recovery"],
+  );
+  assert.deepEqual(
+    underlengthDenseRecovery.result
+      .finalModelContextAttestation.contributingCalls.map((call) => call.innerStage),
+    ["recovery"],
+  );
+  assert.match(
+    underlengthDenseRecovery.result.runtimeStats,
+    /bounded-prose-extension=0/u,
+  );
+  assert.match(
+    underlengthDenseRecovery.result.runtimeStats,
+    /bounded-fresh-recovery=1/u,
+  );
+  assert.doesNotMatch(
+    underlengthDenseRecovery.result.runtimeStats,
+    /initial-output-digest|repair-output-digest|extension-base-digest/u,
+  );
+  const serializedUnderlengthDenseRecovery = JSON.stringify(
+    underlengthDenseRecovery,
+  );
+  for (const rejectedValue of [
+    underlengthDenseInitial144,
+    underlengthDenseRepair506,
+    underlengthDenseInitialSentinel,
+    underlengthDenseRepairSentinel,
+    ...underlengthDenseRejectedDigests,
+  ]) {
+    assert.equal(serializedUnderlengthDenseRecovery.includes(rejectedValue), false);
+  }
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: underlengthDenseRecovery,
+    rawGeneration: `${underlengthDenseInitial144}\n${underlengthDenseRepair506}`,
+    rejectedGenerations: [
+      underlengthDenseInitial144,
+      underlengthDenseRepair506,
+    ],
+    discardedSentinel: `${underlengthDenseInitialSentinel}|${
+      underlengthDenseRepairSentinel
+    }`,
+    taskId: "browser-underlength-dense-oversized-stop-recovery-candidate",
+  });
 
   const unsafeRepairSentinel = "UNSAFE_REPAIR_X9";
   const unsafeInternalRepair = `${exactHanPrefix(
