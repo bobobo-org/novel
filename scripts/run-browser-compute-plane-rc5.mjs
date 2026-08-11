@@ -12,6 +12,7 @@ import {
   isBrowserCollapsedRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialNearCapInternalEnvelopeRepairFreshRecoveryCandidate,
   isBrowserDegenerateInitialRepairFreshRecoveryCandidate,
+  isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate,
   isBrowserOversizedInitialCollapsedRepairFreshRecoveryCandidate,
   isBrowserRepeatedOversizedStopFreshRecoveryCandidate,
   isBrowserOversizedStopIsolatedRepairCandidate,
@@ -2344,6 +2345,219 @@ test("quality-gate", () => {
         },
       }),
       expected,
+    );
+  }
+  const nearTargetInitialNearCapOversizedRepairInput = {
+    initial: {
+      contractSatisfied: false,
+      safetyCode: null,
+      failureCode: "minimum-length-unmet",
+      rawBudgetExceeded: false,
+      observedHanCharacters: 217,
+      observedEstimatedTokens: 242,
+      observedCodePoints: 243,
+      selectedHanCharacters: 0,
+      selectedEstimatedTokens: 0,
+      selectedCodePoints: 0,
+      selectedContentAvailable: false,
+      salvageableContentAvailable: false,
+      finishReason: "stop",
+      completionTokens: 143,
+      runtimeTokenCap: 384,
+      stageHardCap: 384,
+      contentCharacters: 243,
+      reportedOutputCharacters: 243,
+      reportedRawOutputCharacters: 243,
+      reportedNormalizedOutputCharacters: undefined,
+      normalizationDeferred: true,
+    },
+    repair: {
+      contractSatisfied: false,
+      safetyCode: null,
+      failureCode: "output-budget-exceeded",
+      rawBudgetExceeded: true,
+      observedHanCharacters: 396,
+      observedEstimatedTokens: 503,
+      observedCodePoints: 667,
+      selectedHanCharacters: 0,
+      selectedEstimatedTokens: 0,
+      selectedCodePoints: 0,
+      selectedContentAvailable: false,
+      salvageableContentAvailable: false,
+      finishReason: "length",
+      completionTokens: 359,
+      runtimeTokenCap: 360,
+      stageHardCap: 360,
+      contentCharacters: 667,
+      reportedOutputCharacters: 667,
+      reportedRawOutputCharacters: 667,
+      reportedNormalizedOutputCharacters: undefined,
+      normalizationDeferred: true,
+    },
+  };
+  assert.equal(
+    isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate(
+      nearTargetInitialNearCapOversizedRepairInput,
+    ),
+    true,
+  );
+  assert.equal(
+    isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate({
+      initial: {
+        ...nearTargetInitialNearCapOversizedRepairInput.initial,
+        reportedNormalizedOutputCharacters: 243,
+        normalizationDeferred: false,
+      },
+      repair: {
+        ...nearTargetInitialNearCapOversizedRepairInput.repair,
+        reportedNormalizedOutputCharacters: 667,
+        normalizationDeferred: false,
+      },
+    }),
+    true,
+  );
+  for (const initial of [
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.initial,
+      observedHanCharacters: 212,
+      observedEstimatedTokens: 237,
+      observedCodePoints: 238,
+      contentCharacters: 238,
+      reportedOutputCharacters: 238,
+      reportedRawOutputCharacters: 238,
+    },
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.initial,
+      observedHanCharacters: 219,
+      observedEstimatedTokens: 244,
+      observedCodePoints: 245,
+      contentCharacters: 245,
+      reportedOutputCharacters: 245,
+      reportedRawOutputCharacters: 245,
+    },
+  ]) {
+    assert.equal(
+      isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate({
+        ...nearTargetInitialNearCapOversizedRepairInput,
+        initial,
+      }),
+      true,
+    );
+  }
+  for (const [stage, overrides] of [
+    ["initial", { contractSatisfied: true }],
+    ["initial", { safetyCode: "internal-envelope" }],
+    ["initial", { failureCode: null }],
+    ["initial", { rawBudgetExceeded: true }],
+    ["initial", { observedHanCharacters: 211 }],
+    ["initial", { observedHanCharacters: 220 }],
+    ["initial", { observedEstimatedTokens: 385 }],
+    ["initial", { observedCodePoints: 216 }],
+    ["initial", { observedCodePoints: 641 }],
+    ["initial", { selectedHanCharacters: 1 }],
+    ["initial", { selectedEstimatedTokens: 1 }],
+    ["initial", { selectedCodePoints: 1 }],
+    ["initial", { selectedContentAvailable: true }],
+    ["initial", { salvageableContentAvailable: true }],
+    ["initial", { finishReason: "length" }],
+    ["initial", { completionTokens: 0 }],
+    ["initial", { completionTokens: 143.5 }],
+    ["initial", { runtimeTokenCap: 383 }],
+    ["initial", { stageHardCap: 383 }],
+    ["initial", { contentCharacters: 242 }],
+    ["initial", { reportedOutputCharacters: 242 }],
+    ["initial", { reportedRawOutputCharacters: 242 }],
+    ["initial", { reportedNormalizedOutputCharacters: 243 }],
+    ["repair", { contractSatisfied: true }],
+    ["repair", { safetyCode: "internal-envelope" }],
+    ["repair", { safetyCode: "credential" }],
+    ["repair", { safetyCode: "role-envelope" }],
+    ["repair", { safetyCode: "control-token" }],
+    ["repair", { safetyCode: "raw-reasoning" }],
+    ["repair", { failureCode: "minimum-length-unmet" }],
+    ["repair", { rawBudgetExceeded: false }],
+    ["repair", { observedHanCharacters: 320 }],
+    ["repair", { observedHanCharacters: 417 }],
+    ["repair", { observedEstimatedTokens: 384 }],
+    ["repair", { observedEstimatedTokens: 513 }],
+    ["repair", { observedCodePoints: 395 }],
+    ["repair", { observedCodePoints: 705 }],
+    ["repair", { selectedHanCharacters: 1 }],
+    ["repair", { selectedEstimatedTokens: 1 }],
+    ["repair", { selectedCodePoints: 1 }],
+    ["repair", { selectedContentAvailable: true }],
+    ["repair", { salvageableContentAvailable: true }],
+    ["repair", { finishReason: "stop" }],
+    ["repair", { finishReason: "abort" }],
+    ["repair", { completionTokens: 351 }],
+    ["repair", { completionTokens: 361 }],
+    ["repair", { completionTokens: 359.5 }],
+    ["repair", { runtimeTokenCap: 359 }],
+    ["repair", { stageHardCap: 359 }],
+    ["repair", { contentCharacters: 640 }],
+    ["repair", { contentCharacters: 705 }],
+    ["repair", { reportedOutputCharacters: 666 }],
+    ["repair", { reportedRawOutputCharacters: 666 }],
+    ["repair", { reportedNormalizedOutputCharacters: 667 }],
+  ]) {
+    assert.equal(
+      isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate({
+        ...nearTargetInitialNearCapOversizedRepairInput,
+        [stage]: {
+          ...nearTargetInitialNearCapOversizedRepairInput[stage],
+          ...overrides,
+        },
+      }),
+      false,
+      `${stage}:${JSON.stringify(overrides)} must fail closed`,
+    );
+  }
+  for (const repair of [
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.repair,
+      observedHanCharacters: 321,
+      observedEstimatedTokens: 436,
+      observedCodePoints: 640,
+      completionTokens: 352,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    },
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.repair,
+      observedHanCharacters: 321,
+      observedEstimatedTokens: 436,
+      observedCodePoints: 641,
+      completionTokens: 360,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    },
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.repair,
+      observedHanCharacters: 321,
+      observedEstimatedTokens: 454,
+      observedCodePoints: 704,
+      contentCharacters: 704,
+      reportedOutputCharacters: 704,
+      reportedRawOutputCharacters: 704,
+    },
+    {
+      ...nearTargetInitialNearCapOversizedRepairInput.repair,
+      observedHanCharacters: 416,
+      observedEstimatedTokens: 512,
+      observedCodePoints: 641,
+      contentCharacters: 641,
+      reportedOutputCharacters: 641,
+      reportedRawOutputCharacters: 641,
+    },
+  ]) {
+    assert.equal(
+      isBrowserNearTargetInitialNearCapOversizedRepairFreshRecoveryCandidate({
+        ...nearTargetInitialNearCapOversizedRepairInput,
+        repair,
+      }),
+      true,
     );
   }
   const nearCapLengthInternalEnvelopeInput = {
@@ -7541,6 +7755,404 @@ test("bounded-prose-extension", async () => {
       failedRecoveryCalls,
       2,
       "failed internal-envelope recovery must not run a fourth pass",
+    );
+  }
+
+  // Match the safe 65e Fresh trace with constructed finite evidence only: a
+  // 217-Han normal-EOS initial draft and a 396-Han near-cap length repair with
+  // 667 UTF-16 characters and no verified bounded prefix. Both are discarded
+  // before one final standalone, attested grammar recovery.
+  const nearTargetInitialSentinel = "I217SAFE_X9";
+  const nearTargetRepairSentinel = "R396OVERSIZED_X9";
+  const nearTargetInitialBase = `${uniqueHan(217, 0x6000)}${nearTargetInitialSentinel}`;
+  assert.ok(nearTargetInitialBase.length <= 243);
+  const nearTargetInitial217 = `${nearTargetInitialBase}${"I".repeat(
+    243 - nearTargetInitialBase.length,
+  )}`;
+  const nearTargetRepairBase = `${uniqueHan(396, 0x6800)}${nearTargetRepairSentinel}`;
+  assert.ok(nearTargetRepairBase.length <= 667);
+  const nearTargetRepair396 = `${nearTargetRepairBase}${"R".repeat(
+    667 - nearTargetRepairBase.length,
+  )}`;
+  const nearTargetInitialAssessment = assessBrowserProseCompletion(
+    nearTargetInitial217,
+  );
+  const nearTargetRepairAssessment = assessBrowserProseCompletion(
+    nearTargetRepair396,
+  );
+  assert.deepEqual({
+    characters: nearTargetInitial217.length,
+    han: nearTargetInitialAssessment.observedHanCharacters,
+    estimatedTokens: nearTargetInitialAssessment.observedEstimatedTokens,
+    codePoints: nearTargetInitialAssessment.observedCodePoints,
+    failureCode: nearTargetInitialAssessment.failureCode,
+    rawBudgetExceeded: nearTargetInitialAssessment.rawBudgetExceeded,
+    selectedHanCharacters: nearTargetInitialAssessment.selectedHanCharacters,
+    content: nearTargetInitialAssessment.content,
+    salvageableContent: nearTargetInitialAssessment.salvageableContent,
+  }, {
+    characters: 243,
+    han: 217,
+    estimatedTokens: 242,
+    codePoints: 243,
+    failureCode: "minimum-length-unmet",
+    rawBudgetExceeded: false,
+    selectedHanCharacters: 0,
+    content: null,
+    salvageableContent: null,
+  });
+  assert.deepEqual({
+    characters: nearTargetRepair396.length,
+    han: nearTargetRepairAssessment.observedHanCharacters,
+    estimatedTokens: nearTargetRepairAssessment.observedEstimatedTokens,
+    codePoints: nearTargetRepairAssessment.observedCodePoints,
+    failureCode: nearTargetRepairAssessment.failureCode,
+    rawBudgetExceeded: nearTargetRepairAssessment.rawBudgetExceeded,
+    selectedHanCharacters: nearTargetRepairAssessment.selectedHanCharacters,
+    content: nearTargetRepairAssessment.content,
+    salvageableContent: nearTargetRepairAssessment.salvageableContent,
+  }, {
+    characters: 667,
+    han: 396,
+    estimatedTokens: 503,
+    codePoints: 667,
+    failureCode: "output-budget-exceeded",
+    rawBudgetExceeded: true,
+    selectedHanCharacters: 0,
+    content: null,
+    salvageableContent: null,
+  });
+  const nearTargetOuterRequestId = "browser-near-target-oversized-repair-outer";
+  const nearTargetAttestedRequest = {
+    ...request,
+    contextAttestation: "required",
+    browserFinalContextOuterRequestId: nearTargetOuterRequestId,
+    browserFinalContextOuterTaskType: request.taskType,
+    browserFinalContextOuterQualityPhase: "draft",
+    browserFinalContextExpectations: [],
+  };
+  const nearTargetInvocationProof = async (
+    invocationRequestId,
+    innerStage,
+    innerIndex,
+  ) => createBrowserFinalModelContextInvocationProof({
+    outerRequestId: nearTargetOuterRequestId,
+    invocationRequestId,
+    outerTaskType: request.taskType,
+    outerQualityPhase: "draft",
+    innerStage,
+    innerIndex,
+    modelId: model.modelId,
+    modelDigest: model.modelDigest,
+    callOptionsDigest: await sha256Hex(
+      `near-target-oversized-repair:${innerStage}:${innerIndex}`,
+    ),
+    systemMessage: "bounded recovery proof system descriptor",
+    userMessage: "bounded recovery proof user descriptor",
+    expectations: [],
+    omittedCharacters: 0,
+  });
+  const nearTargetRejectedDigests = [
+    await sha256Hex(nearTargetInitial217),
+    await sha256Hex(nearTargetRepair396),
+  ];
+  const nearTargetInitialResult = {
+    ...result(nearTargetInitial217, "stop"),
+    completionTokens: 143,
+    rawOutputCharacters: 243,
+    normalizedOutputCharacters: undefined,
+    browserModelContextInvocationProof:
+      await nearTargetInvocationProof(request.requestId, "initial", 0),
+  };
+  const nearTargetRepairResult = {
+    ...result(
+      nearTargetRepair396,
+      "length",
+      `${request.requestId}:bounded-same-model-repair`,
+    ),
+    completionTokens: 359,
+    rawOutputCharacters: 667,
+    normalizedOutputCharacters: undefined,
+    browserModelContextInvocationProof:
+      await nearTargetInvocationProof(
+        `${request.requestId}:bounded-same-model-repair`,
+        "repair",
+        1,
+      ),
+  };
+  const nearTargetOversizedRepairRecovery = await execute(
+    nearTargetInitialResult,
+    [
+      nearTargetRepairResult,
+      async (recoveryRequest, options) => {
+        assertBoundedFreshRecoveryRequest(recoveryRequest, options);
+        assert.equal(
+          recoveryRequest.input,
+          buildBrowserFreshRecoveryObjective(request.input),
+        );
+        assert.deepEqual(recoveryRequest.context, nearTargetAttestedRequest.context);
+        assert.equal(options.unapprovedContinuationSeed, undefined);
+        const serializedRecoveryInput = JSON.stringify({ recoveryRequest, options });
+        for (const rejectedValue of [
+          nearTargetInitial217,
+          nearTargetRepair396,
+          nearTargetInitialSentinel,
+          nearTargetRepairSentinel,
+          ...nearTargetRejectedDigests,
+        ]) {
+          assert.equal(serializedRecoveryInput.includes(rejectedValue), false);
+        }
+        return {
+          ...result(
+            exactTraceRecovery240,
+            "stop",
+            `${request.requestId}:bounded-fresh-recovery`,
+          ),
+          completionTokens: 252,
+          rawOutputCharacters: exactTraceRecovery240.length,
+          normalizedOutputCharacters: undefined,
+          browserModelContextInvocationProof:
+            await nearTargetInvocationProof(
+              `${request.requestId}:bounded-fresh-recovery`,
+              "recovery",
+              2,
+            ),
+        };
+      },
+    ],
+    nearTargetAttestedRequest,
+    true,
+  );
+  assert.deepEqual(
+    nearTargetOversizedRepairRecovery.calls.map((call) => call.request.requestId),
+    [
+      `${request.requestId}:bounded-same-model-repair`,
+      `${request.requestId}:bounded-fresh-recovery`,
+    ],
+  );
+  assert.deepEqual(
+    nearTargetOversizedRepairRecovery.browserRuntimeEvidence.map((entry) => [
+      entry.stage,
+      entry.finishReason,
+      entry.completionTokens,
+      entry.rawOutputCharacters,
+      entry.observedHanCharacters,
+    ]),
+    [
+      ["initial", "stop", 143, 243, 217],
+      ["repair", "length", 359, 667, 396],
+      ["recovery", "stop", 252, exactTraceRecovery240.length, 240],
+    ],
+  );
+  assert.equal(nearTargetOversizedRepairRecovery.result.content, exactTraceRecovery240);
+  assert.equal(nearTargetOversizedRepairRecovery.quality.decision, "pass");
+  assert.equal(nearTargetOversizedRepairRecovery.result.externalRequest, false);
+  assert.equal(nearTargetOversizedRepairRecovery.result.dataLeavesDevice, false);
+  assert.ok(
+    await verifyBrowserFinalModelContextAttestation(
+      nearTargetOversizedRepairRecovery.result.finalModelContextAttestation,
+    ),
+  );
+  assert.equal(
+    nearTargetOversizedRepairRecovery.result
+      .finalModelContextAttestation.acceptedDisposition,
+    "standalone",
+  );
+  assert.equal(
+    nearTargetOversizedRepairRecovery.result.finalModelContextAttestation.acceptedStage,
+    "recovery",
+  );
+  assert.deepEqual(
+    nearTargetOversizedRepairRecovery.result
+      .finalModelContextAttestation.executedStages,
+    ["initial", "repair", "recovery"],
+  );
+  assert.deepEqual(
+    nearTargetOversizedRepairRecovery.result
+      .finalModelContextAttestation.contributingCalls.map((call) => call.innerStage),
+    ["recovery"],
+  );
+  assert.match(
+    nearTargetOversizedRepairRecovery.result.runtimeStats,
+    /bounded-prose-extension=0/u,
+  );
+  assert.match(
+    nearTargetOversizedRepairRecovery.result.runtimeStats,
+    /bounded-fresh-recovery=1/u,
+  );
+  assert.doesNotMatch(
+    nearTargetOversizedRepairRecovery.result.runtimeStats,
+    /initial-output-digest|repair-output-digest|extension-base-digest/u,
+  );
+  const serializedNearTargetRecovery = JSON.stringify(
+    nearTargetOversizedRepairRecovery,
+  );
+  for (const rejectedValue of [
+    nearTargetInitial217,
+    nearTargetRepair396,
+    nearTargetInitialSentinel,
+    nearTargetRepairSentinel,
+    ...nearTargetRejectedDigests,
+  ]) {
+    assert.equal(serializedNearTargetRecovery.includes(rejectedValue), false);
+  }
+  await assertAuthoritativeSelectedResult({
+    selectedExecution: nearTargetOversizedRepairRecovery,
+    rawGeneration: `${nearTargetInitial217}\n${nearTargetRepair396}`,
+    rejectedGenerations: [nearTargetInitial217, nearTargetRepair396],
+    discardedSentinel: `${nearTargetInitialSentinel}|${nearTargetRepairSentinel}`,
+    taskId: "browser-near-target-oversized-repair-recovery-candidate",
+  });
+
+  const nearTargetSalvageBase = `${exactTraceRecovery240}${uniqueHan(156, 0x7000)}${
+    nearTargetRepairSentinel
+  }`;
+  assert.ok(nearTargetSalvageBase.length <= 667);
+  const nearTargetSalvageRepair = `${nearTargetSalvageBase}${"S".repeat(
+    667 - nearTargetSalvageBase.length,
+  )}`;
+  const nearTargetSalvageAssessment = assessBrowserProseCompletion(
+    nearTargetSalvageRepair,
+  );
+  assert.equal(nearTargetSalvageAssessment.observedHanCharacters, 396);
+  assert.equal(nearTargetSalvageAssessment.rawBudgetExceeded, true);
+  assert.equal(
+    nearTargetSalvageAssessment.salvageableContent,
+    exactTraceRecovery240,
+  );
+  const nearTargetSalvagedRepair = await execute(
+    nearTargetInitialResult,
+    [{
+      ...result(
+        nearTargetSalvageRepair,
+        "length",
+        `${request.requestId}:bounded-same-model-repair`,
+      ),
+      completionTokens: 359,
+      rawOutputCharacters: 667,
+      normalizedOutputCharacters: undefined,
+      browserModelContextInvocationProof:
+        await nearTargetInvocationProof(
+          `${request.requestId}:bounded-same-model-repair`,
+          "repair",
+          1,
+        ),
+    }],
+    nearTargetAttestedRequest,
+    true,
+  );
+  assert.equal(nearTargetSalvagedRepair.calls.length, 1);
+  assert.equal(nearTargetSalvagedRepair.result.content, exactTraceRecovery240);
+  assert.match(nearTargetSalvagedRepair.result.runtimeStats, /bounded-fresh-recovery=0/u);
+  assert.doesNotMatch(
+    JSON.stringify(nearTargetSalvagedRepair),
+    new RegExp(`${nearTargetInitialSentinel}|${nearTargetRepairSentinel}`, "u"),
+  );
+
+  for (const proofFreeExecutionRequest of [
+    { ...nearTargetAttestedRequest, contextAttestation: "not_required" },
+    { ...nearTargetAttestedRequest, browserFinalContextExpectations: undefined },
+  ]) {
+    let proofDowngradeCalls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: proofFreeExecutionRequest,
+        initialResult: nearTargetInitialResult,
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        deferTraditionalChineseNormalization: true,
+        runPass: async (passRequest) => {
+          proofDowngradeCalls += 1;
+          assert.equal(
+            passRequest.requestId,
+            `${request.requestId}:bounded-same-model-repair`,
+          );
+          return nearTargetRepairResult;
+        },
+      }),
+      (error) => error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_OUTPUT_TRUNCATED")
+        && closedAgentBrowserRuntimeEvidence(error).length === 2
+        && error.canonicalMutationCount === 0,
+    );
+    assert.equal(proofDowngradeCalls, 1);
+  }
+
+  const nearTargetRawBudgetRecovery = `${uniqueHan(321, 0x7600)}${"Z".repeat(320)}`;
+  assert.equal(
+    assessBrowserProseCompletion(nearTargetRawBudgetRecovery).rawBudgetExceeded,
+    true,
+  );
+  for (const [recoveryContent, recoveryFinishReason, expectedReason] of [
+    [exactHanPrefix(acceptedProse.repeat(2), 134), "stop", "QUALITY_LENGTHCOMPLIANCE_LOW"],
+    [exactTraceRecovery240, "length", "QUALITY_OUTPUT_TRUNCATED"],
+    [`<|im_end|>${exactTraceRecovery240}`, "stop", "QUALITY_OUTPUT_CONTROL_TOKEN"],
+    [nearTargetRawBudgetRecovery, "stop", "QUALITY_OUTPUT_TRUNCATED"],
+    [editorialRecovery, "stop", "QUALITY_TASK_FORM_MISMATCH"],
+  ]) {
+    let failedRecoveryCalls = 0;
+    await assert.rejects(
+      () => executeBrowserBoundedQualityPasses({
+        request,
+        decision,
+        executionRequest: nearTargetAttestedRequest,
+        initialResult: nearTargetInitialResult,
+        eligibility,
+        performancePolicy,
+        requiredGenerativeExecutor: "webllm-worker",
+        deferTraditionalChineseNormalization: true,
+        runPass: async (passRequest) => {
+          failedRecoveryCalls += 1;
+          if (failedRecoveryCalls === 1) {
+            assert.equal(
+              passRequest.requestId,
+              `${request.requestId}:bounded-same-model-repair`,
+            );
+            return nearTargetRepairResult;
+          }
+          assert.equal(failedRecoveryCalls, 2, "fresh recovery must remain final");
+          assert.equal(
+            passRequest.requestId,
+            `${request.requestId}:bounded-fresh-recovery`,
+          );
+          return {
+            ...result(
+              recoveryContent,
+              recoveryFinishReason,
+              `${request.requestId}:bounded-fresh-recovery`,
+            ),
+            completionTokens: recoveryFinishReason === "length" ? 360 : 96,
+            rawOutputCharacters: recoveryContent.length,
+            normalizedOutputCharacters: undefined,
+            browserModelContextInvocationProof:
+              await nearTargetInvocationProof(
+                `${request.requestId}:bounded-fresh-recovery`,
+                "recovery",
+                2,
+              ),
+          };
+        },
+      }),
+      (error) => {
+        const serializedError = JSON.stringify(error);
+        return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+          && error.qualityReasonCodes?.includes(expectedReason)
+          && closedAgentBrowserRuntimeEvidence(error).length === 3
+          && error.canonicalMutationCount === 0
+          && !serializedError.includes(nearTargetInitialSentinel)
+          && !serializedError.includes(nearTargetRepairSentinel)
+          && nearTargetRejectedDigests.every(
+            (digest) => !serializedError.includes(digest),
+          );
+      },
+    );
+    assert.equal(
+      failedRecoveryCalls,
+      2,
+      "failed near-target recovery must not run a fourth pass",
     );
   }
 
