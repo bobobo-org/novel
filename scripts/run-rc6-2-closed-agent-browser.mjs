@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import {
   classifyClosedAiCrossOriginRequest,
@@ -55,6 +56,14 @@ const immutableModelRootRequests = [];
 const approvedModelRedirectRequests = [];
 const prohibitedExternalAiRequests = [];
 const disallowedCrossOriginRequests = [];
+const disallowedSameOriginTargetRequests = [];
+const disallowedImmutableModelTargetRequests = [];
+const disallowedMethodRequests = [];
+const blockedNetworkPolicyAttempts = [];
+const blockedNonToolbarRequests = new WeakSet();
+const blockedNonToolbarResponses = [];
+const disallowedWebSocketAttempts = [];
+const blockedPreviewToolbarWebSocketAttempts = [];
 const observedPreviewToolbarRequests = [];
 const blockedPreviewToolbarRequests = new Set();
 const previewToolbarResponses = [];
@@ -66,14 +75,168 @@ let browser;
 let context;
 let page;
 let profilePath;
+let profileOwnership = null;
+let profilePathDigest = null;
 let edgeExecutablePath;
 let edgeCdpSession;
+let contextRouteInstalledBeforeNavigation = false;
+let contextWebSocketRouteInstalledBeforeNavigation = false;
 let authoritativeFailureEvidence = null;
 let finalOutput = null;
 let freshStorageAtFailure = null;
 let latestRegenerationAttemptEvidence = null;
+let networkSentinelEvidence = null;
+let prohibitedExternalAiRequestCount = 0;
+let disallowedCrossOriginRequestCount = 0;
+let disallowedSameOriginTargetRequestCount = 0;
+let disallowedImmutableModelTargetRequestCount = 0;
+let disallowedMethodRequestCount = 0;
+let blockedNetworkPolicyAttemptCount = 0;
+let blockedNonToolbarResponseCount = 0;
+let previewToolbarResponseCount = 0;
+let observedWebSocketAttemptCount = 0;
+let blockedWebSocketAttemptCount = 0;
+let disallowedWebSocketAttemptCount = 0;
+let webSocketServerConnectionCount = 0;
+let observedPreviewToolbarWebSocketAttemptCount = 0;
+let blockedPreviewToolbarWebSocketAttemptCount = 0;
 
 const FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1";
+const MAX_SAFE_NETWORK_PROJECTIONS = 32;
+const ALLOWED_REQUEST_METHODS = new Set(["GET", "HEAD"]);
+const LOCAL_NON_NETWORK_PROTOCOLS = new Set(["about:", "blob:", "data:"]);
+const ALLOWED_REQUEST_CLASSIFICATIONS = new Set([
+  "local-scheme",
+  "same-origin",
+  "immutable-model-root",
+  "immutable-model-redirect",
+]);
+const SAFE_REQUEST_PHASES = new Set([
+  "bootstrap",
+  "release-identity",
+  "project-setup",
+  "model-install",
+  "inference",
+]);
+const PRODUCT_STATIC_ASSET_MANIFEST_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
+// Finite transitive chunk graph read from the immutable Product P deployment
+// for every gate page and every Product navigation target those pages prefetch.
+const PRODUCT_STATIC_ASSET_PATHS = new Set([
+  "/_next/static/chunks/04k3pu8w7soaf.js",
+  "/_next/static/chunks/06lrtlswxyb7h.js",
+  "/_next/static/chunks/0cz1d0mv5g_q7.js",
+  "/_next/static/chunks/0hli89lc-7oh2.js",
+  "/_next/static/chunks/0qe-a8rxi0abp.js",
+  "/_next/static/chunks/0r-zdhpwzzodc.js",
+  "/_next/static/chunks/0tkmteu-xy88h.js",
+  "/_next/static/chunks/0w5bo491hxqji.js",
+  "/_next/static/chunks/0x-_9txpd6bfe.js",
+  "/_next/static/chunks/0x15n8m5rd7gp.js",
+  "/_next/static/chunks/0y_w1l3nhq2ct.js",
+  "/_next/static/chunks/10agmf7i5hysj.js",
+  "/_next/static/chunks/15vym6j-e8z2l.js",
+  "/_next/static/chunks/17h5qma-zvwv7.js",
+  "/_next/static/chunks/185sv7ya_94jb.js",
+  "/_next/static/chunks/1ce_-atwphf5i.css",
+  "/_next/static/chunks/1wqeeq-uw-v7e.js",
+  "/_next/static/chunks/1x8p4lk40jco1.js",
+  "/_next/static/chunks/20gd2-yosfmhk.js",
+  "/_next/static/chunks/20ldyvjz1jby_.js",
+  "/_next/static/chunks/239wwvgnaka7_.js",
+  "/_next/static/chunks/2pdk9pk490qc9.js",
+  "/_next/static/chunks/2pentl2oxnk9m.js",
+  "/_next/static/chunks/2qsuxvnf-bktb.js",
+  "/_next/static/chunks/2-tqhs_6aaxbk.js",
+  "/_next/static/chunks/2vn5m7jgu08x7.js",
+  "/_next/static/chunks/2xn0hhu_lqe01.js",
+  "/_next/static/chunks/37n5b-5spzr23.js",
+  "/_next/static/chunks/3cyzxlz23sbvh.js",
+  "/_next/static/chunks/3dq3l9zveiqxv.js",
+  "/_next/static/chunks/3eupiqb2yy4q6.js",
+  "/_next/static/chunks/3mmkb0_c4i5fa.js",
+  "/_next/static/chunks/3oqxxk5jlt610.js",
+  "/_next/static/chunks/3tmj40j4-74yb.js",
+  "/_next/static/chunks/3u8sh4kpwg9bg.js",
+  "/_next/static/chunks/3vk9bbaj5f466.css",
+  "/_next/static/chunks/3zh5sw6bqdcgn.js",
+  "/_next/static/chunks/turbopack-0-fbl8kb234_a.js",
+  "/_next/static/chunks/turbopack-30pawe7lbg0xj.js",
+  "/_next/static/chunks/turbopack-3c7jzpqyr9r89.js",
+  "/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js",
+  "/_next/static/chunks/09r4ognl-vvsl.js",
+  "/_next/static/chunks/0fh43nmoyrvtk.css",
+  "/_next/static/chunks/0l4ev7zuuqu88.js",
+  "/_next/static/chunks/0m1ol8-pez3ux.js",
+  "/_next/static/chunks/0t9tt3v-0br_y.js",
+  "/_next/static/chunks/0vyon6_dzo6fy.js",
+  "/_next/static/chunks/0zwwwcb2eboyt.js",
+  "/_next/static/chunks/11-qjqpuyj7q1.js",
+  "/_next/static/chunks/140dp12w-djg1.js",
+  "/_next/static/chunks/175u68op286at.js",
+  "/_next/static/chunks/187fe-em8097q.js",
+  "/_next/static/chunks/19bknx75lki7t.js",
+  "/_next/static/chunks/1jg_3i3xtmdlm.js",
+  "/_next/static/chunks/1koj4z42ibe00.css",
+  "/_next/static/chunks/1rznc28pdimkz.js",
+  "/_next/static/chunks/1s19bwjs47f3v.js",
+  "/_next/static/chunks/212ne2da2w25m.css",
+  "/_next/static/chunks/25bl4p0jwvuj7.js",
+  "/_next/static/chunks/2ffct51wka6zw.js",
+  "/_next/static/chunks/2iql0qw5_ufii.js",
+  "/_next/static/chunks/2lrib3r7g82hw.css",
+  "/_next/static/chunks/2ls0hmuftd6wt.js",
+  "/_next/static/chunks/3_4l61zwq6y3q.js",
+  "/_next/static/chunks/311treeyjr29u.css",
+  "/_next/static/chunks/32o-wy0yyo7kg.js",
+  "/_next/static/chunks/3hnf11jk3zb7h.css",
+  "/_next/static/chunks/3tqzxo4lpfcwo.js",
+]);
+const PRODUCT_PROJECT_SCREEN_PATHS = new Set([
+  "achievements",
+  "backups",
+  "character-ai",
+  "characters",
+  "chat",
+  "closed-ai",
+  "drama",
+  "learning",
+  "rpg",
+  "story-bible",
+  "tasks",
+  "timeline",
+  "world",
+  "write",
+]);
+const PRODUCT_NAVIGATION_PROMPT_DIGESTS = new Set([
+  "7dfca3a6911ce28ebac9c08ee11dbf5776e05ff76f7398d1c7dc3fbf89d2961e",
+  "b14faa0b55b38cad8d2e2b2d452183747c164f86e4a43946a1143d6929b1a1f3",
+]);
+const PRODUCT_STORY_BIBLE_OBJECTIVE_DIGEST =
+  "6c4bb86c557cf16a759acdda48eb5e2dc75194195425c154ed3b79284e25c5f3";
+const PRODUCT_IMMUTABLE_MODEL_ROOT_URLS = new Set([
+  ...[
+    "mlc-chat-config.json",
+    "ndarray-cache.json",
+    "tokenizer.json",
+    ...Array.from({ length: 8 }, (_, index) => `params_shard_${index}.bin`),
+  ].map((path) => (
+    "https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/"
+    + `resolve/32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad/${path}`
+  )),
+  [
+    "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/",
+    "025bcaf3780fa8254f5e5efd3bfea0a5397248f4/",
+    "web-llm-models/v0_2_84/base/",
+    "Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+  ].join(""),
+]);
+const UUID_V4 = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
+const NEXT_RSC_TOKEN = /^[A-Za-z0-9_-]{1,64}$/u;
+const PROFILE_NAME = /^novel-rc6-2-edge-[A-Za-z0-9][A-Za-z0-9-]{4,62}[A-Za-z0-9]$/u;
+
+if (expectedCommit !== PRODUCT_STATIC_ASSET_MANIFEST_COMMIT) {
+  throw new Error("RC6_2_CLOSED_AI_PRODUCT_STATIC_MANIFEST_COMMIT_MISMATCH");
+}
 
 const SAFE_DIAGNOSTIC_CODES = Object.freeze([
   "CLOSED_AGENT_TRADITIONAL_CHINESE_POLICY_INVALID",
@@ -346,17 +509,139 @@ function modelAssetRequestCount() {
   return immutableModelRootRequests.length + approvedModelRedirectRequests.length;
 }
 
-function safeCrossOriginProjection(urlValue) {
-  const url = new URL(urlValue);
+function parsedRequestUrl(urlValue) {
+  try {
+    return new URL(urlValue);
+  } catch {
+    return null;
+  }
+}
+
+function finiteRequestProtocol(url) {
+  if (!url) return "invalid";
+  if (LOCAL_NON_NETWORK_PROTOCOLS.has(url.protocol)) return url.protocol.slice(0, -1);
+  if (["http:", "https:", "ws:", "wss:"].includes(url.protocol)) {
+    return url.protocol.slice(0, -1);
+  }
+  return "other";
+}
+
+function finiteNetworkClassification(value) {
+  return ALLOWED_REQUEST_CLASSIFICATIONS.has(value) ? value : "blocked";
+}
+
+function isAllowedLocalNonNetworkRequest(url) {
+  if (!url || !LOCAL_NON_NETWORK_PROTOCOLS.has(url.protocol)) return false;
+  return url.protocol !== "about:"
+    || url.href === "about:blank"
+    || url.href === "about:srcdoc";
+}
+
+function remainingSearchAfterOptionalRsc(url) {
+  const params = new URLSearchParams(url.search);
+  const rscValues = params.getAll("_rsc");
+  if (rscValues.length > 1 || (rscValues[0] !== undefined && !NEXT_RSC_TOKEN.test(rscValues[0]))) {
+    return null;
+  }
+  params.delete("_rsc");
+  return params;
+}
+
+function hasSingleExactParameter(params, name, predicate) {
+  const entries = [...params.entries()];
+  return entries.length === 1
+    && entries[0][0] === name
+    && predicate(entries[0][1]);
+}
+
+function isAllowedProductDocumentTarget(url) {
+  const params = remainingSearchAfterOptionalRsc(url);
+  if (!params) return false;
+  if (url.pathname === "/studio" || url.pathname === "/settings/local-ai") {
+    return [...params].length === 0;
+  }
+  if (url.pathname === "/studio/create") {
+    return [...params].length === 0
+      || hasSingleExactParameter(params, "cloneFrom", (value) => UUID_V4.test(value));
+  }
+  if (url.pathname === "/professional") {
+    return hasSingleExactParameter(params, "projectId", (value) => UUID_V4.test(value));
+  }
+  const match = url.pathname.match(
+    /^\/studio\/project\/([a-f0-9-]{36})\/([a-z-]+)$/u,
+  );
+  if (!match || !UUID_V4.test(match[1]) || !PRODUCT_PROJECT_SCREEN_PATHS.has(match[2])) {
+    return false;
+  }
+  if ([...params].length === 0) return true;
+  if (match[2] === "chat") {
+    return hasSingleExactParameter(params, "prompt", (value) => (
+      PRODUCT_NAVIGATION_PROMPT_DIGESTS.has(sha256Value(value))
+    ));
+  }
+  if (match[2] === "closed-ai") {
+    if (hasSingleExactParameter(params, "backend", (value) => (
+      value === "local-ollama" || value === "private-ai-hub"
+    ))) return true;
+    const task = params.getAll("task");
+    const objective = params.getAll("objective");
+    const source = params.getAll("source");
+    return [...params].length === 3
+      && task.length === 1
+      && task[0] === "story.storyBibleCandidate"
+      && objective.length === 1
+      && sha256Value(objective[0]) === PRODUCT_STORY_BIBLE_OBJECTIVE_DIGEST
+      && source.length === 1
+      && source[0] === "project-data";
+  }
+  if (match[2] === "write") {
+    return hasSingleExactParameter(params, "chapterId", (value) => UUID_V4.test(value));
+  }
+  return false;
+}
+
+function isAllowedSameOriginTarget(url) {
+  if (!url || url.origin !== expectedOrigin) return false;
+  if (PRODUCT_STATIC_ASSET_PATHS.has(url.pathname)) return url.search === "";
+  if (url.pathname === "/manifest.webmanifest" || url.pathname === "/studio-service-worker.js") {
+    return url.search === "";
+  }
+  if (url.pathname === "/favicon.ico") {
+    return url.search === "?favicon.2vob68tjqpejf.ico";
+  }
+  if (url.pathname === "/api/persistence/health") return url.search === "";
+  if (url.pathname === "/api/release/identity") {
+    if (url.search === "") return true;
+    const params = new URLSearchParams(url.search);
+    return hasSingleExactParameter(params, "rc6_2", (value) => UUID_V4.test(value));
+  }
+  return isAllowedProductDocumentTarget(url);
+}
+
+function isAllowedImmutableModelTarget(request, classification) {
+  if (classification === "immutable-model-root") {
+    return PRODUCT_IMMUTABLE_MODEL_ROOT_URLS.has(request.url());
+  }
+  if (classification === "immutable-model-redirect") {
+    return PRODUCT_IMMUTABLE_MODEL_ROOT_URLS.has(rootRedirectRequest(request).url());
+  }
+  return true;
+}
+
+function safeNetworkTargetProjection(urlValue) {
+  const url = parsedRequestUrl(urlValue);
   return {
-    phase: requestPhase,
-    host: url.host,
-    pathDigest: sha256Value(url.pathname),
+    phase: SAFE_REQUEST_PHASES.has(requestPhase) ? requestPhase : "unknown",
+    protocol: finiteRequestProtocol(url),
+    hostDigest: url?.host ? sha256Value(url.host.toLowerCase()) : null,
+    pathDigest: url ? sha256Value(url.pathname) : null,
+    targetDigest: url ? sha256Value(`${url.pathname}${url.search}`) : null,
   };
 }
 
 function isProhibitedExternalAi(urlValue) {
-  const hostname = new URL(urlValue).hostname.toLowerCase();
+  const hostname = parsedRequestUrl(urlValue)?.hostname.toLowerCase().replace(/\.+$/u, "");
+  if (!hostname) return false;
   return [
     "api.openai.com",
     "api.x.ai",
@@ -364,6 +649,208 @@ function isProhibitedExternalAi(urlValue) {
     "generativelanguage.googleapis.com",
     "api.anthropic.com",
   ].some((blocked) => hostname === blocked || hostname.endsWith(`.${blocked}`));
+}
+
+function isExactPreviewToolbarRequest(urlValue) {
+  const url = parsedRequestUrl(urlValue);
+  return isPreviewToolbarRequest(urlValue)
+    && url?.protocol === "https:"
+    && url.hostname === "vercel.live"
+    && url.port === ""
+    && url.username === ""
+    && url.password === "";
+}
+
+function sanitizedOutboundHeaders(request, parsedUrl) {
+  const acceptByResourceType = {
+    document: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    image: "image/avif,image/webp,image/apng,image/svg+xml,*/*;q=0.8",
+    manifest: "application/manifest+json,application/json;q=0.9,*/*;q=0.8",
+    script: "*/*",
+    stylesheet: "text/css,*/*;q=0.1",
+  };
+  const headers = {
+    accept: acceptByResourceType[request.resourceType()] ?? "*/*",
+    "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+  };
+  const originalHeaders = request.headers();
+  if (parsedUrl?.searchParams.has("_rsc") && originalHeaders.rsc === "1") {
+    headers.rsc = "1";
+    if (originalHeaders["next-router-prefetch"] === "1") {
+      headers["next-router-prefetch"] = "1";
+    }
+  }
+  return headers;
+}
+
+async function requestRouteDecision(request) {
+  const urlValue = request.url();
+  if (isExactPreviewToolbarRequest(urlValue)) {
+    return {
+      action: "abort-toolbar",
+      classification: "blocked",
+      method: ALLOWED_REQUEST_METHODS.has(request.method().toUpperCase())
+        ? request.method().toUpperCase()
+        : "OTHER",
+      reasonCodes: [],
+      sanitizedHeaders: null,
+    };
+  }
+  const parsedUrl = parsedRequestUrl(urlValue);
+  const localScheme = isAllowedLocalNonNetworkRequest(parsedUrl);
+  const classification = localScheme
+    ? "local-scheme"
+    : requestNetworkClassification(request);
+  const normalizedMethod = request.method().toUpperCase();
+  const methodAllowed = ALLOWED_REQUEST_METHODS.has(normalizedMethod);
+  const prohibitedExternalAi = isProhibitedExternalAi(urlValue);
+  const classificationAllowed = ALLOWED_REQUEST_CLASSIFICATIONS.has(classification);
+  const sameOriginTargetAllowed = classification !== "same-origin"
+    || isAllowedSameOriginTarget(parsedUrl);
+  const immutableModelTargetAllowed = isAllowedImmutableModelTarget(request, classification);
+  const requestBodyAllowed = request.postDataBuffer() === null;
+  const urlCredentialsAllowed = parsedUrl?.username === "" && parsedUrl.password === "";
+  const credentialHeaderNames = new Set([
+    "authorization",
+    "cookie",
+    "cookie2",
+    "proxy-authorization",
+  ]);
+  const credentialHeadersAllowed = !(await request.headersArray()).some((header) => (
+    credentialHeaderNames.has(header.name.toLowerCase())
+  ));
+  const reasonCodes = [];
+  if (prohibitedExternalAi) reasonCodes.push("prohibited-external-ai");
+  if (!methodAllowed) reasonCodes.push("method-not-allowed");
+  if (!classificationAllowed) reasonCodes.push("network-classification-blocked");
+  if (!sameOriginTargetAllowed) reasonCodes.push("same-origin-target-not-allowed");
+  if (!immutableModelTargetAllowed) reasonCodes.push("immutable-model-target-not-allowed");
+  if (!requestBodyAllowed) reasonCodes.push("request-body-not-allowed");
+  if (!urlCredentialsAllowed) reasonCodes.push("url-credentials-not-allowed");
+  if (!credentialHeadersAllowed) reasonCodes.push("credential-header-not-allowed");
+  return {
+    action: reasonCodes.length === 0 ? "continue" : "abort-policy",
+    classification: finiteNetworkClassification(classification),
+    method: methodAllowed ? normalizedMethod : "OTHER",
+    reasonCodes,
+    sanitizedHeaders: reasonCodes.length === 0
+      ? sanitizedOutboundHeaders(request, parsedUrl)
+      : null,
+  };
+}
+
+function safeBlockedRequestProjection(request, decision) {
+  return {
+    ...safeNetworkTargetProjection(request.url()),
+    method: decision.method,
+    classification: decision.classification,
+    reasonCodes: [...decision.reasonCodes],
+  };
+}
+
+function appendBoundedProjection(collection, projection) {
+  if (collection.length < MAX_SAFE_NETWORK_PROJECTIONS) collection.push(projection);
+}
+
+function recordBlockedNetworkAttempt(request, decision) {
+  const projection = safeBlockedRequestProjection(request, decision);
+  blockedNetworkPolicyAttemptCount += 1;
+  appendBoundedProjection(blockedNetworkPolicyAttempts, projection);
+  if (decision.reasonCodes.includes("prohibited-external-ai")) {
+    prohibitedExternalAiRequestCount += 1;
+    appendBoundedProjection(prohibitedExternalAiRequests, projection);
+  }
+  if (decision.reasonCodes.includes("network-classification-blocked")) {
+    disallowedCrossOriginRequestCount += 1;
+    appendBoundedProjection(disallowedCrossOriginRequests, projection);
+  }
+  if (decision.reasonCodes.includes("same-origin-target-not-allowed")) {
+    disallowedSameOriginTargetRequestCount += 1;
+    appendBoundedProjection(disallowedSameOriginTargetRequests, projection);
+  }
+  if (decision.reasonCodes.includes("immutable-model-target-not-allowed")) {
+    disallowedImmutableModelTargetRequestCount += 1;
+    appendBoundedProjection(disallowedImmutableModelTargetRequests, projection);
+  }
+  if (decision.reasonCodes.includes("method-not-allowed")) {
+    disallowedMethodRequestCount += 1;
+    appendBoundedProjection(disallowedMethodRequests, projection);
+  }
+}
+
+function isPreviewToolbarWebSocket(urlValue) {
+  const url = parsedRequestUrl(urlValue);
+  return url?.protocol === "wss:"
+    && url.hostname === "vercel.live"
+    && url.port === ""
+    && url.username === ""
+    && url.password === "";
+}
+
+async function routeClosedAiWebSocket(webSocketRoute) {
+  const projection = safeNetworkTargetProjection(webSocketRoute.url());
+  observedWebSocketAttemptCount += 1;
+  blockedWebSocketAttemptCount += 1;
+  if (isPreviewToolbarWebSocket(webSocketRoute.url())) {
+    observedPreviewToolbarWebSocketAttemptCount += 1;
+    blockedPreviewToolbarWebSocketAttemptCount += 1;
+    appendBoundedProjection(blockedPreviewToolbarWebSocketAttempts, projection);
+  } else {
+    disallowedWebSocketAttemptCount += 1;
+    appendBoundedProjection(disallowedWebSocketAttempts, projection);
+  }
+  await webSocketRoute.close({ code: 1008, reason: "closed-ai-network-policy" });
+}
+
+async function routeClosedAiRequest(route) {
+  const request = route.request();
+  const decision = await requestRouteDecision(request);
+  if (decision.action === "abort-toolbar") {
+    blockedPreviewToolbarRequests.add(request);
+    await route.abort("blockedbyclient");
+    return;
+  }
+  if (decision.action === "abort-policy") {
+    recordBlockedNetworkAttempt(request, decision);
+    blockedNonToolbarRequests.add(request);
+    await route.abort("blockedbyclient");
+    return;
+  }
+  if (
+    decision.classification === "immutable-model-root"
+    || decision.classification === "immutable-model-redirect"
+  ) {
+    const parsed = new URL(request.url());
+    const collection = decision.classification === "immutable-model-root"
+      ? immutableModelRootRequests
+      : approvedModelRedirectRequests;
+    collection.push({ host: parsed.host, path: parsed.pathname });
+  }
+  assert.ok(decision.sanitizedHeaders, "allowed request did not receive finite sanitized headers");
+  await route.continue({ headers: decision.sanitizedHeaders });
+}
+
+function observeClosedAiRequest(request) {
+  if (isExactPreviewToolbarRequest(request.url())) {
+    observedPreviewToolbarRequests.push(request);
+  }
+}
+
+function observeClosedAiResponse(response) {
+  if (isExactPreviewToolbarRequest(response.url())) {
+    previewToolbarResponseCount += 1;
+    appendBoundedProjection(
+      previewToolbarResponses,
+      safeNetworkTargetProjection(response.url()),
+    );
+  }
+  if (blockedNonToolbarRequests.has(response.request())) {
+    blockedNonToolbarResponseCount += 1;
+    appendBoundedProjection(blockedNonToolbarResponses, {
+      phase: SAFE_REQUEST_PHASES.has(requestPhase) ? requestPhase : "unknown",
+      code: "blocked-request-produced-response",
+    });
+  }
 }
 
 function sha256Value(value) {
@@ -926,16 +1413,65 @@ async function sha256File(filePath) {
   return digest.digest("hex");
 }
 
-async function preparePersistentEdgeProfile() {
-  const temporaryRoot = resolve(tmpdir());
-  const created = await mkdtemp(join(temporaryRoot, "novel-rc6-2-edge-"));
+function comparableFilesystemPath(value) {
+  const normalized = resolve(value);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+async function canonicalTemporaryRoot() {
+  return realpath(resolve(tmpdir()));
+}
+
+async function validatePersistentEdgeProfile(candidate) {
+  assert.equal(isAbsolute(candidate), true, "Edge profile path was not absolute");
+  assert.equal(resolve(candidate), candidate, "Edge profile path was not exact and normalized");
+  assert.equal(PROFILE_NAME.test(basename(candidate)), true, "Edge profile name was not gate-owned");
+  const candidateLstat = await lstat(candidate);
+  assert.equal(candidateLstat.isDirectory(), true, "Edge profile path was not a directory");
+  assert.equal(candidateLstat.isSymbolicLink(), false, "Edge profile path was a symbolic link");
+  const [temporaryRoot, canonicalCandidate] = await Promise.all([
+    canonicalTemporaryRoot(),
+    realpath(candidate),
+  ]);
   assert.equal(
-    resolve(dirname(created)).toLocaleLowerCase("en-US"),
-    temporaryRoot.toLocaleLowerCase("en-US"),
-    "fresh Edge profile escaped the operating-system temporary directory",
+    comparableFilesystemPath(dirname(canonicalCandidate)),
+    comparableFilesystemPath(temporaryRoot),
+    "Edge profile was not an immediate child of the operating-system temporary directory",
   );
-  assert.deepEqual(await readdir(created), [], "fresh Edge profile was not empty before launch");
-  return created;
+  assert.equal(
+    comparableFilesystemPath(canonicalCandidate),
+    comparableFilesystemPath(candidate),
+    "Edge profile path resolved through an alias or reparse target",
+  );
+  assert.deepEqual(await readdir(canonicalCandidate), [], "fresh Edge profile was not empty before launch");
+  return canonicalCandidate;
+}
+
+async function preparePersistentEdgeProfile() {
+  const configuredProfile = process.env.RC6_2_CLOSED_AI_PROFILE_PATH;
+  if (configuredProfile !== undefined) {
+    assert.equal(
+      configuredProfile.trim(),
+      configuredProfile,
+      "wrapper-owned Edge profile contained surrounding whitespace",
+    );
+    assert.notEqual(configuredProfile, "", "wrapper-owned Edge profile was empty");
+    return {
+      path: await validatePersistentEdgeProfile(configuredProfile),
+      ownership: "wrapper-owned",
+    };
+  }
+  const temporaryRoot = await canonicalTemporaryRoot();
+  const created = await mkdtemp(join(temporaryRoot, "novel-rc6-2-edge-"));
+  try {
+    return {
+      path: await validatePersistentEdgeProfile(created),
+      ownership: "runner-created",
+    };
+  } catch (error) {
+    await rm(created, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function launch() {
@@ -947,7 +1483,10 @@ async function launch() {
     "msedge.exe",
     "configured browser is not Microsoft Edge",
   );
-  profilePath = await preparePersistentEdgeProfile();
+  const preparedProfile = await preparePersistentEdgeProfile();
+  profilePath = preparedProfile.path;
+  profileOwnership = preparedProfile.ownership;
+  profilePathDigest = sha256Value(profilePath);
   const launchOptions = {
     executablePath: edgeExecutablePath,
     headless,
@@ -957,6 +1496,12 @@ async function launch() {
     serviceWorkers: "block",
   };
   const persistentContext = await chromium.launchPersistentContext(profilePath, launchOptions);
+  await persistentContext.routeWebSocket("**/*", routeClosedAiWebSocket);
+  contextWebSocketRouteInstalledBeforeNavigation = true;
+  await persistentContext.route("**/*", routeClosedAiRequest);
+  contextRouteInstalledBeforeNavigation = true;
+  persistentContext.on("request", observeClosedAiRequest);
+  persistentContext.on("response", observeClosedAiResponse);
   return {
     context: persistentContext,
     browser: persistentContext.browser(),
@@ -965,10 +1510,135 @@ async function launch() {
       executableDigest: await sha256File(edgeExecutablePath),
       persistentContext: true,
       disposableProfile: true,
+      profileOwnership,
       profileEntryCountBeforeLaunch: 0,
-      profilePathDigest: sha256Value(resolve(profilePath)),
+      profilePathDigest,
+      webSocketRouteInstalledBeforeNavigation: contextWebSocketRouteInstalledBeforeNavigation,
     },
   };
+}
+
+function resetPreNavigationSentinelPolicyCounters() {
+  for (const collection of [
+    blockedNetworkPolicyAttempts,
+    prohibitedExternalAiRequests,
+    disallowedCrossOriginRequests,
+    disallowedSameOriginTargetRequests,
+    disallowedImmutableModelTargetRequests,
+    disallowedMethodRequests,
+    disallowedWebSocketAttempts,
+  ]) collection.length = 0;
+  prohibitedExternalAiRequestCount = 0;
+  disallowedCrossOriginRequestCount = 0;
+  disallowedSameOriginTargetRequestCount = 0;
+  disallowedImmutableModelTargetRequestCount = 0;
+  disallowedMethodRequestCount = 0;
+  blockedNetworkPolicyAttemptCount = 0;
+  observedWebSocketAttemptCount = 0;
+  blockedWebSocketAttemptCount = 0;
+  disallowedWebSocketAttemptCount = 0;
+}
+
+async function runPreNavigationNetworkSentinel() {
+  const sanitizedHeaderProbe = sanitizedOutboundHeaders({
+    resourceType: () => "fetch",
+    headers: () => ({
+      accept: "text/plain,story-sentinel",
+      range: "bytes=123-456",
+      "x-story-sentinel": "story-sentinel",
+    }),
+  }, new URL(`${expectedOrigin}/api/release/identity`));
+  assert.deepEqual(sanitizedHeaderProbe, {
+    accept: "*/*",
+    "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+  });
+  assert.equal(JSON.stringify(sanitizedHeaderProbe).includes("story-sentinel"), false);
+  let tcpConnectionReceiptCount = 0;
+  let httpRequestReceiptCount = 0;
+  let httpRequestBodyByteCount = 0;
+  let webSocketUpgradeReceiptCount = 0;
+  const receiver = createServer((request, response) => {
+    httpRequestReceiptCount += 1;
+    request.on("data", (chunk) => { httpRequestBodyByteCount += chunk.length; });
+    request.on("end", () => { response.writeHead(204).end(); });
+  });
+  receiver.on("connection", () => { tcpConnectionReceiptCount += 1; });
+  receiver.on("upgrade", (_request, socket) => {
+    webSocketUpgradeReceiptCount += 1;
+    socket.destroy();
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    receiver.once("error", rejectPromise);
+    receiver.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = receiver.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const result = await page.evaluate(async ({ httpUrl, webSocketUrl }) => {
+      const attempts = await Promise.all([
+        fetch(httpUrl, {
+          headers: { accept: "text/plain,story-sentinel" },
+        }).then(() => "network-receipt", () => "blocked-before-send"),
+        fetch(httpUrl, {
+          method: "POST",
+          headers: {
+            accept: "text/plain,story-sentinel",
+            "content-type": "text/plain",
+          },
+          body: "story-sentinel",
+        }).then(() => "network-receipt", () => "blocked-before-send"),
+      ]);
+      const webSocket = await new Promise((resolvePromise) => {
+        const socket = new WebSocket(webSocketUrl, "story-sentinel-protocol");
+        let settled = false;
+        const settle = (value) => {
+          if (settled) return;
+          settled = true;
+          resolvePromise(value);
+        };
+        socket.addEventListener("open", () => settle("network-receipt"), { once: true });
+        socket.addEventListener("error", () => settle("blocked-before-send"), { once: true });
+        socket.addEventListener("close", () => settle("blocked-before-send"), { once: true });
+        setTimeout(() => settle("timeout"), 5_000);
+      });
+      return { attempts, webSocket };
+    }, {
+      httpUrl: `http://127.0.0.1:${address.port}/http-sentinel`,
+      webSocketUrl: `ws://127.0.0.1:${address.port}/websocket-sentinel`,
+    });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    webSocketServerConnectionCount = webSocketUpgradeReceiptCount;
+    assert.deepEqual(result, {
+      attempts: ["blocked-before-send", "blocked-before-send"],
+      webSocket: "blocked-before-send",
+    });
+    assert.equal(blockedNetworkPolicyAttemptCount, 2);
+    assert.equal(disallowedCrossOriginRequestCount, 2);
+    assert.equal(disallowedMethodRequestCount, 1);
+    assert.equal(observedWebSocketAttemptCount, 1);
+    assert.equal(blockedWebSocketAttemptCount, 1);
+    assert.equal(disallowedWebSocketAttemptCount, 1);
+    assert.equal(tcpConnectionReceiptCount, 0);
+    assert.equal(httpRequestReceiptCount, 0);
+    assert.equal(httpRequestBodyByteCount, 0);
+    assert.equal(webSocketUpgradeReceiptCount, 0);
+    return {
+      schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+      httpAttemptCount: 2,
+      httpBlockedBeforeSendCount: 2,
+      webSocketAttemptCount: 1,
+      webSocketBlockedBeforeConnectCount: 1,
+      tcpConnectionReceiptCount,
+      httpRequestReceiptCount,
+      httpRequestBodyByteCount,
+      webSocketUpgradeReceiptCount,
+      arbitraryOutboundHeaderStrippedOrBlocked: true,
+      requestBodyBlocked: true,
+    };
+  } finally {
+    await new Promise((resolvePromise) => receiver.close(resolvePromise));
+    resetPreNavigationSentinelPolicyCounters();
+  }
 }
 
 async function assertExactOrigin() {
@@ -1098,9 +1768,30 @@ async function readEdgeIdentity(launchEvidence) {
   assert.match(version.protocolVersion ?? "", /^[0-9]+\.[0-9]+$/u);
   assert.ok(version.revision?.trim(), "Edge CDP revision was empty");
   assert.match(version.userAgent ?? "", /\bEdg\/[0-9.]+/u);
+  const engineVersion = version.product.slice("Edg/".length);
+  assert.match(engineVersion, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/u);
+  const versionDirectory = await realpath(join(dirname(edgeExecutablePath), engineVersion));
+  assert.equal(
+    comparableFilesystemPath(dirname(versionDirectory)),
+    comparableFilesystemPath(dirname(edgeExecutablePath)),
+    "Edge engine version directory escaped the configured application root",
+  );
+  assert.equal(basename(versionDirectory), engineVersion);
+  const engineDllPath = await realpath(join(versionDirectory, "msedge.dll"));
+  const engineDllStat = await stat(engineDllPath);
+  assert.equal(engineDllStat.isFile(), true, "Edge engine DLL was not a file");
+  assert.equal(
+    comparableFilesystemPath(dirname(engineDllPath)),
+    comparableFilesystemPath(versionDirectory),
+    "Edge engine DLL escaped its exact version directory",
+  );
+  assert.equal(basename(engineDllPath).toLowerCase(), "msedge.dll");
   return {
     ...launchEvidence,
     product: version.product,
+    engineVersionDirectoryName: engineVersion,
+    engineDllName: "msedge.dll",
+    engineDllDigest: await sha256File(engineDllPath),
     protocolVersion: version.protocolVersion,
     browserRevisionDigest: sha256Value(version.revision ?? ""),
     userAgentProductVerified: true,
@@ -3155,43 +3846,17 @@ try {
   const launched = await launch();
   browser = launched.browser;
   context = launched.context;
-  await context.route("https://vercel.live/**", async (route) => {
-    await route.abort("blockedbyclient");
-    blockedPreviewToolbarRequests.add(route.request());
-  });
   assert.equal(context.pages().length, 1, "fresh Edge profile opened an unexpected startup page");
   page = context.pages()[0] ?? await context.newPage();
   assert.equal(page.url(), "about:blank");
-  context.on("request", (request) => {
-    const url = request.url();
-    const networkClassification = requestNetworkClassification(request);
-    if (isPreviewToolbarRequest(url)) {
-      observedPreviewToolbarRequests.push(request);
-    } else if (networkClassification === "blocked") {
-      disallowedCrossOriginRequests.push(safeCrossOriginProjection(url));
-    }
-    if (
-      networkClassification === "immutable-model-root"
-      || networkClassification === "immutable-model-redirect"
-    ) {
-      const parsed = new URL(url);
-      const collection = networkClassification === "immutable-model-root"
-        ? immutableModelRootRequests
-        : approvedModelRedirectRequests;
-      collection.push({ host: parsed.host, path: parsed.pathname });
-    }
-    if (isProhibitedExternalAi(url)) {
-      prohibitedExternalAiRequests.push(new URL(url).host);
-    }
-  });
-  context.on("response", (response) => {
-    if (isPreviewToolbarRequest(response.url())) {
-      previewToolbarResponses.push(safeCrossOriginProjection(response.url()));
-    }
-  });
   requestPhase = "release-identity";
   gateCheckpoint = "edge-identity";
   const edgeIdentity = await readEdgeIdentity(launched.evidence);
+  requestPhase = "bootstrap";
+  gateCheckpoint = "network-zero-receipt-sentinel";
+  networkSentinelEvidence = await runPreNavigationNetworkSentinel();
+  edgeIdentity.preNavigationNetworkSentinel = networkSentinelEvidence;
+  requestPhase = "release-identity";
   gateCheckpoint = "release-identity";
   const releaseIdentityBeforeApp = await readReleaseIdentityTruth({ navigate: true });
   gateCheckpoint = "fresh-storage";
@@ -3257,12 +3922,56 @@ try {
   edgeIdentity.sameBrowserAfterReload = true;
   edgeIdentity.browserContextCount = 1;
   edgeIdentity.pageCount = 1;
+  assert.equal(contextRouteInstalledBeforeNavigation, true);
+  assert.equal(contextWebSocketRouteInstalledBeforeNavigation, true);
+  assert.deepEqual(networkSentinelEvidence, {
+    schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+    httpAttemptCount: 2,
+    httpBlockedBeforeSendCount: 2,
+    webSocketAttemptCount: 1,
+    webSocketBlockedBeforeConnectCount: 1,
+    tcpConnectionReceiptCount: 0,
+    httpRequestReceiptCount: 0,
+    httpRequestBodyByteCount: 0,
+    webSocketUpgradeReceiptCount: 0,
+    arbitraryOutboundHeaderStrippedOrBlocked: true,
+    requestBodyBlocked: true,
+  });
+  assert.equal(blockedNetworkPolicyAttemptCount, 0);
+  assert.deepEqual(blockedNetworkPolicyAttempts, []);
+  assert.equal(prohibitedExternalAiRequestCount, 0);
   assert.deepEqual(prohibitedExternalAiRequests, []);
+  assert.equal(disallowedCrossOriginRequestCount, 0);
   assert.deepEqual(disallowedCrossOriginRequests, []);
+  assert.equal(disallowedSameOriginTargetRequestCount, 0);
+  assert.deepEqual(disallowedSameOriginTargetRequests, []);
+  assert.equal(disallowedImmutableModelTargetRequestCount, 0);
+  assert.deepEqual(disallowedImmutableModelTargetRequests, []);
+  assert.equal(disallowedMethodRequestCount, 0);
+  assert.deepEqual(disallowedMethodRequests, []);
+  assert.equal(blockedNonToolbarResponseCount, 0);
+  assert.deepEqual(blockedNonToolbarResponses, []);
+  assert.equal(observedWebSocketAttemptCount, blockedWebSocketAttemptCount);
+  assert.equal(disallowedWebSocketAttemptCount, 0);
+  assert.deepEqual(disallowedWebSocketAttempts, []);
+  assert.equal(webSocketServerConnectionCount, 0);
+  assert.equal(
+    observedPreviewToolbarWebSocketAttemptCount,
+    blockedPreviewToolbarWebSocketAttemptCount,
+  );
+  assert.equal(
+    observedWebSocketAttemptCount,
+    observedPreviewToolbarWebSocketAttemptCount + disallowedWebSocketAttemptCount,
+  );
+  assert.equal(
+    blockedPreviewToolbarWebSocketAttempts.length,
+    Math.min(blockedPreviewToolbarWebSocketAttemptCount, MAX_SAFE_NETWORK_PROJECTIONS),
+  );
   assert.equal(observedPreviewToolbarRequests.length, blockedPreviewToolbarRequests.size);
   for (const request of observedPreviewToolbarRequests) {
     assert.equal(blockedPreviewToolbarRequests.has(request), true);
   }
+  assert.equal(previewToolbarResponseCount, 0);
   assert.deepEqual(previewToolbarResponses, []);
   finalOutput = {
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
@@ -3276,14 +3985,29 @@ try {
     mocksInstalled: false,
     prohibitedExternalAiRequestCount: 0,
     crossOriginPolicy: {
-      policy: "phase-aware-default-deny-v1",
+      policy: "phase-aware-context-route-default-deny-v3",
+      contextRouteInstalledBeforeNavigation,
+      allowedMethods: [...ALLOWED_REQUEST_METHODS],
       immutableModelAssetsAllowedOnlyDuringExplicitInstall: true,
-      disallowedRequestCount: 0,
+      sameOriginTargetPolicy: "product-bound-finite-target-manifest",
+      disallowedRequestCount: blockedNetworkPolicyAttemptCount,
+      disallowedMethodRequestCount,
+      blockedNonToolbarResponseCount,
       previewToolbarPolicy: "blocked-before-network",
       observedPreviewToolbarRequestCount: observedPreviewToolbarRequests.length,
       blockedPreviewToolbarRequestCount: blockedPreviewToolbarRequests.size,
-      previewToolbarResponseCount: 0,
+      previewToolbarResponseCount,
+      webSocketRouteInstalledBeforeNavigation:
+        contextWebSocketRouteInstalledBeforeNavigation,
+      webSocketPolicy: "blocked-before-connect",
+      observedWebSocketAttemptCount,
+      blockedWebSocketAttemptCount,
+      disallowedWebSocketAttemptCount,
+      webSocketServerConnectionCount,
+      observedPreviewToolbarWebSocketAttemptCount,
+      blockedPreviewToolbarWebSocketAttemptCount,
     },
+    networkZeroReceipt: networkSentinelEvidence,
     projectId,
     ...lifecycle,
     completedAt: new Date().toISOString(),
@@ -3339,10 +4063,12 @@ try {
     };
   }).catch(() => null);
   const disallowedCrossOriginHostDigests = [...new Set(
-    disallowedCrossOriginRequests.map((entry) => entry.host),
-  )].sort().map((host) => ({
-    hostDigest: sha256Value(host),
-    count: disallowedCrossOriginRequests.filter((entry) => entry.host === host).length,
+    disallowedCrossOriginRequests.map((entry) => entry.hostDigest).filter(Boolean),
+  )].sort().map((hostDigest) => ({
+    hostDigest,
+    projectedCount: disallowedCrossOriginRequests.filter(
+      (entry) => entry.hostDigest === hostDigest,
+    ).length,
   }));
   finalOutput = {
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
@@ -3360,11 +4086,41 @@ try {
     latestRegenerationAttemptEvidence,
     uiSafeErrorCodesAtFailure,
     uiStateAtFailure,
-    prohibitedExternalAiRequestCount: prohibitedExternalAiRequests.length,
+    profileOwnershipAtFailure: profileOwnership,
+    profilePathDigestAtFailure: profilePathDigest,
+    networkSentinelEvidenceAtFailure: networkSentinelEvidence,
+    contextRouteInstalledBeforeNavigation,
+    contextWebSocketRouteInstalledBeforeNavigation,
+    webSocketPolicy: "blocked-before-connect",
+    blockedNetworkPolicyAttemptCount,
+    blockedNetworkPolicyAttempts,
+    blockedNetworkPolicyProjectionTruncated:
+      blockedNetworkPolicyAttemptCount > blockedNetworkPolicyAttempts.length,
+    prohibitedExternalAiRequestCount,
     observedPreviewToolbarRequestCount: observedPreviewToolbarRequests.length,
     blockedPreviewToolbarRequestCount: blockedPreviewToolbarRequests.size,
-    previewToolbarResponseCount: previewToolbarResponses.length,
-    disallowedCrossOriginRequestCount: disallowedCrossOriginRequests.length,
+    previewToolbarResponseCount,
+    disallowedCrossOriginRequestCount,
+    disallowedSameOriginTargetRequestCount,
+    disallowedSameOriginTargetRequests,
+    disallowedImmutableModelTargetRequestCount,
+    disallowedImmutableModelTargetRequests,
+    disallowedMethodRequestCount,
+    blockedNonToolbarResponseCount,
+    blockedNonToolbarResponses,
+    observedWebSocketAttemptCount,
+    blockedWebSocketAttemptCount,
+    disallowedWebSocketAttemptCount,
+    disallowedWebSocketAttempts,
+    disallowedWebSocketProjectionTruncated:
+      disallowedWebSocketAttemptCount > disallowedWebSocketAttempts.length,
+    webSocketServerConnectionCount,
+    observedPreviewToolbarWebSocketAttemptCount,
+    blockedPreviewToolbarWebSocketAttemptCount,
+    blockedPreviewToolbarWebSocketAttempts,
+    blockedPreviewToolbarWebSocketProjectionTruncated:
+      blockedPreviewToolbarWebSocketAttemptCount
+      > blockedPreviewToolbarWebSocketAttempts.length,
     disallowedCrossOriginHostDigests,
     error: {
       code: safeFailureCode(error),
@@ -3381,15 +4137,27 @@ try {
   await browser?.close().catch(() => undefined);
   let profileDisposed = false;
   if (profilePath) {
-    const temporaryRoot = resolve(tmpdir());
     const resolvedProfile = resolve(profilePath);
-    const withinTemporaryRoot = resolvedProfile.toLocaleLowerCase("en-US").startsWith(
-      `${temporaryRoot.toLocaleLowerCase("en-US")}${sep}`,
-    );
-    if (!withinTemporaryRoot || !basename(resolvedProfile).startsWith("novel-rc6-2-edge-")) {
+    const temporaryRoot = await canonicalTemporaryRoot().catch(() => null);
+    const exactSafeTarget = temporaryRoot !== null
+      && isAbsolute(profilePath)
+      && profilePath === resolvedProfile
+      && PROFILE_NAME.test(basename(resolvedProfile))
+      && comparableFilesystemPath(dirname(resolvedProfile))
+        === comparableFilesystemPath(temporaryRoot);
+    if (!exactSafeTarget) {
       cleanupFailed = true;
     } else {
-      await rm(resolvedProfile, { recursive: true, force: true })
+      const disposableTarget = await lstat(resolvedProfile)
+        .then(async (entry) => (
+          entry.isDirectory()
+          && !entry.isSymbolicLink()
+          && comparableFilesystemPath(await realpath(resolvedProfile))
+            === comparableFilesystemPath(resolvedProfile)
+        ))
+        .catch((error) => error?.code === "ENOENT");
+      if (!disposableTarget) cleanupFailed = true;
+      else await rm(resolvedProfile, { recursive: true, force: true })
         .then(async () => {
           profileDisposed = await stat(resolvedProfile)
             .then(() => false)
@@ -3405,6 +4173,17 @@ try {
       status: "FAIL",
       mode,
       exactOrigin: expectedOrigin,
+      profileOwnershipAtFailure: profileOwnership,
+      profilePathDigestAtFailure: profilePathDigest,
+      contextRouteInstalledBeforeNavigation,
+      contextWebSocketRouteInstalledBeforeNavigation,
+      webSocketPolicy: "blocked-before-connect",
+      observedWebSocketAttemptCount,
+      blockedWebSocketAttemptCount,
+      disallowedWebSocketAttemptCount,
+      webSocketServerConnectionCount,
+      observedPreviewToolbarWebSocketAttemptCount,
+      blockedPreviewToolbarWebSocketAttemptCount,
       error: {
         code: "RC6_2_CLOSED_AI_GATE_FAILED",
         diagnosticCodes: [],
@@ -3433,7 +4212,18 @@ try {
       mode,
       exactOrigin: expectedOrigin,
       freshBrowserContext: true,
+      profileOwnershipAtFailure: profileOwnership,
+      profilePathDigestAtFailure: profilePathDigest,
       profileDisposed,
+      contextRouteInstalledBeforeNavigation,
+      contextWebSocketRouteInstalledBeforeNavigation,
+      webSocketPolicy: "blocked-before-connect",
+      observedWebSocketAttemptCount,
+      blockedWebSocketAttemptCount,
+      disallowedWebSocketAttemptCount,
+      webSocketServerConnectionCount,
+      observedPreviewToolbarWebSocketAttemptCount,
+      blockedPreviewToolbarWebSocketAttemptCount,
       error: {
         code: "RC6_2_CLOSED_AI_GATE_FAILED",
         diagnosticCodes: [],

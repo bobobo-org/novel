@@ -1,5 +1,21 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { chromium } from "@playwright/test";
 import {
   ClosedAgentOS,
   MemoryClosedAgentStateRepository,
@@ -772,6 +788,118 @@ await test("production-matrix", () => {
   }
 });
 
+await test("browser-network-zero-receipt", async () => {
+  if (process.platform !== "win32") return;
+  const edgeExecutable = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  assert.equal((await stat(edgeExecutable)).isFile(), true);
+  let tcpConnectionReceiptCount = 0;
+  let httpReceiptCount = 0;
+  let httpRequestBodyByteCount = 0;
+  let webSocketUpgradeReceiptCount = 0;
+  const receiver = createServer((request, response) => {
+    httpReceiptCount += 1;
+    request.on("data", (chunk) => { httpRequestBodyByteCount += chunk.length; });
+    request.on("end", () => { response.writeHead(204).end(); });
+  });
+  receiver.on("connection", () => { tcpConnectionReceiptCount += 1; });
+  receiver.on("upgrade", (_request, socket) => {
+    webSocketUpgradeReceiptCount += 1;
+    socket.destroy();
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    receiver.once("error", rejectPromise);
+    receiver.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = receiver.address();
+  assert.ok(address && typeof address === "object");
+  let sentinelBrowser;
+  let sentinelContext;
+  try {
+    sentinelBrowser = await chromium.launch({
+      executablePath: edgeExecutable,
+      headless: true,
+    });
+    sentinelContext = await sentinelBrowser.newContext({ serviceWorkers: "block" });
+    let observedHttpAttemptCount = 0;
+    let blockedHttpAttemptCount = 0;
+    let observedWebSocketAttemptCount = 0;
+    let blockedWebSocketAttemptCount = 0;
+    await sentinelContext.routeWebSocket("**/*", async (webSocketRoute) => {
+      observedWebSocketAttemptCount += 1;
+      blockedWebSocketAttemptCount += 1;
+      await webSocketRoute.close({ code: 1008, reason: "sentinel-policy" });
+    });
+    await sentinelContext.route("**/*", async (route) => {
+      observedHttpAttemptCount += 1;
+      blockedHttpAttemptCount += 1;
+      await route.abort("blockedbyclient");
+    });
+    const sentinelPage = await sentinelContext.newPage();
+    const browserResult = await sentinelPage.evaluate(async ({ httpUrl, webSocketUrl }) => {
+      const http = await fetch(httpUrl).then(
+        () => "network-receipt",
+        () => "blocked-before-send",
+      );
+      const webSocket = await new Promise((resolvePromise) => {
+        const socket = new WebSocket(webSocketUrl);
+        let settled = false;
+        const settle = (value) => {
+          if (settled) return;
+          settled = true;
+          resolvePromise(value);
+        };
+        socket.addEventListener("open", () => settle("network-receipt"), { once: true });
+        socket.addEventListener("error", () => settle("blocked-before-send"), { once: true });
+        socket.addEventListener("close", () => settle("blocked-before-send"), { once: true });
+        setTimeout(() => settle("timeout"), 5_000);
+      });
+      return { http, webSocket };
+    }, {
+      httpUrl: `http://127.0.0.1:${address.port}/http-sentinel`,
+      webSocketUrl: `ws://127.0.0.1:${address.port}/websocket-sentinel`,
+    });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    assert.deepEqual(browserResult, {
+      http: "blocked-before-send",
+      webSocket: "blocked-before-send",
+    });
+    assert.equal(observedHttpAttemptCount, 1);
+    assert.equal(blockedHttpAttemptCount, 1);
+    assert.equal(observedWebSocketAttemptCount, 1);
+    assert.equal(blockedWebSocketAttemptCount, 1);
+    const networkZeroReceipt = {
+      schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+      httpAttemptCount: observedHttpAttemptCount,
+      httpBlockedBeforeSendCount: blockedHttpAttemptCount,
+      webSocketAttemptCount: observedWebSocketAttemptCount,
+      webSocketBlockedBeforeConnectCount: blockedWebSocketAttemptCount,
+      tcpConnectionReceiptCount,
+      httpRequestReceiptCount: httpReceiptCount,
+      httpRequestBodyByteCount,
+      webSocketUpgradeReceiptCount,
+      arbitraryOutboundHeaderStrippedOrBlocked: true,
+      requestBodyBlocked: true,
+    };
+    assert.deepEqual(networkZeroReceipt, {
+      schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+      httpAttemptCount: 1,
+      httpBlockedBeforeSendCount: 1,
+      webSocketAttemptCount: 1,
+      webSocketBlockedBeforeConnectCount: 1,
+      tcpConnectionReceiptCount: 0,
+      httpRequestReceiptCount: 0,
+      httpRequestBodyByteCount: 0,
+      webSocketUpgradeReceiptCount: 0,
+      arbitraryOutboundHeaderStrippedOrBlocked: true,
+      requestBodyBlocked: true,
+    });
+  } finally {
+    await sentinelContext?.close().catch(() => undefined);
+    await sentinelBrowser?.close().catch(() => undefined);
+    await new Promise((resolvePromise) => receiver.close(resolvePromise));
+  }
+});
+
 await test("source-truth", async () => {
   const previewOrigin = "https://novel.example";
   const immutableRoot = [
@@ -802,6 +930,207 @@ await test("source-truth", async () => {
   assert.equal(isPreviewToolbarRequest("https://vercel.live:444/widget"), false);
   assert.equal(isPreviewToolbarRequest("https://vercel.live.evil.test/widget"), false);
   assert.equal(isPreviewToolbarRequest("http://vercel.live/widget"), false);
+  const isExactPreviewToolbarRequest = (value) => {
+    const url = new URL(value);
+    return isPreviewToolbarRequest(value)
+      && url.protocol === "https:"
+      && url.hostname === "vercel.live"
+      && url.port === ""
+      && url.username === ""
+      && url.password === "";
+  };
+  assert.equal(isExactPreviewToolbarRequest("https://vercel.live/widget"), true);
+  assert.equal(isExactPreviewToolbarRequest("https://story:leak@vercel.live/widget"), false);
+  const fixtureUuid = "00000000-0000-4000-8000-000000000000";
+  const productChunk = "/_next/static/chunks/04k3pu8w7soaf.js";
+  const allowedProjectScreens = new Set(["chat", "story-bible", "write", "closed-ai"]);
+  const canonicalUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[a-f0-9]{12}$/u;
+  const allowedSameOriginTarget = (url) => {
+    if (url.pathname === productChunk) return url.search === "";
+    if (url.pathname === "/api/persistence/health") return url.search === "";
+    if (url.pathname === "/api/release/identity") {
+      if (url.search === "") return true;
+      const entries = [...url.searchParams.entries()];
+      return entries.length === 1
+        && entries[0][0] === "rc6_2"
+        && canonicalUuid.test(entries[0][1]);
+    }
+    const match = url.pathname.match(
+      /^\/studio\/project\/([a-f0-9-]{36})\/([a-z-]+)$/u,
+    );
+    if (!match || !canonicalUuid.test(match[1]) || !allowedProjectScreens.has(match[2])) {
+      return false;
+    }
+    const params = new URLSearchParams(url.search);
+    const rsc = params.getAll("_rsc");
+    if (rsc.length > 1 || (rsc[0] !== undefined && !/^[A-Za-z0-9_-]{1,64}$/u.test(rsc[0]))) {
+      return false;
+    }
+    params.delete("_rsc");
+    const entries = [...params.entries()];
+    if (entries.length === 0) return true;
+    if (match[2] === "chat") {
+      return entries.length === 1
+        && entries[0][0] === "prompt"
+        && entries[0][1] === "請協助我續寫、改寫或分析目前小說。";
+    }
+    if (match[2] === "write") {
+      return entries.length === 1
+        && entries[0][0] === "chapterId"
+        && canonicalUuid.test(entries[0][1]);
+    }
+    if (match[2] === "closed-ai") {
+      return entries.length === 1
+        && entries[0][0] === "backend"
+        && ["local-ollama", "private-ai-hub"].includes(entries[0][1]);
+    }
+    return false;
+  };
+  const routePolicyAction = ({
+    urlValue,
+    method = "GET",
+    requestPhase = "inference",
+    rootUrlValue = immutableRoot,
+    hasPostData = false,
+    hasCredentialHeader = false,
+  }) => {
+    if (isExactPreviewToolbarRequest(urlValue)) {
+      return { action: "abort-toolbar", reasonCodes: [] };
+    }
+    let parsed = null;
+    try {
+      parsed = new URL(urlValue);
+    } catch {
+      // Invalid request targets remain fail-closed in the classifier below.
+    }
+    const localScheme = Boolean(
+      parsed
+      && (
+        parsed.protocol === "blob:"
+        || parsed.protocol === "data:"
+        || (
+          parsed.protocol === "about:"
+          && (parsed.href === "about:blank" || parsed.href === "about:srcdoc")
+        )
+      ),
+    );
+    const classification = localScheme
+      ? "local-scheme"
+      : classifyClosedAiCrossOriginRequest({
+        urlValue,
+        expectedOrigin: previewOrigin,
+        requestPhase,
+        rootUrlValue,
+      });
+    const normalizedMethod = method.toUpperCase();
+    const methodAllowed = normalizedMethod === "GET" || normalizedMethod === "HEAD";
+    const hostname = parsed?.hostname.toLowerCase().replace(/\.+$/u, "") ?? "";
+    const prohibitedExternalAi = [
+      "api.openai.com",
+      "api.x.ai",
+      "api.groq.com",
+      "generativelanguage.googleapis.com",
+      "api.anthropic.com",
+    ].some((blocked) => hostname === blocked || hostname.endsWith(`.${blocked}`));
+    const classificationAllowed = [
+      "local-scheme",
+      "same-origin",
+      "immutable-model-root",
+      "immutable-model-redirect",
+    ].includes(classification);
+    const sameOriginTargetAllowed = classification !== "same-origin"
+      || allowedSameOriginTarget(parsed);
+    const immutableModelTargetAllowed = classification !== "immutable-model-root"
+      && classification !== "immutable-model-redirect"
+      || rootUrlValue === immutableRoot && (
+        classification === "immutable-model-redirect" || urlValue === immutableRoot
+      );
+    const urlCredentialsAllowed = parsed?.username === "" && parsed.password === "";
+    const reasonCodes = [];
+    if (prohibitedExternalAi) reasonCodes.push("prohibited-external-ai");
+    if (!methodAllowed) reasonCodes.push("method-not-allowed");
+    if (!classificationAllowed) reasonCodes.push("network-classification-blocked");
+    if (!sameOriginTargetAllowed) reasonCodes.push("same-origin-target-not-allowed");
+    if (!immutableModelTargetAllowed) reasonCodes.push("immutable-model-target-not-allowed");
+    if (hasPostData) reasonCodes.push("request-body-not-allowed");
+    if (!urlCredentialsAllowed) reasonCodes.push("url-credentials-not-allowed");
+    if (hasCredentialHeader) reasonCodes.push("credential-header-not-allowed");
+    return {
+      action: reasonCodes.length === 0 ? "continue" : "abort-policy",
+      reasonCodes,
+    };
+  };
+  for (const matrixCase of [
+    { name: "release identity GET", urlValue: `${previewOrigin}/api/release/identity`, expected: "continue" },
+    { name: "release identity nonce", urlValue: `${previewOrigin}/api/release/identity?rc6_2=${fixtureUuid}`, expected: "continue" },
+    { name: "release identity extra query", urlValue: `${previewOrigin}/api/release/identity?rc6_2=${fixtureUuid}&leak=1`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "release identity duplicate nonce", urlValue: `${previewOrigin}/api/release/identity?rc6_2=${fixtureUuid}&rc6_2=${fixtureUuid}`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "allowed GET with body", urlValue: `${previewOrigin}/api/release/identity`, hasPostData: true, expected: "abort-policy", reasons: ["request-body-not-allowed"] },
+    { name: "allowed GET with credential header", urlValue: `${previewOrigin}/api/release/identity`, hasCredentialHeader: true, expected: "abort-policy", reasons: ["credential-header-not-allowed"] },
+    { name: "allowed URL with credentials", urlValue: `https://author:story@novel.example/api/release/identity`, expected: "abort-policy", reasons: ["url-credentials-not-allowed"] },
+    { name: "toolbar URL with credentials", urlValue: "https://story:leak@vercel.live/widget", expected: "abort-policy", reasons: ["network-classification-blocked", "url-credentials-not-allowed"] },
+    { name: "persistence health HEAD", urlValue: `${previewOrigin}/api/persistence/health`, method: "HEAD", expected: "continue" },
+    { name: "arbitrary same-origin API", urlValue: `${previewOrigin}/api/write`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "arbitrary same-origin POST", urlValue: `${previewOrigin}/api/write`, method: "POST", expected: "abort-policy", reasons: ["method-not-allowed", "same-origin-target-not-allowed"] },
+    { name: "bound Product chunk", urlValue: `${previewOrigin}${productChunk}`, expected: "continue" },
+    { name: "unbound lookalike Product chunk", urlValue: `${previewOrigin}/_next/static/chunks/attacker.js`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "Product chunk query", urlValue: `${previewOrigin}${productChunk}?leak=1`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "project chat document", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/chat`, expected: "continue" },
+    { name: "project RSC document", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/story-bible?_rsc=fixture_1`, expected: "continue" },
+    { name: "project unknown screen", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/admin`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "project arbitrary query", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/chat?prompt=not-product-bound`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "project bound prompt", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/chat?prompt=${encodeURIComponent("請協助我續寫、改寫或分析目前小說。")}`, expected: "continue" },
+    { name: "project bound backend", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/closed-ai?backend=local-ollama`, expected: "continue" },
+    { name: "project unbound backend", urlValue: `${previewOrigin}/studio/project/${fixtureUuid}/closed-ai?backend=external`, expected: "abort-policy", reasons: ["same-origin-target-not-allowed"] },
+    { name: "external AI GET", urlValue: "https://api.openai.com/v1/responses?secret=not-projected", expected: "abort-policy", reasons: ["prohibited-external-ai", "network-classification-blocked"] },
+    { name: "external AI trailing dot", urlValue: "https://api.openai.com./v1/responses", expected: "abort-policy", reasons: ["prohibited-external-ai", "network-classification-blocked"] },
+    { name: "arbitrary cross-origin", urlValue: "https://example.net/resource", expected: "abort-policy", reasons: ["network-classification-blocked"] },
+    { name: "immutable root install GET", urlValue: immutableRoot, requestPhase: "model-install", expected: "continue" },
+    { name: "immutable root install POST", urlValue: immutableRoot, requestPhase: "model-install", method: "POST", expected: "abort-policy", reasons: ["method-not-allowed"] },
+    { name: "immutable root query smuggling", urlValue: `${immutableRoot}?secret=leak`, requestPhase: "model-install", expected: "abort-policy", reasons: ["immutable-model-target-not-allowed"] },
+    { name: "immutable root prefix smuggling", urlValue: `${immutableRoot}/leak`, requestPhase: "model-install", expected: "abort-policy", reasons: ["immutable-model-target-not-allowed"] },
+    { name: "immutable root inference", urlValue: immutableRoot, expected: "abort-policy", reasons: ["network-classification-blocked"] },
+    { name: "approved redirect install GET", urlValue: regionalRedirect, requestPhase: "model-install", expected: "continue" },
+    { name: "unrooted redirect", urlValue: regionalRedirect, requestPhase: "model-install", rootUrlValue: regionalRedirect, expected: "abort-policy", reasons: ["network-classification-blocked"] },
+    { name: "about blank GET", urlValue: "about:blank", expected: "continue" },
+    { name: "about srcdoc HEAD", urlValue: "about:srcdoc", method: "HEAD", expected: "continue" },
+    { name: "blob GET", urlValue: `blob:${previewOrigin}/fixture`, expected: "continue" },
+    { name: "data GET", urlValue: "data:text/plain,fixture", expected: "continue" },
+    { name: "local POST", urlValue: "data:text/plain,fixture", method: "POST", expected: "abort-policy", reasons: ["method-not-allowed"] },
+    { name: "file blocked", urlValue: "file:///tmp/private", expected: "abort-policy", reasons: ["network-classification-blocked"] },
+    { name: "toolbar POST", urlValue: "https://vercel.live/widget?secret=not-projected", method: "POST", expected: "abort-toolbar" },
+  ]) {
+    const decision = routePolicyAction(matrixCase);
+    assert.equal(decision.action, matrixCase.expected, matrixCase.name);
+    assert.deepEqual(decision.reasonCodes, matrixCase.reasons ?? [], matrixCase.name);
+  }
+  const webSocketPolicyAction = (urlValue) => {
+    let url = null;
+    try {
+      url = new URL(urlValue);
+    } catch {
+      // Invalid WebSocket targets are still closed by the catch-all route.
+    }
+    return url?.protocol === "wss:"
+      && url.hostname === "vercel.live"
+      && url.port === ""
+      ? "close-toolbar-non-violation"
+      : "close-disallowed";
+  };
+  assert.equal(
+    webSocketPolicyAction("wss://vercel.live/widget?secret=not-projected"),
+    "close-toolbar-non-violation",
+  );
+  for (const target of [
+    "ws://vercel.live/widget",
+    "wss://vercel.live:444/widget",
+    "wss://vercel.live.evil.test/widget",
+    `wss://${new URL(previewOrigin).host}/socket`,
+    "wss://api.openai.com/v1/realtime?secret=not-projected",
+    "invalid-websocket-target",
+  ]) {
+    assert.equal(webSocketPolicyAction(target), "close-disallowed", target);
+  }
   const lazyTraditionalRuntimeSources = await Promise.all([
     "../lib/novel-ai/closed-agent-os/closed-agent-os.ts",
     "../lib/novel-ai/closed-agent-os/evaluator.ts",
@@ -1010,16 +1339,277 @@ await test("source-truth", async () => {
   assert.match(privateHub, /seed:\s*input\.request\.regeneration\.modelSeed/u);
   assert.doesNotMatch(workspace, /getStudioClosedAIBootstrapCoordinator/u);
   assert.match(browserGate, /RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED/u);
-  assert.match(browserGate, /context\.route\("https:\/\/vercel\.live\/\*\*"/u);
-  assert.match(browserGate, /route\.abort\("blockedbyclient"\)/u);
   assert.match(
     browserGate,
-    /await route\.abort\("blockedbyclient"\);[\s\S]*blockedPreviewToolbarRequests\.add\(route\.request\(\)\)/u,
+    /await persistentContext\.routeWebSocket\("\*\*\/\*", routeClosedAiWebSocket\)/u,
   );
+  assert.match(browserGate, /await persistentContext\.route\("\*\*\/\*", routeClosedAiRequest\)/u);
+  assert.equal(browserGate.match(/\.route\(/gu)?.length, 1);
+  const launchContract = browserGate.slice(
+    browserGate.indexOf("async function launch()"),
+    browserGate.indexOf("async function assertExactOrigin()"),
+  );
+  assert.ok(launchContract.indexOf('persistentContext.routeWebSocket("**/*"') >= 0);
+  assert.ok(
+    launchContract.indexOf('persistentContext.routeWebSocket("**/*"')
+      < launchContract.indexOf('persistentContext.route("**/*"'),
+    "fail-closed WebSocket route must be installed before the HTTP route",
+  );
+  assert.ok(launchContract.indexOf('persistentContext.route("**/*"') >= 0);
+  assert.ok(
+    launchContract.indexOf('persistentContext.route("**/*"')
+      < launchContract.indexOf("return {"),
+    "fail-closed context route must be installed before launch returns",
+  );
+  const mainContract = browserGate.slice(browserGate.indexOf("try {\n  gateCheckpoint = \"launch\";"));
+  assert.ok(mainContract.indexOf("const launched = await launch()") >= 0);
+  assert.ok(
+    mainContract.indexOf("const launched = await launch()")
+      < mainContract.indexOf("readReleaseIdentityTruth({ navigate: true })"),
+    "fail-closed launch must complete before the first Product navigation",
+  );
+  assert.ok(
+    mainContract.indexOf("networkSentinelEvidence = await runPreNavigationNetworkSentinel()")
+      < mainContract.indexOf("readReleaseIdentityTruth({ navigate: true })"),
+    "real receiver sentinel must complete before the first Product navigation",
+  );
+  const routeDecisionContract = browserGate.slice(
+    browserGate.indexOf("function requestRouteDecision(request)"),
+    browserGate.indexOf("function safeBlockedRequestProjection(request, decision)"),
+  );
+  assert.match(browserGate, /const ALLOWED_REQUEST_METHODS = new Set\(\["GET", "HEAD"\]\)/u);
+  assert.match(browserGate, /const LOCAL_NON_NETWORK_PROTOCOLS = new Set\(\["about:", "blob:", "data:"\]\)/u);
+  assert.match(routeDecisionContract, /isExactPreviewToolbarRequest\(urlValue\)/u);
+  assert.match(routeDecisionContract, /isProhibitedExternalAi\(urlValue\)/u);
+  assert.match(routeDecisionContract, /ALLOWED_REQUEST_METHODS\.has\(normalizedMethod\)/u);
+  assert.match(routeDecisionContract, /ALLOWED_REQUEST_CLASSIFICATIONS\.has\(classification\)/u);
+  assert.match(routeDecisionContract, /"network-classification-blocked"/u);
+  assert.match(routeDecisionContract, /isAllowedSameOriginTarget\(parsedUrl\)/u);
+  assert.match(routeDecisionContract, /isAllowedImmutableModelTarget\(request, classification\)/u);
+  assert.match(routeDecisionContract, /"same-origin-target-not-allowed"/u);
+  assert.match(routeDecisionContract, /"immutable-model-target-not-allowed"/u);
+  assert.match(routeDecisionContract, /request\.postDataBuffer\(\) === null/u);
+  assert.match(routeDecisionContract, /parsedUrl\?\.username === "" && parsedUrl\.password === ""/u);
+  assert.match(routeDecisionContract, /await request\.headersArray\(\)/u);
+  assert.match(routeDecisionContract, /"request-body-not-allowed"/u);
+  assert.match(routeDecisionContract, /"url-credentials-not-allowed"/u);
+  assert.match(routeDecisionContract, /"credential-header-not-allowed"/u);
+  const outboundHeaderContract = browserGate.slice(
+    browserGate.indexOf("function sanitizedOutboundHeaders(request, parsedUrl)"),
+    browserGate.indexOf("async function requestRouteDecision(request)"),
+  );
+  assert.match(outboundHeaderContract, /"accept-language": "zh-TW,zh;q=0\.9,en;q=0\.8"/u);
+  assert.match(outboundHeaderContract, /headers\.rsc = "1"/u);
+  assert.doesNotMatch(
+    outboundHeaderContract,
+    /authorization|cookie|range|referer|user-agent/iu,
+  );
+  const targetPolicyContract = browserGate.slice(
+    browserGate.indexOf("function remainingSearchAfterOptionalRsc(url)"),
+    browserGate.indexOf("function safeNetworkTargetProjection(urlValue)"),
+  );
+  assert.match(browserGate, /PRODUCT_STATIC_ASSET_MANIFEST_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae"/u);
+  assert.match(browserGate, /const PRODUCT_STATIC_ASSET_PATHS = new Set\(\[/u);
+  assert.match(targetPolicyContract, /PRODUCT_STATIC_ASSET_PATHS\.has\(url\.pathname\)/u);
+  assert.match(targetPolicyContract, /PRODUCT_NAVIGATION_PROMPT_DIGESTS\.has\(sha256Value\(value\)\)/u);
+  assert.match(targetPolicyContract, /hasSingleExactParameter\(params, "rc6_2"/u);
+  assert.match(targetPolicyContract, /PRODUCT_IMMUTABLE_MODEL_ROOT_URLS\.has\(request\.url\(\)\)/u);
+  assert.doesNotMatch(targetPolicyContract, /pathname\.startsWith|searchParams\.has/u);
+  const routeHandlerContract = browserGate.slice(
+    browserGate.indexOf("async function routeClosedAiRequest(route)"),
+    browserGate.indexOf("function observeClosedAiRequest(request)"),
+  );
+  assert.match(routeHandlerContract, /decision\.action === "abort-toolbar"/u);
+  assert.match(routeHandlerContract, /decision\.action === "abort-policy"/u);
+  assert.match(routeHandlerContract, /await route\.abort\("blockedbyclient"\)/u);
+  assert.match(
+    routeHandlerContract,
+    /await route\.continue\(\{ headers: decision\.sanitizedHeaders \}\)/u,
+  );
+  assert.doesNotMatch(routeHandlerContract, /await route\.continue\(\)/u);
+  assert.ok(
+    routeHandlerContract.indexOf("blockedNonToolbarRequests.add(request)")
+      < routeHandlerContract.lastIndexOf('await route.abort("blockedbyclient")'),
+    "blocked request identity must be recorded before abort",
+  );
+  assert.doesNotMatch(routeHandlerContract, /route\.fallback/u);
+  const webSocketHandlerContract = browserGate.slice(
+    browserGate.indexOf("function isPreviewToolbarWebSocket(urlValue)"),
+    browserGate.indexOf("async function routeClosedAiRequest(route)"),
+  );
+  assert.match(webSocketHandlerContract, /url\?\.protocol === "wss:"/u);
+  assert.match(webSocketHandlerContract, /url\.hostname === "vercel\.live"/u);
+  assert.match(webSocketHandlerContract, /url\.username === ""/u);
+  assert.match(webSocketHandlerContract, /url\.password === ""/u);
+  assert.match(webSocketHandlerContract, /observedWebSocketAttemptCount \+= 1/u);
+  assert.match(webSocketHandlerContract, /blockedWebSocketAttemptCount \+= 1/u);
+  assert.match(webSocketHandlerContract, /disallowedWebSocketAttemptCount \+= 1/u);
+  assert.match(webSocketHandlerContract, /observedPreviewToolbarWebSocketAttemptCount \+= 1/u);
+  assert.match(webSocketHandlerContract, /blockedPreviewToolbarWebSocketAttemptCount \+= 1/u);
+  assert.match(
+    webSocketHandlerContract,
+    /await webSocketRoute\.close\(\{ code: 1008, reason: "closed-ai-network-policy" \}\)/u,
+  );
+  assert.doesNotMatch(browserGate, /connectToServer/u);
+  const safeProjectionContract = browserGate.slice(
+    browserGate.indexOf("function safeNetworkTargetProjection(urlValue)"),
+    browserGate.indexOf("function appendBoundedProjection(collection, projection)"),
+  );
+  assert.match(safeProjectionContract, /hostDigest/u);
+  assert.match(safeProjectionContract, /pathDigest/u);
+  assert.match(safeProjectionContract, /targetDigest/u);
+  assert.doesNotMatch(
+    safeProjectionContract,
+    /(?:url|query|body|headers|postData|searchParams|fragment)\s*:/u,
+  );
+  assert.match(browserGate, /const MAX_SAFE_NETWORK_PROJECTIONS = 32/u);
+  assert.match(browserGate, /const blockedNonToolbarRequests = new WeakSet\(\)/u);
+  assert.match(browserGate, /blockedNonToolbarRequests\.has\(response\.request\(\)\)/u);
+  assert.match(browserGate, /assert\.equal\(blockedNonToolbarResponseCount, 0\)/u);
+  assert.match(browserGate, /assert\.deepEqual\(blockedNonToolbarResponses, \[\]\)/u);
+  assert.match(browserGate, /assert\.equal\(observedWebSocketAttemptCount, blockedWebSocketAttemptCount\)/u);
+  assert.match(browserGate, /assert\.equal\(disallowedWebSocketAttemptCount, 0\)/u);
+  assert.match(browserGate, /assert\.deepEqual\(disallowedWebSocketAttempts, \[\]\)/u);
+  assert.match(browserGate, /assert\.equal\(webSocketServerConnectionCount, 0\)/u);
+  assert.match(browserGate, /webSocketPolicy: "blocked-before-connect"/u);
+  assert.match(browserGate, /webSocketRouteInstalledBeforeNavigation:/u);
+  assert.match(browserGate, /observedWebSocketAttemptCount,/u);
+  assert.match(browserGate, /blockedWebSocketAttemptCount,/u);
+  assert.match(browserGate, /disallowedWebSocketAttemptCount,/u);
+  assert.match(browserGate, /webSocketServerConnectionCount,/u);
+  assert.match(browserGate, /p24b-rc6\.2-network-zero-receipt-v1/u);
+  assert.match(browserGate, /tcpConnectionReceiptCount, 0/u);
+  assert.match(browserGate, /httpRequestReceiptCount, 0/u);
+  assert.match(browserGate, /httpRequestBodyByteCount, 0/u);
+  assert.match(browserGate, /webSocketUpgradeReceiptCount, 0/u);
+  assert.match(browserGate, /networkZeroReceipt: networkSentinelEvidence/u);
+  const crossOriginPolicyContract = browserGate.slice(
+    browserGate.indexOf("    crossOriginPolicy: {") + "    crossOriginPolicy: {".length,
+    browserGate.indexOf("    networkZeroReceipt: networkSentinelEvidence"),
+  );
+  assert.deepEqual(
+    [...crossOriginPolicyContract.matchAll(/^      ([A-Za-z][A-Za-z0-9]*)(?::|,)/gmu)]
+      .map((match) => match[1]),
+    [
+      "policy",
+      "contextRouteInstalledBeforeNavigation",
+      "allowedMethods",
+      "immutableModelAssetsAllowedOnlyDuringExplicitInstall",
+      "sameOriginTargetPolicy",
+      "disallowedRequestCount",
+      "disallowedMethodRequestCount",
+      "blockedNonToolbarResponseCount",
+      "previewToolbarPolicy",
+      "observedPreviewToolbarRequestCount",
+      "blockedPreviewToolbarRequestCount",
+      "previewToolbarResponseCount",
+      "webSocketRouteInstalledBeforeNavigation",
+      "webSocketPolicy",
+      "observedWebSocketAttemptCount",
+      "blockedWebSocketAttemptCount",
+      "disallowedWebSocketAttemptCount",
+      "webSocketServerConnectionCount",
+      "observedPreviewToolbarWebSocketAttemptCount",
+      "blockedPreviewToolbarWebSocketAttemptCount",
+    ],
+  );
+  const sentinelContract = browserGate.slice(
+    browserGate.indexOf("async function runPreNavigationNetworkSentinel()"),
+    browserGate.indexOf("async function assertExactOrigin()"),
+  );
+  assert.match(sentinelContract, /createServer\(\(request, response\) =>/u);
+  assert.match(sentinelContract, /receiver\.on\("connection"/u);
+  assert.match(sentinelContract, /receiver\.on\("upgrade"/u);
+  assert.match(sentinelContract, /await page\.evaluate/u);
+  assert.match(sentinelContract, /assert\.equal\(tcpConnectionReceiptCount, 0\)/u);
+  assert.match(sentinelContract, /assert\.equal\(httpRequestReceiptCount, 0\)/u);
+  assert.match(sentinelContract, /assert\.equal\(httpRequestBodyByteCount, 0\)/u);
+  assert.match(sentinelContract, /assert\.equal\(webSocketUpgradeReceiptCount, 0\)/u);
+  assert.match(sentinelContract, /resetPreNavigationSentinelPolicyCounters\(\)/u);
   assert.match(browserGate, /observedPreviewToolbarRequests[\s\S]*blockedPreviewToolbarRequests/u);
   assert.match(browserGate, /assert\.deepEqual\(previewToolbarResponses, \[\]\)/u);
+  assert.match(browserGate, /appendBoundedProjection\([\s\S]*previewToolbarResponses/u);
   assert.match(browserGate, /disallowedCrossOriginHostDigests/u);
   assert.doesNotMatch(browserGate, /disallowedCrossOriginHosts/u);
+  const profileContract = browserGate.slice(
+    browserGate.indexOf("function comparableFilesystemPath(value)"),
+    browserGate.indexOf("async function assertExactOrigin()"),
+  );
+  assert.match(profileContract, /process\.env\.RC6_2_CLOSED_AI_PROFILE_PATH/u);
+  assert.match(profileContract, /isAbsolute\(candidate\)/u);
+  assert.match(profileContract, /resolve\(candidate\), candidate/u);
+  assert.match(profileContract, /candidateLstat\.isSymbolicLink\(\), false/u);
+  assert.match(profileContract, /comparableFilesystemPath\(dirname\(canonicalCandidate\)\)/u);
+  assert.match(profileContract, /assert\.deepEqual\(await readdir\(canonicalCandidate\), \[\]/u);
+  assert.match(profileContract, /ownership: "wrapper-owned"/u);
+  assert.match(profileContract, /ownership: "runner-created"/u);
+  assert.match(profileContract, /await mkdtemp\(join\(temporaryRoot, "novel-rc6-2-edge-"\)\)/u);
+  assert.match(browserGate, /PROFILE_NAME\.test\(basename\(resolvedProfile\)\)/u);
+  assert.match(browserGate, /await rm\(resolvedProfile, \{ recursive: true, force: true \}\)/u);
+  assert.doesNotMatch(browserGate, /\$\{sep\}/u);
+  assert.match(browserGate, /engineVersionDirectoryName: engineVersion/u);
+  assert.match(browserGate, /engineDllName: "msedge\.dll"/u);
+  assert.match(browserGate, /engineDllDigest: await sha256File\(engineDllPath\)/u);
+  const temporaryRoot = await realpath(resolve(tmpdir()));
+  const comparablePath = (value) => (
+    process.platform === "win32" ? resolve(value).toLowerCase() : resolve(value)
+  );
+  const ownedProfileName = /^novel-rc6-2-edge-[A-Za-z0-9][A-Za-z0-9-]{4,62}[A-Za-z0-9]$/u;
+  const validateProfile = async (candidate) => {
+    assert.equal(isAbsolute(candidate), true);
+    assert.equal(resolve(candidate), candidate);
+    assert.equal(ownedProfileName.test(basename(candidate)), true);
+    const entry = await lstat(candidate);
+    assert.equal(entry.isDirectory(), true);
+    assert.equal(entry.isSymbolicLink(), false);
+    const canonicalCandidate = await realpath(candidate);
+    assert.equal(comparablePath(dirname(canonicalCandidate)), comparablePath(temporaryRoot));
+    assert.equal(comparablePath(canonicalCandidate), comparablePath(candidate));
+    assert.deepEqual(await readdir(canonicalCandidate), []);
+    return canonicalCandidate;
+  };
+  const testPaths = [];
+  let profileJunction = null;
+  try {
+    const wrapperProfile = await mkdtemp(join(temporaryRoot, "novel-rc6-2-edge-"));
+    testPaths.push(wrapperProfile);
+    assert.deepEqual(
+      { path: await validateProfile(wrapperProfile), ownership: "wrapper-owned" },
+      { path: wrapperProfile, ownership: "wrapper-owned" },
+    );
+    await assert.rejects(() => validateProfile(` ${wrapperProfile}`));
+    const markerPath = join(wrapperProfile, "not-empty");
+    await writeFile(markerPath, "fixture", "utf8");
+    await assert.rejects(() => validateProfile(wrapperProfile));
+    await unlink(markerPath);
+
+    const runnerProfile = await mkdtemp(join(temporaryRoot, "novel-rc6-2-edge-"));
+    testPaths.push(runnerProfile);
+    assert.deepEqual(
+      { path: await validateProfile(runnerProfile), ownership: "runner-created" },
+      { path: runnerProfile, ownership: "runner-created" },
+    );
+
+    const invalidName = await mkdtemp(join(temporaryRoot, "invalid-edge-profile-"));
+    testPaths.push(invalidName);
+    await assert.rejects(() => validateProfile(invalidName));
+
+    const nestedParent = await mkdtemp(join(temporaryRoot, "rc6-2-profile-parent-"));
+    testPaths.push(nestedParent);
+    const nestedProfile = join(nestedParent, "novel-rc6-2-edge-nested");
+    await mkdir(nestedProfile);
+    await assert.rejects(() => validateProfile(nestedProfile));
+
+    profileJunction = join(temporaryRoot, `novel-rc6-2-edge-${crypto.randomUUID()}`);
+    await symlink(runnerProfile, profileJunction, process.platform === "win32" ? "junction" : "dir");
+    await assert.rejects(() => validateProfile(profileJunction));
+  } finally {
+    if (profileJunction) await unlink(profileJunction).catch(() => undefined);
+    for (const testPath of testPaths) {
+      assert.equal(comparablePath(dirname(testPath)), comparablePath(temporaryRoot));
+      await rm(testPath, { recursive: true, force: true });
+    }
+  }
   assert.match(
     browserGate,
     /rightsRequiredAlert\.waitFor\([\s\S]*await waitUntilNotBusy\(composer\)/u,

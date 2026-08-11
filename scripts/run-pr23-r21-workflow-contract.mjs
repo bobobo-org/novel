@@ -165,14 +165,44 @@ assert.match(lastKnownGoodAuditJob, /EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /ref:\s*\$\{\{ github\.sha \}\}/u);
+assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*4/u);
 assert.match(lastKnownGoodAuditJob, /persist-credentials:\s*false/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$\(git rev-parse HEAD\)" == "\$AUDIT_COMMIT" \]\]/u);
+assert.match(lastKnownGoodAuditJob, /Prove exact read-only RC6\.2 browser-gate control lineage/u);
+assert.match(lastKnownGoodAuditJob, /id:\s*browser_gate_control/u);
+assert.match(lastKnownGoodAuditJob, /if:\s*inputs\.operation == 'audit-rc6-2-last-known-good'/u);
+assert.match(lastKnownGoodAuditJob, /run-rc6-2-production-browser-gate-contract\.mjs write-audit-control-proof/u);
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs discover/u);
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs download/u);
+assert.match(
+  lastKnownGoodAuditJob,
+  /EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID:\s*\$\{\{ inputs\.operation != 'audit-rc6-2-last-known-good' && env\.EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID \|\| '' \}\}/u,
+);
+assert.match(
+  lastKnownGoodAuditJob,
+  /EXPECTED_LKG_MIRROR_DEPLOYMENT_ID:\s*\$\{\{ inputs\.operation != 'audit-rc6-2-last-known-good' && env\.EXPECTED_LKG_MIRROR_DEPLOYMENT_ID \|\| '' \}\}/u,
+);
+assert.doesNotMatch(
+  lastKnownGoodAuditJob,
+  /audit-rc6-2-last-known-good' && '' \|\| env\.EXPECTED_LKG_(?:PRIMARY|MIRROR)_DEPLOYMENT_ID/u,
+);
+assert.match(
+  lastKnownGoodAuditJob,
+  /AUDIT_PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*env\.PRODUCT_COMMIT[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*env\.RECOVERY_PRODUCT_COMMIT[^\r\n]*env\.AUDIT_COMMIT/u,
+);
+assert.match(
+  lastKnownGoodAuditJob,
+  /AUDIT_CONTROL_PROOF_DIGEST:[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*steps\.browser_gate_control\.outputs\.proof_digest/u,
+);
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs select/u);
 assert.match(lastKnownGoodAuditJob, /REQUIRE_AUDIT_SELECTION_PROVENANCE:\s*'true'/u);
 assert.match(lastKnownGoodAuditJob, /DISABLE_CURRENT_CAPTURE:\s*'true'/u);
-assert.match(lastKnownGoodAuditJob, /production-lkg-readonly-audit-\$\{\{ env\.AUDIT_COMMIT \}\}-\$\{\{ github\.run_id \}\}/u);
+assert.match(
+  lastKnownGoodAuditJob,
+  /production-lkg-readonly-audit-rc62-\{0\}-\{1\}-\{2\}-\{3\}-\{4\}[\s\S]*steps\.browser_gate_control\.outputs\.proof_digest[\s\S]*steps\.lkg_selection\.outputs\.selection_proof_digest/u,
+);
+assert.match(lastKnownGoodAuditJob, /production-lkg-readonly-audit-rc61-\{0\}-\{1\}/u);
+assert.match(lastKnownGoodAuditJob, /\$\{\{ runner\.temp \}\}\/rc6-2-browser-gate-control-proof\.json/u);
 assert.match(lastKnownGoodAuditJob, /LAST_KNOWN_GOOD_PRODUCT_COMMIT:\s*\$\{\{ steps\.lkg\.outputs\.product_commit \}\}/u);
 assert.match(lastKnownGoodAuditJob, /LAST_KNOWN_GOOD_CONTROL_COMMIT:\s*\$\{\{ steps\.lkg\.outputs\.control_commit \}\}/u);
 assert.doesNotMatch(lastKnownGoodAuditJob, /deploy-preview|restore-known-stable|--prod|vercel deploy|vercel alias/u);
@@ -328,7 +358,10 @@ assert.match(aliasJob, /steps\.public_gate\.outcome == 'success'/u);
 assert.match(aliasJob, /IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING:\s*'false'/u);
 assert.match(aliasJob, /verify-github-release-attestation\.mjs/u);
 assert.match(aliasJob, /EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
-assert.match(lastKnownGoodAuditJob, /AUDIT_PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*env\.PRODUCT_COMMIT[^\r\n]*env\.AUDIT_COMMIT/u);
+assert.match(
+  lastKnownGoodAuditJob,
+  /AUDIT_PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*env\.PRODUCT_COMMIT[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*env\.RECOVERY_PRODUCT_COMMIT[^\r\n]*env\.AUDIT_COMMIT/u,
+);
 assert.match(lastKnownGoodAuditJob, /AUDIT_CONTROL_PROOF_DIGEST:[^\r\n]*needs\.validate\.outputs\.recovery_control_proof_digest/u);
 const postCutoverFinalizationMatrix = [
   {

@@ -443,6 +443,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 4
           persist-credentials: false
 
       - name: Enforce exact read-only LKG audit policy
@@ -460,6 +461,14 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+
+      - name: Prove exact read-only RC6.2 browser-gate control lineage
+        id: browser_gate_control
+        if: inputs.operation == 'audit-rc6-2-last-known-good'
+        env:
+          EXPECTED_OPERATION: audit-rc6-2-last-known-good
+          BROWSER_GATE_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json
+        run: node scripts/run-rc6-2-production-browser-gate-contract.mjs write-audit-control-proof
 
       - name: Discover exact prior RC6.1 Last Known Good artifact
         id: lkg
@@ -489,8 +498,8 @@ jobs:
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
           LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
           EXPECTED_LKG_APP_COMMIT: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.RECOVERY_PRODUCT_COMMIT || env.EXPECTED_LKG_APP_COMMIT }}
-          EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && '' || env.EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID }}
-          EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && '' || env.EXPECTED_LKG_MIRROR_DEPLOYMENT_ID }}
+          EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: ${{ inputs.operation != 'audit-rc6-2-last-known-good' && env.EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID || '' }}
+          EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: ${{ inputs.operation != 'audit-rc6-2-last-known-good' && env.EXPECTED_LKG_MIRROR_DEPLOYMENT_ID || '' }}
           EXPECTED_LKG_RELEASE_TAG: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.EXPECTED_RELEASE_TAG || env.EXPECTED_LKG_RELEASE_TAG }}
           EXPECTED_LKG_RELEASE_REVISION: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.EXPECTED_RELEASE_REVISION || env.EXPECTED_LKG_RELEASE_REVISION }}
         run: node scripts/production-last-known-good.mjs download
@@ -502,8 +511,8 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           REQUIRE_AUDIT_SELECTION_PROVENANCE: 'true'
-          AUDIT_PRODUCT_COMMIT: ${{ inputs.operation == 'deploy-immutable-product-recovery' && env.PRODUCT_COMMIT || env.AUDIT_COMMIT }}
-          AUDIT_CONTROL_PROOF_DIGEST: ${{ inputs.operation == 'deploy-immutable-product-recovery' && needs.validate.outputs.recovery_control_proof_digest || '' }}
+          AUDIT_PRODUCT_COMMIT: ${{ inputs.operation == 'deploy-immutable-product-recovery' && env.PRODUCT_COMMIT || inputs.operation == 'audit-rc6-2-last-known-good' && env.RECOVERY_PRODUCT_COMMIT || env.AUDIT_COMMIT }}
+          AUDIT_CONTROL_PROOF_DIGEST: ${{ inputs.operation == 'deploy-immutable-product-recovery' && needs.validate.outputs.recovery_control_proof_digest || inputs.operation == 'audit-rc6-2-last-known-good' && steps.browser_gate_control.outputs.proof_digest || '' }}
           DISABLE_CURRENT_CAPTURE: 'true'
           LAST_KNOWN_GOOD_AVAILABLE: 'true'
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
@@ -531,11 +540,12 @@ jobs:
       - name: Upload sanitized read-only LKG audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-lkg-readonly-audit-${{ env.AUDIT_COMMIT }}-${{ github.run_id }}
+          name: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && format('production-lkg-readonly-audit-rc62-{0}-{1}-{2}-{3}-{4}', steps.lkg_selection.outputs.primary_app_commit, steps.lkg_selection.outputs.primary_deployment_id, steps.browser_gate_control.outputs.proof_digest, steps.lkg_selection.outputs.selection_proof_digest, github.run_id) || format('production-lkg-readonly-audit-rc61-{0}-{1}', env.AUDIT_COMMIT, github.run_id) }}
           path: |
             ${{ runner.temp }}/last-known-good-production.json
             ${{ runner.temp }}/last-known-good-artifact-proof.json
             ${{ runner.temp }}/lkg-readonly-selection-proof.json
+            ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json
           if-no-files-found: error
           retention-days: 30
 
