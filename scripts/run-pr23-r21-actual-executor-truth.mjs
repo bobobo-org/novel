@@ -15,6 +15,8 @@ import {
   VerifiableLedger,
 } from "../lib/novel-ai/verifiable-ledger/index.ts";
 import { LocalBridgeClient } from "../lib/novel-ai/providers/local-ollama/local-bridge-client.ts";
+import { BROWSER_T1_TASKS } from "../lib/novel-ai/providers/browser-ai/browser-task-eligibility.ts";
+import { BROWSER_TASK_MODEL } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 import { ClosedAIRuntimeCoordinator } from "../lib/novel-ai/web/closed-ai-runtime-coordinator.ts";
 
 const results = [];
@@ -108,10 +110,19 @@ class ReceiptBackend {
       "Mira compared the approved map with the lantern marks and chose the safe eastern stair.",
       "The candidate remains awaiting explicit human approval.",
     ].join(" ");
+    const packagedBrowserTask = this.id === "browser-ai"
+      && BROWSER_T1_TASKS.has(input.request.taskType);
     return {
       backendId: this.id,
-      modelId: this.current.modelId,
-      modelDigest: this.current.modelDigest,
+      modelId: packagedBrowserTask
+        ? BROWSER_TASK_MODEL.modelId
+        : this.current.modelId,
+      modelDigest: packagedBrowserTask
+        ? BROWSER_TASK_MODEL.modelDigest
+        : this.current.modelDigest,
+      ...(packagedBrowserTask
+        ? { contextAttestation: "not_required" }
+        : {}),
       content,
       candidateOnly: true,
       dataLeftDevice: false,
@@ -282,7 +293,13 @@ await check("real browser task execution emits browser-ai truth", async () => {
   }));
   assert.equal(adapter.calls, 1);
   assert.equal(result.candidate.actualExecutor, "browser-ai");
+  assert.equal(result.candidate.modelId, BROWSER_TASK_MODEL.modelId);
+  assert.equal(result.candidate.modelDigest, BROWSER_TASK_MODEL.modelDigest);
   assert.equal(result.candidate.executionReceipt?.backendId, "browser-ai");
+  assert.equal(
+    result.candidate.executionReceipt?.contextAttestation,
+    "not_required",
+  );
   assert.equal(result.candidate.executionReceipt?.proofState, "verified");
 });
 
