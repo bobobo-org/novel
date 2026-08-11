@@ -86,6 +86,7 @@ export function MessageComposer({
       data-testid="conversation-message-composer"
       data-closed-ai-generation-verified-backends={closedAiSetup?.readiness.generationVerifiedBackends ?? 0}
       data-closed-ai-active-backend={closedAiSetup?.readiness.activeBackend ?? "none"}
+      data-closed-ai-setup-busy={closedAiSetupBusy}
       data-closed-ai-external-fallback={closedAiSetup?.readiness.externalFallback ?? false}
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
       aria-busy={busy}

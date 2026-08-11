@@ -148,21 +148,25 @@ export class BrowserGPUQueue {
     this.activeMemoryBudgetMB = item.memoryBudgetMB;
     const executionController = new AbortController();
     let abortHandler: (() => void) | null = null;
+    let publicAbortError: DOMException | null = null;
+    let publicTimeoutError: (Error & { code: string }) | null = null;
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
     const abortPromise = new Promise<never>((_, reject) => {
       if (!item.signal) return;
       abortHandler = () => {
+        publicAbortError = new DOMException("操作已取消。", "AbortError");
+        reject(publicAbortError);
         executionController.abort();
-        reject(new DOMException("操作已取消。", "AbortError"));
       };
       item.signal.addEventListener("abort", abortHandler, { once: true });
     });
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = globalThis.setTimeout(() => {
-        reject(Object.assign(
+        publicTimeoutError = Object.assign(
           new Error("Browser GPU job exceeded its deadline."),
           { code: "BROWSER_GPU_JOB_TIMEOUT" },
-        ));
+        );
+        reject(publicTimeoutError);
         executionController.abort();
       }, item.timeoutMs);
     });
@@ -183,9 +187,30 @@ export class BrowserGPUQueue {
             const code = String((error as { code?: string }).code ?? "");
             if (code.includes("GPU_DEVICE_LOST")) this.gpuDeviceLostCount += 1;
             this.workerRestartCount += 1;
+            const recoveryOperation = Promise.resolve().then(
+              () => this.options.onRecover?.(),
+            );
             try {
-              await this.options.onRecover?.();
+              await Promise.race([
+                recoveryOperation,
+                abortPromise,
+                timeoutPromise,
+              ]);
             } catch (recoveryError) {
+              if (
+                recoveryError === publicAbortError
+                || recoveryError === publicTimeoutError
+              ) {
+                // The caller stops at its own deadline, but the active lease
+                // remains fenced until the in-flight recovery has settled.
+                item.reject(recoveryError);
+                try {
+                  await recoveryOperation;
+                } catch {
+                  // The timeout/cancellation remains the public result.
+                }
+                break;
+              }
               item.reject(Object.assign(
                 new Error("Browser GPU recovery failed."),
                 { code: "BROWSER_GPU_RECOVERY_FAILED", cause: recoveryError },
@@ -199,11 +224,17 @@ export class BrowserGPUQueue {
           const code = String((error as { code?: string } | null)?.code ?? "");
           const aborted = error instanceof DOMException && error.name === "AbortError";
           if (code === "BROWSER_GPU_JOB_TIMEOUT" || aborted) {
+            // Settle the public job before cleanup. A wedged WebLLM unload must
+            // never extend the caller-visible timeout/cancellation deadline.
+            // The queue remains occupied until recovery finishes, so the next
+            // job cannot overlap the worker that is being force-reset.
+            item.reject(error);
             try {
               await this.options.onRecover?.();
             } catch {
               // The original timeout/cancellation remains the user-visible result.
             }
+            break;
           }
           item.reject(error);
           break;

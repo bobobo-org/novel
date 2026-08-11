@@ -13,7 +13,6 @@ import type {
   ClosedAIProgressEvent,
 } from "@/lib/novel-ai/closed-agent-os";
 import {
-  CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
   createClosedAgentFailureEvidence,
   serializeClosedAgentFailureEvidence,
 } from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
@@ -41,6 +40,10 @@ import {
 import { createSovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
 import { buildConversationClosedAgentCacheOriginProof } from "@/lib/novel-ai/conversation/closed-agent-cache-origin-proof";
+import {
+  persistConversationClosedAgentFailure,
+  requireConversationApprovalTarget,
+} from "@/lib/novel-ai/conversation/closed-agent-finalization";
 import { stableStringify } from "@/lib/novel-ai/closed-ai-cache";
 import { resolveConversationCanonicalTarget } from "@/lib/novel-ai/conversation/canonical-target";
 import type { AtomicLearningImportCoordinator } from "@/lib/novel-ai/conversation/learning-import";
@@ -182,6 +185,11 @@ export default function ConversationWorkspace({
     cancelClosedAiSetup,
     resolveRegenerationBackend,
   } = useClosedAiBootstrap(projectId);
+  const closedAiRegenerationReady = Boolean(
+    closedAiSetup?.status === "ready"
+    && !closedAiSetupBusy
+    && closedAiSetup.readiness.generationVerifiedBackends > 0,
+  );
   const abortRef = useRef<AbortController | null>(null);
   const runRef = useRef(0);
   const operationLockRef = useRef(false);
@@ -1088,22 +1096,23 @@ export default function ConversationWorkspace({
       });
     if (!placeholder) throw new Error("CONVERSATION_ASSISTANT_PLACEHOLDER_MISSING");
     const taskId = input.regeneration?.taskId ?? `conversation-agent:${crypto.randomUUID()}`;
-    let invocation = await conversation.saveToolInvocation({
-      projectId,
-      sessionId: input.sessionId,
-      messageId: placeholder.id,
-      taskId,
-      toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
-      taskType: input.plan.taskType ?? "assistant.general",
-      inputDigest: input.plan.inputDigest,
-      contextDigest: input.plan.planDigest,
-      status: "running",
-      canonicalMutationCount: 0,
-      safeProgress: { stage: "planning", percent: 10, message: "已辨識自然語言任務" },
-    });
-    let invocationCompleted = false;
+    let invocation: ConversationToolInvocation | null = null;
     let closedCandidateId: string | null = null;
+    let artifact: ConversationArtifact | null = null;
     try {
+      invocation = await conversation.saveToolInvocation({
+        projectId,
+        sessionId: input.sessionId,
+        messageId: placeholder.id,
+        taskId,
+        toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
+        taskType: input.plan.taskType ?? "assistant.general",
+        inputDigest: input.plan.inputDigest,
+        contextDigest: input.plan.planDigest,
+        status: "running",
+        canonicalMutationCount: 0,
+        safeProgress: { stage: "planning", percent: 10, message: "已辨識自然語言任務" },
+      });
       const plannedTargetStore = targetStore(input.plan);
       const resolvedCanonicalTarget = plannedTargetStore === "characters" || plannedTargetStore === "worldRules"
         ? await resolveConversationCanonicalTarget({
@@ -1113,6 +1122,16 @@ export default function ConversationWorkspace({
             objective: input.plan.objective,
           })
         : null;
+      const resolvedChapterTarget = currentChapter
+        ? await repository.get<Chapter>("chapters", currentChapter.id)
+        : null;
+      const approvalTarget = requireConversationApprovalTarget({
+        approvalRequired: input.plan.approvalRequired,
+        targetStore: plannedTargetStore,
+        projectId,
+        chapter: resolvedChapterTarget,
+        canonicalTarget: resolvedCanonicalTarget,
+      });
       const previousDigest = input.regeneration?.sourceCandidateDigest;
       const result = await executeStudioClosedAgent({
         projectId,
@@ -1120,9 +1139,9 @@ export default function ConversationWorkspace({
         objective: input.plan.objective,
         taskId,
         sourceChapterId: resolvedCanonicalTarget?.targetRecordId
-          ?? currentChapter?.id,
+          ?? resolvedChapterTarget?.id,
         sourceRevision: resolvedCanonicalTarget?.sourceRevision
-          ?? currentChapter?.revision,
+          ?? resolvedChapterTarget?.revision,
         conversationSessionId: input.sessionId,
         conversationRecentMessageLimit: 12,
         selectedAttachmentSummaries: input.preparedAttachments.map(({ record, extraction }) => ({
@@ -1199,47 +1218,61 @@ export default function ConversationWorkspace({
           },
         });
       }
+      const completedExecutionReceipt = toExecutionReceipt({
+        taskId: result.candidate.taskId,
+        modelId: result.candidate.modelId,
+        modelDigest: result.candidate.modelDigest,
+        contextDigest: result.candidate.contextDigest ?? invocation.contextDigest,
+        outputDigest: result.candidate.contentDigest,
+        externalRequest: false,
+        dataLeftDevice: false,
+        receipt: result.candidate.executionReceipt,
+        closedAgentProof: {
+          schemaVersion: result.candidate.schemaVersion,
+          backendId: result.candidate.backendId,
+          normalizationReceiptId:
+            result.candidate.traditionalChineseNormalization.receiptId,
+          traditionalChineseNormalizerVersion:
+            result.candidate.traditionalChineseNormalization.normalizerVersion,
+          cacheOrigin: await buildConversationClosedAgentCacheOriginProof(
+            result.candidate,
+          ),
+        },
+      });
+      if (approvalTarget) {
+        artifact = await conversation.saveArtifact({
+          projectId,
+          sessionId: input.sessionId,
+          sourceMessageId: placeholder.id,
+          artifactType: artifactType(input.plan),
+          targetStore: approvalTarget.targetStore,
+          targetRecordId: approvalTarget.targetRecordId,
+          sourceRevision: approvalTarget.sourceRevision,
+          candidateContent: result.candidate.content,
+        });
+      }
       const currentPlaceholder = await repository.get<ConversationMessage>("conversationMessages", placeholder.id);
       if (!currentPlaceholder) throw new Error("CONVERSATION_MESSAGE_MISSING");
       if (input.signal.aborted) {
         throw Object.assign(new Error("Conversation generation cancelled."), { code: "CONVERSATION_CANCELLED" });
       }
-      invocation = await conversation.updateToolInvocationStatus({
+      const primaryInvocation = invocation;
+      if (!primaryInvocation) throw new Error("CONVERSATION_TOOL_INVOCATION_MISSING");
+      const completeInvocation = () => conversation.updateToolInvocationStatus({
         projectId,
         sessionId: input.sessionId,
-        invocationId: invocation.id,
-        expectedRevision: invocation.revision,
+        invocationId: primaryInvocation.id,
+        expectedRevision: primaryInvocation.revision,
         status: "completed",
         actualExecutor: result.candidate.actualExecutor,
         modelId: result.candidate.modelId,
         modelDigest: result.candidate.modelDigest,
-        executionReceipt: toExecutionReceipt({
-          taskId: result.candidate.taskId,
-          modelId: result.candidate.modelId,
-          modelDigest: result.candidate.modelDigest,
-          contextDigest: result.candidate.contextDigest ?? invocation.contextDigest,
-          outputDigest: result.candidate.contentDigest,
-          externalRequest: false,
-          dataLeftDevice: false,
-          receipt: result.candidate.executionReceipt,
-          closedAgentProof: {
-            schemaVersion: result.candidate.schemaVersion,
-            backendId: result.candidate.backendId,
-            normalizationReceiptId:
-              result.candidate.traditionalChineseNormalization.receiptId,
-            traditionalChineseNormalizerVersion:
-              result.candidate.traditionalChineseNormalization.normalizerVersion,
-            cacheOrigin: await buildConversationClosedAgentCacheOriginProof(
-              result.candidate,
-            ),
-          },
-        }),
+        executionReceipt: completedExecutionReceipt,
         externalRequest: false,
         dataLeftDevice: false,
         canonicalMutationCount: 0,
         safeProgress: { stage: "candidate", percent: 100, message: "候選已完成，Canon 未修改" },
       });
-      invocationCompleted = true;
       await conversation.updateMessageStatus({
         projectId,
         sessionId: input.sessionId,
@@ -1247,30 +1280,10 @@ export default function ConversationWorkspace({
         expectedRevision: currentPlaceholder.revision,
         status: "completed",
         content: result.candidate.content,
-        candidateIds: [result.candidate.id],
+        candidateIds: [...currentPlaceholder.candidateIds, result.candidate.id],
         toolInvocationIds: currentPlaceholder.toolInvocationIds,
       });
-      let artifact: ConversationArtifact | null = null;
-      if (input.plan.approvalRequired) {
-        const targetRecordId = plannedTargetStore === "chapters"
-          ? currentChapter?.id ?? ""
-          : resolvedCanonicalTarget?.targetRecordId ?? "";
-        const sourceRevision = plannedTargetStore === "chapters"
-          ? currentChapter?.revision ?? 0
-          : resolvedCanonicalTarget?.sourceRevision ?? 0;
-        if (plannedTargetStore !== "none" && plannedTargetStore !== "controlledLearning" && targetRecordId) {
-          artifact = await conversation.saveArtifact({
-            projectId,
-            sessionId: input.sessionId,
-            sourceMessageId: placeholder.id,
-            artifactType: artifactType(input.plan),
-            targetStore: plannedTargetStore,
-            targetRecordId,
-            sourceRevision,
-            candidateContent: result.candidate.content,
-          });
-        }
-      }
+      invocation = await completeInvocation();
       if (artifact) setDrawer({ kind: "artifact", artifactId: artifact.id });
       return { result, artifact, invocation };
     } catch (error) {
@@ -1282,49 +1295,20 @@ export default function ConversationWorkspace({
       const persistedFailureEvidence = failureEvidence
         ? serializeClosedAgentFailureEvidence(failureEvidence)
         : "";
-      const currentPlaceholder = await repository.get<ConversationMessage>("conversationMessages", placeholder.id);
-      if (currentPlaceholder) {
-        await conversation.updateMessageStatus({
-          projectId,
-          sessionId: input.sessionId,
-          messageId: currentPlaceholder.id,
-          expectedRevision: currentPlaceholder.revision,
-          status: cancelled ? "cancelled" : "failed",
-          content: `這次執行沒有完成：${persistedSafeCode}。Canon 維持原狀。`,
-        }).catch(() => undefined);
-      }
-      let failureEvidencePersistenceFailed = false;
-      if (!invocationCompleted) {
-        await conversation.updateToolInvocationStatus({
-          projectId,
-          sessionId: input.sessionId,
-          invocationId: invocation.id,
-          expectedRevision: invocation.revision,
-          status: cancelled ? "cancelled" : "failed",
-          safeErrorCode: persistedSafeCode,
-          canonicalMutationCount: 0,
-          ...(persistedFailureEvidence
-            ? {
-                safeProgress: {
-                  stage: CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
-                  percent: 100,
-                  message: persistedFailureEvidence,
-                },
-              }
-            : {}),
-        }).catch(() => {
-          failureEvidencePersistenceFailed = Boolean(persistedFailureEvidence);
-        });
-      }
-      if (closedCandidateId) {
-        await rejectStudioClosedAgentCandidate(closedCandidateId).catch(() => undefined);
-      }
-      if (failureEvidencePersistenceFailed) {
-        throw Object.assign(
-          new Error("本機失敗證據未能安全保存；Canon 維持原狀。"),
-          { code: "CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED" },
-        );
-      }
+      await persistConversationClosedAgentFailure({
+        repository,
+        conversation,
+        projectId,
+        sessionId: input.sessionId,
+        placeholderId: placeholder.id,
+        invocationId: invocation?.id ?? null,
+        artifactId: artifact?.id ?? null,
+        closedCandidateId,
+        cancelled,
+        safeCode: persistedSafeCode,
+        serializedFailureEvidence: persistedFailureEvidence,
+        rejectClosedCandidate: rejectStudioClosedAgentCandidate,
+      });
       if (!failureEvidence) throw error;
       throw Object.assign(
         new Error("本機閉端 AI 已安全停止；未完成內容與 Canon 均未修改。"),
@@ -1608,7 +1592,28 @@ export default function ConversationWorkspace({
   }
 
   async function regenerateMessage(message: ConversationMessage) {
-    if (!activeSession || busy || operationLockRef.current || message.role !== "assistant") return;
+    if (message.role !== "assistant") return;
+    if (!activeSession) {
+      setSafeError({
+        code: "CONVERSATION_REGENERATION_SESSION_NOT_READY",
+        message: "The conversation session is not ready for regeneration.",
+      });
+      return;
+    }
+    if (busy || operationLockRef.current) {
+      setSafeError({
+        code: "CONVERSATION_OPERATION_ALREADY_RUNNING",
+        message: "Another conversation operation is already running.",
+      });
+      return;
+    }
+    if (!closedAiRegenerationReady) {
+      setSafeError({
+        code: "CONVERSATION_REGENERATION_CLOSED_BACKEND_NOT_READY",
+        message: "The verified closed AI backend is still being restored.",
+      });
+      return;
+    }
     const sessionId = activeSession.id;
     retryActionRef.current = () => { void regenerateMessage(message); };
     setRetryAvailable(true);
@@ -1714,8 +1719,8 @@ export default function ConversationWorkspace({
       });
       await loadWorkspace(sessionId);
     } catch (error) {
-      setSafeError({ code: errorCode(error), message: errorMessage(error) });
       await loadWorkspace(sessionId).catch(() => undefined);
+      setSafeError({ code: errorCode(error), message: errorMessage(error) });
     } finally {
       operationLockRef.current = false;
       releaseLease();
@@ -1867,6 +1872,7 @@ export default function ConversationWorkspace({
           attachments={attachments}
           loading={loading}
           busy={busy}
+          regenerationReady={closedAiRegenerationReady}
           canStop={canStop}
           progress={progress}
           safeError={safeError}

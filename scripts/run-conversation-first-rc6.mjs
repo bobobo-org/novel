@@ -855,6 +855,48 @@ harness.test("contract", "attachment rights confirmation precedes message, parse
   );
 });
 
+harness.test("contract", "closed regeneration waits for readiness and commits its invocation last", () => {
+  const workspace = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const messageRow = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url),
+    "utf8",
+  );
+  const finalization = readFileSync(
+    new URL("../lib/novel-ai/conversation/closed-agent-finalization.ts", import.meta.url),
+    "utf8",
+  );
+  const runClosedAgent = workspace.slice(
+    workspace.indexOf("async function runClosedAgent"),
+    workspace.indexOf("async function sendRequest"),
+  );
+  const targetSnapshotAt = runClosedAgent.indexOf("const approvalTarget");
+  const modelExecutionAt = runClosedAgent.indexOf("await executeStudioClosedAgent");
+  const artifactCommitAt = runClosedAgent.indexOf("artifact = await conversation.saveArtifact");
+  const messageCommitAt = runClosedAgent.indexOf("await conversation.updateMessageStatus", artifactCommitAt);
+  const invocationCommitAt = runClosedAgent.indexOf("invocation = await completeInvocation()", messageCommitAt);
+  assert(targetSnapshotAt >= 0 && targetSnapshotAt < modelExecutionAt);
+  assert(modelExecutionAt < artifactCommitAt);
+  assert(artifactCommitAt < messageCommitAt);
+  assert(messageCommitAt < invocationCommitAt);
+  assert.match(finalization, /CONVERSATION_APPROVAL_TARGET_MISSING/u);
+  assert.match(finalization, /currentArtifact\?\.status === "candidate"/u);
+  assert.match(finalization, /CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
+  assert.match(workspace, /closedAiSetup\?\.status === "ready"/u);
+  assert.match(workspace, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(messageRow, /&& regenerationReady/u);
+
+  const regeneration = workspace.slice(
+    workspace.indexOf("async function regenerateMessage"),
+    workspace.indexOf("function stopGeneration"),
+  );
+  const failure = regeneration.slice(regeneration.lastIndexOf("} catch (error)"));
+  assert(failure.indexOf("await loadWorkspace(sessionId)") >= 0);
+  assert(failure.indexOf("await loadWorkspace(sessionId)") < failure.indexOf("setSafeError"));
+});
+
 harness.test("contract", "artifact rejection validates current scope before convergent side effects", () => {
   const approval = readFileSync(
     new URL(

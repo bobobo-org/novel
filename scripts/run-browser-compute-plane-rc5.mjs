@@ -8233,6 +8233,133 @@ test("worker-recovery", async () => {
   assert.equal(recoveries, 1);
   assert.equal(queue.snapshot().workerRestartCount, 1);
 
+  let resolveRecoverableTimeoutStarted;
+  const recoverableTimeoutStarted = new Promise((resolveStarted) => {
+    resolveRecoverableTimeoutStarted = resolveStarted;
+  });
+  let releaseRecoverableTimeoutRecovery;
+  let recoverableTimeoutRecoveryFinished = false;
+  let recoverableTimeoutRetryExecuted = false;
+  let afterRecoverableTimeoutExecuted = false;
+  const recoverableTimeoutQueue = new BrowserGPUQueue({
+    idleReleaseMs: 1,
+    onRecover: () => {
+      resolveRecoverableTimeoutStarted();
+      return new Promise((resolveRecovery) => {
+        releaseRecoverableTimeoutRecovery = () => {
+          recoverableTimeoutRecoveryFinished = true;
+          resolveRecovery();
+        };
+      });
+    },
+  });
+  const recoverableThenTimeout = recoverableTimeoutQueue.enqueue({
+    id: "recoverable-then-timeout",
+    memoryBudgetMB: 128,
+    timeoutMs: 25,
+    execute: async ({ attempt }) => {
+      if (attempt === 1) {
+        throw Object.assign(new Error("worker crashed before recovery hung"), {
+          code: "BROWSER_WEBLLM_WORKER_CRASHED",
+        });
+      }
+      recoverableTimeoutRetryExecuted = true;
+      return "unexpected-retry";
+    },
+  });
+  const afterRecoverableTimeout = recoverableTimeoutQueue.enqueue({
+    id: "queued-after-recoverable-timeout",
+    memoryBudgetMB: 128,
+    execute: async () => {
+      afterRecoverableTimeoutExecuted = true;
+      assert.equal(recoverableTimeoutRecoveryFinished, true);
+      return "after-recoverable-timeout";
+    },
+  });
+  const recoverableTimeoutResult = recoverableThenTimeout.then(
+    () => null,
+    (error) => error,
+  );
+  await recoverableTimeoutStarted;
+  const recoverableTimeoutError = await Promise.race([
+    recoverableTimeoutResult,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Timeout waited for first-attempt recovery.")), 200);
+    }),
+  ]);
+  assert.equal(recoverableTimeoutError?.code, "BROWSER_GPU_JOB_TIMEOUT");
+  assert.equal(recoverableTimeoutRetryExecuted, false);
+  assert.equal(afterRecoverableTimeoutExecuted, false);
+  assert.equal(recoverableTimeoutQueue.snapshot().activeJobId, "recoverable-then-timeout");
+  releaseRecoverableTimeoutRecovery();
+  assert.equal(await afterRecoverableTimeout, "after-recoverable-timeout");
+
+  let resolveRecoverableCancellationStarted;
+  const recoverableCancellationStarted = new Promise((resolveStarted) => {
+    resolveRecoverableCancellationStarted = resolveStarted;
+  });
+  let releaseRecoverableCancellationRecovery;
+  let recoverableCancellationRecoveryFinished = false;
+  let recoverableCancellationRetryExecuted = false;
+  let afterRecoverableCancellationExecuted = false;
+  const recoverableCancellationQueue = new BrowserGPUQueue({
+    idleReleaseMs: 1,
+    onRecover: () => {
+      resolveRecoverableCancellationStarted();
+      return new Promise((resolveRecovery) => {
+        releaseRecoverableCancellationRecovery = () => {
+          recoverableCancellationRecoveryFinished = true;
+          resolveRecovery();
+        };
+      });
+    },
+  });
+  const recoverableCancellationController = new AbortController();
+  const recoverableThenCancellation = recoverableCancellationQueue.enqueue({
+    id: "recoverable-then-cancellation",
+    memoryBudgetMB: 128,
+    signal: recoverableCancellationController.signal,
+    execute: async ({ attempt }) => {
+      if (attempt === 1) {
+        throw Object.assign(new Error("worker crashed before recovery was cancelled"), {
+          code: "BROWSER_WEBLLM_WORKER_CRASHED",
+        });
+      }
+      recoverableCancellationRetryExecuted = true;
+      return "unexpected-retry";
+    },
+  });
+  const afterRecoverableCancellation = recoverableCancellationQueue.enqueue({
+    id: "queued-after-recoverable-cancellation",
+    memoryBudgetMB: 128,
+    execute: async () => {
+      afterRecoverableCancellationExecuted = true;
+      assert.equal(recoverableCancellationRecoveryFinished, true);
+      return "after-recoverable-cancellation";
+    },
+  });
+  const recoverableCancellationResult = recoverableThenCancellation.then(
+    () => null,
+    (error) => error,
+  );
+  await recoverableCancellationStarted;
+  recoverableCancellationController.abort();
+  const recoverableCancellationError = await Promise.race([
+    recoverableCancellationResult,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Cancellation waited for first-attempt recovery.")), 200);
+    }),
+  ]);
+  assert.equal(recoverableCancellationError?.name, "AbortError");
+  assert.equal(recoverableCancellationRetryExecuted, false);
+  assert.equal(afterRecoverableCancellationExecuted, false);
+  assert.equal(
+    recoverableCancellationQueue.snapshot().activeJobId,
+    "recoverable-then-cancellation",
+  );
+  releaseRecoverableCancellationRecovery();
+  assert.equal(await afterRecoverableCancellation, "after-recoverable-cancellation");
+
   let releaseActive;
   let cancelledJobExecuted = false;
   const cancellationQueue = new BrowserGPUQueue({ idleReleaseMs: 1 });
@@ -8278,6 +8405,127 @@ test("worker-recovery", async () => {
   }), (error) => error?.code === "BROWSER_GPU_JOB_TIMEOUT");
   assert.equal(timeoutSignalObserved, true);
   assert.equal(timeoutRecoveries, 1);
+
+  let releaseTimeoutRecovery;
+  let timeoutRecoveryStarted = false;
+  let timeoutRecoveryFinished = false;
+  let nextAfterTimeoutExecuted = false;
+  let rejectTimedOutExecution;
+  const hangingTimeoutRecoveryQueue = new BrowserGPUQueue({
+    idleReleaseMs: 1,
+    onRecover: () => {
+      timeoutRecoveryStarted = true;
+      return new Promise((resolveRecovery) => {
+        releaseTimeoutRecovery = () => {
+          timeoutRecoveryFinished = true;
+          resolveRecovery();
+        };
+      });
+    },
+  });
+  const hangingTimeout = hangingTimeoutRecoveryQueue.enqueue({
+    id: "timeout-with-hanging-cleanup",
+    memoryBudgetMB: 128,
+    timeoutMs: 5,
+    execute: () => new Promise((_, rejectExecution) => {
+      rejectTimedOutExecution = rejectExecution;
+    }),
+  });
+  const nextAfterTimeout = hangingTimeoutRecoveryQueue.enqueue({
+    id: "queued-after-timeout",
+    memoryBudgetMB: 128,
+    execute: async () => {
+      nextAfterTimeoutExecuted = true;
+      assert.equal(timeoutRecoveryFinished, true);
+      return "after-timeout";
+    },
+  });
+  const publicTimeoutError = await Promise.race([
+    hangingTimeout.then(
+      () => null,
+      (error) => error,
+    ),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Public timeout waited for hanging cleanup.")), 100);
+    }),
+  ]);
+  assert.equal(publicTimeoutError?.code, "BROWSER_GPU_JOB_TIMEOUT");
+  assert.equal(timeoutRecoveryStarted, true);
+  assert.equal(nextAfterTimeoutExecuted, false);
+  assert.equal(hangingTimeoutRecoveryQueue.snapshot().activeJobId, "timeout-with-hanging-cleanup");
+  releaseTimeoutRecovery();
+  assert.equal(await nextAfterTimeout, "after-timeout");
+  rejectTimedOutExecution(new Error("late timed-out execution rejection"));
+
+  let releaseCancellationRecovery;
+  let cancellationRecoveryStarted = false;
+  let cancellationRecoveryFinished = false;
+  let nextAfterCancellationExecuted = false;
+  let rejectCancelledExecution;
+  const hangingCancellationRecoveryQueue = new BrowserGPUQueue({
+    idleReleaseMs: 1,
+    onRecover: () => {
+      cancellationRecoveryStarted = true;
+      return new Promise((resolveRecovery) => {
+        releaseCancellationRecovery = () => {
+          cancellationRecoveryFinished = true;
+          resolveRecovery();
+        };
+      });
+    },
+  });
+  const cancellationController = new AbortController();
+  const hangingCancellation = hangingCancellationRecoveryQueue.enqueue({
+    id: "cancellation-with-hanging-cleanup",
+    memoryBudgetMB: 128,
+    signal: cancellationController.signal,
+    execute: () => new Promise((_, rejectExecution) => {
+      rejectCancelledExecution = rejectExecution;
+    }),
+  });
+  const nextAfterCancellation = hangingCancellationRecoveryQueue.enqueue({
+    id: "queued-after-cancellation",
+    memoryBudgetMB: 128,
+    execute: async () => {
+      nextAfterCancellationExecuted = true;
+      assert.equal(cancellationRecoveryFinished, true);
+      return "after-cancellation";
+    },
+  });
+  cancellationController.abort();
+  const publicCancellationError = await Promise.race([
+    hangingCancellation.then(
+      () => null,
+      (error) => error,
+    ),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Public cancellation waited for hanging cleanup.")), 100);
+    }),
+  ]);
+  assert.equal(publicCancellationError?.name, "AbortError");
+  assert.equal(cancellationRecoveryStarted, true);
+  assert.equal(nextAfterCancellationExecuted, false);
+  assert.equal(
+    hangingCancellationRecoveryQueue.snapshot().activeJobId,
+    "cancellation-with-hanging-cleanup",
+  );
+  releaseCancellationRecovery();
+  assert.equal(await nextAfterCancellation, "after-cancellation");
+  rejectCancelledExecution(new Error("late cancelled execution rejection"));
+  await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+
+  const runtimeSource = readFileSync(
+    resolve(root, "lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts"),
+    "utf8",
+  );
+  const releaseStart = runtimeSource.indexOf("async function releaseActiveEngine");
+  const releaseEnd = runtimeSource.indexOf("function forceReleaseActiveEngine", releaseStart);
+  const releaseSource = runtimeSource.slice(releaseStart, releaseEnd);
+  assert.ok(releaseStart >= 0 && releaseEnd > releaseStart);
+  assert.ok(releaseSource.indexOf("activeEngine = null") < releaseSource.indexOf("terminateWorker(worker)"));
+  assert.ok(releaseSource.indexOf("terminateWorker(worker)") < releaseSource.indexOf("await unloadEngineWithinDeadline"));
+  assert.match(runtimeSource, /Promise\.race\(\[\s*unloadOperation/u);
+  assert.match(runtimeSource, /onRecover: forceReleaseActiveEngine/u);
 });
 
 test("gpu-device-lost", async () => {

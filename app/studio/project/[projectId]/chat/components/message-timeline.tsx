@@ -25,6 +25,7 @@ export function MessageTimeline({
   attachments,
   loading,
   busy,
+  regenerationReady,
   canStop,
   progress,
   safeError,
@@ -43,6 +44,7 @@ export function MessageTimeline({
   attachments: ConversationAttachment[];
   loading: boolean;
   busy: boolean;
+  regenerationReady: boolean;
   canStop: boolean;
   progress: string;
   safeError: { code: string; message: string } | null;
@@ -119,6 +121,7 @@ export function MessageTimeline({
             invocationsByMessage={invocationsByMessage}
             attachmentsById={attachmentsById}
             busy={busy}
+            regenerationReady={regenerationReady}
             canStop={canStop}
             progress={progress}
             branchPending={branchPendingMessageIds.has(message.id)}

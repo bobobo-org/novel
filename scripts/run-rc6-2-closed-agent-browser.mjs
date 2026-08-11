@@ -71,6 +71,7 @@ let edgeCdpSession;
 let authoritativeFailureEvidence = null;
 let finalOutput = null;
 let freshStorageAtFailure = null;
+let latestRegenerationAttemptEvidence = null;
 
 const FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1";
 
@@ -180,6 +181,11 @@ const PERSISTED_FAILURE_SAFE_CODE_SET = new Set(PERSISTED_FAILURE_SAFE_CODES);
 const SAFE_UI_ERROR_CODE_SET = new Set([
   "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
   "LEARNING_RIGHTS_CONFIRMATION_REQUIRED",
+  "CONVERSATION_REGENERATION_SESSION_NOT_READY",
+  "CONVERSATION_OPERATION_ALREADY_RUNNING",
+  "CONVERSATION_REGENERATION_CLOSED_BACKEND_NOT_READY",
+  "CONVERSATION_REGENERATION_SOURCE_STALE",
+  "CONVERSATION_REGENERATION_SOURCE_PROOF_INVALID",
 ]);
 const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_GATE_FAILED",
@@ -188,6 +194,10 @@ const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_UI_BUSY_TIMEOUT",
   "RC6_2_CLOSED_AI_GENERATION_FAILED",
   "RC6_2_CLOSED_AI_GENERATION_TIMEOUT",
+  "RC6_2_CLOSED_AI_REGENERATION_UI_NOT_READY",
+  "RC6_2_CLOSED_AI_REGENERATION_START_TIMEOUT",
+  "RC6_2_CLOSED_AI_INCOMPLETE_TERMINAL_STATE",
+  ...SAFE_UI_ERROR_CODE_SET,
   ...PERSISTED_FAILURE_SAFE_CODES,
 ]);
 
@@ -1642,8 +1652,8 @@ async function readRightsGateExecutionCounts(projectId) {
   };
 }
 
-async function readCandidateEvidence(projectId, candidateId = null) {
-  const evidence = await page.evaluate(async ({ id, candidateId: exactCandidateId }) => {
+async function readCandidateEvidence(projectId, candidateId = null, taskId = null) {
+  const evidence = await page.evaluate(async ({ id, candidateId: exactCandidateId, taskId: exactTaskId }) => {
     const stableStringify = (value) => {
       if (value === null || typeof value !== "object") return JSON.stringify(value);
       if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -1690,7 +1700,9 @@ async function readCandidateEvidence(projectId, candidateId = null) {
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
       const candidate = exactCandidateId
         ? candidates.find((record) => record.id === exactCandidateId) ?? null
-        : candidates[0] ?? null;
+        : exactTaskId
+          ? candidates.find((record) => record.taskId === exactTaskId) ?? null
+          : candidates[0] ?? null;
       if (!candidate) return null;
       const contentDigestVerified = candidate.contentDigest === await sha256(candidate.content);
       const normalizedContentDigest = [...new Uint8Array(await crypto.subtle.digest(
@@ -1702,6 +1714,12 @@ async function readCandidateEvidence(projectId, candidateId = null) {
           .objectStore("conversationToolInvocations").getAll(),
       )).filter((record) => record.projectId === id);
       const invocation = invocations.find((record) => record.taskId === candidate.taskId) ?? null;
+      const message = invocation
+        ? await requestResult(
+            appDatabase.transaction("conversationMessages", "readonly")
+              .objectStore("conversationMessages").get(invocation.messageId),
+          )
+        : null;
       const artifacts = (await requestResult(
         appDatabase.transaction("conversationArtifacts", "readonly")
           .objectStore("conversationArtifacts").getAll(),
@@ -1771,6 +1789,7 @@ async function readCandidateEvidence(projectId, candidateId = null) {
         },
         invocation: invocation ? {
           id: invocation.id,
+          messageId: invocation.messageId,
           taskId: invocation.taskId,
           taskType: invocation.taskType,
           status: invocation.status,
@@ -1789,6 +1808,15 @@ async function readCandidateEvidence(projectId, candidateId = null) {
             externalRequest: invocation.executionReceipt.externalRequest,
             dataLeftDevice: invocation.executionReceipt.dataLeftDevice,
           } : null,
+        } : null,
+        message: message ? {
+          id: message.id,
+          role: message.role,
+          status: message.status,
+          candidateLinked: Array.isArray(message.candidateIds)
+            && message.candidateIds.includes(candidate.id),
+          invocationLinked: Array.isArray(message.toolInvocationIds)
+            && message.toolInvocationIds.includes(invocation.id),
         } : null,
         artifact: artifact ? {
           id: artifact.id,
@@ -1835,7 +1863,7 @@ async function readCandidateEvidence(projectId, candidateId = null) {
       appDatabase.close();
       offloadDatabase.close();
     }
-  }, { id: projectId, candidateId });
+  }, { id: projectId, candidateId, taskId });
   if (!evidence) return null;
   if (evidence.candidate.executionReceipt) {
     evidence.candidate.executionReceipt.finalModelContextAttestation =
@@ -1900,6 +1928,12 @@ function assertCandidateTruth(evidence, expected = {}) {
   assert.equal(evidence.invocation?.executionReceipt?.externalRequest, false);
   assert.equal(evidence.invocation?.executionReceipt?.dataLeftDevice, false);
   assert.equal(evidence.invocation?.canonicalMutationCount, 0);
+  assert.equal(evidence.message?.id, evidence.invocation?.messageId);
+  assert.equal(evidence.message?.role, "assistant");
+  assert.equal(evidence.message?.status, "completed");
+  assert.equal(evidence.message?.candidateLinked, true);
+  assert.equal(evidence.message?.invocationLinked, true);
+  assert.equal(evidence.artifact?.sourceMessageId, evidence.message?.id);
   assert.deepEqual(
     evidence.browserComputeReceipt?.receiptKeys,
     [...BROWSER_EXECUTION_RECEIPT_KEYS].sort(),
@@ -2228,18 +2262,175 @@ async function attestPersistedFailureEvidence(projectId, invocation) {
   return failureEvidence.safeCode;
 }
 
-async function waitForCandidate(projectId, previousTaskId = null) {
+async function waitForClosedAiRegenerationReady(timeoutMs = 90_000) {
+  const composer = page.getByTestId("conversation-message-composer");
+  await composer.waitFor({ state: "visible", timeout: timeoutMs });
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-testid="conversation-message-composer"]');
+    if (!node) return false;
+    const verified = Number(node.getAttribute("data-closed-ai-generation-verified-backends"));
+    return Number.isSafeInteger(verified)
+      && verified > 0
+      && node.getAttribute("data-closed-ai-active-backend") === "browser-ai"
+      && node.getAttribute("data-closed-ai-setup-busy") === "false"
+      && node.getAttribute("aria-busy") === "false";
+  }, undefined, { timeout: timeoutMs }).catch(() => {
+    throw gateError("RC6_2_CLOSED_AI_REGENERATION_UI_NOT_READY");
+  });
+}
+
+async function readRegenerationAttempt(projectId, sourceMessageId, previousTaskId) {
+  return page.evaluate(async ({ id, sourceId, previousId }) => {
+    const requestResult = (request) => new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onupgradeneeded = () => {
+        request.transaction?.abort();
+        reject(new Error("RC6_2_CONVERSATION_DATABASE_MISSING"));
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const [messages, invocations, artifacts] = await Promise.all([
+        requestResult(database.transaction("conversationMessages", "readonly")
+          .objectStore("conversationMessages").getAll()),
+        requestResult(database.transaction("conversationToolInvocations", "readonly")
+          .objectStore("conversationToolInvocations").getAll()),
+        requestResult(database.transaction("conversationArtifacts", "readonly")
+          .objectStore("conversationArtifacts").getAll()),
+      ]);
+      const attempts = invocations.filter((invocation) => (
+        invocation.projectId === id
+        && invocation.taskId !== previousId
+        && invocation.toolId === "closed-agent-os:conversation-plan"
+        && messages.some((message) => (
+          message.id === invocation.messageId
+          && message.projectId === id
+          && message.sourceMessageId === sourceId
+          && message.role === "assistant"
+        ))
+      )).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+      if (!attempts.length) return null;
+      const invocation = attempts[0];
+      const message = messages.find((record) => record.id === invocation.messageId) ?? null;
+      const linkedArtifacts = artifacts.filter((record) => (
+        record.projectId === id && record.sourceMessageId === invocation.messageId
+      ));
+      return {
+        attemptCount: attempts.length,
+        invocationId: invocation.id,
+        taskId: invocation.taskId,
+        invocationStatus: invocation.status,
+        messageId: invocation.messageId,
+        messageStatus: message?.status ?? null,
+        artifactCount: linkedArtifacts.length,
+        candidateArtifactCount: linkedArtifacts.filter((record) => record.status === "candidate").length,
+      };
+    } finally {
+      database.close();
+    }
+  }, { id: projectId, sourceId: sourceMessageId, previousId: previousTaskId });
+}
+
+async function waitForRegenerationStart(projectId, sourceMessageId, previousTaskId) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const attempt = await readRegenerationAttempt(
+      projectId,
+      sourceMessageId,
+      previousTaskId,
+    ).catch(() => null);
+    if (attempt) {
+      assert.equal(attempt.attemptCount, 1, "regeneration created more than one attempt");
+      assert.ok(["pending", "running", "completed", "failed", "cancelled"].includes(
+        attempt.invocationStatus,
+      ));
+      assert.ok(["pending", "streaming", "completed", "failed", "cancelled"].includes(
+        attempt.messageStatus,
+      ));
+      assert.ok(Number.isSafeInteger(attempt.artifactCount) && attempt.artifactCount >= 0);
+      assert.ok(
+        Number.isSafeInteger(attempt.candidateArtifactCount)
+        && attempt.candidateArtifactCount >= 0
+        && attempt.candidateArtifactCount <= attempt.artifactCount,
+      );
+      latestRegenerationAttemptEvidence = {
+        invocationIdDigest: sha256Value(attempt.invocationId),
+        taskIdDigest: sha256Value(attempt.taskId),
+        messageIdDigest: sha256Value(attempt.messageId),
+        invocationStatus: attempt.invocationStatus,
+        messageStatus: attempt.messageStatus,
+        artifactCount: attempt.artifactCount,
+        candidateArtifactCount: attempt.candidateArtifactCount,
+      };
+      return { ...attempt, sourceMessageId, previousTaskId };
+    }
+    const safeCodes = await page.locator('[role="alert"] strong').allTextContents()
+      .then((values) => values.map((value) => value.trim()).filter((value) => (
+        SAFE_UI_ERROR_CODE_SET.has(value)
+      )))
+      .catch(() => []);
+    if (safeCodes.length) throw gateError(safeCodes[0]);
+    await page.waitForTimeout(250);
+  }
+  throw gateError("RC6_2_CLOSED_AI_REGENERATION_START_TIMEOUT");
+}
+
+async function waitForCandidate(
+  projectId,
+  previousTaskId = null,
+  expectedTaskId = null,
+  expectedAttempt = null,
+) {
   const startedAt = Date.now();
   let nextHeartbeat = startedAt + 30_000;
   while (Date.now() - startedAt < generationTimeoutMs) {
-    const evidence = await readCandidateEvidence(projectId).catch(() => null);
+    const evidence = await readCandidateEvidence(
+      projectId,
+      null,
+      expectedTaskId,
+    ).catch(() => null);
+    const attempt = expectedAttempt
+      ? await readRegenerationAttempt(
+          projectId,
+          expectedAttempt.sourceMessageId,
+          expectedAttempt.previousTaskId,
+        ).catch(() => null)
+      : null;
     if (
       evidence?.candidate.status === "awaiting-approval"
       && evidence.candidate.taskId !== previousTaskId
+      && (!expectedTaskId || evidence.candidate.taskId === expectedTaskId)
       && evidence.invocation?.status === "completed"
+      && evidence.message?.status === "completed"
+      && evidence.message?.candidateLinked === true
+      && evidence.message?.invocationLinked === true
       && evidence.artifact?.status === "candidate"
+      && evidence.artifact?.sourceMessageId === evidence.message?.id
     ) return evidence;
-    const failedInvocation = await readFailedClosedAgentInvocation(projectId);
+    if (
+      expectedTaskId
+      && attempt?.taskId === expectedTaskId
+      && attempt.invocationStatus === "completed"
+      && (
+        !evidence
+        || evidence.invocation?.status !== "completed"
+        || evidence.message?.status !== "completed"
+        || evidence.message?.candidateLinked !== true
+        || evidence.message?.invocationLinked !== true
+        || evidence.artifact?.status !== "candidate"
+        || evidence.artifact?.sourceMessageId !== evidence.message?.id
+      )
+    ) {
+      throw gateError("RC6_2_CLOSED_AI_INCOMPLETE_TERMINAL_STATE");
+    }
+    const failedInvocation = await readFailedClosedAgentInvocation(projectId, {
+      taskId: expectedTaskId,
+    });
     if (failedInvocation && failedInvocation.taskId !== previousTaskId) {
       const safeCode = await attestPersistedFailureEvidence(projectId, failedInvocation);
       throw gateError(safeCode);
@@ -2249,6 +2440,29 @@ async function waitForCandidate(projectId, previousTaskId = null) {
       nextHeartbeat += 30_000;
     }
     await page.waitForTimeout(1_000);
+  }
+  if (expectedTaskId) {
+    const terminal = await readCandidateEvidence(projectId, null, expectedTaskId).catch(() => null);
+    const terminalAttempt = expectedAttempt
+      ? await readRegenerationAttempt(
+          projectId,
+          expectedAttempt.sourceMessageId,
+          expectedAttempt.previousTaskId,
+        ).catch(() => null)
+      : null;
+    if (
+      terminal?.candidate.taskId === expectedTaskId
+      && terminal.invocation?.status === "completed"
+      && terminal.message?.status === "completed"
+      && terminal.message?.candidateLinked === true
+      && terminal.message?.invocationLinked === true
+      && terminal.artifact?.status === "candidate"
+      && terminal.artifact?.sourceMessageId === terminal.message?.id
+    ) return terminal;
+    if (
+      terminalAttempt?.taskId === expectedTaskId
+      && terminalAttempt.invocationStatus === "completed"
+    ) throw gateError("RC6_2_CLOSED_AI_INCOMPLETE_TERMINAL_STATE");
   }
   throw gateError("RC6_2_CLOSED_AI_GENERATION_TIMEOUT");
 }
@@ -2742,15 +2956,19 @@ async function runGenerationLifecycle(projectId, storyBible) {
     name: "重新產生",
     exact: true,
   }).last();
+  await waitForClosedAiRegenerationReady();
   await directRegenerate.click();
-  await page.waitForFunction(() => (
-    [...document.querySelectorAll("button")].some((button) => (
-      button.textContent?.trim() === "產生中…"
-      && button.getAttribute("aria-busy") === "true"
-      && button.disabled
-    ))
-  ));
-  const second = await waitForCandidate(projectId, first.candidate.taskId);
+  const directAttempt = await waitForRegenerationStart(
+    projectId,
+    first.invocation.messageId,
+    first.candidate.taskId,
+  );
+  const second = await waitForCandidate(
+    projectId,
+    first.candidate.taskId,
+    directAttempt.taskId,
+    directAttempt,
+  );
   assertCandidateTruth(second, { previous: first, regenerationAttempt: 1 });
   const secondContextProof = assertFinalContextBindings(second, requiredSources);
   assert.notEqual(second.candidate.id, first.candidate.id);
@@ -2820,13 +3038,28 @@ async function runGenerationLifecycle(projectId, storyBible) {
     secondContextProof,
   );
 
-  const secondArticle = secondCard.locator("xpath=ancestor::article");
+  await waitForClosedAiRegenerationReady();
+  const rejectedSecondCard = page.locator(`[data-artifact-id="${second.artifact.id}"]`).first();
+  await rejectedSecondCard.waitFor({ state: "visible", timeout: 90_000 });
+  const secondArticle = rejectedSecondCard.locator("xpath=ancestor::article");
   const chainedRegenerate = secondArticle.getByRole("button", {
     name: "重新產生",
     exact: true,
   }).last();
+  assert.equal(await chainedRegenerate.count(), 1);
+  assert.equal(await chainedRegenerate.isEnabled(), true);
   await chainedRegenerate.click();
-  const third = await waitForCandidate(projectId, second.candidate.taskId);
+  const chainedAttempt = await waitForRegenerationStart(
+    projectId,
+    second.invocation.messageId,
+    second.candidate.taskId,
+  );
+  const third = await waitForCandidate(
+    projectId,
+    second.candidate.taskId,
+    chainedAttempt.taskId,
+    chainedAttempt,
+  );
   assert.equal(
     modelAssetRequestCount(),
     modelAssetRequestsBeforeReload,
@@ -3124,6 +3357,7 @@ try {
     immutableModelRootRequestCount: immutableModelRootRequests.length,
     approvedModelRedirectRequestCount: approvedModelRedirectRequests.length,
     modelMetadataAtFailure,
+    latestRegenerationAttemptEvidence,
     uiSafeErrorCodesAtFailure,
     uiStateAtFailure,
     prohibitedExternalAiRequestCount: prohibitedExternalAiRequests.length,

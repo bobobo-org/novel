@@ -268,6 +268,7 @@ let warmupCount = 0;
 let lastWarmupAt: string | null = null;
 let lastWarmupMs: number | null = null;
 const progressListeners = new Set<(progress: BrowserWebLLMProgress) => void>();
+const ENGINE_UNLOAD_TIMEOUT_MS = 2_000;
 
 function runtimeError(code: string, message: string, cause?: unknown) {
   return Object.assign(new Error(message), { code, retryable: true, cause });
@@ -379,18 +380,49 @@ function parseTokensPerSecond(runtimeStats: string) {
   return Number(matches.at(-1)?.[1] ?? 0) || null;
 }
 
-async function releaseActiveEngine() {
+function terminateWorker(worker: Worker | null) {
+  try {
+    worker?.terminate();
+  } catch {
+    // Termination is best-effort after the runtime references are detached.
+  }
+}
+
+async function unloadEngineWithinDeadline(engine: WebWorkerMLCEngine | null) {
+  if (!engine) return;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+  const unloadOperation = Promise.resolve().then(() => engine.unload());
+  try {
+    await Promise.race([
+      unloadOperation,
+      new Promise<void>((resolve) => {
+        timeoutId = globalThis.setTimeout(resolve, ENGINE_UNLOAD_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function releaseActiveEngine(options: { force?: boolean } = {}) {
   const engine = activeEngine;
   const worker = activeWorker;
   activeEngine = null;
   activeWorker = null;
   activeModelId = null;
   activeCacheBackend = null;
+  if (options.force) terminateWorker(worker);
   try {
-    await engine?.unload();
+    await unloadEngineWithinDeadline(engine);
   } finally {
-    worker?.terminate();
+    terminateWorker(worker);
   }
+}
+
+function forceReleaseActiveEngine() {
+  // releaseActiveEngine detaches all shared references and terminates the
+  // worker synchronously before its bounded cleanup promise is returned.
+  return releaseActiveEngine({ force: true });
 }
 
 function createGPUQueue() {
@@ -401,7 +433,7 @@ function createGPUQueue() {
     // session. Switching models still unloads GPU memory immediately, while
     // CacheStorage remains untouched.
     idleReleaseMs: 600_000,
-    onRecover: releaseActiveEngine,
+    onRecover: forceReleaseActiveEngine,
     onIdleRelease: releaseActiveEngine,
   });
 }

@@ -30,6 +30,7 @@ export const MessageRow = memo(function MessageRow({
   invocationsByMessage,
   attachmentsById,
   busy,
+  regenerationReady,
   canStop,
   progress,
   branchPending,
@@ -43,6 +44,7 @@ export const MessageRow = memo(function MessageRow({
   invocationsByMessage: Map<string, ConversationToolInvocation>;
   attachmentsById: Map<string, ConversationAttachment>;
   busy: boolean;
+  regenerationReady: boolean;
   canStop: boolean;
   progress: string;
   branchPending: boolean;
@@ -73,6 +75,7 @@ export const MessageRow = memo(function MessageRow({
   const hasVerifiedClosedInvocation = closedProofStatus === "verified";
   const canRegenerate = message.role === "assistant"
     && message.status === "completed"
+    && regenerationReady
     && !retryNeedsAttachment
     && hasVerifiedClosedInvocation
     && !rpgChoices

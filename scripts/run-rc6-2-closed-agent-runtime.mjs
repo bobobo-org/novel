@@ -816,7 +816,7 @@ await test("source-truth", async () => {
     );
     assert.match(source, /import\([\s\S]{0,80}language\/traditional-chinese/u);
   }
-  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, browserWebLlmRuntime, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
+  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, browserWebLlmRuntime, privateHub, service, bootstrap, composer, workspace, finalizationSupport, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts", import.meta.url), "utf8"),
@@ -830,6 +830,7 @@ await test("source-truth", async () => {
     readFile(new URL("../lib/novel-ai/web/closed-ai-bootstrap-coordinator.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/conversation/closed-agent-finalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-closed-ai-bootstrap.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts", import.meta.url), "utf8"),
@@ -924,6 +925,7 @@ await test("source-truth", async () => {
   assert.match(composer, /作品資料<\/dt><dd>不離開裝置/u);
   assert.match(composer, /data-closed-ai-generation-verified-backends/u);
   assert.match(composer, /data-closed-ai-active-backend/u);
+  assert.match(composer, /data-closed-ai-setup-busy=\{closedAiSetupBusy\}/u);
   assert.match(composer, /data-closed-ai-external-fallback/u);
   assert.match(composer, /data-setup-lifecycle=\{closedAiSetupLifecycle\}/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
@@ -940,6 +942,9 @@ await test("source-truth", async () => {
   assert.match(workspace, /expectedSourceMessage:\s*currentSourceMessage/u);
   assert.match(workspace, /expectedSourceInvocation:\s*sourceInvocation!/u);
   assert.match(workspace, /sourceCandidateDigest:\s*regenerationSource\.candidateDigest/u);
+  assert.match(workspace, /closedAiSetup\?\.status === "ready"/u);
+  assert.match(workspace, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(messageRow, /&& regenerationReady/u);
   assert.doesNotMatch(messageRow, /outputDigest === message\.contentDigest/u);
   assert.match(regenerationProof, /input\.artifacts\.length === 0/u);
   assert.match(regenerationProof, /artifact\.candidateDigest === input\.message\.contentDigest/u);
@@ -965,9 +970,34 @@ await test("source-truth", async () => {
   assert.match(recordSecurity, /parseClosedAgentFailureEvidence\(invocation\.safeProgress\.message\)/u);
   assert.match(workspace, /createClosedAgentFailureEvidence\(error\)/u);
   assert.match(workspace, /serializeClosedAgentFailureEvidence\(failureEvidence\)/u);
-  assert.match(workspace, /stage:\s*CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
-  assert.match(workspace, /failureEvidencePersistenceFailed = Boolean\(persistedFailureEvidence\)/u);
-  assert.match(workspace, /CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED/u);
+  assert.match(finalizationSupport, /stage:\s*CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
+  assert.match(finalizationSupport, /persistenceFailed = true/u);
+  assert.match(finalizationSupport, /CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED/u);
+  const closedAgentFinalization = workspace.slice(
+    workspace.indexOf("async function runClosedAgent"),
+    workspace.indexOf("async function sendRequest"),
+  );
+  const targetSnapshotAt = closedAgentFinalization.indexOf("const approvalTarget");
+  const modelExecutionAt = closedAgentFinalization.indexOf("await executeStudioClosedAgent");
+  const artifactCommitAt = closedAgentFinalization.indexOf("artifact = await conversation.saveArtifact");
+  const messageCommitAt = closedAgentFinalization.indexOf("await conversation.updateMessageStatus", artifactCommitAt);
+  const invocationCommitAt = closedAgentFinalization.indexOf("invocation = await completeInvocation()", messageCommitAt);
+  assert.ok(targetSnapshotAt >= 0 && targetSnapshotAt < modelExecutionAt);
+  assert.ok(modelExecutionAt < artifactCommitAt);
+  assert.ok(artifactCommitAt < messageCommitAt);
+  assert.ok(messageCommitAt < invocationCommitAt);
+  assert.match(finalizationSupport, /CONVERSATION_APPROVAL_TARGET_MISSING/u);
+  assert.match(finalizationSupport, /currentArtifact\?\.status === "candidate"/u);
+  const regenerationHandler = workspace.slice(
+    workspace.indexOf("async function regenerateMessage"),
+    workspace.indexOf("function stopGeneration"),
+  );
+  const regenerationCatch = regenerationHandler.slice(regenerationHandler.lastIndexOf("} catch (error)"));
+  assert.ok(regenerationCatch.indexOf("await loadWorkspace(sessionId)") >= 0);
+  assert.ok(
+    regenerationCatch.indexOf("await loadWorkspace(sessionId)")
+      < regenerationCatch.indexOf("setSafeError"),
+  );
   assert.match(messageRow, /selectClosedAgentFailureEvidenceInvocation/u);
   assert.match(messageRow, /data-testid="conversation-closed-agent-failure-evidence"/u);
   assert.match(messageRow, /data-failure-evidence=\{failureInvocation\.safeProgress\?\.message\}/u);
@@ -1008,6 +1038,13 @@ await test("source-truth", async () => {
   assert.match(browserGate, /regenerationAttempt:\s*1/u);
   assert.match(browserGate, /regenerationAttempt:\s*2/u);
   assert.match(browserGate, /firstAfterDirectRegeneration\.candidate\.status, "awaiting-approval"/u);
+  assert.match(browserGate, /waitForClosedAiRegenerationReady/u);
+  assert.match(browserGate, /data-closed-ai-setup-busy/u);
+  assert.match(browserGate, /waitForRegenerationStart/u);
+  assert.match(browserGate, /RC6_2_CLOSED_AI_INCOMPLETE_TERMINAL_STATE/u);
+  assert.match(browserGate, /evidence\.message\?\.status === "completed"/u);
+  assert.match(browserGate, /evidence\.message\?\.candidateLinked === true/u);
+  assert.match(browserGate, /evidence\.message\?\.invocationLinked === true/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODES/u);
   assert.match(browserGate, /SAFE_DIAGNOSTIC_CODE_SET\.has\(value\)/u);
   for (const code of [
