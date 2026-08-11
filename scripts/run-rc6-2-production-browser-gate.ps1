@@ -48,7 +48,8 @@ $edgeDll = Join-Path $edgeVersionRoot "msedge.dll"
 $productCommit = "29fc6e742672bb07187765d34ea818afdadf56ae"
 $productionRecoveryControl = "9cd074f239b73dd9b61f6d758fcf97fbd809face"
 $failedRecoveryControl = "3b716fc0d974a9d59b49ffca5953776af66c7a07"
-$previousBrowserGateControl = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824"
+$initialBrowserGateControl = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824"
+$previousBrowserGateControl = "100eea11003c5132ab2b519707c5dee658bc9cbe"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -76,6 +77,7 @@ $mirrorOrigin = "https://novel-lqtechs-projects.vercel.app"
 $deploymentOrigin = "https://novel-eexnlr77y-lqtechs-projects.vercel.app"
 $evidenceDirectory = $null
 $evidencePath = $null
+$failureEvidencePath = $null
 $runnerPath = Join-Path $repoRoot "scripts\run-rc6-2-closed-agent-browser.mjs"
 $wrapperPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate.ps1"
 $contractPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate-contract.mjs"
@@ -189,9 +191,26 @@ function Assert-ControlDiffPaths(
 function Invoke-CleanNodeContract(
   [string]$Mode,
   [hashtable]$AdditionalEnvironment,
-  [string]$Code
+  [string]$Code,
+  [AllowNull()][string]$StandardInput = $null
 ) {
   if ($Mode -notmatch '^[a-z][a-z-]{0,63}$') { Fail $Code }
+  $standardInputBytes = $null
+  if ($null -ne $StandardInput) {
+    if (
+      $StandardInput.IndexOf([char]0) -ge 0 -or
+      $StandardInput.IndexOf([char]0xFFFD) -ge 0 -or
+      $StandardInput.StartsWith([string][char]0xFEFF)
+    ) { Fail $Code }
+    $standardInputBytes = [Text.UTF8Encoding]::new($false).GetBytes($StandardInput)
+    if (
+      $standardInputBytes.Length -gt 1048576 -or
+      -not [StringComparer]::Ordinal.Equals(
+        [Text.UTF8Encoding]::new($false, $true).GetString($standardInputBytes),
+        $StandardInput
+      )
+    ) { Fail $Code }
+  }
   $startInfo = [Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $nodeExe
   $startInfo.Arguments = "`"$contractPath`" $Mode"
@@ -200,6 +219,7 @@ function Invoke-CleanNodeContract(
   $startInfo.CreateNoWindow = $true
   $startInfo.RedirectStandardOutput = $true
   $startInfo.RedirectStandardError = $true
+  $startInfo.RedirectStandardInput = $null -ne $StandardInput
   $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
   $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
   $startInfo.EnvironmentVariables.Clear()
@@ -221,20 +241,36 @@ function Invoke-CleanNodeContract(
   }
   $process = [Diagnostics.Process]::new()
   $process.StartInfo = $startInfo
-  if (-not $process.Start()) { Fail $Code }
-  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-  $stderrTask = $process.StandardError.ReadToEndAsync()
-  if (-not $process.WaitForExit(300000)) {
-    & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F *> $null
-    Fail $Code
+  $processStarted = $false
+  try {
+    if (-not $process.Start()) { Fail $Code }
+    $processStarted = $true
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if ($null -ne $StandardInput) {
+      $process.StandardInput.BaseStream.Write($standardInputBytes, 0, $standardInputBytes.Length)
+      $process.StandardInput.BaseStream.Flush()
+      $process.StandardInput.BaseStream.Close()
+    }
+    if (-not $process.WaitForExit(300000)) {
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F *> $null
+      [void]$process.WaitForExit(30000)
+      Fail $Code
+    }
+    $process.WaitForExit()
+    $stdout = [string]$stdoutTask.Result
+    $stderr = [string]$stderrTask.Result
+    if ($process.ExitCode -ne 0 -or $stdout.Length -gt 1048576 -or $stderr.Length -gt 65536 -or $stderr.Trim().Length -ne 0) {
+      Fail $Code
+    }
+    return $stdout.Trim()
+  } finally {
+    if ($processStarted -and -not $process.HasExited) {
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F *> $null
+      [void]$process.WaitForExit(30000)
+    }
+    $process.Dispose()
   }
-  $process.WaitForExit()
-  $stdout = [string]$stdoutTask.Result
-  $stderr = [string]$stderrTask.Result
-  if ($process.ExitCode -ne 0 -or $stdout.Length -gt 1048576 -or $stderr.Length -gt 65536 -or $stderr.Trim().Length -ne 0) {
-    Fail $Code
-  }
-  return $stdout.Trim()
 }
 
 function Invoke-ReleaseAttestationVerification([string]$Code) {
@@ -326,13 +362,17 @@ function Assert-ControlLineage {
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
   $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
   $previousParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $previousBrowserGateControl) "PREVIOUS_GATE_PARENT_READ_FAILED") -split "\s+"
+  $initialParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $initialBrowserGateControl) "INITIAL_GATE_PARENT_READ_FAILED") -split "\s+"
   $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
   $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
   if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $previousBrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
   }
-  if ($previousParents.Count -ne 2 -or $previousParents[0] -ne $previousBrowserGateControl -or $previousParents[1] -ne $productionRecoveryControl) {
+  if ($previousParents.Count -ne 2 -or $previousParents[0] -ne $previousBrowserGateControl -or $previousParents[1] -ne $initialBrowserGateControl) {
     Fail "PREVIOUS_GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($initialParents.Count -ne 2 -or $initialParents[0] -ne $initialBrowserGateControl -or $initialParents[1] -ne $productionRecoveryControl) {
+    Fail "INITIAL_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($recoveryParents.Count -ne 2 -or $recoveryParents[0] -ne $productionRecoveryControl -or $recoveryParents[1] -ne $failedRecoveryControl) {
     Fail "RECOVERY_CONTROL_PARENT_MISMATCH"
@@ -342,6 +382,7 @@ function Assert-ControlLineage {
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
   Assert-ControlDiffPaths -BaseCommit $previousBrowserGateControl -HeadCommit $head -ExpectedPaths $repairGatePaths -Code "GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $initialBrowserGateControl -HeadCommit $previousBrowserGateControl -ExpectedPaths $repairGatePaths -Code "PREVIOUS_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $productionRecoveryControl -HeadCommit $head -ExpectedPaths $allowedGatePaths -Code "GATE_COMPOSITE_DIFF_INVALID"
 }
 
@@ -712,6 +753,198 @@ function Sha256Text([string]$Value) {
   }
 }
 
+function Get-RunnerProgressCounts([string]$Value) {
+  $setup = 0
+  $candidateGeneration = 0
+  $t1Analysis = 0
+  $offset = 0
+  while ($offset -lt $Value.Length) {
+    $lineEnd = $Value.IndexOf("`n", $offset)
+    if ($lineEnd -lt 0) { break }
+    $line = $Value.Substring($offset, $lineEnd - $offset).TrimEnd("`r")
+    $match = [regex]::Match(
+      $line,
+      '^\[RC6\.2 Closed AI\] (setup|candidate generation|T1 analysis) in progress \([0-9]{1,6}s\)$'
+    )
+    if (-not $match.Success) { break }
+    switch ($match.Groups[1].Value) {
+      "setup" { $setup += 1 }
+      "candidate generation" { $candidateGeneration += 1 }
+      "T1 analysis" { $t1Analysis += 1 }
+    }
+    if (($setup + $candidateGeneration + $t1Analysis) -gt 4096) { break }
+    $offset = $lineEnd + 1
+  }
+  return [pscustomobject][ordered]@{
+    setup = $setup
+    candidateGeneration = $candidateGeneration
+    t1Analysis = $t1Analysis
+  }
+}
+
+function Get-TerminalWrapperCode([string]$Stage, [int]$PostcheckErrorCount) {
+  if ($PostcheckErrorCount -gt 0) { return "PRODUCTION_BROWSER_POSTCHECK_FAILED" }
+  switch ($Stage) {
+    "runner-start" { return "PRODUCTION_BROWSER_RUNNER_START_FAILED" }
+    "runner-timeout" { return "PRODUCTION_BROWSER_RUNNER_TIMEOUT" }
+    "runner-output-too-large" { return "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE" }
+    "runner-failed" { return "PRODUCTION_BROWSER_RUNNER_FAILED" }
+    "runner-evidence-validation" { return "PRODUCTION_BROWSER_EVIDENCE_VALIDATION_FAILED" }
+    "gate-linearization" { return "PRODUCTION_BROWSER_LINEARIZATION_FAILED" }
+    "pass-publication" { return "PRODUCTION_BROWSER_PASS_PUBLICATION_FAILED" }
+    default { return "PRODUCTION_BROWSER_WRAPPER_FAILED" }
+  }
+}
+
+function Get-MainCasStatus {
+  try {
+    Assert-MainCas "MAIN_CAS_FAILURE_FINALIZATION_FAILED"
+    return "pass"
+  } catch {
+    return "fail"
+  }
+}
+
+function Write-CreateNewFlushedFile([string]$Path, [string]$Value, [string]$Code) {
+  $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Value)
+  $stream = $null
+  try {
+    $stream = [IO.FileStream]::new(
+      $Path,
+      [IO.FileMode]::CreateNew,
+      [IO.FileAccess]::Write,
+      [IO.FileShare]::None,
+      4096,
+      [IO.FileOptions]::WriteThrough
+    )
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Flush($true)
+  } catch {
+    Fail $Code
+  } finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
+function Publish-C5FailureEvidence(
+  [pscustomobject]$RunnerCapture,
+  [Collections.Specialized.OrderedDictionary]$Postchecks,
+  [string]$TerminalWrapperCode
+) {
+  $casStatus = Get-MainCasStatus
+  for ($attempt = 0; $attempt -lt 3; $attempt += 1) {
+    $Postchecks.remoteMainCas = $casStatus
+    $body = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-production-browser-gate-c5-failure-v1"
+      status = "FAIL"
+      qualifiesProductionBrowserGate = $false
+      eligibleForLuna = $false
+      productCommit = $productCommit
+      failedRecoveryControl = $failedRecoveryControl
+      productionRecoveryControl = $productionRecoveryControl
+      initialBrowserGateControl = $initialBrowserGateControl
+      previousBrowserGateControl = $previousBrowserGateControl
+      browserGateControl = $ExpectedGateControlCommit
+      deploymentId = $expectedDeployment
+      lkgAuditRunId = $ExpectedLkgAuditRunId
+      lkgAuditControlProofDigest = $ExpectedLkgAuditControlProofDigest
+      lkgSelectionProofDigest = $ExpectedLkgSelectionProofDigest
+      terminalWrapperCode = $TerminalWrapperCode
+      runnerCapture = $RunnerCapture
+      postchecks = [pscustomobject]$Postchecks
+      completedAt = [DateTime]::UtcNow.ToString("o")
+    }
+    $bodyJson = $body | ConvertTo-Json -Compress -Depth 100
+    $proofDomain = "p24b-rc6.2-production-browser-gate-c5-failure-v1"
+    $outer = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-production-browser-gate-c5-failure-proof-v1"
+      canonicalization = "powershell-ordered-json-utf8-no-bom-v1"
+      sanitized = $true
+      rawSecretsStored = $false
+      bodyDigest = Sha256Text $bodyJson
+      body = $body
+      proofDigest = Sha256Text "$proofDomain`n$bodyJson"
+    }
+    $outerJson = $outer | ConvertTo-Json -Compress -Depth 100
+    $tempPath = Join-Path $evidenceDirectory (
+      "production-browser-gate-c5-failure-$ExpectedGateControlCommit-$([Guid]::NewGuid().ToString('N')).tmp"
+    )
+    try {
+      Write-CreateNewFlushedFile $tempPath $outerJson "FAILURE_EVIDENCE_TEMP_WRITE_FAILED"
+      $tempTruth = Get-Item -LiteralPath $tempPath -Force
+      if (($tempTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail "FAILURE_EVIDENCE_TEMP_PATH_INVALID"
+      }
+      $expectedBytes = [Text.UTF8Encoding]::new($false).GetBytes($outerJson)
+      $tempBytes = [IO.File]::ReadAllBytes($tempPath)
+      if (
+        $tempBytes.Length -ne $expectedBytes.Length -or
+        (Get-FileHash -LiteralPath $tempPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne (
+          Sha256Text $outerJson
+        )
+      ) { Fail "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH" }
+      for ($index = 0; $index -lt $expectedBytes.Length; $index += 1) {
+        if ($tempBytes[$index] -ne $expectedBytes[$index]) {
+          Fail "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH"
+        }
+      }
+      $observedCasStatus = Get-MainCasStatus
+      if ($observedCasStatus -ne $casStatus) {
+        Remove-Item -LiteralPath $tempPath -Force
+        $tempPath = $null
+        $casStatus = $observedCasStatus
+        continue
+      }
+      $tempTruth = Get-Item -LiteralPath $tempPath -Force
+      if (($tempTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail "FAILURE_EVIDENCE_TEMP_PATH_CHANGED"
+      }
+      $tempBytes = [IO.File]::ReadAllBytes($tempPath)
+      if (
+        $tempBytes.Length -ne $expectedBytes.Length -or
+        (Get-FileHash -LiteralPath $tempPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne (
+          Sha256Text $outerJson
+        )
+      ) { Fail "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH" }
+      for ($index = 0; $index -lt $expectedBytes.Length; $index += 1) {
+        if ($tempBytes[$index] -ne $expectedBytes[$index]) {
+          Fail "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH"
+        }
+      }
+      if (
+        (Test-Path -LiteralPath $evidencePath) -or
+        (Test-Path -LiteralPath $failureEvidencePath)
+      ) { Fail "FAILURE_EVIDENCE_DESTINATION_RACE" }
+      $directoryTruth = Get-Item -LiteralPath $evidenceDirectory -Force
+      if (
+        -not $directoryTruth.PSIsContainer -or
+        ($directoryTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+      ) { Fail "FAILURE_EVIDENCE_DIRECTORY_CHANGED" }
+      [IO.File]::Move($tempPath, $failureEvidencePath)
+      $tempPath = $null
+      $publishedTruth = Get-Item -LiteralPath $failureEvidencePath -Force
+      if (($publishedTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Fail "FAILURE_EVIDENCE_PUBLICATION_PATH_INVALID"
+      }
+      $publishedBytes = [IO.File]::ReadAllBytes($failureEvidencePath)
+      if ($publishedBytes.Length -ne $expectedBytes.Length) {
+        Fail "FAILURE_EVIDENCE_PUBLICATION_MISMATCH"
+      }
+      for ($index = 0; $index -lt $expectedBytes.Length; $index += 1) {
+        if ($publishedBytes[$index] -ne $expectedBytes[$index]) {
+          Fail "FAILURE_EVIDENCE_PUBLICATION_MISMATCH"
+        }
+      }
+      return $outerJson
+    } finally {
+      if ($tempPath -and (Test-Path -LiteralPath $tempPath)) {
+        Remove-Item -LiteralPath $tempPath -Force
+      }
+    }
+  }
+  Fail "FAILURE_EVIDENCE_CAS_UNSTABLE"
+}
+
 function Initialize-EvidenceDestination {
   $localAppData = [Environment]::GetEnvironmentVariable("LOCALAPPDATA")
   if (-not $localAppData) { Fail "EVIDENCE_LOCALAPPDATA_MISSING" }
@@ -729,11 +962,24 @@ function Initialize-EvidenceDestination {
     ($directoryTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
   ) { Fail "EVIDENCE_DIRECTORY_INVALID" }
   $destination = [IO.Path]::GetFullPath((Join-Path $directory "production-browser-gate-$ExpectedGateControlCommit.json"))
+  $failureDestination = [IO.Path]::GetFullPath((
+    Join-Path $directory "production-browser-gate-c5-failure-$ExpectedGateControlCommit.json"
+  ))
   if (-not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($destination), $directory)) {
     Fail "EVIDENCE_DESTINATION_INVALID"
   }
-  if (Test-Path -LiteralPath $destination) { Fail "EVIDENCE_DESTINATION_ALREADY_EXISTS" }
-  return [pscustomobject]@{ Directory = $directory; Path = $destination }
+  if (-not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($failureDestination), $directory)) {
+    Fail "FAILURE_EVIDENCE_DESTINATION_INVALID"
+  }
+  if (
+    (Test-Path -LiteralPath $destination) -or
+    (Test-Path -LiteralPath $failureDestination)
+  ) { Fail "EVIDENCE_DESTINATION_ALREADY_EXISTS" }
+  return [pscustomobject]@{
+    Directory = $directory
+    Path = $destination
+    FailurePath = $failureDestination
+  }
 }
 
 foreach ($requiredPath in @($gitExe, $ghExe, $nodeExe, $edgeExe, $edgeDll, $runnerPath, $wrapperPath, $contractPath)) {
@@ -742,6 +988,7 @@ foreach ($requiredPath in @($gitExe, $ghExe, $nodeExe, $edgeExe, $edgeDll, $runn
 $evidenceDestination = Initialize-EvidenceDestination
 $evidenceDirectory = [string]$evidenceDestination.Directory
 $evidencePath = [string]$evidenceDestination.Path
+$failureEvidencePath = [string]$evidenceDestination.FailurePath
 foreach ($executable in @($gitExe, $ghExe, $nodeExe, $edgeExe, $edgeDll)) {
   if ((Get-AuthenticodeSignature -FilePath $executable).Status -ne "Valid") { Fail "EXECUTABLE_SIGNATURE_INVALID" }
 }
@@ -800,17 +1047,47 @@ $identityBefore = @(
 )
 Assert-IdentitySet $identityBefore "IDENTITY_SET_BEFORE_MISMATCH"
 
-$mutex = [Threading.Mutex]::new($false, "Global\NovelRC62ProductionBrowserGate")
+$formalGateBoundaryEntered = $false
+$mutex = $null
 $mutexHeld = $false
 $runnerProcess = $null
 $runnerStarted = $false
 $runnerEvidence = $null
 $runnerStdout = ""
+$runnerStderr = ""
+$runnerExitCode = $null
+$runnerElapsedMs = 0
+$runnerStdoutUtf8ByteLength = 0
+$runnerStderrUtf8ByteLength = 0
+$runnerProgressCounts = Get-RunnerProgressCounts ""
+$runnerStage = "boundary-entered"
+$runnerStopwatch = [Diagnostics.Stopwatch]::new()
+$runnerFailureProjection = $null
+$runnerFailureProjectionValidated = $false
+$runnerFailureProjectionDigest = $null
 $runnerEvidenceValidation = $null
 $ownedProfilePath = $null
 $evidenceValidationPath = $null
 $primaryError = $null
 $postErrors = [Collections.Generic.List[string]]::new()
+$postcheckStatuses = [ordered]@{
+  runnerProcessCleanup = "not-run"
+  runnerEvidenceCleanup = "not-run"
+  profileCleanup = "not-run"
+  residueOwnedGateArtifacts = "not-run"
+  serviceSnapshot = "not-run"
+  releaseIdentity = "not-run"
+  runtimeReceipt = "not-run"
+  releaseAttestation = "not-run"
+  controlLineage = "not-run"
+  trackedGateBlobs = "not-run"
+  productRuntimeBlobs = "not-run"
+  releaseTag = "not-run"
+  worktree = "not-run"
+  remoteMainCas = "not-run"
+}
+try {
+  $mutex = [Threading.Mutex]::new($false, "Global\NovelRC62ProductionBrowserGate")
 try {
   try {
     $mutexHeld = $mutex.WaitOne(0)
@@ -818,6 +1095,7 @@ try {
     $mutexHeld = $true
   }
   if (-not $mutexHeld) { Fail "PRODUCTION_BROWSER_GATE_ALREADY_RUNNING" }
+  $formalGateBoundaryEntered = $true
 
   $ownedProfilePath = Assert-OwnedProfilePath (
     Join-Path ([IO.Path]::GetTempPath()) "novel-rc6-2-edge-$([Guid]::NewGuid().ToString('N'))"
@@ -854,23 +1132,62 @@ try {
 
   $runnerProcess = [Diagnostics.Process]::new()
   $runnerProcess.StartInfo = $startInfo
+  $runnerStage = "runner-start"
+  $runnerStopwatch.Start()
   if (-not $runnerProcess.Start()) { Fail "PRODUCTION_BROWSER_RUNNER_START_FAILED" }
   $runnerStarted = $true
+  $runnerStage = "runner-running"
   $stdoutTask = $runnerProcess.StandardOutput.ReadToEndAsync()
   $stderrTask = $runnerProcess.StandardError.ReadToEndAsync()
   if (-not $runnerProcess.WaitForExit(10800000)) {
-    Stop-RunnerTree $runnerProcess "PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED"
+    $runnerStage = "runner-timeout"
+    try { Stop-RunnerTree $runnerProcess "PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED" }
+    catch { [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED") }
+    [void]$runnerProcess.WaitForExit(30000)
+    if ($stdoutTask.IsCompleted) { $runnerStdout = [string]$stdoutTask.Result }
+    if ($stderrTask.IsCompleted) { $runnerStderr = [string]$stderrTask.Result }
     Fail "PRODUCTION_BROWSER_RUNNER_TIMEOUT"
   }
   $runnerProcess.WaitForExit()
   $runnerStdout = [string]$stdoutTask.Result
   $runnerStderr = [string]$stderrTask.Result
-  if ($runnerStdout.Length -gt 1048576 -or $runnerStderr.Length -gt 1048576) { Fail "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE" }
+  $runnerExitCode = [int]$runnerProcess.ExitCode
+  $runnerStopwatch.Stop()
+  $runnerElapsedMs = [long]$runnerStopwatch.ElapsedMilliseconds
+  $runnerStdoutUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStdout)
+  $runnerStderrUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStderr)
+  $runnerProgressCounts = Get-RunnerProgressCounts $runnerStderr
+  if ($runnerStdoutUtf8ByteLength -gt 1048576 -or $runnerStderrUtf8ByteLength -gt 1048576) {
+    $runnerStage = "runner-output-too-large"
+    Fail "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE"
+  }
   $unexpectedStderr = @($runnerStderr -split "\r?\n" | Where-Object {
     $_ -and $_ -notmatch "^\[RC6\.2 Closed AI\] (?:setup|candidate generation|T1 analysis) in progress \([0-9]+s\)$"
   })
-  if ($runnerProcess.ExitCode -ne 0 -or $unexpectedStderr.Count -ne 0) { Fail "PRODUCTION_BROWSER_RUNNER_FAILED" }
+  if ($runnerExitCode -ne 0 -or $unexpectedStderr.Count -ne 0) {
+    $runnerStage = "runner-failed"
+    if ($runnerStdout.Length -eq 0) {
+      try {
+        $runnerFailureValidationText = Invoke-CleanNodeContract "validate-failure-evidence" @{} "PRODUCTION_BROWSER_FAILURE_EVIDENCE_VALIDATION_FAILED" $runnerStderr
+        $runnerFailureValidation = $runnerFailureValidationText | ConvertFrom-Json
+        if (
+          [string]$runnerFailureValidation.status -ne "PASS" -or
+          [string]$runnerFailureValidation.projectionDigest -notmatch '^[a-f0-9]{64}$' -or
+          [string]$runnerFailureValidation.projection.schemaVersion -ne "p24b-rc6.2-validated-runner-failure-projection-v1"
+        ) { Fail "PRODUCTION_BROWSER_FAILURE_EVIDENCE_VALIDATION_FAILED" }
+        $runnerFailureProjection = $runnerFailureValidation.projection
+        $runnerFailureProjectionValidated = $true
+        $runnerFailureProjectionDigest = [string]$runnerFailureValidation.projectionDigest
+      } catch {
+        $runnerFailureProjection = $null
+        $runnerFailureProjectionValidated = $false
+        $runnerFailureProjectionDigest = $null
+      }
+    }
+    Fail "PRODUCTION_BROWSER_RUNNER_FAILED"
+  }
 
+  $runnerStage = "runner-evidence-validation"
   $evidenceValidationPath = Join-Path ([IO.Path]::GetTempPath()) "novel-rc6-2-evidence-$([Guid]::NewGuid().ToString('N')).json"
   if (Test-Path -LiteralPath $evidenceValidationPath) { Fail "RUNNER_EVIDENCE_PATH_PREEXISTED" }
   [IO.File]::WriteAllText($evidenceValidationPath, $runnerStdout, [Text.UTF8Encoding]::new($false))
@@ -883,25 +1200,64 @@ try {
     [string]$runnerEvidenceValidation.evidenceDigest -ne (Sha256Text $runnerStdout.Trim())
   ) { Fail "PRODUCTION_BROWSER_EVIDENCE_VALIDATION_FAILED" }
   $runnerEvidence = $runnerStdout | ConvertFrom-Json
+  $runnerStage = "runner-pass"
 } catch {
   $primaryError = $_
 } finally {
-  if ($runnerStarted -and $null -ne $runnerProcess -and -not $runnerProcess.HasExited) {
-    try { Stop-RunnerTree $runnerProcess "RUNNER_PROCESS_CLEANUP_FAILED" }
-    catch { [void]$postErrors.Add("RUNNER_PROCESS_CLEANUP_FAILED") }
+  if ($runnerStopwatch.IsRunning) { $runnerStopwatch.Stop() }
+  $runnerElapsedMs = [long]$runnerStopwatch.ElapsedMilliseconds
+  if ($runnerStarted -and $null -ne $runnerProcess) {
+    try {
+      if (-not $runnerProcess.HasExited) {
+        Stop-RunnerTree $runnerProcess "RUNNER_PROCESS_CLEANUP_FAILED"
+        [void]$runnerProcess.WaitForExit(30000)
+      }
+      if (-not $runnerProcess.HasExited) { Fail "RUNNER_PROCESS_CLEANUP_FAILED" }
+      $runnerExitCode = [int]$runnerProcess.ExitCode
+      $postcheckStatuses.runnerProcessCleanup = "pass"
+    } catch {
+      $postcheckStatuses.runnerProcessCleanup = "fail"
+      [void]$postErrors.Add("RUNNER_PROCESS_CLEANUP_FAILED")
+    }
+    if ((Get-Variable -Name stdoutTask -ErrorAction SilentlyContinue) -and $stdoutTask.IsCompleted) {
+      $runnerStdout = [string]$stdoutTask.Result
+    }
+    if ((Get-Variable -Name stderrTask -ErrorAction SilentlyContinue) -and $stderrTask.IsCompleted) {
+      $runnerStderr = [string]$stderrTask.Result
+    }
   }
+  $runnerStdoutUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStdout)
+  $runnerStderrUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStderr)
+  $runnerProgressCounts = Get-RunnerProgressCounts $runnerStderr
   if ($evidenceValidationPath -and (Test-Path -LiteralPath $evidenceValidationPath)) {
-    try { Remove-Item -LiteralPath $evidenceValidationPath -Force }
-    catch { [void]$postErrors.Add("RUNNER_EVIDENCE_CLEANUP_FAILED") }
+    try {
+      Remove-Item -LiteralPath $evidenceValidationPath -Force
+      $postcheckStatuses.runnerEvidenceCleanup = "pass"
+    } catch {
+      $postcheckStatuses.runnerEvidenceCleanup = "fail"
+      [void]$postErrors.Add("RUNNER_EVIDENCE_CLEANUP_FAILED")
+    }
+  } else {
+    $postcheckStatuses.runnerEvidenceCleanup = "pass"
   }
   if ($ownedProfilePath) {
     try {
       Stop-OwnedProfileProcesses $ownedProfilePath "OWNED_PROFILE_PROCESS_CLEANUP_FAILED"
       Remove-OwnedProfile $ownedProfilePath "OWNED_PROFILE_CLEANUP_FAILED"
+      $postcheckStatuses.profileCleanup = "pass"
     }
-    catch { [void]$postErrors.Add("OWNED_PROFILE_CLEANUP_FAILED") }
+    catch {
+      $postcheckStatuses.profileCleanup = "fail"
+      [void]$postErrors.Add("OWNED_PROFILE_CLEANUP_FAILED")
+    }
   }
-  try { Assert-NoGateResidue "GATE_RESIDUE_AFTER_RUN" } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
+  try {
+    Assert-NoGateResidue "GATE_RESIDUE_AFTER_RUN"
+    $postcheckStatuses.residueOwnedGateArtifacts = "pass"
+  } catch {
+    $postcheckStatuses.residueOwnedGateArtifacts = "fail"
+    [void]$postErrors.Add("GATE_RESIDUE_AFTER_RUN")
+  }
   try {
     $bridgeAfter = Assert-ServiceOwner 3217 $bridgeServer $bridgeRuntime "BRIDGE"
     $hubAfter = Assert-ServiceOwner 3227 $hubServer $hubRuntime "HUB"
@@ -927,7 +1283,11 @@ try {
       (Get-FileHash -LiteralPath $bridgeCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedBridgeCoreSha256 -or
       (Get-FileHash -LiteralPath $hubServer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHubServerSha256
     ) { Fail "LOCAL_SERVICE_STATE_CHANGED" }
-  } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
+    $postcheckStatuses.serviceSnapshot = "pass"
+  } catch {
+    $postcheckStatuses.serviceSnapshot = "fail"
+    [void]$postErrors.Add("LOCAL_SERVICE_STATE_CHANGED")
+  }
   try {
     $identityAfter = @(
       Get-ReleaseIdentity $primaryOrigin "PRIMARY_IDENTITY_AFTER_INVALID"
@@ -936,33 +1296,55 @@ try {
     )
     Assert-IdentitySet $identityAfter "IDENTITY_SET_AFTER_MISMATCH"
     Assert-IdentitySet @($identityBefore[0], $identityAfter[0], $identityAfter[1]) "IDENTITY_CHANGED_DURING_GATE"
-  } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
+    $postcheckStatuses.releaseIdentity = "pass"
+  } catch {
+    $postcheckStatuses.releaseIdentity = "fail"
+    [void]$postErrors.Add("RELEASE_IDENTITY_POSTCHECK_FAILED")
+  }
   try {
     $runtimeReceiptAfterText = Invoke-CleanNodeContract "runtime-receipt" @{} "PRODUCTION_BROWSER_RUNTIME_RECEIPT_AFTER_FAILED"
     if ($runtimeReceiptAfterText -ne $runtimeReceiptBeforeText) { Fail "PRODUCTION_BROWSER_RUNTIME_RECEIPT_CHANGED" }
-  } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
+    $postcheckStatuses.runtimeReceipt = "pass"
+  } catch {
+    $postcheckStatuses.runtimeReceipt = "fail"
+    [void]$postErrors.Add("PRODUCTION_BROWSER_RUNTIME_RECEIPT_POSTCHECK_FAILED")
+  }
   try {
     $releaseAttestationAfter = Invoke-ReleaseAttestationVerification "RELEASE_ATTESTATION_AFTER_INVALID"
     if ($releaseAttestationAfter.rawVerificationDigest -ne $releaseAttestationBefore.rawVerificationDigest) {
       Fail "RELEASE_ATTESTATION_CHANGED"
     }
-  } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
-  try { Assert-ControlLineage } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
-  try { Assert-TrackedGateBlobs } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
-  try { Assert-ProductRuntimeBlobs } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
-  try { Assert-ReleaseTag } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
+    $postcheckStatuses.releaseAttestation = "pass"
+  } catch {
+    $postcheckStatuses.releaseAttestation = "fail"
+    [void]$postErrors.Add("RELEASE_ATTESTATION_POSTCHECK_FAILED")
+  }
+  try { Assert-ControlLineage; $postcheckStatuses.controlLineage = "pass" }
+  catch { $postcheckStatuses.controlLineage = "fail"; [void]$postErrors.Add("CONTROL_LINEAGE_POSTCHECK_FAILED") }
+  try { Assert-TrackedGateBlobs; $postcheckStatuses.trackedGateBlobs = "pass" }
+  catch { $postcheckStatuses.trackedGateBlobs = "fail"; [void]$postErrors.Add("TRACKED_GATE_BLOBS_POSTCHECK_FAILED") }
+  try { Assert-ProductRuntimeBlobs; $postcheckStatuses.productRuntimeBlobs = "pass" }
+  catch { $postcheckStatuses.productRuntimeBlobs = "fail"; [void]$postErrors.Add("PRODUCT_RUNTIME_BLOBS_POSTCHECK_FAILED") }
+  try { Assert-ReleaseTag; $postcheckStatuses.releaseTag = "pass" }
+  catch { $postcheckStatuses.releaseTag = "fail"; [void]$postErrors.Add("RELEASE_TAG_POSTCHECK_FAILED") }
   try {
     if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_AFTER_FAILED").Count -ne 0) {
       Fail "WORKTREE_NOT_CLEAN_AFTER_GATE"
     }
-  } catch { [void]$postErrors.Add([string]$_.Exception.Message) }
-  if ($mutexHeld) { $mutex.ReleaseMutex() }
-  $mutex.Dispose()
+    $postcheckStatuses.worktree = "pass"
+  } catch {
+    $postcheckStatuses.worktree = "fail"
+    [void]$postErrors.Add("WORKTREE_POSTCHECK_FAILED")
+  }
 }
 
-if ($postErrors.Count -ne 0) { Fail "PRODUCTION_BROWSER_POSTCHECK_FAILED:$([string]::Join(',', $postErrors))" }
+if ($postErrors.Count -ne 0) {
+  $runnerStage = "postchecks"
+  Fail "PRODUCTION_BROWSER_POSTCHECK_FAILED:$([string]::Join(',', $postErrors))"
+}
 if ($null -ne $primaryError) { throw $primaryError }
 
+$runnerStage = "gate-linearization"
 $runnerBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-browser.mjs") "RUNNER_BLOB_FAILED"
 $runnerContractBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-runtime.mjs") "RUNNER_CONTRACT_BLOB_FAILED"
 $wrapperBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-production-browser-gate.ps1") "WRAPPER_BLOB_FAILED"
@@ -1021,22 +1403,32 @@ $serviceAfterDigest = Sha256Text ([pscustomobject][ordered]@{
 } | ConvertTo-Json -Compress -Depth 5)
 if ($serviceBeforeDigest -ne $serviceAfterDigest) { Fail "SERVICE_DIGEST_CHANGED_DURING_GATE" }
 
-Assert-ControlLineage
-Assert-TrackedGateBlobs
-Assert-ProductRuntimeBlobs
-if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_LINEARIZATION_FAILED").Count -ne 0) {
-  Fail "WORKTREE_NOT_CLEAN_AT_LINEARIZATION"
-}
-$runtimeReceiptLinearizationText = Invoke-CleanNodeContract "runtime-receipt" @{} "PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_FAILED"
-if ($runtimeReceiptLinearizationText -ne $runtimeReceiptBeforeText) {
-  Fail "PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_CHANGED"
-}
+try { Assert-ControlLineage; $postcheckStatuses.controlLineage = "pass" }
+catch { $postcheckStatuses.controlLineage = "fail"; throw }
+try { Assert-TrackedGateBlobs; $postcheckStatuses.trackedGateBlobs = "pass" }
+catch { $postcheckStatuses.trackedGateBlobs = "fail"; throw }
+try { Assert-ProductRuntimeBlobs; $postcheckStatuses.productRuntimeBlobs = "pass" }
+catch { $postcheckStatuses.productRuntimeBlobs = "fail"; throw }
+try {
+  if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_LINEARIZATION_FAILED").Count -ne 0) {
+    Fail "WORKTREE_NOT_CLEAN_AT_LINEARIZATION"
+  }
+  $postcheckStatuses.worktree = "pass"
+} catch { $postcheckStatuses.worktree = "fail"; throw }
+try {
+  $runtimeReceiptLinearizationText = Invoke-CleanNodeContract "runtime-receipt" @{} "PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_FAILED"
+  if ($runtimeReceiptLinearizationText -ne $runtimeReceiptBeforeText) {
+    Fail "PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_CHANGED"
+  }
+  $postcheckStatuses.runtimeReceipt = "pass"
+} catch { $postcheckStatuses.runtimeReceipt = "fail"; throw }
 
 $evidenceBody = [pscustomobject][ordered]@{
   schemaVersion = "p24b-rc6.2-production-browser-gate-harness-v1"
   status = "PASS"
   productCommit = $productCommit
   productionRecoveryControl = $productionRecoveryControl
+  initialBrowserGateControl = $initialBrowserGateControl
   previousBrowserGateControl = $previousBrowserGateControl
   browserGateControl = $ExpectedGateControlCommit
   deploymentId = $expectedDeployment
@@ -1087,7 +1479,7 @@ $evidenceBody = [pscustomobject][ordered]@{
   hubPidUnchanged = $true
   ollamaPidUnchanged = $true
   serviceControlActionPerformed = $false
-  serviceStateStableAcrossGate = $true
+  observedServiceProcessHealthAndPinnedCodeStableAcrossGate = $true
   bridgeServerSha256 = $expectedBridgeServerSha256
   bridgeCoreSha256 = $expectedBridgeCoreSha256
   hubServerSha256 = $expectedHubServerSha256
@@ -1121,12 +1513,17 @@ $outerEvidence = [pscustomobject][ordered]@{
 }
 $outerEvidenceJson = $outerEvidence | ConvertTo-Json -Compress -Depth 100
 $evidenceTempPath = Join-Path $evidenceDirectory "production-browser-gate-$ExpectedGateControlCommit-$([Guid]::NewGuid().ToString('N')).tmp"
+$runnerStage = "pass-publication"
 try {
   if (Test-Path -LiteralPath $evidenceTempPath) { Fail "EVIDENCE_TEMP_PATH_PREEXISTED" }
   [IO.File]::WriteAllText($evidenceTempPath, $outerEvidenceJson, [Text.UTF8Encoding]::new($false))
   $tempTruth = Get-Item -LiteralPath $evidenceTempPath -Force
   if (($tempTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Fail "EVIDENCE_TEMP_PATH_INVALID" }
   Assert-MainCas "MAIN_CAS_AFTER_GATE_FAILED"
+  if (
+    (Test-Path -LiteralPath $evidencePath) -or
+    (Test-Path -LiteralPath $failureEvidencePath)
+  ) { Fail "EVIDENCE_DESTINATION_RACE" }
   [IO.File]::Move($evidenceTempPath, $evidencePath)
   $evidenceTempPath = $null
 } finally {
@@ -1138,3 +1535,39 @@ if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) { Fail "EVIDENCE
 $publishedEvidence = [IO.File]::ReadAllText($evidencePath, [Text.Encoding]::UTF8)
 if ($publishedEvidence -ne $outerEvidenceJson) { Fail "EVIDENCE_PUBLICATION_MISMATCH" }
 $outerEvidenceJson
+} catch {
+  $terminalError = $_
+  if ($formalGateBoundaryEntered) {
+    $runnerCapture = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-production-browser-gate-c5-runner-capture-v1"
+      stage = $runnerStage
+      runnerStarted = [bool]$runnerStarted
+      exitCode = $runnerExitCode
+      elapsedMs = [long]$runnerElapsedMs
+      stdoutUtf8ByteLength = [long]$runnerStdoutUtf8ByteLength
+      stderrUtf8ByteLength = [long]$runnerStderrUtf8ByteLength
+      heartbeatCounts = $runnerProgressCounts
+      evidenceDisposition = if ($runnerFailureProjectionValidated) {
+        "validated-runner-failure"
+      } else {
+        "wrapper-fallback"
+      }
+    }
+    if ($runnerFailureProjectionValidated) {
+      $runnerCapture | Add-Member -NotePropertyName safeProjectionDigest -NotePropertyValue $runnerFailureProjectionDigest
+      $runnerCapture | Add-Member -NotePropertyName safeFailureProjection -NotePropertyValue (
+        $runnerFailureProjection
+      )
+    }
+    try {
+      $terminalWrapperCode = Get-TerminalWrapperCode $runnerStage $postErrors.Count
+      [void](Publish-C5FailureEvidence $runnerCapture $postcheckStatuses $terminalWrapperCode)
+    } catch {
+      throw "FAILURE_EVIDENCE_PUBLICATION_FAILED"
+    }
+  }
+  throw $terminalError
+} finally {
+  if ($mutexHeld -and $null -ne $mutex) { $mutex.ReleaseMutex() }
+  if ($null -ne $mutex) { $mutex.Dispose() }
+}

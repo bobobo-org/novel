@@ -11,7 +11,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -28,7 +28,8 @@ const [wrapper, browserRunner, runtimeContract, workflow, workflowContract] = aw
 const PRODUCT_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
 const PRODUCTION_RECOVERY_CONTROL = "9cd074f239b73dd9b61f6d758fcf97fbd809face";
 const FAILED_RECOVERY_CONTROL = "3b716fc0d974a9d59b49ffca5953776af66c7a07";
-const PREVIOUS_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
+const INITIAL_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
+const PREVIOUS_BROWSER_GATE_CONTROL = "100eea11003c5132ab2b519707c5dee658bc9cbe";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
@@ -148,6 +149,204 @@ function assertSha256(value, label) {
   assert.match(value, /^[a-f0-9]{64}$/u, `${label} is not a SHA-256 digest`);
 }
 
+const RUNNER_EVIDENCE_SCHEMA_VERSION = "p24b-rc6-2-closed-ai-browser-evidence-v3";
+const RUNNER_SUCCESS_EVIDENCE_KEYS = [
+  "schemaVersion",
+  "status",
+  "mode",
+  "exactOrigin",
+  "freshBrowserContext",
+  "releaseIdentity",
+  "edgeIdentity",
+  "freshStorage",
+  "mocksInstalled",
+  "prohibitedExternalAiRequestCount",
+  "crossOriginPolicy",
+  "networkZeroReceipt",
+  "projectId",
+  "setup",
+  "consumerReadiness",
+  "storyBible",
+  "attachmentProbe",
+  "t1ContextAttestationProbe",
+  "conversationIsolation",
+  "firstCandidateBeforeApproval",
+  "directRegenerationCandidate",
+  "directRegenerationSourceAfterward",
+  "rejectedCandidate",
+  "regeneratedCandidateBeforeApproval",
+  "browserRuntimeReceipt",
+  "finalContextProof",
+  "modelCacheReuse",
+  "approval",
+  "completedAt",
+  "profileDisposed",
+];
+const RUNNER_POLICY_KEYS = [
+  "policy",
+  "contextRouteInstalledBeforeNavigation",
+  "allowedMethods",
+  "immutableModelAssetsAllowedOnlyDuringExplicitInstall",
+  "sameOriginTargetPolicy",
+  "disallowedRequestCount",
+  "disallowedMethodRequestCount",
+  "blockedNonToolbarResponseCount",
+  "previewToolbarPolicy",
+  "observedPreviewToolbarRequestCount",
+  "blockedPreviewToolbarRequestCount",
+  "previewToolbarResponseCount",
+  "webSocketRouteInstalledBeforeNavigation",
+  "webSocketPolicy",
+  "observedWebSocketAttemptCount",
+  "blockedWebSocketAttemptCount",
+  "disallowedWebSocketAttemptCount",
+  "webSocketServerConnectionCount",
+  "observedPreviewToolbarWebSocketAttemptCount",
+  "blockedPreviewToolbarWebSocketAttemptCount",
+];
+const RUNNER_DETAILED_FAILURE_KEYS = [
+  "schemaVersion",
+  "status",
+  "mode",
+  "exactOrigin",
+  "freshBrowserContext",
+  "requestPhase",
+  "gateCheckpoint",
+  "freshStorageAtFailure",
+  "modelPayloadRequestCount",
+  "immutableModelRootRequestCount",
+  "approvedModelRedirectRequestCount",
+  "modelMetadataAtFailure",
+  "latestRegenerationAttemptEvidence",
+  "uiSafeErrorCodesAtFailure",
+  "uiStateAtFailure",
+  "profileOwnershipAtFailure",
+  "profilePathDigestAtFailure",
+  "networkSentinelEvidenceAtFailure",
+  "contextRouteInstalledBeforeNavigation",
+  "contextWebSocketRouteInstalledBeforeNavigation",
+  "webSocketPolicy",
+  "blockedNetworkPolicyAttemptCount",
+  "blockedNetworkPolicyAttempts",
+  "blockedNetworkPolicyProjectionTruncated",
+  "prohibitedExternalAiRequestCount",
+  "observedPreviewToolbarRequestCount",
+  "blockedPreviewToolbarRequestCount",
+  "previewToolbarResponseCount",
+  "disallowedCrossOriginRequestCount",
+  "disallowedSameOriginTargetRequestCount",
+  "disallowedSameOriginTargetRequests",
+  "disallowedImmutableModelTargetRequestCount",
+  "disallowedImmutableModelTargetRequests",
+  "disallowedMethodRequestCount",
+  "blockedNonToolbarResponseCount",
+  "blockedNonToolbarResponses",
+  "observedWebSocketAttemptCount",
+  "blockedWebSocketAttemptCount",
+  "disallowedWebSocketAttemptCount",
+  "disallowedWebSocketAttempts",
+  "disallowedWebSocketProjectionTruncated",
+  "webSocketServerConnectionCount",
+  "observedPreviewToolbarWebSocketAttemptCount",
+  "blockedPreviewToolbarWebSocketAttemptCount",
+  "blockedPreviewToolbarWebSocketAttempts",
+  "blockedPreviewToolbarWebSocketProjectionTruncated",
+  "disallowedCrossOriginHostDigests",
+  "error",
+  "completedAt",
+  "profileDisposed",
+];
+const RUNNER_MINIMAL_FAILURE_KEYS = [
+  "schemaVersion",
+  "status",
+  "mode",
+  "exactOrigin",
+  "profileOwnershipAtFailure",
+  "profilePathDigestAtFailure",
+  "contextRouteInstalledBeforeNavigation",
+  "contextWebSocketRouteInstalledBeforeNavigation",
+  "webSocketPolicy",
+  "observedWebSocketAttemptCount",
+  "blockedWebSocketAttemptCount",
+  "disallowedWebSocketAttemptCount",
+  "webSocketServerConnectionCount",
+  "observedPreviewToolbarWebSocketAttemptCount",
+  "blockedPreviewToolbarWebSocketAttemptCount",
+  "error",
+  "profileDisposed",
+  "completedAt",
+];
+const RUNNER_FAILURE_COUNT_KEYS = [
+  "modelPayloadRequestCount",
+  "immutableModelRootRequestCount",
+  "approvedModelRedirectRequestCount",
+  "blockedNetworkPolicyAttemptCount",
+  "prohibitedExternalAiRequestCount",
+  "observedPreviewToolbarRequestCount",
+  "blockedPreviewToolbarRequestCount",
+  "previewToolbarResponseCount",
+  "disallowedCrossOriginRequestCount",
+  "disallowedSameOriginTargetRequestCount",
+  "disallowedImmutableModelTargetRequestCount",
+  "disallowedMethodRequestCount",
+  "blockedNonToolbarResponseCount",
+  "observedWebSocketAttemptCount",
+  "blockedWebSocketAttemptCount",
+  "disallowedWebSocketAttemptCount",
+  "webSocketServerConnectionCount",
+  "observedPreviewToolbarWebSocketAttemptCount",
+  "blockedPreviewToolbarWebSocketAttemptCount",
+];
+
+function literalsBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.ok(start >= 0 && end > start, `runner literal boundary missing: ${startMarker}`);
+  return [...source.slice(start, end).matchAll(/"([A-Z][A-Z0-9_]+)"/gu)]
+    .map((match) => match[1]);
+}
+
+const RUNNER_SAFE_DIAGNOSTIC_CODES = new Set(literalsBetween(
+  browserRunner,
+  "const SAFE_DIAGNOSTIC_CODES",
+  "const SAFE_DIAGNOSTIC_CODE_SET",
+));
+const RUNNER_PERSISTED_FAILURE_CODES = literalsBetween(
+  browserRunner,
+  "const PERSISTED_FAILURE_SAFE_CODES",
+  "const PERSISTED_FAILURE_SAFE_CODE_SET",
+);
+const RUNNER_UI_FAILURE_CODES = literalsBetween(
+  browserRunner,
+  "const SAFE_UI_ERROR_CODE_SET",
+  "const SAFE_FAILURE_CODES",
+);
+const RUNNER_SAFE_FAILURE_CODES = new Set([
+  ...RUNNER_PERSISTED_FAILURE_CODES,
+  ...RUNNER_UI_FAILURE_CODES,
+  ...literalsBetween(
+    browserRunner,
+    "const SAFE_FAILURE_CODES",
+    "function sanitizeDiagnosticCodes",
+  ),
+]);
+const RUNNER_CHECKPOINTS = new Set([
+  ...browserRunner.matchAll(/gateCheckpoint\s*=\s*"([a-z0-9-]+)"/gu),
+].map((match) => match[1]));
+const RUNNER_REQUEST_PHASES = new Set([
+  ...browserRunner.matchAll(/requestPhase\s*=\s*"([a-z0-9-]+)"/gu),
+].map((match) => match[1]));
+assert.ok(RUNNER_SAFE_DIAGNOSTIC_CODES.size > 20);
+assert.ok(RUNNER_SAFE_FAILURE_CODES.size > 20);
+assert.ok(RUNNER_CHECKPOINTS.size > 20);
+assert.deepEqual([...RUNNER_REQUEST_PHASES].sort(), [
+  "bootstrap",
+  "inference",
+  "model-install",
+  "project-setup",
+  "release-identity",
+]);
+
 function stableStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -244,6 +443,110 @@ Write-Output "PASS"
   }
 }
 
+async function assertPowerShellFailurePublisherBehavior() {
+  if (process.platform !== "win32" || process.env.RC6_2_FAILURE_VALIDATOR_CHILD_TEST === "1") return;
+  const helperStart = wrapper.indexOf("function Sha256Text");
+  const helperEnd = wrapper.indexOf("function Initialize-EvidenceDestination");
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "failure publisher helper boundary is missing");
+  const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-failure-publisher-"));
+  const scriptPath = join(directory, "failure-publisher-self-test.ps1");
+  const escapedDirectory = directory.replaceAll("'", "''");
+  try {
+    await writeFile(scriptPath, `$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+function Fail([string]$Code) { throw $Code }
+${wrapper.slice(helperStart, helperEnd)}
+$evidenceDirectory = '${escapedDirectory}'
+$evidencePath = Join-Path $evidenceDirectory 'pass.json'
+$failureEvidencePath = Join-Path $evidenceDirectory 'failure.json'
+$ExpectedGateControlCommit = '${"a".repeat(40)}'
+$ExpectedLkgAuditRunId = 7
+$ExpectedLkgAuditControlProofDigest = '${"b".repeat(64)}'
+$ExpectedLkgSelectionProofDigest = '${"c".repeat(64)}'
+$productCommit = '${PRODUCT_COMMIT}'
+$failedRecoveryControl = '${FAILED_RECOVERY_CONTROL}'
+$productionRecoveryControl = '${PRODUCTION_RECOVERY_CONTROL}'
+$initialBrowserGateControl = '${INITIAL_BROWSER_GATE_CONTROL}'
+$previousBrowserGateControl = '${PREVIOUS_BROWSER_GATE_CONTROL}'
+$expectedDeployment = '${EXPECTED_DEPLOYMENT_ID}'
+function Get-MainCasStatus { return "pass" }
+$capture = [pscustomobject][ordered]@{
+  schemaVersion = "p24b-rc6.2-production-browser-gate-c5-runner-capture-v1"
+  stage = "runner-start"
+  runnerStarted = $false
+  exitCode = $null
+  elapsedMs = 1
+  stdoutUtf8ByteLength = 0
+  stderrUtf8ByteLength = 0
+  heartbeatCounts = [pscustomobject][ordered]@{ setup = 0; candidateGeneration = 0; t1Analysis = 0 }
+  evidenceDisposition = "wrapper-fallback"
+}
+$postchecks = [ordered]@{
+  runnerProcessCleanup = "not-run"; runnerEvidenceCleanup = "pass"; profileCleanup = "not-run"
+  residueOwnedGateArtifacts = "pass"; serviceSnapshot = "pass"; releaseIdentity = "pass"
+  runtimeReceipt = "pass"; releaseAttestation = "pass"; controlLineage = "pass"
+  trackedGateBlobs = "pass"; productRuntimeBlobs = "pass"; releaseTag = "pass"
+  worktree = "pass"; remoteMainCas = "not-run"
+}
+$json = Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED"
+$bytesBefore = [IO.File]::ReadAllBytes($failureEvidencePath)
+$parsed = $json | ConvertFrom-Json
+if ($parsed.body.status -ne "FAIL" -or $parsed.body.qualifiesProductionBrowserGate -ne $false) { exit 2 }
+if ($parsed.body.eligibleForLuna -ne $false -or $parsed.sanitized -ne $true) { exit 3 }
+if ($parsed.rawSecretsStored -ne $false -or $parsed.body.postchecks.remoteMainCas -ne "pass") { exit 4 }
+if ($parsed.body.terminalWrapperCode -ne "PRODUCTION_BROWSER_RUNNER_START_FAILED") { exit 5 }
+$rejected = $false
+try { [void](Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
+catch { $rejected = $_.Exception.Message -eq "FAILURE_EVIDENCE_DESTINATION_RACE" }
+if (-not $rejected) { exit 6 }
+$bytesAfter = [IO.File]::ReadAllBytes($failureEvidencePath)
+if ($bytesBefore.Length -ne $bytesAfter.Length) { exit 7 }
+for ($index = 0; $index -lt $bytesBefore.Length; $index += 1) {
+  if ($bytesBefore[$index] -ne $bytesAfter[$index]) { exit 8 }
+}
+if (@(Get-ChildItem -LiteralPath $evidenceDirectory -Filter '*.tmp').Count -ne 0) { exit 9 }
+$createNewPath = Join-Path $evidenceDirectory 'create-new.txt'
+[IO.File]::WriteAllText($createNewPath, 'original')
+$createNewRejected = $false
+try { Write-CreateNewFlushedFile $createNewPath 'replacement' 'CREATE_NEW_REJECTED' }
+catch { $createNewRejected = $_.Exception.Message -eq 'CREATE_NEW_REJECTED' }
+if (-not $createNewRejected -or [IO.File]::ReadAllText($createNewPath) -ne 'original') { exit 10 }
+$evidencePath = Join-Path $evidenceDirectory 'tamper-pass.json'
+$failureEvidencePath = Join-Path $evidenceDirectory 'tamper-failure.json'
+$script:casCallCount = 0
+function Get-MainCasStatus {
+  $script:casCallCount += 1
+  if ($script:casCallCount -eq 2) {
+    $pending = @(Get-ChildItem -LiteralPath $evidenceDirectory -Filter '*.tmp')
+    if ($pending.Count -ne 1) { exit 11 }
+    [IO.File]::WriteAllText($pending[0].FullName, 'tampered-after-cas')
+  }
+  return "pass"
+}
+$tamperRejected = $false
+try { [void](Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
+catch { $tamperRejected = $_.Exception.Message -eq "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH" }
+if (-not $tamperRejected -or (Test-Path -LiteralPath $failureEvidencePath)) { exit 12 }
+if (@(Get-ChildItem -LiteralPath $evidenceDirectory -Filter '*.tmp').Count -ne 0) { exit 13 }
+Write-Output "PASS"
+`, "utf8");
+    const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const result = spawnSync(powerShell, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+    ], { encoding: "utf8", timeout: 30_000, windowsHide: true });
+    assert.equal(result.status, 0, `PowerShell failure publisher self-test failed: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), "PASS");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function writeAuditControlProof() {
   const controlCommit = String(process.env.GITHUB_SHA ?? "").trim();
   const outputPath = resolve(String(process.env.BROWSER_GATE_CONTROL_PROOF_PATH ?? ""));
@@ -265,7 +568,11 @@ async function writeAuditControlProof() {
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", PREVIOUS_BROWSER_GATE_CONTROL]).split(/\s+/u),
-    [PREVIOUS_BROWSER_GATE_CONTROL, PRODUCTION_RECOVERY_CONTROL],
+    [PREVIOUS_BROWSER_GATE_CONTROL, INITIAL_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", INITIAL_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [INITIAL_BROWSER_GATE_CONTROL, PRODUCTION_RECOVERY_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", PRODUCTION_RECOVERY_CONTROL]).split(/\s+/u),
@@ -288,6 +595,30 @@ async function writeAuditControlProof() {
     return match[2].replaceAll("\\", "/");
   }).sort();
   assert.deepEqual(changedPaths, [...GATE_REPAIR_PATHS].sort());
+  const previousChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    INITIAL_BROWSER_GATE_CONTROL,
+    PREVIOUS_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "previous browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(previousChangedPaths, [...GATE_REPAIR_PATHS].sort());
+  const initialChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    PRODUCTION_RECOVERY_CONTROL,
+    INITIAL_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "initial browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(initialChangedPaths, [...GATE_BLOB_PATHS].sort());
   const compositeChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -301,10 +632,12 @@ async function writeAuditControlProof() {
   }).sort();
   assert.deepEqual(compositeChangedPaths, [...GATE_BLOB_PATHS].sort());
   const body = {
-    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v1",
+    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v2",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
+    failedRecoveryControl: FAILED_RECOVERY_CONTROL,
     productionRecoveryControl: PRODUCTION_RECOVERY_CONTROL,
+    initialBrowserGateControl: INITIAL_BROWSER_GATE_CONTROL,
     previousBrowserGateControl: PREVIOUS_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
     parentCommit: PREVIOUS_BROWSER_GATE_CONTROL,
@@ -315,13 +648,23 @@ async function writeAuditControlProof() {
     workflowRef: process.env.GITHUB_WORKFLOW_REF,
     runId: process.env.GITHUB_RUN_ID,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    lineage: [
+      controlCommit,
+      PREVIOUS_BROWSER_GATE_CONTROL,
+      INITIAL_BROWSER_GATE_CONTROL,
+      PRODUCTION_RECOVERY_CONTROL,
+      FAILED_RECOVERY_CONTROL,
+      PRODUCT_COMMIT,
+    ],
     changedPaths,
+    previousChangedPaths,
+    initialChangedPaths,
     compositeChangedPaths,
   };
   const proof = {
     ...body,
     proofDigest: createHash("sha256").update(stableStringify({
-      domain: "p24b-rc6.2-browser-gate-control-proof-v1",
+      domain: "p24b-rc6.2-browser-gate-control-proof-v2",
       body,
     })).digest("hex"),
   };
@@ -342,6 +685,7 @@ for (const literal of [
   "9cd074f239b73dd9b61f6d758fcf97fbd809face",
   "3b716fc0d974a9d59b49ffca5953776af66c7a07",
   "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824",
+  "100eea11003c5132ab2b519707c5dee658bc9cbe",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -353,6 +697,7 @@ for (const literal of [
 }
 
 await assertPowerShellGitScalarBehavior();
+if (process.argv.length === 2) await assertPowerShellFailurePublisherBehavior();
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const dependencyPackages = [
@@ -498,6 +843,688 @@ function assertSafeProjectedEvidence(value, path = "evidence", depth = 0) {
   }
 }
 
+function hasExactKeySet(value, expectedKeys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => (
+      /^[A-Za-z][A-Za-z0-9]*$/u.test(key)
+      && key === expected[index]
+    ));
+}
+
+function assertSafeCount(value, label) {
+  assert.ok(
+    Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000,
+    `${label} is not a bounded count`,
+  );
+  return value;
+}
+
+function assertRunnerFailureError(error) {
+  assertExactKeys(error, ["code", "diagnosticCodes", "browserRuntimeEvidence"], "runner error");
+  assert.equal(RUNNER_SAFE_FAILURE_CODES.has(error.code), true, "runner error code is not allowlisted");
+  assert.ok(Array.isArray(error.diagnosticCodes) && error.diagnosticCodes.length <= 12);
+  assert.equal(new Set(error.diagnosticCodes).size, error.diagnosticCodes.length);
+  assert.deepEqual(error.diagnosticCodes, [...error.diagnosticCodes].sort());
+  for (const code of error.diagnosticCodes) {
+    assert.equal(RUNNER_SAFE_DIAGNOSTIC_CODES.has(code), true, "runner diagnostic code is not allowlisted");
+  }
+  assert.ok(Array.isArray(error.browserRuntimeEvidence));
+  assert.ok(error.browserRuntimeEvidence.length <= 3);
+  for (const [index, entry] of error.browserRuntimeEvidence.entries()) {
+    assertExactKeys(entry, [
+      "stage",
+      "finishReason",
+      "completionTokens",
+      "rawOutputCharacters",
+      "normalizedOutputCharacters",
+      "observedHanCharacters",
+    ], "runner browserRuntimeEvidence entry");
+    assert.ok(["initial", "repair", "extension", "recovery"].includes(entry.stage));
+    assert.ok(["stop", "length", "tool_calls", "abort", "unavailable"].includes(entry.finishReason));
+    const maximums = {
+      completionTokens: 4_096,
+      rawOutputCharacters: 20_000,
+      normalizedOutputCharacters: 20_000,
+      observedHanCharacters: 10_000,
+    };
+    for (const [key, maximum] of Object.entries(maximums)) {
+      assert.ok(entry[key] === null || (
+        Number.isSafeInteger(entry[key]) && entry[key] >= 0 && entry[key] <= maximum
+      ));
+    }
+    if (entry.finishReason === "unavailable") {
+      assert.deepEqual(Object.keys(maximums).map((key) => entry[key]), [null, null, null, null]);
+    }
+    assert.equal(entry.stage, ["initial", "repair"][index]
+      ?? (index === 2 && ["extension", "recovery"].includes(entry.stage) ? entry.stage : null));
+  }
+}
+
+function assertNetworkZeroReceipt(value) {
+  assertExactKeys(value, [
+    "schemaVersion",
+    "httpAttemptCount",
+    "httpBlockedBeforeSendCount",
+    "webSocketAttemptCount",
+    "webSocketBlockedBeforeConnectCount",
+    "tcpConnectionReceiptCount",
+    "httpRequestReceiptCount",
+    "httpRequestBodyByteCount",
+    "webSocketUpgradeReceiptCount",
+    "arbitraryOutboundHeaderStrippedOrBlocked",
+    "requestBodyBlocked",
+  ], "runner network zero receipt");
+  assert.deepEqual(value, {
+    schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+    httpAttemptCount: 2,
+    httpBlockedBeforeSendCount: 2,
+    webSocketAttemptCount: 1,
+    webSocketBlockedBeforeConnectCount: 1,
+    tcpConnectionReceiptCount: 0,
+    httpRequestReceiptCount: 0,
+    httpRequestBodyByteCount: 0,
+    webSocketUpgradeReceiptCount: 0,
+    arbitraryOutboundHeaderStrippedOrBlocked: true,
+    requestBodyBlocked: true,
+  });
+}
+
+function classifyRunnerFailureSchema(evidence) {
+  for (const optionalKeys of [
+    [],
+    ["uiSafeErrorCodesAtFailure"],
+    ["uiStateAtFailure"],
+    ["uiSafeErrorCodesAtFailure", "uiStateAtFailure"],
+  ]) {
+    const required = RUNNER_DETAILED_FAILURE_KEYS.filter((key) => !optionalKeys.includes(key));
+    if (hasExactKeySet(evidence, required)) return "detailed";
+  }
+  if (hasExactKeySet(evidence, RUNNER_MINIMAL_FAILURE_KEYS)) return "minimal";
+  if (hasExactKeySet(evidence, [...RUNNER_MINIMAL_FAILURE_KEYS, "freshBrowserContext"])) {
+    return "safe-projection-fallback";
+  }
+  if (hasExactKeySet(evidence, [...RUNNER_SUCCESS_EVIDENCE_KEYS, "error"])) {
+    return "cleanup-failure-after-pass";
+  }
+  assert.fail("runner FAIL evidence keys did not match an exact v3 schema");
+}
+
+function runnerFailureCount(evidence, schemaKind, key) {
+  if (schemaKind === "cleanup-failure-after-pass") {
+    const policyMapping = {
+      blockedNetworkPolicyAttemptCount: "disallowedRequestCount",
+      disallowedMethodRequestCount: "disallowedMethodRequestCount",
+      blockedNonToolbarResponseCount: "blockedNonToolbarResponseCount",
+      observedPreviewToolbarRequestCount: "observedPreviewToolbarRequestCount",
+      blockedPreviewToolbarRequestCount: "blockedPreviewToolbarRequestCount",
+      previewToolbarResponseCount: "previewToolbarResponseCount",
+      observedWebSocketAttemptCount: "observedWebSocketAttemptCount",
+      blockedWebSocketAttemptCount: "blockedWebSocketAttemptCount",
+      disallowedWebSocketAttemptCount: "disallowedWebSocketAttemptCount",
+      webSocketServerConnectionCount: "webSocketServerConnectionCount",
+      observedPreviewToolbarWebSocketAttemptCount: "observedPreviewToolbarWebSocketAttemptCount",
+      blockedPreviewToolbarWebSocketAttemptCount: "blockedPreviewToolbarWebSocketAttemptCount",
+    };
+    if (key === "prohibitedExternalAiRequestCount") {
+      return assertSafeCount(evidence.prohibitedExternalAiRequestCount, key);
+    }
+    const policyKey = policyMapping[key];
+    return policyKey === undefined
+      ? null
+      : assertSafeCount(evidence.crossOriginPolicy[policyKey], key);
+  }
+  return Object.hasOwn(evidence, key) ? assertSafeCount(evidence[key], key) : null;
+}
+
+function parseRunnerFailureStream(raw) {
+  assert.equal(typeof raw, "string");
+  assert.ok(Buffer.byteLength(raw, "utf8") > 0 && Buffer.byteLength(raw, "utf8") <= 1_048_576);
+  assert.equal(raw.startsWith("\uFEFF"), false, "runner failure stream contained a BOM");
+  assert.equal(raw.includes("\0"), false, "runner failure stream contained NUL");
+  assert.equal(raw.includes("\uFFFD"), false, "runner failure stream contained a replacement character");
+  const heartbeat = /^\[RC6\.2 Closed AI\] (setup|candidate generation|T1 analysis) in progress \([0-9]{1,6}s\)\r?\n/u;
+  const progress = {
+    setup: 0,
+    candidateGeneration: 0,
+    t1Analysis: 0,
+  };
+  let jsonStream = raw;
+  let heartbeatCount = 0;
+  while (true) {
+    const match = jsonStream.match(heartbeat);
+    if (!match) break;
+    heartbeatCount += 1;
+    assert.ok(heartbeatCount <= 4_096, "runner failure stream had too many heartbeat lines");
+    if (match[1] === "setup") progress.setup += 1;
+    else if (match[1] === "candidate generation") progress.candidateGeneration += 1;
+    else progress.t1Analysis += 1;
+    jsonStream = jsonStream.slice(match[0].length);
+  }
+  if (jsonStream.endsWith("\r\n")) jsonStream = jsonStream.slice(0, -2);
+  else if (jsonStream.endsWith("\n")) jsonStream = jsonStream.slice(0, -1);
+  assert.ok(jsonStream.startsWith("{") && jsonStream.endsWith("}"));
+  assert.equal(jsonStream.includes("\r"), false, "runner canonical JSON used CR characters");
+  const evidence = JSON.parse(jsonStream);
+  assert.equal(JSON.stringify(evidence, null, 2), jsonStream, "runner FAIL JSON was not canonical");
+  return { evidence, jsonStream, progress };
+}
+
+function validateRunnerFailureRaw(raw) {
+  const { evidence, progress } = parseRunnerFailureStream(raw);
+  assert.equal(evidence.schemaVersion, RUNNER_EVIDENCE_SCHEMA_VERSION);
+  assert.equal(evidence.status, "FAIL");
+  assert.equal(evidence.mode, "generation");
+  assert.equal(evidence.exactOrigin, EXPECTED_ORIGIN);
+  assert.equal(typeof evidence.profileDisposed, "boolean");
+  assert.match(evidence.completedAt, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/u);
+  assert.equal(new Date(evidence.completedAt).toISOString(), evidence.completedAt);
+  assertRunnerFailureError(evidence.error);
+  assertSafeProjectedEvidence(evidence, "runnerFailureEvidence");
+  const schemaKind = classifyRunnerFailureSchema(evidence);
+  if (Object.hasOwn(evidence, "freshBrowserContext")) {
+    assert.equal(evidence.freshBrowserContext, true);
+  }
+  let checkpoint = null;
+  let requestPhase = null;
+  if (schemaKind === "detailed") {
+    assert.equal(RUNNER_CHECKPOINTS.has(evidence.gateCheckpoint), true);
+    assert.equal(RUNNER_REQUEST_PHASES.has(evidence.requestPhase), true);
+    checkpoint = evidence.gateCheckpoint;
+    requestPhase = evidence.requestPhase;
+    if (Object.hasOwn(evidence, "uiSafeErrorCodesAtFailure")) {
+      assert.ok(Array.isArray(evidence.uiSafeErrorCodesAtFailure));
+      assert.ok(evidence.uiSafeErrorCodesAtFailure.length <= 128);
+      assert.deepEqual(evidence.uiSafeErrorCodesAtFailure, [...evidence.uiSafeErrorCodesAtFailure].sort());
+      for (const code of evidence.uiSafeErrorCodesAtFailure) {
+        assert.equal(RUNNER_UI_FAILURE_CODES.includes(code), true);
+      }
+    }
+  }
+  if (schemaKind === "cleanup-failure-after-pass") {
+    const successEvidence = { ...evidence, status: "PASS", profileDisposed: true };
+    delete successEvidence.error;
+    assertValidSuccessEvidence(successEvidence);
+  }
+  let routeInstalled = evidence.contextRouteInstalledBeforeNavigation;
+  let webSocketRouteInstalled = evidence.contextWebSocketRouteInstalledBeforeNavigation;
+  let profileOwnership = evidence.profileOwnershipAtFailure;
+  let profilePathDigest = evidence.profilePathDigestAtFailure;
+  let networkReceipt = evidence.networkSentinelEvidenceAtFailure ?? null;
+  if (schemaKind === "cleanup-failure-after-pass") {
+    routeInstalled = evidence.crossOriginPolicy.contextRouteInstalledBeforeNavigation;
+    webSocketRouteInstalled = evidence.crossOriginPolicy.webSocketRouteInstalledBeforeNavigation;
+    profileOwnership = evidence.edgeIdentity.profileOwnership;
+    profilePathDigest = evidence.edgeIdentity.profilePathDigest;
+    networkReceipt = evidence.networkZeroReceipt;
+  } else {
+    assert.equal(evidence.webSocketPolicy, "blocked-before-connect");
+  }
+  assert.equal(typeof routeInstalled, "boolean");
+  assert.equal(typeof webSocketRouteInstalled, "boolean");
+  assert.ok(profileOwnership === null || profileOwnership === "wrapper-owned");
+  if (profilePathDigest !== null) assertSha256(profilePathDigest, "runner profile path digest");
+  let networkZeroReceiptDigest = null;
+  if (networkReceipt !== null) {
+    assertNetworkZeroReceipt(networkReceipt);
+    networkZeroReceiptDigest = createHash("sha256")
+      .update(stableStringify(networkReceipt))
+      .digest("hex");
+  }
+  const counts = Object.fromEntries(RUNNER_FAILURE_COUNT_KEYS.map((key) => [
+    key,
+    runnerFailureCount(evidence, schemaKind, key),
+  ]));
+  return {
+    schemaVersion: "p24b-rc6.2-validated-runner-failure-projection-v1",
+    schemaKind,
+    gateCheckpoint: checkpoint,
+    requestPhase,
+    errorCode: evidence.error.code,
+    route: {
+      contextRouteInstalledBeforeNavigation: routeInstalled,
+      webSocketRouteInstalledBeforeNavigation: webSocketRouteInstalled,
+    },
+    profile: {
+      ownership: profileOwnership,
+      pathDigest: profilePathDigest,
+      disposed: evidence.profileDisposed,
+    },
+    counts,
+    digests: {
+      networkZeroReceiptDigest,
+    },
+    heartbeatCounts: progress,
+  };
+}
+
+async function validateFailureEvidence() {
+  const chunks = [];
+  let byteLength = 0;
+  for await (const chunkValue of process.stdin) {
+    const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue);
+    byteLength += chunk.length;
+    assert.ok(byteLength <= 1_048_576, "runner failure input exceeded the byte limit");
+    chunks.push(chunk);
+  }
+  const bytes = Buffer.concat(chunks, byteLength);
+  const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  assert.deepEqual(Buffer.from(raw, "utf8"), bytes, "runner failure input was not canonical UTF-8");
+  const projection = validateRunnerFailureRaw(raw);
+  const projectionDigest = createHash("sha256").update(stableStringify(projection)).digest("hex");
+  console.log(JSON.stringify({
+    status: "PASS",
+    projectionDigest,
+    projection,
+  }));
+}
+
+function minimalRunnerFailureFixture() {
+  return {
+    schemaVersion: RUNNER_EVIDENCE_SCHEMA_VERSION,
+    status: "FAIL",
+    mode: "generation",
+    exactOrigin: EXPECTED_ORIGIN,
+    profileOwnershipAtFailure: null,
+    profilePathDigestAtFailure: null,
+    contextRouteInstalledBeforeNavigation: false,
+    contextWebSocketRouteInstalledBeforeNavigation: false,
+    webSocketPolicy: "blocked-before-connect",
+    observedWebSocketAttemptCount: 0,
+    blockedWebSocketAttemptCount: 0,
+    disallowedWebSocketAttemptCount: 0,
+    webSocketServerConnectionCount: 0,
+    observedPreviewToolbarWebSocketAttemptCount: 0,
+    blockedPreviewToolbarWebSocketAttemptCount: 0,
+    error: {
+      code: "RC6_2_CLOSED_AI_GATE_FAILED",
+      diagnosticCodes: [],
+      browserRuntimeEvidence: [],
+    },
+    profileDisposed: false,
+    completedAt: "2026-08-11T20:45:00.000Z",
+  };
+}
+
+function detailedRunnerFailureFixture() {
+  const evidence = Object.fromEntries(RUNNER_DETAILED_FAILURE_KEYS.map((key) => [key, null]));
+  Object.assign(evidence, minimalRunnerFailureFixture(), {
+    freshBrowserContext: true,
+    requestPhase: "bootstrap",
+    gateCheckpoint: "launch",
+    freshStorageAtFailure: null,
+    modelMetadataAtFailure: null,
+    latestRegenerationAttemptEvidence: null,
+    uiSafeErrorCodesAtFailure: [],
+    uiStateAtFailure: null,
+    networkSentinelEvidenceAtFailure: null,
+    blockedNetworkPolicyAttempts: [],
+    blockedNetworkPolicyProjectionTruncated: false,
+    disallowedSameOriginTargetRequests: [],
+    disallowedImmutableModelTargetRequests: [],
+    blockedNonToolbarResponses: [],
+    disallowedWebSocketAttempts: [],
+    disallowedWebSocketProjectionTruncated: false,
+    blockedPreviewToolbarWebSocketAttempts: [],
+    blockedPreviewToolbarWebSocketProjectionTruncated: false,
+    disallowedCrossOriginHostDigests: [],
+  });
+  for (const key of RUNNER_FAILURE_COUNT_KEYS) evidence[key] = 0;
+  return evidence;
+}
+
+function cleanupFailureAfterPassFixture() {
+  const digest = "0".repeat(64);
+  const candidate = (status) => ({
+    backendId: "browser-ai",
+    actualExecutor: "browser-ai",
+    status,
+    candidateOnly: true,
+    canonicalMutationCount: 0,
+    modelDigest: digest,
+    contentDigest: digest,
+    executionReceipt: {
+      backendId: "browser-ai",
+      actualExecutor: "browser-ai",
+      externalRequest: false,
+      dataLeftDevice: false,
+      proofState: "verified",
+    },
+  });
+  const receipt = (actualExecutor) => ({
+    schemaVersion: "browser-execution-receipt-v3",
+    actualExecutor,
+    externalAIUsed: false,
+    dataLeftDevice: false,
+    candidateOnly: true,
+    canonicalMutationCount: 0,
+    rawPromptStored: false,
+    rawOutputStored: false,
+    rawChainOfThoughtStored: false,
+    receiptIntegrityVerified: true,
+  });
+  return {
+    schemaVersion: RUNNER_EVIDENCE_SCHEMA_VERSION,
+    status: "FAIL",
+    mode: "generation",
+    exactOrigin: EXPECTED_ORIGIN,
+    freshBrowserContext: true,
+    releaseIdentity: {
+      appCommit: PRODUCT_COMMIT,
+      releaseProductCommit: PRODUCT_COMMIT,
+      deploymentId: EXPECTED_DEPLOYMENT_ID,
+      releaseTag: EXPECTED_RELEASE_TAG,
+      releaseRevision: "rc6.2",
+      releaseBuild: EXPECTED_RELEASE_BUILD,
+      environment: "production",
+      provenanceStatus: "verified",
+      deploymentProvenance: "verified",
+      buildProvenanceStatus: "verified",
+      provenanceSource: "build_sealed",
+      cacheControl: "no-store",
+    },
+    edgeIdentity: {
+      profileOwnership: "wrapper-owned",
+      profilePathDigest: digest,
+    },
+    freshStorage: {
+      cookieCount: 0,
+      localStorageCount: 0,
+      sessionStorageCount: 0,
+      indexedDatabaseCount: 0,
+      cacheStorageCount: 0,
+      serviceWorkerRegistrationCount: 0,
+      emptyBeforeAppNavigation: true,
+    },
+    mocksInstalled: false,
+    prohibitedExternalAiRequestCount: 0,
+    crossOriginPolicy: {
+      policy: "phase-aware-context-route-default-deny-v3",
+      contextRouteInstalledBeforeNavigation: true,
+      allowedMethods: ["GET", "HEAD"],
+      immutableModelAssetsAllowedOnlyDuringExplicitInstall: true,
+      sameOriginTargetPolicy: "product-bound-finite-target-manifest",
+      disallowedRequestCount: 0,
+      disallowedMethodRequestCount: 0,
+      blockedNonToolbarResponseCount: 0,
+      previewToolbarPolicy: "blocked-before-network",
+      observedPreviewToolbarRequestCount: 0,
+      blockedPreviewToolbarRequestCount: 0,
+      previewToolbarResponseCount: 0,
+      webSocketRouteInstalledBeforeNavigation: true,
+      webSocketPolicy: "blocked-before-connect",
+      observedWebSocketAttemptCount: 0,
+      blockedWebSocketAttemptCount: 0,
+      disallowedWebSocketAttemptCount: 0,
+      webSocketServerConnectionCount: 0,
+      observedPreviewToolbarWebSocketAttemptCount: 0,
+      blockedPreviewToolbarWebSocketAttemptCount: 0,
+    },
+    networkZeroReceipt: {
+      schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
+      httpAttemptCount: 2,
+      httpBlockedBeforeSendCount: 2,
+      webSocketAttemptCount: 1,
+      webSocketBlockedBeforeConnectCount: 1,
+      tcpConnectionReceiptCount: 0,
+      httpRequestReceiptCount: 0,
+      httpRequestBodyByteCount: 0,
+      webSocketUpgradeReceiptCount: 0,
+      arbitraryOutboundHeaderStrippedOrBlocked: true,
+      requestBodyBlocked: true,
+    },
+    projectId: "00000000-0000-4000-8000-000000000000",
+    setup: {
+      status: "setup_required",
+      model: "sealed-model",
+      estimatedDownloadBytes: 1,
+      estimatedDownloadMB: 1,
+      automaticModelRequests: 0,
+      explicitAction: true,
+      explicitInstallClicked: true,
+      cancellation: {
+        lifecycle: "cancelled",
+        cancelledBeforeVerification: true,
+        incompleteModelPromoted: false,
+      },
+      retryAfterCancel: true,
+      modelPayloadRequestCount: 1,
+      immutableModelRootRequestCount: 1,
+      approvedModelRedirectRequestCount: 0,
+      modelPayloadHosts: [],
+      metadata: {
+        installStatus: "ready",
+        cacheVerified: true,
+        shardIntegrityVerified: true,
+        verifiedShardCount: 1,
+      },
+    },
+    consumerReadiness: {
+      generationVerifiedBackends: 1,
+      activeBackend: "browser-ai",
+      externalFallback: false,
+      silentExternalFallback: false,
+    },
+    storyBible: {
+      persistedAfterReload: true,
+      originalDigest: digest,
+      sourceArtifactDigest: digest,
+      sourceRevisionDigest: digest,
+      sourceMetadataDigest: digest,
+      sourceIdDigest: digest,
+      uiInputDigest: digest,
+    },
+    attachmentProbe: {
+      rightsUncheckedGate: { noModelCall: true },
+      rightsCheckboxCheckedBeforeSubmit: true,
+      rejected: true,
+      fullReceiptRevalidatedAfterReject: true,
+      candidate: candidate("rejected"),
+      browserRuntimeReceipt: receipt("webllm-worker"),
+    },
+    t1ContextAttestationProbe: {
+      contextAttestation: "not_required",
+      webLlmGenerationDelta: 0,
+      canonMutationCount: 0,
+      candidate: candidate("awaiting-approval"),
+      browserRuntimeReceipt: receipt("browser-task-model"),
+    },
+    conversationIsolation: {
+      attachmentSessionId: "a",
+      t1SessionId: "b",
+      lifecycleSessionId: "c",
+      allDistinct: true,
+    },
+    firstCandidateBeforeApproval: candidate("awaiting-approval"),
+    directRegenerationCandidate: candidate("awaiting-approval"),
+    directRegenerationSourceAfterward: {
+      status: "awaiting-approval",
+      canonicalMutationCount: 0,
+    },
+    rejectedCandidate: { status: "rejected", canonicalMutationCount: 0 },
+    regeneratedCandidateBeforeApproval: candidate("awaiting-approval"),
+    browserRuntimeReceipt: receipt("webllm-worker"),
+    finalContextProof: {
+      rawTextStored: false,
+      acceptedDisposition: "standalone",
+      executedStages: [],
+      contributingCalls: [],
+    },
+    modelCacheReuse: {
+      reloadBeforeChainedT2: true,
+      modelAssetRequestDeltaAcrossReloadAndInference: 0,
+      webLlmGenerationObservedAfterReload: true,
+      cacheVerifiedAfterReload: true,
+    },
+    approval: {
+      status: "approved",
+      persistedAfterReload: true,
+      fullReceiptRevalidatedBeforeAndAfterReload: true,
+      canonRevisionBefore: 0,
+      canonRevisionAfter: 1,
+    },
+    completedAt: "2026-08-11T20:45:00.000Z",
+    error: {
+      code: "RC6_2_CLOSED_AI_GATE_FAILED",
+      diagnosticCodes: [],
+      browserRuntimeEvidence: [],
+    },
+    profileDisposed: false,
+  };
+}
+
+function assertFailureValidatorBehavior() {
+  const minimal = minimalRunnerFailureFixture();
+  const minimalRaw = `${JSON.stringify(minimal, null, 2)}\n`;
+  const minimalProjection = validateRunnerFailureRaw(minimalRaw);
+  assert.equal(minimalProjection.schemaKind, "minimal");
+  assert.equal(minimalProjection.errorCode, "RC6_2_CLOSED_AI_GATE_FAILED");
+  assert.equal(minimalProjection.gateCheckpoint, null);
+  assert.equal(minimalProjection.profile.pathDigest, null);
+  assert.deepEqual(minimalProjection.heartbeatCounts, {
+    setup: 0,
+    candidateGeneration: 0,
+    t1Analysis: 0,
+  });
+
+  const heartbeatRaw = [
+    "[RC6.2 Closed AI] setup in progress (30s)",
+    "[RC6.2 Closed AI] candidate generation in progress (60s)",
+    JSON.stringify(minimal, null, 2),
+    "",
+  ].join("\n");
+  assert.deepEqual(validateRunnerFailureRaw(heartbeatRaw).heartbeatCounts, {
+    setup: 1,
+    candidateGeneration: 1,
+    t1Analysis: 0,
+  });
+
+  const detailed = detailedRunnerFailureFixture();
+  const detailedProjection = validateRunnerFailureRaw(`${JSON.stringify(detailed, null, 2)}\n`);
+  assert.equal(detailedProjection.schemaKind, "detailed");
+  assert.equal(detailedProjection.gateCheckpoint, "launch");
+  assert.equal(detailedProjection.requestPhase, "bootstrap");
+
+  const cleanupFailure = cleanupFailureAfterPassFixture();
+  const cleanupProjection = validateRunnerFailureRaw(
+    `${JSON.stringify(cleanupFailure, null, 2)}\n`,
+  );
+  assert.equal(cleanupProjection.schemaKind, "cleanup-failure-after-pass");
+  assert.equal(cleanupProjection.route.contextRouteInstalledBeforeNavigation, true);
+  assert.equal(cleanupProjection.profile.ownership, "wrapper-owned");
+  assert.equal(cleanupProjection.profile.disposed, false);
+  assert.equal(cleanupProjection.counts.disallowedWebSocketAttemptCount, 0);
+
+  const rejects = (raw) => assert.throws(() => validateRunnerFailureRaw(raw));
+  rejects(`\uFEFF${minimalRaw}`);
+  rejects(`${minimalRaw}\uFFFD`);
+  rejects(`${minimalRaw}\0`);
+  rejects(`not-a-heartbeat\n${minimalRaw}`);
+  rejects(`${minimalRaw}${minimalRaw}`);
+  rejects(minimalRaw.slice(0, -10));
+  rejects(`${minimalRaw}\n`);
+  rejects(`${JSON.stringify({ ...minimal, status: "PASS" }, null, 2)}\n`);
+  rejects(`${JSON.stringify({ ...minimal, schemaVersion: "p24b-rc6-2-v2" }, null, 2)}\n`);
+  rejects(minimalRaw.replace(
+    '  "status": "FAIL",',
+    '  "status": "FAIL",\n  "a\\u0000b": 0,',
+  ));
+  rejects(`${JSON.stringify({ ...minimal, unknown: true }, null, 2)}\n`);
+  rejects(`${JSON.stringify({
+    ...minimal,
+    error: { ...minimal.error, code: "STORY_SECRET" },
+  }, null, 2)}\n`);
+  rejects(`${JSON.stringify({
+    ...minimal,
+    error: { ...minimal.error, content: "raw-story-secret" },
+  }, null, 2)}\n`);
+  rejects(`${JSON.stringify({ ...detailed, gateCheckpoint: "unknown-checkpoint" }, null, 2)}\n`);
+  rejects(`${JSON.stringify({
+    ...cleanupFailure,
+    releaseIdentity: { ...cleanupFailure.releaseIdentity, appCommit: "f".repeat(40) },
+  }, null, 2)}\n`);
+  const prototypeRaw = minimalRaw.replace(
+    '  "status": "FAIL",',
+    '  "status": "FAIL",\n  "__proto__": {},',
+  );
+  rejects(prototypeRaw);
+  assert.equal(JSON.stringify(minimalProjection).includes("raw-story-secret"), false);
+}
+
+assertFailureValidatorBehavior();
+
+async function runFailureValidatorChild(raw, childEnvironment) {
+  return await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(import.meta.url), "validate-failure-evidence"],
+      { windowsHide: true, env: childEnvironment, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const stdout = [];
+    const stderr = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    const timeout = setTimeout(() => {
+      child.kill();
+      rejectPromise(new Error("failure validator child timed out"));
+    }, 60_000);
+    child.stdout.on("data", (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > 1_048_576) child.kill();
+      else stdout.push(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > 65_536) child.kill();
+      else stderr.push(chunk);
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      rejectPromise(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timeout);
+      resolvePromise({
+        status: code,
+        signal,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+      });
+    });
+    child.stdin.end(Buffer.from(raw, "utf8"));
+  });
+}
+
+async function assertFailureValidatorChildProcessBehavior() {
+  if (process.env.RC6_2_FAILURE_VALIDATOR_CHILD_TEST === "1") return;
+  const raw = `${JSON.stringify(minimalRunnerFailureFixture(), null, 2)}\n`;
+  const childEnvironment = {
+    ...process.env,
+    RC6_2_FAILURE_VALIDATOR_CHILD_TEST: "1",
+  };
+  const valid = await runFailureValidatorChild(raw, childEnvironment);
+  assert.equal(valid.status, 0, `failure validator stdin child failed: ${valid.stderr.trim()}`);
+  assert.equal(valid.stderr, "");
+  const receipt = JSON.parse(valid.stdout);
+  assertExactKeys(receipt, ["status", "projectionDigest", "projection"], "failure validator receipt");
+  assert.equal(receipt.status, "PASS");
+  assertSha256(receipt.projectionDigest, "failure validator projection digest");
+  assert.equal(receipt.projection.schemaVersion, "p24b-rc6.2-validated-runner-failure-projection-v1");
+
+  const hostileRaw = raw.replace(
+    '  "status": "FAIL",',
+    '  "status": "FAIL",\n  "漢字": "不得保存",',
+  );
+  const hostile = await runFailureValidatorChild(hostileRaw, childEnvironment);
+  assert.notEqual(hostile.status, 0);
+  assert.equal(hostile.stdout, "");
+  assert.equal(hostile.stderr.includes("不得保存"), false);
+}
+
+if (process.argv.length === 2) await assertFailureValidatorChildProcessBehavior();
+
 function assertBrowserCandidate(candidate, expectedStatus, label) {
   assertPlainObject(candidate, label);
   assert.equal(candidate.backendId, "browser-ai");
@@ -529,51 +1556,9 @@ function assertBrowserReceipt(receipt, expectedExecutor, label) {
   assert.equal(receipt.receiptIntegrityVerified, true);
 }
 
-async function validateEvidence() {
-  const evidencePath = resolve(String(process.env.RC6_2_BROWSER_EVIDENCE_PATH ?? ""));
-  const temporaryRoot = resolve(tmpdir());
-  assert.equal(
-    dirname(evidencePath).toLocaleLowerCase("en-US"),
-    temporaryRoot.toLocaleLowerCase("en-US"),
-  );
-  assert.match(basename(evidencePath), /^novel-rc6-2-evidence-[a-f0-9]{32}\.json$/u);
-  const raw = await readFile(evidencePath, "utf8");
-  assert.ok(raw.length > 0 && raw.length <= 1_048_576 && !raw.includes("\0"));
-  const evidence = JSON.parse(raw);
-  assert.equal(JSON.stringify(evidence, null, 2), raw.trim(), "runner evidence was not canonical JSON");
-  assertExactKeys(evidence, [
-    "schemaVersion",
-    "status",
-    "mode",
-    "exactOrigin",
-    "freshBrowserContext",
-    "releaseIdentity",
-    "edgeIdentity",
-    "freshStorage",
-    "mocksInstalled",
-    "prohibitedExternalAiRequestCount",
-    "crossOriginPolicy",
-    "networkZeroReceipt",
-    "projectId",
-    "setup",
-    "consumerReadiness",
-    "storyBible",
-    "attachmentProbe",
-    "t1ContextAttestationProbe",
-    "conversationIsolation",
-    "firstCandidateBeforeApproval",
-    "directRegenerationCandidate",
-    "directRegenerationSourceAfterward",
-    "rejectedCandidate",
-    "regeneratedCandidateBeforeApproval",
-    "browserRuntimeReceipt",
-    "finalContextProof",
-    "modelCacheReuse",
-    "approval",
-    "completedAt",
-    "profileDisposed",
-  ], "runner evidence");
-  assert.equal(evidence.schemaVersion, "p24b-rc6-2-closed-ai-browser-evidence-v3");
+function assertValidSuccessEvidence(evidence) {
+  assertExactKeys(evidence, RUNNER_SUCCESS_EVIDENCE_KEYS, "runner evidence");
+  assert.equal(evidence.schemaVersion, RUNNER_EVIDENCE_SCHEMA_VERSION);
   assert.equal(evidence.status, "PASS");
   assert.equal(evidence.mode, "generation");
   assert.equal(evidence.exactOrigin, EXPECTED_ORIGIN);
@@ -741,29 +1726,7 @@ async function validateEvidence() {
     requestBodyBlocked: true,
   });
 
-  const policyKeys = [
-    "policy",
-    "contextRouteInstalledBeforeNavigation",
-    "allowedMethods",
-    "immutableModelAssetsAllowedOnlyDuringExplicitInstall",
-    "sameOriginTargetPolicy",
-    "disallowedRequestCount",
-    "disallowedMethodRequestCount",
-    "blockedNonToolbarResponseCount",
-    "previewToolbarPolicy",
-    "observedPreviewToolbarRequestCount",
-    "blockedPreviewToolbarRequestCount",
-    "previewToolbarResponseCount",
-    "webSocketRouteInstalledBeforeNavigation",
-    "webSocketPolicy",
-    "observedWebSocketAttemptCount",
-    "blockedWebSocketAttemptCount",
-    "disallowedWebSocketAttemptCount",
-    "webSocketServerConnectionCount",
-    "observedPreviewToolbarWebSocketAttemptCount",
-    "blockedPreviewToolbarWebSocketAttemptCount",
-  ];
-  assertExactKeys(evidence.crossOriginPolicy, policyKeys, "crossOriginPolicy");
+  assertExactKeys(evidence.crossOriginPolicy, RUNNER_POLICY_KEYS, "crossOriginPolicy");
   assert.equal(evidence.crossOriginPolicy.policy, "phase-aware-context-route-default-deny-v3");
   assert.equal(evidence.crossOriginPolicy.contextRouteInstalledBeforeNavigation, true);
   assert.deepEqual(evidence.crossOriginPolicy.allowedMethods, ["GET", "HEAD"]);
@@ -791,6 +1754,21 @@ async function validateEvidence() {
     evidence.crossOriginPolicy.blockedPreviewToolbarWebSocketAttemptCount,
   );
   assertSafeProjectedEvidence(evidence);
+}
+
+async function validateEvidence() {
+  const evidencePath = resolve(String(process.env.RC6_2_BROWSER_EVIDENCE_PATH ?? ""));
+  const temporaryRoot = resolve(tmpdir());
+  assert.equal(
+    dirname(evidencePath).toLocaleLowerCase("en-US"),
+    temporaryRoot.toLocaleLowerCase("en-US"),
+  );
+  assert.match(basename(evidencePath), /^novel-rc6-2-evidence-[a-f0-9]{32}\.json$/u);
+  const raw = await readFile(evidencePath, "utf8");
+  assert.ok(raw.length > 0 && raw.length <= 1_048_576 && !raw.includes("\0"));
+  const evidence = JSON.parse(raw);
+  assert.equal(JSON.stringify(evidence, null, 2), raw.trim(), "runner evidence was not canonical JSON");
+  assertValidSuccessEvidence(evidence);
   const evidenceDigest = createHash("sha256").update(raw.trim()).digest("hex");
   console.log(JSON.stringify({ status: "PASS", evidenceDigest }));
 }
@@ -801,10 +1779,12 @@ assert.match(wrapper, /\$ExpectedLkgAuditControlProofDigest/u);
 assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
 assert.match(wrapper, /\$headParents\[1\] -ne \$previousBrowserGateControl/u);
-assert.match(wrapper, /\$previousParents\[1\] -ne \$productionRecoveryControl/u);
+assert.match(wrapper, /\$previousParents\[1\] -ne \$initialBrowserGateControl/u);
+assert.match(wrapper, /\$initialParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$previousBrowserGateControl -HeadCommit \$head -ExpectedPaths \$repairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$initialBrowserGateControl -HeadCommit \$previousBrowserGateControl -ExpectedPaths \$repairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryControl -HeadCommit \$head -ExpectedPaths \$allowedGatePaths/u);
 assert.match(wrapper, /function Get-SingleTrimmedLine[\s\S]*\$Lines\.GetValue\(0\)[\s\S]*function Invoke-GitScalar/u);
 assert.doesNotMatch(wrapper, /\[string\]\(Invoke-Git[^\r\n]*\)\[0\]/u);
@@ -813,7 +1793,7 @@ for (const path of GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `
 assert.match(wrapper, /\^\(\[AM\]\)`t/u);
 assert.match(wrapper, /GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
-assert.equal(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_"), 2);
+assert.equal(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_"), 3);
 assert.match(wrapper, /Assert-ReleaseTag/u);
 assert.match(wrapper, /\$githubApiRoot\/git\/ref\/heads\/main/u);
 assert.match(wrapper, /\$githubApiRoot\/git\/ref\/tags\/\$releaseTag/u);
@@ -883,11 +1863,51 @@ assert.match(wrapper, /\$bridgeAfter\.Pid -ne \$bridgeBefore\.Pid/u);
 assert.match(wrapper, /\$hubAfter\.Pid -ne \$hubBefore\.Pid/u);
 assert.match(wrapper, /\$ollamaAfter\.Pid -ne \$ollamaBefore\.Pid/u);
 assert.match(wrapper, /serviceControlActionPerformed = \$false/u);
-assert.match(wrapper, /serviceStateStableAcrossGate = \$true/u);
+assert.match(wrapper, /observedServiceProcessHealthAndPinnedCodeStableAcrossGate = \$true/u);
 assert.match(wrapper, /WORKTREE_STATUS_LINEARIZATION_FAILED/u);
 assert.match(wrapper, /PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_FAILED/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "runtime-receipt"/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-evidence"/u);
+assert.match(wrapper, /Invoke-CleanNodeContract "validate-failure-evidence"/u);
+assert.match(wrapper, /RedirectStandardInput = \$null -ne \$StandardInput/u);
+assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Write\(\$standardInputBytes/u);
+assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Flush\(\)/u);
+assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Close\(\)/u);
+assert.doesNotMatch(wrapper, /\$process\.StandardInput\.Write\(/u);
+assert.match(wrapper, /if \(\$runnerStdout\.Length -eq 0\)/u);
+assert.match(wrapper, /production-browser-gate-c5-failure-\$ExpectedGateControlCommit\.json/u);
+assert.match(wrapper, /\[IO\.FileMode\]::CreateNew/u);
+assert.match(wrapper, /\$stream\.Flush\(\$true\)/u);
+assert.match(wrapper, /\[IO\.File\]::Move\(\$tempPath, \$failureEvidencePath\)/u);
+assert.match(wrapper, /\[IO\.File\]::ReadAllBytes\(\$tempPath\)/u);
+assert.match(wrapper, /\[IO\.File\]::ReadAllBytes\(\$failureEvidencePath\)/u);
+assert.match(wrapper, /FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH/u);
+assert.match(wrapper, /status = "FAIL"/u);
+assert.match(wrapper, /qualifiesProductionBrowserGate = \$false/u);
+assert.match(wrapper, /eligibleForLuna = \$false/u);
+assert.match(wrapper, /terminalWrapperCode = \$TerminalWrapperCode/u);
+assert.match(wrapper, /schemaVersion = "p24b-rc6\.2-production-browser-gate-c5-failure-proof-v1"/u);
+assert.match(wrapper, /sanitized = \$true[\s\S]*rawSecretsStored = \$false/u);
+assert.match(wrapper, /lkgAuditRunId = \$ExpectedLkgAuditRunId/u);
+assert.match(wrapper, /lkgAuditControlProofDigest = \$ExpectedLkgAuditControlProofDigest/u);
+assert.match(wrapper, /lkgSelectionProofDigest = \$ExpectedLkgSelectionProofDigest/u);
+assert.doesNotMatch(wrapper, /(?:stdout|stderr)Sha256\s*=/iu);
+const failurePublisher = wrapper.slice(
+  wrapper.indexOf("function Publish-C5FailureEvidence"),
+  wrapper.indexOf("function Initialize-EvidenceDestination"),
+);
+assert.ok(failurePublisher.indexOf("ReadAllBytes($tempPath)") < failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus"));
+assert.ok(failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus") < failurePublisher.indexOf("[IO.File]::Move($tempPath, $failureEvidencePath)"));
+assert.ok(failurePublisher.lastIndexOf("ReadAllBytes($tempPath)") > failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus"));
+assert.ok(failurePublisher.lastIndexOf("ReadAllBytes($tempPath)") < failurePublisher.indexOf("[IO.File]::Move($tempPath, $failureEvidencePath)"));
+assert.ok(
+  wrapper.lastIndexOf("Publish-C5FailureEvidence $runnerCapture")
+  < wrapper.lastIndexOf("$mutex.ReleaseMutex()"),
+);
+assert.ok(
+  wrapper.indexOf("$formalGateBoundaryEntered = $true")
+  > wrapper.indexOf('if (-not $mutexHeld) { Fail "PRODUCTION_BROWSER_GATE_ALREADY_RUNNING" }'),
+);
 assert.match(wrapper, /runnerEvidence = \$runnerEvidence/u);
 assert.match(wrapper, /runtimeReceipt = \$runtimeReceiptBefore/u);
 assert.match(wrapper, /releaseAttestation = \$releaseAttestationBefore/u);
@@ -961,6 +1981,8 @@ if (process.argv[2] === "runtime-receipt") {
   console.log(JSON.stringify(runtimeReceipt, null, 2));
 } else if (process.argv[2] === "validate-evidence") {
   await validateEvidence();
+} else if (process.argv[2] === "validate-failure-evidence") {
+  await validateFailureEvidence();
 } else {
   assert.equal(process.argv.length, 2);
   console.log("P2.4B RC6.2 production browser gate contract: PASS");
