@@ -1,4 +1,7 @@
 import type { PlatformAIRequest, PlatformAIResult, PlatformProviderSnapshot, PlatformRouterDecision } from "../../router/platform-types";
+import type {
+  BrowserContextAttestationRequirement,
+} from "../../security/browser-final-model-context-proof";
 import {
   BROWSER_TASK_MODEL,
   isNativeBrowserSummaryTask,
@@ -87,6 +90,10 @@ export type BrowserAIStreamProgress = {
 export type BrowserAIExecutionOptions = {
   /** Keep T1 work on semantic/summarizer/packaged runtimes instead of WebLLM. */
   preferLightweightRuntime?: boolean;
+  /** Fresh T1 compute pins the immutable packaged task model. */
+  requiredTaskExecutor?: "browser-task-model";
+  /** Declared before inference; a returned proof can never choose this mode. */
+  contextAttestation?: BrowserContextAttestationRequirement;
   /**
    * T2 uses exactly the executor selected by eligibility. When set, failure or
    * unavailability is surfaced to the caller and can never become a packaged
@@ -155,6 +162,7 @@ const BROWSER_LIGHT_TASKS: PlatformAIRequest["taskType"][] = [
   "story.characterCheck",
   "story.worldRuleCheck",
   "story.foreshadowingCheck",
+  "story.retrieval",
   "story.plotAnalysis",
   "story.pacingCheck",
   "story.originalityCheck",
@@ -573,6 +581,56 @@ export async function runBrowserAI(
 ): Promise<PlatformAIResult> {
   const started = performance.now();
   const sourceText = [...request.context, request.input].join("\n\n");
+  const contextAttestation = options.contextAttestation
+    ?? request.contextAttestation;
+  const hasFinalContextBoundary = [
+    request.browserFinalContextExpectations,
+    request.browserFinalContextOuterRequestId,
+    request.browserFinalContextOuterTaskType,
+    request.browserFinalContextOuterQualityPhase,
+    request.browserFinalContextInnerStage,
+    request.browserFinalContextInnerIndex,
+  ].some((value) => value !== undefined);
+  if (
+    options.contextAttestation !== undefined
+    && request.contextAttestation !== undefined
+    && options.contextAttestation !== request.contextAttestation
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
+  if (
+    contextAttestation === "required"
+    && (
+      options.requiredGenerativeExecutor !== "webllm-worker"
+      || request.browserFinalContextExpectations === undefined
+    )
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_PROOF_REQUIRED"), {
+      code: "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED",
+    });
+  }
+  const invalidProofFreeBoundary = contextAttestation === "not_required"
+    && (
+      hasFinalContextBoundary
+      || sourceText.includes("[[CTX3:")
+      || sourceText.includes("<approved-model-context>")
+    );
+  const invalidTaskPin = options.requiredTaskExecutor === "browser-task-model"
+    && (
+      contextAttestation !== "not_required"
+      || options.requiredGenerativeExecutor !== undefined
+    );
+  if (
+    invalidProofFreeBoundary
+    || contextAttestation === undefined && hasFinalContextBoundary
+    || invalidTaskPin
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
   const normalizeGeneratedContent = async (input: {
     value: string;
     modelId: string | null;
@@ -619,6 +677,7 @@ export async function runBrowserAI(
     const prompt = buildClosedAIModelPrompt({
       objective: request.input,
       context: request.context,
+      browserFinalContextExpectations: request.browserFinalContextExpectations,
       profile,
       qualityPhase: request.qualityPhase,
       agentPlan: request.agentPlan,
@@ -638,6 +697,14 @@ export async function runBrowserAI(
         maxTokens: request.generationOptions?.maxTokens,
         repetitionPenalty: request.generationOptions?.repetitionPenalty,
         seed: request.generationOptions?.seed,
+        contextAttestation,
+        finalContextExpectations: request.browserFinalContextExpectations,
+        finalContextOuterRequestId: request.browserFinalContextOuterRequestId,
+        finalContextOuterTaskType: request.browserFinalContextOuterTaskType,
+        finalContextOuterQualityPhase: request.browserFinalContextOuterQualityPhase,
+        finalContextInnerStage: request.browserFinalContextInnerStage,
+        finalContextInnerIndex: request.browserFinalContextInnerIndex,
+        invocationRequestId: request.requestId,
         signal: request.signal,
         onToken: (event) => onProgress?.({
           generatedCharacters: event.content.length,
@@ -706,6 +773,9 @@ export async function runBrowserAI(
           options.deferTraditionalChineseNormalization
             ? undefined
             : normalized.length,
+        browserModelContextInvocationProof:
+          generated.browserModelContextInvocationProof,
+        contextAttestation,
       };
     } catch (error) {
       cancelBrowserWebLLMGeneration();
@@ -890,7 +960,10 @@ export async function runBrowserAI(
   }
   const factory = summarizerFactory();
   const runPackagedFallback = async (warning: string): Promise<PlatformAIResult> => {
-    const result = runPackagedBrowserTaskModel(request.taskType, sourceText);
+    const packagedTaskType = request.taskType === "story.retrieval"
+      ? "story.summary"
+      : request.taskType;
+    const result = runPackagedBrowserTaskModel(packagedTaskType, sourceText);
     const normalizedResult = await normalizeGeneratedContent({
       value: result.content,
       modelId: result.modelId,
@@ -920,9 +993,10 @@ export async function runBrowserAI(
       externalRequest: false,
       dataLeavesDevice: false,
       elapsedMs,
-      provenance: {
-        ...decision,
-        modelId: result.modelId,
+        provenance: {
+          ...decision,
+          modelId: result.modelId,
+          modelDigest: result.modelDigest,
         warnings: [
           ...decision.warnings,
           ...(webLlmFailureWarning ? [webLlmFailureWarning] : []),
@@ -936,8 +1010,14 @@ export async function runBrowserAI(
       generatedTokenEvents: 1,
       omittedInputCharacters: 0,
       executor: "browser-task-model",
+      contextAttestation,
     };
   };
+  if (options.requiredTaskExecutor === "browser-task-model") {
+    return runPackagedFallback(
+      "Pinned deterministic packaged browser task model used for this T1 task.",
+    );
+  }
   if (!isNativeBrowserSummaryTask(request.taskType)) {
     return runPackagedFallback(
       "Deterministic packaged browser task model used for this light task.",
@@ -1017,6 +1097,7 @@ export async function runBrowserAI(
       generatedTokenEvents: 1,
       omittedInputCharacters: 0,
       executor: "chromium-summarizer",
+      contextAttestation,
     };
   } catch {
     return runPackagedFallback(

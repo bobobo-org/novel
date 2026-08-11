@@ -116,8 +116,19 @@ export async function assertConversationRecordSafe(store: string, record: Domain
   if (store === "conversationAttachments") {
     const attachment = record as ConversationAttachment;
     const warnings = attachment.warnings ?? [];
+    const legacyRightsConfirmationAbsent =
+      attachment.userConfirmedRights === undefined
+      && attachment.rightsConfirmationSchemaVersion === undefined;
+    const rightsConfirmationVerified =
+      attachment.userConfirmedRights === true
+      && attachment.rightsConfirmationSchemaVersion
+        === "conversation-attachment-rights-confirmation-v1";
     if (
       !attachment.sessionId
+      || typeof attachment.rightsBasis !== "string"
+      || !attachment.rightsBasis.trim()
+      || attachment.rightsBasis.length > 120
+      || (!legacyRightsConfirmationAbsent && !rightsConfirmationVerified)
       || attachment.localAnalysisOnly !== true
       || attachment.rawContentRetained !== false
       || !["txt", "markdown", "html", "json", "pdf", "docx"].includes(attachment.format)

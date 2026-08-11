@@ -90,8 +90,14 @@ export function useConversationAttachmentController({
     sessionId: string,
     plan: ConversationPlan,
     userMessageId: string,
+    userConfirmedRights: true,
     signal: AbortSignal,
   ) => {
+    if (userConfirmedRights !== true) {
+      throw Object.assign(new Error("Attachment rights confirmation is required."), {
+        code: "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
+      });
+    }
     const contextDigest = await conversationContentDigest(JSON.stringify({
       schemaVersion: "conversation-attachment-batch-v1",
       planDigest: plan.planDigest,
@@ -140,6 +146,7 @@ export function useConversationAttachmentController({
               file: item.file,
               rightsBasis: "user_supplied_local_analysis",
               rightsEvidence: "composer-local-analysis-only",
+              userConfirmedRights,
               signal,
             });
             record = await repository.put<ConversationAttachment>("conversationAttachments", {

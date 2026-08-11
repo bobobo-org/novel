@@ -78,8 +78,10 @@ import {
 } from "../lib/novel-ai/providers/closed/continuity-anchors.ts";
 import {
   createBrowserExecutionReceipt,
+  recordBrowserExecutionReceipt,
   summarizeBrowserOffload,
 } from "../lib/novel-ai/providers/browser-ai/browser-offload-metrics.ts";
+import { BROWSER_TASK_MODEL } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 import {
   finalizeBrowserAssistedBackendResult,
   prepareBrowserAssistedBackendInput,
@@ -100,7 +102,17 @@ import {
   ClosedAICache,
   MemoryClosedAICacheRepository,
   sha256Hex,
+  stableStringify,
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
+import {
+  createBrowserFinalContextExpectation,
+  createBrowserFinalModelContextAttestation,
+  createBrowserFinalModelContextInvocationProof,
+  fitBrowserFinalContextProtectedBlock,
+  sealBrowserFinalContextFragment,
+  verifyBrowserFinalModelContextAttestation,
+  verifyBrowserFinalModelContextInvocationProof,
+} from "../lib/novel-ai/security/browser-final-model-context-proof.ts";
 import {
   ApprovalSigner,
   MemoryVerifiableLedgerRepository,
@@ -297,10 +309,12 @@ test("compute-orchestrator", async () => {
     resolve(root, "lib/novel-ai/providers/browser-ai/browser-compute-orchestrator.ts"),
     "utf8",
   );
-  assert.match(orchestrator, /preferLightweightRuntime: eligibility\.tier === "T1"/u);
-  assert.match(orchestrator, /const requiredGenerativeExecutor = eligibility\.tier === "T2"/u);
+  assert.match(orchestrator, /const preEligibility = resolveBrowserTaskEligibility/u);
+  assert.match(orchestrator, /requiredTaskExecutor: eligibility\.tier === "T1"/u);
+  assert.match(orchestrator, /preEligibility\.tier === "T2" \? "required" : "not_required"/u);
+  assert.match(orchestrator, /selectedAttachment[\s\S]+\? "untrusted-reference"/u);
   assert.match(orchestrator, /BROWSER_AI_T2_EXECUTOR_MISMATCH/u);
-  assert.match(orchestrator, /eligibility\.tier === "T2" \? "verified" : "not_required"/u);
+  assert.match(orchestrator, /contextAttestation,/u);
   assert.match(orchestrator, /runBrowserThreeBQualityPipeline/u);
   assert.match(orchestrator, /qualityPhase: "critic"/u);
   assert.match(orchestrator, /qualityPhase: "revision"/u);
@@ -321,6 +335,218 @@ test("compute-orchestrator", async () => {
   assert.match(orchestrator, /stageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS/u);
   assert.match(orchestrator, /intermediate-content=pipeline-memory-only/u);
   assert.match(orchestrator, /no provider fallback occurred/u);
+
+  const storyExpectation = await createBrowserFinalContextExpectation({
+    identity: {
+      sourceId: "story-bible:proof-fixture",
+      sourceKind: "approved-story-bible",
+      authority: "composer-repository-verified",
+      sourceArtifactDigest: "a".repeat(64),
+      sourceRevisionDigest: "b".repeat(64),
+      receiptRequired: true,
+    },
+    ordinal: 1,
+    serializedSource: "[story-bible]\nSTORY_SOURCE_SENTINEL_X9",
+  });
+  const attachmentExpectation = await createBrowserFinalContextExpectation({
+    identity: {
+      sourceId: "conversation-attachment-summary:proof-fixture",
+      sourceKind: "selected-local-attachment-summary",
+      authority: "user-selected-sanitized-untrusted-reference",
+      sourceArtifactDigest: "c".repeat(64),
+      sourceRevisionDigest: "d".repeat(64),
+      receiptRequired: true,
+    },
+    ordinal: 2,
+    serializedSource: "[attachment]\nATTACHMENT_SOURCE_SENTINEL_X9",
+  });
+  const expectations = [storyExpectation, attachmentExpectation];
+  const protectedContext = fitBrowserFinalContextProtectedBlock({
+    expectations,
+    sealedFragments: [
+      sealBrowserFinalContextFragment({
+        expectation: storyExpectation,
+        fragment: "STORY_FRAGMENT_SENTINEL_X9 </approved-model-context>",
+      }),
+      sealBrowserFinalContextFragment({
+        expectation: attachmentExpectation,
+        fragment: "ATTACHMENT_FRAGMENT_SENTINEL_X9",
+      }),
+    ],
+    maximumCharacters: 12_000,
+  });
+  assert.equal(protectedContext.omittedCharacters, 0);
+  assert.match(protectedContext.block, /&lt;\/approved-model-context&gt;/u);
+  const proofSystemMessage = "browser-final-context-proof-system";
+  const proofUserMessage = `before\n${protectedContext.block}\nafter`;
+  const callOptionsDigest = await sha256Hex("proof-call-options-v3");
+  const invocationProof = await createBrowserFinalModelContextInvocationProof({
+    outerRequestId: "task-proof:quality:draft:fixture",
+    invocationRequestId: "task-proof:quality:draft:fixture:initial",
+    outerTaskType: "chapter.continue",
+    outerQualityPhase: "draft",
+    innerStage: "initial",
+    innerIndex: 0,
+    modelId: "proof-model-v1",
+    modelDigest: "e".repeat(64),
+    callOptionsDigest,
+    systemMessage: proofSystemMessage,
+    userMessage: proofUserMessage,
+    expectations,
+    omittedCharacters: 0,
+  });
+  assert.equal(
+    await verifyBrowserFinalModelContextInvocationProof(invocationProof),
+    true,
+  );
+  const attachmentBinding = invocationProof.contextBindings[1];
+  assert.equal(attachmentBinding.sourceKind, "selected-local-attachment-summary");
+  assert.equal(
+    attachmentBinding.survivingFragmentDigest,
+    await sha256Hex("ATTACHMENT_FRAGMENT_SENTINEL_X9"),
+  );
+  assert.equal(
+    attachmentBinding.survivingFragmentUtf8Bytes,
+    new TextEncoder().encode("ATTACHMENT_FRAGMENT_SENTINEL_X9").byteLength,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(invocationProof),
+    /(?:STORY|ATTACHMENT)_(?:SOURCE|FRAGMENT)_SENTINEL_X9/u,
+  );
+  await assert.rejects(
+    () => createBrowserFinalContextExpectation({
+      identity: {
+        sourceId: "story-bible:authority-confusion",
+        sourceKind: "approved-story-bible",
+        authority: "user-selected-sanitized-untrusted-reference",
+        sourceArtifactDigest: "f".repeat(64),
+        sourceRevisionDigest: "0".repeat(64),
+        receiptRequired: true,
+      },
+      ordinal: 1,
+      serializedSource: "authority confusion",
+    }),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+  );
+  await assert.rejects(
+    () => createBrowserFinalModelContextInvocationProof({
+      outerRequestId: "task-proof:quality:repair:fixture",
+      invocationRequestId: "task-proof:quality:repair:fixture:bad-index",
+      outerTaskType: "chapter.continue",
+      outerQualityPhase: "draft",
+      innerStage: "repair",
+      innerIndex: 0,
+      modelId: "proof-model-v1",
+      modelDigest: "e".repeat(64),
+      callOptionsDigest,
+      systemMessage: proofSystemMessage,
+      userMessage: proofUserMessage,
+      expectations,
+      omittedCharacters: 0,
+    }),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+  );
+  await assert.rejects(
+    () => createBrowserFinalModelContextInvocationProof({
+      outerRequestId: "task-proof:quality:draft:fixture",
+      invocationRequestId: "task-proof:quality:draft:fixture:malformed-marker",
+      outerTaskType: "chapter.continue",
+      outerQualityPhase: "draft",
+      innerStage: "initial",
+      innerIndex: 0,
+      modelId: "proof-model-v1",
+      modelDigest: "e".repeat(64),
+      callOptionsDigest,
+      systemMessage: proofSystemMessage,
+      userMessage: `${proofUserMessage}\n[[CTX3:malformed`,
+      expectations,
+      omittedCharacters: 0,
+    }),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_ENVELOPE_INVALID",
+  );
+  const offsetTamperedProof = structuredClone(invocationProof);
+  const firstBinding = offsetTamperedProof.contextBindings[0];
+  firstBinding.endUtf8Byte = offsetTamperedProof.messageDescriptors[1].utf8Bytes + 1;
+  firstBinding.startUtf8Byte = firstBinding.endUtf8Byte
+    - firstBinding.survivingFragmentUtf8Bytes;
+  const {
+    bindingDigest: _offsetBindingDigest,
+    ...offsetTamperedBody
+  } = offsetTamperedProof;
+  void _offsetBindingDigest;
+  offsetTamperedProof.bindingDigest = await sha256Hex(stableStringify({
+    domain: "browser-final-model-context-invocation-proof-v3",
+    body: offsetTamperedBody,
+  }));
+  assert.equal(
+    await verifyBrowserFinalModelContextInvocationProof(offsetTamperedProof),
+    false,
+  );
+  const descriptorTamperedProof = structuredClone(invocationProof);
+  descriptorTamperedProof.messageDescriptors[0].utf8Bytes =
+    descriptorTamperedProof.messageDescriptors[0].characters - 1;
+  const {
+    bindingDigest: _descriptorBindingDigest,
+    ...descriptorTamperedBody
+  } = descriptorTamperedProof;
+  void _descriptorBindingDigest;
+  descriptorTamperedProof.bindingDigest = await sha256Hex(stableStringify({
+    domain: "browser-final-model-context-invocation-proof-v3",
+    body: descriptorTamperedBody,
+  }));
+  assert.equal(
+    await verifyBrowserFinalModelContextInvocationProof(descriptorTamperedProof),
+    false,
+  );
+  const attestation = await createBrowserFinalModelContextAttestation({
+    acceptedDisposition: "standalone",
+    acceptedStage: "initial",
+    executedStages: ["initial"],
+    contributingCalls: [invocationProof],
+  });
+  assert.equal(await verifyBrowserFinalModelContextAttestation(attestation), true);
+  assert.equal(/ContentDigest/u.test(JSON.stringify(attestation)), false);
+  const dispositionTamperedAttestation = structuredClone(attestation);
+  dispositionTamperedAttestation.acceptedDisposition = "evil";
+  const {
+    bindingDigest: _attestationBindingDigest,
+    ...dispositionTamperedBody
+  } = dispositionTamperedAttestation;
+  void _attestationBindingDigest;
+  dispositionTamperedAttestation.bindingDigest = await sha256Hex(stableStringify({
+    domain: "browser-final-model-context-attestation-v3",
+    body: dispositionTamperedBody,
+  }));
+  assert.equal(
+    await verifyBrowserFinalModelContextAttestation(
+      dispositionTamperedAttestation,
+    ),
+    false,
+  );
+  const repairProof = await createBrowserFinalModelContextInvocationProof({
+    outerRequestId: "task-proof:quality:draft:fixture",
+    invocationRequestId: "task-proof:quality:draft:fixture:repair",
+    outerTaskType: "chapter.continue",
+    outerQualityPhase: "draft",
+    innerStage: "repair",
+    innerIndex: 1,
+    modelId: "proof-model-v1",
+    modelDigest: "e".repeat(64),
+    callOptionsDigest,
+    systemMessage: proofSystemMessage,
+    userMessage: proofUserMessage,
+    expectations,
+    omittedCharacters: 0,
+  });
+  await assert.rejects(
+    () => createBrowserFinalModelContextAttestation({
+      acceptedDisposition: "standalone",
+      acceptedStage: "repair",
+      executedStages: ["initial"],
+      contributingCalls: [repairProof],
+    }),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+  );
 });
 
 test("task-eligibility", () => {
@@ -504,8 +730,9 @@ test("context-compression", async () => {
     "canon-authority", "current-chapter", "recent-chapter-tail", "story-bible",
     "timeline", "world-rule", "active-character", "character-knowledge-boundary",
     "accepted-choice", "active-branch", "rpg-state", "task-achievement",
-    "approved-learning-rule", "user-instruction",
+    "approved-learning-rule", "untrusted-reference", "user-instruction",
   ];
+  const attachmentLiteral = "[attachment-summary]\nUNTRUSTED_ATTACHMENT_LITERAL_X9";
   const sources = kinds.map((kind, index) => ({
     id: `source-${index}`,
     kind,
@@ -516,6 +743,22 @@ test("context-compression", async () => {
     revision: "1",
     relevance: 0.9,
   }));
+  const attachmentSource = sources.find((source) => (
+    source.kind === "untrusted-reference"
+  ));
+  assert.ok(attachmentSource);
+  Object.assign(attachmentSource, {
+    text: attachmentLiteral,
+    authority: 0.2,
+    sourceIdentity: {
+      sourceId: "conversation-attachment-summary:context-pack-fixture",
+      sourceKind: "selected-local-attachment-summary",
+      authority: "user-selected-sanitized-untrusted-reference",
+      sourceArtifactDigest: "1".repeat(64),
+      sourceRevisionDigest: "2".repeat(64),
+      receiptRequired: true,
+    },
+  });
   sources.push({
     ...sources[0], id: "author-only", visibility: "author-only",
   });
@@ -534,6 +777,12 @@ test("context-compression", async () => {
   assert.equal(pack.metrics.namespaceItemsRejected, 1);
   assert.equal(pack.metrics.visibilityItemsRejected, 1);
   assert.equal(pack.canonicalMutationCount, 0);
+  const packedAttachment = pack.items.find((item) => (
+    item.kind === "untrusted-reference"
+  ));
+  assert.ok(packedAttachment);
+  assert.equal(packedAttachment.text, attachmentLiteral);
+  assert.equal(packedAttachment.contentDigest, await sha256Hex(attachmentLiteral));
   assert.ok(pack.metrics.browserCompressedContextTokens <= policy().inputBudgetTokens);
   const fitted = fitBrowserPromptToTokenBudget("漢字內容".repeat(2_000), 256);
   assert.ok(estimateBrowserTokens(fitted.prompt) <= 256);
@@ -4309,30 +4558,54 @@ test("bounded-prose-extension", async () => {
       backends: [{
         id: "browser-ai",
         snapshot: async () => structuredClone(selectedSnapshot),
-        execute: async (input) => ({
-          backendId: "browser-ai",
-          modelId: selectedExecution.result.modelId,
-          modelDigest: selectedExecution.result.modelDigest,
-          content: authoritativeContent,
-          candidateOnly: true,
-          dataLeftDevice: false,
-          externalRequest: false,
-          elapsedMs: selectedExecution.result.elapsedMs,
-          profileId: "browser-length-safe-prefix-v1",
-          firstTokenMs: selectedExecution.result.firstTokenMs,
-          inputCharacters: selectedExecution.result.inputCharacters,
-          outputCharacters: authoritativeContent.length,
-          generatedTokenEvents: selectedExecution.result.generatedTokenEvents,
-          omittedInputCharacters: selectedExecution.result.omittedInputCharacters,
-          qualityMode: input.plan.qualityMode,
-          qualityPasses: 1,
-          draftDigest: null,
-          criticDigest: null,
-          actualExecutor: "browser-ai",
-          browserComputeReceiptId: `browser-compute:${taskId}`,
-          browserFabricReceiptId: `browser-fabric:${taskId}`,
-          browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
-        }),
+        execute: async (input) => {
+          const invocation = await createBrowserFinalModelContextInvocationProof({
+            outerRequestId: input.request.taskId,
+            invocationRequestId: `${input.request.taskId}:mock-browser-initial`,
+            outerTaskType: input.request.taskType,
+            outerQualityPhase: input.qualityPhase,
+            innerStage: "initial",
+            innerIndex: 0,
+            modelId: selectedExecution.result.modelId,
+            modelDigest: selectedExecution.result.modelDigest,
+            callOptionsDigest: await sha256Hex("authoritative-selected-result-call-options-v3"),
+            systemMessage: "authoritative-selected-result-system",
+            userMessage: "authoritative-selected-result-user",
+            expectations: [],
+            omittedCharacters: 0,
+          });
+          return {
+            backendId: "browser-ai",
+            modelId: selectedExecution.result.modelId,
+            modelDigest: selectedExecution.result.modelDigest,
+            content: authoritativeContent,
+            candidateOnly: true,
+            dataLeftDevice: false,
+            externalRequest: false,
+            elapsedMs: selectedExecution.result.elapsedMs,
+            profileId: "browser-length-safe-prefix-v1",
+            firstTokenMs: selectedExecution.result.firstTokenMs,
+            inputCharacters: selectedExecution.result.inputCharacters,
+            outputCharacters: authoritativeContent.length,
+            generatedTokenEvents: selectedExecution.result.generatedTokenEvents,
+            omittedInputCharacters: selectedExecution.result.omittedInputCharacters,
+            qualityMode: input.plan.qualityMode,
+            qualityPasses: 1,
+            draftDigest: null,
+            criticDigest: null,
+            actualExecutor: "browser-ai",
+            browserComputeReceiptId: `browser-compute:${taskId}`,
+            browserFabricReceiptId: `browser-fabric:${taskId}`,
+            browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+            contextAttestation: "required",
+            finalModelContextAttestation: await createBrowserFinalModelContextAttestation({
+              acceptedDisposition: "standalone",
+              acceptedStage: "initial",
+              executedStages: ["initial"],
+              contributingCalls: [invocation],
+            }),
+          };
+        },
       }],
       cache: new ClosedAICache({ repository: selectedCacheRepository }),
       ledger: new VerifiableLedger({
@@ -7513,15 +7786,45 @@ test("offload-benchmark", async () => {
     ...BROWSER_T1_T2_HYBRID_TASKS,
     ...BROWSER_T2_TASKS,
   ])].slice(0, 40);
-  const receipts = await Promise.all(tasks.map((taskType, index) => {
+  const receipts = await Promise.all(tasks.map(async (taskType, index) => {
     const route = eligible(taskType);
+    const taskIdentity = `benchmark-${index}`;
+    const outerRequestId = `${taskIdentity}:outer`;
+    const finalModelContextAttestation = route.tier === "T2"
+      ? await (async () => {
+        const invocation = await createBrowserFinalModelContextInvocationProof({
+          outerRequestId,
+          invocationRequestId: `${outerRequestId}:initial`,
+          outerTaskType: taskType,
+          outerQualityPhase: "draft",
+          innerStage: "initial",
+          innerIndex: 0,
+          modelId: BROWSER_WEBLLM_MODELS[1].modelId,
+          modelDigest: BROWSER_WEBLLM_MODELS[1].modelDigest,
+          callOptionsDigest: await sha256Hex(`benchmark-call-options:${index}`),
+          systemMessage: `benchmark-system:${index}`,
+          userMessage: `benchmark-user:${index}`,
+          expectations: [],
+          omittedCharacters: 0,
+        });
+        return createBrowserFinalModelContextAttestation({
+          acceptedDisposition: "standalone",
+          acceptedStage: "initial",
+          executedStages: ["initial"],
+          contributingCalls: [invocation],
+        });
+      })()
+      : null;
+    const taskModel = route.tier === "T1"
+      ? BROWSER_TASK_MODEL
+      : BROWSER_WEBLLM_MODELS[1];
     return createBrowserExecutionReceipt({
-      taskIdentity: `benchmark-${index}`,
+      taskIdentity,
       taskType,
       plannedPipeline: route.plannedPipeline,
-      actualExecutor: route.tier === "T1" ? "semantic-worker" : "webllm-worker",
-      modelId: BROWSER_WEBLLM_MODELS[1].modelId,
-      modelDigest: BROWSER_WEBLLM_MODELS[1].modelDigest,
+      actualExecutor: route.tier === "T1" ? "browser-task-model" : "webllm-worker",
+      modelId: taskModel.modelId,
+      modelDigest: taskModel.modelDigest,
       browserPrecomputeUsed: true,
       browserGenerationUsed: route.tier === "T2",
       localOllamaUsed: false,
@@ -7537,6 +7840,10 @@ test("offload-benchmark", async () => {
       privateHubJobsAvoided: 1,
       localOllamaCallsAvoided: 1,
       elapsedMs: 200,
+      contextAttestation: route.tier === "T2" ? "required" : "not_required",
+      ...(finalModelContextAttestation
+        ? { outerRequestId, finalModelContextAttestation }
+        : {}),
     });
   }));
   const summary = summarizeBrowserOffload(receipts);
@@ -7546,6 +7853,67 @@ test("offload-benchmark", async () => {
   assert.ok(summary.privateHubJobsAvoided / 40 >= 0.75);
   assert.ok(receipts.every((receipt) => receipt.tokensSaved / 2_400 >= 0.45));
   assert.ok(summary.estimatedComputeMinutesSaved > 0);
+  const requiredReceipt = receipts.find((receipt) => (
+    receipt.contextAttestation === "required"
+  ));
+  const proofFreeReceipt = receipts.find((receipt) => (
+    receipt.contextAttestation === "not_required"
+  ));
+  assert.ok(requiredReceipt?.finalModelContextAttestation);
+  assert.equal(requiredReceipt.actualExecutor, "webllm-worker");
+  assert.equal(proofFreeReceipt?.finalModelContextAttestation, null);
+  assert.equal(proofFreeReceipt?.actualExecutor, "browser-task-model");
+  assert.equal(proofFreeReceipt?.modelId, BROWSER_TASK_MODEL.modelId);
+  const resealReceipt = async (receipt) => {
+    const { receiptId: _receiptId, ...body } = receipt;
+    void _receiptId;
+    return {
+      ...body,
+      receiptId: await sha256Hex(stableStringify({
+        domain: "browser-execution-receipt-v3",
+        body,
+      })),
+    };
+  };
+  const missingDiscriminator = structuredClone(requiredReceipt);
+  delete missingDiscriminator.contextAttestation;
+  await assert.rejects(
+    recordBrowserExecutionReceipt(await resealReceipt(missingDiscriminator)),
+    (error) => error?.code === "BROWSER_EXECUTION_RECEIPT_INVALID",
+  );
+  const extraKey = await resealReceipt({
+    ...proofFreeReceipt,
+    unexpectedMetadata: true,
+  });
+  await assert.rejects(
+    recordBrowserExecutionReceipt(extraKey),
+    (error) => error?.code === "BROWSER_EXECUTION_RECEIPT_INVALID",
+  );
+  const wrongPackagedIdentity = await resealReceipt({
+    ...proofFreeReceipt,
+    modelDigest: "0".repeat(64),
+  });
+  await assert.rejects(
+    recordBrowserExecutionReceipt(wrongPackagedIdentity),
+    (error) => error?.code === "BROWSER_EXECUTION_RECEIPT_INVALID",
+  );
+  await assert.rejects(
+    recordBrowserExecutionReceipt({
+      ...requiredReceipt,
+      contextAttestation: "not_required",
+      finalModelContextAttestation: null,
+    }),
+    (error) => error?.code === "BROWSER_EXECUTION_RECEIPT_INVALID",
+  );
+  const legacyWrite = structuredClone(proofFreeReceipt);
+  legacyWrite.schemaVersion = "browser-execution-receipt-v2";
+  delete legacyWrite.contextAttestation;
+  delete legacyWrite.finalModelContextAttestation;
+  delete legacyWrite.outerRequestIdDigest;
+  await assert.rejects(
+    recordBrowserExecutionReceipt(legacyWrite),
+    (error) => error?.code === "BROWSER_EXECUTION_RECEIPT_LEGACY_READ_ONLY",
+  );
 });
 
 test("compressed-context-eligibility", () => {
@@ -7594,6 +7962,7 @@ test("privacy-isolation", async () => {
       privateHubJobsAvoided: 0,
       localOllamaCallsAvoided: 0,
       elapsedMs: 1,
+      contextAttestation: "not_required",
       prompt: "forbidden",
     }),
     (error) => error.code === "BROWSER_OFFLOAD_SENSITIVE_FIELD_REJECTED",
@@ -7621,6 +7990,7 @@ test("privacy-isolation", async () => {
       privateHubJobsAvoided: 0,
       localOllamaCallsAvoided: 0,
       elapsedMs: 1,
+      contextAttestation: "not_required",
       accessToken: "forbidden",
     }),
     (error) => error.code === "BROWSER_OFFLOAD_SENSITIVE_FIELD_REJECTED",

@@ -9,6 +9,10 @@ import {
   type ClosedAgentExecutionResult,
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
+import {
+  NOVEL_DOMAIN_VERSION,
+  type ConversationAttachment,
+} from "../domain";
 import { buildApprovedLearningContext } from "../sovereign-learning/combination-engine";
 import {
   createSovereignLearningRepository,
@@ -26,7 +30,11 @@ import {
 } from "./studio-closed-agent-tools";
 import { ClosedAIRuntimeCoordinator } from "./closed-ai-runtime-coordinator";
 import { ClosedAiBootstrapCoordinator } from "./closed-ai-bootstrap-coordinator";
-import { composeProjectContext } from "./project-context-composer";
+import {
+  composeProjectContext,
+  selectedAttachmentModelContextSource,
+  type RepositoryVerifiedSelectedAttachmentSummary,
+} from "./project-context-composer";
 import {
   prewarmStudioProjectAICache,
   readPrewarmedStudioProjectContext,
@@ -123,7 +131,7 @@ export function getStudioClosedAIBootstrapCoordinator(
 
 export type StudioClosedAgentContext = Omit<
   ClosedAIContextItem,
-  "privacyLevel" | "approved"
+  "privacyLevel" | "approved" | "modelContextSource"
 > & {
   privacyLevel?: ClosedAIContextItem["privacyLevel"];
   approved?: boolean;
@@ -176,12 +184,96 @@ export type ExecuteStudioClosedAgentInput = {
   conversationRecentMessageLimit?: number;
   selectedAttachmentSummaries?: Array<{
     attachmentId: string;
+    recordRevision: number;
     summary: string;
     contentDigest: string;
   }>;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
+
+const SELECTED_ATTACHMENT_SUMMARY_CHARACTER_LIMIT = 24_000;
+const SELECTED_ATTACHMENT_LIMIT = 12;
+const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
+const SELECTED_ATTACHMENT_RIGHTS_BASES = new Set([
+  "user_supplied_local_analysis",
+  "owned_by_user",
+  "public_domain",
+  "licensed_for_analysis",
+  "lawful_private_reference",
+  "ai_output_authorized",
+]);
+
+function selectedAttachmentSourceError() {
+  return Object.assign(new Error("Selected attachment source could not be verified."), {
+    code: "CLOSED_AI_ATTACHMENT_SOURCE_INVALID",
+  });
+}
+
+async function verifySelectedAttachmentSummaries(input: {
+  repository: ReturnType<typeof createNovelRepository>;
+  projectId: string;
+  conversationSessionId?: string;
+  selectedAttachmentSummaries?: ExecuteStudioClosedAgentInput["selectedAttachmentSummaries"];
+}): Promise<RepositoryVerifiedSelectedAttachmentSummary[]> {
+  const selected = input.selectedAttachmentSummaries ?? [];
+  if (!selected.length) return [];
+  const sessionId = input.conversationSessionId;
+  if (
+    !sessionId?.trim()
+    || selected.length > SELECTED_ATTACHMENT_LIMIT
+    || new Set(selected.map((item) => item.attachmentId)).size !== selected.length
+  ) throw selectedAttachmentSourceError();
+  return Promise.all(selected.map(async (item) => {
+    if (
+      !item.attachmentId.trim()
+      || !Number.isSafeInteger(item.recordRevision)
+      || item.recordRevision < 1
+      || typeof item.summary !== "string"
+      || !item.summary.trim()
+      || item.summary.length > SELECTED_ATTACHMENT_SUMMARY_CHARACTER_LIMIT
+      || !SHA256_DIGEST.test(item.contentDigest)
+    ) throw selectedAttachmentSourceError();
+    let attachment: ConversationAttachment | null;
+    try {
+      attachment = await input.repository.get<ConversationAttachment>(
+        "conversationAttachments",
+        item.attachmentId,
+      );
+    } catch {
+      throw selectedAttachmentSourceError();
+    }
+    if (
+      !attachment
+      || attachment.schemaVersion !== NOVEL_DOMAIN_VERSION
+      || attachment.conversationSchemaVersion !== "conversation-attachment-v1"
+      || attachment.id !== item.attachmentId
+      || attachment.projectId !== input.projectId
+      || attachment.sessionId !== sessionId
+      || (attachment.deletedAt !== null && attachment.deletedAt !== undefined)
+      || !Number.isSafeInteger(attachment.revision)
+      || attachment.revision < 1
+      || attachment.revision !== item.recordRevision
+      || attachment.parsingStatus !== "completed"
+      || attachment.contentHash !== item.contentDigest
+      || !SHA256_DIGEST.test(attachment.contentHash)
+      || !SELECTED_ATTACHMENT_RIGHTS_BASES.has(attachment.rightsBasis)
+      || !SHA256_DIGEST.test(attachment.rightsEvidenceHash)
+      || attachment.userConfirmedRights !== true
+      || attachment.rightsConfirmationSchemaVersion
+        !== "conversation-attachment-rights-confirmation-v1"
+      || attachment.localAnalysisOnly !== true
+      || attachment.rawContentRetained !== false
+    ) throw selectedAttachmentSourceError();
+    return {
+      attachmentId: attachment.id,
+      recordRevision: attachment.revision,
+      summary: item.summary,
+      contentDigest: attachment.contentHash,
+      modelContextSource: await selectedAttachmentModelContextSource(attachment),
+    };
+  }));
+}
 
 export function shouldRestoreStudioLocalRuntime(
   input: Pick<
@@ -205,6 +297,7 @@ export async function executeStudioClosedAgent(
   input: ExecuteStudioClosedAgentInput,
 ): Promise<ClosedAgentExecutionResult> {
   const os = getStudioClosedAgentOS();
+  await os.resumePendingRejections(input.projectId);
   const runtime = getStudioClosedAIRuntimeCoordinator();
   const taskId =
     input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`;
@@ -278,6 +371,12 @@ export async function executeStudioClosedAgent(
   }));
   try {
     const repository = createNovelRepository();
+    const selectedAttachmentSummaries = await verifySelectedAttachmentSummaries({
+      repository,
+      projectId: input.projectId,
+      conversationSessionId: input.conversationSessionId,
+      selectedAttachmentSummaries: input.selectedAttachmentSummaries,
+    });
     const approvedLearningRules = await loadApprovedConversationLearningRules({
       repository: createSovereignLearningRepository(),
       projectId: input.projectId,
@@ -285,7 +384,7 @@ export async function executeStudioClosedAgent(
     });
     const prewarmed = supplementalContext.length === 0
       && !input.conversationSessionId
-      && !input.selectedAttachmentSummaries?.length
+      && !selectedAttachmentSummaries.length
       && approvedLearningRules.length === 0
       ? await readPrewarmedStudioProjectContext({
         cache: os.cache,
@@ -312,7 +411,7 @@ export async function executeStudioClosedAgent(
       conversationSessionId: input.conversationSessionId,
       conversationRecentMessageLimit: input.conversationRecentMessageLimit,
       approvedLearningRules,
-      selectedAttachmentSummaries: input.selectedAttachmentSummaries,
+      selectedAttachmentSummaries,
       supplementalContext,
       semanticQuery: input.objective,
       semanticRanker: typeof window === "undefined"

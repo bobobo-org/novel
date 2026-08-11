@@ -1,5 +1,10 @@
 import type { PlatformTaskType } from "../../router/platform-types";
 import {
+  browserFinalContextMarkerPrefix,
+  fitBrowserFinalContextProtectedBlock,
+  type BrowserFinalContextExpectation,
+} from "../../security/browser-final-model-context-proof";
+import {
   currentChapterContext,
   extractNarrativeCharacterAnchors,
 } from "./continuity-anchors";
@@ -338,6 +343,7 @@ function outputContract(
 export function buildClosedAIModelPrompt(input: {
   objective: string;
   context: string[];
+  browserFinalContextExpectations?: BrowserFinalContextExpectation[];
   mandatoryInstruction?: string;
   profile: ClosedAIModelProfile;
   qualityPhase?: "draft" | "critic" | "revision";
@@ -361,6 +367,22 @@ export function buildClosedAIModelPrompt(input: {
   };
 }): ClosedAIPromptBuild {
   const phase = input.qualityPhase ?? "draft";
+  const finalContextExpectations = input.browserFinalContextExpectations ?? [];
+  const finalContextMarker = browserFinalContextMarkerPrefix();
+  const sealedFinalContext = input.context.filter((item) => (
+    item.includes(finalContextMarker)
+  ));
+  if (
+    sealedFinalContext.some((item) => !item.trim().startsWith(finalContextMarker))
+    || sealedFinalContext.length !== finalContextExpectations.length
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_ENVELOPE_INVALID"), {
+      code: "BROWSER_FINAL_CONTEXT_ENVELOPE_INVALID",
+    });
+  }
+  const ordinaryRawContext = input.context.filter((item) => (
+    !item.includes(finalContextMarker)
+  ));
   const toolSources = (input.toolResults ?? []).map((item) =>
     escapePromptMarkup(`${item.toolId}：${JSON.stringify(item.value)}`));
   const promptPlanRoles = phase === "critic"
@@ -421,7 +443,7 @@ export function buildClosedAIModelPrompt(input: {
   ));
   const objective = escapePromptMarkup(compactText(input.objective, objectiveLimit));
   const seen = new Set<string>();
-  const context = input.context
+  const context = ordinaryRawContext
     .map((item) => escapePromptMarkup(item.replace(/\r\n?/gu, "\n").trim()))
     .filter((item) => {
       const key = item.replace(/\s+/gu, " ");
@@ -442,22 +464,49 @@ export function buildClosedAIModelPrompt(input: {
     + (continuationSeedBlock?.length ?? 0)
     + (continuityAnchor?.length ?? 0);
   const remaining = Math.max(0, input.profile.maxInputCharacters - structuralReserve);
-  const workingBudget = workingSources.length ? Math.floor(remaining * 0.38) : 0;
-  const evidenceBudget = toolSources.length || planSources.length
-    ? Math.floor(remaining * 0.18)
-    : 0;
-  const contextBudget = Math.max(0, remaining - workingBudget - evidenceBudget);
   const compactCollection = (items: string[], budget: number) => {
-    let available = budget;
+    let available = Math.max(0, Math.floor(budget));
+    if (available === 0) return [];
     return items.map((item, index) => {
+      if (available === 0) return "";
       const itemsLeft = items.length - index;
-      const allocation = Math.max(96, Math.floor(available / Math.max(itemsLeft, 1)));
+      const fairAllocation = Math.floor(available / Math.max(itemsLeft, 1));
+      const allocation = Math.min(
+        available,
+        Math.max(1, Math.max(96, fairAllocation)),
+      );
       const value = compactText(item, Math.min(item.length, allocation));
       available = Math.max(0, available - value.length);
       return value;
-    });
+    }).filter(Boolean);
   };
-  const compacted = compactCollection(context, contextBudget);
+  const protectedContext = fitBrowserFinalContextProtectedBlock({
+    expectations: finalContextExpectations,
+    sealedFragments: sealedFinalContext,
+    maximumCharacters: Math.max(remaining, 1),
+  });
+  if (protectedContext.omittedCharacters !== 0) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"), {
+      code: "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
+    });
+  }
+  const lowerPriorityRemaining = Math.max(
+    0,
+    remaining - protectedContext.block.length,
+  );
+  const workingBudget = workingSources.length
+    ? Math.floor(lowerPriorityRemaining * 0.38)
+    : 0;
+  const evidenceBudget = toolSources.length || planSources.length
+    ? Math.floor(lowerPriorityRemaining * 0.18)
+    : 0;
+  const ordinaryContextBudget = Math.max(
+    0,
+    lowerPriorityRemaining - workingBudget - evidenceBudget,
+  );
+  const compacted = ordinaryContextBudget > 0
+    ? compactCollection(context, ordinaryContextBudget)
+    : [];
   const compactedPlan = compactCollection(
     planSources,
     Math.floor(evidenceBudget * 0.45),
@@ -484,6 +533,7 @@ export function buildClosedAIModelPrompt(input: {
     continuationSeed,
   );
   const prompt = [
+    ...(protectedContext.block ? [protectedContext.block] : []),
     `<工作類型>${input.profile.taskType}</工作類型>`,
     `<品質階段>${phase}</品質階段>`,
     "<已核准資料>",
@@ -524,6 +574,14 @@ export function buildClosedAIModelPrompt(input: {
     ...(continuityAnchor ? [continuityAnchor] : []),
     ...(finalOutputContract ? [finalOutputContract] : []),
   ].join("\n");
+  if (
+    finalContextExpectations.length
+    && prompt.length > input.profile.maxInputCharacters
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"), {
+      code: "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
+    });
+  }
   return {
     prompt,
     inputCharacters: prompt.length,
@@ -534,11 +592,12 @@ export function buildClosedAIModelPrompt(input: {
         - objective.length
         - mandatoryInstruction.length
         - (continuationSeed?.anchor.length ?? 0)
+        - sealedFinalContext.reduce((total, item) => total + item.length, 0)
         - compacted.reduce((total, item) => total + item.length, 0)
         - compactedPlan.reduce((total, item) => total + item.length, 0)
         - compactedTools.reduce((total, item) => total + item.length, 0)
         - compactedWorking.reduce((total, item) => total + item.length, 0),
     ),
-    contextItems: compacted.length,
+    contextItems: compacted.length + sealedFinalContext.length,
   };
 }

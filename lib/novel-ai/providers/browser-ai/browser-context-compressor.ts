@@ -1,5 +1,6 @@
 import type { ClosedAINamespace } from "../../closed-ai-cache";
-import { sha256Hex } from "../../closed-ai-cache";
+import { sha256Hex, stableStringify } from "../../closed-ai-cache";
+import type { BrowserFinalContextSourceIdentity } from "../../security/browser-final-model-context-proof";
 import {
   estimateBrowserTokens,
   fitBrowserTextToTokenBudget,
@@ -22,6 +23,7 @@ export type BrowserContextKind =
   | "rpg-state"
   | "task-achievement"
   | "approved-learning-rule"
+  | "untrusted-reference"
   | "user-instruction";
 
 export type BrowserContextVisibility =
@@ -40,6 +42,8 @@ export type BrowserContextSource = {
   revision: string;
   relevance?: number;
   authority?: number;
+  /** Ephemeral structured identity for context that must survive to the model call. */
+  sourceIdentity?: BrowserFinalContextSourceIdentity;
 };
 
 export type BrowserContextPack = {
@@ -54,6 +58,7 @@ export type BrowserContextPack = {
     originalTokens: number;
     includedTokens: number;
     revision: string;
+    sourceIdentity?: BrowserFinalContextSourceIdentity;
   }>;
   composedText: string;
   metrics: {
@@ -88,6 +93,7 @@ const KIND_PRIORITY: Record<BrowserContextKind, number> = {
   "rpg-state": 78,
   "task-achievement": 76,
   "approved-learning-rule": 72,
+  "untrusted-reference": 40,
   "user-instruction": 96,
 };
 
@@ -114,6 +120,7 @@ function budgetFamily(kind: BrowserContextKind):
   | "character"
   | "world"
   | "retrieval" {
+  if (kind === "untrusted-reference") return "retrieval";
   if (kind === "canon-authority" || kind === "active-branch") return "canon";
   if (
     kind === "current-chapter"
@@ -183,13 +190,28 @@ export async function composeBrowserContextPack(input: {
     return Boolean(source.text.trim());
   });
 
-  const digested = await Promise.all(accepted.map(async (source) => ({
+  const digested = await Promise.all(accepted.map(async (source, sourceOrdinal) => ({
     source,
-    digest: await sha256Hex(source.text.trim()),
+    sourceOrdinal,
+    digest: await sha256Hex(source.sourceIdentity?.receiptRequired
+      ? source.text.replace(/\r\n?/gu, "\n").trim()
+      : source.text.trim()),
   })));
   const seen = new Set<string>();
   let duplicateItemsRemoved = 0;
+  const requiredIdentities = digested
+    .filter((item) => item.source.sourceIdentity?.receiptRequired)
+    .map((item) => item.source.sourceIdentity!);
+  if (
+    new Set(requiredIdentities.map((identity) => identity.sourceId)).size
+      !== requiredIdentities.length
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
   const unique = digested.filter((item) => {
+    if (item.source.sourceIdentity?.receiptRequired) return true;
     const key = `${item.source.kind}:${item.digest}`;
     if (seen.has(key)) {
       duplicateItemsRemoved += 1;
@@ -199,21 +221,48 @@ export async function composeBrowserContextPack(input: {
     return true;
   });
   unique.sort((left, right) => {
+    const requiredDifference = Number(Boolean(right.source.sourceIdentity?.receiptRequired))
+      - Number(Boolean(left.source.sourceIdentity?.receiptRequired));
+    if (requiredDifference) return requiredDifference;
     const leftScore = KIND_PRIORITY[left.source.kind]
       + (left.source.authority ?? 0) * 12
       + (left.source.relevance ?? 0) * 10;
     const rightScore = KIND_PRIORITY[right.source.kind]
       + (right.source.authority ?? 0) * 12
       + (right.source.relevance ?? 0) * 10;
-    return rightScore - leftScore || left.source.id.localeCompare(right.source.id);
+    return rightScore - leftScore
+      || left.sourceOrdinal - right.sourceOrdinal
+      || left.source.id.localeCompare(right.source.id);
   });
 
   const remaining = familyBudgets(input.performancePolicy);
+  let requiredLeftTotal = unique.filter((item) => (
+    item.source.sourceIdentity?.receiptRequired
+  )).length;
+  const requiredLeftByFamily = {
+    canon: 0,
+    recent: 0,
+    character: 0,
+    world: 0,
+    retrieval: 0,
+  };
+  for (const item of unique) {
+    if (item.source.sourceIdentity?.receiptRequired) {
+      requiredLeftByFamily[budgetFamily(item.source.kind)] += 1;
+    }
+  }
   const items: BrowserContextPack["items"] = [];
   let composedText = "";
   for (const item of unique) {
     const family = budgetFamily(item.source.kind);
-    if (remaining[family] <= 0) continue;
+    if (remaining[family] <= 0) {
+      if (item.source.sourceIdentity?.receiptRequired) {
+        throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+          code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+        });
+      }
+      continue;
+    }
     const originalTokens = estimateBrowserTokens(item.source.text);
     const separator = items.length ? "\n\n" : "";
     const heading = `[${item.source.kind}]\n`;
@@ -222,15 +271,35 @@ export async function composeBrowserContextPack(input: {
       0,
       input.performancePolicy.inputBudgetTokens - estimateBrowserTokens(baseText),
     );
-    const itemBudget = Math.min(remaining[family], totalRemaining);
+    const required = item.source.sourceIdentity?.receiptRequired === true;
+    const itemBudget = required
+      ? Math.min(
+        Math.floor(remaining[family] / Math.max(requiredLeftByFamily[family], 1)),
+        Math.floor(totalRemaining / Math.max(requiredLeftTotal, 1)),
+      )
+      : Math.min(remaining[family], totalRemaining);
     const text = trimToTokenBudget(item.source.text, itemBudget);
     const includedTokens = estimateBrowserTokens(text);
-    if (!text || includedTokens <= 0) continue;
+    if (!text || includedTokens <= 0) {
+      if (item.source.sourceIdentity?.receiptRequired) {
+        throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+          code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+        });
+      }
+      continue;
+    }
     const nextComposedText = `${baseText}${text}`;
     if (
       estimateBrowserTokens(nextComposedText)
       > input.performancePolicy.inputBudgetTokens
-    ) continue;
+    ) {
+      if (item.source.sourceIdentity?.receiptRequired) {
+        throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+          code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+        });
+      }
+      continue;
+    }
     remaining[family] = Math.max(0, remaining[family] - includedTokens);
     composedText = nextComposedText;
     items.push({
@@ -241,6 +310,29 @@ export async function composeBrowserContextPack(input: {
       originalTokens,
       includedTokens,
       revision: item.source.revision,
+      sourceIdentity: item.source.sourceIdentity
+        ? structuredClone(item.source.sourceIdentity)
+        : undefined,
+    });
+    if (required) {
+      requiredLeftByFamily[family] -= 1;
+      requiredLeftTotal -= 1;
+    }
+  }
+  const requiredSourceIdentities = unique
+    .filter((item) => item.source.sourceIdentity?.receiptRequired)
+    .map((item) => stableStringify(item.source.sourceIdentity));
+  const includedRequiredSourceIdentities = items
+    .filter((item) => item.sourceIdentity?.receiptRequired)
+    .map((item) => stableStringify(item.sourceIdentity));
+  if (
+    requiredSourceIdentities.length !== includedRequiredSourceIdentities.length
+    || requiredSourceIdentities.some((identity, index) => (
+      identity !== includedRequiredSourceIdentities[index]
+    ))
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+      code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
     });
   }
   const browserCompressedContextTokens = estimateBrowserTokens(composedText);

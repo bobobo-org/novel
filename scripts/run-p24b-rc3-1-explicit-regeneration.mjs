@@ -32,6 +32,10 @@ import {
 import { conversationContentDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { hasVerifiedClosedRegenerationProof } from "../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts";
+import {
+  createBrowserFinalModelContextAttestation,
+  createBrowserFinalModelContextInvocationProof,
+} from "../lib/novel-ai/security/browser-final-model-context-proof.ts";
 
 const mode = process.argv[2] || "all";
 const tests = [];
@@ -141,10 +145,32 @@ class TestBackend {
     if (this.executionOverrides.waitFor) {
       await this.executionOverrides.waitFor;
     }
+    const modelId = this.executionOverrides.modelId ?? `${this.id}-model`;
+    const modelDigest = this.executionOverrides.modelDigest ?? modelDigestForBackend(this.id);
+    const browserInvocation = this.id === "browser-ai"
+      ? await createBrowserFinalModelContextInvocationProof({
+        outerRequestId: input.request.taskId,
+        invocationRequestId: `${input.request.taskId}:regeneration-initial`,
+        outerTaskType: input.request.taskType,
+        outerQualityPhase: input.qualityPhase,
+        innerStage: "initial",
+        innerIndex: 0,
+        modelId,
+        modelDigest,
+        callOptionsDigest: await sha256Hex(stableStringify({
+          domain: "explicit-regeneration-call-options-v3",
+          seed: regeneration?.modelSeed ?? null,
+        })),
+        systemMessage: "explicit-regeneration-system",
+        userMessage: "explicit-regeneration-user",
+        expectations: [],
+        omittedCharacters: 0,
+      })
+      : null;
     return {
       backendId: this.id,
-      modelId: this.executionOverrides.modelId ?? `${this.id}-model`,
-      modelDigest: this.executionOverrides.modelDigest ?? modelDigestForBackend(this.id),
+      modelId,
+      modelDigest,
       adapterId: this.executionOverrides.adapterId ?? null,
       adapterDigest: this.executionOverrides.adapterDigest ?? null,
       content,
@@ -158,6 +184,18 @@ class TestBackend {
       qualityPasses: 1,
       draftDigest: null,
       criticDigest: null,
+      ...(browserInvocation
+        ? {
+          contextAttestation: "required",
+          finalModelContextAttestation:
+            await createBrowserFinalModelContextAttestation({
+              acceptedDisposition: "standalone",
+              acceptedStage: "initial",
+              executedStages: ["initial"],
+              contributingCalls: [browserInvocation],
+            }),
+        }
+        : {}),
     };
   }
 }

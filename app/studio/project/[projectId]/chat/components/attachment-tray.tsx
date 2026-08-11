@@ -43,7 +43,7 @@ export function AttachmentTray({
           disabled={busy}
           onChange={(event) => onRightsConfirmedChange(event.target.checked)}
         />
-        我確認擁有或已獲授權分析這些作品；只有整份學習匯入會使用此確認
+        我確認擁有或已獲授權分析這些作品；附件分析與整份學習匯入都會使用此確認
       </label>
     </div>
   );

@@ -37,6 +37,8 @@ import {
 } from "../lib/novel-ai/conversation/tool-registry.ts";
 import {
   composeProjectContext,
+  conversationCanonRevisionDigest,
+  selectedAttachmentModelContextSource,
 } from "../lib/novel-ai/web/project-context-composer.ts";
 import {
   getStudioClosedAgentOS,
@@ -87,6 +89,10 @@ import {
   parseClosedAgentFailureEvidence,
   serializeClosedAgentFailureEvidence,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
+import {
+  CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
+  createConversationAttachmentRecord,
+} from "../lib/novel-ai/conversation/attachments.ts";
 
 const mode = process.argv[2] ?? "all";
 const harness = new Rc6TestHarness("P2.4B RC6 conversation-first runtime gate", mode);
@@ -187,10 +193,30 @@ function chapter(projectId, chapterId = `chapter:${projectId}`) {
   };
 }
 
+function storyBible(projectId, storyBibleId = `bible:${projectId}`) {
+  return {
+    ...record(storyBibleId, projectId),
+    theme: optionalValue("A project-only theme"),
+    style: optionalValue("immersive"),
+    protagonistIds: [],
+    characterIds: [],
+    relationshipIds: [],
+    worldId: null,
+    worldRuleIds: [],
+    loreIds: [],
+    timelineEventIds: [],
+    foreshadowing: [],
+    unresolvedThreads: [],
+    forbiddenContradictions: [],
+    authorPreferences: [],
+  };
+}
+
 async function setup(projectId = "project-a", repository = new MemoryNovelRepository()) {
   const chapterRecord = chapter(projectId);
   await repository.put("projects", project(projectId, chapterRecord.id));
   await repository.put("chapters", chapterRecord);
+  await repository.put("storyBibles", storyBible(projectId));
   return {
     repository,
     service: new ConversationRepositoryService(repository),
@@ -775,6 +801,80 @@ harness.test("contract", "project backup restore validates before import and ret
   assert.match(source, /restoreProjectBackup\(repo, check\.payload, "replace", projectId\)/u);
   assert.match(source, /location\.assign\(`\/studio\/project\/\$\{projectId\}\/chat`\)/u);
   assert.doesNotMatch(source, /location\.assign\(`\/studio\/project\/\$\{projectId\}\/write`\)/u);
+});
+
+harness.test("contract", "attachment rights confirmation precedes message, parser, and model work", () => {
+  const workspace = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const tray = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/components/attachment-tray.tsx", import.meta.url),
+    "utf8",
+  );
+  const rightsGate = workspace.indexOf(
+    "if (localAttachments.length && !rightsConfirmed)",
+  );
+  const messageWrite = workspace.indexOf(
+    "let userMessage = existingRpgUser ?? await conversation.appendMessage",
+  );
+  const parserStart = workspace.indexOf(
+    "preparedAttachments = await prepareLocalAttachments(",
+  );
+  assert(rightsGate >= 0);
+  assert(messageWrite > rightsGate);
+  assert(parserStart > messageWrite);
+  assert.match(
+    workspace,
+    /safeCode !== "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED"/u,
+  );
+  assert.match(
+    workspace,
+    /"CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",[\s\S]*"LEARNING_RIGHTS_CONFIRMATION_REQUIRED",[\s\S]*\.includes\(safeCode\)[\s\S]*setDraft\(content\)/u,
+  );
+  assert.match(
+    tray,
+    /附件分析與整份學習匯入都會使用此確認/u,
+  );
+});
+
+harness.test("contract", "artifact rejection validates current scope before convergent side effects", () => {
+  const approval = readFileSync(
+    new URL(
+      "../app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const readCurrent = approval.indexOf(
+    "const currentArtifact = await repository.get<ConversationArtifact>",
+  );
+  const validateScope = approval.indexOf(
+    "currentArtifact.projectId !== projectId",
+    readCurrent,
+  );
+  const currentSource = approval.indexOf(
+    "currentArtifact.sourceMessageId",
+    validateScope,
+  );
+  const rejectClosed = approval.indexOf(
+    "await rejectStudioClosedAgentCandidate(closedCandidateId)",
+    currentSource,
+  );
+  const rollbackLearning = approval.indexOf(
+    "await learning.rollbackPendingApproval(",
+    rejectClosed,
+  );
+  const rejectConversation = approval.indexOf(
+    "await conversation.rejectArtifact(",
+    rollbackLearning,
+  );
+  assert(readCurrent >= 0);
+  assert(validateScope > readCurrent);
+  assert(currentSource > validateScope);
+  assert(rejectClosed > currentSource);
+  assert(rollbackLearning > rejectClosed);
+  assert(rejectConversation > rollbackLearning);
 });
 
 harness.test("contract", "conversation domain stores are canonical repository stores", () => {
@@ -1809,6 +1909,22 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
     assert.equal(firstChapter.approvalRequired, true, firstChapterPrompt);
     assert.equal(firstChapter.candidateOnly, true, firstChapterPrompt);
   }
+  const attachmentContinuation = await planConversationRequest({
+    content: "請根據核准 Story Bible 與附件開始第一章",
+    attachmentCount: 1,
+  });
+  assert.equal(attachmentContinuation.intent, "continue_writing");
+  assert.equal(attachmentContinuation.taskType, "chapter.continue");
+  assert.equal(attachmentContinuation.targetStore, "chapters");
+  assert.equal(attachmentContinuation.executionKind, "closed_agent");
+  assert.equal(attachmentContinuation.approvalRequired, true);
+  const attachmentAnalysis = await planConversationRequest({
+    content: "請分析附件內容",
+    attachmentCount: 1,
+  });
+  assert.equal(attachmentAnalysis.intent, "attachment_analysis");
+  assert.equal(attachmentAnalysis.executionKind, "attachment");
+  assert.equal(attachmentAnalysis.approvalRequired, false);
 
   const entityCandidateCases = [
     {
@@ -2063,12 +2179,16 @@ harness.test("memory", "context includes bounded same-project summaries while ra
   });
   const projectRecord = await sharedRepository.get("projects", first.projectId);
   const chapterRecord = await sharedRepository.get("chapters", first.chapterId);
-  const canonRevisionDigest = await sha256Hex(stableStringify({
-    project: { id: projectRecord.id, revision: projectRecord.revision },
-    chapter: { id: chapterRecord.id, revision: chapterRecord.revision },
-    storyBible: null,
+  const storyBibleRecord = await sharedRepository.get(
+    "storyBibles",
+    `bible:${first.projectId}`,
+  );
+  const canonRevisionDigest = await conversationCanonRevisionDigest({
+    project: projectRecord,
+    activeChapter: chapterRecord,
+    storyBible: storyBibleRecord,
     storyState: null,
-  }));
+  });
   await first.service.upsertSummary({
     projectId: first.projectId,
     sessionId: firstSession.id,
@@ -2108,12 +2228,16 @@ harness.test("memory", "stale, invalidated, cross-project and excess conversatio
   const active = await first.service.createSession({ projectId: first.projectId });
   const projectRecord = await sharedRepository.get("projects", first.projectId);
   const chapterRecord = await sharedRepository.get("chapters", first.chapterId);
-  const canonRevisionDigest = await sha256Hex(stableStringify({
-    project: { id: projectRecord.id, revision: projectRecord.revision },
-    chapter: { id: chapterRecord.id, revision: chapterRecord.revision },
-    storyBible: null,
+  const storyBibleRecord = await sharedRepository.get(
+    "storyBibles",
+    `bible:${first.projectId}`,
+  );
+  const canonRevisionDigest = await conversationCanonRevisionDigest({
+    project: projectRecord,
+    activeChapter: chapterRecord,
+    storyBible: storyBibleRecord,
     storyState: null,
-  }));
+  });
   for (let index = 0; index < 6; index += 1) {
     const session = await first.service.createSession({ projectId: first.projectId });
     const message = await first.service.appendMessage({
@@ -2359,6 +2483,132 @@ harness.test("security", "ConversationAttachment warnings accept safe diagnostic
       warnings: ["Authorization: Bearer abcdefghijklmnop"],
     }),
     "CONVERSATION_PRIVATE_DATA_NOT_ALLOWED",
+  );
+});
+
+harness.test("security", "fresh ConversationAttachments require and bind explicit rights confirmation", async () => {
+  const state = await setup(`project-attachment-rights:${crypto.randomUUID()}`);
+  const session = await state.service.createSession({ projectId: state.projectId });
+  const file = new File(
+    ["Locally supplied reference material."],
+    "owned-reference.txt",
+    { type: "text/plain" },
+  );
+  await expectErrorCode(
+    () => createConversationAttachmentRecord({
+      projectId: state.projectId,
+      sessionId: session.id,
+      file,
+      rightsBasis: "user_supplied_local_analysis",
+      rightsEvidence: "composer-local-analysis-only",
+      userConfirmedRights: false,
+    }),
+    "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
+  );
+  assert.equal((await state.repository.list("conversationAttachments", state.projectId)).length, 0);
+
+  const created = await createConversationAttachmentRecord({
+    projectId: state.projectId,
+    sessionId: session.id,
+    file,
+    rightsBasis: "user_supplied_local_analysis",
+    rightsEvidence: "composer-local-analysis-only",
+    userConfirmedRights: true,
+  });
+  assert.equal(created.userConfirmedRights, true);
+  assert.equal(
+    created.rightsConfirmationSchemaVersion,
+    CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
+  );
+  assert.equal(created.rightsEvidenceHash, await sha256Hex("composer-local-analysis-only"));
+  const stored = await state.repository.put("conversationAttachments", created);
+  const completed = await state.repository.put("conversationAttachments", {
+    ...stored,
+    parsingStatus: "completed",
+  }, stored.revision);
+  const boundSource = await selectedAttachmentModelContextSource(completed);
+  for (const mutation of [
+    { rightsBasis: "owned_by_user" },
+    { rightsEvidenceHash: await sha256Hex("different-rights-evidence") },
+    { userConfirmedRights: undefined },
+    { rightsConfirmationSchemaVersion: undefined },
+  ]) {
+    const mutated = { ...completed, ...mutation };
+    const mutatedSource = await selectedAttachmentModelContextSource(mutated);
+    assert.notEqual(mutatedSource.sourceRevisionDigest, boundSource.sourceRevisionDigest);
+  }
+
+  const selectedAttachment = {
+    attachmentId: completed.id,
+    recordRevision: completed.revision,
+    summary: "A sanitized attachment summary for model context.",
+    contentDigest: completed.contentHash,
+    modelContextSource: boundSource,
+  };
+  const composition = await composeProjectContext({
+    repository: state.repository,
+    taskType: "chapter.continue",
+    projectId: state.projectId,
+    privacyLevel: "device_only",
+    audience: "actor",
+    conversationSessionId: session.id,
+    selectedAttachmentSummaries: [selectedAttachment],
+  });
+  const attachmentContext = composition.context.find((item) => (
+    item.id === `conversation-attachment-summary:${completed.id}`
+  ));
+  assert(attachmentContext);
+  assert.deepEqual(attachmentContext.modelContextSource, boundSource);
+  const { payload: rightsBackup } = await createProjectBackup(
+    state.repository,
+    state.projectId,
+    "full",
+  );
+  const backedUpAttachment = rightsBackup.records.conversationAttachments.find(
+    (attachment) => attachment.id === completed.id,
+  );
+  assert(backedUpAttachment);
+  assert.equal(backedUpAttachment.userConfirmedRights, true);
+  assert.equal(
+    backedUpAttachment.rightsConfirmationSchemaVersion,
+    CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
+  );
+  assert.equal((await validateBackupPayload(rightsBackup)).valid, true);
+  const tamperedSourceRevisionDigest = await sha256Hex("tampered-source-revision");
+  await expectErrorCode(
+    () => composeProjectContext({
+      repository: state.repository,
+      taskType: "chapter.continue",
+      projectId: state.projectId,
+      privacyLevel: "device_only",
+      audience: "actor",
+      conversationSessionId: session.id,
+      selectedAttachmentSummaries: [{
+        ...selectedAttachment,
+        modelContextSource: {
+          ...boundSource,
+          sourceRevisionDigest: tamperedSourceRevisionDigest,
+        },
+      }],
+    }),
+    "CLOSED_AI_ATTACHMENT_SOURCE_INVALID",
+  );
+
+  await expectErrorCode(
+    () => state.repository.put("conversationAttachments", {
+      ...created,
+      id: `attachment:${crypto.randomUUID()}`,
+      userConfirmedRights: undefined,
+    }),
+    "CONVERSATION_ATTACHMENT_RECORD_INVALID",
+  );
+  await expectErrorCode(
+    () => state.repository.put("conversationAttachments", {
+      ...created,
+      id: `attachment:${crypto.randomUUID()}`,
+      rightsConfirmationSchemaVersion: "conversation-attachment-rights-confirmation-v0",
+    }),
+    "CONVERSATION_ATTACHMENT_RECORD_INVALID",
   );
 });
 

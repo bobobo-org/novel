@@ -23,6 +23,14 @@ import {
   verifyBrowserModelShards,
 } from "./browser-model-installer";
 import { BrowserGPUQueue } from "./browser-gpu-queue";
+import { sha256Hex, stableStringify } from "../../closed-ai-cache";
+import {
+  createBrowserFinalModelContextInvocationProof,
+  type BrowserContextAttestationRequirement,
+  type BrowserFinalContextExpectation,
+  type BrowserFinalModelContextInnerStage,
+  type BrowserFinalModelContextInvocationProof,
+} from "../../security/browser-final-model-context-proof";
 
 const METADATA_DB = "novel-browser-webllm-v1";
 const METADATA_STORE = "runtime-records";
@@ -205,6 +213,14 @@ export type BrowserWebLLMGenerationInput = {
   maxTokens?: number;
   repetitionPenalty?: number;
   seed?: number;
+  contextAttestation?: BrowserContextAttestationRequirement;
+  finalContextExpectations?: BrowserFinalContextExpectation[];
+  finalContextOuterRequestId?: string;
+  finalContextOuterTaskType?: string;
+  finalContextOuterQualityPhase?: "draft" | "critic" | "revision";
+  finalContextInnerStage?: BrowserFinalModelContextInnerStage;
+  finalContextInnerIndex?: 0 | 1 | 2;
+  invocationRequestId?: string;
   signal?: AbortSignal;
   onToken?: (event: {
     delta: string;
@@ -233,6 +249,8 @@ export type BrowserWebLLMGenerationResult = {
   finishReason: BrowserWebLLMFinishReason | null;
   completionTokens: number | null;
   performancePolicy: BrowserAIPerformancePolicy;
+  browserModelContextInvocationProof?: BrowserFinalModelContextInvocationProof;
+  contextAttestation?: BrowserContextAttestationRequirement;
   externalRequest: false;
   dataLeftDevice: false;
 };
@@ -905,6 +923,51 @@ async function runBrowserWebLLMGeneration(
   queueWaitMs: number,
 ): Promise<BrowserWebLLMGenerationResult> {
   const started = performance.now();
+  const finalContextFields = [
+    input.finalContextExpectations,
+    input.finalContextOuterRequestId,
+    input.finalContextOuterTaskType,
+    input.finalContextOuterQualityPhase,
+    input.finalContextInnerStage,
+    input.finalContextInnerIndex,
+    input.invocationRequestId,
+  ];
+  const hasFinalContextBoundary = finalContextFields.some(
+    (value) => value !== undefined,
+  );
+  if (
+    input.contextAttestation === "required"
+    && (
+      input.trustedClosedPrompt !== true
+      || input.finalContextExpectations === undefined
+      || !input.finalContextOuterRequestId
+      || !input.finalContextOuterTaskType
+      || !input.finalContextOuterQualityPhase
+      || !input.finalContextInnerStage
+      || input.finalContextInnerIndex === undefined
+      || !input.invocationRequestId
+    )
+  ) {
+    throw runtimeError(
+      "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED",
+      "The required final-model context boundary is incomplete.",
+    );
+  }
+  const proofFreeBoundaryInvalid = input.contextAttestation === "not_required"
+    && (
+      hasFinalContextBoundary
+      || input.prompt.includes("[[CTX3:")
+      || input.prompt.includes("<approved-model-context>")
+    );
+  if (
+    proofFreeBoundaryInvalid
+    || input.contextAttestation === undefined && hasFinalContextBoundary
+  ) {
+    throw runtimeError(
+      "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+      "The final-model context boundary does not match its declared requirement.",
+    );
+  }
   const { snapshot, model, engine, engineReused } = await readyModel(input.signal);
   if (input.signal?.aborted) throw new DOMException("已取消生成。", "AbortError");
   if (engineReused) engineReuseCount += 1;
@@ -940,16 +1003,47 @@ async function runBrowserWebLLMGeneration(
     const structuredInstruction = input.jsonMode
       ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
       : "";
+    const messages = [
+      {
+        role: "system" as const,
+        content: `${input.systemInstruction}${structuredInstruction}`,
+      },
+      { role: "user" as const, content: fittedPrompt.prompt },
+    ];
+    const responseFormat = input.jsonMode
+      ? { type: "json_object" as const, schema: JSON.stringify(input.jsonSchema ?? { type: "object" }) }
+      : { type: "text" as const };
+    const generationOptions = browserWebLLMGenerationOptions({
+      performancePolicy,
+      seed: input.seed,
+    });
+    const browserModelContextInvocationProof = input.contextAttestation === "required"
+      ? await createBrowserFinalModelContextInvocationProof({
+        outerRequestId: input.finalContextOuterRequestId ?? "",
+        invocationRequestId: input.invocationRequestId ?? "",
+        outerTaskType: input.finalContextOuterTaskType ?? "",
+        outerQualityPhase: input.finalContextOuterQualityPhase ?? "draft",
+        innerStage: input.finalContextInnerStage ?? "initial",
+        innerIndex: input.finalContextInnerIndex ?? 0,
+        modelId: model.modelId,
+        modelDigest: model.modelDigest,
+        callOptionsDigest: await sha256Hex(stableStringify({
+          domain: "browser-webllm-call-options-v3",
+          model: model.modelId,
+          responseFormat,
+          generationOptions,
+        })),
+        systemMessage: messages[0].content,
+        userMessage: messages[1].content,
+        expectations: input.finalContextExpectations!,
+        omittedCharacters: fittedPrompt.omittedCharacters,
+      })
+      : undefined;
     const chunks = await engine.chat.completions.create({
       model: model.modelId,
-      messages: [
-        { role: "system", content: `${input.systemInstruction}${structuredInstruction}` },
-        { role: "user", content: fittedPrompt.prompt },
-      ],
-      response_format: input.jsonMode
-        ? { type: "json_object", schema: JSON.stringify(input.jsonSchema ?? { type: "object" }) }
-        : { type: "text" },
-      ...browserWebLLMGenerationOptions({ performancePolicy, seed: input.seed }),
+      messages,
+      response_format: responseFormat,
+      ...generationOptions,
     });
     for await (const chunk of chunks) {
       if (input.signal?.aborted) {
@@ -1025,6 +1119,8 @@ async function runBrowserWebLLMGeneration(
       finishReason,
       completionTokens,
       performancePolicy,
+      browserModelContextInvocationProof,
+      contextAttestation: input.contextAttestation,
       externalRequest: false,
       dataLeftDevice: false,
     };

@@ -355,6 +355,7 @@ export class AtomicLearningImportCoordinator {
           file,
           rightsBasis: input.rightsBasis,
           rightsEvidence: input.rightsEvidence,
+          userConfirmedRights: true,
           signal: input.signal,
         });
         attachments.push(await this.conversationRepository.put(
@@ -667,6 +668,7 @@ export class AtomicLearningImportCoordinator {
     this.controllers.get(importSessionId)?.abort("rollback");
     await this.completions.get(importSessionId);
     const session = await this.requireSession(projectId, importSessionId);
+    if (session.status === "rolled_back") return session;
     if (session.status === "committed") {
       throw learningImportError("LEARNING_IMPORT_COMMITTED_CANNOT_ROLLBACK");
     }
@@ -860,15 +862,38 @@ export class AtomicLearningImportCoordinator {
 
   async rollbackPendingApproval(projectId: string, importSessionId: string) {
     const session = await this.requireSession(projectId, importSessionId);
+    const staging = await this.learningRepository.getImportStaging(importSessionId);
+    const compensatedStaging = Boolean(
+      staging
+      && staging.projectId === projectId
+      && staging.manifestDigest === session.manifestDigest
+      && staging.formalCommit === null,
+    );
+    if (session.status === "rolled_back") {
+      if (!staging) return session;
+      if (!compensatedStaging) {
+        throw learningImportError("LEARNING_IMPORT_COMPENSATION_SOURCE_INVALID");
+      }
+      await this.learningRepository.commit({ remove: { staging: [importSessionId] } });
+      return session;
+    }
     if (session.status !== "committed") return this.rollback(projectId, importSessionId);
-    await this.compensateFinalizedApproval(projectId, importSessionId);
-    await this.learningRepository.commit({ remove: { staging: [importSessionId] } });
-    return this.saveSession(session, {
+    if (!staging || staging.projectId !== projectId || staging.manifestDigest !== session.manifestDigest) {
+      throw learningImportError("LEARNING_IMPORT_COMPENSATION_SOURCE_INVALID");
+    }
+    if (staging.formalCommit) {
+      await this.compensateFinalizedApproval(projectId, importSessionId);
+    } else if (!compensatedStaging) {
+      throw learningImportError("LEARNING_IMPORT_COMPENSATION_MARKER_MISSING");
+    }
+    const rolledBack = await this.saveSession(session, {
       status: "rolled_back",
       completedParts: 0,
       failedParts: 0,
       retryablePartIndexes: [],
       completedAt: now(),
     });
+    await this.learningRepository.commit({ remove: { staging: [importSessionId] } });
+    return rolledBack;
   }
 }

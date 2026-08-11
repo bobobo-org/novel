@@ -320,6 +320,48 @@ export class VerifiableLedger {
         "One ledger cannot mix closed AI namespaces.",
       );
     }
+    const reusableCausationBlock = (
+      candidates: VerifiableLedgerBlock[],
+    ): VerifiableLedgerBlock | null => {
+      if (!lineage.causationId) return null;
+      const matches = candidates.filter((candidate) => (
+        candidate.eventType === input.eventType
+        && candidate.lineage?.causationId === lineage.causationId
+      ));
+      if (matches.length > 1) {
+        throw ledgerError(
+          "LEDGER_CAUSATION_DUPLICATED",
+          "One causation may produce only one ledger event of a given type.",
+        );
+      }
+      const existing = matches[0];
+      if (!existing) return null;
+      if (
+        existing.namespaceDigest !== namespaceDigest
+        || existing.payloadDigest !== payloadDigest
+        || existing.resultDigest !== resultDigest
+        || Boolean(existing.signature) !== Boolean(input.signApproval)
+        || Boolean(existing.contentAddress) !== Boolean(input.retainContent)
+        || stableStringify(existing.lineage?.sourceContentAddresses ?? [])
+          !== stableStringify(lineage.sourceContentAddresses)
+        || (existing.lineage?.rollbackTargetBlockId ?? null)
+          !== lineage.rollbackTargetBlockId
+      ) {
+        throw ledgerError(
+          "LEDGER_CAUSATION_CONFLICT",
+          "A causation identifier cannot be rebound to different evidence.",
+        );
+      }
+      if (input.retainContent && (!existing.contentAddress || !existing.contentRecordId)) {
+        throw ledgerError(
+          "LEDGER_CAUSATION_CONTENT_MISSING",
+          "Causation-bound retained content is incomplete.",
+        );
+      }
+      return existing;
+    };
+    const existingCausationBlock = reusableCausationBlock(blocks);
+    if (existingCausationBlock) return existingCausationBlock;
     const contentAddress = input.retainContent
       ? `sha256:${payloadDigest}`
       : null;
@@ -369,7 +411,15 @@ export class VerifiableLedger {
       ? await this.signer.sign(blockHash, timestamp)
       : null;
     const block: VerifiableLedgerBlock = { ...base, blockHash, signature };
-    await this.repository.append(block);
+    try {
+      await this.repository.append(block);
+    } catch (cause) {
+      const racedCausationBlock = reusableCausationBlock(
+        await this.repository.list(input.ledgerId),
+      );
+      if (racedCausationBlock) return racedCausationBlock;
+      throw cause;
+    }
     return block;
   }
 

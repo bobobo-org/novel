@@ -1,4 +1,5 @@
 import type { PlatformTaskType } from "../../router/platform-types";
+import type { BrowserFinalContextSourceIdentity } from "../../security/browser-final-model-context-proof";
 
 const CURRENT_CHAPTER_CONTEXT_MARKER =
   /(?:^|\n)\s*(?:\[current-chapter\]|\[active[_-]chapter\]|【目前章節[：:])/iu;
@@ -15,7 +16,47 @@ type ActorContextIdentity = {
   id: string;
   kind: string;
   text: string;
+  composerAuthority?: "project-context-composer-v1";
+  modelContextSource?: {
+    authority: BrowserFinalContextSourceIdentity["authority"];
+    sourceArtifactDigest: string;
+    sourceRevisionDigest: string;
+    receiptRequired: true;
+  };
 };
+
+export type SerializedClosedActorContext = {
+  text: string;
+  sourceIdentity: BrowserFinalContextSourceIdentity | null;
+};
+
+function finalContextSourceIdentity(
+  item: ActorContextIdentity,
+): BrowserFinalContextSourceIdentity | null {
+  const source = item.modelContextSource;
+  if (!source) return null;
+  const storyBible = item.kind === "story-bible"
+    && item.composerAuthority === "project-context-composer-v1"
+    && source.authority === "composer-repository-verified";
+  const attachment = item.id.startsWith("conversation-attachment-summary:")
+    && item.composerAuthority === "project-context-composer-v1"
+    && source.authority === "user-selected-sanitized-untrusted-reference";
+  if (!source.receiptRequired || (!storyBible && !attachment)) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_IDENTITY_INVALID"), {
+      code: "BROWSER_FINAL_CONTEXT_SOURCE_IDENTITY_INVALID",
+    });
+  }
+  return {
+    sourceId: item.id,
+    sourceKind: storyBible
+      ? "approved-story-bible"
+      : "selected-local-attachment-summary",
+    authority: source.authority,
+    sourceArtifactDigest: source.sourceArtifactDigest,
+    sourceRevisionDigest: source.sourceRevisionDigest,
+    receiptRequired: true,
+  };
+}
 
 function structuredActiveChapterContent(item: ActorContextIdentity) {
   const tagged = item.text
@@ -113,6 +154,14 @@ export function serializeClosedActorContext(
   context: ActorContextIdentity[],
   taskType: PlatformTaskType,
 ) {
+  return serializeClosedActorContextWithSourceIdentities(context, taskType)
+    .map((item) => item.text);
+}
+
+export function serializeClosedActorContextWithSourceIdentities(
+  context: ActorContextIdentity[],
+  taskType: PlatformTaskType,
+): SerializedClosedActorContext[] {
   const narrativeTask = DIRECT_NARRATIVE_TASKS.has(taskType);
   const strongIndex = narrativeTask
     ? context.findIndex(isStrongActiveChapter)
@@ -139,9 +188,12 @@ export function serializeClosedActorContext(
           : 0,
     }))
     .sort((left, right) => right.promptPriority - left.promptPriority || left.index - right.index)
-    .map(({ item, active }) => active
-      ? `[current-chapter]\n${readableActiveChapter(item.text)}`
-      : `[${item.kind}]\n${readableNonCurrentContext(item)}`);
+    .map(({ item, active }) => ({
+      text: active
+        ? `[current-chapter]\n${readableActiveChapter(item.text)}`
+        : `[${item.kind}]\n${readableNonCurrentContext(item)}`,
+      sourceIdentity: finalContextSourceIdentity(item),
+    }));
 }
 
 const ROLE_PREFIXES = [

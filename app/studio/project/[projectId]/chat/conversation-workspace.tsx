@@ -1156,6 +1156,7 @@ export default function ConversationWorkspace({
         conversationRecentMessageLimit: 12,
         selectedAttachmentSummaries: input.preparedAttachments.map(({ record, extraction }) => ({
           attachmentId: record.id,
+          recordRevision: record.revision,
           summary: extraction.text.slice(0, MAX_TRANSIENT_ATTACHMENT_CONTEXT),
           contentDigest: extraction.contentHash,
         })),
@@ -1419,6 +1420,11 @@ export default function ConversationWorkspace({
         await loadWorkspace(activeSession.id);
         return;
       }
+      if (localAttachments.length && !rightsConfirmed) {
+        throw Object.assign(new Error("Attachment rights confirmation is required."), {
+          code: "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
+        });
+      }
       const currentSessionMessages = await conversation.listMessages(projectId, activeSession.id);
       const currentSessionArtifacts = await conversation.listArtifacts(projectId, activeSession.id);
       const last = currentSessionMessages.at(-1) ?? null;
@@ -1472,6 +1478,7 @@ export default function ConversationWorkspace({
             activeSession.id,
             plan,
             userMessage.id,
+            true,
             controller.signal,
           );
         } catch (error) {
@@ -1571,7 +1578,12 @@ export default function ConversationWorkspace({
       await loadWorkspace(activeSession.id);
     } catch (error) {
       if (runRef.current !== runId) return;
-      if (requestHadAttachments && !learningResumeEnabled) {
+      const safeCode = errorCode(error);
+      if (
+        requestHadAttachments
+        && !learningResumeEnabled
+        && safeCode !== "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED"
+      ) {
         retryActionRef.current = null;
         setRetryAvailable(false);
         setDraft(content);
@@ -1580,7 +1592,13 @@ export default function ConversationWorkspace({
           message: "附件暫存內容已安全釋放。請重新附加原檔後再送出；系統不會在缺少附件時假裝重試分析。",
         });
       } else {
-        setSafeError({ code: errorCode(error), message: errorMessage(error) });
+        if ([
+          "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
+          "LEARNING_RIGHTS_CONFIRMATION_REQUIRED",
+        ].includes(safeCode)) {
+          setDraft(content);
+        }
+        setSafeError({ code: safeCode, message: errorMessage(error) });
       }
       setProgress(controller.signal.aborted
         ? "已停止；生成中的內容與 Canon 均未修改。"

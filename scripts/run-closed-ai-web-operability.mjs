@@ -10,6 +10,7 @@ import {
 import {
   ClosedAICache,
   MemoryClosedAICacheRepository,
+  sha256Hex,
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
 import {
   ApprovalSigner,
@@ -21,8 +22,14 @@ import {
   getClosedAIModelProfile,
 } from "../lib/novel-ai/providers/closed/task-profile.ts";
 import {
+  BROWSER_TASK_MODEL,
   runPackagedBrowserTaskModel,
 } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
+import { BROWSER_T1_TASKS } from "../lib/novel-ai/providers/browser-ai/browser-task-eligibility.ts";
+import {
+  createBrowserFinalModelContextAttestation,
+  createBrowserFinalModelContextInvocationProof,
+} from "../lib/novel-ai/security/browser-final-model-context-proof.ts";
 import {
   containsConvertibleSimplifiedChinese,
   containsHighConfidenceSimplifiedChinese,
@@ -186,10 +193,35 @@ class OperabilityBackend {
       taskType: input.request.taskType,
       objective: input.request.objective,
     });
+    const browserT1 = this.id === "browser-ai"
+      && BROWSER_T1_TASKS.has(input.request.taskType);
+    const modelId = browserT1
+      ? BROWSER_TASK_MODEL.modelId
+      : `${this.id}-operability-model`;
+    const modelDigest = browserT1
+      ? BROWSER_TASK_MODEL.modelDigest
+      : modelDigestForBackend(this.id);
+    const browserInvocation = this.id === "browser-ai" && !browserT1
+      ? await createBrowserFinalModelContextInvocationProof({
+        outerRequestId: input.request.taskId,
+        invocationRequestId: `${input.request.taskId}:operability-initial`,
+        outerTaskType: input.request.taskType,
+        outerQualityPhase: input.qualityPhase,
+        innerStage: "initial",
+        innerIndex: 0,
+        modelId,
+        modelDigest,
+        callOptionsDigest: await sha256Hex("web-operability-call-options-v3"),
+        systemMessage: "web-operability-system",
+        userMessage: "web-operability-user",
+        expectations: [],
+        omittedCharacters: 0,
+      })
+      : null;
     return {
       backendId: this.id,
-      modelId: `${this.id}-operability-model`,
-      modelDigest: modelDigestForBackend(this.id),
+      modelId,
+      modelDigest,
       content: `「${input.request.taskType}」功能已透過 ${this.id} 真實執行管線建立候選。此結果保留角色選擇、世界規則與人工核准邊界，並提供可驗證的作者用途。`,
       candidateOnly: true,
       dataLeftDevice: false,
@@ -201,6 +233,20 @@ class OperabilityBackend {
       outputCharacters: 80,
       generatedTokenEvents: 2,
       omittedInputCharacters: 0,
+      ...(this.id === "browser-ai"
+        ? browserT1
+          ? { contextAttestation: "not_required" }
+          : {
+            contextAttestation: "required",
+            finalModelContextAttestation:
+              await createBrowserFinalModelContextAttestation({
+                acceptedDisposition: "standalone",
+                acceptedStage: "initial",
+                executedStages: ["initial"],
+                contributingCalls: [browserInvocation],
+              }),
+          }
+        : {}),
     };
   }
 }

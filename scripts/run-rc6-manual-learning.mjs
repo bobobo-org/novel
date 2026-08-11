@@ -35,6 +35,39 @@ function createCoordinator(conversations, learning, options = {}) {
   });
 }
 
+async function createPendingApprovalRollbackFixture(conversations, learning, label) {
+  const projectId = `project-${label}`;
+  const sessionId = `session-${label}`;
+  await seedConversation(conversations, projectId, sessionId);
+  const coordinator = createCoordinator(conversations, learning);
+  const files = [new File(
+    [sourceText(label, 30)],
+    `${label}.txt`,
+    { type: "text/plain" },
+  )];
+  const started = await coordinator.start({
+    projectId,
+    sessionId,
+    files,
+    rightsBasis: "owned_by_user",
+    userConfirmedRights: true,
+  });
+  await coordinator.process({
+    projectId,
+    importSessionId: started.session.id,
+    files,
+    sourceKind: "personal_note",
+    rightsBasis: "owned_by_user",
+    userConfirmedRights: true,
+  });
+  const finalized = await coordinator.finalize(projectId, started.session.id, {
+    retainStagingUntilApproval: true,
+  });
+  assert.equal(finalized.session.status, "committed");
+  assert((await learning.getImportStaging(started.session.id))?.formalCommit);
+  return { coordinator, projectId, importSessionId: started.session.id };
+}
+
 function sourceText(label, repeat = 12) {
   return `第一卷 ${label}\n\n第一章 雨夜\n\n「你確定要進去？」她壓低聲音。\n\n他望向門後的微光，知道此刻的選擇會改變兩人的關係與下一場危機。\n\n${`${label}的場景讓角色承受具體壓力，線索逐步揭露，決定立即帶來新的後果。`.repeat(repeat)}`;
 }
@@ -833,8 +866,160 @@ function registerTransactionTests() {
     });
     const rolledBack = await coordinator.rollback("project-rollback", started.session.id);
     assert.equal(rolledBack.status, "rolled_back");
+    const replayedRollback = await coordinator.rollbackPendingApproval(
+      "project-rollback",
+      started.session.id,
+    );
+    assert.deepEqual(
+      replayedRollback,
+      rolledBack,
+      "a rejected learning import must not acquire a new revision or timestamp on replay",
+    );
     assert.equal(await learning.getImportStaging(started.session.id), null);
     assert.equal((await learning.listSources("project-rollback")).length, 0);
+  });
+
+  register("pending-approval rollback compensates once and is exact on replay", async () => {
+    const conversations = new MemoryNovelRepository();
+    const learning = new MemorySovereignLearningRepository();
+    const projectId = "project-pending-approval-rollback";
+    const sessionId = "session-pending-approval-rollback";
+    await seedConversation(conversations, projectId, sessionId);
+    const coordinator = createCoordinator(conversations, learning);
+    const files = [new File(
+      [sourceText("pending-approval-rollback", 32)],
+      "pending-approval-rollback.txt",
+      { type: "text/plain" },
+    )];
+    const started = await coordinator.start({
+      projectId,
+      sessionId,
+      files,
+      rightsBasis: "owned_by_user",
+      userConfirmedRights: true,
+    });
+    await coordinator.process({
+      projectId,
+      importSessionId: started.session.id,
+      files,
+      sourceKind: "personal_note",
+      rightsBasis: "owned_by_user",
+      userConfirmedRights: true,
+    });
+    const staged = await learning.getImportStaging(started.session.id);
+    assert(staged?.sources.length);
+    assert(staged.rules.length);
+    assert(staged.audit.length);
+    const preexisting = {
+      sources: [structuredClone(staged.sources[0])],
+      rules: [structuredClone(staged.rules[0])],
+      audit: [structuredClone(staged.audit[0])],
+    };
+    await learning.commit(preexisting);
+    const finalized = await coordinator.finalize(projectId, started.session.id, {
+      retainStagingUntilApproval: true,
+    });
+    assert.equal(finalized.session.status, "committed");
+    assert((await learning.getImportStaging(started.session.id))?.formalCommit);
+
+    const first = await coordinator.rollbackPendingApproval(projectId, started.session.id);
+    const replay = await coordinator.rollbackPendingApproval(projectId, started.session.id);
+    assert.equal(first.status, "rolled_back");
+    assert.deepEqual(replay, first);
+    assert.equal(await learning.getImportStaging(started.session.id), null);
+    assert.deepEqual(await learning.listSources(projectId), preexisting.sources);
+    assert.deepEqual(await learning.listRules(projectId), preexisting.rules);
+    assert.deepEqual(await learning.listAudit(projectId), preexisting.audit);
+  });
+
+  register("pending-approval rollback resumes after compensation or cleanup faults", async () => {
+    class RollbackSessionFaultRepository extends MemoryNovelRepository {
+      failRollbackSessionSave = true;
+      async put(store, value, expectedRevision) {
+        if (
+          this.failRollbackSessionSave
+          && store === "learningImportSessions"
+          && value.status === "rolled_back"
+        ) {
+          this.failRollbackSessionSave = false;
+          throw Object.assign(new Error("rollback session save fault"), {
+            code: "TEST_ROLLBACK_SESSION_SAVE_FAULT",
+          });
+        }
+        return super.put(store, value, expectedRevision);
+      }
+    }
+    class RollbackCleanupFaultRepository extends MemorySovereignLearningRepository {
+      failStagingCleanup = true;
+      async commit(input) {
+        if (this.failStagingCleanup && input.remove?.staging?.length) {
+          this.failStagingCleanup = false;
+          throw Object.assign(new Error("rollback staging cleanup fault"), {
+            code: "TEST_ROLLBACK_STAGING_CLEANUP_FAULT",
+          });
+        }
+        return super.commit(input);
+      }
+    }
+
+    const sessionFaultConversations = new RollbackSessionFaultRepository();
+    const sessionFaultLearning = new MemorySovereignLearningRepository();
+    const sessionFault = await createPendingApprovalRollbackFixture(
+      sessionFaultConversations,
+      sessionFaultLearning,
+      "pending-rollback-session-fault",
+    );
+    await assert.rejects(
+      () => sessionFault.coordinator.rollbackPendingApproval(
+        sessionFault.projectId,
+        sessionFault.importSessionId,
+      ),
+      (error) => error?.code === "TEST_ROLLBACK_SESSION_SAVE_FAULT",
+    );
+    const compensated = await sessionFaultLearning.getImportStaging(
+      sessionFault.importSessionId,
+    );
+    assert(compensated);
+    assert.equal(compensated.formalCommit, null);
+    const resumedSession = await sessionFault.coordinator.rollbackPendingApproval(
+      sessionFault.projectId,
+      sessionFault.importSessionId,
+    );
+    assert.equal(resumedSession.status, "rolled_back");
+    assert.equal(await sessionFaultLearning.getImportStaging(sessionFault.importSessionId), null);
+    assert.equal((await sessionFaultLearning.listSources(sessionFault.projectId)).length, 0);
+    assert.equal((await sessionFaultLearning.listRules(sessionFault.projectId)).length, 0);
+    assert.equal((await sessionFaultLearning.listAudit(sessionFault.projectId)).length, 0);
+
+    const cleanupFaultConversations = new MemoryNovelRepository();
+    const cleanupFaultLearning = new RollbackCleanupFaultRepository();
+    const cleanupFault = await createPendingApprovalRollbackFixture(
+      cleanupFaultConversations,
+      cleanupFaultLearning,
+      "pending-rollback-cleanup-fault",
+    );
+    await assert.rejects(
+      () => cleanupFault.coordinator.rollbackPendingApproval(
+        cleanupFault.projectId,
+        cleanupFault.importSessionId,
+      ),
+      (error) => error?.code === "TEST_ROLLBACK_STAGING_CLEANUP_FAULT",
+    );
+    const rolledBackBeforeCleanup = await cleanupFaultConversations.get(
+      "learningImportSessions",
+      cleanupFault.importSessionId,
+    );
+    assert.equal(rolledBackBeforeCleanup.status, "rolled_back");
+    assert.equal(
+      (await cleanupFaultLearning.getImportStaging(cleanupFault.importSessionId))?.formalCommit,
+      null,
+    );
+    const resumedCleanup = await cleanupFault.coordinator.rollbackPendingApproval(
+      cleanupFault.projectId,
+      cleanupFault.importSessionId,
+    );
+    assert.deepEqual(resumedCleanup, rolledBackBeforeCleanup);
+    assert.equal(await cleanupFaultLearning.getImportStaging(cleanupFault.importSessionId), null);
   });
 
   register("rollback waits for active parsing and cannot resurrect staging", async () => {

@@ -263,6 +263,7 @@ export function fitBrowserPromptToTokenBudget(
     outerTaggedPromptBlock(prompt, "作者目標", "last"),
     outerTaggedPromptBlock(prompt, "最終輸出契約", "last", "last"),
   ];
+  taggedBlocks.push(outerTaggedPromptBlock(prompt, "approved-model-context"));
   const taskType = taggedPromptBlockValue(taggedBlocks[0] ?? "", "工作類型");
   const qualityPhase = taggedPromptBlockValue(taggedBlocks[1] ?? "", "品質階段");
   const objectiveValue = taggedPromptBlockValue(taggedBlocks[4] ?? "", "作者目標");
@@ -326,7 +327,9 @@ export function fitBrowserPromptToTokenBudget(
     objective = "",
     outputContract = "",
   ] = taggedBlocks;
+  const approvedModelContext = taggedBlocks[6] ?? "";
   const assemble = (fittedLowerPriority: string) => [
+    approvedModelContext,
     taskTypeBlock,
     qualityPhaseBlock,
     fittedLowerPriority.trim(),
@@ -339,8 +342,12 @@ export function fitBrowserPromptToTokenBudget(
   const protectedPrompt = assemble("");
   if (estimateBrowserTokens(protectedPrompt) > normalizedBudget) {
     throw Object.assign(
-      new Error("BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED"),
-      { code: "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED" },
+      new Error(approvedModelContext
+        ? "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"
+        : "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED"),
+      { code: approvedModelContext
+        ? "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"
+        : "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED" },
     );
   }
 

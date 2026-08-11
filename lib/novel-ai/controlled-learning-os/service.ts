@@ -56,6 +56,10 @@ export type ControlledLearningExperienceInput = ControlledLearningPrivacyInput &
   score?: number | null;
   tags?: string[];
   sourceApprovalId?: string | null;
+  /** Internal durable-outcome key. Callers without a transaction keep nonce IDs. */
+  idempotencyKey?: string;
+  /** Stable event time paired with `idempotencyKey` for byte-exact replay. */
+  idempotencyCreatedAt?: string;
 };
 
 export type ControlledLearningCollectionResult =
@@ -81,6 +85,20 @@ export type ControlledLearningActiveConfiguration = {
 function error(code: string, message = code, detailCodes: string[] = []) {
   return Object.assign(new Error(message), { code, detailCodes });
 }
+
+const DEFINITIVE_COLLECTION_POLICY_CODES = new Set([
+  "CONTROLLED_LEARNING_KILL_SWITCH_ENGAGED",
+  "CONTROLLED_LEARNING_CONSENT_REQUIRED",
+  "CONTROLLED_LEARNING_CONSENT_EXPIRED",
+  "CONTROLLED_LEARNING_OUTCOME_NOT_CONSENTED",
+  "CONTROLLED_LEARNING_TASK_TYPE_INVALID",
+  "CONTROLLED_LEARNING_TAG_INVALID",
+  "CONTROLLED_LEARNING_APPROVAL_REFERENCE_INVALID",
+  "CONTROLLED_LEARNING_SCORE_INVALID",
+  "CONTROLLED_LEARNING_EDIT_DISTANCE_INVALID",
+  "CONTROLLED_LEARNING_PRIVACY_FILTER_BLOCKED",
+  "CONTROLLED_LEARNING_APPROVAL_REFERENCE_REQUIRED",
+]);
 
 function outcomeLabel(outcome: ControlledLearningOutcome): ControlledLearningExperience["outcomeLabel"] {
   if (outcome === "rejected" || outcome === "abandoned") return "negative";
@@ -273,7 +291,37 @@ export class ControlledLearningOS {
   async collectExperience(
     input: ControlledLearningExperienceInput,
   ): Promise<ControlledLearningExperience> {
-    await this.requireLearningAllowed(input.namespace, input.outcome);
+    const hasIdempotencyKey = input.idempotencyKey !== undefined;
+    const hasIdempotencyCreatedAt = input.idempotencyCreatedAt !== undefined;
+    if (
+      hasIdempotencyKey !== hasIdempotencyCreatedAt
+      || (hasIdempotencyKey && !/^[a-f0-9]{64}$/u.test(input.idempotencyKey!))
+      || (hasIdempotencyCreatedAt && (
+        !Number.isFinite(Date.parse(input.idempotencyCreatedAt!))
+        || new Date(input.idempotencyCreatedAt!).toISOString()
+          !== input.idempotencyCreatedAt
+      ))
+    ) {
+      throw error("CONTROLLED_LEARNING_IDEMPOTENCY_INVALID");
+    }
+    let idempotentIdentity: string | null = null;
+    let idempotentExisting: ControlledLearningExperience | null = null;
+    if (hasIdempotencyKey) {
+      assertClosedAINamespace(input.namespace);
+      idempotentIdentity = await sha256Hex(stableStringify({
+        domain: "controlled-learning-experience-idempotency-v1",
+        namespace: input.namespace,
+        outcome: input.outcome,
+        taskType: input.taskType,
+        idempotencyKey: input.idempotencyKey,
+      }));
+      idempotentExisting = await this.repository.get<ControlledLearningExperience>(
+        `learning-experience:${idempotentIdentity}`,
+      );
+    }
+    if (!idempotentExisting) {
+      await this.requireLearningAllowed(input.namespace, input.outcome);
+    }
     if (!/^[A-Za-z0-9._:-]{3,120}$/u.test(input.taskType)) {
       throw error("CONTROLLED_LEARNING_TASK_TYPE_INVALID");
     }
@@ -335,14 +383,14 @@ export class ControlledLearningOS {
     ) {
       throw error("CONTROLLED_LEARNING_APPROVAL_REFERENCE_REQUIRED");
     }
-    const createdAt = this.now().toISOString();
-    const identity = await sha256Hex(stableStringify({
-      namespace: input.namespace,
-      outcome: input.outcome,
-      taskType: input.taskType,
-      createdAt,
-      nonce: crypto.randomUUID(),
-    }));
+    const createdAt = input.idempotencyCreatedAt ?? this.now().toISOString();
+    const identity = idempotentIdentity ?? await sha256Hex(stableStringify({
+        namespace: input.namespace,
+        outcome: input.outcome,
+        taskType: input.taskType,
+        createdAt,
+        nonce: crypto.randomUUID(),
+      }));
     const recordBody: Omit<ControlledLearningExperience, "recordDigest"> = {
       schemaVersion: CONTROLLED_LEARNING_SCHEMA_VERSION,
       kind: "experience",
@@ -377,6 +425,30 @@ export class ControlledLearningOS {
       ...recordBody,
       recordDigest: await sha256Hex(stableStringify(recordBody)),
     };
+    if (hasIdempotencyKey) {
+      const existing = idempotentExisting
+        ?? await this.repository.get<ControlledLearningExperience>(record.id);
+      if (existing) {
+        if (stableStringify(existing) !== stableStringify(record)) {
+          throw error("CONTROLLED_LEARNING_IDEMPOTENCY_CONFLICT");
+        }
+        return existing;
+      }
+      try {
+        await this.repository.put(record);
+      } catch (cause) {
+        const committed = await this.repository.get<ControlledLearningExperience>(record.id);
+        if (committed && stableStringify(committed) === stableStringify(record)) {
+          return committed;
+        }
+        throw cause;
+      }
+      const committed = await this.repository.get<ControlledLearningExperience>(record.id);
+      if (!committed || stableStringify(committed) !== stableStringify(record)) {
+        throw error("CONTROLLED_LEARNING_IDEMPOTENCY_COMMIT_UNCERTAIN");
+      }
+      return committed;
+    }
     await this.repository.put(record);
     return record;
   }
@@ -392,6 +464,9 @@ export class ControlledLearningOS {
       };
     } catch (cause) {
       const code = String((cause as { code?: string })?.code || "");
+      if (input.idempotencyKey && !DEFINITIVE_COLLECTION_POLICY_CODES.has(code)) {
+        throw cause;
+      }
       return {
         collected: false,
         experience: null,

@@ -477,6 +477,10 @@ export type ConversationAttachment = DomainRecord & {
   contentHash: string;
   rightsBasis: string;
   rightsEvidenceHash: string;
+  /** Optional only for legacy read compatibility; fresh records always set both. */
+  userConfirmedRights?: true;
+  rightsConfirmationSchemaVersion?:
+    "conversation-attachment-rights-confirmation-v1";
   localAnalysisOnly: true;
   rawContentRetained: false;
   parsingStatus: "pending" | "parsing" | "completed" | "failed" | "cancelled" | "ocr_required";

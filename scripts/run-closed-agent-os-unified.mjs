@@ -7,6 +7,7 @@ import {
   MemoryClosedAICacheRepository,
   assertClosedAINamespace,
   sha256Hex,
+  stableStringify,
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
 import {
   ControlledLearningOS,
@@ -42,6 +43,7 @@ import {
   serializeClosedAgentFailureEvidence,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 import { createExplicitRegenerationContract } from "../lib/novel-ai/web/explicit-regeneration.ts";
+import { BROWSER_TASK_MODEL } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 
 const tests = [];
 const results = [];
@@ -284,6 +286,7 @@ class MockBackend {
       backendId: this.id,
       actorContext: structuredClone(input.actorContext),
       taskId: input.request.taskId,
+      namespace: structuredClone(input.request.namespace),
       qualityPhase: input.qualityPhase,
       workingMaterials: structuredClone(input.workingMaterials),
       learningConfiguration: structuredClone(input.request.learningConfiguration ?? {}),
@@ -300,28 +303,37 @@ class MockBackend {
       });
     }
     if (this.options.executeError) throw this.options.executeError;
+    const modelId = this.id === "browser-ai"
+      ? BROWSER_TASK_MODEL.modelId
+      : `${this.id}-model`;
+    const modelDigest = this.id === "browser-ai"
+      ? BROWSER_TASK_MODEL.modelDigest
+      : modelDigestForBackend(this.id);
     const content = this.options.contentByPhase?.[input.qualityPhase]
       ?? `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`;
     return {
       backendId: this.id,
-      modelId: `${this.id}-model`,
-      modelDigest: modelDigestForBackend(this.id),
+      modelId,
+      modelDigest,
       content,
       candidateOnly: true,
       dataLeftDevice: false,
       externalRequest: false,
       elapsedMs: 5,
+      ...(this.id === "browser-ai"
+        ? { contextAttestation: "not_required" }
+        : {}),
     };
   }
 }
 
 function createMockOS(options = {}) {
   const calls = [];
-  const cache = new ClosedAICache({
+  const cache = options.cache ?? new ClosedAICache({
     repository: new MemoryClosedAICacheRepository(),
     semanticThreshold: 0.2,
   });
-  const ledger = new VerifiableLedger({
+  const ledger = options.ledger ?? new VerifiableLedger({
     repository: options.ledgerRepository ?? new MemoryVerifiableLedgerRepository(),
     signer: new ApprovalSigner(),
   });
@@ -334,6 +346,7 @@ function createMockOS(options = {}) {
     backends,
     cache,
     ledger,
+    learning: options.learning,
     state: options.state ?? new MemoryClosedAgentStateRepository(),
   });
   return { os, calls, backends };
@@ -762,6 +775,12 @@ test("policy-aware light, quality-first standard and heavy routing use the three
     { namespace: { privacyLevel: "private_infrastructure_only" } },
   ));
   assert.equal(light.route.backendId, "browser-ai");
+  assert.equal(light.candidate.modelId, BROWSER_TASK_MODEL.modelId);
+  assert.equal(light.candidate.modelDigest, BROWSER_TASK_MODEL.modelDigest);
+  assert.equal(light.candidate.executionReceipt?.contextAttestation, "not_required");
+  assert.equal(light.candidate.executionReceipt?.finalModelContextAttestation, undefined);
+  assert.equal(calls[0].namespace.modelId, BROWSER_TASK_MODEL.modelId);
+  assert.equal(calls[0].namespace.modelDigest, BROWSER_TASK_MODEL.modelDigest);
   assert.equal(standard.route.backendId, "local-ollama");
   assert.equal(heavy.route.backendId, "private-ai-hub");
   assert.equal(light.candidate.generationTelemetry.qualityPasses, 1);
@@ -775,6 +794,78 @@ test("policy-aware light, quality-first standard and heavy routing use the three
     "private-ai-hub",
     "private-ai-hub",
   ]);
+});
+
+test("fresh Browser Closed receipts are exact and cannot downgrade context attestation", async () => {
+  const expectedKeys = [
+    "actualExecutor",
+    "backendId",
+    "browserComputeReceiptId",
+    "browserFabricPlannedGraph",
+    "browserFabricReceiptId",
+    "completedAt",
+    "contentDigest",
+    "contextAttestation",
+    "contextDigest",
+    "contextTokensAfter",
+    "contextTokensBefore",
+    "dataLeftDevice",
+    "externalRequest",
+    "finalModelContextAttestation",
+    "generatedTokenEvents",
+    "modelDigest",
+    "modelId",
+    "outputCharacters",
+    "proofState",
+    "startedAt",
+    "taskId",
+    "tokensSaved",
+    "traditionalChineseNormalization",
+  ].sort();
+  const exact = createMockOS();
+  const exactExecution = await exact.os.execute(request(
+    "task-browser-receipt-exact",
+    "story.summary",
+    "light",
+  ));
+  const exactReceipt = exactExecution.candidate.executionReceipt;
+  assert.ok(exactReceipt);
+  assert.deepEqual(Object.keys(exactReceipt).sort(), expectedKeys);
+  assert.equal(exactReceipt.contextAttestation, "not_required");
+  assert.equal(exactReceipt.finalModelContextAttestation, undefined);
+  const selfConsistentFreshDowngrade = structuredClone(exactExecution.candidate);
+  delete selfConsistentFreshDowngrade.executionReceipt.contextAttestation;
+  assert.equal(await exact.os.hasVerifiedPersistedCandidateIntegrity(
+    selfConsistentFreshDowngrade,
+    true,
+    selfConsistentFreshDowngrade.taskType === undefined,
+  ), false);
+
+  for (const [suffix, mutate] of [
+    ["missing-discriminator", (receipt) => { delete receipt.contextAttestation; }],
+    ["downgraded-required", (receipt) => { receipt.contextAttestation = "required"; }],
+    ["extra-raw-key", (receipt) => { receipt.rawPrompt = "must-not-be-accepted"; }],
+  ]) {
+    const isolated = createMockOS();
+    const execution = await isolated.os.execute(request(
+      `task-browser-receipt-${suffix}`,
+      "story.summary",
+      "light",
+    ));
+    const tampered = structuredClone(execution.candidate);
+    assert.ok(tampered.executionReceipt);
+    mutate(tampered.executionReceipt);
+    await isolated.os.state.put(tampered);
+    assert.equal(await isolated.os.verifyCandidateIntegrity(tampered.id), false);
+    await assert.rejects(
+      () => isolated.os.approveCandidate({
+        candidateId: tampered.id,
+        approvedBy: "author",
+        humanApproved: true,
+      }),
+      errorCode("CLOSED_AGENT_APPROVAL_INTEGRITY_INVALID"),
+    );
+  }
 });
 
 test("failed Browser execution exposes only finite transient runtime evidence", async () => {
@@ -1327,7 +1418,10 @@ test("an existing cache-hit candidate retains immutable lineage while rejected o
   assert.equal(cached.candidate.cacheOrigin?.originCandidateId, origin.candidate.id);
   assert.equal(await os.verifyCandidateIntegrity(cached.candidate.id), true);
 
-  await os.rejectCandidate(origin.candidate.id);
+  const rejectedOrigin = await os.rejectCandidate(origin.candidate.id);
+  const rejectedOriginReplay = await os.rejectCandidate(origin.candidate.id);
+  assert.equal(rejectedOrigin.status, "rejected");
+  assert.deepEqual(rejectedOriginReplay, rejectedOrigin);
   assert.equal(await os.verifyCandidateIntegrity(cached.candidate.id), true);
   backends.find((backend) => backend.id === "browser-ai").options.contentByPhase = {
     draft: "A fresh regeneration follows a different consequence and ends with a newly opened route.",
@@ -1371,6 +1465,975 @@ test("an existing cache-hit candidate retains immutable lineage while rejected o
   assert.equal(freshAfterRejection.cache.candidateHit, false);
   assert.equal(freshAfterRejection.candidate.actualExecutor, "browser-ai");
   assert.equal(calls.length, callsAfterOrigin + 2);
+});
+
+test("candidate rejection is concurrent-idempotent and retry-convergent", async () => {
+  const concurrent = createMockOS();
+  const concurrentExecution = await concurrent.os.execute(request(
+    "task-reject-concurrent",
+    "story.summary",
+    "light",
+  ));
+  const originalConcurrentLearning = concurrent.os.collectCandidateLearningOutcome.bind(
+    concurrent.os,
+  );
+  let concurrentLearningCalls = 0;
+  concurrent.os.collectCandidateLearningOutcome = async (input) => {
+    concurrentLearningCalls += 1;
+    return originalConcurrentLearning(input);
+  };
+  const [first, second] = await Promise.all([
+    concurrent.os.rejectCandidate(concurrentExecution.candidate.id),
+    concurrent.os.rejectCandidate(concurrentExecution.candidate.id),
+  ]);
+  assert.deepEqual(second, first);
+  assert.equal(first.status, "rejected");
+  assert.equal(concurrentLearningCalls, 1);
+  await concurrent.os.rejectCandidate(concurrentExecution.candidate.id);
+  assert.equal(concurrentLearningCalls, 1);
+  const concurrentBlocks = await concurrent.os.ledger.repository.list(
+    `closed-agent:project-a:${concurrentExecution.candidate.taskId}`,
+  );
+  assert.equal(
+    concurrentBlocks.filter((block) => block.eventType === "cache-invalidated").length,
+    1,
+  );
+  assert.equal(
+    concurrentBlocks.filter((block) => (
+      block.eventType === "learning-experience"
+      && typeof block.lineage?.causationId === "string"
+    )).length,
+    1,
+  );
+
+  const retry = createMockOS();
+  const retryExecution = await retry.os.execute(request(
+    "task-reject-retry",
+    "story.summary",
+    "light",
+  ));
+  const originalRetryLearning = retry.os.collectCandidateLearningOutcome.bind(retry.os);
+  let retryLearningCalls = 0;
+  retry.os.collectCandidateLearningOutcome = async (input) => {
+    retryLearningCalls += 1;
+    if (retryLearningCalls === 1) {
+      throw new Error("simulated post-rejection learning interruption");
+    }
+    return originalRetryLearning(input);
+  };
+  await assert.rejects(
+    () => retry.os.rejectCandidate(retryExecution.candidate.id),
+    /simulated post-rejection learning interruption/u,
+  );
+  assert.equal(
+    (await retry.os.state.get(retryExecution.candidate.id))?.status,
+    "rejected",
+  );
+  const recovered = await retry.os.rejectCandidate(retryExecution.candidate.id);
+  assert.equal(recovered.status, "rejected");
+  assert.equal(retryLearningCalls, 2);
+  await retry.os.rejectCandidate(retryExecution.candidate.id);
+  assert.equal(retryLearningCalls, 2);
+  const retryBlocks = await retry.os.ledger.repository.list(
+    `closed-agent:project-a:${retryExecution.candidate.taskId}`,
+  );
+  assert.equal(
+    retryBlocks.filter((block) => block.eventType === "cache-invalidated").length,
+    1,
+  );
+  assert.equal(
+    retryBlocks.filter((block) => (
+      block.eventType === "learning-experience"
+      && typeof block.lineage?.causationId === "string"
+    )).length,
+    1,
+  );
+});
+
+test("candidate rejection converges across OS instances with one cache and learning causation", async () => {
+  const state = new MemoryClosedAgentStateRepository();
+  const cacheRepository = new MemoryClosedAICacheRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const learningRepository = new MemoryControlledLearningRepository();
+  const createSharedOS = () => createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: learningRepository }),
+  });
+  const firstRuntime = createSharedOS();
+  const secondRuntime = createSharedOS();
+  const execution = await firstRuntime.os.execute(request(
+    "task-reject-cross-instance",
+    "story.summary",
+    "light",
+  ));
+  await firstRuntime.os.learning.setConsent({
+    namespace: execution.candidate.namespace,
+    enabled: true,
+  });
+  const [first, second] = await Promise.all([
+    firstRuntime.os.rejectCandidate(execution.candidate.id),
+    secondRuntime.os.rejectCandidate(execution.candidate.id),
+  ]);
+  assert.deepEqual(second, first);
+  assert.equal(first.status, "rejected");
+  const experiences = await learningRepository.list("project-a", "experience");
+  assert.equal(experiences.length, 1);
+  const blocks = await ledgerRepository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  );
+  const cacheBlocks = blocks.filter((block) => (
+    block.eventType === "cache-invalidated"
+    && typeof block.lineage?.causationId === "string"
+  ));
+  const learningBlocks = blocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && typeof block.lineage?.causationId === "string"
+  ));
+  assert.equal(cacheBlocks.length, 1);
+  assert.equal(learningBlocks.length, 1);
+  const rejectionRecords = await state.list("project-a", "rejection");
+  assert.equal(rejectionRecords.length, 1);
+  assert.equal(rejectionRecords[0].status, "completed");
+  assert.equal(rejectionRecords[0].cacheLedgerBlockHash, cacheBlocks[0].blockHash);
+  assert.equal(rejectionRecords[0].learningLedgerBlockHash, learningBlocks[0].blockHash);
+  assert.equal(candidateCacheCount(await cacheRepository.list()), 0);
+});
+
+test("rejection outbox recovers state, partial cache and ambiguous durable commits", async () => {
+  let rejectClaimFaultArmed = false;
+  const faultedState = new MemoryClosedAgentStateRepository({
+    faultInjector(point) {
+      if (rejectClaimFaultArmed && point === "after:candidate") {
+        rejectClaimFaultArmed = false;
+        throw new Error("REJECTION_CLAIM_STATE_INTERRUPTED");
+      }
+    },
+  });
+  const stateCacheRepository = new MemoryClosedAICacheRepository();
+  const stateLedgerRepository = new MemoryVerifiableLedgerRepository();
+  const stateRuntime = createMockOS({
+    state: faultedState,
+    cache: new ClosedAICache({ repository: stateCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: stateLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const stateExecution = await stateRuntime.os.execute(request(
+    "task-reject-state-journal",
+    "story.summary",
+    "light",
+  ));
+  const stateCacheBefore = candidateCacheCount(await stateCacheRepository.list());
+  assert(stateCacheBefore >= 2);
+  rejectClaimFaultArmed = true;
+  await assert.rejects(
+    () => stateRuntime.os.rejectCandidate(stateExecution.candidate.id),
+    /REJECTION_CLAIM_STATE_INTERRUPTED/u,
+  );
+  assert.equal(
+    (await faultedState.get(stateExecution.candidate.id))?.status,
+    "awaiting-approval",
+  );
+  assert.equal((await faultedState.list("project-a", "rejection")).length, 0);
+  assert.equal(candidateCacheCount(await stateCacheRepository.list()), stateCacheBefore);
+  assert.equal(
+    (await stateLedgerRepository.list(
+      `closed-agent:project-a:${stateExecution.candidate.taskId}`,
+    )).filter((block) => block.eventType === "cache-invalidated").length,
+    0,
+  );
+  const stateRecovered = await stateRuntime.os.rejectCandidate(
+    stateExecution.candidate.id,
+  );
+  assert.equal(stateRecovered.status, "rejected");
+  assert.equal((await faultedState.list("project-a", "rejection"))[0].status, "completed");
+
+  class FailSecondCacheRemoveRepository extends MemoryClosedAICacheRepository {
+    armed = false;
+    attempts = 0;
+
+    async remove(id) {
+      if (this.armed) {
+        this.attempts += 1;
+        if (this.attempts === 2) {
+          this.armed = false;
+          throw new Error("REJECTION_CACHE_REMOVE_INTERRUPTED");
+        }
+      }
+      return super.remove(id);
+    }
+  }
+  const partialState = new MemoryClosedAgentStateRepository();
+  const partialCacheRepository = new FailSecondCacheRemoveRepository();
+  const partialLedgerRepository = new MemoryVerifiableLedgerRepository();
+  const partialLearningRepository = new MemoryControlledLearningRepository();
+  const partialRuntime = createMockOS({
+    state: partialState,
+    cache: new ClosedAICache({ repository: partialCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: partialLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: partialLearningRepository }),
+  });
+  const partialExecution = await partialRuntime.os.execute(request(
+    "task-reject-partial-cache",
+    "story.summary",
+    "light",
+  ));
+  assert(candidateCacheCount(await partialCacheRepository.list()) >= 2);
+  partialCacheRepository.armed = true;
+  await assert.rejects(
+    () => partialRuntime.os.rejectCandidate(partialExecution.candidate.id),
+    /REJECTION_CACHE_REMOVE_INTERRUPTED/u,
+  );
+  assert.equal(
+    (await partialState.get(partialExecution.candidate.id))?.status,
+    "rejected",
+  );
+  assert.equal((await partialState.list("project-a", "rejection"))[0].status, "pending");
+  assert(candidateCacheCount(await partialCacheRepository.list()) >= 1);
+  const partialRecoveryRuntime = createMockOS({
+    state: partialState,
+    cache: new ClosedAICache({ repository: partialCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: partialLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: partialLearningRepository }),
+  });
+  const partialRecovered = await partialRecoveryRuntime.os.rejectCandidate(
+    partialExecution.candidate.id,
+  );
+  assert.equal(partialRecovered.status, "rejected");
+  assert.equal(candidateCacheCount(await partialCacheRepository.list()), 0);
+  const partialBlocks = await partialLedgerRepository.list(
+    `closed-agent:project-a:${partialExecution.candidate.taskId}`,
+  );
+  assert.equal(partialBlocks.filter((block) => (
+    block.eventType === "cache-invalidated"
+    && typeof block.lineage?.causationId === "string"
+  )).length, 1);
+  assert.equal(partialBlocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && typeof block.lineage?.causationId === "string"
+  )).length, 1);
+  assert.equal((await partialState.list("project-a", "rejection"))[0].status, "completed");
+
+  class CommitThenThrowLearningRepository extends MemoryControlledLearningRepository {
+    armed = false;
+
+    async put(record) {
+      await super.put(record);
+      if (this.armed && record.kind === "experience") {
+        this.armed = false;
+        throw new Error("LEARNING_COMMIT_ACK_INTERRUPTED");
+      }
+    }
+  }
+  class CommitThenThrowLedgerRepository extends MemoryVerifiableLedgerRepository {
+    armed = false;
+
+    async append(block) {
+      await super.append(block);
+      if (this.armed && block.eventType === "learning-experience") {
+        this.armed = false;
+        throw new Error("LEDGER_COMMIT_ACK_INTERRUPTED");
+      }
+    }
+  }
+  const ambiguousState = new MemoryClosedAgentStateRepository();
+  const ambiguousCacheRepository = new MemoryClosedAICacheRepository();
+  const ambiguousLedgerRepository = new CommitThenThrowLedgerRepository();
+  const ambiguousLearningRepository = new CommitThenThrowLearningRepository();
+  const ambiguousRuntime = createMockOS({
+    state: ambiguousState,
+    cache: new ClosedAICache({ repository: ambiguousCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ambiguousLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: ambiguousLearningRepository }),
+  });
+  const ambiguousExecution = await ambiguousRuntime.os.execute(request(
+    "task-reject-ambiguous-commit",
+    "story.summary",
+    "light",
+  ));
+  await ambiguousRuntime.os.learning.setConsent({
+    namespace: ambiguousExecution.candidate.namespace,
+    enabled: true,
+  });
+  ambiguousLearningRepository.armed = true;
+  ambiguousLedgerRepository.armed = true;
+  const ambiguousRejected = await ambiguousRuntime.os.rejectCandidate(
+    ambiguousExecution.candidate.id,
+  );
+  assert.equal(ambiguousRejected.status, "rejected");
+  assert.equal(
+    (await ambiguousLearningRepository.list("project-a", "experience")).length,
+    1,
+  );
+  const ambiguousBlocks = await ambiguousLedgerRepository.list(
+    `closed-agent:project-a:${ambiguousExecution.candidate.taskId}`,
+  );
+  assert.equal(ambiguousBlocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && typeof block.lineage?.causationId === "string"
+  )).length, 1);
+  assert.equal((await ambiguousState.list("project-a", "rejection"))[0].status, "completed");
+  await ambiguousRuntime.os.rejectCandidate(ambiguousExecution.candidate.id);
+  assert.equal(
+    (await ambiguousLearningRepository.list("project-a", "experience")).length,
+    1,
+  );
+
+  class FailBeforeLearningLedgerRepository extends MemoryVerifiableLedgerRepository {
+    armed = false;
+
+    async append(block) {
+      if (this.armed && block.eventType === "learning-experience") {
+        this.armed = false;
+        throw new Error("LEARNING_LEDGER_BEFORE_COMMIT_INTERRUPTED");
+      }
+      return super.append(block);
+    }
+  }
+  const consentFlipState = new MemoryClosedAgentStateRepository();
+  const consentFlipCacheRepository = new MemoryClosedAICacheRepository();
+  const consentFlipLedgerRepository = new FailBeforeLearningLedgerRepository();
+  const consentFlipLearningRepository = new MemoryControlledLearningRepository();
+  const consentFlipRuntime = createMockOS({
+    state: consentFlipState,
+    cache: new ClosedAICache({ repository: consentFlipCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: consentFlipLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: consentFlipLearningRepository }),
+  });
+  const consentFlipExecution = await consentFlipRuntime.os.execute(request(
+    "task-reject-consent-flip",
+    "story.summary",
+    "light",
+  ));
+  await consentFlipRuntime.os.learning.setConsent({
+    namespace: consentFlipExecution.candidate.namespace,
+    enabled: true,
+  });
+  consentFlipLedgerRepository.armed = true;
+  await assert.rejects(
+    () => consentFlipRuntime.os.rejectCandidate(consentFlipExecution.candidate.id),
+    /LEARNING_LEDGER_BEFORE_COMMIT_INTERRUPTED/u,
+  );
+  const frozenExperiences = await consentFlipLearningRepository.list(
+    "project-a",
+    "experience",
+  );
+  assert.equal(frozenExperiences.length, 1);
+  assert.equal((await consentFlipState.list("project-a", "rejection"))[0].status, "pending");
+  await consentFlipRuntime.os.learning.setConsent({
+    namespace: consentFlipExecution.candidate.namespace,
+    enabled: false,
+  });
+  const consentFlipRecovery = createMockOS({
+    state: consentFlipState,
+    cache: new ClosedAICache({ repository: consentFlipCacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: consentFlipLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: consentFlipLearningRepository }),
+  });
+  await consentFlipRecovery.os.rejectCandidate(consentFlipExecution.candidate.id);
+  const frozenBlocks = await consentFlipLedgerRepository.list(
+    `closed-agent:project-a:${consentFlipExecution.candidate.taskId}`,
+  );
+  const frozenLearningBlocks = frozenBlocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && typeof block.lineage?.causationId === "string"
+  ));
+  assert.equal(frozenLearningBlocks.length, 1);
+  const frozenRejection = (await consentFlipState.list("project-a", "rejection"))[0];
+  const expectedFrozenPayload = {
+    candidateId: consentFlipExecution.candidate.id,
+    claimId: frozenRejection.claimId,
+    outcome: "rejected",
+    collected: true,
+    experienceId: frozenExperiences[0].id,
+    featureDigest: frozenExperiences[0].featureDigest,
+    resultDigest: frozenExperiences[0].resultDigest,
+    reasonCode: null,
+    rawInputStored: false,
+    rawOutputStored: false,
+    rawChainOfThoughtStored: false,
+  };
+  assert.equal(
+    frozenLearningBlocks[0].payloadDigest,
+    await sha256Hex(stableStringify(expectedFrozenPayload)),
+  );
+  assert.equal(frozenRejection.status, "completed");
+});
+
+test("pending rejection freezes learning task identity across task mutation", async () => {
+  class FailBeforeLearningLedgerRepository extends MemoryVerifiableLedgerRepository {
+    armed = false;
+
+    async append(block) {
+      if (this.armed && block.eventType === "learning-experience") {
+        this.armed = false;
+        throw new Error("FROZEN_TASK_LEARNING_LEDGER_INTERRUPTED");
+      }
+      return super.append(block);
+    }
+  }
+
+  const state = new MemoryClosedAgentStateRepository();
+  const cacheRepository = new MemoryClosedAICacheRepository();
+  const ledgerRepository = new FailBeforeLearningLedgerRepository();
+  const learningRepository = new MemoryControlledLearningRepository();
+  const createSharedOS = () => createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: learningRepository }),
+  });
+  const firstRuntime = createSharedOS();
+  const execution = await firstRuntime.os.execute(request(
+    "task-reject-frozen-task",
+    "story.summary",
+    "light",
+  ));
+  await firstRuntime.os.learning.setConsent({
+    namespace: execution.candidate.namespace,
+    enabled: true,
+  });
+  ledgerRepository.armed = true;
+  await assert.rejects(
+    () => firstRuntime.os.rejectCandidate(execution.candidate.id),
+    /FROZEN_TASK_LEARNING_LEDGER_INTERRUPTED/u,
+  );
+  const committedBeforeRetry = await learningRepository.list("project-a", "experience");
+  assert.equal(committedBeforeRetry.length, 1);
+  assert.equal(committedBeforeRetry[0].taskType, "story.summary");
+  const mutableTask = await state.get(execution.candidate.taskId);
+  assert(mutableTask && mutableTask.kind === "task");
+  await state.put({ ...mutableTask, taskType: "chapter.rewrite" });
+
+  const recoveryRuntime = createSharedOS();
+  await recoveryRuntime.os.rejectCandidate(execution.candidate.id);
+  const committedAfterRetry = await learningRepository.list("project-a", "experience");
+  assert.deepEqual(committedAfterRetry, committedBeforeRetry);
+  assert.equal((await state.list("project-a", "rejection"))[0].taskType, "story.summary");
+  assert.equal((await state.list("project-a", "rejection"))[0].status, "completed");
+});
+
+test("completed rejection replay rejects an invalid ledger chain", async () => {
+  class TamperableLedgerRepository extends MemoryVerifiableLedgerRepository {
+    tamper = false;
+
+    async list(ledgerId) {
+      const blocks = await super.list(ledgerId);
+      if (this.tamper && blocks.length > 0) {
+        blocks[0] = { ...blocks[0], payloadDigest: "0".repeat(64) };
+      }
+      return blocks;
+    }
+  }
+
+  const ledgerRepository = new TamperableLedgerRepository();
+  const runtime = createMockOS({
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const execution = await runtime.os.execute(request(
+    "task-reject-ledger-chain-tamper",
+    "story.summary",
+    "light",
+  ));
+  await runtime.os.rejectCandidate(execution.candidate.id);
+  const ledgerId = `closed-agent:project-a:${execution.candidate.taskId}`;
+  assert.equal((await runtime.os.ledger.verify(ledgerId)).valid, true);
+  ledgerRepository.tamper = true;
+  assert.equal((await runtime.os.ledger.verify(ledgerId)).valid, false);
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED"),
+  );
+  ledgerRepository.tamper = false;
+  const freshCacheEntry = await runtime.os.cache.put({
+    layer: "exact",
+    namespace: execution.candidate.namespace,
+    input: { fixture: "completed-rejection-read-only" },
+    value: { fixtureDigest: "f".repeat(64) },
+    tags: ["task:story.summary"],
+  });
+  const completedRecord = (await runtime.os.state.list("project-a", "rejection"))[0];
+  const tamperedPlanRecord = {
+    ...completedRecord,
+    cacheEntryIds: [freshCacheEntry.id],
+    cachePlanDigest: await sha256Hex(stableStringify({
+      domain: "closed-agent-rejection-cache-plan-v1",
+      candidateId: execution.candidate.id,
+      taskId: execution.candidate.taskId,
+      taskType: completedRecord.taskType,
+      namespaceDigest: completedRecord.namespaceDigest,
+      claimId: completedRecord.claimId,
+      layers: ["exact", "semantic"],
+      cacheEntryIds: [freshCacheEntry.id],
+    })),
+  };
+  await runtime.os.state.put(tamperedPlanRecord);
+  assert(await runtime.os.cache.repository.get(freshCacheEntry.id));
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_RECORD_LEDGER_MISMATCH"),
+  );
+  assert(await runtime.os.cache.repository.get(freshCacheEntry.id));
+
+  class TamperAfterLearningAppendRepository extends TamperableLedgerRepository {
+    armed = false;
+
+    async append(block) {
+      await super.append(block);
+      if (this.armed && block.eventType === "learning-experience") {
+        this.armed = false;
+        this.tamper = true;
+      }
+    }
+  }
+
+  const pendingLedgerRepository = new TamperAfterLearningAppendRepository();
+  const pendingRuntime = createMockOS({
+    ledger: new VerifiableLedger({
+      repository: pendingLedgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const pendingExecution = await pendingRuntime.os.execute(request(
+    "task-reject-ledger-chain-invalid-before-completion",
+    "story.summary",
+    "light",
+  ));
+  pendingLedgerRepository.armed = true;
+  await assert.rejects(
+    () => pendingRuntime.os.rejectCandidate(pendingExecution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_RECORD_LEDGER_MISMATCH"),
+  );
+  assert.equal(
+    (await pendingRuntime.os.state.get(pendingExecution.candidate.id))?.status,
+    "rejected",
+  );
+  assert.equal(
+    (await pendingRuntime.os.state.list("project-a", "rejection"))[0].status,
+    "pending",
+  );
+});
+
+test("rejection claim rejects a mutable task identity before cache effects", async () => {
+  const state = new MemoryClosedAgentStateRepository();
+  const cacheRepository = new MemoryClosedAICacheRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const runtime = createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const execution = await runtime.os.execute(request(
+    "task-reject-mutable-task-claim",
+    "story.summary",
+    "light",
+  ));
+  assert.equal(execution.candidate.taskType, "story.summary");
+  const cacheCountBefore = candidateCacheCount(await cacheRepository.list());
+  assert(cacheCountBefore >= 2);
+  const mutableTask = await state.get(execution.candidate.taskId);
+  assert(mutableTask && mutableTask.kind === "task");
+  await state.put({ ...mutableTask, taskType: "chapter.rewrite" });
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_TASK_INTEGRITY_FAILED"),
+  );
+  assert.equal((await state.get(execution.candidate.id))?.status, "awaiting-approval");
+  assert.equal((await state.list("project-a", "rejection")).length, 0);
+  assert.equal(candidateCacheCount(await cacheRepository.list()), cacheCountBefore);
+  const blocks = await ledgerRepository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  );
+  assert.equal(blocks.filter((block) => block.eventType === "cache-invalidated").length, 0);
+  assert.equal(blocks.filter((block) => block.eventType === "learning-experience").length, 0);
+});
+
+test("rejection freezes a no-consent result before final state completion", async () => {
+  class FailCompletedRejectionStateRepository extends MemoryClosedAgentStateRepository {
+    armed = false;
+
+    async put(record) {
+      if (this.armed && record.kind === "rejection" && record.status === "completed") {
+        this.armed = false;
+        throw new Error("REJECTION_COMPLETED_STATE_INTERRUPTED");
+      }
+      return super.put(record);
+    }
+  }
+
+  const state = new FailCompletedRejectionStateRepository();
+  const cacheRepository = new MemoryClosedAICacheRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const learningRepository = new MemoryControlledLearningRepository();
+  const createSharedOS = () => createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: learningRepository }),
+  });
+  const firstRuntime = createSharedOS();
+  const execution = await firstRuntime.os.execute(request(
+    "task-reject-frozen-no-consent",
+    "story.summary",
+    "light",
+  ));
+  state.armed = true;
+  await assert.rejects(
+    () => firstRuntime.os.rejectCandidate(execution.candidate.id),
+    /REJECTION_COMPLETED_STATE_INTERRUPTED/u,
+  );
+  const pendingRecord = (await state.list("project-a", "rejection"))[0];
+  assert.equal(pendingRecord.status, "pending");
+  assert.equal(pendingRecord.learningResult?.collected, false);
+  assert.equal((await learningRepository.list("project-a", "experience")).length, 0);
+  await firstRuntime.os.learning.setConsent({
+    namespace: execution.candidate.namespace,
+    enabled: true,
+  });
+
+  const recoveryRuntime = createSharedOS();
+  await recoveryRuntime.os.rejectCandidate(execution.candidate.id);
+  assert.equal((await learningRepository.list("project-a", "experience")).length, 0);
+  const completedRecord = (await state.list("project-a", "rejection"))[0];
+  assert.equal(completedRecord.status, "completed");
+  assert.deepEqual(completedRecord.learningResult, pendingRecord.learningResult);
+  const learningBlocks = (await ledgerRepository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  )).filter((block) => block.eventType === "learning-experience");
+  assert.equal(learningBlocks.length, 1);
+  assert.equal(learningBlocks[0].payloadDigest, completedRecord.learningResult.payloadDigest);
+});
+
+test("pending rejection revalidates candidate content before replay effects", async () => {
+  class FailFirstCacheRemoveRepository extends MemoryClosedAICacheRepository {
+    armed = false;
+
+    async remove(id) {
+      if (this.armed) {
+        this.armed = false;
+        throw new Error("REJECTION_CACHE_INTERRUPTED_BEFORE_LEARNING");
+      }
+      return super.remove(id);
+    }
+  }
+
+  const state = new MemoryClosedAgentStateRepository();
+  const cacheRepository = new FailFirstCacheRemoveRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const learningRepository = new MemoryControlledLearningRepository();
+  const createSharedOS = () => createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+    learning: new ControlledLearningOS({ repository: learningRepository }),
+  });
+  const firstRuntime = createSharedOS();
+  const execution = await firstRuntime.os.execute(request(
+    "task-reject-pending-candidate-tamper",
+    "story.summary",
+    "light",
+  ));
+  cacheRepository.armed = true;
+  await assert.rejects(
+    () => firstRuntime.os.rejectCandidate(execution.candidate.id),
+    /REJECTION_CACHE_INTERRUPTED_BEFORE_LEARNING/u,
+  );
+  const pending = (await state.list("project-a", "rejection"))[0];
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.learningResult, null);
+  const tamperedTaskRecord = {
+    ...pending,
+    taskType: "chapter.rewrite",
+    cachePlanDigest: await sha256Hex(stableStringify({
+      domain: "closed-agent-rejection-cache-plan-v1",
+      candidateId: execution.candidate.id,
+      taskId: execution.candidate.taskId,
+      taskType: "chapter.rewrite",
+      namespaceDigest: pending.namespaceDigest,
+      claimId: pending.claimId,
+      layers: ["exact", "semantic"],
+      cacheEntryIds: pending.cacheEntryIds,
+    })),
+  };
+  await state.put(tamperedTaskRecord);
+  await assert.rejects(
+    () => createSharedOS().os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_RECORD_INVALID"),
+  );
+  assert.equal((await learningRepository.list("project-a", "experience")).length, 0);
+  await state.put(pending);
+  const rejectedCandidate = await state.get(execution.candidate.id);
+  assert(rejectedCandidate && rejectedCandidate.kind === "candidate");
+  await state.put({
+    ...rejectedCandidate,
+    content: `${rejectedCandidate.content}TAMPERED_PENDING_CONTENT`,
+  });
+
+  const recoveryRuntime = createSharedOS();
+  await assert.rejects(
+    () => recoveryRuntime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED"),
+  );
+  assert.equal((await learningRepository.list("project-a", "experience")).length, 0);
+  assert.equal((await state.list("project-a", "rejection"))[0].status, "pending");
+});
+
+test("fresh rejected candidates cannot downgrade to the legacy no-outbox path", async () => {
+  const state = new MemoryClosedAgentStateRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const runtime = createMockOS({
+    state,
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const execution = await runtime.os.execute(request(
+    "task-reject-outbox-downgrade",
+    "story.summary",
+    "light",
+  ));
+  await runtime.os.rejectCandidate(execution.candidate.id);
+  const rejection = (await state.list("project-a", "rejection"))[0];
+  const ledgerId = `closed-agent:project-a:${execution.candidate.taskId}`;
+  const blocksBefore = await ledgerRepository.list(ledgerId);
+  state.records.delete(rejection.id);
+  assert.equal(await runtime.os.verifyCandidateIntegrity(execution.candidate.id), false);
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_RECORD_MISSING"),
+  );
+  assert.deepEqual(await ledgerRepository.list(ledgerId), blocksBefore);
+  const downgradedCandidate = await state.get(execution.candidate.id);
+  assert(downgradedCandidate && downgradedCandidate.kind === "candidate");
+  delete downgradedCandidate.taskType;
+  await state.put(downgradedCandidate);
+  const firstBlock = [...ledgerRepository.blocks.values()]
+    .find((block) => block.ledgerId === ledgerId);
+  assert(firstBlock);
+  ledgerRepository.blocks.set(firstBlock.id, {
+    ...firstBlock,
+    payloadDigest: "0".repeat(64),
+  });
+  assert.equal((await runtime.os.ledger.verify(ledgerId)).valid, false);
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED"),
+  );
+});
+
+test("approval and rejection share one cross-instance terminal decision lock", async () => {
+  const state = new MemoryClosedAgentStateRepository();
+  const cacheRepository = new MemoryClosedAICacheRepository();
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const firstRuntime = createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const secondRuntime = createMockOS({
+    state,
+    cache: new ClosedAICache({ repository: cacheRepository, semanticThreshold: 0.2 }),
+    ledger: new VerifiableLedger({
+      repository: ledgerRepository,
+      signer: new ApprovalSigner(),
+    }),
+  });
+  const execution = await firstRuntime.os.execute(request(
+    "task-reject-wins-decision",
+    "story.summary",
+    "light",
+  ));
+  const rejectFirst = await Promise.allSettled([
+    firstRuntime.os.rejectCandidate(execution.candidate.id),
+    secondRuntime.os.approveCandidate({
+      candidateId: execution.candidate.id,
+      approvedBy: "author",
+      humanApproved: true,
+    }),
+  ]);
+  assert.deepEqual(rejectFirst.map((result) => result.status), ["fulfilled", "rejected"]);
+  assert.equal((await state.get(execution.candidate.id))?.status, "rejected");
+  const rejectWinBlocks = await ledgerRepository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  );
+  assert.equal(rejectWinBlocks.filter((block) => block.eventType === "approval-signed").length, 0);
+
+  const approvalExecution = await firstRuntime.os.execute(request(
+    "task-approval-wins-decision",
+    "story.summary",
+    "light",
+  ));
+  const approveFirst = await Promise.allSettled([
+    firstRuntime.os.approveCandidate({
+      candidateId: approvalExecution.candidate.id,
+      approvedBy: "author",
+      humanApproved: true,
+    }),
+    secondRuntime.os.rejectCandidate(approvalExecution.candidate.id),
+  ]);
+  assert.deepEqual(approveFirst.map((result) => result.status), ["fulfilled", "rejected"]);
+  assert.equal((await state.get(approvalExecution.candidate.id))?.status, "approved");
+  assert.equal(
+    (await state.list("project-a", "rejection"))
+      .filter((record) => record.candidateId === approvalExecution.candidate.id).length,
+    0,
+  );
+});
+
+test("preseeded rejection causation cannot replace the expected learning payload", async () => {
+  const runtime = createMockOS();
+  const execution = await runtime.os.execute(request(
+    "task-reject-preseeded-causation",
+    "story.summary",
+    "light",
+  ));
+  await runtime.os.learning.setConsent({
+    namespace: execution.candidate.namespace,
+    enabled: true,
+  });
+  const causationId = await sha256Hex(stableStringify({
+    domain: "closed-agent-rejected-learning-outcome-v1",
+    candidateId: execution.candidate.id,
+    outcome: "rejected",
+  }));
+  await runtime.os.ledger.append({
+    ledgerId: `closed-agent:project-a:${execution.candidate.taskId}`,
+    namespace: execution.candidate.namespace,
+    eventType: "learning-experience",
+    payload: {
+      candidateId: execution.candidate.id,
+      outcome: "rejected",
+      collected: false,
+      experienceId: null,
+      featureDigest: null,
+      resultDigest: null,
+      reasonCode: "ATTACKER_PRESEEDED_CAUSATION",
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawChainOfThoughtStored: false,
+    },
+    lineage: { causationId },
+  });
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("LEDGER_CAUSATION_CONFLICT"),
+  );
+  assert.equal(
+    (await runtime.os.state.get(execution.candidate.id))?.status,
+    "rejected",
+  );
+  assert.equal(
+    (await runtime.os.state.list("project-a", "rejection"))[0].status,
+    "pending",
+  );
+  const blocks = await runtime.os.ledger.repository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  );
+  assert.equal(blocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && block.lineage?.causationId === causationId
+  )).length, 1);
+  assert.equal((await runtime.os.ledger.verify(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  )).valid, true);
+});
+
+test("a future-dated exact rejection causation cannot guess the durable claim", async () => {
+  const ledgerRepository = new MemoryVerifiableLedgerRepository();
+  const runtime = createMockOS({
+    ledger: new VerifiableLedger({ repository: ledgerRepository }),
+  });
+  const execution = await runtime.os.execute(request(
+    "task-reject-exact-preseeded-causation",
+    "story.summary",
+    "light",
+  ));
+  const causationId = await sha256Hex(stableStringify({
+    domain: "closed-agent-rejected-learning-outcome-v1",
+    candidateId: execution.candidate.id,
+    outcome: "rejected",
+  }));
+  const attackerLedger = new VerifiableLedger({
+    repository: ledgerRepository,
+    now: () => new Date(Date.now() + 86_400_000),
+  });
+  const preseeded = await attackerLedger.append({
+    ledgerId: `closed-agent:project-a:${execution.candidate.taskId}`,
+    namespace: execution.candidate.namespace,
+    eventType: "learning-experience",
+    payload: {
+      candidateId: execution.candidate.id,
+      outcome: "rejected",
+      collected: false,
+      experienceId: null,
+      featureDigest: null,
+      resultDigest: null,
+      reasonCode: "CONTROLLED_LEARNING_CONSENT_REQUIRED",
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawChainOfThoughtStored: false,
+    },
+    lineage: { causationId },
+  });
+  await assert.rejects(
+    () => runtime.os.rejectCandidate(execution.candidate.id),
+    errorCode("LEDGER_CAUSATION_CONFLICT"),
+  );
+  const rejection = (await runtime.os.state.list("project-a", "rejection"))[0];
+  assert.equal(rejection.status, "pending");
+  assert.match(rejection.claimId, /^[a-f0-9]{64}$/u);
+  assert.notEqual(rejection.learningResult?.payloadDigest, preseeded.payloadDigest);
+  assert(preseeded.timestamp > rejection.startedAt);
+  const blocks = await runtime.os.ledger.repository.list(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  );
+  assert.equal(blocks.filter((block) => (
+    block.eventType === "learning-experience"
+    && block.lineage?.causationId === causationId
+  )).length, 1);
+  assert.equal((await runtime.os.ledger.verify(
+    `closed-agent:project-a:${execution.candidate.taskId}`,
+  )).valid, true);
 });
 
 test("a failed final state write recovers one durable candidate without rerunning", async () => {

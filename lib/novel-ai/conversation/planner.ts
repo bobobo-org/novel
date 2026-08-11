@@ -295,6 +295,18 @@ function selectedRule(input: PlannerInput, objective: string): IntentRule | null
     };
   }
   const explicitRule = RULES.find((rule) => rule.pattern.test(classificationObjective)) ?? null;
+  const explicitContinuation = RULES.find((rule) => (
+    rule.intent === "continue_writing"
+    && rule.pattern.test(classificationObjective)
+  )) ?? null;
+  if (
+    explicitContinuation
+    && (
+      explicitRule?.intent === "story_bible_query"
+      || explicitRule?.intent === "project_search"
+      || explicitRule?.intent === "attachment_analysis"
+    )
+  ) return explicitContinuation;
   if (
     (explicitRule?.intent === "character_candidate" || explicitRule?.intent === "world_rule_candidate")
     && !hasPositiveEntityMutation(classificationObjective, explicitRule.intent)
@@ -307,6 +319,11 @@ function selectedRule(input: PlannerInput, objective: string): IntentRule | null
   }
   if (explicitRule?.intent === "learning_rule_candidate") return explicitRule;
   if ((input.attachmentCount ?? 0) > 0) {
+    if (
+      explicitRule?.executionKind === "closed_agent"
+      && explicitRule.approvalRequired === true
+      && explicitRule.targetStore
+    ) return explicitRule;
     return RULES.find((rule) => rule.intent === "attachment_analysis") ?? null;
   }
   return explicitRule;

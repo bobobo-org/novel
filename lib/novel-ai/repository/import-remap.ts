@@ -233,7 +233,10 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     sessionId?: string;
     safeSourceAlias?: string;
     contentHash?: string;
+    rightsBasis?: string;
     rightsEvidenceHash?: string;
+    userConfirmedRights?: boolean;
+    rightsConfirmationSchemaVersion?: string;
     localAnalysisOnly?: boolean;
     rawContentRetained?: boolean;
   }>;
@@ -348,8 +351,15 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     if (!messageMap.get(invocation.messageId ?? "")?.toolInvocationIds?.includes(invocation.id)) throw new Error("BACKUP_CONVERSATION_TOOL_BACK_REFERENCE_INVALID");
   }
   for (const attachment of attachments) {
+    const legacyRightsConfirmationAbsent =
+      attachment.userConfirmedRights === undefined
+      && attachment.rightsConfirmationSchemaVersion === undefined;
+    const rightsConfirmationVerified = attachment.userConfirmedRights === true
+      && attachment.rightsConfirmationSchemaVersion
+        === "conversation-attachment-rights-confirmation-v1";
     if (!attachment.sessionId || !sessionMap.has(attachment.sessionId)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_SESSION_INVALID");
     if (attachment.localAnalysisOnly !== true || attachment.rawContentRetained !== false) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_RETENTION_INVALID");
+    if (!attachment.rightsBasis?.trim() || attachment.rightsBasis.length > 120 || (!legacyRightsConfirmationAbsent && !rightsConfirmationVerified)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_RIGHTS_INVALID");
     if (!attachment.contentHash || !digestPattern.test(attachment.contentHash) || !attachment.rightsEvidenceHash || !digestPattern.test(attachment.rightsEvidenceHash)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_DIGEST_INVALID");
     if (!attachment.safeSourceAlias || /^(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home)\/)/u.test(attachment.safeSourceAlias)) throw new Error("BACKUP_CONVERSATION_ATTACHMENT_ALIAS_UNSAFE");
   }

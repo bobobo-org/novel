@@ -210,6 +210,7 @@ export async function finalizeBrowserAssistedBackendResult(input: {
     privateHubJobsAvoided: 0,
     localOllamaCallsAvoided: 0,
     elapsedMs: input.result.elapsedMs,
+    contextAttestation: "not_required",
   });
   await recordBrowserExecutionReceipt(receipt);
   if (enforcement.shouldBlock) {

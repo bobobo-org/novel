@@ -671,32 +671,51 @@ export function useConversationApprovalController({
     setBusy(true);
     setSafeError(null);
     try {
-      if (artifact.artifactType === "learning_rule") {
-        const learning = await getLearningCoordinator();
-        await learning.rollbackPendingApproval(projectId, artifact.targetRecordId);
-      }
       const currentArtifact = await repository.get<ConversationArtifact>(
         "conversationArtifacts",
         artifact.id,
       );
-      if (!currentArtifact || currentArtifact.status !== "candidate") {
+      if (
+        !currentArtifact
+        || currentArtifact.projectId !== projectId
+        || currentArtifact.sessionId !== sessionId
+        || !["candidate", "rejected"].includes(currentArtifact.status)
+      ) {
         throw Object.assign(new Error("Conversation artifact is no longer rejectable."), {
           code: "CONVERSATION_ARTIFACT_STALE",
         });
       }
       const source = await repository.get<ConversationMessage>(
         "conversationMessages",
-        artifact.sourceMessageId,
+        currentArtifact.sourceMessageId,
       );
+      if (
+        !source
+        || source.projectId !== projectId
+        || source.sessionId !== sessionId
+      ) {
+        throw Object.assign(new Error("Conversation artifact source is no longer rejectable."), {
+          code: "CONVERSATION_ARTIFACT_STALE",
+        });
+      }
       const closedCandidateId = source ? exactClosedCandidateId(source) : null;
-      await conversation.rejectArtifact(
-        projectId,
-        sessionId,
-        currentArtifact.id,
-        currentArtifact.revision,
-      );
       if (closedCandidateId) {
-        await rejectStudioClosedAgentCandidate(closedCandidateId).catch(() => undefined);
+        await rejectStudioClosedAgentCandidate(closedCandidateId);
+      }
+      if (currentArtifact.artifactType === "learning_rule") {
+        const learning = await getLearningCoordinator();
+        await learning.rollbackPendingApproval(
+          projectId,
+          currentArtifact.targetRecordId,
+        );
+      }
+      if (currentArtifact.status === "candidate") {
+        await conversation.rejectArtifact(
+          projectId,
+          sessionId,
+          currentArtifact.id,
+          currentArtifact.revision,
+        );
       }
       await refreshSession(sessionId);
     } catch (error) {

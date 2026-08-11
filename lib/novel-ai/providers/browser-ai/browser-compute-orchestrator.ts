@@ -4,6 +4,17 @@ import type {
   PlatformRouterDecision,
 } from "../../router/platform-types";
 import { sha256Hex } from "../../closed-ai-cache";
+import {
+  browserFinalContextManifestDigest,
+  createBrowserFinalContextExpectation,
+  createBrowserFinalModelContextAttestation,
+  sealBrowserFinalContextFragment,
+  verifyBrowserFinalModelContextInvocationProof,
+  type BrowserContextAttestationRequirement,
+  type BrowserFinalContextExpectation,
+  type BrowserFinalModelContextInnerStage,
+  type BrowserFinalModelContextInvocationProof,
+} from "../../security/browser-final-model-context-proof";
 import { isCryptographicClosedAIModelDigest } from "../../closed-agent-os/types";
 import type { ClosedAgentBrowserRuntimeEvidence } from "../../closed-agent-os/safe-runtime-diagnostics";
 import {
@@ -39,6 +50,7 @@ import {
   rankWithBrowserSemanticModel,
 } from "./browser-semantic-runtime";
 import { browserWebLLMRuntimeSnapshot } from "./browser-webllm-runtime";
+import { BROWSER_TASK_MODEL } from "./browser-task-model";
 import {
   assessBrowserProseCompletion,
   BROWSER_PROSE_MAXIMUM_CODE_POINTS,
@@ -115,6 +127,54 @@ function assertSameVerifiedBrowserModel(
       canonicalMutationCount: 0,
     },
   );
+}
+
+async function assertBrowserFinalContextInvocationProof(input: {
+  request: PlatformAIRequest;
+  invocationRequestId: string;
+  innerStage: BrowserFinalModelContextInnerStage;
+  innerIndex: 0 | 1 | 2;
+  result: PlatformAIResult;
+}) {
+  if (input.request.browserFinalContextExpectations === undefined) return null;
+  const proof = input.result.browserModelContextInvocationProof;
+  if (!proof || !await verifyBrowserFinalModelContextInvocationProof(proof)) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_PROOF_REQUIRED"), {
+      code: "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED",
+    });
+  }
+  const outerRequestId = input.request.browserFinalContextOuterRequestId ?? "";
+  const outerTaskType = input.request.browserFinalContextOuterTaskType ?? "";
+  const outerQualityPhase = input.request.browserFinalContextOuterQualityPhase;
+  if (!outerRequestId || !outerTaskType || !outerQualityPhase) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
+  const outerRequestIdDigest = await sha256Hex(outerRequestId);
+  const invocationRequestIdDigest = await sha256Hex(input.invocationRequestId);
+  const requiredManifestDigest = await browserFinalContextManifestDigest({
+    outerRequestIdDigest,
+    outerTaskType,
+    outerQualityPhase,
+    expectations: input.request.browserFinalContextExpectations,
+  });
+  if (
+    proof.outerRequestIdDigest !== outerRequestIdDigest
+    || proof.invocationRequestIdDigest !== invocationRequestIdDigest
+    || proof.outerTaskType !== outerTaskType
+    || proof.outerQualityPhase !== outerQualityPhase
+    || proof.innerStage !== input.innerStage
+    || proof.innerIndex !== input.innerIndex
+    || proof.modelId !== input.result.modelId
+    || proof.modelDigest !== input.result.modelDigest
+    || proof.requiredManifestDigest !== requiredManifestDigest
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
+  return structuredClone(proof);
 }
 
 function hasVerifiedClosedWebLLMBoundary(
@@ -1018,11 +1078,26 @@ async function contextSources(
       code: "BROWSER_COMPUTE_NAMESPACE_REQUIRED",
     });
   }
+  if (
+    request.contextSourceIdentities
+    && request.contextSourceIdentities.length !== request.context.length
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
   const base: BrowserContextSource[] = request.context.map((text, index) => {
+    const sourceIdentity = request.contextSourceIdentities?.[index] ?? null;
+    const selectedAttachment = sourceIdentity?.sourceKind
+      === "selected-local-attachment-summary";
     const currentChapter = /^\s*\[current-chapter\]/iu.test(text);
     return {
-      id: `context-${index + 1}`,
-      kind: currentChapter
+      id: sourceIdentity?.sourceId ?? `context-${index + 1}`,
+      kind: sourceIdentity
+        ? selectedAttachment
+          ? "untrusted-reference"
+          : "story-bible"
+        : currentChapter
         ? "current-chapter"
         : index === 0
           ? "canon-authority"
@@ -1032,8 +1107,15 @@ async function contextSources(
       visibility: "both",
       approved: true,
       revision: request.cacheNamespace!.storyBibleRevision,
-      authority: currentChapter || index === 0 ? 1 : 0.65,
+      authority: selectedAttachment
+        ? 0.2
+        : currentChapter || index === 0
+          ? 1
+          : 0.65,
       relevance: currentChapter ? 1 : 0.65,
+      sourceIdentity: sourceIdentity
+        ? structuredClone(sourceIdentity)
+        : undefined,
     };
   });
   if (!semanticReady || !request.context.length) return base;
@@ -1079,6 +1161,20 @@ export async function executeBrowserBoundedQualityPasses(input: {
   const performancePolicy = input.performancePolicy;
   const runPass = input.runPass ?? runBrowserAI;
   let result = input.initialResult;
+  const initialInvocationProof = requiredGenerativeExecutor === "webllm-worker"
+    ? await assertBrowserFinalContextInvocationProof({
+      request: executionRequest,
+      invocationRequestId: input.request.requestId,
+      innerStage: "initial",
+      innerIndex: 0,
+      result,
+    })
+    : null;
+  let repairInvocationProof: BrowserFinalModelContextInvocationProof | null = null;
+  let extensionInvocationProof: BrowserFinalModelContextInvocationProof | null = null;
+  let recoveryInvocationProof: BrowserFinalModelContextInvocationProof | null = null;
+  let acceptedModelStage: BrowserFinalModelContextInnerStage = "initial";
+  let acceptedExtensionBaseStage: "initial" | "repair" | null = null;
   const defaultChapterProseContract = Boolean(
     requiredGenerativeExecutor
     && shouldEnforceDefaultBrowserProseContract({
@@ -1297,6 +1393,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         requestId: `${input.request.requestId}:bounded-same-model-repair`,
         input: repairPlan.objective,
         qualityPhase: initialStopBudgetRepairReasonCode ? "draft" : "revision",
+        browserFinalContextInnerStage: "repair",
+        browserFinalContextInnerIndex: 1,
         agentPlan: initialIsolatedRepairReasonCode
           ? undefined
           : executionRequest.agentPlan,
@@ -1332,10 +1430,20 @@ export async function executeBrowserBoundedQualityPasses(input: {
         {
           preferLightweightRuntime: false,
           requiredGenerativeExecutor,
+          contextAttestation: executionRequest.contextAttestation,
           deferTraditionalChineseNormalization:
             input.deferTraditionalChineseNormalization,
         },
       );
+      repairInvocationProof = requiredGenerativeExecutor === "webllm-worker"
+        ? await assertBrowserFinalContextInvocationProof({
+          request: repairRequest,
+          invocationRequestId: repairRequest.requestId,
+          innerStage: "repair",
+          innerIndex: 1,
+          result: repairResult,
+        })
+        : null;
     } catch (error) {
       throw attachBrowserRuntimeEvidence(error, [
         ...browserRuntimeEvidence,
@@ -1590,6 +1698,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
           : { normalizedOutputCharacters: acceptedRepairContent.length }),
       };
       acceptedResult = repairResult;
+      acceptedModelStage = "repair";
       repairQuality = evaluateBrowserCandidateQuality({
         taskType: input.request.taskType,
         content: acceptedRepairContent,
@@ -1794,6 +1903,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
               "接續未核准短稿，補足同一場景的新行動與後果。",
             ].filter(Boolean).join("\n"),
             qualityPhase: "revision",
+            browserFinalContextInnerStage: "extension",
+            browserFinalContextInnerIndex: 2,
             agentPlan: undefined,
             toolResults: [],
             workingMaterials: [],
@@ -1820,11 +1931,19 @@ export async function executeBrowserBoundedQualityPasses(input: {
           {
             preferLightweightRuntime: false,
             requiredGenerativeExecutor,
+            contextAttestation: executionRequest.contextAttestation,
             unapprovedContinuationSeed: continuationSeed,
             deferTraditionalChineseNormalization:
               input.deferTraditionalChineseNormalization,
           },
         );
+        extensionInvocationProof = await assertBrowserFinalContextInvocationProof({
+          request: executionRequest,
+          invocationRequestId: `${input.request.requestId}:bounded-prose-extension`,
+          innerStage: "extension",
+          innerIndex: 2,
+          result: extensionResult,
+        });
       } catch (error) {
         throw attachBrowserRuntimeEvidence(error, [
           ...browserRuntimeEvidence,
@@ -1896,6 +2015,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
           ? {}
           : { normalizedOutputCharacters: merged.content.length }),
       };
+      acceptedModelStage = "extension";
+      acceptedExtensionBaseStage = extensionBase.stage;
       repairQuality = evaluateBrowserCandidateQuality({
         taskType: input.request.taskType,
         content: merged.content,
@@ -1998,6 +2119,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         requestId: recoveryRequestId,
         input: buildBrowserFreshRecoveryObjective(input.request.input),
         qualityPhase: "draft",
+        browserFinalContextInnerStage: "recovery",
+        browserFinalContextInnerIndex: 2,
         agentPlan: undefined,
         toolResults: [],
         workingMaterials: [],
@@ -2030,10 +2153,18 @@ export async function executeBrowserBoundedQualityPasses(input: {
           {
             preferLightweightRuntime: false,
             requiredGenerativeExecutor,
+            contextAttestation: executionRequest.contextAttestation,
             deferTraditionalChineseNormalization:
               input.deferTraditionalChineseNormalization,
           },
         );
+        recoveryInvocationProof = await assertBrowserFinalContextInvocationProof({
+          request: recoveryRequest,
+          invocationRequestId: recoveryRequestId,
+          innerStage: "recovery",
+          innerIndex: 2,
+          result: recoveryResult,
+        });
       } catch (error) {
         throw attachBrowserRuntimeEvidence(error, [
           ...browserRuntimeEvidence,
@@ -2112,6 +2243,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
           : { normalizedOutputCharacters: recoveredContent.length }),
       };
       acceptedResult = recoveryResult;
+      acceptedModelStage = "recovery";
       repairQuality = evaluateBrowserCandidateQuality({
         taskType: input.request.taskType,
         content: recoveredContent,
@@ -2270,6 +2402,47 @@ export async function executeBrowserBoundedQualityPasses(input: {
       canonicalMutationCount: 0,
     });
   }
+  if (
+    requiredGenerativeExecutor === "webllm-worker"
+    && executionRequest.browserFinalContextExpectations !== undefined
+  ) {
+    const executedStages: BrowserFinalModelContextInnerStage[] = ["initial"];
+    if (repairInvocationProof) executedStages.push("repair");
+    if (extensionInvocationProof) executedStages.push("extension");
+    if (recoveryInvocationProof) executedStages.push("recovery");
+    const acceptedProof = acceptedModelStage === "initial"
+      ? initialInvocationProof
+      : acceptedModelStage === "repair"
+        ? repairInvocationProof
+        : acceptedModelStage === "extension"
+          ? extensionInvocationProof
+          : recoveryInvocationProof;
+    const extensionBaseProof = acceptedExtensionBaseStage === "initial"
+      ? initialInvocationProof
+      : acceptedExtensionBaseStage === "repair"
+        ? repairInvocationProof
+        : null;
+    if (!acceptedProof || (acceptedModelStage === "extension" && !extensionBaseProof)) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_PROOF_REQUIRED"), {
+        code: "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED",
+      });
+    }
+    result = {
+      ...result,
+      finalModelContextAttestation:
+        await createBrowserFinalModelContextAttestation({
+          acceptedDisposition: acceptedModelStage === "extension"
+            ? "composed-extension"
+            : "standalone",
+          acceptedStage: acceptedModelStage,
+          extensionBaseStage: acceptedExtensionBaseStage,
+          executedStages,
+          contributingCalls: acceptedModelStage === "extension"
+            ? [extensionBaseProof!, acceptedProof]
+            : [acceptedProof],
+        }),
+    };
+  }
   return { result, quality, browserRuntimeEvidence };
 }
 
@@ -2345,9 +2518,52 @@ export async function executeBrowserCompute(input: {
     requestedRepetitionPenalty: input.request.generationOptions?.repetitionPenalty,
     previousTokensPerSecond: selected?.averageTokensPerSecond,
   });
+  const semanticReady = semantic?.model.cacheVerified ?? false;
+  const benchmarkEvidence = capability.generativeRuntime === "chromium-prompt-api"
+    && inferenceProofVerified
+    ? { benchmarkPassed: true }
+    : benchmark;
+  const eligibilityBase = {
+    taskType: input.request.taskType,
+    policy,
+    manualProvider: input.request.preferredProvider,
+    generativeModelReady: capability.generativeModelReady,
+    generativeRuntime: capability.generativeRuntime,
+    inferenceProofVerified,
+    semanticModelReady: semanticReady,
+    modelParameterLabel: selectedManifest.parameterLabel,
+    benchmark: benchmarkEvidence,
+    outputTokens: performancePolicy.reservedOutputTokens,
+    qualityPreference: input.request.qualityPreference,
+    allowPreAuthorizedClosedEscalation:
+      input.request.allowPreAuthorizedClosedEscalation ?? false,
+  } as const;
+  // Tier and executor are selected before context provenance is handed to the
+  // compressor. This is the authority boundary that decides whether trusted
+  // sidecars may become CTX3 material at all.
+  const preEligibility = resolveBrowserTaskEligibility({
+    ...eligibilityBase,
+    contextTokens: 0,
+  });
+  if (!preEligibility.eligible) throw explicitEscalationError(preEligibility);
+  const contextAttestation: BrowserContextAttestationRequirement =
+    preEligibility.tier === "T2" ? "required" : "not_required";
+  const requiredGenerativeExecutor = preEligibility.tier === "T2"
+    && preEligibility.browserExecutor === "webllm-worker"
+    ? "webllm-worker" as const
+    : undefined;
+  if (preEligibility.tier === "T2" && !requiredGenerativeExecutor) {
+    throw explicitEscalationError(
+      preEligibility,
+      "BROWSER_AI_T2_EXECUTOR_NOT_VERIFIED",
+    );
+  }
+  const contextSourceRequest = contextAttestation === "required"
+    ? input.request
+    : { ...input.request, contextSourceIdentities: undefined };
   const sources = await contextSources(
-    input.request,
-    semantic?.model.cacheVerified ?? false,
+    contextSourceRequest,
+    semanticReady,
   );
   const contextPack = await composeBrowserContextPack({
     namespace: input.request.cacheNamespace!,
@@ -2355,48 +2571,109 @@ export async function executeBrowserCompute(input: {
     sources,
     performancePolicy,
   });
+  const outerQualityPhase = input.request.qualityPhase ?? "draft";
+  const outerRequestIdDigest = await sha256Hex(input.request.requestId);
+  const requiredPackedItems = contextAttestation === "required"
+    ? contextPack.items.filter((item) => item.sourceIdentity?.receiptRequired)
+    : [];
+  const browserFinalContextExpectations: BrowserFinalContextExpectation[] = [];
+  for (const [index, item] of requiredPackedItems.entries()) {
+    const source = sources.find((candidate) => (
+      candidate.sourceIdentity?.sourceId === item.sourceIdentity?.sourceId
+    ));
+    if (!source?.sourceIdentity) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+        code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+      });
+    }
+    const expectation = await createBrowserFinalContextExpectation({
+      identity: source.sourceIdentity,
+      ordinal: index + 1,
+      serializedSource: source.text,
+    });
+    if (expectation.originalDigest !== item.contentDigest) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+        code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+      });
+    }
+    browserFinalContextExpectations.push(expectation);
+  }
+  if (contextAttestation === "required") {
+    await browserFinalContextManifestDigest({
+      outerRequestIdDigest,
+      outerTaskType: input.request.taskType,
+      outerQualityPhase,
+      expectations: browserFinalContextExpectations,
+    });
+  }
   const preparedContextTokens = browserEligibilityContextTokens({
     rawContextTokens,
     compressedContextTokens: contextPack.metrics.browserCompressedContextTokens,
     objectiveTokens: estimateBrowserTokens(input.request.input),
   });
   const eligibility = resolveBrowserTaskEligibility({
-    taskType: input.request.taskType,
-    policy,
-    manualProvider: input.request.preferredProvider,
-    generativeModelReady: capability.generativeModelReady,
-    generativeRuntime: capability.generativeRuntime,
-    inferenceProofVerified,
-    semanticModelReady: semantic?.model.cacheVerified ?? false,
-    modelParameterLabel: selectedManifest.parameterLabel,
-    benchmark: capability.generativeRuntime === "chromium-prompt-api"
-      && inferenceProofVerified
-      ? { benchmarkPassed: true }
-      : benchmark,
+    ...eligibilityBase,
     contextTokens: preparedContextTokens,
-    outputTokens: performancePolicy.reservedOutputTokens,
-    qualityPreference: input.request.qualityPreference,
-    allowPreAuthorizedClosedEscalation:
-      input.request.allowPreAuthorizedClosedEscalation ?? false,
   });
   if (!eligibility.eligible) throw explicitEscalationError(eligibility);
+  if (
+    eligibility.tier !== preEligibility.tier
+    || eligibility.browserExecutor !== preEligibility.browserExecutor
+  ) {
+    throw Object.assign(new Error("Browser eligibility changed across context preparation."), {
+      code: "BROWSER_AI_ELIGIBILITY_DRIFT",
+      preTier: preEligibility.tier,
+      finalTier: eligibility.tier,
+      preExecutor: preEligibility.browserExecutor,
+      finalExecutor: eligibility.browserExecutor,
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    });
+  }
   const executionRequest: PlatformAIRequest = {
     ...input.request,
     input: input.request.input,
-    context: contextPack.items.map((item) => `[${item.kind}]\n${item.text}`),
+    contextAttestation,
+    context: contextPack.items.map((item) => {
+      if (!item.sourceIdentity?.receiptRequired) {
+        return `[${item.kind}]\n${item.text}`;
+      }
+      const expectation = browserFinalContextExpectations.find((candidate) => (
+        candidate.sourceIdDigest
+          && requiredPackedItems[candidate.ordinal - 1]?.sourceIdentity?.sourceId
+            === item.sourceIdentity?.sourceId
+      ));
+      if (!expectation) {
+        throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+          code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+        });
+      }
+      return sealBrowserFinalContextFragment({
+        expectation,
+        fragment: `[${item.kind}]\n${item.text}`,
+      });
+    }),
+    ...(contextAttestation === "required"
+      ? {
+        browserFinalContextExpectations,
+        browserFinalContextOuterRequestId: input.request.requestId,
+        browserFinalContextOuterTaskType: input.request.taskType,
+        browserFinalContextOuterQualityPhase: outerQualityPhase,
+        browserFinalContextInnerStage: "initial" as const,
+        browserFinalContextInnerIndex: 0 as const,
+      }
+      : {}),
   };
-  const requiredGenerativeExecutor = eligibility.tier === "T2"
-    && (
-      eligibility.browserExecutor === "webllm-worker"
-      || eligibility.browserExecutor === "chromium-prompt-api"
-    )
-    ? eligibility.browserExecutor
-    : undefined;
-  if (eligibility.tier === "T2" && !requiredGenerativeExecutor) {
-    throw explicitEscalationError(
-      eligibility,
-      "BROWSER_AI_T2_EXECUTOR_NOT_VERIFIED",
-    );
+  Reflect.deleteProperty(executionRequest, "contextSourceIdentities");
+  if (contextAttestation === "not_required") {
+    for (const key of [
+      "browserFinalContextExpectations",
+      "browserFinalContextOuterRequestId",
+      "browserFinalContextOuterTaskType",
+      "browserFinalContextOuterQualityPhase",
+      "browserFinalContextInnerStage",
+      "browserFinalContextInnerIndex",
+    ] as const) Reflect.deleteProperty(executionRequest, key);
   }
   // Closed Agent OS owns planning, critique and revision. A browser task node
   // normally performs one model pass. Direct continuation tasks may run one
@@ -2411,7 +2688,11 @@ export async function executeBrowserCompute(input: {
     onProgress: input.onProgress,
     options: {
       preferLightweightRuntime: eligibility.tier === "T1",
+      requiredTaskExecutor: eligibility.tier === "T1"
+        ? "browser-task-model"
+        : undefined,
       requiredGenerativeExecutor,
+      contextAttestation,
       deferTraditionalChineseNormalization:
         input.deferTraditionalChineseNormalization,
     },
@@ -2434,8 +2715,40 @@ export async function executeBrowserCompute(input: {
   if (requiredGenerativeExecutor) {
     assertVerifiedExecutor(result, requiredGenerativeExecutor);
   }
-  const receipt = await createBrowserExecutionReceipt({
+  if (
+    result.contextAttestation !== contextAttestation
+    || (contextAttestation === "required"
+      ? actualExecutor !== "webllm-worker"
+        || !result.finalModelContextAttestation
+      : actualExecutor !== "browser-task-model"
+        || result.modelId !== BROWSER_TASK_MODEL.modelId
+        || result.modelDigest !== BROWSER_TASK_MODEL.modelDigest
+        || result.browserModelContextInvocationProof !== undefined
+        || result.finalModelContextAttestation !== undefined)
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: contextAttestation === "required"
+        && !result.finalModelContextAttestation
+        ? "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED"
+        : "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+      fallbackAttempted: false,
+      canonicalMutationCount: 0,
+    });
+  }
+  if (quality.decision === "block" || quality.decision === "escalate") {
+    throw Object.assign(explicitEscalationError(
+      eligibility,
+      "BROWSER_AI_QUALITY_INSUFFICIENT",
+    ), {
+      qualityScore: quality.score,
+      qualityDecision: quality.decision,
+      qualityReasonCodes: quality.reasonCodes,
+      browserRuntimeEvidence: qualityPasses.browserRuntimeEvidence,
+    });
+  }
+  const receiptBase = {
     taskIdentity: `${input.request.projectId}:${input.request.requestId}`,
+    outerRequestId: input.request.requestId,
     taskType: input.request.taskType,
     plannedPipeline: eligibility.plannedPipeline,
     actualExecutor: actualExecutor as BrowserExecutionReceipt["actualExecutor"],
@@ -2457,20 +2770,18 @@ export async function executeBrowserCompute(input: {
     privateHubJobsAvoided: 0,
     localOllamaCallsAvoided: eligibility.tier === "T2" ? 1 : 0,
     elapsedMs: Math.round(performance.now() - started),
-  });
-  await recordBrowserExecutionReceipt(receipt);
-  if (quality.decision === "block" || quality.decision === "escalate") {
-    throw Object.assign(explicitEscalationError(
-      eligibility,
-      "BROWSER_AI_QUALITY_INSUFFICIENT",
-    ), {
-      qualityScore: quality.score,
-      qualityDecision: quality.decision,
-      qualityReasonCodes: quality.reasonCodes,
-      browserRuntimeEvidence: qualityPasses.browserRuntimeEvidence,
-      receiptId: receipt.receiptId,
+  };
+  const receipt = contextAttestation === "required"
+    ? await createBrowserExecutionReceipt({
+      ...receiptBase,
+      contextAttestation: "required",
+      finalModelContextAttestation: result.finalModelContextAttestation!,
+    })
+    : await createBrowserExecutionReceipt({
+      ...receiptBase,
+      contextAttestation: "not_required",
     });
-  }
+  await recordBrowserExecutionReceipt(receipt);
   result.browserCompute = {
     policy,
     tier: eligibility.tier,
@@ -2482,6 +2793,7 @@ export async function executeBrowserCompute(input: {
     contextTokensAfter: contextPack.metrics.browserCompressedContextTokens,
     tokensSaved: contextPack.metrics.tokensSaved,
     receiptId: receipt.receiptId,
+    contextAttestation,
     inferenceProof: eligibility.tier === "T2" ? "verified" : "not_required",
     canonicalMutationCount: 0,
   };

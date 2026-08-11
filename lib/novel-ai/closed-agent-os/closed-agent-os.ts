@@ -28,6 +28,8 @@ import {
   type VerifiableLedgerEventType,
 } from "../verifiable-ledger";
 import { createDefaultClosedAIBackends } from "./backends";
+import { BROWSER_T1_TASKS } from "../providers/browser-ai/browser-task-eligibility";
+import { BROWSER_TASK_MODEL } from "../providers/browser-ai/browser-task-model";
 import type {
   TraditionalChineseNormalizationPolicy,
 } from "../language/traditional-chinese";
@@ -65,6 +67,7 @@ import {
   type ClosedAgentExecutionResult,
   type ClosedAgentMemoryRecord,
   type ClosedAgentPlan,
+  type ClosedAgentRejectionRecord,
   type ClosedAgentTaskRecord,
   type ClosedAgentTaskRequest,
   type ClosedAgentToolExecutionEvidence,
@@ -79,6 +82,11 @@ import {
   closedOutputSafetyCode,
   closedOutputSafetyReasonCode,
 } from "../security/closed-output-safety";
+import {
+  BROWSER_CONTEXT_ATTESTATION_POLICY_VERSION,
+  BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION,
+  verifyBrowserFinalModelContextAttestation,
+} from "../security/browser-final-model-context-proof";
 
 type ClosedAgentOSOptions = {
   backends?: ClosedAIBackendAdapter[];
@@ -209,6 +217,166 @@ function osError(code: string, message = code, details: Record<string, unknown> 
   return Object.assign(new Error(message), { code, ...details });
 }
 
+const CLOSED_AGENT_DECISION_FALLBACK_LOCKS = new Map<string, Promise<void>>();
+const CLOSED_AGENT_REJECTION_RECORD_KEYS = [
+  "cacheCausationId",
+  "cacheEntryIds",
+  "cacheLedgerBlockHash",
+  "cachePlanDigest",
+  "candidateContentDigest",
+  "candidateId",
+  "claimId",
+  "canonicalMutationCount",
+  "completedAt",
+  "id",
+  "kind",
+  "learningCausationId",
+  "learningLedgerBlockHash",
+  "learningResult",
+  "namespace",
+  "namespaceDigest",
+  "projectId",
+  "rawChainOfThoughtStored",
+  "rawOutputStored",
+  "rawPromptStored",
+  "requestContractDigest",
+  "schemaVersion",
+  "startedAt",
+  "status",
+  "taskId",
+  "taskType",
+] as const;
+
+type NavigatorWithDecisionLocks = Navigator & {
+  locks?: {
+    request<T>(
+      name: string,
+      options: { mode: "exclusive" },
+      callback: () => Promise<T>,
+    ): Promise<T>;
+  };
+};
+
+async function withClosedAgentCandidateDecisionLock<T>(
+  candidateId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const name = `closed-agent-decision:${await sha256Hex(candidateId)}`;
+  if (typeof navigator !== "undefined") {
+    const locks = (navigator as NavigatorWithDecisionLocks).locks;
+    if (locks?.request) {
+      return locks.request(name, { mode: "exclusive" }, run);
+    }
+    if (typeof window !== "undefined") {
+      throw osError(
+        "CLOSED_AGENT_CROSS_CONTEXT_LOCK_UNAVAILABLE",
+        "This browser cannot safely serialize an approval decision across tabs.",
+      );
+    }
+  }
+  const previous = CLOSED_AGENT_DECISION_FALLBACK_LOCKS.get(name)
+    ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  CLOSED_AGENT_DECISION_FALLBACK_LOCKS.set(name, tail);
+  await previous;
+  try {
+    return await run();
+  } finally {
+    release();
+    if (CLOSED_AGENT_DECISION_FALLBACK_LOCKS.get(name) === tail) {
+      CLOSED_AGENT_DECISION_FALLBACK_LOCKS.delete(name);
+    }
+  }
+}
+
+const CLOSED_BROWSER_EXECUTION_RECEIPT_KEYS = [
+  "actualExecutor",
+  "backendId",
+  "browserComputeReceiptId",
+  "browserFabricPlannedGraph",
+  "browserFabricReceiptId",
+  "completedAt",
+  "contentDigest",
+  "contextAttestation",
+  "contextDigest",
+  "contextTokensAfter",
+  "contextTokensBefore",
+  "dataLeftDevice",
+  "externalRequest",
+  "finalModelContextAttestation",
+  "generatedTokenEvents",
+  "modelDigest",
+  "modelId",
+  "outputCharacters",
+  "proofState",
+  "startedAt",
+  "taskId",
+  "tokensSaved",
+  "traditionalChineseNormalization",
+] as const;
+
+function hasExactClosedBrowserExecutionReceiptShape(
+  receipt: ClosedAgentVerifiedExecutionReceipt,
+  allowLegacyMissingBrowserAttestation: boolean,
+) {
+  if (receipt.backendId !== "browser-ai") return true;
+  if (receipt.contextAttestation === undefined) {
+    return allowLegacyMissingBrowserAttestation;
+  }
+  return Object.keys(receipt).sort().join(",")
+    === [...CLOSED_BROWSER_EXECUTION_RECEIPT_KEYS].sort().join(",");
+}
+
+async function hasVerifiedBrowserModelContextAttestation(input: {
+  backendId: ClosedAIBackendId;
+  modelId: string;
+  modelDigest: string;
+  contextAttestation: ClosedBackendRawExecutionResult["contextAttestation"];
+  attestation: ClosedBackendRawExecutionResult["finalModelContextAttestation"];
+  allowLegacyMissingBrowserAttestation?: boolean;
+}) {
+  if (input.backendId !== "browser-ai") {
+    return input.contextAttestation === undefined
+      && input.attestation === undefined;
+  }
+  if (input.contextAttestation === "not_required") {
+    return input.attestation === undefined;
+  }
+  if (input.contextAttestation !== "required") {
+    return input.allowLegacyMissingBrowserAttestation === true
+      && input.attestation === undefined;
+  }
+  if (!input.attestation) return false;
+  return await verifyBrowserFinalModelContextAttestation(input.attestation)
+    && input.attestation.contributingCalls.every((call) => (
+      call.modelId === input.modelId
+      && call.modelDigest === input.modelDigest
+    ));
+}
+
+function closedBrowserTaskExecutionSnapshot(
+  snapshot: ClosedAIBackendSnapshot,
+  taskType: ClosedAgentTaskRequest["taskType"],
+) {
+  if (snapshot.id !== "browser-ai" || !BROWSER_T1_TASKS.has(taskType)) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    modelId: BROWSER_TASK_MODEL.modelId,
+    modelDigest: BROWSER_TASK_MODEL.modelDigest,
+    runtimeTruth: {
+      ...snapshot.runtimeTruth,
+      generationVerified: false,
+      verificationSource: "none" as const,
+      verifiedAt: null,
+    },
+    detailCode: "packaged_browser_task_model_pinned",
+  } satisfies ClosedAIBackendSnapshot;
+}
+
 function safeClosedAgentTaskErrorCode(cause: unknown) {
   const code = (cause as { code?: unknown } | null)?.code;
   return typeof code === "string"
@@ -256,6 +424,7 @@ async function closedAgentContextDigest(request: ClosedAgentTaskRequest) {
       approved: item.approved,
       text: item.text,
       composerAuthority: item.composerAuthority,
+      modelContextSource: item.modelContextSource ?? null,
       canonicalIdentitySource: item.canonicalIdentitySource,
     })),
   ));
@@ -555,7 +724,6 @@ export class ClosedAgentOS {
   private readonly backends: Map<ClosedAIBackendAdapter["id"], ClosedAIBackendAdapter>;
   private readonly now: () => Date;
   private readonly projectQueues = new Map<string, Promise<unknown>>();
-  private readonly approvalQueues = new Map<string, Promise<unknown>>();
 
   constructor(options: ClosedAgentOSOptions = {}) {
     this.cache = options.cache ?? new ClosedAICache({
@@ -580,6 +748,7 @@ export class ClosedAgentOS {
   private async hasVerifiedPersistedCandidateIntegrity(
     candidate: ClosedAgentCandidate,
     allowCommitted = false,
+    allowLegacyMissingBrowserAttestation = false,
   ) {
     const { verifyPersistedTraditionalChineseNormalizationIntegrity } =
       await loadTraditionalChineseRuntime();
@@ -599,6 +768,11 @@ export class ClosedAgentOS {
       || candidate.modelId.length > 192
       || !isCryptographicClosedAIModelDigest(candidate.modelDigest)
       || !isCryptographicClosedAIModelDigest(candidate.requestContractDigest)
+      || (candidate.taskType !== undefined && (
+        candidate.taskType.length < 3
+        || candidate.taskType.length > 120
+        || !/^[A-Za-z0-9._:-]+$/u.test(candidate.taskType)
+      ))
       || !new Set(["light", "standard", "heavy"] as const).has(
         candidate.planComplexity,
       )
@@ -632,7 +806,18 @@ export class ClosedAgentOS {
     if (candidate.executionReceipt) {
       const startedAt = Date.parse(candidate.executionReceipt.startedAt);
       const completedAt = Date.parse(candidate.executionReceipt.completedAt);
-      return candidate.cacheOrigin === null
+      return hasExactClosedBrowserExecutionReceiptShape(
+        candidate.executionReceipt,
+        allowLegacyMissingBrowserAttestation,
+      ) && await hasVerifiedBrowserModelContextAttestation({
+        backendId: candidate.executionReceipt.backendId,
+        modelId: candidate.executionReceipt.modelId,
+        modelDigest: candidate.executionReceipt.modelDigest,
+        contextAttestation: candidate.executionReceipt.contextAttestation,
+        attestation: candidate.executionReceipt.finalModelContextAttestation,
+        allowLegacyMissingBrowserAttestation,
+      })
+        && candidate.cacheOrigin === null
         && candidate.actualExecutor === candidate.backendId
         && normalization.originRequestId === candidate.taskId
         && candidate.executionReceipt.taskId === candidate.taskId
@@ -653,6 +838,20 @@ export class ClosedAgentOS {
     const cacheOrigin = candidate.cacheOrigin;
     return Boolean(
       cacheOrigin
+      && hasExactClosedBrowserExecutionReceiptShape(
+        cacheOrigin.originExecutionReceipt,
+        allowLegacyMissingBrowserAttestation,
+      )
+      && await hasVerifiedBrowserModelContextAttestation({
+        backendId: cacheOrigin.originExecutionReceipt.backendId,
+        modelId: cacheOrigin.originExecutionReceipt.modelId,
+        modelDigest: cacheOrigin.originExecutionReceipt.modelDigest,
+        contextAttestation:
+          cacheOrigin.originExecutionReceipt.contextAttestation,
+        attestation:
+          cacheOrigin.originExecutionReceipt.finalModelContextAttestation,
+        allowLegacyMissingBrowserAttestation,
+      })
       && candidate.actualExecutor === "not_executed"
       && cacheOrigin.schemaVersion === "closed-agent-cache-origin-v1"
       && (cacheOrigin.layer === "exact" || cacheOrigin.layer === "semantic")
@@ -676,8 +875,14 @@ export class ClosedAgentOS {
   private async hasVerifiedCandidateLedgerIntegrity(
     candidate: ClosedAgentCandidate,
     allowCommitted = false,
+    legacyReadOnly = false,
   ) {
-    if (!await this.hasVerifiedPersistedCandidateIntegrity(candidate, allowCommitted)) return false;
+    const allowLegacyCandidate = legacyReadOnly && candidate.taskType === undefined;
+    if (!await this.hasVerifiedPersistedCandidateIntegrity(
+      candidate,
+      allowCommitted,
+      allowLegacyCandidate,
+    )) return false;
     const ledgerId = `closed-agent:${candidate.projectId}:${candidate.taskId}`;
     const [verification, blocks] = await Promise.all([
       this.ledger.verify(ledgerId),
@@ -971,6 +1176,32 @@ export class ClosedAgentOS {
       || artifact.execution.backendId !== input.routedBackend.id
       || artifact.execution.modelId !== input.routedBackend.modelId
       || artifact.execution.modelDigest !== input.routedBackend.modelDigest
+      || !hasExactClosedBrowserExecutionReceiptShape(
+        artifact.originExecutionReceipt,
+        false,
+      )
+      || !await hasVerifiedBrowserModelContextAttestation({
+        backendId: artifact.execution.backendId,
+        modelId: artifact.execution.modelId,
+        modelDigest: artifact.execution.modelDigest,
+        contextAttestation: artifact.execution.contextAttestation,
+        attestation: artifact.execution.finalModelContextAttestation,
+      })
+      || !await hasVerifiedBrowserModelContextAttestation({
+        backendId: artifact.originExecutionReceipt.backendId,
+        modelId: artifact.originExecutionReceipt.modelId,
+        modelDigest: artifact.originExecutionReceipt.modelDigest,
+        contextAttestation:
+          artifact.originExecutionReceipt.contextAttestation,
+        attestation:
+          artifact.originExecutionReceipt.finalModelContextAttestation,
+      })
+      || stableStringify(artifact.execution.finalModelContextAttestation)
+        !== stableStringify(
+          artifact.originExecutionReceipt.finalModelContextAttestation,
+        )
+      || artifact.execution.contextAttestation
+        !== artifact.originExecutionReceipt.contextAttestation
       || artifact.execution.candidateOnly !== true
       || artifact.originTaskId !== artifact.originExecutionReceipt.taskId
       || artifact.originTaskId
@@ -1094,7 +1325,17 @@ export class ClosedAgentOS {
 
   async verifyCandidateIntegrity(candidateId: string) {
     const candidate = await this.state.get<ClosedAgentCandidate>(candidateId);
-    return Boolean(candidate && await this.hasVerifiedCandidateLedgerIntegrity(candidate));
+    if (
+      !candidate
+      || !await this.hasVerifiedCandidateLedgerIntegrity(candidate, true, true)
+    ) return false;
+    if (candidate.status !== "rejected") return true;
+    const rejection = await this.state.get<ClosedAgentRejectionRecord>(
+      await this.rejectionRecordId(candidate.id),
+    );
+    return rejection
+      ? this.hasVerifiedCompletedRejectionRecord(candidate, rejection)
+      : candidate.taskType === undefined;
   }
 
   execute(request: ClosedAgentTaskRequest): Promise<ClosedAgentExecutionResult> {
@@ -1262,7 +1503,7 @@ export class ClosedAgentOS {
         || planLookup.entry.value.taskId !== request.taskId
         || planLookup.entry.value.backendId !== candidate.backendId
       ) throw osError("CLOSED_AGENT_IDEMPOTENCY_PLAN_MISSING");
-      if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate)) {
+      if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate, true)) {
         throw osError("CLOSED_AGENT_IDEMPOTENCY_CANDIDATE_INTEGRITY_INVALID");
       }
       const activeLearning = await this.learning.activeConfiguration(candidate.namespace);
@@ -1418,7 +1659,14 @@ export class ClosedAgentOS {
         learningConfiguration: routingLearning.configuration,
       };
       const snapshots = await this.backendSnapshots(request.signal, request.namespace);
-      const route = selectClosedAIBackend(request, snapshots);
+      const selectedRoute = selectClosedAIBackend(request, snapshots);
+      const route = {
+        ...selectedRoute,
+        backend: closedBrowserTaskExecutionSnapshot(
+          selectedRoute.backend,
+          request.taskType,
+        ),
+      };
       const backend = this.backends.get(route.backend.id);
       if (!backend) throw osError("CLOSED_AI_BACKEND_ADAPTER_MISSING");
       if (
@@ -1641,6 +1889,21 @@ export class ClosedAgentOS {
         planDigest: planSemanticDigest,
         qualityMode: plan.qualityMode,
         backendId: route.backend.id,
+        ...(route.backend.id === "browser-ai"
+          ? {
+            browserContextAttestationPolicyVersion:
+              BROWSER_CONTEXT_ATTESTATION_POLICY_VERSION,
+            browserFinalContextAttestationVersion:
+              BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION,
+            actorContextSourceDigests: await Promise.all(actorContext.map((item) =>
+              sha256Hex(stableStringify({
+                id: item.id,
+                kind: item.kind,
+                composerAuthority: item.composerAuthority ?? null,
+                modelContextSource: item.modelContextSource ?? null,
+              })))),
+          }
+          : {}),
         traditionalChineseNormalizerVersion:
           TRADITIONAL_CHINESE_NORMALIZER_VERSION,
         traditionalChineseSourceDigest:
@@ -1679,9 +1942,22 @@ export class ClosedAgentOS {
       const semanticContextDigest = await sha256Hex(stableStringify({
         taskType: candidateInput.taskType,
         actorContextDigests: candidateInput.actorContextDigests,
+        ...(route.backend.id === "browser-ai"
+          ? {
+            actorContextSourceDigests: candidateInput.actorContextSourceDigests,
+          }
+          : {}),
         planDigest: candidateInput.planDigest,
         qualityMode: candidateInput.qualityMode,
         backendId: candidateInput.backendId,
+        ...(route.backend.id === "browser-ai"
+          ? {
+            browserContextAttestationPolicyVersion:
+              BROWSER_CONTEXT_ATTESTATION_POLICY_VERSION,
+            browserFinalContextAttestationVersion:
+              BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION,
+          }
+          : {}),
         traditionalChineseNormalizerVersion:
           candidateInput.traditionalChineseNormalizerVersion,
         traditionalChineseSourceDigest:
@@ -1922,6 +2198,9 @@ export class ClosedAgentOS {
             contextTokensBefore: execution.browserContextTokensBefore,
             contextTokensAfter: execution.browserContextTokensAfter,
             tokensSaved: execution.browserTokensSaved,
+            contextAttestation: execution.contextAttestation,
+            finalModelContextAttestation:
+              execution.finalModelContextAttestation,
           }
           : null;
       const candidateMetrics = candidateCacheHit
@@ -1999,6 +2278,7 @@ export class ClosedAgentOS {
         id: candidateId,
         projectId: request.namespace.projectId,
         taskId: request.taskId,
+        taskType: request.taskType,
         namespace: structuredClone(request.namespace),
         backendId: execution.backendId,
         modelId: execution.modelId,
@@ -2259,10 +2539,10 @@ export class ClosedAgentOS {
   }
 
   approveCandidate(input: ApprovalInput) {
-    const previous = this.approvalQueues.get(input.candidateId) ?? Promise.resolve();
-    const operation = previous.then(() => this.approveCandidateInternal(input));
-    this.approvalQueues.set(input.candidateId, operation.catch(() => undefined));
-    return operation;
+    return withClosedAgentCandidateDecisionLock(
+      input.candidateId,
+      () => this.approveCandidateInternal(input),
+    );
   }
 
   private async approveCandidateInternal(input: ApprovalInput) {
@@ -2439,11 +2719,13 @@ export class ClosedAgentOS {
         },
       });
     }
-    const learningSignal = await this.recordLearningOutcome({
+    const learningReceipt = await this.recordLearningOutcome({
       candidate: updatedCandidate,
       outcome: canonicalCommitId ? "approved_canon" : "accepted",
       sourceApprovalId: approvalId,
     });
+    const { ledgerBlockHash: _ledgerBlockHash, ...learningSignal } = learningReceipt;
+    void _ledgerBlockHash;
     return {
       approval,
       memory,
@@ -2453,42 +2735,551 @@ export class ClosedAgentOS {
     };
   }
 
-  async rejectCandidate(candidateId: string) {
-    const candidate = await this.state.get<ClosedAgentCandidate>(candidateId);
+  rejectCandidate(candidateId: string) {
+    return withClosedAgentCandidateDecisionLock(
+      candidateId,
+      () => this.rejectCandidateInternal(candidateId),
+    );
+  }
+
+  async resumePendingRejections(projectId: string) {
+    const pending = (await this.state.list<ClosedAgentRejectionRecord>(
+      projectId,
+      "rejection",
+    )).filter((record) => record.status === "pending");
+    let completed = 0;
+    for (const snapshot of pending) {
+      await withClosedAgentCandidateDecisionLock(snapshot.candidateId, async () => {
+        const [candidate, record] = await Promise.all([
+          this.state.get<ClosedAgentCandidate>(snapshot.candidateId),
+          this.state.get<ClosedAgentRejectionRecord>(snapshot.id),
+        ]);
+        if (!candidate || !record) {
+          throw osError("CLOSED_AGENT_REJECTION_RECOVERY_STATE_MISSING");
+        }
+        await this.assertRejectionRecord(candidate, record);
+        if (record.status === "pending") {
+          await this.resumeRejectedCandidate(candidate, record);
+          completed += 1;
+        }
+      });
+    }
+    return { pending: pending.length, completed };
+  }
+
+  private async rejectCandidateInternal(candidateId: string) {
+    let candidate = await this.state.get<ClosedAgentCandidate>(candidateId);
     if (!candidate) throw osError("CLOSED_AGENT_CANDIDATE_NOT_FOUND");
-    if (candidate.status !== "awaiting-approval") {
+    const recordId = await this.rejectionRecordId(candidate.id);
+    let rejection = await this.state.get<ClosedAgentRejectionRecord>(recordId);
+    if (candidate.status === "rejected" && !rejection) {
+      if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate, true, true)) {
+        throw osError("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED");
+      }
+      if (candidate.taskType !== undefined) {
+        throw osError("CLOSED_AGENT_REJECTION_RECORD_MISSING");
+      }
+      // Legacy rejected candidates predate the durable outbox. Their cache
+      // sweep cannot be reconstructed, but their learning receipt remains
+      // causation-idempotent and read-compatible.
+      await this.ensureRejectedLearningOutcome(candidate, undefined, true);
+      return candidate;
+    }
+    if (candidate.status !== "awaiting-approval" && candidate.status !== "rejected") {
       throw osError("CLOSED_AGENT_REJECTION_GATE_FAILED");
     }
-    const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
-    const invalidatedCacheEntries = await this.cache.invalidate({
+    if (!rejection) {
+      if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate, false, true)) {
+        throw osError("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED");
+      }
+      const ledgerId = `closed-agent:${candidate.projectId}:${candidate.taskId}`;
+      const approvalAlreadyStarted = (await this.ledger.repository.list(ledgerId))
+        .some((block) => block.eventType === "approval-signed" && block.signature);
+      if (approvalAlreadyStarted) {
+        throw osError("CLOSED_AGENT_REJECTION_APPROVAL_ALREADY_STARTED");
+      }
+      const task = await this.state.get<ClosedAgentTaskRecord>(candidate.taskId);
+      if (
+        !task
+        || task.kind !== "task"
+        || task.id !== candidate.taskId
+        || task.projectId !== candidate.projectId
+        || !sameClosedAINamespace(task.namespace, candidate.namespace)
+        || task.state !== "awaiting-approval"
+        || (candidate.taskType !== undefined && task.taskType !== candidate.taskType)
+      ) {
+        throw osError("CLOSED_AGENT_REJECTION_TASK_INTEGRITY_FAILED");
+      }
+      const rejectionTaskType = candidate.taskType ?? task.taskType;
+      const invalidation = this.rejectionCacheInvalidation(candidate, rejectionTaskType);
+      const cacheEntryIds = await this.cache.planInvalidation(invalidation);
+      const claimId = await sha256Hex(stableStringify({
+        domain: "closed-agent-rejection-claim-v1",
+        nonce: crypto.randomUUID(),
+      }));
+      const [
+        namespaceDigest,
+        cacheCausationId,
+        learningCausationId,
+      ] = await Promise.all([
+        closedAINamespaceDigest(candidate.namespace),
+        this.rejectionCausationId(candidate.id, "cache"),
+        this.rejectionCausationId(candidate.id, "learning"),
+      ]);
+      const cachePlanDigest = await sha256Hex(stableStringify({
+        domain: "closed-agent-rejection-cache-plan-v1",
+        candidateId: candidate.id,
+        taskId: candidate.taskId,
+        taskType: rejectionTaskType,
+        namespaceDigest,
+        claimId,
+        layers: ["exact", "semantic"],
+        cacheEntryIds,
+      }));
+      const startedAt = this.now().toISOString();
+      rejection = {
+        schemaVersion: CLOSED_AGENT_OS_SCHEMA_VERSION,
+        kind: "rejection",
+        id: recordId,
+        projectId: candidate.projectId,
+        namespace: structuredClone(candidate.namespace),
+        namespaceDigest,
+        candidateId: candidate.id,
+        claimId,
+        taskId: candidate.taskId,
+        taskType: rejectionTaskType,
+        candidateContentDigest: candidate.contentDigest,
+        requestContractDigest: candidate.requestContractDigest,
+        cacheEntryIds,
+        cachePlanDigest,
+        cacheCausationId,
+        learningCausationId,
+        learningResult: null,
+        status: "pending",
+        cacheLedgerBlockHash: null,
+        learningLedgerBlockHash: null,
+        startedAt,
+        completedAt: null,
+        rawPromptStored: false,
+        rawOutputStored: false,
+        rawChainOfThoughtStored: false,
+        canonicalMutationCount: 0,
+      };
+      candidate = {
+        ...candidate,
+        status: "rejected",
+        updatedAt: startedAt,
+      };
+      // Candidate rejection and its replay plan share one state transaction.
+      // A fault at either write rolls both back before cache/ledger mutation.
+      await this.state.putMany([candidate, rejection]);
+    }
+    await this.assertRejectionRecord(candidate, rejection);
+    return this.resumeRejectedCandidate(candidate, rejection);
+  }
+
+  private rejectionCacheInvalidation(
+    candidate: ClosedAgentCandidate,
+    taskType: ClosedAgentTaskRecord["taskType"] | null,
+  ): ClosedAICacheInvalidation {
+    return {
       ...candidate.namespace,
       layers: ["exact", "semantic"],
-      ...(task ? { tags: [`task:${task.taskType}`] } : {}),
-    });
-    const updated: ClosedAgentCandidate = {
-      ...candidate,
-      status: "rejected",
-      updatedAt: this.now().toISOString(),
+      ...(taskType ? { tags: [`task:${taskType}`] } : {}),
     };
-    await this.ledger.append({
-      ledgerId: `closed-agent:${candidate.projectId}:${candidate.taskId}`,
+  }
+
+  private rejectionCacheLedgerPayload(record: ClosedAgentRejectionRecord) {
+    return {
+      reason: "candidate-rejected",
+      claimId: record.claimId,
+      layers: ["exact", "semantic"],
+      taskType: record.taskType,
+      cachePlanDigest: record.cachePlanDigest,
+      plannedAtClaimCount: record.cacheEntryIds.length,
+      verifiedAbsentCount: record.cacheEntryIds.length,
+      sweepCompleted: true,
+      originReuseBlockedByRejectedState: true,
+      canonicalMutationCount: 0,
+    };
+  }
+
+  private async rejectionRecordId(candidateId: string) {
+    return `closed-agent-rejection:${await sha256Hex(stableStringify({
+      domain: "closed-agent-rejection-record-v1",
+      candidateId,
+    }))}`;
+  }
+
+  private async rejectionCausationId(
+    candidateId: string,
+    effect: "cache" | "learning",
+  ) {
+    return sha256Hex(stableStringify({
+      domain: effect === "cache"
+        ? "closed-agent-rejected-cache-invalidation-v1"
+        : "closed-agent-rejected-learning-outcome-v1",
+      candidateId,
+      outcome: "rejected",
+    }));
+  }
+
+  private async assertRejectionRecord(
+    candidate: ClosedAgentCandidate,
+    record: ClosedAgentRejectionRecord,
+  ) {
+    const [
+      expectedId,
+      namespaceDigest,
+      cacheCausationId,
+      learningCausationId,
+    ] = await Promise.all([
+      this.rejectionRecordId(candidate.id),
+      closedAINamespaceDigest(candidate.namespace),
+      this.rejectionCausationId(candidate.id, "cache"),
+      this.rejectionCausationId(candidate.id, "learning"),
+    ]);
+    const cachePlanDigest = await sha256Hex(stableStringify({
+      domain: "closed-agent-rejection-cache-plan-v1",
+      candidateId: candidate.id,
+      taskId: candidate.taskId,
+      taskType: record.taskType,
+      namespaceDigest,
+      claimId: record.claimId,
+      layers: ["exact", "semantic"],
+      cacheEntryIds: record.cacheEntryIds,
+    }));
+    const validIso = (value: string) => Number.isFinite(Date.parse(value))
+      && new Date(value).toISOString() === value;
+    const completed = record.status === "completed";
+    const learningPayload = record.learningResult === null
+      ? null
+      : this.rejectionLearningPayload(
+        candidate,
+        record.learningResult,
+        record.claimId,
+      );
+    const learningPayloadDigest = learningPayload === null
+      ? null
+      : await sha256Hex(stableStringify(learningPayload));
+    const learningResult = record.learningResult;
+    const validLearningResult = learningResult === null || (
+      Object.keys(learningResult).sort().join(",")
+        === [
+          "collected",
+          "experienceId",
+          "featureDigest",
+          "payloadDigest",
+          "reasonCode",
+          "resultDigest",
+        ].join(",")
+      && isCryptographicClosedAIModelDigest(learningResult.payloadDigest)
+      && learningResult.payloadDigest === learningPayloadDigest
+      && (learningResult.collected
+        ? /^learning-experience:[a-f0-9]{64}$/u.test(learningResult.experienceId ?? "")
+          && isCryptographicClosedAIModelDigest(learningResult.featureDigest)
+          && isCryptographicClosedAIModelDigest(learningResult.resultDigest)
+          && learningResult.reasonCode === null
+        : learningResult.experienceId === null
+          && learningResult.featureDigest === null
+          && learningResult.resultDigest === null
+          && typeof learningResult.reasonCode === "string"
+          && /^CONTROLLED_LEARNING_[A-Z0-9_]{1,80}$/u.test(learningResult.reasonCode))
+    );
+    if (
+      Object.keys(record).sort().join(",")
+        !== [...CLOSED_AGENT_REJECTION_RECORD_KEYS].sort().join(",")
+      || record.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
+      || record.kind !== "rejection"
+      || (record.status !== "pending" && record.status !== "completed")
+      || record.id !== expectedId
+      || record.projectId !== candidate.projectId
+      || candidate.status !== "rejected"
+      || candidate.updatedAt !== record.startedAt
+      || record.candidateId !== candidate.id
+      || !isCryptographicClosedAIModelDigest(record.claimId)
+      || record.taskId !== candidate.taskId
+      || record.candidateContentDigest !== candidate.contentDigest
+      || record.requestContractDigest !== candidate.requestContractDigest
+      || record.namespaceDigest !== namespaceDigest
+      || !sameClosedAINamespace(record.namespace, candidate.namespace)
+      || record.cacheCausationId !== cacheCausationId
+      || record.learningCausationId !== learningCausationId
+      || record.cachePlanDigest !== cachePlanDigest
+      || (candidate.taskType !== undefined && record.taskType !== candidate.taskType)
+      || !validLearningResult
+      || (completed && learningResult === null)
+      || (record.taskType !== null && (
+        record.taskType.length < 3
+        || record.taskType.length > 120
+        || !/^[A-Za-z0-9._:-]+$/u.test(record.taskType)
+      ))
+      || record.cacheEntryIds.length > 1_000
+      || new Set(record.cacheEntryIds).size !== record.cacheEntryIds.length
+      || record.cacheEntryIds.some((id) => (
+        !/^(?:exact|semantic):[a-f0-9]{64}:[a-f0-9]{64}$/u.test(id)
+      ))
+      || record.cacheEntryIds.some((id, index) => (
+        index > 0 && record.cacheEntryIds[index - 1] >= id
+      ))
+      || !validIso(record.startedAt)
+      || (completed
+        ? !record.completedAt
+          || !validIso(record.completedAt)
+          || record.completedAt < record.startedAt
+          || !isCryptographicClosedAIModelDigest(record.cacheLedgerBlockHash)
+          || !isCryptographicClosedAIModelDigest(record.learningLedgerBlockHash)
+        : record.completedAt !== null
+          || record.cacheLedgerBlockHash !== null
+          || record.learningLedgerBlockHash !== null)
+      || record.rawPromptStored !== false
+      || record.rawOutputStored !== false
+      || record.rawChainOfThoughtStored !== false
+      || record.canonicalMutationCount !== 0
+    ) {
+      throw osError("CLOSED_AGENT_REJECTION_RECORD_INVALID");
+    }
+  }
+
+  private async resumeRejectedCandidate(
+    candidate: ClosedAgentCandidate,
+    record: ClosedAgentRejectionRecord,
+  ) {
+    if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate, true, true)) {
+      throw osError("CLOSED_AGENT_REJECTION_CANDIDATE_INTEGRITY_FAILED");
+    }
+    let currentRecord = record;
+    const ledgerId = `closed-agent:${candidate.projectId}:${candidate.taskId}`;
+    if (record.status === "completed") {
+      if (!await this.hasVerifiedCompletedRejectionRecord(candidate, record)) {
+        throw osError("CLOSED_AGENT_REJECTION_RECORD_LEDGER_MISMATCH");
+      }
+      return candidate;
+    }
+    const invalidation = this.rejectionCacheInvalidation(candidate, record.taskType);
+    await this.cache.invalidatePlanned(invalidation, record.cacheEntryIds);
+    const cacheBlock = await this.ledger.append({
+      ledgerId,
       namespace: candidate.namespace,
       eventType: "cache-invalidated",
-      payload: {
-        reason: "candidate-rejected",
-        layers: ["exact", "semantic"],
-        taskType: task?.taskType ?? null,
-        invalidatedCacheEntries,
-        canonicalMutationCount: 0,
-      },
+      payload: this.rejectionCacheLedgerPayload(record),
+      lineage: { causationId: record.cacheCausationId },
     });
-    await this.state.put(updated);
-    await this.recordLearningOutcome({
-      candidate: updated,
+    if (currentRecord.learningResult === null) {
+      currentRecord = {
+        ...currentRecord,
+        learningResult: await this.createRejectedLearningResult(
+          candidate,
+          currentRecord.learningCausationId,
+          currentRecord.taskType ?? "learning.preferenceReview",
+          currentRecord.claimId,
+        ),
+      };
+      await this.assertRejectionRecord(candidate, currentRecord);
+      await this.state.put(currentRecord);
+    }
+    const learningBlock = await this.ensureRejectedLearningOutcome(
+      candidate,
+      currentRecord.learningCausationId,
+      false,
+      currentRecord.taskType,
+      currentRecord.learningResult ?? undefined,
+      currentRecord.claimId,
+    );
+    if (
+      currentRecord.cacheLedgerBlockHash !== null
+      && currentRecord.cacheLedgerBlockHash !== cacheBlock.blockHash
+      || currentRecord.learningLedgerBlockHash !== null
+      && currentRecord.learningLedgerBlockHash !== learningBlock.blockHash
+    ) {
+      throw osError("CLOSED_AGENT_REJECTION_RECORD_LEDGER_MISMATCH");
+    }
+    if (
+      cacheBlock.timestamp < currentRecord.startedAt
+      || learningBlock.timestamp < currentRecord.startedAt
+      || cacheBlock.sequence >= learningBlock.sequence
+    ) {
+      throw osError("LEDGER_CAUSATION_PRESEEDED");
+    }
+    const completed: ClosedAgentRejectionRecord = {
+      ...currentRecord,
+      status: "completed",
+      cacheLedgerBlockHash: cacheBlock.blockHash,
+      learningLedgerBlockHash: learningBlock.blockHash,
+      completedAt: currentRecord.completedAt ?? this.now().toISOString(),
+    };
+    await this.assertRejectionRecord(candidate, completed);
+    if (!(await this.ledger.verify(ledgerId)).valid) {
+      throw osError("CLOSED_AGENT_REJECTION_RECORD_LEDGER_MISMATCH");
+    }
+    await this.state.put(completed);
+    return candidate;
+  }
+
+  private async hasVerifiedCompletedRejectionRecord(
+    candidate: ClosedAgentCandidate,
+    record: ClosedAgentRejectionRecord,
+  ) {
+    try {
+      await this.assertRejectionRecord(candidate, record);
+    } catch {
+      return false;
+    }
+    if (record.status !== "completed" || record.learningResult === null) return false;
+    const ledgerId = `closed-agent:${candidate.projectId}:${candidate.taskId}`;
+    const [verification, blocks, cacheEntries, expectedCachePayloadDigest] = await Promise.all([
+      this.ledger.verify(ledgerId),
+      this.ledger.repository.list(ledgerId),
+      Promise.all(record.cacheEntryIds.map((id) => this.cache.repository.get(id))),
+      sha256Hex(stableStringify(this.rejectionCacheLedgerPayload(record))),
+    ]);
+    const cacheBlocks = blocks.filter((block) => (
+      block.eventType === "cache-invalidated"
+      && block.lineage?.causationId === record.cacheCausationId
+    ));
+    const learningBlocks = blocks.filter((block) => (
+      block.eventType === "learning-experience"
+      && block.lineage?.causationId === record.learningCausationId
+    ));
+    return verification.valid
+      && cacheBlocks.length === 1
+      && learningBlocks.length === 1
+      && cacheBlocks[0].blockHash === record.cacheLedgerBlockHash
+      && cacheBlocks[0].payloadDigest === expectedCachePayloadDigest
+      && learningBlocks[0].blockHash === record.learningLedgerBlockHash
+      && learningBlocks[0].payloadDigest === record.learningResult.payloadDigest
+      && cacheBlocks[0].timestamp >= record.startedAt
+      && learningBlocks[0].timestamp >= record.startedAt
+      && cacheBlocks[0].sequence < learningBlocks[0].sequence
+      && cacheEntries.every((entry) => entry === null);
+  }
+
+  private rejectionLearningPayload(
+    candidate: ClosedAgentCandidate,
+    result: Pick<
+      NonNullable<ClosedAgentRejectionRecord["learningResult"]>,
+      "collected" | "experienceId" | "featureDigest" | "resultDigest" | "reasonCode"
+    >,
+    claimId?: string,
+  ) {
+    return {
+      candidateId: candidate.id,
+      ...(claimId ? { claimId } : {}),
+      outcome: "rejected" as const,
+      collected: result.collected,
+      experienceId: result.experienceId,
+      featureDigest: result.featureDigest,
+      resultDigest: result.resultDigest,
+      reasonCode: result.reasonCode,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawChainOfThoughtStored: false,
+    };
+  }
+
+  private async createRejectedLearningResult(
+    candidate: ClosedAgentCandidate,
+    causationId: string,
+    taskType: ClosedAgentTaskRecord["taskType"],
+    claimId: string,
+  ): Promise<NonNullable<ClosedAgentRejectionRecord["learningResult"]>> {
+    const collection = await this.collectCandidateLearningOutcome({
+      candidate,
       outcome: "rejected",
       sourceApprovalId: null,
+      causationId,
+      taskType,
     });
-    return updated;
+    const result = collection.collected
+      ? {
+        collected: true,
+        experienceId: collection.experience.id,
+        featureDigest: collection.experience.featureDigest,
+        resultDigest: collection.experience.resultDigest,
+        reasonCode: null,
+      }
+      : {
+        collected: false,
+        experienceId: null,
+        featureDigest: null,
+        resultDigest: null,
+        reasonCode: collection.reasonCode,
+      };
+    return {
+      ...result,
+      payloadDigest: await sha256Hex(stableStringify(
+        this.rejectionLearningPayload(candidate, result, claimId),
+      )),
+    };
+  }
+
+  private async ensureRejectedLearningOutcome(
+    candidate: ClosedAgentCandidate,
+    knownCausationId?: string,
+    allowLegacyExisting = false,
+    frozenTaskType?: ClosedAgentRejectionRecord["taskType"],
+    frozenLearningResult?: NonNullable<ClosedAgentRejectionRecord["learningResult"]>,
+    claimId?: string,
+  ): Promise<VerifiableLedgerBlock> {
+    const ledgerId = `closed-agent:${candidate.projectId}:${candidate.taskId}`;
+    const causationId = knownCausationId
+      ?? await this.rejectionCausationId(candidate.id, "learning");
+    const existing = (await this.ledger.repository.list(ledgerId)).filter((block) => (
+      block.eventType === "learning-experience"
+      && block.lineage?.causationId === causationId
+    ));
+    if (existing.length > 1) {
+      throw osError("CLOSED_AGENT_LEARNING_OUTCOME_DUPLICATED");
+    }
+    if (allowLegacyExisting && existing.length === 1) return existing[0];
+    if (frozenLearningResult) {
+      const payload = this.rejectionLearningPayload(
+        candidate,
+        frozenLearningResult,
+        claimId,
+      );
+      if (
+        frozenLearningResult.payloadDigest
+          !== await sha256Hex(stableStringify(payload))
+      ) {
+        throw osError("CLOSED_AGENT_REJECTION_LEARNING_RESULT_INVALID");
+      }
+      const block = await this.ledger.append({
+        ledgerId,
+        namespace: candidate.namespace,
+        eventType: "learning-experience",
+        payload,
+        lineage: { causationId },
+      });
+      const recorded = (await this.ledger.repository.list(ledgerId)).filter((item) => (
+        item.eventType === "learning-experience"
+        && item.lineage?.causationId === causationId
+      ));
+      if (recorded.length !== 1 || recorded[0].blockHash !== block.blockHash) {
+        throw osError("CLOSED_AGENT_LEARNING_OUTCOME_LEDGER_INVALID");
+      }
+      return recorded[0];
+    }
+    const learning = await this.recordLearningOutcome({
+      candidate,
+      outcome: "rejected",
+      sourceApprovalId: null,
+      causationId,
+      ...(frozenTaskType !== undefined
+        ? { taskType: frozenTaskType ?? "learning.preferenceReview" }
+        : {}),
+    });
+    if (!learning.ledgerRecorded || !learning.ledgerBlockHash) {
+      throw osError("CLOSED_AGENT_LEARNING_OUTCOME_LEDGER_PENDING");
+    }
+    const recorded = (await this.ledger.repository.list(ledgerId)).filter((block) => (
+      block.eventType === "learning-experience"
+      && block.lineage?.causationId === causationId
+    ));
+    if (recorded.length !== 1 || recorded[0].blockHash !== learning.ledgerBlockHash) {
+      throw osError("CLOSED_AGENT_LEARNING_OUTCOME_LEDGER_INVALID");
+    }
+    return recorded[0];
   }
 
   async createKnowledgeRulePackCandidate(input: {
@@ -2685,6 +3476,7 @@ export class ClosedAgentOS {
     projectId: string,
     knownBackends?: ClosedAIBackendSnapshot[],
   ) {
+    await this.resumePendingRejections(projectId);
     const [backends, cache, learning, tasks, candidates, approvals, memories] = await Promise.all([
       knownBackends
         ? Promise.resolve(structuredClone(knownBackends))
@@ -2831,6 +3623,55 @@ export class ClosedAgentOS {
         });
       }
       assertClosedAIModelIdentity(routedBackend, result);
+      if (result.backendId === "browser-ai") {
+        const contextAttestation = result.contextAttestation;
+        const attestation = result.finalModelContextAttestation;
+        if (!contextAttestation) {
+          throw osError("BROWSER_FINAL_CONTEXT_PROOF_REQUIRED", undefined, {
+            qualityPhase,
+            canonicalMutationCount: 0,
+          });
+        }
+        const attestationVerified = await hasVerifiedBrowserModelContextAttestation({
+          backendId: result.backendId,
+          modelId: result.modelId,
+          modelDigest: result.modelDigest,
+          contextAttestation,
+          attestation,
+        });
+        const requiredBindingInvalid = contextAttestation === "required"
+          && (
+            !attestation
+            || attestation.outerRequestIdDigest
+              !== await sha256Hex(passRequest.taskId)
+            || attestation.outerTaskType !== request.taskType
+            || attestation.outerQualityPhase !== qualityPhase
+          );
+        const proofFreeBindingInvalid = contextAttestation === "not_required"
+          && (
+            result.modelId !== BROWSER_TASK_MODEL.modelId
+            || result.modelDigest !== BROWSER_TASK_MODEL.modelDigest
+            || result.finalModelContextAttestation !== undefined
+          );
+        if (
+          !attestationVerified
+          || requiredBindingInvalid
+          || proofFreeBindingInvalid
+        ) {
+          throw osError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH", undefined, {
+            qualityPhase,
+            canonicalMutationCount: 0,
+          });
+        }
+      } else if (
+        result.contextAttestation !== undefined
+        || result.finalModelContextAttestation !== undefined
+      ) {
+        throw osError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH", undefined, {
+          qualityPhase,
+          canonicalMutationCount: 0,
+        });
+      }
       const adapterId = result.adapterId ?? null;
       const adapterDigest = result.adapterDigest ?? null;
       if (
@@ -3204,18 +4045,23 @@ export class ClosedAgentOS {
     return collection;
   }
 
-  private async recordLearningOutcome(input: {
+  private async collectCandidateLearningOutcome(input: {
     candidate: ClosedAgentCandidate;
     outcome: ControlledLearningOutcome;
     sourceApprovalId: string | null;
+    causationId?: string;
+    taskType?: ClosedAgentTaskRecord["taskType"];
   }) {
-    const task = await this.state.get<ClosedAgentTaskRecord>(input.candidate.taskId);
-    const collection = await this.learning.collectExperienceIfConsented({
+    const task = input.taskType === undefined
+      ? await this.state.get<ClosedAgentTaskRecord>(input.candidate.taskId)
+      : null;
+    const taskType = input.taskType ?? task?.taskType ?? "learning.preferenceReview";
+    return this.learning.collectExperienceIfConsented({
       namespace: input.candidate.namespace,
       outcome: input.outcome,
-      taskType: task?.taskType ?? "learning.preferenceReview",
+      taskType,
       featureText: stableStringify({
-        taskType: task?.taskType ?? "learning.preferenceReview",
+        taskType,
         backendId: input.candidate.backendId,
         planDigest: input.candidate.planDigest,
       }),
@@ -3223,21 +4069,69 @@ export class ClosedAgentOS {
       score: input.candidate.evaluation.score,
       tags: [
         `backend:${input.candidate.backendId}`,
-        `task:${task?.taskType ?? "learning.preferenceReview"}`,
+        `task:${taskType}`,
         `outcome:${input.outcome}`,
       ],
       sourceApprovalId: input.sourceApprovalId,
+      ...(input.causationId
+        ? {
+          idempotencyKey: input.causationId,
+          idempotencyCreatedAt: input.candidate.createdAt,
+        }
+          : {}),
     });
+  }
+
+  private async recordLearningOutcome(input: {
+    candidate: ClosedAgentCandidate;
+    outcome: ControlledLearningOutcome;
+    sourceApprovalId: string | null;
+    causationId?: string;
+    taskType?: ClosedAgentTaskRecord["taskType"];
+  }) {
+    const collection = await this.collectCandidateLearningOutcome(input);
+    const ledgerId = `closed-agent:${input.candidate.projectId}:${input.candidate.taskId}`;
+    if (input.causationId) {
+      const block = await this.ledger.append({
+        ledgerId,
+        namespace: input.candidate.namespace,
+        eventType: "learning-experience",
+        payload: {
+          candidateId: input.candidate.id,
+          outcome: input.outcome,
+          collected: collection.collected,
+          experienceId: collection.collected ? collection.experience.id : null,
+          featureDigest: collection.collected
+            ? collection.experience.featureDigest
+            : null,
+          resultDigest: collection.collected
+            ? collection.experience.resultDigest
+            : null,
+          reasonCode: collection.collected ? null : collection.reasonCode,
+          rawInputStored: false,
+          rawOutputStored: false,
+          rawChainOfThoughtStored: false,
+        },
+        lineage: { causationId: input.causationId },
+      });
+      return {
+        ...collection,
+        ledgerRecorded: true,
+        ledgerErrorCode: null,
+        ledgerBlockHash: block.blockHash,
+      };
+    }
     if (!collection.collected) {
       return {
         ...collection,
         ledgerRecorded: false,
         ledgerErrorCode: null,
+        ledgerBlockHash: null,
       };
     }
     try {
-      await this.ledger.append({
-        ledgerId: `closed-agent:${input.candidate.projectId}:${input.candidate.taskId}`,
+      const block = await this.ledger.append({
+        ledgerId,
         namespace: input.candidate.namespace,
         eventType: "learning-experience",
         payload: {
@@ -3256,12 +4150,14 @@ export class ClosedAgentOS {
         ...collection,
         ledgerRecorded: true,
         ledgerErrorCode: null,
+        ledgerBlockHash: block.blockHash,
       };
     } catch {
       return {
         ...collection,
         ledgerRecorded: false,
         ledgerErrorCode: "CONTROLLED_LEARNING_LEDGER_APPEND_FAILED",
+        ledgerBlockHash: null,
       };
     }
   }

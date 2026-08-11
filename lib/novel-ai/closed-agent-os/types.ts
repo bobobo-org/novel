@@ -11,6 +11,11 @@ import type {
 import type {
   TraditionalChineseNormalizationIntegrityRecord,
 } from "../language/traditional-chinese";
+import type {
+  BrowserContextAttestationRequirement,
+  BrowserFinalContextSourceAuthority,
+  BrowserFinalModelContextAttestation,
+} from "../security/browser-final-model-context-proof";
 
 export const CLOSED_AGENT_OS_SCHEMA_VERSION = "closed-agent-os-v2" as const;
 
@@ -167,6 +172,13 @@ export type ClosedAIContextItem = {
   approved: boolean;
   /** Set only by the canonical project-context composer; supplemental input is stripped. */
   composerAuthority?: "project-context-composer-v1";
+  /** Trusted structured sidecar for context that must reach the final Browser model call. */
+  modelContextSource?: {
+    authority: BrowserFinalContextSourceAuthority;
+    sourceArtifactDigest: string;
+    sourceRevisionDigest: string;
+    receiptRequired: true;
+  };
   canonicalIdentitySource?:
     | "characters"
     | "project-seed"
@@ -313,6 +325,8 @@ export type ClosedBackendRawExecutionResult = {
   browserContextTokensBefore?: number;
   browserContextTokensAfter?: number;
   browserTokensSaved?: number;
+  contextAttestation?: BrowserContextAttestationRequirement;
+  finalModelContextAttestation?: BrowserFinalModelContextAttestation;
 };
 
 export type ClosedBackendExecutionResult = ClosedBackendRawExecutionResult & {
@@ -370,6 +384,8 @@ export type ClosedAIExecutionReceipt = {
   contextTokensBefore?: number;
   contextTokensAfter?: number;
   tokensSaved?: number;
+  contextAttestation?: BrowserContextAttestationRequirement;
+  finalModelContextAttestation?: BrowserFinalModelContextAttestation;
 };
 
 export type ClosedAgentVerifiedExecutionReceipt = ClosedAIExecutionReceipt & {
@@ -420,6 +436,8 @@ export type ClosedAgentCandidate = {
   id: string;
   projectId: string;
   taskId: string;
+  /** Present on fresh candidates and sealed by the retained ledger snapshot. */
+  taskType?: PlatformTaskType;
   namespace: ClosedAINamespace;
   backendId: ClosedAIBackendId;
   modelId: string;
@@ -513,11 +531,54 @@ export type ClosedAgentMemoryRecord = {
   canonical: boolean;
 };
 
+/**
+ * Durable, metadata-only outbox for a rejected candidate. The target cache
+ * identifiers are content-addressed cache keys; candidate prose and prompts
+ * never enter this record. A pending record is safe to replay after a crash or
+ * from another tab because every downstream effect is causation-bound.
+ */
+export type ClosedAgentRejectionRecord = {
+  schemaVersion: typeof CLOSED_AGENT_OS_SCHEMA_VERSION;
+  kind: "rejection";
+  id: string;
+  projectId: string;
+  namespace: ClosedAINamespace;
+  namespaceDigest: string;
+  candidateId: string;
+  claimId: string;
+  taskId: string;
+  taskType: PlatformTaskType | null;
+  candidateContentDigest: string;
+  requestContractDigest: string;
+  cacheEntryIds: string[];
+  cachePlanDigest: string;
+  cacheCausationId: string;
+  learningCausationId: string;
+  learningResult: {
+    collected: boolean;
+    experienceId: string | null;
+    featureDigest: string | null;
+    resultDigest: string | null;
+    reasonCode: string | null;
+    payloadDigest: string;
+  } | null;
+  status: "pending" | "completed";
+  cacheLedgerBlockHash: string | null;
+  learningLedgerBlockHash: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  rawPromptStored: false;
+  rawOutputStored: false;
+  rawChainOfThoughtStored: false;
+  canonicalMutationCount: 0;
+};
+
 export type ClosedAgentStateRecord =
   | ClosedAgentCandidate
   | ClosedAgentTaskRecord
   | ClosedAgentApprovalRecord
-  | ClosedAgentMemoryRecord;
+  | ClosedAgentMemoryRecord
+  | ClosedAgentRejectionRecord;
 
 export type ClosedAgentExecutionResult = {
   task: ClosedAgentTaskRecord;

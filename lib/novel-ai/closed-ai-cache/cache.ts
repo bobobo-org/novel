@@ -234,19 +234,68 @@ export class ClosedAICache {
   }
 
   async invalidate(invalidation: ClosedAICacheInvalidation): Promise<number> {
+    const targetIds = await this.planInvalidation(invalidation);
+    await this.invalidatePlanned(invalidation, targetIds);
+    return targetIds.length;
+  }
+
+  async planInvalidation(invalidation: ClosedAICacheInvalidation): Promise<string[]> {
     assertTargetedCacheInvalidation(invalidation);
     const entries = await this.repository.list();
     const selectedLayers = invalidation.layers ? new Set(invalidation.layers) : null;
     const selectedTags = invalidation.tags ? new Set(invalidation.tags) : null;
     const createdBefore = invalidation.createdBefore ? Date.parse(invalidation.createdBefore) : null;
-    const targets = entries.filter((entry) =>
+    return entries.filter((entry) =>
       namespaceMatchesInvalidation(entry.namespace, invalidation)
       && (!selectedLayers || selectedLayers.has(entry.layer))
       && (!selectedTags || entry.tags.some((tag) => selectedTags.has(tag)))
-      && (createdBefore === null || Date.parse(entry.createdAt) < createdBefore));
-    await Promise.all(targets.map((entry) => this.repository.remove(entry.id)));
-    this.counters.invalidations += targets.length;
-    return targets.length;
+      && (createdBefore === null || Date.parse(entry.createdAt) < createdBefore))
+      .map((entry) => entry.id)
+      .sort();
+  }
+
+  async invalidatePlanned(
+    invalidation: ClosedAICacheInvalidation,
+    entryIds: readonly string[],
+  ): Promise<number> {
+    assertTargetedCacheInvalidation(invalidation);
+    const uniqueIds = [...new Set(entryIds)];
+    if (
+      uniqueIds.length !== entryIds.length
+      || uniqueIds.length > this.maximumEntries
+      || uniqueIds.some((id) => (
+        typeof id !== "string"
+        || id.length > 256
+        || !/^(?:exact|semantic|retrieval|agent-plan|tool-result|model-session):[a-f0-9]{64}:[a-f0-9]{64}$/u.test(id)
+      ))
+    ) {
+      throw new Error("CLOSED_AI_CACHE_INVALIDATION_PLAN_INVALID");
+    }
+    const selectedLayers = invalidation.layers ? new Set(invalidation.layers) : null;
+    const selectedTags = invalidation.tags ? new Set(invalidation.tags) : null;
+    const createdBefore = invalidation.createdBefore ? Date.parse(invalidation.createdBefore) : null;
+    let removed = 0;
+    for (const id of uniqueIds) {
+      const entry = await this.repository.get(id);
+      if (entry) {
+        if (
+          !namespaceMatchesInvalidation(entry.namespace, invalidation)
+          || (selectedLayers && !selectedLayers.has(entry.layer))
+          || (selectedTags && !entry.tags.some((tag) => selectedTags.has(tag)))
+          || (createdBefore !== null && Date.parse(entry.createdAt) >= createdBefore)
+        ) {
+          throw new Error("CLOSED_AI_CACHE_INVALIDATION_PLAN_SCOPE_MISMATCH");
+        }
+        removed += 1;
+      }
+      await this.repository.remove(id);
+    }
+    const remaining = await Promise.all(uniqueIds.map((id) => this.repository.get(id)));
+    if (remaining.some(Boolean)) {
+      throw new Error("CLOSED_AI_CACHE_INVALIDATION_PLAN_INCOMPLETE");
+    }
+    this.counters.invalidations += removed;
+    return removed;
   }
 
   async invalidateStoryBibleRevision(

@@ -10,7 +10,12 @@ import {
 import {
   ClosedAICache,
   MemoryClosedAICacheRepository,
+  sha256Hex,
 } from "../lib/novel-ai/closed-ai-cache/index.ts";
+import {
+  createBrowserFinalModelContextAttestation,
+  createBrowserFinalModelContextInvocationProof,
+} from "../lib/novel-ai/security/browser-final-model-context-proof.ts";
 import {
   ApprovalSigner,
   MemoryVerifiableLedgerRepository,
@@ -485,6 +490,21 @@ await test("candidate-executor-contract", async () => {
         "明檀先核對已核准的地圖與人物關係，再沿著東側階梯前進；她沒有改寫既有設定，也沒有把任何作品資料送出裝置。",
         "遠處的燈影揭露了新的線索，但這段內容仍只是等待作者核准的候選稿。",
       ].join("");
+      const invocation = await createBrowserFinalModelContextInvocationProof({
+        outerRequestId: input.request.taskId,
+        invocationRequestId: `${input.request.taskId}:mock-browser-initial`,
+        outerTaskType: input.request.taskType,
+        outerQualityPhase: input.qualityPhase,
+        innerStage: "initial",
+        innerIndex: 0,
+        modelId: snapshot.modelId,
+        modelDigest: snapshot.modelDigest,
+        callOptionsDigest: await sha256Hex("rc6-2-runtime-browser-call-options-v3"),
+        systemMessage: "rc6-2-runtime-browser-system",
+        userMessage: "rc6-2-runtime-browser-user",
+        expectations: [],
+        omittedCharacters: 0,
+      });
       return {
         backendId: "browser-ai",
         modelId: snapshot.modelId,
@@ -508,6 +528,13 @@ await test("candidate-executor-contract", async () => {
         browserComputeReceiptId: "browser-compute-receipt:real-runtime-proof",
         browserFabricReceiptId: "browser-fabric-receipt:real-runtime-proof",
         browserFabricPlannedGraph: ["GENERATE", "QUALITY_GATE", "CANDIDATE"],
+        contextAttestation: "required",
+        finalModelContextAttestation: await createBrowserFinalModelContextAttestation({
+          acceptedDisposition: "standalone",
+          acceptedStage: "initial",
+          executedStages: ["initial"],
+          contributingCalls: [invocation],
+        }),
       };
     },
   };
@@ -900,9 +927,9 @@ await test("source-truth", async () => {
   assert.match(browserGate, /data-setup-lifecycle"\), "cancelled"/u);
   assert.match(browserGate, /getByRole\("button", \{ name: "取消準備"/u);
   assert.match(browserGate, /retryAfterCancel:\s*true/u);
-  assert.match(browserGate, /readPublicHealthTruth/u);
-  assert.match(browserGate, /appCommit:\s*body\.appCommit/u);
-  assert.match(browserGate, /deploymentId:\s*body\.deploymentId/u);
+  assert.match(browserGate, /readReleaseIdentityTruth/u);
+  assert.match(browserGate, /assert\.equal\(truth\.body\.appCommit, expectedCommit\)/u);
+  assert.match(browserGate, /assert\.equal\(truth\.body\.deploymentId, expectedDeploymentId\)/u);
   assert.match(browserGate, /secondCard\.getByRole\("button", \{ name: "放棄"/u);
   assert.match(browserGate, /name: "重新產生"/u);
   assert.match(browserGate, /thirdCard\.getByRole\("button", \{ name: "採用"/u);

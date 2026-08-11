@@ -12,6 +12,10 @@ import {
   BROWSER_T1_T2_HYBRID_TASKS,
   BROWSER_T2_TASKS,
 } from "../providers/browser-ai/browser-task-eligibility";
+import { BROWSER_TASK_MODEL } from "../providers/browser-ai/browser-task-model";
+import {
+  BROWSER_EXECUTION_RECEIPT_VERSION,
+} from "../providers/browser-ai/browser-offload-metrics";
 import { browserWebLLMModel } from "../providers/browser-ai/webllm-model-registry";
 import {
   probeLocalOllama,
@@ -20,11 +24,13 @@ import {
 import { getConfiguredLocalBridgeClient } from "../providers/local-ollama/local-bridge-client";
 import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
 import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
-import { serializeClosedActorContext } from "../providers/closed/continuity-anchors";
+import { serializeClosedActorContextWithSourceIdentities } from "../providers/closed/continuity-anchors";
 import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
 } from "../closed-ai-cache";
+import { sha256Hex, stableStringify } from "../closed-ai-cache";
+import { verifyBrowserFinalModelContextAttestation } from "../security/browser-final-model-context-proof";
 import type {
   PlatformAIRequest,
   PlatformAIResult,
@@ -203,6 +209,10 @@ export function closedBackendPlatformRequest(
     request.regeneration,
   );
   const promptInput = [...regenerationContext, request.objective].join("\n\n");
+  const serializedActorContext = serializeClosedActorContextWithSourceIdentities(
+    input.actorContext,
+    request.taskType,
+  );
   return {
     requestId: request.taskId,
     projectId: request.namespace.projectId,
@@ -217,9 +227,17 @@ export function closedBackendPlatformRequest(
     preferredProvider: input.plan.backendId,
     input: promptInput,
     context: [
-      ...serializeClosedActorContext(input.actorContext, request.taskType),
+      ...serializedActorContext.map((item) => item.text),
       ...controlledLearningContext,
     ],
+    ...(input.plan.backendId === "browser-ai"
+      ? {
+        contextSourceIdentities: [
+          ...serializedActorContext.map((item) => item.sourceIdentity),
+          ...controlledLearningContext.map(() => null),
+        ],
+      }
+      : {}),
     qualityPreference: input.plan.qualityMode === "deep"
       ? "high"
       : input.plan.qualityMode,
@@ -283,6 +301,25 @@ function lockedDecision(
       offlineRequired: Boolean(request.offlineRequired),
       decidedAt: new Date().toISOString(),
     },
+  };
+}
+
+function browserTaskExecutionSnapshot(
+  snapshot: ClosedAIBackendSnapshot,
+  taskType: PlatformAIRequest["taskType"],
+): ClosedAIBackendSnapshot {
+  if (!BROWSER_T1_TASKS.has(taskType)) return snapshot;
+  return {
+    ...snapshot,
+    modelId: BROWSER_TASK_MODEL.modelId,
+    modelDigest: BROWSER_TASK_MODEL.modelDigest,
+    runtimeTruth: {
+      ...snapshot.runtimeTruth,
+      generationVerified: false,
+      verificationSource: "none",
+      verifiedAt: null,
+    },
+    detailCode: "packaged_browser_task_model_pinned",
   };
 }
 
@@ -464,9 +501,24 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
   }
 
   async execute(input: ClosedBackendExecutionInput): Promise<ClosedBackendRawExecutionResult> {
-    const snapshot = await this.snapshot();
-    if (snapshot.status !== "ready" || !snapshot.modelId) {
-      throw unavailable(this.id, snapshot.status);
+    const runtimeSnapshot = await this.snapshot();
+    if (runtimeSnapshot.status !== "ready" || !runtimeSnapshot.modelId) {
+      throw unavailable(this.id, runtimeSnapshot.status);
+    }
+    const snapshot = browserTaskExecutionSnapshot(
+      runtimeSnapshot,
+      input.request.taskType,
+    );
+    if (
+      input.request.namespace.modelId !== snapshot.modelId
+      || input.request.namespace.modelDigest !== snapshot.modelDigest
+    ) {
+      throw Object.assign(new Error("CLOSED_AI_MODEL_IDENTITY_MISMATCH"), {
+        code: "CLOSED_AI_MODEL_IDENTITY_MISMATCH",
+        backendId: this.id,
+        routedModelId: input.request.namespace.modelId,
+        executionModelId: snapshot.modelId,
+      });
     }
     const { executeBrowserSovereignFabric } = await import(
       "../browser-fabric/orchestrator"
@@ -487,6 +539,57 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       ),
     });
     const result = compute.result;
+    if (compute.receipt.schemaVersion !== BROWSER_EXECUTION_RECEIPT_VERSION) {
+      throw Object.assign(new Error("BROWSER_EXECUTION_RECEIPT_INVALID"), {
+        code: "BROWSER_EXECUTION_RECEIPT_INVALID",
+      });
+    }
+    const contextAttestation = result.contextAttestation;
+    if (
+      !contextAttestation
+      || compute.receipt.contextAttestation !== contextAttestation
+      || result.browserCompute?.contextAttestation !== contextAttestation
+    ) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+        code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+      });
+    }
+    const receiptAttestation = "finalModelContextAttestation" in compute.receipt
+      ? compute.receipt.finalModelContextAttestation
+      : null;
+    if (contextAttestation === "required") {
+      const attestation = result.finalModelContextAttestation;
+      if (
+        result.executor !== "webllm-worker"
+        || !attestation
+        || !receiptAttestation
+        || !await verifyBrowserFinalModelContextAttestation(attestation)
+        || stableStringify(attestation) !== stableStringify(receiptAttestation)
+        || attestation.outerTaskType !== request.taskType
+        || attestation.outerQualityPhase !== (input.qualityPhase ?? "draft")
+        || attestation.outerRequestIdDigest !== await sha256Hex(request.requestId)
+        || attestation.contributingCalls.some((call) => (
+          call.modelId !== result.modelId || call.modelDigest !== result.modelDigest
+        ))
+      ) {
+        throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+          code: attestation
+            ? "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"
+            : "BROWSER_FINAL_CONTEXT_PROOF_REQUIRED",
+        });
+      }
+    } else if (
+      result.executor !== "browser-task-model"
+      || result.modelId !== BROWSER_TASK_MODEL.modelId
+      || result.modelDigest !== BROWSER_TASK_MODEL.modelDigest
+      || result.browserModelContextInvocationProof !== undefined
+      || result.finalModelContextAttestation !== undefined
+      || receiptAttestation !== null
+    ) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+        code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+      });
+    }
     reportGenerationProgress(
       input,
       `瀏覽器模型已產生 ${result.content.length} 字候選`,
@@ -519,6 +622,8 @@ export class BrowserAIBackendAdapter implements ClosedAIBackendAdapter {
       browserContextTokensBefore: result.browserCompute?.contextTokensBefore,
       browserContextTokensAfter: result.browserCompute?.contextTokensAfter,
       browserTokensSaved: result.browserCompute?.tokensSaved,
+      contextAttestation,
+      finalModelContextAttestation: result.finalModelContextAttestation,
     };
   }
 }

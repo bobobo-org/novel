@@ -36,6 +36,7 @@ const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|to
 const INTERNAL_STRUCTURAL_TAG = /(?:(?:<|&lt;|&#0*60;|&#x0*3c;)\s*\/?\s*(?:unapproved-continuation-seed|作者目[標标]|最[終终][輸输]出契[約约]|(?:品[質质]|[質质]量)[階阶]段|工作[類类]型|已[核覈][准準][資资]料|代理[計计][畫画劃划㓰]|本[機机]工具[證证][據据]|未[核覈][准準]工作素材|既有章[節节]\s*[（(]\s*[僅仅]供辨[識识]\s*[，,]\s*禁止[輸输]出\s*[）)]|[續续][寫写]起[點点]\s*[（(]\s*只承接\s*[，,]\s*不得重[寫写]\s*[）)]|explicit-regeneration)\s*\/?\s*(?:>|&gt;|&#0*62;|&#x0*3e;))/iu;
 const INTERNAL_STORY_REFERENCE = /(?:(?:\[|&#0*91;|&#x0*5b;)\s*\/?\s*EXISTING_STORY_REFERENCE\s*(?:\]|&#0*93;|&#x0*5d;))/iu;
 const INTERNAL_TELEMETRY_ENVELOPE = /(?<![A-Za-z0-9_-])(?:(?:extension-)?base-(?:digest|han)=|anchor-(?:begin|end)(?![A-Za-z0-9_-]))/iu;
+const INTERNAL_FINAL_CONTEXT_ENVELOPE = /(?:(?:<|&lt;|&#0*60;|&#x0*3c;)\s*\/?\s*approved-model-context\s*\/?\s*(?:>|&gt;|&#0*62;|&#x0*3e;)|\[\[\s*CTX3\s*:|(?:(?:&#0*91;|&#x0*5b;)){2}\s*CTX3\s*:)/iu;
 
 export function closedOutputSafetyCode(
   value: string,
@@ -55,6 +56,7 @@ export function closedOutputSafetyCode(
     INTERNAL_STRUCTURAL_TAG.test(normalized)
     || INTERNAL_STORY_REFERENCE.test(normalized)
     || INTERNAL_TELEMETRY_ENVELOPE.test(normalized)
+    || INTERNAL_FINAL_CONTEXT_ENVELOPE.test(normalized)
   ) return "internal-envelope";
   return null;
 }

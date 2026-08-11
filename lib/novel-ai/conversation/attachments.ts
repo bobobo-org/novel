@@ -10,6 +10,8 @@ import {
 } from "../web/manual-learning-file-validation";
 
 export const CONVERSATION_ATTACHMENT_SCHEMA_VERSION = "conversation-attachment-v1" as const;
+export const CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION =
+  "conversation-attachment-rights-confirmation-v1" as const;
 
 function now() {
   return new Date().toISOString();
@@ -34,6 +36,7 @@ export async function createConversationAttachmentRecord(input: {
   file: File;
   rightsBasis: string;
   rightsEvidence?: string;
+  userConfirmedRights: true;
   signal?: AbortSignal;
   attachmentId?: string;
 }): Promise<ConversationAttachment> {
@@ -45,6 +48,11 @@ export async function createConversationAttachmentRecord(input: {
   if (!input.rightsBasis.trim()) {
     throw Object.assign(new Error("Attachment rights basis is required."), {
       code: "CONVERSATION_ATTACHMENT_RIGHTS_REQUIRED",
+    });
+  }
+  if (input.userConfirmedRights !== true) {
+    throw Object.assign(new Error("Attachment rights confirmation is required."), {
+      code: "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
     });
   }
   const createdAt = now();
@@ -65,6 +73,9 @@ export async function createConversationAttachmentRecord(input: {
     contentHash,
     rightsBasis: input.rightsBasis.trim().slice(0, 120),
     rightsEvidenceHash,
+    userConfirmedRights: true,
+    rightsConfirmationSchemaVersion:
+      CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
     localAnalysisOnly: true,
     rawContentRetained: false,
     parsingStatus: "pending",

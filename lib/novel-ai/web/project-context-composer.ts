@@ -3,6 +3,7 @@ import type {
   Achievement,
   Chapter,
   Character,
+  ConversationAttachment,
   ConversationArtifact,
   ConversationMessage,
   ConversationSummary,
@@ -18,17 +19,57 @@ import type {
   WorldRule,
   WritingTask,
 } from "../domain";
+import { NOVEL_DOMAIN_VERSION } from "../domain";
 import type { ClosedAIContextItem } from "../closed-agent-os";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import type { NovelRepository, NovelStoreName } from "../repository/contracts";
 import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-sanitizer";
 
 export const PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION =
-  "project-context-composer-v1" as const;
+  "project-context-composer-v2" as const;
 
 const PROJECT_CONVERSATION_SUMMARY_LIMIT = 4;
 const CONVERSATION_SUMMARY_CHARACTER_LIMIT = 6_000;
 const CONVERSATION_SUMMARY_SOURCE_ID_LIMIT = 64;
+const SELECTED_ATTACHMENT_SUMMARY_CHARACTER_LIMIT = 24_000;
+const SELECTED_ATTACHMENT_LIMIT = 12;
+const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
+const SELECTED_ATTACHMENT_RIGHTS_BASES = new Set([
+  "user_supplied_local_analysis",
+  "owned_by_user",
+  "public_domain",
+  "licensed_for_analysis",
+  "lawful_private_reference",
+  "ai_output_authorized",
+]);
+const STORY_BIBLE_CONTEXT_FIELDS = [
+  "theme",
+  "style",
+  "protagonistIds",
+  "characterIds",
+  "relationshipIds",
+  "worldId",
+  "worldRuleIds",
+  "loreIds",
+  "timelineEventIds",
+  "foreshadowing",
+  "unresolvedThreads",
+  "forbiddenContradictions",
+  "authorPreferences",
+  "revision",
+];
+
+type ModelContextSource = NonNullable<ClosedAIContextItem["modelContextSource"]>;
+
+export type RepositoryVerifiedSelectedAttachmentSummary = {
+  attachmentId: string;
+  recordRevision: number;
+  summary: string;
+  contentDigest: string;
+  modelContextSource: ModelContextSource & {
+    authority: "user-selected-sanitized-untrusted-reference";
+  };
+};
 
 export async function conversationCanonRevisionDigest(input: {
   project: Pick<NovelProject, "id" | "revision">;
@@ -72,11 +113,7 @@ export type ProjectContextComposerInput = {
   }>;
   conversationSessionId?: string;
   conversationRecentMessageLimit?: number;
-  selectedAttachmentSummaries?: Array<{
-    attachmentId: string;
-    summary: string;
-    contentDigest: string;
-  }>;
+  selectedAttachmentSummaries?: RepositoryVerifiedSelectedAttachmentSummary[];
   supplementalContext?: ClosedAIContextItem[];
   semanticQuery?: string;
   semanticRanker?: ProjectContextSemanticRanker;
@@ -162,6 +199,130 @@ function ordered<T extends DomainRecord>(records: T[]) {
   });
 }
 
+function contextSourceError(code: string) {
+  return Object.assign(new Error("Required model context source could not be verified."), {
+    code,
+  });
+}
+
+export async function selectedAttachmentModelContextSource(
+  attachment: Pick<
+    ConversationAttachment,
+    | "schemaVersion"
+    | "conversationSchemaVersion"
+    | "id"
+    | "projectId"
+    | "sessionId"
+    | "revision"
+    | "contentHash"
+    | "rightsBasis"
+    | "rightsEvidenceHash"
+    | "userConfirmedRights"
+    | "rightsConfirmationSchemaVersion"
+    | "parsingStatus"
+    | "localAnalysisOnly"
+    | "rawContentRetained"
+  >,
+): Promise<RepositoryVerifiedSelectedAttachmentSummary["modelContextSource"]> {
+  return {
+    authority: "user-selected-sanitized-untrusted-reference",
+    sourceArtifactDigest: attachment.contentHash,
+    sourceRevisionDigest: await sha256Hex(stableStringify({
+      domain: "selected-local-attachment-source-revision-v1",
+      store: "conversationAttachments",
+      schemaVersion: attachment.schemaVersion,
+      conversationSchemaVersion: attachment.conversationSchemaVersion,
+      id: attachment.id,
+      projectId: attachment.projectId,
+      sessionId: attachment.sessionId,
+      revision: attachment.revision,
+      contentHash: attachment.contentHash,
+      rightsBasis: attachment.rightsBasis,
+      rightsEvidenceHash: attachment.rightsEvidenceHash,
+      userConfirmedRights: attachment.userConfirmedRights,
+      rightsConfirmationSchemaVersion:
+        attachment.rightsConfirmationSchemaVersion,
+      parsingStatus: attachment.parsingStatus,
+      localAnalysisOnly: attachment.localAnalysisOnly,
+      rawContentRetained: attachment.rawContentRetained,
+    })),
+    receiptRequired: true,
+  };
+}
+
+function validSelectedAttachmentRecord(
+  attachment: ConversationAttachment | null,
+  selected: RepositoryVerifiedSelectedAttachmentSummary,
+  projectId: string,
+  sessionId: string,
+): attachment is ConversationAttachment {
+  return Boolean(
+    attachment
+    && attachment.schemaVersion === NOVEL_DOMAIN_VERSION
+    && attachment.conversationSchemaVersion === "conversation-attachment-v1"
+    && attachment.id === selected.attachmentId
+    && attachment.projectId === projectId
+    && attachment.sessionId === sessionId
+    && (attachment.deletedAt === null || attachment.deletedAt === undefined)
+    && Number.isSafeInteger(attachment.revision)
+    && attachment.revision >= 1
+    && attachment.revision === selected.recordRevision
+    && attachment.parsingStatus === "completed"
+    && attachment.contentHash === selected.contentDigest
+    && SHA256_DIGEST.test(attachment.contentHash)
+    && SELECTED_ATTACHMENT_RIGHTS_BASES.has(attachment.rightsBasis)
+    && SHA256_DIGEST.test(attachment.rightsEvidenceHash)
+    && attachment.userConfirmedRights === true
+    && attachment.rightsConfirmationSchemaVersion
+      === "conversation-attachment-rights-confirmation-v1"
+    && attachment.localAnalysisOnly === true
+    && attachment.rawContentRetained === false
+  );
+}
+
+async function reverifySelectedAttachmentSummaries(
+  input: ProjectContextComposerInput,
+) {
+  const selected = input.selectedAttachmentSummaries ?? [];
+  if (!selected.length) return selected;
+  if (
+    !input.conversationSessionId?.trim()
+    || selected.length > SELECTED_ATTACHMENT_LIMIT
+    || new Set(selected.map((item) => item.attachmentId)).size !== selected.length
+  ) throw contextSourceError("CLOSED_AI_ATTACHMENT_SOURCE_INVALID");
+  await Promise.all(selected.map(async (item) => {
+    if (
+      !item.attachmentId.trim()
+      || !Number.isSafeInteger(item.recordRevision)
+      || item.recordRevision < 1
+      || typeof item.summary !== "string"
+      || !item.summary.trim()
+      || item.summary.length > SELECTED_ATTACHMENT_SUMMARY_CHARACTER_LIMIT
+      || !SHA256_DIGEST.test(item.contentDigest)
+    ) throw contextSourceError("CLOSED_AI_ATTACHMENT_SOURCE_INVALID");
+    let attachment: ConversationAttachment | null;
+    try {
+      attachment = await input.repository.get<ConversationAttachment>(
+        "conversationAttachments",
+        item.attachmentId,
+      );
+    } catch {
+      throw contextSourceError("CLOSED_AI_ATTACHMENT_SOURCE_INVALID");
+    }
+    if (!validSelectedAttachmentRecord(
+      attachment,
+      item,
+      input.projectId,
+      input.conversationSessionId!,
+    )) throw contextSourceError("CLOSED_AI_ATTACHMENT_SOURCE_INVALID");
+    const expectedSource = await selectedAttachmentModelContextSource(attachment);
+    if (stableStringify(item.modelContextSource) !== stableStringify(expectedSource)) {
+      throw contextSourceError("CLOSED_AI_ATTACHMENT_SOURCE_INVALID");
+    }
+  }));
+  return selected;
+}
+
 function canonicalCharacterIdentities(records: Character[]) {
   const output = new Map<Character, { name?: string; aliases?: string[] }>();
   const seen = new Set<string>();
@@ -227,6 +388,7 @@ function addContext(
     privacyLevel: ClosedAIContextItem["privacyLevel"];
     visibility?: ClosedAIContextItem["visibility"];
     learningFacet?: ClosedAIContextItem["learningFacet"];
+    modelContextSource?: ModelContextSource;
   },
 ) {
   const text = `[${input.source}]\n${stableStringify(input.value)}`;
@@ -247,6 +409,9 @@ function addContext(
       privacyLevel: input.privacyLevel,
       approved: true,
       composerAuthority: "project-context-composer-v1",
+      ...(input.modelContextSource
+        ? { modelContextSource: structuredClone(input.modelContextSource) }
+        : {}),
       ...(canonicalIdentitySource ? { canonicalIdentitySource } : {}),
     },
   });
@@ -278,13 +443,52 @@ function applyBudget(
     }
     return entry.priority + (entry.semanticScore ?? 0) * 12;
   };
-  const sorted = [...entries].sort((left, right) =>
+  const required = entries.filter((entry) => (
+    entry.item.modelContextSource?.receiptRequired === true
+  ));
+  const ordinary = entries.filter((entry) => (
+    entry.item.modelContextSource?.receiptRequired !== true
+  ));
+  if (
+    new Set(required.map((entry) => entry.item.id)).size !== required.length
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH"), {
+      code: "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH",
+    });
+  }
+  const sorted = ordinary.sort((left, right) =>
     effectivePriority(right) - effectivePriority(left)
     || right.priority - left.priority
     || left.item.id.localeCompare(right.item.id));
   const selected: ClosedAIContextItem[] = [];
   let remainingCharacters = Math.max(512, tokenBudget * 2);
   let truncated = false;
+  for (const [index, entry] of required.entries()) {
+    const sourcesLeft = required.length - index;
+    if (remainingCharacters < sourcesLeft) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+        code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+      });
+    }
+    const allocation = Math.max(
+      1,
+      Math.floor(remainingCharacters / Math.max(sourcesLeft, 1)),
+    );
+    const included = Math.min(entry.item.text.length, allocation);
+    if (included < 1) {
+      throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+        code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+      });
+    }
+    const text = included === entry.item.text.length
+      ? entry.item.text
+      : included > 32
+        ? `${entry.item.text.slice(0, included - 32)}\n[CONTEXT_TRUNCATED]`
+        : entry.item.text.slice(0, included);
+    selected.push({ ...entry.item, text });
+    remainingCharacters -= text.length;
+    truncated = truncated || text.length !== entry.item.text.length;
+  }
   for (const entry of sorted) {
     if (remainingCharacters <= 0) {
       truncated = true;
@@ -303,6 +507,21 @@ function applyBudget(
     }
     remainingCharacters = 0;
     truncated = true;
+  }
+  const selectedRequired = selected.filter((item) => (
+    item.modelContextSource?.receiptRequired === true
+  ));
+  if (
+    selectedRequired.length !== required.length
+    || selectedRequired.some((item, index) => (
+      item.id !== required[index].item.id
+      || stableStringify(item.modelContextSource)
+        !== stableStringify(required[index].item.modelContextSource)
+    ))
+  ) {
+    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_SOURCE_OMITTED"), {
+      code: "BROWSER_FINAL_CONTEXT_SOURCE_OMITTED",
+    });
   }
   return {
     context: selected,
@@ -382,12 +601,23 @@ export async function composeProjectContext(
       projectId: input.projectId,
     });
   }
+  const selectedAttachmentSummaries = await reverifySelectedAttachmentSummaries(input);
 
   const entries: PrioritizedContext[] = [];
   const privacyLevel = input.privacyLevel;
-  const storyBible = storyBibles.find((item) => item.id === project.storyBibleId)
-    ?? ordered(storyBibles).at(-1)
+  const selectedStoryBible = storyBibles.find((item) => item.id === project.storyBibleId)
     ?? null;
+  const storyBible = selectedStoryBible
+    && selectedStoryBible.schemaVersion === NOVEL_DOMAIN_VERSION
+    && selectedStoryBible.projectId === input.projectId
+    && (selectedStoryBible.deletedAt === null || selectedStoryBible.deletedAt === undefined)
+    && Number.isSafeInteger(selectedStoryBible.revision)
+    && selectedStoryBible.revision >= 1
+    ? selectedStoryBible
+    : null;
+  if (project.storyBibleId && !storyBible) {
+    throw contextSourceError("PROJECT_CONTEXT_STORY_BIBLE_SOURCE_INVALID");
+  }
   const storyState = storyStates.find((item) => item.id === project.storyStateId)
     ?? ordered(storyStates).at(-1)
     ?? null;
@@ -463,29 +693,33 @@ export async function composeProjectContext(
     });
   }
   if (storyBible) {
+    const storyBibleValue = cleanRecord(storyBible, STORY_BIBLE_CONTEXT_FIELDS);
+    const sourceArtifactDigest = await sha256Hex(stableStringify({
+      domain: "approved-story-bible-source-artifact-v1",
+      value: storyBibleValue,
+    }));
     addContext(entries, {
       id: `story-bible:${storyBible.id}`,
       kind: "story-bible",
       source: "APPROVED_STORY_BIBLE",
-      value: cleanRecord(storyBible, [
-        "theme",
-        "style",
-        "protagonistIds",
-        "characterIds",
-        "relationshipIds",
-        "worldId",
-        "worldRuleIds",
-        "loreIds",
-        "timelineEventIds",
-        "foreshadowing",
-        "unresolvedThreads",
-        "forbiddenContradictions",
-        "authorPreferences",
-        "revision",
-      ]),
+      value: storyBibleValue,
       priority: 98,
       privacyLevel,
       learningFacet: "story-bible",
+      modelContextSource: {
+        authority: "composer-repository-verified",
+        sourceArtifactDigest,
+        sourceRevisionDigest: await sha256Hex(stableStringify({
+          domain: "approved-story-bible-source-revision-v1",
+          store: "storyBibles",
+          schemaVersion: storyBible.schemaVersion,
+          id: storyBible.id,
+          projectId: storyBible.projectId,
+          revision: storyBible.revision,
+          sourceArtifactDigest,
+        })),
+        receiptRequired: true,
+      },
     });
   }
   if (activeChapter) {
@@ -1015,7 +1249,7 @@ export async function composeProjectContext(
       });
     }
   }
-  for (const attachment of input.selectedAttachmentSummaries ?? []) {
+  for (const attachment of selectedAttachmentSummaries) {
     const boundary = sanitizeRetrievedKnowledge(attachment.summary, {
       sourceId: attachment.attachmentId,
       sourceRevision: attachment.contentDigest,
@@ -1041,6 +1275,7 @@ export async function composeProjectContext(
       },
       priority: 79,
       privacyLevel,
+      modelContextSource: attachment.modelContextSource,
     });
   }
   for (const item of input.supplementalContext ?? []) {
@@ -1048,6 +1283,7 @@ export async function composeProjectContext(
     if (item.visibility === "author-only" && audience !== "author") continue;
     const supplemental = structuredClone(item);
     delete supplemental.composerAuthority;
+    delete supplemental.modelContextSource;
     delete supplemental.canonicalIdentitySource;
     entries.push({ priority: 99, item: supplemental });
   }
@@ -1129,7 +1365,7 @@ export async function composeProjectContext(
         && !message.deletedAt).length
       : 0,
     conversationSummaries: includedConversationSummaryCount,
-    selectedAttachmentSummaries: input.selectedAttachmentSummaries?.length ?? 0,
+    selectedAttachmentSummaries: selectedAttachmentSummaries.length,
   };
   const contextSourceSummary: ProjectContextSourceSummary = {
     schemaVersion: PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION,

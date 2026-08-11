@@ -1,3 +1,12 @@
+import type {
+  BrowserContextAttestationRequirement,
+  BrowserFinalContextExpectation,
+  BrowserFinalContextSourceIdentity,
+  BrowserFinalModelContextAttestation,
+  BrowserFinalModelContextInnerStage,
+  BrowserFinalModelContextInvocationProof,
+} from "../security/browser-final-model-context-proof";
+
 export type PlatformProviderId = "browser-ai" | "local-ollama" | "private-ai-hub" | "deterministic-local" | "openai" | "gemini" | "grok" | "claude";
 export type PrivacyMode = "strict-local" | "private-hub-allowed" | "external-allowed";
 export type ClosedAIPrivacyLevel = "device_only" | "private_infrastructure_only" | "external_allowed";
@@ -28,6 +37,18 @@ export type PlatformAIRequest = {
   privacyMode: PrivacyMode;
   input: string;
   context: string[];
+  /** Ephemeral structured provenance aligned 1:1 with `context`. Never persist raw source IDs. */
+  contextSourceIdentities?: Array<BrowserFinalContextSourceIdentity | null>;
+  /** Browser-internal pre-inference requirement; fresh compute always sets it. */
+  contextAttestation?: BrowserContextAttestationRequirement;
+  /** Privacy-safe manifest for required context fragments in the final fitted Browser prompt. */
+  browserFinalContextExpectations?: BrowserFinalContextExpectation[];
+  /** Immutable outer Closed transaction boundary; inner retries must not overwrite it. */
+  browserFinalContextOuterRequestId?: string;
+  browserFinalContextOuterTaskType?: PlatformTaskType;
+  browserFinalContextOuterQualityPhase?: "draft" | "critic" | "revision";
+  browserFinalContextInnerStage?: BrowserFinalModelContextInnerStage;
+  browserFinalContextInnerIndex?: 0 | 1 | 2;
   preferredProvider?: PlatformProviderId;
   externalConsent: boolean;
   requiresStreaming?: boolean;
@@ -97,6 +118,9 @@ export type PlatformAIResult = {
   completionTokens?: number | null;
   rawOutputCharacters?: number;
   normalizedOutputCharacters?: number;
+  browserModelContextInvocationProof?: BrowserFinalModelContextInvocationProof;
+  finalModelContextAttestation?: BrowserFinalModelContextAttestation;
+  contextAttestation?: BrowserContextAttestationRequirement;
   performancePolicy?: {
     policyVersion: string;
     tier: string;
@@ -132,6 +156,7 @@ export type PlatformAIResult = {
     contextTokensAfter: number;
     tokensSaved: number;
     receiptId: string;
+    contextAttestation: BrowserContextAttestationRequirement;
     inferenceProof: "verified" | "not_required";
     canonicalMutationCount: 0;
   };
