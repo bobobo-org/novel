@@ -93,7 +93,8 @@ function cliEnvironment(root, expectedCommit, output, sentinel = "") {
     (key) => key.toLowerCase() === "path",
   ) ?? "PATH";
   environment[pathKey] = `${root}${delimiter}${environment[pathKey] ?? ""}`;
-  environment.EXPECTED_PRODUCT_COMMIT = expectedCommit;
+  environment.EXPECTED_MAIN_HEAD_COMMIT = expectedCommit;
+  delete environment.EXPECTED_PRODUCT_COMMIT;
   environment.MOCK_GIT_OUTPUT_BASE64 = Buffer.from(output, "utf8").toString("base64");
   environment.MOCK_GIT_SENTINEL = sentinel;
   return environment;
@@ -395,7 +396,7 @@ await test("governance source gates imports and every mutation immediately befor
   );
   assert.match(
     workflow,
-    /Repair Production environment only when audit found drift[\s\S]*?PRODUCTION_MAIN_HEAD_CAS_REQUIRED:\s*'true'[\s\S]*?EXPECTED_PRODUCT_COMMIT:\s*\$\{\{ github\.sha \}\}/u,
+    /Repair Production environment only when audit found drift[\s\S]*?PRODUCTION_MAIN_HEAD_CAS_REQUIRED:\s*'true'[\s\S]*?EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}/u,
   );
 });
 

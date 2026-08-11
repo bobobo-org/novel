@@ -9,12 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Trusted Preview, read-only LKG audit, or Production recovery operation
+        description: Trusted Preview, read-only LKG audit, immutable Product recovery, or Production rollback operation
         required: true
         type: choice
         options:
           - deploy-preview
           - audit-last-known-good
+          - audit-rc6-2-last-known-good
+          - deploy-immutable-product-recovery
           - restore-known-stable
       preview_ref:
         description: Exact 40-character commit SHA from this repository (deploy-preview or audit-last-known-good)
@@ -24,13 +26,17 @@ on:
 permissions:
   contents: read
   actions: read
+  attestations: read
 
 concurrency:
-  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && inputs.operation == 'audit-last-known-good') && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
-  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good'))) }}
+  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'deploy-immutable-product-recovery'))) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')) && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
+  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good' || inputs.operation == 'deploy-immutable-product-recovery'))) }}
 
 env:
-  VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+  RECOVERY_PRODUCT_COMMIT: 29fc6e742672bb07187765d34ea818afdadf56ae
+  PRODUCT_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery' && '29fc6e742672bb07187765d34ea818afdadf56ae' || github.sha }}
+  CONTROL_COMMIT: ${{ github.sha }}
+  VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery' && '29fc6e742672bb07187765d34ea818afdadf56ae' || github.sha }}
   PRIMARY_ALIAS: novel-orcin.vercel.app
   MIRROR_ALIAS: novel-lqtechs-projects.vercel.app
   VERCEL_SCOPE: lqtechs-projects
@@ -44,6 +50,7 @@ env:
   EXPECTED_RELEASE_NAME: P2.4B Conversation-First Novel Project GPT RC6.2
   EXPECTED_CONSUMER_RELEASE: p2.4b-conversation-first-studio-rc6.2
   EXPECTED_ARCHITECTURE_STAGE: P2.4B RC
+  EXPECTED_RELEASE_DATABASE_ID: '368738374'
   EXPECTED_LKG_APP_COMMIT: e84972aaec80885f9e2ab58e56252fb7b93522ea
   EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3
   EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3
@@ -53,23 +60,75 @@ env:
 jobs:
   validate:
     name: validate
-    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy-preview'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-preview') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      recovery_control_proof_digest: ${{ steps.recovery_control.outputs.proof_digest }}
     env:
-      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'workflow_dispatch' && inputs.preview_ref || github.sha }}
+      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-preview' && inputs.preview_ref || github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery' && '29fc6e742672bb07187765d34ea818afdadf56ae' || github.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted recovery control commit
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
+          ref: ${{ github.sha }}
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+
+      - name: Verify exact dual-SHA recovery control commit
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
+        id: recovery_control
+        shell: bash
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ env.RECOVERY_PRODUCT_COMMIT }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RECOVERY_OPERATION: ${{ inputs.operation }}
+          RECOVERY_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/production-recovery-control-proof.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rc6-evidence"
+          node scripts/verify-production-recovery-control.mjs
+          node scripts/run-production-recovery-control-tests.mjs
+          node scripts/run-pr23-r21-workflow-contract.mjs
+          node scripts/run-production-main-head-cas-tests.mjs
+          cp scripts/verify-github-release-attestation.mjs "$RUNNER_TEMP/verify-github-release-attestation.mjs"
+          proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RECOVERY_CONTROL_PROOF_PATH")"
+          echo "proof_digest=$proof_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Install locked recovery-control test dependencies
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Verify dual-SHA runtime-closure contract from the control commit
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
+        run: |
+          node scripts/run-rc6-1-deployment-governance.mjs all
+          node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-2-runtime-closure.mjs
+
+      - name: Checkout exact Product commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ env.VERCEL_GIT_COMMIT_SHA }}
+          persist-credentials: false
+
+      - name: Enforce exact Product checkout identity
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$VERCEL_GIT_COMMIT_SHA"
 
       - name: Enable Corepack
         run: |
@@ -99,13 +158,33 @@ jobs:
         run: node scripts/verify-immutable-release-tag.mjs policy
 
       - name: Verify final remote RC6.2 annotated tag is immutable
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
           GITHUB_TOKEN: ${{ github.token }}
-          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'false'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/immutable-release-tag-proof.json
         run: node scripts/verify-immutable-release-tag.mjs remote
+
+      - name: Verify GitHub-signed immutable Release attestation
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/immutable-release-tag-proof.json
+          RELEASE_ATTESTATION_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/github-release-attestation-proof.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.operation }}" == "deploy-immutable-product-recovery" ]]; then
+            node "$RUNNER_TEMP/verify-github-release-attestation.mjs"
+          else
+            node scripts/verify-github-release-attestation.mjs
+          fi
 
       - name: Verify RC6 release hardening
         shell: bash
@@ -340,14 +419,15 @@ jobs:
     needs: validate
     if: >-
       always() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.validate.result == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'audit-last-known-good'))
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae' && needs.validate.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery' && needs.validate.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       VERCEL_FETCH_TIMEOUT_MS: 10000
       ROLLBACK_TARGET_SELECTION_DEADLINE_MS: 60000
-      AUDIT_COMMIT: ${{ github.event_name == 'push' && github.sha || inputs.preview_ref }}
+      AUDIT_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'audit-last-known-good' && inputs.preview_ref || github.sha }}
     steps:
       - name: Require the explicit audit commit to equal this trusted workflow head
         shell: bash
@@ -398,10 +478,20 @@ jobs:
           LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
           LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
           LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_PRODUCT_COMMIT: ${{ steps.lkg.outputs.product_commit }}
+          LAST_KNOWN_GOOD_CONTROL_COMMIT: ${{ steps.lkg.outputs.control_commit }}
+          LAST_KNOWN_GOOD_WORKFLOW_EVENT: ${{ steps.lkg.outputs.workflow_event }}
+          LAST_KNOWN_GOOD_WORKFLOW_BRANCH: ${{ steps.lkg.outputs.workflow_branch }}
+          LAST_KNOWN_GOOD_RUN_ATTEMPT: ${{ steps.lkg.outputs.run_attempt }}
           LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
           LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
           LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+          EXPECTED_LKG_APP_COMMIT: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.RECOVERY_PRODUCT_COMMIT || env.EXPECTED_LKG_APP_COMMIT }}
+          EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && '' || env.EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID }}
+          EXPECTED_LKG_MIRROR_DEPLOYMENT_ID: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && '' || env.EXPECTED_LKG_MIRROR_DEPLOYMENT_ID }}
+          EXPECTED_LKG_RELEASE_TAG: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.EXPECTED_RELEASE_TAG || env.EXPECTED_LKG_RELEASE_TAG }}
+          EXPECTED_LKG_RELEASE_REVISION: ${{ inputs.operation == 'audit-rc6-2-last-known-good' && env.EXPECTED_RELEASE_REVISION || env.EXPECTED_LKG_RELEASE_REVISION }}
         run: node scripts/production-last-known-good.mjs download
 
       - name: Prove prior Last Known Good control-plane selection without mutation
@@ -411,6 +501,8 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           REQUIRE_AUDIT_SELECTION_PROVENANCE: 'true'
+          AUDIT_PRODUCT_COMMIT: ${{ inputs.operation == 'deploy-immutable-product-recovery' && env.PRODUCT_COMMIT || env.AUDIT_COMMIT }}
+          AUDIT_CONTROL_PROOF_DIGEST: ${{ inputs.operation == 'deploy-immutable-product-recovery' && needs.validate.outputs.recovery_control_proof_digest || '' }}
           DISABLE_CURRENT_CAPTURE: 'true'
           LAST_KNOWN_GOOD_AVAILABLE: 'true'
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
@@ -423,10 +515,17 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ steps.lkg_selection.outputs.source }}" = last-known-good
-          test "${{ steps.lkg_selection.outputs.primary_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
-          test "${{ steps.lkg_selection.outputs.mirror_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
-          test "${{ steps.lkg_selection.outputs.primary_deployment_id }}" = "$EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID"
-          test "${{ steps.lkg_selection.outputs.mirror_deployment_id }}" = "$EXPECTED_LKG_MIRROR_DEPLOYMENT_ID"
+          if [[ "${{ inputs.operation }}" == "audit-rc6-2-last-known-good" ]]; then
+            test "${{ steps.lkg_selection.outputs.primary_app_commit }}" = "$RECOVERY_PRODUCT_COMMIT"
+            test "${{ steps.lkg_selection.outputs.mirror_app_commit }}" = "$RECOVERY_PRODUCT_COMMIT"
+            test "${{ steps.lkg_selection.outputs.primary_deployment_id }}" = "${{ steps.lkg_selection.outputs.mirror_deployment_id }}"
+            [[ "${{ steps.lkg_selection.outputs.primary_deployment_id }}" =~ ^dpl_[A-Za-z0-9]+$ ]]
+          else
+            test "${{ steps.lkg_selection.outputs.primary_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
+            test "${{ steps.lkg_selection.outputs.mirror_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
+            test "${{ steps.lkg_selection.outputs.primary_deployment_id }}" = "$EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID"
+            test "${{ steps.lkg_selection.outputs.mirror_deployment_id }}" = "$EXPECTED_LKG_MIRROR_DEPLOYMENT_ID"
+          fi
 
       - name: Upload sanitized read-only LKG audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -442,7 +541,9 @@ jobs:
   production_env_audit:
     name: production-env-audit
     needs: [validate, audit_last_known_good]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -461,6 +562,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -494,7 +596,9 @@ jobs:
   production_env_repair:
     name: production-env-repair
     needs: [validate, production_env_audit]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -538,7 +642,7 @@ jobs:
       - name: Refuse stale Product commit immediately before Production environment mutation
         if: needs.production_env_audit.outputs.repair_required == 'true'
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Repair Production environment only when audit found drift
@@ -546,7 +650,7 @@ jobs:
         if: needs.production_env_audit.outputs.repair_required == 'true'
         env:
           PRODUCTION_MAIN_HEAD_CAS_REQUIRED: 'true'
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
           AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
           AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
           PRODUCTION_ENV_AUDIT_INPUT_PATH: ${{ runner.temp }}/production-environment-audit/production-environment-audit.json
@@ -587,7 +691,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Enforce exact restore control checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROL_COMMIT"
+          test "$GITHUB_WORKFLOW_SHA" = "$CONTROL_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -613,6 +725,11 @@ jobs:
           LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
           LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
           LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_PRODUCT_COMMIT: ${{ steps.lkg.outputs.product_commit }}
+          LAST_KNOWN_GOOD_CONTROL_COMMIT: ${{ steps.lkg.outputs.control_commit }}
+          LAST_KNOWN_GOOD_WORKFLOW_EVENT: ${{ steps.lkg.outputs.workflow_event }}
+          LAST_KNOWN_GOOD_WORKFLOW_BRANCH: ${{ steps.lkg.outputs.workflow_branch }}
+          LAST_KNOWN_GOOD_RUN_ATTEMPT: ${{ steps.lkg.outputs.run_attempt }}
           LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
           LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
@@ -655,16 +772,21 @@ jobs:
 
       - name: Restore and verify both production aliases
         env:
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
           PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
           PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
           MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
           MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
-        run: node scripts/vercel-dual-alias-cutover.mjs restore
+        run: |
+          node scripts/verify-production-main-head-cas.mjs
+          node scripts/vercel-dual-alias-cutover.mjs restore
 
   production_build:
     name: build
     needs: production_env_repair
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -680,8 +802,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.PRODUCT_COMMIT }}
           persist-credentials: false
+
+      - name: Enforce immutable Product build checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$PRODUCT_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -763,7 +889,7 @@ jobs:
       - name: Upload sealed prebuilt Production artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          name: production-prebuilt-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/production-prebuilt.tgz
             ${{ runner.temp }}/production-prebuilt-preupload-secret-scan.json
@@ -775,7 +901,9 @@ jobs:
   post_build_secret_scan:
     name: post-build sealed artifact secret scan
     needs: production_build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -784,8 +912,12 @@ jobs:
       - name: Checkout exact Product commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.PRODUCT_COMMIT }}
           persist-credentials: false
+
+      - name: Enforce immutable Product scan checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$PRODUCT_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -795,7 +927,7 @@ jobs:
       - name: Download immutable prebuilt Production artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          name: production-prebuilt-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/production-prebuilt-scan
 
       - name: Independently rescan downloaded sealed bytes
@@ -823,7 +955,7 @@ jobs:
       - name: Upload sanitized immutable secret scan receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-post-build-secret-scan-${{ github.sha }}-${{ github.run_id }}
+          name: production-post-build-secret-scan-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/production-prebuilt-post-build-secret-scan.json
           if-no-files-found: error
           retention-days: 30
@@ -831,7 +963,9 @@ jobs:
   staged_deploy:
     name: staged deploy
     needs: [production_build, post_build_secret_scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -849,8 +983,23 @@ jobs:
       - name: Checkout exact Product commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.PRODUCT_COMMIT }}
           persist-credentials: false
+
+      - name: Checkout trusted Production control commit for staged-deploy CAS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .release-control
+          persist-credentials: false
+
+      - name: Enforce dual-SHA staged-deploy checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_COMMIT"
+          test "$(git -C .release-control rev-parse HEAD)" = "$CONTROL_COMMIT"
+          test "$GITHUB_WORKFLOW_SHA" = "$CONTROL_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -868,7 +1017,7 @@ jobs:
       - name: Restore sealed prebuilt Production artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: production-prebuilt-${{ github.sha }}-${{ github.run_id }}
+          name: production-prebuilt-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/production-prebuilt
 
       - name: Extract sealed prebuilt Production filesystem
@@ -894,6 +1043,8 @@ jobs:
       - name: Deploy staged production without alias mutation
         id: production
         shell: bash
+        env:
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
           deployment_stdout="$RUNNER_TEMP/vercel-staged-deploy.stdout"
@@ -902,8 +1053,11 @@ jobs:
           build_completed_at="${{ needs.production_build.outputs.build_completed_at }}"
           deployed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
           node -e 'const [s,c,d]=process.argv.slice(1).map(Date.parse); if(![s,c,d].every(Number.isFinite)||s>c||c>d) process.exit(1)' "$build_started_at" "$build_completed_at" "$deployed_at"
+          node .release-control/scripts/verify-production-main-head-cas.mjs
           set +e
           { pnpm exec vercel deploy --prebuilt --prod --skip-domain --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" \
+              --meta "githubCommitSha=$PRODUCT_COMMIT" \
+              --meta "novelControlCommit=$CONTROL_COMMIT" \
               --env "NOVEL_BUILD_STARTED_AT=$build_started_at" \
               --env "NOVEL_BUILD_COMPLETED_AT=$build_completed_at" \
               --env "NOVEL_DEPLOYED_AT=$deployed_at" > "$deployment_stdout"; } 2>&1 \
@@ -935,7 +1089,9 @@ jobs:
   runtime_gates:
     name: runtime gates
     needs: staged_deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -952,11 +1108,26 @@ jobs:
       EXPECTED_XAI_MODEL_ID: grok-4.5
       XAI_EXPECTED: ${{ secrets.XAI_API_KEY != '' }}
     steps:
-      - name: Checkout exact Product commit for runtime proof
+      - name: Checkout trusted Production control commit for runtime proof
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Checkout immutable Product commit for runtime timestamp proof
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PRODUCT_COMMIT }}
+          path: .release-product
+          persist-credentials: false
+
+      - name: Enforce dual-SHA runtime proof checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROL_COMMIT"
+          test "$(git -C .release-product rev-parse HEAD)" = "$PRODUCT_COMMIT"
+          test "$GITHUB_WORKFLOW_SHA" = "$CONTROL_COMMIT"
 
       - name: Set up Node.js for runtime proof
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -972,6 +1143,7 @@ jobs:
           for attempt in {1..15}; do
             if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$identity_url" 2>/dev/null)"; then
               app_commit="$(jq -r '.appCommit // empty' <<<"$body")"
+              release_product_commit="$(jq -r '.releaseProductCommit // empty' <<<"$body")"
               deployment_id="$(jq -r '.deploymentId // empty' <<<"$body")"
               provenance_status="$(jq -r '.provenanceStatus // empty' <<<"$body")"
               environment="$(jq -r '.environment // empty' <<<"$body")"
@@ -985,7 +1157,7 @@ jobs:
               build_started_at="$(jq -r '.buildStartedAt // empty' <<<"$body")"
               build_completed_at="$(jq -r '.buildCompletedAt // empty' <<<"$body")"
               deployed_at="$(jq -r '.deployedAt // empty' <<<"$body")"
-              if [[ "$app_commit" == "$GITHUB_SHA" && -n "$deployment_id" && "$provenance_status" == "verified" && "$temporal_status" == "verified" && "$environment" == "production" && "$release_line" == "$EXPECTED_RELEASE_LINE" && "$release_tag" == "$EXPECTED_RELEASE_TAG" && "$release_revision" == "$EXPECTED_RELEASE_REVISION" && "$release_name" == "$EXPECTED_RELEASE_NAME" && "$consumer_release" == "$EXPECTED_CONSUMER_RELEASE" && "$architecture_stage" == "$EXPECTED_ARCHITECTURE_STAGE" && "$build_started_at" == "$NOVEL_BUILD_STARTED_AT" && "$build_completed_at" == "$NOVEL_BUILD_COMPLETED_AT" && "$deployed_at" == "$NOVEL_DEPLOYED_AT" ]]; then
+              if [[ "$app_commit" == "$PRODUCT_COMMIT" && "$release_product_commit" == "$PRODUCT_COMMIT" && -n "$deployment_id" && "$provenance_status" == "verified" && "$temporal_status" == "verified" && "$environment" == "production" && "$release_line" == "$EXPECTED_RELEASE_LINE" && "$release_tag" == "$EXPECTED_RELEASE_TAG" && "$release_revision" == "$EXPECTED_RELEASE_REVISION" && "$release_name" == "$EXPECTED_RELEASE_NAME" && "$consumer_release" == "$EXPECTED_CONSUMER_RELEASE" && "$architecture_stage" == "$EXPECTED_ARCHITECTURE_STAGE" && "$build_started_at" == "$NOVEL_BUILD_STARTED_AT" && "$build_completed_at" == "$NOVEL_BUILD_COMPLETED_AT" && "$deployed_at" == "$NOVEL_DEPLOYED_AT" ]]; then
                 printf '%s' "$body" > "$RUNNER_TEMP/staged-release-identity.json"
                 echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
                 exit 0
@@ -993,20 +1165,21 @@ jobs:
             fi
             sleep 2
           done
-          echo "Staged release identity did not match commit $GITHUB_SHA." >&2
+          echo "Staged release identity did not match immutable Product commit $PRODUCT_COMMIT." >&2
           exit 1
 
       - name: Bind runtime build/deploy truth to Vercel v13 createdAt
         id: temporal
         env:
           STAGED_DEPLOYMENT_ID: ${{ steps.staged.outputs.deployment_id }}
-          EXPECTED_APP_COMMIT: ${{ github.sha }}
+          EXPECTED_APP_COMMIT: ${{ env.PRODUCT_COMMIT }}
+          EXPECTED_CONTROL_COMMIT: ${{ github.sha }}
           RUNTIME_IDENTITY_PATH: ${{ runner.temp }}/staged-release-identity.json
           TEMPORAL_PROOF_PATH: ${{ runner.temp }}/staged-deployment-temporal-proof.json
         shell: bash
         run: |
           set -euo pipefail
-          export EXPECTED_PRODUCT_COMMIT_TIME="$(git show -s --format=%cI "$GITHUB_SHA")"
+          export EXPECTED_PRODUCT_COMMIT_TIME="$(git -C .release-product show -s --format=%cI "$PRODUCT_COMMIT")"
           node scripts/verify-deployment-temporal-provenance.mjs
           proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$TEMPORAL_PROOF_PATH")"
           echo "proof_digest=$proof_digest" >> "$GITHUB_OUTPUT"
@@ -1014,7 +1187,7 @@ jobs:
       - name: Upload sanitized staged temporal provenance
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-temporal-proof-${{ github.sha }}-${{ github.run_id }}
+          name: production-temporal-proof-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/staged-deployment-temporal-proof.json
           if-no-files-found: error
           retention-days: 30
@@ -1118,8 +1291,10 @@ jobs:
 
   alias_cutover:
     name: alias cutover
-    needs: [staged_deploy, runtime_gates]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [validate, staged_deploy, runtime_gates]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == '29fc6e742672bb07187765d34ea818afdadf56ae') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -1135,10 +1310,18 @@ jobs:
       PUBLIC_GATE_FETCH_TIMEOUT_MS: 10000
       ROLLBACK_DEADLINE_MS: 240000
     steps:
-      - name: Checkout exact Product commit
+      - name: Checkout trusted Production control commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Checkout immutable Product commit for release verification
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PRODUCT_COMMIT }}
+          path: .release-product
           persist-credentials: false
 
       - name: Set up Node.js
@@ -1146,18 +1329,42 @@ jobs:
         with:
           node-version: 24
 
-      - name: Refuse stale Product commit before preparing alias cutover
+      - name: Reproduce and bind recovery control proof for Last Known Good publication
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RECOVERY_OPERATION: ${{ inputs.operation }}
+          RECOVERY_CONTROL_PROOF_PATH: ${{ runner.temp }}/recovery-control-proof-for-lkg.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-production-recovery-control.mjs
+          proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RECOVERY_CONTROL_PROOF_PATH")"
+          test "$proof_digest" = "${{ needs.validate.outputs.recovery_control_proof_digest }}"
+
+      - name: Refuse stale main control commit before preparing alias cutover
+        env:
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Re-verify immutable annotated RC6.2 tag for Production evidence
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
           GITHUB_TOKEN: ${{ github.token }}
-          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'false'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+        working-directory: .release-product
         run: node scripts/verify-immutable-release-tag.mjs remote
+
+      - name: Re-verify GitHub-signed immutable Release attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+          RELEASE_ATTESTATION_PROOF_PATH: ${{ runner.temp }}/github-release-attestation-proof.json
+        run: node scripts/verify-github-release-attestation.mjs
 
       - name: Capture current dual-alias transaction identity
         id: aliases_before
@@ -1183,6 +1390,11 @@ jobs:
           LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
           LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
           LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_PRODUCT_COMMIT: ${{ steps.lkg.outputs.product_commit }}
+          LAST_KNOWN_GOOD_CONTROL_COMMIT: ${{ steps.lkg.outputs.control_commit }}
+          LAST_KNOWN_GOOD_WORKFLOW_EVENT: ${{ steps.lkg.outputs.workflow_event }}
+          LAST_KNOWN_GOOD_WORKFLOW_BRANCH: ${{ steps.lkg.outputs.workflow_branch }}
+          LAST_KNOWN_GOOD_RUN_ATTEMPT: ${{ steps.lkg.outputs.run_attempt }}
           LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
           LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
@@ -1223,15 +1435,24 @@ jobs:
 
       - name: Recheck immutable GitHub Release immediately before alias cutover
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
           GITHUB_TOKEN: ${{ github.token }}
-          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'false'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+        working-directory: .release-product
         run: node scripts/verify-immutable-release-tag.mjs remote
+
+      - name: Recheck GitHub-signed Release attestation immediately before alias cutover
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
+          RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
+          RELEASE_ATTESTATION_PROOF_PATH: ${{ runner.temp }}/github-release-attestation-proof.json
+        run: node scripts/verify-github-release-attestation.mjs
 
       - name: Recheck main head immediately before alias cutover
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Cut over both aliases with atomic compensation
@@ -1240,7 +1461,7 @@ jobs:
         env:
           STAGED_TARGET: ${{ needs.staged_deploy.outputs.url }}
           STAGED_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ env.PRODUCT_COMMIT }}
           PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
           PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
           MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
@@ -1252,7 +1473,7 @@ jobs:
         id: public_gate
         continue-on-error: true
         env:
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ env.PRODUCT_COMMIT }}
           POST_CUTOVER_REPORT_PATH: ${{ runner.temp }}/post-cutover-public-verification.json
         run: node scripts/verify-production-public-cutover.mjs
 
@@ -1271,7 +1492,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-post-cutover-${{ github.sha }}-${{ github.run_attempt }}
+          name: production-post-cutover-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/post-cutover-public-verification.json
           if-no-files-found: error
           retention-days: 30
@@ -1281,18 +1502,24 @@ jobs:
         id: immutable_tag_final
         continue-on-error: true
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_PRODUCT_COMMIT: ${{ env.PRODUCT_COMMIT }}
           GITHUB_TOKEN: ${{ github.token }}
-          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
+          GH_TOKEN: ${{ github.token }}
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'false'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
-        run: node scripts/verify-immutable-release-tag.mjs remote
+          RELEASE_ATTESTATION_PROOF_PATH: ${{ runner.temp }}/github-release-attestation-proof.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd .release-product && node scripts/verify-immutable-release-tag.mjs remote)
+          node scripts/verify-github-release-attestation.mjs
 
       - name: Final main-head CAS after public cutover
         if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
         id: main_head_final
         continue-on-error: true
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Compensating rollback after immutable Release recheck failure
@@ -1326,9 +1553,11 @@ jobs:
         env:
           PRIMARY_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
           MIRROR_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
-          APP_COMMIT: ${{ github.sha }}
+          APP_COMMIT: ${{ env.PRODUCT_COMMIT }}
           RELEASE_TAG: ${{ env.EXPECTED_RELEASE_TAG }}
           RELEASE_REVISION: ${{ env.EXPECTED_RELEASE_REVISION }}
+          RECOVERY_OPERATION: ${{ inputs.operation }}
+          RECOVERY_CONTROL_PROOF_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery' && format('{0}/recovery-control-proof-for-lkg.json', runner.temp) || '' }}
           LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
         run: node scripts/production-last-known-good.mjs write
 
@@ -1345,7 +1574,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-last-known-good-${{ github.sha }}
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery' && format('production-last-known-good-control-{0}-product-{1}', github.sha, env.PRODUCT_COMMIT) || format('production-last-known-good-{0}', env.PRODUCT_COMMIT) }}
           path: ${{ runner.temp }}/last-known-good-production.json
           if-no-files-found: error
           retention-days: 90
@@ -1370,14 +1599,28 @@ jobs:
           prior_lkg_artifact_id="$(jq -er '.artifactId' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
           prior_lkg_run_id="$(jq -er '.runId' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
           prior_lkg_head_sha="$(jq -er '.headSha | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          prior_lkg_product_commit="$(jq -er '.productCommit | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
+          prior_lkg_control_commit="$(jq -er '.controlCommit | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/last-known-good-artifact-proof.json")"
           immutable_tag_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/immutable-release-tag-proof.json")"
+          release_attestation_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/github-release-attestation-proof.json")"
           lkg_selection_proof_digest="$(jq -er '.proofDigest | select(test("^[0-9a-f]{64}$"))' "$RUNNER_TEMP/lkg-independent-selection-proof.json")"
           public_post_cutover_receipt_digest="$(sha256sum "$RUNNER_TEMP/post-cutover-public-verification.json" | awk '{print $1}')"
           generated_at="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
+          recovery_control_proof_digest="${{ needs.validate.outputs.recovery_control_proof_digest }}"
+          [[ "$GITHUB_WORKFLOW_SHA" == "$CONTROL_COMMIT" ]]
+          [[ "$recovery_control_proof_digest" =~ ^[0-9a-f]{64}$ ]]
           jq -n \
-            --arg schemaVersion 'p24b-rc6.2-new-luna-production-control-plane-evidence-v1' \
+            --arg schemaVersion 'p24b-rc6.2-new-luna-production-control-plane-evidence-v2' \
             --arg generatedAt "$generated_at" \
-            --arg appCommit "$GITHUB_SHA" \
+            --arg appCommit "$PRODUCT_COMMIT" \
+            --arg releaseProductCommit "$PRODUCT_COMMIT" \
+            --arg controlCommit "$CONTROL_COMMIT" \
+            --arg workflowSha "$GITHUB_WORKFLOW_SHA" \
+            --arg workflowEvent "$GITHUB_EVENT_NAME" \
+            --arg workflowRef "$GITHUB_REF" \
+            --arg workflowRunId "$GITHUB_RUN_ID" \
+            --arg workflowRunAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg recoveryControlProofDigest "$recovery_control_proof_digest" \
             --arg deploymentId "${{ needs.runtime_gates.outputs.deployment_id }}" \
             --arg releaseLine "$EXPECTED_RELEASE_LINE" \
             --arg releaseTag "$EXPECTED_RELEASE_TAG" \
@@ -1393,10 +1636,13 @@ jobs:
             --arg priorLastKnownGoodArtifactId "$prior_lkg_artifact_id" \
             --arg priorLastKnownGoodRunId "$prior_lkg_run_id" \
             --arg priorLastKnownGoodHeadSha "$prior_lkg_head_sha" \
+            --arg priorLastKnownGoodProductCommit "$prior_lkg_product_commit" \
+            --arg priorLastKnownGoodControlCommit "$prior_lkg_control_commit" \
             --arg immutableReleaseTagProofDigest "$immutable_tag_proof_digest" \
+            --arg githubReleaseAttestationProofDigest "$release_attestation_proof_digest" \
             --arg priorLastKnownGoodSelectionProofDigest "$lkg_selection_proof_digest" \
             --arg publicPostCutoverReceiptDigest "$public_post_cutover_receipt_digest" \
-            '{schemaVersion:$schemaVersion,status:"CONTROL_PLANE_PASS",generatedAt:$generatedAt,appCommit:$appCommit,deploymentId:$deploymentId,releaseLine:$releaseLine,releaseTag:$releaseTag,releaseRevision:$releaseRevision,legacyTagTruth:"RC6_LEGACY_TAG_WAS_MISSING",buildStartedAt:$buildStartedAt,buildCompletedAt:$buildCompletedAt,deployedAt:$deployedAt,archiveSha256:$archiveSha256,postBuildSecretScanReceiptDigest:$postBuildSecretScanReceiptDigest,temporalProofDigest:$temporalProofDigest,lastKnownGoodProvenanceDigest:$lastKnownGoodProvenanceDigest,priorLastKnownGoodArtifactProofDigest:$priorLastKnownGoodArtifactProofDigest,priorLastKnownGoodArtifactId:$priorLastKnownGoodArtifactId,priorLastKnownGoodRunId:$priorLastKnownGoodRunId,priorLastKnownGoodHeadSha:$priorLastKnownGoodHeadSha,immutableReleaseTagProofDigest:$immutableReleaseTagProofDigest,priorLastKnownGoodSelectionProofDigest:$priorLastKnownGoodSelectionProofDigest,publicPostCutoverReceiptDigest:$publicPostCutoverReceiptDigest,publicAliasGate:"PASS",freshProductionBrowserGateStatus:"pending_external_real_browser_gate",fullNewLunaHandoffStatus:"not_yet_produced",sanitized:true,rawSecretsIncluded:false}' \
+            '{schemaVersion:$schemaVersion,status:"CONTROL_PLANE_PASS",generatedAt:$generatedAt,appCommit:$appCommit,releaseProductCommit:$releaseProductCommit,controlCommit:$controlCommit,workflowSha:$workflowSha,workflowEvent:$workflowEvent,workflowRef:$workflowRef,workflowRunId:$workflowRunId,workflowRunAttempt:$workflowRunAttempt,recoveryControlProofDigest:$recoveryControlProofDigest,deploymentId:$deploymentId,releaseLine:$releaseLine,releaseTag:$releaseTag,releaseRevision:$releaseRevision,legacyTagTruth:"RC6_LEGACY_TAG_WAS_MISSING",buildStartedAt:$buildStartedAt,buildCompletedAt:$buildCompletedAt,deployedAt:$deployedAt,archiveSha256:$archiveSha256,postBuildSecretScanReceiptDigest:$postBuildSecretScanReceiptDigest,temporalProofDigest:$temporalProofDigest,lastKnownGoodProvenanceDigest:$lastKnownGoodProvenanceDigest,priorLastKnownGoodArtifactProofDigest:$priorLastKnownGoodArtifactProofDigest,priorLastKnownGoodArtifactId:$priorLastKnownGoodArtifactId,priorLastKnownGoodRunId:$priorLastKnownGoodRunId,priorLastKnownGoodHeadSha:$priorLastKnownGoodHeadSha,priorLastKnownGoodProductCommit:$priorLastKnownGoodProductCommit,priorLastKnownGoodControlCommit:$priorLastKnownGoodControlCommit,immutableReleaseTagProofDigest:$immutableReleaseTagProofDigest,githubReleaseAttestationProofDigest:$githubReleaseAttestationProofDigest,priorLastKnownGoodSelectionProofDigest:$priorLastKnownGoodSelectionProofDigest,publicPostCutoverReceiptDigest:$publicPostCutoverReceiptDigest,repositoryImmutableReleaseSettingVerification:"not_authorized_by_github_token",publicAliasGate:"PASS",freshProductionBrowserGateStatus:"pending_external_real_browser_gate",fullNewLunaHandoffStatus:"not_yet_produced",sanitized:true,rawSecretsIncluded:false}' \
             > "$RUNNER_TEMP/new-luna-production-control-plane-evidence.json"
 
       - name: Publish sanitized post-Production new-LUNA control-plane evidence
@@ -1414,10 +1660,11 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-new-luna-control-plane-evidence-${{ github.sha }}-${{ github.run_id }}
+          name: production-new-luna-control-plane-evidence-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/new-luna-production-control-plane-evidence.json
             ${{ runner.temp }}/immutable-release-tag-proof.json
+            ${{ runner.temp }}/github-release-attestation-proof.json
             ${{ runner.temp }}/last-known-good-artifact-proof.json
             ${{ runner.temp }}/lkg-independent-selection-proof.json
           if-no-files-found: error
@@ -1428,7 +1675,7 @@ jobs:
         id: main_head_completion
         continue-on-error: true
         env:
-          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
         run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Compensating rollback after post-cutover finalization failure
@@ -1494,3 +1741,44 @@ jobs:
         run: |
           echo "Post-cutover finalization failed; compensating rollback was attempted and this run is failed closed." >&2
           exit 1
+
+  recovery_complete:
+    name: immutable Product recovery reconciliation
+    needs:
+      - validate
+      - audit_last_known_good
+      - production_env_audit
+      - production_env_repair
+      - production_build
+      - post_build_secret_scan
+      - staged_deploy
+      - runtime_gates
+      - alias_cutover
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'deploy-immutable-product-recovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require complete dual-SHA Production closure
+        shell: bash
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          LKG_AUDIT_RESULT: ${{ needs.audit_last_known_good.result }}
+          ENV_AUDIT_RESULT: ${{ needs.production_env_audit.result }}
+          ENV_REPAIR_RESULT: ${{ needs.production_env_repair.result }}
+          BUILD_RESULT: ${{ needs.production_build.result }}
+          POST_BUILD_SCAN_RESULT: ${{ needs.post_build_secret_scan.result }}
+          STAGED_DEPLOY_RESULT: ${{ needs.staged_deploy.result }}
+          RUNTIME_GATES_RESULT: ${{ needs.runtime_gates.result }}
+          ALIAS_CUTOVER_RESULT: ${{ needs.alias_cutover.result }}
+        run: |
+          set -euo pipefail
+          [[ "$PRODUCT_COMMIT" == "$RECOVERY_PRODUCT_COMMIT" ]]
+          [[ "$CONTROL_COMMIT" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_WORKFLOW_SHA" == "$CONTROL_COMMIT" ]]
+          for result in \
+            "$VALIDATE_RESULT" "$LKG_AUDIT_RESULT" "$ENV_AUDIT_RESULT" \
+            "$ENV_REPAIR_RESULT" "$BUILD_RESULT" "$POST_BUILD_SCAN_RESULT" \
+            "$STAGED_DEPLOY_RESULT" "$RUNTIME_GATES_RESULT" "$ALIAS_CUTOVER_RESULT"; do
+            [[ "$result" == "success" ]]
+          done
+          echo "PASS"

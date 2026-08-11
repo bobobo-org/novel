@@ -27,12 +27,16 @@ import {
   discoverLatestLastKnownGoodArtifact,
   downloadLastKnownGoodArtifact,
   selectVerifiedRollbackTarget,
+  validateLastKnownGoodProductionIdentity,
   validateReadOnlyRollbackSelectionProof,
 } from "./production-last-known-good.mjs";
 import { validateDeploymentTemporalProvenance } from "./verify-deployment-temporal-provenance.mjs";
+import { verifyProductionRecoveryControl } from "./verify-production-recovery-control.mjs";
 import { runtimeTemporalProvenance } from "../lib/novel-ai/runtime-truth/release-identity.ts";
 
 const CURRENT_COMMIT = "e84972aaec80885f9e2ab58e56252fb7b93522ea";
+const RECOVERY_PRODUCT_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
+const RECOVERY_CONTROL_COMMIT = "c".repeat(40);
 const PRIOR_DEPLOYMENT = "dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3";
 const EXACT_RELEASE = {
   releaseLine: "novel-ai-p24b-conversation-first-studio-rc6",
@@ -42,6 +46,33 @@ const EXACT_RELEASE = {
   consumerRelease: "p2.4b-conversation-first-studio-rc6.2",
   architectureStage: "P2.4B RC",
 };
+
+const recoveryControlChangedPaths = [
+  ".github/workflows/deploy.yml",
+  "scripts/verify-production-recovery-control.mjs",
+];
+const recoveryControlProof = verifyProductionRecoveryControl({
+  productCommit: RECOVERY_PRODUCT_COMMIT,
+  controlCommit: RECOVERY_CONTROL_COMMIT,
+  checkoutCommit: RECOVERY_CONTROL_COMMIT,
+  workflowSha: RECOVERY_CONTROL_COMMIT,
+  eventName: "workflow_dispatch",
+  eventRef: "refs/heads/main",
+  operation: "deploy-immutable-product-recovery",
+  repository: "bobobo-org/novel",
+  workflowRef: "bobobo-org/novel/.github/workflows/deploy.yml@refs/heads/main",
+  runId: "457",
+  runAttempt: "2",
+  execFileSyncImplementation: (_command, args) => {
+    if (args[0] === "rev-parse") return `${RECOVERY_CONTROL_COMMIT}\n`;
+    if (args[0] === "rev-list") return `${RECOVERY_CONTROL_COMMIT} ${RECOVERY_PRODUCT_COMMIT}\n`;
+    if (args[0] === "merge-base") return "";
+    if (args[0] === "diff") {
+      return `${recoveryControlChangedPaths.map((path) => `M\t${path}`).join("\n")}\n`;
+    }
+    throw new Error("UNEXPECTED_RECOVERY_CONTROL_GIT_COMMAND");
+  },
+});
 
 const [legacyHealthSource, adminStorageDiagnosticsSource] = await Promise.all([
   readFile(new URL("../app/api/ai/health/route.ts", import.meta.url), "utf8"),
@@ -381,6 +412,7 @@ assert.equal(runtimeTemporalProvenance({
 const runtimeIdentity = {
   ...EXACT_RELEASE,
   appCommit: CURRENT_COMMIT,
+  releaseProductCommit: CURRENT_COMMIT,
   deploymentId: "dpl_temporalProof123",
   provenanceStatus: "verified",
   temporalProvenanceStatus: "verified",
@@ -392,7 +424,10 @@ const runtimeIdentity = {
 const temporalInput = {
   deployment: {
     id: runtimeIdentity.deploymentId,
-    meta: { githubCommitSha: CURRENT_COMMIT },
+    meta: {
+      githubCommitSha: CURRENT_COMMIT,
+      novelControlCommit: RECOVERY_CONTROL_COMMIT,
+    },
     projectId: "prj_test",
     teamId: "team_test",
     readyState: "READY",
@@ -402,6 +437,7 @@ const temporalInput = {
   runtimeIdentity,
   expectedDeploymentId: runtimeIdentity.deploymentId,
   expectedCommit: CURRENT_COMMIT,
+  expectedControlCommit: RECOVERY_CONTROL_COMMIT,
   expectedProjectId: "prj_test",
   expectedTeamId: "team_test",
   productCommitTime: "2026-08-09T22:49:00.000Z",
@@ -583,10 +619,11 @@ try {
   const newerLkg = createLastKnownGoodProductionIdentity({
     primaryDeploymentId: "dpl_newerRc62Production123",
     mirrorDeploymentId: "dpl_newerRc62Production123",
-    appCommit: "f".repeat(40),
+    appCommit: RECOVERY_PRODUCT_COMMIT,
     releaseTag: EXACT_RELEASE.releaseTag,
     releaseRevision: EXACT_RELEASE.releaseRevision,
     verifiedAt: "2026-08-09T23:30:00.000Z",
+    recoveryControlProof,
   });
   assert.equal(assertExpectedLastKnownGoodIdentity(newerLkg, {
     appCommit: "",
@@ -602,6 +639,11 @@ try {
     artifactDigest: `sha256:${sha256(zip)}`,
     runId: 456,
     headSha: CURRENT_COMMIT,
+    productCommit: CURRENT_COMMIT,
+    controlCommit: CURRENT_COMMIT,
+    workflowEvent: "push",
+    workflowBranch: "main",
+    runAttempt: 1,
     workflowPath: ".github/workflows/deploy.yml",
     createdAt: "2026-08-09T20:01:00.000Z",
   };
@@ -620,6 +662,85 @@ try {
   assert.equal(downloaded.proof.readOnlyDiscovery, true);
   assert.equal(downloaded.proof.artifactControlPlaneVerified, true);
   assert.equal(downloaded.proof.workflowRunControlPlaneVerified, true);
+  const controlledZip = createStoredZip("last-known-good-production.json", JSON.stringify(newerLkg));
+  const controlledDownloaded = await downloadLastKnownGoodArtifact({
+    repository: "bobobo-org/novel",
+    token: "test-token-not-logged",
+    artifact: {
+      artifactId: 124,
+      artifactName: `production-last-known-good-control-${RECOVERY_CONTROL_COMMIT}-product-${newerLkg.appCommit}`,
+      artifactDigest: `sha256:${sha256(controlledZip)}`,
+      runId: 457,
+      headSha: RECOVERY_CONTROL_COMMIT,
+      productCommit: newerLkg.appCommit,
+      controlCommit: RECOVERY_CONTROL_COMMIT,
+      workflowEvent: "workflow_dispatch",
+      workflowBranch: "main",
+      runAttempt: 2,
+      workflowPath: ".github/workflows/deploy.yml",
+      createdAt: "2026-08-12T16:01:00.000Z",
+    },
+    fetcher: async () => ({
+      ok: true,
+      arrayBuffer: async () => controlledZip,
+      body: null,
+    }),
+  });
+  assert.equal(controlledDownloaded.proof.schemaVersion, "github-actions-lkg-artifact-proof-v2");
+  assert.equal(controlledDownloaded.proof.publicationMode, "immutable-product-control");
+  assert.equal(controlledDownloaded.proof.productCommit, newerLkg.appCommit);
+  assert.equal(controlledDownloaded.proof.controlCommit, RECOVERY_CONTROL_COMMIT);
+  assert.equal(controlledDownloaded.proof.recoveryControlProofDigest, recoveryControlProof.proofDigest);
+  const controlledWithoutRecoveryProof = createLastKnownGoodProductionIdentity({
+    primaryDeploymentId: "dpl_newerRc62Production123",
+    mirrorDeploymentId: "dpl_newerRc62Production123",
+    appCommit: RECOVERY_PRODUCT_COMMIT,
+    releaseTag: EXACT_RELEASE.releaseTag,
+    releaseRevision: EXACT_RELEASE.releaseRevision,
+    verifiedAt: "2026-08-09T23:30:00.000Z",
+  });
+  assert.throws(() => validateLastKnownGoodProductionIdentity({
+    ...controlledWithoutRecoveryProof,
+    schemaVersion: "last-known-good-production-identity-v2",
+  }), /LAST_KNOWN_GOOD_DIGEST_INVALID/u);
+  const controlledWithoutProofZip = createStoredZip(
+    "last-known-good-production.json",
+    JSON.stringify(controlledWithoutRecoveryProof),
+  );
+  await assert.rejects(() => downloadLastKnownGoodArtifact({
+    repository: "bobobo-org/novel",
+    token: "test-token-not-logged",
+    artifact: {
+      artifactId: 125,
+      artifactName: `production-last-known-good-control-${RECOVERY_CONTROL_COMMIT}-product-${RECOVERY_PRODUCT_COMMIT}`,
+      artifactDigest: `sha256:${sha256(controlledWithoutProofZip)}`,
+      runId: 457,
+      headSha: RECOVERY_CONTROL_COMMIT,
+      productCommit: RECOVERY_PRODUCT_COMMIT,
+      controlCommit: RECOVERY_CONTROL_COMMIT,
+      workflowEvent: "workflow_dispatch",
+      workflowBranch: "main",
+      runAttempt: 2,
+      workflowPath: ".github/workflows/deploy.yml",
+      createdAt: "2026-08-12T16:01:00.000Z",
+    },
+    fetcher: async () => ({
+      ok: true,
+      arrayBuffer: async () => controlledWithoutProofZip,
+      body: null,
+    }),
+  }), /LAST_KNOWN_GOOD_ARTIFACT_IDENTITY_MISMATCH/u);
+  await assert.rejects(() => downloadLastKnownGoodArtifact({
+    repository: "bobobo-org/novel",
+    token: "test-token-not-logged",
+    artifact: {
+      ...controlledDownloaded.proof,
+      artifactId: 124,
+      artifactDigest: `sha256:${sha256(controlledZip)}`,
+      productCommit: RECOVERY_CONTROL_COMMIT,
+    },
+    fetcher: async () => ({ ok: true, arrayBuffer: async () => controlledZip, body: null }),
+  }), /LAST_KNOWN_GOOD_ARTIFACT_IDENTITY_MISMATCH/u);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
@@ -650,6 +771,7 @@ const discovered = await discoverLatestLastKnownGoodArtifact({
         event: "push",
         head_branch: "main",
         head_sha: CURRENT_COMMIT,
+        run_attempt: 1,
         path: ".github/workflows/deploy.yml",
       }),
       body: null,
@@ -658,6 +780,62 @@ const discovered = await discoverLatestLastKnownGoodArtifact({
 });
 assert.equal(discovered.artifactDigest, `sha256:${"a".repeat(64)}`);
 assert.equal(discovered.workflowPath, ".github/workflows/deploy.yml");
+assert.equal(discovered.productCommit, CURRENT_COMMIT);
+assert.equal(discovered.controlCommit, CURRENT_COMMIT);
+assert.equal(discovered.workflowEvent, "push");
+assert.equal(discovered.runAttempt, 1);
+
+const recoveryProductCommit = RECOVERY_PRODUCT_COMMIT;
+const controlledArtifactName = `production-last-known-good-control-${RECOVERY_CONTROL_COMMIT}-product-${recoveryProductCommit}`;
+const controlledDiscoveryFetcher = (event = "workflow_dispatch") => async (url) => {
+  if (String(url).includes("/actions/artifacts")) return {
+    ok: true,
+    json: async () => ({
+      total_count: 1,
+      artifacts: [{
+        id: 124,
+        name: controlledArtifactName,
+        digest: `sha256:${"b".repeat(64)}`,
+        expired: false,
+        created_at: "2026-08-12T16:01:00.000Z",
+        workflow_run: {
+          id: 457,
+          head_branch: "main",
+          head_sha: RECOVERY_CONTROL_COMMIT,
+        },
+      }],
+    }),
+    body: null,
+  };
+  return {
+    ok: true,
+    json: async () => ({
+      conclusion: "success",
+      event,
+      head_branch: "main",
+      head_sha: RECOVERY_CONTROL_COMMIT,
+      run_attempt: 2,
+      path: ".github/workflows/deploy.yml",
+    }),
+    body: null,
+  };
+};
+const controlledDiscovered = await discoverLatestLastKnownGoodArtifact({
+  repository: "bobobo-org/novel",
+  token: "test-token-not-logged",
+  fetcher: controlledDiscoveryFetcher(),
+});
+assert.equal(controlledDiscovered.artifactName, controlledArtifactName);
+assert.equal(controlledDiscovered.productCommit, recoveryProductCommit);
+assert.equal(controlledDiscovered.controlCommit, RECOVERY_CONTROL_COMMIT);
+assert.equal(controlledDiscovered.workflowEvent, "workflow_dispatch");
+assert.equal(controlledDiscovered.workflowBranch, "main");
+assert.equal(controlledDiscovered.runAttempt, 2);
+assert.equal(await discoverLatestLastKnownGoodArtifact({
+  repository: "bobobo-org/novel",
+  token: "test-token-not-logged",
+  fetcher: controlledDiscoveryFetcher("push"),
+}), null);
 
 await assert.rejects(() => selectVerifiedRollbackTarget({
   current: null,
@@ -683,7 +861,10 @@ const rawVercelProjectId = "prj_sensitive_audit_scope";
 const rawVercelToken = "vercel_token_must_never_enter_proof";
 const lkgArtifactProofDigest = "d".repeat(64);
 const auditProvenance = {
+  mode: "same-sha",
   productCommit: CURRENT_COMMIT,
+  controlCommit: CURRENT_COMMIT,
+  controlProofDigest: "",
   repository: "bobobo-org/novel",
   eventName: "workflow_dispatch",
   eventRef: "refs/heads/main",
@@ -727,7 +908,10 @@ assert.deepEqual(Object.keys(auditSelectionProof), [
   "proofDigest",
 ]);
 assert.deepEqual(Object.keys(auditSelectionProof.auditProvenance), [
+  "mode",
   "productCommit",
+  "controlCommit",
+  "controlProofDigest",
   "repository",
   "eventName",
   "eventRef",
@@ -738,7 +922,7 @@ assert.deepEqual(Object.keys(auditSelectionProof.auditProvenance), [
   "runId",
   "runAttempt",
 ]);
-assert.equal(auditSelectionProof.schemaVersion, "p24b-rc6.2-readonly-rollback-selection-proof-v2");
+assert.equal(auditSelectionProof.schemaVersion, "p24b-rc6.2-readonly-rollback-selection-proof-v3");
 assert.equal(auditSelectionProof.vercelTeamIdSha256, sha256(rawVercelTeamId));
 assert.equal(auditSelectionProof.vercelProjectIdSha256, sha256(rawVercelProjectId));
 const serializedAuditSelectionProof = JSON.stringify(auditSelectionProof);
@@ -803,6 +987,37 @@ assert.throws(
   }), { requireAuditProvenance: true }),
   (error) => error?.code === "READ_ONLY_SELECTION_AUDIT_PROVENANCE_INVALID",
 );
+const controlledAuditProof = createReadOnlyRollbackSelectionProof({
+  selectedAt: "2026-08-12T12:34:57.000Z",
+  source: "last-known-good",
+  primaryDeploymentId: PRIOR_DEPLOYMENT,
+  primaryAppCommit: CURRENT_COMMIT,
+  mirrorDeploymentId: PRIOR_DEPLOYMENT,
+  mirrorAppCommit: CURRENT_COMMIT,
+  lastKnownGoodAvailable: true,
+  lastKnownGoodArtifactProofDigest: lkgArtifactProofDigest,
+  teamId: rawVercelTeamId,
+  projectId: rawVercelProjectId,
+  auditProvenance: {
+    ...auditProvenance,
+    mode: "immutable-product-control",
+    productCommit: recoveryProductCommit,
+    controlCommit: RECOVERY_CONTROL_COMMIT,
+    controlProofDigest: "e".repeat(64),
+    eventCommit: RECOVERY_CONTROL_COMMIT,
+    workflowSha: RECOVERY_CONTROL_COMMIT,
+  },
+  requireAuditProvenance: true,
+});
+assert.equal(controlledAuditProof.auditProvenance.productCommit, recoveryProductCommit);
+assert.equal(controlledAuditProof.auditProvenance.controlCommit, RECOVERY_CONTROL_COMMIT);
+assert.throws(() => validateReadOnlyRollbackSelectionProof(withExactDigest({
+  ...controlledAuditProof,
+  auditProvenance: {
+    ...controlledAuditProof.auditProvenance,
+    workflowSha: recoveryProductCommit,
+  },
+}), { requireAuditProvenance: true }), /READ_ONLY_SELECTION_AUDIT_PROVENANCE_INVALID/u);
 assert.throws(
   () => validateReadOnlyRollbackSelectionProof(withExactDigest({
     ...auditSelectionProof,
@@ -852,6 +1067,7 @@ const workflowStep = (jobSource, name) => {
   const next = jobSource.indexOf("\n      - name:", start + marker.length);
   return jobSource.slice(start, next < 0 ? jobSource.length : next);
 };
+assert.match(workflow, /permissions:\s*[\s\S]*attestations:\s*read/u);
 assert.deepEqual(
   ["validate", "audit_last_known_good", "production_env_audit", "production_env_repair", "production_build", "post_build_secret_scan", "staged_deploy", "runtime_gates", "alias_cutover"]
     .map((name) => jobs.find((entry) => entry.name === name).index)
@@ -872,12 +1088,18 @@ assert.match(rc62HardeningStep, /RC6_2_START_SERVER:\s*'1'/u);
 assert.match(rc62HardeningStep, /RC6_2_BASE_URL:\s*http:\/\/127\.0\.0\.1:3136/u);
 assert.match(rc62HardeningStep, /pnpm test:ci:production-main-head-cas/u);
 assert.match(rc62HardeningStep, /pnpm test:ai:rc6\.2:persistence-browser/u);
-assert.match(job("validate"), /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'[\s\S]*verify-immutable-release-tag\.mjs remote/u);
+assert.match(job("validate"), /deploy-immutable-product-recovery[\s\S]*verify-immutable-release-tag\.mjs remote/u);
+assert.match(job("validate"), /run-production-main-head-cas-tests\.mjs[\s\S]*Install locked recovery-control test dependencies[\s\S]*run-rc6-1-deployment-governance\.mjs all[\s\S]*node --import \.\/scripts\/register-rc6-test-loader\.mjs scripts\/run-rc6-2-runtime-closure\.mjs[\s\S]*Checkout exact Product commit/u);
 assert.match(job("validate"), /Verify final remote RC6\.2 annotated tag is immutable[\s\S]*GITHUB_TOKEN:\s*\$\{\{ github\.token \}\}/u);
 assert.equal(
   (workflow.match(/IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING:\s*'true'/gu) || []).length,
+  0,
+);
+assert.equal(
+  (workflow.match(/IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING:\s*'false'/gu) || []).length,
   4,
 );
+assert.equal((workflow.match(/verify-github-release-attestation\.mjs/gu) || []).length, 7);
 assert.match(job("preview"), /EXPECTED_RELEASE_TAG:\s*novel-ai-p24b-conversation-first-studio-rc6\.2/u);
 assert.match(job("preview"), /\$release_tag" == "\$EXPECTED_RELEASE_TAG"/u);
 assert.doesNotMatch(job("preview"), /\$release_tag" == "novel-ai-p24b-conversation-first-studio-rc6"/u);
@@ -888,14 +1110,21 @@ for (const output of ["build_started_at", "build_completed_at", "archive_sha256"
   assert.match(job("staged_deploy"), new RegExp(`^      ${output}: \\$\\{\\{ needs\\.`, "mu"));
 }
 assert.match(job("staged_deploy"), /--env "NOVEL_BUILD_STARTED_AT=[\s\S]*--env "NOVEL_BUILD_COMPLETED_AT=[\s\S]*--env "NOVEL_DEPLOYED_AT=/u);
+assert.match(job("staged_deploy"), /--meta "githubCommitSha=\$PRODUCT_COMMIT"[\s\S]*--meta "novelControlCommit=\$CONTROL_COMMIT"/u);
+assert.match(job("staged_deploy"), /Checkout trusted Production control commit for staged-deploy CAS[\s\S]*path:\s*\.release-control[\s\S]*EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}[\s\S]*node \.release-control\/scripts\/verify-production-main-head-cas\.mjs[\s\S]*vercel deploy --prebuilt --prod --skip-domain/u);
 assert.match(job("runtime_gates"), /api\.vercel\.com\/v13\/deployments|verify-deployment-temporal-provenance\.mjs/u);
+assert.match(job("runtime_gates"), /release_product_commit[\s\S]*EXPECTED_CONTROL_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
+assert.match(job("runtime_gates"), /Checkout trusted Production control commit for runtime proof[\s\S]*Checkout immutable Product commit for runtime timestamp proof[\s\S]*path:\s*\.release-product[\s\S]*git -C \.release-product show -s --format=%cI/u);
 assert.match(job("runtime_gates"), /^      temporal_proof_digest:\s*\$\{\{ steps\.temporal\.outputs\.proof_digest \}\}/mu);
 assert.match(job("alias_cutover"), /production-last-known-good\.mjs discover[\s\S]*production-last-known-good\.mjs download[\s\S]*DISABLE_CURRENT_CAPTURE:\s*'true'[\s\S]*production-last-known-good\.mjs select/u);
+assert.match(job("alias_cutover"), /Reproduce and bind recovery control proof for Last Known Good publication[\s\S]*verify-production-recovery-control\.mjs[\s\S]*needs\.validate\.outputs\.recovery_control_proof_digest[\s\S]*RECOVERY_CONTROL_PROOF_PATH:[^\r\n]*recovery-control-proof-for-lkg\.json[\s\S]*production-last-known-good\.mjs write/u);
 assert.match(workflow, /- audit-last-known-good/u);
+assert.match(workflow, /- audit-rc6-2-last-known-good/u);
+assert.match(workflow, /- deploy-immutable-product-recovery/u);
 assert.match(workflow, /preview_ref:[\s\S]*deploy-preview or audit-last-known-good/u);
 const readOnlyLkgAudit = job("audit_last_known_good");
-assert.match(readOnlyLkgAudit, /needs:\s*validate[\s\S]*always\(\)[\s\S]*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && needs\.validate\.result == 'success'[\s\S]*github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main' && inputs\.operation == 'audit-last-known-good'/u);
-assert.match(readOnlyLkgAudit, /AUDIT_COMMIT:\s*\$\{\{ github\.event_name == 'push' && github\.sha \|\| inputs\.preview_ref \}\}/u);
+assert.match(readOnlyLkgAudit, /needs:\s*validate[\s\S]*always\(\)[\s\S]*deploy-immutable-product-recovery[\s\S]*audit-last-known-good[\s\S]*audit-rc6-2-last-known-good/u);
+assert.match(readOnlyLkgAudit, /AUDIT_COMMIT:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.operation == 'audit-last-known-good' && inputs\.preview_ref \|\| github\.sha \}\}/u);
 assert.match(readOnlyLkgAudit, /Require the explicit audit commit to equal this trusted workflow head[\s\S]*EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha \}\}[\s\S]*\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\][\s\S]*Checkout exact read-only audit commit/u);
 assert.match(readOnlyLkgAudit, /Checkout exact read-only audit commit[\s\S]*ref:\s*\$\{\{ github\.sha \}\}/u);
 assert.match(readOnlyLkgAudit, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
@@ -904,6 +1133,8 @@ assert.doesNotMatch(readOnlyLkgAuditJobEnv, /secrets\.(?:VERCEL_TOKEN|VERCEL_ORG
 const readOnlyLkgSelectionStep = readOnlyLkgAudit.split("- name: Prove prior Last Known Good control-plane selection without mutation")[1]
   .split("- name:")[0];
 assert.match(readOnlyLkgSelectionStep, /REQUIRE_AUDIT_SELECTION_PROVENANCE:\s*'true'/u);
+assert.match(readOnlyLkgSelectionStep, /AUDIT_PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*env\.PRODUCT_COMMIT[^\r\n]*env\.AUDIT_COMMIT/u);
+assert.match(readOnlyLkgSelectionStep, /AUDIT_CONTROL_PROOF_DIGEST:[^\r\n]*needs\.validate\.outputs\.recovery_control_proof_digest/u);
 for (const secret of ["VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"]) {
   assert.match(readOnlyLkgSelectionStep, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`, "u"));
 }
@@ -919,13 +1150,13 @@ for (const [name, value] of [
 ]) assert.match(workflow, new RegExp(`^  ${name}: ${value}$`, "mu"));
 assert.doesNotMatch(readOnlyLkgAudit, /production-last-known-good\.mjs\s+(?:write|restore)|vercel-dual-alias-cutover\.mjs|\balias\s+(?:set|remove|restore|cutover)\b|\b(?:POST|PUT|PATCH|DELETE)\b/iu);
 assert.match(job("production_env_audit"), /needs:\s*\[validate, audit_last_known_good\]/u);
-assert.match(workflow, /vercel-lkg-audit-[\s\S]*inputs\.operation == 'audit-last-known-good'/u);
-assert.match(job("alias_cutover"), /Recheck immutable GitHub Release immediately before alias cutover[\s\S]*verify-immutable-release-tag\.mjs remote[\s\S]*Cut over both aliases/u);
+assert.match(workflow, /vercel-lkg-audit-[\s\S]*audit-rc6-2-last-known-good/u);
+assert.match(job("alias_cutover"), /Recheck immutable GitHub Release immediately before alias cutover[\s\S]*verify-immutable-release-tag\.mjs remote[\s\S]*verify-github-release-attestation\.mjs[\s\S]*Cut over both aliases/u);
 assert.match(job("alias_cutover"), /Final immutable GitHub Release recheck after public cutover[\s\S]*id:\s*immutable_tag_final[\s\S]*continue-on-error:\s*true/u);
 assert.match(job("alias_cutover"), /Compensating rollback after immutable Release recheck failure[\s\S]*steps\.immutable_tag_final\.outcome != 'success'[\s\S]*vercel-dual-alias-cutover\.mjs restore/u);
-assert.match(job("production_env_repair"), /Install Production repair tooling[\s\S]*Refuse stale Product commit immediately before Production environment mutation[\s\S]*needs\.production_env_audit\.outputs\.repair_required == 'true'[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*Repair Production environment only when audit found drift[\s\S]*PRODUCTION_MAIN_HEAD_CAS_REQUIRED:\s*'true'[\s\S]*EXPECTED_PRODUCT_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
+assert.match(job("production_env_repair"), /Install Production repair tooling[\s\S]*Refuse stale Product commit immediately before Production environment mutation[\s\S]*needs\.production_env_audit\.outputs\.repair_required == 'true'[\s\S]*EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*Repair Production environment only when audit found drift[\s\S]*PRODUCTION_MAIN_HEAD_CAS_REQUIRED:\s*'true'[\s\S]*EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
 const aliasCutover = job("alias_cutover");
-assert.match(aliasCutover, /Set up Node\.js[\s\S]*Refuse stale Product commit before preparing alias cutover[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*Re-verify immutable annotated RC6\.2 tag/u);
+assert.match(aliasCutover, /Set up Node\.js[\s\S]*Refuse stale main control commit before preparing alias cutover[\s\S]*EXPECTED_MAIN_HEAD_COMMIT:[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*Re-verify immutable annotated RC6\.2 tag/u);
 assert.match(aliasCutover, /Recheck immutable GitHub Release immediately before alias cutover[\s\S]*Recheck main head immediately before alias cutover[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*Cut over both aliases/u);
 assert.match(aliasCutover, /Final immutable GitHub Release recheck after public cutover[\s\S]*Final main-head CAS after public cutover[\s\S]*id:\s*main_head_final[\s\S]*continue-on-error:\s*true/u);
 assert.match(aliasCutover, /Compensating rollback after final main-head CAS failure[\s\S]*steps\.main_head_final\.outcome != 'success'[\s\S]*vercel-dual-alias-cutover\.mjs restore/u);
@@ -999,6 +1230,7 @@ for (const expectedVariable of [
   "EXPECTED_LKG_RELEASE_REVISION",
 ]) assert.match(restoreDownloadStep, new RegExp(`${expectedVariable}: ''`, "u"));
 assert.match(job("restore_known_stable"), /Require the latest successful Last Known Good artifact/u);
+assert.match(job("restore_known_stable"), /Enforce exact restore control checkout[\s\S]*GITHUB_WORKFLOW_SHA[\s\S]*Restore and verify both production aliases[\s\S]*EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}[\s\S]*verify-production-main-head-cas\.mjs[\s\S]*vercel-dual-alias-cutover\.mjs restore/u);
 const lkgDownloadStep = job("alias_cutover").split("- name: Download latest Last Known Good identity")[1]
   .split("- name: Prove exact RC6.1 Last Known Good selection")[0];
 assert.doesNotMatch(lkgDownloadStep, /continue-on-error:\s*true/u);
@@ -1008,12 +1240,34 @@ for (const evidenceField of [
   "priorLastKnownGoodArtifactId",
   "priorLastKnownGoodRunId",
   "priorLastKnownGoodHeadSha",
+  "priorLastKnownGoodProductCommit",
+  "priorLastKnownGoodControlCommit",
   "immutableReleaseTagProofDigest",
+  "githubReleaseAttestationProofDigest",
+  "recoveryControlProofDigest",
+  "releaseProductCommit",
+  "controlCommit",
   "priorLastKnownGoodSelectionProofDigest",
   "publicPostCutoverReceiptDigest",
   "pending_external_real_browser_gate",
   "not_yet_produced",
 ]) assert.match(job("alias_cutover"), new RegExp(evidenceField, "u"));
+
+const recoveryComplete = job("recovery_complete");
+assert.match(recoveryComplete, /always\(\)[^\r\n]*deploy-immutable-product-recovery/u);
+for (const requiredJob of [
+  "validate",
+  "audit_last_known_good",
+  "production_env_audit",
+  "production_env_repair",
+  "production_build",
+  "post_build_secret_scan",
+  "staged_deploy",
+  "runtime_gates",
+  "alias_cutover",
+]) assert.match(recoveryComplete, new RegExp(`^      - ${requiredJob}$`, "mu"));
+assert.match(recoveryComplete, /\[\[ "\$PRODUCT_COMMIT" == "\$RECOVERY_PRODUCT_COMMIT" \]\]/u);
+assert.match(recoveryComplete, /\[\[ "\$CONTROL_COMMIT" == "\$GITHUB_SHA" \]\]/u);
 
 console.log(JSON.stringify({
   schemaVersion: "p24b-rc6.2-runtime-closure-test-v1",
@@ -1024,6 +1278,7 @@ console.log(JSON.stringify({
   dynamicTemporalProvenance: true,
   sealedArtifactSecretScanStages: 2,
   lastKnownGoodReadOnlyArtifactProof: true,
+  dualShaLastKnownGoodArtifactProof: true,
   lastKnownGoodFailClosed: true,
   newLunaPostProductionEvidence: "sanitized-control-plane-artifact-awaiting-real-browser-gate",
 }, null, 2));

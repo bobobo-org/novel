@@ -135,7 +135,7 @@ function main() {
   let result;
   try {
     result = verifyRemoteProductionMainHeadCas(
-      process.env.EXPECTED_PRODUCT_COMMIT,
+      process.env.EXPECTED_MAIN_HEAD_COMMIT || process.env.EXPECTED_PRODUCT_COMMIT,
     );
   } catch (error) {
     result = safeCliFailureCode(error);

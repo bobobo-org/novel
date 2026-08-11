@@ -92,7 +92,7 @@ function testOrdering() {
   assert.match(jobSection("post_build_secret_scan"), /needs:\s*production_build/u);
   assert.match(jobSection("staged_deploy"), /needs:\s*\[production_build, post_build_secret_scan\]/u);
   assert.match(jobSection("runtime_gates"), /needs:\s*staged_deploy/u);
-  assert.match(jobSection("alias_cutover"), /needs:\s*\[staged_deploy,\s*runtime_gates\]/u);
+  assert.match(jobSection("alias_cutover"), /needs:\s*\[validate,\s*staged_deploy,\s*runtime_gates\]/u);
   assert.match(jobSection("production_build"), /include-hidden-files:\s*true/u);
   assert.doesNotMatch(jobSection("validate"), /pnpm build(?:\s|$)|conversation-bundle-budget/u);
   assert.match(jobSection("validate"), /pnpm build:manual-learning-worker/u);
@@ -109,11 +109,11 @@ function testOrdering() {
   assert.match(productionBuild, /--exclude='\.next\/cache'/u);
   assert.match(productionBuild, /\.vercel\/output \.next/u);
   assert.match(productionBuild, /path:\s*\|[\s\S]*\$\{\{ runner\.temp \}\}\/production-prebuilt\.tgz/u);
-  assert.match(productionBuild, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.match(productionBuild, /name:\s*production-prebuilt-\$\{\{ env\.PRODUCT_COMMIT \}\}-control-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
   assert.match(productionBuild, /overwrite:\s*true/u);
   assert.doesNotMatch(productionBuild, /production-prebuilt-[^\n]*github\.run_attempt/u);
   const stagedDeploy = jobSection("staged_deploy");
-  assert.match(stagedDeploy, /name:\s*production-prebuilt-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
+  assert.match(stagedDeploy, /name:\s*production-prebuilt-\$\{\{ env\.PRODUCT_COMMIT \}\}-control-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
   assert.doesNotMatch(stagedDeploy, /production-prebuilt-[^\n]*github\.run_attempt/u);
   assert.match(stagedDeploy, /path:\s*\$\{\{ runner\.temp \}\}\/production-prebuilt/u);
   assert.match(stagedDeploy, /tar --extract --gzip --file "\$archive" --directory "\$GITHUB_WORKSPACE"/u);
@@ -1672,6 +1672,7 @@ async function testLastKnownGoodAndRollback() {
         event: "push",
         head_branch: "main",
         head_sha: lkgCommit,
+        run_attempt: 1,
         path: ".github/workflows/deploy.yml",
       }), { status: 200, headers: { "content-type": "application/json" } });
     },
@@ -1731,6 +1732,7 @@ async function testLastKnownGoodAndRollback() {
         event: "push",
         head_branch: "main",
         head_sha: lkgCommit,
+        run_attempt: 1,
         path: ".github/workflows/deploy.yml",
       });
     },
@@ -1892,7 +1894,7 @@ function testPreviewPolicy() {
   assert.match(top, /preview_ref:/u);
   assert.match(preview, /head\.repo\.full_name == github\.repository/u);
   const validate = jobSection("validate");
-  assert.match(validate, /pull_request\.head\.sha \|\| github\.event_name == 'workflow_dispatch' && inputs\.preview_ref \|\| github\.sha/u);
+  assert.match(validate, /pull_request\.head\.sha \|\| github\.event_name == 'workflow_dispatch' && inputs\.operation == 'deploy-preview' && inputs\.preview_ref \|\| github\.event_name == 'workflow_dispatch' && inputs\.operation == 'deploy-immutable-product-recovery' && '[a-f0-9]{40}' \|\| github\.sha/u);
   assert.match(validate, /ref:\s*\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
   assert.match(validate, /--arg headSha "\$VERCEL_GIT_COMMIT_SHA"/u);
   assert.match(validate, /p24b-rc6-validation-\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);

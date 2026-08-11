@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import manifest from "../release-manifest.json" with { type: "json" };
 import { boundedFetch, boundedOperation } from "./bounded-fetch.mjs";
 
-const RECEIPT_SCHEMA = "p24b-rc6.2-deployment-temporal-proof-v1";
+const RECEIPT_SCHEMA = "p24b-rc6.2-deployment-temporal-proof-v2";
 
 function timestamp(name, value) {
   const parsed = new Date(value);
@@ -17,6 +17,7 @@ export function validateDeploymentTemporalProvenance({
   runtimeIdentity,
   expectedDeploymentId,
   expectedCommit,
+  expectedControlCommit = expectedCommit,
   expectedProjectId,
   expectedTeamId,
   buildStartedAt,
@@ -28,13 +29,16 @@ export function validateDeploymentTemporalProvenance({
   now = new Date(),
 }) {
   const controlDeploymentId = deployment?.id ?? deployment?.uid;
-  const controlCommit = deployment?.meta?.githubCommitSha;
+  const productCommit = deployment?.meta?.githubCommitSha;
+  const controlCommit = deployment?.meta?.novelControlCommit
+    ?? (expectedControlCommit === expectedCommit ? productCommit : null);
   const controlProjectId = deployment?.projectId ?? deployment?.project?.id;
   const controlTeamId = deployment?.teamId
     ?? deployment?.ownerId
     ?? deployment?.project?.accountId;
   if (controlDeploymentId !== expectedDeploymentId
-    || controlCommit !== expectedCommit
+    || productCommit !== expectedCommit
+    || controlCommit !== expectedControlCommit
     || controlProjectId !== expectedProjectId
     || controlTeamId !== expectedTeamId
     || (deployment?.readyState ?? deployment?.state) !== "READY"
@@ -72,6 +76,7 @@ export function validateDeploymentTemporalProvenance({
   };
   if (runtimeIdentity?.deploymentId !== expectedDeploymentId
     || runtimeIdentity?.appCommit !== expectedCommit
+    || runtimeIdentity?.releaseProductCommit !== expectedCommit
     || runtimeIdentity?.releaseLine !== manifest.releaseLine
     || runtimeIdentity?.releaseTag !== manifest.releaseTag
     || runtimeIdentity?.releaseRevision !== manifest.releaseRevision
@@ -91,6 +96,8 @@ export function validateDeploymentTemporalProvenance({
     status: "PASS",
     deploymentId: expectedDeploymentId,
     appCommit: expectedCommit,
+    releaseProductCommit: expectedCommit,
+    controlCommit: expectedControlCommit,
     releaseLine: manifest.releaseLine,
     releaseTag: manifest.releaseTag,
     releaseRevision: manifest.releaseRevision,
@@ -141,6 +148,7 @@ async function main() {
     runtimeIdentity,
     expectedDeploymentId: deploymentId,
     expectedCommit: requiredEnvironment("EXPECTED_APP_COMMIT"),
+    expectedControlCommit: requiredEnvironment("EXPECTED_CONTROL_COMMIT"),
     expectedProjectId: requiredEnvironment("VERCEL_PROJECT_ID"),
     expectedTeamId: teamId,
     buildStartedAt: requiredEnvironment("NOVEL_BUILD_STARTED_AT"),

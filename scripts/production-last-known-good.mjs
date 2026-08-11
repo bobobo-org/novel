@@ -9,12 +9,19 @@ import {
   boundedFetch,
   boundedOperation,
 } from "./bounded-fetch.mjs";
+import {
+  RC6_2_RECOVERY_OPERATION,
+  validateProductionRecoveryControlProof,
+} from "./verify-production-recovery-control.mjs";
 
-const LKG_SCHEMA = "last-known-good-production-identity-v1";
-const LKG_ARTIFACT_PROOF_SCHEMA = "github-actions-lkg-artifact-proof-v1";
-const READ_ONLY_SELECTION_PROOF_SCHEMA = "p24b-rc6.2-readonly-rollback-selection-proof-v2";
+const LKG_SCHEMA_V1 = "last-known-good-production-identity-v1";
+const LKG_SCHEMA_V2 = "last-known-good-production-identity-v2";
+const LKG_ARTIFACT_PROOF_SCHEMA = "github-actions-lkg-artifact-proof-v2";
+const READ_ONLY_SELECTION_PROOF_SCHEMA = "p24b-rc6.2-readonly-rollback-selection-proof-v3";
 const ARTIFACT_DIGEST = /^sha256:([a-f0-9]{64})$/u;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
+const LEGACY_LKG_ARTIFACT = /^production-last-known-good-([a-f0-9]{40})$/u;
+const CONTROLLED_LKG_ARTIFACT = /^production-last-known-good-control-([a-f0-9]{40})-product-([a-f0-9]{40})$/u;
 const READ_ONLY_SELECTION_PROOF_KEYS = Object.freeze([
   "schemaVersion",
   "status",
@@ -34,7 +41,10 @@ const READ_ONLY_SELECTION_PROOF_KEYS = Object.freeze([
   "proofDigest",
 ]);
 const AUDIT_PROVENANCE_KEYS = Object.freeze([
+  "mode",
   "productCommit",
+  "controlCommit",
+  "controlProofDigest",
   "repository",
   "eventName",
   "eventRef",
@@ -157,6 +167,11 @@ export function createLastKnownGoodArtifactProof({
   artifactDigest,
   runId,
   headSha,
+  productCommit,
+  controlCommit = headSha,
+  workflowEvent,
+  workflowBranch,
+  runAttempt,
   workflowPath,
   createdAt,
   downloadedAt = new Date().toISOString(),
@@ -165,18 +180,51 @@ export function createLastKnownGoodArtifactProof({
   if (!repository
     || !Number.isSafeInteger(Number(artifactId))
     || Number(artifactId) <= 0
-    || !/^production-last-known-good-[a-f0-9]{40}$/u.test(String(artifactName || ""))
+    || (!LEGACY_LKG_ARTIFACT.test(String(artifactName || ""))
+      && !CONTROLLED_LKG_ARTIFACT.test(String(artifactName || "")))
     || !ARTIFACT_DIGEST.test(String(artifactDigest || ""))
     || !Number.isSafeInteger(Number(runId))
     || !isCommit(headSha)
+    || !isCommit(productCommit)
+    || !isCommit(controlCommit)
+    || controlCommit !== headSha
+    || !["push", "workflow_dispatch"].includes(workflowEvent)
+    || workflowBranch !== "main"
+    || !Number.isSafeInteger(Number(runAttempt))
+    || Number(runAttempt) <= 0
     || workflowPath !== ".github/workflows/deploy.yml"
     || !Number.isFinite(Date.parse(createdAt))
     || !Number.isFinite(Date.parse(downloadedAt))) {
     throw new Error("LAST_KNOWN_GOOD_ARTIFACT_PROOF_INVALID");
   }
   const normalizedIdentity = validateLastKnownGoodProductionIdentity(identity);
-  if (normalizedIdentity.appCommit !== headSha
-    || !String(artifactName).endsWith(normalizedIdentity.appCommit)) {
+  const legacyMatch = LEGACY_LKG_ARTIFACT.exec(String(artifactName));
+  const controlledMatch = CONTROLLED_LKG_ARTIFACT.exec(String(artifactName));
+  const recoveryControlProof = normalizedIdentity.recoveryControlProof ?? null;
+  const publicationMode = legacyMatch ? "same-sha" : "immutable-product-control";
+  if (normalizedIdentity.appCommit !== productCommit
+    || !String(artifactName).endsWith(normalizedIdentity.appCommit)
+    || (legacyMatch && (legacyMatch[1] !== productCommit
+      || controlCommit !== productCommit
+      || workflowEvent !== "push"
+      || normalizedIdentity.schemaVersion !== LKG_SCHEMA_V1
+      || recoveryControlProof !== null))
+    || (controlledMatch && (controlledMatch[1] !== controlCommit
+      || controlledMatch[2] !== productCommit
+      || controlCommit === productCommit
+      || workflowEvent !== "workflow_dispatch"
+      || normalizedIdentity.schemaVersion !== LKG_SCHEMA_V2
+      || !recoveryControlProof
+      || recoveryControlProof.repository !== repository
+      || recoveryControlProof.productCommit !== productCommit
+      || recoveryControlProof.controlCommit !== controlCommit
+      || recoveryControlProof.workflowSha !== controlCommit
+      || recoveryControlProof.eventName !== workflowEvent
+      || recoveryControlProof.eventRef !== "refs/heads/main"
+      || recoveryControlProof.workflowRef !== `${repository}/${workflowPath}@refs/heads/main`
+      || recoveryControlProof.runId !== String(runId)
+      || recoveryControlProof.runAttempt !== String(runAttempt)
+      || recoveryControlProof.operation !== RC6_2_RECOVERY_OPERATION))) {
     throw new Error("LAST_KNOWN_GOOD_ARTIFACT_IDENTITY_MISMATCH");
   }
   const core = {
@@ -188,10 +236,17 @@ export function createLastKnownGoodArtifactProof({
     archiveSha256: ARTIFACT_DIGEST.exec(artifactDigest)[1],
     runId: Number(runId),
     headSha,
+    productCommit,
+    controlCommit,
+    publicationMode,
+    workflowEvent,
+    workflowBranch,
+    runAttempt: Number(runAttempt),
     workflowPath,
     createdAt: new Date(createdAt).toISOString(),
     downloadedAt: new Date(downloadedAt).toISOString(),
     identityProvenanceDigest: normalizedIdentity.provenanceDigest,
+    recoveryControlProofDigest: recoveryControlProof?.proofDigest ?? null,
     readOnlyDiscovery: true,
     artifactControlPlaneVerified: true,
     workflowRunControlPlaneVerified: true,
@@ -232,6 +287,7 @@ function normalizeAuditProvenance(value, { required = false } = {}) {
     typeof value[key] === "string" ? value[key].trim() : "",
   ]));
   normalized.productCommit = normalized.productCommit.toLowerCase();
+  normalized.controlCommit = normalized.controlCommit.toLowerCase();
   normalized.eventCommit = normalized.eventCommit.toLowerCase();
   normalized.workflowSha = normalized.workflowSha.toLowerCase();
   const workflowPrefix = `${normalized.repository}/.github/workflows/`;
@@ -242,6 +298,11 @@ function normalizeAuditProvenance(value, { required = false } = {}) {
     : "";
   if (
     !isCommit(normalized.productCommit)
+    || !["same-sha", "immutable-product-control"].includes(normalized.mode)
+    || !isCommit(normalized.controlCommit)
+    || (normalized.mode === "same-sha" && normalized.controlProofDigest !== "")
+    || (normalized.mode === "immutable-product-control"
+      && !SHA256_DIGEST.test(normalized.controlProofDigest))
     || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(normalized.repository)
     || !["push", "workflow_dispatch"].includes(normalized.eventName)
     || !/^refs\/(?:heads|tags)\/[^\0\r\n]{1,480}$/u.test(normalized.eventRef)
@@ -256,8 +317,14 @@ function normalizeAuditProvenance(value, { required = false } = {}) {
     || !isCommit(normalized.workflowSha)
     || !/^[1-9][0-9]{0,19}$/u.test(normalized.runId)
     || !/^[1-9][0-9]{0,9}$/u.test(normalized.runAttempt)
-    || normalized.productCommit !== normalized.eventCommit
-    || normalized.productCommit !== normalized.workflowSha
+    || normalized.controlCommit !== normalized.eventCommit
+    || normalized.controlCommit !== normalized.workflowSha
+    || (normalized.mode === "same-sha" && normalized.productCommit !== normalized.controlCommit)
+    || (normalized.mode === "immutable-product-control" && (
+      normalized.productCommit === normalized.controlCommit
+      || normalized.eventName !== "workflow_dispatch"
+      || normalized.eventRef !== "refs/heads/main"
+    ))
   ) {
     throw proofError("READ_ONLY_SELECTION_AUDIT_PROVENANCE_INVALID");
   }
@@ -388,6 +455,7 @@ export function createLastKnownGoodProductionIdentity({
   releaseTag,
   releaseRevision,
   verifiedAt = new Date().toISOString(),
+  recoveryControlProof = null,
 }) {
   if (
     !isDeploymentId(primaryDeploymentId)
@@ -399,14 +467,21 @@ export function createLastKnownGoodProductionIdentity({
   ) {
     throw new Error("LAST_KNOWN_GOOD_IDENTITY_INVALID");
   }
+  const normalizedControlProof = recoveryControlProof == null
+    ? null
+    : validateProductionRecoveryControlProof(recoveryControlProof);
+  if (normalizedControlProof && normalizedControlProof.productCommit !== appCommit) {
+    throw new Error("LAST_KNOWN_GOOD_RECOVERY_CONTROL_PRODUCT_MISMATCH");
+  }
   const provenanceCore = {
-    schemaVersion: LKG_SCHEMA,
+    schemaVersion: normalizedControlProof ? LKG_SCHEMA_V2 : LKG_SCHEMA_V1,
     primaryDeploymentId,
     mirrorDeploymentId,
     appCommit,
     releaseTag,
     releaseRevision,
     verifiedAt,
+    ...(normalizedControlProof ? { recoveryControlProof: normalizedControlProof } : {}),
   };
   return {
     ...provenanceCore,
@@ -415,6 +490,9 @@ export function createLastKnownGoodProductionIdentity({
 }
 
 export function validateLastKnownGoodProductionIdentity(value) {
+  const recoveryControlProof = value?.schemaVersion === LKG_SCHEMA_V2
+    ? value?.recoveryControlProof
+    : null;
   const normalized = createLastKnownGoodProductionIdentity({
     primaryDeploymentId: value?.primaryDeploymentId,
     mirrorDeploymentId: value?.mirrorDeploymentId,
@@ -422,8 +500,34 @@ export function validateLastKnownGoodProductionIdentity(value) {
     releaseTag: value?.releaseTag,
     releaseRevision: value?.releaseRevision,
     verifiedAt: value?.verifiedAt,
+    recoveryControlProof,
   });
-  if (value?.schemaVersion !== LKG_SCHEMA || value?.provenanceDigest !== normalized.provenanceDigest) {
+  const expectedKeys = recoveryControlProof
+    ? [
+      "schemaVersion",
+      "primaryDeploymentId",
+      "mirrorDeploymentId",
+      "appCommit",
+      "releaseTag",
+      "releaseRevision",
+      "verifiedAt",
+      "recoveryControlProof",
+      "provenanceDigest",
+    ]
+    : [
+      "schemaVersion",
+      "primaryDeploymentId",
+      "mirrorDeploymentId",
+      "appCommit",
+      "releaseTag",
+      "releaseRevision",
+      "verifiedAt",
+      "provenanceDigest",
+    ];
+  if (!hasExactKeys(value, expectedKeys)
+    || ![LKG_SCHEMA_V1, LKG_SCHEMA_V2].includes(value?.schemaVersion)
+    || value.schemaVersion !== normalized.schemaVersion
+    || value?.provenanceDigest !== normalized.provenanceDigest) {
     throw Object.assign(new Error("LAST_KNOWN_GOOD_DIGEST_INVALID"), {
       code: "LAST_KNOWN_GOOD_DIGEST_INVALID",
     });
@@ -730,10 +834,10 @@ export async function discoverLatestLastKnownGoodArtifact({
   const candidates = artifacts
     .filter((entry) =>
       entry?.expired === false
-      && /^production-last-known-good-[a-f0-9]{40}$/u.test(String(entry?.name || ""))
+      && (LEGACY_LKG_ARTIFACT.test(String(entry?.name || ""))
+        || CONTROLLED_LKG_ARTIFACT.test(String(entry?.name || "")))
       && ARTIFACT_DIGEST.test(String(entry?.digest || ""))
       && entry?.workflow_run?.head_branch === "main"
-      && entry?.workflow_run?.head_sha === String(entry?.name || "").slice(-40)
       && Number(entry?.workflow_run?.id) !== Number(excludeRunId))
     .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
   for (const artifact of candidates) {
@@ -761,20 +865,40 @@ export async function discoverLatestLastKnownGoodArtifact({
       timeoutCode: "LAST_KNOWN_GOOD_RUN_BODY_TIMEOUT",
       onTimeout: () => runResponse.body?.cancel().catch(() => undefined),
     }).catch(() => null);
+    const legacyMatch = LEGACY_LKG_ARTIFACT.exec(String(artifact.name || ""));
+    const controlledMatch = CONTROLLED_LKG_ARTIFACT.exec(String(artifact.name || ""));
+    const controlCommit = String(artifact.workflow_run.head_sha || "");
+    const productCommit = legacyMatch?.[1] || controlledMatch?.[2] || "";
+    const validPublication = Boolean(
+      (legacyMatch
+        && run?.event === "push"
+        && controlCommit === productCommit)
+      || (controlledMatch
+        && run?.event === "workflow_dispatch"
+        && controlledMatch[1] === controlCommit
+        && controlCommit !== productCommit),
+    );
     if (
       runResponse.ok
       && run?.conclusion === "success"
-      && run?.event === "push"
+      && validPublication
       && run?.head_branch === "main"
       && run?.head_sha === artifact.workflow_run.head_sha
       && run?.path === ".github/workflows/deploy.yml"
+      && Number.isSafeInteger(Number(run?.run_attempt))
+      && Number(run.run_attempt) > 0
     ) {
       return {
         artifactId: artifact.id,
         artifactName: artifact.name,
         artifactDigest: artifact.digest,
         runId: artifact.workflow_run.id,
-        headSha: artifact.workflow_run.head_sha,
+        headSha: controlCommit,
+        productCommit,
+        controlCommit,
+        workflowEvent: run.event,
+        workflowBranch: run.head_branch,
+        runAttempt: Number(run.run_attempt),
         workflowPath: run.path,
         createdAt: artifact.created_at,
       };
@@ -874,10 +998,17 @@ function strictBooleanEnvironment(name) {
 }
 
 function auditSelectionProvenanceFromEnvironment(required) {
-  const productCommit = String(process.env.AUDIT_COMMIT || "").trim();
-  if (!productCommit && !required) return null;
+  const controlCommit = String(process.env.AUDIT_COMMIT || "").trim();
+  const productCommit = String(process.env.AUDIT_PRODUCT_COMMIT || controlCommit).trim();
+  if (!controlCommit && !required) return null;
+  const mode = productCommit === controlCommit ? "same-sha" : "immutable-product-control";
   return {
+    mode,
     productCommit,
+    controlCommit,
+    controlProofDigest: mode === "immutable-product-control"
+      ? String(process.env.AUDIT_CONTROL_PROOF_DIGEST || "").trim()
+      : "",
     repository: String(process.env.GITHUB_REPOSITORY || ""),
     eventName: String(process.env.GITHUB_EVENT_NAME || ""),
     eventRef: String(process.env.GITHUB_REF || ""),
@@ -921,6 +1052,11 @@ async function discoverCli() {
     artifact_digest: artifact?.artifactDigest || "",
     run_id: artifact?.runId || "",
     head_sha: artifact?.headSha || "",
+    product_commit: artifact?.productCommit || "",
+    control_commit: artifact?.controlCommit || "",
+    workflow_event: artifact?.workflowEvent || "",
+    workflow_branch: artifact?.workflowBranch || "",
+    run_attempt: artifact?.runAttempt || "",
     workflow_path: artifact?.workflowPath || "",
     created_at: artifact?.createdAt || "",
     rejection_code: result.rejectionCode || "",
@@ -943,6 +1079,11 @@ async function downloadCli() {
       artifactDigest: requiredEnvironment("LAST_KNOWN_GOOD_ARTIFACT_DIGEST"),
       runId: Number(requiredEnvironment("LAST_KNOWN_GOOD_RUN_ID")),
       headSha: requiredEnvironment("LAST_KNOWN_GOOD_HEAD_SHA"),
+      productCommit: requiredEnvironment("LAST_KNOWN_GOOD_PRODUCT_COMMIT"),
+      controlCommit: requiredEnvironment("LAST_KNOWN_GOOD_CONTROL_COMMIT"),
+      workflowEvent: requiredEnvironment("LAST_KNOWN_GOOD_WORKFLOW_EVENT"),
+      workflowBranch: requiredEnvironment("LAST_KNOWN_GOOD_WORKFLOW_BRANCH"),
+      runAttempt: Number(requiredEnvironment("LAST_KNOWN_GOOD_RUN_ATTEMPT")),
       workflowPath: requiredEnvironment("LAST_KNOWN_GOOD_WORKFLOW_PATH"),
       createdAt: requiredEnvironment("LAST_KNOWN_GOOD_CREATED_AT"),
     },
@@ -1088,12 +1229,32 @@ async function selectCli() {
 }
 
 async function writeCli() {
+  let recoveryControlProof = null;
+  const recoveryControlProofPath = String(process.env.RECOVERY_CONTROL_PROOF_PATH || "").trim();
+  if (recoveryControlProofPath) {
+    recoveryControlProof = validateProductionRecoveryControlProof(JSON.parse(
+      await readFile(recoveryControlProofPath, "utf8"),
+    ));
+    if (recoveryControlProof.productCommit !== requiredEnvironment("APP_COMMIT")
+      || recoveryControlProof.controlCommit !== requiredEnvironment("GITHUB_SHA")
+      || recoveryControlProof.workflowSha !== requiredEnvironment("GITHUB_WORKFLOW_SHA")
+      || recoveryControlProof.eventName !== requiredEnvironment("GITHUB_EVENT_NAME")
+      || recoveryControlProof.eventRef !== requiredEnvironment("GITHUB_REF")
+      || recoveryControlProof.operation !== requiredEnvironment("RECOVERY_OPERATION")
+      || recoveryControlProof.repository !== requiredEnvironment("GITHUB_REPOSITORY")
+      || recoveryControlProof.workflowRef !== requiredEnvironment("GITHUB_WORKFLOW_REF")
+      || recoveryControlProof.runId !== requiredEnvironment("GITHUB_RUN_ID")
+      || recoveryControlProof.runAttempt !== requiredEnvironment("GITHUB_RUN_ATTEMPT")) {
+      throw new Error("LAST_KNOWN_GOOD_RECOVERY_CONTROL_PROOF_MISMATCH");
+    }
+  }
   const document = createLastKnownGoodProductionIdentity({
     primaryDeploymentId: requiredEnvironment("PRIMARY_DEPLOYMENT_ID"),
     mirrorDeploymentId: requiredEnvironment("MIRROR_DEPLOYMENT_ID"),
     appCommit: requiredEnvironment("APP_COMMIT"),
     releaseTag: requiredEnvironment("RELEASE_TAG"),
     releaseRevision: requiredEnvironment("RELEASE_REVISION"),
+    recoveryControlProof,
   });
   await writeFile(requiredEnvironment("LAST_KNOWN_GOOD_PATH"), `${JSON.stringify(document, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ status: "PASS", provenanceDigest: document.provenanceDigest }));

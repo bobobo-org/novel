@@ -1305,7 +1305,7 @@ function requiredEnvironment(name) {
 
 export function enforceProductionMainHeadCasBeforeMutation({
   required = process.env.PRODUCTION_MAIN_HEAD_CAS_REQUIRED,
-  expectedCommit = process.env.EXPECTED_PRODUCT_COMMIT,
+  expectedCommit = process.env.EXPECTED_MAIN_HEAD_COMMIT || process.env.EXPECTED_PRODUCT_COMMIT,
   verifier = verifyRemoteProductionMainHeadCas,
 } = {}) {
   const requirement = required == null ? "" : required;
