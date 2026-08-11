@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
 
       - name: Set up Node.js
@@ -116,6 +116,7 @@ jobs:
       - name: Verify dual-SHA runtime-closure contract from the control commit
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
         run: |
+          node scripts/generate-release-provenance.mjs
           node scripts/run-rc6-1-deployment-governance.mjs all
           node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-2-runtime-closure.mjs
 
@@ -1314,7 +1315,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
 
       - name: Checkout immutable Product commit for release verification

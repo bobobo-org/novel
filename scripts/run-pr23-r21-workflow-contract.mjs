@@ -102,6 +102,7 @@ assert.match(validateJob, /Verify exact dual-SHA recovery control commit/u);
 assert.match(validateJob, /verify-production-recovery-control\.mjs/u);
 assert.match(validateJob, /run-production-recovery-control-tests\.mjs/u);
 assert.match(validateJob, /run-production-main-head-cas-tests\.mjs/u);
+assert.match(validateJob, /Checkout trusted recovery control commit[\s\S]*fetch-depth:\s*3/u);
 assert.ok(
   validateJob.indexOf("Install locked recovery-control test dependencies")
     < validateJob.indexOf("Verify dual-SHA runtime-closure contract from the control commit")
@@ -111,6 +112,13 @@ assert.ok(
 );
 assert.match(validateJob, /node --import \.\/scripts\/register-rc6-test-loader\.mjs scripts\/run-rc6-2-runtime-closure\.mjs/u);
 assert.match(validateJob, /node scripts\/run-rc6-1-deployment-governance\.mjs all/u);
+assert.ok(
+  validateJob.indexOf("node scripts/generate-release-provenance.mjs")
+    < validateJob.indexOf("node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-2-runtime-closure.mjs")
+  && validateJob.indexOf("node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-2-runtime-closure.mjs")
+    < validateJob.indexOf("Checkout exact Product commit"),
+  "control provenance must be generated before the loader-backed closure, both before Product checkout",
+);
 assert.match(validateJob, /repository:\s*\$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/u);
 assert.match(validateJob, /ref:\s*\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
 assert.match(validateJob, /--arg headSha "\$VERCEL_GIT_COMMIT_SHA"/u);
@@ -311,7 +319,7 @@ assert.match(aliasJob, /vercel-dual-alias-cutover\.mjs restore/u);
 assert.match(aliasJob, /Write Last Known Good only after public verification passes/u);
 assert.match(aliasJob, /production-last-known-good-control-\{0\}-product-\{1\}/u);
 assert.match(aliasJob, /APP_COMMIT:\s*\$\{\{ env\.PRODUCT_COMMIT \}\}/u);
-assert.match(aliasJob, /Checkout trusted Production control commit[\s\S]*fetch-depth:\s*2/u);
+assert.match(aliasJob, /Checkout trusted Production control commit[\s\S]*fetch-depth:\s*3/u);
 assert.match(aliasJob, /Reproduce and bind recovery control proof for Last Known Good publication[\s\S]*verify-production-recovery-control\.mjs[\s\S]*needs\.validate\.outputs\.recovery_control_proof_digest/u);
 assert.match(aliasJob, /Write Last Known Good only after public verification passes[\s\S]*RECOVERY_CONTROL_PROOF_PATH:[^\r\n]*recovery-control-proof-for-lkg\.json[\s\S]*production-last-known-good\.mjs write/u);
 assert.match(aliasJob, /p24b-rc6\.2-new-luna-production-control-plane-evidence-v2/u);

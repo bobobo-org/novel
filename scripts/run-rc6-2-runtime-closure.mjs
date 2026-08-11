@@ -31,7 +31,10 @@ import {
   validateReadOnlyRollbackSelectionProof,
 } from "./production-last-known-good.mjs";
 import { validateDeploymentTemporalProvenance } from "./verify-deployment-temporal-provenance.mjs";
-import { verifyProductionRecoveryControl } from "./verify-production-recovery-control.mjs";
+import {
+  RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT,
+  verifyProductionRecoveryControl,
+} from "./verify-production-recovery-control.mjs";
 import { runtimeTemporalProvenance } from "../lib/novel-ai/runtime-truth/release-identity.ts";
 
 const CURRENT_COMMIT = "e84972aaec80885f9e2ab58e56252fb7b93522ea";
@@ -65,7 +68,12 @@ const recoveryControlProof = verifyProductionRecoveryControl({
   runAttempt: "2",
   execFileSyncImplementation: (_command, args) => {
     if (args[0] === "rev-parse") return `${RECOVERY_CONTROL_COMMIT}\n`;
-    if (args[0] === "rev-list") return `${RECOVERY_CONTROL_COMMIT} ${RECOVERY_PRODUCT_COMMIT}\n`;
+    if (args[0] === "rev-list" && args.at(-1) === RECOVERY_CONTROL_COMMIT) {
+      return `${RECOVERY_CONTROL_COMMIT} ${RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT}\n`;
+    }
+    if (args[0] === "rev-list" && args.at(-1) === RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT) {
+      return `${RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT} ${RECOVERY_PRODUCT_COMMIT}\n`;
+    }
     if (args[0] === "merge-base") return "";
     if (args[0] === "diff") {
       return `${recoveryControlChangedPaths.map((path) => `M\t${path}`).join("\n")}\n`;

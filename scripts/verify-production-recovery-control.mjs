@@ -4,9 +4,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const RC6_2_IMMUTABLE_PRODUCT_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
+export const RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT =
+  "3b716fc0d974a9d59b49ffca5953776af66c7a07";
 export const RC6_2_RECOVERY_OPERATION = "deploy-immutable-product-recovery";
 export const RC6_2_RECOVERY_CONTROL_SCHEMA =
-  "p24b-rc6.2-production-recovery-control-proof-v1";
+  "p24b-rc6.2-production-recovery-control-proof-v2";
 
 export const RC6_2_RECOVERY_CONTROL_ALLOWED_PATHS = Object.freeze([
   ".github/workflows/deploy.yml",
@@ -126,7 +128,7 @@ export function validateProductionRecoveryControlProof(value) {
     || productCommit !== RC6_2_IMMUTABLE_PRODUCT_COMMIT
     || controlCommit === productCommit
     || workflowSha !== controlCommit
-    || parentCommit !== productCommit
+    || parentCommit !== RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT
     || value.productAncestorOfControl !== true
     || value.eventName !== "workflow_dispatch"
     || value.eventRef !== "refs/heads/main"
@@ -229,7 +231,18 @@ export function verifyProductionRecoveryControl({
     execFileSyncImplementation,
     ["rev-list", "--parents", "-n", "1", control],
   ).split(/\s+/u);
-  if (parentLine.length !== 2 || parentLine[0] !== control || parentLine[1] !== product) {
+  if (parentLine.length !== 2
+    || parentLine[0] !== control
+    || parentLine[1] !== RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT) {
+    throw failure("PRODUCTION_RECOVERY_PARENT_INVALID");
+  }
+  const previousControlParentLine = gitOutput(
+    execFileSyncImplementation,
+    ["rev-list", "--parents", "-n", "1", RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT],
+  ).split(/\s+/u);
+  if (previousControlParentLine.length !== 2
+    || previousControlParentLine[0] !== RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT
+    || previousControlParentLine[1] !== product) {
     throw failure("PRODUCTION_RECOVERY_PARENT_INVALID");
   }
 
@@ -270,7 +283,7 @@ export function verifyProductionRecoveryControl({
     runAttempt: String(runAttempt),
     productCommit: product,
     controlCommit: control,
-    parentCommit: product,
+    parentCommit: RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT,
     productAncestorOfControl: true,
     changedPaths: uniquePaths,
     changedPathsDigest: sha256(uniquePaths),

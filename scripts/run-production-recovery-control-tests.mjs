@@ -4,6 +4,7 @@ import {
   RC6_2_IMMUTABLE_PRODUCT_COMMIT,
   RC6_2_RECOVERY_CONTROL_ALLOWED_PATHS,
   RC6_2_RECOVERY_OPERATION,
+  RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT,
   validateProductionRecoveryControlProof,
   verifyProductionRecoveryControl,
 } from "./verify-production-recovery-control.mjs";
@@ -25,12 +26,16 @@ const changedPaths = [
 
 function gitMock({
   head = control,
-  parent = product,
+  parent = RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT,
+  previousControlParent = product,
   statuses = changedPaths.map((path) => `M\t${path}`).join("\n"),
 } = {}) {
   return (_command, args) => {
     if (args[0] === "rev-parse") return `${head}\n`;
-    if (args[0] === "rev-list") return `${control} ${parent}\n`;
+    if (args[0] === "rev-list" && args.at(-1) === control) return `${control} ${parent}\n`;
+    if (args[0] === "rev-list" && args.at(-1) === RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT) {
+      return `${RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT} ${previousControlParent}\n`;
+    }
     if (args[0] === "merge-base") return "";
     if (args[0] === "diff") return `${statuses}\n`;
     throw new Error("UNEXPECTED_GIT_COMMAND");
@@ -59,7 +64,7 @@ const proof = verifyProductionRecoveryControl(validControlInput());
 assert.equal(proof.status, "PASS");
 assert.equal(proof.productCommit, product);
 assert.equal(proof.controlCommit, control);
-assert.equal(proof.parentCommit, product);
+assert.equal(proof.parentCommit, RC6_2_RECOVERY_PREVIOUS_CONTROL_COMMIT);
 assert.deepEqual(proof.changedPaths, [...changedPaths].sort());
 assert.match(proof.changedPathsDigest, /^[a-f0-9]{64}$/u);
 assert.match(proof.proofDigest, /^[a-f0-9]{64}$/u);
@@ -81,6 +86,7 @@ for (const [name, overrides, expected] of [
   ["wrong workflow ref", { workflowRef: `${repository}/.github/workflows/other.yml@refs/heads/main` }, /WORKFLOW_PROVENANCE_INVALID/u],
   ["wrong head", { execFileSyncImplementation: gitMock({ head: "c".repeat(40) }) }, /HEAD_MISMATCH/u],
   ["wrong parent", { execFileSyncImplementation: gitMock({ parent: "c".repeat(40) }) }, /PARENT_INVALID/u],
+  ["previous control not directly based on Product", { execFileSyncImplementation: gitMock({ previousControlParent: "c".repeat(40) }) }, /PARENT_INVALID/u],
   ["deleted control file", { execFileSyncImplementation: gitMock({ statuses: "D\t.github/workflows/deploy.yml" }) }, /DIFF_STATUS_INVALID/u],
   ["app path", { execFileSyncImplementation: gitMock({ statuses: "M\t.github/workflows/deploy.yml\nM\tapp/page.tsx" }) }, /DIFF_NOT_CONTROL_ONLY/u],
 ]) {
@@ -167,7 +173,7 @@ for (const [name, changed, expected] of [
 
 console.log(JSON.stringify({
   status: "PASS",
-  assertions: 36,
+  assertions: 37,
   productCommit: product,
   dualShaControl: true,
   releaseAttestation: true,
