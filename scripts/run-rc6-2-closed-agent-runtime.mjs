@@ -37,6 +37,10 @@ import {
 import {
   CLOSED_AGENT_BROWSER_RUNTIME_DIAGNOSTIC_CODES,
 } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
+import {
+  classifyClosedAiCrossOriginRequest,
+  isPreviewToolbarRequest,
+} from "./rc6-2-closed-agent-network-policy.mjs";
 
 const mode = process.argv[2] ?? "all";
 const results = [];
@@ -769,6 +773,35 @@ await test("production-matrix", () => {
 });
 
 await test("source-truth", async () => {
+  const previewOrigin = "https://novel.example";
+  const immutableRoot = [
+    "https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+    "resolve/32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad/params_shard_0.bin",
+  ].join("/");
+  const regionalRedirect = "https://us.aws.cdn.hf.co/model/params_shard_0.bin";
+  const cacheRedirect = "https://huggingface.co/api/resolve-cache/models/mlc-ai/model/config.json";
+  const classify = (urlValue, requestPhase = "model-install", rootUrlValue = immutableRoot) => (
+    classifyClosedAiCrossOriginRequest({
+      urlValue,
+      expectedOrigin: previewOrigin,
+      requestPhase,
+      rootUrlValue,
+    })
+  );
+  assert.equal(classify(`${previewOrigin}/api/release/identity`, "inference"), "same-origin");
+  assert.equal(classify(immutableRoot), "immutable-model-root");
+  assert.equal(classify(regionalRedirect), "immutable-model-redirect");
+  assert.equal(classify(cacheRedirect), "immutable-model-redirect");
+  assert.equal(classify(regionalRedirect, "model-install", regionalRedirect), "blocked");
+  assert.equal(classify(regionalRedirect, "inference"), "blocked");
+  assert.equal(classify(immutableRoot.replace("32ff081f", "42ff081f")), "blocked");
+  assert.equal(classify(immutableRoot.replace("https:", "http:")), "blocked");
+  assert.equal(classify(immutableRoot.replace("huggingface.co", "huggingface.co.evil.test")), "blocked");
+  assert.equal(classify(immutableRoot.replace("huggingface.co", "huggingface.co:444")), "blocked");
+  assert.equal(isPreviewToolbarRequest("https://vercel.live/widget"), true);
+  assert.equal(isPreviewToolbarRequest("https://vercel.live:444/widget"), false);
+  assert.equal(isPreviewToolbarRequest("https://vercel.live.evil.test/widget"), false);
+  assert.equal(isPreviewToolbarRequest("http://vercel.live/widget"), false);
   const lazyTraditionalRuntimeSources = await Promise.all([
     "../lib/novel-ai/closed-agent-os/closed-agent-os.ts",
     "../lib/novel-ai/closed-agent-os/evaluator.ts",
@@ -843,6 +876,17 @@ await test("source-truth", async () => {
   assert.match(provider, /BROWSER_AI_MODEL_DIGEST_NOT_VERIFIABLE/u);
   assert.match(provider, /const productionGenerationReady = resolvedCapability\.generativeModelReady/u);
   assert.match(provider, /resolvedCapability\.generativeRuntime === "webllm-worker"/u);
+  const browserVerification = provider.slice(
+    provider.indexOf("export async function verifyBrowserAI"),
+    provider.indexOf("export async function detectBrowserAI"),
+  );
+  assert.match(provider, /const BROWSER_GENERATION_VERIFICATION_SEED = 0x52433632/u);
+  assert.match(provider, /const BROWSER_GENERATION_VERIFICATION_SCHEMA = Object\.freeze\(\{/u);
+  assert.match(browserVerification, /generateWithBrowserWebLLM\(\{[\s\S]*jsonMode:\s*true/u);
+  assert.match(
+    browserVerification,
+    /jsonSchema:\s*BROWSER_GENERATION_VERIFICATION_SCHEMA[\s\S]*seed:\s*BROWSER_GENERATION_VERIFICATION_SEED/u,
+  );
   assert.match(privateHub, /body\.modelDigest === expected\.modelDigest/u);
   assert.match(privateHub, /isCryptographicClosedAIModelDigest\(body\.modelDigest\)/u);
   assert.match(privateHub, /validPrivateHubVerificationTimestamp\(body\.verifiedAt\)/u);
@@ -923,6 +967,21 @@ await test("source-truth", async () => {
   assert.match(privateHub, /seed:\s*input\.request\.regeneration\.modelSeed/u);
   assert.doesNotMatch(workspace, /getStudioClosedAIBootstrapCoordinator/u);
   assert.match(browserGate, /RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED/u);
+  assert.match(browserGate, /context\.route\("https:\/\/vercel\.live\/\*\*"/u);
+  assert.match(browserGate, /route\.abort\("blockedbyclient"\)/u);
+  assert.match(
+    browserGate,
+    /await route\.abort\("blockedbyclient"\);[\s\S]*blockedPreviewToolbarRequests\.add\(route\.request\(\)\)/u,
+  );
+  assert.match(browserGate, /observedPreviewToolbarRequests[\s\S]*blockedPreviewToolbarRequests/u);
+  assert.match(browserGate, /assert\.deepEqual\(previewToolbarResponses, \[\]\)/u);
+  assert.match(browserGate, /disallowedCrossOriginHostDigests/u);
+  assert.doesNotMatch(browserGate, /disallowedCrossOriginHosts/u);
+  assert.match(
+    browserGate,
+    /rightsRequiredAlert\.waitFor\([\s\S]*await waitUntilNotBusy\(composer\)/u,
+  );
+  assert.doesNotMatch(browserGate, /RC6_2_CLOSED_AI_DIAGNOSTIC_RIGHTS_ONLY/u);
   assert.match(browserGate, /getByTestId\("closed-ai-prepare-browser"\)\.click\(\)/u);
   assert.match(browserGate, /data-setup-lifecycle"\), "cancelled"/u);
   assert.match(browserGate, /getByRole\("button", \{ name: "取消準備"/u);

@@ -76,6 +76,7 @@ import { useConversationApprovalController } from "./hooks/use-conversation-appr
 import { useConversationRpgController } from "./hooks/use-conversation-rpg";
 import { useConversationLearningCoordinatorLoader } from "./hooks/use-conversation-learning-loader";
 import {
+  acquireConversationLease,
   toExecutionReceipt,
   useConversationOperationController,
 } from "./hooks/use-conversation-operation";
@@ -136,36 +137,6 @@ function targetStore(plan: ConversationPlan): ConversationArtifact["targetStore"
 function progressLabel(event: ClosedAIProgressEvent) {
   const generated = event.generatedCharacters ?? 0;
   return `${event.label}${generated ? ` · 已產生 ${generated} 字` : ""}`;
-}
-
-async function acquireConversationLease(projectId: string, sessionId: string) {
-  if (typeof navigator === "undefined" || !navigator.locks) return () => undefined;
-  const lockName = `novel:conversation-operation:${projectId}:${sessionId}`;
-  return new Promise<(() => void) | null>((resolve) => {
-    let resolved = false;
-    void navigator.locks.request(
-      lockName,
-      { mode: "exclusive", ifAvailable: true },
-      async (lock) => {
-        if (!lock) {
-          resolved = true;
-          resolve(null);
-          return;
-        }
-        await new Promise<void>((release) => {
-          let released = false;
-          resolved = true;
-          resolve(() => {
-            if (released) return;
-            released = true;
-            release();
-          });
-        });
-      },
-    ).catch(() => {
-      if (!resolved) resolve(null);
-    });
-  });
 }
 
 export default function ConversationWorkspace({
@@ -1375,6 +1346,31 @@ export default function ConversationWorkspace({
     setRetryAvailable(true);
     setRetryLabel("重試");
     operationLockRef.current = true;
+    const plan = await planConversationRequest({
+      content,
+      attachmentCount: localAttachments.length,
+      hasActiveRpgTurn: Boolean(latestRpgChoices),
+    }).catch((error) => {
+      setSafeError({ code: errorCode(error), message: errorMessage(error) });
+      return null;
+    });
+    if (!plan) {
+      operationLockRef.current = false;
+      return;
+    }
+    if (localAttachments.length && !rightsConfirmed) {
+      const code = plan.executionKind === "learning_import"
+        ? "LEARNING_RIGHTS_CONFIRMATION_REQUIRED"
+        : "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED";
+      setDraft(content);
+      setSafeError({
+        code,
+        message: "Attachment rights confirmation is required.",
+      });
+      setProgress("Attachment rights must be confirmed before attachment processing starts.");
+      operationLockRef.current = false;
+      return;
+    }
     const releaseLease = await acquireConversationLease(projectId, activeSession.id);
     if (!releaseLease) {
       operationLockRef.current = false;
@@ -1395,11 +1391,6 @@ export default function ConversationWorkspace({
     setDraft("");
     setProgress("正在辨識你的自然語言要求。");
     try {
-      const plan = await planConversationRequest({
-        content,
-        attachmentCount: localAttachments.length,
-        hasActiveRpgTurn: Boolean(latestRpgChoices),
-      });
       if (plan.executionKind === "learning_import") {
         learningResumeEnabled = true;
         if (!localAttachments.length) {

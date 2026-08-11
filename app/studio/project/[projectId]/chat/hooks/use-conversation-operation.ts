@@ -12,6 +12,36 @@ import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { assertConversationPlannerToolAllowed } from "@/lib/novel-ai/conversation/tool-registry";
 
+export async function acquireConversationLease(projectId: string, sessionId: string) {
+  if (typeof navigator === "undefined" || !navigator.locks) return () => undefined;
+  const lockName = `novel:conversation-operation:${projectId}:${sessionId}`;
+  return new Promise<(() => void) | null>((resolve) => {
+    let resolved = false;
+    void navigator.locks.request(
+      lockName,
+      { mode: "exclusive", ifAvailable: true },
+      async (lock) => {
+        if (!lock) {
+          resolved = true;
+          resolve(null);
+          return;
+        }
+        await new Promise<void>((release) => {
+          let released = false;
+          resolved = true;
+          resolve(() => {
+            if (released) return;
+            released = true;
+            release();
+          });
+        });
+      },
+    ).catch(() => {
+      if (!resolved) resolve(null);
+    });
+  });
+}
+
 export function toExecutionReceipt(input: {
   taskId: string;
   modelId: string | null;

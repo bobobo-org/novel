@@ -30,6 +30,16 @@ import {
   persistBrowserDeviceBenchmark,
 } from "./browser-device-benchmark";
 
+const BROWSER_GENERATION_VERIFICATION_SEED = 0x52433632;
+const BROWSER_GENERATION_VERIFICATION_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    status: { type: "string", minLength: 1 },
+  },
+  required: ["status"],
+  additionalProperties: false,
+});
+
 export type BrowserAIManifest = { id: string; version: string; files: Array<{ url: string; bytes: number; sha256: string }>; minMemoryGb: number; requiresWebGpu: boolean };
 export type BrowserAICapability = {
   webGpu: boolean;
@@ -319,6 +329,9 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
       const result = await generateWithBrowserWebLLM({
         systemInstruction: "你是裝置內繁體中文小說助理。只輸出有效 JSON，不要 Markdown。",
         prompt: "只回覆這個結構並填入繁體中文短句：{\"status\":\"...\"}",
+        jsonMode: true,
+        jsonSchema: BROWSER_GENERATION_VERIFICATION_SCHEMA,
+        seed: BROWSER_GENERATION_VERIFICATION_SEED,
         temperature: 0.2,
         maxTokens: 64,
         signal,

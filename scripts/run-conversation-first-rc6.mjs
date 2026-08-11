@@ -50,10 +50,7 @@ import {
 import {
   artifactStory,
 } from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
-import {
-  sha256Hex,
-  stableStringify,
-} from "../lib/novel-ai/closed-ai-cache/index.ts";
+import { sha256Hex } from "../lib/novel-ai/closed-ai-cache/index.ts";
 import {
   assertConversationClosedAgentApprovalBinding,
   buildConversationClosedAgentApprovalBindingProof,
@@ -815,6 +812,18 @@ harness.test("contract", "attachment rights confirmation precedes message, parse
   const rightsGate = workspace.indexOf(
     "if (localAttachments.length && !rightsConfirmed)",
   );
+  const planStart = workspace.lastIndexOf(
+    "const plan = await planConversationRequest",
+    rightsGate,
+  );
+  const localOperationGuard = workspace.lastIndexOf(
+    "operationLockRef.current = true",
+    rightsGate,
+  );
+  const leaseStart = workspace.indexOf(
+    "const releaseLease = await acquireConversationLease",
+    rightsGate,
+  );
   const messageWrite = workspace.indexOf(
     "let userMessage = existingRpgUser ?? await conversation.appendMessage",
   );
@@ -822,8 +831,16 @@ harness.test("contract", "attachment rights confirmation precedes message, parse
     "preparedAttachments = await prepareLocalAttachments(",
   );
   assert(rightsGate >= 0);
+  assert(planStart >= 0 && planStart < rightsGate);
+  assert(localOperationGuard >= 0 && localOperationGuard < planStart);
+  assert(leaseStart > rightsGate);
   assert(messageWrite > rightsGate);
   assert(parserStart > messageWrite);
+  const preflight = workspace.slice(rightsGate, leaseStart);
+  assert.match(preflight, /setDraft\(content\)/u);
+  assert.match(preflight, /setSafeError\(\{/u);
+  assert.match(preflight, /operationLockRef\.current = false/u);
+  assert.doesNotMatch(preflight, /appendMessage|prepareLocalAttachments|runClosedAgent/u);
   assert.match(
     workspace,
     /safeCode !== "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED"/u,

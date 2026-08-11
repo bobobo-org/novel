@@ -5,6 +5,10 @@ import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
+import {
+  classifyClosedAiCrossOriginRequest,
+  isPreviewToolbarRequest,
+} from "./rc6-2-closed-agent-network-policy.mjs";
 
 Error.stackTraceLimit = 0;
 
@@ -47,12 +51,17 @@ if (!configuredEdgeExecutable) {
 const setupTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_SETUP_TIMEOUT_MS ?? 1_800_000);
 const generationTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_GENERATION_TIMEOUT_MS ?? 1_200_000);
 const headless = process.env.RC6_2_CLOSED_AI_HEADLESS !== "0";
-const modelRequests = [];
+const immutableModelRootRequests = [];
+const approvedModelRedirectRequests = [];
 const prohibitedExternalAiRequests = [];
 const disallowedCrossOriginRequests = [];
+const observedPreviewToolbarRequests = [];
+const blockedPreviewToolbarRequests = new Set();
+const previewToolbarResponses = [];
 const sensitiveEvidenceSentinels = new Set();
 const finalContextFragmentVariants = new Map();
 let requestPhase = "bootstrap";
+let gateCheckpoint = "bootstrap";
 let browser;
 let context;
 let page;
@@ -61,6 +70,7 @@ let edgeExecutablePath;
 let edgeCdpSession;
 let authoritativeFailureEvidence = null;
 let finalOutput = null;
+let freshStorageAtFailure = null;
 
 const FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1";
 
@@ -159,6 +169,10 @@ const PERSISTED_FAILURE_SAFE_CODES = Object.freeze([
   "BROWSER_WEBLLM_GENERATION_FAILED",
 ]);
 const PERSISTED_FAILURE_SAFE_CODE_SET = new Set(PERSISTED_FAILURE_SAFE_CODES);
+const SAFE_UI_ERROR_CODE_SET = new Set([
+  "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
+  "LEARNING_RIGHTS_CONFIRMATION_REQUIRED",
+]);
 const SAFE_FAILURE_CODES = new Set([
   "RC6_2_CLOSED_AI_GATE_FAILED",
   "RC6_2_CLOSED_AI_SETUP_FAILED",
@@ -295,49 +309,23 @@ function safeFailureCode(error) {
   return "RC6_2_CLOSED_AI_GATE_FAILED";
 }
 
-function isModelPayload(urlValue) {
-  const url = new URL(urlValue);
-  return isApprovedImmutableModelSource(url)
-    || isApprovedModelCdn(url);
-}
-
-function isApprovedImmutableModelSource(url) {
-  if (url.protocol !== "https:") return false;
-  if (url.hostname === "huggingface.co") {
-    return url.pathname.startsWith(
-      "/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad/",
-    );
-  }
-  return url.hostname === "raw.githubusercontent.com"
-    && url.pathname === [
-      "/mlc-ai/binary-mlc-llm-libs",
-      "025bcaf3780fa8254f5e5efd3bfea0a5397248f4",
-      "web-llm-models/v0_2_84/base",
-      "Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm",
-    ].join("/");
-}
-
-function isApprovedModelCdn(url) {
-  return url.protocol === "https:"
-    && (
-      /^cdn-lfs(?:-[a-z0-9]+)*\.(?:hf|huggingface)\.co$/u.test(url.hostname)
-      || /^(?:cas-bridge|transfer)\.xethub\.hf\.co$/u.test(url.hostname)
-    );
-}
-
 function rootRedirectRequest(request) {
   let current = request;
   while (current.redirectedFrom()) current = current.redirectedFrom();
   return current;
 }
 
-function isAllowedCrossOriginRequest(request) {
-  const url = new URL(request.url());
-  if (url.origin === expectedOrigin) return true;
-  if (requestPhase !== "model-install") return false;
-  if (isApprovedImmutableModelSource(url)) return true;
-  return isApprovedModelCdn(url)
-    && isApprovedImmutableModelSource(new URL(rootRedirectRequest(request).url()));
+function requestNetworkClassification(request) {
+  return classifyClosedAiCrossOriginRequest({
+    urlValue: request.url(),
+    expectedOrigin,
+    requestPhase,
+    rootUrlValue: rootRedirectRequest(request).url(),
+  });
+}
+
+function modelAssetRequestCount() {
+  return immutableModelRootRequests.length + approvedModelRedirectRequests.length;
 }
 
 function safeCrossOriginProjection(urlValue) {
@@ -1077,6 +1065,7 @@ async function readFreshStorageTruth() {
     ...storage,
     emptyBeforeAppNavigation: true,
   };
+  freshStorageAtFailure = evidence;
   for (const [key, value] of Object.entries(evidence)) {
     if (key === "emptyBeforeAppNavigation") continue;
     assert.equal(value, 0, `${key} was not empty before app navigation`);
@@ -1455,7 +1444,7 @@ async function inspectFreshSetup() {
   assert.match(text, /作品資料不離開裝置/u);
   assert.match(text, /改用 Local Ollama/u);
   assert.match(text, /連接 Private AI Hub/u);
-  assert.equal(modelRequests.length, 0, "fresh inspection triggered an automatic model download");
+  assert.equal(modelAssetRequestCount(), 0, "fresh inspection triggered an automatic model download");
   return {
     status: "setup_required",
     model: "Qwen2.5 0.5B",
@@ -1507,16 +1496,26 @@ async function readModelMetadata() {
       });
       const selected = records.find((record) => record.kind === "setting" && record.key === "selected-model");
       const model = records.find((record) => record.kind === "model" && record.modelId === selected?.modelId);
+      const safeInteger = (value) => (
+        Number.isSafeInteger(value) && value >= 0 ? value : null
+      );
+      const sha256Digest = (value) => (
+        typeof value === "string" && /^[a-f0-9]{64}$/u.test(value) ? value : null
+      );
       return model ? {
-        modelId: model.modelId,
-        modelDigest: model.modelDigest,
-        installStatus: model.installStatus,
-        cacheVerified: model.cacheVerified,
-        shardIntegrityVerified: model.shardIntegrityVerified,
-        shardManifestDigest: model.shardManifestDigest,
-        verifiedShardCount: model.verifiedShardCount,
-        shardVerifiedAt: model.shardVerifiedAt,
-        generationCount: model.generationCount,
+        modelDigest: sha256Digest(model.modelDigest),
+        installStatus: ["not_installed", "installing", "ready", "error"].includes(model.installStatus)
+          ? model.installStatus
+          : null,
+        cacheVerified: typeof model.cacheVerified === "boolean" ? model.cacheVerified : null,
+        shardIntegrityVerified: typeof model.shardIntegrityVerified === "boolean"
+          ? model.shardIntegrityVerified
+          : null,
+        shardManifestDigest: model.shardManifestDigest === null
+          ? null
+          : sha256Digest(model.shardManifestDigest),
+        verifiedShardCount: safeInteger(model.verifiedShardCount),
+        generationCount: safeInteger(model.generationCount ?? 0),
       } : null;
     } finally {
       database.close();
@@ -1631,7 +1630,7 @@ async function readRightsGateExecutionCounts(projectId) {
   return {
     ...persistentCounts,
     modelGenerationCount: modelMetadata?.generationCount ?? 0,
-    modelPayloadRequestCount: modelRequests.length,
+    modelPayloadRequestCount: modelAssetRequestCount(),
   };
 }
 
@@ -2394,6 +2393,7 @@ async function readAttachmentEvidence(projectId, taskId) {
 }
 
 async function runAttachmentProbe(projectId, storyBible) {
+  gateCheckpoint = "attachment-init";
   const canonBefore = await readChapterTruth(projectId);
   const attachmentBytes = Buffer.from([
     "rights-confirmed-local-source-v1",
@@ -2408,6 +2408,7 @@ async function runAttachmentProbe(projectId, storyBible) {
   const generationPrompt = "請根據核准 Story Bible 與附件開始第一章";
   registerSensitiveEvidenceSentinel(generationPrompt);
   const composer = page.getByTestId("conversation-message-composer");
+  gateCheckpoint = "attachment-file-select";
   await composer.locator('input[type="file"]').setInputFiles({
     name: "rights-confirmed-source.txt",
     mimeType: "text/plain",
@@ -2417,13 +2418,17 @@ async function runAttachmentProbe(projectId, storyBible) {
   await tray.waitFor({ state: "visible", timeout: 90_000 });
   const rightsCheckbox = tray.getByRole("checkbox");
   assert.equal(await rightsCheckbox.isChecked(), false);
+  gateCheckpoint = "attachment-rights-negative-baseline";
   const beforeUncheckedSubmit = await readRightsGateExecutionCounts(projectId);
   await composer.locator("textarea").fill(generationPrompt);
   await composer.getByRole("button", { name: "送出", exact: true }).click();
-  await waitUntilNotBusy(composer);
-  await page.locator('[role="alert"] strong').filter({
+  gateCheckpoint = "attachment-rights-negative-wait";
+  const rightsRequiredAlert = page.locator('[role="alert"] strong').filter({
     hasText: /^CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED$/u,
-  }).waitFor({ state: "visible", timeout: 30_000 });
+  });
+  await rightsRequiredAlert.waitFor({ state: "visible", timeout: 90_000 });
+  await waitUntilNotBusy(composer);
+  gateCheckpoint = "attachment-rights-negative-verify";
   const afterUncheckedSubmit = await readRightsGateExecutionCounts(projectId);
   assert.deepEqual(
     afterUncheckedSubmit,
@@ -2431,17 +2436,21 @@ async function runAttachmentProbe(projectId, storyBible) {
     "unchecked attachment rights created persistent or model-execution evidence",
   );
   assert.deepEqual(await readChapterTruth(projectId), canonBefore);
+  gateCheckpoint = "attachment-rights-positive-submit";
   await rightsCheckbox.check();
   assert.equal(await rightsCheckbox.isChecked(), true);
   await composer.locator("textarea").fill(generationPrompt);
   await composer.getByRole("button", { name: "送出", exact: true }).click();
+  gateCheckpoint = "attachment-candidate-wait";
   const generated = await waitForCandidate(projectId);
+  gateCheckpoint = "attachment-candidate-truth";
   assertCandidateTruth(generated);
   assert.deepEqual(
     await readChapterTruth(projectId),
     canonBefore,
     "attachment candidate mutated Canon before rejection",
   );
+  gateCheckpoint = "attachment-evidence-read";
   const attachmentEvidence = await readAttachmentEvidence(projectId, generated.candidate.taskId);
   assert.ok(attachmentEvidence);
   assert.equal(attachmentEvidence.attachmentCount, 1);
@@ -2504,15 +2513,19 @@ async function runAttachmentProbe(projectId, storyBible) {
       ].join("\n"),
     },
   });
+  gateCheckpoint = "attachment-context-proof";
   const finalContextProof = assertFinalContextBindings(generated, [
     storyBibleFinalContextSource(storyBible),
     attachmentFinalContextSource(attachment),
   ]);
+  gateCheckpoint = "attachment-reject-submit";
   const approvalActions = page.locator(
     `[data-testid="conversation-approval-actions"][data-artifact-id="${generated.artifact.id}"]`,
   );
   await approvalActions.getByRole("button", { name: "放棄", exact: true }).click();
+  gateCheckpoint = "attachment-reject-wait";
   await waitForArtifactStatus(generated.artifact.id, "rejected");
+  gateCheckpoint = "attachment-reject-verify";
   const rejected = await readCandidateEvidence(projectId, generated.candidate.id);
   assertCandidateTruth(rejected, { status: "rejected" });
   assert.deepEqual(
@@ -2572,7 +2585,7 @@ async function startNewConversationSession() {
 async function runT1ContextAttestationProbe(projectId, storyBible, previousTaskId) {
   const canonBefore = await readChapterTruth(projectId);
   const modelMetadataBefore = await readModelMetadata();
-  const modelAssetRequestsBefore = modelRequests.length;
+  const modelAssetRequestsBefore = modelAssetRequestCount();
   const prompt = "檢查目前章節與 Story Bible 的一致性，只回報分析，不修改 Canon";
   registerSensitiveEvidenceSentinel(prompt);
   const composer = page.getByTestId("conversation-message-composer");
@@ -2583,7 +2596,7 @@ async function runT1ContextAttestationProbe(projectId, storyBible, previousTaskI
   assert.equal(evidence.candidate.executionReceipt.finalModelContextAttestation, null);
   assert.equal(evidence.browserComputeReceipt.finalModelContextAttestation, null);
   assert.deepEqual(await readChapterTruth(projectId), canonBefore);
-  assert.equal(modelRequests.length, modelAssetRequestsBefore);
+  assert.equal(modelAssetRequestCount(), modelAssetRequestsBefore);
   const modelMetadataAfter = await readModelMetadata();
   assert.equal(
     modelMetadataAfter?.generationCount,
@@ -2607,8 +2620,9 @@ async function runT1ContextAttestationProbe(projectId, storyBible, previousTaskI
 
 async function prepareBrowserAi(setupEvidence) {
   requestPhase = "model-install";
+  gateCheckpoint = "prepare-click";
   const card = page.getByTestId("closed-ai-setup-card");
-  const beforeClickRequests = modelRequests.length;
+  const beforeClickRequests = modelAssetRequestCount();
   await card.getByTestId("closed-ai-prepare-browser").click();
   await page.waitForFunction(
     () => document.querySelector('[data-testid="closed-ai-setup-card"]')?.getAttribute("aria-busy") === "true",
@@ -2616,15 +2630,16 @@ async function prepareBrowserAi(setupEvidence) {
   assert.equal(await card.getAttribute("data-setup-lifecycle"), "preparing");
   const earlyRequestDeadline = Date.now() + 15_000;
   while (
-    modelRequests.length === beforeClickRequests
+    modelAssetRequestCount() === beforeClickRequests
     && Date.now() < earlyRequestDeadline
   ) {
     await page.waitForTimeout(100);
   }
   assert.ok(
-    modelRequests.length > beforeClickRequests,
+    modelAssetRequestCount() > beforeClickRequests,
     "explicit setup did not start a real model request before cancellation",
   );
+  gateCheckpoint = "prepare-cancel";
   await card.getByRole("button", { name: "取消準備", exact: true }).click();
   await waitUntilNotBusy(card);
   assert.equal(await card.getAttribute("data-setup-lifecycle"), "cancelled");
@@ -2639,16 +2654,19 @@ async function prepareBrowserAi(setupEvidence) {
     true,
     "cancelled setup was incorrectly promoted to a verified model",
   );
-  const requestsAtCancel = modelRequests.length;
+  const requestsAtCancel = modelAssetRequestCount();
+  gateCheckpoint = "prepare-retry";
   await card.getByTestId("closed-ai-prepare-browser").click();
   await page.waitForFunction(
     () => document.querySelector('[data-testid="closed-ai-setup-card"]')?.getAttribute("data-setup-lifecycle") === "preparing",
   );
+  gateCheckpoint = "prepare-wait-ready";
   await waitForBrowserAiReady(card);
   assert.ok(
-    modelRequests.length > requestsAtCancel,
+    modelAssetRequestCount() > requestsAtCancel,
     "retry did not resume a real model payload request after cancellation",
   );
+  gateCheckpoint = "prepare-consumer-readiness";
   const composerTruth = page.getByTestId("conversation-message-composer");
   const consumerReadiness = {
     generationVerifiedBackends: Number(
@@ -2662,6 +2680,7 @@ async function prepareBrowserAi(setupEvidence) {
   assert.equal(consumerReadiness.activeBackend, "browser-ai");
   assert.equal(consumerReadiness.externalFallback, false);
   assert.equal(consumerReadiness.silentExternalFallback, false);
+  gateCheckpoint = "prepare-model-metadata";
   const modelMetadata = await readModelMetadata();
   assert.ok(modelMetadata);
   assert.equal(modelMetadata.installStatus, "ready");
@@ -2682,8 +2701,13 @@ async function prepareBrowserAi(setupEvidence) {
         incompleteModelPromoted: false,
       },
       retryAfterCancel: true,
-      modelPayloadRequestCount: modelRequests.length,
-      modelPayloadHosts: [...new Set(modelRequests.map((item) => item.host))].sort(),
+      modelPayloadRequestCount: modelAssetRequestCount(),
+      immutableModelRootRequestCount: immutableModelRootRequests.length,
+      approvedModelRedirectRequestCount: approvedModelRedirectRequests.length,
+      modelPayloadHosts: [...new Set([
+        ...immutableModelRootRequests,
+        ...approvedModelRedirectRequests,
+      ].map((item) => item.host))].sort(),
       metadata: modelMetadata,
     },
     consumerReadiness,
@@ -2756,7 +2780,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   );
   assert.deepEqual(await readChapterTruth(projectId), canonBefore, "reject mutated Canon");
 
-  const modelAssetRequestsBeforeReload = modelRequests.length;
+  const modelAssetRequestsBeforeReload = modelAssetRequestCount();
   const modelMetadataBeforeReload = await readModelMetadata();
   await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.getByTestId("conversation-first-workspace").waitFor({
@@ -2765,7 +2789,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   });
   await assertExactOrigin();
   assert.equal(
-    modelRequests.length,
+    modelAssetRequestCount(),
     modelAssetRequestsBeforeReload,
     "reload fetched model assets despite the verified local cache",
   );
@@ -2796,7 +2820,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   await chainedRegenerate.click();
   const third = await waitForCandidate(projectId, second.candidate.taskId);
   assert.equal(
-    modelRequests.length,
+    modelAssetRequestCount(),
     modelAssetRequestsBeforeReload,
     "chained T2 inference fetched model assets instead of reusing the verified cache",
   );
@@ -2886,45 +2910,75 @@ async function runGenerationLifecycle(projectId, storyBible) {
 }
 
 try {
+  gateCheckpoint = "launch";
   const launched = await launch();
   browser = launched.browser;
   context = launched.context;
+  await context.route("https://vercel.live/**", async (route) => {
+    await route.abort("blockedbyclient");
+    blockedPreviewToolbarRequests.add(route.request());
+  });
   assert.equal(context.pages().length, 1, "fresh Edge profile opened an unexpected startup page");
   page = context.pages()[0] ?? await context.newPage();
   assert.equal(page.url(), "about:blank");
   context.on("request", (request) => {
     const url = request.url();
-    if (!isAllowedCrossOriginRequest(request)) {
+    const networkClassification = requestNetworkClassification(request);
+    if (isPreviewToolbarRequest(url)) {
+      observedPreviewToolbarRequests.push(request);
+    } else if (networkClassification === "blocked") {
       disallowedCrossOriginRequests.push(safeCrossOriginProjection(url));
     }
-    if (isModelPayload(url)) {
+    if (
+      networkClassification === "immutable-model-root"
+      || networkClassification === "immutable-model-redirect"
+    ) {
       const parsed = new URL(url);
-      modelRequests.push({ host: parsed.host, path: parsed.pathname });
+      const collection = networkClassification === "immutable-model-root"
+        ? immutableModelRootRequests
+        : approvedModelRedirectRequests;
+      collection.push({ host: parsed.host, path: parsed.pathname });
     }
     if (isProhibitedExternalAi(url)) {
       prohibitedExternalAiRequests.push(new URL(url).host);
     }
   });
+  context.on("response", (response) => {
+    if (isPreviewToolbarRequest(response.url())) {
+      previewToolbarResponses.push(safeCrossOriginProjection(response.url()));
+    }
+  });
   requestPhase = "release-identity";
+  gateCheckpoint = "edge-identity";
   const edgeIdentity = await readEdgeIdentity(launched.evidence);
+  gateCheckpoint = "release-identity";
   const releaseIdentityBeforeApp = await readReleaseIdentityTruth({ navigate: true });
+  gateCheckpoint = "fresh-storage";
   const freshStorage = await readFreshStorageTruth();
   requestPhase = "project-setup";
+  gateCheckpoint = "project-create";
   const projectId = await createProject();
+  gateCheckpoint = "story-bible";
   const storyBible = mode === "setup" ? null : await createApprovedStoryBible(projectId);
+  gateCheckpoint = "inspect-setup";
   const setup = await inspectFreshSetup();
   let lifecycle;
   if (mode === "setup") {
     lifecycle = { setup };
   } else {
+    gateCheckpoint = "prepare";
     const prepared = await prepareBrowserAi(setup);
+    gateCheckpoint = "attachment-probe";
     const attachmentProbe = await runAttachmentProbe(projectId, storyBible);
+    gateCheckpoint = "attachment-to-t1-session";
     const attachmentToT1 = await startNewConversationSession();
+    gateCheckpoint = "t1-probe";
     const t1ContextAttestationProbe = await runT1ContextAttestationProbe(
       projectId,
       storyBible,
       attachmentProbe.candidate.taskId,
     );
+    gateCheckpoint = "t1-to-lifecycle-session";
     const t1ToLifecycle = await startNewConversationSession();
     assert.equal(t1ToLifecycle.previousSessionId, attachmentToT1.newSessionId);
     const conversationIsolation = {
@@ -2938,6 +2992,7 @@ try {
       ]).size === 3,
     };
     assert.equal(conversationIsolation.allDistinct, true);
+    gateCheckpoint = "generation-lifecycle";
     const ordinaryLifecycle = await runGenerationLifecycle(projectId, storyBible);
     lifecycle = {
       ...prepared,
@@ -2948,6 +3003,7 @@ try {
       ...ordinaryLifecycle,
     };
   }
+  gateCheckpoint = "final-release-identity";
   const releaseIdentityAfterReload = await readReleaseIdentityTruth();
   assert.deepEqual(releaseIdentityAfterReload, releaseIdentityBeforeApp);
   const edgeVersionAfterReload = await edgeCdpSession.send("Browser.getVersion");
@@ -2962,6 +3018,11 @@ try {
   edgeIdentity.pageCount = 1;
   assert.deepEqual(prohibitedExternalAiRequests, []);
   assert.deepEqual(disallowedCrossOriginRequests, []);
+  assert.equal(observedPreviewToolbarRequests.length, blockedPreviewToolbarRequests.size);
+  for (const request of observedPreviewToolbarRequests) {
+    assert.equal(blockedPreviewToolbarRequests.has(request), true);
+  }
+  assert.deepEqual(previewToolbarResponses, []);
   finalOutput = {
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
     status: "PASS",
@@ -2977,6 +3038,10 @@ try {
       policy: "phase-aware-default-deny-v1",
       immutableModelAssetsAllowedOnlyDuringExplicitInstall: true,
       disallowedRequestCount: 0,
+      previewToolbarPolicy: "blocked-before-network",
+      observedPreviewToolbarRequestCount: observedPreviewToolbarRequests.length,
+      blockedPreviewToolbarRequestCount: blockedPreviewToolbarRequests.size,
+      previewToolbarResponseCount: 0,
     },
     projectId,
     ...lifecycle,
@@ -2986,14 +3051,79 @@ try {
 } catch (error) {
   const diagnosticCodes = await readSanitizedQualityCodes().catch(() => []);
   const browserRuntimeEvidence = await readSanitizedBrowserRuntimeEvidence().catch(() => []);
+  const modelMetadataAtFailure = await readModelMetadata().catch(() => null);
+  const uiSafeErrorCodesAtFailure = await page?.locator('[role="alert"] strong')
+    .allTextContents()
+    .then((values) => values
+      .map((value) => value.trim())
+      .filter((value) => SAFE_UI_ERROR_CODE_SET.has(value))
+      .sort())
+    .catch(() => []);
+  const uiStateAtFailure = await page?.evaluate(async () => {
+    const composer = document.querySelector('[data-testid="conversation-message-composer"]');
+    const textarea = composer?.querySelector("textarea");
+    const buttons = [...(composer?.querySelectorAll('button[type="button"]') ?? [])];
+    const sendButton = buttons.at(-1) ?? null;
+    const checkbox = document.querySelector(
+      '[data-testid="conversation-attachment-tray"] input[type="checkbox"]',
+    );
+    const lockState = "locks" in navigator && navigator.locks?.query
+      ? await navigator.locks.query()
+      : { held: [], pending: [] };
+    const relevantLocks = (values) => values.filter((entry) => (
+      typeof entry.name === "string"
+      && entry.name.startsWith("novel:conversation-operation:")
+    ));
+    return {
+      composerBusy: composer?.getAttribute("aria-busy") === "true"
+        ? true
+        : composer?.getAttribute("aria-busy") === "false"
+          ? false
+          : null,
+      sendDisabled: sendButton?.hasAttribute("disabled") ?? null,
+      draftCharacters: textarea ? Array.from(textarea.value).length : null,
+      attachmentTrayCount: document.querySelectorAll(
+        '[data-testid="conversation-attachment-tray"]',
+      ).length,
+      rightsCheckboxCount: document.querySelectorAll(
+        '[data-testid="conversation-attachment-tray"] input[type="checkbox"]',
+      ).length,
+      rightsChecked: checkbox instanceof HTMLInputElement ? checkbox.checked : null,
+      branchPendingStatusCount: document.querySelectorAll(
+        '[data-testid="conversation-branch-global-status"]',
+      ).length,
+      alertCount: document.querySelectorAll('[role="alert"]').length,
+      heldConversationLockCount: relevantLocks(lockState.held ?? []).length,
+      pendingConversationLockCount: relevantLocks(lockState.pending ?? []).length,
+    };
+  }).catch(() => null);
+  const disallowedCrossOriginHostDigests = [...new Set(
+    disallowedCrossOriginRequests.map((entry) => entry.host),
+  )].sort().map((host) => ({
+    hostDigest: sha256Value(host),
+    count: disallowedCrossOriginRequests.filter((entry) => entry.host === host).length,
+  }));
   finalOutput = {
     schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
     status: "FAIL",
     mode,
     exactOrigin: expectedOrigin,
     freshBrowserContext: true,
-    modelPayloadRequestCount: modelRequests.length,
+    requestPhase,
+    gateCheckpoint,
+    freshStorageAtFailure,
+    modelPayloadRequestCount: modelAssetRequestCount(),
+    immutableModelRootRequestCount: immutableModelRootRequests.length,
+    approvedModelRedirectRequestCount: approvedModelRedirectRequests.length,
+    modelMetadataAtFailure,
+    uiSafeErrorCodesAtFailure,
+    uiStateAtFailure,
     prohibitedExternalAiRequestCount: prohibitedExternalAiRequests.length,
+    observedPreviewToolbarRequestCount: observedPreviewToolbarRequests.length,
+    blockedPreviewToolbarRequestCount: blockedPreviewToolbarRequests.size,
+    previewToolbarResponseCount: previewToolbarResponses.length,
+    disallowedCrossOriginRequestCount: disallowedCrossOriginRequests.length,
+    disallowedCrossOriginHostDigests,
     error: {
       code: safeFailureCode(error),
       diagnosticCodes: sanitizeDiagnosticCodes(diagnosticCodes),
