@@ -626,6 +626,77 @@ export function isBrowserOversizedStopIsolatedRepairCandidate(input: {
     && input.observedCodePoints <= (completionTokens ?? 0) * 4 + 128;
 }
 
+type BrowserExactOversizedStopStageEvidence = {
+  contractSatisfied: boolean;
+  safetyCode: string | null;
+  failureCode: string | null;
+  rawBudgetExceeded: boolean;
+  observedHanCharacters: number;
+  observedEstimatedTokens: number;
+  observedCodePoints: number;
+  finishReason: string | null | undefined;
+  completionTokens: number | null | undefined;
+  runtimeTokenCap: number;
+  stageHardCap: number;
+  contentCharacters: number;
+  reportedOutputCharacters: number | null | undefined;
+  reportedRawOutputCharacters: number | null | undefined;
+  reportedNormalizedOutputCharacters: number | null | undefined;
+  normalizationDeferred: boolean;
+};
+
+function isBrowserExactOversizedStopStageEvidence(
+  input: BrowserExactOversizedStopStageEvidence,
+  requiredStageHardCap: number,
+) {
+  return isBrowserOversizedStopIsolatedRepairCandidate({
+    contractSatisfied: input.contractSatisfied,
+    safetyCode: input.safetyCode,
+    failureCode: input.failureCode,
+    rawBudgetExceeded: input.rawBudgetExceeded,
+    observedHanCharacters: input.observedHanCharacters,
+    observedEstimatedTokens: input.observedEstimatedTokens,
+    observedCodePoints: input.observedCodePoints,
+    finishReason: input.finishReason,
+    completionTokens: input.completionTokens,
+    runtimeTokenCap: input.runtimeTokenCap,
+    stageHardCap: input.stageHardCap,
+  })
+    && Number.isSafeInteger(input.observedHanCharacters)
+    && input.observedHanCharacters > BROWSER_PROSE_MAXIMUM_HAN_CHARACTERS
+    && Number.isSafeInteger(input.observedEstimatedTokens)
+    && input.observedEstimatedTokens >= 1
+    && Number.isSafeInteger(input.observedCodePoints)
+    && input.observedCodePoints >= input.observedHanCharacters
+    && Number.isSafeInteger(input.runtimeTokenCap)
+    && input.runtimeTokenCap >= 1
+    && Number.isSafeInteger(input.stageHardCap)
+    && input.stageHardCap === requiredStageHardCap
+    && Number.isSafeInteger(input.contentCharacters)
+    && input.contentCharacters >= input.observedCodePoints
+    && input.contentCharacters <= input.observedCodePoints * 2
+    && input.observedEstimatedTokens
+      <= Math.ceil(input.contentCharacters * 1.08)
+    && input.reportedOutputCharacters === input.contentCharacters
+    && input.reportedRawOutputCharacters === input.contentCharacters
+    && (input.normalizationDeferred
+      ? input.reportedNormalizedOutputCharacters === undefined
+      : input.reportedNormalizedOutputCharacters === input.contentCharacters);
+}
+
+export function isBrowserRepeatedOversizedStopFreshRecoveryCandidate(input: {
+  initial: BrowserExactOversizedStopStageEvidence;
+  repair: BrowserExactOversizedStopStageEvidence;
+}) {
+  return isBrowserExactOversizedStopStageEvidence(
+    input.initial,
+    BROWSER_PROSE_MAXIMUM_ESTIMATED_TOKENS,
+  ) && isBrowserExactOversizedStopStageEvidence(
+    input.repair,
+    BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+  );
+}
+
 export function isBrowserOversizedInitialCollapsedRepairFreshRecoveryCandidate(
   input: {
     initialContractSatisfied: boolean;
@@ -1571,9 +1642,67 @@ export async function executeBrowserBoundedQualityPasses(input: {
           repairResult.normalizedOutputCharacters,
       })
     );
+    const repeatedOversizedStopFreshRecoveryCandidate = Boolean(
+      initialStopBudgetRepairReasonCode === "QUALITY_OUTPUT_TRUNCATED"
+      && !initialSafetyRepairReasonCode
+      && defaultChapterProseContract
+      && requiredGenerativeExecutor === "webllm-worker"
+      && chapterProseContract
+      && repairCompletion
+      && isBrowserRepeatedOversizedStopFreshRecoveryCandidate({
+        initial: {
+          contractSatisfied: chapterProseContract.contractSatisfied,
+          safetyCode: chapterProseContract.safetyCode,
+          failureCode: chapterProseContract.failureCode,
+          rawBudgetExceeded: chapterProseContract.rawBudgetExceeded,
+          observedHanCharacters: chapterProseContract.observedHanCharacters,
+          observedEstimatedTokens:
+            chapterProseContract.observedEstimatedTokens,
+          observedCodePoints: chapterProseContract.observedCodePoints,
+          finishReason: initialResult.generationFinishReason,
+          completionTokens: initialResult.completionTokens,
+          runtimeTokenCap:
+            initialResult.performancePolicy?.maxOutputTokens ?? 0,
+          stageHardCap: performancePolicy.reservedOutputTokens,
+          contentCharacters: initialResult.content.length,
+          reportedOutputCharacters: initialResult.outputCharacters,
+          reportedRawOutputCharacters: initialResult.rawOutputCharacters,
+          reportedNormalizedOutputCharacters:
+            initialResult.normalizedOutputCharacters,
+          normalizationDeferred: Boolean(
+            input.deferTraditionalChineseNormalization,
+          ),
+        },
+        repair: {
+          contractSatisfied: repairCompletion.contractSatisfied,
+          safetyCode: repairCompletion.safetyCode,
+          failureCode: repairCompletion.failureCode,
+          rawBudgetExceeded: repairCompletion.rawBudgetExceeded,
+          observedHanCharacters: repairCompletion.observedHanCharacters,
+          observedEstimatedTokens: repairCompletion.observedEstimatedTokens,
+          observedCodePoints: repairCompletion.observedCodePoints,
+          finishReason: repairResult.generationFinishReason,
+          completionTokens: repairResult.completionTokens,
+          runtimeTokenCap:
+            repairResult.performancePolicy?.maxOutputTokens ?? 0,
+          stageHardCap: BROWSER_BOUNDED_REPAIR_MAX_TOKENS,
+          contentCharacters: repairResult.content.length,
+          reportedOutputCharacters: repairResult.outputCharacters,
+          reportedRawOutputCharacters: repairResult.rawOutputCharacters,
+          reportedNormalizedOutputCharacters:
+            repairResult.normalizedOutputCharacters,
+          normalizationDeferred: Boolean(
+            input.deferTraditionalChineseNormalization,
+          ),
+        },
+      })
+    );
+    const oversizedInitialFreshRecoveryCandidate =
+      oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      || repeatedOversizedStopFreshRecoveryCandidate;
     if (
       initialStopBudgetRepairReasonCode
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
       && repairCompletion
       && (
         repairResult.generationFinishReason !== "stop"
@@ -1658,6 +1787,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       repairCompletion?.rawBudgetExceeded
       && !repairCompletion.contractSatisfied
       && !targetRangeOversizedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
     ) {
       const selectedCompletion = selectVerifiedBrowserLengthSafePrefix({
         completion: repairCompletion,
@@ -1686,7 +1816,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     if (
       !repairInternalEnvelopeRecovery
       && !targetRangeOversizedRepairFreshRecoveryCandidate
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
     ) {
       const acceptedRepairContent = repairCompletion?.content ?? repairResult.content;
       repairResult = {
@@ -1715,7 +1845,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     const degenerateInitialRepairFreshRecoveryCandidate = Boolean(
       defaultChapterProseContract
       && requiredGenerativeExecutor === "webllm-worker"
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
       && initialResult.content.trim().length > 0
       && chapterProseContract
       && repairCompletion
@@ -1806,7 +1936,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && !collapsedRepairFreshRecoveryCandidate
       && !cappedInitialCollapsedRepairFreshRecoveryCandidate
       && !targetRangeOversizedRepairFreshRecoveryCandidate
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
       && !initialIsolatedRepairReasonCode
       && repairCompletion
       && shouldRunBrowserProseExtension({
@@ -1832,7 +1962,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && !collapsedRepairFreshRecoveryCandidate
       && !cappedInitialCollapsedRepairFreshRecoveryCandidate
       && !targetRangeOversizedRepairFreshRecoveryCandidate
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
       && !initialIsolatedRepairReasonCode
       && repairCompletion
       && !repairCompletion.contractSatisfied
@@ -2031,7 +2161,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
     }
     const repairTruncatedFreshRecoveryCandidate = Boolean(
       !repairInternalEnvelopeRecovery
-      && !oversizedInitialCollapsedRepairFreshRecoveryCandidate
+      && !oversizedInitialFreshRecoveryCandidate
       && repairCompletion
       && isBrowserTruncatedFreshRecoveryCandidate({
         ...repairCompletion,
@@ -2058,7 +2188,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && (
         repairInternalEnvelopeRecovery
         || targetRangeOversizedRepairFreshRecoveryCandidate
-        || oversizedInitialCollapsedRepairFreshRecoveryCandidate
+        || oversizedInitialFreshRecoveryCandidate
         || (
           !repairCompletion?.safetyCode
           && !repairCompletion?.rawBudgetExceeded
@@ -2083,7 +2213,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       requiredGenerativeExecutor === "webllm-worker"
       && (
         !initialIsolatedRepairReasonCode
-        || oversizedInitialCollapsedRepairFreshRecoveryCandidate
+        || oversizedInitialFreshRecoveryCandidate
       )
       && defaultChapterProseContract
       && !extensionBase
@@ -2095,16 +2225,16 @@ export async function executeBrowserBoundedQualityPasses(input: {
       && !chapterProseContract.safetyCode
       && (
         !chapterProseContract.rawBudgetExceeded
-        || oversizedInitialCollapsedRepairFreshRecoveryCandidate
+        || oversizedInitialFreshRecoveryCandidate
       )
       && (
-        oversizedInitialCollapsedRepairFreshRecoveryCandidate
+        oversizedInitialFreshRecoveryCandidate
         || initialResult.content.trim().length > 0
       )
       && (
         repairInternalEnvelopeRecovery
         || targetRangeOversizedRepairFreshRecoveryCandidate
-        || oversizedInitialCollapsedRepairFreshRecoveryCandidate
+        || oversizedInitialFreshRecoveryCandidate
         || repairResult.content.trim().length > 0
       )
       && (
