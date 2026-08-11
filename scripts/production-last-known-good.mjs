@@ -12,7 +12,39 @@ import {
 
 const LKG_SCHEMA = "last-known-good-production-identity-v1";
 const LKG_ARTIFACT_PROOF_SCHEMA = "github-actions-lkg-artifact-proof-v1";
+const READ_ONLY_SELECTION_PROOF_SCHEMA = "p24b-rc6.2-readonly-rollback-selection-proof-v2";
 const ARTIFACT_DIGEST = /^sha256:([a-f0-9]{64})$/u;
+const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
+const READ_ONLY_SELECTION_PROOF_KEYS = Object.freeze([
+  "schemaVersion",
+  "status",
+  "selectedAt",
+  "source",
+  "primaryDeploymentId",
+  "primaryAppCommit",
+  "mirrorDeploymentId",
+  "mirrorAppCommit",
+  "lastKnownGoodAvailable",
+  "lastKnownGoodArtifactProofDigest",
+  "lastKnownGoodControlPlaneVerified",
+  "readOnlySelection",
+  "vercelTeamIdSha256",
+  "vercelProjectIdSha256",
+  "auditProvenance",
+  "proofDigest",
+]);
+const AUDIT_PROVENANCE_KEYS = Object.freeze([
+  "productCommit",
+  "repository",
+  "eventName",
+  "eventRef",
+  "eventCommit",
+  "workflow",
+  "workflowRef",
+  "workflowSha",
+  "runId",
+  "runAttempt",
+]);
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -24,6 +56,26 @@ function stableValue(value) {
 
 function digest(value) {
   return createHash("sha256").update(JSON.stringify(stableValue(value))).digest("hex");
+}
+
+function fingerprint(value, code) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || normalized.length > 512 || /[\0\r\n]/u.test(normalized)) {
+    throw Object.assign(new Error(code), { code });
+  }
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+function hasExactKeys(value, expectedKeys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function proofError(code) {
+  return Object.assign(new Error(code), { code });
 }
 
 function isSafeZipPath(value) {
@@ -165,6 +217,168 @@ function isDeploymentId(value) {
 
 function isCommit(value) {
   return /^[a-f0-9]{40}$/u.test(String(value || ""));
+}
+
+function normalizeAuditProvenance(value, { required = false } = {}) {
+  if (value == null) {
+    if (required) throw proofError("READ_ONLY_SELECTION_AUDIT_PROVENANCE_REQUIRED");
+    return null;
+  }
+  if (!hasExactKeys(value, AUDIT_PROVENANCE_KEYS)) {
+    throw proofError("READ_ONLY_SELECTION_AUDIT_PROVENANCE_SHAPE_INVALID");
+  }
+  const normalized = Object.fromEntries(AUDIT_PROVENANCE_KEYS.map((key) => [
+    key,
+    typeof value[key] === "string" ? value[key].trim() : "",
+  ]));
+  normalized.productCommit = normalized.productCommit.toLowerCase();
+  normalized.eventCommit = normalized.eventCommit.toLowerCase();
+  normalized.workflowSha = normalized.workflowSha.toLowerCase();
+  const workflowPrefix = `${normalized.repository}/.github/workflows/`;
+  const workflowSuffix = `@${normalized.eventRef}`;
+  const workflowPath = normalized.workflowRef.startsWith(workflowPrefix)
+    && normalized.workflowRef.endsWith(workflowSuffix)
+    ? normalized.workflowRef.slice(workflowPrefix.length, -workflowSuffix.length)
+    : "";
+  if (
+    !isCommit(normalized.productCommit)
+    || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(normalized.repository)
+    || !["push", "workflow_dispatch"].includes(normalized.eventName)
+    || !/^refs\/(?:heads|tags)\/[^\0\r\n]{1,480}$/u.test(normalized.eventRef)
+    || !isCommit(normalized.eventCommit)
+    || !normalized.workflow
+    || normalized.workflow.length > 256
+    || /[\0\r\n]/u.test(normalized.workflow)
+    || !/^[A-Za-z0-9_.\/-]+\.ya?ml$/u.test(workflowPath)
+    || workflowPath.split("/").includes("..")
+    || normalized.workflowRef.length > 768
+    || /[\0\r\n]/u.test(normalized.workflowRef)
+    || !isCommit(normalized.workflowSha)
+    || !/^[1-9][0-9]{0,19}$/u.test(normalized.runId)
+    || !/^[1-9][0-9]{0,9}$/u.test(normalized.runAttempt)
+    || normalized.productCommit !== normalized.eventCommit
+    || normalized.productCommit !== normalized.workflowSha
+  ) {
+    throw proofError("READ_ONLY_SELECTION_AUDIT_PROVENANCE_INVALID");
+  }
+  return normalized;
+}
+
+function normalizeReadOnlySelectionProofCore(value, { requireAuditProvenance = false } = {}) {
+  const lastKnownGoodAvailable = value.lastKnownGoodAvailable === true;
+  const lastKnownGoodArtifactProofDigest = value.lastKnownGoodArtifactProofDigest ?? null;
+  const selectedAt = new Date(value.selectedAt);
+  if (
+    value.schemaVersion !== READ_ONLY_SELECTION_PROOF_SCHEMA
+    || value.status !== "PASS"
+    || typeof value.selectedAt !== "string"
+    || !Number.isFinite(selectedAt.getTime())
+    || selectedAt.toISOString() !== value.selectedAt
+    || !["current-transaction-capture", "last-known-good", "emergency-static"].includes(value.source)
+    || !isDeploymentId(value.primaryDeploymentId)
+    || !isCommit(value.primaryAppCommit)
+    || !isDeploymentId(value.mirrorDeploymentId)
+    || !isCommit(value.mirrorAppCommit)
+    || typeof value.lastKnownGoodAvailable !== "boolean"
+    || (lastKnownGoodAvailable && !SHA256_DIGEST.test(String(lastKnownGoodArtifactProofDigest || "")))
+    || (!lastKnownGoodAvailable && lastKnownGoodArtifactProofDigest !== null)
+    || value.lastKnownGoodControlPlaneVerified !== lastKnownGoodAvailable
+    || value.readOnlySelection !== true
+    || !SHA256_DIGEST.test(String(value.vercelTeamIdSha256 || ""))
+    || !SHA256_DIGEST.test(String(value.vercelProjectIdSha256 || ""))
+    || (value.source === "last-known-good" && !lastKnownGoodAvailable)
+  ) {
+    throw proofError("READ_ONLY_SELECTION_PROOF_INVALID");
+  }
+  return {
+    schemaVersion: READ_ONLY_SELECTION_PROOF_SCHEMA,
+    status: "PASS",
+    selectedAt: selectedAt.toISOString(),
+    source: value.source,
+    primaryDeploymentId: value.primaryDeploymentId,
+    primaryAppCommit: value.primaryAppCommit,
+    mirrorDeploymentId: value.mirrorDeploymentId,
+    mirrorAppCommit: value.mirrorAppCommit,
+    lastKnownGoodAvailable,
+    lastKnownGoodArtifactProofDigest,
+    lastKnownGoodControlPlaneVerified: lastKnownGoodAvailable,
+    readOnlySelection: true,
+    vercelTeamIdSha256: value.vercelTeamIdSha256,
+    vercelProjectIdSha256: value.vercelProjectIdSha256,
+    auditProvenance: normalizeAuditProvenance(value.auditProvenance, {
+      required: requireAuditProvenance,
+    }),
+  };
+}
+
+export function createReadOnlyRollbackSelectionProof({
+  selectedAt = new Date().toISOString(),
+  source,
+  primaryDeploymentId,
+  primaryAppCommit,
+  mirrorDeploymentId,
+  mirrorAppCommit,
+  lastKnownGoodAvailable,
+  lastKnownGoodArtifactProofDigest = null,
+  teamId,
+  projectId,
+  auditProvenance = null,
+  requireAuditProvenance = false,
+}) {
+  const core = normalizeReadOnlySelectionProofCore({
+    schemaVersion: READ_ONLY_SELECTION_PROOF_SCHEMA,
+    status: "PASS",
+    selectedAt,
+    source,
+    primaryDeploymentId,
+    primaryAppCommit,
+    mirrorDeploymentId,
+    mirrorAppCommit,
+    lastKnownGoodAvailable,
+    lastKnownGoodArtifactProofDigest,
+    lastKnownGoodControlPlaneVerified: lastKnownGoodAvailable === true,
+    readOnlySelection: true,
+    vercelTeamIdSha256: fingerprint(teamId, "READ_ONLY_SELECTION_TEAM_ID_INVALID"),
+    vercelProjectIdSha256: fingerprint(projectId, "READ_ONLY_SELECTION_PROJECT_ID_INVALID"),
+    auditProvenance,
+  }, { requireAuditProvenance });
+  return { ...core, proofDigest: digest(core) };
+}
+
+export function validateReadOnlyRollbackSelectionProof(
+  value,
+  {
+    requireAuditProvenance = false,
+    expectedTeamId,
+    expectedProjectId,
+  } = {},
+) {
+  if (!hasExactKeys(value, READ_ONLY_SELECTION_PROOF_KEYS)) {
+    throw proofError("READ_ONLY_SELECTION_PROOF_SHAPE_INVALID");
+  }
+  const core = normalizeReadOnlySelectionProofCore(value, { requireAuditProvenance });
+  const ownershipExpectationProvided = expectedTeamId !== undefined
+    || expectedProjectId !== undefined;
+  if (ownershipExpectationProvided && (
+    expectedTeamId === undefined
+    || expectedProjectId === undefined
+    || core.vercelTeamIdSha256 !== fingerprint(
+      expectedTeamId,
+      "READ_ONLY_SELECTION_EXPECTED_TEAM_ID_INVALID",
+    )
+    || core.vercelProjectIdSha256 !== fingerprint(
+      expectedProjectId,
+      "READ_ONLY_SELECTION_EXPECTED_PROJECT_ID_INVALID",
+    )
+  )) {
+    throw proofError("READ_ONLY_SELECTION_PROOF_OWNERSHIP_MISMATCH");
+  }
+  const normalized = { ...core, proofDigest: digest(core) };
+  if (!SHA256_DIGEST.test(String(value.proofDigest || ""))
+    || value.proofDigest !== normalized.proofDigest) {
+    throw proofError("READ_ONLY_SELECTION_PROOF_DIGEST_INVALID");
+  }
+  return normalized;
 }
 
 export function createLastKnownGoodProductionIdentity({
@@ -652,6 +866,30 @@ function requiredEnvironment(name) {
   return value;
 }
 
+function strictBooleanEnvironment(name) {
+  const value = String(process.env[name] || "").trim();
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+  throw proofError(`INVALID_BOOLEAN_ENVIRONMENT:${name}`);
+}
+
+function auditSelectionProvenanceFromEnvironment(required) {
+  const productCommit = String(process.env.AUDIT_COMMIT || "").trim();
+  if (!productCommit && !required) return null;
+  return {
+    productCommit,
+    repository: String(process.env.GITHUB_REPOSITORY || ""),
+    eventName: String(process.env.GITHUB_EVENT_NAME || ""),
+    eventRef: String(process.env.GITHUB_REF || ""),
+    eventCommit: String(process.env.GITHUB_SHA || ""),
+    workflow: String(process.env.GITHUB_WORKFLOW || ""),
+    workflowRef: String(process.env.GITHUB_WORKFLOW_REF || ""),
+    workflowSha: String(process.env.GITHUB_WORKFLOW_SHA || ""),
+    runId: String(process.env.GITHUB_RUN_ID || ""),
+    runAttempt: String(process.env.GITHUB_RUN_ATTEMPT || ""),
+  };
+}
+
 function optionalIdentity(prefix) {
   const primaryDeploymentId = process.env[`${prefix}_PRIMARY_DEPLOYMENT`] || "";
   const primaryAppCommit = process.env[`${prefix}_PRIMARY_COMMIT`] || "";
@@ -770,6 +1008,18 @@ async function selectCli() {
   const token = requiredEnvironment("VERCEL_TOKEN");
   const teamId = requiredEnvironment("VERCEL_ORG_ID");
   const projectId = requiredEnvironment("VERCEL_PROJECT_ID");
+  const requireAuditProvenance = strictBooleanEnvironment(
+    "REQUIRE_AUDIT_SELECTION_PROVENANCE",
+  );
+  const auditBindingRequested = requireAuditProvenance
+    || Boolean(String(process.env.AUDIT_COMMIT || "").trim());
+  if (auditBindingRequested && !process.env.ROLLBACK_SELECTION_PROOF_PATH) {
+    throw proofError("READ_ONLY_SELECTION_PROOF_PATH_REQUIRED");
+  }
+  const auditProvenance = normalizeAuditProvenance(
+    auditSelectionProvenanceFromEnvironment(auditBindingRequested),
+    { required: auditBindingRequested },
+  );
   if (lastKnownGoodAvailable) {
     await verifyRollbackCandidate({
       candidate: normalizeCandidate("last-known-good", lastKnownGood),
@@ -797,10 +1047,7 @@ async function selectCli() {
   });
   let selectionProofDigest = "";
   if (process.env.ROLLBACK_SELECTION_PROOF_PATH) {
-    const core = {
-      schemaVersion: "p24b-rc6.2-readonly-rollback-selection-proof-v1",
-      status: "PASS",
-      selectedAt: new Date().toISOString(),
+    const proof = createReadOnlyRollbackSelectionProof({
       source: selected.source,
       primaryDeploymentId: selected.primary.deploymentId,
       primaryAppCommit: selected.primary.appCommit,
@@ -808,13 +1055,15 @@ async function selectCli() {
       mirrorAppCommit: selected.mirror.appCommit,
       lastKnownGoodAvailable,
       lastKnownGoodArtifactProofDigest: lastKnownGoodProof?.proofDigest || null,
-      lastKnownGoodControlPlaneVerified: lastKnownGoodAvailable,
-      readOnlySelection: true,
-    };
-    selectionProofDigest = digest(core);
+      teamId,
+      projectId,
+      auditProvenance,
+      requireAuditProvenance: auditBindingRequested,
+    });
+    selectionProofDigest = proof.proofDigest;
     await writeFile(
       process.env.ROLLBACK_SELECTION_PROOF_PATH,
-      `${JSON.stringify({ ...core, proofDigest: selectionProofDigest }, null, 2)}\n`,
+      `${JSON.stringify(proof, null, 2)}\n`,
       "utf8",
     );
   }

@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { boundedFetch, boundedOperation, delayWithinDeadline } from "./bounded-fetch.mjs";
+import {
+  PRODUCTION_MAIN_HEAD_CAS_CODES,
+  verifyRemoteProductionMainHeadCas,
+} from "./verify-production-main-head-cas.mjs";
 
 export const PRODUCTION_SUPABASE_KEYS = Object.freeze([
   "SUPABASE_PROJECT_REF",
@@ -1299,6 +1303,22 @@ function requiredEnvironment(name) {
   return value;
 }
 
+export function enforceProductionMainHeadCasBeforeMutation({
+  required = process.env.PRODUCTION_MAIN_HEAD_CAS_REQUIRED,
+  expectedCommit = process.env.EXPECTED_PRODUCT_COMMIT,
+  verifier = verifyRemoteProductionMainHeadCas,
+} = {}) {
+  const requirement = required == null ? "" : required;
+  if (typeof requirement === "string" && requirement.trim() === "") return false;
+  if (requirement === "false") return false;
+  if (requirement !== "true") {
+    const code = PRODUCTION_MAIN_HEAD_CAS_CODES.requiredFlagInvalid;
+    throw Object.assign(new Error(code), { code });
+  }
+  verifier(expectedCommit);
+  return true;
+}
+
 function runVercel(args, {
   failureCode = "PRODUCTION_AUDIT_VERCEL_COMMAND_FAILED",
   timeoutMs = 60_000,
@@ -1407,6 +1427,7 @@ export async function removeInvalidOptionalOpenAiProductionEnvironment({
   recordRemover = deleteVercelProductionEnvironmentRecord,
   metadataReader = readVercelProductionEnvironmentMetadata,
   deploymentBindingReader = readProductionAliasDeploymentBinding,
+  mutationGuard = enforceProductionMainHeadCasBeforeMutation,
 }) {
   if (auditDigestVerified !== true) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_OPENAI_AUDIT_DIGEST_UNVERIFIED"), {
@@ -1455,6 +1476,7 @@ export async function removeInvalidOptionalOpenAiProductionEnvironment({
   }
   const actualChangedKeys = [];
   for (const key of plannedKeys) {
+    mutationGuard({ key, operation: "DELETE" });
     const deletion = await recordRemover({
       token,
       teamId,
@@ -1717,9 +1739,13 @@ async function runRepairCli() {
   let xaiRepaired = false;
   let optionalOpenAiRemoved = false;
   if (auditedRepairRequired && before.driftKeys.some((key) => PRODUCTION_SUPABASE_KEYS.includes(key))) {
+    const allowedMutationKeys = before.driftKeys
+      .filter((key) => PRODUCTION_SUPABASE_KEYS.includes(key));
+    enforceProductionMainHeadCasBeforeMutation();
     const { main: repairSupabase } = await import("./bootstrap-production-supabase-env.mjs");
     const result = await repairSupabase({
-      allowedMutationKeys: before.driftKeys.filter((key) => PRODUCTION_SUPABASE_KEYS.includes(key)),
+      allowedMutationKeys,
+      mutationGuard: enforceProductionMainHeadCasBeforeMutation,
     });
     actualChangedKeys.push(...result.changedKeys);
     supabaseCredentialVerificationOverride = result.supabaseCredentialVerification;
@@ -1730,9 +1756,13 @@ async function runRepairCli() {
         code: "PRODUCTION_REPAIR_XAI_GITHUB_SECRET_REQUIRED",
       });
     }
+    const allowedMutationKeys = before.driftKeys
+      .filter((key) => PRODUCTION_XAI_KEYS.includes(key));
+    enforceProductionMainHeadCasBeforeMutation();
     const { main: repairExternalAi } = await import("./bootstrap-production-external-ai-env.mjs");
     const result = await repairExternalAi({
-      allowedMutationKeys: before.driftKeys.filter((key) => PRODUCTION_XAI_KEYS.includes(key)),
+      allowedMutationKeys,
+      mutationGuard: enforceProductionMainHeadCasBeforeMutation,
     });
     actualChangedKeys.push(...result.changedKeys);
     if (
@@ -1759,6 +1789,7 @@ async function runRepairCli() {
       token: requiredEnvironment("VERCEL_TOKEN"),
       teamId: requiredEnvironment("VERCEL_ORG_ID"),
       aliases: [requiredEnvironment("PRIMARY_ALIAS"), requiredEnvironment("MIRROR_ALIAS")],
+      mutationGuard: enforceProductionMainHeadCasBeforeMutation,
     });
     actualChangedKeys.push(...result.changedKeys);
     optionalOpenAiRemoved = result.changedKeys.includes("OPENAI_API_KEY");

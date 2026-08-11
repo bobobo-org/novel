@@ -9,14 +9,15 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Trusted Preview or Production recovery operation
+        description: Trusted Preview, read-only LKG audit, or Production recovery operation
         required: true
         type: choice
         options:
           - deploy-preview
+          - audit-last-known-good
           - restore-known-stable
       preview_ref:
-        description: Exact 40-character commit SHA from this repository (deploy-preview only)
+        description: Exact 40-character commit SHA from this repository (deploy-preview or audit-last-known-good)
         required: false
         type: string
 
@@ -25,8 +26,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) && 'vercel-production-main') || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
-  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) }}
+  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'restore-known-stable')) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && inputs.operation == 'audit-last-known-good') && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
+  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good'))) }}
 
 env:
   VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
@@ -102,6 +103,7 @@ jobs:
         env:
           EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/rc6-evidence/immutable-release-tag-proof.json
         run: node scripts/verify-immutable-release-tag.mjs remote
 
@@ -185,6 +187,7 @@ jobs:
             pnpm test:ci:artifact-attestation
             pnpm test:ci:build-provenance
             pnpm test:ci:signature-vs-provenance-truth
+            pnpm test:ci:production-main-head-cas
             pnpm test:ci:rc6-2-runtime-closure
             pnpm test:ai:closed-ai-runtime-rc6-2
             pnpm test:ai:rc6.2:persistence-contract
@@ -332,9 +335,113 @@ jobs:
           echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
           exit 1
 
+  audit_last_known_good:
+    name: audit last known good read only
+    needs: validate
+    if: >-
+      always() &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.validate.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'audit-last-known-good'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_FETCH_TIMEOUT_MS: 10000
+      ROLLBACK_TARGET_SELECTION_DEADLINE_MS: 60000
+      AUDIT_COMMIT: ${{ github.event_name == 'push' && github.sha || inputs.preview_ref }}
+    steps:
+      - name: Require the explicit audit commit to equal this trusted workflow head
+        shell: bash
+        env:
+          EXPECTED_EVENT_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$AUDIT_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$AUDIT_COMMIT" == "$EXPECTED_EVENT_COMMIT" ]]
+
+      - name: Checkout exact read-only audit commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Enforce exact read-only LKG audit policy
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$AUDIT_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$AUDIT_COMMIT" ]]
+          remote="$(git remote get-url origin)"
+          [[ "$remote" == *"$EXPECTED_REPOSITORY"* ]]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Discover exact prior RC6.1 Last Known Good artifact
+        id: lkg
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/production-last-known-good.mjs discover
+
+      - name: Require prior Last Known Good availability
+        shell: bash
+        run: test "${{ steps.lkg.outputs.available }}" = true
+
+      - name: Download and verify prior Last Known Good identity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LAST_KNOWN_GOOD_ARTIFACT_ID: ${{ steps.lkg.outputs.artifact_id }}
+          LAST_KNOWN_GOOD_ARTIFACT_NAME: ${{ steps.lkg.outputs.artifact_name }}
+          LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.lkg.outputs.artifact_digest }}
+          LAST_KNOWN_GOOD_RUN_ID: ${{ steps.lkg.outputs.run_id }}
+          LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.lkg.outputs.workflow_path }}
+          LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.lkg.outputs.created_at }}
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+        run: node scripts/production-last-known-good.mjs download
+
+      - name: Prove prior Last Known Good control-plane selection without mutation
+        id: lkg_selection
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REQUIRE_AUDIT_SELECTION_PROVENANCE: 'true'
+          DISABLE_CURRENT_CAPTURE: 'true'
+          LAST_KNOWN_GOOD_AVAILABLE: 'true'
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/last-known-good-artifact-proof.json
+          ROLLBACK_SELECTION_PROOF_PATH: ${{ runner.temp }}/lkg-readonly-selection-proof.json
+        run: node scripts/production-last-known-good.mjs select
+
+      - name: Require exact RC6.1 read-only selection truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.lkg_selection.outputs.source }}" = last-known-good
+          test "${{ steps.lkg_selection.outputs.primary_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
+          test "${{ steps.lkg_selection.outputs.mirror_app_commit }}" = "$EXPECTED_LKG_APP_COMMIT"
+          test "${{ steps.lkg_selection.outputs.primary_deployment_id }}" = "$EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID"
+          test "${{ steps.lkg_selection.outputs.mirror_deployment_id }}" = "$EXPECTED_LKG_MIRROR_DEPLOYMENT_ID"
+
+      - name: Upload sanitized read-only LKG audit evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-lkg-readonly-audit-${{ env.AUDIT_COMMIT }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/last-known-good-production.json
+            ${{ runner.temp }}/last-known-good-artifact-proof.json
+            ${{ runner.temp }}/lkg-readonly-selection-proof.json
+          if-no-files-found: error
+          retention-days: 30
+
   production_env_audit:
     name: production-env-audit
-    needs: validate
+    needs: [validate, audit_last_known_good]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -428,10 +535,18 @@ jobs:
       - name: Install Production repair tooling
         run: pnpm install --frozen-lockfile
 
+      - name: Refuse stale Product commit immediately before Production environment mutation
+        if: needs.production_env_audit.outputs.repair_required == 'true'
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
+
       - name: Repair Production environment only when audit found drift
         id: repair
         if: needs.production_env_audit.outputs.repair_required == 'true'
         env:
+          PRODUCTION_MAIN_HEAD_CAS_REQUIRED: 'true'
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
           AUDIT_REPAIR_REQUIRED: ${{ needs.production_env_audit.outputs.repair_required }}
           AUDIT_BEFORE_DIGEST: ${{ needs.production_env_audit.outputs.before_digest }}
           PRODUCTION_ENV_AUDIT_INPUT_PATH: ${{ runner.temp }}/production-environment-audit/production-environment-audit.json
@@ -1031,10 +1146,16 @@ jobs:
         with:
           node-version: 24
 
+      - name: Refuse stale Product commit before preparing alias cutover
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
+
       - name: Re-verify immutable annotated RC6.2 tag for Production evidence
         env:
           EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
         run: node scripts/verify-immutable-release-tag.mjs remote
 
@@ -1104,8 +1225,14 @@ jobs:
         env:
           EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
         run: node scripts/verify-immutable-release-tag.mjs remote
+
+      - name: Recheck main head immediately before alias cutover
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
 
       - name: Cut over both aliases with atomic compensation
         id: cutover
@@ -1138,18 +1265,38 @@ jobs:
           MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
         run: node scripts/vercel-dual-alias-cutover.mjs restore
 
+      - name: Upload post-cutover verification evidence
+        if: always() && steps.cutover.outcome == 'success'
+        id: post_cutover_evidence
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-post-cutover-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/post-cutover-public-verification.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Final immutable GitHub Release recheck after public cutover
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success'
         id: immutable_tag_final
         continue-on-error: true
         env:
           EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING: 'true'
           RELEASE_TAG_PROOF_PATH: ${{ runner.temp }}/immutable-release-tag-proof.json
         run: node scripts/verify-immutable-release-tag.mjs remote
 
+      - name: Final main-head CAS after public cutover
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        id: main_head_final
+        continue-on-error: true
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
+
       - name: Compensating rollback after immutable Release recheck failure
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
         env:
           PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
           PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
@@ -1157,17 +1304,25 @@ jobs:
           MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
         run: node scripts/vercel-dual-alias-cutover.mjs restore
 
-      - name: Upload post-cutover verification evidence
-        if: always() && steps.cutover.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: production-post-cutover-${{ github.sha }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/post-cutover-public-verification.json
-          if-no-files-found: warn
-          retention-days: 30
+      - name: Compensating rollback after final main-head CAS failure
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success' && steps.main_head_final.outcome != 'success'
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
 
       - name: Write Last Known Good only after public verification passes
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          steps.post_cutover_evidence.outcome == 'success'
+        id: last_known_good_write
+        continue-on-error: true
         env:
           PRIMARY_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
           MIRROR_DEPLOYMENT_ID: ${{ needs.runtime_gates.outputs.deployment_id }}
@@ -1178,7 +1333,16 @@ jobs:
         run: node scripts/production-last-known-good.mjs write
 
       - name: Publish dynamic Last Known Good identity
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          steps.post_cutover_evidence.outcome == 'success' &&
+          steps.last_known_good_write.outcome == 'success'
+        id: last_known_good_publish
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-last-known-good-${{ github.sha }}
@@ -1187,7 +1351,17 @@ jobs:
           retention-days: 90
 
       - name: Create sanitized post-Production new-LUNA control-plane evidence
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          steps.post_cutover_evidence.outcome == 'success' &&
+          steps.last_known_good_write.outcome == 'success' &&
+          steps.last_known_good_publish.outcome == 'success'
+        id: new_luna_create
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -1226,7 +1400,18 @@ jobs:
             > "$RUNNER_TEMP/new-luna-production-control-plane-evidence.json"
 
       - name: Publish sanitized post-Production new-LUNA control-plane evidence
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success'
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          steps.post_cutover_evidence.outcome == 'success' &&
+          steps.last_known_good_write.outcome == 'success' &&
+          steps.last_known_good_publish.outcome == 'success' &&
+          steps.new_luna_create.outcome == 'success'
+        id: new_luna_publish
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-new-luna-control-plane-evidence-${{ github.sha }}-${{ github.run_id }}
@@ -1238,20 +1423,74 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Recheck main head after LKG and LUNA evidence publication
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success' && steps.main_head_final.outcome == 'success'
+        id: main_head_completion
+        continue-on-error: true
+        env:
+          EXPECTED_PRODUCT_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
+
+      - name: Compensating rollback after post-cutover finalization failure
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          (steps.post_cutover_evidence.outcome != 'success' ||
+          steps.last_known_good_write.outcome != 'success' ||
+          steps.last_known_good_publish.outcome != 'success' ||
+          steps.new_luna_create.outcome != 'success' ||
+          steps.new_luna_publish.outcome != 'success' ||
+          steps.main_head_completion.outcome != 'success')
+        id: finalization_rollback
+        continue-on-error: true
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
+
       - name: Fail after atomic cutover compensation
-        if: steps.cutover.outcome != 'success'
+        if: always() && steps.cutover.outcome != 'success'
         run: |
           echo "Alias cutover failed; its atomic compensation completed or reported failure." >&2
           exit 1
 
       - name: Fail after post-cutover compensating rollback
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
         run: |
           echo "Public Production verification failed and both aliases were rolled back." >&2
           exit 1
 
       - name: Fail after immutable Release compensating rollback
-        if: steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome != 'success'
         run: |
           echo "Immutable GitHub Release verification failed and both aliases were rolled back." >&2
+          exit 1
+
+      - name: Fail after main-head CAS compensating rollback
+        if: always() && steps.cutover.outcome == 'success' && steps.public_gate.outcome == 'success' && steps.immutable_tag_final.outcome == 'success' && steps.main_head_final.outcome != 'success'
+        run: |
+          echo "Remote main advanced during Production cutover and both aliases were rolled back." >&2
+          exit 1
+
+
+      - name: Fail after post-cutover finalization reconciliation
+        if: >-
+          always() &&
+          steps.cutover.outcome == 'success' &&
+          steps.public_gate.outcome == 'success' &&
+          steps.immutable_tag_final.outcome == 'success' &&
+          steps.main_head_final.outcome == 'success' &&
+          (steps.post_cutover_evidence.outcome != 'success' ||
+          steps.last_known_good_write.outcome != 'success' ||
+          steps.last_known_good_publish.outcome != 'success' ||
+          steps.new_luna_create.outcome != 'success' ||
+          steps.new_luna_publish.outcome != 'success' ||
+          steps.main_head_completion.outcome != 'success')
+        run: |
+          echo "Post-cutover finalization failed; compensating rollback was attempted and this run is failed closed." >&2
           exit 1

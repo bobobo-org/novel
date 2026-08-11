@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  applyXaiProductionEnvironmentMutations,
   DEFAULT_XAI_MODEL_ID,
   planXaiProductionChanges,
   PRODUCTION_EXTERNAL_AI_MUTATION_KEYS,
@@ -79,6 +80,54 @@ assert.throws(
   }),
   (error) => error.code === "XAI_UNAUDITED_PRODUCTION_DRIFT",
 );
+
+const xaiMutationEvents = [];
+assert.deepEqual(await applyXaiProductionEnvironmentMutations({
+  productionChanges: [...PRODUCTION_EXTERNAL_AI_MUTATION_KEYS],
+  configuration: { apiKey: testKey, modelId: "grok-4.5" },
+  token: "vercel-token-not-logged",
+  teamId: "team_expected",
+  projectId: "prj_expected",
+  scope: "team-scope",
+  mutationGuard: ({ key, operation }) => {
+    xaiMutationEvents.push(`cas:${key}:${operation}`);
+  },
+  sensitiveUpserter: async ({ key }) => {
+    xaiMutationEvents.push(`post:${key}`);
+    return { changedKeys: [key] };
+  },
+  vercelRunner: (args) => {
+    xaiMutationEvents.push(`env-add:${args[2]}`);
+  },
+}), PRODUCTION_EXTERNAL_AI_MUTATION_KEYS);
+assert.deepEqual(xaiMutationEvents, [
+  "cas:XAI_API_KEY:POST",
+  "post:XAI_API_KEY",
+  "cas:XAI_MODEL_ID:VERCEL_ENV_ADD",
+  "env-add:XAI_MODEL_ID",
+]);
+assert.deepEqual(await applyXaiProductionEnvironmentMutations({
+  productionChanges: [],
+  configuration: { apiKey: testKey, modelId: "grok-4.5" },
+  mutationGuard: () => { throw new Error("NOOP_MUST_NOT_CHECK_CAS"); },
+  sensitiveUpserter: () => { throw new Error("NOOP_MUST_NOT_POST"); },
+  vercelRunner: () => { throw new Error("NOOP_MUST_NOT_ADD_ENV"); },
+}), []);
+let xaiMutationReached = false;
+await assert.rejects(
+  applyXaiProductionEnvironmentMutations({
+    productionChanges: ["XAI_MODEL_ID"],
+    configuration: { apiKey: testKey, modelId: "grok-4.5" },
+    mutationGuard: () => {
+      throw Object.assign(new Error("PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED"), {
+        code: "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+      });
+    },
+    vercelRunner: () => { xaiMutationReached = true; },
+  }),
+  (error) => error?.code === "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+);
+assert.equal(xaiMutationReached, false);
 assert.deepEqual(resolveXaiBootstrapConfiguration({
   githubApiKey: testKey,
   githubModelId: "grok-4.5-latest",
@@ -129,6 +178,14 @@ const governanceSource = await readFile(
   "utf8",
 );
 assert.match(source, /upsertSensitiveProductionEnvironment/u);
+assert.match(
+  source,
+  /mutationGuard\(\{ key, operation: "POST" \}\);\s*const mutation = await sensitiveUpserter/u,
+);
+assert.match(
+  source,
+  /mutationGuard\(\{ key, operation: "VERCEL_ENV_ADD" \}\);\s*vercelRunner/u,
+);
 assert.doesNotMatch(source, /"--sensitive"/u);
 assert.match(source, /https:\/\/api\.x\.ai\/v1\/models/u);
 assert.match(source, /env", "pull"/u);
@@ -153,7 +210,7 @@ assert.doesNotMatch(governanceSource, /console\.log\([^\n]*OPENAI_API_KEY/u);
 
 console.log(JSON.stringify({
   status: "PASS",
-  assertions: 38,
+  assertions: 44,
   modelId: DEFAULT_XAI_MODEL_ID,
   credentialExposed: false,
 }, null, 2));

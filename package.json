@@ -246,6 +246,7 @@
     "test:ci:workflow-contract": "node scripts/run-pr23-r21-workflow-contract.mjs",
     "test:ci:rc6-release-hardening": "node scripts/run-rc6-release-hardening.mjs",
     "test:ci:rc6-2-runtime-closure": "node scripts/generate-release-provenance.mjs && node --import ./scripts/register-rc6-test-loader.mjs scripts/run-rc6-2-runtime-closure.mjs",
+    "test:ci:production-main-head-cas": "node scripts/run-production-main-head-cas-tests.mjs",
     "test:ci:immutable-release-tag": "pnpm test:ci:rc6-2-runtime-closure",
     "test:ci:release-tag-exact-product-commit": "pnpm test:ci:rc6-2-runtime-closure",
     "test:ci:release-tag-cannot-move": "pnpm test:ci:rc6-2-runtime-closure",

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  applySupabaseProductionEnvironmentMutations,
   collectEnvironmentServiceRoleCandidates,
   discoverProjectRef,
   discoverProjectApiKeyCandidates,
@@ -158,6 +159,57 @@ assert.deepEqual(planSupabaseProductionChanges({
     entries: { SUPABASE_SERVICE_ROLE_KEY: { type: "sensitive" } },
   },
 }), ["SUPABASE_SERVICE_ROLE_KEY"]);
+
+const supabaseMutationEvents = [];
+const appliedSupabaseChanges = await applySupabaseProductionEnvironmentMutations({
+  productionChanges: [...PRODUCTION_RUNTIME_SUPABASE_KEYS],
+  configuration: source,
+  token: "vercel-token-not-logged",
+  teamId: "team_expected",
+  projectId: "prj_expected",
+  scope: "team-scope",
+  mutationGuard: ({ key, operation }) => {
+    supabaseMutationEvents.push(`cas:${key}:${operation}`);
+  },
+  sensitiveUpserter: async ({ key }) => {
+    supabaseMutationEvents.push(`post:${key}`);
+    return { changedKeys: [key] };
+  },
+  vercelRunner: (args) => {
+    supabaseMutationEvents.push(`env-add:${args[2]}`);
+  },
+});
+assert.deepEqual(appliedSupabaseChanges, PRODUCTION_RUNTIME_SUPABASE_KEYS);
+assert.deepEqual(supabaseMutationEvents, [
+  "cas:SUPABASE_PROJECT_REF:VERCEL_ENV_ADD",
+  "env-add:SUPABASE_PROJECT_REF",
+  "cas:NEXT_PUBLIC_SUPABASE_URL:VERCEL_ENV_ADD",
+  "env-add:NEXT_PUBLIC_SUPABASE_URL",
+  "cas:SUPABASE_SERVICE_ROLE_KEY:POST",
+  "post:SUPABASE_SERVICE_ROLE_KEY",
+]);
+assert.deepEqual(await applySupabaseProductionEnvironmentMutations({
+  productionChanges: [],
+  configuration: source,
+  mutationGuard: () => { throw new Error("NOOP_MUST_NOT_CHECK_CAS"); },
+  sensitiveUpserter: () => { throw new Error("NOOP_MUST_NOT_POST"); },
+  vercelRunner: () => { throw new Error("NOOP_MUST_NOT_ADD_ENV"); },
+}), []);
+let supabaseMutationReached = false;
+await assert.rejects(
+  applySupabaseProductionEnvironmentMutations({
+    productionChanges: ["SUPABASE_PROJECT_REF"],
+    configuration: source,
+    mutationGuard: () => {
+      throw Object.assign(new Error("PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED"), {
+        code: "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+      });
+    },
+    vercelRunner: () => { supabaseMutationReached = true; },
+  }),
+  (error) => error?.code === "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+);
+assert.equal(supabaseMutationReached, false);
 const sensitiveMutationSecret = "service-role-secret-never-returned";
 let sensitiveMutationRequest;
 const sensitiveMutation = await upsertSensitiveProductionEnvironment({
@@ -293,7 +345,15 @@ assert.match(
 );
 assert.match(
   bootstrapSource,
-  /if \(key === "SUPABASE_SERVICE_ROLE_KEY"\)[\s\S]*upsertSensitiveProductionEnvironment[\s\S]*else \{[\s\S]*"--no-sensitive"/u,
+  /if \(key === "SUPABASE_SERVICE_ROLE_KEY"\)[\s\S]*sensitiveUpserter[\s\S]*else \{[\s\S]*"--no-sensitive"/u,
+);
+assert.match(
+  bootstrapSource,
+  /mutationGuard\(\{ key, operation: "POST" \}\);\s*const mutation = await sensitiveUpserter/u,
+);
+assert.match(
+  bootstrapSource,
+  /mutationGuard\(\{ key, operation: "VERCEL_ENV_ADD" \}\);\s*vercelRunner/u,
 );
 assert.doesNotMatch(
   bootstrapSource,

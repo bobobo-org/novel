@@ -4,7 +4,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readVercelProductionEnvironmentMetadata } from "./production-environment-governance.mjs";
+import {
+  enforceProductionMainHeadCasBeforeMutation,
+  readVercelProductionEnvironmentMetadata,
+} from "./production-environment-governance.mjs";
 import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
 
 export const DEFAULT_XAI_MODEL_ID = "grok-4.5";
@@ -152,8 +155,57 @@ export const PRODUCTION_EXTERNAL_AI_MUTATION_KEYS = Object.freeze([
   "XAI_MODEL_ID",
 ]);
 
+export async function applyXaiProductionEnvironmentMutations({
+  productionChanges,
+  configuration,
+  token,
+  teamId,
+  projectId,
+  scope,
+  mutationGuard = enforceProductionMainHeadCasBeforeMutation,
+  sensitiveUpserter = upsertSensitiveProductionEnvironment,
+  vercelRunner = runVercel,
+}) {
+  if (
+    !Array.isArray(productionChanges)
+    || productionChanges.some((key) => !PRODUCTION_EXTERNAL_AI_MUTATION_KEYS.includes(key))
+  ) {
+    throw Object.assign(new Error("XAI_UNSUPPORTED_MUTATION_KEY"), {
+      code: "XAI_UNSUPPORTED_MUTATION_KEY",
+    });
+  }
+  const actualChangedKeys = [];
+  for (const key of productionChanges) {
+    if (key === "XAI_API_KEY") {
+      mutationGuard({ key, operation: "POST" });
+      const mutation = await sensitiveUpserter({
+        token,
+        teamId,
+        projectId,
+        key,
+        value: configuration.apiKey,
+      });
+      actualChangedKeys.push(...mutation.changedKeys);
+    } else {
+      mutationGuard({ key, operation: "VERCEL_ENV_ADD" });
+      vercelRunner([
+        "env", "add", key, "production",
+        "--project", projectId,
+        "--scope", scope,
+        "--token", token,
+        "--force",
+        "--no-sensitive",
+        "--yes",
+      ], `${configuration.modelId}\n`);
+      actualChangedKeys.push(key);
+    }
+  }
+  return actualChangedKeys;
+}
+
 export async function main({
   allowedMutationKeys = PRODUCTION_EXTERNAL_AI_MUTATION_KEYS,
+  mutationGuard = enforceProductionMainHeadCasBeforeMutation,
 } = {}) {
   const projectId = process.env.VERCEL_PROJECT_ID || "";
   const scope = process.env.VERCEL_SCOPE || "";
@@ -208,29 +260,15 @@ export async function main({
       environmentMetadata,
     });
 
-    const actualChangedKeys = [];
-    if (productionChanges.includes("XAI_API_KEY")) {
-      const mutation = await upsertSensitiveProductionEnvironment({
-        token,
-        teamId,
-        projectId,
-        key: "XAI_API_KEY",
-        value: configuration.apiKey,
-      });
-      actualChangedKeys.push(...mutation.changedKeys);
-    }
-    if (productionChanges.includes("XAI_MODEL_ID")) {
-      runVercel([
-        "env", "add", "XAI_MODEL_ID", "production",
-        "--project", projectId,
-        "--scope", scope,
-        "--token", token,
-        "--force",
-        "--no-sensitive",
-        "--yes",
-      ], `${configuration.modelId}\n`);
-      actualChangedKeys.push("XAI_MODEL_ID");
-    }
+    const actualChangedKeys = await applyXaiProductionEnvironmentMutations({
+      productionChanges,
+      configuration,
+      token,
+      teamId,
+      projectId,
+      scope,
+      mutationGuard,
+    });
     if (actualChangedKeys.includes("XAI_API_KEY")) {
       const verifiedMetadata = await readVercelProductionEnvironmentMetadata({
         token,

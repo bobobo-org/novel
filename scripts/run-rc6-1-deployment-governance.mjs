@@ -48,6 +48,7 @@ const vercelConfiguration = JSON.parse(vercelConfigurationText);
 
 const jobOrder = [
   "validate",
+  "audit_last_known_good",
   "production_env_audit",
   "production_env_repair",
   "production_build",
@@ -67,6 +68,14 @@ function jobSection(name) {
   return workflow.slice(start, next || workflow.length);
 }
 
+function stepSection(job, name) {
+  const marker = `      - name: ${name}`;
+  const start = job.indexOf(marker);
+  assert.ok(start >= 0, `step missing: ${name}`);
+  const next = job.indexOf("\n      - name:", start + marker.length);
+  return job.slice(start, next < 0 ? job.length : next);
+}
+
 function testOrdering() {
   assert.equal(
     vercelConfiguration.git?.deploymentEnabled,
@@ -76,7 +85,8 @@ function testOrdering() {
   const indexes = jobOrder.map((name) => workflow.indexOf(`\n  ${name}:`));
   assert.ok(indexes.every((index) => index > 0));
   assert.deepEqual([...indexes].sort((left, right) => left - right), indexes);
-  assert.match(jobSection("production_env_audit"), /needs:\s*validate/u);
+  assert.match(jobSection("audit_last_known_good"), /needs:\s*validate/u);
+  assert.match(jobSection("production_env_audit"), /needs:\s*\[validate,\s*audit_last_known_good\]/u);
   assert.match(jobSection("production_env_repair"), /needs:\s*\[validate,\s*production_env_audit\]/u);
   assert.match(jobSection("production_build"), /needs:\s*production_env_repair/u);
   assert.match(jobSection("post_build_secret_scan"), /needs:\s*production_build/u);
@@ -866,6 +876,7 @@ async function testExternalAiProductionTruth() {
   );
 
   const removalCalls = [];
+  const removalMutationEvents = [];
   let removalMetadataReadCount = 0;
   const removal = await removeInvalidOptionalOpenAiProductionEnvironment({
     allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
@@ -875,7 +886,11 @@ async function testExternalAiProductionTruth() {
     token: "vercel-token-must-never-be-logged",
     teamId: "team_expected",
     aliases,
+    mutationGuard: ({ key, operation }) => {
+      removalMutationEvents.push(`cas:${key}:${operation}`);
+    },
     recordRemover: (input) => {
+      removalMutationEvents.push("delete:OPENAI_API_KEY");
       removalCalls.push(input);
       return Promise.resolve({ deleted: true, httpStatus: 204 });
     },
@@ -904,10 +919,63 @@ async function testExternalAiProductionTruth() {
   assert.equal(removalCalls[0].recordId, "env_openai_production_only");
   assert.equal(removalCalls[0].projectId, "prj_expected");
   assert.equal(removalCalls[0].teamId, "team_expected");
+  assert.deepEqual(removalMutationEvents, [
+    "cas:OPENAI_API_KEY:DELETE",
+    "delete:OPENAI_API_KEY",
+  ]);
   assert.ok(
     !JSON.stringify(removalCalls[0]).includes("OPENAI_MODEL_ID"),
     "the optional model id is retained because removing the credential is sufficient",
   );
+
+  let noopOpenAiCasCount = 0;
+  const noopOpenAiRemoval = await removeInvalidOptionalOpenAiProductionEnvironment({
+    allowedMutationKeys: [],
+    auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+    auditDigestVerified: true,
+    projectId: "prj_expected",
+    token: "vercel-token-must-never-be-logged",
+    teamId: "team_expected",
+    aliases,
+    mutationGuard: () => { noopOpenAiCasCount += 1; },
+    recordRemover: () => { throw new Error("NOOP_MUST_NOT_DELETE"); },
+    deploymentBindingReader: auditedDeploymentBindingReader,
+    metadataReader: async () => ({
+      entries: invalidOptionalOpenAiMetadata.entries,
+      records: invalidOptionalOpenAiMetadata.records,
+    }),
+  });
+  assert.deepEqual(noopOpenAiRemoval.changedKeys, []);
+  assert.equal(noopOpenAiCasCount, 0);
+
+  let guardedOpenAiDeleteReached = false;
+  await assert.rejects(
+    removeInvalidOptionalOpenAiProductionEnvironment({
+      allowedMutationKeys: invalidOptionalOpenAiAudit.driftKeys,
+      auditedExternalAiTruth: invalidOptionalOpenAiAudit.truth.externalAi,
+      auditDigestVerified: true,
+      projectId: "prj_expected",
+      token: "vercel-token-must-never-be-logged",
+      teamId: "team_expected",
+      aliases,
+      mutationGuard: () => {
+        throw Object.assign(new Error("PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED"), {
+          code: "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+        });
+      },
+      recordRemover: () => {
+        guardedOpenAiDeleteReached = true;
+        return Promise.resolve({ deleted: true, httpStatus: 204 });
+      },
+      deploymentBindingReader: auditedDeploymentBindingReader,
+      metadataReader: async () => ({
+        entries: invalidOptionalOpenAiMetadata.entries,
+        records: invalidOptionalOpenAiMetadata.records,
+      }),
+    }),
+    (error) => error?.code === "PRODUCTION_MAIN_HEAD_CAS_REMOTE_HEAD_MOVED",
+  );
+  assert.equal(guardedOpenAiDeleteReached, false);
 
   let deleteRequest;
   const deleteResult = await deleteVercelProductionEnvironmentRecord({
@@ -1699,9 +1767,48 @@ async function testLastKnownGoodAndRollback() {
 
   const aliasJob = jobSection("alias_cutover");
   assert.match(aliasJob, /Write Last Known Good only after public verification passes/u);
-  assert.match(aliasJob, /if:\s*steps\.cutover\.outcome == 'success' && steps\.public_gate\.outcome == 'success'/u);
+  assert.match(aliasJob, /always\(\)[\s\S]*steps\.cutover\.outcome == 'success'[\s\S]*steps\.public_gate\.outcome == 'success'/u);
   assert.match(aliasJob, /production-last-known-good\.mjs download/u);
   assert.doesNotMatch(aliasJob, /actions\/download-artifact/u);
+  const requiredFinalizationOutcomes = [
+    "post_cutover_evidence",
+    "last_known_good_write",
+    "last_known_good_publish",
+    "new_luna_create",
+    "new_luna_publish",
+    "main_head_completion",
+  ];
+  for (const [name, id] of [
+    ["Upload post-cutover verification evidence", "post_cutover_evidence"],
+    ["Write Last Known Good only after public verification passes", "last_known_good_write"],
+    ["Publish dynamic Last Known Good identity", "last_known_good_publish"],
+    ["Create sanitized post-Production new-LUNA control-plane evidence", "new_luna_create"],
+    ["Publish sanitized post-Production new-LUNA control-plane evidence", "new_luna_publish"],
+    ["Recheck main head after LKG and LUNA evidence publication", "main_head_completion"],
+  ]) {
+    const block = stepSection(aliasJob, name);
+    assert.match(block, new RegExp(`^        id: ${id}$`, "mu"));
+    assert.match(block, /^        continue-on-error: true$/mu);
+    assert.match(block, /always\(\)/u);
+  }
+  const finalizationRollback = stepSection(
+    aliasJob,
+    "Compensating rollback after post-cutover finalization failure",
+  );
+  const finalizationTerminal = stepSection(
+    aliasJob,
+    "Fail after post-cutover finalization reconciliation",
+  );
+  for (const block of [finalizationRollback, finalizationTerminal]) {
+    assert.match(block, /always\(\)/u);
+    assert.deepEqual(
+      [...block.matchAll(/steps\.([a-z][a-z0-9_]*)\.outcome != 'success'/gu)]
+        .map((match) => match[1]),
+      requiredFinalizationOutcomes,
+    );
+  }
+  assert.match(finalizationRollback, /vercel-dual-alias-cutover\.mjs restore/u);
+  assert.match(finalizationTerminal, /exit 1/u);
   assert.match(lkgSource, /safeDiscoverLatestLastKnownGoodArtifact/u);
   assert.match(lkgSource, /parseLastKnownGoodCandidate/u);
 }

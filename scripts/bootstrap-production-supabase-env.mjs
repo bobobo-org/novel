@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { readVercelProductionEnvironmentMetadata } from "./production-environment-governance.mjs";
+import {
+  enforceProductionMainHeadCasBeforeMutation,
+  readVercelProductionEnvironmentMetadata,
+} from "./production-environment-governance.mjs";
 import { upsertSensitiveProductionEnvironment } from "./vercel-environment-mutation.mjs";
 
 export const REQUIRED_SUPABASE_KEYS = Object.freeze([
@@ -521,8 +524,57 @@ export function planSupabaseProductionChanges({
   return restrictSupabaseProductionChanges({ productionChanges, allowedMutationKeys });
 }
 
+export async function applySupabaseProductionEnvironmentMutations({
+  productionChanges,
+  configuration,
+  token,
+  teamId,
+  projectId,
+  scope,
+  mutationGuard = enforceProductionMainHeadCasBeforeMutation,
+  sensitiveUpserter = upsertSensitiveProductionEnvironment,
+  vercelRunner = runVercel,
+}) {
+  if (
+    !Array.isArray(productionChanges)
+    || productionChanges.some((key) => !PRODUCTION_RUNTIME_SUPABASE_KEYS.includes(key))
+  ) {
+    throw Object.assign(new Error("SUPABASE_UNSUPPORTED_MUTATION_KEY"), {
+      code: "SUPABASE_UNSUPPORTED_MUTATION_KEY",
+    });
+  }
+  const actualChangedKeys = [];
+  for (const key of productionChanges) {
+    if (key === "SUPABASE_SERVICE_ROLE_KEY") {
+      mutationGuard({ key, operation: "POST" });
+      const mutation = await sensitiveUpserter({
+        token,
+        teamId,
+        projectId,
+        key,
+        value: configuration[key],
+      });
+      actualChangedKeys.push(...mutation.changedKeys);
+    } else {
+      mutationGuard({ key, operation: "VERCEL_ENV_ADD" });
+      vercelRunner([
+        "env", "add", key, "production",
+        "--project", projectId,
+        "--scope", scope,
+        "--token", token,
+        "--force",
+        "--no-sensitive",
+        "--yes",
+      ], { input: `${configuration[key]}\n` });
+      actualChangedKeys.push(key);
+    }
+  }
+  return actualChangedKeys;
+}
+
 export async function main({
   allowedMutationKeys = PRODUCTION_RUNTIME_SUPABASE_KEYS,
+  mutationGuard = enforceProductionMainHeadCasBeforeMutation,
 } = {}) {
   const projectId = process.env.VERCEL_PROJECT_ID || "";
   const scope = process.env.VERCEL_SCOPE || "";
@@ -655,30 +707,15 @@ export async function main({
       allowedMutationKeys,
       environmentMetadata,
     });
-    const actualChangedKeys = [];
-    for (const key of productionChanges) {
-      if (key === "SUPABASE_SERVICE_ROLE_KEY") {
-        const mutation = await upsertSensitiveProductionEnvironment({
-          token,
-          teamId,
-          projectId,
-          key,
-          value: configuration[key],
-        });
-        actualChangedKeys.push(...mutation.changedKeys);
-      } else {
-        runVercel([
-          "env", "add", key, "production",
-          "--project", projectId,
-          "--scope", scope,
-          "--token", token,
-          "--force",
-          "--no-sensitive",
-          "--yes",
-        ], { input: `${configuration[key]}\n` });
-        actualChangedKeys.push(key);
-      }
-    }
+    const actualChangedKeys = await applySupabaseProductionEnvironmentMutations({
+      productionChanges,
+      configuration,
+      token,
+      teamId,
+      projectId,
+      scope,
+      mutationGuard,
+    });
 
     const verified = await pullEnvironment({
       filename: productionFile,
