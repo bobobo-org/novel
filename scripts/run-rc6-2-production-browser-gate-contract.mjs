@@ -16,20 +16,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-const wrapperUrl = new URL("./run-rc6-2-production-browser-gate.ps1", import.meta.url);
-const [wrapper, browserRunner, runtimeContract, workflow, workflowContract] = await Promise.all([
-  readFile(wrapperUrl, "utf8"),
-  readFile(new URL("./run-rc6-2-closed-agent-browser.mjs", import.meta.url), "utf8"),
-  readFile(new URL("./run-rc6-2-closed-agent-runtime.mjs", import.meta.url), "utf8"),
-  readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
-  readFile(new URL("./run-pr23-r21-workflow-contract.mjs", import.meta.url), "utf8"),
-]);
-
 const PRODUCT_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
 const PRODUCTION_RECOVERY_CONTROL = "9cd074f239b73dd9b61f6d758fcf97fbd809face";
 const FAILED_RECOVERY_CONTROL = "3b716fc0d974a9d59b49ffca5953776af66c7a07";
 const INITIAL_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
-const PREVIOUS_BROWSER_GATE_CONTROL = "100eea11003c5132ab2b519707c5dee658bc9cbe";
+const C4_BROWSER_GATE_CONTROL = "100eea11003c5132ab2b519707c5dee658bc9cbe";
+const C5_BROWSER_GATE_CONTROL = "99695b247c2b1626c38efc8ae4589dd9bd8d30da";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
@@ -38,9 +30,9 @@ const EXPECTED_EDGE_VERSION = "151.0.4129.72";
 const EXPECTED_EDGE_EXE_DIGEST = "e73e04dacdb48557c13d9f93f90a248f3e5a0bf55bb738f2fc548a768a9a10af";
 const EXPECTED_EDGE_DLL_DIGEST = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe158545528b8507137a";
 const EXPECTED_EDGE_DIRECTORY_DIGEST = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974";
-const EXPECTED_PACKAGE_JSON_DIGEST = "96418a3c785af02f424150d33aaa88e2be3d0dc35e6c7774d424c6ecbff37748";
+const EXPECTED_PACKAGE_JSON_DIGEST = "6e650ab6b6c5f5abda32dcc7e83c411199f238686c8268a727e23ac325850732";
 const EXPECTED_PNPM_LOCK_DIGEST = "bf80df1d7e1419628c2dac09bfb8b39360942098324d47269f9690eab52b7b7f";
-const GATE_BLOB_PATHS = [
+const INITIAL_GATE_BLOB_PATHS = [
   ".github/workflows/deploy.yml",
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-closed-agent-browser.mjs",
@@ -48,12 +40,20 @@ const GATE_BLOB_PATHS = [
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
 ];
-const GATE_REPAIR_PATHS = [
+const HISTORICAL_GATE_REPAIR_PATHS = [
   ".github/workflows/deploy.yml",
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
 ];
+const C6_GATE_REPAIR_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+];
+const COMPOSITE_GATE_BLOB_PATHS = [...INITIAL_GATE_BLOB_PATHS, "package.json"];
 
 function occurrences(source, literal) {
   return source.split(literal).length - 1;
@@ -148,6 +148,639 @@ function assertExactKeys(value, expectedKeys, label) {
 function assertSha256(value, label) {
   assert.match(value, /^[a-f0-9]{64}$/u, `${label} is not a SHA-256 digest`);
 }
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableStringify(value[key])}`
+  )).join(",")}}`;
+}
+
+const PRODUCTION_RUNTIME_RECEIPT_SCHEMA = "p24b-rc6.2-production-browser-runtime-receipt-v2";
+const PRODUCTION_RUNTIME_RECEIPT_SOURCE = "production-browser-preflight-read-only-v1";
+const TOOLCHAIN_RECEIPT_SCHEMA = "p24b-rc6.2-production-browser-toolchain-receipt-v1";
+const PREFLIGHT_FAILURE_SCHEMA = "p24b-rc6.2-production-browser-preflight-failure-v1";
+const SHA256 = /^[a-f0-9]{64}$/u;
+const COMMIT = /^[a-f0-9]{40}$/u;
+const RUN_ID = /^[a-f0-9]{32}$/u;
+const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
+class PreflightContractError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = "PreflightContractError";
+    this.code = code;
+  }
+}
+
+function preflightReject(code) {
+  throw new PreflightContractError(code);
+}
+
+function requireExactKeys(value, keys, code) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) preflightReject(code);
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    preflightReject(code);
+  }
+}
+
+function requireSafeTimestamp(value, code) {
+  const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  if (
+    typeof value !== "string" || !UTC_MILLISECONDS.test(value) || !Number.isFinite(parsed)
+    || new Date(parsed).toISOString() !== value
+  ) {
+    preflightReject(code);
+  }
+}
+
+const BRIDGE_HEALTH_KEYS = [
+  "status", "processAlive", "pid", "protocolVersion", "bindAddress", "modelAvailable",
+  "active", "queued", "serverDigest", "coreDigest",
+];
+const HUB_HEALTH_KEYS = [
+  "status", "processAlive", "pid", "protocolVersion", "bindAddress", "modelAvailable",
+  "active", "queued", "serverDigest",
+];
+const OLLAMA_HEALTH_KEYS = [
+  "status", "processAlive", "bindAddress", "version", "idle", "runningModelCount",
+  "modelInstalled",
+];
+const RUNTIME_OBSERVATION_KEYS = [
+  "preflightRunId", "executionMode", "productCommit", "controlCommit",
+  "productionDeploymentId", "productionOrigin", "releaseTag", "releaseRevision", "createdAt",
+  "bridgeHealth", "hubHealth", "ollamaHealth", "ollamaPid", "modelId", "modelDigest",
+  "toolchainReceiptDigest", "readOnly", "mutationCount",
+];
+
+function validateBridgeHealth(value) {
+  requireExactKeys(value, BRIDGE_HEALTH_KEYS, "PREFLIGHT_RECEIPT_BRIDGE_SCHEMA_INVALID");
+  if (
+    value.status !== "PASS" || value.processAlive !== true
+    || !Number.isSafeInteger(value.pid) || value.pid < 1
+    || value.protocolVersion !== "novel-local-bridge/v1" || value.bindAddress !== "127.0.0.1"
+    || value.modelAvailable !== true || value.active !== 0 || value.queued !== 0
+    || !SHA256.test(value.serverDigest) || !SHA256.test(value.coreDigest)
+  ) preflightReject("PREFLIGHT_RECEIPT_BRIDGE_HEALTH_INVALID");
+}
+
+function validateHubHealth(value) {
+  requireExactKeys(value, HUB_HEALTH_KEYS, "PREFLIGHT_RECEIPT_HUB_SCHEMA_INVALID");
+  if (
+    value.status !== "PASS" || value.processAlive !== true
+    || !Number.isSafeInteger(value.pid) || value.pid < 1
+    || value.protocolVersion !== "novel-private-hub/v1" || value.bindAddress !== "127.0.0.1"
+    || value.modelAvailable !== true || value.active !== 0 || value.queued !== 0
+    || !SHA256.test(value.serverDigest)
+  ) preflightReject("PREFLIGHT_RECEIPT_HUB_HEALTH_INVALID");
+}
+
+function validateOllamaHealth(value) {
+  requireExactKeys(value, OLLAMA_HEALTH_KEYS, "PREFLIGHT_RECEIPT_OLLAMA_SCHEMA_INVALID");
+  if (
+    value.status !== "PASS" || value.processAlive !== true || value.bindAddress !== "127.0.0.1"
+    || typeof value.version !== "string" || !/^[0-9A-Za-z.+-]{1,64}$/u.test(value.version)
+    || value.idle !== true || value.runningModelCount !== 0 || value.modelInstalled !== true
+  ) preflightReject("PREFLIGHT_RECEIPT_OLLAMA_HEALTH_INVALID");
+}
+
+function validateRuntimeObservation(value) {
+  requireExactKeys(value, RUNTIME_OBSERVATION_KEYS, "PREFLIGHT_RECEIPT_SCHEMA_INVALID");
+  if (!RUN_ID.test(value.preflightRunId)) preflightReject("PREFLIGHT_RECEIPT_RUN_ID_INVALID");
+  if (!["PreflightDryRun", "FormalBrowserGate"].includes(value.executionMode)) {
+    preflightReject("PREFLIGHT_RECEIPT_EXECUTION_MODE_INVALID");
+  }
+  if (value.productCommit !== PRODUCT_COMMIT || !COMMIT.test(value.controlCommit)) {
+    preflightReject("PREFLIGHT_RECEIPT_COMMIT_BINDING_INVALID");
+  }
+  if (
+    value.productionDeploymentId !== EXPECTED_DEPLOYMENT_ID || value.productionOrigin !== EXPECTED_ORIGIN
+    || value.releaseTag !== EXPECTED_RELEASE_TAG || value.releaseRevision !== "rc6.2"
+  ) preflightReject("PREFLIGHT_RECEIPT_PRODUCTION_BINDING_INVALID");
+  requireSafeTimestamp(value.createdAt, "PREFLIGHT_RECEIPT_CREATED_AT_INVALID");
+  validateBridgeHealth(value.bridgeHealth);
+  validateHubHealth(value.hubHealth);
+  validateOllamaHealth(value.ollamaHealth);
+  if (!Number.isSafeInteger(value.ollamaPid) || value.ollamaPid < 1) {
+    preflightReject("PREFLIGHT_RECEIPT_OLLAMA_PID_INVALID");
+  }
+  if (value.modelId !== "qwen2.5:3b" || !SHA256.test(value.modelDigest)) {
+    preflightReject("PREFLIGHT_RECEIPT_MODEL_IDENTITY_INVALID");
+  }
+  if (!SHA256.test(value.toolchainReceiptDigest)) preflightReject("PREFLIGHT_RECEIPT_TOOLCHAIN_DIGEST_INVALID");
+  if (value.readOnly !== true || value.mutationCount !== 0) {
+    preflightReject("PREFLIGHT_RECEIPT_MUTATION_BOUNDARY_INVALID");
+  }
+  return structuredClone(value);
+}
+
+function createProductionRuntimeReceipt(observation) {
+  const validated = validateRuntimeObservation(observation);
+  const body = {
+    schemaVersion: PRODUCTION_RUNTIME_RECEIPT_SCHEMA,
+    ...validated,
+    source: PRODUCTION_RUNTIME_RECEIPT_SOURCE,
+  };
+  return {
+    ...body,
+    digest: createHash("sha256").update(`${PRODUCTION_RUNTIME_RECEIPT_SCHEMA}\n${stableStringify(body)}`).digest("hex"),
+  };
+}
+
+function validateProductionRuntimeReceipt(receiptText, expectedObservation, validatedAt, freshnessMode) {
+  if (typeof receiptText !== "string" || receiptText.length === 0) preflightReject("PREFLIGHT_RECEIPT_MISSING");
+  if (
+    receiptText.length > 65_536 || receiptText.includes("\0") || receiptText.includes("\uFFFD")
+    || receiptText.startsWith("\uFEFF")
+  ) preflightReject("PREFLIGHT_RECEIPT_ENCODING_INVALID");
+  let receipt;
+  try { receipt = JSON.parse(receiptText); } catch { preflightReject("PREFLIGHT_RECEIPT_JSON_INVALID"); }
+  const expected = createProductionRuntimeReceipt(expectedObservation);
+  requireExactKeys(receipt, [...Object.keys(expected)], "PREFLIGHT_RECEIPT_SCHEMA_INVALID");
+  if (
+    receipt.schemaVersion !== PRODUCTION_RUNTIME_RECEIPT_SCHEMA
+    || receipt.source !== PRODUCTION_RUNTIME_RECEIPT_SOURCE
+  ) preflightReject("PREFLIGHT_RECEIPT_SCHEMA_INVALID");
+  if (stableStringify(receipt) !== receiptText) preflightReject("PREFLIGHT_RECEIPT_NON_CANONICAL");
+  const { digest, ...body } = receipt;
+  const recomputed = createHash("sha256")
+    .update(`${PRODUCTION_RUNTIME_RECEIPT_SCHEMA}\n${stableStringify(body)}`).digest("hex");
+  if (digest !== recomputed) preflightReject("PREFLIGHT_RECEIPT_DIGEST_MISMATCH");
+  if (stableStringify(receipt) !== stableStringify(expected)) preflightReject("PREFLIGHT_RECEIPT_BINDING_MISMATCH");
+  requireSafeTimestamp(validatedAt, "PREFLIGHT_RECEIPT_VALIDATION_TIME_INVALID");
+  if (!["preflight", "immutable-readback"].includes(freshnessMode)) {
+    preflightReject("PREFLIGHT_RECEIPT_FRESHNESS_MODE_INVALID");
+  }
+  if (freshnessMode === "preflight") {
+    const age = Date.parse(validatedAt) - Date.parse(receipt.createdAt);
+    if (age < -5_000 || age > 300_000) preflightReject("PREFLIGHT_RECEIPT_STALE");
+  }
+  return {
+    schemaVersion: "p24b-rc6.2-production-browser-runtime-receipt-validation-v1",
+    status: "PASS",
+    receiptDigest: digest,
+    receiptByteLength: Buffer.byteLength(receiptText, "utf8"),
+    receiptFileSha256: createHash("sha256").update(receiptText, "utf8").digest("hex"),
+  };
+}
+
+async function validateProductionRuntimeReceiptFile({
+  actualPath,
+  expectedPath,
+  expectedObservation,
+  validatedAt,
+  freshnessMode,
+  expectedFileSha256 = null,
+}) {
+  if (resolve(actualPath) !== resolve(expectedPath)) preflightReject("PREFLIGHT_RECEIPT_PATH_MISMATCH");
+  let receiptText;
+  try { receiptText = await readFile(actualPath, "utf8"); } catch { preflightReject("PREFLIGHT_RECEIPT_MISSING"); }
+  const validation = validateProductionRuntimeReceipt(
+    receiptText,
+    expectedObservation,
+    validatedAt,
+    freshnessMode,
+  );
+  if (expectedFileSha256 !== null && validation.receiptFileSha256 !== expectedFileSha256) {
+    preflightReject("PREFLIGHT_RECEIPT_FILE_SHA_MISMATCH");
+  }
+  return validation;
+}
+
+const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
+const dependencyPackages = [
+  {
+    name: "@playwright/test",
+    linkedPath: join(repositoryRoot, "node_modules", "@playwright", "test"),
+    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "@playwright+test@1.61.1", "node_modules", "@playwright", "test"),
+    digest: "0a790d924aa71007bc11405b0c27ebc581912ae3f01ef7b89d1359038b336f48",
+  },
+  {
+    name: "playwright",
+    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "playwright@1.61.1", "node_modules", "playwright"),
+    digest: "e9979a347da48432d060cf4df638ec6682735b8dc3db96b1e5dc13138a583f43",
+  },
+  {
+    name: "playwright-core",
+    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "playwright-core@1.61.1", "node_modules", "playwright-core"),
+    digest: "efff85ef77071866494ea4b35c90060b2eb96098f5633f8dee6c2b28c24000ac",
+  },
+];
+
+async function createToolchainReceipt() {
+  const dependencyReceipts = [];
+  for (const dependency of dependencyPackages) {
+    const expectedRoot = resolve(dependency.packagePath);
+    assert.equal(await realpath(expectedRoot), expectedRoot, `${dependency.name} package root drifted`);
+    if (dependency.linkedPath) {
+      assert.equal(await realpath(dependency.linkedPath), expectedRoot, `${dependency.name} workspace link drifted`);
+    }
+    const packageJson = JSON.parse(await readFile(join(expectedRoot, "package.json"), "utf8"));
+    assert.equal(packageJson.name, dependency.name);
+    assert.equal(packageJson.version, "1.61.1");
+    const digest = await dependencyDigest(expectedRoot);
+    assert.equal(digest, dependency.digest, `${dependency.name} bytes drifted`);
+    dependencyReceipts.push({ name: dependency.name, version: packageJson.version, digest });
+  }
+  const testPackageRoot = resolve(dependencyPackages[0].packagePath);
+  const playwrightPackageRoot = resolve(dependencyPackages[1].packagePath);
+  const playwrightCorePackageRoot = resolve(dependencyPackages[2].packagePath);
+  const testVirtualNodeModules = resolve(testPackageRoot, "..", "..");
+  const playwrightVirtualNodeModules = resolve(playwrightPackageRoot, "..");
+  await assertExactDirectoryEntries(testVirtualNodeModules, ["@playwright", "playwright"]);
+  await assertExactDirectoryEntries(playwrightVirtualNodeModules, ["playwright", "playwright-core"]);
+  assert.equal(await realpath(join(testVirtualNodeModules, "@playwright", "test")), testPackageRoot);
+  assert.equal(await realpath(join(testVirtualNodeModules, "playwright")), playwrightPackageRoot);
+  assert.equal(await realpath(join(playwrightVirtualNodeModules, "playwright")), playwrightPackageRoot);
+  assert.equal(await realpath(join(playwrightVirtualNodeModules, "playwright-core")), playwrightCorePackageRoot);
+  await assertExactDirectoryEntries(join(testPackageRoot, "node_modules"), [".bin"]);
+  await assertExactDirectoryEntries(join(playwrightPackageRoot, "node_modules"), [".bin"]);
+  const testBinReceipt = await completeTreeReceipt(join(testPackageRoot, "node_modules", ".bin"));
+  const playwrightBinReceipt = await completeTreeReceipt(join(playwrightPackageRoot, "node_modules", ".bin"));
+  assert.deepEqual(testBinReceipt, {
+    fileCount: 3,
+    byteCount: 3_881,
+    digest: "1df12ad3918f333e03bfc42906b7d9292af7898a04a1b98aa4308d21b5f00a70",
+  });
+  assert.deepEqual(playwrightBinReceipt, {
+    fileCount: 3,
+    byteCount: 4_027,
+    digest: "e0d6bb1289bee38c5880540dac79fc84202363c6cc7ba4cbd955a0dab00621c9",
+  });
+  assert.equal(await sha256File(join(repositoryRoot, "package.json")), EXPECTED_PACKAGE_JSON_DIGEST);
+  assert.equal(await sha256File(join(repositoryRoot, "pnpm-lock.yaml")), EXPECTED_PNPM_LOCK_DIGEST);
+  const edgeVersionRoot = resolve(
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application",
+    EXPECTED_EDGE_VERSION,
+  );
+  assert.equal((await stat(edgeVersionRoot)).isDirectory(), true);
+  assert.equal(await sha256File(join(dirname(edgeVersionRoot), "msedge.exe")), EXPECTED_EDGE_EXE_DIGEST);
+  assert.equal(await sha256File(join(edgeVersionRoot, "msedge.dll")), EXPECTED_EDGE_DLL_DIGEST);
+  const edgeTreeReceipt = await completeTreeReceipt(edgeVersionRoot);
+  assert.deepEqual(edgeTreeReceipt, {
+    fileCount: 784,
+    byteCount: 902_433_921,
+    digest: EXPECTED_EDGE_DIRECTORY_DIGEST,
+  });
+  const body = {
+    schemaVersion: TOOLCHAIN_RECEIPT_SCHEMA,
+    packageJsonDigest: EXPECTED_PACKAGE_JSON_DIGEST,
+    pnpmLockDigest: EXPECTED_PNPM_LOCK_DIGEST,
+    dependencies: dependencyReceipts,
+    dependencyLinks: {
+      testToPlaywright: true,
+      playwrightToCore: true,
+      testBinDigest: testBinReceipt.digest,
+      playwrightBinDigest: playwrightBinReceipt.digest,
+    },
+    edge: {
+      version: EXPECTED_EDGE_VERSION,
+      executableDigest: EXPECTED_EDGE_EXE_DIGEST,
+      engineDllDigest: EXPECTED_EDGE_DLL_DIGEST,
+      versionDirectoryDigest: edgeTreeReceipt.digest,
+      versionDirectoryFileCount: edgeTreeReceipt.fileCount,
+      versionDirectoryByteCount: edgeTreeReceipt.byteCount,
+    },
+  };
+  return {
+    ...body,
+    proofDigest: createHash("sha256").update(`${TOOLCHAIN_RECEIPT_SCHEMA}\n${stableStringify(body)}`).digest("hex"),
+  };
+}
+
+function fixtureObservation(overrides = {}) {
+  const createdAt = "2026-08-12T00:00:00.000Z";
+  return {
+    preflightRunId: "a".repeat(32),
+    executionMode: "PreflightDryRun",
+    productCommit: PRODUCT_COMMIT,
+    controlCommit: "b".repeat(40),
+    productionDeploymentId: EXPECTED_DEPLOYMENT_ID,
+    productionOrigin: EXPECTED_ORIGIN,
+    releaseTag: EXPECTED_RELEASE_TAG,
+    releaseRevision: "rc6.2",
+    createdAt,
+    bridgeHealth: {
+      status: "PASS", processAlive: true, pid: 101, protocolVersion: "novel-local-bridge/v1",
+      bindAddress: "127.0.0.1", modelAvailable: true, active: 0, queued: 0,
+      serverDigest: "c".repeat(64), coreDigest: "d".repeat(64),
+    },
+    hubHealth: {
+      status: "PASS", processAlive: true, pid: 102, protocolVersion: "novel-private-hub/v1",
+      bindAddress: "127.0.0.1", modelAvailable: true, active: 0, queued: 0,
+      serverDigest: "e".repeat(64),
+    },
+    ollamaHealth: {
+      status: "PASS", processAlive: true, bindAddress: "127.0.0.1", version: "0.11.10",
+      idle: true, runningModelCount: 0, modelInstalled: true,
+    },
+    ollamaPid: 103,
+    modelId: "qwen2.5:3b",
+    modelDigest: "f".repeat(64),
+    toolchainReceiptDigest: "1".repeat(64),
+    readOnly: true,
+    mutationCount: 0,
+    ...overrides,
+  };
+}
+
+function expectPreflightCode(callback, expectedCode) {
+  assert.throws(callback, (error) => error instanceof PreflightContractError && error.code === expectedCode);
+}
+
+async function readSafeStdin() {
+  const chunks = [];
+  let byteLength = 0;
+  for await (const chunk of process.stdin) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    byteLength += bytes.length;
+    if (byteLength > 131_072) preflightReject("PREFLIGHT_CONTRACT_INPUT_INVALID");
+    chunks.push(bytes);
+  }
+  if (byteLength === 0) preflightReject("PREFLIGHT_CONTRACT_INPUT_INVALID");
+  const bytes = Buffer.concat(chunks, byteLength);
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  if (text.includes("\0") || text.includes("\uFFFD") || text.startsWith("\uFEFF")) {
+    preflightReject("PREFLIGHT_CONTRACT_INPUT_INVALID");
+  }
+  try { return JSON.parse(text); } catch { preflightReject("PREFLIGHT_CONTRACT_INPUT_INVALID"); }
+}
+
+async function writeSafeStream(stream, value) {
+  await new Promise((resolvePromise, rejectPromise) => {
+    stream.write(value, (error) => {
+      if (error) rejectPromise(error);
+      else resolvePromise();
+    });
+  });
+}
+
+function assertProductionRuntimeReceiptStdinBoundary() {
+  const contractPath = fileURLToPath(import.meta.url);
+  const observation = fixtureObservation();
+  const producer = spawnSync(process.execPath, [contractPath, "production-runtime-receipt"], {
+    input: stableStringify(observation),
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 1_048_576,
+    windowsHide: true,
+  });
+  assert.equal(producer.status, 0, `runtime receipt stdin producer failed: ${producer.stderr}`);
+  assert.equal(producer.stderr, "");
+  const receiptText = producer.stdout;
+  assert.equal(stableStringify(JSON.parse(receiptText)), receiptText);
+
+  const validatorInput = stableStringify({
+    receiptText,
+    expectedObservation: observation,
+    validatedAt: "2026-08-12T00:00:01.000Z",
+    freshnessMode: "preflight",
+  });
+  const validator = spawnSync(process.execPath, [contractPath, "validate-production-runtime-receipt"], {
+    input: validatorInput,
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 1_048_576,
+    windowsHide: true,
+  });
+  assert.equal(validator.status, 0, `runtime receipt stdin validator failed: ${validator.stderr}`);
+  assert.equal(validator.stderr, "");
+  const validation = JSON.parse(validator.stdout);
+  assert.equal(validation.status, "PASS");
+  assert.equal(validation.receiptDigest, JSON.parse(receiptText).digest);
+}
+
+async function runEarlyPreflightMode(mode) {
+  if (mode === "toolchain-receipt") {
+    await writeSafeStream(process.stdout, stableStringify(await createToolchainReceipt()));
+    return true;
+  }
+  if (mode === "production-runtime-receipt") {
+    await writeSafeStream(process.stdout, stableStringify(createProductionRuntimeReceipt(await readSafeStdin())));
+    return true;
+  }
+  if (mode === "validate-production-runtime-receipt") {
+    const input = await readSafeStdin();
+    requireExactKeys(
+      input,
+      ["receiptText", "expectedObservation", "validatedAt", "freshnessMode"],
+      "PREFLIGHT_VALIDATOR_INPUT_INVALID",
+    );
+    await writeSafeStream(process.stdout, stableStringify(validateProductionRuntimeReceipt(
+      input.receiptText,
+      input.expectedObservation,
+      input.validatedAt,
+      input.freshnessMode,
+    )));
+    return true;
+  }
+  const fixture = fixtureObservation();
+  if (mode === "test-preflight-runtime-receipt") {
+    const text = stableStringify(createProductionRuntimeReceipt(fixture));
+    assert.equal(validateProductionRuntimeReceipt(
+      text, fixture, "2026-08-12T00:00:01.000Z", "preflight",
+    ).status, "PASS");
+  } else if (mode === "test-preflight-receipt-missing") {
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt("", fixture, "2026-08-12T00:00:01.000Z", "preflight"),
+      "PREFLIGHT_RECEIPT_MISSING",
+    );
+    const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-preflight-missing-"));
+    try {
+      const expectedPath = join(directory, "receipt.json");
+      await assert.rejects(
+        validateProductionRuntimeReceiptFile({
+          actualPath: expectedPath,
+          expectedPath,
+          expectedObservation: fixture,
+          validatedAt: "2026-08-12T00:00:01.000Z",
+          freshnessMode: "preflight",
+        }),
+        (error) => error instanceof PreflightContractError && error.code === "PREFLIGHT_RECEIPT_MISSING",
+      );
+      const wrongPath = join(directory, "wrong.json");
+      await writeFile(wrongPath, stableStringify(createProductionRuntimeReceipt(fixture)), "utf8");
+      await assert.rejects(
+        validateProductionRuntimeReceiptFile({
+          actualPath: wrongPath,
+          expectedPath,
+          expectedObservation: fixture,
+          validatedAt: "2026-08-12T00:00:01.000Z",
+          freshnessMode: "preflight",
+        }),
+        (error) => error instanceof PreflightContractError && error.code === "PREFLIGHT_RECEIPT_PATH_MISMATCH",
+      );
+      await writeFile(expectedPath, stableStringify(createProductionRuntimeReceipt(fixture)), "utf8");
+      await rm(expectedPath, { force: true });
+      await assert.rejects(
+        validateProductionRuntimeReceiptFile({
+          actualPath: expectedPath,
+          expectedPath,
+          expectedObservation: fixture,
+          validatedAt: "2026-08-12T00:00:01.000Z",
+          freshnessMode: "preflight",
+        }),
+        (error) => error instanceof PreflightContractError && error.code === "PREFLIGHT_RECEIPT_MISSING",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  } else if (mode === "test-preflight-receipt-digest") {
+    const receipt = createProductionRuntimeReceipt(fixture);
+    receipt.digest = "0".repeat(64);
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt(
+        stableStringify(receipt), fixture, "2026-08-12T00:00:01.000Z", "preflight",
+      ),
+      "PREFLIGHT_RECEIPT_DIGEST_MISMATCH",
+    );
+    const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-preflight-digest-"));
+    try {
+      const path = join(directory, "receipt.json");
+      await writeFile(path, stableStringify(createProductionRuntimeReceipt(fixture)), "utf8");
+      await assert.rejects(
+        validateProductionRuntimeReceiptFile({
+          actualPath: path,
+          expectedPath: path,
+          expectedObservation: fixture,
+          validatedAt: "2026-08-12T00:00:01.000Z",
+          freshnessMode: "preflight",
+          expectedFileSha256: "0".repeat(64),
+        }),
+        (error) => error instanceof PreflightContractError && error.code === "PREFLIGHT_RECEIPT_FILE_SHA_MISMATCH",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  } else if (mode === "test-preflight-receipt-schema") {
+    expectPreflightCode(
+      () => createProductionRuntimeReceipt(fixtureObservation({ productCommit: "0".repeat(40) })),
+      "PREFLIGHT_RECEIPT_COMMIT_BINDING_INVALID",
+    );
+    expectPreflightCode(
+      () => createProductionRuntimeReceipt(fixtureObservation({ productionDeploymentId: "dpl_wrong" })),
+      "PREFLIGHT_RECEIPT_PRODUCTION_BINDING_INVALID",
+    );
+    const receipt = createProductionRuntimeReceipt(fixture);
+    receipt.unexpected = true;
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt(
+        stableStringify(receipt), fixture, "2026-08-12T00:00:01.000Z", "preflight",
+      ),
+      "PREFLIGHT_RECEIPT_SCHEMA_INVALID",
+    );
+    const wrongSchema = createProductionRuntimeReceipt(fixture);
+    wrongSchema.schemaVersion = "p24b-rc6.2-production-browser-runtime-receipt-v1";
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt(
+        stableStringify(wrongSchema), fixture, "2026-08-12T00:00:01.000Z", "preflight",
+      ),
+      "PREFLIGHT_RECEIPT_SCHEMA_INVALID",
+    );
+  } else if (mode === "test-preflight-receipt-ordering") {
+    const text = stableStringify(createProductionRuntimeReceipt(fixture));
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt(text, fixture, "2026-08-12T00:10:00.000Z", "preflight"),
+      "PREFLIGHT_RECEIPT_STALE",
+    );
+    expectPreflightCode(
+      () => validateProductionRuntimeReceipt(
+        text,
+        fixtureObservation({ preflightRunId: "2".repeat(32) }),
+        "2026-08-12T00:00:01.000Z",
+        "preflight",
+      ),
+      "PREFLIGHT_RECEIPT_BINDING_MISMATCH",
+    );
+  } else if (mode === "test-preflight-failure-evidence") {
+    const failure = {
+      schemaVersion: PREFLIGHT_FAILURE_SCHEMA,
+      status: "FAIL",
+      phase: "preflight",
+      attemptConsumed: false,
+      browserStarted: false,
+      runnerStarted: false,
+      safeErrorCode: "PREFLIGHT_RECEIPT_MISSING",
+      mutationCount: 0,
+    };
+    requireExactKeys(failure, [
+      "schemaVersion", "status", "phase", "attemptConsumed", "browserStarted", "runnerStarted",
+      "safeErrorCode", "mutationCount",
+    ], "PREFLIGHT_FAILURE_EVIDENCE_INVALID");
+    assert.equal(failure.schemaVersion, PREFLIGHT_FAILURE_SCHEMA);
+    assert.equal(failure.attemptConsumed, false);
+    assert.equal(failure.mutationCount, 0);
+    assert.doesNotMatch(stableStringify(failure), /secret|token|cookie|authorization|prompt|output/iu);
+    const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-preflight-failure-"));
+    try {
+      const failureText = stableStringify(failure);
+      const failureDigest = createHash("sha256").update(failureText).digest("hex");
+      const failurePath = join(directory, "preflight-failure.json");
+      const shaPath = join(directory, "preflight-failure.sha256");
+      const manifestPath = join(directory, "preflight-manifest.json");
+      await writeFile(failurePath, failureText, { encoding: "utf8", flag: "wx" });
+      await writeFile(shaPath, `${failureDigest}\n`, { encoding: "utf8", flag: "wx" });
+      const manifest = {
+        schemaVersion: "p24b-rc6.2-production-browser-preflight-manifest-v1",
+        status: "FAIL",
+        phase: "preflight",
+        files: [
+          { name: "preflight-failure.json", sha256: failureDigest },
+          {
+            name: "preflight-failure.sha256",
+            sha256: createHash("sha256").update(`${failureDigest}\n`).digest("hex"),
+          },
+        ],
+      };
+      await writeFile(manifestPath, stableStringify(manifest), { encoding: "utf8", flag: "wx" });
+      assert.deepEqual((await readdir(directory)).sort(), [
+        "preflight-failure.json", "preflight-failure.sha256", "preflight-manifest.json",
+      ]);
+      assert.equal(createHash("sha256").update(await readFile(failurePath)).digest("hex"), failureDigest);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  } else {
+    return false;
+  }
+  await writeSafeStream(process.stdout, `P2.4B RC6.2 ${mode}: PASS`);
+  return true;
+}
+
+const earlyPreflightModes = new Set([
+  "toolchain-receipt",
+  "production-runtime-receipt",
+  "validate-production-runtime-receipt",
+  "test-preflight-runtime-receipt",
+  "test-preflight-receipt-missing",
+  "test-preflight-receipt-digest",
+  "test-preflight-receipt-schema",
+  "test-preflight-receipt-ordering",
+  "test-preflight-failure-evidence",
+]);
+if (earlyPreflightModes.has(process.argv[2])) {
+  try {
+    await runEarlyPreflightMode(process.argv[2]);
+  } catch (error) {
+    const safeCode = error instanceof PreflightContractError ? error.code : "PREFLIGHT_CONTRACT_INTERNAL_FAILED";
+    await writeSafeStream(process.stderr, `${safeCode}\n`);
+    process.exitCode = 2;
+  }
+  process.exit(process.exitCode ?? 0);
+}
+
+const wrapperUrl = new URL("./run-rc6-2-production-browser-gate.ps1", import.meta.url);
+const [wrapper, browserRunner, runtimeContract, workflow, workflowContract, gateContractSource] = await Promise.all([
+  readFile(wrapperUrl, "utf8"),
+  readFile(new URL("./run-rc6-2-closed-agent-browser.mjs", import.meta.url), "utf8"),
+  readFile(new URL("./run-rc6-2-closed-agent-runtime.mjs", import.meta.url), "utf8"),
+  readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
+  readFile(new URL("./run-pr23-r21-workflow-contract.mjs", import.meta.url), "utf8"),
+  readFile(fileURLToPath(import.meta.url), "utf8"),
+]);
 
 const RUNNER_EVIDENCE_SCHEMA_VERSION = "p24b-rc6-2-closed-ai-browser-evidence-v3";
 const RUNNER_SUCCESS_EVIDENCE_KEYS = [
@@ -347,14 +980,6 @@ assert.deepEqual([...RUNNER_REQUEST_PHASES].sort(), [
   "release-identity",
 ]);
 
-function stableStringify(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.keys(value).sort().map((key) => (
-    `${JSON.stringify(key)}:${stableStringify(value[key])}`
-  )).join(",")}}`;
-}
-
 function gitOutput(arguments_) {
   assert.ok(arguments_.length > 0 && arguments_.length <= 16);
   for (const argument of arguments_) assert.match(argument, /^[A-Za-z0-9._/:@^{}+=,\-]{1,512}$/u);
@@ -435,6 +1060,8 @@ Write-Output "PASS"
       "0".repeat(64),
       "-ExpectedLkgSelectionProofDigest",
       "1".repeat(64),
+      "-ExecutionMode",
+      "PreflightDryRun",
     ], { encoding: "utf8", timeout: 30_000, windowsHide: true });
     assert.equal(result.status, 0, `PowerShell Git scalar self-test failed: ${result.stderr}`);
     assert.equal(result.stdout.trim(), "PASS");
@@ -443,14 +1070,61 @@ Write-Output "PASS"
   }
 }
 
+async function assertPowerShellRuntimeReceiptStdinBehavior() {
+  if (process.platform !== "win32") return;
+  const invokeStart = wrapper.indexOf("function Invoke-CleanNodeContract");
+  const invokeEnd = wrapper.indexOf("function Invoke-ReleaseAttestationVerification");
+  assert.ok(invokeStart >= 0 && invokeEnd > invokeStart, "clean Node contract helper boundary is missing");
+  const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-runtime-stdin-"));
+  const scriptPath = join(directory, "runtime-stdin-self-test.ps1");
+  const escapedNode = process.execPath.replaceAll("'", "''");
+  const escapedContract = fileURLToPath(import.meta.url).replaceAll("'", "''");
+  const escapedRoot = repositoryRoot.replaceAll("'", "''");
+  const observation = stableStringify(fixtureObservation()).replaceAll("'", "''");
+  try {
+    await writeFile(scriptPath, `$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+function Fail([string]$Code) { throw $Code }
+$nodeExe = '${escapedNode}'
+$contractPath = '${escapedContract}'
+$repoRoot = '${escapedRoot}'
+${wrapper.slice(invokeStart, invokeEnd)}
+$inputJson = '${observation}'
+$receiptText = Invoke-CleanNodeContract 'production-runtime-receipt' @{} 'PS_RUNTIME_STDIN_FAILED' $inputJson
+$receipt = $receiptText | ConvertFrom-Json
+if ($receipt.schemaVersion -ne '${PRODUCTION_RUNTIME_RECEIPT_SCHEMA}' -or $receipt.digest -notmatch '^[a-f0-9]{64}$') { exit 2 }
+if (-not $script:lastNodeContractMetrics.processStarted -or $script:lastNodeContractMetrics.exitCode -ne 0) { exit 3 }
+$bomRejected = $false
+try { [void](Invoke-CleanNodeContract 'production-runtime-receipt' @{} 'PS_RUNTIME_BOM_REJECTED' (([string][char]0xFEFF) + $inputJson)) }
+catch { $bomRejected = $_.Exception.Message -eq 'PS_RUNTIME_BOM_REJECTED' }
+if (-not $bomRejected -or $script:lastNodeContractMetrics.processStarted) { exit 4 }
+Write-Output 'PASS'
+`, "utf8");
+    const powerShell = join(
+      process.env.SystemRoot ?? "C:\\Windows",
+      "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
+    );
+    const result = spawnSync(powerShell, [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
+    ], { encoding: "utf8", timeout: 30_000, windowsHide: true });
+    assert.equal(result.status, 0, `PowerShell runtime receipt stdin self-test failed: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), "PASS");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function assertPowerShellFailurePublisherBehavior() {
   if (process.platform !== "win32" || process.env.RC6_2_FAILURE_VALIDATOR_CHILD_TEST === "1") return;
-  const helperStart = wrapper.indexOf("function Sha256Text");
+  const helperStart = wrapper.indexOf("function Get-RequiredZeroHealthCounter");
   const helperEnd = wrapper.indexOf("function Initialize-EvidenceDestination");
   assert.ok(helperStart >= 0 && helperEnd > helperStart, "failure publisher helper boundary is missing");
   const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-failure-publisher-"));
   const scriptPath = join(directory, "failure-publisher-self-test.ps1");
   const escapedDirectory = directory.replaceAll("'", "''");
+  const escapedWrapper = fileURLToPath(wrapperUrl).replaceAll("'", "''");
+  const escapedRunner = fileURLToPath(new URL("./run-rc6-2-closed-agent-browser.mjs", import.meta.url)).replaceAll("'", "''");
+  const escapedContract = fileURLToPath(import.meta.url).replaceAll("'", "''");
   try {
     await writeFile(scriptPath, `$ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -467,11 +1141,12 @@ $productCommit = '${PRODUCT_COMMIT}'
 $failedRecoveryControl = '${FAILED_RECOVERY_CONTROL}'
 $productionRecoveryControl = '${PRODUCTION_RECOVERY_CONTROL}'
 $initialBrowserGateControl = '${INITIAL_BROWSER_GATE_CONTROL}'
-$previousBrowserGateControl = '${PREVIOUS_BROWSER_GATE_CONTROL}'
+$c4BrowserGateControl = '${C4_BROWSER_GATE_CONTROL}'
+$c5BrowserGateControl = '${C5_BROWSER_GATE_CONTROL}'
 $expectedDeployment = '${EXPECTED_DEPLOYMENT_ID}'
 function Get-MainCasStatus { return "pass" }
 $capture = [pscustomobject][ordered]@{
-  schemaVersion = "p24b-rc6.2-production-browser-gate-c5-runner-capture-v1"
+  schemaVersion = "p24b-rc6.2-production-browser-gate-c6-runner-capture-v1"
   stage = "runner-start"
   runnerStarted = $false
   exitCode = $null
@@ -488,7 +1163,7 @@ $postchecks = [ordered]@{
   trackedGateBlobs = "pass"; productRuntimeBlobs = "pass"; releaseTag = "pass"
   worktree = "pass"; remoteMainCas = "not-run"
 }
-$json = Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED"
+$json = Publish-C6FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED"
 $bytesBefore = [IO.File]::ReadAllBytes($failureEvidencePath)
 $parsed = $json | ConvertFrom-Json
 if ($parsed.body.status -ne "FAIL" -or $parsed.body.qualifiesProductionBrowserGate -ne $false) { exit 2 }
@@ -496,7 +1171,7 @@ if ($parsed.body.eligibleForLuna -ne $false -or $parsed.sanitized -ne $true) { e
 if ($parsed.rawSecretsStored -ne $false -or $parsed.body.postchecks.remoteMainCas -ne "pass") { exit 4 }
 if ($parsed.body.terminalWrapperCode -ne "PRODUCTION_BROWSER_RUNNER_START_FAILED") { exit 5 }
 $rejected = $false
-try { [void](Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
+try { [void](Publish-C6FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
 catch { $rejected = $_.Exception.Message -eq "FAILURE_EVIDENCE_DESTINATION_RACE" }
 if (-not $rejected) { exit 6 }
 $bytesAfter = [IO.File]::ReadAllBytes($failureEvidencePath)
@@ -507,10 +1182,64 @@ for ($index = 0; $index -lt $bytesBefore.Length; $index += 1) {
 if (@(Get-ChildItem -LiteralPath $evidenceDirectory -Filter '*.tmp').Count -ne 0) { exit 9 }
 $createNewPath = Join-Path $evidenceDirectory 'create-new.txt'
 [IO.File]::WriteAllText($createNewPath, 'original')
+$preflightRunId = '${"d".repeat(32)}'
 $createNewRejected = $false
 try { Write-CreateNewFlushedFile $createNewPath 'replacement' 'CREATE_NEW_REJECTED' }
 catch { $createNewRejected = $_.Exception.Message -eq 'CREATE_NEW_REJECTED' }
 if (-not $createNewRejected -or [IO.File]::ReadAllText($createNewPath) -ne 'original') { exit 10 }
+$ownedPath = Join-Path $evidenceDirectory 'owned-exact.txt'
+$ownedDigest = Publish-AtomicTextFile $ownedPath 'owned' 'OWNED_EXACT_WRITE_FAILED'
+if ($ownedDigest -ne (Sha256Text 'owned')) { exit 23 }
+[IO.File]::WriteAllText($ownedPath, 'replacement')
+if (Remove-OwnedExactFile $ownedPath 'owned') { exit 24 }
+if ([IO.File]::ReadAllText($ownedPath) -ne 'replacement') { exit 25 }
+[IO.File]::Delete($ownedPath)
+$nullCounterRejected = $false
+try { [void](Get-RequiredZeroHealthCounter ([pscustomobject]@{ active = $null }) 'active' 'COUNTER_NULL_REJECTED') }
+catch { $nullCounterRejected = $_.Exception.Message -eq 'COUNTER_NULL_REJECTED' }
+if (-not $nullCounterRejected) { exit 17 }
+$stringCounterRejected = $false
+try { [void](Get-RequiredZeroHealthCounter ([pscustomobject]@{ active = '0' }) 'active' 'COUNTER_STRING_REJECTED') }
+catch { $stringCounterRejected = $_.Exception.Message -eq 'COUNTER_STRING_REJECTED' }
+if (-not $stringCounterRejected) { exit 18 }
+if ((Get-RequiredZeroHealthCounter ([pscustomobject]@{ active = 0 }) 'active' 'COUNTER_ZERO_REJECTED') -ne 0) { exit 19 }
+$ExecutionMode = 'PreflightDryRun'
+$deploymentOrigin = '${EXPECTED_ORIGIN}'
+$wrapperPath = '${escapedWrapper}'
+$runnerPath = '${escapedRunner}'
+$contractPath = '${escapedContract}'
+$runtimeReceiptBefore = $null
+$runtimeReceiptPath = Join-Path $evidenceDirectory 'runtime-missing.json'
+$runtimeReceiptShaPath = Join-Path $evidenceDirectory 'runtime-missing.sha256'
+$preflightStartedAt = '2026-08-12T00:00:00.000Z'
+$script:lastNodeContractMetrics = [pscustomobject][ordered]@{
+  mode = 'production-runtime-receipt'; processStarted = $true; exitCode = 2; elapsedMs = 1
+  stdoutUtf8ByteLength = 0; stderrUtf8ByteLength = 34; safeErrorCode = 'PREFLIGHT_RECEIPT_MISSING'
+}
+$preflightFailurePath = Join-Path $evidenceDirectory 'preflight-failure.json'
+$preflightFailureShaPath = Join-Path $evidenceDirectory 'preflight-failure.sha256'
+$preflightManifestPath = Join-Path $evidenceDirectory 'preflight-manifest.json'
+$rootCauseAnalysisPath = Join-Path $evidenceDirectory 'root-cause-analysis.json'
+$preflightJson = Publish-PreflightBundle 'FAIL' 'PREFLIGHT_RECEIPT_MISSING' 'preflight-failed'
+$preflight = $preflightJson | ConvertFrom-Json
+if ($preflight.attemptConsumed -ne $false -or $preflight.browserStarted -ne $false -or $preflight.runnerStarted -ne $false) { exit 14 }
+foreach ($sidecar in @($preflightFailurePath, $preflightFailureShaPath, $preflightManifestPath, $rootCauseAnalysisPath)) {
+  if (-not (Test-Path -LiteralPath $sidecar -PathType Leaf)) { exit 15 }
+}
+$preflightDigest = (Get-FileHash -LiteralPath $preflightFailurePath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ([IO.File]::ReadAllText($preflightFailureShaPath, [Text.Encoding]::ASCII) -ne "$preflightDigest\`n") { exit 16 }
+$preflightFailurePath = Join-Path $evidenceDirectory 'partial-failure.json'
+$preflightFailureShaPath = Join-Path $evidenceDirectory 'partial-failure.sha256'
+$preflightManifestPath = Join-Path $evidenceDirectory 'partial-manifest.json'
+$rootCauseAnalysisPath = Join-Path $evidenceDirectory 'preexisting-root-cause.json'
+[IO.File]::WriteAllText($rootCauseAnalysisPath, 'original')
+$partialRejected = $false
+try { [void](Publish-PreflightBundle 'FAIL' 'PREFLIGHT_RECEIPT_MISSING' 'preflight-failed') }
+catch { $partialRejected = $_.Exception.Message -eq 'ROOT_CAUSE_ANALYSIS_WRITE_FAILED' }
+if (-not $partialRejected) { exit 20 }
+if ((Test-Path -LiteralPath $preflightFailurePath) -or (Test-Path -LiteralPath $preflightFailureShaPath) -or (Test-Path -LiteralPath $preflightManifestPath)) { exit 21 }
+if ([IO.File]::ReadAllText($rootCauseAnalysisPath) -ne 'original') { exit 22 }
+[IO.File]::Delete($rootCauseAnalysisPath)
 $evidencePath = Join-Path $evidenceDirectory 'tamper-pass.json'
 $failureEvidencePath = Join-Path $evidenceDirectory 'tamper-failure.json'
 $script:casCallCount = 0
@@ -524,7 +1253,7 @@ function Get-MainCasStatus {
   return "pass"
 }
 $tamperRejected = $false
-try { [void](Publish-C5FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
+try { [void](Publish-C6FailureEvidence $capture $postchecks "PRODUCTION_BROWSER_RUNNER_START_FAILED") }
 catch { $tamperRejected = $_.Exception.Message -eq "FAILURE_EVIDENCE_TEMP_READBACK_MISMATCH" }
 if (-not $tamperRejected -or (Test-Path -LiteralPath $failureEvidencePath)) { exit 12 }
 if (@(Get-ChildItem -LiteralPath $evidenceDirectory -Filter '*.tmp').Count -ne 0) { exit 13 }
@@ -564,11 +1293,15 @@ async function writeAuditControlProof() {
   assert.equal(gitOutput(["rev-parse", "HEAD"]), controlCommit);
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", controlCommit]).split(/\s+/u),
-    [controlCommit, PREVIOUS_BROWSER_GATE_CONTROL],
+    [controlCommit, C5_BROWSER_GATE_CONTROL],
   );
   assert.deepEqual(
-    gitOutput(["rev-list", "--parents", "-n", "1", PREVIOUS_BROWSER_GATE_CONTROL]).split(/\s+/u),
-    [PREVIOUS_BROWSER_GATE_CONTROL, INITIAL_BROWSER_GATE_CONTROL],
+    gitOutput(["rev-list", "--parents", "-n", "1", C5_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [C5_BROWSER_GATE_CONTROL, C4_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", C4_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [C4_BROWSER_GATE_CONTROL, INITIAL_BROWSER_GATE_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", INITIAL_BROWSER_GATE_CONTROL]).split(/\s+/u),
@@ -587,26 +1320,38 @@ async function writeAuditControlProof() {
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    PREVIOUS_BROWSER_GATE_CONTROL,
+    C5_BROWSER_GATE_CONTROL,
     controlCommit,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(changedPaths, [...GATE_REPAIR_PATHS].sort());
-  const previousChangedPaths = gitOutput([
+  assert.deepEqual(changedPaths, [...C6_GATE_REPAIR_PATHS].sort());
+  const c5ChangedPaths = gitOutput([
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    INITIAL_BROWSER_GATE_CONTROL,
-    PREVIOUS_BROWSER_GATE_CONTROL,
+    C4_BROWSER_GATE_CONTROL,
+    C5_BROWSER_GATE_CONTROL,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "previous browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(previousChangedPaths, [...GATE_REPAIR_PATHS].sort());
+  assert.deepEqual(c5ChangedPaths, [...HISTORICAL_GATE_REPAIR_PATHS].sort());
+  const c4ChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    INITIAL_BROWSER_GATE_CONTROL,
+    C4_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "C4 browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(c4ChangedPaths, [...HISTORICAL_GATE_REPAIR_PATHS].sort());
   const initialChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -618,7 +1363,7 @@ async function writeAuditControlProof() {
     assert.ok(match, "initial browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(initialChangedPaths, [...GATE_BLOB_PATHS].sort());
+  assert.deepEqual(initialChangedPaths, [...INITIAL_GATE_BLOB_PATHS].sort());
   const compositeChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -630,17 +1375,18 @@ async function writeAuditControlProof() {
     assert.ok(match, "browser gate composite diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(compositeChangedPaths, [...GATE_BLOB_PATHS].sort());
+  assert.deepEqual(compositeChangedPaths, [...COMPOSITE_GATE_BLOB_PATHS].sort());
   const body = {
-    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v2",
+    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v3",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
     failedRecoveryControl: FAILED_RECOVERY_CONTROL,
     productionRecoveryControl: PRODUCTION_RECOVERY_CONTROL,
     initialBrowserGateControl: INITIAL_BROWSER_GATE_CONTROL,
-    previousBrowserGateControl: PREVIOUS_BROWSER_GATE_CONTROL,
+    c4BrowserGateControl: C4_BROWSER_GATE_CONTROL,
+    c5BrowserGateControl: C5_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
-    parentCommit: PREVIOUS_BROWSER_GATE_CONTROL,
+    parentCommit: C5_BROWSER_GATE_CONTROL,
     repository: process.env.GITHUB_REPOSITORY,
     eventName: process.env.GITHUB_EVENT_NAME,
     eventRef: process.env.GITHUB_REF,
@@ -650,21 +1396,23 @@ async function writeAuditControlProof() {
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     lineage: [
       controlCommit,
-      PREVIOUS_BROWSER_GATE_CONTROL,
+      C5_BROWSER_GATE_CONTROL,
+      C4_BROWSER_GATE_CONTROL,
       INITIAL_BROWSER_GATE_CONTROL,
       PRODUCTION_RECOVERY_CONTROL,
       FAILED_RECOVERY_CONTROL,
       PRODUCT_COMMIT,
     ],
     changedPaths,
-    previousChangedPaths,
+    c5ChangedPaths,
+    c4ChangedPaths,
     initialChangedPaths,
     compositeChangedPaths,
   };
   const proof = {
     ...body,
     proofDigest: createHash("sha256").update(stableStringify({
-      domain: "p24b-rc6.2-browser-gate-control-proof-v2",
+      domain: "p24b-rc6.2-browser-gate-control-proof-v3",
       body,
     })).digest("hex"),
   };
@@ -686,6 +1434,7 @@ for (const literal of [
   "3b716fc0d974a9d59b49ffca5953776af66c7a07",
   "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824",
   "100eea11003c5132ab2b519707c5dee658bc9cbe",
+  "99695b247c2b1626c38efc8ae4589dd9bd8d30da",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -697,111 +1446,15 @@ for (const literal of [
 }
 
 await assertPowerShellGitScalarBehavior();
-if (process.argv.length === 2) await assertPowerShellFailurePublisherBehavior();
-
-const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
-const dependencyPackages = [
-  {
-    name: "@playwright/test",
-    linkedPath: join(repositoryRoot, "node_modules", "@playwright", "test"),
-    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "@playwright+test@1.61.1", "node_modules", "@playwright", "test"),
-    digest: "0a790d924aa71007bc11405b0c27ebc581912ae3f01ef7b89d1359038b336f48",
-  },
-  {
-    name: "playwright",
-    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "playwright@1.61.1", "node_modules", "playwright"),
-    digest: "e9979a347da48432d060cf4df638ec6682735b8dc3db96b1e5dc13138a583f43",
-  },
-  {
-    name: "playwright-core",
-    packagePath: join(repositoryRoot, "node_modules", ".pnpm", "playwright-core@1.61.1", "node_modules", "playwright-core"),
-    digest: "efff85ef77071866494ea4b35c90060b2eb96098f5633f8dee6c2b28c24000ac",
-  },
-];
-const dependencyReceipts = [];
-for (const dependency of dependencyPackages) {
-  const expectedRoot = resolve(dependency.packagePath);
-  assert.equal(await realpath(expectedRoot), expectedRoot, `${dependency.name} package root drifted`);
-  if (dependency.linkedPath) {
-    assert.equal(await realpath(dependency.linkedPath), expectedRoot, `${dependency.name} workspace link drifted`);
-  }
-  const packageJson = JSON.parse(await readFile(join(expectedRoot, "package.json"), "utf8"));
-  assert.equal(packageJson.name, dependency.name);
-  assert.equal(packageJson.version, "1.61.1");
-  const digest = await dependencyDigest(expectedRoot);
-  assert.equal(digest, dependency.digest, `${dependency.name} bytes drifted`);
-  dependencyReceipts.push({ name: dependency.name, version: packageJson.version, digest });
+if (process.argv.length === 2) {
+  assertProductionRuntimeReceiptStdinBoundary();
+  await assertPowerShellRuntimeReceiptStdinBehavior();
+  await assertPowerShellFailurePublisherBehavior();
 }
 
-const testPackageRoot = resolve(dependencyPackages[0].packagePath);
-const playwrightPackageRoot = resolve(dependencyPackages[1].packagePath);
-const playwrightCorePackageRoot = resolve(dependencyPackages[2].packagePath);
-const testVirtualNodeModules = resolve(testPackageRoot, "..", "..");
-const playwrightVirtualNodeModules = resolve(playwrightPackageRoot, "..");
-await assertExactDirectoryEntries(testVirtualNodeModules, ["@playwright", "playwright"]);
-await assertExactDirectoryEntries(playwrightVirtualNodeModules, ["playwright", "playwright-core"]);
-assert.equal(await realpath(join(testVirtualNodeModules, "@playwright", "test")), testPackageRoot);
-assert.equal(await realpath(join(testVirtualNodeModules, "playwright")), playwrightPackageRoot);
-assert.equal(await realpath(join(playwrightVirtualNodeModules, "playwright")), playwrightPackageRoot);
-assert.equal(await realpath(join(playwrightVirtualNodeModules, "playwright-core")), playwrightCorePackageRoot);
-await assertExactDirectoryEntries(join(testPackageRoot, "node_modules"), [".bin"]);
-await assertExactDirectoryEntries(join(playwrightPackageRoot, "node_modules"), [".bin"]);
-const testBinReceipt = await completeTreeReceipt(join(testPackageRoot, "node_modules", ".bin"));
-const playwrightBinReceipt = await completeTreeReceipt(join(playwrightPackageRoot, "node_modules", ".bin"));
-assert.deepEqual(testBinReceipt, {
-  fileCount: 3,
-  byteCount: 3_881,
-  digest: "1df12ad3918f333e03bfc42906b7d9292af7898a04a1b98aa4308d21b5f00a70",
-});
-assert.deepEqual(playwrightBinReceipt, {
-  fileCount: 3,
-  byteCount: 4_027,
-  digest: "e0d6bb1289bee38c5880540dac79fc84202363c6cc7ba4cbd955a0dab00621c9",
-});
-
-assert.equal(await sha256File(join(repositoryRoot, "package.json")), EXPECTED_PACKAGE_JSON_DIGEST);
-assert.equal(await sha256File(join(repositoryRoot, "pnpm-lock.yaml")), EXPECTED_PNPM_LOCK_DIGEST);
-const edgeVersionRoot = resolve(
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application",
-  EXPECTED_EDGE_VERSION,
-);
-assert.equal((await stat(edgeVersionRoot)).isDirectory(), true);
-assert.equal(await sha256File(join(dirname(edgeVersionRoot), "msedge.exe")), EXPECTED_EDGE_EXE_DIGEST);
-assert.equal(await sha256File(join(edgeVersionRoot, "msedge.dll")), EXPECTED_EDGE_DLL_DIGEST);
-const edgeTreeReceipt = await completeTreeReceipt(edgeVersionRoot);
-assert.deepEqual(edgeTreeReceipt, {
-  fileCount: 784,
-  byteCount: 902_433_921,
-  digest: EXPECTED_EDGE_DIRECTORY_DIGEST,
-});
-
-const runtimeReceiptBody = {
-  schemaVersion: "p24b-rc6.2-production-browser-runtime-receipt-v1",
-  packageJsonDigest: EXPECTED_PACKAGE_JSON_DIGEST,
-  pnpmLockDigest: EXPECTED_PNPM_LOCK_DIGEST,
-  dependencies: dependencyReceipts,
-  dependencyLinks: {
-    testToPlaywright: true,
-    playwrightToCore: true,
-    testBinDigest: testBinReceipt.digest,
-    playwrightBinDigest: playwrightBinReceipt.digest,
-  },
-  edge: {
-    version: EXPECTED_EDGE_VERSION,
-    executableDigest: EXPECTED_EDGE_EXE_DIGEST,
-    engineDllDigest: EXPECTED_EDGE_DLL_DIGEST,
-    versionDirectoryDigest: edgeTreeReceipt.digest,
-    versionDirectoryFileCount: edgeTreeReceipt.fileCount,
-    versionDirectoryByteCount: edgeTreeReceipt.byteCount,
-  },
-};
-const runtimeReceipt = {
-  ...runtimeReceiptBody,
-  proofDigest: createHash("sha256").update(stableStringify({
-    domain: "p24b-rc6.2-production-browser-runtime-receipt-v1",
-    body: runtimeReceiptBody,
-  })).digest("hex"),
-};
+const toolchainReceiptForContract = await createToolchainReceipt();
+assert.equal(toolchainReceiptForContract.schemaVersion, TOOLCHAIN_RECEIPT_SCHEMA);
+assertSha256(toolchainReceiptForContract.proofDigest, "toolchain receipt proof digest");
 
 function assertSafeProjectedEvidence(value, path = "evidence", depth = 0) {
   assert.ok(depth <= 40, `${path} is too deeply nested`);
@@ -1774,26 +2427,41 @@ async function validateEvidence() {
 }
 
 assert.match(wrapper, /\[Parameter\(Mandatory = \$true\)\][\s\S]*\[ValidatePattern\('\^\[a-f0-9\]\{40\}\$'\)\][\s\S]*\$ExpectedGateControlCommit/u);
+assert.ok(
+  gateContractSource.indexOf("if (earlyPreflightModes.has(process.argv[2]))")
+  < gateContractSource.indexOf("const wrapperUrl = new URL"),
+  "early preflight dispatch must precede broad wrapper/browser/runtime/workflow reads",
+);
+assert.ok(
+  gateContractSource.indexOf("const wrapperUrl = new URL")
+  < gateContractSource.indexOf("const RUNNER_EVIDENCE_SCHEMA_VERSION"),
+  "broad source reads must remain on the non-early path",
+);
 assert.match(wrapper, /\[ValidateRange\(1, \[long\]::MaxValue\)\][\s\S]*\$ExpectedLkgAuditRunId/u);
 assert.match(wrapper, /\$ExpectedLkgAuditControlProofDigest/u);
 assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
+assert.match(wrapper, /\[ValidateSet\("PreflightDryRun", "FormalBrowserGate"\)\][\s\S]*\[string\]\$ExecutionMode/u);
+assert.doesNotMatch(wrapper, /\$ExecutionMode\s*=/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
-assert.match(wrapper, /\$headParents\[1\] -ne \$previousBrowserGateControl/u);
-assert.match(wrapper, /\$previousParents\[1\] -ne \$initialBrowserGateControl/u);
+assert.match(wrapper, /\$headParents\[1\] -ne \$c5BrowserGateControl/u);
+assert.match(wrapper, /\$c5Parents\[1\] -ne \$c4BrowserGateControl/u);
+assert.match(wrapper, /\$c4Parents\[1\] -ne \$initialBrowserGateControl/u);
 assert.match(wrapper, /\$initialParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
-assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$previousBrowserGateControl -HeadCommit \$head -ExpectedPaths \$repairGatePaths/u);
-assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$initialBrowserGateControl -HeadCommit \$previousBrowserGateControl -ExpectedPaths \$repairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c5BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c6RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c4BrowserGateControl -HeadCommit \$c5BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$initialBrowserGateControl -HeadCommit \$c4BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryControl -HeadCommit \$initialBrowserGateControl -ExpectedPaths \$initialGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryControl -HeadCommit \$head -ExpectedPaths \$allowedGatePaths/u);
 assert.match(wrapper, /function Get-SingleTrimmedLine[\s\S]*\$Lines\.GetValue\(0\)[\s\S]*function Invoke-GitScalar/u);
 assert.doesNotMatch(wrapper, /\[string\]\(Invoke-Git[^\r\n]*\)\[0\]/u);
-for (const path of GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate blob pin is missing: ${path}`);
-for (const path of GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate repair path is missing: ${path}`);
+for (const path of COMPOSITE_GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate blob pin is missing: ${path}`);
+for (const path of C6_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C6 repair path is missing: ${path}`);
 assert.match(wrapper, /\^\(\[AM\]\)`t/u);
-assert.match(wrapper, /GATE_REPAIR_DIFF_INVALID/u);
+assert.match(wrapper, /C6_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
-assert.equal(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_"), 3);
+assert.ok(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_") >= 4);
 assert.match(wrapper, /Assert-ReleaseTag/u);
 assert.match(wrapper, /\$githubApiRoot\/git\/ref\/heads\/main/u);
 assert.match(wrapper, /\$githubApiRoot\/git\/ref\/tags\/\$releaseTag/u);
@@ -1862,11 +2530,19 @@ assert.equal(occurrences(wrapper, "Assert-NoGateResidue \"GATE_RESIDUE_"), 2);
 assert.match(wrapper, /\$bridgeAfter\.Pid -ne \$bridgeBefore\.Pid/u);
 assert.match(wrapper, /\$hubAfter\.Pid -ne \$hubBefore\.Pid/u);
 assert.match(wrapper, /\$ollamaAfter\.Pid -ne \$ollamaBefore\.Pid/u);
+assert.match(wrapper, /function Get-RequiredZeroHealthCounter/u);
+assert.match(wrapper, /\$null -eq \$property -or \$null -eq \$property\.Value/u);
+assert.doesNotMatch(wrapper, /\[int\]\$(?:bridge|hub)\.workload\.(?:active|queued)/u);
+assert.match(wrapper, /\$runningModelsProperty\.Value -is \[Array\]/u);
+assert.match(wrapper, /\$tagModelsProperty\.Value -is \[Array\]/u);
 assert.match(wrapper, /serviceControlActionPerformed = \$false/u);
 assert.match(wrapper, /observedServiceProcessHealthAndPinnedCodeStableAcrossGate = \$true/u);
 assert.match(wrapper, /WORKTREE_STATUS_LINEARIZATION_FAILED/u);
 assert.match(wrapper, /PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_FAILED/u);
-assert.match(wrapper, /Invoke-CleanNodeContract "runtime-receipt"/u);
+assert.match(wrapper, /Invoke-CleanNodeContract \(\s*"production-runtime-receipt"/u);
+assert.match(wrapper, /Invoke-CleanNodeContract "toolchain-receipt"/u);
+assert.match(wrapper, /Invoke-CleanNodeContract "validate-production-runtime-receipt"/u);
+assert.match(wrapper, /Assert-PersistedRuntimeReceipt/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-evidence"/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-failure-evidence"/u);
 assert.match(wrapper, /RedirectStandardInput = \$null -ne \$StandardInput/u);
@@ -1874,8 +2550,10 @@ assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Write\(\$standardIn
 assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Flush\(\)/u);
 assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Close\(\)/u);
 assert.doesNotMatch(wrapper, /\$process\.StandardInput\.Write\(/u);
+assert.match(wrapper, /\$StandardInput\.Length -gt 0 -and \$StandardInput\[0\] -eq \[char\]0xFEFF/u);
+assert.doesNotMatch(wrapper, /\$StandardInput\.StartsWith\(\[string\]\[char\]0xFEFF\)/u);
 assert.match(wrapper, /if \(\$runnerStdout\.Length -eq 0\)/u);
-assert.match(wrapper, /production-browser-gate-c5-failure-\$ExpectedGateControlCommit\.json/u);
+assert.match(wrapper, /production-browser-gate-c6-failure-\$ExpectedGateControlCommit\.json/u);
 assert.match(wrapper, /\[IO\.FileMode\]::CreateNew/u);
 assert.match(wrapper, /\$stream\.Flush\(\$true\)/u);
 assert.match(wrapper, /\[IO\.File\]::Move\(\$tempPath, \$failureEvidencePath\)/u);
@@ -1886,14 +2564,14 @@ assert.match(wrapper, /status = "FAIL"/u);
 assert.match(wrapper, /qualifiesProductionBrowserGate = \$false/u);
 assert.match(wrapper, /eligibleForLuna = \$false/u);
 assert.match(wrapper, /terminalWrapperCode = \$TerminalWrapperCode/u);
-assert.match(wrapper, /schemaVersion = "p24b-rc6\.2-production-browser-gate-c5-failure-proof-v1"/u);
+assert.match(wrapper, /schemaVersion = "p24b-rc6\.2-production-browser-gate-c6-failure-proof-v1"/u);
 assert.match(wrapper, /sanitized = \$true[\s\S]*rawSecretsStored = \$false/u);
 assert.match(wrapper, /lkgAuditRunId = \$ExpectedLkgAuditRunId/u);
 assert.match(wrapper, /lkgAuditControlProofDigest = \$ExpectedLkgAuditControlProofDigest/u);
 assert.match(wrapper, /lkgSelectionProofDigest = \$ExpectedLkgSelectionProofDigest/u);
 assert.doesNotMatch(wrapper, /(?:stdout|stderr)Sha256\s*=/iu);
 const failurePublisher = wrapper.slice(
-  wrapper.indexOf("function Publish-C5FailureEvidence"),
+  wrapper.indexOf("function Publish-C6FailureEvidence"),
   wrapper.indexOf("function Initialize-EvidenceDestination"),
 );
 assert.ok(failurePublisher.indexOf("ReadAllBytes($tempPath)") < failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus"));
@@ -1901,13 +2579,53 @@ assert.ok(failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus") < f
 assert.ok(failurePublisher.lastIndexOf("ReadAllBytes($tempPath)") > failurePublisher.indexOf("$observedCasStatus = Get-MainCasStatus"));
 assert.ok(failurePublisher.lastIndexOf("ReadAllBytes($tempPath)") < failurePublisher.indexOf("[IO.File]::Move($tempPath, $failureEvidencePath)"));
 assert.ok(
-  wrapper.lastIndexOf("Publish-C5FailureEvidence $runnerCapture")
+  wrapper.lastIndexOf("Publish-C6FailureEvidence $runnerCapture")
   < wrapper.lastIndexOf("$mutex.ReleaseMutex()"),
 );
 assert.ok(
   wrapper.indexOf("$formalGateBoundaryEntered = $true")
   > wrapper.indexOf('if (-not $mutexHeld) { Fail "PRODUCTION_BROWSER_GATE_ALREADY_RUNNING" }'),
 );
+assert.ok(
+  wrapper.indexOf('if ($ExecutionMode -eq "PreflightDryRun")')
+  < wrapper.indexOf('$mutex = [Threading.Mutex]::new'),
+);
+assert.ok(
+  wrapper.indexOf('if ($ExecutionMode -eq "PreflightDryRun")')
+  < wrapper.indexOf('$ownedProfilePath = Assert-OwnedProfilePath'),
+);
+assert.ok(
+  wrapper.indexOf('if ($ExecutionMode -eq "PreflightDryRun")')
+  < wrapper.indexOf('$runnerProcess.Start()'),
+);
+assert.match(wrapper, /preflight-pass\.json/u);
+assert.match(wrapper, /preflight-failure\.json/u);
+assert.match(wrapper, /preflight-manifest\.json/u);
+assert.match(wrapper, /EVIDENCE_WRITE_FAILED/u);
+assert.match(wrapper, /preflight-emergency-\$preflightRunId\.json/u);
+assert.match(wrapper, /NovelRC62EvidenceEmergency/u);
+assert.match(wrapper, /PREFLIGHT_RECEIPT_LINEARIZATION_FAILED/u);
+assert.match(wrapper, /commitMarker = "manifest-published-last-v1"/u);
+const preflightBundlePublisher = wrapper.slice(
+  wrapper.indexOf("function Publish-PreflightBundle"),
+  wrapper.indexOf("function Publish-EmergencyPreflightFailure"),
+);
+const preflightManifestCommit = preflightBundlePublisher.lastIndexOf(
+  "Publish-AtomicTextFile $preflightManifestPath",
+);
+assert.ok(preflightManifestCommit > preflightBundlePublisher.lastIndexOf("Assert-PersistedRuntimeReceipt"));
+assert.ok(preflightManifestCommit > preflightBundlePublisher.lastIndexOf("Test-ExactRegularFileValue"));
+assert.match(wrapper, /function Remove-OwnedExactFile/u);
+const atomicTextPublisher = wrapper.slice(
+  wrapper.indexOf("function Publish-AtomicTextFile"),
+  wrapper.indexOf("function Get-OptionalFileDigest"),
+);
+assert.doesNotMatch(atomicTextPublisher, /Get-FileHash -LiteralPath \$Destination/u);
+assert.match(
+  wrapper,
+  /catch \{\s*Publish-EmergencyPreflightFailure \$safePreflightCode\s*exit 2\s*\}/u,
+);
+assert.match(wrapper, /attemptConsumed = \$false[\s\S]*browserStarted = \$false[\s\S]*runnerStarted = \$false/u);
 assert.match(wrapper, /runnerEvidence = \$runnerEvidence/u);
 assert.match(wrapper, /runtimeReceipt = \$runtimeReceiptBefore/u);
 assert.match(wrapper, /releaseAttestation = \$releaseAttestationBefore/u);
@@ -1977,9 +2695,7 @@ const parser = spawnSync(
 );
 assert.equal(parser.status, 0, `PowerShell parser rejected gate wrapper: ${parser.stderr.trim()}`);
 
-if (process.argv[2] === "runtime-receipt") {
-  console.log(JSON.stringify(runtimeReceipt, null, 2));
-} else if (process.argv[2] === "validate-evidence") {
+if (process.argv[2] === "validate-evidence") {
   await validateEvidence();
 } else if (process.argv[2] === "validate-failure-evidence") {
   await validateFailureEvidence();

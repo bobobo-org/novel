@@ -165,7 +165,7 @@ assert.match(lastKnownGoodAuditJob, /EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /ref:\s*\$\{\{ github\.sha \}\}/u);
-assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*6/u);
+assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*7/u);
 assert.match(lastKnownGoodAuditJob, /persist-credentials:\s*false/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$\(git rev-parse HEAD\)" == "\$AUDIT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /Prove exact read-only RC6\.2 browser-gate control lineage/u);
@@ -703,6 +703,32 @@ for (const scriptName of ["test:ai:release-identity-alias", "test:ai:closed-ai-r
     `${scriptName} must bootstrap provenance in a clean checkout`,
   );
 }
+const rc62BrowserPreflightContractScripts = {
+  "test:rc6.2:browser-preflight-runtime-receipt": "test-preflight-runtime-receipt",
+  "test:rc6.2:browser-preflight-receipt-missing": "test-preflight-receipt-missing",
+  "test:rc6.2:browser-preflight-receipt-digest": "test-preflight-receipt-digest",
+  "test:rc6.2:browser-preflight-receipt-schema": "test-preflight-receipt-schema",
+  "test:rc6.2:browser-preflight-receipt-ordering": "test-preflight-receipt-ordering",
+  "test:rc6.2:browser-preflight-failure-evidence": "test-preflight-failure-evidence",
+};
+for (const [scriptName, mode] of Object.entries(rc62BrowserPreflightContractScripts)) {
+  const command = packageScripts[scriptName];
+  assert.equal(
+    command,
+    `node scripts/run-rc6-2-production-browser-gate-contract.mjs ${mode}`,
+    `${scriptName} must remain an exact local contract-only invocation`,
+  );
+  assert.doesNotMatch(
+    command,
+    /run-rc6-2-production-browser-gate\.ps1|run-rc6-2-closed-agent-browser\.mjs|playwright|msedge|powershell|pwsh|\bgeneration\b/u,
+    `${scriptName} must not start the Production Browser wrapper, Browser runner, Edge, Playwright, or generation`,
+  );
+}
+assert.equal(
+  new Set(Object.values(rc62BrowserPreflightContractScripts)).size,
+  Object.keys(rc62BrowserPreflightContractScripts).length,
+  "every RC6.2 browser preflight contract test must use a distinct dry-run-only mode",
+);
 assert.match(p21ThreeHigh, /process\.platform === "win32"/u);
 assert.match(p21ThreeHigh, /: execFileSync\("pnpm", args/u);
 assert.match(p21ThreeHigh, /process\.platform === "win32" \? "powershell\.exe" : "pwsh"/u);
