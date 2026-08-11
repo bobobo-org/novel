@@ -48,6 +48,7 @@ $edgeDll = Join-Path $edgeVersionRoot "msedge.dll"
 $productCommit = "29fc6e742672bb07187765d34ea818afdadf56ae"
 $productionRecoveryControl = "9cd074f239b73dd9b61f6d758fcf97fbd809face"
 $failedRecoveryControl = "3b716fc0d974a9d59b49ffca5953776af66c7a07"
+$previousBrowserGateControl = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -83,6 +84,12 @@ $allowedGatePaths = @(
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-closed-agent-browser.mjs",
   "scripts/run-rc6-2-closed-agent-runtime.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1"
+)
+$repairGatePaths = @(
+  ".github/workflows/deploy.yml",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1"
 )
@@ -135,6 +142,48 @@ function Invoke-Git([string[]]$Arguments, [string]$Code) {
   $stderr = [string]$stderrTask.Result
   if ($process.ExitCode -ne 0 -or $stdout.Length -gt 1048576 -or $stderr.Length -gt 65536) { Fail $Code }
   return @($stdout -split "\r?\n" | Where-Object { $_ -ne "" })
+}
+
+function Get-SingleTrimmedLine([object[]]$Lines, [string]$Code) {
+  if ($Lines.Count -ne 1) { Fail $Code }
+  $value = $Lines.GetValue(0)
+  if ($null -eq $value) { Fail $Code }
+  $text = ([string]$value).Trim()
+  if (-not $text) { Fail $Code }
+  return $text
+}
+
+function Invoke-GitScalar([string[]]$Arguments, [string]$Code) {
+  $lines = @(Invoke-Git $Arguments $Code)
+  return Get-SingleTrimmedLine $lines $Code
+}
+
+function Assert-ControlDiffPaths(
+  [string]$BaseCommit,
+  [string]$HeadCommit,
+  [string[]]$ExpectedPaths,
+  [string]$Code
+) {
+  $statuses = @(Invoke-Git @(
+    "diff", "--name-status", "--diff-filter=ACDMRTUXB", $BaseCommit, $HeadCommit
+  ) $Code)
+  $paths = [Collections.Generic.List[string]]::new()
+  foreach ($line in $statuses) {
+    $match = [regex]::Match([string]$line, "^([AM])`t([^`0`r`n`t]{1,512})$")
+    if (-not $match.Success) { Fail $Code }
+    $path = $match.Groups[2].Value.Replace("\", "/")
+    $allowedMatches = @($ExpectedPaths | Where-Object { [StringComparer]::Ordinal.Equals($_, $path) })
+    if ($allowedMatches.Count -ne 1) { Fail $Code }
+    [void]$paths.Add($path)
+  }
+  $actual = [string[]]$paths.ToArray()
+  $expected = [string[]]$ExpectedPaths.Clone()
+  [Array]::Sort($actual, [StringComparer]::Ordinal)
+  [Array]::Sort($expected, [StringComparer]::Ordinal)
+  if ($actual.Count -ne $expected.Count) { Fail $Code }
+  for ($index = 0; $index -lt $expected.Count; $index += 1) {
+    if (-not [StringComparer]::Ordinal.Equals($actual[$index], $expected[$index])) { Fail $Code }
+  }
 }
 
 function Invoke-CleanNodeContract(
@@ -271,15 +320,19 @@ function Invoke-GitHubJson([string]$Uri, [string]$Code) {
 }
 
 function Assert-ControlLineage {
-  $head = ([string](Invoke-Git @("rev-parse", "HEAD") "LOCAL_HEAD_READ_FAILED")[0]).Trim()
+  $head = Invoke-GitScalar @("rev-parse", "HEAD") "LOCAL_HEAD_READ_FAILED"
   if ($head -ne $ExpectedGateControlCommit) { Fail "LOCAL_GATE_CONTROL_MISMATCH" }
-  $originUrl = ([string](Invoke-Git @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED")[0]).Trim()
+  $originUrl = Invoke-GitScalar @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED"
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
-  $headParents = ([string](Invoke-Git @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED")[0]) -split "\s+"
-  $recoveryParents = ([string](Invoke-Git @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED")[0]) -split "\s+"
-  $failedParents = ([string](Invoke-Git @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED")[0]) -split "\s+"
-  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $productionRecoveryControl) {
+  $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
+  $previousParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $previousBrowserGateControl) "PREVIOUS_GATE_PARENT_READ_FAILED") -split "\s+"
+  $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
+  $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
+  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $previousBrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($previousParents.Count -ne 2 -or $previousParents[0] -ne $previousBrowserGateControl -or $previousParents[1] -ne $productionRecoveryControl) {
+    Fail "PREVIOUS_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($recoveryParents.Count -ne 2 -or $recoveryParents[0] -ne $productionRecoveryControl -or $recoveryParents[1] -ne $failedRecoveryControl) {
     Fail "RECOVERY_CONTROL_PARENT_MISMATCH"
@@ -288,37 +341,14 @@ function Assert-ControlLineage {
     Fail "FAILED_CONTROL_PRODUCT_PARENT_MISMATCH"
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
-
-  $statuses = @(Invoke-Git @(
-    "diff", "--name-status", "--diff-filter=ACDMRTUXB", $productionRecoveryControl, $head
-  ) "GATE_DIFF_READ_FAILED")
-  $paths = [Collections.Generic.List[string]]::new()
-  foreach ($line in $statuses) {
-    $match = [regex]::Match([string]$line, "^([AM])`t([^`0`r`n`t]{1,512})$")
-    if (-not $match.Success) { Fail "GATE_DIFF_STATUS_INVALID" }
-    $path = $match.Groups[2].Value.Replace("\", "/")
-    $allowedMatches = @($allowedGatePaths | Where-Object { [StringComparer]::Ordinal.Equals($_, $path) })
-    if ($allowedMatches.Count -ne 1) {
-      Fail "GATE_DIFF_PATH_NOT_ALLOWED"
-    }
-    [void]$paths.Add($path)
-  }
-  $actual = [string[]]$paths.ToArray()
-  $expected = [string[]]$allowedGatePaths.Clone()
-  [Array]::Sort($actual, [StringComparer]::Ordinal)
-  [Array]::Sort($expected, [StringComparer]::Ordinal)
-  if ($actual.Count -ne $expected.Count) { Fail "GATE_DIFF_PATH_SET_MISMATCH" }
-  for ($index = 0; $index -lt $expected.Count; $index += 1) {
-    if (-not [StringComparer]::Ordinal.Equals($actual[$index], $expected[$index])) {
-      Fail "GATE_DIFF_PATH_SET_MISMATCH"
-    }
-  }
+  Assert-ControlDiffPaths -BaseCommit $previousBrowserGateControl -HeadCommit $head -ExpectedPaths $repairGatePaths -Code "GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $productionRecoveryControl -HeadCommit $head -ExpectedPaths $allowedGatePaths -Code "GATE_COMPOSITE_DIFF_INVALID"
 }
 
 function Assert-TrackedGateBlobs {
   foreach ($path in $allowedGatePaths) {
-    $expectedBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:$path") "GATE_COMMIT_BLOB_READ_FAILED")[0]).Trim()
-    $actualBlob = ([string](Invoke-Git @("hash-object", $path) "GATE_WORKTREE_BLOB_READ_FAILED")[0]).Trim()
+    $expectedBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:$path") "GATE_COMMIT_BLOB_READ_FAILED"
+    $actualBlob = Invoke-GitScalar @("hash-object", $path) "GATE_WORKTREE_BLOB_READ_FAILED"
     if ($expectedBlob -notmatch '^[a-f0-9]{40}$' -or $actualBlob -ne $expectedBlob) {
       Fail "GATE_BLOB_MISMATCH"
     }
@@ -327,8 +357,8 @@ function Assert-TrackedGateBlobs {
 
 function Assert-ProductRuntimeBlobs {
   foreach ($path in $productRuntimePaths) {
-    $expectedBlob = ([string](Invoke-Git @("rev-parse", "${productCommit}:$path") "PRODUCT_RUNTIME_BLOB_READ_FAILED")[0]).Trim()
-    $actualBlob = ([string](Invoke-Git @("hash-object", $path) "PRODUCT_RUNTIME_WORKTREE_BLOB_READ_FAILED")[0]).Trim()
+    $expectedBlob = Invoke-GitScalar @("rev-parse", "${productCommit}:$path") "PRODUCT_RUNTIME_BLOB_READ_FAILED"
+    $actualBlob = Invoke-GitScalar @("hash-object", $path) "PRODUCT_RUNTIME_WORKTREE_BLOB_READ_FAILED"
     if ($expectedBlob -notmatch '^[a-f0-9]{40}$' -or $actualBlob -ne $expectedBlob) {
       Fail "PRODUCT_RUNTIME_BLOB_MISMATCH"
     }
@@ -933,13 +963,13 @@ try {
 if ($postErrors.Count -ne 0) { Fail "PRODUCTION_BROWSER_POSTCHECK_FAILED:$([string]::Join(',', $postErrors))" }
 if ($null -ne $primaryError) { throw $primaryError }
 
-$runnerBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-browser.mjs") "RUNNER_BLOB_FAILED")[0]).Trim()
-$runnerContractBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-runtime.mjs") "RUNNER_CONTRACT_BLOB_FAILED")[0]).Trim()
-$wrapperBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-production-browser-gate.ps1") "WRAPPER_BLOB_FAILED")[0]).Trim()
-$contractBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-production-browser-gate-contract.mjs") "CONTRACT_BLOB_FAILED")[0]).Trim()
-$workflowBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:.github/workflows/deploy.yml") "WORKFLOW_BLOB_FAILED")[0]).Trim()
-$workflowContractBlob = ([string](Invoke-Git @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-pr23-r21-workflow-contract.mjs") "WORKFLOW_CONTRACT_BLOB_FAILED")[0]).Trim()
-$networkPolicyBlob = ([string](Invoke-Git @("rev-parse", "${productCommit}:scripts/rc6-2-closed-agent-network-policy.mjs") "NETWORK_POLICY_BLOB_FAILED")[0]).Trim()
+$runnerBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-browser.mjs") "RUNNER_BLOB_FAILED"
+$runnerContractBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-runtime.mjs") "RUNNER_CONTRACT_BLOB_FAILED"
+$wrapperBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-production-browser-gate.ps1") "WRAPPER_BLOB_FAILED"
+$contractBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-production-browser-gate-contract.mjs") "CONTRACT_BLOB_FAILED"
+$workflowBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:.github/workflows/deploy.yml") "WORKFLOW_BLOB_FAILED"
+$workflowContractBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-pr23-r21-workflow-contract.mjs") "WORKFLOW_CONTRACT_BLOB_FAILED"
+$networkPolicyBlob = Invoke-GitScalar @("rev-parse", "${productCommit}:scripts/rc6-2-closed-agent-network-policy.mjs") "NETWORK_POLICY_BLOB_FAILED"
 $identityBeforeDigest = Sha256Text ($identityBefore | ConvertTo-Json -Compress -Depth 5)
 $identityAfterDigest = Sha256Text ($identityAfter | ConvertTo-Json -Compress -Depth 5)
 if ($identityBeforeDigest -ne $identityAfterDigest) { Fail "IDENTITY_DIGEST_CHANGED_DURING_GATE" }
@@ -1007,6 +1037,7 @@ $evidenceBody = [pscustomobject][ordered]@{
   status = "PASS"
   productCommit = $productCommit
   productionRecoveryControl = $productionRecoveryControl
+  previousBrowserGateControl = $previousBrowserGateControl
   browserGateControl = $ExpectedGateControlCommit
   deploymentId = $expectedDeployment
   primaryOrigin = $primaryOrigin

@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import {
   appendFile,
   lstat,
+  mkdtemp,
   readFile,
   readdir,
   realpath,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -26,6 +28,7 @@ const [wrapper, browserRunner, runtimeContract, workflow, workflowContract] = aw
 const PRODUCT_COMMIT = "29fc6e742672bb07187765d34ea818afdadf56ae";
 const PRODUCTION_RECOVERY_CONTROL = "9cd074f239b73dd9b61f6d758fcf97fbd809face";
 const FAILED_RECOVERY_CONTROL = "3b716fc0d974a9d59b49ffca5953776af66c7a07";
+const PREVIOUS_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
@@ -36,11 +39,17 @@ const EXPECTED_EDGE_DLL_DIGEST = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe
 const EXPECTED_EDGE_DIRECTORY_DIGEST = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974";
 const EXPECTED_PACKAGE_JSON_DIGEST = "96418a3c785af02f424150d33aaa88e2be3d0dc35e6c7774d424c6ecbff37748";
 const EXPECTED_PNPM_LOCK_DIGEST = "bf80df1d7e1419628c2dac09bfb8b39360942098324d47269f9690eab52b7b7f";
-const GATE_CONTROL_PATHS = [
+const GATE_BLOB_PATHS = [
   ".github/workflows/deploy.yml",
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-closed-agent-browser.mjs",
   "scripts/run-rc6-2-closed-agent-runtime.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+];
+const GATE_REPAIR_PATHS = [
+  ".github/workflows/deploy.yml",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
 ];
@@ -180,6 +189,61 @@ function gitOutput(arguments_) {
   return result.stdout.trim();
 }
 
+async function assertPowerShellGitScalarBehavior() {
+  if (process.platform !== "win32") return;
+  const helperEnd = wrapper.indexOf("function Invoke-CleanNodeContract");
+  assert.ok(helperEnd > 0, "PowerShell Git helper boundary is missing");
+  const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-git-scalar-"));
+  const scriptPath = join(directory, "git-scalar-self-test.ps1");
+  const expectedHead = "0123456789abcdef0123456789abcdef01234567";
+  try {
+    await writeFile(scriptPath, `${wrapper.slice(0, helperEnd)}
+$script:StubGitLines = @("  ${expectedHead}  ")
+function Invoke-Git([string[]]$Arguments, [string]$Code) { return @($script:StubGitLines) }
+$actual = Invoke-GitScalar @("rev-parse", "HEAD") "GIT_SCALAR_SELF_TEST_FAILED"
+if ($actual -ne '${expectedHead}') { Fail "GIT_SCALAR_SELF_TEST_FAILED" }
+$script:StubGitLines = @("  https://github.com/bobobo-org/novel.git  ")
+$url = Invoke-GitScalar @("config", "--get", "remote.origin.url") "GIT_SCALAR_URL_SELF_TEST_FAILED"
+if ($url -ne "https://github.com/bobobo-org/novel.git") { Fail "GIT_SCALAR_URL_SELF_TEST_FAILED" }
+$trimmed = Get-SingleTrimmedLine @("  ${expectedHead}  ") "GIT_SCALAR_TRIM_SELF_TEST_FAILED"
+if ($trimmed -ne '${expectedHead}') { Fail "GIT_SCALAR_TRIM_SELF_TEST_FAILED" }
+$script:StubGitLines = @()
+$zeroRejected = $false
+try { [void](Invoke-GitScalar @("rev-parse", "HEAD") "GIT_SCALAR_ZERO_SELF_TEST") }
+catch { $zeroRejected = $_.Exception.Message -eq "GIT_SCALAR_ZERO_SELF_TEST" }
+if (-not $zeroRejected) { Fail "GIT_SCALAR_ZERO_SELF_TEST_FAILED" }
+$script:StubGitLines = @("one", "two")
+$twoRejected = $false
+try { [void](Invoke-GitScalar @("rev-parse", "HEAD") "GIT_SCALAR_TWO_SELF_TEST") }
+catch { $twoRejected = $_.Exception.Message -eq "GIT_SCALAR_TWO_SELF_TEST" }
+if (-not $twoRejected) { Fail "GIT_SCALAR_TWO_SELF_TEST_FAILED" }
+Write-Output "PASS"
+`, "utf8");
+    const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const result = spawnSync(powerShell, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+      "-ExpectedGateControlCommit",
+      expectedHead,
+      "-ExpectedLkgAuditRunId",
+      "1",
+      "-ExpectedLkgAuditControlProofDigest",
+      "0".repeat(64),
+      "-ExpectedLkgSelectionProofDigest",
+      "1".repeat(64),
+    ], { encoding: "utf8", timeout: 30_000, windowsHide: true });
+    assert.equal(result.status, 0, `PowerShell Git scalar self-test failed: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), "PASS");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function writeAuditControlProof() {
   const controlCommit = String(process.env.GITHUB_SHA ?? "").trim();
   const outputPath = resolve(String(process.env.BROWSER_GATE_CONTROL_PROOF_PATH ?? ""));
@@ -197,7 +261,11 @@ async function writeAuditControlProof() {
   assert.equal(gitOutput(["rev-parse", "HEAD"]), controlCommit);
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", controlCommit]).split(/\s+/u),
-    [controlCommit, PRODUCTION_RECOVERY_CONTROL],
+    [controlCommit, PREVIOUS_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", PREVIOUS_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [PREVIOUS_BROWSER_GATE_CONTROL, PRODUCTION_RECOVERY_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", PRODUCTION_RECOVERY_CONTROL]).split(/\s+/u),
@@ -212,21 +280,34 @@ async function writeAuditControlProof() {
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    PRODUCTION_RECOVERY_CONTROL,
+    PREVIOUS_BROWSER_GATE_CONTROL,
     controlCommit,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(changedPaths, [...GATE_CONTROL_PATHS].sort());
+  assert.deepEqual(changedPaths, [...GATE_REPAIR_PATHS].sort());
+  const compositeChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    PRODUCTION_RECOVERY_CONTROL,
+    controlCommit,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "browser gate composite diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(compositeChangedPaths, [...GATE_BLOB_PATHS].sort());
   const body = {
     schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v1",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
     productionRecoveryControl: PRODUCTION_RECOVERY_CONTROL,
+    previousBrowserGateControl: PREVIOUS_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
-    parentCommit: PRODUCTION_RECOVERY_CONTROL,
+    parentCommit: PREVIOUS_BROWSER_GATE_CONTROL,
     repository: process.env.GITHUB_REPOSITORY,
     eventName: process.env.GITHUB_EVENT_NAME,
     eventRef: process.env.GITHUB_REF,
@@ -235,6 +316,7 @@ async function writeAuditControlProof() {
     runId: process.env.GITHUB_RUN_ID,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     changedPaths,
+    compositeChangedPaths,
   };
   const proof = {
     ...body,
@@ -259,6 +341,7 @@ for (const literal of [
   "29fc6e742672bb07187765d34ea818afdadf56ae",
   "9cd074f239b73dd9b61f6d758fcf97fbd809face",
   "3b716fc0d974a9d59b49ffca5953776af66c7a07",
+  "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -268,6 +351,8 @@ for (const literal of [
 ]) {
   assert.equal(occurrences(wrapper, literal), 1, `wrapper identity literal must occur once: ${literal}`);
 }
+
+await assertPowerShellGitScalarBehavior();
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const dependencyPackages = [
@@ -715,12 +800,19 @@ assert.match(wrapper, /\[ValidateRange\(1, \[long\]::MaxValue\)\][\s\S]*\$Expect
 assert.match(wrapper, /\$ExpectedLkgAuditControlProofDigest/u);
 assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
-assert.match(wrapper, /\$headParents\[1\] -ne \$productionRecoveryControl/u);
+assert.match(wrapper, /\$headParents\[1\] -ne \$previousBrowserGateControl/u);
+assert.match(wrapper, /\$previousParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
-assert.match(wrapper, /"diff", "--name-status", "--diff-filter=ACDMRTUXB", \$productionRecoveryControl, \$head/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$previousBrowserGateControl -HeadCommit \$head -ExpectedPaths \$repairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryControl -HeadCommit \$head -ExpectedPaths \$allowedGatePaths/u);
+assert.match(wrapper, /function Get-SingleTrimmedLine[\s\S]*\$Lines\.GetValue\(0\)[\s\S]*function Invoke-GitScalar/u);
+assert.doesNotMatch(wrapper, /\[string\]\(Invoke-Git[^\r\n]*\)\[0\]/u);
+for (const path of GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate blob pin is missing: ${path}`);
+for (const path of GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate repair path is missing: ${path}`);
 assert.match(wrapper, /\^\(\[AM\]\)`t/u);
-assert.match(wrapper, /GATE_DIFF_PATH_SET_MISMATCH/u);
+assert.match(wrapper, /GATE_REPAIR_DIFF_INVALID/u);
+assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
 assert.equal(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_"), 2);
 assert.match(wrapper, /Assert-ReleaseTag/u);
 assert.match(wrapper, /\$githubApiRoot\/git\/ref\/heads\/main/u);
