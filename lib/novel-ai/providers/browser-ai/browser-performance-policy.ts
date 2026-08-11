@@ -233,10 +233,40 @@ export function resolveBrowserAIPerformancePolicy(input: {
   };
 }
 
+export function browserPromptTokenBudgets(input: {
+  performancePolicy: BrowserAIPerformancePolicy;
+  systemTokens: number;
+}) {
+  const systemTokens = Number.isSafeInteger(input.systemTokens)
+    ? Math.max(0, input.systemTokens)
+    : input.performancePolicy.modelContextWindow;
+  const protectedContextHardLimitTokens = Math.max(
+    0,
+    input.performancePolicy.modelContextWindow
+      - input.performancePolicy.maxOutputTokens
+      - input.performancePolicy.safetyMarginTokens
+      - systemTokens,
+  );
+  const preferredPromptBudget = Math.max(
+    128,
+    input.performancePolicy.inputBudgetTokens - systemTokens,
+  );
+  return {
+    promptBudgetTokens: Math.min(
+      preferredPromptBudget,
+      protectedContextHardLimitTokens,
+    ),
+    protectedContextHardLimitTokens,
+  };
+}
+
 export function fitBrowserPromptToTokenBudget(
   prompt: string,
   maxTokens: number,
-  options: { trustedClosedPrompt?: boolean } = {},
+  options: {
+    trustedClosedPrompt?: boolean;
+    protectedContextHardLimitTokens?: number;
+  } = {},
 ) {
   const normalizedBudget = Math.max(0, Math.floor(maxTokens));
   if (options.trustedClosedPrompt !== true) {
@@ -340,7 +370,14 @@ export function fitBrowserPromptToTokenBudget(
   ].filter(Boolean).join("\n");
 
   const protectedPrompt = assemble("");
-  if (estimateBrowserTokens(protectedPrompt) > normalizedBudget) {
+  const protectedPromptTokens = estimateBrowserTokens(protectedPrompt);
+  const protectedContextHardLimit = approvedModelContext
+    && options.protectedContextHardLimitTokens !== undefined
+    && Number.isSafeInteger(options.protectedContextHardLimitTokens)
+    && options.protectedContextHardLimitTokens >= normalizedBudget
+    ? options.protectedContextHardLimitTokens
+    : normalizedBudget;
+  if (protectedPromptTokens > protectedContextHardLimit) {
     throw Object.assign(
       new Error(approvedModelContext
         ? "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"
@@ -350,9 +387,15 @@ export function fitBrowserPromptToTokenBudget(
         : "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED" },
     );
   }
+  // The device-mode input budget remains the soft ceiling for ordinary
+  // context. A required CTX3 block may consume only the additional amount it
+  // needs, and only within the model-context hard limit supplied by the
+  // runtime after reserving output and safety tokens. Lower-priority material
+  // is still fitted against this minimal effective budget.
+  const effectiveBudget = Math.max(normalizedBudget, protectedPromptTokens);
 
   let low = 0;
-  let high = normalizedBudget;
+  let high = effectiveBudget;
   let best = "";
   let bestOmittedCharacters = lowerPriority.length;
   while (low <= high) {
@@ -361,7 +404,7 @@ export function fitBrowserPromptToTokenBudget(
       headRatio: 0.72,
     });
     const candidate = assemble(fitted.text);
-    if (estimateBrowserTokens(candidate) <= normalizedBudget) {
+    if (estimateBrowserTokens(candidate) <= effectiveBudget) {
       best = candidate;
       bestOmittedCharacters = fitted.omittedCharacters;
       low = lowerPriorityBudget + 1;

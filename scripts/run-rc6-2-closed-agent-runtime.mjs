@@ -816,7 +816,7 @@ await test("source-truth", async () => {
     );
     assert.match(source, /import\([\s\S]{0,80}language\/traditional-chinese/u);
   }
-  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
+  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, browserWebLlmRuntime, privateHub, service, bootstrap, composer, workspace, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts", import.meta.url), "utf8"),
@@ -824,6 +824,7 @@ await test("source-truth", async () => {
     readFile(new URL("../lib/novel-ai/conversation/record-security.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/backends.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-ai-provider.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/providers/private-ai-hub/private-hub-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/web/closed-agent-os-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/web/closed-ai-bootstrap-coordinator.ts", import.meta.url), "utf8"),
@@ -886,6 +887,18 @@ await test("source-truth", async () => {
   assert.match(
     browserVerification,
     /jsonSchema:\s*BROWSER_GENERATION_VERIFICATION_SCHEMA[\s\S]*seed:\s*BROWSER_GENERATION_VERIFICATION_SEED/u,
+  );
+  assert.match(
+    browserWebLlmRuntime,
+    /browserPromptTokenBudgets\(\{\s*\n\s*performancePolicy,\s*\n\s*systemTokens,/u,
+  );
+  assert.match(
+    browserWebLlmRuntime,
+    /protectedContextHardLimitTokens:\s*input\.contextAttestation === "required"/u,
+  );
+  assert.match(
+    browserWebLlmRuntime,
+    /protectedContextHardLimitTokens < 1[\s\S]*BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED[\s\S]*BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED/u,
   );
   assert.match(privateHub, /body\.modelDigest === expected\.modelDigest/u);
   assert.match(privateHub, /isCryptographicClosedAIModelDigest\(body\.modelDigest\)/u);

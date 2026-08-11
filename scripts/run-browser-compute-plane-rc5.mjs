@@ -43,6 +43,7 @@ import {
   composeBrowserContextPack,
 } from "../lib/novel-ai/providers/browser-ai/browser-context-compressor.ts";
 import {
+  browserPromptTokenBudgets,
   estimateBrowserTokens,
   fitBrowserPromptToTokenBudget,
   resolveBrowserAIPerformancePolicy,
@@ -92,7 +93,10 @@ import {
   BROWSER_WEBLLM_MODELS,
 } from "../lib/novel-ai/providers/browser-ai/webllm-model-registry.ts";
 import { resolveClosedAIRoute } from "../lib/novel-ai/closed-agent-os/router.ts";
-import { closedAgentBrowserRuntimeEvidence } from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
+import {
+  closedAgentBrowserRuntimeEvidence,
+  safeClosedAgentBrowserRuntimeCauseCode,
+} from "../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts";
 import { normalizeTraditionalChinese } from "../lib/novel-ai/language/traditional-chinese.ts";
 import {
   ClosedAgentOS,
@@ -398,6 +402,175 @@ test("compute-orchestrator", async () => {
   assert.equal(
     await verifyBrowserFinalModelContextInvocationProof(invocationProof),
     true,
+  );
+  const requiredContextProfile = getClosedAIModelProfile(
+    "chapter.continue",
+    "browser-ai",
+  );
+  const requiredContextPrompt = buildClosedAIModelPrompt({
+    objective: "Continue from the approved local context.",
+    context: [
+      sealBrowserFinalContextFragment({
+        expectation: storyExpectation,
+        fragment: "S",
+      }),
+      sealBrowserFinalContextFragment({
+        expectation: attachmentExpectation,
+        fragment: "A",
+      }),
+    ],
+    profile: requiredContextProfile,
+    qualityPhase: "draft",
+    browserFinalContextExpectations: expectations,
+    agentPlan: undefined,
+    toolResults: [],
+    workingMaterials: [],
+  });
+  const ecoInputBudget = 800;
+  const ecoOutputReserve = 384;
+  const ecoSafetyReserve = 512;
+  const requiredContextSystemTokens = estimateBrowserTokens(
+    requiredContextProfile.systemInstruction,
+  );
+  const requiredContextSoftBudget = ecoInputBudget - requiredContextSystemTokens;
+  const requiredContextHardLimit = 4_096
+    - ecoOutputReserve
+    - ecoSafetyReserve
+    - requiredContextSystemTokens;
+  const defaultEcoPolicy = resolveBrowserAIPerformancePolicy({
+    device: {
+      tier: "low",
+      mobile: false,
+      dedicatedMemoryMB: 1_024,
+      maxBufferSize: 256 * 1024 * 1024,
+      maxStorageBufferBindingSize: 128 * 1024 * 1024,
+    },
+    model: BROWSER_WEBLLM_MODELS[0],
+  });
+  assert.deepEqual(
+    browserPromptTokenBudgets({
+      performancePolicy: defaultEcoPolicy,
+      systemTokens: requiredContextSystemTokens,
+    }),
+    {
+      promptBudgetTokens: requiredContextSoftBudget,
+      protectedContextHardLimitTokens: requiredContextHardLimit,
+    },
+  );
+  const structuredBoundarySystemTokens = defaultEcoPolicy.modelContextWindow
+    - defaultEcoPolicy.maxOutputTokens
+    - defaultEcoPolicy.safetyMarginTokens
+    - 64;
+  assert.deepEqual(
+    browserPromptTokenBudgets({
+      performancePolicy: defaultEcoPolicy,
+      systemTokens: structuredBoundarySystemTokens,
+    }),
+    {
+      promptBudgetTokens: 64,
+      protectedContextHardLimitTokens: 64,
+    },
+    "the 128-token soft floor must never exceed actual remaining context",
+  );
+  const minimumOutputPolicy = resolveBrowserAIPerformancePolicy({
+    device: {
+      tier: "low",
+      mobile: false,
+      dedicatedMemoryMB: 1_024,
+      maxBufferSize: 256 * 1024 * 1024,
+      maxStorageBufferBindingSize: 128 * 1024 * 1024,
+    },
+    model: BROWSER_WEBLLM_MODELS[0],
+    requestedMaxTokens: 0,
+  });
+  const minimumOutputBudgets = browserPromptTokenBudgets({
+    performancePolicy: minimumOutputPolicy,
+    systemTokens: structuredBoundarySystemTokens,
+  });
+  assert.equal(minimumOutputPolicy.maxOutputTokens, 64);
+  assert.ok(
+    structuredBoundarySystemTokens
+      + minimumOutputBudgets.protectedContextHardLimitTokens
+      + minimumOutputPolicy.maxOutputTokens
+      + minimumOutputPolicy.safetyMarginTokens
+      <= minimumOutputPolicy.modelContextWindow,
+  );
+  assert.throws(
+    () => fitBrowserPromptToTokenBudget(
+      requiredContextPrompt.prompt,
+      requiredContextSoftBudget,
+      { trustedClosedPrompt: true },
+    ),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
+  );
+  const fittedRequiredContextPrompt = fitBrowserPromptToTokenBudget(
+    requiredContextPrompt.prompt,
+    requiredContextSoftBudget,
+    {
+      trustedClosedPrompt: true,
+      protectedContextHardLimitTokens: requiredContextHardLimit,
+    },
+  );
+  assert.ok(
+    estimateBrowserTokens(fittedRequiredContextPrompt.prompt)
+      > requiredContextSoftBudget,
+  );
+  assert.ok(
+    estimateBrowserTokens(fittedRequiredContextPrompt.prompt)
+      <= requiredContextHardLimit,
+  );
+  assert.ok(fittedRequiredContextPrompt.omittedCharacters > 0);
+  const ordinaryEcoPrompt = buildClosedAIModelPrompt({
+    objective: "Continue without required final-context sources.",
+    context: [],
+    profile: requiredContextProfile,
+    qualityPhase: "draft",
+    agentPlan: undefined,
+    toolResults: [],
+    workingMaterials: [],
+  });
+  const fittedOrdinaryEcoPrompt = fitBrowserPromptToTokenBudget(
+    ordinaryEcoPrompt.prompt,
+    requiredContextSoftBudget,
+    {
+      trustedClosedPrompt: true,
+      protectedContextHardLimitTokens: requiredContextHardLimit,
+    },
+  );
+  assert.ok(
+    estimateBrowserTokens(fittedOrdinaryEcoPrompt.prompt)
+      <= requiredContextSoftBudget,
+    "the CTX3 hard limit must never widen an ordinary prompt",
+  );
+  const fittedRequiredContextProof = await createBrowserFinalModelContextInvocationProof({
+    outerRequestId: "task-proof:quality:draft:two-required-sources",
+    invocationRequestId: "task-proof:quality:draft:two-required-sources:initial",
+    outerTaskType: "chapter.continue",
+    outerQualityPhase: "draft",
+    innerStage: "initial",
+    innerIndex: 0,
+    modelId: "proof-model-v1",
+    modelDigest: "e".repeat(64),
+    callOptionsDigest,
+    systemMessage: requiredContextProfile.systemInstruction,
+    userMessage: fittedRequiredContextPrompt.prompt,
+    expectations,
+    omittedCharacters: fittedRequiredContextPrompt.omittedCharacters,
+  });
+  assert.equal(
+    await verifyBrowserFinalModelContextInvocationProof(
+      fittedRequiredContextProof,
+    ),
+    true,
+  );
+  assert.equal(fittedRequiredContextProof.contextBindings.length, 2);
+  assert.equal(
+    safeClosedAgentBrowserRuntimeCauseCode(
+      Object.assign(new Error("safe finite context budget code"), {
+        code: "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
+      }),
+    ),
+    "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
   );
   const attachmentBinding = invocationProof.contextBindings[1];
   assert.equal(attachmentBinding.sourceKind, "selected-local-attachment-summary");

@@ -13,6 +13,7 @@ import {
   type BrowserWebLLMModelId,
 } from "./webllm-model-registry";
 import {
+  browserPromptTokenBudgets,
   estimateBrowserTokens,
   fitBrowserPromptToTokenBudget,
   resolveBrowserAIPerformancePolicy,
@@ -984,14 +985,31 @@ async function runBrowserWebLLMGeneration(
     requestedRepetitionPenalty: input.repetitionPenalty,
     previousTokensPerSecond: previousTelemetry?.averageTokensPerSecond,
   });
-  const systemTokens = estimateBrowserTokens(input.systemInstruction);
-  const promptBudget = Math.max(
-    128,
-    performancePolicy.inputBudgetTokens - systemTokens,
-  );
-  const fittedPrompt = fitBrowserPromptToTokenBudget(input.prompt, promptBudget, {
-    trustedClosedPrompt: input.trustedClosedPrompt === true,
+  const structuredInstruction = input.jsonMode
+    ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
+    : "";
+  const systemMessage = `${input.systemInstruction}${structuredInstruction}`;
+  const systemTokens = estimateBrowserTokens(systemMessage);
+  const promptBudgets = browserPromptTokenBudgets({
+    performancePolicy,
+    systemTokens,
   });
+  if (promptBudgets.protectedContextHardLimitTokens < 1) {
+    const code = input.contextAttestation === "required"
+      ? "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"
+      : "BROWSER_AI_MANDATORY_PROMPT_BUDGET_EXCEEDED";
+    throw runtimeError(code, "The system and output reserves exhaust the model context window.");
+  }
+  const fittedPrompt = fitBrowserPromptToTokenBudget(
+    input.prompt,
+    promptBudgets.promptBudgetTokens,
+    {
+    trustedClosedPrompt: input.trustedClosedPrompt === true,
+    protectedContextHardLimitTokens: input.contextAttestation === "required"
+      ? promptBudgets.protectedContextHardLimitTokens
+      : undefined,
+    },
+  );
   const interrupt = () => engine.interruptGenerate();
   input.signal?.addEventListener("abort", interrupt, { once: true });
   let content = "";
@@ -1000,13 +1018,10 @@ async function runBrowserWebLLMGeneration(
   let finishReason: BrowserWebLLMFinishReason | null = null;
   let completionTokens: number | null = null;
   try {
-    const structuredInstruction = input.jsonMode
-      ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
-      : "";
     const messages = [
       {
         role: "system" as const,
-        content: `${input.systemInstruction}${structuredInstruction}`,
+        content: systemMessage,
       },
       { role: "user" as const, content: fittedPrompt.prompt },
     ];
