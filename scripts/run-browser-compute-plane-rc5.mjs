@@ -65,10 +65,18 @@ import {
   shouldRunBrowserProseExtension,
 } from "../lib/novel-ai/providers/browser-ai/browser-prose-extension.ts";
 import {
+  BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
+  BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR,
+  BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_SYSTEM_INSTRUCTION,
   browserWebLLMGenerationOptions,
+  browserWebLLMResponseFormat,
+  isBrowserWebLLMOutputConstraintBoundaryValid,
   normalizeBrowserWebLLMFinishReason,
   observeBrowserWebLLMStreamTelemetry,
 } from "../lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts";
+
+const BOUNDED_PROSE_GRAMMAR_MIRROR =
+  /^[^\x00-\x1f\x7f]{260,360}$/u;
 import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
@@ -565,6 +573,108 @@ test("compute-orchestrator", async () => {
     true,
   );
   assert.equal(fittedRequiredContextProof.contextBindings.length, 2);
+  const boundedRecoverySystemMessage = `${requiredContextProfile.systemInstruction}\n\n${
+    BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_SYSTEM_INSTRUCTION
+  }`;
+  const boundedRecoverySystemTokens = estimateBrowserTokens(
+    boundedRecoverySystemMessage,
+  );
+  assert.equal(boundedRecoverySystemTokens, 399);
+  const boundedRecoveryPolicy = resolveBrowserAIPerformancePolicy({
+    device: {
+      tier: "low",
+      mobile: false,
+      dedicatedMemoryMB: 1_024,
+      maxBufferSize: 256 * 1024 * 1024,
+      maxStorageBufferBindingSize: 128 * 1024 * 1024,
+    },
+    model: BROWSER_WEBLLM_MODELS[0],
+    requestedMaxTokens: 360,
+  });
+  const boundedRecoveryBudgets = browserPromptTokenBudgets({
+    performancePolicy: boundedRecoveryPolicy,
+    systemTokens: boundedRecoverySystemTokens,
+  });
+  assert.deepEqual(boundedRecoveryBudgets, {
+    promptBudgetTokens: 401,
+    protectedContextHardLimitTokens: 2_825,
+  });
+  const boundedRecoveryPrompt = buildClosedAIModelPrompt({
+    objective: buildBrowserFreshRecoveryObjective(
+      "Continue from the approved local context.",
+    ),
+    context: [
+      sealBrowserFinalContextFragment({
+        expectation: storyExpectation,
+        fragment: "S",
+      }),
+      sealBrowserFinalContextFragment({
+        expectation: attachmentExpectation,
+        fragment: "A",
+      }),
+    ],
+    profile: requiredContextProfile,
+    qualityPhase: "draft",
+    browserFinalContextExpectations: expectations,
+    agentPlan: undefined,
+    toolResults: [],
+    workingMaterials: [],
+  });
+  assert.throws(
+    () => fitBrowserPromptToTokenBudget(
+      boundedRecoveryPrompt.prompt,
+      boundedRecoveryBudgets.promptBudgetTokens,
+      { trustedClosedPrompt: true },
+    ),
+    (error) => error?.code === "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
+  );
+  const fittedBoundedRecoveryPrompt = fitBrowserPromptToTokenBudget(
+    boundedRecoveryPrompt.prompt,
+    boundedRecoveryBudgets.promptBudgetTokens,
+    {
+      trustedClosedPrompt: true,
+      protectedContextHardLimitTokens:
+        boundedRecoveryBudgets.protectedContextHardLimitTokens,
+    },
+  );
+  const fittedBoundedRecoveryTokens = estimateBrowserTokens(
+    fittedBoundedRecoveryPrompt.prompt,
+  );
+  assert.ok(
+    fittedBoundedRecoveryTokens
+      <= boundedRecoveryBudgets.protectedContextHardLimitTokens,
+  );
+  assert.ok(
+    boundedRecoverySystemTokens
+      + fittedBoundedRecoveryTokens
+      + boundedRecoveryPolicy.maxOutputTokens
+      + boundedRecoveryPolicy.safetyMarginTokens
+      <= boundedRecoveryPolicy.modelContextWindow,
+  );
+  const fittedBoundedRecoveryProof =
+    await createBrowserFinalModelContextInvocationProof({
+      outerRequestId: "task-proof:quality:draft:recovery-two-required-sources",
+      invocationRequestId:
+        "task-proof:quality:draft:recovery-two-required-sources:bounded-fresh-recovery",
+      outerTaskType: "chapter.continue",
+      outerQualityPhase: "draft",
+      innerStage: "recovery",
+      innerIndex: 2,
+      modelId: "proof-model-v1",
+      modelDigest: "e".repeat(64),
+      callOptionsDigest,
+      systemMessage: boundedRecoverySystemMessage,
+      userMessage: fittedBoundedRecoveryPrompt.prompt,
+      expectations,
+      omittedCharacters: fittedBoundedRecoveryPrompt.omittedCharacters,
+    });
+  assert.equal(
+    await verifyBrowserFinalModelContextInvocationProof(
+      fittedBoundedRecoveryProof,
+    ),
+    true,
+  );
+  assert.equal(fittedBoundedRecoveryProof.contextBindings.length, 2);
   assert.equal(
     safeClosedAgentBrowserRuntimeCauseCode(
       Object.assign(new Error("safe finite context budget code"), {
@@ -2653,6 +2763,99 @@ test("quality-gate", () => {
   assert.equal(generationOptions.stream, true);
   assert.equal(generationOptions.stream_options.include_usage, true);
   assert.equal(generationOptions.seed, 42);
+  const textResponseFormat = browserWebLLMResponseFormat({});
+  assert.deepEqual(textResponseFormat, { type: "text" });
+  const jsonResponseFormat = browserWebLLMResponseFormat({
+    jsonMode: true,
+    jsonSchema: { type: "object", required: ["status"] },
+  });
+  assert.deepEqual(jsonResponseFormat, {
+    type: "json_object",
+    schema: JSON.stringify({ type: "object", required: ["status"] }),
+  });
+  const boundedProseResponseFormat = browserWebLLMResponseFormat({
+    outputConstraint: BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
+  });
+  assert.deepEqual(boundedProseResponseFormat, {
+    type: "grammar",
+    grammar: BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR,
+  });
+  assert.equal(
+    BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR,
+    String.raw`root ::= [^\x00-\x1f\x7f]{260,360}`,
+  );
+  const boundedProseText = (length, character = "甲") =>
+    Array.from({ length }, () => character).join("");
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(boundedProseText(259)), false);
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(boundedProseText(260)), true);
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(boundedProseText(360)), true);
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(boundedProseText(361)), false);
+  const quotedMaximumHan = `「${boundedProseText(320)}。」`;
+  const ellipsisMaximumHan = `${boundedProseText(320)}……`;
+  assert.equal(
+    BOUNDED_PROSE_GRAMMAR_MIRROR.test(quotedMaximumHan),
+    true,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(quotedMaximumHan).contractSatisfied,
+    true,
+  );
+  assert.equal(
+    BOUNDED_PROSE_GRAMMAR_MIRROR.test(ellipsisMaximumHan),
+    true,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(ellipsisMaximumHan).contractSatisfied,
+    true,
+  );
+  assert.equal(
+    BOUNDED_PROSE_GRAMMAR_MIRROR.test(`${boundedProseText(259)}\n`),
+    false,
+  );
+  assert.equal(
+    assessBrowserProseCompletion(boundedProseText(260)).contractSatisfied,
+    false,
+    "the grammar owns only the raw scalar boundary; the post-gate owns complete endings",
+  );
+  const maximumGrammarHan = `${boundedProseText(359)}。`;
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(maximumGrammarHan), true);
+  assert.equal(
+    assessBrowserProseCompletion(maximumGrammarHan).contractSatisfied,
+    false,
+    "the unchanged post-gate must still reject more than 320 Han",
+  );
+  assert.equal(browserProseSafetyCode(`${boundedProseText(259)}\u0085。`), "control-token");
+  const boundedRecoveryBoundary = {
+    outputConstraint: BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
+    jsonMode: false,
+    trustedClosedPrompt: true,
+    contextAttestation: "required",
+    finalContextInnerStage: "recovery",
+    finalContextInnerIndex: 2,
+    invocationRequestId: "task:bounded-fresh-recovery",
+  };
+  assert.equal(
+    isBrowserWebLLMOutputConstraintBoundaryValid(boundedRecoveryBoundary),
+    true,
+  );
+  assert.equal(isBrowserWebLLMOutputConstraintBoundaryValid({}), true);
+  for (const mutation of [
+    { outputConstraint: "attacker-grammar" },
+    { jsonMode: true },
+    { trustedClosedPrompt: false },
+    { contextAttestation: "not_required" },
+    { finalContextInnerStage: "repair" },
+    { finalContextInnerIndex: 1 },
+    { invocationRequestId: "task:bounded-same-model-repair" },
+  ]) {
+    assert.equal(
+      isBrowserWebLLMOutputConstraintBoundaryValid({
+        ...boundedRecoveryBoundary,
+        ...mutation,
+      }),
+      false,
+    );
+  }
   const engineOptionsFor = (options) => {
     const performancePolicy = resolveBrowserAIPerformancePolicy({
       device: device(),
@@ -2747,6 +2950,18 @@ test("quality-gate", () => {
     "utf8",
   );
   assert.doesNotMatch(runtimeSource, /ignore_eos|ignoreEos/u);
+  assert.match(
+    runtimeSource,
+    /input\.finalContextInnerStage === "recovery"[\s\S]*input\.finalContextInnerIndex === 2/u,
+  );
+  assert.match(
+    runtimeSource,
+    /const responseFormat = browserWebLLMResponseFormat\(input\)[\s\S]*callOptionsDigest:[\s\S]*responseFormat[\s\S]*response_format: responseFormat/u,
+  );
+  assert.match(
+    runtimeSource,
+    /BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR[\s\S]*root ::= \[\^\\x00-\\x1f\\x7f\]\{260,360\}/u,
+  );
   const removeTaggedBlock = (value, tag) => {
     const opening = `<${tag}>`;
     const closing = `</${tag}>`;
@@ -3139,6 +3354,22 @@ test("bounded-prose-extension", async () => {
     assert.equal(han, target, `fixture requires ${target} Han characters`);
     return `${value}。`;
   };
+  const assertBoundedFreshRecoveryRequest = (passRequest, options) => {
+    assert.match(passRequest.requestId, /:bounded-fresh-recovery$/u);
+    assert.equal(Object.hasOwn(passRequest, "outputConstraint"), false);
+    assert.equal(
+      options.outputConstraint,
+      BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
+    );
+    assert.equal(passRequest.requiresStructured, false);
+    assert.equal(Object.hasOwn(passRequest, "outputSchema"), false);
+    assert.equal(passRequest.browserFinalContextInnerStage, "recovery");
+    assert.equal(passRequest.browserFinalContextInnerIndex, 2);
+    assert.equal(passRequest.agentPlan, undefined);
+    assert.deepEqual(passRequest.toolResults, []);
+    assert.deepEqual(passRequest.workingMaterials, []);
+    assert.equal(passRequest.unapprovedContinuationSeed, undefined);
+  };
   const execute = async (
     initialResult,
     queuedResults,
@@ -3149,6 +3380,12 @@ test("bounded-prose-extension", async () => {
     const queued = [...queuedResults];
     const runPass = async (passRequest, passDecision, _progress, options) => {
       calls.push({ request: passRequest, decision: passDecision, options });
+      assert.equal(Object.hasOwn(passRequest, "outputConstraint"), false);
+      if (passRequest.requestId.endsWith(":bounded-fresh-recovery")) {
+        assertBoundedFreshRecoveryRequest(passRequest, options);
+      } else {
+        assert.equal(options.outputConstraint, undefined);
+      }
       const next = queued.shift();
       assert.ok(next, "unexpected Browser prose pass");
       return typeof next === "function" ? next(passRequest, options) : next;
@@ -3277,6 +3514,7 @@ test("bounded-prose-extension", async () => {
   assert.equal(countBrowserProseHanCharacters(collapsedRepair33), 33);
   assert.equal(Array.from(collapsedRepair33).length, 36);
   assert.equal(countBrowserProseHanCharacters(collapsedRecovery240), 240);
+  assert.equal(BOUNDED_PROSE_GRAMMAR_MIRROR.test(collapsedRecovery240), true);
   assert.ok(collapsedInitial58.includes(collapsedInitialSentinel));
   assert.ok(collapsedRepair33.includes(collapsedRepairSentinel));
   assert.deepEqual(collapsedInitialQuality.reasonCodes, [
@@ -3458,6 +3696,94 @@ test("bounded-prose-extension", async () => {
     },
   );
   assert.equal(collapsedFailureCalls, 2, "recovery failure must not run a fourth pass");
+
+  // Reproduce the second Fresh triple-short topology with numeric/constructed
+  // fixtures only. The terminal grammar is present on the third call, but a
+  // mocked impossible under-floor result must still fail closed with no fourth
+  // pass and without retaining any rejected draft in safe evidence.
+  const tripleShortInitial = "1".repeat(9);
+  const tripleShortRepair = `${String.fromCodePoint(0x4e00).repeat(9)}${
+    String.fromCodePoint(0x3002)
+  }`;
+  const tripleShortRecovery = `${String.fromCodePoint(0x4e00).repeat(31)}${
+    String.fromCodePoint(0xff0c, 0x3002, 0xff01)
+  }`;
+  assert.equal(Array.from(tripleShortInitial).length, 9);
+  assert.equal(countBrowserProseHanCharacters(tripleShortInitial), 0);
+  assert.equal(Array.from(tripleShortRepair).length, 10);
+  assert.equal(countBrowserProseHanCharacters(tripleShortRepair), 9);
+  assert.equal(Array.from(tripleShortRecovery).length, 34);
+  assert.equal(countBrowserProseHanCharacters(tripleShortRecovery), 31);
+  let tripleShortCalls = 0;
+  await assert.rejects(
+    () => executeBrowserBoundedQualityPasses({
+      request,
+      decision,
+      executionRequest: request,
+      initialResult: {
+        ...result(tripleShortInitial, "stop"),
+        completionTokens: 9,
+        rawOutputCharacters: 9,
+        normalizedOutputCharacters: 9,
+      },
+      eligibility,
+      performancePolicy,
+      requiredGenerativeExecutor: "webllm-worker",
+      runPass: async (passRequest, _passDecision, _progress, options) => {
+        tripleShortCalls += 1;
+        if (tripleShortCalls === 1) {
+          assert.match(passRequest.requestId, /:bounded-same-model-repair$/u);
+          assert.equal(Object.hasOwn(passRequest, "outputConstraint"), false);
+          assert.equal(options.outputConstraint, undefined);
+          return {
+            ...result(
+              tripleShortRepair,
+              "stop",
+              `${request.requestId}:bounded-same-model-repair`,
+            ),
+            completionTokens: 8,
+            rawOutputCharacters: 10,
+            normalizedOutputCharacters: 10,
+          };
+        }
+        assert.equal(tripleShortCalls, 2, "fresh recovery must remain the third call");
+        assertBoundedFreshRecoveryRequest(passRequest, options);
+        return {
+          ...result(
+            tripleShortRecovery,
+            "stop",
+            `${request.requestId}:bounded-fresh-recovery`,
+          ),
+          completionTokens: 27,
+          rawOutputCharacters: 34,
+          normalizedOutputCharacters: 34,
+        };
+      },
+    }),
+    (error) => {
+      const evidence = closedAgentBrowserRuntimeEvidence(error);
+      const serialized = JSON.stringify(error);
+      return error.code === "BROWSER_AI_QUALITY_INSUFFICIENT"
+        && error.qualityReasonCodes?.includes("QUALITY_LENGTHCOMPLIANCE_LOW")
+        && error.qualityReasonCodes?.includes("QUALITY_NARRATIVE_TOO_SHORT")
+        && evidence.length === 3
+        && evidence[0]?.completionTokens === 9
+        && evidence[0]?.rawOutputCharacters === 9
+        && evidence[0]?.observedHanCharacters === 0
+        && evidence[1]?.completionTokens === 8
+        && evidence[1]?.rawOutputCharacters === 10
+        && evidence[1]?.observedHanCharacters === 9
+        && evidence[2]?.completionTokens === 27
+        && evidence[2]?.rawOutputCharacters === 34
+        && evidence[2]?.observedHanCharacters === 31
+        && !serialized.includes(tripleShortInitial)
+        && !serialized.includes(tripleShortRepair)
+        && !serialized.includes(tripleShortRecovery)
+        && error.fallbackAttempted === false
+        && error.canonicalMutationCount === 0;
+    },
+  );
+  assert.equal(tripleShortCalls, 2, "triple-short recovery must not run a fourth pass");
 
   // Match the capped Fresh Edge trace without retaining its prose: a verified
   // near-cap length finish remains below 220 Han, then the bounded repair

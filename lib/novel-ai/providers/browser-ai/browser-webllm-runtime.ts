@@ -37,6 +37,16 @@ const METADATA_DB = "novel-browser-webllm-v1";
 const METADATA_STORE = "runtime-records";
 const SELECTED_MODEL_KEY = "selected-model";
 
+export const BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT =
+  "bounded-prose-recovery-v1" as const;
+export const BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR =
+  String.raw`root ::= [^\x00-\x1f\x7f]{260,360}`;
+export const BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_SYSTEM_INSTRUCTION =
+  "最後補救只輸出單一完整繁體中文正文段落，不得輸出 JSON、Markdown、標題、標籤或分析，並以完整句子收尾。";
+
+export type BrowserWebLLMOutputConstraint =
+  typeof BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT;
+
 export type BrowserWebLLMInstallStatus =
   | "not_installed"
   | "installing"
@@ -133,6 +143,45 @@ export function browserWebLLMGenerationOptions(input: {
   };
 }
 
+export function browserWebLLMResponseFormat(input: {
+  jsonMode?: boolean;
+  jsonSchema?: Record<string, unknown>;
+  outputConstraint?: BrowserWebLLMOutputConstraint;
+}) {
+  if (input.outputConstraint === BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT) {
+    return {
+      type: "grammar" as const,
+      grammar: BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR,
+    };
+  }
+  if (input.jsonMode) {
+    return {
+      type: "json_object" as const,
+      schema: JSON.stringify(input.jsonSchema ?? { type: "object" }),
+    };
+  }
+  return { type: "text" as const };
+}
+
+export function isBrowserWebLLMOutputConstraintBoundaryValid(input: {
+  outputConstraint?: unknown;
+  jsonMode?: boolean;
+  trustedClosedPrompt?: boolean;
+  contextAttestation?: BrowserContextAttestationRequirement;
+  finalContextInnerStage?: BrowserFinalModelContextInnerStage;
+  finalContextInnerIndex?: 0 | 1 | 2;
+  invocationRequestId?: string;
+}) {
+  if (input.outputConstraint === undefined) return true;
+  return input.outputConstraint === BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT
+    && input.jsonMode !== true
+    && input.trustedClosedPrompt === true
+    && input.contextAttestation === "required"
+    && input.finalContextInnerStage === "recovery"
+    && input.finalContextInnerIndex === 2
+    && Boolean(input.invocationRequestId?.endsWith(":bounded-fresh-recovery"));
+}
+
 export type BrowserWebLLMRuntimeSnapshot = {
   runtime: "webllm-worker";
   supported: boolean;
@@ -209,6 +258,7 @@ export type BrowserWebLLMGenerationInput = {
   trustedClosedPrompt?: boolean;
   jsonMode?: boolean;
   jsonSchema?: Record<string, unknown>;
+  outputConstraint?: BrowserWebLLMOutputConstraint;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -956,6 +1006,14 @@ async function runBrowserWebLLMGeneration(
   queueWaitMs: number,
 ): Promise<BrowserWebLLMGenerationResult> {
   const started = performance.now();
+  const boundedProseRecovery =
+    input.outputConstraint === BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT;
+  if (!isBrowserWebLLMOutputConstraintBoundaryValid(input)) {
+    throw runtimeError(
+      "BROWSER_WEBLLM_GENERATION_FAILED",
+      "The Browser AI output constraint is invalid for this invocation boundary.",
+    );
+  }
   const finalContextFields = [
     input.finalContextExpectations,
     input.finalContextOuterRequestId,
@@ -1017,9 +1075,11 @@ async function runBrowserWebLLMGeneration(
     requestedRepetitionPenalty: input.repetitionPenalty,
     previousTokensPerSecond: previousTelemetry?.averageTokensPerSecond,
   });
-  const structuredInstruction = input.jsonMode
-    ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
-    : "";
+  const structuredInstruction = boundedProseRecovery
+    ? `\n\n${BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_SYSTEM_INSTRUCTION}`
+    : input.jsonMode
+      ? `\n\nReturn one JSON value only. It must satisfy this JSON Schema:\n${JSON.stringify(input.jsonSchema ?? { type: "object" })}`
+      : "";
   const systemMessage = `${input.systemInstruction}${structuredInstruction}`;
   const systemTokens = estimateBrowserTokens(systemMessage);
   const promptBudgets = browserPromptTokenBudgets({
@@ -1057,9 +1117,7 @@ async function runBrowserWebLLMGeneration(
       },
       { role: "user" as const, content: fittedPrompt.prompt },
     ];
-    const responseFormat = input.jsonMode
-      ? { type: "json_object" as const, schema: JSON.stringify(input.jsonSchema ?? { type: "object" }) }
-      : { type: "text" as const };
+    const responseFormat = browserWebLLMResponseFormat(input);
     const generationOptions = browserWebLLMGenerationOptions({
       performancePolicy,
       seed: input.seed,

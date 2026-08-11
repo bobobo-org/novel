@@ -18,6 +18,7 @@ import {
   browserWebLLMRuntimeSnapshot,
   cancelBrowserWebLLMGeneration,
   generateWithBrowserWebLLM,
+  type BrowserWebLLMOutputConstraint,
 } from "./browser-webllm-runtime";
 import type {
   BrowserWebLLMCacheBackend,
@@ -112,6 +113,8 @@ export type BrowserAIExecutionOptions = {
   requiredGenerativeExecutor?: "webllm-worker" | "chromium-prompt-api";
   /** Internal adapter control: OS owns normalization after final selection. */
   deferTraditionalChineseNormalization?: boolean;
+  /** Internal-only terminal recovery constraint; never accepted from PlatformAIRequest. */
+  outputConstraint?: BrowserWebLLMOutputConstraint;
   /** Internal-only, in-memory suffix anchor. Never accepted from PlatformAIRequest. */
   unapprovedContinuationSeed?: {
     anchor: string;
@@ -705,6 +708,7 @@ export async function runBrowserAI(
         trustedClosedPrompt: true,
         jsonMode: request.requiresStructured === true,
         jsonSchema: request.outputSchema,
+        outputConstraint: options.outputConstraint,
         temperature: request.generationOptions?.temperature,
         topP: request.generationOptions?.topP,
         maxTokens: request.generationOptions?.maxTokens,

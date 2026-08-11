@@ -431,10 +431,12 @@ test("quality-cascade", async () => {
 test("json-mode", () => {
   const runtime = readFileSync(resolve(root, "lib/novel-ai/providers/browser-ai/browser-webllm-runtime.ts"), "utf8");
   const provider = readFileSync(resolve(root, "lib/novel-ai/providers/browser-ai/browser-ai-provider.ts"), "utf8");
-  assert.match(runtime, /const responseFormat = input\.jsonMode/u);
+  assert.match(runtime, /const responseFormat = browserWebLLMResponseFormat\(input\)/u);
   assert.match(runtime, /response_format:\s*responseFormat/u);
   assert.match(runtime, /type:\s*"json_object"/u);
+  assert.match(runtime, /type:\s*"grammar"[\s\S]*BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_GRAMMAR/u);
   assert.match(provider, /jsonMode:\s*request\.requiresStructured === true/u);
+  assert.match(provider, /outputConstraint:\s*options\.outputConstraint/u);
   const assembled = assembleBrowserFabricPrompt({ task: task(), context: task().context });
   assert.deepEqual(Object.keys(assembled.sections), [...BROWSER_PROMPT_SECTIONS]);
   assert.match(assembled.prompt, /<OUTPUT_SCHEMA>/u);

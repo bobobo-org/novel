@@ -49,7 +49,10 @@ import {
   browserSemanticRuntimeSnapshot,
   rankWithBrowserSemanticModel,
 } from "./browser-semantic-runtime";
-import { browserWebLLMRuntimeSnapshot } from "./browser-webllm-runtime";
+import {
+  BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
+  browserWebLLMRuntimeSnapshot,
+} from "./browser-webllm-runtime";
 import { BROWSER_TASK_MODEL } from "./browser-task-model";
 import {
   assessBrowserProseCompletion,
@@ -2249,6 +2252,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
         requestId: recoveryRequestId,
         input: buildBrowserFreshRecoveryObjective(input.request.input),
         qualityPhase: "draft",
+        requiresStructured: false,
+        outputSchema: undefined,
         browserFinalContextInnerStage: "recovery",
         browserFinalContextInnerIndex: 2,
         agentPlan: undefined,
@@ -2275,6 +2280,7 @@ export async function executeBrowserBoundedQualityPasses(input: {
       // A public or stale request shape must never activate or carry the
       // internal continuation-seed channel into a standalone recovery draft.
       Reflect.deleteProperty(recoveryRequest, "unapprovedContinuationSeed");
+      Reflect.deleteProperty(recoveryRequest, "outputSchema");
       try {
         recoveryResult = await runPass(
           recoveryRequest,
@@ -2286,6 +2292,8 @@ export async function executeBrowserBoundedQualityPasses(input: {
             contextAttestation: executionRequest.contextAttestation,
             deferTraditionalChineseNormalization:
               input.deferTraditionalChineseNormalization,
+            outputConstraint:
+              BROWSER_WEBLLM_BOUNDED_PROSE_RECOVERY_CONSTRAINT,
           },
         );
         recoveryInvocationProof = await assertBrowserFinalContextInvocationProof({
