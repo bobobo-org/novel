@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import {
   classifyClosedAiCrossOriginRequest,
   isPreviewToolbarRequest,
 } from "./rc6-2-closed-agent-network-policy.mjs";
+import {
+  commitBrowserStartedOrClose,
+  transitionAttempt,
+  waitForAttemptState,
+} from "./rc6-2-formal-attempt-state.mjs";
 
 Error.stackTraceLimit = 0;
 
@@ -52,6 +58,48 @@ if (!configuredEdgeExecutable) {
 const setupTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_SETUP_TIMEOUT_MS ?? 1_800_000);
 const generationTimeoutMs = Number(process.env.RC6_2_CLOSED_AI_GENERATION_TIMEOUT_MS ?? 1_200_000);
 const headless = process.env.RC6_2_CLOSED_AI_HEADLESS !== "0";
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const formalAttemptDirectory = process.env.RC6_2_FORMAL_ATTEMPT_DIRECTORY?.trim() ?? "";
+const formalAttemptId = process.env.RC6_2_FORMAL_ATTEMPT_ID?.trim() ?? "";
+const formalAuthorizationId = process.env.RC6_2_FORMAL_AUTHORIZATION_ID?.trim() ?? "";
+const formalControlCommit = process.env.RC6_2_FORMAL_CONTROL_COMMIT?.trim() ?? "";
+const formalAuthorizationDigest = process.env.RC6_2_FORMAL_AUTHORIZATION_DIGEST?.trim() ?? "";
+const formalReleaseTag = process.env.RC6_2_FORMAL_RELEASE_TAG?.trim() ?? "";
+const formalReleaseRevision = process.env.RC6_2_FORMAL_RELEASE_REVISION?.trim() ?? "";
+const formalRuntimeReceiptDigest = process.env.RC6_2_FORMAL_RUNTIME_RECEIPT_DIGEST?.trim() ?? "";
+const formalWrapperDigest = process.env.RC6_2_FORMAL_WRAPPER_DIGEST?.trim() ?? "";
+const formalRunnerDigest = process.env.RC6_2_FORMAL_RUNNER_DIGEST?.trim() ?? "";
+const formalContractDigest = process.env.RC6_2_FORMAL_CONTRACT_DIGEST?.trim() ?? "";
+const formalAttemptValues = [
+  formalAttemptDirectory,
+  formalAttemptId,
+  formalAuthorizationId,
+  formalControlCommit,
+  formalAuthorizationDigest,
+  formalReleaseTag,
+  formalReleaseRevision,
+  formalRuntimeReceiptDigest,
+  formalWrapperDigest,
+  formalRunnerDigest,
+  formalContractDigest,
+];
+const formalAttemptEnabled = formalAttemptValues.some(Boolean);
+if (formalAttemptEnabled) {
+  assert.equal(formalAttemptValues.every(Boolean), true, "formal attempt configuration incomplete");
+  assert.equal(isAbsolute(formalAttemptDirectory), true, "formal attempt directory was not absolute");
+  assert.match(formalAttemptId, /^C7-PROD-BROWSER-\d{8}T\d{9}Z-[a-f0-9]{32}$/u);
+  assert.match(formalAuthorizationId, /^C7-PROD-BROWSER-AUTH-\d{8}T\d{9}Z-[a-f0-9]{32}$/u);
+  assert.match(formalControlCommit, /^[a-f0-9]{40}$/u);
+  assert.equal(formalReleaseTag, "novel-ai-p24b-conversation-first-studio-rc6.2");
+  assert.equal(formalReleaseRevision, "rc6.2");
+  for (const digest of [
+    formalAuthorizationDigest,
+    formalRuntimeReceiptDigest,
+    formalWrapperDigest,
+    formalRunnerDigest,
+    formalContractDigest,
+  ]) assert.match(digest, /^[a-f0-9]{64}$/u);
+}
 const immutableModelRootRequests = [];
 const approvedModelRedirectRequests = [];
 const prohibitedExternalAiRequests = [];
@@ -74,6 +122,7 @@ let gateCheckpoint = "bootstrap";
 let browser;
 let context;
 let page;
+let formalRunnerStartedLease = null;
 let profilePath;
 let profileOwnership = null;
 let profilePathDigest = null;
@@ -1474,6 +1523,58 @@ async function preparePersistentEdgeProfile() {
   }
 }
 
+function formalAttemptIdentity() {
+  return {
+    expectedAttemptId: formalAttemptId,
+    expectedAuthorizationId: formalAuthorizationId,
+    expectedControlCommit: formalControlCommit,
+    expectedProductCommit: expectedCommit,
+    expectedDeploymentId,
+    expectedProductionOrigin: expectedOrigin,
+    expectedAuthorizationDigest: formalAuthorizationDigest,
+    expectedReleaseTag: formalReleaseTag,
+    expectedReleaseRevision: formalReleaseRevision,
+    expectedRuntimeReceiptDigest: formalRuntimeReceiptDigest,
+    expectedWrapperDigest: formalWrapperDigest,
+    expectedRunnerDigest: formalRunnerDigest,
+    expectedContractDigest: formalContractDigest,
+  };
+}
+
+async function waitForFormalRunnerStart() {
+  if (!formalAttemptEnabled) return null;
+  const lease = await waitForAttemptState({
+    attemptDirectory: formalAttemptDirectory,
+    state: "RUNNER_STARTED",
+    timeoutMs: 30_000,
+    pollMs: 50,
+    ...formalAttemptIdentity(),
+  });
+  return lease;
+}
+
+function markFormalBrowserStarted(runnerStartedLease) {
+  if (!formalAttemptEnabled) return null;
+  assert.ok(runnerStartedLease);
+  const result = transitionAttempt({
+    attemptDirectory: formalAttemptDirectory,
+    eventType: "BROWSER_STARTED",
+    eventBody: {
+      persistentContextEstablished: true,
+      networkRoutesInstalled: true,
+      productInteractionStarted: false,
+    },
+    expectedRevision: runnerStartedLease.revision,
+    expectedState: "RUNNER_STARTED",
+    ...formalAttemptIdentity(),
+  });
+  assert.equal(result.lease.state, "BROWSER_STARTED");
+  assert.equal(result.lease.attemptConsumed, true);
+  assert.equal(result.lease.runnerStarted, true);
+  assert.equal(result.lease.browserStarted, true);
+  return result.lease;
+}
+
 async function launch() {
   edgeExecutablePath = await realpath(configuredEdgeExecutable);
   const executableStat = await stat(edgeExecutablePath);
@@ -1495,27 +1596,50 @@ async function launch() {
     viewport: { width: 1440, height: 900 },
     serviceWorkers: "block",
   };
-  const persistentContext = await chromium.launchPersistentContext(profilePath, launchOptions);
-  await persistentContext.routeWebSocket("**/*", routeClosedAiWebSocket);
-  contextWebSocketRouteInstalledBeforeNavigation = true;
-  await persistentContext.route("**/*", routeClosedAiRequest);
-  contextRouteInstalledBeforeNavigation = true;
-  persistentContext.on("request", observeClosedAiRequest);
-  persistentContext.on("response", observeClosedAiResponse);
-  return {
-    context: persistentContext,
-    browser: persistentContext.browser(),
-    evidence: {
-      executableName: "msedge.exe",
-      executableDigest: await sha256File(edgeExecutablePath),
-      persistentContext: true,
-      disposableProfile: true,
-      profileOwnership,
-      profileEntryCountBeforeLaunch: 0,
-      profilePathDigest,
-      webSocketRouteInstalledBeforeNavigation: contextWebSocketRouteInstalledBeforeNavigation,
-    },
-  };
+  let persistentContext;
+  try {
+    persistentContext = await chromium.launchPersistentContext(profilePath, launchOptions);
+    await persistentContext.routeWebSocket("**/*", routeClosedAiWebSocket);
+    contextWebSocketRouteInstalledBeforeNavigation = true;
+    await persistentContext.route("**/*", routeClosedAiRequest);
+    contextRouteInstalledBeforeNavigation = true;
+    persistentContext.on("request", observeClosedAiRequest);
+    persistentContext.on("response", observeClosedAiResponse);
+    try {
+      await commitBrowserStartedOrClose({
+        persistentContext,
+        transition: () => markFormalBrowserStarted(formalRunnerStartedLease),
+      });
+    } catch (error) {
+      // commitBrowserStartedOrClose owns cleanup when the durable transition fails.
+      // Clear this local reference so the outer launch cleanup cannot close it twice.
+      persistentContext = null;
+      throw error;
+    }
+    return {
+      context: persistentContext,
+      browser: persistentContext.browser(),
+      evidence: {
+        executableName: "msedge.exe",
+        executableDigest: await sha256File(edgeExecutablePath),
+        persistentContext: true,
+        disposableProfile: true,
+        profileOwnership,
+        profileEntryCountBeforeLaunch: 0,
+        profilePathDigest,
+        webSocketRouteInstalledBeforeNavigation: contextWebSocketRouteInstalledBeforeNavigation,
+      },
+    };
+  } catch (error) {
+    if (persistentContext) {
+      try {
+        await persistentContext.close();
+      } catch {
+        throw gateError("RC6_2_FORMAL_BROWSER_START_TRANSITION_CLEANUP_FAILED");
+      }
+    }
+    throw error;
+  }
 }
 
 function resetPreNavigationSentinelPolicyCounters() {
@@ -1842,8 +1966,8 @@ async function createProject() {
   return projectId;
 }
 
-async function readStoryBibleEvidence(projectId) {
-  return page.evaluate(async (id) => {
+async function readStoryBibleEvidence(projectId, requireIsolationWitness = false) {
+  return page.evaluate(async ({ id, requireIsolationWitness }) => {
     const stableStringify = (value) => {
       if (value === null || typeof value !== "object") return JSON.stringify(value);
       if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -1876,6 +2000,10 @@ async function readStoryBibleEvidence(projectId) {
         database.transaction("storyBibles", "readonly")
           .objectStore("storyBibles").index("projectId").getAll(id),
       );
+      const allRecords = await requestResult(
+        database.transaction("storyBibles", "readonly")
+          .objectStore("storyBibles").getAll(),
+      );
       if (records.length !== 1) return null;
       const record = records[0];
       if (
@@ -1889,6 +2017,14 @@ async function readStoryBibleEvidence(projectId) {
         database.transaction("projects", "readonly").objectStore("projects").get(id),
       );
       if (!project || project.storyBibleId !== record.id) return null;
+      const allProjects = await requestResult(
+        database.transaction("projects", "readonly").objectStore("projects").getAll(),
+      );
+      const observedOtherProjectCount = allProjects.filter((candidate) => candidate?.id !== id).length;
+      const observedOtherStoryBibleCount = allRecords
+        .filter((candidate) => candidate?.projectId !== id).length;
+      if (requireIsolationWitness
+          && (observedOtherProjectCount < 1 || observedOtherStoryBibleCount < 1)) return null;
       const fields = [
         "theme",
         "style",
@@ -1905,9 +2041,9 @@ async function readStoryBibleEvidence(projectId) {
         "authorPreferences",
         "revision",
       ];
-      const value = Object.fromEntries(fields
+      const recordValue = (candidate) => Object.fromEntries(fields
         .map((field) => {
-          const fieldValue = record[field];
+          const fieldValue = candidate[field];
           const presented = fieldValue
             && typeof fieldValue === "object"
             && "status" in fieldValue
@@ -1922,6 +2058,12 @@ async function readStoryBibleEvidence(projectId) {
           && fieldValue !== ""
           && (!Array.isArray(fieldValue) || fieldValue.length > 0)
         )));
+      const value = recordValue(record);
+      const crossProjectLeakCount = allRecords.filter((candidate) => (
+        candidate?.projectId !== id && candidate?.id === record.id
+      )).length + allProjects.filter((candidate) => (
+        candidate?.id !== id && candidate?.storyBibleId === record.id
+      )).length;
       const sourceArtifactDigest = await sha256(stableStringify({
         domain: "approved-story-bible-source-artifact-v1",
         value,
@@ -1947,14 +2089,17 @@ async function readStoryBibleEvidence(projectId) {
         sourceArtifactDigest,
         sourceRevisionDigest,
         serializedSource,
+        crossProjectLeakCount,
+        observedOtherProjectCount,
+        observedOtherStoryBibleCount,
       };
     } finally {
       database.close();
     }
-  }, projectId);
+  }, { id: projectId, requireIsolationWitness });
 }
 
-async function createApprovedStoryBible(projectId) {
+async function createApprovedStoryBible(projectId, { requireIsolationWitness = false } = {}) {
   const marker = crypto.randomUUID().slice(0, 8);
   const values = {
     theme: `雨夜追索與承諾 ${marker}`,
@@ -1999,9 +2144,14 @@ async function createApprovedStoryBible(projectId) {
     && document.querySelector('[data-testid="story-bible-contradictions"]')?.value === expected.contradictions
     && document.querySelector('[data-testid="story-bible-preferences"]')?.value === expected.preferences
   ), values, { timeout: 90_000 });
-  assert.equal(Number(await page.getByTestId("story-bible-record").getAttribute("data-revision")), savedRevision);
-  assert.equal(await page.getByTestId("story-bible-record").getAttribute("data-record-id"), recordId);
-  const persisted = await readStoryBibleEvidence(projectId);
+  const reloadedRevision = Number(
+    await page.getByTestId("story-bible-record").getAttribute("data-revision"),
+  );
+  const reloadedRecordId = await page.getByTestId("story-bible-record")
+    .getAttribute("data-record-id");
+  assert.equal(reloadedRevision, savedRevision);
+  assert.equal(reloadedRecordId, recordId);
+  const persisted = await readStoryBibleEvidence(projectId, requireIsolationWitness);
   assert.ok(persisted);
   assert.equal(persisted.recordId, recordId);
   assert.equal(persisted.revision, savedRevision);
@@ -2014,6 +2164,11 @@ async function createApprovedStoryBible(projectId) {
   for (const value of Object.values(values)) assert.equal(serializedSource.includes(value), true);
   assert.match(persisted.sourceArtifactDigest, /^[a-f0-9]{64}$/u);
   assert.match(persisted.sourceRevisionDigest, /^[a-f0-9]{64}$/u);
+  const persistedAfterReload = reloadedRevision === savedRevision
+    && reloadedRecordId === recordId
+    && persisted.recordId === recordId
+    && persisted.revision === savedRevision;
+  assert.equal(persistedAfterReload, true);
   await page.goto(`${expectedOrigin}/studio/project/${encodeURIComponent(projectId)}/chat`, {
     waitUntil: "domcontentloaded",
     timeout: 90_000,
@@ -2034,7 +2189,7 @@ async function createApprovedStoryBible(projectId) {
       `story-bible:${persisted.recordId}`,
       "approved-story-bible",
     ),
-    persistedAfterReload: true,
+    persistedAfterReload,
     uiInputDigest: sha256Value(JSON.stringify(values)),
   };
   Object.defineProperty(evidence, "runnerFinalContext", {
@@ -2047,6 +2202,149 @@ async function createApprovedStoryBible(projectId) {
     },
   });
   return evidence;
+}
+
+function parseSourceStringArray(source, constantName) {
+  const escaped = constantName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = new RegExp(
+    `export const ${escaped} = \\[([\\s\\S]*?)\\] as const;`,
+    "u",
+  ).exec(source);
+  assert.ok(match, `persistence contract array missing: ${constantName}`);
+  const values = [...match[1].matchAll(/"([A-Za-z][A-Za-z0-9]{0,63})"/gu)]
+    .map((entry) => entry[1]);
+  assert.ok(values.length > 0, `persistence contract array empty: ${constantName}`);
+  assert.equal(new Set(values).size, values.length);
+  return values;
+}
+
+async function readPersistenceContractTruth() {
+  const [contractsSource, characterSource, indexedDbSource, recoverySource] = await Promise.all([
+    readFile(join(repositoryRoot, "lib/novel-ai/repository/contracts/index.ts"), "utf8"),
+    readFile(join(repositoryRoot, "lib/novel-ai/character-agent/repository.ts"), "utf8"),
+    readFile(join(repositoryRoot, "lib/novel-ai/repository/indexeddb/indexeddb-repository.ts"), "utf8"),
+    readFile(join(repositoryRoot, "lib/novel-ai/repository/persistence-recovery.ts"), "utf8"),
+  ]);
+  const versionMatch = /export const INDEXEDDB_DATABASE_VERSION = ([1-9][0-9]{0,3});/u
+    .exec(recoverySource);
+  assert.ok(versionMatch, "persistence database version contract missing");
+  const requestStoreMatch = /const REQUEST_STORE = "([A-Za-z][A-Za-z0-9]{0,63})";/u
+    .exec(indexedDbSource);
+  assert.ok(requestStoreMatch, "persistence request store contract missing");
+  const stores = [...new Set([
+    ...parseSourceStringArray(contractsSource, "LEGACY_NOVEL_STORES"),
+    ...parseSourceStringArray(contractsSource, "DRAMA_STORES"),
+    ...parseSourceStringArray(characterSource, "CHARACTER_AGENT_STORE_NAMES"),
+    ...parseSourceStringArray(contractsSource, "CONVERSATION_STORES"),
+    ...parseSourceStringArray(contractsSource, "RPG_V3_STORES"),
+    requestStoreMatch[1],
+  ])].sort();
+  return {
+    databaseVersion: Number(versionMatch[1]),
+    stores,
+  };
+}
+
+async function readFormalPersistenceTruth(projectId, storyBible, persistenceContract) {
+  const { databaseVersion, stores: requiredStores } = persistenceContract;
+  assert.ok(Number.isSafeInteger(databaseVersion));
+  assert.ok(Array.isArray(requiredStores));
+  assert.ok(requiredStores.length > 0);
+  assert.deepEqual(requiredStores, [...new Set(requiredStores)].sort());
+  const runtimeTruth = await page.getByTestId("project-indexeddb-runtime").evaluate((element) => ({
+    backend: element.getAttribute("data-persistence-backend"),
+    degraded: element.getAttribute("data-persistence-degraded"),
+    memoryFallback: element.getAttribute("data-memory-fallback"),
+  }));
+  const storageTruth = await page.evaluate(async ({ id, requiredStores }) => {
+    const requestResult = (request) => new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onupgradeneeded = () => {
+        request.transaction?.abort();
+        reject(new Error("RC6_2_FORMAL_PERSISTENCE_DATABASE_MISSING"));
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const probeId = `rc6-2-formal-persistence-${crypto.randomUUID()}`;
+    const probe = {
+      id: probeId,
+      projectId: id,
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const actualStores = [...database.objectStoreNames].sort();
+      const missingStores = requiredStores.filter((store) => !actualStores.includes(store));
+      const project = await requestResult(
+        database.transaction("projects", "readonly").objectStore("projects").get(id),
+      );
+      const storyBibles = await requestResult(
+        database.transaction("storyBibles", "readonly")
+          .objectStore("storyBibles").index("projectId").getAll(id),
+      );
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction("settings", "readwrite");
+        transaction.objectStore("settings").put(probe);
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+      });
+      const persistedProbe = await requestResult(
+        database.transaction("settings", "readonly").objectStore("settings").get(probeId),
+      );
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction("settings", "readwrite");
+        transaction.objectStore("settings").delete(probeId);
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+      });
+      const removedProbe = await requestResult(
+        database.transaction("settings", "readonly").objectStore("settings").get(probeId),
+      );
+      return {
+        databaseName: database.name,
+        databaseVersion: database.version,
+        missingStores,
+        actualStoreCount: actualStores.length,
+        projectRecordVerified: project?.id === id,
+        storyBibleRecordVerified: storyBibles.length === 1
+          && storyBibles[0]?.id === project?.storyBibleId,
+        writeProbeVerified: persistedProbe?.id === probeId && removedProbe === undefined,
+      };
+    } finally {
+      database.close();
+    }
+  }, { id: projectId, requiredStores });
+  assert.deepEqual(runtimeTruth, {
+    backend: "indexeddb",
+    degraded: "false",
+    memoryFallback: "false",
+  });
+  assert.equal(storageTruth.databaseName, "novel-intelligence-platform");
+  assert.equal(storageTruth.databaseVersion, databaseVersion);
+  assert.deepEqual(storageTruth.missingStores, []);
+  assert.equal(storageTruth.actualStoreCount, requiredStores.length);
+  assert.equal(storageTruth.projectRecordVerified, true);
+  assert.equal(storageTruth.storyBibleRecordVerified, true);
+  assert.equal(storageTruth.writeProbeVerified, true);
+  assert.equal(storyBible.persistedAfterReload, true);
+  return {
+    backend: runtimeTruth.backend,
+    degraded: runtimeTruth.degraded === "true",
+    databaseName: storageTruth.databaseName,
+    requiredStoresVerified: storageTruth.missingStores.length === 0
+      && storageTruth.actualStoreCount === requiredStores.length,
+    writeVerified: storageTruth.writeProbeVerified && storageTruth.storyBibleRecordVerified,
+    reloadVerified: storyBible.persistedAfterReload,
+    memoryFallbackUsed: runtimeTruth.memoryFallback === "true",
+  };
 }
 
 async function waitUntilNotBusy(locator, timeoutMs = 90_000) {
@@ -3805,6 +4103,11 @@ async function runGenerationLifecycle(projectId, storyBible) {
     assertFinalContextBindings(persisted, requiredSources),
     finalContextProof,
   );
+  const approvalPersistedAfterReload = canonAfterReload.revision === canonAfterApproval.revision
+    && persisted.candidate.id === third.candidate.id
+    && persisted.candidate.status === "committed"
+    && persisted.candidate.canonicalMutationCount === 1;
+  assert.equal(approvalPersistedAfterReload, true);
 
   return {
     firstCandidateBeforeApproval: first.candidate,
@@ -3835,7 +4138,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
       status: "approved",
       canonRevisionBefore: canonBefore.revision,
       canonRevisionAfter: canonAfterApproval.revision,
-      persistedAfterReload: true,
+      persistedAfterReload: approvalPersistedAfterReload,
       fullReceiptRevalidatedBeforeAndAfterReload: true,
     },
   };
@@ -3843,6 +4146,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
 
 try {
   gateCheckpoint = "launch";
+  formalRunnerStartedLease = await waitForFormalRunnerStart();
   const launched = await launch();
   browser = launched.browser;
   context = launched.context;
@@ -3863,9 +4167,25 @@ try {
   const freshStorage = await readFreshStorageTruth();
   requestPhase = "project-setup";
   gateCheckpoint = "project-create";
-  const projectId = await createProject();
-  gateCheckpoint = "story-bible";
-  const storyBible = mode === "setup" ? null : await createApprovedStoryBible(projectId);
+  let projectId;
+  let storyBible;
+  if (mode === "setup") {
+    projectId = await createProject();
+    storyBible = null;
+  } else {
+    gateCheckpoint = "story-bible-isolation-witness";
+    const isolationProjectId = await createProject();
+    const isolationStoryBible = await createApprovedStoryBible(isolationProjectId);
+    gateCheckpoint = "project-create";
+    projectId = await createProject();
+    gateCheckpoint = "story-bible";
+    storyBible = await createApprovedStoryBible(projectId, { requireIsolationWitness: true });
+    assert.notEqual(projectId, isolationProjectId);
+    assert.notEqual(storyBible.recordId, isolationStoryBible.recordId);
+    assert.notEqual(storyBible.originalDigest, isolationStoryBible.originalDigest);
+    assert.ok(storyBible.observedOtherProjectCount >= 1);
+    assert.ok(storyBible.observedOtherStoryBibleCount >= 1);
+  }
   gateCheckpoint = "inspect-setup";
   const setup = await inspectFreshSetup();
   let lifecycle;
@@ -3908,7 +4228,30 @@ try {
       conversationIsolation,
       ...ordinaryLifecycle,
     };
+    const modelContextBindingVerified = ordinaryLifecycle.finalContextProof.sourceBindingCount === 1
+      && ordinaryLifecycle.finalContextProof.originalDigests.includes(storyBible.originalDigest)
+      && ordinaryLifecycle.finalContextProof.substantivePrefixBound === true;
+    const storyBibleTruth = {
+      ...storyBible,
+      approvedRecordCreated: typeof storyBible.recordId === "string" && storyBible.recordId.length > 0,
+      approvedRecordReloadVerified: storyBible.persistedAfterReload,
+      modelContextBindingVerified,
+      crossProjectLeakCount: storyBible.crossProjectLeakCount,
+    };
+    const storyBibleReady = storyBibleTruth.approvedRecordCreated === true
+      && storyBibleTruth.approvedRecordReloadVerified === true
+      && storyBibleTruth.modelContextBindingVerified === true
+      && storyBibleTruth.crossProjectLeakCount === 0;
+    assert.equal(storyBibleReady, true);
+    lifecycle.storyBible = {
+      ...storyBibleTruth,
+      status: storyBibleReady ? "ready" : "error",
+    };
   }
+  const persistenceContract = mode === "setup" ? null : await readPersistenceContractTruth();
+  const persistence = mode === "setup"
+    ? null
+    : await readFormalPersistenceTruth(projectId, lifecycle.storyBible, persistenceContract);
   gateCheckpoint = "final-release-identity";
   const releaseIdentityAfterReload = await readReleaseIdentityTruth();
   assert.deepEqual(releaseIdentityAfterReload, releaseIdentityBeforeApp);
@@ -4009,6 +4352,7 @@ try {
     },
     networkZeroReceipt: networkSentinelEvidence,
     projectId,
+    persistence,
     ...lifecycle,
     completedAt: new Date().toISOString(),
   };

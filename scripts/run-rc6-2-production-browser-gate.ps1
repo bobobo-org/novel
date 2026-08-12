@@ -17,7 +17,11 @@ param(
 
   [Parameter(Mandatory = $true)]
   [ValidateSet("PreflightDryRun", "FormalBrowserGate")]
-  [string]$ExecutionMode
+  [string]$ExecutionMode,
+
+  [Parameter(Mandatory = $false)]
+  [ValidatePattern('^C7-PROD-BROWSER-AUTH-[0-9]{8}T[0-9]{9}Z-[a-f0-9]{32}$')]
+  [string]$FormalAuthorizationId
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +59,7 @@ $failedRecoveryControl = "3b716fc0d974a9d59b49ffca5953776af66c7a07"
 $initialBrowserGateControl = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824"
 $c4BrowserGateControl = "100eea11003c5132ab2b519707c5dee658bc9cbe"
 $c5BrowserGateControl = "99695b247c2b1626c38efc8ae4589dd9bd8d30da"
+$c6BrowserGateControl = "b326c2fc9925798ffbc750ae37db847f0c8b5625"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -98,17 +103,45 @@ $runtimeReceiptBefore = $null
 $runtimeReceiptValidation = $null
 $runtimeObservation = $null
 $lastNodeContractMetrics = $null
+$toolchainReceipt = $null
 $runnerPath = Join-Path $repoRoot "scripts\run-rc6-2-closed-agent-browser.mjs"
 $wrapperPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate.ps1"
 $contractPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate-contract.mjs"
+$formalAttemptStatePath = Join-Path $repoRoot "scripts\rc6-2-formal-attempt-state.mjs"
+$terminalEvidencePath = Join-Path $repoRoot "scripts\rc6-2-terminal-evidence.mjs"
+$formalAttemptPrepared = $false
+$formalAttemptId = $null
+$formalAttemptDirectory = $null
+$formalAttemptRoot = $null
+$formalAttemptRegistryRoot = $null
+$formalTerminalBundleDirectory = $null
+$formalAttemptStartedAt = $null
+$formalAuthorizationDigest = $null
+$formalWrapperDigest = $null
+$formalRunnerDigest = $null
+$formalContractDigest = $null
+$formalAttemptStateDigest = $null
+$terminalEvidenceDigest = $null
+$formalRuntimeReceiptDigest = $null
+$formalAttemptSummary = $null
+$formalTerminalFinalizationAttempted = $false
+$formalTerminalFinalized = $false
+$formalTerminalSafeResult = $null
+$formalTerminalValidation = $null
+$formalRunnerResultProjection = $null
+$formalRunnerFailureProjection = $null
 $allowedGatePaths = @(
   ".github/workflows/deploy.yml",
   "package.json",
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-closed-agent-browser.mjs",
   "scripts/run-rc6-2-closed-agent-runtime.mjs",
+  "scripts/rc6-2-formal-attempt-state.mjs",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-rc6-2-formal-attempt-state-tests.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
-  "scripts/run-rc6-2-production-browser-gate.ps1"
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs"
 )
 $initialGatePaths = @(
   ".github/workflows/deploy.yml",
@@ -131,7 +164,23 @@ $c6RepairGatePaths = @(
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1"
 )
+$c7RepairGatePaths = @(
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-formal-attempt-state.mjs",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-formal-attempt-state-tests.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs"
+)
 $productRuntimePaths = @(
+  "lib/novel-ai/character-agent/repository.ts",
+  "lib/novel-ai/repository/contracts/index.ts",
+  "lib/novel-ai/repository/indexeddb/indexeddb-repository.ts",
+  "lib/novel-ai/repository/persistence-recovery.ts",
   "scripts/rc6-2-closed-agent-network-policy.mjs"
 )
 
@@ -335,6 +384,701 @@ function Invoke-CleanNodeContract(
   }
 }
 
+function Invoke-CleanFormalNodeCli(
+  [string]$ScriptPath,
+  [string]$Mode,
+  [string]$StandardInput,
+  [string]$Code
+) {
+  $isStateCli = SamePath $ScriptPath $formalAttemptStatePath
+  $isTerminalCli = SamePath $ScriptPath $terminalEvidencePath
+  if (-not $isStateCli -and -not $isTerminalCli) { Fail $Code }
+  $allowedModes = if ($isStateCli) {
+    @(
+      "read-authorization",
+      "create-attempt",
+      "recover-creation",
+      "transition-idempotent",
+      "verify",
+      "recover",
+      "wait-state"
+    )
+  } else {
+    @("bind-projections", "finalize", "validate", "validate-formal")
+  }
+  if ($Mode -notin $allowedModes) { Fail $Code }
+  if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) { Fail $Code }
+  $scriptDigest = (Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if (
+    ($isStateCli -and $scriptDigest -ne $formalAttemptStateDigest) -or
+    ($isTerminalCli -and $scriptDigest -ne $terminalEvidenceDigest)
+  ) { Fail $Code }
+  if (
+    $null -eq $StandardInput -or
+    $StandardInput.IndexOf([char]0) -ge 0 -or
+    $StandardInput.IndexOf([char]0xFFFD) -ge 0 -or
+    ($StandardInput.Length -gt 0 -and $StandardInput[0] -eq [char]0xFEFF) -or
+    $StandardInput.Contains("`r") -or
+    $StandardInput.Contains("`n")
+  ) { Fail $Code }
+  $standardInputBytes = [Text.UTF8Encoding]::new($false).GetBytes($StandardInput)
+  if (
+    $standardInputBytes.Length -eq 0 -or
+    $standardInputBytes.Length -gt 2097152 -or
+    -not [StringComparer]::Ordinal.Equals(
+      [Text.UTF8Encoding]::new($false, $true).GetString($standardInputBytes),
+      $StandardInput
+    )
+  ) { Fail $Code }
+
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $nodeExe
+  $startInfo.Arguments = "`"$ScriptPath`" $Mode"
+  $startInfo.WorkingDirectory = $repoRoot
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.RedirectStandardInput = $true
+  $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  $startInfo.EnvironmentVariables.Clear()
+  foreach ($name in @("SystemRoot", "WINDIR", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "ProgramData", "COMSPEC")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($value) { $startInfo.EnvironmentVariables[$name] = $value }
+  }
+  $startInfo.EnvironmentVariables["PATH"] = "C:\Windows\System32;C:\Windows;C:\Program Files\nodejs"
+  $startInfo.EnvironmentVariables["NO_COLOR"] = "1"
+
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  $started = $false
+  $timedOut = $false
+  try {
+    if (-not $process.Start()) { Fail $Code }
+    $started = $true
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.StandardInput.BaseStream.Write($standardInputBytes, 0, $standardInputBytes.Length)
+    $process.StandardInput.BaseStream.Flush()
+    $process.StandardInput.BaseStream.Close()
+    if (-not $process.WaitForExit(300000)) {
+      $timedOut = $true
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F *> $null
+      [void]$process.WaitForExit(30000)
+    }
+    if (-not $process.HasExited) { Fail $Code }
+    $process.WaitForExit()
+    $stdout = [string]$stdoutTask.Result
+    $stderr = [string]$stderrTask.Result
+    $stdoutBytes = [Text.UTF8Encoding]::new($false).GetByteCount($stdout)
+    $stderrBytes = [Text.UTF8Encoding]::new($false).GetByteCount($stderr)
+    if ($stdoutBytes -gt 2097152 -or $stderrBytes -gt 65536) { Fail $Code }
+    return [pscustomobject][ordered]@{
+      ExitCode = [int]$process.ExitCode
+      TimedOut = [bool]$timedOut
+      Stdout = $stdout.Trim()
+      Stderr = $stderr.Trim()
+    }
+  } finally {
+    if ($started -and -not $process.HasExited) {
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F *> $null
+      [void]$process.WaitForExit(30000)
+    }
+    $process.Dispose()
+  }
+}
+
+function Invoke-FormalNodeJson(
+  [string]$ScriptPath,
+  [string]$Mode,
+  [object]$Payload,
+  [string]$Code,
+  [switch]$AllowFailure
+) {
+  $inputJson = $Payload | ConvertTo-Json -Compress -Depth 100
+  $result = Invoke-CleanFormalNodeCli $ScriptPath $Mode $inputJson $Code
+  $safeStderr = [string]$result.Stderr
+  $successful = (
+    -not [bool]$result.TimedOut -and
+    [int]$result.ExitCode -eq 0 -and
+    $safeStderr.Length -eq 0 -and
+    [string]$result.Stdout
+  )
+  if (-not $successful) {
+    if (
+      [bool]$result.TimedOut -or
+      ($safeStderr.Length -ne 0 -and $safeStderr -notmatch '^[A-Z][A-Z0-9_]{2,127}$') -or
+      [string]$result.Stdout
+    ) { Fail $Code }
+    if ($AllowFailure) { return $null }
+    Fail $Code
+  }
+  try {
+    $parsed = [string]$result.Stdout | ConvertFrom-Json
+  } catch {
+    Fail $Code
+  }
+  if ($null -eq $parsed) { Fail $Code }
+  return $parsed
+}
+
+function Get-FormalAttemptIdentityPayload {
+  $identity = [ordered]@{
+    expectedAttemptId = $formalAttemptId
+    expectedAuthorizationId = $FormalAuthorizationId
+    expectedControlCommit = $ExpectedGateControlCommit
+    expectedProductCommit = $productCommit
+    expectedDeploymentId = $expectedDeployment
+    expectedProductionOrigin = $deploymentOrigin
+    expectedAuthorizationDigest = $formalAuthorizationDigest
+    expectedReleaseTag = $releaseTag
+    expectedReleaseRevision = "rc6.2"
+    expectedWrapperDigest = $formalWrapperDigest
+    expectedRunnerDigest = $formalRunnerDigest
+    expectedContractDigest = $formalContractDigest
+  }
+  if ($formalRuntimeReceiptDigest -and $null -ne $formalAttemptSummary -and [string]$formalAttemptSummary.state -ne "PREPARED") {
+    $identity["expectedRuntimeReceiptDigest"] = $formalRuntimeReceiptDigest
+  }
+  return $identity
+}
+
+function Test-FormalAttemptSummary([object]$Summary) {
+  return (
+    $null -ne $Summary -and
+    [string]$Summary.attemptId -eq $formalAttemptId -and
+    [int]$Summary.revision -ge 1 -and
+    [string]$Summary.lastEventDigest -match '^[a-f0-9]{64}$' -and
+    [string]$Summary.leaseDigest -match '^[a-f0-9]{64}$'
+  )
+}
+
+function Get-VerifiedFormalAttempt([string]$Code) {
+  if (-not $formalAttemptPrepared) { Fail $Code }
+  $payload = [ordered]@{ attemptDirectory = $formalAttemptDirectory }
+  foreach ($entry in (Get-FormalAttemptIdentityPayload).GetEnumerator()) {
+    $payload[$entry.Key] = $entry.Value
+  }
+  $summary = Invoke-FormalNodeJson $formalAttemptStatePath "verify" $payload $Code
+  if (-not (Test-FormalAttemptSummary $summary) -or [bool]$summary.valid -ne $true) { Fail $Code }
+  $script:formalAttemptSummary = $summary
+  return $summary
+}
+
+function Invoke-FormalAttemptTransition(
+  [string]$EventType,
+  [object]$EventBody,
+  [string]$ExpectedState,
+  [string]$TargetState,
+  [string]$Code
+) {
+  if (-not $formalAttemptPrepared -or $null -eq $formalAttemptSummary) { Fail $Code }
+  $expectedRevision = [int]$formalAttemptSummary.revision
+  $payload = [ordered]@{
+    attemptDirectory = $formalAttemptDirectory
+    eventType = $EventType
+    eventBody = $EventBody
+    expectedRevision = $expectedRevision
+    expectedState = $ExpectedState
+  }
+  foreach ($entry in (Get-FormalAttemptIdentityPayload).GetEnumerator()) {
+    $payload[$entry.Key] = $entry.Value
+  }
+  $transition = Invoke-FormalNodeJson $formalAttemptStatePath "transition-idempotent" $payload $Code
+  $expectedNextRevision = $expectedRevision + 1
+  if (
+    -not (Test-FormalAttemptSummary $transition) -or
+    [string]$transition.state -ne $TargetState -or
+    [int]$transition.revision -ne $expectedNextRevision -or
+    @([bool]$transition.eventAppended, [bool]$transition.exactSuccessorRecovered) -notcontains $true
+  ) { Fail $Code }
+  $script:formalAttemptSummary = $transition
+  return $transition
+}
+
+function Initialize-FormalAttempt {
+  if ($ExecutionMode -ne "FormalBrowserGate" -or -not $FormalAuthorizationId) {
+    Fail "FORMAL_AUTHORIZATION_REQUIRED"
+  }
+  $localAppData = [Environment]::GetEnvironmentVariable("LOCALAPPDATA")
+  if (-not $localAppData) { Fail "FORMAL_ATTEMPT_LOCALAPPDATA_MISSING" }
+  $localRoot = [IO.Path]::GetFullPath($localAppData).TrimEnd('\')
+  $script:formalAttemptRegistryRoot = [IO.Path]::GetFullPath((Join-Path $localRoot "NovelRC62FormalAttemptRegistry"))
+  $script:formalAttemptRoot = [IO.Path]::GetFullPath((Join-Path $localRoot "NovelRC62FormalAttempts"))
+  if (
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetDirectoryName($formalAttemptRegistryRoot),
+      $localRoot
+    ) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetDirectoryName($formalAttemptRoot),
+      $localRoot
+    )
+  ) { Fail "FORMAL_ATTEMPT_ROOT_INVALID" }
+
+  $script:formalAttemptStateDigest = (Get-FileHash -LiteralPath $formalAttemptStatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $script:terminalEvidenceDigest = (Get-FileHash -LiteralPath $terminalEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $authorization = Invoke-FormalNodeJson $formalAttemptStatePath "read-authorization" ([ordered]@{
+    registryRoot = $formalAttemptRegistryRoot
+    authorizationId = $FormalAuthorizationId
+  }) "FORMAL_AUTHORIZATION_INVALID"
+  if (
+    [string]$authorization.authorizationId -ne $FormalAuthorizationId -or
+    [string]$authorization.authorizationDigest -notmatch '^[a-f0-9]{64}$' -or
+    [string]$authorization.authorizedControlCommit -ne $ExpectedGateControlCommit -or
+    [string]$authorization.authorizedProductCommit -ne $productCommit -or
+    [string]$authorization.authorizedDeploymentId -ne $expectedDeployment -or
+    [int]$authorization.maxFormalAttempts -ne 1
+  ) { Fail "FORMAL_AUTHORIZATION_INVALID" }
+  $script:formalAuthorizationDigest = [string]$authorization.authorizationDigest
+  $script:formalWrapperDigest = (Get-FileHash -LiteralPath $wrapperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $script:formalRunnerDigest = (Get-FileHash -LiteralPath $runnerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $script:formalContractDigest = (Get-FileHash -LiteralPath $contractPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $script:formalAttemptStartedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+  $creationPayload = [ordered]@{
+    attemptRoot = $formalAttemptRoot
+    registryRoot = $formalAttemptRegistryRoot
+    authorizationId = $FormalAuthorizationId
+    authorizationDigest = $formalAuthorizationDigest
+    productCommit = $productCommit
+    controlCommit = $ExpectedGateControlCommit
+    deploymentId = $expectedDeployment
+    productionOrigin = $deploymentOrigin
+    releaseTag = $releaseTag
+    releaseRevision = "rc6.2"
+    wrapperDigest = $formalWrapperDigest
+    runnerDigest = $formalRunnerDigest
+    contractDigest = $formalContractDigest
+    createdAt = $formalAttemptStartedAt
+  }
+  $creation = Invoke-FormalNodeJson $formalAttemptStatePath "create-attempt" $creationPayload (
+    "FORMAL_ATTEMPT_PREPARE_FAILED"
+  ) -AllowFailure
+  if ($null -eq $creation) {
+    $creation = Invoke-FormalNodeJson $formalAttemptStatePath "recover-creation" ([ordered]@{
+      attemptRoot = $formalAttemptRoot
+      registryRoot = $formalAttemptRegistryRoot
+      authorizationId = $FormalAuthorizationId
+      expectedControlCommit = $ExpectedGateControlCommit
+      expectedProductCommit = $productCommit
+      expectedDeploymentId = $expectedDeployment
+      expectedProductionOrigin = $deploymentOrigin
+      expectedAuthorizationDigest = $formalAuthorizationDigest
+      expectedReleaseTag = $releaseTag
+      expectedReleaseRevision = "rc6.2"
+      expectedWrapperDigest = $formalWrapperDigest
+      expectedRunnerDigest = $formalRunnerDigest
+      expectedContractDigest = $formalContractDigest
+    }) "FORMAL_ATTEMPT_PREPARE_RECOVERY_FAILED"
+  }
+  $script:formalAttemptId = [string]$creation.attemptId
+  if ($formalAttemptId -notmatch '^C7-PROD-BROWSER-[0-9]{8}T[0-9]{9}Z-[a-f0-9]{32}$') {
+    Fail "FORMAL_ATTEMPT_PREPARE_FAILED"
+  }
+  $script:formalAttemptDirectory = [IO.Path]::GetFullPath((Join-Path $formalAttemptRoot $formalAttemptId))
+  if (-not [StringComparer]::OrdinalIgnoreCase.Equals(
+    [IO.Path]::GetDirectoryName($formalAttemptDirectory),
+    $formalAttemptRoot
+  )) { Fail "FORMAL_ATTEMPT_DIRECTORY_INVALID" }
+  $script:formalTerminalBundleDirectory = [IO.Path]::GetFullPath((
+    Join-Path $formalAttemptDirectory "terminal-evidence"
+  ))
+  $script:formalAttemptPrepared = $true
+  $script:formalAttemptSummary = $creation
+  if (
+    [string]$creation.state -ne "PREPARED" -or
+    [int]$creation.revision -ne 1 -or
+    [bool]$creation.attemptConsumed -or
+    [bool]$creation.runnerStarted -or
+    [bool]$creation.browserStarted
+  ) { Fail "FORMAL_ATTEMPT_PREPARE_FAILED" }
+  [void](Get-VerifiedFormalAttempt "FORMAL_ATTEMPT_PREPARE_VERIFY_FAILED")
+}
+
+function Publish-FormalTerminalEmergency([string]$CauseCode) {
+  if (-not $formalAttemptPrepared -or -not $formalAttemptDirectory -or -not $formalAttemptId) { return }
+  $safeCause = if ($CauseCode -match '^[A-Z][A-Z0-9_]{2,127}$') {
+    $CauseCode
+  } else {
+    "FORMAL_TERMINAL_FINALIZATION_FAILED"
+  }
+  try {
+    if (-not (Test-Path -LiteralPath $formalTerminalBundleDirectory)) {
+      [void][IO.Directory]::CreateDirectory($formalTerminalBundleDirectory)
+    }
+    $bundleTruth = Get-Item -LiteralPath $formalTerminalBundleDirectory -Force
+    if (
+      -not $bundleTruth.PSIsContainer -or
+      ($bundleTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+      -not [StringComparer]::OrdinalIgnoreCase.Equals(
+        [IO.Path]::GetDirectoryName($formalTerminalBundleDirectory),
+        $formalAttemptDirectory
+      )
+    ) { return }
+    $emergencyPath = Join-Path $formalTerminalBundleDirectory "emergency-terminal-failure.json"
+    if (Test-Path -LiteralPath $emergencyPath) { return }
+    $emergency = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-terminal-evidence-emergency-v1"
+      status = "FAIL"
+      safeErrorCode = "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+      causeCode = $safeCause
+      attemptIdFingerprint = (Sha256Text $formalAttemptId).Substring(0, 16)
+      rawCredentialValuesStored = $false
+    } | ConvertTo-Json -Compress -Depth 4
+    Write-CreateNewFlushedFile $emergencyPath $emergency "FORMAL_TERMINAL_EMERGENCY_WRITE_FAILED"
+  } catch {
+    [Console]::Error.WriteLine("FORMAL_TERMINAL_EMERGENCY_WRITE_FAILED")
+  }
+}
+
+function Invoke-FormalTerminalEvidence(
+  [ValidateSet("PASS", "FAIL", "ABORTED")]
+  [string]$TerminalStatus,
+  [string]$ReasonCode,
+  [AllowNull()][object]$BrowserEvidence,
+  [AllowNull()][object]$ProfileCleanup,
+  [AllowNull()][object]$ProcessCleanup
+) {
+  if (-not $formalAttemptPrepared -or $formalTerminalFinalizationAttempted) {
+    Fail "FORMAL_TERMINAL_FINALIZATION_STATE_INVALID"
+  }
+  $script:formalTerminalFinalizationAttempted = $true
+  if ($TerminalStatus -ne "PASS" -and $ReasonCode -notmatch '^[A-Z][A-Z0-9_]{2,127}$') {
+    $ReasonCode = "PRODUCTION_BROWSER_WRAPPER_FAILED"
+  }
+  $completedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+  $runnerExitForProjection = if ($null -ne $runnerExitCode) { [int]$runnerExitCode } else { 1 }
+  $payload = [ordered]@{
+    attemptDirectory = $formalAttemptDirectory
+    bundleDirectory = $formalTerminalBundleDirectory
+    expectedControlCommit = $ExpectedGateControlCommit
+    startedAt = $formalAttemptStartedAt
+    completedAt = $completedAt
+    wrapperResult = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-wrapper-result-v1"
+      attemptId = $formalAttemptId
+      status = $TerminalStatus
+      completedAt = $completedAt
+    }
+  }
+  if ($TerminalStatus -ne "PASS") {
+    $payload.wrapperResult | Add-Member -NotePropertyName reasonCode -NotePropertyValue $ReasonCode
+  }
+  if ($formalRuntimeReceiptDigest) {
+    if ($null -eq $runtimeReceiptBefore -or $null -eq $toolchainReceipt) {
+      Fail "FORMAL_TERMINAL_RECEIPT_PROJECTION_MISSING"
+    }
+    $payload["runtimeReceipt"] = $runtimeReceiptBefore
+    $payload["toolchainReceipt"] = $toolchainReceipt
+  }
+
+  $durableRunnerOutcome = if ([bool]$formalAttemptSummary.runnerCompleted) {
+    [string]$formalAttemptSummary.runnerOutcome
+  } else {
+    $null
+  }
+  if ($durableRunnerOutcome -eq "PASS") {
+    if ($null -eq $formalRunnerResultProjection) {
+      Fail "FORMAL_TERMINAL_RUNNER_RESULT_MISSING"
+    }
+    $payload["runnerResult"] = $formalRunnerResultProjection
+  } elseif ([string]$formalAttemptSummary.state -ne "PRECHECK_FAILED") {
+    if ($durableRunnerOutcome -eq "FAIL" -and $null -eq $formalRunnerFailureProjection) {
+      Fail "FORMAL_TERMINAL_RUNNER_FAILURE_MISSING"
+    }
+    $payload["runnerFailure"] = if ($null -ne $formalRunnerFailureProjection) {
+      $formalRunnerFailureProjection
+    } else {
+      [pscustomobject][ordered]@{
+        schemaVersion = "p24b-rc6.2-formal-runner-failure-v1"
+        attemptId = $formalAttemptId
+        status = $TerminalStatus
+        reasonCode = $ReasonCode
+        exitCode = $runnerExitForProjection
+      }
+    }
+  }
+
+  if ($TerminalStatus -eq "PASS") {
+    if (
+      $durableRunnerOutcome -ne "PASS" -or
+      $null -eq $BrowserEvidence -or
+      $null -eq $ProfileCleanup -or
+      $null -eq $ProcessCleanup
+    ) {
+      Fail "FORMAL_TERMINAL_PASS_PROJECTION_MISSING"
+    }
+    $candidate = $BrowserEvidence.regeneratedCandidateBeforeApproval
+    $browserReceipt = $BrowserEvidence.browserRuntimeReceipt
+    $approval = $BrowserEvidence.approval
+    $storyBible = $BrowserEvidence.storyBible
+    $browserEvidenceDigest = [string]$browserReceipt.receiptId
+    $candidateDigest = [string]$candidate.normalizedContentDigest
+    $payload["browserResult"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-browser-result-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      backendId = [string]$candidate.backendId
+      actualExecutor = [string]$candidate.actualExecutor
+      webLlmGenerationObserved = [bool]$browserReceipt.browserGenerationUsed
+      browserExecutionReceiptVerified = [bool]$browserReceipt.receiptIntegrityVerified
+      browserExecutionReceiptDigest = $browserEvidenceDigest
+      externalRequest = [bool]$candidate.externalRequest
+      dataLeftDevice = [bool]$candidate.dataLeftDevice
+      prohibitedExternalAiRequestCount = [int]$BrowserEvidence.prohibitedExternalAiRequestCount
+      candidateGenerated = [bool]([string]$candidate.id)
+    }
+    $payload["networkReceipt"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-network-receipt-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      externalRequest = [bool]$candidate.externalRequest
+      dataLeftDevice = [bool]$candidate.dataLeftDevice
+      prohibitedExternalAiRequestCount = [int]$BrowserEvidence.prohibitedExternalAiRequestCount
+    }
+    $payload["modelMetadata"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-model-metadata-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      backendId = [string]$candidate.backendId
+      actualExecutor = [string]$candidate.actualExecutor
+      webLlmGenerationObserved = [bool]$browserReceipt.browserGenerationUsed
+      browserExecutionReceiptVerified = [bool]$browserReceipt.receiptIntegrityVerified
+    }
+    $payload["persistenceTruth"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-persistence-truth-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      source = "browser-evidence"
+      sourceEvidenceDigest = $browserEvidenceDigest
+      persistence = $BrowserEvidence.persistence
+    }
+    $payload["storyBibleTruth"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-story-bible-truth-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      source = "browser-evidence"
+      sourceEvidenceDigest = $browserEvidenceDigest
+      storyBible = [pscustomobject][ordered]@{
+        status = [string]$storyBible.status
+        approvedRecordCreated = [bool]$storyBible.approvedRecordCreated
+        approvedRecordReloadVerified = [bool]$storyBible.approvedRecordReloadVerified
+        modelContextBindingVerified = [bool]$storyBible.modelContextBindingVerified
+        crossProjectLeakCount = [int]$storyBible.crossProjectLeakCount
+      }
+    }
+    $payload["candidateLineage"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-candidate-lineage-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      candidateId = [string]$candidate.id
+      candidateDigest = $candidateDigest
+      generatedBy = [string]$candidate.actualExecutor
+      persistedBeforeApproval = ([int]$candidate.canonicalMutationCount -ne 0)
+      approvalState = if ([string]$candidate.status -eq "awaiting-approval") { "candidate" } else {
+        [string]$candidate.status
+      }
+    }
+    $payload["approvalReceipt"] = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-approval-receipt-v1"
+      attemptId = $formalAttemptId
+      status = "PASS"
+      candidateId = [string]$candidate.id
+      candidateDigest = $candidateDigest
+      approvalTransactionVerified = [bool]$approval.fullReceiptRevalidatedBeforeAndAfterReload
+      approvedRecordCreated = [bool]([string]$approval.artifactId -and [string]$approval.status -eq "approved")
+      persistedAfterApproval = [bool]$approval.persistedAfterReload
+    }
+    $payload["profileCleanup"] = $ProfileCleanup
+    $payload["processCleanup"] = $ProcessCleanup
+  } elseif ([string]$formalAttemptSummary.state -ne "PRECHECK_FAILED") {
+    if ($TerminalStatus -eq "FAIL" -and [bool]$formalAttemptSummary.runnerStarted) {
+      $payload["browserFailure"] = [pscustomobject][ordered]@{
+        schemaVersion = "p24b-rc6.2-formal-browser-failure-v1"
+        attemptId = $formalAttemptId
+        status = "FAIL"
+        reasonCode = $ReasonCode
+      }
+    }
+    if ($null -ne $ProfileCleanup) { $payload["profileCleanup"] = $ProfileCleanup }
+    if ($null -ne $ProcessCleanup) { $payload["processCleanup"] = $ProcessCleanup }
+  }
+
+  try {
+    $finalized = Invoke-FormalNodeJson $terminalEvidencePath "finalize" $payload (
+      "FORMAL_TERMINAL_FINALIZATION_FAILED"
+    )
+    if (
+      [string]$finalized.status -ne "PASS" -or
+      [string]$finalized.attemptState -ne [string]$formalAttemptSummary.state -or
+      [string]$finalized.terminalStatus -ne $TerminalStatus -or
+      [bool]$finalized.containsCredentialValues
+    ) { Fail "FORMAL_TERMINAL_FINALIZATION_INVALID" }
+    $validationMode = if ($TerminalStatus -eq "PASS") { "validate-formal" } else { "validate" }
+    $validated = Invoke-FormalNodeJson $terminalEvidencePath $validationMode ([ordered]@{
+      bundleDirectory = $formalTerminalBundleDirectory
+      expectedControlCommit = $ExpectedGateControlCommit
+    }) "FORMAL_TERMINAL_VALIDATION_FAILED"
+    if (
+      [string]$validated.status -ne "PASS" -or
+      [string]$validated.attemptState -ne [string]$formalAttemptSummary.state -or
+      [string]$validated.terminalStatus -ne $TerminalStatus -or
+      [bool]$validated.containsCredentialValues -or
+      ($TerminalStatus -eq "PASS" -and [bool]$validated.formalPass -ne $true)
+    ) { Fail "FORMAL_TERMINAL_VALIDATION_INVALID" }
+    if (
+      $TerminalStatus -eq "PASS" -and
+      (-not (Test-Path -LiteralPath (Join-Path $formalTerminalBundleDirectory (
+        "terminal-evidence-manifest.json"
+      )) -PathType Leaf) -or
+      -not (Test-Path -LiteralPath (Join-Path $formalTerminalBundleDirectory (
+        "terminal-evidence-manifest.sha256"
+      )) -PathType Leaf))
+    ) { Fail "FORMAL_TERMINAL_COMMIT_MARKER_MISSING" }
+    $script:formalTerminalSafeResult = $finalized
+    $script:formalTerminalValidation = $validated
+    $script:formalTerminalFinalized = $true
+  } catch {
+    Publish-FormalTerminalEmergency "FORMAL_TERMINAL_FINALIZATION_FAILED"
+    throw
+  }
+}
+
+function Close-FormalPostLaunchAttempt(
+  [bool]$GateSucceeded,
+  [string]$FailureReason,
+  [switch]$Terminalize
+) {
+  if ($formalTerminalFinalizationAttempted) {
+    if (-not $formalTerminalFinalized) { Fail "FORMAL_TERMINAL_FINALIZATION_INCOMPLETE" }
+    return
+  }
+  $summary = Get-VerifiedFormalAttempt "FORMAL_TERMINAL_STATE_VERIFY_FAILED"
+  if ([string]$summary.state -notin @("LAUNCH_COMMITTED", "RUNNER_STARTED", "BROWSER_STARTED")) {
+    Fail "FORMAL_POSTLAUNCH_STATE_INVALID"
+  }
+  if ($FailureReason -notmatch '^[A-Z][A-Z0-9_]{2,127}$') {
+    $FailureReason = "PRODUCTION_BROWSER_WRAPPER_FAILED"
+  }
+  $nonPassTerminalStatus = if (
+    [bool]$summary.runnerCompleted -and
+    [string]$summary.runnerOutcome -eq "FAIL" -and
+    $null -ne $formalRunnerFailureProjection
+  ) {
+    [string]$formalRunnerFailureProjection.status
+  } elseif ($runnerStage -in @("runner-timeout", "runner-start")) {
+    "ABORTED"
+  } else {
+    "FAIL"
+  }
+  $cleanupPassed = (
+    $null -ne $formalProfileCleanupProjection -and
+    $null -ne $formalProcessCleanupProjection -and
+    [string]$formalProfileCleanupProjection.status -eq "PASS" -and
+    [string]$formalProcessCleanupProjection.status -eq "PASS"
+  )
+  if ([string]$summary.state -eq "BROWSER_STARTED" -and -not [bool]$summary.runnerCompleted) {
+    $runnerOutcome = if ($runnerPassValidated -and $null -ne $runnerEvidence -and [int]$runnerExitCode -eq 0) {
+      "PASS"
+    } else {
+      "FAIL"
+    }
+    $runnerExit = if ($null -ne $runnerExitCode) { [int]$runnerExitCode } else { 1 }
+    if ($runnerOutcome -eq "PASS") {
+      $script:formalRunnerResultProjection = [pscustomobject][ordered]@{
+        schemaVersion = "p24b-rc6.2-formal-runner-result-v1"
+        attemptId = $formalAttemptId
+        status = "PASS"
+        exitCode = $runnerExit
+      }
+      $runnerBinding = Invoke-FormalNodeJson $terminalEvidencePath "bind-projections" ([ordered]@{
+        runnerResult = $formalRunnerResultProjection
+      }) "FORMAL_RUNNER_BINDING_FAILED"
+    } else {
+      $script:formalRunnerFailureProjection = [pscustomobject][ordered]@{
+        schemaVersion = "p24b-rc6.2-formal-runner-failure-v1"
+        attemptId = $formalAttemptId
+        status = $nonPassTerminalStatus
+        reasonCode = $FailureReason
+        exitCode = $runnerExit
+      }
+      $runnerBinding = Invoke-FormalNodeJson $terminalEvidencePath "bind-projections" ([ordered]@{
+        runnerFailure = $formalRunnerFailureProjection
+      }) "FORMAL_RUNNER_BINDING_FAILED"
+    }
+    $summary = Invoke-FormalAttemptTransition "RUNNER_COMPLETED" ([ordered]@{
+      outcome = $runnerOutcome
+      exitCode = $runnerExit
+      runnerEvidenceDigest = [string]$runnerBinding.runnerEvidenceDigest
+    }) "BROWSER_STARTED" "BROWSER_STARTED" "FORMAL_RUNNER_COMPLETE_STATE_FAILED"
+  }
+  if ($null -ne $formalProfileCleanupProjection -and $null -ne $formalProcessCleanupProjection -and -not [bool]$summary.cleanupCompleted) {
+    $cleanupBinding = Invoke-FormalNodeJson $terminalEvidencePath "bind-projections" ([ordered]@{
+      profileCleanup = $formalProfileCleanupProjection
+      processCleanup = $formalProcessCleanupProjection
+    }) "FORMAL_CLEANUP_BINDING_FAILED"
+    $summary = Invoke-FormalAttemptTransition "CLEANUP_COMPLETED" ([ordered]@{
+      profileCleanupDigest = [string]$cleanupBinding.profileCleanupDigest
+      processCleanupDigest = [string]$cleanupBinding.processCleanupDigest
+    }) ([string]$summary.state) ([string]$summary.state) "FORMAL_CLEANUP_STATE_FAILED"
+  }
+  $passEligible = (
+    $GateSucceeded -and
+    [string]$summary.state -eq "BROWSER_STARTED" -and
+    [bool]$summary.runnerCompleted -and
+    [string]$summary.runnerOutcome -eq "PASS" -and
+    [bool]$summary.cleanupCompleted
+  )
+  if (-not $Terminalize) {
+    if (-not $passEligible) { Fail "FORMAL_PASS_PREPARATION_FAILED" }
+    return
+  }
+  if ($passEligible) {
+    $summary = Invoke-FormalAttemptTransition "TERMINAL_PASS" ([ordered]@{}) (
+      "BROWSER_STARTED"
+    ) "TERMINAL_PASS" "FORMAL_TERMINAL_PASS_STATE_FAILED"
+    Invoke-FormalTerminalEvidence "PASS" "" $runnerEvidence (
+      $formalProfileCleanupProjection
+    ) $formalProcessCleanupProjection
+  } else {
+    $terminalStatus = $nonPassTerminalStatus
+    $eventType = if ($terminalStatus -eq "ABORTED") { "TERMINAL_ABORTED" } else { "TERMINAL_FAIL" }
+    $targetState = if ($terminalStatus -eq "ABORTED") { "TERMINAL_ABORTED" } else { "TERMINAL_FAIL" }
+    $summary = Invoke-FormalAttemptTransition $eventType ([ordered]@{
+      reasonCode = $FailureReason
+    }) ([string]$summary.state) $targetState "FORMAL_TERMINAL_FAILURE_STATE_FAILED"
+    Invoke-FormalTerminalEvidence $terminalStatus $FailureReason $runnerEvidence (
+      $formalProfileCleanupProjection
+    ) $formalProcessCleanupProjection
+  }
+  $script:formalAttemptClosed = $true
+}
+
+function Complete-FormalPreflightFailure([string]$ReasonCode) {
+  if (-not $formalAttemptPrepared) { return }
+  if ($ReasonCode -notmatch '^[A-Z][A-Z0-9_]{2,127}$') { $ReasonCode = "PREFLIGHT_UNKNOWN_FAILURE" }
+  try {
+    $summary = Get-VerifiedFormalAttempt "FORMAL_PREFLIGHT_FAILURE_VERIFY_FAILED"
+    if ([string]$summary.state -in @("PREPARED", "PREFLIGHT_PASSED")) {
+      $body = [ordered]@{ reasonCode = $ReasonCode }
+      if ([string]$summary.state -eq "PREPARED" -and $formalRuntimeReceiptDigest) {
+        $body["runtimeReceiptDigest"] = $formalRuntimeReceiptDigest
+      }
+      $summary = Invoke-FormalAttemptTransition "PREFLIGHT_FAILED" $body ([string]$summary.state) (
+        "PRECHECK_FAILED"
+      ) "FORMAL_PREFLIGHT_FAILURE_STATE_FAILED"
+    }
+    if ([string]$summary.state -ne "PRECHECK_FAILED" -or [string]$summary.terminalStatus -ne "FAIL") {
+      Fail "FORMAL_PREFLIGHT_FAILURE_STATE_INVALID"
+    }
+    Invoke-FormalTerminalEvidence "FAIL" $ReasonCode $null $null $null
+  } catch {
+    Publish-FormalTerminalEmergency "FORMAL_PREFLIGHT_TERMINALIZATION_FAILED"
+    throw
+  }
+}
+
 function Invoke-ReleaseAttestationVerification([string]$Code) {
   $startInfo = [Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $ghExe
@@ -423,13 +1167,17 @@ function Assert-ControlLineage {
   $originUrl = Invoke-GitScalar @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED"
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
   $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
+  $c6Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c6BrowserGateControl) "C6_GATE_PARENT_READ_FAILED") -split "\s+"
   $c5Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c5BrowserGateControl) "C5_GATE_PARENT_READ_FAILED") -split "\s+"
   $c4Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c4BrowserGateControl) "C4_GATE_PARENT_READ_FAILED") -split "\s+"
   $initialParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $initialBrowserGateControl) "INITIAL_GATE_PARENT_READ_FAILED") -split "\s+"
   $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
   $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
-  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c5BrowserGateControl) {
+  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c6BrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($c6Parents.Count -ne 2 -or $c6Parents[0] -ne $c6BrowserGateControl -or $c6Parents[1] -ne $c5BrowserGateControl) {
+    Fail "C6_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($c5Parents.Count -ne 2 -or $c5Parents[0] -ne $c5BrowserGateControl -or $c5Parents[1] -ne $c4BrowserGateControl) {
     Fail "C5_GATE_CONTROL_PARENT_MISMATCH"
@@ -447,7 +1195,8 @@ function Assert-ControlLineage {
     Fail "FAILED_CONTROL_PRODUCT_PARENT_MISMATCH"
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
-  Assert-ControlDiffPaths -BaseCommit $c5BrowserGateControl -HeadCommit $head -ExpectedPaths $c6RepairGatePaths -Code "C6_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c6BrowserGateControl -HeadCommit $head -ExpectedPaths $c7RepairGatePaths -Code "C7_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c5BrowserGateControl -HeadCommit $c6BrowserGateControl -ExpectedPaths $c6RepairGatePaths -Code "C6_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c4BrowserGateControl -HeadCommit $c5BrowserGateControl -ExpectedPaths $historicalRepairGatePaths -Code "C5_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $initialBrowserGateControl -HeadCommit $c4BrowserGateControl -ExpectedPaths $historicalRepairGatePaths -Code "C4_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $productionRecoveryControl -HeadCommit $initialBrowserGateControl -ExpectedPaths $initialGatePaths -Code "INITIAL_GATE_DIFF_INVALID"
@@ -1457,6 +2206,13 @@ function Initialize-EvidenceDestination {
   }
 }
 
+if ($ExecutionMode -eq "FormalBrowserGate" -and -not $FormalAuthorizationId) {
+  Fail "FORMAL_AUTHORIZATION_REQUIRED"
+}
+if ($ExecutionMode -eq "PreflightDryRun" -and $PSBoundParameters.ContainsKey("FormalAuthorizationId")) {
+  Fail "FORMAL_AUTHORIZATION_NOT_ALLOWED_IN_DRY_RUN"
+}
+
 try {
 $evidenceDestination = Initialize-EvidenceDestination
 $evidenceDirectory = [string]$evidenceDestination.Directory
@@ -1470,7 +2226,18 @@ $preflightFailurePath = [string]$evidenceDestination.PreflightFailurePath
 $preflightFailureShaPath = [string]$evidenceDestination.PreflightFailureShaPath
 $preflightManifestPath = [string]$evidenceDestination.PreflightManifestPath
 $rootCauseAnalysisPath = [string]$evidenceDestination.RootCauseAnalysisPath
-foreach ($requiredPath in @($gitExe, $ghExe, $nodeExe, $edgeExe, $edgeDll, $runnerPath, $wrapperPath, $contractPath)) {
+foreach ($requiredPath in @(
+  $gitExe,
+  $ghExe,
+  $nodeExe,
+  $edgeExe,
+  $edgeDll,
+  $runnerPath,
+  $wrapperPath,
+  $contractPath,
+  $formalAttemptStatePath,
+  $terminalEvidencePath
+)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) { Fail "GATE_REQUIRED_FILE_MISSING" }
 }
 foreach ($executable in @($gitExe, $ghExe, $nodeExe, $edgeExe, $edgeDll)) {
@@ -1489,6 +2256,7 @@ foreach ($trackedPath in $allowedGatePaths) {
 Assert-ControlLineage
 Assert-TrackedGateBlobs
 Assert-ProductRuntimeBlobs
+if ($ExecutionMode -eq "FormalBrowserGate") { Initialize-FormalAttempt }
 Assert-MainCas "MAIN_CAS_BEFORE_GATE_FAILED"
 Assert-ReleaseTag
 $releaseAttestationBefore = Invoke-ReleaseAttestationVerification "RELEASE_ATTESTATION_BEFORE_INVALID"
@@ -1612,8 +2380,20 @@ if (
   [string]$runtimeReceiptValidation.receiptDigest -ne [string]$runtimeReceiptBefore.digest -or
   [string]$runtimeReceiptValidation.receiptFileSha256 -ne $runtimeReceiptFileSha256
 ) { Fail "PRODUCTION_BROWSER_RUNTIME_RECEIPT_VERIFY_INVALID" }
+if ($ExecutionMode -eq "FormalBrowserGate") {
+  # Bind an already validated receipt to any subsequent PREPARED precheck failure.
+  $formalRuntimeReceiptDigest = [string]$runtimeReceiptBefore.digest
+}
 [void](Publish-AtomicTextFile $runtimeReceiptShaPath "$runtimeReceiptFileSha256`n" "PRODUCTION_BROWSER_RUNTIME_RECEIPT_SHA_WRITE_FAILED")
 Assert-MainCas "MAIN_CAS_BEFORE_PREFLIGHT_PUBLICATION_FAILED"
+if ($ExecutionMode -eq "FormalBrowserGate") {
+  [void](Invoke-FormalAttemptTransition "PREFLIGHT_PASSED" ([ordered]@{
+    runtimeReceiptDigest = $formalRuntimeReceiptDigest
+    wrapperDigest = $formalWrapperDigest
+    runnerDigest = $formalRunnerDigest
+    contractDigest = $formalContractDigest
+  }) "PREPARED" "PREFLIGHT_PASSED" "FORMAL_PREFLIGHT_STATE_FAILED")
+}
 $preflightPassJson = Publish-PreflightBundle "PASS" "" "preflight-complete"
 if ($ExecutionMode -eq "PreflightDryRun") {
   $preflightPassJson
@@ -1622,6 +2402,14 @@ if ($ExecutionMode -eq "PreflightDryRun") {
 } catch {
   $preflightError = $_
   $safePreflightCode = Get-SafePreflightErrorCode $preflightError
+  if ($formalAttemptPrepared) {
+    try {
+      Complete-FormalPreflightFailure $safePreflightCode
+    } catch {
+      Publish-FormalTerminalEmergency "FORMAL_PREFLIGHT_TERMINALIZATION_FAILED"
+      throw "FORMAL_PREFLIGHT_TERMINALIZATION_FAILED"
+    }
+  }
   try {
     [void](Publish-PreflightBundle "FAIL" $safePreflightCode "preflight-failed")
   } catch {
@@ -1636,6 +2424,7 @@ $mutex = $null
 $mutexHeld = $false
 $runnerProcess = $null
 $runnerStarted = $false
+$runnerPassValidated = $false
 $runnerEvidence = $null
 $runnerStdout = ""
 $runnerStderr = ""
@@ -1653,6 +2442,10 @@ $runnerEvidenceValidation = $null
 $ownedProfilePath = $null
 $evidenceValidationPath = $null
 $primaryError = $null
+$formalProfileCleanupProjection = $null
+$formalProcessCleanupProjection = $null
+$formalAttemptClosed = $false
+$formalTerminalError = $null
 $postErrors = [Collections.Generic.List[string]]::new()
 $postcheckStatuses = [ordered]@{
   runnerProcessCleanup = "not-run"
@@ -1680,6 +2473,7 @@ try {
   }
   if (-not $mutexHeld) { Fail "PRODUCTION_BROWSER_GATE_ALREADY_RUNNING" }
   $formalGateBoundaryEntered = $true
+  [void](Get-VerifiedFormalAttempt "FORMAL_ATTEMPT_BEFORE_LAUNCH_INVALID")
 
   $ownedProfilePath = Assert-OwnedProfilePath (
     Join-Path ([IO.Path]::GetTempPath()) "novel-rc6-2-edge-$([Guid]::NewGuid().ToString('N'))"
@@ -1712,14 +2506,31 @@ try {
   $startInfo.EnvironmentVariables["RC6_2_CLOSED_AI_HEADLESS"] = "0"
   $startInfo.EnvironmentVariables["RC6_2_CLOSED_AI_SETUP_TIMEOUT_MS"] = "1800000"
   $startInfo.EnvironmentVariables["RC6_2_CLOSED_AI_GENERATION_TIMEOUT_MS"] = "1200000"
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_ATTEMPT_DIRECTORY"] = $formalAttemptDirectory
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_ATTEMPT_ID"] = $formalAttemptId
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_CONTROL_COMMIT"] = $ExpectedGateControlCommit
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_AUTHORIZATION_ID"] = $FormalAuthorizationId
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_AUTHORIZATION_DIGEST"] = $formalAuthorizationDigest
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RUNTIME_RECEIPT_DIGEST"] = $formalRuntimeReceiptDigest
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_WRAPPER_DIGEST"] = $formalWrapperDigest
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RUNNER_DIGEST"] = $formalRunnerDigest
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_CONTRACT_DIGEST"] = $formalContractDigest
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RELEASE_TAG"] = $releaseTag
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RELEASE_REVISION"] = "rc6.2"
   $startInfo.EnvironmentVariables["NO_COLOR"] = "1"
 
   $runnerProcess = [Diagnostics.Process]::new()
   $runnerProcess.StartInfo = $startInfo
   $runnerStage = "runner-start"
   $runnerStopwatch.Start()
+  [void](Invoke-FormalAttemptTransition "LAUNCH_COMMITTED" ([ordered]@{}) (
+    "PREFLIGHT_PASSED"
+  ) "LAUNCH_COMMITTED" "FORMAL_LAUNCH_COMMIT_FAILED")
   if (-not $runnerProcess.Start()) { Fail "PRODUCTION_BROWSER_RUNNER_START_FAILED" }
   $runnerStarted = $true
+  [void](Invoke-FormalAttemptTransition "RUNNER_STARTED" ([ordered]@{
+    runnerPid = [int]$runnerProcess.Id
+  }) "LAUNCH_COMMITTED" "RUNNER_STARTED" "FORMAL_RUNNER_START_STATE_FAILED")
   $runnerStage = "runner-running"
   $stdoutTask = $runnerProcess.StandardOutput.ReadToEndAsync()
   $stderrTask = $runnerProcess.StandardError.ReadToEndAsync()
@@ -1784,6 +2595,7 @@ try {
     [string]$runnerEvidenceValidation.evidenceDigest -ne (Sha256Text $runnerStdout.Trim())
   ) { Fail "PRODUCTION_BROWSER_EVIDENCE_VALIDATION_FAILED" }
   $runnerEvidence = $runnerStdout | ConvertFrom-Json
+  $runnerPassValidated = $true
   $runnerStage = "runner-pass"
 } catch {
   $primaryError = $_
@@ -1921,13 +2733,46 @@ try {
     $postcheckStatuses.worktree = "fail"
     [void]$postErrors.Add("WORKTREE_POSTCHECK_FAILED")
   }
+
+  $runnerResidueCount = if (
+    $runnerStarted -and $null -ne $runnerProcess -and -not $runnerProcess.HasExited
+  ) { 1 } else { 0 }
+  $edgeResidueCount = if ($ownedProfilePath) {
+    @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object {
+      ([string]$_.CommandLine).IndexOf($ownedProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    }).Count
+  } else { 0 }
+  $profileDisposed = [bool]($ownedProfilePath -and -not (Test-Path -LiteralPath $ownedProfilePath))
+  $cleanupStatus = if (
+    $profileDisposed -and $runnerResidueCount -eq 0 -and $edgeResidueCount -eq 0 -and
+    [string]$postcheckStatuses.profileCleanup -eq "pass" -and
+    [string]$postcheckStatuses.residueOwnedGateArtifacts -eq "pass"
+  ) { "PASS" } else { "FAIL" }
+  $formalProfileCleanupProjection = [pscustomobject][ordered]@{
+    schemaVersion = "p24b-rc6.2-formal-profile-cleanup-v1"
+    attemptId = $formalAttemptId
+    status = $cleanupStatus
+    profileDisposed = $profileDisposed
+    edgeResidueCount = [int]$edgeResidueCount
+  }
+  $formalProcessCleanupProjection = [pscustomobject][ordered]@{
+    schemaVersion = "p24b-rc6.2-formal-process-cleanup-v1"
+    attemptId = $formalAttemptId
+    status = $cleanupStatus
+    runnerResidueCount = [int]$runnerResidueCount
+    edgeResidueCount = [int]$edgeResidueCount
+  }
 }
 
 if ($postErrors.Count -ne 0) {
   $runnerStage = "postchecks"
+  Close-FormalPostLaunchAttempt $false "PRODUCTION_BROWSER_POSTCHECK_FAILED" -Terminalize
   Fail "PRODUCTION_BROWSER_POSTCHECK_FAILED:$([string]::Join(',', $postErrors))"
 }
-if ($null -ne $primaryError) { throw $primaryError }
+if ($null -ne $primaryError) {
+  Close-FormalPostLaunchAttempt $false (Get-TerminalWrapperCode $runnerStage $postErrors.Count) -Terminalize
+  throw $primaryError
+}
 
 $runnerStage = "gate-linearization"
 $runnerBlob = Invoke-GitScalar @("rev-parse", "${ExpectedGateControlCommit}:scripts/run-rc6-2-closed-agent-browser.mjs") "RUNNER_BLOB_FAILED"
@@ -2119,18 +2964,17 @@ try {
     (Test-Path -LiteralPath $evidencePath) -or
     (Test-Path -LiteralPath $failureEvidencePath)
   ) { Fail "EVIDENCE_DESTINATION_RACE" }
-  [IO.File]::Move($evidenceTempPath, $evidencePath)
-  $evidenceTempPath = $null
+  Close-FormalPostLaunchAttempt $true "" -Terminalize
+  try {
+    [IO.File]::Move($evidenceTempPath, $evidencePath)
+    $evidenceTempPath = $null
+  } catch {
+    # The validated terminal manifest is the formal PASS commit; this C6-compatible projection is best-effort.
+  }
 } finally {
   if ($evidenceTempPath -and (Test-Path -LiteralPath $evidenceTempPath)) {
-    Remove-Item -LiteralPath $evidenceTempPath -Force
+    try { Remove-Item -LiteralPath $evidenceTempPath -Force } catch { }
   }
-}
-if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) { Fail "EVIDENCE_PUBLICATION_FAILED" }
-$publishedEvidenceBytes = [IO.File]::ReadAllBytes($evidencePath)
-if ($publishedEvidenceBytes.Length -ne $expectedEvidenceBytes.Length) { Fail "EVIDENCE_PUBLICATION_MISMATCH" }
-for ($index = 0; $index -lt $expectedEvidenceBytes.Length; $index += 1) {
-  if ($publishedEvidenceBytes[$index] -ne $expectedEvidenceBytes[$index]) { Fail "EVIDENCE_PUBLICATION_MISMATCH" }
 }
 $outerEvidenceJson
 } catch {
@@ -2157,15 +3001,91 @@ $outerEvidenceJson
         $runnerFailureProjection
       )
     }
-    try {
-      $terminalWrapperCode = Get-TerminalWrapperCode $runnerStage $postErrors.Count
-      [void](Publish-C6FailureEvidence $runnerCapture $postcheckStatuses $terminalWrapperCode)
-    } catch {
-      throw "FAILURE_EVIDENCE_PUBLICATION_FAILED"
+    if (-not $formalTerminalFinalized) {
+      try {
+        $terminalWrapperCode = Get-TerminalWrapperCode $runnerStage $postErrors.Count
+        [void](Publish-C6FailureEvidence $runnerCapture $postcheckStatuses $terminalWrapperCode)
+      } catch {
+        throw "FAILURE_EVIDENCE_PUBLICATION_FAILED"
+      }
     }
   }
   throw $terminalError
 } finally {
-  if ($mutexHeld -and $null -ne $mutex) { $mutex.ReleaseMutex() }
-  if ($null -ne $mutex) { $mutex.Dispose() }
+  if ($formalAttemptPrepared -and $formalTerminalFinalizationAttempted -and -not $formalTerminalFinalized) {
+    Publish-FormalTerminalEmergency "FORMAL_TERMINAL_FINALIZATION_FAILED"
+    $formalTerminalError = "FORMAL_TERMINAL_FINALIZATION_FAILED"
+  }
+  if ($formalAttemptPrepared -and -not $formalTerminalFinalizationAttempted) {
+    try {
+      $summary = Get-VerifiedFormalAttempt "FORMAL_TERMINAL_STATE_VERIFY_FAILED"
+      if ([string]$summary.state -eq "PREFLIGHT_PASSED") {
+        if ($ownedProfilePath -and (Test-Path -LiteralPath $ownedProfilePath)) {
+          try {
+            Stop-OwnedProfileProcesses $ownedProfilePath "OWNED_PROFILE_PROCESS_CLEANUP_FAILED"
+            Remove-OwnedProfile $ownedProfilePath "OWNED_PROFILE_CLEANUP_FAILED"
+          } catch {
+            [void]$postErrors.Add("OWNED_PROFILE_CLEANUP_FAILED")
+          }
+        }
+        $reason = Get-TerminalWrapperCode $runnerStage $postErrors.Count
+        $summary = Invoke-FormalAttemptTransition "PREFLIGHT_FAILED" ([ordered]@{
+          reasonCode = $reason
+        }) "PREFLIGHT_PASSED" "PRECHECK_FAILED" "FORMAL_PRELAUNCH_FAILURE_STATE_FAILED"
+        Invoke-FormalTerminalEvidence "FAIL" $reason $null $null $null
+      } elseif ([string]$summary.state -notin @(
+        "PRECHECK_FAILED", "TERMINAL_PASS", "TERMINAL_FAIL", "TERMINAL_ABORTED"
+      )) {
+        if ($null -eq $formalProfileCleanupProjection -or $null -eq $formalProcessCleanupProjection) {
+          $runnerResidueCount = if (
+            $runnerStarted -and $null -ne $runnerProcess -and -not $runnerProcess.HasExited
+          ) { 1 } else { 0 }
+          $edgeResidueCount = if ($ownedProfilePath) {
+            @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object {
+              ([string]$_.CommandLine).IndexOf(
+                $ownedProfilePath,
+                [StringComparison]::OrdinalIgnoreCase
+              ) -ge 0
+            }).Count
+          } else { 0 }
+          $profileDisposed = [bool]($ownedProfilePath -and -not (Test-Path -LiteralPath $ownedProfilePath))
+          $fallbackCleanupStatus = if (
+            $profileDisposed -and $runnerResidueCount -eq 0 -and $edgeResidueCount -eq 0
+          ) { "PASS" } else { "FAIL" }
+          $formalProfileCleanupProjection = [pscustomobject][ordered]@{
+            schemaVersion = "p24b-rc6.2-formal-profile-cleanup-v1"
+            attemptId = $formalAttemptId
+            status = $fallbackCleanupStatus
+            profileDisposed = $profileDisposed
+            edgeResidueCount = [int]$edgeResidueCount
+          }
+          $formalProcessCleanupProjection = [pscustomobject][ordered]@{
+            schemaVersion = "p24b-rc6.2-formal-process-cleanup-v1"
+            attemptId = $formalAttemptId
+            status = $fallbackCleanupStatus
+            runnerResidueCount = [int]$runnerResidueCount
+            edgeResidueCount = [int]$edgeResidueCount
+          }
+          $cleanupPassed = $fallbackCleanupStatus -eq "PASS"
+        }
+        Close-FormalPostLaunchAttempt $false (Get-TerminalWrapperCode $runnerStage $postErrors.Count) -Terminalize
+      } else {
+        Fail "FORMAL_ATTEMPT_TERMINAL_WITHOUT_EVIDENCE"
+      }
+    } catch {
+      $formalTerminalError = $_
+      Publish-FormalTerminalEmergency "FORMAL_TERMINAL_FINALIZATION_FAILED"
+    }
+  }
+  if ($mutexHeld -and $null -ne $mutex) {
+    try { $mutex.ReleaseMutex() } catch {
+      if (-not $formalTerminalFinalized) { throw }
+    }
+  }
+  if ($null -ne $mutex) {
+    try { $mutex.Dispose() } catch {
+      if (-not $formalTerminalFinalized) { throw }
+    }
+  }
+  if ($null -ne $formalTerminalError) { throw "FORMAL_TERMINAL_FINALIZATION_FAILED" }
 }

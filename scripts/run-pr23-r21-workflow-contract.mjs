@@ -165,7 +165,7 @@ assert.match(lastKnownGoodAuditJob, /EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /ref:\s*\$\{\{ github\.sha \}\}/u);
-assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*7/u);
+assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*8/u);
 assert.match(lastKnownGoodAuditJob, /persist-credentials:\s*false/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$\(git rev-parse HEAD\)" == "\$AUDIT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /Prove exact read-only RC6\.2 browser-gate control lineage/u);
@@ -729,6 +729,21 @@ assert.equal(
   Object.keys(rc62BrowserPreflightContractScripts).length,
   "every RC6.2 browser preflight contract test must use a distinct dry-run-only mode",
 );
+const rc62FormalAttemptScripts = {
+  "test:rc6.2:formal-attempt-state": "node scripts/run-rc6-2-formal-attempt-state-tests.mjs all",
+  "test:rc6.2:formal-terminal-evidence": "node scripts/run-rc6-2-terminal-evidence-tests.mjs all",
+  "test:rc6.2:formal-negative-mutations": "node scripts/run-rc6-2-terminal-evidence-tests.mjs mutations",
+  "test:rc6.2:formal-simulations": "node scripts/run-rc6-2-terminal-evidence-tests.mjs simulations",
+};
+for (const [scriptName, expectedCommand] of Object.entries(rc62FormalAttemptScripts)) {
+  const command = packageScripts[scriptName];
+  assert.equal(command, expectedCommand, `${scriptName} must remain an exact stub-only invocation`);
+  assert.doesNotMatch(
+    command,
+    /run-rc6-2-production-browser-gate[.]ps1|run-rc6-2-closed-agent-browser[.]mjs|playwright|msedge|powershell|pwsh|chromium|webllm/u,
+    `${scriptName} must not start the Production Browser wrapper, runner, Edge, Playwright, or WebLLM`,
+  );
+}
 assert.match(p21ThreeHigh, /process\.platform === "win32"/u);
 assert.match(p21ThreeHigh, /: execFileSync\("pnpm", args/u);
 assert.match(p21ThreeHigh, /process\.platform === "win32" \? "powershell\.exe" : "pwsh"/u);

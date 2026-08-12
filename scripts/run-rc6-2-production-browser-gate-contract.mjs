@@ -22,6 +22,7 @@ const FAILED_RECOVERY_CONTROL = "3b716fc0d974a9d59b49ffca5953776af66c7a07";
 const INITIAL_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
 const C4_BROWSER_GATE_CONTROL = "100eea11003c5132ab2b519707c5dee658bc9cbe";
 const C5_BROWSER_GATE_CONTROL = "99695b247c2b1626c38efc8ae4589dd9bd8d30da";
+const C6_BROWSER_GATE_CONTROL = "b326c2fc9925798ffbc750ae37db847f0c8b5625";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
@@ -30,7 +31,7 @@ const EXPECTED_EDGE_VERSION = "151.0.4129.72";
 const EXPECTED_EDGE_EXE_DIGEST = "e73e04dacdb48557c13d9f93f90a248f3e5a0bf55bb738f2fc548a768a9a10af";
 const EXPECTED_EDGE_DLL_DIGEST = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe158545528b8507137a";
 const EXPECTED_EDGE_DIRECTORY_DIGEST = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974";
-const EXPECTED_PACKAGE_JSON_DIGEST = "6e650ab6b6c5f5abda32dcc7e83c411199f238686c8268a727e23ac325850732";
+const EXPECTED_PACKAGE_JSON_DIGEST = "ee922630e92a8bbefa426ad444b61ef14322a50b8bd2bf726fec50e6b9c1f82b";
 const EXPECTED_PNPM_LOCK_DIGEST = "bf80df1d7e1419628c2dac09bfb8b39360942098324d47269f9690eab52b7b7f";
 const INITIAL_GATE_BLOB_PATHS = [
   ".github/workflows/deploy.yml",
@@ -53,7 +54,29 @@ const C6_GATE_REPAIR_PATHS = [
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
 ];
-const COMPOSITE_GATE_BLOB_PATHS = [...INITIAL_GATE_BLOB_PATHS, "package.json"];
+const C7_GATE_REPAIR_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-formal-attempt-state.mjs",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-formal-attempt-state-tests.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs",
+];
+const COMPOSITE_GATE_BLOB_PATHS = [...new Set([
+  ...INITIAL_GATE_BLOB_PATHS,
+  ...C7_GATE_REPAIR_PATHS,
+])];
+const PRODUCT_RUNTIME_TRUTH_PATHS = [
+  "lib/novel-ai/character-agent/repository.ts",
+  "lib/novel-ai/repository/contracts/index.ts",
+  "lib/novel-ai/repository/indexeddb/indexeddb-repository.ts",
+  "lib/novel-ai/repository/persistence-recovery.ts",
+  "scripts/rc6-2-closed-agent-network-policy.mjs",
+];
 
 function occurrences(source, literal) {
   return source.split(literal).length - 1;
@@ -68,6 +91,10 @@ async function dependencyDigest(root) {
       const relativePath = relativeDirectory
         ? `${relativeDirectory}/${entry.name}`
         : entry.name;
+      // pnpm generates package-local command shims containing the absolute
+      // workspace path. They are not on the direct Node runner import path and
+      // are sealed separately using a path-neutral canonical receipt below.
+      if (relativePath === "node_modules") continue;
       const absolutePath = join(directory, entry.name);
       const truth = await lstat(absolutePath);
       assert.equal(truth.isSymbolicLink(), false, `dependency package contains a symlink: ${relativePath}`);
@@ -87,6 +114,50 @@ async function dependencyDigest(root) {
   }
   await walk(root);
   return digest.digest("hex");
+}
+
+function normalizeGeneratedBinShim(text) {
+  const forwardRoot = repositoryRoot.replaceAll("\\", "/");
+  const windowsRoot = forwardRoot.replaceAll("/", "\\");
+  const driveMatch = /^([A-Za-z]):\/(.*)$/u.exec(forwardRoot);
+  assert.ok(driveMatch, "repository root was not an absolute Windows path");
+  const wslRoot = `/mnt/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`;
+  let normalized = text;
+  for (const variant of [windowsRoot, forwardRoot, wslRoot]) {
+    normalized = normalized.split(variant).join("<REPOSITORY_ROOT>");
+  }
+  assert.equal(normalized.includes(windowsRoot), false);
+  assert.equal(normalized.includes(forwardRoot), false);
+  assert.equal(normalized.includes(wslRoot), false);
+  return normalized;
+}
+
+async function generatedBinReceipt(root, commandName) {
+  const digest = createHash("sha256");
+  let fileCount = 0;
+  let byteCount = 0;
+  const entries = (await readdir(root, { withFileTypes: true }))
+    .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  assert.deepEqual(entries.map((entry) => entry.name), [
+    commandName, `${commandName}.CMD`, `${commandName}.ps1`,
+  ]);
+  for (const entry of entries) {
+    const absolutePath = join(root, entry.name);
+    const truth = await lstat(absolutePath);
+    assert.equal(truth.isFile(), true, `generated dependency shim is not a file: ${entry.name}`);
+    assert.equal(truth.isSymbolicLink(), false, `generated dependency shim is a symlink: ${entry.name}`);
+    const rawBytes = await readFile(absolutePath);
+    const rawText = new TextDecoder("utf-8", { fatal: true }).decode(rawBytes);
+    const normalizedBytes = Buffer.from(normalizeGeneratedBinShim(rawText), "utf8");
+    digest.update(entry.name);
+    digest.update("\0");
+    digest.update(String(normalizedBytes.length));
+    digest.update("\0");
+    digest.update(normalizedBytes);
+    fileCount += 1;
+    byteCount += normalizedBytes.length;
+  }
+  return { fileCount, byteCount, digest: digest.digest("hex") };
 }
 
 async function completeTreeReceipt(root) {
@@ -356,12 +427,12 @@ const dependencyPackages = [
     name: "@playwright/test",
     linkedPath: join(repositoryRoot, "node_modules", "@playwright", "test"),
     packagePath: join(repositoryRoot, "node_modules", ".pnpm", "@playwright+test@1.61.1", "node_modules", "@playwright", "test"),
-    digest: "0a790d924aa71007bc11405b0c27ebc581912ae3f01ef7b89d1359038b336f48",
+    digest: "8ae6c026ab472520a31557e9f0b78a983b94873300f144de6ce2b167b8fac14f",
   },
   {
     name: "playwright",
     packagePath: join(repositoryRoot, "node_modules", ".pnpm", "playwright@1.61.1", "node_modules", "playwright"),
-    digest: "e9979a347da48432d060cf4df638ec6682735b8dc3db96b1e5dc13138a583f43",
+    digest: "8ea0b3ae44708b3bf4ef923aced06c8b1f8dccc15df6a9131aacc2c1d40a57ba",
   },
   {
     name: "playwright-core",
@@ -398,17 +469,23 @@ async function createToolchainReceipt() {
   assert.equal(await realpath(join(playwrightVirtualNodeModules, "playwright-core")), playwrightCorePackageRoot);
   await assertExactDirectoryEntries(join(testPackageRoot, "node_modules"), [".bin"]);
   await assertExactDirectoryEntries(join(playwrightPackageRoot, "node_modules"), [".bin"]);
-  const testBinReceipt = await completeTreeReceipt(join(testPackageRoot, "node_modules", ".bin"));
-  const playwrightBinReceipt = await completeTreeReceipt(join(playwrightPackageRoot, "node_modules", ".bin"));
+  const testBinReceipt = await generatedBinReceipt(
+    join(testPackageRoot, "node_modules", ".bin"),
+    "playwright",
+  );
+  const playwrightBinReceipt = await generatedBinReceipt(
+    join(playwrightPackageRoot, "node_modules", ".bin"),
+    "playwright-core",
+  );
   assert.deepEqual(testBinReceipt, {
     fileCount: 3,
-    byteCount: 3_881,
-    digest: "1df12ad3918f333e03bfc42906b7d9292af7898a04a1b98aa4308d21b5f00a70",
+    byteCount: 3_449,
+    digest: "9d2b696817d199a4e981d81593666f9d058f6b4f8def881fe7d62353058c0f2b",
   });
   assert.deepEqual(playwrightBinReceipt, {
     fileCount: 3,
-    byteCount: 4_027,
-    digest: "e0d6bb1289bee38c5880540dac79fc84202363c6cc7ba4cbd955a0dab00621c9",
+    byteCount: 3_595,
+    digest: "9635711cb5f5ab01e01927df43d2f947d287a9f7be7e5f21d0b66b2ed83eb5e3",
   });
   assert.equal(await sha256File(join(repositoryRoot, "package.json")), EXPECTED_PACKAGE_JSON_DIGEST);
   assert.equal(await sha256File(join(repositoryRoot, "pnpm-lock.yaml")), EXPECTED_PNPM_LOCK_DIGEST);
@@ -797,6 +874,7 @@ const RUNNER_SUCCESS_EVIDENCE_KEYS = [
   "crossOriginPolicy",
   "networkZeroReceipt",
   "projectId",
+  "persistence",
   "setup",
   "consumerReadiness",
   "storyBible",
@@ -1293,7 +1371,11 @@ async function writeAuditControlProof() {
   assert.equal(gitOutput(["rev-parse", "HEAD"]), controlCommit);
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", controlCommit]).split(/\s+/u),
-    [controlCommit, C5_BROWSER_GATE_CONTROL],
+    [controlCommit, C6_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", C6_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [C6_BROWSER_GATE_CONTROL, C5_BROWSER_GATE_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", C5_BROWSER_GATE_CONTROL]).split(/\s+/u),
@@ -1320,14 +1402,26 @@ async function writeAuditControlProof() {
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    C5_BROWSER_GATE_CONTROL,
+    C6_BROWSER_GATE_CONTROL,
     controlCommit,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(changedPaths, [...C6_GATE_REPAIR_PATHS].sort());
+  assert.deepEqual(changedPaths, [...C7_GATE_REPAIR_PATHS].sort());
+  const c6ChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    C5_BROWSER_GATE_CONTROL,
+    C6_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "C6 browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(c6ChangedPaths, [...C6_GATE_REPAIR_PATHS].sort());
   const c5ChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -1377,7 +1471,7 @@ async function writeAuditControlProof() {
   }).sort();
   assert.deepEqual(compositeChangedPaths, [...COMPOSITE_GATE_BLOB_PATHS].sort());
   const body = {
-    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v3",
+    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v4",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
     failedRecoveryControl: FAILED_RECOVERY_CONTROL,
@@ -1385,8 +1479,9 @@ async function writeAuditControlProof() {
     initialBrowserGateControl: INITIAL_BROWSER_GATE_CONTROL,
     c4BrowserGateControl: C4_BROWSER_GATE_CONTROL,
     c5BrowserGateControl: C5_BROWSER_GATE_CONTROL,
+    c6BrowserGateControl: C6_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
-    parentCommit: C5_BROWSER_GATE_CONTROL,
+    parentCommit: C6_BROWSER_GATE_CONTROL,
     repository: process.env.GITHUB_REPOSITORY,
     eventName: process.env.GITHUB_EVENT_NAME,
     eventRef: process.env.GITHUB_REF,
@@ -1396,6 +1491,7 @@ async function writeAuditControlProof() {
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     lineage: [
       controlCommit,
+      C6_BROWSER_GATE_CONTROL,
       C5_BROWSER_GATE_CONTROL,
       C4_BROWSER_GATE_CONTROL,
       INITIAL_BROWSER_GATE_CONTROL,
@@ -1404,6 +1500,7 @@ async function writeAuditControlProof() {
       PRODUCT_COMMIT,
     ],
     changedPaths,
+    c6ChangedPaths,
     c5ChangedPaths,
     c4ChangedPaths,
     initialChangedPaths,
@@ -1412,7 +1509,7 @@ async function writeAuditControlProof() {
   const proof = {
     ...body,
     proofDigest: createHash("sha256").update(stableStringify({
-      domain: "p24b-rc6.2-browser-gate-control-proof-v3",
+      domain: "p24b-rc6.2-browser-gate-control-proof-v4",
       body,
     })).digest("hex"),
   };
@@ -1435,6 +1532,7 @@ for (const literal of [
   "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824",
   "100eea11003c5132ab2b519707c5dee658bc9cbe",
   "99695b247c2b1626c38efc8ae4589dd9bd8d30da",
+  "b326c2fc9925798ffbc750ae37db847f0c8b5625",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -1929,6 +2027,15 @@ function cleanupFailureAfterPassFixture() {
       requestBodyBlocked: true,
     },
     projectId: "00000000-0000-4000-8000-000000000000",
+    persistence: {
+      backend: "indexeddb",
+      degraded: false,
+      databaseName: "novel-intelligence-platform",
+      requiredStoresVerified: true,
+      writeVerified: true,
+      reloadVerified: true,
+      memoryFallbackUsed: false,
+    },
     setup: {
       status: "setup_required",
       model: "sealed-model",
@@ -1961,6 +2068,13 @@ function cleanupFailureAfterPassFixture() {
       silentExternalFallback: false,
     },
     storyBible: {
+      status: "ready",
+      approvedRecordCreated: true,
+      approvedRecordReloadVerified: true,
+      modelContextBindingVerified: true,
+      crossProjectLeakCount: 0,
+      observedOtherProjectCount: 1,
+      observedOtherStoryBibleCount: 1,
       persistedAfterReload: true,
       originalDigest: digest,
       sourceArtifactDigest: digest,
@@ -2302,6 +2416,31 @@ function assertValidSuccessEvidence(evidence) {
   assert.equal(evidence.consumerReadiness.activeBackend, "browser-ai");
   assert.equal(evidence.consumerReadiness.externalFallback, false);
   assert.equal(evidence.consumerReadiness.silentExternalFallback, false);
+  assertExactKeys(evidence.persistence, [
+    "backend",
+    "degraded",
+    "databaseName",
+    "requiredStoresVerified",
+    "writeVerified",
+    "reloadVerified",
+    "memoryFallbackUsed",
+  ], "persistence");
+  assert.deepEqual(evidence.persistence, {
+    backend: "indexeddb",
+    degraded: false,
+    databaseName: "novel-intelligence-platform",
+    requiredStoresVerified: true,
+    writeVerified: true,
+    reloadVerified: true,
+    memoryFallbackUsed: false,
+  });
+  assert.equal(evidence.storyBible.status, "ready");
+  assert.equal(evidence.storyBible.approvedRecordCreated, true);
+  assert.equal(evidence.storyBible.approvedRecordReloadVerified, true);
+  assert.equal(evidence.storyBible.modelContextBindingVerified, true);
+  assert.equal(evidence.storyBible.crossProjectLeakCount, 0);
+  assert.ok(evidence.storyBible.observedOtherProjectCount >= 1);
+  assert.ok(evidence.storyBible.observedOtherStoryBibleCount >= 1);
   assert.equal(evidence.storyBible.persistedAfterReload, true);
   for (const key of [
     "originalDigest",
@@ -2443,13 +2582,15 @@ assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
 assert.match(wrapper, /\[ValidateSet\("PreflightDryRun", "FormalBrowserGate"\)\][\s\S]*\[string\]\$ExecutionMode/u);
 assert.doesNotMatch(wrapper, /\$ExecutionMode\s*=/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
-assert.match(wrapper, /\$headParents\[1\] -ne \$c5BrowserGateControl/u);
+assert.match(wrapper, /\$headParents\[1\] -ne \$c6BrowserGateControl/u);
+assert.match(wrapper, /\$c6Parents\[1\] -ne \$c5BrowserGateControl/u);
 assert.match(wrapper, /\$c5Parents\[1\] -ne \$c4BrowserGateControl/u);
 assert.match(wrapper, /\$c4Parents\[1\] -ne \$initialBrowserGateControl/u);
 assert.match(wrapper, /\$initialParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
-assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c5BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c6RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c6BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c7RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c5BrowserGateControl -HeadCommit \$c6BrowserGateControl -ExpectedPaths \$c6RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c4BrowserGateControl -HeadCommit \$c5BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$initialBrowserGateControl -HeadCommit \$c4BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryControl -HeadCommit \$initialBrowserGateControl -ExpectedPaths \$initialGatePaths/u);
@@ -2457,8 +2598,13 @@ assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$productionRecoveryC
 assert.match(wrapper, /function Get-SingleTrimmedLine[\s\S]*\$Lines\.GetValue\(0\)[\s\S]*function Invoke-GitScalar/u);
 assert.doesNotMatch(wrapper, /\[string\]\(Invoke-Git[^\r\n]*\)\[0\]/u);
 for (const path of COMPOSITE_GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate blob pin is missing: ${path}`);
+for (const path of C7_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C7 repair path is missing: ${path}`);
 for (const path of C6_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C6 repair path is missing: ${path}`);
+for (const path of PRODUCT_RUNTIME_TRUTH_PATHS) {
+  assert.ok(wrapper.includes(`"${path}"`), `Product runtime truth blob pin is missing: ${path}`);
+}
 assert.match(wrapper, /\^\(\[AM\]\)`t/u);
+assert.match(wrapper, /C7_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /C6_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
 assert.ok(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_") >= 4);
