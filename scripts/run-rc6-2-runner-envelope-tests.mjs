@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ENVELOPE_SCHEMA = "p24b-rc6.2-formal-runner-terminal-envelope-v1";
+const ENVELOPE_SCHEMA = "p24b-rc6.2-formal-runner-terminal-envelope-v2";
 const VALIDATION_SCHEMA = "p24b-rc6.2-formal-runner-envelope-validation-v1";
 const MAX_ENVELOPE_BYTES = 131_072;
 const SHA_SIDECAR_BYTES = 65;
@@ -68,6 +68,73 @@ const ASSERTION_IDS = new Set([
   "REJECT_CANON_UNCHANGED", "CACHE_REUSED_AFTER_RELOAD", "CHAINED_REGENERATION_CREATED",
   "APPROVAL_REVISION_INCREMENTED_ONCE", "FINAL_RELOAD_PERSISTED", "PROFILE_DISPOSED",
 ]);
+const NETWORK_SENTINEL_SCHEMA = "p24b-rc6.2-network-zero-receipt-v2";
+const NETWORK_SENTINEL_SCALAR_EXPECTATIONS = Object.freeze([
+  ["bootstrapAllowedCount", 1, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapReceiverHttpCount", 1, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapConsumed", true, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapExceptionDisabledBeforeProbes", true, "NETWORK_SENTINEL_BOOTSTRAP_DISABLED"],
+  ["httpProbeAttemptCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["httpRouteObservedCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["httpRouteBlockedCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["crossOriginClassificationCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["methodRejectedCount", 1, "NETWORK_SENTINEL_POST_METHOD_REJECTED"],
+  ["bodyRejectedCount", 1, "NETWORK_SENTINEL_POST_BODY_REJECTED"],
+  ["webSocketProbeAttemptCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_OBSERVED"],
+  ["webSocketRouteObservedCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_OBSERVED"],
+  ["webSocketRouteBlockedCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["disallowedWebSocketCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["browserNativePreblockCount", 0, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["tcpConnectionReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO"],
+  ["httpRequestReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_HTTP_DELTA_ZERO"],
+  ["httpRequestBodyByteDelta", 0, "NETWORK_SENTINEL_RECEIVER_BODY_DELTA_ZERO"],
+  ["webSocketUpgradeReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO"],
+  ["arbitraryOutboundHeaderBlocked", true, "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["requestBodyBlocked", true, "NETWORK_SENTINEL_POST_BODY_REJECTED"],
+  ["httpGetBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["httpPostBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["webSocketBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["operationalErrorCount", 0, "NETWORK_SENTINEL_OPERATION_COMPLETED"],
+  ["pageReturnedToAboutBlank", true, "NETWORK_SENTINEL_RETURNED_TO_ABOUT_BLANK"],
+  ["browserContextCount", 1, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+  ["pageCount", 1, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+  ["serviceWorkerCount", 0, "NETWORK_SENTINEL_SERVICE_WORKERS_ZERO"],
+  ["receiverClosed", true, "NETWORK_SENTINEL_RECEIVER_HTTP_DELTA_ZERO"],
+  ["bootstrapSecretsCleared", true, "NETWORK_SENTINEL_BOOTSTRAP_DISABLED"],
+  ["productPolicyCountersZero", true, "NETWORK_SENTINEL_COUNTERS_RESET"],
+  ["sentinelCountersReset", true, "NETWORK_SENTINEL_COUNTERS_RESET"],
+]);
+const NETWORK_SENTINEL_BROWSER_RESULTS = new Set([
+  "blocked-by-route", "native-preblock", "timeout", "unexpected-success", "not-attempted",
+  "route-action-failed", "evaluation-failed", "unexpected-rejection",
+]);
+const NETWORK_SENTINEL_PROBE_IDS = ["HTTP_GET", "HTTP_POST", "WEBSOCKET"];
+const NETWORK_SENTINEL_ROUTE_DECISIONS = new Set([
+  "blocked", "continued", "not-observed", "block-failed", "continue-failed",
+]);
+const NETWORK_SENTINEL_REASON_CODES = new Set([
+  "method-not-allowed", "network-classification-blocked", "request-body-not-allowed",
+]);
+const NETWORK_SENTINEL_RECEIVER_BASELINE_KEYS = [
+  "tcpConnectionReceiptCount", "httpRequestReceiptCount", "httpRequestBodyByteCount",
+  "webSocketUpgradeReceiptCount",
+];
+const NETWORK_SENTINEL_RECEIVER_BASELINE_EXPECTATIONS = [
+  ["tcpConnectionReceiptCount", 1, "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO", "minimum"],
+  ["httpRequestReceiptCount", 1, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE", "equal"],
+  ["httpRequestBodyByteCount", 0, "NETWORK_SENTINEL_POST_BODY_REJECTED", "equal"],
+  ["webSocketUpgradeReceiptCount", 0, "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO", "equal"],
+];
+const NETWORK_SENTINEL_ASSERTION_IDS = new Set(
+  NETWORK_SENTINEL_SCALAR_EXPECTATIONS.map(([, , assertionId]) => assertionId),
+);
+for (const assertionId of NETWORK_SENTINEL_ASSERTION_IDS) ASSERTION_IDS.add(assertionId);
+const NETWORK_SENTINEL_KEYS = [
+  "schemaVersion", "status",
+  ...NETWORK_SENTINEL_SCALAR_EXPECTATIONS.map(([scalarId]) => scalarId),
+  "receiverBaseline", "probeRouteRecords", "firstFailedScalarAssertion",
+  "matrixDigest",
+];
 const VALIDATION_ERROR_CODES = new Set([
   "RUNNER_TERMINAL_ENVELOPE_MISSING",
   "RUNNER_TERMINAL_ENVELOPE_SHA_MISSING",
@@ -120,6 +187,322 @@ function stableStringify(value) {
   return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`).join(",")}}`;
 }
 
+function makeV2PreNavigationSentinel({ failed = false, continued = false } = {}) {
+  const body = {
+    schemaVersion: NETWORK_SENTINEL_SCHEMA,
+    status: failed ? "FAIL" : "PASS",
+    ...Object.fromEntries(NETWORK_SENTINEL_SCALAR_EXPECTATIONS.map(
+      ([scalarId, expectedSafeValue]) => [scalarId, expectedSafeValue],
+    )),
+    receiverBaseline: {
+      tcpConnectionReceiptCount: 1,
+      httpRequestReceiptCount: 1,
+      httpRequestBodyByteCount: 0,
+      webSocketUpgradeReceiptCount: 0,
+    },
+    probeRouteRecords: [
+      {
+        probeId: "HTTP_GET",
+        routeObserved: continued || !failed,
+        routeDecision: continued ? "continued" : failed ? "not-observed" : "blocked",
+        reasonCodes: failed ? [] : ["network-classification-blocked"],
+      },
+      {
+        probeId: "HTTP_POST",
+        routeObserved: true,
+        routeDecision: "blocked",
+        reasonCodes: [
+          "method-not-allowed", "network-classification-blocked", "request-body-not-allowed",
+        ],
+      },
+      {
+        probeId: "WEBSOCKET",
+        routeObserved: true,
+        routeDecision: "blocked",
+        reasonCodes: ["network-classification-blocked"],
+      },
+    ],
+    firstFailedScalarAssertion: failed ? {
+      assertionId: continued
+        ? "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"
+        : "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+      scalarId: continued ? "httpRouteBlockedCount" : "httpRouteObservedCount",
+      expectedSafeValue: 2,
+      actualSafeValue: 1,
+    } : null,
+  };
+  if (failed) {
+    Object.assign(body, {
+      httpRouteObservedCount: continued ? 2 : 1,
+      httpRouteBlockedCount: 1,
+      crossOriginClassificationCount: 1,
+      browserNativePreblockCount: continued ? 0 : 1,
+      tcpConnectionReceiptDelta: continued ? 1 : 0,
+      httpRequestReceiptDelta: continued ? 1 : 0,
+      httpGetBrowserResult: continued ? "unexpected-success" : "native-preblock",
+    });
+  }
+  return {
+    ...body,
+    matrixDigest: sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(body)}`),
+  };
+}
+
+function redigestEnvelopeValue(envelope) {
+  envelope.envelopeDigest = sha256(stableStringify(
+    Object.fromEntries(Object.entries(envelope).filter(([key]) => key !== "envelopeDigest")),
+  ));
+  return envelope;
+}
+
+function makeV2ScalarFailureEnvelope(envelope, scalarId, actualSafeValue) {
+  const value = structuredClone(envelope);
+  const expectation = NETWORK_SENTINEL_SCALAR_EXPECTATIONS.find(
+    ([candidateScalarId]) => candidateScalarId === scalarId,
+  );
+  assert.ok(expectation, `missing sentinel scalar expectation: ${scalarId}`);
+  const [, expectedSafeValue, assertionId] = expectation;
+  const sentinel = value.networkSummary.preNavigationSentinel;
+  sentinel[scalarId] = actualSafeValue;
+  sentinel.status = "FAIL";
+  sentinel.firstFailedScalarAssertion = {
+    assertionId,
+    scalarId,
+    expectedSafeValue,
+    actualSafeValue,
+  };
+  const sentinelBody = Object.fromEntries(
+    Object.entries(sentinel).filter(([key]) => key !== "matrixDigest"),
+  );
+  sentinel.matrixDigest = sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(sentinelBody)}`);
+  const sentinelCheckpoint = value.checkpointTrail.find(
+    ({ checkpoint }) => checkpoint === "network-zero-receipt-sentinel",
+  );
+  assert.ok(sentinelCheckpoint);
+  sentinelCheckpoint.status = "failed";
+  value.gateCheckpoint = "network-zero-receipt-sentinel";
+  value.lastCompletedCheckpoint = value.checkpointTrail
+    .filter((record) => record !== sentinelCheckpoint && record.status === "completed")
+    .at(-1)?.checkpoint ?? "none";
+  value.status = "FAIL";
+  value.exitCode = 1;
+  value.requestPhase = "bootstrap";
+  value.failureShape = "ASSERTION";
+  value.safeErrorCode = "RC6_2_CLOSED_AI_GATE_FAILED";
+  value.firstFailedOperation = {
+    operationId: "CHECKPOINT_NETWORK_ZERO_RECEIPT_SENTINEL",
+    operationKind: "CHECKPOINT",
+    messageDigest: sha256(`v2-sentinel-${scalarId}-operation`),
+  };
+  value.firstFailedAssertion = {
+    assertionId,
+    errorName: "AssertionError",
+    errorCode: "ERR_ASSERTION",
+    operator: "strictEqual",
+    messageDigest: sha256(`v2-sentinel-${scalarId}-assertion`),
+    expectedDisposition: "equal",
+    actualDisposition: "different",
+  };
+  return redigestEnvelopeValue(value);
+}
+
+function redigestV2SentinelEnvelope(value) {
+  const sentinel = value.networkSummary.preNavigationSentinel;
+  sentinel.matrixDigest = sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(
+    Object.fromEntries(Object.entries(sentinel).filter(([key]) => key !== "matrixDigest")),
+  )}`);
+  return redigestEnvelopeValue(value);
+}
+
+function makeV2BaselineFailureEnvelope(envelope, scalarKey, actualSafeValue) {
+  const value = structuredClone(envelope);
+  const expectation = NETWORK_SENTINEL_RECEIVER_BASELINE_EXPECTATIONS.find(
+    ([candidateScalarKey]) => candidateScalarKey === scalarKey,
+  );
+  assert.ok(expectation, `missing sentinel receiver baseline expectation: ${scalarKey}`);
+  const [, expectedSafeValue, assertionId] = expectation;
+  const sentinel = value.networkSummary.preNavigationSentinel;
+  sentinel.receiverBaseline[scalarKey] = actualSafeValue;
+  sentinel.status = "FAIL";
+  sentinel.firstFailedScalarAssertion = {
+    assertionId,
+    scalarId: `receiverBaseline.${scalarKey}`,
+    expectedSafeValue,
+    actualSafeValue,
+  };
+  sentinel.matrixDigest = sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(
+    Object.fromEntries(Object.entries(sentinel).filter(([key]) => key !== "matrixDigest")),
+  )}`);
+  const sentinelCheckpoint = value.checkpointTrail.find(
+    ({ checkpoint }) => checkpoint === "network-zero-receipt-sentinel",
+  );
+  assert.ok(sentinelCheckpoint);
+  sentinelCheckpoint.status = "failed";
+  value.gateCheckpoint = "network-zero-receipt-sentinel";
+  value.lastCompletedCheckpoint = value.checkpointTrail
+    .filter((record) => record !== sentinelCheckpoint && record.status === "completed")
+    .at(-1)?.checkpoint ?? "none";
+  value.status = "FAIL";
+  value.exitCode = 1;
+  value.requestPhase = "bootstrap";
+  value.failureShape = "ASSERTION";
+  value.safeErrorCode = "RC6_2_CLOSED_AI_GATE_FAILED";
+  value.firstFailedOperation = {
+    operationId: "CHECKPOINT_NETWORK_ZERO_RECEIPT_SENTINEL",
+    operationKind: "CHECKPOINT",
+    messageDigest: sha256(`v2-sentinel-baseline-${scalarKey}-operation`),
+  };
+  value.firstFailedAssertion = {
+    assertionId,
+    errorName: "AssertionError",
+    errorCode: "ERR_ASSERTION",
+    operator: "strictEqual",
+    messageDigest: sha256(`v2-sentinel-baseline-${scalarKey}-assertion`),
+    expectedDisposition: "equal",
+    actualDisposition: "different",
+  };
+  return redigestEnvelopeValue(value);
+}
+
+function makeV2BootstrapReceiverFailureEnvelope(envelope, actualSafeValue) {
+  const value = makeV2ScalarFailureEnvelope(
+    envelope,
+    "bootstrapReceiverHttpCount",
+    actualSafeValue,
+  );
+  const sentinel = value.networkSummary.preNavigationSentinel;
+  sentinel.receiverBaseline.httpRequestReceiptCount = actualSafeValue;
+  sentinel.matrixDigest = sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(
+    Object.fromEntries(Object.entries(sentinel).filter(([key]) => key !== "matrixDigest")),
+  )}`);
+  return redigestEnvelopeValue(value);
+}
+
+function makeV2NoRouteReceiptFailureEnvelope(envelope) {
+  const value = structuredClone(envelope);
+  const sentinel = value.networkSummary.preNavigationSentinel;
+  Object.assign(sentinel, {
+    status: "FAIL",
+    httpRouteObservedCount: 1,
+    httpRouteBlockedCount: 1,
+    crossOriginClassificationCount: 1,
+    tcpConnectionReceiptDelta: 1,
+    httpRequestReceiptDelta: 1,
+    httpGetBrowserResult: "unexpected-success",
+    firstFailedScalarAssertion: {
+      assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+      scalarId: "httpRouteObservedCount",
+      expectedSafeValue: 2,
+      actualSafeValue: 1,
+    },
+  });
+  sentinel.probeRouteRecords[0] = {
+    probeId: "HTTP_GET",
+    routeObserved: false,
+    routeDecision: "not-observed",
+    reasonCodes: [],
+  };
+  sentinel.matrixDigest = sha256(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(
+    Object.fromEntries(Object.entries(sentinel).filter(([key]) => key !== "matrixDigest")),
+  )}`);
+  const sentinelCheckpoint = value.checkpointTrail.find(
+    ({ checkpoint }) => checkpoint === "network-zero-receipt-sentinel",
+  );
+  assert.ok(sentinelCheckpoint);
+  sentinelCheckpoint.status = "failed";
+  value.gateCheckpoint = "network-zero-receipt-sentinel";
+  value.lastCompletedCheckpoint = value.checkpointTrail
+    .filter((record) => record !== sentinelCheckpoint && record.status === "completed")
+    .at(-1)?.checkpoint ?? "none";
+  value.status = "FAIL";
+  value.exitCode = 1;
+  value.requestPhase = "bootstrap";
+  value.failureShape = "ASSERTION";
+  value.safeErrorCode = "RC6_2_CLOSED_AI_GATE_FAILED";
+  value.firstFailedOperation = {
+    operationId: "CHECKPOINT_NETWORK_ZERO_RECEIPT_SENTINEL",
+    operationKind: "CHECKPOINT",
+    messageDigest: sha256("v2-sentinel-no-route-receipt-operation"),
+  };
+  value.firstFailedAssertion = {
+    assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+    errorName: "AssertionError",
+    errorCode: "ERR_ASSERTION",
+    operator: "strictEqual",
+    messageDigest: sha256("v2-sentinel-no-route-receipt-assertion"),
+    expectedDisposition: "equal",
+    actualDisposition: "different",
+  };
+  return redigestEnvelopeValue(value);
+}
+
+function makeV2EnvelopeFromHistorical(envelope, { failed = false, continued = false } = {}) {
+  const value = structuredClone(envelope);
+  value.schemaVersion = ENVELOPE_SCHEMA;
+  value.projectionValidation.schemaExpected = ENVELOPE_SCHEMA;
+  value.projectionValidation.schemaObserved = ENVELOPE_SCHEMA;
+  const launch = { ...value.checkpointTrail[0], status: "completed" };
+  if (launch.completedAt === null) launch.completedAt = value.completedAt;
+  value.checkpointOrdinal = 2;
+  value.gateCheckpoint = "network-zero-receipt-sentinel";
+  value.lastCompletedCheckpoint = failed ? launch.checkpoint : "network-zero-receipt-sentinel";
+  value.checkpointTrail = [launch, {
+    ordinal: 2,
+    checkpoint: "network-zero-receipt-sentinel",
+    enteredAt: value.completedAt,
+    completedAt: value.completedAt,
+    status: failed ? "failed" : "completed",
+  }];
+  value.networkSummary.preNavigationSentinel = makeV2PreNavigationSentinel({ failed, continued });
+  if (failed) {
+    value.status = "FAIL";
+    value.exitCode = 1;
+    value.requestPhase = "bootstrap";
+    value.failureShape = "ASSERTION";
+    value.safeErrorCode = "RC6_2_CLOSED_AI_GATE_FAILED";
+    value.firstFailedOperation = {
+      operationId: "CHECKPOINT_NETWORK_ZERO_RECEIPT_SENTINEL",
+      operationKind: "CHECKPOINT",
+      messageDigest: sha256("v2-sentinel-operation"),
+    };
+    value.firstFailedAssertion = {
+      assertionId: continued
+        ? "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"
+        : "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+      errorName: "AssertionError",
+      errorCode: "ERR_ASSERTION",
+      operator: "strictEqual",
+      messageDigest: sha256("v2-sentinel-assertion"),
+      expectedDisposition: "equal",
+      actualDisposition: "different",
+    };
+  } else {
+    value.status = "PASS";
+    value.exitCode = 0;
+    value.failureShape = null;
+    value.safeErrorCode = null;
+    value.firstFailedOperation = null;
+    value.firstFailedAssertion = null;
+  }
+  return redigestEnvelopeValue(value);
+}
+
+function makeV2TruncatedPostSentinelEnvelope(envelope, { omitSentinel = false } = {}) {
+  const value = structuredClone(envelope);
+  value.checkpointTrail = Array.from({ length: 32 }, (_, index) => ({
+    ordinal: 10 + index,
+    checkpoint: `post-sentinel-${index + 1}`,
+    enteredAt: value.completedAt,
+    completedAt: value.completedAt,
+    status: "completed",
+  }));
+  value.checkpointOrdinal = value.checkpointTrail.at(-1).ordinal;
+  value.gateCheckpoint = value.checkpointTrail.at(-1).checkpoint;
+  value.lastCompletedCheckpoint = value.checkpointTrail.at(-1).checkpoint;
+  if (omitSentinel) value.networkSummary.preNavigationSentinel = null;
+  return redigestEnvelopeValue(value);
+}
+
 function exactKeys(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort();
@@ -158,7 +541,7 @@ function safeProjection(value, depth = 0) {
     && Object.values(value).every((entry) => safeProjection(entry, depth + 1));
 }
 
-function validateProjectionShape(projection) {
+function validateProjectionShape(projection, envelopeSchema) {
   const keys = [
     "attempted", "status", "schemaExpected", "schemaObserved", "detailedProjectionAvailable",
     "minimalProjectionUsed", "validatorErrorCode", "unknownKeys", "missingKeys",
@@ -168,8 +551,8 @@ function validateProjectionShape(projection) {
   if (
     typeof projection.attempted !== "boolean"
     || !new Set(["PASS", "FAIL", "NOT_ATTEMPTED"]).has(projection.status)
-    || projection.schemaExpected !== ENVELOPE_SCHEMA
-    || (projection.schemaObserved !== null && projection.schemaObserved !== ENVELOPE_SCHEMA)
+    || projection.schemaExpected !== envelopeSchema
+    || (projection.schemaObserved !== null && projection.schemaObserved !== envelopeSchema)
     || typeof projection.detailedProjectionAvailable !== "boolean"
     || typeof projection.minimalProjectionUsed !== "boolean"
     || (projection.validatorErrorCode !== null && !SAFE_CODE.test(projection.validatorErrorCode))
@@ -197,6 +580,250 @@ function validateProjectionShape(projection) {
     && projection.originalProjectionDigest !== null;
 }
 
+function validatePreNavigationSentinel(sentinel, envelope) {
+  const sentinelCheckpoints = envelope.checkpointTrail.filter(
+    ({ checkpoint }) => checkpoint === "network-zero-receipt-sentinel",
+  );
+  const sentinelWasReached = sentinelCheckpoints.length > 0;
+  const trailHasTruncatedPrefix = envelope.checkpointTrail.length === 32
+    && envelope.checkpointTrail[0]?.ordinal === envelope.checkpointOrdinal - 31;
+  if (sentinelCheckpoints.length > 1) return false;
+  if (sentinel === null) {
+    return !sentinelWasReached && !trailHasTruncatedPrefix && envelope.status !== "PASS";
+  }
+  if (
+    (!sentinelWasReached && !trailHasTruncatedPrefix)
+    || !exactKeys(sentinel, NETWORK_SENTINEL_KEYS)
+    || sentinel.schemaVersion !== NETWORK_SENTINEL_SCHEMA
+    || !new Set(["PASS", "FAIL"]).has(sentinel.status)
+    || (sentinel.status === "PASS" && sentinelWasReached
+      && sentinelCheckpoints[0].status !== "completed")
+    || (sentinel.status === "FAIL" && (
+      !sentinelWasReached
+      || sentinelCheckpoints[0].status !== "failed"
+      || envelope.gateCheckpoint !== "network-zero-receipt-sentinel"
+    ))
+  ) {
+    return false;
+  }
+  let firstMismatch = null;
+  for (const [scalarId, expectedSafeValue, assertionId] of NETWORK_SENTINEL_SCALAR_EXPECTATIONS) {
+    const actualSafeValue = sentinel[scalarId];
+    if (typeof actualSafeValue !== typeof expectedSafeValue) return false;
+    if (typeof actualSafeValue === "number" && !safeInteger(actualSafeValue, 1_000_000)) return false;
+    if (typeof actualSafeValue === "string" && !NETWORK_SENTINEL_BROWSER_RESULTS.has(actualSafeValue)) {
+      return false;
+    }
+    if (firstMismatch === null && actualSafeValue !== expectedSafeValue) {
+      firstMismatch = { assertionId, scalarId, expectedSafeValue, actualSafeValue };
+    }
+  }
+  if (
+    !exactKeys(sentinel.receiverBaseline, NETWORK_SENTINEL_RECEIVER_BASELINE_KEYS)
+    || !NETWORK_SENTINEL_RECEIVER_BASELINE_KEYS.every(
+      (key) => safeInteger(sentinel.receiverBaseline[key], 1_000_000),
+    )
+    || !Array.isArray(sentinel.probeRouteRecords)
+    || sentinel.probeRouteRecords.length !== 3
+  ) return false;
+  if (firstMismatch === null) {
+    for (const [scalarKey, expectedSafeValue, assertionId, comparison] of
+      NETWORK_SENTINEL_RECEIVER_BASELINE_EXPECTATIONS) {
+      const actualSafeValue = sentinel.receiverBaseline[scalarKey];
+      if (
+        (comparison === "minimum" && actualSafeValue < expectedSafeValue)
+        || (comparison === "equal" && actualSafeValue !== expectedSafeValue)
+      ) {
+        firstMismatch = {
+          assertionId,
+          scalarId: `receiverBaseline.${scalarKey}`,
+          expectedSafeValue,
+          actualSafeValue,
+        };
+        break;
+      }
+    }
+  }
+  const expectedReasons = [
+    ["network-classification-blocked"],
+    ["method-not-allowed", "network-classification-blocked", "request-body-not-allowed"],
+    ["network-classification-blocked"],
+  ];
+  const browserResults = [
+    sentinel.httpGetBrowserResult,
+    sentinel.httpPostBrowserResult,
+    sentinel.webSocketBrowserResult,
+  ];
+  for (const [index, record] of sentinel.probeRouteRecords.entries()) {
+    if (
+      !exactKeys(record, ["probeId", "routeObserved", "routeDecision", "reasonCodes"])
+      || record.probeId !== NETWORK_SENTINEL_PROBE_IDS[index]
+      || typeof record.routeObserved !== "boolean"
+      || !NETWORK_SENTINEL_ROUTE_DECISIONS.has(record.routeDecision)
+      || !Array.isArray(record.reasonCodes)
+      || record.reasonCodes.length > 4
+      || new Set(record.reasonCodes).size !== record.reasonCodes.length
+      || !record.reasonCodes.every((reasonCode) => NETWORK_SENTINEL_REASON_CODES.has(reasonCode))
+    ) return false;
+    if (record.routeObserved && record.routeDecision === "blocked") {
+      if (
+        new Set([
+          "native-preblock", "not-attempted", "route-action-failed", "unexpected-rejection",
+        ]).has(browserResults[index])
+        || stableStringify(record.reasonCodes) !== stableStringify(expectedReasons[index])
+      ) return false;
+    } else if (record.routeObserved && record.routeDecision === "continued") {
+      if (
+        record.reasonCodes.length !== 0
+        || new Set([
+          "blocked-by-route", "native-preblock", "not-attempted", "route-action-failed",
+        ]).has(
+          browserResults[index],
+        )
+      ) return false;
+    } else if (record.routeObserved && record.routeDecision === "block-failed") {
+      if (
+        stableStringify(record.reasonCodes) !== stableStringify(expectedReasons[index])
+        || browserResults[index] !== "route-action-failed"
+      ) {
+        return false;
+      }
+    } else if (record.routeObserved && record.routeDecision === "continue-failed") {
+      if (record.reasonCodes.length !== 0 || browserResults[index] !== "route-action-failed") {
+        return false;
+      }
+    } else if (
+      record.routeObserved
+      || record.routeDecision !== "not-observed"
+      || record.reasonCodes.length !== 0
+      || new Set(["blocked-by-route", "route-action-failed", "unexpected-rejection"]).has(
+        browserResults[index],
+      )
+    ) return false;
+  }
+  const attempted = (result) => result !== "not-attempted";
+  const httpRecords = sentinel.probeRouteRecords.slice(0, 2);
+  if (
+    sentinel.httpProbeAttemptCount !== browserResults.slice(0, 2).filter(attempted).length
+    || sentinel.httpRouteObservedCount < httpRecords.filter(({ routeObserved }) => routeObserved).length
+    || sentinel.httpRouteBlockedCount > sentinel.httpRouteObservedCount
+    || sentinel.crossOriginClassificationCount > sentinel.httpRouteObservedCount
+    || sentinel.methodRejectedCount > sentinel.httpRouteObservedCount
+    || sentinel.bodyRejectedCount > sentinel.httpRouteObservedCount
+    || sentinel.httpRouteBlockedCount < httpRecords.filter(
+      ({ routeDecision }) => routeDecision === "blocked",
+    ).length
+    || sentinel.crossOriginClassificationCount < httpRecords.filter(
+      ({ reasonCodes }) => reasonCodes.includes("network-classification-blocked"),
+    ).length
+    || sentinel.methodRejectedCount < httpRecords.filter(
+      ({ reasonCodes }) => reasonCodes.includes("method-not-allowed"),
+    ).length
+    || sentinel.bodyRejectedCount < httpRecords.filter(
+      ({ reasonCodes }) => reasonCodes.includes("request-body-not-allowed"),
+    ).length
+    || sentinel.webSocketProbeAttemptCount !== Number(attempted(sentinel.webSocketBrowserResult))
+    || sentinel.webSocketRouteObservedCount < Number(sentinel.probeRouteRecords[2].routeObserved)
+    || sentinel.webSocketRouteBlockedCount > sentinel.webSocketRouteObservedCount
+    || sentinel.disallowedWebSocketCount > sentinel.webSocketRouteObservedCount
+    || sentinel.webSocketRouteBlockedCount < Number(
+      sentinel.probeRouteRecords[2].routeDecision === "blocked",
+    )
+    || sentinel.disallowedWebSocketCount < Number(
+      sentinel.probeRouteRecords[2].reasonCodes.includes("network-classification-blocked"),
+    )
+    || sentinel.browserNativePreblockCount !== browserResults.filter(
+      (result) => result === "native-preblock",
+    ).length
+    || (
+      browserResults.slice(0, 2).includes("unexpected-success")
+      && sentinel.httpRequestReceiptDelta === 0
+    )
+    || (
+      sentinel.webSocketBrowserResult === "unexpected-success"
+      && sentinel.webSocketUpgradeReceiptDelta === 0
+    )
+    || (sentinel.httpRequestBodyByteDelta > 0 && sentinel.httpRequestReceiptDelta === 0)
+    || (sentinel.requestBodyBlocked !== (sentinel.httpRequestBodyByteDelta === 0))
+    || (!sentinel.arbitraryOutboundHeaderBlocked && sentinel.httpRequestReceiptDelta === 0)
+    || (
+      (
+        sentinel.probeRouteRecords.some(({ routeDecision }) => new Set([
+          "block-failed", "continue-failed",
+        ]).has(routeDecision))
+        || browserResults.includes("evaluation-failed")
+      )
+      && sentinel.operationalErrorCount < 1
+    )
+  ) return false;
+  if (sentinel.firstFailedScalarAssertion !== null && (
+    !exactKeys(sentinel.firstFailedScalarAssertion, [
+      "assertionId", "scalarId", "expectedSafeValue", "actualSafeValue",
+    ])
+    || !NETWORK_SENTINEL_ASSERTION_IDS.has(sentinel.firstFailedScalarAssertion.assertionId)
+    || ![
+      ...NETWORK_SENTINEL_SCALAR_EXPECTATIONS.map(([scalarId]) => scalarId),
+      ...NETWORK_SENTINEL_RECEIVER_BASELINE_EXPECTATIONS.map(
+        ([scalarKey]) => `receiverBaseline.${scalarKey}`,
+      ),
+    ].includes(sentinel.firstFailedScalarAssertion.scalarId)
+    || !new Set(["boolean", "number", "string"]).has(
+      typeof sentinel.firstFailedScalarAssertion.expectedSafeValue,
+    )
+    || typeof sentinel.firstFailedScalarAssertion.actualSafeValue
+      !== typeof sentinel.firstFailedScalarAssertion.expectedSafeValue
+    || (typeof sentinel.firstFailedScalarAssertion.expectedSafeValue === "number" && (
+      !safeInteger(sentinel.firstFailedScalarAssertion.expectedSafeValue, 1_000_000)
+      || !safeInteger(sentinel.firstFailedScalarAssertion.actualSafeValue, 1_000_000)
+    ))
+    || (typeof sentinel.firstFailedScalarAssertion.expectedSafeValue === "string" && (
+      !NETWORK_SENTINEL_BROWSER_RESULTS.has(sentinel.firstFailedScalarAssertion.expectedSafeValue)
+      || !NETWORK_SENTINEL_BROWSER_RESULTS.has(sentinel.firstFailedScalarAssertion.actualSafeValue)
+    ))
+  )) return false;
+  if (
+    stableStringify(sentinel.firstFailedScalarAssertion) !== stableStringify(firstMismatch)
+    || sentinel.status !== (firstMismatch === null ? "PASS" : "FAIL")
+    || !SHA256.test(sentinel.matrixDigest)
+    || sentinel.matrixDigest !== sha256(
+      `${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(
+        Object.fromEntries(Object.entries(sentinel).filter(([key]) => key !== "matrixDigest")),
+      )}`,
+    )
+  ) return false;
+  if (sentinel.status === "PASS" && (
+    sentinel.receiverBaseline.tcpConnectionReceiptCount < 1
+    || sentinel.receiverBaseline.httpRequestReceiptCount !== 1
+    || sentinel.receiverBaseline.httpRequestBodyByteCount !== 0
+    || sentinel.receiverBaseline.webSocketUpgradeReceiptCount !== 0
+    || stableStringify(sentinel.probeRouteRecords) !== stableStringify([
+      {
+        probeId: "HTTP_GET", routeObserved: true, routeDecision: "blocked",
+        reasonCodes: ["network-classification-blocked"],
+      },
+      {
+        probeId: "HTTP_POST", routeObserved: true, routeDecision: "blocked",
+        reasonCodes: [
+          "method-not-allowed", "network-classification-blocked", "request-body-not-allowed",
+        ],
+      },
+      {
+        probeId: "WEBSOCKET", routeObserved: true, routeDecision: "blocked",
+        reasonCodes: ["network-classification-blocked"],
+      },
+    ])
+  )) return false;
+  if (firstMismatch !== null) {
+    return envelope.status === "FAIL"
+      && envelope.firstFailedAssertion?.assertionId === firstMismatch.assertionId
+      && envelope.firstFailedAssertion.errorCode === "ERR_ASSERTION"
+      && envelope.firstFailedAssertion.expectedDisposition === "equal"
+      && envelope.firstFailedAssertion.actualDisposition === "different";
+  }
+  return envelope.firstFailedAssertion === null
+    || !NETWORK_SENTINEL_ASSERTION_IDS.has(envelope.firstFailedAssertion.assertionId);
+}
+
 function validateNetworkSummary(summary, envelope) {
   const countKeys = [
     "blockedRequestCount", "prohibitedExternalAiRequestCount",
@@ -204,7 +831,7 @@ function validateNetworkSummary(summary, envelope) {
   ];
   return exactKeys(summary, [
     "policy", "routeInstalledBeforeNavigation", "webSocketRouteInstalledBeforeNavigation",
-    ...countKeys, "dataLeftDevice",
+    ...countKeys, "dataLeftDevice", "preNavigationSentinel",
   ])
     && summary.policy === "phase-aware-context-route-default-deny-v3"
     && typeof summary.routeInstalledBeforeNavigation === "boolean"
@@ -212,7 +839,8 @@ function validateNetworkSummary(summary, envelope) {
     && countKeys.every((key) => safeInteger(summary[key], 1_000_000))
     && typeof summary.dataLeftDevice === "boolean"
     && summary.externalRequestCount === envelope.externalRequestCount
-    && summary.dataLeftDevice === envelope.dataLeftDevice;
+    && summary.dataLeftDevice === envelope.dataLeftDevice
+    && validatePreNavigationSentinel(summary.preNavigationSentinel, envelope);
 }
 
 function validateModelSummary(summary) {
@@ -260,8 +888,9 @@ function validateFailureObjects(envelope) {
 
 function validateEnvelopeShape(envelope) {
   if (!exactKeys(envelope, ENVELOPE_KEYS)) return false;
+  const envelopeSchema = envelope.schemaVersion;
   if (
-    envelope.schemaVersion !== ENVELOPE_SCHEMA
+    envelopeSchema !== ENVELOPE_SCHEMA
     || !new Set(["PASS", "FAIL"]).has(envelope.status)
     || !ATTEMPT.test(envelope.attemptId)
     || !AUTHORIZATION.test(envelope.authorizationId)
@@ -282,14 +911,13 @@ function validateEnvelopeShape(envelope) {
     || !Array.isArray(envelope.checkpointTrail)
     || envelope.checkpointTrail.length > 32
     || !validateFailureObjects(envelope)
-    || !validateProjectionShape(envelope.projectionValidation)
+    || !validateProjectionShape(envelope.projectionValidation, envelopeSchema)
     || typeof envelope.freshBrowserContext !== "boolean"
     || !new Set([null, "wrapper-owned", "runner-created"]).has(envelope.profileOwnership)
     || (envelope.profilePathDigest !== null && !SHA256.test(envelope.profilePathDigest))
     || !["profileDisposed", "persistenceReached", "storyBibleReached", "candidateReached", "dataLeftDevice"]
       .every((key) => typeof envelope[key] === "boolean")
     || !safeInteger(envelope.externalRequestCount, 1_000_000)
-    || !safeProjection(envelope.networkSummary)
     || !safeProjection(envelope.modelSummary)
     || !safeProjection(envelope.uiSummary)
     || !validateNetworkSummary(envelope.networkSummary, envelope)
@@ -330,6 +958,13 @@ function validateEnvelopeShape(envelope) {
   if (envelope.candidateReached && !envelope.storyBibleReached) return false;
   if (envelope.persistenceReached && !envelope.candidateReached) return false;
   if (envelope.checkpointTrail.length === 0) return false;
+  if (
+    envelope.checkpointTrail[0].ordinal !== 1
+    && (
+      envelope.checkpointTrail.length !== 32
+      || envelope.checkpointTrail[0].ordinal !== previous - 31
+    )
+  ) return false;
   const completed = envelope.checkpointTrail.filter((record) => record.status === "completed").at(-1);
   return envelope.checkpointOrdinal === previous
     && envelope.gateCheckpoint === envelope.checkpointTrail.at(-1).checkpoint
@@ -339,8 +974,8 @@ function validateEnvelopeShape(envelope) {
 function envelopeSchemaFailureReason(envelope) {
   if (!exactKeys(envelope, ENVELOPE_KEYS)) return "keys";
   if (!validateFailureObjects(envelope)) return "failure";
-  if (!validateProjectionShape(envelope.projectionValidation)) return "projection";
-  if (!safeProjection(envelope.networkSummary)) return "network";
+  if (!validateProjectionShape(envelope.projectionValidation, envelope.schemaVersion)) return "projection";
+  if (!validateNetworkSummary(envelope.networkSummary, envelope)) return "network";
   if (!safeProjection(envelope.modelSummary)) return "model";
   if (!safeProjection(envelope.uiSummary)) return "ui";
   if (envelope.status === "PASS") {
@@ -1139,6 +1774,9 @@ async function runTests() {
         && child.stderr.endsWith(expectedStatus === "PASS" ? "(2s)\n" : "RC6_2_RUNNER_TERMINAL_FAIL\n")
         && !child.stderr.includes("{")
         && envelope.checkpointTrail.length <= 32
+        && (expectedStatus === "PASS"
+          ? envelope.networkSummary.preNavigationSentinel?.status === "PASS"
+          : envelope.networkSummary.preNavigationSentinel === null)
         && (name !== "I_ASSERTION"
           || envelope.firstFailedAssertion?.assertionId === "FRESH_STORAGE_EMPTY")
         && (name !== "J_PLAYWRIGHT"
@@ -1322,6 +1960,317 @@ async function runTests() {
       cwd: dirname(runner), env: runnerEnvironment(passIdentity, "PASS"),
     });
     const passEnvelope = JSON.parse(await readFile(passIdentity.envelopePath, "utf8"));
+    const validateV2Fixture = async (name, envelope, processTruth) => {
+      const dir = join(root, name);
+      await (await import("node:fs/promises")).mkdir(dir);
+      const identity = fixtureIdentity(dir);
+      const bytes = Buffer.from(stableStringify(envelope));
+      await writeFile(identity.envelopePath, bytes, { flag: "wx" });
+      await writeFile(identity.shaPath, `${sha256(bytes)}\n`, { flag: "wx" });
+      const child = await runChild(self, ["validate-envelope"], {
+        cwd: dirname(runner),
+        env: process.env,
+        stdin: stableStringify(validationInput(identity, processTruth)),
+      });
+      return {
+        child,
+        summary: JSON.parse(child.stdout),
+        validation: JSON.parse(await readFile(identity.validationPath, "utf8")),
+      };
+    };
+    const v2PassEnvelope = makeV2EnvelopeFromHistorical(passEnvelope);
+    const v2Pass = await validateV2Fixture("V2_PASS_EXACT_SENTINEL", v2PassEnvelope, passChild);
+    record("V2_PASS_EXACT_SENTINEL", v2Pass.child.exitCode === 0
+      && v2Pass.summary.validationStatus === "PASS"
+      && v2Pass.validation.validationDisposition === "VALIDATED");
+    for (const [scalarId, actualSafeValue, assertionId] of [
+      ["tcpConnectionReceiptDelta", 1, "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO"],
+      ["browserContextCount", 2, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+      ["pageCount", 2, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+      ["serviceWorkerCount", 1, "NETWORK_SENTINEL_SERVICE_WORKERS_ZERO"],
+    ]) {
+      const scalarEnvelope = makeV2ScalarFailureEnvelope(
+        v2PassEnvelope,
+        scalarId,
+        actualSafeValue,
+      );
+      const scalarResult = await validateV2Fixture(
+        `V2_SCALAR_ASSERTION_${scalarId}`,
+        scalarEnvelope,
+        baseChild,
+      );
+      record(`V2_SCALAR_ASSERTION_${scalarId}`, scalarResult.child.exitCode === 0
+        && scalarResult.summary.validationStatus === "PASS"
+        && scalarEnvelope.networkSummary.preNavigationSentinel
+          .firstFailedScalarAssertion.assertionId === assertionId
+        && scalarEnvelope.firstFailedAssertion.assertionId === assertionId);
+    }
+    const blockedTimeoutEnvelope = makeV2ScalarFailureEnvelope(
+      v2PassEnvelope,
+      "httpGetBrowserResult",
+      "timeout",
+    );
+    const blockedTimeout = await validateV2Fixture(
+      "V2_OBSERVED_BLOCKED_TIMEOUT_FAILURE_EXACT",
+      blockedTimeoutEnvelope,
+      baseChild,
+    );
+    record("V2_OBSERVED_BLOCKED_TIMEOUT_FAILURE_EXACT", blockedTimeout.child.exitCode === 0
+      && blockedTimeout.summary.validationStatus === "PASS"
+      && blockedTimeoutEnvelope.networkSummary.preNavigationSentinel
+        .probeRouteRecords[0].routeDecision === "blocked"
+      && blockedTimeoutEnvelope.networkSummary.preNavigationSentinel.httpGetBrowserResult
+        === "timeout");
+    const noRouteReceiptEnvelope = makeV2NoRouteReceiptFailureEnvelope(v2PassEnvelope);
+    const noRouteReceipt = await validateV2Fixture(
+      "V2_NO_ROUTE_UNEXPECTED_SUCCESS_RECEIPT_FAILURE_EXACT",
+      noRouteReceiptEnvelope,
+      baseChild,
+    );
+    record("V2_NO_ROUTE_UNEXPECTED_SUCCESS_RECEIPT_FAILURE_EXACT",
+      noRouteReceipt.child.exitCode === 0
+      && noRouteReceipt.summary.validationStatus === "PASS"
+      && noRouteReceiptEnvelope.networkSummary.preNavigationSentinel
+        .probeRouteRecords[0].routeDecision === "not-observed"
+      && noRouteReceiptEnvelope.networkSummary.preNavigationSentinel.httpRequestReceiptDelta === 1);
+    const bootstrapReceiverEnvelope = makeV2BootstrapReceiverFailureEnvelope(v2PassEnvelope, 2);
+    const bootstrapReceiver = await validateV2Fixture(
+      "V2_BOOTSTRAP_RECEIVER_COUNT_FAILURE_EXACT",
+      bootstrapReceiverEnvelope,
+      baseChild,
+    );
+    record("V2_BOOTSTRAP_RECEIVER_COUNT_FAILURE_EXACT", bootstrapReceiver.child.exitCode === 0
+      && bootstrapReceiver.summary.validationStatus === "PASS"
+      && bootstrapReceiverEnvelope.networkSummary.preNavigationSentinel
+        .firstFailedScalarAssertion.scalarId === "bootstrapReceiverHttpCount"
+      && bootstrapReceiverEnvelope.firstFailedAssertion.assertionId
+        === "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE");
+    for (const [scalarKey, actualSafeValue, assertionId] of [
+      ["tcpConnectionReceiptCount", 0, "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO"],
+      ["httpRequestReceiptCount", 2, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+      ["httpRequestBodyByteCount", 1, "NETWORK_SENTINEL_POST_BODY_REJECTED"],
+      ["webSocketUpgradeReceiptCount", 1, "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO"],
+    ]) {
+      const baselineEnvelope = makeV2BaselineFailureEnvelope(
+        v2PassEnvelope,
+        scalarKey,
+        actualSafeValue,
+      );
+      const baselineResult = await validateV2Fixture(
+        `V2_BASELINE_ASSERTION_${scalarKey}`,
+        baselineEnvelope,
+        baseChild,
+      );
+      record(`V2_BASELINE_ASSERTION_${scalarKey}`, baselineResult.child.exitCode === 0
+        && baselineResult.summary.validationStatus === "PASS"
+        && baselineEnvelope.networkSummary.preNavigationSentinel
+          .firstFailedScalarAssertion.assertionId === assertionId
+        && baselineEnvelope.firstFailedAssertion.assertionId === assertionId);
+    }
+    for (const [name, scalarId, actualSafeValue, applyTruth] of [
+      ["V2_DUPLICATE_HTTP_ROUTE_FAILURE_EXACT", "httpRouteObservedCount", 3, (sentinel) => {
+        sentinel.httpRouteBlockedCount = 3;
+        sentinel.crossOriginClassificationCount = 3;
+      }],
+      ["V2_DUPLICATE_WEBSOCKET_ROUTE_FAILURE_EXACT", "webSocketRouteObservedCount", 2,
+        (sentinel) => {
+          sentinel.webSocketRouteBlockedCount = 2;
+          sentinel.disallowedWebSocketCount = 2;
+        }],
+      ["V2_BLOCK_ACTION_FAILURE_EXACT", "httpRouteBlockedCount", 1, (sentinel) => {
+        sentinel.probeRouteRecords[0].routeDecision = "block-failed";
+        sentinel.httpGetBrowserResult = "route-action-failed";
+        sentinel.operationalErrorCount = 1;
+      }],
+      ["V2_CONTINUE_ACTION_FAILURE_EXACT", "httpRouteBlockedCount", 1, (sentinel) => {
+        sentinel.probeRouteRecords[0].routeDecision = "continue-failed";
+        sentinel.probeRouteRecords[0].reasonCodes = [];
+        sentinel.httpGetBrowserResult = "route-action-failed";
+        sentinel.operationalErrorCount = 1;
+      }],
+      ["V2_EVALUATION_FAILURE_EXACT", "httpGetBrowserResult", "evaluation-failed",
+        (sentinel) => { sentinel.operationalErrorCount = 1; }],
+      ["V2_LATE_OPERATIONAL_FAILURE_EXACT", "operationalErrorCount", 1, () => undefined],
+    ]) {
+      const envelope = makeV2ScalarFailureEnvelope(v2PassEnvelope, scalarId, actualSafeValue);
+      applyTruth(envelope.networkSummary.preNavigationSentinel);
+      redigestV2SentinelEnvelope(envelope);
+      const result = await validateV2Fixture(name, envelope, baseChild);
+      record(name, result.child.exitCode === 0
+        && result.summary.validationStatus === "PASS"
+        && result.validation.statusObserved === "FAIL");
+    }
+    for (const [name, applyTruth] of [
+      ["V2_BLOCK_ACTION_ZERO_OPERATIONAL_ERROR_REJECTED", (sentinel) => {
+        sentinel.probeRouteRecords[0].routeDecision = "block-failed";
+        sentinel.httpGetBrowserResult = "route-action-failed";
+      }],
+      ["V2_CONTINUE_ACTION_ZERO_OPERATIONAL_ERROR_REJECTED", (sentinel) => {
+        sentinel.probeRouteRecords[0].routeDecision = "continue-failed";
+        sentinel.probeRouteRecords[0].reasonCodes = [];
+        sentinel.httpGetBrowserResult = "route-action-failed";
+      }],
+      ["V2_EVALUATION_ZERO_OPERATIONAL_ERROR_REJECTED", (sentinel) => {
+        sentinel.httpGetBrowserResult = "evaluation-failed";
+      }],
+    ]) {
+      const envelope = makeV2ScalarFailureEnvelope(
+        v2PassEnvelope,
+        "httpGetBrowserResult",
+        name.includes("EVALUATION") ? "evaluation-failed" : "route-action-failed",
+      );
+      applyTruth(envelope.networkSummary.preNavigationSentinel);
+      redigestV2SentinelEnvelope(envelope);
+      const result = await validateV2Fixture(name, envelope, baseChild);
+      record(name, result.child.exitCode === 0
+        && result.summary.validationStatus === "FAIL"
+        && result.validation.validatorErrorCode
+          === "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID");
+    }
+    const v2TruncatedPassEnvelope = makeV2TruncatedPostSentinelEnvelope(v2PassEnvelope);
+    const v2TruncatedPass = await validateV2Fixture(
+      "V2_PASS_TRUNCATED_POST_SENTINEL_TRAIL",
+      v2TruncatedPassEnvelope,
+      passChild,
+    );
+    record("V2_PASS_TRUNCATED_POST_SENTINEL_TRAIL", v2TruncatedPass.child.exitCode === 0
+      && v2TruncatedPass.summary.validationStatus === "PASS"
+      && v2TruncatedPassEnvelope.checkpointTrail[0].ordinal > 1
+      && v2TruncatedPassEnvelope.networkSummary.preNavigationSentinel.status === "PASS");
+    const v2TruncatedOmissionEnvelope = makeV2TruncatedPostSentinelEnvelope(
+      v2PassEnvelope,
+      { omitSentinel: true },
+    );
+    const v2TruncatedOmission = await validateV2Fixture(
+      "V2_TRUNCATED_POST_SENTINEL_OMISSION_REJECTED",
+      v2TruncatedOmissionEnvelope,
+      passChild,
+    );
+    record("V2_TRUNCATED_POST_SENTINEL_OMISSION_REJECTED",
+      v2TruncatedOmission.child.exitCode === 0
+      && v2TruncatedOmission.summary.validationStatus === "FAIL"
+      && v2TruncatedOmission.validation.validatorErrorCode
+        === "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID");
+    const v2ForgedShortPrefixEnvelope = structuredClone(v2PassEnvelope);
+    v2ForgedShortPrefixEnvelope.checkpointTrail = [{
+      ordinal: 2,
+      checkpoint: "post-sentinel-forged",
+      enteredAt: v2ForgedShortPrefixEnvelope.completedAt,
+      completedAt: v2ForgedShortPrefixEnvelope.completedAt,
+      status: "completed",
+    }];
+    v2ForgedShortPrefixEnvelope.checkpointOrdinal = 2;
+    v2ForgedShortPrefixEnvelope.gateCheckpoint = "post-sentinel-forged";
+    v2ForgedShortPrefixEnvelope.lastCompletedCheckpoint = "post-sentinel-forged";
+    redigestEnvelopeValue(v2ForgedShortPrefixEnvelope);
+    const v2ForgedShortPrefix = await validateV2Fixture(
+      "V2_FORGED_SHORT_TRUNCATED_PREFIX_REJECTED",
+      v2ForgedShortPrefixEnvelope,
+      passChild,
+    );
+    record("V2_FORGED_SHORT_TRUNCATED_PREFIX_REJECTED",
+      v2ForgedShortPrefix.child.exitCode === 0
+      && v2ForgedShortPrefix.summary.validationStatus === "FAIL"
+      && v2ForgedShortPrefix.validation.validatorErrorCode
+        === "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID");
+    const v2FailureEnvelope = makeV2EnvelopeFromHistorical(passEnvelope, { failed: true });
+    const v2Failure = await validateV2Fixture("V2_SENTINEL_FAILURE_EXACT", v2FailureEnvelope, baseChild);
+    record("V2_SENTINEL_FAILURE_EXACT", v2Failure.child.exitCode === 0
+      && v2Failure.summary.validationStatus === "PASS"
+      && v2Failure.validation.statusObserved === "FAIL"
+      && v2FailureEnvelope.networkSummary.preNavigationSentinel.firstFailedScalarAssertion.scalarId
+        === "httpRouteObservedCount");
+    const v2ContinuedFailureEnvelope = makeV2EnvelopeFromHistorical(passEnvelope, {
+      failed: true,
+      continued: true,
+    });
+    const v2ContinuedFailure = await validateV2Fixture(
+      "V2_SENTINEL_CONTINUED_RECEIPT_FAILURE_EXACT",
+      v2ContinuedFailureEnvelope,
+      baseChild,
+    );
+    const continuedSentinel = v2ContinuedFailureEnvelope.networkSummary.preNavigationSentinel;
+    record("V2_SENTINEL_CONTINUED_RECEIPT_FAILURE_EXACT",
+      v2ContinuedFailure.child.exitCode === 0
+      && v2ContinuedFailure.summary.validationStatus === "PASS"
+      && v2ContinuedFailure.validation.statusObserved === "FAIL"
+      && continuedSentinel.probeRouteRecords[0].routeDecision === "continued"
+      && continuedSentinel.httpGetBrowserResult === "unexpected-success"
+      && continuedSentinel.tcpConnectionReceiptDelta === 1
+      && continuedSentinel.httpRequestReceiptDelta === 1
+      && continuedSentinel.firstFailedScalarAssertion.assertionId
+        === "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED");
+    for (const [name, source, mutate, redigestMatrix = false] of [
+      ["V2_MATRIX_DIGEST_TAMPER", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.matrixDigest = "0".repeat(64);
+      }],
+      ["V2_SCALAR_FAILURE_OMITTED", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.httpRouteObservedCount = 1;
+      }, true],
+      ["V2_ROUTE_RECORD_ORDER_TAMPER", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.probeRouteRecords.reverse();
+      }, true],
+      ["V2_COUNTER_ROUTE_CONTRADICTION", v2FailureEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.httpRouteObservedCount = 0;
+        value.networkSummary.preNavigationSentinel.firstFailedScalarAssertion.actualSafeValue = 0;
+      }, true],
+      ["V2_TOP_LEVEL_SCALAR_BINDING_TAMPER", v2FailureEnvelope, (value) => {
+        value.firstFailedAssertion.assertionId = "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED";
+      }],
+      ["V2_RAW_BOOTSTRAP_URL_REJECTED", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.bootstrapUrl = "http://127.0.0.1/forbidden";
+      }, true],
+      ["V2_SENTINEL_MISSING_AFTER_CHECKPOINT", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel = null;
+      }],
+      ["V2_CONTINUED_BLOCKED_RESULT_CONTRADICTION", v2ContinuedFailureEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.httpGetBrowserResult = "blocked-by-route";
+      }, true],
+      ["V2_CONTINUED_REASON_CONTRADICTION", v2ContinuedFailureEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.probeRouteRecords[0].reasonCodes = [
+          "network-classification-blocked",
+        ];
+      }, true],
+      ["V2_NOT_OBSERVED_SUCCESS_ZERO_RECEIPT_CONTRADICTION", v2FailureEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.httpGetBrowserResult = "unexpected-success";
+      }, true],
+      ["V2_WEBSOCKET_SUCCESS_ZERO_RECEIPT_CONTRADICTION", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.webSocketBrowserResult = "unexpected-success";
+      }, true],
+      ["V2_BOOTSTRAP_BASELINE_CONTRADICTION", v2PassEnvelope, (value) => {
+        value.networkSummary.preNavigationSentinel.receiverBaseline.httpRequestReceiptCount = 2;
+      }, true],
+      ["V2_SENTINEL_CHECKPOINT_STATUS_CONTRADICTION", v2FailureEnvelope, (value) => {
+        value.checkpointTrail.at(-1).status = "completed";
+        value.lastCompletedCheckpoint = "network-zero-receipt-sentinel";
+      }],
+    ]) {
+      const envelope = structuredClone(source);
+      mutate(envelope);
+      if (redigestMatrix && envelope.networkSummary.preNavigationSentinel !== null) {
+        const sentinelBody = Object.fromEntries(Object.entries(
+          envelope.networkSummary.preNavigationSentinel,
+        ).filter(([key]) => key !== "matrixDigest"));
+        envelope.networkSummary.preNavigationSentinel.matrixDigest = sha256(
+          `${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(sentinelBody)}`,
+        );
+      }
+      redigestEnvelopeValue(envelope);
+      const result = await validateV2Fixture(name, envelope, envelope.status === "PASS" ? passChild : baseChild);
+      record(name, result.child.exitCode === 0
+        && result.summary.validationStatus === "FAIL"
+        && result.validation.validatorErrorCode === "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID");
+    }
+    const v1Downgrade = structuredClone(v2PassEnvelope);
+    v1Downgrade.schemaVersion = "p24b-rc6.2-formal-runner-terminal-envelope-v1";
+    v1Downgrade.projectionValidation.schemaExpected = v1Downgrade.schemaVersion;
+    v1Downgrade.projectionValidation.schemaObserved = v1Downgrade.schemaVersion;
+    delete v1Downgrade.networkSummary.preNavigationSentinel;
+    redigestEnvelopeValue(v1Downgrade);
+    const downgrade = await validateV2Fixture("V1_RUNTIME_DOWNGRADE_REJECTED", v1Downgrade, passChild);
+    record("V1_RUNTIME_DOWNGRADE_REJECTED", downgrade.child.exitCode === 0
+      && downgrade.summary.validationStatus === "FAIL"
+      && downgrade.validation.validatorErrorCode === "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID");
     for (const [name, mutate] of [
       ["PASS_FRESH_CONTEXT_FALSE", (value) => { value.freshBrowserContext = false; }],
       ["PASS_PROFILE_NOT_DISPOSED", (value) => { value.profileDisposed = false; }],

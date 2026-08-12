@@ -443,7 +443,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 9
+          fetch-depth: 10
           persist-credentials: false
 
       - name: Enforce exact read-only LKG audit policy
@@ -469,6 +469,12 @@ jobs:
           EXPECTED_OPERATION: audit-rc6-2-last-known-good
           BROWSER_GATE_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json
         run: node scripts/run-rc6-2-production-browser-gate-contract.mjs write-audit-control-proof
+
+      - name: Validate exact C9 read-only audit control proof
+        if: inputs.operation == 'audit-rc6-2-last-known-good'
+        env:
+          BROWSER_GATE_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json
+        run: node scripts/run-pr23-r21-workflow-contract.mjs validate-audit-control-proof
 
       - name: Discover exact prior RC6.1 Last Known Good artifact
         id: lkg

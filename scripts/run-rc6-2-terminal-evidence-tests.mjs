@@ -27,6 +27,7 @@ import {
 } from "./rc6-2-terminal-evidence.mjs";
 
 const CONTROL_COMMIT = "b326c2fc9925798ffbc750ae37db847f0c8b5625";
+const C8_CONTROL_COMMIT = "04e78268cfcfeaeffdc72b603d0700944c7142e7";
 const TEST_ROOT_PREFIX = "novel-rc6-2-terminal-tests-";
 const MODULE_PATH = fileURLToPath(new URL("./rc6-2-terminal-evidence.mjs", import.meta.url));
 const MODE = process.argv[2] ?? "all";
@@ -148,7 +149,13 @@ async function createPassFixture(root, seed) {
 test("terminal stub simulations and both precheck receipt states produce manifest and SHA", async (root) => {
   const expected = new Map([
     ["PASS", ["TERMINAL_PASS", "PASS"]],
+    ["PASS_TRUNCATED_SENTINEL_TRAIL", ["TERMINAL_PASS", "PASS"]],
     ["FAIL", ["TERMINAL_FAIL", "FAIL"]],
+    ["NETWORK_SENTINEL_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["NETWORK_SENTINEL_CONTINUED_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["NETWORK_SENTINEL_BLOCKED_TIMEOUT_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["NETWORK_SENTINEL_BYPASS_RECEIPT_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["NETWORK_SENTINEL_BASELINE_BODY_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
     ["POST_RUN_CAS_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
     ["RUNNER_CRASH", ["TERMINAL_ABORTED", "ABORTED"]],
     ["BROWSER_LAUNCH_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
@@ -208,7 +215,13 @@ test("terminal stub simulations and both precheck receipt states produce manifes
       }
       assert.equal(validationRecord.present, true);
     }
-    if (new Set(["PASS", "FAIL", "POST_RUN_CAS_FAILURE"]).has(scenario)) {
+    if (new Set([
+      "PASS", "PASS_TRUNCATED_SENTINEL_TRAIL", "FAIL", "NETWORK_SENTINEL_FAILURE",
+      "NETWORK_SENTINEL_CONTINUED_FAILURE",
+      "NETWORK_SENTINEL_BLOCKED_TIMEOUT_FAILURE", "NETWORK_SENTINEL_BYPASS_RECEIPT_FAILURE",
+      "NETWORK_SENTINEL_BASELINE_BODY_FAILURE",
+      "POST_RUN_CAS_FAILURE",
+    ]).has(scenario)) {
       const envelope = await readJson(join(simulation.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE));
       const validation = await readJson(join(simulation.bundleDirectory, RUNNER_ENVELOPE_VALIDATION_FILE));
       assert.equal(validation.validationDisposition, "VALIDATED");
@@ -223,6 +236,74 @@ test("terminal stub simulations and both precheck receipt states produce manifes
         assert.equal(envelope.lastCompletedCheckpoint, "launch");
         assert.equal(envelope.firstFailedOperation.operationId, "read-edge-identity");
         assert.equal(envelope.firstFailedAssertion.assertionId, "EDGE_CONTEXT_SINGLE_PAGE");
+      } else if (scenario === "NETWORK_SENTINEL_FAILURE") {
+        assert.equal(envelope.gateCheckpoint, "network-zero-receipt-sentinel");
+        assert.equal(envelope.lastCompletedCheckpoint, "edge-identity");
+        assert.equal(
+          envelope.firstFailedAssertion.assertionId,
+          "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+        );
+        assert.equal(envelope.networkSummary.preNavigationSentinel.status, "FAIL");
+        assert.deepEqual(
+          envelope.networkSummary.preNavigationSentinel.firstFailedScalarAssertion,
+          {
+            assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+            scalarId: "httpRouteObservedCount",
+            expectedSafeValue: 2,
+            actualSafeValue: 1,
+          },
+        );
+        assert.equal(validation.validationDisposition, "VALIDATED");
+        assert.equal(simulation.validation.formalPass, false);
+      } else if (scenario === "NETWORK_SENTINEL_CONTINUED_FAILURE") {
+        const sentinel = envelope.networkSummary.preNavigationSentinel;
+        assert.equal(envelope.gateCheckpoint, "network-zero-receipt-sentinel");
+        assert.equal(envelope.firstFailedAssertion.assertionId, "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED");
+        assert.equal(sentinel.status, "FAIL");
+        assert.equal(sentinel.probeRouteRecords[0].routeObserved, true);
+        assert.equal(sentinel.probeRouteRecords[0].routeDecision, "continued");
+        assert.deepEqual(sentinel.probeRouteRecords[0].reasonCodes, []);
+        assert.equal(sentinel.httpGetBrowserResult, "unexpected-success");
+        assert.equal(sentinel.tcpConnectionReceiptDelta, 1);
+        assert.equal(sentinel.httpRequestReceiptDelta, 1);
+        assert.deepEqual(sentinel.firstFailedScalarAssertion, {
+          assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED",
+          scalarId: "httpRouteBlockedCount",
+          expectedSafeValue: 2,
+          actualSafeValue: 1,
+        });
+        assert.equal(simulation.validation.formalPass, false);
+      } else if (scenario === "NETWORK_SENTINEL_BLOCKED_TIMEOUT_FAILURE") {
+        const sentinel = envelope.networkSummary.preNavigationSentinel;
+        assert.equal(sentinel.probeRouteRecords[0].routeObserved, true);
+        assert.equal(sentinel.probeRouteRecords[0].routeDecision, "blocked");
+        assert.equal(sentinel.httpGetBrowserResult, "timeout");
+        assert.deepEqual(sentinel.firstFailedScalarAssertion, {
+          assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED",
+          scalarId: "httpGetBrowserResult",
+          expectedSafeValue: "blocked-by-route",
+          actualSafeValue: "timeout",
+        });
+      } else if (scenario === "NETWORK_SENTINEL_BYPASS_RECEIPT_FAILURE") {
+        const sentinel = envelope.networkSummary.preNavigationSentinel;
+        assert.equal(sentinel.probeRouteRecords[0].routeObserved, false);
+        assert.equal(sentinel.probeRouteRecords[0].routeDecision, "not-observed");
+        assert.equal(sentinel.httpGetBrowserResult, "unexpected-success");
+        assert.equal(sentinel.tcpConnectionReceiptDelta, 1);
+        assert.equal(sentinel.httpRequestReceiptDelta, 1);
+      } else if (scenario === "NETWORK_SENTINEL_BASELINE_BODY_FAILURE") {
+        const sentinel = envelope.networkSummary.preNavigationSentinel;
+        assert.equal(sentinel.receiverBaseline.httpRequestBodyByteCount, 1);
+        assert.deepEqual(sentinel.firstFailedScalarAssertion, {
+          assertionId: "NETWORK_SENTINEL_POST_BODY_REJECTED",
+          scalarId: "receiverBaseline.httpRequestBodyByteCount",
+          expectedSafeValue: 0,
+          actualSafeValue: 1,
+        });
+        assert.equal(
+          envelope.firstFailedAssertion.assertionId,
+          "NETWORK_SENTINEL_POST_BODY_REJECTED",
+        );
       } else {
         assert.equal(envelope.freshBrowserContext, true);
         assert.equal(envelope.profileDisposed, true);
@@ -233,6 +314,17 @@ test("terminal stub simulations and both precheck receipt states produce manifes
         assert.equal(envelope.dataLeftDevice, false);
         assert.equal(envelope.projectionValidation.detailedProjectionAvailable, true);
         assert.equal(envelope.projectionValidation.minimalProjectionUsed, false);
+        if (scenario === "PASS_TRUNCATED_SENTINEL_TRAIL") {
+          assert.equal(envelope.checkpointTrail.length, 32);
+          assert.ok(envelope.checkpointTrail[0].ordinal > 1);
+          assert.equal(
+            envelope.checkpointTrail.some(
+              ({ checkpoint }) => checkpoint === "network-zero-receipt-sentinel",
+            ),
+            false,
+          );
+          assert.equal(envelope.networkSummary.preNavigationSentinel.status, "PASS");
+        }
       }
     }
     if (new Set(["EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE"]).has(scenario)) {
@@ -304,6 +396,117 @@ test("terminal stub simulations and both precheck receipt states produce manifes
       assert.equal(toolchainRecord.present, true);
     }
   }
+}, ["simulations"]);
+
+test("historical v1 runner envelope is accepted only for exact C8 lineage", async (root) => {
+  const historical = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "C8_HISTORICAL_V1",
+    controlCommit: C8_CONTROL_COMMIT,
+    seed: "c8-historical-v1",
+  });
+  assert.equal(historical.validation.status, "PASS");
+  assert.equal(historical.validation.formalPass, false);
+  const envelope = await readJson(join(historical.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE));
+  assert.equal(envelope.schemaVersion, "p24b-rc6.2-formal-runner-terminal-envelope-v1");
+  assert.equal(envelope.controlCommit, C8_CONTROL_COMMIT);
+  assert.equal(Object.hasOwn(envelope.networkSummary, "preNavigationSentinel"), false);
+  await assert.rejects(
+    simulateFormalProductionBrowserTerminalEvidence({
+      rootDirectory: root,
+      scenario: "V1_DOWNGRADE_NON_C8",
+      controlCommit: CONTROL_COMMIT,
+      seed: "v1-downgrade-non-c8",
+    }),
+    (error) => error instanceof TerminalEvidenceError
+      && error.code === "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+      && error.causeCode === "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  );
+  await assert.rejects(
+    simulateFormalProductionBrowserTerminalEvidence({
+      rootDirectory: root,
+      scenario: "C8_HISTORICAL_V1_C9_ASSERTION_INVALID",
+      controlCommit: C8_CONTROL_COMMIT,
+      seed: "c8-historical-v1-c9-assertion-invalid",
+    }),
+    (error) => error instanceof TerminalEvidenceError
+      && error.code === "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+      && error.causeCode === "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  );
+}, ["simulations"]);
+
+test("fully rebound sentinel contradictions are rejected before terminal publication", async (root) => {
+  for (const scenario of [
+    "SENTINEL_REBOUND_COUNTER_INVALID",
+    "SENTINEL_REBOUND_ROUTE_ORDER_INVALID",
+    "SENTINEL_REBOUND_TOP_BINDING_INVALID",
+    "SENTINEL_REBOUND_BLOCK_FAILED_ZERO_OPERATIONAL_INVALID",
+    "SENTINEL_REBOUND_CONTINUE_FAILED_ZERO_OPERATIONAL_INVALID",
+    "SENTINEL_REBOUND_EVALUATION_ZERO_OPERATIONAL_INVALID",
+    "SENTINEL_REBOUND_CONTINUED_BLOCKED_RESULT_INVALID",
+    "SENTINEL_REBOUND_CONTINUED_REASON_INVALID",
+    "SENTINEL_REBOUND_NOT_OBSERVED_SUCCESS_INVALID",
+    "SENTINEL_REBOUND_CHECKPOINT_STATUS_INVALID",
+  ]) {
+    await assert.rejects(
+      simulateFormalProductionBrowserTerminalEvidence({
+        rootDirectory: root,
+        scenario,
+        controlCommit: CONTROL_COMMIT,
+        seed: `fully-rebound-${scenario}`,
+      }),
+      (error) => error instanceof TerminalEvidenceError
+        && error.code === "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+        && error.causeCode === "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+      scenario,
+    );
+  }
+  const baselineFailure = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "SENTINEL_REBOUND_BASELINE_INVALID",
+    controlCommit: CONTROL_COMMIT,
+    seed: "fully-rebound-SENTINEL_REBOUND_BASELINE_INVALID",
+  });
+  assert.equal(baselineFailure.validation.status, "PASS");
+  assert.equal(baselineFailure.validation.formalPass, false);
+  assert.equal(baselineFailure.validation.attemptState, "TERMINAL_FAIL");
+}, ["simulations"]);
+
+test("truncated post-sentinel trail retains matrix and rejects omission", async (root) => {
+  const laterFailure = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "POST_SENTINEL_FAIL_TRUNCATED_TRAIL",
+    controlCommit: CONTROL_COMMIT,
+    seed: "post-sentinel-later-failure",
+  });
+  assert.equal(laterFailure.validation.status, "PASS");
+  assert.equal(laterFailure.validation.formalPass, false);
+  const envelope = await readJson(join(laterFailure.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE));
+  assert.ok(envelope.checkpointTrail[0].ordinal > 1);
+  assert.equal(envelope.networkSummary.preNavigationSentinel.status, "PASS");
+  assert.equal(envelope.firstFailedAssertion.assertionId, "FRESH_STORAGE_EMPTY");
+  await assert.rejects(
+    simulateFormalProductionBrowserTerminalEvidence({
+      rootDirectory: root,
+      scenario: "POST_SENTINEL_FAIL_TRUNCATED_TRAIL_NULL",
+      controlCommit: CONTROL_COMMIT,
+      seed: "post-sentinel-later-failure-null",
+    }),
+    (error) => error instanceof TerminalEvidenceError
+      && error.code === "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+      && error.causeCode === "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  );
+  await assert.rejects(
+    simulateFormalProductionBrowserTerminalEvidence({
+      rootDirectory: root,
+      scenario: "PASS_FORGED_SHORT_PREFIX_INVALID",
+      controlCommit: CONTROL_COMMIT,
+      seed: "post-sentinel-forged-short-prefix",
+    }),
+    (error) => error instanceof TerminalEvidenceError
+      && error.code === "TERMINAL_EVIDENCE_FINALIZATION_FAILED"
+      && error.causeCode === "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  );
 }, ["simulations"]);
 
 test("post-run terminal failure rejects runner-failure substitution for durable runner PASS", async (root) => {
@@ -1098,9 +1301,84 @@ const mutations = [
       value.checkpointOrdinal = 0;
     }),
   },
+  {
+    name: "82 PASS envelope pre-navigation sentinel missing",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.preNavigationSentinel = null;
+    }),
+  },
+  {
+    name: "83 sentinel raw URL field rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.preNavigationSentinel.bootstrapUrl = "http://127.0.0.1/forbidden";
+    }),
+  },
+  {
+    name: "84 sentinel matrix digest tamper rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.preNavigationSentinel.matrixDigest = "0".repeat(64);
+    }),
+  },
+  {
+    name: "85 sentinel scalar tamper without matrix redigest rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.preNavigationSentinel.httpRouteObservedCount = 1;
+    }),
+  },
+  {
+    name: "86 sentinel first scalar mismatch omission rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      const sentinel = value.networkSummary.preNavigationSentinel;
+      sentinel.httpRouteObservedCount = 1;
+      const matrixBody = { ...sentinel };
+      delete matrixBody.matrixDigest;
+      sentinel.matrixDigest = sha256Hex(Buffer.from(
+        `${sentinel.schemaVersion}\n${canonical(matrixBody)}`,
+        "utf8",
+      ));
+    }),
+  },
+  {
+    name: "87 sentinel false first scalar assertion rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      const sentinel = value.networkSummary.preNavigationSentinel;
+      sentinel.firstFailedScalarAssertion = {
+        assertionId: "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+        scalarId: "httpRouteObservedCount",
+        expectedSafeValue: 2,
+        actualSafeValue: 1,
+      };
+      const matrixBody = { ...sentinel };
+      delete matrixBody.matrixDigest;
+      sentinel.matrixDigest = sha256Hex(Buffer.from(
+        `${sentinel.schemaVersion}\n${canonical(matrixBody)}`,
+        "utf8",
+      ));
+    }),
+  },
+  {
+    name: "88 sentinel scalar unsafe type rejected",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.preNavigationSentinel.httpRequestReceiptDelta = "0";
+    }),
+  },
 ];
 
-test("81-item negative mutation matrix rejects every mutation", async (root) => {
+test("88-item negative mutation matrix rejects every mutation", async (root) => {
   const passSource = await createPassFixture(root, "mutation-source-pass");
   const failSource = await simulateFormalProductionBrowserTerminalEvidence({
     rootDirectory: root,
@@ -1108,7 +1386,7 @@ test("81-item negative mutation matrix rejects every mutation", async (root) => 
     controlCommit: CONTROL_COMMIT,
     seed: "mutation-source-fail",
   });
-  assert.equal(mutations.length, 81);
+  assert.equal(mutations.length, 88);
   for (const [index, mutation] of mutations.entries()) {
     const source = mutation.fixture === "pass"
       ? passSource
@@ -1152,7 +1430,7 @@ try {
   await rm(root, { recursive: true, force: true });
 }
 
-if (MODE === "all" || MODE === "mutations") assert.equal(mutationResults.length, 81);
+if (MODE === "all" || MODE === "mutations") assert.equal(mutationResults.length, 88);
 assert.equal(results.filter(({ status }) => status !== "PASS").length, 0);
 process.stdout.write(`${JSON.stringify({
   schemaVersion: "p24b-rc6.2-terminal-evidence-tests-v1",
@@ -1162,7 +1440,12 @@ process.stdout.write(`${JSON.stringify({
   mutationCount: mutationResults.length,
   blockingSkipCount: 0,
   simulations: [
-    "PASS", "FAIL", "POST_RUN_CAS_FAILURE", "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE",
+    "PASS", "PASS_TRUNCATED_SENTINEL_TRAIL", "FAIL", "NETWORK_SENTINEL_FAILURE",
+    "NETWORK_SENTINEL_CONTINUED_FAILURE",
+    "NETWORK_SENTINEL_BLOCKED_TIMEOUT_FAILURE", "NETWORK_SENTINEL_BYPASS_RECEIPT_FAILURE",
+    "NETWORK_SENTINEL_BASELINE_BODY_FAILURE",
+    "POST_RUN_CAS_FAILURE", "RUNNER_CRASH",
+    "BROWSER_LAUNCH_FAILURE",
     "RUNNER_START_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE", "EARLY_RUNNER_INVALID_ENVELOPE",
     "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
     "PRECHECK_FAIL", "PRECHECK_FAIL_AFTER_RECEIPT",

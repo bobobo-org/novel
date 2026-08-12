@@ -31,11 +31,14 @@ import {
 Error.stackTraceLimit = 0;
 
 const mode = process.argv[2] ?? "generation";
-if (!new Set(["setup", "generation", "all"]).has(mode)) {
+const networkSentinelOnly = mode === "network-sentinel-only";
+if (!new Set(["setup", "generation", "all", "network-sentinel-only"]).has(mode)) {
   throw new Error("RC6_2_CLOSED_AI_UNKNOWN_MODE");
 }
 
-const configuredOrigin = process.env.RC6_2_CLOSED_AI_BASE_URL?.trim();
+const configuredOrigin = networkSentinelOnly
+  ? "https://network-sentinel.invalid"
+  : process.env.RC6_2_CLOSED_AI_BASE_URL?.trim();
 if (!configuredOrigin) {
   throw new Error("RC6_2_CLOSED_AI_BASE_URL_REQUIRED");
 }
@@ -53,15 +56,22 @@ if (
   throw new Error("RC6_2_CLOSED_AI_EXACT_HTTPS_ORIGIN_REQUIRED");
 }
 
-const expectedCommit = process.env.EXPECTED_COMMIT?.trim();
+const expectedCommit = networkSentinelOnly
+  ? "0".repeat(40)
+  : process.env.EXPECTED_COMMIT?.trim();
 if (!expectedCommit || !/^[a-f0-9]{40}$/u.test(expectedCommit)) {
   throw new Error("EXPECTED_COMMIT_REQUIRED");
 }
-const expectedDeploymentId = process.env.EXPECTED_DEPLOYMENT_ID?.trim();
+const expectedDeploymentId = networkSentinelOnly
+  ? "network-sentinel-only"
+  : process.env.EXPECTED_DEPLOYMENT_ID?.trim();
 if (!expectedDeploymentId) {
   throw new Error("EXPECTED_DEPLOYMENT_ID_REQUIRED");
 }
-const configuredEdgeExecutable = process.env.RC6_2_CLOSED_AI_EDGE_EXECUTABLE?.trim();
+const configuredEdgeExecutable = process.env.RC6_2_CLOSED_AI_EDGE_EXECUTABLE?.trim()
+  || (networkSentinelOnly && process.platform === "win32"
+    ? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    : "");
 if (!configuredEdgeExecutable) {
   throw new Error("RC6_2_CLOSED_AI_EDGE_EXECUTABLE_REQUIRED");
 }
@@ -99,6 +109,9 @@ const formalAttemptValues = [
   formalRunnerEnvelopeShaPath,
 ];
 const formalAttemptEnabled = formalAttemptValues.some(Boolean);
+if (networkSentinelOnly) {
+  assert.equal(formalAttemptEnabled, false, "sentinel-only mode forbids formal attempt state");
+}
 if (formalAttemptEnabled) {
   assert.equal(formalAttemptValues.every(Boolean), true, "formal attempt configuration incomplete");
   assert.equal(isAbsolute(formalAttemptDirectory), true, "formal attempt directory was not absolute");
@@ -170,9 +183,15 @@ let disallowedWebSocketAttemptCount = 0;
 let webSocketServerConnectionCount = 0;
 let observedPreviewToolbarWebSocketAttemptCount = 0;
 let blockedPreviewToolbarWebSocketAttemptCount = 0;
+let sentinelBootstrapActive = false;
+let sentinelBootstrapUrl = null;
+let sentinelBootstrapConsumed = false;
+let sentinelBootstrapAllowedCount = 0;
+let sentinelProbeState = null;
+const pendingSentinelRouteActions = new Set();
 
 const RUNNER_TERMINAL_ENVELOPE_SCHEMA_VERSION =
-  "p24b-rc6.2-formal-runner-terminal-envelope-v1";
+  "p24b-rc6.2-formal-runner-terminal-envelope-v2";
 const RUNNER_ENVELOPE_MAX_CHECKPOINTS = 32;
 const RUNNER_ENVELOPE_MAX_BYTES = 131_072;
 const RUNNER_ENVELOPE_FAILURE_SHAPES = new Set([
@@ -208,6 +227,23 @@ const RUNNER_ENVELOPE_ASSERTION_IDS = new Set([
   "EDGE_CONTEXT_SINGLE_PAGE",
   "EDGE_INITIAL_PAGE_ABOUT_BLANK",
   "NETWORK_SENTINEL_ZERO_EGRESS",
+  "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE",
+  "NETWORK_SENTINEL_BOOTSTRAP_DISABLED",
+  "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED",
+  "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED",
+  "NETWORK_SENTINEL_POST_METHOD_REJECTED",
+  "NETWORK_SENTINEL_POST_BODY_REJECTED",
+  "NETWORK_SENTINEL_WEBSOCKET_ROUTE_OBSERVED",
+  "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED",
+  "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO",
+  "NETWORK_SENTINEL_RECEIVER_HTTP_DELTA_ZERO",
+  "NETWORK_SENTINEL_RECEIVER_BODY_DELTA_ZERO",
+  "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO",
+  "NETWORK_SENTINEL_RETURNED_TO_ABOUT_BLANK",
+  "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE",
+  "NETWORK_SENTINEL_SERVICE_WORKERS_ZERO",
+  "NETWORK_SENTINEL_OPERATION_COMPLETED",
+  "NETWORK_SENTINEL_COUNTERS_RESET",
   "RELEASE_IDENTITY_EXACT",
   "FRESH_STORAGE_EMPTY",
   "PROJECT_CREATED",
@@ -238,6 +274,72 @@ const RUNNER_ENVELOPE_KEYS = Object.freeze([
   "profileDisposed", "networkSummary", "modelSummary", "uiSummary", "persistenceReached",
   "storyBibleReached", "candidateReached", "externalRequestCount", "dataLeftDevice",
   "envelopeDigest",
+]);
+const NETWORK_SENTINEL_SCHEMA = "p24b-rc6.2-network-zero-receipt-v2";
+const NETWORK_SENTINEL_SCALAR_EXPECTATIONS = Object.freeze([
+  ["bootstrapAllowedCount", 1, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapReceiverHttpCount", 1, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapConsumed", true, "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE"],
+  ["bootstrapExceptionDisabledBeforeProbes", true, "NETWORK_SENTINEL_BOOTSTRAP_DISABLED"],
+  ["httpProbeAttemptCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["httpRouteObservedCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["httpRouteBlockedCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["crossOriginClassificationCount", 2, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["methodRejectedCount", 1, "NETWORK_SENTINEL_POST_METHOD_REJECTED"],
+  ["bodyRejectedCount", 1, "NETWORK_SENTINEL_POST_BODY_REJECTED"],
+  ["webSocketProbeAttemptCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_OBSERVED"],
+  ["webSocketRouteObservedCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_OBSERVED"],
+  ["webSocketRouteBlockedCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["disallowedWebSocketCount", 1, "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["browserNativePreblockCount", 0, "NETWORK_SENTINEL_HTTP_ROUTE_OBSERVED"],
+  ["tcpConnectionReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO"],
+  ["httpRequestReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_HTTP_DELTA_ZERO"],
+  ["httpRequestBodyByteDelta", 0, "NETWORK_SENTINEL_RECEIVER_BODY_DELTA_ZERO"],
+  ["webSocketUpgradeReceiptDelta", 0, "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO"],
+  ["arbitraryOutboundHeaderBlocked", true, "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["requestBodyBlocked", true, "NETWORK_SENTINEL_POST_BODY_REJECTED"],
+  ["httpGetBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["httpPostBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_HTTP_ROUTE_BLOCKED"],
+  ["webSocketBrowserResult", "blocked-by-route", "NETWORK_SENTINEL_WEBSOCKET_ROUTE_BLOCKED"],
+  ["operationalErrorCount", 0, "NETWORK_SENTINEL_OPERATION_COMPLETED"],
+  ["pageReturnedToAboutBlank", true, "NETWORK_SENTINEL_RETURNED_TO_ABOUT_BLANK"],
+  ["browserContextCount", 1, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+  ["pageCount", 1, "NETWORK_SENTINEL_CONTEXT_SINGLE_PAGE"],
+  ["serviceWorkerCount", 0, "NETWORK_SENTINEL_SERVICE_WORKERS_ZERO"],
+  ["receiverClosed", true, "NETWORK_SENTINEL_RECEIVER_HTTP_DELTA_ZERO"],
+  ["bootstrapSecretsCleared", true, "NETWORK_SENTINEL_BOOTSTRAP_DISABLED"],
+  ["productPolicyCountersZero", true, "NETWORK_SENTINEL_COUNTERS_RESET"],
+  ["sentinelCountersReset", true, "NETWORK_SENTINEL_COUNTERS_RESET"],
+]);
+const NETWORK_SENTINEL_PROBE_SPECS = Object.freeze([
+  Object.freeze({
+    probeId: "HTTP_GET",
+    method: "GET",
+    reasonCodes: Object.freeze(["network-classification-blocked"]),
+  }),
+  Object.freeze({
+    probeId: "HTTP_POST",
+    method: "POST",
+    reasonCodes: Object.freeze([
+      "method-not-allowed",
+      "network-classification-blocked",
+      "request-body-not-allowed",
+    ]),
+  }),
+  Object.freeze({
+    probeId: "WEBSOCKET",
+    method: null,
+    reasonCodes: Object.freeze(["network-classification-blocked"]),
+  }),
+]);
+const NETWORK_SENTINEL_HEADER_NAME = "x-network-sentinel";
+const NETWORK_SENTINEL_HEADER_VALUE = "finite";
+const NETWORK_SENTINEL_BODY_VALUE = "finite-network-sentinel-body";
+const NETWORK_SENTINEL_WEBSOCKET_PROTOCOL = "network-sentinel-v2";
+const NETWORK_SENTINEL_BOOTSTRAP_PREFIX = "/network-sentinel-bootstrap/";
+const NETWORK_SENTINEL_NONCE = /^[a-f0-9]{32}$/u;
+const NETWORK_SENTINEL_CREDENTIAL_HEADERS = new Set([
+  "authorization", "cookie", "cookie2", "proxy-authorization",
 ]);
 const runnerEnvelopeStartedAt = new Date().toISOString();
 const runnerCheckpointTrail = [];
@@ -389,7 +491,7 @@ const UUID_V4 = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9
 const NEXT_RSC_TOKEN = /^[A-Za-z0-9_-]{1,64}$/u;
 const PROFILE_NAME = /^novel-rc6-2-edge-[A-Za-z0-9][A-Za-z0-9-]{4,62}[A-Za-z0-9]$/u;
 
-if (expectedCommit !== PRODUCT_STATIC_ASSET_MANIFEST_COMMIT) {
+if (!networkSentinelOnly && expectedCommit !== PRODUCT_STATIC_ASSET_MANIFEST_COMMIT) {
   throw new Error("RC6_2_CLOSED_AI_PRODUCT_STATIC_MANIFEST_COMMIT_MISMATCH");
 }
 
@@ -859,11 +961,45 @@ async function requestRouteDecision(request) {
     };
   }
   const parsedUrl = parsedRequestUrl(urlValue);
+  const normalizedMethod = request.method().toUpperCase();
+  if (
+    requestPhase === "bootstrap"
+    && sentinelBootstrapActive
+    && sentinelBootstrapUrl !== null
+    && !sentinelBootstrapConsumed
+    && urlValue === sentinelBootstrapUrl
+    && normalizedMethod === "GET"
+    && request.resourceType() === "document"
+    && request.postDataBuffer() === null
+    && parsedUrl?.username === ""
+    && parsedUrl.password === ""
+    && request.redirectedFrom() === null
+    && parsedUrl.search === ""
+    && parsedUrl.hash === ""
+  ) {
+    const credentialHeaderCount = (await request.headersArray()).filter((header) => (
+      NETWORK_SENTINEL_CREDENTIAL_HEADERS.has(header.name.toLowerCase())
+    )).length;
+    if (
+      credentialHeaderCount === 0
+      && requestPhase === "bootstrap"
+      && sentinelBootstrapActive
+      && !sentinelBootstrapConsumed
+      && urlValue === sentinelBootstrapUrl
+    ) {
+      return {
+        action: "continue-bootstrap",
+        classification: "blocked",
+        method: "GET",
+        reasonCodes: [],
+        sanitizedHeaders: { accept: "text/html" },
+      };
+    }
+  }
   const localScheme = isAllowedLocalNonNetworkRequest(parsedUrl);
   const classification = localScheme
     ? "local-scheme"
     : requestNetworkClassification(request);
-  const normalizedMethod = request.method().toUpperCase();
   const methodAllowed = ALLOWED_REQUEST_METHODS.has(normalizedMethod);
   const prohibitedExternalAi = isProhibitedExternalAi(urlValue);
   const classificationAllowed = ALLOWED_REQUEST_CLASSIFICATIONS.has(classification);
@@ -950,6 +1086,41 @@ function isPreviewToolbarWebSocket(urlValue) {
 }
 
 async function routeClosedAiWebSocket(webSocketRoute) {
+  const probeState = sentinelProbeState;
+  if (
+    probeState !== null
+    && webSocketRoute.url() === probeState.webSocketUrl
+  ) {
+    probeState.webSocketRouteObservationCount += 1;
+    probeState.disallowedWebSocketCount += 1;
+    probeState.probeRouteRecords[2] = {
+      probeId: "WEBSOCKET",
+      routeObserved: true,
+      routeDecision: "not-observed",
+      reasonCodes: [],
+    };
+    const action = webSocketRoute.close({ code: 1008, reason: "closed-ai-network-policy" })
+      .then(() => {
+        probeState.webSocketRouteBlockedCount += 1;
+        probeState.probeRouteRecords[2] = {
+          probeId: "WEBSOCKET",
+          routeObserved: true,
+          routeDecision: "blocked",
+          reasonCodes: ["network-classification-blocked"],
+        };
+      }, (error) => {
+        probeState.probeRouteRecords[2] = {
+          probeId: "WEBSOCKET",
+          routeObserved: true,
+          routeDecision: "block-failed",
+          reasonCodes: ["network-classification-blocked"],
+        };
+        probeState.routeActionErrors.push(error);
+      });
+    pendingSentinelRouteActions.add(action);
+    await action.finally(() => pendingSentinelRouteActions.delete(action));
+    return;
+  }
   const projection = safeNetworkTargetProjection(webSocketRoute.url());
   observedWebSocketAttemptCount += 1;
   blockedWebSocketAttemptCount += 1;
@@ -967,6 +1138,87 @@ async function routeClosedAiWebSocket(webSocketRoute) {
 async function routeClosedAiRequest(route) {
   const request = route.request();
   const decision = await requestRouteDecision(request);
+  if (decision.action === "continue-bootstrap") {
+    if (
+      !sentinelBootstrapActive
+      || sentinelBootstrapConsumed
+      || request.url() !== sentinelBootstrapUrl
+    ) throw gateError("RC6_2_NETWORK_SENTINEL_BOOTSTRAP_RACE");
+    sentinelBootstrapConsumed = true;
+    sentinelBootstrapAllowedCount += 1;
+    await route.continue({ headers: decision.sanitizedHeaders });
+    return;
+  }
+  if (sentinelProbeState !== null) {
+    const probeState = sentinelProbeState;
+    const probeIndex = request.url() === sentinelProbeState.httpGetUrl
+      ? 0
+      : request.url() === sentinelProbeState.httpPostUrl
+        ? 1
+        : -1;
+    if (probeIndex !== -1) {
+      const probeId = probeIndex === 0 ? "HTTP_GET" : "HTTP_POST";
+      probeState.httpRouteObservationCount += 1;
+      if (decision.reasonCodes.includes("network-classification-blocked")) {
+        probeState.crossOriginClassificationCount += 1;
+      }
+      if (decision.reasonCodes.includes("method-not-allowed")) {
+        probeState.methodRejectedCount += 1;
+      }
+      if (decision.reasonCodes.includes("request-body-not-allowed")) {
+        probeState.bodyRejectedCount += 1;
+      }
+      probeState.probeRouteRecords[probeIndex] = {
+        probeId,
+        routeObserved: true,
+        routeDecision: "not-observed",
+        reasonCodes: [],
+      };
+      if (decision.action === "abort-policy") {
+        const action = route.abort("blockedbyclient").then(() => {
+          probeState.httpRouteBlockedCount += 1;
+          probeState.probeRouteRecords[probeIndex] = {
+            probeId,
+            routeObserved: true,
+            routeDecision: "blocked",
+            reasonCodes: [...decision.reasonCodes],
+          };
+        }, (error) => {
+          probeState.probeRouteRecords[probeIndex] = {
+            probeId,
+            routeObserved: true,
+            routeDecision: "block-failed",
+            reasonCodes: [...decision.reasonCodes],
+          };
+          probeState.routeActionErrors.push(error);
+        });
+        pendingSentinelRouteActions.add(action);
+        await action.finally(() => pendingSentinelRouteActions.delete(action));
+      }
+      else {
+        assert.ok(decision.sanitizedHeaders);
+        const action = route.continue({ headers: decision.sanitizedHeaders }).then(() => {
+          probeState.probeRouteRecords[probeIndex] = {
+            probeId,
+            routeObserved: true,
+            routeDecision: "continued",
+            reasonCodes: [],
+          };
+        }, (error) => {
+          probeState.probeRouteRecords[probeIndex] = {
+            probeId,
+            routeObserved: true,
+            routeDecision: "continue-failed",
+            reasonCodes: [],
+          };
+          probeState.routeActionErrors.push(error);
+        });
+        pendingSentinelRouteActions.add(action);
+        await action.finally(() => pendingSentinelRouteActions.delete(action));
+      }
+      return;
+    }
+  }
   if (decision.action === "abort-toolbar") {
     blockedPreviewToolbarRequests.add(request);
     await route.abort("blockedbyclient");
@@ -1026,6 +1278,72 @@ function stableStringify(value) {
     .filter(([, entry]) => entry !== undefined)
     .sort(([left], [right]) => left.localeCompare(right));
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+}
+
+function networkSentinelMatrixDigest(value) {
+  const body = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "matrixDigest"),
+  );
+  return sha256Value(`${NETWORK_SENTINEL_SCHEMA}\n${stableStringify(body)}`);
+}
+
+function firstNetworkSentinelScalarMismatch(value) {
+  for (const [scalarId, expectedSafeValue, assertionId] of NETWORK_SENTINEL_SCALAR_EXPECTATIONS) {
+    if (value[scalarId] !== expectedSafeValue) {
+      return { assertionId, scalarId, expectedSafeValue, actualSafeValue: value[scalarId] };
+    }
+  }
+  const baselineMismatch = [
+    ["receiverBaseline.tcpConnectionReceiptCount", 1, value.receiverBaseline.tcpConnectionReceiptCount,
+      "NETWORK_SENTINEL_RECEIVER_TCP_DELTA_ZERO", value.receiverBaseline.tcpConnectionReceiptCount < 1],
+    ["receiverBaseline.httpRequestReceiptCount", 1, value.receiverBaseline.httpRequestReceiptCount,
+      "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE",
+      value.receiverBaseline.httpRequestReceiptCount !== 1],
+    ["receiverBaseline.httpRequestBodyByteCount", 0, value.receiverBaseline.httpRequestBodyByteCount,
+      "NETWORK_SENTINEL_POST_BODY_REJECTED", value.receiverBaseline.httpRequestBodyByteCount !== 0],
+    ["receiverBaseline.webSocketUpgradeReceiptCount", 0, value.receiverBaseline.webSocketUpgradeReceiptCount,
+      "NETWORK_SENTINEL_RECEIVER_WEBSOCKET_DELTA_ZERO",
+      value.receiverBaseline.webSocketUpgradeReceiptCount !== 0],
+  ].find((entry) => entry[4]);
+  return baselineMismatch ? {
+    scalarId: baselineMismatch[0],
+    expectedSafeValue: baselineMismatch[1],
+    actualSafeValue: baselineMismatch[2],
+    assertionId: baselineMismatch[3],
+  } : null;
+}
+
+function finalizeNetworkSentinelMatrix(value) {
+  const firstFailedScalarAssertion = firstNetworkSentinelScalarMismatch(value);
+  const body = {
+    ...value,
+    status: firstFailedScalarAssertion === null ? "PASS" : "FAIL",
+    firstFailedScalarAssertion,
+  };
+  return { ...body, matrixDigest: networkSentinelMatrixDigest(body) };
+}
+
+function createPassingNetworkSentinelFixture() {
+  return finalizeNetworkSentinelMatrix({
+    schemaVersion: NETWORK_SENTINEL_SCHEMA,
+    status: "PASS",
+    ...Object.fromEntries(NETWORK_SENTINEL_SCALAR_EXPECTATIONS.map(
+      ([scalarId, expectedSafeValue]) => [scalarId, expectedSafeValue],
+    )),
+    receiverBaseline: {
+      tcpConnectionReceiptCount: 1,
+      httpRequestReceiptCount: 1,
+      httpRequestBodyByteCount: 0,
+      webSocketUpgradeReceiptCount: 0,
+    },
+    probeRouteRecords: NETWORK_SENTINEL_PROBE_SPECS.map(({ probeId, reasonCodes }) => ({
+      probeId,
+      routeObserved: true,
+      routeDecision: "blocked",
+      reasonCodes: [...reasonCodes],
+    })),
+    firstFailedScalarAssertion: null,
+  });
 }
 
 function runnerEnvelopeDigest(value) {
@@ -1131,7 +1449,11 @@ function failRunnerCheckpoint(error) {
       messageDigest: safeMessageDigest(error),
     };
   }
-  const assertionId = checkpointAssertionId(gateCheckpoint);
+  const sentinelScalarAssertion = error?.sentinelScalarAssertion;
+  const assertionId = sentinelScalarAssertion
+    && RUNNER_ENVELOPE_ASSERTION_IDS.has(sentinelScalarAssertion.assertionId)
+    ? sentinelScalarAssertion.assertionId
+    : checkpointAssertionId(gateCheckpoint);
   if (!runnerFirstFailedAssertion && error?.code === "ERR_ASSERTION" && assertionId) {
     runnerFirstFailedAssertion = {
       assertionId,
@@ -1191,6 +1513,7 @@ function finiteNetworkSummary() {
       immutableModelRootRequests.length + approvedModelRedirectRequests.length,
     externalRequestCount,
     dataLeftDevice: false,
+    preNavigationSentinel: networkSentinelEvidence,
   };
 }
 
@@ -1932,6 +2255,13 @@ async function validatePersistentEdgeProfile(candidate) {
 
 async function preparePersistentEdgeProfile() {
   const configuredProfile = process.env.RC6_2_CLOSED_AI_PROFILE_PATH;
+  if (networkSentinelOnly) {
+    assert.equal(
+      configuredProfile,
+      undefined,
+      "sentinel-only mode forbids an inherited Edge profile path",
+    );
+  }
   if (configuredProfile !== undefined) {
     assert.equal(
       configuredProfile.trim(),
@@ -2026,7 +2356,22 @@ async function launch() {
   const launchOptions = {
     executablePath: edgeExecutablePath,
     headless,
-    args: ["--enable-unsafe-webgpu", "--ignore-gpu-blocklist"],
+    args: [
+      "--enable-unsafe-webgpu",
+      "--ignore-gpu-blocklist",
+      ...(networkSentinelOnly ? [
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-domain-reliability",
+        "--disable-features=OptimizationHints,MediaRouter,AutofillServerCommunication",
+        "--disable-sync",
+        "--metrics-recording-only",
+        "--no-default-browser-check",
+        "--no-first-run",
+        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+      ] : []),
+    ],
     locale: "zh-TW",
     viewport: { width: 1440, height: 900 },
     serviceWorkers: "block",
@@ -2078,126 +2423,459 @@ async function launch() {
 }
 
 function resetPreNavigationSentinelPolicyCounters() {
-  for (const collection of [
-    blockedNetworkPolicyAttempts,
-    prohibitedExternalAiRequests,
-    disallowedCrossOriginRequests,
-    disallowedSameOriginTargetRequests,
-    disallowedImmutableModelTargetRequests,
-    disallowedMethodRequests,
-    disallowedWebSocketAttempts,
-  ]) collection.length = 0;
-  prohibitedExternalAiRequestCount = 0;
-  disallowedCrossOriginRequestCount = 0;
-  disallowedSameOriginTargetRequestCount = 0;
-  disallowedImmutableModelTargetRequestCount = 0;
-  disallowedMethodRequestCount = 0;
-  blockedNetworkPolicyAttemptCount = 0;
-  observedWebSocketAttemptCount = 0;
-  blockedWebSocketAttemptCount = 0;
-  disallowedWebSocketAttemptCount = 0;
+  sentinelProbeState = null;
+  sentinelBootstrapActive = false;
 }
 
 async function runPreNavigationNetworkSentinel() {
-  const sanitizedHeaderProbe = sanitizedOutboundHeaders({
-    resourceType: () => "fetch",
-    headers: () => ({
-      accept: "text/plain,story-sentinel",
-      range: "bytes=123-456",
-      "x-story-sentinel": "story-sentinel",
-    }),
-  }, new URL(`${expectedOrigin}/api/release/identity`));
-  assert.deepEqual(sanitizedHeaderProbe, {
-    accept: "*/*",
-    "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
-  });
-  assert.equal(JSON.stringify(sanitizedHeaderProbe).includes("story-sentinel"), false);
+  let nonce = "";
+  let sentinelHeaderValue = NETWORK_SENTINEL_HEADER_VALUE;
+  let sentinelBodyValue = NETWORK_SENTINEL_BODY_VALUE;
+  let sentinelWebSocketProtocol = NETWORK_SENTINEL_WEBSOCKET_PROTOCOL;
   let tcpConnectionReceiptCount = 0;
   let httpRequestReceiptCount = 0;
   let httpRequestBodyByteCount = 0;
   let webSocketUpgradeReceiptCount = 0;
-  const receiver = createServer((request, response) => {
+  let sentinelHeaderReceiptCount = 0;
+  let bootstrapReceiverHttpCount = 0;
+  let receiverClosed = false;
+  let bootstrapConsumedEvidence = false;
+  let bootstrapAllowedCountEvidence = 0;
+  let bootstrapExceptionDisabledBeforeProbes = false;
+  let httpProbeAttemptCount = 0;
+  let webSocketProbeAttemptCount = 0;
+  let httpRouteObservationCountEvidence = 0;
+  let httpRouteBlockedCountEvidence = 0;
+  let webSocketRouteObservationCountEvidence = 0;
+  let webSocketRouteBlockedCountEvidence = 0;
+  let crossOriginClassificationCountEvidence = 0;
+  let methodRejectedCountEvidence = 0;
+  let bodyRejectedCountEvidence = 0;
+  let disallowedWebSocketCountEvidence = 0;
+  let operationalErrorCount = 0;
+  let pageReturnedToAboutBlank = false;
+  let browserContextCount = 0;
+  let pageCount = 0;
+  let serviceWorkerCount = 0;
+  let receiverBaseline = {
+    tcpConnectionReceiptCount: 0,
+    httpRequestReceiptCount: 0,
+    httpRequestBodyByteCount: 0,
+    webSocketUpgradeReceiptCount: 0,
+  };
+  let sentinelHeaderReceiptBaseline = 0;
+  let browserProbeResults = {
+    httpGetBrowserResult: "not-attempted",
+    httpPostBrowserResult: "not-attempted",
+    webSocketBrowserResult: "not-attempted",
+  };
+  const probeRouteRecords = NETWORK_SENTINEL_PROBE_SPECS.map(({ probeId }) => ({
+    probeId,
+    routeObserved: false,
+    routeDecision: "not-observed",
+    reasonCodes: [],
+  }));
+  let probeRouteRecordsEvidence = probeRouteRecords.map((record) => ({
+    ...record,
+    reasonCodes: [...record.reasonCodes],
+  }));
+  let pendingRouteActionsSettled = true;
+  // Exact finite route-record vocabulary is kept in this lifecycle for source-bound tests:
+  // HTTP_GET, HTTP_POST, WEBSOCKET; method-not-allowed, network-classification-blocked,
+  // request-body-not-allowed; blocked-by-route.
+  let operationalError = null;
+  const recordOperationalError = (error) => {
+    operationalErrorCount += 1;
+    operationalError ??= error;
+  };
+  let receiver = null;
+  const handleReceiverRequest = (request, response) => {
     httpRequestReceiptCount += 1;
+    if (
+      sentinelHeaderValue !== ""
+      && request.headers[NETWORK_SENTINEL_HEADER_NAME] === sentinelHeaderValue
+    ) sentinelHeaderReceiptCount += 1;
     request.on("data", (chunk) => { httpRequestBodyByteCount += chunk.length; });
-    request.on("end", () => { response.writeHead(204).end(); });
-  });
-  receiver.on("connection", () => { tcpConnectionReceiptCount += 1; });
-  receiver.on("upgrade", (_request, socket) => {
-    webSocketUpgradeReceiptCount += 1;
-    socket.destroy();
-  });
-  await new Promise((resolvePromise, rejectPromise) => {
-    receiver.once("error", rejectPromise);
-    receiver.listen(0, "127.0.0.1", resolvePromise);
-  });
-  const address = receiver.address();
-  assert.ok(address && typeof address === "object");
-  try {
-    const result = await page.evaluate(async ({ httpUrl, webSocketUrl }) => {
-      const attempts = await Promise.all([
-        fetch(httpUrl, {
-          headers: { accept: "text/plain,story-sentinel" },
-        }).then(() => "network-receipt", () => "blocked-before-send"),
-        fetch(httpUrl, {
-          method: "POST",
-          headers: {
-            accept: "text/plain,story-sentinel",
-            "content-type": "text/plain",
-          },
-          body: "story-sentinel",
-        }).then(() => "network-receipt", () => "blocked-before-send"),
-      ]);
-      const webSocket = await new Promise((resolvePromise) => {
-        const socket = new WebSocket(webSocketUrl, "story-sentinel-protocol");
-        let settled = false;
-        const settle = (value) => {
-          if (settled) return;
-          settled = true;
-          resolvePromise(value);
-        };
-        socket.addEventListener("open", () => settle("network-receipt"), { once: true });
-        socket.addEventListener("error", () => settle("blocked-before-send"), { once: true });
-        socket.addEventListener("close", () => settle("blocked-before-send"), { once: true });
-        setTimeout(() => settle("timeout"), 5_000);
+    request.on("end", () => {
+      const exactBootstrapRequest = request.method === "GET"
+        && request.url === `${NETWORK_SENTINEL_BOOTSTRAP_PREFIX}${nonce}`;
+      if (exactBootstrapRequest) bootstrapReceiverHttpCount += 1;
+      const body = exactBootstrapRequest
+        ? "<!doctype html><meta charset=utf-8><title>network sentinel</title>"
+        : "";
+      response.writeHead(exactBootstrapRequest ? 200 : 204, {
+        "content-type": exactBootstrapRequest ? "text/html; charset=utf-8" : "text/plain",
+        "cache-control": "no-store",
+        "content-length": Buffer.byteLength(body),
       });
-      return { attempts, webSocket };
-    }, {
-      httpUrl: `http://127.0.0.1:${address.port}/http-sentinel`,
-      webSocketUrl: `ws://127.0.0.1:${address.port}/websocket-sentinel`,
+      response.end(body);
     });
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-    webSocketServerConnectionCount = webSocketUpgradeReceiptCount;
-    assert.deepEqual(result, {
-      attempts: ["blocked-before-send", "blocked-before-send"],
-      webSocket: "blocked-before-send",
+  };
+  let receiverListening = false;
+  let receiverOrigin = "";
+  let httpGetUrl = "";
+  let httpPostUrl = "";
+  let webSocketUrl = "";
+  let receiverErrorHandler = null;
+  try {
+    nonce = randomBytes(16).toString("hex");
+    assert.match(nonce, NETWORK_SENTINEL_NONCE);
+    receiver = createServer(handleReceiverRequest);
+    receiver.on("connection", () => { tcpConnectionReceiptCount += 1; });
+    receiver.on("upgrade", (_request, socket) => {
+      webSocketUpgradeReceiptCount += 1;
+      socket.destroy();
     });
-    assert.equal(blockedNetworkPolicyAttemptCount, 2);
-    assert.equal(disallowedCrossOriginRequestCount, 2);
-    assert.equal(disallowedMethodRequestCount, 1);
-    assert.equal(observedWebSocketAttemptCount, 1);
-    assert.equal(blockedWebSocketAttemptCount, 1);
-    assert.equal(disallowedWebSocketAttemptCount, 1);
-    assert.equal(tcpConnectionReceiptCount, 0);
-    assert.equal(httpRequestReceiptCount, 0);
-    assert.equal(httpRequestBodyByteCount, 0);
-    assert.equal(webSocketUpgradeReceiptCount, 0);
-    return {
-      schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
-      httpAttemptCount: 2,
-      httpBlockedBeforeSendCount: 2,
-      webSocketAttemptCount: 1,
-      webSocketBlockedBeforeConnectCount: 1,
+    await new Promise((resolvePromise, rejectPromise) => {
+      const onError = (error) => {
+        receiver.off("listening", onListening);
+        rejectPromise(error);
+      };
+      const onListening = () => {
+        receiver.off("error", onError);
+        resolvePromise();
+      };
+      receiver.once("error", onError);
+      receiver.once("listening", onListening);
+      receiver.listen(0, "127.0.0.1");
+    });
+    receiverListening = true;
+    receiverErrorHandler = recordOperationalError;
+    receiver.on("error", receiverErrorHandler);
+    const address = receiver.address();
+    assert.ok(address && typeof address === "object");
+    receiverOrigin = `http://127.0.0.1:${address.port}`;
+    sentinelBootstrapUrl = `${receiverOrigin}${NETWORK_SENTINEL_BOOTSTRAP_PREFIX}${nonce}`;
+    sentinelBootstrapActive = true;
+    sentinelBootstrapConsumed = false;
+    sentinelBootstrapAllowedCount = 0;
+    httpGetUrl = `${receiverOrigin}/http-get-probe/${nonce}`;
+    httpPostUrl = `${receiverOrigin}/http-post-probe/${nonce}`;
+    webSocketUrl = `ws://127.0.0.1:${address.port}/websocket-probe/${nonce}`;
+    const bootstrapResponse = await page.goto(sentinelBootstrapUrl, {
+      waitUntil: "load",
+      timeout: 30_000,
+    });
+    assert.ok(bootstrapResponse);
+    assert.equal(bootstrapResponse.status(), 200);
+    assert.equal(page.url(), sentinelBootstrapUrl);
+    assert.equal(new URL(page.url()).origin, receiverOrigin);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    receiverBaseline = {
       tcpConnectionReceiptCount,
       httpRequestReceiptCount,
       httpRequestBodyByteCount,
       webSocketUpgradeReceiptCount,
-      arbitraryOutboundHeaderStrippedOrBlocked: true,
-      requestBodyBlocked: true,
     };
+    sentinelHeaderReceiptBaseline = sentinelHeaderReceiptCount;
+    if (bootstrapReceiverHttpCount !== 1) {
+      recordOperationalError(new assert.AssertionError({
+        message: "NETWORK_SENTINEL_BOOTSTRAP_EXACTLY_ONCE",
+        actual: bootstrapReceiverHttpCount,
+        expected: 1,
+        operator: "strictEqual",
+      }));
+    }
+    bootstrapConsumedEvidence = sentinelBootstrapConsumed;
+    bootstrapAllowedCountEvidence = sentinelBootstrapAllowedCount;
+    sentinelBootstrapActive = false;
+    sentinelProbeState = {
+      httpGetUrl,
+      httpPostUrl,
+      webSocketUrl,
+      httpRouteObservationCount: 0,
+      httpRouteBlockedCount: 0,
+      webSocketRouteObservationCount: 0,
+      webSocketRouteBlockedCount: 0,
+      crossOriginClassificationCount: 0,
+      methodRejectedCount: 0,
+      bodyRejectedCount: 0,
+      disallowedWebSocketCount: 0,
+      routeActionErrors: [],
+      probeRouteRecords,
+    };
+    bootstrapExceptionDisabledBeforeProbes = sentinelBootstrapActive === false;
+    const settlePendingSentinelRouteActions = async () => {
+      if (pendingSentinelRouteActions.size === 0) return;
+      let timeoutId;
+      const settled = await Promise.race([
+        Promise.allSettled([...pendingSentinelRouteActions]).then(() => true),
+        new Promise((resolvePromise) => {
+          timeoutId = setTimeout(() => resolvePromise(false), 5_000);
+        }),
+      ]).finally(() => clearTimeout(timeoutId));
+      if (!settled) recordOperationalError(gateError("RC6_2_NETWORK_SENTINEL_ROUTE_ACTION_TIMEOUT"));
+    };
+    const evaluateHttpProbe = async ({ url, method }) => {
+      httpProbeAttemptCount += 1;
+      try {
+        return await page.evaluate(async ({
+          probeUrl, probeMethod, headerName, headerValue, bodyValue,
+        }) => {
+          let timeoutId;
+          try {
+            const options = {
+              method: probeMethod,
+              headers: { [headerName]: headerValue },
+            };
+            if (probeMethod === "POST") {
+              options.headers["content-type"] = "text/plain";
+              options.body = bodyValue;
+            }
+            return await Promise.race([
+              fetch(probeUrl, options).then(() => "unexpected-success", () => "rejected"),
+              new Promise((resolvePromise) => {
+                timeoutId = setTimeout(() => resolvePromise("timeout"), 5_000);
+              }),
+            ]);
+          } finally {
+            clearTimeout(timeoutId);
+          }
+        }, {
+          probeUrl: url,
+          probeMethod: method,
+          headerName: NETWORK_SENTINEL_HEADER_NAME,
+          headerValue: sentinelHeaderValue,
+          bodyValue: sentinelBodyValue,
+        });
+      } catch (error) {
+        recordOperationalError(error);
+        return "evaluation-failed";
+      } finally {
+        await settlePendingSentinelRouteActions();
+      }
+    };
+    const evaluateWebSocketProbe = async () => {
+      webSocketProbeAttemptCount += 1;
+      try {
+        return await page.evaluate(async ({ probeUrl, protocol }) => (
+          new Promise((resolvePromise) => {
+            const socket = new WebSocket(probeUrl, protocol);
+            let settled = false;
+            const settle = (value) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              resolvePromise(value);
+            };
+            const timeoutId = setTimeout(() => settle("timeout"), 5_000);
+            socket.addEventListener("open", () => settle("unexpected-success"), { once: true });
+            socket.addEventListener("error", () => settle("rejected"), { once: true });
+            socket.addEventListener("close", () => settle("rejected"), { once: true });
+          })
+        ), { probeUrl: webSocketUrl, protocol: sentinelWebSocketProtocol });
+      } catch (error) {
+        recordOperationalError(error);
+        return "evaluation-failed";
+      } finally {
+        await settlePendingSentinelRouteActions();
+      }
+    };
+    const result = {
+      httpGet: await evaluateHttpProbe({ url: httpGetUrl, method: "GET" }),
+      httpPost: await evaluateHttpProbe({ url: httpPostUrl, method: "POST" }),
+      webSocket: await evaluateWebSocketProbe(),
+    };
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    await settlePendingSentinelRouteActions();
+    for (const error of sentinelProbeState.routeActionErrors) {
+      recordOperationalError(error);
+    }
+    sentinelProbeState.routeActionErrors.length = 0;
+    const browserResult = (raw, record) => new Set(["block-failed", "continue-failed"])
+      .has(record.routeDecision)
+      ? "route-action-failed"
+      : raw === "evaluation-failed"
+        ? "evaluation-failed"
+        : raw === "unexpected-success"
+      ? "unexpected-success"
+      : raw === "timeout"
+        ? "timeout"
+        : record.routeObserved && record.routeDecision === "blocked"
+          ? "blocked-by-route"
+          : record.routeObserved && record.routeDecision === "continued"
+            ? "unexpected-rejection"
+            : "native-preblock";
+    browserProbeResults = {
+      httpGetBrowserResult: browserResult(result.httpGet, probeRouteRecords[0]),
+      httpPostBrowserResult: browserResult(result.httpPost, probeRouteRecords[1]),
+      webSocketBrowserResult: browserResult(result.webSocket, probeRouteRecords[2]),
+    };
+  } catch (error) {
+    recordOperationalError(error);
   } finally {
-    await new Promise((resolvePromise) => receiver.close(resolvePromise));
+    httpRouteObservationCountEvidence = sentinelProbeState?.httpRouteObservationCount ?? 0;
+    httpRouteBlockedCountEvidence = sentinelProbeState?.httpRouteBlockedCount ?? 0;
+    webSocketRouteObservationCountEvidence = sentinelProbeState?.webSocketRouteObservationCount ?? 0;
+    webSocketRouteBlockedCountEvidence = sentinelProbeState?.webSocketRouteBlockedCount ?? 0;
+    crossOriginClassificationCountEvidence = sentinelProbeState?.crossOriginClassificationCount ?? 0;
+    methodRejectedCountEvidence = sentinelProbeState?.methodRejectedCount ?? 0;
+    bodyRejectedCountEvidence = sentinelProbeState?.bodyRejectedCount ?? 0;
+    disallowedWebSocketCountEvidence = sentinelProbeState?.disallowedWebSocketCount ?? 0;
+    for (const error of sentinelProbeState?.routeActionErrors ?? []) {
+      recordOperationalError(error);
+    }
+    if (sentinelProbeState) sentinelProbeState.routeActionErrors.length = 0;
+    pendingRouteActionsSettled = pendingSentinelRouteActions.size === 0;
+    if (!pendingRouteActionsSettled) {
+      recordOperationalError(gateError("RC6_2_NETWORK_SENTINEL_ROUTE_ACTION_TIMEOUT"));
+    }
+    probeRouteRecordsEvidence = probeRouteRecords.map((record) => ({
+      ...record,
+      reasonCodes: [...record.reasonCodes],
+    }));
+    bootstrapConsumedEvidence ||= sentinelBootstrapConsumed;
+    bootstrapAllowedCountEvidence = Math.max(
+      bootstrapAllowedCountEvidence,
+      sentinelBootstrapAllowedCount,
+    );
+    sentinelBootstrapActive = false;
+    await page.goto("about:blank").catch(recordOperationalError);
+    pageReturnedToAboutBlank = page.url() === "about:blank";
+    browserContextCount = typeof browser?.contexts === "function" ? browser.contexts().length : 0;
+    pageCount = typeof context?.pages === "function" ? context.pages().length : 0;
+    serviceWorkerCount = typeof context?.serviceWorkers === "function"
+      ? context.serviceWorkers().length
+      : 1;
+    if (receiverListening && receiver) {
+      receiver.closeIdleConnections?.();
+      receiver.closeAllConnections?.();
+      let closeTimeoutId;
+      const closePromise = new Promise((resolvePromise, rejectPromise) => {
+        receiver.close((error) => (error ? rejectPromise(error) : resolvePromise()));
+      });
+      try {
+        await Promise.race([
+          closePromise,
+          new Promise((_, rejectPromise) => {
+            closeTimeoutId = setTimeout(
+              () => rejectPromise(gateError("RC6_2_NETWORK_SENTINEL_RECEIVER_CLOSE_TIMEOUT")),
+              5_000,
+            );
+          }),
+        ]);
+        receiverClosed = true;
+      } catch (error) {
+        receiver.closeAllConnections?.();
+        recordOperationalError(error);
+        let forcedCloseTimeoutId;
+        const forcedClosed = await Promise.race([
+          closePromise.then(() => true, () => false),
+          new Promise((resolvePromise) => {
+            forcedCloseTimeoutId = setTimeout(() => resolvePromise(false), 1_000);
+          }),
+        ]).finally(() => clearTimeout(forcedCloseTimeoutId));
+        receiverClosed = forcedClosed;
+      } finally {
+        clearTimeout(closeTimeoutId);
+      }
+    }
+    if (receiverErrorHandler && receiver) receiver.off("error", receiverErrorHandler);
+    sentinelBootstrapUrl = null;
+    sentinelProbeState = null;
+    nonce = "";
+    httpGetUrl = "";
+    httpPostUrl = "";
+    webSocketUrl = "";
+    sentinelHeaderValue = "";
+    sentinelBodyValue = "";
+    sentinelWebSocketProtocol = "";
+    receiverOrigin = "";
+    sentinelBootstrapConsumed = false;
+    sentinelBootstrapAllowedCount = 0;
     resetPreNavigationSentinelPolicyCounters();
   }
+  const tcpConnectionReceiptDelta = tcpConnectionReceiptCount
+    - receiverBaseline.tcpConnectionReceiptCount;
+  const httpRequestReceiptDelta = httpRequestReceiptCount
+    - receiverBaseline.httpRequestReceiptCount;
+  const httpRequestBodyByteDelta = httpRequestBodyByteCount
+    - receiverBaseline.httpRequestBodyByteCount;
+  const webSocketUpgradeReceiptDelta = webSocketUpgradeReceiptCount
+    - receiverBaseline.webSocketUpgradeReceiptCount;
+  const sentinelCountersReset = sentinelProbeState === null
+    && sentinelBootstrapActive === false
+    && sentinelBootstrapConsumed === false
+    && sentinelBootstrapAllowedCount === 0
+    && pendingRouteActionsSettled
+    && pendingSentinelRouteActions.size === 0;
+  const productPolicyCountersZero = blockedNetworkPolicyAttemptCount === 0
+    && disallowedCrossOriginRequestCount === 0
+    && disallowedMethodRequestCount === 0
+    && observedWebSocketAttemptCount === 0
+    && blockedWebSocketAttemptCount === 0
+    && disallowedWebSocketAttemptCount === 0
+    && prohibitedExternalAiRequestCount === 0
+    && disallowedSameOriginTargetRequestCount === 0
+    && disallowedImmutableModelTargetRequestCount === 0
+    && blockedNonToolbarResponseCount === 0
+    && previewToolbarResponseCount === 0
+    && observedPreviewToolbarWebSocketAttemptCount === 0
+    && blockedPreviewToolbarWebSocketAttemptCount === 0
+    && webSocketServerConnectionCount === 0
+    && prohibitedExternalAiRequests.length === 0
+    && disallowedCrossOriginRequests.length === 0
+    && disallowedSameOriginTargetRequests.length === 0
+    && disallowedImmutableModelTargetRequests.length === 0
+    && disallowedMethodRequests.length === 0
+    && blockedNetworkPolicyAttempts.length === 0
+    && blockedNonToolbarResponses.length === 0
+    && disallowedWebSocketAttempts.length === 0
+    && blockedPreviewToolbarWebSocketAttempts.length === 0
+    && observedPreviewToolbarRequests.length === 0
+    && previewToolbarResponses.length === 0
+    && blockedPreviewToolbarRequests.size === 0
+    && immutableModelRootRequests.length === 0
+    && approvedModelRedirectRequests.length === 0
+    && pendingSentinelRouteActions.size === 0;
+  let matrix = finalizeNetworkSentinelMatrix({
+    schemaVersion: NETWORK_SENTINEL_SCHEMA,
+    status: "FAIL",
+    bootstrapAllowedCount: bootstrapAllowedCountEvidence,
+    bootstrapReceiverHttpCount,
+    bootstrapConsumed: bootstrapConsumedEvidence,
+    bootstrapExceptionDisabledBeforeProbes,
+    httpProbeAttemptCount,
+    httpRouteObservedCount: httpRouteObservationCountEvidence,
+    httpRouteBlockedCount: httpRouteBlockedCountEvidence,
+    crossOriginClassificationCount: crossOriginClassificationCountEvidence,
+    methodRejectedCount: methodRejectedCountEvidence,
+    bodyRejectedCount: bodyRejectedCountEvidence,
+    webSocketProbeAttemptCount,
+    webSocketRouteObservedCount: webSocketRouteObservationCountEvidence,
+    webSocketRouteBlockedCount: webSocketRouteBlockedCountEvidence,
+    disallowedWebSocketCount: disallowedWebSocketCountEvidence,
+    browserNativePreblockCount: Object.values(browserProbeResults)
+      .filter((value) => value === "native-preblock").length,
+    tcpConnectionReceiptDelta,
+    httpRequestReceiptDelta,
+    httpRequestBodyByteDelta,
+    webSocketUpgradeReceiptDelta,
+    arbitraryOutboundHeaderBlocked:
+      sentinelHeaderReceiptCount - sentinelHeaderReceiptBaseline === 0,
+    requestBodyBlocked: httpRequestBodyByteDelta === 0,
+    ...browserProbeResults,
+    operationalErrorCount,
+    pageReturnedToAboutBlank,
+    browserContextCount,
+    pageCount,
+    serviceWorkerCount,
+    receiverClosed,
+    bootstrapSecretsCleared: sentinelBootstrapUrl === null
+      && nonce === ""
+      && httpGetUrl === ""
+      && httpPostUrl === ""
+      && webSocketUrl === ""
+      && sentinelHeaderValue === ""
+      && sentinelBodyValue === ""
+      && sentinelWebSocketProtocol === "",
+    productPolicyCountersZero,
+    sentinelCountersReset,
+    receiverBaseline,
+    probeRouteRecords: probeRouteRecordsEvidence,
+    firstFailedScalarAssertion: null,
+  });
+  return { matrix, operationalError };
 }
 
 async function assertExactOrigin() {
@@ -4601,6 +5279,9 @@ try {
     if (runnerEnvelopeTestScenario === "PASS") {
       setRunnerCheckpoint("launch");
       completeRunnerCheckpoint();
+      setRunnerCheckpoint("network-zero-receipt-sentinel");
+      networkSentinelEvidence = createPassingNetworkSentinelFixture();
+      completeRunnerCheckpoint();
       context = {};
       profileOwnership = "wrapper-owned";
       profilePathDigest = "0".repeat(64);
@@ -4645,8 +5326,34 @@ try {
   const edgeIdentity = await readEdgeIdentity(launched.evidence);
   requestPhase = "bootstrap";
   setRunnerCheckpoint("network-zero-receipt-sentinel");
-  networkSentinelEvidence = await runPreNavigationNetworkSentinel();
+  const sentinelResult = await runPreNavigationNetworkSentinel();
+  networkSentinelEvidence = sentinelResult.matrix;
+  if (networkSentinelEvidence.firstFailedScalarAssertion !== null) {
+    const scalarFailure = networkSentinelEvidence.firstFailedScalarAssertion;
+    const sentinelAssertion = new assert.AssertionError({
+      message: scalarFailure.assertionId,
+      actual: scalarFailure.actualSafeValue,
+      expected: scalarFailure.expectedSafeValue,
+      operator: "strictEqual",
+    });
+    sentinelAssertion.sentinelScalarAssertion = scalarFailure;
+    throw sentinelAssertion;
+  }
+  if (sentinelResult.operationalError !== null) throw sentinelResult.operationalError;
   edgeIdentity.preNavigationNetworkSentinel = networkSentinelEvidence;
+  if (networkSentinelOnly) {
+    completeRunnerCheckpoint();
+    finalOutput = {
+      schemaVersion: "p24b-rc6.2-network-sentinel-only-evidence-v1",
+      status: "PASS",
+      mode,
+      networkZeroReceipt: networkSentinelEvidence,
+      freshBrowserContext: true,
+      profileOwnership,
+      profilePathDigest,
+      edgeIdentity,
+    };
+  } else {
   requestPhase = "release-identity";
   setRunnerCheckpoint("release-identity");
   const releaseIdentityBeforeApp = await readReleaseIdentityTruth({ navigate: true });
@@ -4755,19 +5462,9 @@ try {
   edgeIdentity.pageCount = 1;
   assert.equal(contextRouteInstalledBeforeNavigation, true);
   assert.equal(contextWebSocketRouteInstalledBeforeNavigation, true);
-  assert.deepEqual(networkSentinelEvidence, {
-    schemaVersion: "p24b-rc6.2-network-zero-receipt-v1",
-    httpAttemptCount: 2,
-    httpBlockedBeforeSendCount: 2,
-    webSocketAttemptCount: 1,
-    webSocketBlockedBeforeConnectCount: 1,
-    tcpConnectionReceiptCount: 0,
-    httpRequestReceiptCount: 0,
-    httpRequestBodyByteCount: 0,
-    webSocketUpgradeReceiptCount: 0,
-    arbitraryOutboundHeaderStrippedOrBlocked: true,
-    requestBodyBlocked: true,
-  });
+  assert.equal(networkSentinelEvidence.schemaVersion, NETWORK_SENTINEL_SCHEMA);
+  assert.equal(networkSentinelEvidence.status, "PASS");
+  assert.equal(networkSentinelEvidence.matrixDigest, networkSentinelMatrixDigest(networkSentinelEvidence));
   assert.equal(blockedNetworkPolicyAttemptCount, 0);
   assert.deepEqual(blockedNetworkPolicyAttempts, []);
   assert.equal(prohibitedExternalAiRequestCount, 0);
@@ -4845,6 +5542,7 @@ try {
     completedAt: new Date().toISOString(),
   };
   assertSafeEvidenceProjection(finalOutput);
+  }
   }
 } catch (error) {
   runnerCaughtError = error;

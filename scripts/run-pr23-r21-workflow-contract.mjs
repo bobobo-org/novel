@@ -1,12 +1,124 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-const [workflow, rollback, packageText, p21ThreeHigh, vercelConfigurationText] = await Promise.all([
+const AUDIT_CONTROL_PROOF_SCHEMA = "p24b-rc6.2-browser-gate-control-proof-v6";
+const HISTORICAL_C8_AUDIT_CONTROL_PROOF_SCHEMA = "p24b-rc6.2-browser-gate-control-proof-v5";
+const C7_BROWSER_GATE_CONTROL = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9";
+const C8_BROWSER_GATE_CONTROL = "04e78268cfcfeaeffdc72b603d0700944c7142e7";
+const C9_AUDIT_CONTROL_FIXTURE = "1111111111111111111111111111111111111111";
+const C8_CHANGED_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs",
+];
+const C9_CHANGED_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-closed-agent-runtime.mjs",
+  "scripts/run-rc6-2-network-sentinel-tests.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs",
+];
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableStringify(value[key])}`
+  )).join(",")}}`;
+}
+
+function auditControlProofDigest(body, domain = AUDIT_CONTROL_PROOF_SCHEMA) {
+  return createHash("sha256").update(stableStringify({ domain, body })).digest("hex");
+}
+
+function validateAuditControlProof(proof, label) {
+  assert.ok(proof && typeof proof === "object" && !Array.isArray(proof), `${label} must be an object`);
+  const { proofDigest, ...body } = proof;
+  assert.equal(
+    body.schemaVersion,
+    AUDIT_CONTROL_PROOF_SCHEMA,
+    `${label} must use the C9 v6 body schema`,
+  );
+  assert.match(body.browserGateControl, /^[a-f0-9]{40}$/u, `${label} control commit must be exact`);
+  assert.equal(body.c8BrowserGateControl, C8_BROWSER_GATE_CONTROL, `${label} must pin the C8 control`);
+  assert.equal(body.parentCommit, C8_BROWSER_GATE_CONTROL, `${label} parent must be the C8 control`);
+  assert.deepEqual(
+    body.lineage?.slice(0, 3),
+    [body.browserGateControl, C8_BROWSER_GATE_CONTROL, C7_BROWSER_GATE_CONTROL],
+    `${label} must begin with the exact C9 -> C8 -> C7 lineage`,
+  );
+  assert.deepEqual(body.changedPaths, C9_CHANGED_PATHS, `${label} must bind the exact C9 path set`);
+  assert.deepEqual(body.c8ChangedPaths, C8_CHANGED_PATHS, `${label} must bind the exact C8 path set`);
+  assert.match(proofDigest, /^[a-f0-9]{64}$/u, `${label} digest must be a SHA-256 value`);
+  assert.equal(
+    proofDigest,
+    auditControlProofDigest(body),
+    `${label} digest must use the C9 v6 domain over the complete v6 body`,
+  );
+  return proofDigest;
+}
+
+function auditControlProofFixture({
+  schemaVersion = AUDIT_CONTROL_PROOF_SCHEMA,
+  digestDomain = AUDIT_CONTROL_PROOF_SCHEMA,
+} = {}) {
+  const body = {
+    schemaVersion,
+    c7BrowserGateControl: C7_BROWSER_GATE_CONTROL,
+    c8BrowserGateControl: C8_BROWSER_GATE_CONTROL,
+    browserGateControl: C9_AUDIT_CONTROL_FIXTURE,
+    parentCommit: C8_BROWSER_GATE_CONTROL,
+    lineage: [C9_AUDIT_CONTROL_FIXTURE, C8_BROWSER_GATE_CONTROL, C7_BROWSER_GATE_CONTROL],
+    changedPaths: C9_CHANGED_PATHS,
+    c8ChangedPaths: C8_CHANGED_PATHS,
+  };
+  return { ...body, proofDigest: auditControlProofDigest(body, digestDomain) };
+}
+
+validateAuditControlProof(auditControlProofFixture(), "C9 v6 positive fixture");
+assert.throws(
+  () => validateAuditControlProof(auditControlProofFixture({
+    schemaVersion: HISTORICAL_C8_AUDIT_CONTROL_PROOF_SCHEMA,
+    digestDomain: HISTORICAL_C8_AUDIT_CONTROL_PROOF_SCHEMA,
+  }), "C9-as-v5 negative fixture"),
+  /must use the C9 v6 body schema/u,
+  "a C9 proof must not be accepted under the historical C8 v5 body/domain",
+);
+assert.throws(
+  () => validateAuditControlProof(auditControlProofFixture({
+    digestDomain: HISTORICAL_C8_AUDIT_CONTROL_PROOF_SCHEMA,
+  }), "v5-domain negative fixture"),
+  /digest must use the C9 v6 domain/u,
+  "a v6 body must not be accepted with the historical v5 digest domain",
+);
+
+const [
+  workflow,
+  rollback,
+  packageText,
+  p21ThreeHigh,
+  vercelConfigurationText,
+  browserGateContract,
+] = await Promise.all([
   readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
   readFile(new URL("./vercel-dual-alias-cutover.mjs", import.meta.url), "utf8"),
   readFile(new URL("../package.json", import.meta.url), "utf8"),
   readFile(new URL("./run-p21-three-high-closure.mjs", import.meta.url), "utf8"),
   readFile(new URL("../vercel.json", import.meta.url), "utf8"),
+  readFile(new URL("./run-rc6-2-production-browser-gate-contract.mjs", import.meta.url), "utf8"),
 ]);
 const packageScripts = JSON.parse(packageText).scripts;
 const vercelConfiguration = JSON.parse(vercelConfigurationText);
@@ -165,13 +277,83 @@ assert.match(lastKnownGoodAuditJob, /EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /ref:\s*\$\{\{ github\.sha \}\}/u);
-assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*9/u);
+const readOnlyAuditCheckoutStep = stepSection(lastKnownGoodAuditJob, "Checkout exact read-only audit commit");
+assert.match(readOnlyAuditCheckoutStep, /ref:\s*\$\{\{ github\.sha \}\}/u);
+assert.match(readOnlyAuditCheckoutStep, /fetch-depth:\s*10/u);
+assert.equal(
+  [...readOnlyAuditCheckoutStep.matchAll(/fetch-depth:/gu)].length,
+  1,
+  "the read-only C9 lineage checkout must declare exactly one finite fetch depth",
+);
 assert.match(lastKnownGoodAuditJob, /persist-credentials:\s*false/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$\(git rev-parse HEAD\)" == "\$AUDIT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /Prove exact read-only RC6\.2 browser-gate control lineage/u);
 assert.match(lastKnownGoodAuditJob, /id:\s*browser_gate_control/u);
 assert.match(lastKnownGoodAuditJob, /if:\s*inputs\.operation == 'audit-rc6-2-last-known-good'/u);
 assert.match(lastKnownGoodAuditJob, /run-rc6-2-production-browser-gate-contract\.mjs write-audit-control-proof/u);
+const auditControlProofProducerStep = stepSection(
+  lastKnownGoodAuditJob,
+  "Prove exact read-only RC6.2 browser-gate control lineage",
+);
+const auditControlProofValidationStep = stepSection(
+  lastKnownGoodAuditJob,
+  "Validate exact C9 read-only audit control proof",
+);
+assert.match(
+  auditControlProofProducerStep,
+  /run:\s*node scripts\/run-rc6-2-production-browser-gate-contract\.mjs write-audit-control-proof\s*$/mu,
+);
+assert.match(
+  auditControlProofValidationStep,
+  /if:\s*inputs\.operation == 'audit-rc6-2-last-known-good'/u,
+);
+assert.match(
+  auditControlProofValidationStep,
+  /BROWSER_GATE_CONTROL_PROOF_PATH:\s*\$\{\{ runner\.temp \}\}\/rc6-2-browser-gate-control-proof\.json/u,
+);
+assert.match(
+  auditControlProofValidationStep,
+  /run:\s*node scripts\/run-pr23-r21-workflow-contract\.mjs validate-audit-control-proof\s*$/mu,
+);
+assert.doesNotMatch(
+  auditControlProofValidationStep,
+  /curl|wget|gh\s+api|fetch\(|https?:\/\/|playwright|msedge|run-rc6-2-closed-agent-browser/u,
+  "the C9 proof validator must stay read-only and offline",
+);
+assert.ok(
+  lastKnownGoodAuditJob.indexOf("Prove exact read-only RC6.2 browser-gate control lineage")
+    < lastKnownGoodAuditJob.indexOf("Validate exact C9 read-only audit control proof")
+  && lastKnownGoodAuditJob.indexOf("Validate exact C9 read-only audit control proof")
+    < lastKnownGoodAuditJob.indexOf("Discover exact prior RC6.1 Last Known Good artifact"),
+  "the v6 proof must be produced and validated before any LKG discovery or selection",
+);
+const auditControlProofProducerStart = browserGateContract.indexOf("async function writeAuditControlProof()");
+const auditControlProofProducerEnd = browserGateContract.indexOf(
+  'if (process.argv[2] === "write-audit-control-proof")',
+  auditControlProofProducerStart,
+);
+assert.ok(auditControlProofProducerStart >= 0 && auditControlProofProducerEnd > auditControlProofProducerStart);
+const auditControlProofProducer = browserGateContract.slice(
+  auditControlProofProducerStart,
+  auditControlProofProducerEnd,
+);
+assert.equal(
+  auditControlProofProducer.split(AUDIT_CONTROL_PROOF_SCHEMA).length - 1,
+  2,
+  "the C9 producer must use v6 for both the proof body and digest domain",
+);
+assert.equal(
+  auditControlProofProducer.split(HISTORICAL_C8_AUDIT_CONTROL_PROOF_SCHEMA).length - 1,
+  0,
+  "the C9 producer must not emit or digest its proof as historical v5",
+);
+assert.match(auditControlProofProducer, /c8BrowserGateControl:\s*C8_BROWSER_GATE_CONTROL/u);
+assert.match(auditControlProofProducer, /parentCommit:\s*C8_BROWSER_GATE_CONTROL/u);
+assert.match(auditControlProofProducer, /c8ChangedPaths,/u);
+assert.match(
+  auditControlProofProducer,
+  /proofDigest:\s*createHash\("sha256"\)\.update\(stableStringify\(\{[\s\S]*domain:\s*"p24b-rc6\.2-browser-gate-control-proof-v6",[\s\S]*body,[\s\S]*\}\)\)\.digest\("hex"\)/u,
+);
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs discover/u);
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs download/u);
 assert.match(
@@ -747,10 +929,49 @@ for (const [scriptName, expectedCommand] of Object.entries(rc62FormalAttemptScri
     `${scriptName} must not start the Production Browser wrapper, runner, Edge, Playwright, or WebLLM`,
   );
 }
+const rc62NetworkSentinelStaticScripts = {
+  "test:rc6.2:network-sentinel-unit": "unit",
+  "test:rc6.2:network-sentinel-mutations": "mutations",
+};
+for (const [scriptName, mode] of Object.entries(rc62NetworkSentinelStaticScripts)) {
+  const command = packageScripts[scriptName];
+  assert.equal(
+    command,
+    `node scripts/run-rc6-2-network-sentinel-tests.mjs ${mode}`,
+    `${scriptName} must remain an exact no-Browser sentinel-test invocation`,
+  );
+  assert.doesNotMatch(
+    command,
+    /run-rc6-2-production-browser-gate[.]ps1|run-rc6-2-closed-agent-browser[.]mjs|playwright|msedge|powershell|pwsh|chromium|webllm|network-sentinel-only/u,
+    `${scriptName} must not start the wrapper, Browser runner, Edge, Playwright, or WebLLM`,
+  );
+}
+assert.equal(
+  packageScripts["test:rc6.2:network-sentinel-real-edge"],
+  "node scripts/run-rc6-2-closed-agent-browser.mjs network-sentinel-only",
+  "the bounded real-Edge sentinel integration must remain an explicit runner-only entrypoint",
+);
+assert.equal(
+  new Set(Object.values(rc62NetworkSentinelStaticScripts)).size,
+  Object.keys(rc62NetworkSentinelStaticScripts).length,
+  "C9 sentinel unit and mutation tests must use distinct no-Browser modes",
+);
 assert.match(p21ThreeHigh, /process\.platform === "win32"/u);
 assert.match(p21ThreeHigh, /: execFileSync\("pnpm", args/u);
 assert.match(p21ThreeHigh, /process\.platform === "win32" \? "powershell\.exe" : "pwsh"/u);
 assert.match(p21ThreeHigh, /fileURLToPath\(prePath\)/u);
+
+const contractMode = process.argv[2] ?? "contract";
+assert.ok(
+  contractMode === "contract" || contractMode === "validate-audit-control-proof",
+  `unsupported workflow-contract mode: ${contractMode}`,
+);
+if (contractMode === "validate-audit-control-proof") {
+  const proofPath = String(process.env.BROWSER_GATE_CONTROL_PROOF_PATH ?? "").trim();
+  assert.ok(proofPath, "BROWSER_GATE_CONTROL_PROOF_PATH is required for read-only proof validation");
+  const proof = JSON.parse(await readFile(proofPath, "utf8"));
+  validateAuditControlProof(proof, "generated C9 audit control proof");
+}
 
 console.log(JSON.stringify({
   schemaVersion: "pr23-r2-1-github-validate-contract-v2",

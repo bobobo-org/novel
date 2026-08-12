@@ -72,6 +72,7 @@ $c4BrowserGateControl = "100eea11003c5132ab2b519707c5dee658bc9cbe"
 $c5BrowserGateControl = "99695b247c2b1626c38efc8ae4589dd9bd8d30da"
 $c6BrowserGateControl = "b326c2fc9925798ffbc750ae37db847f0c8b5625"
 $c7BrowserGateControl = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9"
+$c8BrowserGateControl = "04e78268cfcfeaeffdc72b603d0700944c7142e7"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -161,6 +162,7 @@ $allowedGatePaths = @(
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
   "scripts/run-rc6-2-runner-envelope-tests.mjs",
+  "scripts/run-rc6-2-network-sentinel-tests.mjs",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs"
 )
 $initialGatePaths = @(
@@ -202,6 +204,19 @@ $c8RepairGatePaths = @(
   "scripts/rc6-2-terminal-evidence.mjs",
   "scripts/run-pr23-r21-workflow-contract.mjs",
   "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs"
+)
+$c9RepairGatePaths = @(
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-closed-agent-runtime.mjs",
+  "scripts/run-rc6-2-network-sentinel-tests.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
   "scripts/run-rc6-2-runner-envelope-tests.mjs",
@@ -1504,6 +1519,7 @@ function Assert-ControlLineage {
   $originUrl = Invoke-GitScalar @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED"
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
   $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
+  $c8Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c8BrowserGateControl) "C8_GATE_PARENT_READ_FAILED") -split "\s+"
   $c7Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c7BrowserGateControl) "C7_GATE_PARENT_READ_FAILED") -split "\s+"
   $c6Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c6BrowserGateControl) "C6_GATE_PARENT_READ_FAILED") -split "\s+"
   $c5Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c5BrowserGateControl) "C5_GATE_PARENT_READ_FAILED") -split "\s+"
@@ -1511,8 +1527,11 @@ function Assert-ControlLineage {
   $initialParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $initialBrowserGateControl) "INITIAL_GATE_PARENT_READ_FAILED") -split "\s+"
   $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
   $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
-  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c7BrowserGateControl) {
+  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c8BrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($c8Parents.Count -ne 2 -or $c8Parents[0] -ne $c8BrowserGateControl -or $c8Parents[1] -ne $c7BrowserGateControl) {
+    Fail "C8_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($c7Parents.Count -ne 2 -or $c7Parents[0] -ne $c7BrowserGateControl -or $c7Parents[1] -ne $c6BrowserGateControl) {
     Fail "C7_GATE_CONTROL_PARENT_MISMATCH"
@@ -1536,7 +1555,8 @@ function Assert-ControlLineage {
     Fail "FAILED_CONTROL_PRODUCT_PARENT_MISMATCH"
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
-  Assert-ControlDiffPaths -BaseCommit $c7BrowserGateControl -HeadCommit $head -ExpectedPaths $c8RepairGatePaths -Code "C8_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c8BrowserGateControl -HeadCommit $head -ExpectedPaths $c9RepairGatePaths -Code "C9_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c7BrowserGateControl -HeadCommit $c8BrowserGateControl -ExpectedPaths $c8RepairGatePaths -Code "C8_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c6BrowserGateControl -HeadCommit $c7BrowserGateControl -ExpectedPaths $c7RepairGatePaths -Code "C7_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c5BrowserGateControl -HeadCommit $c6BrowserGateControl -ExpectedPaths $c6RepairGatePaths -Code "C6_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c4BrowserGateControl -HeadCommit $c5BrowserGateControl -ExpectedPaths $historicalRepairGatePaths -Code "C5_GATE_REPAIR_DIFF_INVALID"
