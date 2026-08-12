@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,9 @@ import {
   TERMINAL_MANIFEST_FILE,
   TERMINAL_MANIFEST_SCHEMA,
   TERMINAL_MANIFEST_SHA_FILE,
+  RUNNER_ENVELOPE_VALIDATION_FILE,
+  RUNNER_TERMINAL_ENVELOPE_FILE,
+  RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
   TerminalEvidenceError,
   computeFormalAttemptEventDigest,
   computeFormalAttemptLeaseDigest,
@@ -20,6 +23,7 @@ import {
   simulateFormalProductionBrowserTerminalEvidence,
   stableStringify,
   validateFormalProductionBrowserTerminalEvidence,
+  validateTerminalEvidenceBundle,
 } from "./rc6-2-terminal-evidence.mjs";
 
 const CONTROL_COMMIT = "b326c2fc9925798ffbc750ae37db847f0c8b5625";
@@ -91,6 +95,32 @@ async function replaceProjection(bundleDirectory, path, mutate) {
   });
 }
 
+async function redigestEnvelope(bundleDirectory, mutate) {
+  const path = join(bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE);
+  const envelope = await readJson(path);
+  mutate(envelope);
+  const body = { ...envelope };
+  delete body.envelopeDigest;
+  envelope.envelopeDigest = sha256Hex(Buffer.from(canonical(body), "utf8"));
+  const bytes = Buffer.from(canonical(envelope), "utf8");
+  await writeFile(path, bytes);
+  await writeFile(
+    join(bundleDirectory, RUNNER_TERMINAL_ENVELOPE_SHA_FILE),
+    `${sha256Hex(bytes)}\n`,
+    "ascii",
+  );
+  await rewriteManifest(bundleDirectory, (manifest) => {
+    for (const [name, source] of [
+      [RUNNER_TERMINAL_ENVELOPE_FILE, bytes],
+      [RUNNER_TERMINAL_ENVELOPE_SHA_FILE, Buffer.from(`${sha256Hex(bytes)}\n`, "ascii")],
+    ]) {
+      const record = manifest.files.find(({ path: recordPath }) => recordPath === name);
+      record.bytes = source.length;
+      record.sha256 = sha256Hex(source);
+    }
+  });
+}
+
 async function cloneBundle(sourceDirectory, parent, label) {
   const attemptDirectory = join(parent, label);
   await mkdir(attemptDirectory, { recursive: false });
@@ -122,6 +152,11 @@ test("terminal stub simulations and both precheck receipt states produce manifes
     ["POST_RUN_CAS_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
     ["RUNNER_CRASH", ["TERMINAL_ABORTED", "ABORTED"]],
     ["BROWSER_LAUNCH_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["RUNNER_START_FAILURE", ["TERMINAL_FAIL", "FAIL"]],
+    ["EARLY_RUNNER_MISSING_ENVELOPE", ["TERMINAL_FAIL", "FAIL"]],
+    ["EARLY_RUNNER_INVALID_ENVELOPE", ["TERMINAL_FAIL", "FAIL"]],
+    ["EARLY_RUNNER_ZERO_ENVELOPE", ["TERMINAL_FAIL", "FAIL"]],
+    ["EARLY_RUNNER_OVERSIZE_ENVELOPE", ["TERMINAL_FAIL", "FAIL"]],
     ["PRECHECK_FAIL", ["PRECHECK_FAILED", "FAIL"]],
     ["PRECHECK_FAIL_AFTER_RECEIPT", ["PRECHECK_FAILED", "FAIL"]],
   ]);
@@ -135,7 +170,14 @@ test("terminal stub simulations and both precheck receipt states produce manifes
     assert.equal(simulation.manifest.attemptState, state);
     assert.equal(simulation.manifest.terminalStatus, terminalStatus);
     assert.equal(simulation.manifest.containsCredentialValues, false);
-    assert.deepEqual(simulation.manifest.missingRequiredFiles, []);
+    const envelopeMissingScenario = new Set([
+      "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE",
+      "EARLY_RUNNER_INVALID_ENVELOPE", "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
+    ]).has(scenario);
+    assert.deepEqual(
+      simulation.manifest.missingRequiredFiles,
+      envelopeMissingScenario ? [RUNNER_TERMINAL_ENVELOPE_FILE, RUNNER_TERMINAL_ENVELOPE_SHA_FILE] : [],
+    );
     assert.deepEqual(simulation.manifest.unexpectedFiles, []);
     assert.deepEqual(simulation.manifest.digestMismatches, []);
     assert.equal(
@@ -145,8 +187,68 @@ test("terminal stub simulations and both precheck receipt states produce manifes
     const records = simulation.manifest.files;
     assert.equal(records.length, TERMINAL_EVIDENCE_FILES.length);
     for (const record of records.filter(({ present }) => !present)) {
-      assert.equal(record.notReached, true);
+      const requiredEnvelopeMissing = record.requiredForState
+        && new Set([RUNNER_TERMINAL_ENVELOPE_FILE, RUNNER_TERMINAL_ENVELOPE_SHA_FILE]).has(record.path);
+      assert.equal(record.notReached, !requiredEnvelopeMissing);
+      if (requiredEnvelopeMissing) assert.ok(new Set(["MISSING", "INVALID"]).has(record.status));
       assert.match(record.reasonCode, /^[A-Z][A-Z0-9_]+$/u);
+    }
+    const envelopeRecord = records.find(({ path }) => path === RUNNER_TERMINAL_ENVELOPE_FILE);
+    const sidecarRecord = records.find(({ path }) => path === RUNNER_TERMINAL_ENVELOPE_SHA_FILE);
+    const validationRecord = records.find(({ path }) => path === RUNNER_ENVELOPE_VALIDATION_FILE);
+    if (scenario.startsWith("PRECHECK_FAIL") || scenario === "RUNNER_START_FAILURE") {
+      for (const record of [envelopeRecord, sidecarRecord, validationRecord]) {
+        assert.equal(record.requiredForState, false);
+        assert.equal(record.notReached, true);
+        assert.equal(record.reasonCode, "RUNNER_NOT_REACHED");
+      }
+    } else {
+      for (const record of [envelopeRecord, sidecarRecord, validationRecord]) {
+        assert.equal(record.requiredForState, true);
+      }
+      assert.equal(validationRecord.present, true);
+    }
+    if (new Set(["PASS", "FAIL", "POST_RUN_CAS_FAILURE"]).has(scenario)) {
+      const envelope = await readJson(join(simulation.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE));
+      const validation = await readJson(join(simulation.bundleDirectory, RUNNER_ENVELOPE_VALIDATION_FILE));
+      assert.equal(validation.validationDisposition, "VALIDATED");
+      assert.equal(validation.envelopeDigest, envelope.envelopeDigest);
+      assert.equal(validation.statusObserved, envelope.status);
+      assert.equal(
+        await readFile(join(simulation.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_SHA_FILE), "ascii"),
+        `${sha256Hex(await readFile(join(simulation.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE)))}\n`,
+      );
+      if (scenario === "FAIL") {
+        assert.equal(envelope.gateCheckpoint, "edge-identity");
+        assert.equal(envelope.lastCompletedCheckpoint, "launch");
+        assert.equal(envelope.firstFailedOperation.operationId, "read-edge-identity");
+        assert.equal(envelope.firstFailedAssertion.assertionId, "EDGE_CONTEXT_SINGLE_PAGE");
+      } else {
+        assert.equal(envelope.freshBrowserContext, true);
+        assert.equal(envelope.profileDisposed, true);
+        assert.equal(envelope.persistenceReached, true);
+        assert.equal(envelope.storyBibleReached, true);
+        assert.equal(envelope.candidateReached, true);
+        assert.equal(envelope.externalRequestCount, 0);
+        assert.equal(envelope.dataLeftDevice, false);
+        assert.equal(envelope.projectionValidation.detailedProjectionAvailable, true);
+        assert.equal(envelope.projectionValidation.minimalProjectionUsed, false);
+      }
+    }
+    if (new Set(["EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE"]).has(scenario)) {
+      const validation = await readJson(join(simulation.bundleDirectory, RUNNER_ENVELOPE_VALIDATION_FILE));
+      assert.equal(validation.validationDisposition, "INVALID");
+      assert.equal(
+        validation.validatorErrorCode,
+        scenario === "EARLY_RUNNER_ZERO_ENVELOPE"
+          ? "RUNNER_TERMINAL_ENVELOPE_FILE_INVALID"
+          : "RUNNER_TERMINAL_ENVELOPE_TOO_LARGE",
+      );
+      assert.equal(validation.fileExists, true);
+      assert.equal(validation.fileBytes, scenario === "EARLY_RUNNER_ZERO_ENVELOPE" ? 0 : 131_073);
+      assert.equal(validation.fileSha256, null);
+      assert.equal(envelopeRecord.status, "INVALID");
+      assert.equal(sidecarRecord.status, "INVALID");
     }
     const events = await readJournal(join(simulation.attemptDirectory, "attempt-events.jsonl"));
     const terminalEvent = events.at(-1);
@@ -221,11 +323,15 @@ test("post-run terminal failure rejects runner-failure substitution for durable 
   ].map(async ([key, path]) => [key, await readJson(join(source.bundleDirectory, path))])));
   const runnerResult = await readJson(join(source.bundleDirectory, "runner-result.json"));
   const runnerFailure = {
-    schemaVersion: "p24b-rc6.2-formal-runner-failure-v1",
+    schemaVersion: "p24b-rc6.2-formal-runner-failure-v2",
     attemptId: runnerResult.attemptId,
     status: "FAIL",
     reasonCode: "POST_RUN_CAS_FAILED",
     exitCode: runnerResult.exitCode,
+    runnerEnvelopeDigest: (await readJson(join(source.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE))).envelopeDigest,
+    runnerEnvelopeValidationDigest: (
+      await readJson(join(source.bundleDirectory, RUNNER_ENVELOPE_VALIDATION_FILE))
+    ).validationDigest,
   };
   await rm(source.bundleDirectory, { recursive: true, force: false });
   await assert.rejects(
@@ -244,6 +350,83 @@ test("post-run terminal failure rejects runner-failure substitution for durable 
   );
   assert.equal((await readJson(join(source.bundleDirectory, TERMINAL_EMERGENCY_FILE))).status, "FAIL");
   await assert.rejects(readFile(join(source.bundleDirectory, TERMINAL_MANIFEST_FILE)));
+}, ["simulations"]);
+
+test("C8 envelope manifest N binds exact source bytes, dispositions, and reparse policy", async (root) => {
+  const failure = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "FAIL",
+    controlCommit: CONTROL_COMMIT,
+    seed: "manifest-n-failure",
+  });
+  const envelopeBytes = await readFile(join(failure.bundleDirectory, RUNNER_TERMINAL_ENVELOPE_FILE));
+  const validationBytes = await readFile(join(failure.bundleDirectory, RUNNER_ENVELOPE_VALIDATION_FILE));
+  const envelope = JSON.parse(envelopeBytes);
+  const validation = JSON.parse(validationBytes);
+  assert.equal(validation.validationDisposition, "VALIDATED");
+  assert.equal(validation.envelopeDigest, envelope.envelopeDigest);
+  assert.equal(validation.fileSha256, sha256Hex(envelopeBytes));
+  const runnerFailure = await readJson(join(failure.bundleDirectory, "runner-failure.json"));
+  assert.equal(runnerFailure.schemaVersion, "p24b-rc6.2-formal-runner-failure-v2");
+  assert.equal(runnerFailure.runnerEnvelopeDigest, envelope.envelopeDigest);
+  assert.equal(runnerFailure.runnerEnvelopeValidationDigest, validation.validationDigest);
+  const runnerEvent = (await readJournal(join(failure.attemptDirectory, "attempt-events.jsonl")))
+    .find(({ eventType }) => eventType === "RUNNER_COMPLETED");
+  assert.equal(
+    runnerEvent.eventBody.runnerEvidenceDigest,
+    sha256Hex(await readFile(join(failure.bundleDirectory, "runner-failure.json"))),
+  );
+
+  const missing = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "EARLY_RUNNER_MISSING_ENVELOPE",
+    controlCommit: CONTROL_COMMIT,
+    seed: "manifest-n-missing",
+  });
+  const missingRecords = missing.manifest.files.filter(({ path }) => new Set([
+    RUNNER_TERMINAL_ENVELOPE_FILE,
+    RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+  ]).has(path));
+  assert.equal(missingRecords.every(({ requiredForState }) => requiredForState), true);
+  assert.equal(missingRecords.every(({ present, notReached, status }) => (
+    !present && !notReached && status === "MISSING"
+  )), true);
+  assert.deepEqual(missing.manifest.missingRequiredFiles, [
+    RUNNER_TERMINAL_ENVELOPE_FILE,
+    RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+  ]);
+  assert.equal(missing.validation.status, "PASS");
+  assert.equal(missing.validation.formalPass, false);
+
+  const hardlinkBundle = await cloneBundle(failure.bundleDirectory, root, "envelope-hardlink");
+  const hardlinkSource = join(root, "hardlink-envelope-source.json");
+  const hardlinkTarget = join(hardlinkBundle, RUNNER_TERMINAL_ENVELOPE_FILE);
+  await writeFile(hardlinkSource, await readFile(hardlinkTarget));
+  await rm(hardlinkTarget);
+  await link(hardlinkSource, hardlinkTarget);
+  await expectReject(() => validateFormalProductionBrowserTerminalEvidence({
+    bundleDirectory: hardlinkBundle,
+    expectedControlCommit: CONTROL_COMMIT,
+  }), "runner envelope hardlink");
+
+  if (process.platform !== "win32") {
+    for (const path of [
+      RUNNER_TERMINAL_ENVELOPE_FILE,
+      RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+      RUNNER_ENVELOPE_VALIDATION_FILE,
+    ]) {
+      const bundle = await cloneBundle(failure.bundleDirectory, root, `envelope-symlink-${path}`);
+      const target = join(bundle, path);
+      const source = join(root, `source-${path}`);
+      await writeFile(source, await readFile(target));
+      await rm(target);
+      await symlink(source, target);
+      await expectReject(() => validateFormalProductionBrowserTerminalEvidence({
+        bundleDirectory: bundle,
+        expectedControlCommit: CONTROL_COMMIT,
+      }), `${path} symlink`);
+    }
+  }
 }, ["simulations"]);
 
 test("formal PASS exact truth validates", async (root) => {
@@ -343,12 +526,27 @@ test("credential scanner rejects credential values without storing them in manif
   const secret = `sk-${"A9".repeat(20)}`;
   const wrapperResult = await readJson(join(source.bundleDirectory, "wrapper-result.json"));
   wrapperResult.debugValue = secret;
+  const projections = Object.fromEntries(await Promise.all([
+    ["runtimeReceipt", "runtime-receipt.json"],
+    ["toolchainReceipt", "toolchain-receipt.json"],
+    ["runnerResult", "runner-result.json"],
+    ["browserResult", "browser-result.json"],
+    ["networkReceipt", "network-receipt.json"],
+    ["modelMetadata", "model-metadata.json"],
+    ["persistenceTruth", "persistence-truth.json"],
+    ["storyBibleTruth", "story-bible-truth.json"],
+    ["candidateLineage", "candidate-lineage.json"],
+    ["approvalReceipt", "approval-receipt.json"],
+    ["profileCleanup", "profile-cleanup.json"],
+    ["processCleanup", "process-cleanup.json"],
+  ].map(async ([key, path]) => [key, await readJson(join(bundleDirectory, path))])));
   await rm(bundleDirectory, { recursive: true, force: false });
   await assert.rejects(
     finalizeFormalProductionBrowserTerminalEvidence({
       attemptDirectory: source.attemptDirectory,
       bundleDirectory,
       expectedControlCommit: CONTROL_COMMIT,
+      ...projections,
       wrapperResult,
       credentialEnvironment: { C7_TEST_API_TOKEN: secret },
     }),
@@ -590,21 +788,348 @@ const mutations = [
       value.runnerResidueCount = 1;
     }),
   },
+  {
+    name: "33 envelope checkpoint removed",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { delete value.gateCheckpoint; }),
+  },
+  {
+    name: "34 envelope last completed removed",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { delete value.lastCompletedCheckpoint; }),
+  },
+  {
+    name: "35 envelope failure shape removed",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { delete value.failureShape; }),
+  },
+  {
+    name: "36 envelope safe error removed",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { delete value.safeErrorCode; }),
+  },
+  {
+    name: "37 envelope checkpoint ordinal invalid",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.checkpointOrdinal = -1; }),
+  },
+  {
+    name: "38 envelope trail out of order",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.checkpointTrail[1].ordinal = value.checkpointTrail[0].ordinal;
+    }),
+  },
+  {
+    name: "39 envelope attempt wrong",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.attemptId = value.attemptId.replace(/[a-f0-9]$/u, (character) => character === "0" ? "1" : "0");
+    }),
+  },
+  {
+    name: "40 envelope Product commit wrong",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.productCommit = "0".repeat(40); }),
+  },
+  {
+    name: "41 envelope Control commit wrong",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.controlCommit = "1".repeat(40); }),
+  },
+  {
+    name: "42 envelope deployment wrong",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.deploymentId = "dpl_wrong"; }),
+  },
+  {
+    name: "43 envelope Origin wrong",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.productionOrigin = "https://wrong.invalid"; }),
+  },
+  {
+    name: "44 envelope digest wrong",
+    apply: async (bundle) => replaceProjection(bundle, RUNNER_TERMINAL_ENVELOPE_FILE, (value) => {
+      value.envelopeDigest = "0".repeat(64);
+    }),
+  },
+  {
+    name: "45 envelope unexpected raw message",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.message = "forbidden"; }),
+  },
+  {
+    name: "46 envelope raw stack",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.stack = "forbidden"; }),
+  },
+  {
+    name: "47 envelope prompt key",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.uiSummary.prompt = "forbidden"; }),
+  },
+  {
+    name: "48 envelope output key",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.modelSummary.output = "forbidden"; }),
+  },
+  {
+    name: "49 envelope cookie key",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.networkSummary.cookie = "forbidden"; }),
+  },
+  {
+    name: "50 envelope authorization header key",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.authorizationHeader = "forbidden";
+    }),
+  },
+  {
+    name: "51 envelope external request negative",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.externalRequestCount = -1; }),
+  },
+  {
+    name: "52 envelope validation disposition removed",
+    apply: async (bundle) => replaceProjection(bundle, RUNNER_ENVELOPE_VALIDATION_FILE, (value) => {
+      delete value.validationDisposition;
+    }),
+  },
+  {
+    name: "53 envelope validation digest wrong",
+    apply: async (bundle) => replaceProjection(bundle, RUNNER_ENVELOPE_VALIDATION_FILE, (value) => {
+      value.validationDigest = "0".repeat(64);
+    }),
+  },
+  {
+    name: "54 runner v2 envelope digest wrong",
+    apply: async (bundle) => replaceProjection(bundle, "runner-failure.json", (value) => {
+      value.runnerEnvelopeDigest = "0".repeat(64);
+    }),
+  },
+  {
+    name: "55 envelope UTF-8 BOM rejected",
+    apply: async (bundle) => {
+      const path = join(bundle, RUNNER_TERMINAL_ENVELOPE_FILE);
+      const bytes = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), await readFile(path)]);
+      await writeFile(path, bytes);
+      await rewriteManifest(bundle, (manifest) => {
+        const record = manifest.files.find(({ path: recordPath }) => recordPath === RUNNER_TERMINAL_ENVELOPE_FILE);
+        record.bytes = bytes.length;
+        record.sha256 = sha256Hex(bytes);
+      });
+    },
+  },
+  {
+    name: "56 PASS envelope fresh context false",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.freshBrowserContext = false; }),
+  },
+  {
+    name: "57 PASS envelope profile not disposed",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.profileDisposed = false; }),
+  },
+  {
+    name: "58 PASS envelope persistence not reached",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.persistenceReached = false; }),
+  },
+  {
+    name: "59 PASS envelope Story Bible not reached",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.storyBibleReached = false; }),
+  },
+  {
+    name: "60 PASS envelope candidate not reached",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.candidateReached = false; }),
+  },
+  {
+    name: "61 PASS envelope external request nonzero",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.externalRequestCount = 1; }),
+  },
+  {
+    name: "62 PASS envelope data left device",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.dataLeftDevice = true; }),
+  },
+  {
+    name: "63 PASS envelope minimal projection",
+    fixture: "pass",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.projectionValidation.status = "FAIL";
+      value.projectionValidation.detailedProjectionAvailable = false;
+      value.projectionValidation.minimalProjectionUsed = true;
+      value.projectionValidation.validatorErrorCode = "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID";
+      value.projectionValidation.originalProjectionDigest = "a".repeat(64);
+    }),
+  },
+  {
+    name: "64 envelope persistence reached before Story Bible",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.persistenceReached = true;
+      value.storyBibleReached = false;
+      value.candidateReached = true;
+    }),
+  },
+  {
+    name: "65 envelope persistence reached before candidate",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.persistenceReached = true;
+      value.storyBibleReached = true;
+      value.candidateReached = false;
+    }),
+  },
+  {
+    name: "66 envelope candidate reached before Story Bible",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.persistenceReached = false;
+      value.storyBibleReached = false;
+      value.candidateReached = true;
+    }),
+  },
+  {
+    name: "67 envelope network summary empty",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.networkSummary = {}; }),
+  },
+  {
+    name: "68 envelope network summary contradicts top level",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.networkSummary.externalRequestCount = value.externalRequestCount + 1;
+    }),
+  },
+  {
+    name: "69 envelope model summary empty",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.modelSummary = {}; }),
+  },
+  {
+    name: "70 envelope UI summary empty",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.uiSummary = {}; }),
+  },
+  {
+    name: "71 PASS envelope profile ownership missing",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.profileOwnership = null; }),
+  },
+  {
+    name: "72 PASS envelope profile digest missing",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.profilePathDigest = null; }),
+  },
+  {
+    name: "73 envelope assertion ID outside finite set",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.firstFailedAssertion.assertionId = "UNKNOWN_ASSERTION";
+    }),
+  },
+  {
+    name: "74 envelope checkpoint trail discontinuity",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.checkpointTrail[1].ordinal = 3;
+      value.checkpointOrdinal = 3;
+    }),
+  },
+  {
+    name: "75 envelope gate checkpoint differs from trail tail",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => { value.gateCheckpoint = "launch"; }),
+  },
+  {
+    name: "76 envelope last completed differs from trail",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.lastCompletedCheckpoint = "edge-identity";
+    }),
+  },
+  {
+    name: "77 minimal projection attempted false",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.projectionValidation.attempted = false;
+    }),
+  },
+  {
+    name: "78 minimal projection validator code missing",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.projectionValidation.status = "FAIL";
+      value.projectionValidation.detailedProjectionAvailable = false;
+      value.projectionValidation.minimalProjectionUsed = true;
+      value.projectionValidation.originalProjectionDigest = "a".repeat(64);
+      value.projectionValidation.validatorErrorCode = null;
+    }),
+  },
+  {
+    name: "79 minimal projection original digest missing",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.projectionValidation.status = "FAIL";
+      value.projectionValidation.detailedProjectionAvailable = false;
+      value.projectionValidation.minimalProjectionUsed = true;
+      value.projectionValidation.validatorErrorCode = "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID";
+      value.projectionValidation.originalProjectionDigest = null;
+    }),
+  },
+  {
+    name: "80 detailed projection carries failure disposition",
+    fixture: "pass",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.projectionValidation.unknownKeys = ["injectedUnexpectedKey"];
+      value.projectionValidation.originalProjectionDigest = "a".repeat(64);
+    }),
+  },
+  {
+    name: "81 envelope checkpoint trail empty",
+    fixture: "fail",
+    expectedCode: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    apply: async (bundle) => redigestEnvelope(bundle, (value) => {
+      value.checkpointTrail = [];
+      value.checkpointOrdinal = 0;
+    }),
+  },
 ];
 
-test("32-item negative mutation matrix rejects every mutation", async (root) => {
-  const source = await createPassFixture(root, "mutation-source");
-  assert.equal(mutations.length, 32);
+test("81-item negative mutation matrix rejects every mutation", async (root) => {
+  const passSource = await createPassFixture(root, "mutation-source-pass");
+  const failSource = await simulateFormalProductionBrowserTerminalEvidence({
+    rootDirectory: root,
+    scenario: "FAIL",
+    controlCommit: CONTROL_COMMIT,
+    seed: "mutation-source-fail",
+  });
+  assert.equal(mutations.length, 81);
   for (const [index, mutation] of mutations.entries()) {
+    const source = mutation.fixture === "pass"
+      ? passSource
+      : mutation.fixture === "fail"
+        ? failSource
+        : index < 32
+          ? passSource
+          : failSource;
     const bundle = await cloneBundle(source.bundleDirectory, root, `mutation-${String(index + 1).padStart(2, "0")}`);
     await mutation.apply(bundle);
-    await expectReject(
-      () => validateFormalProductionBrowserTerminalEvidence({
+    const validationCall = () => (source === passSource ? validateFormalProductionBrowserTerminalEvidence({
         bundleDirectory: bundle,
         expectedControlCommit: CONTROL_COMMIT,
-      }),
-      mutation.name,
-    );
+      }) : validateTerminalEvidenceBundle({ bundleDirectory: bundle, expectedControlCommit: CONTROL_COMMIT }));
+    if (mutation.expectedCode) {
+      await assert.rejects(validationCall, (error) => (
+        error instanceof TerminalEvidenceError && error.code === mutation.expectedCode
+      ), mutation.name);
+    } else {
+      await expectReject(validationCall, mutation.name);
+    }
     mutationResults.push({ index: index + 1, name: mutation.name, status: "PASS" });
   }
 }, ["mutations"]);
@@ -627,7 +1152,7 @@ try {
   await rm(root, { recursive: true, force: true });
 }
 
-if (MODE === "all" || MODE === "mutations") assert.equal(mutationResults.length, 32);
+if (MODE === "all" || MODE === "mutations") assert.equal(mutationResults.length, 81);
 assert.equal(results.filter(({ status }) => status !== "PASS").length, 0);
 process.stdout.write(`${JSON.stringify({
   schemaVersion: "p24b-rc6.2-terminal-evidence-tests-v1",
@@ -638,8 +1163,15 @@ process.stdout.write(`${JSON.stringify({
   blockingSkipCount: 0,
   simulations: [
     "PASS", "FAIL", "POST_RUN_CAS_FAILURE", "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE",
+    "RUNNER_START_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE", "EARLY_RUNNER_INVALID_ENVELOPE",
+    "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
     "PRECHECK_FAIL", "PRECHECK_FAIL_AFTER_RECEIPT",
   ],
+  ...(MODE === "all" || MODE === "simulations" ? {
+    C8_FORMAL_FAILURE_SIMULATION_PASS: results.some(({ name, status }) => (
+      name.startsWith("terminal stub simulations") && status === "PASS"
+    )),
+  } : {}),
   simulationMechanism: "production-state-api-with-structured-projections",
   results,
   mutationResults,

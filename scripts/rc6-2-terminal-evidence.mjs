@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { link, open, lstat, mkdir, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { link, open, lstat, mkdir, readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -39,6 +39,11 @@ export const TERMINAL_MANIFEST_SCHEMA = "p24b-rc6.2-formal-production-browser-te
 export const TERMINAL_MANIFEST_FILE = "terminal-evidence-manifest.json";
 export const TERMINAL_MANIFEST_SHA_FILE = "terminal-evidence-manifest.sha256";
 export const TERMINAL_EMERGENCY_FILE = "emergency-terminal-failure.json";
+export const RUNNER_TERMINAL_ENVELOPE_FILE = "runner-terminal-envelope.json";
+export const RUNNER_TERMINAL_ENVELOPE_SHA_FILE = "runner-terminal-envelope.sha256";
+export const RUNNER_ENVELOPE_VALIDATION_FILE = "runner-envelope-validation.json";
+export const RUNNER_TERMINAL_ENVELOPE_SCHEMA = "p24b-rc6.2-formal-runner-terminal-envelope-v1";
+export const RUNNER_ENVELOPE_VALIDATION_SCHEMA = "p24b-rc6.2-formal-runner-envelope-validation-v1";
 
 const AUTHORIZATION_SCHEMA = FORMAL_ATTEMPT_SCHEMA_VERSION;
 const LEASE_SCHEMA = FORMAL_ATTEMPT_SCHEMA_VERSION;
@@ -52,6 +57,8 @@ const SAFE_VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,64}$/u;
 const UTC_MILLISECONDS_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_JSON_BYTES = 2_097_152;
 const MAX_JOURNAL_BYTES = 4_194_304;
+const MAX_RUNNER_ENVELOPE_BYTES = 131_072;
+const RUNNER_ENVELOPE_SHA_BYTES = 65;
 const AUTHORIZATION_CLAIM_DIGEST_DOMAIN = "p24b-rc6.2-formal-attempt-authorization-claim-v1";
 const AUTHORIZATION_KEYS = [
   "schemaVersion",
@@ -99,6 +106,58 @@ const LEASE_KEYS = [
 ];
 const TERMINAL_STATES = new Set(["PRECHECK_FAILED", "TERMINAL_PASS", "TERMINAL_FAIL", "TERMINAL_ABORTED"]);
 const ATTEMPT_STATES = new Set(FORMAL_ATTEMPT_STATES);
+const RUNNER_ENVELOPE_FAILURE_SHAPES = new Set([
+  "ASSERTION",
+  "GATE_ERROR",
+  "PLAYWRIGHT_ERROR",
+  "TIMEOUT",
+  "PROCESS_ERROR",
+  "NETWORK_POLICY_REJECTION",
+  "EVIDENCE_VALIDATION_ERROR",
+  "UNKNOWN_SAFE",
+]);
+const RUNNER_ENVELOPE_CHECKPOINT_STATUSES = new Set(["entered", "completed", "failed"]);
+const RUNNER_ENVELOPE_DISPOSITIONS = new Set([
+  "true", "false", "null", "missing", "present", "zero", "nonzero", "equal", "different",
+  "ready", "not_ready", "indexeddb", "memory", "browser_ai", "other_executor", "valid_digest",
+  "invalid_digest",
+]);
+const RUNNER_ENVELOPE_VALIDATION_ERROR_CODES = new Set([
+  "RUNNER_TERMINAL_ENVELOPE_MISSING",
+  "RUNNER_TERMINAL_ENVELOPE_SHA_MISSING",
+  "RUNNER_TERMINAL_ENVELOPE_FILE_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_TOO_LARGE",
+  "RUNNER_TERMINAL_ENVELOPE_UTF8_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_JSON_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_NOT_CANONICAL",
+  "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_IDENTITY_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_DIGEST_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_SHA_MISMATCH",
+  "RUNNER_TERMINAL_ENVELOPE_PATH_INVALID",
+  "RUNNER_TERMINAL_ENVELOPE_REPARSE_POINT",
+  "RUNNER_TERMINAL_ENVELOPE_PROCESS_TRUTH_MISMATCH",
+  "RUNNER_TERMINAL_ENVELOPE_VALIDATION_DESTINATION_PREEXISTED",
+  "RUNNER_TERMINAL_ENVELOPE_VALIDATION_PUBLICATION_FAILED",
+]);
+const RUNNER_ENVELOPE_KEYS = [
+  "schemaVersion", "status", "attemptId", "authorizationId", "authorizationDigest", "productCommit",
+  "controlCommit", "deploymentId", "productionOrigin", "releaseTag", "releaseRevision",
+  "runtimeReceiptDigest", "wrapperDigest", "runnerDigest", "contractDigest", "mode", "startedAt",
+  "completedAt", "exitCode", "requestPhase",
+  "gateCheckpoint", "lastCompletedCheckpoint", "checkpointOrdinal", "checkpointTrail",
+  "failureShape", "safeErrorCode", "firstFailedOperation", "firstFailedAssertion",
+  "projectionValidation", "freshBrowserContext", "profileOwnership", "profilePathDigest",
+  "profileDisposed", "networkSummary", "modelSummary", "uiSummary", "persistenceReached",
+  "storyBibleReached", "candidateReached", "externalRequestCount", "dataLeftDevice", "envelopeDigest",
+];
+const RUNNER_ENVELOPE_VALIDATION_KEYS = [
+  "schemaVersion", "attemptId", "status", "validationDisposition", "fileExists", "fileBytes", "fileSha256",
+  "shaSidecarMatches", "canonicalJson", "schemaValid", "identityValid", "digestValid",
+  "statusObserved", "detailedProjectionAvailable", "minimalProjectionUsed", "validatorErrorCode",
+  "validatedAt", "envelopeDigest", "observedExitCode", "stdoutBytes", "stderrBytes", "progressCount",
+  "unexpectedLineCount", "safeTerminalCodeCount", "validationDigest",
+];
 
 export const TERMINAL_EVIDENCE_FILES = Object.freeze([
   "attempt-authorization.json",
@@ -110,6 +169,9 @@ export const TERMINAL_EVIDENCE_FILES = Object.freeze([
   "wrapper-result.json",
   "runner-result.json",
   "runner-failure.json",
+  RUNNER_TERMINAL_ENVELOPE_FILE,
+  RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+  RUNNER_ENVELOPE_VALIDATION_FILE,
   "browser-result.json",
   "browser-failure.json",
   "network-receipt.json",
@@ -142,7 +204,7 @@ const FILE_PROJECTION_KEYS = Object.freeze({
 const FILE_PROJECTION_SCHEMAS = Object.freeze({
   "wrapper-result.json": "p24b-rc6.2-formal-wrapper-result-v1",
   "runner-result.json": "p24b-rc6.2-formal-runner-result-v1",
-  "runner-failure.json": "p24b-rc6.2-formal-runner-failure-v1",
+  "runner-failure.json": "p24b-rc6.2-formal-runner-failure-v2",
   "browser-result.json": "p24b-rc6.2-formal-browser-result-v1",
   "browser-failure.json": "p24b-rc6.2-formal-browser-failure-v1",
   "network-receipt.json": "p24b-rc6.2-formal-network-receipt-v1",
@@ -180,6 +242,8 @@ const FINITE_CODES = new Set([
   "TERMINAL_EVIDENCE_STORY_BIBLE_TRUTH_INVALID",
   "TERMINAL_EVIDENCE_CANDIDATE_APPROVAL_INVALID",
   "TERMINAL_EVIDENCE_CLEANUP_INVALID",
+  "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID",
   "TERMINAL_EVIDENCE_FINALIZATION_FAILED",
   "TERMINAL_EVIDENCE_SIMULATION_INVALID",
   "TERMINAL_EVIDENCE_CLI_MODE_INVALID",
@@ -235,6 +299,34 @@ function requireTimestamp(value, code) {
   return timestamp;
 }
 
+function requireSafeInteger(value, code, { minimum = 0, maximum = Number.MAX_SAFE_INTEGER, nullable = false } = {}) {
+  if (nullable && value === null) return;
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) reject(code);
+}
+
+function requireSafeProjection(value, code, depth = 0) {
+  if (depth > 12) reject(code);
+  if (value === null || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) reject(code);
+    return;
+  }
+  if (typeof value === "string") {
+    if (value.length > 1_024 || value.includes("\0") || value.includes("\r") || value.includes("\n")) reject(code);
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 64) reject(code);
+    value.forEach((entry) => requireSafeProjection(entry, code, depth + 1));
+    return;
+  }
+  requireObject(value, code);
+  const forbidden = /(?:authorization|cookie|header|prompt|output|message|stack|url|content|story|text)/iu;
+  const keys = Object.keys(value);
+  if (keys.length > 64 || keys.some((key) => forbidden.test(key))) reject(code);
+  for (const entry of Object.values(value)) requireSafeProjection(entry, code, depth + 1);
+}
+
 function digestDomain(schemaVersion, body) {
   return sha256Hex(`${schemaVersion}\n${stableStringify(body)}`);
 }
@@ -244,6 +336,13 @@ function withoutKey(value, key) {
 }
 
 function strictUtf8(buffer, code) {
+  if (
+    Buffer.isBuffer(buffer)
+    && buffer.length >= 3
+    && buffer[0] === 0xEF
+    && buffer[1] === 0xBB
+    && buffer[2] === 0xBF
+  ) reject(code);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
@@ -279,7 +378,7 @@ async function assertRegularFile(path, code) {
   } catch {
     reject(code);
   }
-  if (!truth.isFile() || truth.isSymbolicLink()) reject(code);
+  if (!truth.isFile() || truth.isSymbolicLink() || truth.nlink !== 1) reject(code);
   return truth;
 }
 
@@ -319,16 +418,75 @@ async function assertNoReparseResolution(path, code = "TERMINAL_EVIDENCE_PATH_IN
   if (!matches) reject(code);
 }
 
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.nlink === right.nlink;
+}
+
+async function readBoundedRegularFile(path, {
+  code = "TERMINAL_EVIDENCE_SOURCE_INVALID",
+  maximumBytes,
+  expectedBytes = null,
+  allowEmpty = false,
+} = {}) {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) reject(code);
+  const pathTruthBefore = await assertRegularFile(path, code);
+  if (
+    (!allowEmpty && pathTruthBefore.size <= 0)
+    || pathTruthBefore.size > maximumBytes
+    || (expectedBytes !== null && pathTruthBefore.size !== expectedBytes)
+  ) reject(code);
+  await assertNoReparseResolution(path, code);
+  let handle;
+  try {
+    handle = await open(path, "r");
+    const before = await handle.stat();
+    if (
+      !before.isFile()
+      || before.nlink !== 1
+      || !sameFileIdentity(pathTruthBefore, before)
+      || before.size > maximumBytes
+      || (expectedBytes !== null && before.size !== expectedBytes)
+    ) reject(code);
+    const bytes = Buffer.alloc(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead === 0) reject(code);
+      offset += bytesRead;
+    }
+    const overflow = Buffer.alloc(1);
+    if ((await handle.read(overflow, 0, 1, bytes.length)).bytesRead !== 0) reject(code);
+    const after = await handle.stat();
+    if (
+      !sameFileIdentity(before, after)
+      || before.mtimeMs !== after.mtimeMs
+      || before.ctimeMs !== after.ctimeMs
+    ) reject(code);
+    const pathTruthAfter = await assertRegularFile(path, code);
+    if (!sameFileIdentity(after, pathTruthAfter)) reject(code);
+    await assertNoReparseResolution(path, code);
+    return bytes;
+  } catch (error) {
+    if (error instanceof TerminalEvidenceError) throw error;
+    reject(code);
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 async function readCanonicalJsonFile(path, code = "TERMINAL_EVIDENCE_SOURCE_INVALID") {
-  await assertRegularFile(path, code);
-  const bytes = await readFile(path);
+  const bytes = await readBoundedRegularFile(path, { code, maximumBytes: MAX_JSON_BYTES });
   return { ...parseCanonicalJsonBytes(bytes, code), bytes };
 }
 
 async function readCanonicalJournal(path) {
-  await assertRegularFile(path, "TERMINAL_EVIDENCE_SOURCE_MISSING");
-  const bytes = await readFile(path);
-  if (bytes.length === 0 || bytes.length > MAX_JOURNAL_BYTES) reject("TERMINAL_EVIDENCE_EVENT_CHAIN_INVALID");
+  const bytes = await readBoundedRegularFile(path, {
+    code: "TERMINAL_EVIDENCE_EVENT_CHAIN_INVALID",
+    maximumBytes: MAX_JOURNAL_BYTES,
+  });
   const raw = strictUtf8(bytes, "TERMINAL_EVIDENCE_EVENT_CHAIN_INVALID");
   if (raw.startsWith("\uFEFF") || raw.includes("\0") || raw.includes("\uFFFD") || raw.includes("\r")) {
     reject("TERMINAL_EVIDENCE_EVENT_CHAIN_INVALID");
@@ -512,6 +670,11 @@ function requiredForState(path, lease) {
     && new Set(["runtime-receipt.json", "toolchain-receipt.json"]).has(path)
   ) return lease.runtimeReceiptDigest !== null;
   if (lease.state === "PRECHECK_FAILED") return false;
+  if (new Set([
+    RUNNER_TERMINAL_ENVELOPE_FILE,
+    RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+    RUNNER_ENVELOPE_VALIDATION_FILE,
+  ]).has(path)) return lease.runnerStarted;
   if (new Set(["runtime-receipt.json", "toolchain-receipt.json", "process-cleanup.json"]).has(path)) return true;
   if (path === "profile-cleanup.json") return lease.attemptConsumed;
   // Runner evidence describes the durable RUNNER_COMPLETED truth, not the
@@ -533,6 +696,14 @@ function requiredForState(path, lease) {
 }
 
 function notReachedReason(path, lease) {
+  if (
+    !lease.runnerStarted
+    && new Set([
+      RUNNER_TERMINAL_ENVELOPE_FILE,
+      RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+      RUNNER_ENVELOPE_VALIDATION_FILE,
+    ]).has(path)
+  ) return "RUNNER_NOT_REACHED";
   if (path === "runner-failure.json" && lease.runnerOutcome === "PASS") {
     return "RUNNER_PASS_NO_FAILURE_ARTIFACT";
   }
@@ -558,6 +729,21 @@ function notReachedReason(path, lease) {
   return "NOT_APPLICABLE";
 }
 
+function runnerEnvelopeMissingRecord(path, validation) {
+  if (!validation || validation.validationDisposition === "VALIDATED") return null;
+  const envelopePath = path === RUNNER_TERMINAL_ENVELOPE_FILE;
+  const sidecarPath = path === RUNNER_TERMINAL_ENVELOPE_SHA_FILE;
+  if (!envelopePath && !sidecarPath) return null;
+  return {
+    status: validation.validationDisposition === "MISSING" ? "MISSING" : "INVALID",
+    reasonCode: envelopePath
+      ? validation.validatorErrorCode
+      : validation.validatorErrorCode === "RUNNER_TERMINAL_ENVELOPE_MISSING"
+        ? "RUNNER_TERMINAL_ENVELOPE_SHA_MISSING"
+        : validation.validatorErrorCode,
+  };
+}
+
 async function writeCreateNewAtomic(path, bytes) {
   const parent = dirname(path);
   await assertDirectory(parent, "TERMINAL_EVIDENCE_PATH_INVALID");
@@ -569,10 +755,21 @@ async function writeCreateNewAtomic(path, bytes) {
     await handle.sync();
     await handle.close();
     handle = null;
-    const temporaryBytes = await readFile(temporaryPath);
+    const temporaryBytes = await readBoundedRegularFile(temporaryPath, {
+      code: "TERMINAL_EVIDENCE_DIGEST_MISMATCH",
+      maximumBytes: bytes.length,
+      expectedBytes: bytes.length,
+      allowEmpty: true,
+    });
     if (!temporaryBytes.equals(bytes)) reject("TERMINAL_EVIDENCE_DIGEST_MISMATCH");
     await link(temporaryPath, path);
-    const published = await readFile(path);
+    await rm(temporaryPath, { force: true });
+    const published = await readBoundedRegularFile(path, {
+      code: "TERMINAL_EVIDENCE_DIGEST_MISMATCH",
+      maximumBytes: bytes.length,
+      expectedBytes: bytes.length,
+      allowEmpty: true,
+    });
     if (!published.equals(bytes)) reject("TERMINAL_EVIDENCE_DIGEST_MISMATCH");
   } catch (error) {
     if (error instanceof TerminalEvidenceError) throw error;
@@ -685,13 +882,491 @@ function normalizeProjection(value, path) {
   const clone = structuredClone(value);
   if (
     typeof clone.schemaVersion !== "string"
-    || (FILE_PROJECTION_SCHEMAS[path] && clone.schemaVersion !== FILE_PROJECTION_SCHEMAS[path])
+    || (
+      FILE_PROJECTION_SCHEMAS[path]
+      && clone.schemaVersion !== FILE_PROJECTION_SCHEMAS[path]
+      && !(path === "runner-failure.json" && clone.schemaVersion === "p24b-rc6.2-formal-runner-failure-v1")
+    )
   ) reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
   if (!new Set(["runtime-receipt.json", "toolchain-receipt.json"]).has(path) && !clone.attemptId) {
     reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
   }
   if (typeof path !== "string") reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
   return clone;
+}
+
+function validateRunnerProjectionShape(projection, terminalLease = null) {
+  const code = "TERMINAL_EVIDENCE_PROJECTION_INVALID";
+  requireObject(projection, code);
+  const commonKeys = ["schemaVersion", "attemptId", "status", "reasonCode", "exitCode"];
+  if (projection.schemaVersion === "p24b-rc6.2-formal-runner-failure-v1") {
+    requireExactKeys(projection, commonKeys, code);
+    if (terminalLease !== null && terminalLease.runnerStarted !== false) reject(code);
+  } else if (projection.schemaVersion === "p24b-rc6.2-formal-runner-failure-v2") {
+    requireExactKeys(projection, [...commonKeys, "runnerEnvelopeDigest", "runnerEnvelopeValidationDigest"], code);
+    if (terminalLease !== null && terminalLease.runnerStarted === false) reject(code);
+    if (projection.runnerEnvelopeDigest !== null) requireSha256(projection.runnerEnvelopeDigest, code);
+    requireSha256(projection.runnerEnvelopeValidationDigest, code);
+  } else {
+    reject(code);
+  }
+  if (
+    !ATTEMPT_ID_PATTERN.test(projection.attemptId)
+    || !new Set(["FAIL", "ABORTED"]).has(projection.status)
+    || !SAFE_CODE_PATTERN.test(projection.reasonCode)
+  ) reject(code);
+  requireSafeInteger(projection.exitCode, code, { minimum: -2_147_483_648, maximum: 4_294_967_295 });
+}
+
+function validateRunnerEnvelopeShape(envelope, terminalLease) {
+  const code = "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID";
+  const assertionIds = new Set([
+    "EDGE_CONTEXT_SINGLE_PAGE", "EDGE_INITIAL_PAGE_ABOUT_BLANK", "NETWORK_SENTINEL_ZERO_EGRESS",
+    "RELEASE_IDENTITY_EXACT", "FRESH_STORAGE_EMPTY", "PROJECT_CREATED", "STORY_BIBLE_CREATED",
+    "BROWSER_AI_SETUP_READY", "MODEL_CACHE_VERIFIED", "MODEL_SHARDS_VERIFIED",
+    "ATTACHMENT_RIGHTS_NEGATIVE_BLOCKED", "ATTACHMENT_RIGHTS_POSITIVE_ACCEPTED",
+    "T1_CONTEXT_BOUND", "FIRST_CANDIDATE_CREATED", "DIRECT_REGENERATION_CREATED",
+    "REJECT_CANON_UNCHANGED", "CACHE_REUSED_AFTER_RELOAD", "CHAINED_REGENERATION_CREATED",
+    "APPROVAL_REVISION_INCREMENTED_ONCE", "FINAL_RELOAD_PERSISTED", "PROFILE_DISPOSED",
+  ]);
+  requireExactKeys(envelope, RUNNER_ENVELOPE_KEYS, code);
+  if (
+    envelope.schemaVersion !== RUNNER_TERMINAL_ENVELOPE_SCHEMA
+    || !new Set(["PASS", "FAIL"]).has(envelope.status)
+    || envelope.attemptId !== terminalLease.attemptId
+    || envelope.authorizationId !== terminalLease.authorizationId
+    || envelope.authorizationDigest !== terminalLease.authorizationDigest
+    || envelope.productCommit !== terminalLease.productCommit
+    || envelope.controlCommit !== terminalLease.controlCommit
+    || envelope.deploymentId !== terminalLease.deploymentId
+    || envelope.productionOrigin !== terminalLease.productionOrigin
+    || envelope.releaseTag !== terminalLease.releaseTag
+    || envelope.releaseRevision !== terminalLease.releaseRevision
+    || envelope.runtimeReceiptDigest !== terminalLease.runtimeReceiptDigest
+    || envelope.wrapperDigest !== terminalLease.wrapperDigest
+    || envelope.runnerDigest !== terminalLease.runnerDigest
+    || envelope.contractDigest !== terminalLease.contractDigest
+    || envelope.mode !== "generation"
+    || !SAFE_ID_PATTERN.test(envelope.requestPhase)
+    || !SAFE_ID_PATTERN.test(envelope.gateCheckpoint)
+    || !SAFE_ID_PATTERN.test(envelope.lastCompletedCheckpoint)
+    || typeof envelope.freshBrowserContext !== "boolean"
+    || !new Set([null, "wrapper-owned", "runner-created"]).has(envelope.profileOwnership)
+    || typeof envelope.profileDisposed !== "boolean"
+    || typeof envelope.persistenceReached !== "boolean"
+    || typeof envelope.storyBibleReached !== "boolean"
+    || typeof envelope.candidateReached !== "boolean"
+    || typeof envelope.dataLeftDevice !== "boolean"
+  ) reject(code);
+  if (
+    (envelope.status === "PASS" && (
+      envelope.failureShape !== null
+      || envelope.safeErrorCode !== null
+      || envelope.firstFailedOperation !== null
+      || envelope.firstFailedAssertion !== null
+    ))
+    || (envelope.status === "FAIL" && (
+      !RUNNER_ENVELOPE_FAILURE_SHAPES.has(envelope.failureShape)
+      || typeof envelope.safeErrorCode !== "string"
+      || !SAFE_CODE_PATTERN.test(envelope.safeErrorCode)
+      || envelope.firstFailedOperation === null
+    ))
+  ) reject(code);
+  requireSha256(envelope.envelopeDigest, code);
+  if (envelope.profilePathDigest !== null) requireSha256(envelope.profilePathDigest, code);
+  requireSha256(envelope.authorizationDigest, code);
+  for (const key of ["runtimeReceiptDigest", "wrapperDigest", "runnerDigest", "contractDigest"]) requireSha256(envelope[key], code);
+  requireTimestamp(envelope.startedAt, code);
+  requireTimestamp(envelope.completedAt, code);
+  if (Date.parse(envelope.completedAt) < Date.parse(envelope.startedAt)) reject(code);
+  requireSafeInteger(envelope.exitCode, code, { minimum: -2_147_483_648, maximum: 4_294_967_295, nullable: true });
+  requireSafeInteger(envelope.checkpointOrdinal, code, { maximum: 100_000 });
+  requireSafeInteger(envelope.externalRequestCount, code, { maximum: 1_000_000 });
+  if (
+    !Array.isArray(envelope.checkpointTrail)
+    || envelope.checkpointTrail.length === 0
+    || envelope.checkpointTrail.length > 32
+  ) reject(code);
+  let previousOrdinal = -1;
+  for (const [index, record] of envelope.checkpointTrail.entries()) {
+    requireExactKeys(record, ["ordinal", "checkpoint", "enteredAt", "completedAt", "status"], code);
+    requireSafeInteger(record.ordinal, code, { maximum: 100_000 });
+    if (
+      record.ordinal <= previousOrdinal
+      || (index > 0 && record.ordinal !== previousOrdinal + 1)
+      || !SAFE_ID_PATTERN.test(record.checkpoint)
+    ) reject(code);
+    requireTimestamp(record.enteredAt, code);
+    if (record.completedAt !== null) requireTimestamp(record.completedAt, code);
+    if (!RUNNER_ENVELOPE_CHECKPOINT_STATUSES.has(record.status)) reject(code);
+    if ((record.status === "entered") !== (record.completedAt === null)) reject(code);
+    previousOrdinal = record.ordinal;
+  }
+  if (envelope.checkpointTrail.length > 0 && envelope.checkpointOrdinal !== previousOrdinal) reject(code);
+  if (envelope.checkpointTrail.length > 0) {
+    const current = envelope.checkpointTrail.at(-1);
+    const lastCompleted = [...envelope.checkpointTrail].reverse().find(({ status }) => status === "completed");
+    if (
+      current.checkpoint !== envelope.gateCheckpoint
+      || (lastCompleted?.checkpoint ?? "none") !== envelope.lastCompletedCheckpoint
+    ) reject(code);
+  }
+  if (envelope.firstFailedOperation !== null) {
+    requireExactKeys(envelope.firstFailedOperation, ["operationId", "operationKind", "messageDigest"], code);
+    if (
+      typeof envelope.firstFailedOperation.operationId !== "string"
+      || !SAFE_ID_PATTERN.test(envelope.firstFailedOperation.operationId)
+      || typeof envelope.firstFailedOperation.operationKind !== "string"
+      || !SAFE_ID_PATTERN.test(envelope.firstFailedOperation.operationKind)
+    ) reject(code);
+    requireSha256(envelope.firstFailedOperation.messageDigest, code);
+  }
+  if (envelope.firstFailedAssertion !== null) {
+    requireExactKeys(envelope.firstFailedAssertion, [
+      "assertionId", "errorName", "errorCode", "operator", "messageDigest",
+      "expectedDisposition", "actualDisposition",
+    ], code);
+    for (const key of ["assertionId", "errorName", "errorCode", "operator"]) {
+      if (
+        typeof envelope.firstFailedAssertion[key] !== "string"
+        || !SAFE_ID_PATTERN.test(envelope.firstFailedAssertion[key])
+      ) reject(code);
+    }
+    if (!assertionIds.has(envelope.firstFailedAssertion.assertionId)) reject(code);
+    requireSha256(envelope.firstFailedAssertion.messageDigest, code);
+    if (
+      !RUNNER_ENVELOPE_DISPOSITIONS.has(envelope.firstFailedAssertion.expectedDisposition)
+      || !RUNNER_ENVELOPE_DISPOSITIONS.has(envelope.firstFailedAssertion.actualDisposition)
+    ) reject(code);
+  }
+  requireExactKeys(envelope.projectionValidation, [
+    "attempted", "status", "schemaExpected", "schemaObserved", "detailedProjectionAvailable",
+    "minimalProjectionUsed", "validatorErrorCode", "unknownKeys", "missingKeys", "typeMismatchKeys",
+    "originalProjectionDigest",
+  ], code);
+  const projection = envelope.projectionValidation;
+  if (
+    typeof projection.attempted !== "boolean"
+    || !new Set(["PASS", "FAIL", "NOT_ATTEMPTED"]).has(projection.status)
+    || projection.schemaExpected !== RUNNER_TERMINAL_ENVELOPE_SCHEMA
+    || (projection.schemaObserved !== null && projection.schemaObserved !== RUNNER_TERMINAL_ENVELOPE_SCHEMA)
+    || typeof projection.detailedProjectionAvailable !== "boolean"
+    || typeof projection.minimalProjectionUsed !== "boolean"
+    || (projection.validatorErrorCode !== null && !SAFE_CODE_PATTERN.test(projection.validatorErrorCode))
+    || !["unknownKeys", "missingKeys", "typeMismatchKeys"].every((key) => (
+      Array.isArray(projection[key])
+      && projection[key].length <= 64
+      && projection[key].every((value) => typeof value === "string" && SAFE_ID_PATTERN.test(value))
+    ))
+  ) reject(code);
+  if (projection.originalProjectionDigest !== null) requireSha256(projection.originalProjectionDigest, code);
+  if (
+    projection.attempted !== true
+    || (projection.detailedProjectionAvailable && (
+      projection.status !== "PASS"
+      || projection.validatorErrorCode !== null
+      || projection.originalProjectionDigest !== null
+      || projection.unknownKeys.length !== 0
+      || projection.missingKeys.length !== 0
+      || projection.typeMismatchKeys.length !== 0
+    ))
+    || (projection.minimalProjectionUsed && (
+      projection.status !== "FAIL"
+      || typeof projection.validatorErrorCode !== "string"
+      || !SAFE_CODE_PATTERN.test(projection.validatorErrorCode)
+      || typeof projection.originalProjectionDigest !== "string"
+      || !SHA256_PATTERN.test(projection.originalProjectionDigest)
+    ))
+    || projection.detailedProjectionAvailable === projection.minimalProjectionUsed
+    || (projection.status === "PASS") !== projection.detailedProjectionAvailable
+  ) reject(code);
+  if (
+    envelope.status === "PASS"
+    && (
+      envelope.freshBrowserContext !== true
+      || envelope.profileDisposed !== true
+      || envelope.persistenceReached !== true
+      || envelope.storyBibleReached !== true
+      || envelope.candidateReached !== true
+      || envelope.externalRequestCount !== 0
+      || envelope.dataLeftDevice !== false
+      || projection.detailedProjectionAvailable !== true
+      || projection.minimalProjectionUsed !== false
+      || !new Set(["wrapper-owned", "runner-created"]).has(envelope.profileOwnership)
+      || typeof envelope.profilePathDigest !== "string"
+    )
+  ) reject(code);
+  if (
+    (envelope.candidateReached && !envelope.storyBibleReached)
+    || (envelope.persistenceReached && !envelope.candidateReached)
+  ) reject(code);
+  requireExactKeys(envelope.networkSummary, [
+    "policy", "routeInstalledBeforeNavigation", "webSocketRouteInstalledBeforeNavigation",
+    "blockedRequestCount", "prohibitedExternalAiRequestCount", "permittedImmutableModelRequestCount",
+    "externalRequestCount", "dataLeftDevice",
+  ], code);
+  if (
+    envelope.networkSummary.policy !== "phase-aware-context-route-default-deny-v3"
+    || typeof envelope.networkSummary.routeInstalledBeforeNavigation !== "boolean"
+    || typeof envelope.networkSummary.webSocketRouteInstalledBeforeNavigation !== "boolean"
+    || envelope.networkSummary.externalRequestCount !== envelope.externalRequestCount
+    || envelope.networkSummary.dataLeftDevice !== envelope.dataLeftDevice
+  ) reject(code);
+  for (const key of [
+    "blockedRequestCount", "prohibitedExternalAiRequestCount", "permittedImmutableModelRequestCount",
+    "externalRequestCount",
+  ]) requireSafeInteger(envelope.networkSummary[key], code, { maximum: 1_000_000 });
+  requireExactKeys(envelope.modelSummary, [
+    "modelPayloadRequestCount", "immutableModelRootRequestCount", "approvedModelRedirectRequestCount",
+    "metadataObserved",
+  ], code);
+  for (const key of [
+    "modelPayloadRequestCount", "immutableModelRootRequestCount", "approvedModelRedirectRequestCount",
+  ]) requireSafeInteger(envelope.modelSummary[key], code, { maximum: 1_000_000 });
+  requireBoolean(envelope.modelSummary.metadataObserved, code);
+  requireExactKeys(envelope.uiSummary, ["alertCount", "safeErrorCodeCount"], code);
+  requireSafeInteger(envelope.uiSummary.alertCount, code, { maximum: 1_000_000 });
+  requireSafeInteger(envelope.uiSummary.safeErrorCodeCount, code, { maximum: 1_000_000 });
+  for (const summary of [envelope.networkSummary, envelope.modelSummary, envelope.uiSummary]) {
+    requireSafeProjection(summary, code);
+  }
+  if (envelope.envelopeDigest !== sha256Hex(stableStringify(withoutKey(envelope, "envelopeDigest")))) reject(code);
+  return envelope;
+}
+
+function validateRunnerEnvelopeValidationShape(validation, terminalLease) {
+  const code = "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID";
+  requireExactKeys(validation, RUNNER_ENVELOPE_VALIDATION_KEYS, code);
+  if (
+    validation.schemaVersion !== RUNNER_ENVELOPE_VALIDATION_SCHEMA
+    || validation.attemptId !== terminalLease.attemptId
+    || !new Set(["PASS", "FAIL"]).has(validation.status)
+    || !new Set(["VALIDATED", "MISSING", "INVALID"]).has(validation.validationDisposition)
+  ) reject(code);
+  for (const key of [
+    "fileExists", "shaSidecarMatches", "canonicalJson", "schemaValid", "identityValid", "digestValid",
+    "detailedProjectionAvailable", "minimalProjectionUsed",
+  ]) requireBoolean(validation[key], code);
+  requireSafeInteger(validation.fileBytes, code);
+  for (const key of ["stdoutBytes", "stderrBytes"]) requireSafeInteger(validation[key], code);
+  for (const key of ["progressCount", "unexpectedLineCount", "safeTerminalCodeCount"]) {
+    requireSafeInteger(validation[key], code);
+  }
+  requireSafeInteger(validation.observedExitCode, code, {
+    minimum: -2_147_483_648,
+    maximum: 4_294_967_295,
+    nullable: true,
+  });
+  requireTimestamp(validation.validatedAt, code);
+  for (const key of ["fileSha256", "envelopeDigest"]) {
+    if (validation[key] !== null) requireSha256(validation[key], code);
+  }
+  if (validation.statusObserved !== null && !new Set(["PASS", "FAIL"]).has(validation.statusObserved)) reject(code);
+  if (validation.validatorErrorCode !== null && !RUNNER_ENVELOPE_VALIDATION_ERROR_CODES.has(validation.validatorErrorCode)) {
+    reject(code);
+  }
+  const success = validation.validationDisposition === "VALIDATED";
+  if (
+    validation.status !== (success ? "PASS" : "FAIL")
+    || (success && validation.validatorErrorCode !== null)
+    || (!success && validation.validatorErrorCode === null)
+    || (success && ![
+      validation.fileExists, validation.shaSidecarMatches, validation.canonicalJson, validation.schemaValid,
+      validation.identityValid, validation.digestValid,
+    ].every(Boolean))
+    || (!validation.fileExists && (
+      validation.fileBytes !== 0
+      || validation.fileSha256 !== null
+      || validation.statusObserved !== null
+      || validation.envelopeDigest !== null
+      || validation.shaSidecarMatches !== false
+      || validation.canonicalJson !== false
+      || validation.schemaValid !== false
+      || validation.identityValid !== false
+      || validation.digestValid !== false
+      || validation.detailedProjectionAvailable !== false
+      || validation.minimalProjectionUsed !== true
+    ))
+  ) reject(code);
+  if (success) {
+    const pass = validation.statusObserved === "PASS";
+    if (
+      (pass && (
+        validation.observedExitCode !== 0
+        || validation.safeTerminalCodeCount !== 0
+        || validation.unexpectedLineCount !== 0
+      ))
+      || (!pass && (
+        validation.statusObserved !== "FAIL"
+        || validation.observedExitCode === null
+        || validation.observedExitCode === 0
+        || validation.unexpectedLineCount !== 0
+        || validation.safeTerminalCodeCount !== 1
+      ))
+    ) reject(code);
+  }
+  requireSha256(validation.validationDigest, code);
+  if (validation.validationDigest !== sha256Hex(stableStringify(withoutKey(validation, "validationDigest")))) reject(code);
+  return validation;
+}
+
+async function pathTruth(path) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    reject("TERMINAL_EVIDENCE_PATH_INVALID");
+  }
+}
+
+async function readRunnerEnvelopeSources(attemptDirectory, terminalLease) {
+  const envelopePath = join(attemptDirectory, RUNNER_TERMINAL_ENVELOPE_FILE);
+  const sidecarPath = join(attemptDirectory, RUNNER_TERMINAL_ENVELOPE_SHA_FILE);
+  const validationPath = join(attemptDirectory, RUNNER_ENVELOPE_VALIDATION_FILE);
+  if (!terminalLease.runnerStarted) {
+    for (const path of [envelopePath, sidecarPath, validationPath]) {
+      if (await pathTruth(path)) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+    }
+    return { entries: new Map(), validation: null, envelope: null };
+  }
+
+  const validationSource = await readCanonicalJsonFile(
+    validationPath,
+    "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+  );
+  await assertNoReparseResolution(validationPath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  const validation = validateRunnerEnvelopeValidationShape(validationSource.parsed, terminalLease);
+  const entries = new Map([[RUNNER_ENVELOPE_VALIDATION_FILE, validationSource.bytes]]);
+  if (validation.validationDisposition !== "VALIDATED") {
+    if (terminalLease.state === "TERMINAL_PASS") reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+    const envelopeTruth = await pathTruth(envelopePath);
+    if (validation.fileExists) {
+      if (!envelopeTruth?.isFile() || envelopeTruth.isSymbolicLink() || envelopeTruth.nlink !== 1) {
+        reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+      }
+      await assertNoReparseResolution(envelopePath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+      if (
+        validation.validatorErrorCode === "RUNNER_TERMINAL_ENVELOPE_TOO_LARGE"
+        || (
+          validation.validatorErrorCode === "RUNNER_TERMINAL_ENVELOPE_FILE_INVALID"
+          && envelopeTruth.size === 0
+        )
+      ) {
+        if (
+          validation.fileBytes !== envelopeTruth.size
+          || validation.fileSha256 !== null
+          || (envelopeTruth.size > 0 && envelopeTruth.size <= MAX_RUNNER_ENVELOPE_BYTES)
+        ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+      } else {
+        if (
+          envelopeTruth.size <= 0
+          || envelopeTruth.size > MAX_RUNNER_ENVELOPE_BYTES
+          || validation.fileBytes !== envelopeTruth.size
+          || validation.fileSha256 === null
+        ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+        const sourceBytes = await readBoundedRegularFile(envelopePath, {
+          code: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID",
+          maximumBytes: MAX_RUNNER_ENVELOPE_BYTES,
+          expectedBytes: envelopeTruth.size,
+        });
+        if (sha256Hex(sourceBytes) !== validation.fileSha256) {
+          reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+        }
+      }
+    } else if (envelopeTruth !== null) {
+      reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+    }
+    return { entries, validation, envelope: null };
+  }
+
+  const envelopeTruth = await assertRegularFile(envelopePath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  if (envelopeTruth.size <= 0 || envelopeTruth.size > MAX_RUNNER_ENVELOPE_BYTES) {
+    reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  }
+  const envelopeBytes = await readBoundedRegularFile(envelopePath, {
+    code: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    maximumBytes: MAX_RUNNER_ENVELOPE_BYTES,
+    expectedBytes: envelopeTruth.size,
+  });
+  const envelopeSource = {
+    ...parseCanonicalJsonBytes(envelopeBytes, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID"),
+    bytes: envelopeBytes,
+  };
+  await assertNoReparseResolution(envelopePath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  const envelope = validateRunnerEnvelopeShape(envelopeSource.parsed, terminalLease);
+  const sidecarTruth = await assertRegularFile(sidecarPath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  if (sidecarTruth.size !== RUNNER_ENVELOPE_SHA_BYTES) {
+    reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  }
+  await assertNoReparseResolution(sidecarPath, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  const sidecarBytes = await readBoundedRegularFile(sidecarPath, {
+    code: "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID",
+    maximumBytes: RUNNER_ENVELOPE_SHA_BYTES,
+    expectedBytes: RUNNER_ENVELOPE_SHA_BYTES,
+  });
+  const expectedFileSha = sha256Hex(envelopeSource.bytes);
+  if (strictUtf8(sidecarBytes, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID") !== `${expectedFileSha}\n`) {
+    reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  }
+  if (
+    validation.fileExists !== true
+    || validation.fileBytes !== envelopeSource.bytes.length
+    || validation.fileSha256 !== expectedFileSha
+    || validation.shaSidecarMatches !== true
+    || validation.canonicalJson !== true
+    || validation.schemaValid !== true
+    || validation.identityValid !== true
+    || validation.digestValid !== true
+    || validation.statusObserved !== envelope.status
+    || validation.envelopeDigest !== envelope.envelopeDigest
+    || validation.observedExitCode !== envelope.exitCode
+    || validation.detailedProjectionAvailable !== envelope.projectionValidation.detailedProjectionAvailable
+    || validation.minimalProjectionUsed !== envelope.projectionValidation.minimalProjectionUsed
+  ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  entries.set(RUNNER_TERMINAL_ENVELOPE_FILE, envelopeSource.bytes);
+  entries.set(RUNNER_TERMINAL_ENVELOPE_SHA_FILE, sidecarBytes);
+  return { entries, validation, envelope };
+}
+
+function validateRunnerEnvelopeTerminalBindings({ terminalLease, runnerProjection, envelope, validation }) {
+  if (!terminalLease.runnerStarted) {
+    if (validation !== null || envelope !== null) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+    if (terminalLease.state === "PRECHECK_FAILED" && runnerProjection === null) return;
+    if (runnerProjection?.schemaVersion !== "p24b-rc6.2-formal-runner-failure-v1") {
+      reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+    }
+    return;
+  }
+  if (!validation) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  if (validation.validationDisposition !== "VALIDATED" && envelope !== null) {
+    reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  }
+  if (
+    validation.validationDisposition !== "VALIDATED"
+    && runnerProjection?.runnerEnvelopeDigest !== null
+  ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  if (terminalLease.runnerCompleted && envelope && envelope.exitCode !== runnerProjection?.exitCode) {
+    reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  }
+  if (
+    terminalLease.runnerCompleted
+    && envelope
+    && terminalLease.runnerOutcome !== envelope.status
+  ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  if (terminalLease.runnerOutcome === "FAIL" || runnerProjection?.schemaVersion?.endsWith("runner-failure-v2")) {
+    if (!runnerProjection || runnerProjection.schemaVersion !== "p24b-rc6.2-formal-runner-failure-v2") {
+      reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+    }
+    if (
+      runnerProjection.runnerEnvelopeValidationDigest !== validation.validationDigest
+      || runnerProjection.runnerEnvelopeDigest !== (envelope?.envelopeDigest ?? null)
+    ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  }
+  if (terminalLease.state === "TERMINAL_PASS" && (
+    validation.validationDisposition !== "VALIDATED"
+    || envelope?.status !== "PASS"
+    || envelope.exitCode !== runnerProjection?.exitCode
+  )) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
 }
 
 function validateEvidenceEventBindings(events, evidenceBytes, terminalLease) {
@@ -746,6 +1421,7 @@ export function computeTerminalEvidenceProjectionBindings(input = {}) {
   if ((runnerResult && runnerFailure) || Boolean(profileCleanup) !== Boolean(processCleanup)) {
     reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
   }
+  if (runnerFailure) validateRunnerProjectionShape(runnerFailure);
   const runner = runnerResult ?? runnerFailure;
   const attemptIds = new Set(
     [runnerResult, runnerFailure, profileCleanup, processCleanup].filter(Boolean).map(({ attemptId }) => attemptId),
@@ -833,6 +1509,8 @@ async function finalizeCore(input, context) {
     ["attempt-events.jsonl", documents.journal.bytes],
     ["attempt-lease-terminal.json", documents.terminalLease.bytes],
   ]);
+  const runnerEnvelopeSources = await readRunnerEnvelopeSources(attemptDirectory, terminalLease);
+  for (const [path, bytes] of runnerEnvelopeSources.entries) sourceEntries.set(path, bytes);
   for (const [path, key] of Object.entries(FILE_PROJECTION_KEYS)) {
     const projection = normalizeProjection(input[key], path);
     if (projection) {
@@ -849,6 +1527,19 @@ async function finalizeCore(input, context) {
   if (sourceEntries.has("browser-result.json") && sourceEntries.has("browser-failure.json")) {
     reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
   }
+  const runnerProjectionPath = sourceEntries.has("runner-result.json")
+    ? "runner-result.json"
+    : sourceEntries.has("runner-failure.json") ? "runner-failure.json" : null;
+  const runnerProjection = runnerProjectionPath === null
+    ? null
+    : parseCanonicalJsonBytes(sourceEntries.get(runnerProjectionPath), "TERMINAL_EVIDENCE_PROJECTION_INVALID").parsed;
+  if (runnerProjectionPath === "runner-failure.json") validateRunnerProjectionShape(runnerProjection, terminalLease);
+  validateRunnerEnvelopeTerminalBindings({
+    terminalLease,
+    runnerProjection,
+    envelope: runnerEnvelopeSources.envelope,
+    validation: runnerEnvelopeSources.validation,
+  });
   const credentialEnvironment = credentialEnvironmentWithProcessTruth(input.credentialEnvironment);
   const credentialHits = scanForCredentialValues([...sourceEntries], credentialEnvironment);
   if (credentialHits !== 0) reject("TERMINAL_EVIDENCE_CREDENTIAL_VALUE_DETECTED");
@@ -860,15 +1551,18 @@ async function finalizeCore(input, context) {
     const bytes = sourceEntries.get(path) ?? null;
     const required = requiredForState(path, terminalLease);
     if (required && bytes === null) missingRequiredFiles.push(path);
+    const missingEnvelope = bytes === null
+      ? runnerEnvelopeMissingRecord(path, runnerEnvelopeSources.validation)
+      : null;
     records.push(bytes === null ? {
       path,
       bytes: null,
       sha256: null,
       requiredForState: required,
       present: false,
-      status: "NOT_REACHED",
-      notReached: true,
-      reasonCode: notReachedReason(path, terminalLease),
+      status: missingEnvelope?.status ?? "NOT_REACHED",
+      notReached: missingEnvelope ? false : true,
+      reasonCode: missingEnvelope?.reasonCode ?? notReachedReason(path, terminalLease),
     } : {
       path,
       bytes: bytes.length,
@@ -880,7 +1574,14 @@ async function finalizeCore(input, context) {
       reasonCode: null,
     });
   }
-  if (missingRequiredFiles.length !== 0) reject("TERMINAL_EVIDENCE_REQUIRED_FILE_MISSING");
+  const allowedEnvelopeMissing = new Set([
+    RUNNER_TERMINAL_ENVELOPE_FILE,
+    RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+  ]);
+  if (
+    missingRequiredFiles.some((path) => !allowedEnvelopeMissing.has(path))
+    || (missingRequiredFiles.length !== 0 && terminalLease.state === "TERMINAL_PASS")
+  ) reject("TERMINAL_EVIDENCE_REQUIRED_FILE_MISSING");
 
   for (const [path, bytes] of sourceEntries) {
     await writeCreateNewAtomic(join(bundleDirectory, path), bytes);
@@ -1005,17 +1706,35 @@ function validateManifestShape(manifest, expectedControlCommit) {
         || record.reasonCode !== null
         || !Number.isSafeInteger(record.bytes)
         || record.bytes < 1
+        || record.bytes > MAX_JSON_BYTES
       ) reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
       requireSha256(record.sha256, "TERMINAL_EVIDENCE_MANIFEST_INVALID");
-    } else if (
-      record.status !== "NOT_REACHED"
-      || record.notReached !== true
-      || typeof record.reasonCode !== "string"
-      || !SAFE_CODE_PATTERN.test(record.reasonCode)
-      || record.bytes !== null
-      || record.sha256 !== null
-      || record.requiredForState
-    ) reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
+    } else {
+      const notReached = (
+        record.status === "NOT_REACHED"
+        && record.notReached === true
+        && record.requiredForState === false
+      );
+      const requiredMissing = (
+        new Set(["MISSING", "INVALID"]).has(record.status)
+        && record.notReached === false
+        && record.requiredForState === true
+        && new Set([RUNNER_TERMINAL_ENVELOPE_FILE, RUNNER_TERMINAL_ENVELOPE_SHA_FILE]).has(record.path)
+      );
+      if (
+        (!notReached && !requiredMissing)
+        || typeof record.reasonCode !== "string"
+        || !SAFE_CODE_PATTERN.test(record.reasonCode)
+        || record.bytes !== null
+        || record.sha256 !== null
+      ) reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
+    }
+  }
+  const expectedMissing = manifest.files
+    .filter((record) => record.requiredForState && !record.present)
+    .map((record) => record.path);
+  if (stableStringify(manifest.missingRequiredFiles) !== stableStringify(expectedMissing)) {
+    reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
   }
 }
 
@@ -1039,8 +1758,11 @@ async function loadAndValidateBundle(bundleDirectory, expectedControlCommit = nu
   const manifest = manifestSource.parsed;
   validateManifestShape(manifest, expectedControlCommit);
   const sidecarPath = join(root, TERMINAL_MANIFEST_SHA_FILE);
-  await assertRegularFile(sidecarPath, "TERMINAL_EVIDENCE_MANIFEST_SHA_INVALID");
-  const sidecarBytes = await readFile(sidecarPath);
+  const sidecarBytes = await readBoundedRegularFile(sidecarPath, {
+    code: "TERMINAL_EVIDENCE_MANIFEST_SHA_INVALID",
+    maximumBytes: RUNNER_ENVELOPE_SHA_BYTES,
+    expectedBytes: RUNNER_ENVELOPE_SHA_BYTES,
+  });
   const sidecarText = strictUtf8(sidecarBytes, "TERMINAL_EVIDENCE_MANIFEST_SHA_INVALID");
   const manifestFileSha256 = sha256Hex(manifestSource.bytes);
   if (sidecarText !== `${manifestFileSha256}\n`) reject("TERMINAL_EVIDENCE_MANIFEST_SHA_INVALID");
@@ -1072,21 +1794,22 @@ async function loadAndValidateBundle(bundleDirectory, expectedControlCommit = nu
       }
       continue;
     }
-    let truth;
     try {
-      truth = await lstat(path);
+      await lstat(path);
     } catch {
       if (record.requiredForState) missingRequiredFiles.push(record.path);
       continue;
     }
-    if (!truth.isFile() || truth.isSymbolicLink()) reject("TERMINAL_EVIDENCE_PATH_INVALID");
-    const bytes = await readFile(path);
+    const bytes = await readBoundedRegularFile(path, {
+      code: "TERMINAL_EVIDENCE_PATH_INVALID",
+      maximumBytes: MAX_JSON_BYTES,
+      expectedBytes: record.bytes,
+    });
     if (bytes.length !== record.bytes || sha256Hex(bytes) !== record.sha256) digestMismatches.push(record.path);
     loaded.set(record.path, bytes);
   }
   if (
     missingRequiredFiles.length !== 0
-    || manifest.missingRequiredFiles.length !== 0
   ) reject("TERMINAL_EVIDENCE_REQUIRED_FILE_MISSING");
   if (digestMismatches.length !== 0 || manifest.digestMismatches.length !== 0) {
     reject("TERMINAL_EVIDENCE_DIGEST_MISMATCH");
@@ -1355,11 +2078,60 @@ export async function validateTerminalEvidenceBundle({
     events,
     stateVerification,
   }, requiredControlCommit);
+  const runnerEnvelopeValidation = terminalLease.runnerStarted
+    ? validateRunnerEnvelopeValidationShape(
+      parseBundleJson(bundle.loaded, RUNNER_ENVELOPE_VALIDATION_FILE),
+      terminalLease,
+    )
+    : null;
+  const runnerEnvelope = bundle.loaded.has(RUNNER_TERMINAL_ENVELOPE_FILE)
+    ? validateRunnerEnvelopeShape(parseBundleJson(bundle.loaded, RUNNER_TERMINAL_ENVELOPE_FILE), terminalLease)
+    : null;
+  if (bundle.loaded.has(RUNNER_TERMINAL_ENVELOPE_SHA_FILE)) {
+    const envelopeBytes = bundle.loaded.get(RUNNER_TERMINAL_ENVELOPE_FILE);
+    const sidecarBytes = bundle.loaded.get(RUNNER_TERMINAL_ENVELOPE_SHA_FILE);
+    if (
+      !envelopeBytes
+      || strictUtf8(sidecarBytes, "TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID")
+        !== `${sha256Hex(envelopeBytes)}\n`
+    ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  }
+  if (
+    !terminalLease.runnerStarted
+    && (
+      runnerEnvelopeValidation !== null
+      || runnerEnvelope !== null
+      || bundle.loaded.has(RUNNER_TERMINAL_ENVELOPE_SHA_FILE)
+    )
+  ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+  if (runnerEnvelopeValidation?.validationDisposition === "VALIDATED") {
+    if (!runnerEnvelope || !bundle.loaded.has(RUNNER_TERMINAL_ENVELOPE_SHA_FILE)) {
+      reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
+    }
+    const envelopeBytes = bundle.loaded.get(RUNNER_TERMINAL_ENVELOPE_FILE);
+    if (
+      runnerEnvelopeValidation.fileBytes !== envelopeBytes.length
+      || runnerEnvelopeValidation.fileSha256 !== sha256Hex(envelopeBytes)
+      || runnerEnvelopeValidation.envelopeDigest !== runnerEnvelope.envelopeDigest
+      || runnerEnvelopeValidation.statusObserved !== runnerEnvelope.status
+      || runnerEnvelopeValidation.observedExitCode !== runnerEnvelope.exitCode
+    ) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_BINDING_INVALID");
+  } else if (runnerEnvelopeValidation && (
+    runnerEnvelope !== null || bundle.loaded.has(RUNNER_TERMINAL_ENVELOPE_SHA_FILE)
+  )) reject("TERMINAL_EVIDENCE_RUNNER_ENVELOPE_INVALID");
   for (const record of bundle.manifest.files) {
     if (record.requiredForState !== requiredForState(record.path, terminalLease)) {
       reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
     }
-    if (!record.present && record.reasonCode !== notReachedReason(record.path, terminalLease)) {
+    const missingEnvelope = runnerEnvelopeMissingRecord(record.path, runnerEnvelopeValidation);
+    const expectedReason = missingEnvelope?.reasonCode ?? notReachedReason(record.path, terminalLease);
+    if (!record.present && (
+      record.reasonCode !== expectedReason
+      || (missingEnvelope && (
+        record.status !== missingEnvelope.status
+        || record.notReached !== false
+      ))
+    )) {
       reject("TERMINAL_EVIDENCE_MANIFEST_INVALID");
     }
   }
@@ -1368,7 +2140,10 @@ export async function validateTerminalEvidenceBundle({
     const projection = parseBundleJson(bundle.loaded, path);
     if (projection === null) continue;
     requireAttemptProjection(projection, terminalLease.attemptId);
-    if (projection.schemaVersion !== FILE_PROJECTION_SCHEMAS[path]) {
+    if (
+      projection.schemaVersion !== FILE_PROJECTION_SCHEMAS[path]
+      && !(path === "runner-failure.json" && projection.schemaVersion === "p24b-rc6.2-formal-runner-failure-v1")
+    ) {
       reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
     }
   }
@@ -1395,6 +2170,31 @@ export async function validateTerminalEvidenceBundle({
     ? "PASS"
     : terminalLease.state === "TERMINAL_ABORTED" ? "ABORTED" : "FAIL";
   if (wrapper.status !== expectedWrapperStatus) reject("TERMINAL_EVIDENCE_PROJECTION_INVALID");
+  const runnerProjection = parseBundleJson(
+    bundle.loaded,
+    bundle.loaded.has("runner-result.json") ? "runner-result.json" : "runner-failure.json",
+  );
+  if (runnerProjection?.schemaVersion?.includes("runner-failure")) {
+    validateRunnerProjectionShape(runnerProjection, terminalLease);
+  }
+  validateRunnerEnvelopeTerminalBindings({
+    terminalLease,
+    runnerProjection,
+    envelope: runnerEnvelope,
+    validation: runnerEnvelopeValidation,
+  });
+  if (
+    bundle.manifest.missingRequiredFiles.length !== 0
+    && (
+      terminalLease.state === "TERMINAL_PASS"
+      || !runnerEnvelopeValidation
+      || runnerEnvelopeValidation.validationDisposition === "VALIDATED"
+      || bundle.manifest.missingRequiredFiles.some((path) => !new Set([
+        RUNNER_TERMINAL_ENVELOPE_FILE,
+        RUNNER_TERMINAL_ENVELOPE_SHA_FILE,
+      ]).has(path))
+    )
+  ) reject("TERMINAL_EVIDENCE_REQUIRED_FILE_MISSING");
   validateBoundRuntimeAndToolchainReceipts(bundle.loaded, terminalLease);
   if (requireFormalPass) {
     if (
@@ -1468,23 +2268,189 @@ function makeSimulationEvidenceBindingProjections(attemptId, scenario) {
       edgeResidueCount: 0,
     },
   };
-  if (new Set(["PASS", "POST_RUN_CAS_FAILURE"]).has(scenario)) {
-    projections.runnerResult = {
-      schemaVersion: "p24b-rc6.2-formal-runner-result-v1",
-      ...common,
-      status: "PASS",
-      exitCode: 0,
-    };
-  } else {
-    projections.runnerFailure = {
-      schemaVersion: "p24b-rc6.2-formal-runner-failure-v1",
-      ...common,
-      status: scenario === "RUNNER_CRASH" ? "ABORTED" : "FAIL",
-      reasonCode: scenario === "RUNNER_CRASH" ? "RUNNER_CRASHED" : "FORMAL_RUNNER_FAILED",
-      exitCode: scenario === "RUNNER_CRASH" ? 137 : 1,
-    };
-  }
   return projections;
+}
+
+function makeSimulationRunnerEnvelope({ attemptId, authorization, bindings, runtimeReceipt, scenario, seed, baseTime }) {
+  const status = new Set(["PASS", "POST_RUN_CAS_FAILURE"]).has(scenario) ? "PASS" : "FAIL";
+  const failed = status === "FAIL";
+  const body = {
+    schemaVersion: RUNNER_TERMINAL_ENVELOPE_SCHEMA,
+    status,
+    attemptId,
+    authorizationId: authorization.authorizationId,
+    authorizationDigest: authorization.authorizationDigest,
+    productCommit: bindings.productCommit,
+    controlCommit: bindings.controlCommit,
+    deploymentId: bindings.deploymentId,
+    productionOrigin: bindings.productionOrigin,
+    releaseTag: bindings.releaseTag,
+    releaseRevision: bindings.releaseRevision,
+    runtimeReceiptDigest: runtimeReceipt.digest,
+    wrapperDigest: bindings.wrapperDigest,
+    runnerDigest: bindings.runnerDigest,
+    contractDigest: bindings.contractDigest,
+    mode: "generation",
+    startedAt: isoAt(baseTime, 3_000),
+    completedAt: isoAt(baseTime, 7_000),
+    exitCode: failed ? 1 : 0,
+    requestPhase: failed ? "release-identity" : "complete",
+    gateCheckpoint: failed ? "edge-identity" : "final-release-identity",
+    lastCompletedCheckpoint: failed ? "launch" : "final-release-identity",
+    checkpointOrdinal: 2,
+    checkpointTrail: failed ? [
+      {
+        ordinal: 1,
+        checkpoint: "launch",
+        enteredAt: isoAt(baseTime, 3_000),
+        completedAt: isoAt(baseTime, 4_000),
+        status: "completed",
+      },
+      {
+        ordinal: 2,
+        checkpoint: "edge-identity",
+        enteredAt: isoAt(baseTime, 4_000),
+        completedAt: isoAt(baseTime, 7_000),
+        status: "failed",
+      },
+    ] : [
+      {
+        ordinal: 1,
+        checkpoint: "launch",
+        enteredAt: isoAt(baseTime, 3_000),
+        completedAt: isoAt(baseTime, 4_000),
+        status: "completed",
+      },
+      {
+        ordinal: 2,
+        checkpoint: "final-release-identity",
+        enteredAt: isoAt(baseTime, 6_000),
+        completedAt: isoAt(baseTime, 7_000),
+        status: "completed",
+      },
+    ],
+    failureShape: failed ? "ASSERTION" : null,
+    safeErrorCode: failed ? "RC6_2_CLOSED_AI_GATE_FAILED" : null,
+    firstFailedOperation: failed ? {
+      operationId: "read-edge-identity",
+      operationKind: "browser-identity",
+      messageDigest: sha256Hex(`${seed}:operation`),
+    } : null,
+    firstFailedAssertion: failed ? {
+      assertionId: "EDGE_CONTEXT_SINGLE_PAGE",
+      errorName: "AssertionError",
+      errorCode: "ERR_ASSERTION",
+      operator: "strictEqual",
+      messageDigest: sha256Hex(`${seed}:assertion`),
+      expectedDisposition: "equal",
+      actualDisposition: "different",
+    } : null,
+    projectionValidation: {
+      attempted: true,
+      status: "PASS",
+      schemaExpected: RUNNER_TERMINAL_ENVELOPE_SCHEMA,
+      schemaObserved: RUNNER_TERMINAL_ENVELOPE_SCHEMA,
+      detailedProjectionAvailable: true,
+      minimalProjectionUsed: false,
+      validatorErrorCode: null,
+      unknownKeys: [],
+      missingKeys: [],
+      typeMismatchKeys: [],
+      originalProjectionDigest: null,
+    },
+    freshBrowserContext: true,
+    profileOwnership: "wrapper-owned",
+    profilePathDigest: sha256Hex(`${seed}:profile`),
+    profileDisposed: true,
+    networkSummary: {
+      policy: "phase-aware-context-route-default-deny-v3",
+      routeInstalledBeforeNavigation: true,
+      webSocketRouteInstalledBeforeNavigation: true,
+      blockedRequestCount: 0,
+      prohibitedExternalAiRequestCount: 0,
+      permittedImmutableModelRequestCount: 0,
+      externalRequestCount: 0,
+      dataLeftDevice: false,
+    },
+    modelSummary: {
+      modelPayloadRequestCount: 0,
+      immutableModelRootRequestCount: 0,
+      approvedModelRedirectRequestCount: 0,
+      metadataObserved: !failed,
+    },
+    uiSummary: { alertCount: 0, safeErrorCodeCount: 0 },
+    persistenceReached: !failed,
+    storyBibleReached: !failed,
+    candidateReached: !failed,
+    externalRequestCount: 0,
+    dataLeftDevice: false,
+  };
+  return { ...body, envelopeDigest: sha256Hex(stableStringify(body)) };
+}
+
+function makeSimulationEnvelopeValidation({
+  attemptId,
+  envelope = null,
+  invalidSourceBytes = null,
+  invalidSourceErrorCode = "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID",
+  disposition,
+  exitCode,
+  baseTime,
+}) {
+  const envelopeBytes = envelope ? canonicalBytes(envelope) : invalidSourceBytes;
+  const validated = disposition === "VALIDATED";
+  const boundedWithoutRead = invalidSourceErrorCode === "RUNNER_TERMINAL_ENVELOPE_TOO_LARGE"
+    || (
+      invalidSourceErrorCode === "RUNNER_TERMINAL_ENVELOPE_FILE_INVALID"
+      && envelopeBytes?.length === 0
+    );
+  const inspectedSource = envelopeBytes !== null && !boundedWithoutRead;
+  const body = {
+    schemaVersion: RUNNER_ENVELOPE_VALIDATION_SCHEMA,
+    attemptId,
+    status: validated ? "PASS" : "FAIL",
+    validationDisposition: disposition,
+    fileExists: envelopeBytes !== null,
+    fileBytes: envelopeBytes?.length ?? 0,
+    fileSha256: inspectedSource ? sha256Hex(envelopeBytes) : null,
+    shaSidecarMatches: validated,
+    canonicalJson: validated || (inspectedSource && invalidSourceBytes !== null),
+    schemaValid: validated,
+    identityValid: validated,
+    digestValid: validated,
+    statusObserved: envelope?.status ?? null,
+    detailedProjectionAvailable: envelope?.projectionValidation.detailedProjectionAvailable ?? false,
+    minimalProjectionUsed: envelope?.projectionValidation.minimalProjectionUsed ?? true,
+    validatorErrorCode: validated ? null : disposition === "MISSING"
+      ? "RUNNER_TERMINAL_ENVELOPE_MISSING"
+      : invalidSourceErrorCode,
+    validatedAt: isoAt(baseTime, 8_000),
+    envelopeDigest: envelope?.envelopeDigest ?? null,
+    observedExitCode: exitCode,
+    stdoutBytes: envelope?.status === "PASS" ? 128 : 0,
+    stderrBytes: envelope?.status === "FAIL" ? 128 : 0,
+    progressCount: 0,
+    unexpectedLineCount: 0,
+    safeTerminalCodeCount: envelope?.status === "FAIL" ? 1 : 0,
+  };
+  return { ...body, validationDigest: sha256Hex(stableStringify(body)) };
+}
+
+async function publishSimulationRunnerEnvelope({ attemptDirectory, envelope, validation, invalidSourceBytes = null }) {
+  if (envelope) {
+    const bytes = canonicalBytes(envelope);
+    await writeCreateNewAtomic(join(attemptDirectory, RUNNER_TERMINAL_ENVELOPE_FILE), bytes);
+    await writeCreateNewAtomic(
+      join(attemptDirectory, RUNNER_TERMINAL_ENVELOPE_SHA_FILE),
+      Buffer.from(`${sha256Hex(bytes)}\n`, "ascii"),
+    );
+  } else if (invalidSourceBytes !== null) {
+    await writeCreateNewAtomic(join(attemptDirectory, RUNNER_TERMINAL_ENVELOPE_FILE), invalidSourceBytes);
+  }
+  await writeCreateNewAtomic(
+    join(attemptDirectory, RUNNER_ENVELOPE_VALIDATION_FILE),
+    canonicalBytes(validation),
+  );
 }
 
 async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, seed }) {
@@ -1589,6 +2555,8 @@ async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, 
     ...bindings,
   });
   let terminalLease = created.lease;
+  let runnerEnvelope = null;
+  let runnerEnvelopeValidation = null;
   let eventOffset = 1;
   const transition = (eventType, eventBody = {}) => {
     eventOffset += 1;
@@ -1627,22 +2595,98 @@ async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, 
       contractDigest: bindings.contractDigest,
     });
     transition("LAUNCH_COMMITTED");
-    transition("RUNNER_STARTED", { runnerPid: process.pid });
-    if (!new Set(["RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE"]).has(scenario)) {
+    if (scenario !== "RUNNER_START_FAILURE") transition("RUNNER_STARTED", { runnerPid: process.pid });
+    if (!new Set([
+      "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE", "RUNNER_START_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE",
+      "EARLY_RUNNER_INVALID_ENVELOPE", "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
+    ]).has(scenario)) {
       transition("BROWSER_STARTED", {
         persistentContextEstablished: true,
         networkRoutesInstalled: true,
         productInteractionStarted: false,
       });
       const runnerPassed = new Set(["PASS", "POST_RUN_CAS_FAILURE"]).has(scenario);
-      const runnerProjection = runnerPassed
-        ? evidenceBindingProjections.runnerResult
-        : evidenceBindingProjections.runnerFailure;
+      runnerEnvelope = makeSimulationRunnerEnvelope({
+        attemptId,
+        authorization,
+        bindings,
+        runtimeReceipt,
+        scenario,
+        seed,
+        baseTime,
+      });
+      runnerEnvelopeValidation = makeSimulationEnvelopeValidation({
+        attemptId,
+        envelope: runnerEnvelope,
+        disposition: "VALIDATED",
+        exitCode: runnerEnvelope.exitCode,
+        baseTime,
+      });
+      const runnerProjection = runnerPassed ? {
+        schemaVersion: "p24b-rc6.2-formal-runner-result-v1",
+        attemptId,
+        status: "PASS",
+        exitCode: 0,
+      } : {
+        schemaVersion: "p24b-rc6.2-formal-runner-failure-v2",
+        attemptId,
+        status: "FAIL",
+        reasonCode: "FORMAL_RUNNER_FAILED",
+        exitCode: 1,
+        runnerEnvelopeDigest: runnerEnvelope.envelopeDigest,
+        runnerEnvelopeValidationDigest: runnerEnvelopeValidation.validationDigest,
+      };
+      if (runnerPassed) evidenceBindingProjections.runnerResult = runnerProjection;
+      else evidenceBindingProjections.runnerFailure = runnerProjection;
       transition("RUNNER_COMPLETED", {
         outcome: runnerPassed ? "PASS" : "FAIL",
         exitCode: runnerProjection.exitCode,
         runnerEvidenceDigest: sha256Hex(canonicalBytes(runnerProjection)),
       });
+    } else if (scenario === "RUNNER_START_FAILURE") {
+      evidenceBindingProjections.runnerFailure = {
+        schemaVersion: "p24b-rc6.2-formal-runner-failure-v1",
+        attemptId,
+        status: "FAIL",
+        reasonCode: "RUNNER_START_FAILED",
+        exitCode: 1,
+      };
+    } else {
+      const disposition = new Set([
+        "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE",
+      ]).has(scenario)
+        ? "MISSING"
+        : "INVALID";
+      const exitCode = scenario === "RUNNER_CRASH" ? 137 : 1;
+      const invalidSourceBytes = scenario === "EARLY_RUNNER_INVALID_ENVELOPE"
+        ? Buffer.from("{}", "utf8")
+        : scenario === "EARLY_RUNNER_ZERO_ENVELOPE"
+          ? Buffer.alloc(0)
+          : scenario === "EARLY_RUNNER_OVERSIZE_ENVELOPE"
+            ? Buffer.alloc(MAX_RUNNER_ENVELOPE_BYTES + 1, 0x78)
+            : null;
+      runnerEnvelopeValidation = makeSimulationEnvelopeValidation({
+        attemptId,
+        invalidSourceBytes,
+        invalidSourceErrorCode: new Set(["EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE"])
+          .has(scenario)
+          ? scenario === "EARLY_RUNNER_ZERO_ENVELOPE"
+            ? "RUNNER_TERMINAL_ENVELOPE_FILE_INVALID"
+            : "RUNNER_TERMINAL_ENVELOPE_TOO_LARGE"
+          : "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID",
+        disposition,
+        exitCode,
+        baseTime,
+      });
+      evidenceBindingProjections.runnerFailure = {
+        schemaVersion: "p24b-rc6.2-formal-runner-failure-v2",
+        attemptId,
+        status: scenario === "RUNNER_CRASH" ? "ABORTED" : "FAIL",
+        reasonCode: scenario === "RUNNER_CRASH" ? "RUNNER_CRASHED" : "BROWSER_LAUNCH_FAILED",
+        exitCode,
+        runnerEnvelopeDigest: null,
+        runnerEnvelopeValidationDigest: runnerEnvelopeValidation.validationDigest,
+      };
     }
     transition("CLEANUP_COMPLETED", {
       profileCleanupDigest: sha256Hex(canonicalBytes(evidenceBindingProjections.profileCleanup)),
@@ -1654,7 +2698,10 @@ async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, 
       transition("TERMINAL_FAIL", { reasonCode: "POST_RUN_CAS_FAILED" });
     } else if (scenario === "RUNNER_CRASH") {
       transition("TERMINAL_ABORTED", { reasonCode: "RUNNER_CRASHED" });
-    } else if (scenario === "BROWSER_LAUNCH_FAILURE") {
+    } else if (new Set([
+      "BROWSER_LAUNCH_FAILURE", "RUNNER_START_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE",
+      "EARLY_RUNNER_INVALID_ENVELOPE", "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
+    ]).has(scenario)) {
       transition("TERMINAL_FAIL", { reasonCode: "BROWSER_LAUNCH_FAILED" });
     } else {
       transition("TERMINAL_FAIL", { reasonCode: "FORMAL_SIMULATION_FAILED" });
@@ -1673,6 +2720,20 @@ async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, 
   if (stableStringify(verified.lease) !== stableStringify(terminalLease)) {
     reject("TERMINAL_EVIDENCE_SIMULATION_INVALID");
   }
+  if (runnerEnvelopeValidation) {
+    await publishSimulationRunnerEnvelope({
+      attemptDirectory: created.attemptDirectory,
+      envelope: runnerEnvelope,
+      validation: runnerEnvelopeValidation,
+      invalidSourceBytes: scenario === "EARLY_RUNNER_INVALID_ENVELOPE"
+        ? Buffer.from("{}", "utf8")
+        : scenario === "EARLY_RUNNER_ZERO_ENVELOPE"
+          ? Buffer.alloc(0)
+          : scenario === "EARLY_RUNNER_OVERSIZE_ENVELOPE"
+            ? Buffer.alloc(MAX_RUNNER_ENVELOPE_BYTES + 1, 0x78)
+            : null,
+    });
+  }
   return {
     attemptDirectory: created.attemptDirectory,
     attemptId,
@@ -1682,6 +2743,8 @@ async function createSimulatedAttempt({ rootDirectory, scenario, controlCommit, 
     runtimeReceipt,
     toolchainReceipt,
     evidenceBindingProjections,
+    runnerEnvelope,
+    runnerEnvelopeValidation,
     baseTime,
   };
 }
@@ -1788,7 +2851,10 @@ function makeSimulationProjections(simulation, scenario) {
       },
     });
   } else if (!scenario.startsWith("PRECHECK_FAIL")) {
-    if (scenario === "BROWSER_LAUNCH_FAILURE") {
+    if (new Set([
+      "BROWSER_LAUNCH_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE",
+      "EARLY_RUNNER_INVALID_ENVELOPE", "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
+    ]).has(scenario)) {
       projections.browserFailure = {
         schemaVersion: "p24b-rc6.2-formal-browser-failure-v1",
         ...common,
@@ -1817,6 +2883,8 @@ export async function simulateFormalProductionBrowserTerminalEvidence({
 } = {}) {
   if (!new Set([
     "PASS", "FAIL", "POST_RUN_CAS_FAILURE", "RUNNER_CRASH", "BROWSER_LAUNCH_FAILURE",
+    "RUNNER_START_FAILURE", "EARLY_RUNNER_MISSING_ENVELOPE", "EARLY_RUNNER_INVALID_ENVELOPE",
+    "EARLY_RUNNER_ZERO_ENVELOPE", "EARLY_RUNNER_OVERSIZE_ENVELOPE",
     "PRECHECK_FAIL", "PRECHECK_FAIL_AFTER_RECEIPT",
   ]).has(scenario)) {
     reject("TERMINAL_EVIDENCE_SIMULATION_INVALID");

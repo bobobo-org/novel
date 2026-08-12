@@ -165,7 +165,7 @@ assert.match(lastKnownGoodAuditJob, /EXPECTED_EVENT_COMMIT:\s*\$\{\{ github\.sha
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" =~ \^\[a-f0-9\]\{40\}\$ \]\]/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$AUDIT_COMMIT" == "\$EXPECTED_EVENT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /ref:\s*\$\{\{ github\.sha \}\}/u);
-assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*8/u);
+assert.match(lastKnownGoodAuditJob, /Checkout exact read-only audit commit[\s\S]*fetch-depth:\s*9/u);
 assert.match(lastKnownGoodAuditJob, /persist-credentials:\s*false/u);
 assert.match(lastKnownGoodAuditJob, /\[\[ "\$\(git rev-parse HEAD\)" == "\$AUDIT_COMMIT" \]\]/u);
 assert.match(lastKnownGoodAuditJob, /Prove exact read-only RC6\.2 browser-gate control lineage/u);
@@ -734,6 +734,9 @@ const rc62FormalAttemptScripts = {
   "test:rc6.2:formal-terminal-evidence": "node scripts/run-rc6-2-terminal-evidence-tests.mjs all",
   "test:rc6.2:formal-negative-mutations": "node scripts/run-rc6-2-terminal-evidence-tests.mjs mutations",
   "test:rc6.2:formal-simulations": "node scripts/run-rc6-2-terminal-evidence-tests.mjs simulations",
+  "test:rc6.2:runner-envelope": "node scripts/run-rc6-2-runner-envelope-tests.mjs all",
+  "test:rc6.2:runner-envelope-child-process": "node scripts/run-rc6-2-runner-envelope-tests.mjs child-process",
+  "test:rc6.2:runner-envelope-mutations": "node scripts/run-rc6-2-runner-envelope-tests.mjs mutations",
 };
 for (const [scriptName, expectedCommand] of Object.entries(rc62FormalAttemptScripts)) {
   const command = packageScripts[scriptName];

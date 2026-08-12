@@ -23,6 +23,7 @@ const INITIAL_BROWSER_GATE_CONTROL = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824";
 const C4_BROWSER_GATE_CONTROL = "100eea11003c5132ab2b519707c5dee658bc9cbe";
 const C5_BROWSER_GATE_CONTROL = "99695b247c2b1626c38efc8ae4589dd9bd8d30da";
 const C6_BROWSER_GATE_CONTROL = "b326c2fc9925798ffbc750ae37db847f0c8b5625";
+const C7_BROWSER_GATE_CONTROL = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
@@ -31,7 +32,7 @@ const EXPECTED_EDGE_VERSION = "151.0.4129.72";
 const EXPECTED_EDGE_EXE_DIGEST = "e73e04dacdb48557c13d9f93f90a248f3e5a0bf55bb738f2fc548a768a9a10af";
 const EXPECTED_EDGE_DLL_DIGEST = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe158545528b8507137a";
 const EXPECTED_EDGE_DIRECTORY_DIGEST = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974";
-const EXPECTED_PACKAGE_JSON_DIGEST = "ee922630e92a8bbefa426ad444b61ef14322a50b8bd2bf726fec50e6b9c1f82b";
+const EXPECTED_PACKAGE_JSON_DIGEST = "0ecb42b0fb402eb8062586126f1244a0ae8f122f9e5c6192cc851a7a2babb5c6";
 const EXPECTED_PNPM_LOCK_DIGEST = "bf80df1d7e1419628c2dac09bfb8b39360942098324d47269f9690eab52b7b7f";
 const INITIAL_GATE_BLOB_PATHS = [
   ".github/workflows/deploy.yml",
@@ -66,9 +67,21 @@ const C7_GATE_REPAIR_PATHS = [
   "scripts/run-rc6-2-production-browser-gate.ps1",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs",
 ];
+const C8_GATE_REPAIR_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs",
+];
 const COMPOSITE_GATE_BLOB_PATHS = [...new Set([
   ...INITIAL_GATE_BLOB_PATHS,
   ...C7_GATE_REPAIR_PATHS,
+  ...C8_GATE_REPAIR_PATHS,
 ])];
 const PRODUCT_RUNTIME_TRUTH_PATHS = [
   "lib/novel-ai/character-agent/repository.ts",
@@ -1042,7 +1055,7 @@ const RUNNER_SAFE_FAILURE_CODES = new Set([
   ),
 ]);
 const RUNNER_CHECKPOINTS = new Set([
-  ...browserRunner.matchAll(/gateCheckpoint\s*=\s*"([a-z0-9-]+)"/gu),
+  ...browserRunner.matchAll(/setRunnerCheckpoint\("([a-z0-9-]+)"\)/gu),
 ].map((match) => match[1]));
 const RUNNER_REQUEST_PHASES = new Set([
   ...browserRunner.matchAll(/requestPhase\s*=\s*"([a-z0-9-]+)"/gu),
@@ -1186,6 +1199,79 @@ Write-Output 'PASS'
       "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
     ], { encoding: "utf8", timeout: 30_000, windowsHide: true });
     assert.equal(result.status, 0, `PowerShell runtime receipt stdin self-test failed: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), "PASS");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function assertPowerShellBoundedRunnerCaptureBehavior() {
+  if (process.platform !== "win32") return;
+  const helperStart = wrapper.indexOf("function Start-BoundedProcessStreamCapture");
+  const helperEnd = wrapper.indexOf("function Get-ReleaseIdentity");
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "bounded runner capture helper boundary is missing");
+  const directory = await mkdtemp(join(tmpdir(), "novel-rc6-2-bounded-capture-"));
+  const scriptPath = join(directory, "bounded-capture-self-test.ps1");
+  const escapedNode = process.execPath.replaceAll("'", "''");
+  try {
+    await writeFile(scriptPath, `$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+function Fail([string]$Code) { throw $Code }
+${wrapper.slice(helperStart, helperEnd)}
+function Invoke-CaptureProbe([string]$JavaScript, [string]$FloodStream, [bool]$ExpectLimit) {
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = '${escapedNode}'
+  $startInfo.Arguments = '-e "' + $JavaScript.Replace('"', '\\"') + '"'
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) { Fail 'CAPTURE_STUB_START_FAILED' }
+  $stdout = Start-BoundedProcessStreamCapture $process.StandardOutput.BaseStream 1048576 'CAPTURE_STDOUT_FAILED'
+  $stderr = Start-BoundedProcessStreamCapture $process.StandardError.BaseStream 1048576 'CAPTURE_STDERR_FAILED'
+  $deadline = [DateTime]::UtcNow.AddSeconds(15)
+  while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+    Update-BoundedProcessStreamCapture $stdout 'CAPTURE_STDOUT_FAILED'
+    Update-BoundedProcessStreamCapture $stderr 'CAPTURE_STDERR_FAILED'
+    if ($stdout.LimitExceeded -or $stderr.LimitExceeded) { $process.Kill(); break }
+    [void]$process.WaitForExit(10)
+  }
+  if (-not $process.HasExited) { $process.Kill(); Fail 'CAPTURE_STUB_TIMEOUT' }
+  $process.WaitForExit()
+  $stdoutResult = Get-BoundedProcessStreamCapture $stdout 5000 'CAPTURE_STDOUT_FAILED'
+  $stderrResult = Get-BoundedProcessStreamCapture $stderr 5000 'CAPTURE_STDERR_FAILED'
+  $selected = if ($FloodStream -eq 'stderr') { $stderrResult } else { $stdoutResult }
+  $other = if ($FloodStream -eq 'stderr') { $stdoutResult } else { $stderrResult }
+  if (
+    [bool]$selected.LimitExceeded -ne $ExpectLimit -or
+    [bool]$other.LimitExceeded -or
+    ($ExpectLimit -and (
+      [long]$selected.CapturedBytes -ne 1048576 -or
+      [long]$selected.ObservedBytes -le 1048576
+    ))
+  ) { Fail 'CAPTURE_LIMIT_MISMATCH' }
+  return [pscustomobject]@{ Stdout = $stdoutResult; Stderr = $stderrResult }
+}
+$normal = Invoke-CaptureProbe "process.stdout.write('normal');process.stderr.write('err')" 'stdout' $false
+if (
+  (Convert-BoundedProcessCaptureToText $normal.Stdout 'CAPTURE_UTF8_FAILED') -ne 'normal' -or
+  (Convert-BoundedProcessCaptureToText $normal.Stderr 'CAPTURE_UTF8_FAILED') -ne 'err'
+) { Fail 'CAPTURE_NORMAL_MISMATCH' }
+$stdoutFlood = Invoke-CaptureProbe "process.stdout.write('a'.repeat(2097152));setTimeout(()=>{},60000)" 'stdout' $true
+$stderrFlood = Invoke-CaptureProbe "process.stderr.write('b'.repeat(2097152));setTimeout(()=>{},60000)" 'stderr' $true
+Write-Output 'PASS'
+`, "utf8");
+    const powerShell = join(
+      process.env.SystemRoot ?? "C:\\Windows",
+      "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
+    );
+    const result = spawnSync(powerShell, [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
+    ], { encoding: "utf8", timeout: 45_000, windowsHide: true });
+    assert.equal(result.status, 0, `PowerShell bounded runner capture self-test failed: ${result.stderr}`);
+    assert.equal(result.signal, null);
     assert.equal(result.stdout.trim(), "PASS");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -1371,7 +1457,11 @@ async function writeAuditControlProof() {
   assert.equal(gitOutput(["rev-parse", "HEAD"]), controlCommit);
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", controlCommit]).split(/\s+/u),
-    [controlCommit, C6_BROWSER_GATE_CONTROL],
+    [controlCommit, C7_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", C7_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [C7_BROWSER_GATE_CONTROL, C6_BROWSER_GATE_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", C6_BROWSER_GATE_CONTROL]).split(/\s+/u),
@@ -1402,14 +1492,26 @@ async function writeAuditControlProof() {
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    C6_BROWSER_GATE_CONTROL,
+    C7_BROWSER_GATE_CONTROL,
     controlCommit,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(changedPaths, [...C7_GATE_REPAIR_PATHS].sort());
+  assert.deepEqual(changedPaths, [...C8_GATE_REPAIR_PATHS].sort());
+  const c7ChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    C6_BROWSER_GATE_CONTROL,
+    C7_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "C7 browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(c7ChangedPaths, [...C7_GATE_REPAIR_PATHS].sort());
   const c6ChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -1471,7 +1573,7 @@ async function writeAuditControlProof() {
   }).sort();
   assert.deepEqual(compositeChangedPaths, [...COMPOSITE_GATE_BLOB_PATHS].sort());
   const body = {
-    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v4",
+    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v5",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
     failedRecoveryControl: FAILED_RECOVERY_CONTROL,
@@ -1480,8 +1582,9 @@ async function writeAuditControlProof() {
     c4BrowserGateControl: C4_BROWSER_GATE_CONTROL,
     c5BrowserGateControl: C5_BROWSER_GATE_CONTROL,
     c6BrowserGateControl: C6_BROWSER_GATE_CONTROL,
+    c7BrowserGateControl: C7_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
-    parentCommit: C6_BROWSER_GATE_CONTROL,
+    parentCommit: C7_BROWSER_GATE_CONTROL,
     repository: process.env.GITHUB_REPOSITORY,
     eventName: process.env.GITHUB_EVENT_NAME,
     eventRef: process.env.GITHUB_REF,
@@ -1491,6 +1594,7 @@ async function writeAuditControlProof() {
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     lineage: [
       controlCommit,
+      C7_BROWSER_GATE_CONTROL,
       C6_BROWSER_GATE_CONTROL,
       C5_BROWSER_GATE_CONTROL,
       C4_BROWSER_GATE_CONTROL,
@@ -1500,6 +1604,7 @@ async function writeAuditControlProof() {
       PRODUCT_COMMIT,
     ],
     changedPaths,
+    c7ChangedPaths,
     c6ChangedPaths,
     c5ChangedPaths,
     c4ChangedPaths,
@@ -1509,7 +1614,7 @@ async function writeAuditControlProof() {
   const proof = {
     ...body,
     proofDigest: createHash("sha256").update(stableStringify({
-      domain: "p24b-rc6.2-browser-gate-control-proof-v4",
+      domain: "p24b-rc6.2-browser-gate-control-proof-v5",
       body,
     })).digest("hex"),
   };
@@ -1533,6 +1638,7 @@ for (const literal of [
   "100eea11003c5132ab2b519707c5dee658bc9cbe",
   "99695b247c2b1626c38efc8ae4589dd9bd8d30da",
   "b326c2fc9925798ffbc750ae37db847f0c8b5625",
+  "7dea0b8dd488a0f2a24132266944cb95b2f15ca9",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -1547,6 +1653,7 @@ await assertPowerShellGitScalarBehavior();
 if (process.argv.length === 2) {
   assertProductionRuntimeReceiptStdinBoundary();
   await assertPowerShellRuntimeReceiptStdinBehavior();
+  await assertPowerShellBoundedRunnerCaptureBehavior();
   await assertPowerShellFailurePublisherBehavior();
 }
 
@@ -2582,14 +2689,16 @@ assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
 assert.match(wrapper, /\[ValidateSet\("PreflightDryRun", "FormalBrowserGate"\)\][\s\S]*\[string\]\$ExecutionMode/u);
 assert.doesNotMatch(wrapper, /\$ExecutionMode\s*=/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
-assert.match(wrapper, /\$headParents\[1\] -ne \$c6BrowserGateControl/u);
+assert.match(wrapper, /\$headParents\[1\] -ne \$c7BrowserGateControl/u);
+assert.match(wrapper, /\$c7Parents\[1\] -ne \$c6BrowserGateControl/u);
 assert.match(wrapper, /\$c6Parents\[1\] -ne \$c5BrowserGateControl/u);
 assert.match(wrapper, /\$c5Parents\[1\] -ne \$c4BrowserGateControl/u);
 assert.match(wrapper, /\$c4Parents\[1\] -ne \$initialBrowserGateControl/u);
 assert.match(wrapper, /\$initialParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
-assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c6BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c7RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c7BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c8RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c6BrowserGateControl -HeadCommit \$c7BrowserGateControl -ExpectedPaths \$c7RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c5BrowserGateControl -HeadCommit \$c6BrowserGateControl -ExpectedPaths \$c6RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c4BrowserGateControl -HeadCommit \$c5BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$initialBrowserGateControl -HeadCommit \$c4BrowserGateControl -ExpectedPaths \$historicalRepairGatePaths/u);
@@ -2599,12 +2708,14 @@ assert.match(wrapper, /function Get-SingleTrimmedLine[\s\S]*\$Lines\.GetValue\(0
 assert.doesNotMatch(wrapper, /\[string\]\(Invoke-Git[^\r\n]*\)\[0\]/u);
 for (const path of COMPOSITE_GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${path}"`), `gate blob pin is missing: ${path}`);
 for (const path of C7_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C7 repair path is missing: ${path}`);
+for (const path of C8_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C8 repair path is missing: ${path}`);
 for (const path of C6_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C6 repair path is missing: ${path}`);
 for (const path of PRODUCT_RUNTIME_TRUTH_PATHS) {
   assert.ok(wrapper.includes(`"${path}"`), `Product runtime truth blob pin is missing: ${path}`);
 }
 assert.match(wrapper, /\^\(\[AM\]\)`t/u);
 assert.match(wrapper, /C7_GATE_REPAIR_DIFF_INVALID/u);
+assert.match(wrapper, /C8_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /C6_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
 assert.ok(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_") >= 4);
@@ -2671,7 +2782,8 @@ assert.match(wrapper, /Stop-OwnedProfileProcesses/u);
 assert.match(wrapper, /FileAttributes\]::ReparsePoint/u);
 assert.match(wrapper, /OWNED_PROFILE_PROCESS_CLEANUP_FAILED/u);
 assert.match(wrapper, /Stop-RunnerTree/u);
-assert.match(wrapper, /WaitForExit\(10800000\)/u);
+assert.match(wrapper, /\$runnerDeadline = \[DateTime\]::UtcNow\.AddMilliseconds\(10800000\)/u);
+assert.match(wrapper, /while \(-not \$runnerProcess\.HasExited\)[\s\S]*Update-BoundedProcessStreamCapture/u);
 assert.equal(occurrences(wrapper, "Assert-NoGateResidue \"GATE_RESIDUE_"), 2);
 assert.match(wrapper, /\$bridgeAfter\.Pid -ne \$bridgeBefore\.Pid/u);
 assert.match(wrapper, /\$hubAfter\.Pid -ne \$hubBefore\.Pid/u);
@@ -2690,7 +2802,24 @@ assert.match(wrapper, /Invoke-CleanNodeContract "toolchain-receipt"/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-production-runtime-receipt"/u);
 assert.match(wrapper, /Assert-PersistedRuntimeReceipt/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-evidence"/u);
-assert.match(wrapper, /Invoke-CleanNodeContract "validate-failure-evidence"/u);
+assert.match(wrapper, /function Resolve-RunnerEnvelopeValidation/u);
+assert.match(wrapper, /"validate-envelope"/u);
+assert.match(wrapper, /RC6_2_FORMAL_RUNNER_ENVELOPE_PATH/u);
+assert.match(wrapper, /RC6_2_FORMAL_RUNNER_ENVELOPE_SHA_PATH/u);
+assert.match(wrapper, /runner-envelope-validation\.json/u);
+assert.match(wrapper, /p24b-rc6\.2-formal-runner-envelope-validation-v1/u);
+assert.match(wrapper, /validationFileSha256/u);
+assert.match(wrapper, /PRODUCTION_BROWSER_RUNNER_ENVELOPE_VALIDATION_FAILED/u);
+assert.match(wrapper, /RC6_2_RUNNER_TERMINAL_FAIL/u);
+assert.match(wrapper, /FORMAL_RUNNER_ENVELOPE_STATE_VERIFY_FAILED/u);
+assert.match(wrapper, /\$formalRunnerEnvelopeValidation\.validationDisposition -eq "VALIDATED"/u);
+assert.match(wrapper, /\$formalRunnerEnvelopeValidation\.statusObserved -eq "PASS"/u);
+assert.match(wrapper, /\$formalRunnerEnvelopeValidation\.observedExitCode -eq 0/u);
+assert.match(wrapper, /\$expectedEnvelopeStatus = if \(\$runnerExitCode -eq 0\) \{ "PASS" \} else \{ "FAIL" \}/u);
+assert.match(wrapper, /function Read-BoundedExactFile[\s\S]*\$null -ne \$before\.LinkType[\s\S]*\$null -ne \$after\.LinkType/u);
+assert.match(wrapper, /Read-BoundedExactFile \$formalRunnerEnvelopeValidationPath 65536/u);
+assert.doesNotMatch(wrapper, /\$runnerOutcome = if \(\$runnerPassValidated/u);
+assert.doesNotMatch(wrapper, /Invoke-CleanNodeContract "validate-failure-evidence"/u);
 assert.match(wrapper, /RedirectStandardInput = \$null -ne \$StandardInput/u);
 assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Write\(\$standardInputBytes/u);
 assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Flush\(\)/u);
@@ -2698,7 +2827,8 @@ assert.match(wrapper, /\$process\.StandardInput\.BaseStream\.Close\(\)/u);
 assert.doesNotMatch(wrapper, /\$process\.StandardInput\.Write\(/u);
 assert.match(wrapper, /\$StandardInput\.Length -gt 0 -and \$StandardInput\[0\] -eq \[char\]0xFEFF/u);
 assert.doesNotMatch(wrapper, /\$StandardInput\.StartsWith\(\[string\]\[char\]0xFEFF\)/u);
-assert.match(wrapper, /if \(\$runnerStdout\.Length -eq 0\)/u);
+assert.match(wrapper, /\$safeTerminalCodes\.Count -ne 1/u);
+assert.match(wrapper, /\$unexpectedStderr\.Count -ne 0/u);
 assert.match(wrapper, /production-browser-gate-c6-failure-\$ExpectedGateControlCommit\.json/u);
 assert.match(wrapper, /\[IO\.FileMode\]::CreateNew/u);
 assert.match(wrapper, /\$stream\.Flush\(\$true\)/u);
@@ -2787,6 +2917,35 @@ assert.match(wrapper, /proofDigest = Sha256Text "\$proofDomain`n\$evidenceJson"/
 assert.match(wrapper, /\[IO\.File\]::Move\(\$evidenceTempPath, \$evidencePath\)/u);
 assert.match(wrapper, /EVIDENCE_PUBLICATION_MISMATCH/u);
 assert.doesNotMatch(wrapper, /runnerStdout\s*=\s*[^\r\n]*final/u);
+const formalRunnerPath = wrapper.slice(
+  wrapper.indexOf('$runnerProcess = [Diagnostics.Process]::new()'),
+  wrapper.indexOf('$runnerStage = "gate-linearization"'),
+);
+assert.match(formalRunnerPath, /Start-BoundedProcessStreamCapture/u);
+assert.match(formalRunnerPath, /Update-BoundedProcessStreamCapture/u);
+assert.match(formalRunnerPath, /Get-BoundedProcessStreamCapture/u);
+assert.doesNotMatch(formalRunnerPath, /ReadToEndAsync/u);
+const processStartOffset = formalRunnerPath.indexOf("$runnerProcess.Start()")
+const localRunnerStartedOffset = formalRunnerPath.indexOf("$runnerStarted = $true")
+const durableRunnerStartedOffset = formalRunnerPath.indexOf('Invoke-FormalAttemptTransition "RUNNER_STARTED"');
+const captureStartOffset = formalRunnerPath.indexOf("Start-BoundedProcessStreamCapture");
+assert.ok(
+  processStartOffset >= 0
+  && localRunnerStartedOffset > processStartOffset
+  && durableRunnerStartedOffset > localRunnerStartedOffset
+  && captureStartOffset > durableRunnerStartedOffset,
+  "runner start, durable transition, and bounded capture order must remain exact",
+);
+for (const reason of [
+  "runner-envelope-validation",
+  "runner-output-too-large",
+  "runner-failed",
+]) {
+  assert.ok(
+    wrapper.indexOf(`\"${reason}\" { return \"`) < wrapper.indexOf("if ($PostcheckErrorCount -gt 0)"),
+    `${reason} must take precedence over postcheck aggregation`,
+  );
+}
 
 assert.match(browserRunner, /await persistentContext\.route\("\*\*\/\*", routeClosedAiRequest\)/u);
 assert.equal(browserRunner.match(/\.route\(/gu)?.length, 1);

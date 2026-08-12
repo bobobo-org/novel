@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import {
+  constants as fsConstants,
+  link,
+  lstat,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "@playwright/test";
 import {
   classifyClosedAiCrossOriginRequest,
   isPreviewToolbarRequest,
@@ -70,6 +81,8 @@ const formalRuntimeReceiptDigest = process.env.RC6_2_FORMAL_RUNTIME_RECEIPT_DIGE
 const formalWrapperDigest = process.env.RC6_2_FORMAL_WRAPPER_DIGEST?.trim() ?? "";
 const formalRunnerDigest = process.env.RC6_2_FORMAL_RUNNER_DIGEST?.trim() ?? "";
 const formalContractDigest = process.env.RC6_2_FORMAL_CONTRACT_DIGEST?.trim() ?? "";
+const formalRunnerEnvelopePath = process.env.RC6_2_FORMAL_RUNNER_ENVELOPE_PATH?.trim() ?? "";
+const formalRunnerEnvelopeShaPath = process.env.RC6_2_FORMAL_RUNNER_ENVELOPE_SHA_PATH?.trim() ?? "";
 const formalAttemptValues = [
   formalAttemptDirectory,
   formalAttemptId,
@@ -82,6 +95,8 @@ const formalAttemptValues = [
   formalWrapperDigest,
   formalRunnerDigest,
   formalContractDigest,
+  formalRunnerEnvelopePath,
+  formalRunnerEnvelopeShaPath,
 ];
 const formalAttemptEnabled = formalAttemptValues.some(Boolean);
 if (formalAttemptEnabled) {
@@ -99,6 +114,12 @@ if (formalAttemptEnabled) {
     formalRunnerDigest,
     formalContractDigest,
   ]) assert.match(digest, /^[a-f0-9]{64}$/u);
+  assert.equal(resolve(formalRunnerEnvelopePath), formalRunnerEnvelopePath);
+  assert.equal(resolve(formalRunnerEnvelopeShaPath), formalRunnerEnvelopeShaPath);
+  assert.equal(dirname(formalRunnerEnvelopePath), formalAttemptDirectory);
+  assert.equal(dirname(formalRunnerEnvelopeShaPath), formalAttemptDirectory);
+  assert.equal(basename(formalRunnerEnvelopePath), "runner-terminal-envelope.json");
+  assert.equal(basename(formalRunnerEnvelopeShaPath), "runner-terminal-envelope.sha256");
 }
 const immutableModelRootRequests = [];
 const approvedModelRedirectRequests = [];
@@ -149,6 +170,91 @@ let disallowedWebSocketAttemptCount = 0;
 let webSocketServerConnectionCount = 0;
 let observedPreviewToolbarWebSocketAttemptCount = 0;
 let blockedPreviewToolbarWebSocketAttemptCount = 0;
+
+const RUNNER_TERMINAL_ENVELOPE_SCHEMA_VERSION =
+  "p24b-rc6.2-formal-runner-terminal-envelope-v1";
+const RUNNER_ENVELOPE_MAX_CHECKPOINTS = 32;
+const RUNNER_ENVELOPE_MAX_BYTES = 131_072;
+const RUNNER_ENVELOPE_FAILURE_SHAPES = new Set([
+  "ASSERTION",
+  "GATE_ERROR",
+  "PLAYWRIGHT_ERROR",
+  "TIMEOUT",
+  "PROCESS_ERROR",
+  "NETWORK_POLICY_REJECTION",
+  "EVIDENCE_VALIDATION_ERROR",
+  "UNKNOWN_SAFE",
+]);
+const RUNNER_ENVELOPE_DISPOSITIONS = new Set([
+  "true",
+  "false",
+  "null",
+  "missing",
+  "present",
+  "zero",
+  "nonzero",
+  "equal",
+  "different",
+  "ready",
+  "not_ready",
+  "indexeddb",
+  "memory",
+  "browser_ai",
+  "other_executor",
+  "valid_digest",
+  "invalid_digest",
+]);
+const RUNNER_ENVELOPE_ASSERTION_IDS = new Set([
+  "EDGE_CONTEXT_SINGLE_PAGE",
+  "EDGE_INITIAL_PAGE_ABOUT_BLANK",
+  "NETWORK_SENTINEL_ZERO_EGRESS",
+  "RELEASE_IDENTITY_EXACT",
+  "FRESH_STORAGE_EMPTY",
+  "PROJECT_CREATED",
+  "STORY_BIBLE_CREATED",
+  "BROWSER_AI_SETUP_READY",
+  "MODEL_CACHE_VERIFIED",
+  "MODEL_SHARDS_VERIFIED",
+  "ATTACHMENT_RIGHTS_NEGATIVE_BLOCKED",
+  "ATTACHMENT_RIGHTS_POSITIVE_ACCEPTED",
+  "T1_CONTEXT_BOUND",
+  "FIRST_CANDIDATE_CREATED",
+  "DIRECT_REGENERATION_CREATED",
+  "REJECT_CANON_UNCHANGED",
+  "CACHE_REUSED_AFTER_RELOAD",
+  "CHAINED_REGENERATION_CREATED",
+  "APPROVAL_REVISION_INCREMENTED_ONCE",
+  "FINAL_RELOAD_PERSISTED",
+  "PROFILE_DISPOSED",
+]);
+const RUNNER_ENVELOPE_KEYS = Object.freeze([
+  "schemaVersion", "status", "attemptId", "authorizationId", "authorizationDigest",
+  "productCommit", "controlCommit", "deploymentId", "productionOrigin", "releaseTag",
+  "releaseRevision", "runtimeReceiptDigest", "wrapperDigest", "runnerDigest",
+  "contractDigest", "mode", "exitCode", "startedAt", "completedAt", "requestPhase",
+  "gateCheckpoint", "lastCompletedCheckpoint", "checkpointOrdinal", "checkpointTrail",
+  "failureShape", "safeErrorCode", "firstFailedOperation", "firstFailedAssertion",
+  "projectionValidation", "freshBrowserContext", "profileOwnership", "profilePathDigest",
+  "profileDisposed", "networkSummary", "modelSummary", "uiSummary", "persistenceReached",
+  "storyBibleReached", "candidateReached", "externalRequestCount", "dataLeftDevice",
+  "envelopeDigest",
+]);
+const runnerEnvelopeStartedAt = new Date().toISOString();
+const runnerCheckpointTrail = [];
+let runnerCheckpointOrdinal = 0;
+let runnerLastCompletedCheckpoint = "none";
+let runnerFirstFailedOperation = null;
+let runnerFirstFailedAssertion = null;
+let runnerCaughtError = null;
+let runnerCleanupFailed = false;
+let runnerPersistenceReached = false;
+let runnerStoryBibleReached = false;
+let runnerCandidateReached = false;
+let chromiumRuntime = null;
+
+function setRunnerCheckpoint(checkpoint) {
+  enterRunnerCheckpoint(checkpoint);
+}
 
 const FAILURE_EVIDENCE_SCHEMA_VERSION = "closed-agent-failure-evidence-v1";
 const MAX_SAFE_NETWORK_PROJECTIONS = 32;
@@ -539,6 +645,13 @@ function safeFailureCode(error) {
   return "RC6_2_CLOSED_AI_GATE_FAILED";
 }
 
+function runnerEnvelopeSafeErrorCode(error) {
+  const code = typeof error?.code === "string" ? error.code : "";
+  return /^[A-Z][A-Z0-9_]{2,127}$/u.test(code)
+    ? code
+    : "RC6_2_CLOSED_AI_GATE_FAILED";
+}
+
 function rootRedirectRequest(request) {
   let current = request;
   while (current.redirectedFrom()) current = current.redirectedFrom();
@@ -913,6 +1026,327 @@ function stableStringify(value) {
     .filter(([, entry]) => entry !== undefined)
     .sort(([left], [right]) => left.localeCompare(right));
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+}
+
+function runnerEnvelopeDigest(value) {
+  const body = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "envelopeDigest"),
+  );
+  return sha256Value(stableStringify(body));
+}
+
+function safeMessageDigest(error) {
+  const name = typeof error?.name === "string" ? error.name : "Error";
+  const code = typeof error?.code === "string" ? error.code : "UNKNOWN";
+  return sha256Value(`${name}\n${code}`);
+}
+
+function classifyRunnerEnvelopeFailure(error) {
+  const name = typeof error?.name === "string" ? error.name : "";
+  const code = typeof error?.code === "string" ? error.code : "";
+  if (code === "ERR_ASSERTION") return "ASSERTION";
+  if (/timeout/iu.test(name) || /TIMEOUT/u.test(code)) return "TIMEOUT";
+  if (/playwright/iu.test(name) || /browser/iu.test(name)) return "PLAYWRIGHT_ERROR";
+  if (/NETWORK|WEBSOCKET|EGRESS/u.test(code)) return "NETWORK_POLICY_REJECTION";
+  if (/PROCESS/u.test(code)) return "PROCESS_ERROR";
+  if (SAFE_FAILURE_CODES.has(code)) return "GATE_ERROR";
+  return "UNKNOWN_SAFE";
+}
+
+function checkpointOperationId(checkpoint) {
+  return `CHECKPOINT_${checkpoint.replace(/[^A-Za-z0-9]+/gu, "_").toUpperCase()}`.slice(0, 96);
+}
+
+function checkpointAssertionId(checkpoint) {
+  const mappings = [
+    [/^launch$/u, "EDGE_CONTEXT_SINGLE_PAGE"],
+    [/^edge-identity$/u, "EDGE_INITIAL_PAGE_ABOUT_BLANK"],
+    [/^network-zero-receipt-sentinel$/u, "NETWORK_SENTINEL_ZERO_EGRESS"],
+    [/release-identity/u, "RELEASE_IDENTITY_EXACT"],
+    [/^fresh-storage$/u, "FRESH_STORAGE_EMPTY"],
+    [/^project-create$/u, "PROJECT_CREATED"],
+    [/story-bible/u, "STORY_BIBLE_CREATED"],
+    [/prepare-consumer-readiness/u, "BROWSER_AI_SETUP_READY"],
+    [/prepare-model-metadata/u, "MODEL_SHARDS_VERIFIED"],
+    [/attachment-rights-negative/u, "ATTACHMENT_RIGHTS_NEGATIVE_BLOCKED"],
+    [/attachment-rights-positive/u, "ATTACHMENT_RIGHTS_POSITIVE_ACCEPTED"],
+    [/^t1-probe$/u, "T1_CONTEXT_BOUND"],
+    [/first-candidate/u, "FIRST_CANDIDATE_CREATED"],
+    [/direct-regeneration/u, "DIRECT_REGENERATION_CREATED"],
+    [/reject-canon/u, "REJECT_CANON_UNCHANGED"],
+    [/cache-reuse/u, "CACHE_REUSED_AFTER_RELOAD"],
+    [/chained-regeneration/u, "CHAINED_REGENERATION_CREATED"],
+    [/approval-revision/u, "APPROVAL_REVISION_INCREMENTED_ONCE"],
+    [/final-reload/u, "FINAL_RELOAD_PERSISTED"],
+    [/final-release-identity/u, "FINAL_RELOAD_PERSISTED"],
+  ];
+  return mappings.find(([pattern]) => pattern.test(checkpoint))?.[1] ?? null;
+}
+
+function enterRunnerCheckpoint(checkpoint) {
+  if (runnerCheckpointTrail.at(-1)?.status === "entered") {
+    runnerCheckpointTrail[runnerCheckpointTrail.length - 1] = {
+      ...runnerCheckpointTrail.at(-1),
+      completedAt: new Date().toISOString(),
+      status: "completed",
+    };
+    runnerLastCompletedCheckpoint = runnerCheckpointTrail.at(-1).checkpoint;
+  }
+  runnerCheckpointOrdinal += 1;
+  runnerCheckpointTrail.push({
+    ordinal: runnerCheckpointOrdinal,
+    checkpoint,
+    enteredAt: new Date().toISOString(),
+    completedAt: null,
+    status: "entered",
+  });
+  if (runnerCheckpointTrail.length > RUNNER_ENVELOPE_MAX_CHECKPOINTS) runnerCheckpointTrail.shift();
+  gateCheckpoint = checkpoint;
+}
+
+function completeRunnerCheckpoint() {
+  const current = runnerCheckpointTrail.at(-1);
+  if (!current || current.status !== "entered") return;
+  runnerCheckpointTrail[runnerCheckpointTrail.length - 1] = {
+    ...current,
+    completedAt: new Date().toISOString(),
+    status: "completed",
+  };
+  runnerLastCompletedCheckpoint = current.checkpoint;
+}
+
+function failRunnerCheckpoint(error) {
+  const current = runnerCheckpointTrail.at(-1);
+  if (current?.status === "entered") {
+    runnerCheckpointTrail[runnerCheckpointTrail.length - 1] = {
+      ...current,
+      completedAt: new Date().toISOString(),
+      status: "failed",
+    };
+  }
+  if (!runnerFirstFailedOperation) {
+    runnerFirstFailedOperation = {
+      operationId: checkpointOperationId(gateCheckpoint),
+      operationKind: "CHECKPOINT",
+      messageDigest: safeMessageDigest(error),
+    };
+  }
+  const assertionId = checkpointAssertionId(gateCheckpoint);
+  if (!runnerFirstFailedAssertion && error?.code === "ERR_ASSERTION" && assertionId) {
+    runnerFirstFailedAssertion = {
+      assertionId,
+      errorName: "AssertionError",
+      errorCode: "ERR_ASSERTION",
+      operator: typeof error.operator === "string" ? error.operator : "unknown",
+      messageDigest: safeMessageDigest(error),
+      expectedDisposition: "equal",
+      actualDisposition: "different",
+    };
+  }
+}
+
+function runnerEnvelopeProjectionValidation({
+  detailedProjectionAvailable,
+  minimalProjectionUsed,
+  rejectedProjection = null,
+}) {
+  const rejectedKeys = rejectedProjection && typeof rejectedProjection === "object"
+    ? Object.keys(rejectedProjection)
+    : [];
+  const unknownKeys = rejectedKeys
+    .filter((key) => !RUNNER_ENVELOPE_KEYS.includes(key))
+    .sort();
+  const missingKeys = RUNNER_ENVELOPE_KEYS
+    .filter((key) => key !== "envelopeDigest" && !rejectedKeys.includes(key))
+    .sort();
+  return {
+    attempted: true,
+    status: detailedProjectionAvailable ? "PASS" : "FAIL",
+    schemaExpected: RUNNER_TERMINAL_ENVELOPE_SCHEMA_VERSION,
+    schemaObserved: RUNNER_TERMINAL_ENVELOPE_SCHEMA_VERSION,
+    detailedProjectionAvailable,
+    minimalProjectionUsed,
+    validatorErrorCode: detailedProjectionAvailable
+      ? null
+      : "RUNNER_TERMINAL_ENVELOPE_SCHEMA_INVALID",
+    unknownKeys: minimalProjectionUsed ? unknownKeys : [],
+    missingKeys: minimalProjectionUsed ? missingKeys : [],
+    typeMismatchKeys: [],
+    originalProjectionDigest: minimalProjectionUsed
+      ? sha256Value(stableStringify(rejectedProjection))
+      : null,
+  };
+}
+
+function finiteNetworkSummary() {
+  const externalRequestCount = prohibitedExternalAiRequestCount
+    + disallowedCrossOriginRequestCount;
+  return {
+    policy: "phase-aware-context-route-default-deny-v3",
+    routeInstalledBeforeNavigation: contextRouteInstalledBeforeNavigation,
+    webSocketRouteInstalledBeforeNavigation: contextWebSocketRouteInstalledBeforeNavigation,
+    blockedRequestCount: blockedNetworkPolicyAttemptCount,
+    prohibitedExternalAiRequestCount,
+    permittedImmutableModelRequestCount:
+      immutableModelRootRequests.length + approvedModelRedirectRequests.length,
+    externalRequestCount,
+    dataLeftDevice: false,
+  };
+}
+
+function finiteModelSummary() {
+  return {
+    modelPayloadRequestCount: modelAssetRequestCount(),
+    immutableModelRootRequestCount: immutableModelRootRequests.length,
+    approvedModelRedirectRequestCount: approvedModelRedirectRequests.length,
+    metadataObserved: finalOutput?.modelMetadataAtFailure !== null
+      && finalOutput?.modelMetadataAtFailure !== undefined,
+  };
+}
+
+function finiteUiSummary() {
+  return {
+    alertCount: Number.isSafeInteger(finalOutput?.uiStateAtFailure?.alertCount)
+      ? finalOutput.uiStateAtFailure.alertCount
+      : 0,
+    safeErrorCodeCount: Array.isArray(finalOutput?.uiSafeErrorCodesAtFailure)
+      ? finalOutput.uiSafeErrorCodesAtFailure.length
+      : 0,
+  };
+}
+
+function createRunnerTerminalEnvelope({
+  status,
+  exitCode,
+  projectionFailure = null,
+  rejectedProjection = null,
+}) {
+  const detailedProjectionAvailable = projectionFailure === null;
+  const minimalProjectionUsed = projectionFailure !== null;
+  const completedAt = new Date().toISOString();
+  const failureError = projectionFailure ?? runnerCaughtError;
+  const body = {
+    schemaVersion: RUNNER_TERMINAL_ENVELOPE_SCHEMA_VERSION,
+    status,
+    attemptId: formalAttemptId,
+    authorizationId: formalAuthorizationId,
+    authorizationDigest: formalAuthorizationDigest,
+    productCommit: expectedCommit,
+    controlCommit: formalControlCommit,
+    deploymentId: expectedDeploymentId,
+    productionOrigin: expectedOrigin,
+    releaseTag: formalReleaseTag,
+    releaseRevision: formalReleaseRevision,
+    runtimeReceiptDigest: formalRuntimeReceiptDigest,
+    wrapperDigest: formalWrapperDigest,
+    runnerDigest: formalRunnerDigest,
+    contractDigest: formalContractDigest,
+    mode,
+    exitCode,
+    startedAt: runnerEnvelopeStartedAt,
+    completedAt,
+    requestPhase,
+    gateCheckpoint,
+    lastCompletedCheckpoint: runnerLastCompletedCheckpoint,
+    checkpointOrdinal: runnerCheckpointOrdinal,
+    checkpointTrail: runnerCheckpointTrail.map((entry) => ({ ...entry })),
+    failureShape: status === "PASS"
+      ? null
+      : projectionFailure === null
+        ? classifyRunnerEnvelopeFailure(failureError)
+        : "EVIDENCE_VALIDATION_ERROR",
+    safeErrorCode: status === "PASS" ? null : runnerEnvelopeSafeErrorCode(failureError),
+    firstFailedOperation: status === "PASS" ? null : runnerFirstFailedOperation ?? {
+      operationId: checkpointOperationId(gateCheckpoint),
+      operationKind: "CHECKPOINT",
+      messageDigest: safeMessageDigest(failureError),
+    },
+    firstFailedAssertion: status === "PASS" ? null : runnerFirstFailedAssertion,
+    projectionValidation: runnerEnvelopeProjectionValidation({
+      detailedProjectionAvailable,
+      minimalProjectionUsed,
+      rejectedProjection,
+    }),
+    freshBrowserContext: context !== undefined && context !== null,
+    profileOwnership,
+    profilePathDigest,
+    profileDisposed: finalOutput?.profileDisposed === true,
+    networkSummary: finiteNetworkSummary(),
+    modelSummary: finiteModelSummary(),
+    uiSummary: finiteUiSummary(),
+    persistenceReached: runnerPersistenceReached,
+    storyBibleReached: runnerStoryBibleReached,
+    candidateReached: runnerCandidateReached,
+    externalRequestCount: prohibitedExternalAiRequestCount + disallowedCrossOriginRequestCount,
+    dataLeftDevice: false,
+  };
+  return { ...body, envelopeDigest: runnerEnvelopeDigest(body) };
+}
+
+async function assertCreateNewDestination(path) {
+  const destinationDirectory = dirname(path);
+  const directoryTruth = await lstat(destinationDirectory);
+  assert.equal(directoryTruth.isDirectory(), true);
+  assert.equal(directoryTruth.isSymbolicLink(), false);
+  assert.equal(
+    comparableFilesystemPath(await realpath(destinationDirectory)),
+    comparableFilesystemPath(destinationDirectory),
+  );
+  await lstat(path).then(
+    () => { throw gateError("RC6_2_RUNNER_ENVELOPE_DESTINATION_EXISTS"); },
+    (error) => { if (error?.code !== "ENOENT") throw error; },
+  );
+}
+
+async function publishCreateNewAtomic(path, bytes) {
+  await assertCreateNewDestination(path);
+  const temporaryPath = join(
+    dirname(path),
+    `.${basename(path)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
+  );
+  let handle;
+  try {
+    handle = await open(temporaryPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY, 0o600);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    assert.deepEqual(await readFile(temporaryPath), bytes);
+    await link(temporaryPath, path);
+    assert.deepEqual(await readFile(path), bytes);
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await unlink(temporaryPath).catch((error) => {
+      if (error?.code !== "ENOENT") throw error;
+    });
+  }
+}
+
+async function publishRunnerTerminalEnvelope(envelope) {
+  assert.equal(formalAttemptEnabled, true);
+  const canonical = stableStringify(envelope);
+  const bytes = Buffer.from(canonical, "utf8");
+  assert.ok(bytes.length > 0 && bytes.length <= RUNNER_ENVELOPE_MAX_BYTES);
+  assert.equal(JSON.parse(canonical).envelopeDigest, runnerEnvelopeDigest(envelope));
+  await Promise.all([
+    assertCreateNewDestination(formalRunnerEnvelopePath),
+    assertCreateNewDestination(formalRunnerEnvelopeShaPath),
+  ]);
+  await publishCreateNewAtomic(formalRunnerEnvelopePath, bytes);
+  const fileDigest = sha256Value(bytes);
+  await publishCreateNewAtomic(
+    formalRunnerEnvelopeShaPath,
+    Buffer.from(`${fileDigest}\n`, "utf8"),
+  );
+  for (const path of [formalRunnerEnvelopePath, formalRunnerEnvelopeShaPath]) {
+    const truth = await lstat(path);
+    assert.equal(truth.isFile(), true);
+    assert.equal(truth.isSymbolicLink(), false);
+    assert.equal(truth.nlink, 1);
+  }
+  assert.equal(sha256Value(await readFile(formalRunnerEnvelopePath)), fileDigest);
+  assert.equal(await readFile(formalRunnerEnvelopeShaPath, "utf8"), `${fileDigest}\n`);
+  return { envelopeDigest: envelope.envelopeDigest, fileDigest };
 }
 
 const BROWSER_EXECUTION_RECEIPT_KEYS = Object.freeze([
@@ -1576,6 +2010,7 @@ function markFormalBrowserStarted(runnerStartedLease) {
 }
 
 async function launch() {
+  if (chromiumRuntime === null) ({ chromium: chromiumRuntime } = await import("@playwright/test"));
   edgeExecutablePath = await realpath(configuredEdgeExecutable);
   const executableStat = await stat(edgeExecutablePath);
   assert.equal(executableStat.isFile(), true, "configured Edge executable is not a file");
@@ -1598,7 +2033,7 @@ async function launch() {
   };
   let persistentContext;
   try {
-    persistentContext = await chromium.launchPersistentContext(profilePath, launchOptions);
+    persistentContext = await chromiumRuntime.launchPersistentContext(profilePath, launchOptions);
     await persistentContext.routeWebSocket("**/*", routeClosedAiWebSocket);
     contextWebSocketRouteInstalledBeforeNavigation = true;
     await persistentContext.route("**/*", routeClosedAiRequest);
@@ -2201,6 +2636,7 @@ async function createApprovedStoryBible(projectId, { requireIsolationWitness = f
         "[story-bible]\n[story-bible]\n[APPROVED_STORY_BIBLE]\n{",
     },
   });
+  runnerStoryBibleReached = true;
   return evidence;
 }
 
@@ -2992,6 +3428,7 @@ function assertCandidateTruth(evidence, expected = {}) {
     assert.equal(evidence.candidate.regeneration?.newCandidate, true);
     assert.equal(evidence.candidate.regeneration?.nonceStored, false);
   }
+  runnerCandidateReached = true;
 }
 
 function assertT1CandidateTruth(evidence) {
@@ -3604,7 +4041,7 @@ async function readAttachmentEvidence(projectId, taskId) {
 }
 
 async function runAttachmentProbe(projectId, storyBible) {
-  gateCheckpoint = "attachment-init";
+  setRunnerCheckpoint("attachment-init");
   const canonBefore = await readChapterTruth(projectId);
   const attachmentBytes = Buffer.from([
     "rights-confirmed-local-source-v1",
@@ -3619,7 +4056,7 @@ async function runAttachmentProbe(projectId, storyBible) {
   const generationPrompt = "請根據核准 Story Bible 與附件開始第一章";
   registerSensitiveEvidenceSentinel(generationPrompt);
   const composer = page.getByTestId("conversation-message-composer");
-  gateCheckpoint = "attachment-file-select";
+  setRunnerCheckpoint("attachment-file-select");
   await composer.locator('input[type="file"]').setInputFiles({
     name: "rights-confirmed-source.txt",
     mimeType: "text/plain",
@@ -3629,17 +4066,17 @@ async function runAttachmentProbe(projectId, storyBible) {
   await tray.waitFor({ state: "visible", timeout: 90_000 });
   const rightsCheckbox = tray.getByRole("checkbox");
   assert.equal(await rightsCheckbox.isChecked(), false);
-  gateCheckpoint = "attachment-rights-negative-baseline";
+  setRunnerCheckpoint("attachment-rights-negative-baseline");
   const beforeUncheckedSubmit = await readRightsGateExecutionCounts(projectId);
   await composer.locator("textarea").fill(generationPrompt);
   await composer.getByRole("button", { name: "送出", exact: true }).click();
-  gateCheckpoint = "attachment-rights-negative-wait";
+  setRunnerCheckpoint("attachment-rights-negative-wait");
   const rightsRequiredAlert = page.locator('[role="alert"] strong').filter({
     hasText: /^CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED$/u,
   });
   await rightsRequiredAlert.waitFor({ state: "visible", timeout: 90_000 });
   await waitUntilNotBusy(composer);
-  gateCheckpoint = "attachment-rights-negative-verify";
+  setRunnerCheckpoint("attachment-rights-negative-verify");
   const afterUncheckedSubmit = await readRightsGateExecutionCounts(projectId);
   assert.deepEqual(
     afterUncheckedSubmit,
@@ -3647,21 +4084,21 @@ async function runAttachmentProbe(projectId, storyBible) {
     "unchecked attachment rights created persistent or model-execution evidence",
   );
   assert.deepEqual(await readChapterTruth(projectId), canonBefore);
-  gateCheckpoint = "attachment-rights-positive-submit";
+  setRunnerCheckpoint("attachment-rights-positive-submit");
   await rightsCheckbox.check();
   assert.equal(await rightsCheckbox.isChecked(), true);
   await composer.locator("textarea").fill(generationPrompt);
   await composer.getByRole("button", { name: "送出", exact: true }).click();
-  gateCheckpoint = "attachment-candidate-wait";
+  setRunnerCheckpoint("attachment-candidate-wait");
   const generated = await waitForCandidate(projectId);
-  gateCheckpoint = "attachment-candidate-truth";
+  setRunnerCheckpoint("attachment-candidate-truth");
   assertCandidateTruth(generated);
   assert.deepEqual(
     await readChapterTruth(projectId),
     canonBefore,
     "attachment candidate mutated Canon before rejection",
   );
-  gateCheckpoint = "attachment-evidence-read";
+  setRunnerCheckpoint("attachment-evidence-read");
   const attachmentEvidence = await readAttachmentEvidence(projectId, generated.candidate.taskId);
   assert.ok(attachmentEvidence);
   assert.equal(attachmentEvidence.attachmentCount, 1);
@@ -3724,19 +4161,19 @@ async function runAttachmentProbe(projectId, storyBible) {
       ].join("\n"),
     },
   });
-  gateCheckpoint = "attachment-context-proof";
+  setRunnerCheckpoint("attachment-context-proof");
   const finalContextProof = assertFinalContextBindings(generated, [
     storyBibleFinalContextSource(storyBible),
     attachmentFinalContextSource(attachment),
   ]);
-  gateCheckpoint = "attachment-reject-submit";
+  setRunnerCheckpoint("attachment-reject-submit");
   const approvalActions = page.locator(
     `[data-testid="conversation-approval-actions"][data-artifact-id="${generated.artifact.id}"]`,
   );
   await approvalActions.getByRole("button", { name: "放棄", exact: true }).click();
-  gateCheckpoint = "attachment-reject-wait";
+  setRunnerCheckpoint("attachment-reject-wait");
   await waitForArtifactStatus(generated.artifact.id, "rejected");
-  gateCheckpoint = "attachment-reject-verify";
+  setRunnerCheckpoint("attachment-reject-verify");
   const rejected = await readCandidateEvidence(projectId, generated.candidate.id);
   assertCandidateTruth(rejected, { status: "rejected" });
   assert.deepEqual(
@@ -3831,7 +4268,7 @@ async function runT1ContextAttestationProbe(projectId, storyBible, previousTaskI
 
 async function prepareBrowserAi(setupEvidence) {
   requestPhase = "model-install";
-  gateCheckpoint = "prepare-click";
+  setRunnerCheckpoint("prepare-click");
   const card = page.getByTestId("closed-ai-setup-card");
   const beforeClickRequests = modelAssetRequestCount();
   await card.getByTestId("closed-ai-prepare-browser").click();
@@ -3850,7 +4287,7 @@ async function prepareBrowserAi(setupEvidence) {
     modelAssetRequestCount() > beforeClickRequests,
     "explicit setup did not start a real model request before cancellation",
   );
-  gateCheckpoint = "prepare-cancel";
+  setRunnerCheckpoint("prepare-cancel");
   await card.getByRole("button", { name: "取消準備", exact: true }).click();
   await waitUntilNotBusy(card);
   assert.equal(await card.getAttribute("data-setup-lifecycle"), "cancelled");
@@ -3866,18 +4303,18 @@ async function prepareBrowserAi(setupEvidence) {
     "cancelled setup was incorrectly promoted to a verified model",
   );
   const requestsAtCancel = modelAssetRequestCount();
-  gateCheckpoint = "prepare-retry";
+  setRunnerCheckpoint("prepare-retry");
   await card.getByTestId("closed-ai-prepare-browser").click();
   await page.waitForFunction(
     () => document.querySelector('[data-testid="closed-ai-setup-card"]')?.getAttribute("data-setup-lifecycle") === "preparing",
   );
-  gateCheckpoint = "prepare-wait-ready";
+  setRunnerCheckpoint("prepare-wait-ready");
   await waitForBrowserAiReady(card);
   assert.ok(
     modelAssetRequestCount() > requestsAtCancel,
     "retry did not resume a real model payload request after cancellation",
   );
-  gateCheckpoint = "prepare-consumer-readiness";
+  setRunnerCheckpoint("prepare-consumer-readiness");
   const composerTruth = page.getByTestId("conversation-message-composer");
   const consumerReadiness = {
     generationVerifiedBackends: Number(
@@ -3891,7 +4328,7 @@ async function prepareBrowserAi(setupEvidence) {
   assert.equal(consumerReadiness.activeBackend, "browser-ai");
   assert.equal(consumerReadiness.externalFallback, false);
   assert.equal(consumerReadiness.silentExternalFallback, false);
-  gateCheckpoint = "prepare-model-metadata";
+  setRunnerCheckpoint("prepare-model-metadata");
   const modelMetadata = await readModelMetadata();
   assert.ok(modelMetadata);
   assert.equal(modelMetadata.installStatus, "ready");
@@ -3934,6 +4371,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   const composer = page.locator('textarea[aria-label="小說專案訊息"]');
   await composer.fill("幫我開始第一章");
   await page.getByRole("button", { name: "送出", exact: true }).click();
+  setRunnerCheckpoint("first-candidate-created");
   const first = await waitForCandidate(projectId);
   assertCandidateTruth(first);
   const firstContextProof = assertFinalContextBindings(first, requiredSources);
@@ -3947,6 +4385,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   }).last();
   await waitForClosedAiRegenerationReady();
   await directRegenerate.click();
+  setRunnerCheckpoint("direct-regeneration-created");
   const directAttempt = await waitForRegenerationStart(
     projectId,
     first.invocation.messageId,
@@ -3982,6 +4421,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
 
   const secondCard = page.locator(`[data-artifact-id="${second.artifact.id}"]`).first();
   await secondCard.getByRole("button", { name: "放棄", exact: true }).click();
+  setRunnerCheckpoint("reject-canon-unchanged");
   await waitForArtifactStatus(second.artifact.id, "rejected");
   const rejectedSecond = await readCandidateEvidence(projectId, second.candidate.id);
   assertCandidateTruth(rejectedSecond, {
@@ -3997,6 +4437,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
 
   const modelAssetRequestsBeforeReload = modelAssetRequestCount();
   const modelMetadataBeforeReload = await readModelMetadata();
+  setRunnerCheckpoint("cache-reuse-after-reload");
   await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.getByTestId("conversation-first-workspace").waitFor({
     state: "visible",
@@ -4038,6 +4479,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   assert.equal(await chainedRegenerate.count(), 1);
   assert.equal(await chainedRegenerate.isEnabled(), true);
   await chainedRegenerate.click();
+  setRunnerCheckpoint("chained-regeneration-created");
   const chainedAttempt = await waitForRegenerationStart(
     projectId,
     second.invocation.messageId,
@@ -4069,6 +4511,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
 
   const thirdCard = page.locator(`[data-artifact-id="${third.artifact.id}"]`).first();
   await thirdCard.getByRole("button", { name: "採用", exact: true }).click();
+  setRunnerCheckpoint("approval-revision-incremented-once");
   await waitForArtifactStatus(third.artifact.id, "approved");
   const canonAfterApproval = await readChapterTruth(projectId);
   assert.equal(canonAfterApproval.chapterId, canonBefore.chapterId);
@@ -4089,6 +4532,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 90_000 });
   await assertExactOrigin();
+  setRunnerCheckpoint("final-reload-persisted");
   const canonAfterReload = await readChapterTruth(projectId);
   assert.deepEqual(canonAfterReload, canonAfterApproval);
   const persisted = await readCandidateEvidence(projectId, third.candidate.id);
@@ -4145,7 +4589,50 @@ async function runGenerationLifecycle(projectId, storyBible) {
 }
 
 try {
-  gateCheckpoint = "launch";
+  const runnerEnvelopeTestScenario = process.env.RC6_2_RUNNER_ENVELOPE_TEST_SCENARIO?.trim() ?? "";
+  if (runnerEnvelopeTestScenario) {
+    assert.equal(formalAttemptEnabled, true);
+    process.stderr.write([
+      "[RC6.2 Closed AI] setup in progress (0s)",
+      "[RC6.2 Closed AI] setup in progress (1s)",
+      "[RC6.2 Closed AI] setup in progress (2s)",
+      "",
+    ].join("\n"));
+    if (runnerEnvelopeTestScenario === "PASS") {
+      setRunnerCheckpoint("launch");
+      completeRunnerCheckpoint();
+      context = {};
+      profileOwnership = "wrapper-owned";
+      profilePathDigest = "0".repeat(64);
+      runnerPersistenceReached = true;
+      runnerStoryBibleReached = true;
+      runnerCandidateReached = true;
+      finalOutput = { status: "PASS", profileDisposed: true };
+    } else if (runnerEnvelopeTestScenario === "ASSERTION_FAIL") {
+      setRunnerCheckpoint("fresh-storage");
+      const injected = new assert.AssertionError({
+        message: "injected assertion",
+        actual: "different",
+        expected: "equal",
+        operator: "strictEqual",
+      });
+      throw injected;
+    } else if (runnerEnvelopeTestScenario === "PLAYWRIGHT_FAIL") {
+      setRunnerCheckpoint("launch");
+      throw Object.assign(new Error("injected playwright failure"), {
+        name: "PlaywrightError",
+        code: "RC6_2_CLOSED_AI_GATE_FAILED",
+      });
+    } else if (runnerEnvelopeTestScenario === "PROJECTION_FAIL") {
+      setRunnerCheckpoint("release-identity");
+      throw Object.assign(new Error("injected projection failure"), {
+        code: "RC6_2_RUNNER_ENVELOPE_TEST_PROJECTION_FAIL",
+      });
+    } else {
+      throw gateError("RC6_2_CLOSED_AI_GATE_FAILED");
+    }
+  } else {
+  setRunnerCheckpoint("launch");
   formalRunnerStartedLease = await waitForFormalRunnerStart();
   const launched = await launch();
   browser = launched.browser;
@@ -4154,31 +4641,31 @@ try {
   page = context.pages()[0] ?? await context.newPage();
   assert.equal(page.url(), "about:blank");
   requestPhase = "release-identity";
-  gateCheckpoint = "edge-identity";
+  setRunnerCheckpoint("edge-identity");
   const edgeIdentity = await readEdgeIdentity(launched.evidence);
   requestPhase = "bootstrap";
-  gateCheckpoint = "network-zero-receipt-sentinel";
+  setRunnerCheckpoint("network-zero-receipt-sentinel");
   networkSentinelEvidence = await runPreNavigationNetworkSentinel();
   edgeIdentity.preNavigationNetworkSentinel = networkSentinelEvidence;
   requestPhase = "release-identity";
-  gateCheckpoint = "release-identity";
+  setRunnerCheckpoint("release-identity");
   const releaseIdentityBeforeApp = await readReleaseIdentityTruth({ navigate: true });
-  gateCheckpoint = "fresh-storage";
+  setRunnerCheckpoint("fresh-storage");
   const freshStorage = await readFreshStorageTruth();
   requestPhase = "project-setup";
-  gateCheckpoint = "project-create";
+  setRunnerCheckpoint("project-create");
   let projectId;
   let storyBible;
   if (mode === "setup") {
     projectId = await createProject();
     storyBible = null;
   } else {
-    gateCheckpoint = "story-bible-isolation-witness";
+    setRunnerCheckpoint("story-bible-isolation-witness");
     const isolationProjectId = await createProject();
     const isolationStoryBible = await createApprovedStoryBible(isolationProjectId);
-    gateCheckpoint = "project-create";
+    setRunnerCheckpoint("project-create");
     projectId = await createProject();
-    gateCheckpoint = "story-bible";
+    setRunnerCheckpoint("story-bible");
     storyBible = await createApprovedStoryBible(projectId, { requireIsolationWitness: true });
     assert.notEqual(projectId, isolationProjectId);
     assert.notEqual(storyBible.recordId, isolationStoryBible.recordId);
@@ -4186,25 +4673,25 @@ try {
     assert.ok(storyBible.observedOtherProjectCount >= 1);
     assert.ok(storyBible.observedOtherStoryBibleCount >= 1);
   }
-  gateCheckpoint = "inspect-setup";
+  setRunnerCheckpoint("inspect-setup");
   const setup = await inspectFreshSetup();
   let lifecycle;
   if (mode === "setup") {
     lifecycle = { setup };
   } else {
-    gateCheckpoint = "prepare";
+    setRunnerCheckpoint("prepare");
     const prepared = await prepareBrowserAi(setup);
-    gateCheckpoint = "attachment-probe";
+    setRunnerCheckpoint("attachment-probe");
     const attachmentProbe = await runAttachmentProbe(projectId, storyBible);
-    gateCheckpoint = "attachment-to-t1-session";
+    setRunnerCheckpoint("attachment-to-t1-session");
     const attachmentToT1 = await startNewConversationSession();
-    gateCheckpoint = "t1-probe";
+    setRunnerCheckpoint("t1-probe");
     const t1ContextAttestationProbe = await runT1ContextAttestationProbe(
       projectId,
       storyBible,
       attachmentProbe.candidate.taskId,
     );
-    gateCheckpoint = "t1-to-lifecycle-session";
+    setRunnerCheckpoint("t1-to-lifecycle-session");
     const t1ToLifecycle = await startNewConversationSession();
     assert.equal(t1ToLifecycle.previousSessionId, attachmentToT1.newSessionId);
     const conversationIsolation = {
@@ -4218,7 +4705,7 @@ try {
       ]).size === 3,
     };
     assert.equal(conversationIsolation.allDistinct, true);
-    gateCheckpoint = "generation-lifecycle";
+    setRunnerCheckpoint("generation-lifecycle");
     const ordinaryLifecycle = await runGenerationLifecycle(projectId, storyBible);
     lifecycle = {
       ...prepared,
@@ -4252,7 +4739,8 @@ try {
   const persistence = mode === "setup"
     ? null
     : await readFormalPersistenceTruth(projectId, lifecycle.storyBible, persistenceContract);
-  gateCheckpoint = "final-release-identity";
+  runnerPersistenceReached = persistence !== null;
+  setRunnerCheckpoint("final-release-identity");
   const releaseIdentityAfterReload = await readReleaseIdentityTruth();
   assert.deepEqual(releaseIdentityAfterReload, releaseIdentityBeforeApp);
   const edgeVersionAfterReload = await edgeCdpSession.send("Browser.getVersion");
@@ -4357,7 +4845,20 @@ try {
     completedAt: new Date().toISOString(),
   };
   assertSafeEvidenceProjection(finalOutput);
+  }
 } catch (error) {
+  runnerCaughtError = error;
+  failRunnerCheckpoint(error);
+  if (process.env.RC6_2_RUNNER_ENVELOPE_TEST_SCENARIO) {
+    finalOutput = {
+      schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
+      status: "FAIL",
+      mode,
+      exactOrigin: expectedOrigin,
+      error: { code: safeFailureCode(error), diagnosticCodes: [], browserRuntimeEvidence: [] },
+    };
+    process.exitCode = 1;
+  } else {
   const diagnosticCodes = await readSanitizedQualityCodes().catch(() => []);
   const browserRuntimeEvidence = await readSanitizedBrowserRuntimeEvidence().catch(() => []);
   const modelMetadataAtFailure = await readModelMetadata().catch(() => null);
@@ -4474,10 +4975,11 @@ try {
     completedAt: new Date().toISOString(),
   };
   process.exitCode = 1;
+  }
 } finally {
   await edgeCdpSession?.detach().catch(() => undefined);
   let cleanupFailed = false;
-  await context?.close().catch(() => { cleanupFailed = true; });
+  await context?.close?.().catch(() => { cleanupFailed = true; });
   await browser?.close().catch(() => undefined);
   let profileDisposed = false;
   if (profilePath) {
@@ -4511,6 +5013,9 @@ try {
         .catch(() => { cleanupFailed = true; });
     }
   }
+  if (process.env.RC6_2_RUNNER_ENVELOPE_TEST_SCENARIO === "PASS" && !profilePath) {
+    profileDisposed = true;
+  }
   if (!finalOutput) {
     finalOutput = {
       schemaVersion: "p24b-rc6-2-closed-ai-browser-evidence-v3",
@@ -4537,6 +5042,10 @@ try {
     process.exitCode = 1;
   }
   if (cleanupFailed) {
+    setRunnerCheckpoint("profile-cleanup");
+    const cleanupError = gateError("RC6_2_CLOSED_AI_GATE_FAILED");
+    runnerCaughtError ??= cleanupError;
+    failRunnerCheckpoint(cleanupError);
     finalOutput.status = "FAIL";
     finalOutput.error = {
       code: "RC6_2_CLOSED_AI_GATE_FAILED",
@@ -4545,6 +5054,7 @@ try {
     };
     process.exitCode = 1;
   }
+  runnerCleanupFailed = cleanupFailed;
   finalOutput.profileDisposed = profileDisposed;
   finalOutput.completedAt = new Date().toISOString();
   try {
@@ -4577,7 +5087,55 @@ try {
     };
     process.exitCode = 1;
   }
+  if (!cleanupFailed) completeRunnerCheckpoint();
+  let envelopePublished = !formalAttemptEnabled;
+  if (formalAttemptEnabled) {
+    const envelopeStatus = finalOutput.status === "PASS" && !runnerCleanupFailed ? "PASS" : "FAIL";
+    let envelope;
+    try {
+      envelope = createRunnerTerminalEnvelope({
+        status: envelopeStatus,
+        exitCode: envelopeStatus === "PASS" ? 0 : 1,
+      });
+      if (process.env.RC6_2_RUNNER_ENVELOPE_TEST_MUTATION === "PROJECTION_FAILURE") {
+        envelope.injectedUnexpectedKey = true;
+      }
+      assert.deepEqual(Object.keys(envelope).sort(), [...RUNNER_ENVELOPE_KEYS].sort());
+      assert.equal(RUNNER_ENVELOPE_FAILURE_SHAPES.has(envelope.failureShape), envelopeStatus === "FAIL");
+      if (envelope.firstFailedAssertion) {
+        assert.equal(RUNNER_ENVELOPE_ASSERTION_IDS.has(envelope.firstFailedAssertion.assertionId), true);
+        assert.equal(
+          RUNNER_ENVELOPE_DISPOSITIONS.has(envelope.firstFailedAssertion.expectedDisposition),
+          true,
+        );
+        assert.equal(
+          RUNNER_ENVELOPE_DISPOSITIONS.has(envelope.firstFailedAssertion.actualDisposition),
+          true,
+        );
+      }
+    } catch (projectionError) {
+      const rejectedProjection = envelope;
+      runnerCaughtError = projectionError;
+      failRunnerCheckpoint(projectionError);
+      finalOutput.status = "FAIL";
+      process.exitCode = 1;
+      envelope = createRunnerTerminalEnvelope({
+        status: "FAIL",
+        exitCode: 1,
+        projectionFailure: projectionError,
+        rejectedProjection,
+      });
+    }
+    try {
+      await publishRunnerTerminalEnvelope(envelope);
+      envelopePublished = true;
+    } catch {
+      process.exitCode = 1;
+      finalOutput.status = "FAIL";
+    }
+  }
   const serialized = JSON.stringify(finalOutput, null, 2);
-  if (finalOutput.status === "PASS") console.log(serialized);
-  else console.error(serialized);
+  if (finalOutput.status === "PASS" && envelopePublished) console.log(serialized);
+  else if (!formalAttemptEnabled) console.error(serialized);
+  else process.stderr.write("RC6_2_RUNNER_TERMINAL_FAIL\n");
 }

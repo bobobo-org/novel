@@ -36,6 +36,17 @@ function SamePath([string]$A, [string]$B) {
   )
 }
 
+function Test-ExactOrdinalStringSet([object[]]$Actual, [string[]]$Expected) {
+  if ($Actual.Count -ne $Expected.Count) { return $false }
+  foreach ($expectedValue in $Expected) {
+    $matches = @($Actual | Where-Object {
+      [StringComparer]::Ordinal.Equals([string]$_, $expectedValue)
+    })
+    if ($matches.Count -ne 1) { return $false }
+  }
+  return $true
+}
+
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location -LiteralPath $repoRoot
 $gitExe = "C:\Program Files\Git\cmd\git.exe"
@@ -60,6 +71,7 @@ $initialBrowserGateControl = "aab0e7bd52c57bc57ecfe8be8b08c1cf63db9824"
 $c4BrowserGateControl = "100eea11003c5132ab2b519707c5dee658bc9cbe"
 $c5BrowserGateControl = "99695b247c2b1626c38efc8ae4589dd9bd8d30da"
 $c6BrowserGateControl = "b326c2fc9925798ffbc750ae37db847f0c8b5625"
+$c7BrowserGateControl = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -109,6 +121,7 @@ $wrapperPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate.ps
 $contractPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate-contract.mjs"
 $formalAttemptStatePath = Join-Path $repoRoot "scripts\rc6-2-formal-attempt-state.mjs"
 $terminalEvidencePath = Join-Path $repoRoot "scripts\rc6-2-terminal-evidence.mjs"
+$runnerEnvelopeValidatorPath = Join-Path $repoRoot "scripts\run-rc6-2-runner-envelope-tests.mjs"
 $formalAttemptPrepared = $false
 $formalAttemptId = $null
 $formalAttemptDirectory = $null
@@ -122,6 +135,7 @@ $formalRunnerDigest = $null
 $formalContractDigest = $null
 $formalAttemptStateDigest = $null
 $terminalEvidenceDigest = $null
+$runnerEnvelopeValidatorDigest = $null
 $formalRuntimeReceiptDigest = $null
 $formalAttemptSummary = $null
 $formalTerminalFinalizationAttempted = $false
@@ -130,6 +144,11 @@ $formalTerminalSafeResult = $null
 $formalTerminalValidation = $null
 $formalRunnerResultProjection = $null
 $formalRunnerFailureProjection = $null
+$formalRunnerEnvelopePath = $null
+$formalRunnerEnvelopeShaPath = $null
+$formalRunnerEnvelopeValidationPath = $null
+$formalRunnerEnvelopeValidation = $null
+$formalRunnerEnvelopeDigest = $null
 $allowedGatePaths = @(
   ".github/workflows/deploy.yml",
   "package.json",
@@ -141,6 +160,7 @@ $allowedGatePaths = @(
   "scripts/run-rc6-2-formal-attempt-state-tests.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs"
 )
 $initialGatePaths = @(
@@ -174,6 +194,17 @@ $c7RepairGatePaths = @(
   "scripts/run-rc6-2-formal-attempt-state-tests.mjs",
   "scripts/run-rc6-2-production-browser-gate-contract.mjs",
   "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-terminal-evidence-tests.mjs"
+)
+$c8RepairGatePaths = @(
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/rc6-2-terminal-evidence.mjs",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-closed-agent-browser.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
+  "scripts/run-rc6-2-runner-envelope-tests.mjs",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs"
 )
 $productRuntimePaths = @(
@@ -392,7 +423,8 @@ function Invoke-CleanFormalNodeCli(
 ) {
   $isStateCli = SamePath $ScriptPath $formalAttemptStatePath
   $isTerminalCli = SamePath $ScriptPath $terminalEvidencePath
-  if (-not $isStateCli -and -not $isTerminalCli) { Fail $Code }
+  $isRunnerEnvelopeCli = SamePath $ScriptPath $runnerEnvelopeValidatorPath
+  if (-not $isStateCli -and -not $isTerminalCli -and -not $isRunnerEnvelopeCli) { Fail $Code }
   $allowedModes = if ($isStateCli) {
     @(
       "read-authorization",
@@ -403,11 +435,22 @@ function Invoke-CleanFormalNodeCli(
       "recover",
       "wait-state"
     )
-  } else {
+  } elseif ($isTerminalCli) {
     @("bind-projections", "finalize", "validate", "validate-formal")
+  } else {
+    @("validate-envelope")
   }
   if ($Mode -notin $allowedModes) { Fail $Code }
   if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) { Fail $Code }
+  if (
+    $isRunnerEnvelopeCli -and
+    (
+      $runnerEnvelopeValidatorDigest -notmatch '^[a-f0-9]{64}$' -or
+      (Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne (
+        $runnerEnvelopeValidatorDigest
+      )
+    )
+  ) { Fail $Code }
   $scriptDigest = (Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
   if (
     ($isStateCli -and $scriptDigest -ne $formalAttemptStateDigest) -or
@@ -523,6 +566,245 @@ function Invoke-FormalNodeJson(
   return $parsed
 }
 
+function Read-BoundedExactFile(
+  [string]$Path,
+  [long]$MaximumBytes,
+  [string]$Code
+) {
+  if (-not $Path -or $MaximumBytes -lt 1 -or $MaximumBytes -gt 1048576) { Fail $Code }
+  try { $before = Get-Item -LiteralPath $Path -Force }
+  catch { Fail $Code }
+  if (
+    $before.PSIsContainer -or
+    ($before.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $null -ne $before.LinkType -or
+    [long]$before.Length -lt 1 -or
+    [long]$before.Length -gt $MaximumBytes -or
+    -not (SamePath ([string]$before.FullName) $Path)
+  ) { Fail $Code }
+
+  $stream = $null
+  try {
+    $stream = [IO.File]::Open(
+      $Path,
+      [IO.FileMode]::Open,
+      [IO.FileAccess]::Read,
+      [IO.FileShare]::Read
+    )
+    $expectedLength = [long]$before.Length
+    if ($stream.Length -ne $expectedLength -or $stream.Length -gt $MaximumBytes) { Fail $Code }
+    $bytes = New-Object byte[] ([int]$expectedLength)
+    $offset = 0
+    while ($offset -lt $bytes.Length) {
+      $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+      if ($read -le 0) { Fail $Code }
+      $offset += $read
+    }
+    if ($stream.ReadByte() -ne -1 -or $stream.Length -ne $expectedLength) { Fail $Code }
+    $after = Get-Item -LiteralPath $Path -Force
+    if (
+      $after.PSIsContainer -or
+      ($after.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+      $null -ne $after.LinkType -or
+      [long]$after.Length -ne $expectedLength -or
+      [long]$bytes.LongLength -ne $expectedLength -or
+      -not (SamePath ([string]$after.FullName) $Path)
+    ) { Fail $Code }
+    return [pscustomobject][ordered]@{
+      Bytes = $bytes
+      Length = $expectedLength
+    }
+  } catch {
+    Fail $Code
+  } finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
+function Resolve-RunnerEnvelopeValidation {
+  if (-not $formalAttemptPrepared -or -not $runnerStarted) {
+    Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_STATE_INVALID"
+  }
+  $durableRunnerSummary = Get-VerifiedFormalAttempt "FORMAL_RUNNER_ENVELOPE_STATE_VERIFY_FAILED"
+  if (-not [bool]$durableRunnerSummary.runnerStarted) {
+    Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_STATE_INVALID"
+  }
+  if ($null -ne $formalRunnerEnvelopeValidation) { return $formalRunnerEnvelopeValidation }
+  $payload = [ordered]@{
+    envelopePath = $formalRunnerEnvelopePath
+    shaPath = $formalRunnerEnvelopeShaPath
+    validationPath = $formalRunnerEnvelopeValidationPath
+    expectedAttemptDirectory = $formalAttemptDirectory
+    expectedAttemptId = $formalAttemptId
+    expectedAuthorizationId = $FormalAuthorizationId
+    expectedAuthorizationDigest = $formalAuthorizationDigest
+    expectedProductCommit = $productCommit
+    expectedControlCommit = $ExpectedGateControlCommit
+    expectedDeploymentId = $expectedDeployment
+    expectedProductionOrigin = $deploymentOrigin
+    expectedReleaseTag = $releaseTag
+    expectedReleaseRevision = "rc6.2"
+    expectedRuntimeReceiptDigest = $formalRuntimeReceiptDigest
+    expectedWrapperDigest = $formalWrapperDigest
+    expectedRunnerDigest = $formalRunnerDigest
+    expectedContractDigest = $formalContractDigest
+    expectedMode = "generation"
+    observedExitCode = if ($null -ne $runnerExitCode) { [int]$runnerExitCode } else { $null }
+    stdoutBytes = [long]$runnerStdoutUtf8ByteLength
+    stderrBytes = [long]$runnerStderrUtf8ByteLength
+    progressCount = [int](
+      [int]$runnerProgressCounts.setup +
+      [int]$runnerProgressCounts.candidateGeneration +
+      [int]$runnerProgressCounts.t1Analysis
+    )
+    unexpectedLineCount = [int]$runnerUnexpectedStderrCount
+    safeTerminalCodeCount = [int]$runnerSafeTerminalCodeCount
+    validatedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+  }
+  $result = Invoke-CleanFormalNodeCli $runnerEnvelopeValidatorPath "validate-envelope" (
+    $payload | ConvertTo-Json -Compress -Depth 12
+  ) "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED"
+  if (
+    [bool]$result.TimedOut -or
+    [int]$result.ExitCode -ne 0 -or
+    [string]$result.Stderr -or
+    -not [string]$result.Stdout
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  try { $validationSummary = [string]$result.Stdout | ConvertFrom-Json }
+  catch { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  if (-not (Test-ExactOrdinalStringSet @($validationSummary.PSObject.Properties.Name) @(
+    "schemaVersion",
+    "status",
+    "validationStatus",
+    "validationDisposition",
+    "attemptId",
+    "envelopeDigest",
+    "statusObserved",
+    "validationDigest",
+    "validationFileSha256"
+  ))) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  if (
+    [string]$validationSummary.schemaVersion -ne "p24b-rc6.2-formal-runner-envelope-validation-v1" -or
+    [string]$validationSummary.status -ne "PASS" -or
+    [string]$validationSummary.validationStatus -notin @("PASS", "FAIL") -or
+    [string]$validationSummary.validationDisposition -notin @("VALIDATED", "MISSING", "INVALID") -or
+    [string]$validationSummary.attemptId -ne $formalAttemptId -or
+    [string]$validationSummary.validationDigest -notmatch '^[a-f0-9]{64}$' -or
+    [string]$validationSummary.validationFileSha256 -notmatch '^[a-f0-9]{64}$' -or
+    -not (Test-Path -LiteralPath $formalRunnerEnvelopeValidationPath -PathType Leaf)
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  if (
+    [string]$validationSummary.validationStatus -eq "PASS" -and
+    [string]$validationSummary.validationDisposition -ne "VALIDATED"
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  if (
+    [string]$validationSummary.validationDisposition -eq "VALIDATED" -and
+    [string]$validationSummary.envelopeDigest -notmatch '^[a-f0-9]{64}$'
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATOR_FAILED" }
+  $attemptDirectoryTruth = Get-Item -LiteralPath $formalAttemptDirectory -Force
+  if (
+    -not $attemptDirectoryTruth.PSIsContainer -or
+    ($attemptDirectoryTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $null -ne $attemptDirectoryTruth.LinkType -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetFullPath($attemptDirectoryTruth.FullName),
+      $formalAttemptDirectory
+    ) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetDirectoryName($formalRunnerEnvelopeValidationPath),
+      $formalAttemptDirectory
+    )
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_PATH_INVALID" }
+  $validationSource = Read-BoundedExactFile $formalRunnerEnvelopeValidationPath 65536 (
+    "FORMAL_RUNNER_ENVELOPE_VALIDATION_PATH_INVALID"
+  )
+  $validationBytes = [byte[]]$validationSource.Bytes
+  $validationHashAlgorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    $validationFileDigest = ([BitConverter]::ToString(
+      $validationHashAlgorithm.ComputeHash($validationBytes)
+    )).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $validationHashAlgorithm.Dispose()
+  }
+  $attemptDirectoryReadbackTruth = Get-Item -LiteralPath $formalAttemptDirectory -Force
+  $validationReadbackTruth = Get-Item -LiteralPath $formalRunnerEnvelopeValidationPath -Force
+  if (
+    -not $attemptDirectoryReadbackTruth.PSIsContainer -or
+    ($attemptDirectoryReadbackTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $null -ne $attemptDirectoryReadbackTruth.LinkType -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetFullPath($attemptDirectoryReadbackTruth.FullName),
+      $formalAttemptDirectory
+    ) -or
+    ($validationReadbackTruth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $null -ne $validationReadbackTruth.LinkType -or
+    [long]$validationReadbackTruth.Length -ne [long]$validationSource.Length -or
+    [long]$validationReadbackTruth.Length -gt 65536 -or
+    [long]$validationBytes.LongLength -ne [long]$validationSource.Length -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals(
+      [IO.Path]::GetDirectoryName($validationReadbackTruth.FullName),
+      $formalAttemptDirectory
+    )
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_PATH_INVALID" }
+  if ($validationFileDigest -ne [string]$validationSummary.validationFileSha256) {
+    Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_READBACK_INVALID"
+  }
+  try {
+    $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+    $validationText = $strictUtf8.GetString($validationBytes)
+    $validation = $validationText | ConvertFrom-Json
+  }
+  catch { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_INVALID" }
+  if (-not (Test-ExactOrdinalStringSet @($validation.PSObject.Properties.Name) @(
+    "schemaVersion",
+    "attemptId",
+    "status",
+    "validationDisposition",
+    "fileExists",
+    "fileBytes",
+    "fileSha256",
+    "shaSidecarMatches",
+    "canonicalJson",
+    "schemaValid",
+    "identityValid",
+    "digestValid",
+    "statusObserved",
+    "detailedProjectionAvailable",
+    "minimalProjectionUsed",
+    "validatorErrorCode",
+    "validatedAt",
+    "envelopeDigest",
+    "observedExitCode",
+    "stdoutBytes",
+    "stderrBytes",
+    "progressCount",
+    "unexpectedLineCount",
+    "safeTerminalCodeCount",
+    "validationDigest"
+  ))) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_INVALID" }
+  if (
+    [string]$validation.schemaVersion -ne "p24b-rc6.2-formal-runner-envelope-validation-v1" -or
+    [string]$validation.attemptId -ne $formalAttemptId -or
+    [string]$validation.status -ne [string]$validationSummary.validationStatus -or
+    [string]$validation.validationDisposition -ne [string]$validationSummary.validationDisposition -or
+    [string]$validation.validationDigest -ne [string]$validationSummary.validationDigest -or
+    [string]$validation.envelopeDigest -ne [string]$validationSummary.envelopeDigest -or
+    [string]$validation.statusObserved -ne [string]$validationSummary.statusObserved
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_INVALID" }
+  if (
+    [string]$validation.status -eq "PASS" -and
+    [string]$validation.envelopeDigest -notmatch '^[a-f0-9]{64}$'
+  ) { Fail "FORMAL_RUNNER_ENVELOPE_READBACK_INVALID" }
+  $script:formalRunnerEnvelopeDigest = if (
+    [string]$validation.status -eq "PASS" -and
+    [string]$validation.validationDisposition -eq "VALIDATED" -and
+    [string]$validation.envelopeDigest -match '^[a-f0-9]{64}$'
+  ) { [string]$validation.envelopeDigest } else { $null }
+  $script:formalRunnerEnvelopeValidation = $validation
+  return $validation
+}
+
 function Get-FormalAttemptIdentityPayload {
   $identity = [ordered]@{
     expectedAttemptId = $formalAttemptId
@@ -619,6 +901,9 @@ function Initialize-FormalAttempt {
 
   $script:formalAttemptStateDigest = (Get-FileHash -LiteralPath $formalAttemptStatePath -Algorithm SHA256).Hash.ToLowerInvariant()
   $script:terminalEvidenceDigest = (Get-FileHash -LiteralPath $terminalEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $script:runnerEnvelopeValidatorDigest = (
+    Get-FileHash -LiteralPath $runnerEnvelopeValidatorPath -Algorithm SHA256
+  ).Hash.ToLowerInvariant()
   $authorization = Invoke-FormalNodeJson $formalAttemptStatePath "read-authorization" ([ordered]@{
     registryRoot = $formalAttemptRegistryRoot
     authorizationId = $FormalAuthorizationId
@@ -684,6 +969,28 @@ function Initialize-FormalAttempt {
   $script:formalTerminalBundleDirectory = [IO.Path]::GetFullPath((
     Join-Path $formalAttemptDirectory "terminal-evidence"
   ))
+  $script:formalRunnerEnvelopePath = [IO.Path]::GetFullPath((
+    Join-Path $formalAttemptDirectory "runner-terminal-envelope.json"
+  ))
+  $script:formalRunnerEnvelopeShaPath = [IO.Path]::GetFullPath((
+    Join-Path $formalAttemptDirectory "runner-terminal-envelope.sha256"
+  ))
+  $script:formalRunnerEnvelopeValidationPath = [IO.Path]::GetFullPath((
+    Join-Path $formalAttemptDirectory "runner-envelope-validation.json"
+  ))
+  foreach ($path in @(
+    $formalRunnerEnvelopePath,
+    $formalRunnerEnvelopeShaPath,
+    $formalRunnerEnvelopeValidationPath
+  )) {
+    if (
+      -not [StringComparer]::OrdinalIgnoreCase.Equals(
+        [IO.Path]::GetDirectoryName($path),
+        $formalAttemptDirectory
+      ) -or
+      (Test-Path -LiteralPath $path)
+    ) { Fail "FORMAL_RUNNER_ENVELOPE_PATH_INVALID" }
+  }
   $script:formalAttemptPrepared = $true
   $script:formalAttemptSummary = $creation
   if (
@@ -961,6 +1268,9 @@ function Close-FormalPostLaunchAttempt(
   if ($FailureReason -notmatch '^[A-Z][A-Z0-9_]{2,127}$') {
     $FailureReason = "PRODUCTION_BROWSER_WRAPPER_FAILED"
   }
+  if ([bool]$summary.runnerStarted -and $null -eq $formalRunnerEnvelopeValidation) {
+    [void](Resolve-RunnerEnvelopeValidation)
+  }
   $nonPassTerminalStatus = if (
     [bool]$summary.runnerCompleted -and
     [string]$summary.runnerOutcome -eq "FAIL" -and
@@ -978,8 +1288,39 @@ function Close-FormalPostLaunchAttempt(
     [string]$formalProfileCleanupProjection.status -eq "PASS" -and
     [string]$formalProcessCleanupProjection.status -eq "PASS"
   )
+  if (
+    [bool]$summary.runnerStarted -and
+    -not [bool]$summary.runnerCompleted -and
+    $null -eq $formalRunnerFailureProjection -and
+    (
+      [string]$formalRunnerEnvelopeValidation.status -ne "PASS" -or
+      [string]$formalRunnerEnvelopeValidation.validationDisposition -ne "VALIDATED" -or
+      [string]$formalRunnerEnvelopeValidation.statusObserved -ne "PASS"
+    )
+  ) {
+    if ($null -eq $formalRunnerEnvelopeValidation) {
+      Fail "FORMAL_RUNNER_ENVELOPE_VALIDATION_MISSING"
+    }
+    $runnerExit = if ($null -ne $runnerExitCode) { [int]$runnerExitCode } else { 1 }
+    $script:formalRunnerFailureProjection = [pscustomobject][ordered]@{
+      schemaVersion = "p24b-rc6.2-formal-runner-failure-v2"
+      attemptId = $formalAttemptId
+      status = $nonPassTerminalStatus
+      reasonCode = $FailureReason
+      exitCode = $runnerExit
+      runnerEnvelopeDigest = $formalRunnerEnvelopeDigest
+      runnerEnvelopeValidationDigest = [string]$formalRunnerEnvelopeValidation.validationDigest
+    }
+  }
   if ([string]$summary.state -eq "BROWSER_STARTED" -and -not [bool]$summary.runnerCompleted) {
-    $runnerOutcome = if ($runnerPassValidated -and $null -ne $runnerEvidence -and [int]$runnerExitCode -eq 0) {
+    $runnerOutcome = if (
+      $null -ne $formalRunnerEnvelopeValidation -and
+      [string]$formalRunnerEnvelopeValidation.status -eq "PASS" -and
+      [string]$formalRunnerEnvelopeValidation.validationDisposition -eq "VALIDATED" -and
+      [string]$formalRunnerEnvelopeValidation.statusObserved -eq "PASS" -and
+      [int]$formalRunnerEnvelopeValidation.observedExitCode -eq 0 -and
+      [int]$runnerExitCode -eq 0
+    ) {
       "PASS"
     } else {
       "FAIL"
@@ -996,12 +1337,8 @@ function Close-FormalPostLaunchAttempt(
         runnerResult = $formalRunnerResultProjection
       }) "FORMAL_RUNNER_BINDING_FAILED"
     } else {
-      $script:formalRunnerFailureProjection = [pscustomobject][ordered]@{
-        schemaVersion = "p24b-rc6.2-formal-runner-failure-v1"
-        attemptId = $formalAttemptId
-        status = $nonPassTerminalStatus
-        reasonCode = $FailureReason
-        exitCode = $runnerExit
+      if ($null -eq $formalRunnerFailureProjection) {
+        Fail "FORMAL_RUNNER_FAILURE_PROJECTION_MISSING"
       }
       $runnerBinding = Invoke-FormalNodeJson $terminalEvidencePath "bind-projections" ([ordered]@{
         runnerFailure = $formalRunnerFailureProjection
@@ -1167,14 +1504,18 @@ function Assert-ControlLineage {
   $originUrl = Invoke-GitScalar @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED"
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
   $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
+  $c7Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c7BrowserGateControl) "C7_GATE_PARENT_READ_FAILED") -split "\s+"
   $c6Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c6BrowserGateControl) "C6_GATE_PARENT_READ_FAILED") -split "\s+"
   $c5Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c5BrowserGateControl) "C5_GATE_PARENT_READ_FAILED") -split "\s+"
   $c4Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c4BrowserGateControl) "C4_GATE_PARENT_READ_FAILED") -split "\s+"
   $initialParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $initialBrowserGateControl) "INITIAL_GATE_PARENT_READ_FAILED") -split "\s+"
   $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
   $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
-  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c6BrowserGateControl) {
+  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c7BrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($c7Parents.Count -ne 2 -or $c7Parents[0] -ne $c7BrowserGateControl -or $c7Parents[1] -ne $c6BrowserGateControl) {
+    Fail "C7_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($c6Parents.Count -ne 2 -or $c6Parents[0] -ne $c6BrowserGateControl -or $c6Parents[1] -ne $c5BrowserGateControl) {
     Fail "C6_GATE_CONTROL_PARENT_MISMATCH"
@@ -1195,7 +1536,8 @@ function Assert-ControlLineage {
     Fail "FAILED_CONTROL_PRODUCT_PARENT_MISMATCH"
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
-  Assert-ControlDiffPaths -BaseCommit $c6BrowserGateControl -HeadCommit $head -ExpectedPaths $c7RepairGatePaths -Code "C7_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c7BrowserGateControl -HeadCommit $head -ExpectedPaths $c8RepairGatePaths -Code "C8_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c6BrowserGateControl -HeadCommit $c7BrowserGateControl -ExpectedPaths $c7RepairGatePaths -Code "C7_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c5BrowserGateControl -HeadCommit $c6BrowserGateControl -ExpectedPaths $c6RepairGatePaths -Code "C6_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c4BrowserGateControl -HeadCommit $c5BrowserGateControl -ExpectedPaths $historicalRepairGatePaths -Code "C5_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $initialBrowserGateControl -HeadCommit $c4BrowserGateControl -ExpectedPaths $historicalRepairGatePaths -Code "C4_GATE_REPAIR_DIFF_INVALID"
@@ -1532,6 +1874,88 @@ function Stop-RunnerTree([Diagnostics.Process]$Process, [string]$Code) {
   $Process.WaitForExit()
 }
 
+function Start-BoundedProcessStreamCapture(
+  [IO.Stream]$Stream,
+  [long]$MaximumBytes,
+  [string]$Code
+) {
+  if ($null -eq $Stream -or $MaximumBytes -lt 1 -or $MaximumBytes -gt 1048576) { Fail $Code }
+  $capture = [pscustomobject]@{
+    Bytes = [IO.MemoryStream]::new([int]$MaximumBytes)
+    MaximumBytes = [long]$MaximumBytes
+    ObservedBytes = 0L
+    LimitExceeded = $false
+    Completed = $false
+    SafeErrorCode = $null
+  }
+  $buffer = New-Object byte[] 8192
+  $asyncResult = $Stream.BeginRead($buffer, 0, $buffer.Length, $null, $null)
+  $capture | Add-Member -NotePropertyName Stream -NotePropertyValue $Stream
+  $capture | Add-Member -NotePropertyName Buffer -NotePropertyValue $buffer
+  $capture | Add-Member -NotePropertyName AsyncResult -NotePropertyValue $asyncResult
+  return $capture
+}
+
+function Update-BoundedProcessStreamCapture([object]$Capture, [string]$Code) {
+  if ($null -eq $Capture) { Fail $Code }
+  try {
+    while (-not [bool]$Capture.Completed -and $Capture.AsyncResult.IsCompleted) {
+      $read = $Capture.Stream.EndRead($Capture.AsyncResult)
+      if ($read -le 0) {
+        $Capture.Completed = $true
+        break
+      }
+      $Capture.ObservedBytes = [long]$Capture.ObservedBytes + [long]$read
+      $remaining = [long]$Capture.MaximumBytes - [long]$Capture.Bytes.Length
+      if ($remaining -gt 0) {
+        $toWrite = [int][Math]::Min([long]$read, $remaining)
+        $Capture.Bytes.Write($Capture.Buffer, 0, $toWrite)
+      }
+      if ([long]$Capture.ObservedBytes -gt [long]$Capture.MaximumBytes) {
+        $Capture.LimitExceeded = $true
+      }
+      $Capture.AsyncResult = $Capture.Stream.BeginRead(
+        $Capture.Buffer,
+        0,
+        $Capture.Buffer.Length,
+        $null,
+        $null
+      )
+    }
+  } catch {
+    $Capture.SafeErrorCode = $Code
+    Fail $Code
+  }
+}
+
+function Get-BoundedProcessStreamCapture(
+  [object]$Capture,
+  [int]$WaitMilliseconds,
+  [string]$Code
+) {
+  if ($null -eq $Capture -or $WaitMilliseconds -lt 1 -or $WaitMilliseconds -gt 60000) { Fail $Code }
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
+  while (-not [bool]$Capture.Completed -and [DateTime]::UtcNow -lt $deadline) {
+    Update-BoundedProcessStreamCapture $Capture $Code
+    if (-not [bool]$Capture.Completed) { [void]$Capture.AsyncResult.AsyncWaitHandle.WaitOne(10) }
+  }
+  Update-BoundedProcessStreamCapture $Capture $Code
+  if (-not [bool]$Capture.Completed -or [string]$Capture.SafeErrorCode) { Fail $Code }
+  $bytes = $Capture.Bytes.ToArray()
+  return [pscustomobject][ordered]@{
+    Bytes = $bytes
+    CapturedBytes = [long]$bytes.LongLength
+    ObservedBytes = [long]$Capture.ObservedBytes
+    LimitExceeded = [bool]$Capture.LimitExceeded
+  }
+}
+
+function Convert-BoundedProcessCaptureToText([object]$Capture, [string]$Code) {
+  if ($null -eq $Capture -or [bool]$Capture.LimitExceeded) { Fail $Code }
+  try { return [Text.UTF8Encoding]::new($false, $true).GetString([byte[]]$Capture.Bytes) }
+  catch { Fail $Code }
+}
+
 function Get-ReleaseIdentity([string]$Origin, [string]$Code) {
   $nonce = [Guid]::NewGuid().ToString("N")
   $response = Invoke-WebRequest -Uri "$Origin/api/release/identity?gate=$nonce" -TimeoutSec 30 -Headers @{
@@ -1642,13 +2066,16 @@ function Get-RunnerProgressCounts([string]$Value) {
 }
 
 function Get-TerminalWrapperCode([string]$Stage, [int]$PostcheckErrorCount) {
-  if ($PostcheckErrorCount -gt 0) { return "PRODUCTION_BROWSER_POSTCHECK_FAILED" }
   switch ($Stage) {
+    "runner-envelope-validation" { return "PRODUCTION_BROWSER_RUNNER_ENVELOPE_VALIDATION_FAILED" }
     "runner-start" { return "PRODUCTION_BROWSER_RUNNER_START_FAILED" }
     "runner-timeout" { return "PRODUCTION_BROWSER_RUNNER_TIMEOUT" }
     "runner-output-too-large" { return "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE" }
     "runner-failed" { return "PRODUCTION_BROWSER_RUNNER_FAILED" }
     "runner-evidence-validation" { return "PRODUCTION_BROWSER_EVIDENCE_VALIDATION_FAILED" }
+  }
+  if ($PostcheckErrorCount -gt 0) { return "PRODUCTION_BROWSER_POSTCHECK_FAILED" }
+  switch ($Stage) {
     "gate-linearization" { return "PRODUCTION_BROWSER_LINEARIZATION_FAILED" }
     "pass-publication" { return "PRODUCTION_BROWSER_PASS_PUBLICATION_FAILED" }
     default { return "PRODUCTION_BROWSER_WRAPPER_FAILED" }
@@ -2433,6 +2860,11 @@ $runnerElapsedMs = 0
 $runnerStdoutUtf8ByteLength = 0
 $runnerStderrUtf8ByteLength = 0
 $runnerProgressCounts = Get-RunnerProgressCounts ""
+$runnerUnexpectedStderrCount = 0
+$runnerSafeTerminalCodeCount = 0
+$runnerOutputLimitExceeded = $false
+$runnerStdoutCapture = $null
+$runnerStderrCapture = $null
 $runnerStage = "boundary-entered"
 $runnerStopwatch = [Diagnostics.Stopwatch]::new()
 $runnerFailureProjection = $null
@@ -2517,68 +2949,146 @@ try {
   $startInfo.EnvironmentVariables["RC6_2_FORMAL_CONTRACT_DIGEST"] = $formalContractDigest
   $startInfo.EnvironmentVariables["RC6_2_FORMAL_RELEASE_TAG"] = $releaseTag
   $startInfo.EnvironmentVariables["RC6_2_FORMAL_RELEASE_REVISION"] = "rc6.2"
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RUNNER_ENVELOPE_PATH"] = $formalRunnerEnvelopePath
+  $startInfo.EnvironmentVariables["RC6_2_FORMAL_RUNNER_ENVELOPE_SHA_PATH"] = $formalRunnerEnvelopeShaPath
   $startInfo.EnvironmentVariables["NO_COLOR"] = "1"
 
   $runnerProcess = [Diagnostics.Process]::new()
   $runnerProcess.StartInfo = $startInfo
   $runnerStage = "runner-start"
   $runnerStopwatch.Start()
+  foreach ($path in @(
+    $formalRunnerEnvelopePath,
+    $formalRunnerEnvelopeShaPath,
+    $formalRunnerEnvelopeValidationPath
+  )) {
+    if (Test-Path -LiteralPath $path) { Fail "FORMAL_RUNNER_ENVELOPE_PATH_PREEXISTED" }
+  }
   [void](Invoke-FormalAttemptTransition "LAUNCH_COMMITTED" ([ordered]@{}) (
     "PREFLIGHT_PASSED"
   ) "LAUNCH_COMMITTED" "FORMAL_LAUNCH_COMMIT_FAILED")
   if (-not $runnerProcess.Start()) { Fail "PRODUCTION_BROWSER_RUNNER_START_FAILED" }
   $runnerStarted = $true
-  [void](Invoke-FormalAttemptTransition "RUNNER_STARTED" ([ordered]@{
-    runnerPid = [int]$runnerProcess.Id
-  }) "LAUNCH_COMMITTED" "RUNNER_STARTED" "FORMAL_RUNNER_START_STATE_FAILED")
-  $runnerStage = "runner-running"
-  $stdoutTask = $runnerProcess.StandardOutput.ReadToEndAsync()
-  $stderrTask = $runnerProcess.StandardError.ReadToEndAsync()
-  if (-not $runnerProcess.WaitForExit(10800000)) {
-    $runnerStage = "runner-timeout"
-    try { Stop-RunnerTree $runnerProcess "PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED" }
-    catch { [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED") }
-    [void]$runnerProcess.WaitForExit(30000)
-    if ($stdoutTask.IsCompleted) { $runnerStdout = [string]$stdoutTask.Result }
-    if ($stderrTask.IsCompleted) { $runnerStderr = [string]$stderrTask.Result }
-    Fail "PRODUCTION_BROWSER_RUNNER_TIMEOUT"
+  $runnerPid = [int]$runnerProcess.Id
+  try {
+    [void](Invoke-FormalAttemptTransition "RUNNER_STARTED" ([ordered]@{
+      runnerPid = $runnerPid
+    }) "LAUNCH_COMMITTED" "RUNNER_STARTED" "FORMAL_RUNNER_START_STATE_FAILED")
+  } catch {
+    $runnerStartTransitionError = $_
+    try {
+      if (-not $runnerProcess.HasExited) {
+        Stop-RunnerTree $runnerProcess "FORMAL_RUNNER_START_STATE_CLEANUP_FAILED"
+        [void]$runnerProcess.WaitForExit(30000)
+      }
+      $runnerStartTruth = Get-VerifiedFormalAttempt "FORMAL_RUNNER_START_STATE_RECOVERY_FAILED"
+      if (-not [bool]$runnerStartTruth.runnerStarted) {
+        if ([string]$runnerStartTruth.state -ne "LAUNCH_COMMITTED") {
+          Fail "FORMAL_RUNNER_START_STATE_RECOVERY_FAILED"
+        }
+        [void](Invoke-FormalAttemptTransition "RUNNER_STARTED" ([ordered]@{
+          runnerPid = $runnerPid
+        }) "LAUNCH_COMMITTED" "RUNNER_STARTED" "FORMAL_RUNNER_START_STATE_RECOVERY_FAILED")
+      }
+    } catch {
+      Publish-FormalTerminalEmergency "FORMAL_RUNNER_START_STATE_RECOVERY_FAILED"
+      throw
+    }
+    throw $runnerStartTransitionError
   }
+  $runnerStdoutCapture = Start-BoundedProcessStreamCapture (
+    $runnerProcess.StandardOutput.BaseStream
+  ) 1048576 "PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED"
+  $runnerStderrCapture = Start-BoundedProcessStreamCapture (
+    $runnerProcess.StandardError.BaseStream
+  ) 1048576 "PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED"
+  $runnerStage = "runner-running"
+  $runnerDeadline = [DateTime]::UtcNow.AddMilliseconds(10800000)
+  while (-not $runnerProcess.HasExited) {
+    Update-BoundedProcessStreamCapture (
+      $runnerStdoutCapture
+    ) "PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED"
+    Update-BoundedProcessStreamCapture (
+      $runnerStderrCapture
+    ) "PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED"
+    if ([bool]$runnerStdoutCapture.LimitExceeded -or [bool]$runnerStderrCapture.LimitExceeded) {
+      $runnerOutputLimitExceeded = $true
+      $runnerStage = "runner-output-too-large"
+      try { Stop-RunnerTree $runnerProcess "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE_CLEANUP_FAILED" }
+      catch { [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE_CLEANUP_FAILED") }
+      break
+    }
+    if ([DateTime]::UtcNow -ge $runnerDeadline) {
+      $runnerStage = "runner-timeout"
+      try { Stop-RunnerTree $runnerProcess "PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED" }
+      catch { [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_TIMEOUT_CLEANUP_FAILED") }
+      break
+    }
+    [void]$runnerProcess.WaitForExit(100)
+  }
+  if (-not $runnerProcess.HasExited) { Fail "PRODUCTION_BROWSER_RUNNER_PROCESS_LIVENESS_FAILED" }
   $runnerProcess.WaitForExit()
-  $runnerStdout = [string]$stdoutTask.Result
-  $runnerStderr = [string]$stderrTask.Result
+  $runnerStdoutResult = Get-BoundedProcessStreamCapture (
+    $runnerStdoutCapture
+  ) 30000 "PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED"
+  $runnerStderrResult = Get-BoundedProcessStreamCapture (
+    $runnerStderrCapture
+  ) 30000 "PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED"
+  $runnerOutputLimitExceeded = [bool](
+    $runnerOutputLimitExceeded -or
+    $runnerStdoutResult.LimitExceeded -or
+    $runnerStderrResult.LimitExceeded
+  )
+  $runnerStdoutUtf8ByteLength = [long]$runnerStdoutResult.ObservedBytes
+  $runnerStderrUtf8ByteLength = [long]$runnerStderrResult.ObservedBytes
+  if (-not [bool]$runnerStdoutResult.LimitExceeded) {
+    $runnerStdout = Convert-BoundedProcessCaptureToText (
+      $runnerStdoutResult
+    ) "PRODUCTION_BROWSER_RUNNER_STDOUT_UTF8_INVALID"
+  }
+  if (-not [bool]$runnerStderrResult.LimitExceeded) {
+    $runnerStderr = Convert-BoundedProcessCaptureToText (
+      $runnerStderrResult
+    ) "PRODUCTION_BROWSER_RUNNER_STDERR_UTF8_INVALID"
+  }
   $runnerExitCode = [int]$runnerProcess.ExitCode
   $runnerStopwatch.Stop()
   $runnerElapsedMs = [long]$runnerStopwatch.ElapsedMilliseconds
-  $runnerStdoutUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStdout)
-  $runnerStderrUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStderr)
-  $runnerProgressCounts = Get-RunnerProgressCounts $runnerStderr
-  if ($runnerStdoutUtf8ByteLength -gt 1048576 -or $runnerStderrUtf8ByteLength -gt 1048576) {
-    $runnerStage = "runner-output-too-large"
-    Fail "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE"
+  if ($runnerStage -eq "runner-timeout") { Fail "PRODUCTION_BROWSER_RUNNER_TIMEOUT" }
+  if ($runnerOutputLimitExceeded) { Fail "PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE" }
+  if ([Text.Encoding]::UTF8.GetByteCount($runnerStdout) -ne $runnerStdoutUtf8ByteLength) {
+    Fail "PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED"
   }
+  if ([Text.Encoding]::UTF8.GetByteCount($runnerStderr) -ne $runnerStderrUtf8ByteLength) {
+    Fail "PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED"
+  }
+  $runnerProgressCounts = Get-RunnerProgressCounts $runnerStderr
+  $finalRunnerStderrLines = @($runnerStderr -split "\r?\n" | Where-Object { $_ })
+  $runnerUnexpectedStderrCount = [int]@($finalRunnerStderrLines | Where-Object {
+    $_ -notmatch "^\[RC6\.2 Closed AI\] (?:setup|candidate generation|T1 analysis) in progress \([0-9]+s\)$" -and
+    $_ -ne "RC6_2_RUNNER_TERMINAL_FAIL"
+  }).Count
+  $runnerSafeTerminalCodeCount = [int]@($finalRunnerStderrLines | Where-Object {
+    $_ -eq "RC6_2_RUNNER_TERMINAL_FAIL"
+  }).Count
   $unexpectedStderr = @($runnerStderr -split "\r?\n" | Where-Object {
-    $_ -and $_ -notmatch "^\[RC6\.2 Closed AI\] (?:setup|candidate generation|T1 analysis) in progress \([0-9]+s\)$"
+    $_ -and
+    $_ -notmatch "^\[RC6\.2 Closed AI\] (?:setup|candidate generation|T1 analysis) in progress \([0-9]+s\)$" -and
+    $_ -ne "RC6_2_RUNNER_TERMINAL_FAIL"
   })
-  if ($runnerExitCode -ne 0 -or $unexpectedStderr.Count -ne 0) {
+  $safeTerminalCodes = @($runnerStderr -split "\r?\n" | Where-Object {
+    $_ -eq "RC6_2_RUNNER_TERMINAL_FAIL"
+  })
+  $runnerUnexpectedStderrCount = [int]$unexpectedStderr.Count
+  $runnerSafeTerminalCodeCount = [int]$safeTerminalCodes.Count
+  if (
+    $runnerExitCode -ne 0 -or
+    $unexpectedStderr.Count -ne 0 -or
+    $safeTerminalCodes.Count -gt 1 -or
+    ($runnerExitCode -eq 0 -and $safeTerminalCodes.Count -ne 0) -or
+    ($runnerExitCode -ne 0 -and $safeTerminalCodes.Count -ne 1)
+  ) {
     $runnerStage = "runner-failed"
-    if ($runnerStdout.Length -eq 0) {
-      try {
-        $runnerFailureValidationText = Invoke-CleanNodeContract "validate-failure-evidence" @{} "PRODUCTION_BROWSER_FAILURE_EVIDENCE_VALIDATION_FAILED" $runnerStderr
-        $runnerFailureValidation = $runnerFailureValidationText | ConvertFrom-Json
-        if (
-          [string]$runnerFailureValidation.status -ne "PASS" -or
-          [string]$runnerFailureValidation.projectionDigest -notmatch '^[a-f0-9]{64}$' -or
-          [string]$runnerFailureValidation.projection.schemaVersion -ne "p24b-rc6.2-validated-runner-failure-projection-v1"
-        ) { Fail "PRODUCTION_BROWSER_FAILURE_EVIDENCE_VALIDATION_FAILED" }
-        $runnerFailureProjection = $runnerFailureValidation.projection
-        $runnerFailureProjectionValidated = $true
-        $runnerFailureProjectionDigest = [string]$runnerFailureValidation.projectionDigest
-      } catch {
-        $runnerFailureProjection = $null
-        $runnerFailureProjectionValidated = $false
-        $runnerFailureProjectionDigest = $null
-      }
-    }
     Fail "PRODUCTION_BROWSER_RUNNER_FAILED"
   }
 
@@ -2615,16 +3125,66 @@ try {
       $postcheckStatuses.runnerProcessCleanup = "fail"
       [void]$postErrors.Add("RUNNER_PROCESS_CLEANUP_FAILED")
     }
-    if ((Get-Variable -Name stdoutTask -ErrorAction SilentlyContinue) -and $stdoutTask.IsCompleted) {
-      $runnerStdout = [string]$stdoutTask.Result
+    if ($null -ne $runnerStdoutCapture) {
+      try {
+        $runnerStdoutResult = Get-BoundedProcessStreamCapture (
+          $runnerStdoutCapture
+        ) 30000 "PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED"
+        $runnerStdoutUtf8ByteLength = [long]$runnerStdoutResult.ObservedBytes
+        $runnerOutputLimitExceeded = [bool](
+          $runnerOutputLimitExceeded -or $runnerStdoutResult.LimitExceeded
+        )
+        if (-not [bool]$runnerStdoutResult.LimitExceeded) {
+          $runnerStdout = Convert-BoundedProcessCaptureToText (
+            $runnerStdoutResult
+          ) "PRODUCTION_BROWSER_RUNNER_STDOUT_UTF8_INVALID"
+        }
+      } catch {
+        if (-not $postErrors.Contains("PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED")) {
+          [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_STDOUT_CAPTURE_FAILED")
+        }
+      }
     }
-    if ((Get-Variable -Name stderrTask -ErrorAction SilentlyContinue) -and $stderrTask.IsCompleted) {
-      $runnerStderr = [string]$stderrTask.Result
+    if ($null -ne $runnerStderrCapture) {
+      try {
+        $runnerStderrResult = Get-BoundedProcessStreamCapture (
+          $runnerStderrCapture
+        ) 30000 "PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED"
+        $runnerStderrUtf8ByteLength = [long]$runnerStderrResult.ObservedBytes
+        $runnerOutputLimitExceeded = [bool](
+          $runnerOutputLimitExceeded -or $runnerStderrResult.LimitExceeded
+        )
+        if (-not [bool]$runnerStderrResult.LimitExceeded) {
+          $runnerStderr = Convert-BoundedProcessCaptureToText (
+            $runnerStderrResult
+          ) "PRODUCTION_BROWSER_RUNNER_STDERR_UTF8_INVALID"
+        }
+      } catch {
+        if (-not $postErrors.Contains("PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED")) {
+          [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_STDERR_CAPTURE_FAILED")
+        }
+      }
     }
   }
-  $runnerStdoutUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStdout)
-  $runnerStderrUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($runnerStderr)
   $runnerProgressCounts = Get-RunnerProgressCounts $runnerStderr
+  $finalRunnerStderrLines = @($runnerStderr -split "\r?\n" | Where-Object { $_ })
+  $runnerUnexpectedStderrCount = [int]@($finalRunnerStderrLines | Where-Object {
+    $_ -notmatch "^\[RC6\.2 Closed AI\] (?:setup|candidate generation|T1 analysis) in progress \([0-9]+s\)$" -and
+    $_ -ne "RC6_2_RUNNER_TERMINAL_FAIL"
+  }).Count
+  $runnerSafeTerminalCodeCount = [int]@($finalRunnerStderrLines | Where-Object {
+    $_ -eq "RC6_2_RUNNER_TERMINAL_FAIL"
+  }).Count
+  if (
+    $runnerOutputLimitExceeded -or
+    $runnerStdoutUtf8ByteLength -gt 1048576 -or
+    $runnerStderrUtf8ByteLength -gt 1048576
+  ) {
+    $runnerStage = "runner-output-too-large"
+    if (-not $postErrors.Contains("PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE")) {
+      [void]$postErrors.Add("PRODUCTION_BROWSER_RUNNER_OUTPUT_TOO_LARGE")
+    }
+  }
   if ($evidenceValidationPath -and (Test-Path -LiteralPath $evidenceValidationPath)) {
     try {
       Remove-Item -LiteralPath $evidenceValidationPath -Force
@@ -2764,9 +3324,38 @@ try {
   }
 }
 
+if ($runnerStarted -and [bool](
+  Get-VerifiedFormalAttempt "FORMAL_RUNNER_ENVELOPE_STATE_VERIFY_FAILED"
+).runnerStarted) {
+  $stageBeforeEnvelopeValidation = $runnerStage
+  try {
+    $runnerStage = "runner-envelope-validation"
+    $validatedEnvelope = Resolve-RunnerEnvelopeValidation
+    $runnerFailureProjectionValidated = (
+      [string]$validatedEnvelope.status -eq "PASS" -and
+      [string]$validatedEnvelope.statusObserved -eq "FAIL"
+    )
+    $runnerFailureProjectionDigest = [string]$validatedEnvelope.validationDigest
+    $expectedEnvelopeStatus = if ($runnerExitCode -eq 0) { "PASS" } else { "FAIL" }
+    if ($expectedEnvelopeStatus -eq "PASS") {
+      if (
+        [string]$validatedEnvelope.status -ne "PASS" -or
+        [string]$validatedEnvelope.statusObserved -ne "PASS"
+      ) { Fail "RUNNER_ENVELOPE_DISPOSITION_INVALID" }
+    } elseif (
+      [string]$validatedEnvelope.status -eq "PASS" -and
+      [string]$validatedEnvelope.statusObserved -ne "FAIL"
+    ) { Fail "RUNNER_ENVELOPE_DISPOSITION_INVALID" }
+    $runnerStage = $stageBeforeEnvelopeValidation
+  } catch {
+    [void]$postErrors.Add("RUNNER_ENVELOPE_VALIDATION_FAILED")
+  }
+}
+
 if ($postErrors.Count -ne 0) {
-  $runnerStage = "postchecks"
-  Close-FormalPostLaunchAttempt $false "PRODUCTION_BROWSER_POSTCHECK_FAILED" -Terminalize
+  $postcheckFailureCode = Get-TerminalWrapperCode $runnerStage $postErrors.Count
+  if ($runnerStage -ne "runner-envelope-validation") { $runnerStage = "postchecks" }
+  Close-FormalPostLaunchAttempt $false $postcheckFailureCode -Terminalize
   Fail "PRODUCTION_BROWSER_POSTCHECK_FAILED:$([string]::Join(',', $postErrors))"
 }
 if ($null -ne $primaryError) {
