@@ -2,17 +2,23 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   appendFile,
+  copyFile,
+  link,
   lstat,
+  mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -25,15 +31,36 @@ const C5_BROWSER_GATE_CONTROL = "99695b247c2b1626c38efc8ae4589dd9bd8d30da";
 const C6_BROWSER_GATE_CONTROL = "b326c2fc9925798ffbc750ae37db847f0c8b5625";
 const C7_BROWSER_GATE_CONTROL = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9";
 const C8_BROWSER_GATE_CONTROL = "04e78268cfcfeaeffdc72b603d0700944c7142e7";
+const C9_BROWSER_GATE_CONTROL = "92fe2ff7550ef3aeff9447252714d10d6c771d6b";
 const EXPECTED_DEPLOYMENT_ID = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn";
 const EXPECTED_ORIGIN = "https://novel-eexnlr77y-lqtechs-projects.vercel.app";
 const EXPECTED_RELEASE_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
 const EXPECTED_RELEASE_BUILD = `rc6.2+${PRODUCT_COMMIT}`;
-const EXPECTED_EDGE_VERSION = "151.0.4129.72";
-const EXPECTED_EDGE_EXE_DIGEST = "e73e04dacdb48557c13d9f93f90a248f3e5a0bf55bb738f2fc548a768a9a10af";
-const EXPECTED_EDGE_DLL_DIGEST = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe158545528b8507137a";
-const EXPECTED_EDGE_DIRECTORY_DIGEST = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974";
-const EXPECTED_PACKAGE_JSON_DIGEST = "326c2804ce3627e48375d1d69bc23a1003c81d552c18c50572df188005deaba8";
+const EXPECTED_EDGE_VERSION = "151.0.4129.78";
+const EXPECTED_EDGE_EXE_DIGEST = "af02a342b7e6fa7d1154d9152b5997ff2be300b3a7a678feaae863c9fbea32cb";
+const EXPECTED_EDGE_DLL_DIGEST = "29b191751916dbfe5ed4206022a0d7ab45bd79966d9074ed872112d1865dcec6";
+const EXPECTED_EDGE_VERSION_DIRECTORY_DIGEST = "9d79d47dd5fde1d3fcf2fb7e740b85b1f25441d84d5e4240d3a51182f3570f13";
+const EXPECTED_EDGE_APPLICATION_DIGEST = "bf2e1fe3a62d67d1c9915191b161c64b99203bbbe03e88c07ab7aa7ab295d273";
+const EXPECTED_EDGE_APPLICATION_BYTE_COUNT = 915_721_905;
+const EXPECTED_EDGE_MANIFEST_DIGEST = "cc7564ed83797ee8ab21a8101ab473592c0b05fc9fd14915e8c5db75ef806f06";
+const EXPECTED_EDGE_MANIFEST_FILE_DIGEST = "2e9a981c925362aedc3b7202a2aac0ef165b3b9e774bb44344a255cc3f36c4cd";
+const EXPECTED_EDGE_MANIFEST_BYTES = 1_117;
+const EXPECTED_EDGE_SOURCE_MSI_URL = "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f5e477ef-f201-49dd-866a-8e25850421dd/MicrosoftEdgeEnterpriseX64.msi";
+const EXPECTED_EDGE_SOURCE_MSI_DIGEST = "716b2549eedf4305b92d149186f878394c8d8b7b743db0eaaec773349ed3c273";
+const EXPECTED_EDGE_VISUAL_MANIFEST_DIGEST = "582a35a65c0362bda88598852ff9e153e1e044bc76d21fb90492b60ee31b6aa7";
+const EXPECTED_EDGE_PROXY_DIGEST = "5347986b9305d3b471efafb452416c91f254fef9bc3a8d405a2e03da059e1d02";
+const EXPECTED_EDGE_PWA_HELPER_DIGEST = "6a6a11189a9830a5248927257bc1c2e5c40c8f263d86879649c7b4ff15c9b332";
+const TASK_OWNED_EDGE_MANIFEST_SCHEMA = "p24b-rc6.2-task-owned-edge-toolchain-manifest-v1";
+const TASK_OWNED_EDGE_ROOT_RELATIVE_PATH = join("NovelRC62Toolchains", "Edge", EXPECTED_EDGE_VERSION);
+const TASK_OWNED_EDGE_APPLICATION_ENTRIES = Object.freeze([
+  EXPECTED_EDGE_VERSION,
+  "msedge.exe",
+  "msedge.VisualElementsManifest.xml",
+  "msedge_proxy.exe",
+  "PlatformExperiencesHelper",
+  "pwahelper.exe",
+]);
+const EXPECTED_PACKAGE_JSON_DIGEST = "c69575d984fd7df0cbd1b7ca4aa0050939b3061a2fea7aa4a220641007bf1984";
 const EXPECTED_PNPM_LOCK_DIGEST = "bf80df1d7e1419628c2dac09bfb8b39360942098324d47269f9690eab52b7b7f";
 const INITIAL_GATE_BLOB_PATHS = [
   ".github/workflows/deploy.yml",
@@ -91,6 +118,13 @@ const C9_GATE_REPAIR_PATHS = [
   "scripts/run-rc6-2-production-browser-gate.ps1",
   "scripts/run-rc6-2-runner-envelope-tests.mjs",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs",
+];
+const C10_GATE_REPAIR_PATHS = [
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1",
 ];
 const COMPOSITE_GATE_BLOB_PATHS = [...new Set([
   ...INITIAL_GATE_BLOB_PATHS,
@@ -197,11 +231,104 @@ async function generatedBinReceipt(root, commandName) {
   return { fileCount, byteCount, digest: digest.digest("hex") };
 }
 
-async function completeTreeReceipt(root) {
+function comparableFilesystemPath(value) {
+  const absolute = resolve(value);
+  return process.platform === "win32" ? absolute.toLocaleLowerCase("en-US") : absolute;
+}
+
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.nlink === right.nlink;
+}
+
+function sameDirectoryIdentity(left, right) {
+  return left.isDirectory() && right.isDirectory()
+    && !left.isSymbolicLink() && !right.isSymbolicLink()
+    && left.dev === right.dev
+    && left.ino === right.ino
+    && left.nlink === right.nlink;
+}
+
+async function assertCanonicalUnlinkedPath(path, expectedKind, label) {
+  const expected = resolve(path);
+  const truth = await lstat(expected);
+  assert.equal(truth.isSymbolicLink(), false, `${label} is a link or reparse path`);
+  assert.equal(truth[expectedKind](), true, `${label} has the wrong filesystem kind`);
+  assert.equal(
+    comparableFilesystemPath(await realpath(expected)),
+    comparableFilesystemPath(expected),
+    `${label} resolved through an alias or reparse target`,
+  );
+  return truth;
+}
+
+async function readBoundedFileHandle(path, {
+  maxByteCount,
+  expectedByteCount = null,
+  afterRead = null,
+  onChunk = null,
+  label = "sealed file",
+} = {}) {
+  assert.ok(Number.isSafeInteger(maxByteCount) && maxByteCount >= 0, `${label} byte cap is invalid`);
+  const canonicalPath = resolve(path);
+  const pathBefore = await assertCanonicalUnlinkedPath(canonicalPath, "isFile", label);
+  assert.equal(pathBefore.nlink, 1, `${label} must not be hardlinked`);
+  assert.ok(Number.isSafeInteger(pathBefore.size) && pathBefore.size >= 0, `${label} size is invalid`);
+  assert.ok(pathBefore.size <= maxByteCount, `${label} exceeds its byte cap`);
+  if (expectedByteCount !== null) assert.equal(pathBefore.size, expectedByteCount, `${label} length drifted`);
+  const handle = await open(canonicalPath, "r");
+  let offset = 0;
+  try {
+    const handleBefore = await handle.stat();
+    assert.equal(handleBefore.isFile(), true, `${label} handle has the wrong filesystem kind`);
+    assert.equal(handleBefore.nlink, 1, `${label} handle must not be hardlinked`);
+    assert.equal(sameFileIdentity(pathBefore, handleBefore), true, `${label} changed before open`);
+    const chunk = Buffer.allocUnsafe(65_536);
+    while (offset < handleBefore.size) {
+      const requested = Math.min(chunk.length, handleBefore.size - offset);
+      const { bytesRead } = await handle.read(chunk, 0, requested, offset);
+      assert.ok(bytesRead > 0 && bytesRead <= requested, `${label} ended before its sealed length`);
+      if (onChunk) onChunk(chunk.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    const eofProbe = Buffer.allocUnsafe(1);
+    assert.equal((await handle.read(eofProbe, 0, 1, offset)).bytesRead, 0, `${label} grew while read`);
+    if (afterRead) await afterRead(canonicalPath);
+    const handleAfter = await handle.stat();
+    assert.equal(sameFileIdentity(handleBefore, handleAfter), true, `${label} changed while read`);
+  } finally {
+    await handle.close();
+  }
+  const pathAfter = await lstat(canonicalPath);
+  assert.equal(sameFileIdentity(pathBefore, pathAfter), true, `${label} path changed while read`);
+  assert.equal(pathAfter.isFile() && !pathAfter.isSymbolicLink() && pathAfter.nlink === 1, true);
+  assert.equal(
+    comparableFilesystemPath(await realpath(canonicalPath)),
+    comparableFilesystemPath(canonicalPath),
+    `${label} resolved through an alias after read`,
+  );
+  return offset;
+}
+
+async function completeTreeReceipt(root, {
+  afterFileRead = null,
+  maxByteCount = EXPECTED_EDGE_APPLICATION_BYTE_COUNT,
+} = {}) {
+  const canonicalRoot = resolve(root);
+  const rootBefore = await assertCanonicalUnlinkedPath(canonicalRoot, "isDirectory", "sealed tree root");
   const digest = createHash("sha256");
+  let directoryCount = 0;
   let fileCount = 0;
   let byteCount = 0;
   async function walk(directory, relativeDirectory = "") {
+    const directoryBefore = await assertCanonicalUnlinkedPath(
+      directory,
+      "isDirectory",
+      relativeDirectory || "sealed tree root",
+    );
     const entries = (await readdir(directory, { withFileTypes: true }))
       .sort((left, right) => left.name.localeCompare(right.name, "en"));
     for (const entry of entries) {
@@ -212,23 +339,52 @@ async function completeTreeReceipt(root) {
       const truth = await lstat(absolutePath);
       assert.equal(truth.isSymbolicLink(), false, `sealed tree contains a symlink: ${relativePath}`);
       if (truth.isDirectory()) {
+        directoryCount += 1;
         await walk(absolutePath, relativePath);
       } else if (truth.isFile()) {
-        const bytes = await readFile(absolutePath);
+        assert.equal(truth.nlink, 1, `sealed tree contains a hardlinked file: ${relativePath}`);
+        assert.equal(
+          comparableFilesystemPath(await realpath(absolutePath)),
+          comparableFilesystemPath(absolutePath),
+          `sealed tree file resolved through an alias: ${relativePath}`,
+        );
+        assert.ok(Number.isSafeInteger(truth.size) && truth.size >= 0);
+        assert.ok(byteCount + truth.size <= maxByteCount, `sealed tree exceeds its byte cap: ${relativePath}`);
         digest.update(relativePath);
         digest.update("\0");
-        digest.update(String(bytes.length));
+        digest.update(String(truth.size));
         digest.update("\0");
-        digest.update(bytes);
+        const bytesRead = await readBoundedFileHandle(absolutePath, {
+          maxByteCount: maxByteCount - byteCount,
+          expectedByteCount: truth.size,
+          afterRead: afterFileRead
+            ? async (path) => afterFileRead(path, relativePath)
+            : null,
+          onChunk: (chunk) => digest.update(chunk),
+          label: `sealed tree file ${relativePath}`,
+        });
         fileCount += 1;
-        byteCount += bytes.length;
+        byteCount += bytesRead;
       } else {
         assert.fail(`sealed tree contains an unsupported entry: ${relativePath}`);
       }
     }
+    assert.deepEqual(
+      (await readdir(directory)).sort((left, right) => left.localeCompare(right, "en")),
+      entries.map(({ name }) => name),
+      `sealed tree directory changed while read: ${relativeDirectory || "."}`,
+    );
+    const directoryAfter = await lstat(directory);
+    assert.equal(
+      sameFileIdentity(directoryBefore, directoryAfter),
+      true,
+      `sealed tree directory identity changed while read: ${relativeDirectory || "."}`,
+    );
   }
-  await walk(root);
+  await walk(canonicalRoot);
+  assert.equal(sameFileIdentity(rootBefore, await lstat(canonicalRoot)), true, "sealed tree root changed while read");
   return {
+    directoryCount,
     fileCount,
     byteCount,
     digest: digest.digest("hex"),
@@ -236,7 +392,13 @@ async function completeTreeReceipt(root) {
 }
 
 async function sha256File(path) {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  const digest = createHash("sha256");
+  await readBoundedFileHandle(path, {
+    maxByteCount: EXPECTED_EDGE_APPLICATION_BYTE_COUNT,
+    onChunk: (chunk) => digest.update(chunk),
+    label: `digest source ${basename(path)}`,
+  });
+  return digest.digest("hex");
 }
 
 async function assertExactDirectoryEntries(directory, expected) {
@@ -273,6 +435,47 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const COMMIT = /^[a-f0-9]{40}$/u;
 const RUN_ID = /^[a-f0-9]{32}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const TASK_OWNED_EDGE_APPLICATION_PATH_DOMAIN = "p24b-rc6.2-task-owned-edge-application-root-v1";
+const TASK_OWNED_EDGE_MANIFEST_KEYS = Object.freeze([
+  "schemaVersion",
+  "installationKind",
+  "edgeVersion",
+  "applicationRelativePath",
+  "sourceMsiUrl",
+  "sourceMsiSha256",
+  "sourceMsiPublishedAt",
+  "executableSha256",
+  "engineDllSha256",
+  "versionDirectoryFileCount",
+  "versionDirectoryByteCount",
+  "versionDirectorySha256",
+  "applicationDirectoryCount",
+  "applicationFileCount",
+  "applicationByteCount",
+  "applicationSha256",
+  "provisionedAt",
+  "manifestDigest",
+]);
+const EXPECTED_TASK_OWNED_EDGE_MANIFEST = Object.freeze({
+  applicationByteCount: 915_721_905,
+  applicationDirectoryCount: 45,
+  applicationFileCount: 789,
+  applicationRelativePath: "Application",
+  applicationSha256: EXPECTED_EDGE_APPLICATION_DIGEST,
+  edgeVersion: EXPECTED_EDGE_VERSION,
+  engineDllSha256: EXPECTED_EDGE_DLL_DIGEST,
+  executableSha256: EXPECTED_EDGE_EXE_DIGEST,
+  installationKind: "task-owned-receipt-sealed",
+  manifestDigest: EXPECTED_EDGE_MANIFEST_DIGEST,
+  provisionedAt: "2026-08-13T05:39:37.000Z",
+  schemaVersion: TASK_OWNED_EDGE_MANIFEST_SCHEMA,
+  sourceMsiPublishedAt: "2026-08-10T15:04:00.000Z",
+  sourceMsiSha256: EXPECTED_EDGE_SOURCE_MSI_DIGEST,
+  sourceMsiUrl: EXPECTED_EDGE_SOURCE_MSI_URL,
+  versionDirectoryByteCount: 902_472_183,
+  versionDirectoryFileCount: 784,
+  versionDirectorySha256: EXPECTED_EDGE_VERSION_DIRECTORY_DIGEST,
+});
 
 class PreflightContractError extends Error {
   constructor(code) {
@@ -478,6 +681,184 @@ const dependencyPackages = [
   },
 ];
 
+function taskOwnedEdgePaths(localAppData = process.env.LOCALAPPDATA) {
+  assert.equal(typeof localAppData, "string", "LOCALAPPDATA is required for the task-owned Edge root");
+  assert.equal(isAbsolute(localAppData), true, "LOCALAPPDATA must be absolute");
+  const localRoot = resolve(localAppData);
+  const toolchainRoot = resolve(localRoot, TASK_OWNED_EDGE_ROOT_RELATIVE_PATH);
+  assert.equal(
+    comparableFilesystemPath(dirname(dirname(dirname(toolchainRoot)))),
+    comparableFilesystemPath(localRoot),
+    "task-owned Edge root escaped LOCALAPPDATA",
+  );
+  const applicationRoot = join(toolchainRoot, "Application");
+  const versionRoot = join(applicationRoot, EXPECTED_EDGE_VERSION);
+  return Object.freeze({
+    localRoot,
+    toolchainsRoot: join(localRoot, "NovelRC62Toolchains"),
+    edgeRoot: join(localRoot, "NovelRC62Toolchains", "Edge"),
+    toolchainRoot,
+    applicationRoot,
+    versionRoot,
+    executablePath: join(applicationRoot, "msedge.exe"),
+    engineDllPath: join(versionRoot, "msedge.dll"),
+    manifestPath: join(toolchainRoot, "toolchain-manifest.json"),
+  });
+}
+
+async function readTaskOwnedEdgeManifest(manifestPath, { afterRead = null } = {}) {
+  const chunks = [];
+  const length = await readBoundedFileHandle(manifestPath, {
+    maxByteCount: EXPECTED_EDGE_MANIFEST_BYTES,
+    expectedByteCount: EXPECTED_EDGE_MANIFEST_BYTES,
+    afterRead,
+    onChunk: (chunk) => chunks.push(Buffer.from(chunk)),
+    label: "task-owned Edge manifest",
+  });
+  assert.equal(length, EXPECTED_EDGE_MANIFEST_BYTES);
+  const bytes = Buffer.concat(chunks, length);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), EXPECTED_EDGE_MANIFEST_FILE_DIGEST);
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  assert.equal(text.startsWith("\uFEFF"), false, "task-owned Edge manifest contains a BOM");
+  assert.equal(text.includes("\0") || text.includes("\r") || text.includes("\n"), false);
+  const manifest = JSON.parse(text);
+  assertExactKeys(manifest, TASK_OWNED_EDGE_MANIFEST_KEYS, "task-owned Edge manifest");
+  assert.deepEqual(manifest, EXPECTED_TASK_OWNED_EDGE_MANIFEST);
+  assert.equal(stableStringify(manifest), text, "task-owned Edge manifest is not canonical JSON");
+  const { manifestDigest, ...body } = manifest;
+  assert.equal(
+    manifestDigest,
+    createHash("sha256").update(`${TASK_OWNED_EDGE_MANIFEST_SCHEMA}\n${stableStringify(body)}`).digest("hex"),
+    "task-owned Edge manifest digest drifted",
+  );
+  return manifest;
+}
+
+function assertTaskOwnedEdgeAuthenticode(executablePath, engineDllPath) {
+  if (process.platform !== "win32") assert.fail("task-owned Edge validation requires Windows");
+  const powerShell = join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$expected='CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'",
+    "foreach($path in $args){$sig=Get-AuthenticodeSignature -LiteralPath $path;if($sig.Status -ne 'Valid' -or $null -eq $sig.SignerCertificate -or -not [StringComparer]::Ordinal.Equals($sig.SignerCertificate.Subject,$expected)){exit 9}}",
+  ].join(";");
+  const result = spawnSync(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { ${script} }`, executablePath, engineDllPath,
+  ], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536 });
+  assert.equal(result.status, 0, "task-owned Edge Authenticode validation failed");
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+}
+
+function assertTaskOwnedEdgeFilesystemPolicy(paths, expectedDescendantCount = 836) {
+  assert.ok(Number.isSafeInteger(expectedDescendantCount) && expectedDescendantCount >= 0);
+  if (process.platform !== "win32") assert.fail("task-owned Edge filesystem policy requires Windows");
+  const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const script = String.raw`
+$ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+$toolchains=[IO.Path]::GetFullPath($args[0]).TrimEnd('\');$edge=[IO.Path]::GetFullPath($args[1]).TrimEnd('\');$root=[IO.Path]::GetFullPath($args[2]).TrimEnd('\');$version=[string]$args[3];$expectedCount=[int]$args[4]
+$current=[Security.Principal.WindowsIdentity]::GetCurrent();$currentSid=$current.User.Value
+function Fail([string]$code){Write-Error $code;exit 19}
+function ExactEntries([string]$path,[string[]]$expected,[string]$code){$actual=@((Get-ChildItem -LiteralPath $path -Force|ForEach-Object{$_.Name})|Sort-Object -CaseSensitive);$want=@($expected|Sort-Object -CaseSensitive);if($actual.Count-ne$want.Count){Fail $code};for($i=0;$i-lt$want.Count;$i+=1){if(-not[StringComparer]::Ordinal.Equals([string]$actual[$i],[string]$want[$i])){Fail $code}}}
+function Rule([Security.AccessControl.FileSystemAccessRule]$rule){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;return "$sid|$([int64]$rule.FileSystemRights)|$($rule.AccessControlType)|$($rule.IsInherited)|$([int]$rule.InheritanceFlags)|$([int]$rule.PropagationFlags)"}
+function Expected([bool]$inherited,[bool]$container){$flags=if($container){3}else{0};return @("S-1-5-18|2032127|Allow|$inherited|$flags|0","S-1-5-32-544|2032127|Allow|$inherited|$flags|0","$currentSid|1179817|Allow|$inherited|$flags|0")|Sort-Object -CaseSensitive}
+function AssertAcl([string]$path,[bool]$rootEntry){$item=Get-Item -LiteralPath $path -Force;if(($item.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne 0-or$null-ne$item.LinkType){Fail 'TASK_OWNED_EDGE_REPARSE_INVALID'};$acl=Get-Acl -LiteralPath $path;$owner=(New-Object Security.Principal.NTAccount($acl.Owner)).Translate([Security.Principal.SecurityIdentifier]).Value;if($owner-ne$currentSid){Fail 'TASK_OWNED_EDGE_OWNER_INVALID'};if($rootEntry-ne[bool]$acl.AreAccessRulesProtected){Fail 'TASK_OWNED_EDGE_ACL_PROTECTION_INVALID'};$actual=@($acl.Access|ForEach-Object{Rule $_}|Sort-Object -CaseSensitive);$want=@(Expected (-not$rootEntry) ([bool]$item.PSIsContainer));if($actual.Count-ne$want.Count){Fail 'TASK_OWNED_EDGE_ACL_INVALID'};for($i=0;$i-lt$want.Count;$i+=1){if(-not[StringComparer]::Ordinal.Equals([string]$actual[$i],[string]$want[$i])){Fail 'TASK_OWNED_EDGE_ACL_INVALID'}}}
+ExactEntries $toolchains @('Edge') 'TASK_OWNED_EDGE_TOOLCHAINS_TOPOLOGY_INVALID';ExactEntries $edge @($version) 'TASK_OWNED_EDGE_FAMILY_TOPOLOGY_INVALID';AssertAcl $toolchains $true;AssertAcl $edge $true;AssertAcl $root $true
+$descendants=@(Get-ChildItem -LiteralPath $root -Force -Recurse);if($descendants.Count-ne$expectedCount){Fail 'TASK_OWNED_EDGE_DESCENDANT_COUNT_INVALID'};foreach($entry in $descendants){AssertAcl $entry.FullName $false}
+[ordered]@{status='PASS';entryCount=$descendants.Count;badReparseCount=0;ownerMatchesCurrentUser=$true;rootAclProtected=$true;descendantAclInherited=$true}|ConvertTo-Json -Compress
+`;
+  const result = spawnSync(powerShell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `& { ${script} }`, paths.toolchainsRoot, paths.edgeRoot, paths.toolchainRoot, EXPECTED_EDGE_VERSION, String(expectedDescendantCount)], { encoding: "utf8", windowsHide: true, timeout: 120_000, maxBuffer: 65_536 });
+  assert.equal(result.status, 0, `task-owned Edge filesystem policy failed: ${result.stderr}`);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(JSON.parse(result.stdout.trim()), { status: "PASS", entryCount: expectedDescendantCount, badReparseCount: 0, ownerMatchesCurrentUser: true, rootAclProtected: true, descendantAclInherited: true });
+}
+
+async function validateTaskOwnedEdgeInstallation({
+  localAppData = process.env.LOCALAPPDATA,
+  manifestAfterRead = null,
+  treeAfterFileRead = null,
+  requireAuthenticode = true,
+} = {}) {
+  const paths = taskOwnedEdgePaths(localAppData);
+  assertTaskOwnedEdgeFilesystemPolicy(paths);
+  for (const [path, label] of [
+    [paths.localRoot, "LOCALAPPDATA"],
+    [paths.toolchainsRoot, "task-owned toolchains root"],
+    [paths.edgeRoot, "task-owned Edge family root"],
+    [paths.toolchainRoot, "task-owned Edge version root"],
+    [paths.applicationRoot, "task-owned Edge Application root"],
+    [paths.versionRoot, "task-owned Edge engine version root"],
+  ]) await assertCanonicalUnlinkedPath(path, "isDirectory", label);
+  await assertExactDirectoryEntries(paths.toolchainRoot, ["Application", "toolchain-manifest.json"]);
+  await assertExactDirectoryEntries(paths.applicationRoot, TASK_OWNED_EDGE_APPLICATION_ENTRIES);
+  assert.equal((await readdir(join(paths.applicationRoot, "PlatformExperiencesHelper"))).length, 1);
+  const manifest = await readTaskOwnedEdgeManifest(paths.manifestPath, { afterRead: manifestAfterRead });
+  const applicationReceipt = await completeTreeReceipt(paths.applicationRoot, { afterFileRead: treeAfterFileRead });
+  assert.deepEqual(applicationReceipt, {
+    directoryCount: manifest.applicationDirectoryCount,
+    fileCount: manifest.applicationFileCount,
+    byteCount: manifest.applicationByteCount,
+    digest: manifest.applicationSha256,
+  });
+  const versionReceipt = await completeTreeReceipt(paths.versionRoot, { afterFileRead: treeAfterFileRead });
+  assert.equal(versionReceipt.directoryCount, 43);
+  assert.deepEqual({
+    fileCount: versionReceipt.fileCount,
+    byteCount: versionReceipt.byteCount,
+    digest: versionReceipt.digest,
+  }, {
+    fileCount: manifest.versionDirectoryFileCount,
+    byteCount: manifest.versionDirectoryByteCount,
+    digest: manifest.versionDirectorySha256,
+  });
+  const visualManifestPath = join(paths.applicationRoot, "msedge.VisualElementsManifest.xml");
+  const proxyPath = join(paths.applicationRoot, "msedge_proxy.exe");
+  const pwaHelperPath = join(paths.applicationRoot, "pwahelper.exe");
+  const boundFileDigests = Object.freeze({
+    executable: await sha256File(paths.executablePath),
+    engineDll: await sha256File(paths.engineDllPath),
+    visualManifest: await sha256File(visualManifestPath),
+    proxy: await sha256File(proxyPath),
+    pwaHelper: await sha256File(pwaHelperPath),
+  });
+  assert.equal(boundFileDigests.executable, manifest.executableSha256);
+  assert.equal(boundFileDigests.engineDll, manifest.engineDllSha256);
+  assert.equal(boundFileDigests.visualManifest, EXPECTED_EDGE_VISUAL_MANIFEST_DIGEST);
+  assert.equal(boundFileDigests.proxy, EXPECTED_EDGE_PROXY_DIGEST);
+  assert.equal(boundFileDigests.pwaHelper, EXPECTED_EDGE_PWA_HELPER_DIGEST);
+  if (requireAuthenticode) assertTaskOwnedEdgeAuthenticode(paths.executablePath, paths.engineDllPath);
+  assert.deepEqual(await readTaskOwnedEdgeManifest(paths.manifestPath), manifest, "task-owned Edge manifest drifted after signature validation");
+  assert.deepEqual(
+    await completeTreeReceipt(paths.applicationRoot),
+    applicationReceipt,
+    "task-owned Edge Application tree drifted after signature validation",
+  );
+  assert.deepEqual(
+    await completeTreeReceipt(paths.versionRoot),
+    versionReceipt,
+    "task-owned Edge version tree drifted after signature validation",
+  );
+  assert.deepEqual({
+    executable: await sha256File(paths.executablePath),
+    engineDll: await sha256File(paths.engineDllPath),
+    visualManifest: await sha256File(visualManifestPath),
+    proxy: await sha256File(proxyPath),
+    pwaHelper: await sha256File(pwaHelperPath),
+  }, boundFileDigests, "task-owned Edge executable bytes drifted after signature validation");
+  assertTaskOwnedEdgeFilesystemPolicy(paths);
+  const applicationRootPathDigest = createHash("sha256").update(
+    `${TASK_OWNED_EDGE_APPLICATION_PATH_DOMAIN}\n${comparableFilesystemPath(paths.applicationRoot)}`,
+  ).digest("hex");
+  return Object.freeze({ paths, manifest, applicationReceipt, versionReceipt, applicationRootPathDigest });
+}
+
 async function createToolchainReceipt() {
   const dependencyReceipts = [];
   for (const dependency of dependencyPackages) {
@@ -526,19 +907,7 @@ async function createToolchainReceipt() {
   });
   assert.equal(await sha256File(join(repositoryRoot, "package.json")), EXPECTED_PACKAGE_JSON_DIGEST);
   assert.equal(await sha256File(join(repositoryRoot, "pnpm-lock.yaml")), EXPECTED_PNPM_LOCK_DIGEST);
-  const edgeVersionRoot = resolve(
-    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application",
-    EXPECTED_EDGE_VERSION,
-  );
-  assert.equal((await stat(edgeVersionRoot)).isDirectory(), true);
-  assert.equal(await sha256File(join(dirname(edgeVersionRoot), "msedge.exe")), EXPECTED_EDGE_EXE_DIGEST);
-  assert.equal(await sha256File(join(edgeVersionRoot, "msedge.dll")), EXPECTED_EDGE_DLL_DIGEST);
-  const edgeTreeReceipt = await completeTreeReceipt(edgeVersionRoot);
-  assert.deepEqual(edgeTreeReceipt, {
-    fileCount: 784,
-    byteCount: 902_433_921,
-    digest: EXPECTED_EDGE_DIRECTORY_DIGEST,
-  });
+  const edgeTruth = await validateTaskOwnedEdgeInstallation();
   const body = {
     schemaVersion: TOOLCHAIN_RECEIPT_SCHEMA,
     packageJsonDigest: EXPECTED_PACKAGE_JSON_DIGEST,
@@ -551,18 +920,902 @@ async function createToolchainReceipt() {
       playwrightBinDigest: playwrightBinReceipt.digest,
     },
     edge: {
+      installationKind: edgeTruth.manifest.installationKind,
       version: EXPECTED_EDGE_VERSION,
+      applicationRootPathDigest: edgeTruth.applicationRootPathDigest,
+      sourceManifestSchemaVersion: edgeTruth.manifest.schemaVersion,
+      sourceManifestDigest: edgeTruth.manifest.manifestDigest,
+      sourceManifestFileSha256: EXPECTED_EDGE_MANIFEST_FILE_DIGEST,
+      sourceMsiUrl: edgeTruth.manifest.sourceMsiUrl,
+      sourceMsiDigest: edgeTruth.manifest.sourceMsiSha256,
+      sourceMsiPublishedAt: edgeTruth.manifest.sourceMsiPublishedAt,
+      provisionedAt: edgeTruth.manifest.provisionedAt,
       executableDigest: EXPECTED_EDGE_EXE_DIGEST,
       engineDllDigest: EXPECTED_EDGE_DLL_DIGEST,
-      versionDirectoryDigest: edgeTreeReceipt.digest,
-      versionDirectoryFileCount: edgeTreeReceipt.fileCount,
-      versionDirectoryByteCount: edgeTreeReceipt.byteCount,
+      visualElementsManifestDigest: EXPECTED_EDGE_VISUAL_MANIFEST_DIGEST,
+      proxyExecutableDigest: EXPECTED_EDGE_PROXY_DIGEST,
+      pwaHelperExecutableDigest: EXPECTED_EDGE_PWA_HELPER_DIGEST,
+      versionDirectoryDigest: edgeTruth.versionReceipt.digest,
+      versionDirectoryFileCount: edgeTruth.versionReceipt.fileCount,
+      versionDirectoryByteCount: edgeTruth.versionReceipt.byteCount,
+      applicationDirectoryDigest: edgeTruth.applicationReceipt.digest,
+      applicationDirectoryCount: edgeTruth.applicationReceipt.directoryCount,
+      applicationFileCount: edgeTruth.applicationReceipt.fileCount,
+      applicationByteCount: edgeTruth.applicationReceipt.byteCount,
     },
   };
   return {
     ...body,
     proofDigest: createHash("sha256").update(`${TOOLCHAIN_RECEIPT_SCHEMA}\n${stableStringify(body)}`).digest("hex"),
   };
+}
+
+function invokeFilesystemPolicyFixturePowerShell(script, args) {
+  const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const result = spawnSync(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { $ErrorActionPreference='Stop';Set-StrictMode -Version Latest;${script} }`, ...args,
+  ], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536 });
+  assert.equal(result.status, 0, `filesystem policy fixture mutation failed: ${result.stderr}`);
+  assert.equal(result.stderr, "");
+}
+
+async function createFilesystemPolicyFixture(base, {
+  reparseDescendant = false,
+  extraToolchainsSibling = false,
+  extraEdgeSibling = false,
+} = {}) {
+  const toolchainsRoot = join(base, "NovelRC62Toolchains");
+  const edgeRoot = join(toolchainsRoot, "Edge");
+  const toolchainRoot = join(edgeRoot, EXPECTED_EDGE_VERSION);
+  const applicationRoot = join(toolchainRoot, "Application");
+  await mkdir(applicationRoot, { recursive: true });
+  await writeFile(join(applicationRoot, "value.bin"), "sealed", "utf8");
+  if (extraToolchainsSibling) await mkdir(join(toolchainsRoot, "unexpected"));
+  if (extraEdgeSibling) await mkdir(join(edgeRoot, "unexpected"));
+  if (reparseDescendant) {
+    const target = join(base, "reparse-target");
+    await mkdir(target);
+    await symlink(target, join(applicationRoot, "linked"), process.platform === "win32" ? "junction" : "dir");
+  }
+  invokeFilesystemPolicyFixturePowerShell(String.raw`
+$root=[IO.Path]::GetFullPath($args[0]);$edge=[IO.Path]::GetDirectoryName($root);$toolchains=[IO.Path]::GetDirectoryName($edge);$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$icacls=Join-Path $env:SystemRoot 'System32\icacls.exe'
+foreach($sealedRoot in @($toolchains,$edge,$root)){& $icacls $sealedRoot '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' "*$($sid):(OI)(CI)(RX)" | Out-Null;if($LASTEXITCODE-ne 0){exit 31}}
+foreach($entry in @(Get-ChildItem -LiteralPath $root -Force -Recurse|Sort-Object {$_.FullName.Length})){& $icacls $entry.FullName '/inheritance:e'|Out-Null;if($LASTEXITCODE-ne 0){exit 32}}
+`, [toolchainRoot]);
+  return { toolchainsRoot, edgeRoot, toolchainRoot };
+}
+
+function unsealFilesystemPolicyFixture(toolchainRoot) {
+  invokeFilesystemPolicyFixturePowerShell(String.raw`
+$root=[IO.Path]::GetFullPath($args[0]);$edge=[IO.Path]::GetDirectoryName($root);$toolchains=[IO.Path]::GetDirectoryName($edge);$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+$icacls=Join-Path $env:SystemRoot 'System32\icacls.exe';& $icacls $toolchains '/grant:r' "*$($sid.Value):(OI)(CI)(F)" '/T' '/C' | Out-Null;if($LASTEXITCODE-ne 0){exit 33}
+`, [toolchainRoot]);
+}
+
+async function assertTaskOwnedEdgeFilesystemPolicyMutations() {
+  const cases = [
+    ["unprotected root", String.raw`$icacls=Join-Path $env:SystemRoot 'System32\icacls.exe';& $icacls $args[0] '/inheritance:e'|Out-Null;if($LASTEXITCODE-ne 0){exit 34}`],
+    ["current-user write ACE", String.raw`$icacls=Join-Path $env:SystemRoot 'System32\icacls.exe';$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;& $icacls $args[0] '/grant' "*$($sid):(OI)(CI)(W)"|Out-Null;if($LASTEXITCODE-ne 0){exit 35}`],
+    ["explicit descendant DACL", String.raw`$icacls=Join-Path $env:SystemRoot 'System32\icacls.exe';& $icacls (Join-Path $args[0] 'Application') '/inheritance:d'|Out-Null;if($LASTEXITCODE-ne 0){exit 36}`],
+  ];
+  for (const [label, mutation] of cases) {
+    const base = await mkdtemp(join(tmpdir(), "novel-rc6-2-edge-acl-"));
+    let paths;
+    try {
+      paths = await createFilesystemPolicyFixture(base);
+      assertTaskOwnedEdgeFilesystemPolicy(paths, 2);
+      invokeFilesystemPolicyFixturePowerShell(mutation, [paths.toolchainRoot]);
+      assert.throws(() => assertTaskOwnedEdgeFilesystemPolicy(paths, 2), /filesystem policy failed/u, label);
+    } finally {
+      if (paths) unsealFilesystemPolicyFixture(paths.toolchainRoot);
+      await rm(base, { recursive: true, force: true });
+    }
+  }
+  for (const [label, options] of [
+    ["extra Toolchains sibling", { extraToolchainsSibling: true }],
+    ["extra Edge sibling", { extraEdgeSibling: true }],
+  ]) {
+    const base = await mkdtemp(join(tmpdir(), "novel-rc6-2-edge-topology-"));
+    let paths;
+    try {
+      paths = await createFilesystemPolicyFixture(base, options);
+      assert.throws(() => assertTaskOwnedEdgeFilesystemPolicy(paths, 2), /filesystem policy failed/u, label);
+    } finally {
+      if (paths) unsealFilesystemPolicyFixture(paths.toolchainRoot);
+      await rm(base, { recursive: true, force: true });
+    }
+  }
+  const reparseBase = await mkdtemp(join(tmpdir(), "novel-rc6-2-edge-reparse-"));
+  let reparsePaths;
+  try {
+    reparsePaths = await createFilesystemPolicyFixture(reparseBase, { reparseDescendant: true });
+    assert.throws(() => assertTaskOwnedEdgeFilesystemPolicy(reparsePaths, 3), /filesystem policy failed/u);
+  } finally {
+    if (reparsePaths) unsealFilesystemPolicyFixture(reparsePaths.toolchainRoot);
+    await rm(reparseBase, { recursive: true, force: true });
+  }
+}
+
+async function assertTaskOwnedEdgePolicy() {
+  const profileBaseline = await taskOwnedEdgeProfilePaths();
+  assert.deepEqual(profileBaseline, [], "gate-owned Edge profile residue exists before task-owned policy");
+  const actual = await validateTaskOwnedEdgeInstallation();
+  assert.equal(actual.paths.applicationRoot, taskOwnedEdgePaths().applicationRoot);
+  assert.equal(actual.manifest.manifestDigest, EXPECTED_EDGE_MANIFEST_DIGEST);
+  await assertTaskOwnedEdgeFilesystemPolicyMutations();
+  await assertProductionGateMutexBehavior();
+  await assertSentinelSandboxObservationBehavior();
+  await assertSentinelCleanupSafetyBehavior();
+  const root = await mkdtemp(join(tmpdir(), "novel-rc6-2-edge-policy-"));
+  try {
+    const manifestCopy = join(root, "toolchain-manifest.json");
+    await copyFile(actual.paths.manifestPath, manifestCopy);
+    assert.deepEqual(await readTaskOwnedEdgeManifest(manifestCopy), actual.manifest);
+
+    const hardlinkSource = join(root, "manifest-hardlink-source.json");
+    const hardlinkTarget = join(root, "manifest-hardlink-target.json");
+    await copyFile(actual.paths.manifestPath, hardlinkSource);
+    await link(hardlinkSource, hardlinkTarget);
+    await assert.rejects(
+      readTaskOwnedEdgeManifest(hardlinkTarget),
+      /must not be hardlinked/u,
+    );
+
+    const manifestRace = join(root, "manifest-race.json");
+    await copyFile(actual.paths.manifestPath, manifestRace);
+    await assert.rejects(
+      readTaskOwnedEdgeManifest(manifestRace, {
+        afterRead: async (path) => writeFile(path, "changed-during-read", "utf8"),
+      }),
+      /changed while read/u,
+    );
+
+    const tree = join(root, "tree");
+    await mkdir(join(tree, "nested"), { recursive: true });
+    await writeFile(join(tree, "nested", "value.bin"), "sealed-value", "utf8");
+    assert.deepEqual(await completeTreeReceipt(tree), {
+      directoryCount: 1,
+      fileCount: 1,
+      byteCount: 12,
+      digest: createHash("sha256")
+        .update("nested/value.bin\0" + "12\0" + "sealed-value")
+        .digest("hex"),
+    });
+
+    const hardlinkTree = join(root, "hardlink-tree");
+    await mkdir(hardlinkTree);
+    await writeFile(join(hardlinkTree, "source.bin"), "sealed", "utf8");
+    await link(join(hardlinkTree, "source.bin"), join(hardlinkTree, "alias.bin"));
+    await assert.rejects(completeTreeReceipt(hardlinkTree), /hardlinked file/u);
+
+    const reparseTarget = join(root, "reparse-target");
+    const reparseTree = join(root, "reparse-tree");
+    await mkdir(reparseTarget);
+    await symlink(reparseTarget, reparseTree, process.platform === "win32" ? "junction" : "dir");
+    await assert.rejects(completeTreeReceipt(reparseTree), /link or reparse path/u);
+
+    const raceTree = join(root, "race-tree");
+    await mkdir(raceTree);
+    await writeFile(join(raceTree, "value.bin"), "before", "utf8");
+    let mutated = false;
+    await assert.rejects(
+      completeTreeReceipt(raceTree, {
+        afterFileRead: async (path) => {
+          if (!mutated) {
+            mutated = true;
+            await writeFile(path, "changed-during-tree-read", "utf8");
+          }
+        },
+      }),
+      /changed while read/u,
+    );
+
+    const oversizeTree = join(root, "oversize-tree");
+    await mkdir(oversizeTree);
+    await writeFile(join(oversizeTree, "value.bin"), "123456789", "utf8");
+    await assert.rejects(
+      completeTreeReceipt(oversizeTree, { maxByteCount: 8 }),
+      /exceeds its byte cap/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+  assert.deepEqual(
+    await taskOwnedEdgeProfilePaths(),
+    profileBaseline,
+    "task-owned Edge policy leaked a gate-owned profile fixture",
+  );
+}
+
+function parseExactProcessInventory(result, label) {
+  assert.equal(result.status, 0, `${label} failed`);
+  assert.equal(result.stderr, "");
+  const records = JSON.parse(result.stdout.trim());
+  assert.ok(Array.isArray(records));
+  for (const record of records) {
+    assertExactKeys(record, ["pid", "parentPid", "creationDate", "executablePath", "commandLineDigest"], label);
+    assert.ok(Number.isSafeInteger(record.pid) && record.pid > 0);
+    assert.ok(Number.isSafeInteger(record.parentPid) && record.parentPid >= 0);
+    assert.match(record.creationDate, UTC_MILLISECONDS);
+    assert.equal(new Date(record.creationDate).toISOString(), record.creationDate);
+    assert.equal(isAbsolute(record.executablePath), true);
+    assertSha256(record.commandLineDigest, `${label} command line`);
+  }
+  assert.deepEqual(records.map(({ pid }) => pid), [...records.map(({ pid }) => pid)].sort((left, right) => left - right));
+  return records;
+}
+
+function taskOwnedEdgeProcesses(executablePath) {
+  const powerShell = join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
+  );
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$target=[IO.Path]::GetFullPath($args[0])",
+    "$sha=[Security.Cryptography.SHA256]::Create()",
+    "try{$records=@(Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\"|Where-Object{$_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath([string]$_.ExecutablePath),$target)}|Sort-Object ProcessId|ForEach-Object{$cmd=[string]$_.CommandLine;$digest=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($cmd)))).Replace('-','').ToLowerInvariant();[ordered]@{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;creationDate=([DateTime]$_.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ');executablePath=[IO.Path]::GetFullPath([string]$_.ExecutablePath);commandLineDigest=$digest}})}finally{$sha.Dispose()}",
+    "ConvertTo-Json -Compress -InputObject @($records)",
+  ].join(";");
+  const result = spawnSync(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { ${script} }`, executablePath,
+  ], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536 });
+  return parseExactProcessInventory(result, "task-owned Edge process inventory");
+}
+
+async function taskOwnedEdgeProfilePaths() {
+  const temporaryRoot = resolve(tmpdir());
+  const entries = await readdir(temporaryRoot, { withFileTypes: true });
+  const matches = [];
+  for (const entry of entries) {
+    if (!/^novel-rc6-2-edge-[A-Za-z0-9][A-Za-z0-9-]{4,62}[A-Za-z0-9]$/u.test(entry.name)) continue;
+    assert.equal(entry.isDirectory() && !entry.isSymbolicLink(), true, "gate-owned Edge profile is not a plain directory");
+    const path = join(temporaryRoot, entry.name);
+    assert.equal(comparableFilesystemPath(await realpath(path)), comparableFilesystemPath(path));
+    matches.push(path);
+  }
+  return matches.sort((left, right) => left.localeCompare(right, "en"));
+}
+
+function expectedNetworkSentinelRunnerCommandLines(runnerPath) {
+  const node = resolve(process.execPath);
+  const runner = resolve(runnerPath);
+  return Object.freeze([
+    `"${node}" "${runner}" network-sentinel-only`,
+    `"${node}" ${runner} network-sentinel-only`,
+    `${node} ${runner} network-sentinel-only`,
+  ]);
+}
+
+function exactNetworkSentinelRunnerProcesses(runnerPath) {
+  const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const script = [
+    "$node=[IO.Path]::GetFullPath($args[0])",
+    "$runner=[IO.Path]::GetFullPath($args[1])",
+    "$runnerSpellings=@($runner,[string]$args[2],[string]$args[3])",
+    "$expected=@();foreach($nodeSpelling in @($node,'\"'+$node+'\"')){foreach($runnerSpelling in $runnerSpellings){foreach($runnerArgument in @($runnerSpelling,'\"'+$runnerSpelling+'\"')){$expected+=($nodeSpelling+' '+$runnerArgument+' network-sentinel-only')}}}",
+    "$sha=[Security.Cryptography.SHA256]::Create()",
+    "try{$records=@(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\"|Where-Object{$_.ExecutablePath -and $_.CommandLine -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath([string]$_.ExecutablePath),$node) -and $expected -contains ([string]$_.CommandLine).Trim()}|Sort-Object ProcessId|ForEach-Object{$cmd=([string]$_.CommandLine).Trim();$digest=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($cmd)))).Replace('-','').ToLowerInvariant();[ordered]@{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;creationDate=([DateTime]$_.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ');executablePath=[IO.Path]::GetFullPath([string]$_.ExecutablePath);commandLineDigest=$digest}})}finally{$sha.Dispose()}",
+    "ConvertTo-Json -Compress -InputObject @($records)",
+  ].join(";");
+  const result = spawnSync(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { ${script} }`, process.execPath, resolve(runnerPath),
+    "scripts\\run-rc6-2-closed-agent-browser.mjs", "scripts/run-rc6-2-closed-agent-browser.mjs",
+  ], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536 });
+  return parseExactProcessInventory(result, "network sentinel runner process inventory");
+}
+
+function processIdentity(pid) {
+  assert.ok(Number.isSafeInteger(pid) && pid > 0);
+  const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const script = String.raw`
+$p=Get-CimInstance Win32_Process -Filter ("ProcessId="+[int]$args[0]);if($null-eq$p){'null';exit 0}
+$sha=[Security.Cryptography.SHA256]::Create();try{$cmd=[string]$p.CommandLine;$digest=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($cmd)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+[ordered]@{pid=[int]$p.ProcessId;parentPid=[int]$p.ParentProcessId;creationDate=([DateTime]$p.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ');executablePath=[IO.Path]::GetFullPath([string]$p.ExecutablePath);commandLineDigest=$digest}|ConvertTo-Json -Compress
+`;
+  const result = spawnSync(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { ${script} }`, String(pid),
+  ], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536 });
+  assert.equal(result.status, 0, `process identity read failed for ${pid}`);
+  assert.equal(result.stderr, "");
+  const identity = JSON.parse(result.stdout.trim());
+  if (identity === null) return null;
+  assert.deepEqual(Object.keys(identity), ["pid", "parentPid", "creationDate", "executablePath", "commandLineDigest"]);
+  assert.equal(identity.pid, pid);
+  assert.match(identity.creationDate, UTC_MILLISECONDS);
+  assert.match(identity.commandLineDigest, /^[a-f0-9]{64}$/u);
+  return identity;
+}
+
+function stopExactProcessTree(pid, expectedIdentity = null) {
+  assert.ok(Number.isSafeInteger(pid) && pid > 0);
+  const before = processIdentity(pid);
+  if (before === null) return false;
+  if (expectedIdentity !== null) assert.deepEqual(before, expectedIdentity, `process identity changed before cleanup: ${pid}`);
+  const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+  const result = spawnSync(taskkill, ["/PID", String(pid), "/T", "/F"], {
+    encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 65_536,
+  });
+  if (processIdentity(pid) !== null) {
+    assert.equal(result.status, 0, `failed to stop exact runner process tree ${pid}`);
+    assert.fail(`runner process ${pid} survived cleanup`);
+  }
+  return true;
+}
+
+async function removeExactSentinelSandbox(sandboxPath, expectedIdentity) {
+  const canonical = resolve(sandboxPath);
+  assert.equal(comparableFilesystemPath(dirname(canonical)), comparableFilesystemPath(resolve(tmpdir())));
+  assert.match(basename(canonical), /^novel-rc6-2-sentinel-[A-Za-z0-9_-]{6}$/u);
+  const current = await lstat(canonical);
+  assert.equal(current.isDirectory() && !current.isSymbolicLink(), true);
+  assert.equal(sameDirectoryIdentity(current, expectedIdentity), true, "sentinel sandbox identity changed before deletion");
+  assert.equal(comparableFilesystemPath(await realpath(canonical)), comparableFilesystemPath(canonical));
+  for (const entry of await readdir(canonical, { recursive: true, withFileTypes: true })) {
+    assert.equal(entry.isSymbolicLink(), false, "sentinel sandbox contains a link");
+  }
+  const final = await lstat(canonical);
+  assert.equal(final.isDirectory() && !final.isSymbolicLink(), true);
+  assert.equal(sameDirectoryIdentity(final, expectedIdentity), true, "sentinel sandbox identity changed immediately before deletion");
+  assert.equal(comparableFilesystemPath(await realpath(canonical)), comparableFilesystemPath(canonical));
+  await rm(canonical, { recursive: true, force: true });
+  await assert.rejects(lstat(canonical), (error) => error?.code === "ENOENT");
+}
+
+async function assertSentinelSandboxObservationBehavior() {
+  const sandboxPath = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const sandboxIdentity = await lstat(sandboxPath);
+  try {
+    assert.equal(await observeSentinelProfile(sandboxPath, null), null);
+    const profilePath = join(sandboxPath, "novel-rc6-2-edge-Abc123");
+    await mkdir(profilePath);
+    const first = await observeSentinelProfile(sandboxPath, null);
+    assert.equal(first.profilePath, await realpath(profilePath));
+    await writeFile(join(profilePath, "runtime-write.bin"), "bounded", "utf8");
+    assert.equal(await observeSentinelProfile(sandboxPath, first), first);
+    const unexpectedPath = join(sandboxPath, "unexpected");
+    await mkdir(unexpectedPath);
+    assert.equal(await observeSentinelProfile(sandboxPath, first), first);
+    const duplicateProfilePath = join(sandboxPath, "novel-rc6-2-edge-Dup456");
+    await mkdir(duplicateProfilePath);
+    await assert.rejects(observeSentinelProfile(sandboxPath, first), /multiple runner profiles/u);
+    await rm(duplicateProfilePath, { recursive: true, force: true });
+    await rm(unexpectedPath, { recursive: true, force: true });
+  } finally {
+    await removeExactSentinelSandbox(sandboxPath, sandboxIdentity);
+  }
+
+  const ancillarySandbox = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const ancillarySandboxIdentity = await lstat(ancillarySandbox);
+  const ancillaryTarget = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-target-"));
+  const ancillaryMarker = join(ancillaryTarget, "must-survive.txt");
+  const ancillaryJunction = join(ancillarySandbox, "ancillary-junction");
+  try {
+    await writeFile(ancillaryMarker, "untouched", "utf8");
+    await symlink(
+      ancillaryTarget,
+      ancillaryJunction,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    await assert.rejects(
+      observeSentinelProfile(ancillarySandbox, null),
+      /direct link|reparse target/u,
+    );
+    assert.equal(await readFile(ancillaryMarker, "utf8"), "untouched");
+  } finally {
+    await rm(ancillaryJunction, { recursive: true, force: true });
+    await removeExactSentinelSandbox(ancillarySandbox, ancillarySandboxIdentity);
+    assert.equal(await readFile(ancillaryMarker, "utf8"), "untouched");
+    await rm(ancillaryTarget, { recursive: true, force: true });
+  }
+
+  const boundedSandbox = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const boundedSandboxIdentity = await lstat(boundedSandbox);
+  try {
+    await Promise.all(Array.from({ length: 65 }, (_, index) => (
+      writeFile(join(boundedSandbox, `ancillary-${String(index).padStart(2, "0")}.tmp`), "x", "utf8")
+    )));
+    await assert.rejects(
+      observeSentinelProfile(boundedSandbox, null),
+      /direct-child bound/u,
+    );
+  } finally {
+    await removeExactSentinelSandbox(boundedSandbox, boundedSandboxIdentity);
+  }
+}
+
+async function assertSentinelCleanupSafetyBehavior() {
+  const reparseSandbox = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const reparseSandboxIdentity = await lstat(reparseSandbox);
+  const externalTarget = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-target-"));
+  const markerPath = join(externalTarget, "must-survive.txt");
+  const junctionPath = join(reparseSandbox, "novel-rc6-2-edge-Abc123");
+  try {
+    await writeFile(markerPath, "untouched", "utf8");
+    await symlink(externalTarget, junctionPath, process.platform === "win32" ? "junction" : "dir");
+    await assert.rejects(
+      removeExactSentinelSandbox(reparseSandbox, reparseSandboxIdentity),
+      /contains a link/u,
+    );
+    assert.equal(await readFile(markerPath, "utf8"), "untouched");
+  } finally {
+    await rm(junctionPath, { recursive: true, force: true });
+    await removeExactSentinelSandbox(reparseSandbox, reparseSandboxIdentity);
+    assert.equal(await readFile(markerPath, "utf8"), "untouched");
+    await rm(externalTarget, { recursive: true, force: true });
+  }
+
+  const replacementPath = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const replacementIdentity = await lstat(replacementPath);
+  const originalMovedPath = `${replacementPath}-original`;
+  try {
+    await rename(replacementPath, originalMovedPath);
+    await mkdir(replacementPath);
+    await assert.rejects(
+      removeExactSentinelSandbox(replacementPath, replacementIdentity),
+      /identity changed/u,
+    );
+    assert.equal((await lstat(replacementPath)).isDirectory(), true);
+  } finally {
+    await rm(replacementPath, { recursive: true, force: true });
+    await rm(originalMovedPath, { recursive: true, force: true });
+  }
+
+  const selfIdentity = processIdentity(process.pid);
+  assert.ok(selfIdentity);
+  assert.throws(
+    () => stopExactProcessTree(process.pid, { ...selfIdentity, commandLineDigest: "0".repeat(64) }),
+    /process identity changed/u,
+  );
+  assert.deepEqual(processIdentity(process.pid), selfIdentity, "identity mismatch attempted to kill the protected process");
+
+  const fastRoot = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-fast-child-"));
+  const fastSandbox = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+  const fastSandboxIdentity = await lstat(fastSandbox);
+  try {
+    const fastRunner = join(fastRoot, "fast-exit.mjs");
+    await writeFile(fastRunner, "process.stdout.write('fast-exit\\n');", "utf8");
+    const started = Date.now();
+    let fastDeadline;
+    const outcome = await Promise.race([
+      runBoundedNetworkSentinelChild(fastRunner, {
+        SystemRoot: process.env.SystemRoot,
+        PATH: process.env.PATH,
+        TEMP: fastSandbox,
+        TMP: fastSandbox,
+      }, fastSandbox).then((value) => ({ value }), (error) => ({ error })),
+      new Promise((_, rejectPromise) => {
+        fastDeadline = setTimeout(
+          () => rejectPromise(new Error("fast-exit sentinel child did not settle")),
+          10_000,
+        );
+      }),
+    ]).finally(() => clearTimeout(fastDeadline));
+    assert.ok(Date.now() - started < 10_000);
+    if (outcome.value) {
+      assert.equal(outcome.value.code, 0);
+      assert.equal(outcome.value.stdoutBytes.toString("utf8"), "fast-exit\n");
+    } else assert.ok(outcome.error instanceof Error);
+  } finally {
+    await removeExactSentinelSandbox(fastSandbox, fastSandboxIdentity);
+    await rm(fastRoot, { recursive: true, force: true });
+  }
+}
+
+async function observeSentinelProfile(sandboxPath, priorObservation) {
+  const entries = await readdir(sandboxPath, { withFileTypes: true });
+  assert.ok(entries.length <= 64, "sentinel sandbox exceeded its direct-child bound");
+  const observedEntries = [];
+  for (const entry of entries) {
+    const entryPath = resolve(sandboxPath, entry.name);
+    assert.equal(
+      comparableFilesystemPath(dirname(entryPath)),
+      comparableFilesystemPath(sandboxPath),
+      "sentinel sandbox direct child escaped containment",
+    );
+    let truth;
+    try {
+      truth = await lstat(entryPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    assert.equal(
+      entry.isSymbolicLink() || truth.isSymbolicLink(),
+      false,
+      "sentinel sandbox contained a direct link",
+    );
+    assert.equal(
+      (entry.isDirectory() && truth.isDirectory()) || (entry.isFile() && truth.isFile()),
+      true,
+      "sentinel sandbox contained an unsupported direct child",
+    );
+    let canonicalEntryPath;
+    try {
+      canonicalEntryPath = await realpath(entryPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    assert.equal(
+      comparableFilesystemPath(canonicalEntryPath),
+      comparableFilesystemPath(entryPath),
+      "sentinel sandbox direct child resolved through a reparse target",
+    );
+    observedEntries.push(entry);
+  }
+  const profiles = observedEntries.filter((entry) => (
+    /^novel-rc6-2-edge-[A-Za-z0-9][A-Za-z0-9-]{4,62}[A-Za-z0-9]$/u.test(entry.name)
+  ));
+  assert.ok(profiles.length <= 1, "sentinel sandbox contained multiple runner profiles");
+  if (profiles.length === 0) return priorObservation;
+  const [entry] = profiles;
+  assert.equal(entry.isDirectory() && !entry.isSymbolicLink(), true, "sentinel profile was not a plain directory");
+  const profilePath = resolve(sandboxPath, entry.name);
+  assert.equal(comparableFilesystemPath(dirname(profilePath)), comparableFilesystemPath(sandboxPath));
+  const identity = await lstat(profilePath);
+  assert.equal(identity.isDirectory() && !identity.isSymbolicLink(), true);
+  const canonicalPath = await realpath(profilePath);
+  assert.equal(comparableFilesystemPath(canonicalPath), comparableFilesystemPath(profilePath));
+  const observation = { profilePath: canonicalPath, identity };
+  if (priorObservation !== null) {
+    assert.equal(comparableFilesystemPath(priorObservation.profilePath), comparableFilesystemPath(observation.profilePath));
+    assert.equal(sameDirectoryIdentity(priorObservation.identity, observation.identity), true, "sentinel profile identity changed while observed");
+    return priorObservation;
+  }
+  return observation;
+}
+
+async function runBoundedNetworkSentinelChild(runnerPath, cleanEnvironment, sandboxPath) {
+  const spawnedAt = Date.now();
+  let childIdentity = null;
+  let profileObservation = null;
+  let observerDone = false;
+  let observerError = null;
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let timedOut = false;
+  let overflow = false;
+  let terminationError = null;
+  let rejectTerminationDeadline;
+  let terminationTimer;
+  const terminationDeadline = new Promise((_, rejectPromise) => { rejectTerminationDeadline = rejectPromise; });
+  let terminationRequested = false;
+  let terminationAttempted = false;
+  let child;
+  const attemptIdentityBoundTermination = () => {
+    if (!terminationRequested || terminationAttempted || childIdentity === null) return;
+    terminationAttempted = true;
+    try {
+      if (processIdentity(child.pid) !== null) stopExactProcessTree(child.pid, childIdentity);
+    } catch (error) {
+      terminationError ??= error;
+    }
+  };
+  const terminate = () => {
+    if (!terminationRequested) {
+      terminationRequested = true;
+      terminationTimer = setTimeout(
+        () => rejectTerminationDeadline(new Error("network sentinel child did not close after termination")),
+        15_000,
+      );
+    }
+    attemptIdentityBoundTermination();
+  };
+  const append = (chunks, chunk, currentBytes, limit) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const next = currentBytes + bytes.length;
+    if (next > limit) {
+      overflow = true;
+      terminate();
+    }
+    else chunks.push(bytes);
+    return next;
+  };
+  const assertSpawnedChildIdentity = (identity) => {
+    assert.ok(identity);
+    assert.equal(identity.parentPid, process.pid, "sentinel runner parent PID drifted");
+    assert.equal(comparableFilesystemPath(identity.executablePath), comparableFilesystemPath(process.execPath));
+    const creationTime = Date.parse(identity.creationDate);
+    assert.ok(creationTime >= spawnedAt - 1_000 && creationTime <= Date.now() + 1_000, "sentinel runner creation time escaped spawn window");
+    const expectedDigests = expectedNetworkSentinelRunnerCommandLines(runnerPath)
+      .map((value) => createHash("sha256").update(value).digest("hex"));
+    assert.equal(expectedDigests.includes(identity.commandLineDigest), true, "sentinel runner argv digest drifted");
+  };
+  let timer = null;
+  let observer = null;
+  try {
+    child = spawn(process.execPath, [runnerPath, "network-sentinel-only"], {
+      cwd: repositoryRoot, env: cleanEnvironment, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+    });
+    const spawned = new Promise((resolvePromise) => {
+      child.once("spawn", () => resolvePromise({ error: null }));
+      child.once("error", (error) => resolvePromise({ error }));
+    });
+    const close = new Promise((resolvePromise) => {
+      child.once("error", (error) => resolvePromise({ code: null, signal: null, error }));
+      child.once("close", (code, signal) => resolvePromise({ code, signal, error: null }));
+    });
+    child.stdout.on("data", (chunk) => { stdoutBytes = append(stdoutChunks, chunk, stdoutBytes, 1_048_576); });
+    child.stderr.on("data", (chunk) => { stderrBytes = append(stderrChunks, chunk, stderrBytes, 65_536); });
+    timer = setTimeout(() => { timedOut = true; terminate(); }, 600_000);
+    observer = (async () => {
+      while (!observerDone) {
+        try { profileObservation = await observeSentinelProfile(sandboxPath, profileObservation); }
+        catch (error) { observerError ??= error; terminate(); }
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      }
+    })();
+    const spawnResult = await spawned;
+    if (spawnResult.error) throw spawnResult.error;
+    childIdentity = processIdentity(child.pid);
+    assertSpawnedChildIdentity(childIdentity);
+    attemptIdentityBoundTermination();
+    const exit = await Promise.race([close, terminationDeadline]);
+    observerDone = true;
+    await observer;
+    if (observerError) throw observerError;
+    if (terminationError) throw terminationError;
+    if (exit.error) throw exit.error;
+    assert.equal(processIdentity(child.pid), null, "network sentinel runner process remained after close");
+    return {
+      pid: child.pid, childIdentity, profileObservation, timedOut, overflow, ...exit,
+      stdoutBytes: Buffer.concat(stdoutChunks),
+      stderrBytes: Buffer.concat(stderrChunks),
+    };
+  } finally {
+    observerDone = true;
+    if (timer) clearTimeout(timer);
+    if (terminationTimer) clearTimeout(terminationTimer);
+    if (observer) await observer;
+    if (child?.pid) {
+      const current = processIdentity(child.pid);
+      if (current !== null && childIdentity === null) {
+        assertSpawnedChildIdentity(current);
+        childIdentity = current;
+      }
+      if (childIdentity !== null && processIdentity(child.pid) !== null) stopExactProcessTree(child.pid, childIdentity);
+      assert.equal(processIdentity(child.pid), null, "network sentinel runner cleanup was incomplete");
+    }
+  }
+}
+
+async function acquireProductionGateMutex(name = "Global\\NovelRC62ProductionBrowserGate") {
+  assert.match(name, /^Global\\NovelRC62ProductionBrowserGate(?:Contract-[a-f0-9]{32})?$/u);
+  const powerShell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const script = String.raw`
+$ErrorActionPreference='Stop';$mutex=$null;$held=$false
+try{$mutex=[Threading.Mutex]::new($false,[string]$args[0]);try{$held=$mutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$held=$true};if(-not$held){[Console]::Out.WriteLine('BUSY');[Console]::Out.Flush();[void][Console]::In.ReadLine();exit 23};[Console]::Out.WriteLine('ACQUIRED');[Console]::Out.Flush();[void][Console]::In.ReadLine()}
+catch{throw}
+finally{if($held){$mutex.ReleaseMutex()};if($null-ne$mutex){$mutex.Dispose()}}
+`;
+  const child = spawn(powerShell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-Command", `& { ${script} }`, name,
+  ], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  await new Promise((resolvePromise, rejectPromise) => {
+    child.once("spawn", resolvePromise);
+    child.once("error", rejectPromise);
+  });
+  const helperIdentity = processIdentity(child.pid);
+  assert.ok(helperIdentity, "production gate mutex helper identity was unavailable");
+  assert.equal(helperIdentity.parentPid, process.pid);
+  assert.equal(comparableFilesystemPath(helperIdentity.executablePath), comparableFilesystemPath(powerShell));
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout = (stdout + chunk).slice(0, 65_536); });
+  child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(0, 65_536); });
+  try {
+    await new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => rejectPromise(new Error("production gate mutex acquisition timed out")), 10_000);
+      const inspect = () => {
+        if (stdout.includes("ACQUIRED\n") || stdout.includes("ACQUIRED\r\n")) {
+          clearTimeout(timer);
+          resolvePromise();
+        }
+        else if (stdout.includes("BUSY\n") || stdout.includes("BUSY\r\n")) {
+          clearTimeout(timer);
+          rejectPromise(new Error("production gate mutex is already held"));
+        }
+      };
+      child.stdout.on("data", inspect);
+      child.once("error", (error) => { clearTimeout(timer); rejectPromise(error); });
+      child.once("exit", (code) => {
+        if (!stdout.includes("ACQUIRED")) {
+          clearTimeout(timer);
+          rejectPromise(new Error(code === 23 ? "production gate mutex is already held" : `production gate mutex helper failed: ${stderr}`));
+        }
+      });
+    });
+  } catch (error) {
+    if (processIdentity(child.pid) !== null) stopExactProcessTree(child.pid, helperIdentity);
+    assert.equal(processIdentity(child.pid), null, "mutex helper survived failed acquisition");
+    throw error;
+  }
+  return {
+    child, helperIdentity,
+    async release() {
+      try {
+        if (child.exitCode !== null) assert.fail("production gate mutex helper exited before release");
+        child.stdin.end("RELEASE\n");
+        const code = await new Promise((resolvePromise, rejectPromise) => {
+          const timer = setTimeout(() => rejectPromise(new Error("production gate mutex release timed out")), 10_000);
+          child.once("error", (error) => { clearTimeout(timer); rejectPromise(error); });
+          child.once("exit", (exitCode) => { clearTimeout(timer); resolvePromise(exitCode); });
+        });
+        assert.equal(code, 0, `production gate mutex helper release failed: ${stderr}`);
+        assert.equal(stderr, "");
+      } catch (error) {
+        if (processIdentity(child.pid) !== null) stopExactProcessTree(child.pid, helperIdentity);
+        throw error;
+      } finally {
+        assert.equal(processIdentity(child.pid), null, "mutex helper survived release");
+      }
+    },
+  };
+}
+
+async function assertProductionGateMutexBehavior() {
+  const name = `Global\\NovelRC62ProductionBrowserGateContract-${createHash("sha256").update(String(Date.now()) + Math.random()).digest("hex").slice(0, 32)}`;
+  const first = await acquireProductionGateMutex(name);
+  try {
+    await assert.rejects(acquireProductionGateMutex(name), /already held/u);
+  } finally {
+    await first.release();
+  }
+  const second = await acquireProductionGateMutex(name);
+  await second.release();
+  stopExactProcessTree(process.pid + 1_000_000_000);
+  stopExactProcessTree(process.pid + 1_000_000_000);
+  const timeoutStub = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+    stdio: "ignore", windowsHide: true,
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    timeoutStub.once("spawn", resolvePromise);
+    timeoutStub.once("error", rejectPromise);
+  });
+  const timeoutIdentity = processIdentity(timeoutStub.pid);
+  assert.ok(timeoutIdentity);
+  assert.equal(stopExactProcessTree(timeoutStub.pid, timeoutIdentity), true);
+  assert.equal(stopExactProcessTree(timeoutStub.pid, timeoutIdentity), false);
+}
+
+const NETWORK_SENTINEL_ONLY_EVIDENCE_KEYS = Object.freeze([
+  "schemaVersion", "status", "mode", "networkZeroReceipt", "freshBrowserContext",
+  "profileOwnership", "profilePathDigest", "edgeIdentity", "profileDisposed", "completedAt",
+]);
+const NETWORK_SENTINEL_ONLY_EDGE_IDENTITY_KEYS = Object.freeze([
+  "executableName", "executableDigest", "persistentContext", "disposableProfile",
+  "profileOwnership", "profileEntryCountBeforeLaunch", "profilePathDigest",
+  "webSocketRouteInstalledBeforeNavigation", "product", "engineVersionDirectoryName",
+  "engineDllName", "engineDllDigest", "protocolVersion", "browserRevisionDigest",
+  "userAgentProductVerified", "preNavigationNetworkSentinel",
+]);
+
+function parseCanonicalNetworkSentinelEvidence(bytes) {
+  assert.ok(Buffer.isBuffer(bytes));
+  assert.ok(bytes.length > 0 && bytes.length <= 1_048_576);
+  assert.equal(
+    bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf,
+    false,
+    "sentinel evidence contained a UTF-8 BOM",
+  );
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  assert.equal(text.startsWith("\uFEFF"), false, "sentinel evidence contained a BOM");
+  assert.equal(text.includes("\0"), false, "sentinel evidence contained NUL");
+  assert.equal(text.includes("\uFFFD"), false, "sentinel evidence contained a replacement character");
+  assert.equal(text.includes("\r"), false, "sentinel evidence contained CR bytes");
+  assert.equal(text.endsWith("\n"), true, "sentinel evidence lacked its single terminal LF");
+  const jsonText = text.slice(0, -1);
+  assert.equal(jsonText.endsWith("\n") || /\s$/u.test(jsonText), false, "sentinel evidence had trailing whitespace");
+  const evidence = JSON.parse(jsonText);
+  assert.equal(`${JSON.stringify(evidence, null, 2)}\n`, text, "sentinel evidence was not canonical pretty JSON");
+  return evidence;
+}
+
+function validateNetworkSentinelOnlyEvidence(evidence, profileObservation, startedAt, completedBy) {
+  assertExactKeys(evidence, NETWORK_SENTINEL_ONLY_EVIDENCE_KEYS, "network sentinel-only evidence");
+  assert.equal(evidence.schemaVersion, "p24b-rc6.2-network-sentinel-only-evidence-v1");
+  assert.equal(evidence.status, "PASS");
+  assert.equal(evidence.mode, "network-sentinel-only");
+  assert.equal(evidence.freshBrowserContext, true);
+  assert.equal(evidence.profileOwnership, "runner-created");
+  assertSha256(evidence.profilePathDigest, "sentinel profile path");
+  assert.ok(profileObservation, "runner-created sentinel profile was never observed");
+  assert.equal(
+    evidence.profilePathDigest,
+    createHash("sha256").update(profileObservation.profilePath).digest("hex"),
+    "sentinel profile path digest did not bind the observed sandbox child",
+  );
+  assert.equal(evidence.profileDisposed, true);
+  assert.match(evidence.completedAt, UTC_MILLISECONDS);
+  assert.equal(new Date(evidence.completedAt).toISOString(), evidence.completedAt);
+  const completedAt = Date.parse(evidence.completedAt);
+  assert.ok(completedAt >= startedAt - 1_000 && completedAt <= completedBy + 1_000, "sentinel completion time escaped the run window");
+  assertExactKeys(evidence.edgeIdentity, NETWORK_SENTINEL_ONLY_EDGE_IDENTITY_KEYS, "sentinel Edge identity");
+  const identity = evidence.edgeIdentity;
+  assert.equal(identity.executableName, "msedge.exe");
+  assert.equal(identity.executableDigest, EXPECTED_EDGE_EXE_DIGEST);
+  assert.equal(identity.persistentContext, true);
+  assert.equal(identity.disposableProfile, true);
+  assert.equal(identity.profileOwnership, "runner-created");
+  assert.equal(identity.profileEntryCountBeforeLaunch, 0);
+  assert.equal(identity.profilePathDigest, evidence.profilePathDigest);
+  assert.equal(identity.webSocketRouteInstalledBeforeNavigation, true);
+  assert.equal(identity.product, `Edg/${EXPECTED_EDGE_VERSION}`);
+  assert.equal(identity.engineVersionDirectoryName, EXPECTED_EDGE_VERSION);
+  assert.equal(identity.engineDllName, "msedge.dll");
+  assert.equal(identity.engineDllDigest, EXPECTED_EDGE_DLL_DIGEST);
+  assert.match(identity.protocolVersion, /^\d+\.\d+$/u);
+  assertSha256(identity.browserRevisionDigest, "Edge browser revision");
+  assert.equal(identity.userAgentProductVerified, true);
+  assert.deepEqual(identity.preNavigationNetworkSentinel, evidence.networkZeroReceipt);
+  assert.equal(evidence.networkZeroReceipt.status, "PASS");
+  assertNetworkZeroReceipt(evidence.networkZeroReceipt);
+}
+
+async function runTaskOwnedEdgeNetworkSentinel() {
+  const mutex = await acquireProductionGateMutex();
+  try {
+    const edge = await validateTaskOwnedEdgeInstallation();
+    const runnerPath = join(repositoryRoot, "scripts", "run-rc6-2-closed-agent-browser.mjs");
+    assert.deepEqual(exactNetworkSentinelRunnerProcesses(runnerPath), [], "network sentinel runner residue exists before sentinel");
+    assert.deepEqual(taskOwnedEdgeProcesses(edge.paths.executablePath), [], "task-owned Edge process residue exists before sentinel");
+    assert.deepEqual(await taskOwnedEdgeProfilePaths(), [], "gate-owned Edge profile residue exists before sentinel");
+    const sentinelSandbox = await mkdtemp(join(resolve(tmpdir()), "novel-rc6-2-sentinel-"));
+    const sentinelSandboxIdentity = await lstat(sentinelSandbox);
+    const cleanEnvironment = {};
+    for (const name of ["SystemRoot", "WINDIR", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "ProgramData", "COMSPEC"]) {
+      if (process.env[name]) cleanEnvironment[name] = process.env[name];
+    }
+    Object.assign(cleanEnvironment, {
+      PATH: "C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\nodejs",
+      NO_COLOR: "1",
+      RC6_2_CLOSED_AI_EDGE_EXECUTABLE: edge.paths.executablePath,
+      RC6_2_CLOSED_AI_HEADLESS: "1",
+      TEMP: sentinelSandbox,
+      TMP: sentinelSandbox,
+    });
+    let child;
+    const startedAt = Date.now();
+    try {
+      child = await runBoundedNetworkSentinelChild(runnerPath, cleanEnvironment, sentinelSandbox);
+    } finally {
+      if (child?.pid && processIdentity(child.pid) !== null) {
+        stopExactProcessTree(child.pid, child.childIdentity);
+      }
+      await removeExactSentinelSandbox(sentinelSandbox, sentinelSandboxIdentity);
+    }
+    assert.deepEqual(exactNetworkSentinelRunnerProcesses(runnerPath), [], "network sentinel runner residue remains after sentinel");
+    assert.deepEqual(taskOwnedEdgeProcesses(edge.paths.executablePath), [], "task-owned Edge process residue remains after sentinel");
+    assert.deepEqual(await taskOwnedEdgeProfilePaths(), [], "gate-owned Edge profile residue remains after sentinel");
+    assert.ok(child);
+    assert.equal(child.timedOut, false, "task-owned Edge sentinel timed out");
+    assert.equal(child.overflow, false, "task-owned Edge sentinel output exceeded its bound");
+    const stderr = new TextDecoder("utf-8", { fatal: true }).decode(child.stderrBytes);
+    assert.equal(child.code, 0, `task-owned Edge sentinel failed: ${stderr}`);
+    assert.equal(child.signal, null);
+    assert.equal(stderr, "");
+    const evidence = parseCanonicalNetworkSentinelEvidence(child.stdoutBytes);
+    validateNetworkSentinelOnlyEvidence(evidence, child.profileObservation, startedAt, Date.now());
+    await writeSafeStream(process.stdout, stableStringify({
+      schemaVersion: "p24b-rc6.2-task-owned-edge-network-sentinel-validation-v1", status: "PASS",
+      applicationRootPathDigest: edge.applicationRootPathDigest, executableDigest: EXPECTED_EDGE_EXE_DIGEST,
+      engineDllDigest: EXPECTED_EDGE_DLL_DIGEST, matrixDigest: evidence.networkZeroReceipt.matrixDigest,
+      runnerExitCode: child.code, runnerResidueCount: 0, taskOwnedEdgeResidueCount: 0,
+      gateOwnedProfileResidueCount: 0, profileDisposed: true,
+    }));
+  } finally {
+    await mutex.release();
+  }
 }
 
 function fixtureObservation(overrides = {}) {
@@ -668,8 +1921,13 @@ function assertProductionRuntimeReceiptStdinBoundary() {
 }
 
 async function runEarlyPreflightMode(mode) {
-  if (mode === "toolchain-receipt") {
+  if (mode === "toolchain-receipt" || mode === "task-owned-edge-toolchain-receipt") {
     await writeSafeStream(process.stdout, stableStringify(await createToolchainReceipt()));
+    return true;
+  }
+  if (mode === "test-task-owned-edge-policy") {
+    await assertTaskOwnedEdgePolicy();
+    await writeSafeStream(process.stdout, "P2.4B RC6.2 task-owned Edge policy: PASS");
     return true;
   }
   if (mode === "production-runtime-receipt") {
@@ -866,6 +2124,8 @@ async function runEarlyPreflightMode(mode) {
 
 const earlyPreflightModes = new Set([
   "toolchain-receipt",
+  "task-owned-edge-toolchain-receipt",
+  "test-task-owned-edge-policy",
   "production-runtime-receipt",
   "validate-production-runtime-receipt",
   "test-preflight-runtime-receipt",
@@ -1561,7 +2821,11 @@ async function writeAuditControlProof() {
   assert.equal(gitOutput(["rev-parse", "HEAD"]), controlCommit);
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", controlCommit]).split(/\s+/u),
-    [controlCommit, C8_BROWSER_GATE_CONTROL],
+    [controlCommit, C9_BROWSER_GATE_CONTROL],
+  );
+  assert.deepEqual(
+    gitOutput(["rev-list", "--parents", "-n", "1", C9_BROWSER_GATE_CONTROL]).split(/\s+/u),
+    [C9_BROWSER_GATE_CONTROL, C8_BROWSER_GATE_CONTROL],
   );
   assert.deepEqual(
     gitOutput(["rev-list", "--parents", "-n", "1", C8_BROWSER_GATE_CONTROL]).split(/\s+/u),
@@ -1600,14 +2864,26 @@ async function writeAuditControlProof() {
     "diff",
     "--name-status",
     "--diff-filter=ACDMRTUXB",
-    C8_BROWSER_GATE_CONTROL,
+    C9_BROWSER_GATE_CONTROL,
     controlCommit,
   ]).split(/\r?\n/u).filter(Boolean).map((line) => {
     const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
     assert.ok(match, "browser gate control diff contains a forbidden status");
     return match[2].replaceAll("\\", "/");
   }).sort();
-  assert.deepEqual(changedPaths, [...C9_GATE_REPAIR_PATHS].sort());
+  assert.deepEqual(changedPaths, [...C10_GATE_REPAIR_PATHS].sort());
+  const c9ChangedPaths = gitOutput([
+    "diff",
+    "--name-status",
+    "--diff-filter=ACDMRTUXB",
+    C8_BROWSER_GATE_CONTROL,
+    C9_BROWSER_GATE_CONTROL,
+  ]).split(/\r?\n/u).filter(Boolean).map((line) => {
+    const match = /^([AM])\t([^\0\r\n\t]{1,512})$/u.exec(line);
+    assert.ok(match, "C9 browser gate control diff contains a forbidden status");
+    return match[2].replaceAll("\\", "/");
+  }).sort();
+  assert.deepEqual(c9ChangedPaths, [...C9_GATE_REPAIR_PATHS].sort());
   const c8ChangedPaths = gitOutput([
     "diff",
     "--name-status",
@@ -1693,7 +2969,7 @@ async function writeAuditControlProof() {
   }).sort();
   assert.deepEqual(compositeChangedPaths, [...COMPOSITE_GATE_BLOB_PATHS].sort());
   const body = {
-    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v6",
+    schemaVersion: "p24b-rc6.2-browser-gate-control-proof-v7",
     operation: process.env.EXPECTED_OPERATION,
     productCommit: PRODUCT_COMMIT,
     failedRecoveryControl: FAILED_RECOVERY_CONTROL,
@@ -1704,8 +2980,9 @@ async function writeAuditControlProof() {
     c6BrowserGateControl: C6_BROWSER_GATE_CONTROL,
     c7BrowserGateControl: C7_BROWSER_GATE_CONTROL,
     c8BrowserGateControl: C8_BROWSER_GATE_CONTROL,
+    c9BrowserGateControl: C9_BROWSER_GATE_CONTROL,
     browserGateControl: controlCommit,
-    parentCommit: C8_BROWSER_GATE_CONTROL,
+    parentCommit: C9_BROWSER_GATE_CONTROL,
     repository: process.env.GITHUB_REPOSITORY,
     eventName: process.env.GITHUB_EVENT_NAME,
     eventRef: process.env.GITHUB_REF,
@@ -1715,6 +2992,7 @@ async function writeAuditControlProof() {
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     lineage: [
       controlCommit,
+      C9_BROWSER_GATE_CONTROL,
       C8_BROWSER_GATE_CONTROL,
       C7_BROWSER_GATE_CONTROL,
       C6_BROWSER_GATE_CONTROL,
@@ -1726,6 +3004,7 @@ async function writeAuditControlProof() {
       PRODUCT_COMMIT,
     ],
     changedPaths,
+    c9ChangedPaths,
     c8ChangedPaths,
     c7ChangedPaths,
     c6ChangedPaths,
@@ -1737,7 +3016,7 @@ async function writeAuditControlProof() {
   const proof = {
     ...body,
     proofDigest: createHash("sha256").update(stableStringify({
-      domain: "p24b-rc6.2-browser-gate-control-proof-v6",
+      domain: "p24b-rc6.2-browser-gate-control-proof-v7",
       body,
     })).digest("hex"),
   };
@@ -1753,19 +3032,19 @@ if (process.argv[2] === "write-audit-control-proof") {
   process.exit(0);
 }
 
-const c9AuditControlProofSchema = ["p24b-rc6.2-browser-gate-control-proof", "v6"].join("-");
-const historicalC8AuditControlProofSchema = [
-  "p24b-rc6.2-browser-gate-control-proof", "v5",
+const c10AuditControlProofSchema = ["p24b-rc6.2-browser-gate-control-proof", "v7"].join("-");
+const historicalC9AuditControlProofSchema = [
+  "p24b-rc6.2-browser-gate-control-proof", "v6",
 ].join("-");
 assert.equal(
-  occurrences(gateContractSource, c9AuditControlProofSchema),
+  occurrences(gateContractSource, c10AuditControlProofSchema),
   2,
-  "C9 audit control proof must bind the v6 body and digest domain",
+  "C10 audit control proof must bind the v7 body and digest domain",
 );
 assert.equal(
-  occurrences(gateContractSource, historicalC8AuditControlProofSchema),
+  occurrences(gateContractSource, historicalC9AuditControlProofSchema),
   0,
-  "C9 audit control proof must not masquerade under the historical C8 v5 schema",
+  "C10 audit control proof must not masquerade under the historical C9 v6 schema",
 );
 
 for (const literal of [
@@ -1778,6 +3057,7 @@ for (const literal of [
   "b326c2fc9925798ffbc750ae37db847f0c8b5625",
   "7dea0b8dd488a0f2a24132266944cb95b2f15ca9",
   "04e78268cfcfeaeffdc72b603d0700944c7142e7",
+  "92fe2ff7550ef3aeff9447252714d10d6c771d6b",
   "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn",
   "novel-ai-p24b-conversation-first-studio-rc6.2",
   "b91dc4695293c9b439b6d4cc2508ffba99915b81",
@@ -2267,6 +3547,106 @@ assert.throws(() => assertNetworkZeroReceipt({
   ...passingNetworkSentinelContractFixture,
   matrixDigest: "0".repeat(64),
 }));
+
+function assertNetworkSentinelOnlyLauncherEvidenceContract() {
+  const completedAt = "2026-08-13T06:00:00.000Z";
+  const completedMs = Date.parse(completedAt);
+  const profilePath = resolve(tmpdir(), "novel-rc6-2-sentinel-ABC123", "novel-rc6-2-edge-Abc123");
+  const profilePathDigest = createHash("sha256").update(profilePath).digest("hex");
+  const networkZeroReceipt = passingNetworkSentinelFixture();
+  const edgeIdentity = {
+    executableName: "msedge.exe",
+    executableDigest: EXPECTED_EDGE_EXE_DIGEST,
+    persistentContext: true,
+    disposableProfile: true,
+    profileOwnership: "runner-created",
+    profileEntryCountBeforeLaunch: 0,
+    profilePathDigest,
+    webSocketRouteInstalledBeforeNavigation: true,
+    product: `Edg/${EXPECTED_EDGE_VERSION}`,
+    engineVersionDirectoryName: EXPECTED_EDGE_VERSION,
+    engineDllName: "msedge.dll",
+    engineDllDigest: EXPECTED_EDGE_DLL_DIGEST,
+    protocolVersion: "1.3",
+    browserRevisionDigest: "a".repeat(64),
+    userAgentProductVerified: true,
+    preNavigationNetworkSentinel: networkZeroReceipt,
+  };
+  const evidence = {
+    schemaVersion: "p24b-rc6.2-network-sentinel-only-evidence-v1",
+    status: "PASS",
+    mode: "network-sentinel-only",
+    networkZeroReceipt,
+    freshBrowserContext: true,
+    profileOwnership: "runner-created",
+    profilePathDigest,
+    edgeIdentity,
+    profileDisposed: true,
+    completedAt,
+  };
+  const canonical = Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  const parsed = parseCanonicalNetworkSentinelEvidence(canonical);
+  validateNetworkSentinelOnlyEvidence(parsed, { profilePath }, completedMs, completedMs);
+  assert.throws(() => parseCanonicalNetworkSentinelEvidence(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), canonical])));
+  assert.throws(() => parseCanonicalNetworkSentinelEvidence(Buffer.from(canonical.toString("utf8").replaceAll("\n", "\r\n"), "utf8")));
+  assert.throws(() => parseCanonicalNetworkSentinelEvidence(Buffer.from(`${canonical.toString("utf8")} `, "utf8")));
+  assert.throws(() => parseCanonicalNetworkSentinelEvidence(Buffer.from(`${JSON.stringify(evidence)}\n`, "utf8")));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, unexpected: true }, { profilePath }, completedMs, completedMs,
+  ));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, profilePathDigest: "0".repeat(64) }, { profilePath }, completedMs, completedMs,
+  ));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, freshBrowserContext: false }, { profilePath }, completedMs, completedMs,
+  ));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, profileOwnership: "wrapper-owned" }, { profilePath }, completedMs, completedMs,
+  ));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, completedAt: "2026-08-13T05:59:00.000Z" }, { profilePath }, completedMs, completedMs,
+  ));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence({
+    ...evidence,
+    edgeIdentity: { ...edgeIdentity, profilePathDigest: "0".repeat(64) },
+  }, { profilePath }, completedMs, completedMs));
+  const embeddedPassBody = {
+    ...passingNetworkSentinelFixture(),
+    receiverBaseline: {
+      ...passingNetworkSentinelFixture().receiverBaseline,
+      tcpConnectionReceiptCount: 2,
+    },
+  };
+  delete embeddedPassBody.matrixDigest;
+  const embeddedPass = {
+    ...embeddedPassBody,
+    matrixDigest: networkSentinelMatrixDigest(embeddedPassBody),
+  };
+  assertNetworkZeroReceipt(embeddedPass);
+  assert.throws(() => validateNetworkSentinelOnlyEvidence({
+    ...evidence,
+    edgeIdentity: { ...edgeIdentity, preNavigationNetworkSentinel: embeddedPass },
+  }, { profilePath }, completedMs, completedMs));
+  const semanticFailureBody = {
+    ...passingNetworkSentinelFixture(),
+    httpRouteObservedCount: 3,
+  };
+  delete semanticFailureBody.matrixDigest;
+  const semanticFailure = {
+    ...semanticFailureBody,
+    matrixDigest: networkSentinelMatrixDigest(semanticFailureBody),
+  };
+  assert.throws(() => validateNetworkSentinelOnlyEvidence({
+    ...evidence,
+    networkZeroReceipt: semanticFailure,
+    edgeIdentity: { ...edgeIdentity, preNavigationNetworkSentinel: semanticFailure },
+  }, { profilePath }, completedMs, completedMs));
+  assert.throws(() => validateNetworkSentinelOnlyEvidence(
+    { ...evidence, profileDisposed: false }, { profilePath }, completedMs, completedMs,
+  ));
+}
+
+assertNetworkSentinelOnlyLauncherEvidenceContract();
 
 function classifyRunnerFailureSchema(evidence) {
   for (const optionalKeys of [
@@ -3172,7 +4552,8 @@ assert.match(wrapper, /\$ExpectedLkgSelectionProofDigest/u);
 assert.match(wrapper, /\[ValidateSet\("PreflightDryRun", "FormalBrowserGate"\)\][\s\S]*\[string\]\$ExecutionMode/u);
 assert.doesNotMatch(wrapper, /\$ExecutionMode\s*=/u);
 assert.match(wrapper, /if \(\$head -ne \$ExpectedGateControlCommit\) \{ Fail "LOCAL_GATE_CONTROL_MISMATCH" \}/u);
-assert.match(wrapper, /\$headParents\[1\] -ne \$c8BrowserGateControl/u);
+assert.match(wrapper, /\$headParents\[1\] -ne \$c9BrowserGateControl/u);
+assert.match(wrapper, /\$c9Parents\[1\] -ne \$c8BrowserGateControl/u);
 assert.match(wrapper, /\$c8Parents\[1\] -ne \$c7BrowserGateControl/u);
 assert.match(wrapper, /\$c7Parents\[1\] -ne \$c6BrowserGateControl/u);
 assert.match(wrapper, /\$c6Parents\[1\] -ne \$c5BrowserGateControl/u);
@@ -3181,7 +4562,8 @@ assert.match(wrapper, /\$c4Parents\[1\] -ne \$initialBrowserGateControl/u);
 assert.match(wrapper, /\$initialParents\[1\] -ne \$productionRecoveryControl/u);
 assert.match(wrapper, /\$recoveryParents\[1\] -ne \$failedRecoveryControl/u);
 assert.match(wrapper, /\$failedParents\[1\] -ne \$productCommit/u);
-assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c8BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c9RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c9BrowserGateControl -HeadCommit \$head -ExpectedPaths \$c10RepairGatePaths/u);
+assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c8BrowserGateControl -HeadCommit \$c9BrowserGateControl -ExpectedPaths \$c9RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c7BrowserGateControl -HeadCommit \$c8BrowserGateControl -ExpectedPaths \$c8RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c6BrowserGateControl -HeadCommit \$c7BrowserGateControl -ExpectedPaths \$c7RepairGatePaths/u);
 assert.match(wrapper, /Assert-ControlDiffPaths -BaseCommit \$c5BrowserGateControl -HeadCommit \$c6BrowserGateControl -ExpectedPaths \$c6RepairGatePaths/u);
@@ -3195,6 +4577,7 @@ for (const path of COMPOSITE_GATE_BLOB_PATHS) assert.ok(wrapper.includes(`"${pat
 for (const path of C7_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C7 repair path is missing: ${path}`);
 for (const path of C8_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C8 repair path is missing: ${path}`);
 for (const path of C9_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C9 repair path is missing: ${path}`);
+for (const path of C10_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C10 repair path is missing: ${path}`);
 for (const path of C6_GATE_REPAIR_PATHS) assert.ok(wrapper.includes(`"${path}"`), `C6 repair path is missing: ${path}`);
 for (const path of PRODUCT_RUNTIME_TRUTH_PATHS) {
   assert.ok(wrapper.includes(`"${path}"`), `Product runtime truth blob pin is missing: ${path}`);
@@ -3203,6 +4586,7 @@ assert.match(wrapper, /\^\(\[AM\]\)`t/u);
 assert.match(wrapper, /C7_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /C8_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /C9_GATE_REPAIR_DIFF_INVALID/u);
+assert.match(wrapper, /C10_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /C6_GATE_REPAIR_DIFF_INVALID/u);
 assert.match(wrapper, /GATE_COMPOSITE_DIFF_INVALID/u);
 assert.ok(occurrences(wrapper, "Assert-MainCas \"MAIN_CAS_") >= 4);
@@ -3251,12 +4635,16 @@ assert.match(wrapper, /NODE_DIGEST_INVALID/u);
 assert.match(wrapper, /EDGE_DIGEST_INVALID/u);
 assert.match(wrapper, /EDGE_ENGINE_DIGEST_INVALID/u);
 assert.match(wrapper, /EDGE_VERSION_INVALID/u);
+assert.match(wrapper, /Initialize-TaskOwnedEdgePaths/u);
+assert.match(wrapper, /NovelRC62Toolchains/u);
+assert.match(wrapper, /TASK_OWNED_EDGE_NOT_PROVISIONED/u);
+assert.doesNotMatch(wrapper, /RC6_2_[A-Z0-9_]*(?:EDGE|BROWSER)[A-Z0-9_]*\s*\)/u);
 assert.ok(occurrences(wrapper, "$startInfo.EnvironmentVariables.Clear()") >= 4);
 assert.match(wrapper, /GIT_NO_REPLACE_OBJECTS/u);
 assert.match(wrapper, /GIT_OPTIONAL_LOCKS/u);
 assert.match(wrapper, /core\.fsmonitor/u);
 assert.match(wrapper, /core\.untrackedCache/u);
-assert.equal(occurrences(wrapper, '"--untracked-files=all"'), 3);
+assert.equal(occurrences(wrapper, '"--untracked-files=all"'), 6);
 assert.match(wrapper, /\$startInfo\.FileName = \$nodeExe/u);
 assert.match(wrapper, /\$startInfo\.Arguments = "`"\$runnerPath`" generation"/u);
 assert.match(wrapper, /\$startInfo\.EnvironmentVariables\["RC6_2_CLOSED_AI_BASE_URL"\] = \$deploymentOrigin/u);
@@ -3286,6 +4674,42 @@ assert.match(wrapper, /WORKTREE_STATUS_LINEARIZATION_FAILED/u);
 assert.match(wrapper, /PRODUCTION_BROWSER_RUNTIME_RECEIPT_LINEARIZATION_FAILED/u);
 assert.match(wrapper, /Invoke-CleanNodeContract \(\s*"production-runtime-receipt"/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "toolchain-receipt"/u);
+assert.equal(occurrences(wrapper, '"toolchain-receipt"'), 2);
+assert.match(wrapper, /function Assert-TaskOwnedEdgeToolchainReceipt/u);
+assert.match(wrapper, /applicationRootPathDigest/u);
+assert.match(wrapper, /sourceManifestDigest/u);
+assert.match(wrapper, /applicationDirectoryDigest/u);
+assert.match(wrapper, /TASK_OWNED_EDGE_REVALIDATION_DRIFT/u);
+assert.ok(
+  wrapper.indexOf('$toolchainReceiptText = Invoke-CleanNodeContract "toolchain-receipt"')
+    < wrapper.indexOf('if ($ExecutionMode -eq "FormalBrowserGate") { Initialize-FormalAttempt }'),
+  "full task-owned Edge receipt must precede formal claim creation",
+);
+const firstToolchainReceiptIndex = wrapper.indexOf('$toolchainReceiptText = Invoke-CleanNodeContract "toolchain-receipt"');
+const formalInitializeIndex = wrapper.indexOf('if ($ExecutionMode -eq "FormalBrowserGate") { Initialize-FormalAttempt }');
+const firstReceiptCas = wrapper.slice(firstToolchainReceiptIndex, formalInitializeIndex);
+assert.match(firstReceiptCas, /WORKTREE_STATUS_AFTER_TOOLCHAIN_RECEIPT_FAILED/u);
+assert.match(firstReceiptCas, /Assert-ControlLineage/u);
+assert.match(firstReceiptCas, /Assert-TrackedGateBlobs/u);
+assert.match(firstReceiptCas, /Assert-ProductRuntimeBlobs/u);
+assert.match(firstReceiptCas, /Assert-MainCas "MAIN_CAS_AFTER_TOOLCHAIN_RECEIPT_FAILED"/u);
+assert.ok(
+  wrapper.lastIndexOf('"toolchain-receipt"')
+    < wrapper.indexOf('Invoke-FormalAttemptTransition "LAUNCH_COMMITTED"'),
+  "second task-owned Edge receipt must precede LAUNCH_COMMITTED",
+);
+const secondToolchainReceiptIndex = wrapper.lastIndexOf('"toolchain-receipt"');
+const launchCommittedIndex = wrapper.indexOf('Invoke-FormalAttemptTransition "LAUNCH_COMMITTED"');
+const secondReceiptCas = wrapper.slice(secondToolchainReceiptIndex, launchCommittedIndex);
+assert.match(secondReceiptCas, /WORKTREE_STATUS_AFTER_LAUNCH_RECEIPT_FAILED/u);
+assert.match(secondReceiptCas, /Assert-ControlLineage/u);
+assert.match(secondReceiptCas, /Assert-TrackedGateBlobs/u);
+assert.match(secondReceiptCas, /Assert-ProductRuntimeBlobs/u);
+assert.match(secondReceiptCas, /Assert-MainCas "MAIN_CAS_AFTER_LAUNCH_RECEIPT_FAILED"/u);
+for (const formalDigest of [
+  "$formalWrapperDigest", "$formalRunnerDigest", "$formalContractDigest",
+  "$formalAttemptStateDigest", "$terminalEvidenceDigest", "$runnerEnvelopeValidatorDigest",
+]) assert.match(secondReceiptCas, new RegExp(formalDigest.replace("$", "\\$"), "u"));
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-production-runtime-receipt"/u);
 assert.match(wrapper, /Assert-PersistedRuntimeReceipt/u);
 assert.match(wrapper, /Invoke-CleanNodeContract "validate-evidence"/u);
@@ -3656,6 +5080,18 @@ assert.equal(
   packageScripts["test:rc6.2:network-sentinel-real-edge"],
   "node scripts/run-rc6-2-closed-agent-browser.mjs network-sentinel-only",
 );
+assert.equal(
+  packageScripts["test:rc6.2:task-owned-edge-network-sentinel"],
+  "node scripts/run-rc6-2-production-browser-gate-contract.mjs task-owned-edge-network-sentinel",
+);
+assert.equal(
+  packageScripts["test:rc6.2:task-owned-edge-policy"],
+  "node scripts/run-rc6-2-production-browser-gate-contract.mjs test-task-owned-edge-policy",
+);
+assert.equal(
+  packageScripts["test:rc6.2:task-owned-edge-toolchain"],
+  "node scripts/run-rc6-2-production-browser-gate-contract.mjs task-owned-edge-toolchain-receipt",
+);
 
 assert.match(
   workflow,
@@ -3683,7 +5119,9 @@ const parser = spawnSync(
 );
 assert.equal(parser.status, 0, `PowerShell parser rejected gate wrapper: ${parser.stderr.trim()}`);
 
-if (process.argv[2] === "validate-evidence") {
+if (process.argv[2] === "task-owned-edge-network-sentinel") {
+  await runTaskOwnedEdgeNetworkSentinel();
+} else if (process.argv[2] === "validate-evidence") {
   await validateEvidence();
 } else if (process.argv[2] === "validate-failure-evidence") {
   await validateFailureEvidence();

@@ -443,7 +443,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 10
+          fetch-depth: 11
           persist-credentials: false
 
       - name: Enforce exact read-only LKG audit policy
@@ -470,7 +470,7 @@ jobs:
           BROWSER_GATE_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json
         run: node scripts/run-rc6-2-production-browser-gate-contract.mjs write-audit-control-proof
 
-      - name: Validate exact C9 read-only audit control proof
+      - name: Validate exact C10 read-only audit control proof
         if: inputs.operation == 'audit-rc6-2-last-known-good'
         env:
           BROWSER_GATE_CONTROL_PROOF_PATH: ${{ runner.temp }}/rc6-2-browser-gate-control-proof.json

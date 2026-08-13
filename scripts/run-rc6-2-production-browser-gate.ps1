@@ -47,23 +47,87 @@ function Test-ExactOrdinalStringSet([object[]]$Actual, [string[]]$Expected) {
   return $true
 }
 
+function Initialize-TaskOwnedEdgePaths {
+  $localAppData = [Environment]::GetEnvironmentVariable("LOCALAPPDATA")
+  if (-not $localAppData -or -not [IO.Path]::IsPathRooted($localAppData)) {
+    Fail "TASK_OWNED_EDGE_LOCALAPPDATA_INVALID"
+  }
+  $localRoot = [IO.Path]::GetFullPath($localAppData).TrimEnd('\')
+  $toolchainsRoot = [IO.Path]::GetFullPath((Join-Path $localRoot "NovelRC62Toolchains"))
+  $edgeFamilyRoot = [IO.Path]::GetFullPath((Join-Path $toolchainsRoot "Edge"))
+  $toolchainRoot = [IO.Path]::GetFullPath((Join-Path $edgeFamilyRoot $expectedEdgeVersion))
+  $applicationRoot = [IO.Path]::GetFullPath((Join-Path $toolchainRoot "Application"))
+  $versionRoot = [IO.Path]::GetFullPath((Join-Path $applicationRoot $expectedEdgeVersion))
+  if (
+    -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($toolchainsRoot), $localRoot) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($edgeFamilyRoot), $toolchainsRoot) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($toolchainRoot), $edgeFamilyRoot) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($applicationRoot), $toolchainRoot) -or
+    -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($versionRoot), $applicationRoot)
+  ) { Fail "TASK_OWNED_EDGE_ROOT_INVALID" }
+  foreach ($directory in @(
+    $localRoot, $toolchainsRoot, $edgeFamilyRoot, $toolchainRoot, $applicationRoot, $versionRoot
+  )) {
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+      Fail "TASK_OWNED_EDGE_NOT_PROVISIONED"
+    }
+    $truth = Get-Item -LiteralPath $directory -Force
+    if (
+      -not $truth.PSIsContainer -or
+      ($truth.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+      $null -ne $truth.LinkType -or
+      -not [StringComparer]::OrdinalIgnoreCase.Equals($truth.FullName.TrimEnd('\'), $directory.TrimEnd('\'))
+    ) { Fail "TASK_OWNED_EDGE_ROOT_INVALID" }
+  }
+  $script:edgeToolchainRoot = $toolchainRoot
+  $script:edgeApplicationRoot = $applicationRoot
+  $script:edgeExe = Join-Path $applicationRoot "msedge.exe"
+  $script:edgeVersionRoot = $versionRoot
+  $script:edgeDll = Join-Path $versionRoot "msedge.dll"
+  $script:edgeToolchainManifestPath = Join-Path $toolchainRoot "toolchain-manifest.json"
+  foreach ($requiredFile in @($edgeExe, $edgeDll, $edgeToolchainManifestPath)) {
+    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+      Fail "TASK_OWNED_EDGE_NOT_PROVISIONED"
+    }
+  }
+}
+
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location -LiteralPath $repoRoot
 $gitExe = "C:\Program Files\Git\cmd\git.exe"
 $ghExe = "C:\Program Files\GitHub CLI\gh.exe"
 $nodeExe = "C:\Program Files\nodejs\node.exe"
-$edgeExe = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+$edgeToolchainRoot = $null
+$edgeApplicationRoot = $null
+$edgeExe = $null
+$edgeVersionRoot = $null
+$edgeDll = $null
+$edgeToolchainManifestPath = $null
 $canonicalRepositoryUrl = "https://github.com/bobobo-org/novel.git"
 $githubApiRoot = "https://api.github.com/repos/bobobo-org/novel"
 $expectedGitSha256 = "22fead8244ef3a7225fb800099a4e43eca8bcec0466774917669599c2f19a05a"
 $expectedGhSha256 = "cd79f16203f1fbe56937c4c96e2b6eadd10549418dcb241d91576ac77af0ac8b"
 $expectedNodeSha256 = "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de"
-$expectedEdgeSha256 = "e73e04dacdb48557c13d9f93f90a248f3e5a0bf55bb738f2fc548a768a9a10af"
-$expectedEdgeDllSha256 = "340669f76761a7844f6efa26ee58781a68ae43d5f54dbe158545528b8507137a"
-$expectedEdgeDirectorySha256 = "7148bc3bddf499f24f003ed47741301ee10792f709fb7966876ebcbdfb0b0974"
-$expectedEdgeVersion = "151.0.4129.72"
-$edgeVersionRoot = "C:\Program Files (x86)\Microsoft\Edge\Application\151.0.4129.72"
-$edgeDll = Join-Path $edgeVersionRoot "msedge.dll"
+$expectedEdgeSha256 = "af02a342b7e6fa7d1154d9152b5997ff2be300b3a7a678feaae863c9fbea32cb"
+$expectedEdgeDllSha256 = "29b191751916dbfe5ed4206022a0d7ab45bd79966d9074ed872112d1865dcec6"
+$expectedEdgeDirectorySha256 = "9d79d47dd5fde1d3fcf2fb7e740b85b1f25441d84d5e4240d3a51182f3570f13"
+$expectedEdgeApplicationSha256 = "bf2e1fe3a62d67d1c9915191b161c64b99203bbbe03e88c07ab7aa7ab295d273"
+$expectedEdgeManifestDigest = "cc7564ed83797ee8ab21a8101ab473592c0b05fc9fd14915e8c5db75ef806f06"
+$expectedEdgeManifestFileSha256 = "2e9a981c925362aedc3b7202a2aac0ef165b3b9e774bb44344a255cc3f36c4cd"
+$expectedEdgeSourceMsiSha256 = "716b2549eedf4305b92d149186f878394c8d8b7b743db0eaaec773349ed3c273"
+$expectedEdgeVisualManifestSha256 = "582a35a65c0362bda88598852ff9e153e1e044bc76d21fb90492b60ee31b6aa7"
+$expectedEdgeProxySha256 = "5347986b9305d3b471efafb452416c91f254fef9bc3a8d405a2e03da059e1d02"
+$expectedEdgePwaHelperSha256 = "6a6a11189a9830a5248927257bc1c2e5c40c8f263d86879649c7b4ff15c9b332"
+$expectedEdgeVersion = "151.0.4129.78"
+$expectedEdgeManifestSchema = "p24b-rc6.2-task-owned-edge-toolchain-manifest-v1"
+$expectedEdgeSourceMsiUrl = "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f5e477ef-f201-49dd-866a-8e25850421dd/MicrosoftEdgeEnterpriseX64.msi"
+$expectedEdgeSourceMsiPublishedAt = "2026-08-10T15:04:00.000Z"
+$expectedEdgeProvisionedAt = "2026-08-13T05:39:37.000Z"
+$expectedEdgeVersionDirectoryFileCount = 784L
+$expectedEdgeVersionDirectoryByteCount = 902472183L
+$expectedEdgeApplicationDirectoryCount = 45L
+$expectedEdgeApplicationFileCount = 789L
+$expectedEdgeApplicationByteCount = 915721905L
 $productCommit = "29fc6e742672bb07187765d34ea818afdadf56ae"
 $productionRecoveryControl = "9cd074f239b73dd9b61f6d758fcf97fbd809face"
 $failedRecoveryControl = "3b716fc0d974a9d59b49ffca5953776af66c7a07"
@@ -73,6 +137,7 @@ $c5BrowserGateControl = "99695b247c2b1626c38efc8ae4589dd9bd8d30da"
 $c6BrowserGateControl = "b326c2fc9925798ffbc750ae37db847f0c8b5625"
 $c7BrowserGateControl = "7dea0b8dd488a0f2a24132266944cb95b2f15ca9"
 $c8BrowserGateControl = "04e78268cfcfeaeffdc72b603d0700944c7142e7"
+$c9BrowserGateControl = "92fe2ff7550ef3aeff9447252714d10d6c771d6b"
 $expectedDeployment = "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"
 $releaseTag = "novel-ai-p24b-conversation-first-studio-rc6.2"
 $releaseBuild = "rc6.2+$productCommit"
@@ -117,6 +182,7 @@ $runtimeReceiptValidation = $null
 $runtimeObservation = $null
 $lastNodeContractMetrics = $null
 $toolchainReceipt = $null
+$toolchainReceiptText = $null
 $runnerPath = Join-Path $repoRoot "scripts\run-rc6-2-closed-agent-browser.mjs"
 $wrapperPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate.ps1"
 $contractPath = Join-Path $repoRoot "scripts\run-rc6-2-production-browser-gate-contract.mjs"
@@ -221,6 +287,13 @@ $c9RepairGatePaths = @(
   "scripts/run-rc6-2-production-browser-gate.ps1",
   "scripts/run-rc6-2-runner-envelope-tests.mjs",
   "scripts/run-rc6-2-terminal-evidence-tests.mjs"
+)
+$c10RepairGatePaths = @(
+  ".github/workflows/deploy.yml",
+  "package.json",
+  "scripts/run-pr23-r21-workflow-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate-contract.mjs",
+  "scripts/run-rc6-2-production-browser-gate.ps1"
 )
 $productRuntimePaths = @(
   "lib/novel-ai/character-agent/repository.ts",
@@ -1519,6 +1592,7 @@ function Assert-ControlLineage {
   $originUrl = Invoke-GitScalar @("config", "--get", "remote.origin.url") "LOCAL_ORIGIN_READ_FAILED"
   if ($originUrl -ne $canonicalRepositoryUrl) { Fail "LOCAL_ORIGIN_MISMATCH" }
   $headParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $head) "GATE_PARENT_READ_FAILED") -split "\s+"
+  $c9Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c9BrowserGateControl) "C9_GATE_PARENT_READ_FAILED") -split "\s+"
   $c8Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c8BrowserGateControl) "C8_GATE_PARENT_READ_FAILED") -split "\s+"
   $c7Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c7BrowserGateControl) "C7_GATE_PARENT_READ_FAILED") -split "\s+"
   $c6Parents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $c6BrowserGateControl) "C6_GATE_PARENT_READ_FAILED") -split "\s+"
@@ -1527,8 +1601,11 @@ function Assert-ControlLineage {
   $initialParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $initialBrowserGateControl) "INITIAL_GATE_PARENT_READ_FAILED") -split "\s+"
   $recoveryParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $productionRecoveryControl) "RECOVERY_PARENT_READ_FAILED") -split "\s+"
   $failedParents = (Invoke-GitScalar @("rev-list", "--parents", "-n", "1", $failedRecoveryControl) "FAILED_CONTROL_PARENT_READ_FAILED") -split "\s+"
-  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c8BrowserGateControl) {
+  if ($headParents.Count -ne 2 -or $headParents[0] -ne $head -or $headParents[1] -ne $c9BrowserGateControl) {
     Fail "GATE_CONTROL_PARENT_MISMATCH"
+  }
+  if ($c9Parents.Count -ne 2 -or $c9Parents[0] -ne $c9BrowserGateControl -or $c9Parents[1] -ne $c8BrowserGateControl) {
+    Fail "C9_GATE_CONTROL_PARENT_MISMATCH"
   }
   if ($c8Parents.Count -ne 2 -or $c8Parents[0] -ne $c8BrowserGateControl -or $c8Parents[1] -ne $c7BrowserGateControl) {
     Fail "C8_GATE_CONTROL_PARENT_MISMATCH"
@@ -1555,7 +1632,8 @@ function Assert-ControlLineage {
     Fail "FAILED_CONTROL_PRODUCT_PARENT_MISMATCH"
   }
   [void](Invoke-Git @("merge-base", "--is-ancestor", $productCommit, $head) "PRODUCT_NOT_GATE_ANCESTOR")
-  Assert-ControlDiffPaths -BaseCommit $c8BrowserGateControl -HeadCommit $head -ExpectedPaths $c9RepairGatePaths -Code "C9_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c9BrowserGateControl -HeadCommit $head -ExpectedPaths $c10RepairGatePaths -Code "C10_GATE_REPAIR_DIFF_INVALID"
+  Assert-ControlDiffPaths -BaseCommit $c8BrowserGateControl -HeadCommit $c9BrowserGateControl -ExpectedPaths $c9RepairGatePaths -Code "C9_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c7BrowserGateControl -HeadCommit $c8BrowserGateControl -ExpectedPaths $c8RepairGatePaths -Code "C8_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c6BrowserGateControl -HeadCommit $c7BrowserGateControl -ExpectedPaths $c7RepairGatePaths -Code "C7_GATE_REPAIR_DIFF_INVALID"
   Assert-ControlDiffPaths -BaseCommit $c5BrowserGateControl -HeadCommit $c6BrowserGateControl -ExpectedPaths $c6RepairGatePaths -Code "C6_GATE_REPAIR_DIFF_INVALID"
@@ -2054,6 +2132,90 @@ function Sha256Text([string]$Value) {
   } finally {
     $algorithm.Dispose()
   }
+}
+
+function Assert-TaskOwnedEdgeToolchainReceipt([string]$Text, [string]$Code) {
+  if (
+    -not $Text -or
+    $Text.Length -gt 1048576 -or
+    $Text.Contains("`r") -or
+    $Text.Contains("`n") -or
+    $Text.IndexOf([char]0) -ge 0
+  ) { Fail $Code }
+  try {
+    $receipt = $Text | ConvertFrom-Json
+  } catch {
+    Fail $Code
+  }
+  if (
+    $null -eq $receipt -or
+    -not (Test-ExactOrdinalStringSet -Actual @($receipt.PSObject.Properties.Name) -Expected @(
+      "schemaVersion",
+      "packageJsonDigest",
+      "pnpmLockDigest",
+      "dependencies",
+      "dependencyLinks",
+      "edge",
+      "proofDigest"
+    )) -or
+    $null -eq $receipt.edge -or
+    -not (Test-ExactOrdinalStringSet -Actual @($receipt.edge.PSObject.Properties.Name) -Expected @(
+      "installationKind",
+      "version",
+      "applicationRootPathDigest",
+      "sourceManifestSchemaVersion",
+      "sourceManifestDigest",
+      "sourceManifestFileSha256",
+      "sourceMsiUrl",
+      "sourceMsiDigest",
+      "sourceMsiPublishedAt",
+      "provisionedAt",
+      "executableDigest",
+      "engineDllDigest",
+      "visualElementsManifestDigest",
+      "proxyExecutableDigest",
+      "pwaHelperExecutableDigest",
+      "versionDirectoryDigest",
+      "versionDirectoryFileCount",
+      "versionDirectoryByteCount",
+      "applicationDirectoryDigest",
+      "applicationDirectoryCount",
+      "applicationFileCount",
+      "applicationByteCount"
+    ))
+  ) { Fail $Code }
+  $expectedApplicationRootPathDigest = Sha256Text (
+    "p24b-rc6.2-task-owned-edge-application-root-v1`n$($edgeApplicationRoot.ToLowerInvariant())"
+  )
+  if (
+    [string]$receipt.schemaVersion -ne "p24b-rc6.2-production-browser-toolchain-receipt-v1" -or
+    [string]$receipt.packageJsonDigest -notmatch '^[a-f0-9]{64}$' -or
+    [string]$receipt.pnpmLockDigest -notmatch '^[a-f0-9]{64}$' -or
+    [string]$receipt.edge.installationKind -ne "task-owned-receipt-sealed" -or
+    [string]$receipt.edge.version -ne $expectedEdgeVersion -or
+    [string]$receipt.edge.applicationRootPathDigest -ne $expectedApplicationRootPathDigest -or
+    [string]$receipt.edge.sourceManifestSchemaVersion -ne $expectedEdgeManifestSchema -or
+    [string]$receipt.edge.sourceManifestDigest -ne $expectedEdgeManifestDigest -or
+    [string]$receipt.edge.sourceManifestFileSha256 -ne $expectedEdgeManifestFileSha256 -or
+    [string]$receipt.edge.sourceMsiUrl -ne $expectedEdgeSourceMsiUrl -or
+    [string]$receipt.edge.sourceMsiDigest -ne $expectedEdgeSourceMsiSha256 -or
+    [string]$receipt.edge.sourceMsiPublishedAt -ne $expectedEdgeSourceMsiPublishedAt -or
+    [string]$receipt.edge.provisionedAt -ne $expectedEdgeProvisionedAt -or
+    [string]$receipt.edge.executableDigest -ne $expectedEdgeSha256 -or
+    [string]$receipt.edge.engineDllDigest -ne $expectedEdgeDllSha256 -or
+    [string]$receipt.edge.visualElementsManifestDigest -ne $expectedEdgeVisualManifestSha256 -or
+    [string]$receipt.edge.proxyExecutableDigest -ne $expectedEdgeProxySha256 -or
+    [string]$receipt.edge.pwaHelperExecutableDigest -ne $expectedEdgePwaHelperSha256 -or
+    [string]$receipt.edge.versionDirectoryDigest -ne $expectedEdgeDirectorySha256 -or
+    [long]$receipt.edge.versionDirectoryFileCount -ne $expectedEdgeVersionDirectoryFileCount -or
+    [long]$receipt.edge.versionDirectoryByteCount -ne $expectedEdgeVersionDirectoryByteCount -or
+    [string]$receipt.edge.applicationDirectoryDigest -ne $expectedEdgeApplicationSha256 -or
+    [long]$receipt.edge.applicationDirectoryCount -ne $expectedEdgeApplicationDirectoryCount -or
+    [long]$receipt.edge.applicationFileCount -ne $expectedEdgeApplicationFileCount -or
+    [long]$receipt.edge.applicationByteCount -ne $expectedEdgeApplicationByteCount -or
+    [string]$receipt.proofDigest -notmatch '^[a-f0-9]{64}$'
+  ) { Fail $Code }
+  return $receipt
 }
 
 function Get-RunnerProgressCounts([string]$Value) {
@@ -2673,12 +2835,14 @@ $preflightFailurePath = [string]$evidenceDestination.PreflightFailurePath
 $preflightFailureShaPath = [string]$evidenceDestination.PreflightFailureShaPath
 $preflightManifestPath = [string]$evidenceDestination.PreflightManifestPath
 $rootCauseAnalysisPath = [string]$evidenceDestination.RootCauseAnalysisPath
+Initialize-TaskOwnedEdgePaths
 foreach ($requiredPath in @(
   $gitExe,
   $ghExe,
   $nodeExe,
   $edgeExe,
   $edgeDll,
+  $edgeToolchainManifestPath,
   $runnerPath,
   $wrapperPath,
   $contractPath,
@@ -2703,6 +2867,17 @@ foreach ($trackedPath in $allowedGatePaths) {
 Assert-ControlLineage
 Assert-TrackedGateBlobs
 Assert-ProductRuntimeBlobs
+$toolchainReceiptText = Invoke-CleanNodeContract "toolchain-receipt" @{} "PRODUCTION_BROWSER_TOOLCHAIN_RECEIPT_FAILED"
+$toolchainReceipt = Assert-TaskOwnedEdgeToolchainReceipt (
+  $toolchainReceiptText
+) "PRODUCTION_BROWSER_TOOLCHAIN_RECEIPT_INVALID"
+if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_AFTER_TOOLCHAIN_RECEIPT_FAILED").Count -ne 0) {
+  Fail "WORKTREE_NOT_CLEAN_AFTER_TOOLCHAIN_RECEIPT"
+}
+Assert-ControlLineage
+Assert-TrackedGateBlobs
+Assert-ProductRuntimeBlobs
+Assert-MainCas "MAIN_CAS_AFTER_TOOLCHAIN_RECEIPT_FAILED"
 if ($ExecutionMode -eq "FormalBrowserGate") { Initialize-FormalAttempt }
 Assert-MainCas "MAIN_CAS_BEFORE_GATE_FAILED"
 Assert-ReleaseTag
@@ -2735,17 +2910,6 @@ $identityBefore = @(
   Get-ReleaseIdentity $deploymentOrigin "DEPLOYMENT_IDENTITY_BEFORE_INVALID"
 )
 Assert-IdentitySet $identityBefore "IDENTITY_SET_BEFORE_MISMATCH"
-
-$toolchainReceiptText = Invoke-CleanNodeContract "toolchain-receipt" @{} "PRODUCTION_BROWSER_TOOLCHAIN_RECEIPT_FAILED"
-$toolchainReceipt = $toolchainReceiptText | ConvertFrom-Json
-if (
-  [string]$toolchainReceipt.schemaVersion -ne "p24b-rc6.2-production-browser-toolchain-receipt-v1" -or
-  [string]$toolchainReceipt.edge.version -ne $expectedEdgeVersion -or
-  [string]$toolchainReceipt.edge.executableDigest -ne $expectedEdgeSha256 -or
-  [string]$toolchainReceipt.edge.engineDllDigest -ne $expectedEdgeDllSha256 -or
-  [string]$toolchainReceipt.edge.versionDirectoryDigest -ne $expectedEdgeDirectorySha256 -or
-  [string]$toolchainReceipt.proofDigest -notmatch '^[a-f0-9]{64}$'
-) { Fail "PRODUCTION_BROWSER_TOOLCHAIN_RECEIPT_INVALID" }
 
 $receiptCreatedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 $runtimeObservation = [pscustomobject][ordered]@{
@@ -2984,6 +3148,43 @@ try {
   )) {
     if (Test-Path -LiteralPath $path) { Fail "FORMAL_RUNNER_ENVELOPE_PATH_PREEXISTED" }
   }
+  if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_BEFORE_LAUNCH_FAILED").Count -ne 0) {
+    Fail "WORKTREE_NOT_CLEAN_BEFORE_LAUNCH"
+  }
+  Assert-TrackedGateBlobs
+  Assert-ProductRuntimeBlobs
+  if (
+    (Get-FileHash -LiteralPath $wrapperPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalWrapperDigest -or
+    (Get-FileHash -LiteralPath $runnerPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalRunnerDigest -or
+    (Get-FileHash -LiteralPath $contractPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalContractDigest -or
+    (Get-FileHash -LiteralPath $formalAttemptStatePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalAttemptStateDigest -or
+    (Get-FileHash -LiteralPath $terminalEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $terminalEvidenceDigest -or
+    (Get-FileHash -LiteralPath $runnerEnvelopeValidatorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runnerEnvelopeValidatorDigest
+  ) { Fail "FORMAL_CODE_DIGEST_BEFORE_LAUNCH_INVALID" }
+  $launchToolchainReceiptText = Invoke-CleanNodeContract (
+    "toolchain-receipt"
+  ) @{} "TASK_OWNED_EDGE_REVALIDATION_FAILED"
+  [void](Assert-TaskOwnedEdgeToolchainReceipt (
+    $launchToolchainReceiptText
+  ) "TASK_OWNED_EDGE_REVALIDATION_FAILED")
+  if (-not [StringComparer]::Ordinal.Equals($launchToolchainReceiptText, $toolchainReceiptText)) {
+    Fail "TASK_OWNED_EDGE_REVALIDATION_DRIFT"
+  }
+  if (@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all") "WORKTREE_STATUS_AFTER_LAUNCH_RECEIPT_FAILED").Count -ne 0) {
+    Fail "WORKTREE_NOT_CLEAN_AFTER_LAUNCH_RECEIPT"
+  }
+  Assert-ControlLineage
+  Assert-TrackedGateBlobs
+  Assert-ProductRuntimeBlobs
+  Assert-MainCas "MAIN_CAS_AFTER_LAUNCH_RECEIPT_FAILED"
+  if (
+    (Get-FileHash -LiteralPath $wrapperPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalWrapperDigest -or
+    (Get-FileHash -LiteralPath $runnerPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalRunnerDigest -or
+    (Get-FileHash -LiteralPath $contractPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalContractDigest -or
+    (Get-FileHash -LiteralPath $formalAttemptStatePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $formalAttemptStateDigest -or
+    (Get-FileHash -LiteralPath $terminalEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $terminalEvidenceDigest -or
+    (Get-FileHash -LiteralPath $runnerEnvelopeValidatorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runnerEnvelopeValidatorDigest
+  ) { Fail "FORMAL_LAUNCH_VERIFIER_DIGEST_INVALID" }
   [void](Invoke-FormalAttemptTransition "LAUNCH_COMMITTED" ([ordered]@{}) (
     "PREFLIGHT_PASSED"
   ) "LAUNCH_COMMITTED" "FORMAL_LAUNCH_COMMIT_FAILED")
