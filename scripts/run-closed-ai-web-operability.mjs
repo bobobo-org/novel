@@ -1118,7 +1118,8 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(characterAgentSource.includes("character.multiAgentSimulation"));
   assert.ok(dramaSource.includes("用閉端 AI 強化改編"));
   assert.ok(dramaSource.includes("drama.episodePlan"));
-  assert.ok(learningSource.includes("Closed Agent OS 鎖定 Local Ollama"));
+  assert.ok(learningSource.includes("統合閉端 AI 自動協調器"));
+  assert.ok(learningSource.includes("內建教師永遠可用；Local Ollama"));
   assert.ok(learningSource.includes("前往偏好模型訓練／啟用／回滾"));
   assert.ok(legacySource.includes("dataset.officialClosedAiHandoff"));
   assert.ok(legacySource.includes("/closed-ai?"));
