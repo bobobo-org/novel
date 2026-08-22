@@ -7,6 +7,7 @@ import {
   PrivateAIHubBackendAdapter,
   evaluateClosedAgentCandidate,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
+import { taskComplexity } from "../lib/novel-ai/closed-agent-os/backend-manifest.ts";
 import {
   ClosedAICache,
   MemoryClosedAICacheRepository,
@@ -75,8 +76,11 @@ const writingSource = read(
 const learningSource = read(
   "app/studio/project/[projectId]/learning/learning-workspace.tsx",
 );
-const aiSource = read(
-  "app/studio/project/[projectId]/ai/ai-workspace.tsx",
+const aiRouteSource = read(
+  "app/studio/project/[projectId]/ai/page.tsx",
+);
+const conversationSource = read(
+  "app/studio/project/[projectId]/chat/conversation-workspace.tsx",
 );
 const characterAgentSource = read(
   "app/studio/project/[projectId]/character-ai/character-agent-workspace.tsx",
@@ -90,6 +94,7 @@ const closedAgentServiceSource = read(
 const closedAgentToolsSource = read(
   "lib/novel-ai/web/studio-closed-agent-tools.ts",
 );
+const taskProfileSource = read("lib/novel-ai/providers/closed/task-profile.ts");
 const legacySource = read("public/legacy/legacy-security-boundary.js");
 const consumerSource = read("public/legacy/consumer-app.js");
 const sovereignEntrySource = read("public/legacy/sovereign-learning-entry.js");
@@ -113,16 +118,19 @@ async function test(name, run) {
   }
 }
 
-const taskPattern =
-  /\{\s*id:\s*"([^"]+)",\s*label:\s*"([^"]+)",\s*complexity:\s*"(light|standard|heavy)",\s*hint:\s*"([^"]+)",\s*group:\s*"([^"]+)",\s*defaultObjective:\s*"([^"]+)"\s*\}/gu;
-const taskOptions = [...workspaceSource.matchAll(taskPattern)].map((match) => ({
-  id: match[1],
-  label: match[2],
-  complexity: match[3],
-  hint: match[4],
-  group: match[5],
-  defaultObjective: match[6],
-}));
+const taskInstructionBlock = taskProfileSource.slice(
+  taskProfileSource.indexOf("const TASK_INSTRUCTIONS"),
+  taskProfileSource.indexOf("const BASE_INSTRUCTION"),
+);
+const taskPattern = /^\s*"([^"]+)":\s*"([^"]+)",?$/gmu;
+const taskOptions = [...taskInstructionBlock.matchAll(taskPattern)]
+  .map((match) => ({
+    id: match[1],
+    complexity: taskComplexity(match[1]),
+    defaultObjective: match[2],
+  }))
+  // A/B/C has its own strict structured-output gate covered by the RPG suite.
+  .filter((task) => task.id !== "chapter.abcChoices");
 
 const approvedContext = [
   "【作品核心】一名守城人必須在保住城門與救回妹妹之間做選擇。",
@@ -311,7 +319,7 @@ function permissions() {
   ];
 }
 
-await test("Closed AI task menu exposes broad GPT-like novel capabilities", () => {
+await test("the automatic coordinator keeps a broad task profile catalog behind one story entry", () => {
   assert.ok(taskOptions.length >= 30, `expected at least 30 tasks, got ${taskOptions.length}`);
   assert.equal(new Set(taskOptions.map((task) => task.id)).size, taskOptions.length);
   for (const required of [
@@ -330,8 +338,6 @@ await test("Closed AI task menu exposes broad GPT-like novel capabilities", () =
     assert.ok(taskOptions.some((task) => task.id === required), `missing ${required}`);
   }
   for (const task of taskOptions) {
-    assert.ok(task.label.length >= 4, `${task.id} label`);
-    assert.ok(task.hint.length >= 4, `${task.id} hint`);
     assert.ok(task.defaultObjective.length >= 20, `${task.id} objective`);
   }
 });
@@ -1020,14 +1026,10 @@ await test("every Closed AI command button has a real handler or form action", (
     "confirmHubPairing",
     "verifyHubModel",
     "revokeHubPairing",
-    "runTask",
-    "cancelTask",
-    "approve",
-    "reject",
     "enableLearning",
     "engageKillSwitch",
     "clearProjectCache",
-    "exportEvidence",
+    "exportGovernanceEvidence",
     "exportLearning",
     "deleteLearning",
     "trainPreferenceModel",
@@ -1103,13 +1105,14 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   ]) {
     assert.ok(writingSource.includes(value), value);
   }
-  assert.ok(aiSource.includes("executeStudioClosedAgent"));
-  assert.ok(aiSource.includes("產生三份候選"));
-  assert.ok(aiSource.includes("候選品質"));
-  assert.ok(aiSource.includes("qualityMode"));
-  assert.ok(aiSource.includes("approveStudioClosedAgentCandidate"));
-  assert.ok(workspaceSource.includes("品質模式"));
-  assert.ok(workspaceSource.includes("executeStudioClosedAgent"));
+  assert.ok(aiRouteSource.includes("/chat"));
+  assert.ok(aiRouteSource.includes("redirect("));
+  assert.ok(conversationSource.includes("executeStudioClosedAgent"));
+  assert.ok(conversationSource.includes("useConversationApprovalController"));
+  assert.ok(workspaceSource.includes("前往唯一故事工作台"));
+  assert.ok(workspaceSource.includes('data-testid="closed-ai-management-boundary"'));
+  assert.ok(!workspaceSource.includes("executeStudioClosedAgent"));
+  assert.ok(!workspaceSource.includes("commitStudioCandidateToChapter"));
   assert.ok(closedAgentServiceSource.includes("STUDIO_CLOSED_AGENT_TOOL_IDS"));
   assert.ok(closedAgentServiceSource.includes("createStudioClosedAgentToolRegistry"));
   assert.ok(closedAgentToolsSource.includes("acceptance-checklist"));

@@ -86,6 +86,7 @@ export function MessageComposer({
       data-testid="conversation-message-composer"
       data-closed-ai-generation-verified-backends={closedAiSetup?.readiness.generationVerifiedBackends ?? 0}
       data-closed-ai-active-backend={closedAiSetup?.readiness.activeBackend ?? "none"}
+      data-latest-closed-ai-executor={latestInvocation?.actualExecutor ?? "none"}
       data-closed-ai-setup-busy={closedAiSetupBusy}
       data-closed-ai-external-fallback={closedAiSetup?.readiness.externalFallback ?? false}
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
@@ -101,14 +102,14 @@ export function MessageComposer({
           aria-busy={closedAiSetupBusy}
         >
           <div>
-            <small>第一次使用 · Closed Agent OS</small>
+            <small>第一次使用 · 閉端 AI 自動協調器</small>
             <h2>{closedAiSetup?.status === "unsupported"
-              ? "這台裝置無法使用 Browser AI"
+              ? "目前沒有可用的閉端算力"
               : closedAiSetupLifecycle === "cancelled"
-                ? "Browser AI 準備已取消"
+                ? "自動協調器準備已取消"
               : closedAiSetupBusy
-                ? "正在準備 Browser AI"
-                : "準備裝置內 Browser AI"}</h2>
+                ? "正在準備自動協調器"
+                : "準備閉端 AI 自動協調器"}</h2>
             <p>{closedAiSetupError
               ?? closedAiSetupProgress?.message
               ?? closedAiSetup?.safeMessage}</p>
@@ -130,17 +131,14 @@ export function MessageComposer({
                     type="button"
                     data-testid="closed-ai-prepare-browser"
                     onClick={onPrepareClosedAi}
-                  >{closedAiSetupError ? "重試 Browser AI" : "準備 Browser AI"}</button>
+                  >{closedAiSetupError ? "重試自動協調器" : "準備自動協調器"}</button>
             ) : null}
-            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?backend=local-ollama`}>
-              改用 Local Ollama
-            </Link>
-            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?backend=private-ai-hub`}>
-              連接 Private AI Hub
+            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai`}>
+              自動協調器設定
             </Link>
           </div>
           <p className={styles.closedAiSetupTruth}>
-            只有模型下載、完整性驗證、runtime 初始化、預熱與最小生成實測全部通過，才會顯示就緒；不會改用外部 AI 或規則模板冒充。
+            系統會自動核對現有的本機與私有算力，依目前任務選出已驗證資源。若需要在此裝置下載模型，只會在你按下準備後開始；不會改用外部 AI 或規則模板冒充。
           </p>
         </section>
       ) : null}
@@ -170,8 +168,7 @@ export function MessageComposer({
         <span>Enter 送出 · Shift＋Enter 換行</span>
         <span>·</span>
         <span className={styles.localBadge}>
-          {latestInvocation?.actualExecutor ?? (busy ? "Closed Agent OS" : "Closed-only")}
-          {latestInvocation?.modelId ? ` · ${latestInvocation.modelId}` : ""}
+          閉端 AI 自動協調器{busy ? " · 協調中" : ""}
           {` · 資料${latestInvocation?.dataLeftDevice ? "已" : "未"}離開裝置`}
         </span>
       </div>

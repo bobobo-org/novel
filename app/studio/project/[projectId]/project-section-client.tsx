@@ -1575,7 +1575,7 @@ function StoryBibleEditor({
           在專案對話中讀取 Story Bible
         </Link>
         <Link href={closedAIHref(project.id, "story.storyBibleCandidate", "根據已核准章節提出 Story Bible 更新候選；不得直接寫入 Canon。")}>
-          用 Private Hub 建立 Story Bible 候選
+          交給自動協調器建立 Story Bible 候選
         </Link>
       </div>
       <form

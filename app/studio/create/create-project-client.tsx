@@ -28,11 +28,6 @@ import {
   type StoryState,
 } from "@/lib/novel-ai/domain";
 import {
-  browserWebLLMRuntimeSnapshot,
-  cancelBrowserWebLLMGeneration,
-  generateWithBrowserWebLLM,
-} from "@/lib/novel-ai/providers/browser-ai/browser-webllm-runtime";
-import {
   createNovelRepository,
   persistenceFailureOrNull,
   type PersistenceFailure,
@@ -101,14 +96,6 @@ const proceduralOpenings = [
   "城門關閉前最後一位旅人，帶來了主角已親手銷毀的證據。",
 ];
 
-type AICandidate = {
-  seed: ProjectSeed;
-  raw: string;
-  modelId: string;
-  modelDigest: string;
-  elapsedMs: number;
-};
-
 type CandidatePayload = {
   logline?: string;
   protagonist?: string;
@@ -153,21 +140,6 @@ function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function candidatePayload(raw: string): CandidatePayload {
-  const unfenced = raw.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
-  const start = unfenced.indexOf("{");
-  const end = unfenced.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    try {
-      return JSON.parse(unfenced.slice(start, end + 1)) as CandidatePayload;
-    } catch {
-      // A small local model may emit valid prose around invalid JSON. The raw
-      // response remains visible and can still become a one-line premise.
-    }
-  }
-  return { logline: unfenced.slice(0, 360) };
-}
-
 function optionalSuggestion(value: string | null, accepted = false) {
   const next = optionalValue(value, value ? (accepted ? "ai_accepted" : "ai_suggested") : "deferred");
   return value ? { ...next, source: "ai_candidate" as const } : next;
@@ -208,12 +180,6 @@ const STORY_LANGUAGE_LABELS: Record<StoryLanguage, string> = {
 function storyLanguageOf(draft: ProjectCreationDraft): StoryLanguage {
   const language = draft.answers.language?.value;
   return language === "zh-CN" || language === "en" ? language : "zh-TW";
-}
-
-function storyLanguageInstruction(language: StoryLanguage) {
-  if (language === "zh-CN") return "只使用简体中文，不得混入繁體字。";
-  if (language === "en") return "Use English only. Do not mix Chinese into any story field.";
-  return "只使用臺灣繁體中文，不得混入簡體字。";
 }
 
 function foundationMissing(draft: ProjectCreationDraft, seed: ProjectSeed) {
@@ -340,13 +306,9 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const [titleError, setTitleError] = useState("");
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [createdMode, setCreatedMode] = useState<StoryPlayModeId>("general");
-  const [aiCandidate, setAiCandidate] = useState<AICandidate | null>(null);
-  const [aiStatus, setAiStatus] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
   const [persistenceIssue, setPersistenceIssue] = useState<PersistenceFailure | null>(null);
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const aiController = useRef<AbortController | null>(null);
   const storageKey = draftStorageKey(cloneFrom);
 
   useEffect(() => {
@@ -374,7 +336,6 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     })();
     return () => {
       active = false;
-      aiController.current?.abort();
     };
   }, [cloneFrom, storageKey]);
 
@@ -504,112 +465,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       },
       seedCandidate: suggested,
     });
-    setAiCandidate(null);
-    setMessage("已由裝置亂數產生一套可修改雛形（非 AI、非固定三個名字）。你可以直接修改，或再請已安裝的真實 Browser AI 深化。");
-  }
-
-  async function runBrowserAI() {
-    if (!requireTitle("請 AI 協助")) return;
-    if (!currentPlayMode) {
-      setMessage("請先選擇創作／遊玩方式，AI 才知道要建立哪一種故事基礎。");
-      return;
-    }
-    if (aiBusy) return;
-    aiController.current?.abort();
-    const controller = new AbortController();
-    aiController.current = controller;
-    setAiBusy(true);
-    setAiCandidate(null);
-    setAiStatus("正在確認這台裝置已安裝的 Browser AI 模型……");
-    try {
-      const snapshot = await browserWebLLMRuntimeSnapshot();
-      const selected = snapshot.models.find((model) => model.selected);
-      if (!snapshot.supported || !selected || selected.installStatus !== "ready" || !selected.cacheVerified) {
-        throw Object.assign(new Error("Browser AI 尚未完成安裝與驗證。可先使用立即可用的裝置亂數雛形，或到本機 AI 設定完成模型安裝。"), { code: "BROWSER_MODEL_NOT_READY" });
-      }
-      const language = storyLanguageOf(draft);
-      const languageRule = storyLanguageInstruction(language);
-      const prompt = [
-        `作品名稱：${draft.title.trim()}`,
-        `固定玩法：${STORY_PLAY_MODE_LABELS[currentPlayMode]}`,
-        `作品語言：${STORY_LANGUAGE_LABELS[language]}`,
-        `題材：${topic?.name ?? "尚未指定"}`,
-        `目前想法：${draft.coreIdea.value ?? draft.answers.story?.value ?? "尚未指定"}`,
-        `目前主角：${seed.protagonist.value ?? "尚未指定"}`,
-        "請建立一套原創且彼此一致的故事起始種子。不要寫完整章節，不要輸出分析過程。",
-        "只輸出 JSON，欄位為 logline、protagonist、goal、weakness、world、worldRule、conflict、opposition、opening、style、directions（恰好三項）。",
-        `${languageRule} 若是互動或遊戲玩法，三個 directions 必須是策略不同且代價不同的方向，但現在不要產生 A/B/C 回合。`,
-      ].join("\n");
-      const result = await generateWithBrowserWebLLM({
-        systemInstruction: `你是原創小說的創作帶領精靈。${languageRule} 只建立可修改候選，不冒充使用者核准內容；嚴格輸出 JSON。`,
-        prompt,
-        jsonMode: true,
-        temperature: 0.82,
-        topP: 0.92,
-        repetitionPenalty: 1.12,
-        maxTokens: 360,
-        seed: randomIndex(2_147_483_647),
-        signal: controller.signal,
-        onToken: (event) => setAiStatus(`真實 Browser AI 正在裝置內生成 · ${event.content.length} 字`),
-      });
-      const payload = candidatePayload(result.content);
-      const nextSeed = seedFromPayload(draft, payload, false);
-      setAiCandidate({
-        seed: nextSeed,
-        raw: result.content,
-        modelId: result.modelId,
-        modelDigest: result.modelDigest,
-        elapsedMs: result.elapsedMs,
-      });
-      setAiStatus(`候選已完成 · ${result.modelId} · ${(result.elapsedMs / 1000).toFixed(1)} 秒 · 資料未離開裝置`);
-    } catch (error) {
-      if ((error as { name?: string })?.name === "AbortError") {
-        setAiStatus("已停止這次生成；草稿與正式作品都沒有被修改。");
-      } else {
-        setAiStatus(error instanceof Error ? error.message : "Browser AI 沒有完成這次候選。");
-      }
-    } finally {
-      setAiBusy(false);
-      if (aiController.current === controller) aiController.current = null;
-    }
-  }
-
-  function acceptAICandidate() {
-    if (!aiCandidate) return;
-    const accepted = seedFromPayload(draft, {
-      logline: aiCandidate.seed.logline.value ?? undefined,
-      protagonist: aiCandidate.seed.protagonist.value ?? undefined,
-      goal: aiCandidate.seed.goal.value ?? undefined,
-      weakness: aiCandidate.seed.weakness.value ?? undefined,
-      world: aiCandidate.seed.world.value ?? undefined,
-      worldRule: aiCandidate.seed.worldRule.value ?? undefined,
-      conflict: aiCandidate.seed.conflict.value ?? undefined,
-      opposition: aiCandidate.seed.opposition.value ?? undefined,
-      opening: aiCandidate.seed.opening.value ?? undefined,
-      directions: aiCandidate.seed.directions,
-    }, true);
-    set({
-      coreIdea: optionalValue(accepted.logline.value, accepted.logline.value ? "ai_accepted" : "deferred"),
-      protagonist: optionalValue(accepted.protagonist.value, accepted.protagonist.value ? "ai_accepted" : "deferred"),
-      answers: {
-        ...draft.answers,
-        story: optionalValue(accepted.logline.value, accepted.logline.value ? "ai_accepted" : "deferred"),
-        protagonist: optionalValue(accepted.protagonist.value, accepted.protagonist.value ? "ai_accepted" : "deferred"),
-        goal: optionalValue(accepted.goal.value, accepted.goal.value ? "ai_accepted" : "deferred"),
-        conflict: optionalValue(accepted.conflict.value, accepted.conflict.value ? "ai_accepted" : "deferred"),
-        worldRule: optionalValue(accepted.worldRule.value ?? accepted.world.value, accepted.worldRule.value || accepted.world.value ? "ai_accepted" : "deferred"),
-        opening: optionalValue(accepted.opening.value, accepted.opening.value ? "ai_accepted" : "deferred"),
-      },
-      seedCandidate: accepted,
-    });
-    setAiCandidate(null);
-    setMessage("已採用這份 AI 候選到建立草稿；作品尚未建立前仍可修改。未核准候選沒有寫入 Canon。");
+    setMessage("已由裝置亂數產生一套可修改雛形（非 AI、非固定三個名字）。你可以直接修改；建立後再到唯一故事工作台交給自動協調器深化。");
   }
 
   function abandonCreation() {
     if (!window.confirm("放棄這次建立草稿？已建立的正式作品不會被刪除。")) return;
-    cancelBrowserWebLLMGeneration();
-    aiController.current?.abort("CREATION_DRAFT_ABANDONED");
     localStorage.removeItem(storageKey);
     if (!cloneFrom) localStorage.removeItem(DRAFT_KEY);
     window.location.assign("/");
@@ -622,11 +482,6 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       return;
     }
     if (saving || !currentPlayMode) return;
-    if (aiBusy) {
-      cancelBrowserWebLLMGeneration();
-      aiController.current?.abort("CREATION_CONTINUED_WITHOUT_OPTIONAL_AI");
-      setAiBusy(false);
-    }
     setSaving(true);
     setPersistenceIssue(null);
     setMessage("正在建立獨立作品、第一章與可還原備份……");
@@ -822,36 +677,12 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <section className="p2CreationAssistant" aria-label="創作帶領精靈">
             <div>
               <span>創作帶領精靈</span>
-              <h3>五題完成即可建立，AI 只負責選用深化</h3>
-              <p>你的答案會立即整理成完整故事起點。裝置亂數與 Browser AI 都是選用工具，不會阻擋建立作品。</p>
+              <h3>五題完成即可建立，不必先選 AI</h3>
+              <p>建立頁只整理故事起點；建立完成後，續寫、改寫與 RPG 都在唯一故事工作台交給閉端 AI 自動協調器。</p>
             </div>
             <div className="p2CreationAssistantActions">
               <button type="button" onClick={applyProcedural}>立即產生裝置亂數雛形 <small>非 AI</small></button>
-              <button type="button" className="gold" disabled={aiBusy} onClick={() => void runBrowserAI()}>{aiBusy ? "真實模型生成中……" : "選用：請 Browser AI 再深化"}</button>
-              {aiBusy ? <button type="button" onClick={() => { cancelBrowserWebLLMGeneration(); aiController.current?.abort(); }}>停止生成</button> : null}
-              <details>
-                <summary>選用 AI 模型設定</summary>
-                <p>只有想更換或安裝模型時才需要進入；不影響目前五題與建立作品。</p>
-                <Link href="/settings/local-ai">開啟模型設定</Link>
-              </details>
             </div>
-            {aiStatus ? <p className="p2AIStatus" role="status" aria-live="polite">{aiStatus}</p> : null}
-            {aiCandidate ? (
-              <article className="p2AICandidate" data-testid="creation-ai-candidate">
-                <header><div><small>真實模型候選 · 尚未寫入正式作品</small><h4>{aiCandidate.seed.logline.value || "模型候選"}</h4></div><span>{aiCandidate.modelId}<br />{aiCandidate.modelDigest.slice(0, 14)}…</span></header>
-                <dl>
-                  <div><dt>主角</dt><dd>{aiCandidate.seed.protagonist.value || "未提供"}</dd></div>
-                  <div><dt>世界</dt><dd>{aiCandidate.seed.world.value || "未提供"}</dd></div>
-                  <div><dt>衝突</dt><dd>{aiCandidate.seed.conflict.value || "未提供"}</dd></div>
-                  <div><dt>開場</dt><dd>{aiCandidate.seed.opening.value || "未提供"}</dd></div>
-                </dl>
-                <footer>
-                  <button type="button" className="gold" onClick={acceptAICandidate}>採用並繼續修改</button>
-                  <button type="button" onClick={() => { setAiCandidate(null); setAiStatus("候選已放棄；建立草稿與 Canon 都沒有改變。"); }}>放棄候選</button>
-                  <button type="button" onClick={() => void runBrowserAI()}>重新生成不同候選</button>
-                </footer>
-              </article>
-            ) : null}
           </section>
 
           {missing.length ? <div className="p2FoundationWarning" role="status"><b>開始前還缺：</b>{missing.join("、")}<span>補齊前不會產生第一回合 A／B／C。</span></div> : <div className="p2FoundationReady"><b>故事起點已完整</b><span>建立作品後才會依選定玩法開啟正文或第一回合。</span></div>}
@@ -883,7 +714,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             <div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div>
             <div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div>
           </dl>
-          <p>只有你填寫、點選亂數產生，或明確採用的 AI 候選會進入新作品。未選的 A／B／C 永遠不寫進正文。</p>
+          <p>只有你填寫或點選裝置亂數產生的內容會進入新作品。建立後，所有 AI 續寫、改寫與 RPG 都在故事工作台由自動協調器處理。</p>
         </aside>
       </div>
     </main>

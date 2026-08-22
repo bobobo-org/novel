@@ -162,4 +162,12 @@ check("the unified coordinator ignores legacy runtime choices and exposes no bac
   assert.doesNotMatch(closedAI, /setBackend\(|data-testid="closed-ai-backend"|data-testid="browser-compute-policy"/u);
 });
 
+check("the closed AI route is management-only and sends every story task to chat", () => {
+  assert.match(closedAI, /data-testid="closed-ai-management-boundary"/u);
+  assert.match(closedAI, /data-testid="closed-ai-open-story-workspace"[^>]+\/chat/u);
+  assert.match(closedAI, /window\.location\.replace\(`\$\{storyWorkspace\.pathname\}\$\{storyWorkspace\.search\}`\)/u);
+  assert.match(closedAI, /本頁不建立故事候選、不核准正文，也不直接寫入 Canon/u);
+  assert.doesNotMatch(closedAI, /executeStudioClosedAgent|commitStudioCandidateToChapter|closed-ai-run|closed-ai-task-type|closed-ai-approve-canon/u);
+});
+
 console.log(JSON.stringify({ status: "PASS", checks: checks.length, cases: checks }, null, 2));

@@ -3563,8 +3563,14 @@ async function inspectFreshSetup() {
   assert.equal(await card.getAttribute("data-estimated-download-bytes"), "294543984");
   assert.match(text, /此瀏覽器／此裝置/u);
   assert.match(text, /作品資料不離開裝置/u);
-  assert.match(text, /改用 Local Ollama/u);
-  assert.match(text, /連接 Private AI Hub/u);
+  assert.match(text, /閉端 AI 自動協調器/u);
+  assert.match(text, /自動協調器設定/u);
+  assert.doesNotMatch(text, /改用 Local Ollama|連接 Private AI Hub/u);
+  const coordinatorSettings = card.getByRole("link", { name: "自動協調器設定", exact: true });
+  assert.equal(await coordinatorSettings.count(), 1);
+  const coordinatorSettingsHref = await coordinatorSettings.getAttribute("href");
+  assert.ok(coordinatorSettingsHref);
+  assert.equal(new URL(coordinatorSettingsHref, page.url()).searchParams.has("backend"), false);
   assert.equal(modelAssetRequestCount(), 0, "fresh inspection triggered an automatic model download");
   return {
     status: "setup_required",
@@ -4972,7 +4978,7 @@ async function prepareBrowserAi(setupEvidence) {
   assert.match(await card.textContent() ?? "", /已取消準備/u);
   assert.equal(
     await card.getByTestId("closed-ai-prepare-browser").textContent(),
-    "重試 Browser AI",
+    "重試自動協調器",
   );
   const metadataAfterCancel = await readModelMetadata().catch(() => null);
   assert.notEqual(

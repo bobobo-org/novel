@@ -456,9 +456,9 @@ export class ClosedAiBootstrapCoordinator {
   }
 
   async inspect(input: ClosedAiBootstrapInput): Promise<ClosedAiBootstrapResult> {
-    emit(input, "capability_detect", 5, "正在檢查這台裝置的 Browser AI 能力。 ");
+    emit(input, "capability_detect", 5, "正在檢查這台裝置可用的閉端算力。 ");
     const capability = await this.browser.detectCapability();
-    emit(input, "model_catalog_resolve", 12, "已核對正式版可使用的裝置內模型。 ");
+    emit(input, "model_catalog_resolve", 12, "已核對自動協調器可使用的正式模型。 ");
     const browserRuntime = await this.browser.runtimeSnapshot().catch(() => null);
     emit(input, "storage_quota_check", 18, "已檢查模型空間與本機儲存配額。 ");
     const requestedModel = input.requestedModelId
@@ -486,7 +486,7 @@ export class ClosedAiBootstrapCoordinator {
       && requestedRuntimeModel.shardIntegrityVerified
       && requestedRuntimeModel.generationVerified,
     );
-    emit(input, "model_availability_check", 25, "正在核對模型安裝與驗證狀態。 ");
+    emit(input, "model_availability_check", 25, "正在核對閉端模型安裝與驗證狀態。 ");
     const runtime = await this.runtime.refresh({
       projectId: input.projectId,
       taskType: input.taskType ?? "chapter.continue",
@@ -511,12 +511,12 @@ export class ClosedAiBootstrapCoordinator {
     const safeMessage = input.requestedModelId && !requestedModel
       ? "這台裝置無法使用所選 Browser AI 模型；請改選裝置支援的正式模型。"
       : status === "ready"
-      ? `閉端 AI 已就緒：${readiness.activeBackend ?? "已驗證後端"}。`
+      ? "閉端 AI 自動協調器已就緒，會依任務自動調配已驗證算力。"
       : status === "unsupported"
-        ? "這台裝置無法使用 Browser AI；可改用 Local Ollama Companion 或 Private AI Hub。"
+        ? "自動協調器目前找不到可用的閉端算力；請開啟統一設定完成一次安裝或連線。"
         : selectedModel
-          ? `第一次使用需要準備 ${selectedModel.displayName}；完成後文章生成會留在此裝置。`
-          : "請完成一個閉端後端的安裝、連線與真實生成實測。";
+          ? `自動協調器未找到已驗證算力；按一下準備，系統會在此裝置安裝並實測 ${selectedModel.displayName}。`
+          : "自動協調器目前找不到可用算力；請在統一設定完成一次安裝、連線與真實生成實測。";
     return {
       schemaVersion: CLOSED_AI_BOOTSTRAP_SCHEMA_VERSION,
       status,
@@ -545,14 +545,14 @@ export class ClosedAiBootstrapCoordinator {
         return inspected;
       }
       if (!inspected.browserCapability.generativeModelReady) return inspected;
-      emit(input, "integrity_verify", 42, "正在驗證已下載模型的完整性。 ");
+      emit(input, "integrity_verify", 42, "正在驗證已下載閉端模型的完整性。 ");
       await this.browser.repairCache().catch(() => undefined);
-      emit(input, "runtime_initialize", 54, "正在初始化裝置內生成 runtime。 ");
+      emit(input, "runtime_initialize", 54, "正在初始化裝置內生成引擎。 ");
       if (inspected.browserCapability.webLlmInstalled) {
-        emit(input, "warmup", 65, "正在從本機快取預熱 Browser AI。 ");
+        emit(input, "warmup", 65, "正在從本機快取預熱閉端模型。 ");
         await this.browser.prewarmModel(input.signal);
       }
-      emit(input, "health_probe", 75, "正在執行 Browser AI 健康檢查。 ");
+      emit(input, "health_probe", 75, "正在執行閉端算力健康檢查。 ");
       emit(input, "generation_verify", 86, "正在做最小真實生成實測。 ");
       const proof = await this.browser.verifyGeneration(input.signal);
       if (
@@ -564,7 +564,7 @@ export class ClosedAiBootstrapCoordinator {
           { code: "BROWSER_GENERATIVE_VERIFICATION_REQUIRED" },
         );
       }
-      emit(input, "router_register", 96, "正在把已驗證模型註冊到 Closed Agent OS。 ");
+      emit(input, "router_register", 96, "正在把已驗證算力註冊到自動協調器。 ");
       inspected = await this.inspect(input);
       if (inspected.readiness.generationVerifiedBackends < 1) {
         throw Object.assign(

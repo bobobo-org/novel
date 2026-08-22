@@ -897,6 +897,28 @@ harness.test("contract", "closed regeneration waits for readiness and commits it
   assert(failure.indexOf("await loadWorkspace(sessionId)") < failure.indexOf("setSafeError"));
 });
 
+harness.test("contract", "story tasks use the automatic coordinator without a user backend picker", () => {
+  const page = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const workspace = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const composer = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(page, /query\.backend|first\(query\.backend\)/u);
+  assert.doesNotMatch(composer, /setBackend|<select/u);
+  assert.match(
+    workspace,
+    /preferredBackend:\s*previousDigest\s*\?\s*input\.regeneration\?\.preferredBackend\s*:\s*undefined/u,
+  );
+  assert.match(workspace, /preferredBackend:\s*regenerationSource\.backendId/u);
+});
+
 harness.test("contract", "artifact rejection validates current scope before convergent side effects", () => {
   const approval = readFileSync(
     new URL(

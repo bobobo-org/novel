@@ -165,7 +165,7 @@ export function useClosedAiBootstrap(projectId: string) {
     setClosedAiSetupProgress({
       step: "capability_detect",
       percent: 1,
-      message: "正在開始 Browser AI 準備流程。",
+      message: "正在啟動閉端 AI 自動協調器準備流程。",
     });
     try {
       const result = await getStudioClosedAIBootstrapCoordinator().prepareBrowserAi({
@@ -184,7 +184,7 @@ export function useClosedAiBootstrap(projectId: string) {
           ? {
               step: "router_register",
               percent: 100,
-              message: "Browser AI 已完成真實生成實測，可開始創作。",
+              message: "自動協調器已完成真實生成實測，可開始創作。",
             }
           : null);
       }
@@ -203,7 +203,7 @@ export function useClosedAiBootstrap(projectId: string) {
     setupAbortRef.current = null;
     setClosedAiSetupBusy(false);
     setClosedAiSetupProgress(null);
-    setClosedAiSetupError("已取消準備；未完成的模型不會標記為可用。你可以稍後重試。");
+    setClosedAiSetupError("已取消自動協調器準備；未完成的模型不會標記為可用。你可以稍後重試。");
     setClosedAiSetupLifecycle("cancelled");
   }, []);
 
@@ -313,7 +313,7 @@ export function useClosedAiBootstrap(projectId: string) {
       backend.id === sourceBackend && backend.generationVerified
     ));
     if (!sourceBackendStillReady) {
-      throw Object.assign(new Error("原候選的閉端後端已不可用；請先完成 Browser AI、Local Ollama 或 Private AI Hub 生成實測。"), {
+      throw Object.assign(new Error("原候選使用的閉端算力已不可用；請先在自動協調器設定完成一次生成實測。"), {
         code: "CONVERSATION_REGENERATION_CLOSED_BACKEND_NOT_READY",
         externalFallback: false,
       });

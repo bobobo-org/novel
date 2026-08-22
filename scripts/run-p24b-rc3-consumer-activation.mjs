@@ -129,11 +129,12 @@ async function frontdoorAISetupDiscovery() {
 }
 
 async function frontdoorProjectRouting() {
-  const [frontdoor, professional, createClient, studioPage, wizard] = await Promise.all([
+  const [frontdoor, professional, createClient, studioPage, studio, wizard] = await Promise.all([
     source("app/frontdoor-client.tsx"),
     source("app/professional/professional-client.tsx"),
     source("app/studio/create/create-project-client.tsx"),
     source("app/studio/page.tsx"),
+    source("app/studio/studio-client.tsx"),
     source("app/settings/local-ai/setup-wizard.tsx"),
   ]);
   assert.match(frontdoor, /safeProjectId/);
@@ -148,8 +149,14 @@ async function frontdoorProjectRouting() {
   assert.match(professional, /router\.push\(storyWorkspaceHref\(projectId, intent\)\)/);
   assert.match(createClient, /\/chat\$\{createdMode === "general" \? "" : "\?mode=play"\}/);
   assert.doesNotMatch(createClient, /storyPlayModeDashboardHref/);
+  assert.match(createClient, /唯一故事工作台交給閉端 AI 自動協調器/);
+  assert.doesNotMatch(createClient, /generateWithBrowserWebLLM|Browser AI 再深化|creation-ai-candidate/);
   assert.match(professional, /\/professional\?intent=library&projectId=/);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
+  assert.match(studio, /if \(value === "create"\) return "\/studio\/create";/);
+  assert.match(studio, /value === "write"[\s\S]*?\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/chat[\s\S]*?: "\/studio\/create"/);
+  assert.match(studio, /if \(value === "create" \|\| value === "write"\)[\s\S]*?window\.location\.assign\(destinationHref\)/);
+  assert.doesNotMatch(studio, /commitScreen\("(?:create|write)"/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
   assert.match(wizard, /href=\{returnTo\}/);
 }

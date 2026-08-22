@@ -10,10 +10,6 @@ import {
   type ClosedAgentOS,
   type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
-  type ClosedAIProgressEvent,
-  type ClosedAIQualityMode,
-  type ClosedAgentCandidate,
-  type ClosedAgentExecutionResult,
 } from "@/lib/novel-ai/closed-agent-os";
 import type {
   AcceptedChoice,
@@ -30,9 +26,7 @@ import type {
   WritingTask,
 } from "@/lib/novel-ai/domain";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
-import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canonical-approval";
 import {
-  executeStudioClosedAgent,
   getStudioClosedAgentOS,
   getStudioClosedAIBootstrapCoordinator,
   getStudioClosedAIRuntimeCoordinator,
@@ -149,85 +143,14 @@ type RuntimeTelemetry = {
   maxPromptBytes: number;
 };
 
-type TaskGroup =
-  | "assistant"
-  | "writing"
-  | "analysis"
-  | "character"
-  | "world"
-  | "game"
-  | "learning";
-
-type ClosedAITaskOption = {
-  id: PlatformTaskType;
-  label: string;
-  complexity: "light" | "standard" | "heavy";
-  hint: string;
-  group: TaskGroup;
-  defaultObjective: string;
-};
-
-const TASK_GROUP_LABELS: Record<TaskGroup, string> = {
-  assistant: "GPT 類通用助理",
-  writing: "正文與章節創作",
-  analysis: "全書分析與編輯",
-  character: "角色與關係",
-  world: "世界與規則",
-  game: "RPG 三選一與養成",
-  learning: "學習與長上下文",
-};
-
-const TASKS: ClosedAITaskOption[] = [
-  { id: "assistant.general", label: "通用小說助理", complexity: "standard", hint: "問答、規劃、整理", group: "assistant", defaultObjective: "根據已核准的作品資料，直接回答我的小說創作問題；資料不足時指出缺口並提供可執行的下一步。" },
-  { id: "assistant.brainstorm", label: "創意腦力激盪", complexity: "standard", hint: "三個真正不同方向", group: "assistant", defaultObjective: "針對目前作品提出三個彼此不同的創意方向；每個方向說明衝突、人物選擇、代價與風險。" },
-  { id: "assistant.critique", label: "批判編輯", complexity: "standard", hint: "優點、問題、修法", group: "assistant", defaultObjective: "以專業小說編輯角度審查目前內容，列出亮點、具體問題、讀者影響與優先修正方案。" },
-  { id: "assistant.transform", label: "文字整理與轉換", complexity: "standard", hint: "不改動既有事實", group: "assistant", defaultObjective: "整理目前文字，使結構與表達更清楚；保留所有既有事實、角色關係與因果，不新增 Canon。" },
-  { id: "chapter.continue", label: "小說續寫", complexity: "standard", hint: "可核准套用章節", group: "writing", defaultObjective: "續寫一段約三百字的繁體中文小說場景，讓人物以行動面對新的選擇與代價。" },
-  { id: "chapter.rewrite", label: "段落改寫", complexity: "standard", hint: "可核准取代章節", group: "writing", defaultObjective: "在不改變既有事實與角色意圖的前提下，重寫目前章節，使動作、感官與潛台詞更有張力。" },
-  { id: "chapter.expand", label: "場景擴寫", complexity: "standard", hint: "可核准追加章節", group: "writing", defaultObjective: "把目前片段擴寫成完整場景，補足空間、感官、行動、對話潛台詞與可見後果。" },
-  { id: "chapter.compress", label: "章節精簡", complexity: "light", hint: "瀏覽器 AI 可離線執行", group: "writing", defaultObjective: "刪除重複、空泛與不推進場景的文字，保留必要事件、角色聲音、因果、伏筆與情緒轉折，產生可核准的精簡候選。" },
-  { id: "chapter.outline", label: "章節大綱", complexity: "standard", hint: "場景節拍與章尾鉤子", group: "writing", defaultObjective: "規劃下一章的可執行大綱，包含開場狀態、場景節拍、衝突升級、選擇、代價與章尾鉤子。" },
-  { id: "story.plotCandidate", label: "三條劇情分支", complexity: "standard", hint: "互斥候選與長期代價", group: "writing", defaultObjective: "提出三個都符合 Canon、但彼此互斥的後續分支，說明觸發事件、短期結果、長期代價與回接主線方式。" },
-  { id: "story.endingPlan", label: "結局規劃", complexity: "standard", hint: "衝突、弧線與伏筆", group: "writing", defaultObjective: "提出一份可執行的結局方案，處理核心衝突、角色弧線、伏筆、主題回聲與最後代價。" },
-  { id: "drama.episodePlan", label: "短劇深度改編", complexity: "heavy", hint: "Private Hub 多階段規劃", group: "writing", defaultObjective: "把目前作品整理成可執行的短劇單集規劃，逐集列出開場 Hook、衝突、人物選擇、轉折、代價、連續性與結尾懸念。" },
-  { id: "story.summary", label: "章節摘要", complexity: "light", hint: "瀏覽器 AI 可離線執行", group: "analysis", defaultObjective: "摘要目前章節，保留人物、事件、地點、衝突、因果、選擇、代價與未解線索。" },
-  { id: "story.chapterReview", label: "完整章節審稿", complexity: "light", hint: "瀏覽器 AI 可離線審稿", group: "analysis", defaultObjective: "完整審查目前章節：摘要、亮點、一致性、角色、節奏、敘事視角、語言問題與優先修訂清單。" },
-  { id: "story.consistencyCheck", label: "全書一致性檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "檢查已核准資料的設定、因果、時序、物件狀態與視角矛盾；逐項附證據、影響與最小修法。" },
-  { id: "story.timelineCheck", label: "時間線檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "重建並檢查事件順序、時間跨度、先後關係、旅行時間與章節連結；不確定處標示待確認。" },
-  { id: "story.characterCheck", label: "角色一致性檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "逐角檢查目標、知識邊界、能力、情緒、語氣與行為因果，列出偏離證據與最小修法。" },
-  { id: "story.worldRuleCheck", label: "世界規則檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "逐條對照世界規則與正文，區分明確違反、可能衝突與資訊不足，提出不改規則的修正候選。" },
-  { id: "story.foreshadowingCheck", label: "伏筆回收檢查", complexity: "light", hint: "瀏覽器 AI 可離線掃描", group: "analysis", defaultObjective: "盤點伏筆的已知證據、預期回收窗口、逾期風險與不劇透的回收候選。" },
-  { id: "story.plotAnalysis", label: "劇情因果分析", complexity: "light", hint: "瀏覽器 AI 可離線分析", group: "analysis", defaultObjective: "拆解目前劇情的因果鏈、動機、阻力、升級、轉折、高潮與結果，指出斷鏈與候選修法。" },
-  { id: "story.pacingCheck", label: "節奏檢查", complexity: "light", hint: "瀏覽器 AI 可離線分析", group: "analysis", defaultObjective: "逐場景檢查功能、資訊密度、速度、重複與停滯，提出精準的刪減、擴寫、換序或增壓建議。" },
-  { id: "story.themeAnalysis", label: "主題與母題分析", complexity: "standard", hint: "證據與推測分離", group: "analysis", defaultObjective: "從已核准內容分析主題、母題、價值衝突與人物弧線呼應，清楚區分文字證據與推測。" },
-  { id: "story.originalityCheck", label: "原創性自檢", complexity: "light", hint: "瀏覽器 AI 內部相似度掃描", group: "analysis", defaultObjective: "檢查目前內容內部的套路重複、表達相似與辨識度，提出保留核心但改變機制、視角、代價與意象的方案。" },
-  { id: "character.create", label: "角色候選", complexity: "standard", hint: "身分、矛盾與劇情功能", group: "character", defaultObjective: "建立一名適合目前作品的角色候選，包含目標、需求、能力、限制、恐懼、矛盾、語氣、關係鉤子與劇情功能。" },
-  { id: "character.dialogue", label: "角色對話生成", complexity: "standard", hint: "可核准追加章節", group: "character", defaultObjective: "根據角色知識邊界、目標、語氣與關係狀態，產生一段以動作和停頓呈現潛台詞的候選對話。" },
-  { id: "character.dialogueConsistency", label: "角色對話檢查", complexity: "light", hint: "裝置內輕量檢查", group: "character", defaultObjective: "比較目前對話與角色聲音基準，列出一致與偏離證據；沒有足夠資料時明確標示。" },
-  { id: "character.relationshipAnalysis", label: "人物關係分析", complexity: "standard", hint: "張力、權力與信任", group: "character", defaultObjective: "分析人物關係的公開狀態、私人張力、權力、信任、債務、衝突與可能轉折，區分事實和推論。" },
-  { id: "world.create", label: "世界設定候選", complexity: "standard", hint: "秩序、資源與成本", group: "world", defaultObjective: "建立符合目前作品的世界候選，包含時代、地理、社會秩序、資源、限制、日常生活與衝突成本。" },
-  { id: "world.ruleCandidate", label: "世界規則候選", complexity: "standard", hint: "可測試規則", group: "world", defaultObjective: "提出三條可測試的世界規則候選；每條列觸發條件、效果、限制、例外、代價與正文例子。" },
-  { id: "game.questCandidate", label: "RPG 任務候選", complexity: "standard", hint: "目標、風險、報酬與分支", group: "game", defaultObjective: "根據目前作品設計一個可玩的 RPG 任務候選，包含觸發條件、目標、三條解法、能力檢定、風險、代價、獎勵與失敗後仍可推進的結果。" },
-  { id: "game.stateEvaluation", label: "RPG 狀態評估", complexity: "light", hint: "能力與分支檢查", group: "game", defaultObjective: "檢查目前角色能力、資源、關係、任務與成就是否一致，指出異常值、斷裂分支與最小修正候選；不得自行寫入狀態。" },
-  { id: "game.rewardCandidate", label: "養成獎勵候選", complexity: "standard", hint: "平衡且有故事代價", group: "game", defaultObjective: "依目前章節與角色成長設計三個平衡的獎勵候選，分別偏向能力、關係與世界資源；每個都列出獲得條件、數值影響、故事意義與防止失衡的限制。" },
-  { id: "game.achievementCandidate", label: "成就候選", complexity: "standard", hint: "隱藏、進度與解鎖條件", group: "game", defaultObjective: "設計五個符合目前作品的 RPG 成就候選，包含名稱、可見或隱藏、進度公式、解鎖條件、稀有度與不破壞劇情的獎勵。" },
-  { id: "learning.preferenceReview", label: "學習偏好檢查", complexity: "standard", hint: "只產生 L0／L1 候選", group: "learning", defaultObjective: "從已核准的使用者訊號中萃取可回滾的 L0／L1 偏好候選，不保存原文、秘密或思考鏈。" },
-  { id: "story.storyBibleCandidate", label: "Story Bible 候選", complexity: "heavy", hint: "Private Hub 長上下文", group: "learning", defaultObjective: "整理全書 Story Bible 候選，分成已核准事實、待確認、矛盾、角色、世界、時間線、伏筆與禁改項。" },
-  { id: "character.multiAgentSimulation", label: "多角色推演", complexity: "heavy", hint: "Private Hub 知識隔離", group: "learning", defaultObjective: "依各角色知識邊界推演一場多角色互動，只輸出外顯行動與對話，不洩露角色私人內部推演。" },
-];
+const COORDINATOR_DIAGNOSTIC_TASK: PlatformTaskType = "story.consistencyCheck";
+const COORDINATOR_DIAGNOSTIC_COMPLEXITY = "light" as const;
 
 const BACKEND_LABELS: Record<ClosedAIBackendId | "auto", string> = {
   auto: "依任務自動選定",
   "browser-ai": "瀏覽器 AI",
   "local-ollama": "個人本機 Ollama",
   "private-ai-hub": "私有 AI Hub",
-};
-
-const QUALITY_LABELS: Record<ClosedAIQualityMode | "auto", string> = {
-  auto: "智慧自動（輕量 1／標準 2／深度 3 階段）",
-  fast: "快速（1 階段）",
-  balanced: "平衡（草稿＋修訂）",
-  deep: "深度（草稿＋反方檢查＋修訂）",
 };
 
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
@@ -240,27 +163,6 @@ function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
   if (status === "failed") return "驗證失敗";
   return "此裝置不支援";
 }
-
-function candidateStatusLabel(status: ClosedAgentCandidate["status"]) {
-  const labels: Record<ClosedAgentCandidate["status"], string> = {
-    "awaiting-approval": "等待你的核准",
-    approved: "已核准到記憶",
-    rejected: "已拒絕",
-    committed: "已核准並套用",
-    "rolled-back": "已回滾",
-  };
-  return labels[status];
-}
-
-const CHAPTER_COMMIT_TASKS = new Set<PlatformTaskType>([
-  "assistant.transform",
-  "story.summary",
-  "chapter.continue",
-  "chapter.rewrite",
-  "chapter.expand",
-  "chapter.compress",
-  "character.dialogue",
-]);
 
 function runtimeError(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
@@ -407,22 +309,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const hubClient = runtimeCoordinator.privateHubClient;
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [taskType, setTaskType] = useState<PlatformTaskType>("story.consistencyCheck");
-  const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
-  const computePolicy: BrowserComputePolicy = qualityMode === "deep"
-    ? "quality-first"
-    : "browser-first";
-  const [objective, setObjective] = useState(
-    TASKS.find((task) => task.id === "story.consistencyCheck")!.defaultObjective,
-  );
-  const [storyContext, setStoryContext] = useState("");
+  const taskType = COORDINATOR_DIAGNOSTIC_TASK;
+  const computePolicy: BrowserComputePolicy = "browser-first";
   const [storyBibleRevision, setStoryBibleRevision] = useState("current");
   const [knowledgeScopeRevision, setKnowledgeScopeRevision] = useState("current");
-  const [returnHref, setReturnHref] = useState<string | null>(null);
-  const [result, setResult] = useState<ClosedAgentExecutionResult | null>(null);
   const [status, setStatus] = useState("正在啟動統合閉端 AI 自動協調器。");
   const [busy, setBusy] = useState(false);
-  const taskController = useRef<AbortController | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [rememberPairing, setRememberPairing] = useState(true);
   const [runtimeStatus, setRuntimeStatus] = useState("正在檢查本機執行環境。");
@@ -464,7 +356,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [hubTelemetry, setHubTelemetry] = useState<RuntimeTelemetry | null>(null);
   const [localRuntimeVersion, setLocalRuntimeVersion] = useState<string | null>(null);
   const [hubRuntimeVersion, setHubRuntimeVersion] = useState<string | null>(null);
-  const [progressEvents, setProgressEvents] = useState<ClosedAIProgressEvent[]>([]);
   const [contextInventory, setContextInventory] = useState<ContextInventory | null>(null);
   const automaticConnectionOrigin = useRef<string | null>(null);
   const automaticConnectionRunning = useRef(false);
@@ -504,6 +395,47 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       cancelScheduled();
     };
   }, [browserPrewarmKey, computePolicy]);
+
+  useEffect(() => {
+    const query = new URL(window.location.href).searchParams;
+    const requestedTask = query.get("task")?.trim() ?? "";
+    const handoffId = query.get("handoff")?.trim() ?? "";
+    let prompt = query.get("objective")?.trim() ?? "";
+    if (!prompt && /^[A-Za-z0-9-]{16,128}$/.test(handoffId)) {
+      try {
+        const rawHandoff = window.sessionStorage.getItem(`novel_closed_ai_handoff:${handoffId}`);
+        const handoff = rawHandoff
+          ? JSON.parse(rawHandoff) as {
+            schemaVersion?: string;
+            projectId?: string;
+            objective?: string;
+            createdAt?: string;
+          }
+          : null;
+        const age = Date.now() - Date.parse(handoff?.createdAt ?? "");
+        if (
+          handoff?.schemaVersion === "novel-closed-ai-handoff-v1"
+          && handoff.projectId === projectId
+          && typeof handoff.objective === "string"
+          && Number.isFinite(age)
+          && age >= 0
+          && age <= 30 * 60 * 1000
+        ) {
+          prompt = handoff.objective.trim();
+        }
+      } catch {
+        // Invalid handoffs never restore story text into the management page.
+      }
+    }
+    if (!requestedTask && !prompt && !handoffId) return;
+
+    const storyWorkspace = new URL(`/studio/project/${projectId}/chat`, window.location.origin);
+    if (requestedTask.startsWith("game.") || /rpg/i.test(requestedTask)) {
+      storyWorkspace.searchParams.set("mode", "play");
+    }
+    if (prompt) storyWorkspace.searchParams.set("prompt", prompt.slice(0, 4000));
+    window.location.replace(`${storyWorkspace.pathname}${storyWorkspace.search}`);
+  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -560,93 +492,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         storyStates: storyState ? Math.max(1, storyStates.length) : 0,
         tasks: writingTasks.length,
         achievements: achievements.length,
-      });
-      const activeChapter = chapters.find((item) => item.id === project?.activeChapterId)
-        ?? [...chapters].sort((left, right) => left.order - right.order).at(-1)
-        ?? null;
-      const taskProgress = writingTasks.length
-        ? Math.round(
-          writingTasks.reduce(
-            (total, item) => total + (item.target > 0 ? (item.progress / item.target) * 100 : 0),
-            0,
-          ) / writingTasks.length,
-        )
-        : null;
-      const achievementProgress = achievements.length
-        ? Math.round(
-          achievements.reduce(
-            (total, item) => total + (item.target > 0 ? (item.progress / item.target) * 100 : 0),
-            0,
-          ) / achievements.length,
-        )
-        : null;
-      const rpgContext = storyState ? [
-        "【RPG StoryState｜正式狀態】",
-        ...Object.entries(storyState.protagonistStats)
-          .filter(([, value]) => Number.isFinite(value))
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, value]) => `${key}: ${value}`),
-        ...Object.entries(storyState.resources)
-          .filter(([, value]) => Number.isFinite(value))
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, value], index) => `resource.${index + 1}: ${value}（${key}）`),
-        ...Object.entries(storyState.relationships)
-          .filter(([, value]) => Number.isFinite(value))
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, value], index) => `relationship.${index + 1}: ${value}（${key}）`),
-        ...Object.entries(storyState.worldFlags)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, value], index) => `worldFlag.${index + 1}: ${String(value)}（${key}）`),
-        storyState.money === null ? "" : `money: ${storyState.money}`,
-        storyState.reputation === null ? "" : `reputation: ${storyState.reputation}`,
-        taskProgress === null ? "" : `任務進度: ${taskProgress}`,
-        achievementProgress === null ? "" : `成就進度: ${achievementProgress}`,
-        storyState.locationState ? `目前位置：${storyState.locationState}` : "",
-        storyState.timeState ? `目前時間：${storyState.timeState}` : "",
-        `StoryState ID：${storyState.id}`,
-        `StoryState Revision：${storyState.revision}`,
-      ].filter(Boolean).join("\n") : "";
-      const approvedContext = [
-        project?.coreIdea.value ? `【作品核心】${project.coreIdea.value}` : "",
-        activeChapter?.content.trim()
-          ? `【目前章節：${activeChapter.title}】\n${activeChapter.content}`
-          : "",
-        characters.length
-          ? `【角色】\n${characters.map((item) => [
-            item.name,
-            item.identity.value ? `身分：${item.identity.value}` : "",
-            item.personality.value ? `性格：${item.personality.value}` : "",
-            item.goal.value ? `目標：${item.goal.value}` : "",
-            item.portrait?.visualDescription ? `核准外觀：${item.portrait.visualDescription}` : "",
-            item.portrait?.traits.length ? `外觀特徵：${item.portrait.traits.join("、")}` : "",
-            item.rpgProfile ? `RPG 初始能力：${Object.entries(item.rpgProfile.stats).map(([key, value]) => `${key}=${value}`).join("、")}` : "",
-            item.dynamicsProfile ? `核准角色動態：${item.dynamicsProfile.archetypeLabel}／${item.dynamicsProfile.socialRole}；特質 ${item.dynamicsProfile.personalityTraits.join("、")}；行動傾向 ${item.dynamicsProfile.behavioralTendencies.join("、")}` : "",
-          ].filter(Boolean).join("；")).join("\n")}`
-          : "",
-        rules.length
-          ? `【世界規則】\n${rules.map((item) => `${item.title}：${item.description}`).join("\n")}`
-          : "",
-        timeline.length
-          ? `【時間線】\n${timeline.map((item) => `${item.storyTime ?? "未定時間"}｜${item.title}：${item.summary}`).join("\n")}`
-          : "",
-        storyBible ? [
-          "【Story Bible】",
-          storyBible.theme.value ? `主題：${storyBible.theme.value}` : "",
-          storyBible.style.value ? `風格：${storyBible.style.value}` : "",
-          storyBible.foreshadowing.length ? `伏筆：${storyBible.foreshadowing.join("；")}` : "",
-          storyBible.unresolvedThreads.length ? `未解線索：${storyBible.unresolvedThreads.join("；")}` : "",
-          storyBible.forbiddenContradictions.length ? `禁止矛盾：${storyBible.forbiddenContradictions.join("；")}` : "",
-        ].filter(Boolean).join("\n") : "",
-        rpgContext,
-      ].filter(Boolean).join("\n\n");
-      setStoryContext((current) => {
-        if (!current.trim()) return approvedContext;
-        const isGeneratedContext = current.includes("【目前章節：")
-          && current.includes("【Story Bible】");
-        if (rpgContext && isGeneratedContext && !current.includes("【RPG StoryState｜正式狀態】")) {
-          return `${current.trim()}\n\n${rpgContext}`;
-        }
-        return current;
       });
       setStoryBibleRevision(String(storyBible?.revision ?? "none"));
       const maximumRevision = Math.max(
@@ -727,51 +572,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ));
       });
 
-      const query = new URL(location.href).searchParams;
-      const requestedTask = query.get("task") as PlatformTaskType | null;
-      if (requestedTask && TASKS.some((item) => item.id === requestedTask)) {
-        setTaskType(requestedTask);
-        const requested = TASKS.find((item) => item.id === requestedTask)!;
-        setObjective(requested.defaultObjective);
-      }
-      const requestedObjective = query.get("objective")?.trim();
-      if (requestedObjective) setObjective(requestedObjective.slice(0, 4000));
-      const requestedReturn = query.get("returnTo")?.trim() ?? "";
-      const expectedReturn = `/studio/project/${projectId}/write`;
-      if (requestedReturn === expectedReturn) setReturnHref(expectedReturn);
-      const handoffId = query.get("handoff")?.trim() ?? "";
-      if (/^[A-Za-z0-9-]{16,128}$/.test(handoffId)) {
-        try {
-          const rawHandoff = window.sessionStorage.getItem(`novel_closed_ai_handoff:${handoffId}`);
-          const handoff = rawHandoff
-            ? JSON.parse(rawHandoff) as {
-              schemaVersion?: string;
-              projectId?: string;
-              taskType?: string;
-              objective?: string;
-              createdAt?: string;
-            }
-            : null;
-          const createdAt = Date.parse(handoff?.createdAt ?? "");
-          const age = Date.now() - createdAt;
-          const validTask = TASKS.some((item) => item.id === handoff?.taskType);
-          if (
-            handoff?.schemaVersion === "novel-closed-ai-handoff-v1"
-            && handoff.projectId === projectId
-            && handoff.taskType === requestedTask
-            && validTask
-            && typeof handoff.objective === "string"
-            && handoff.objective.trim()
-            && Number.isFinite(age)
-            && age >= 0
-            && age <= 30 * 60 * 1000
-          ) {
-            setObjective(handoff.objective.trim().slice(0, 4000));
-          }
-        } catch {
-          // 安全交接失敗時保留任務預設文字，不從不可信 URL 還原正文。
-        }
-      }
     })().catch((error) => {
       if (!cancelled) {
         setBrowserSemanticIndex(null);
@@ -809,7 +609,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     configurePrivateHubProject(projectId);
     return () => {
       configurePrivateHubProject(null);
-      taskController.current?.abort();
     };
   }, [projectId]);
 
@@ -836,55 +635,27 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     };
   }, [knowledgeScopeRevision, projectId, snapshots, storyBibleRevision]);
 
-  const namespace = useCallback((): ClosedAINamespace => {
-    const task = TASKS.find((item) => item.id === taskType);
-    const backendId = task?.complexity === "heavy"
-      ? "private-ai-hub"
-      : computePolicy === "quality-first" || task?.complexity === "standard"
-        ? "local-ollama"
-        : "browser-ai";
-    return namespaceForBackend(backendId);
-  }, [computePolicy, namespaceForBackend, taskType]);
-
-  const selectedTask = useMemo(
-    () => TASKS.find((item) => item.id === taskType),
-    [taskType],
-  );
   const routingNamespace = useMemo<ClosedAINamespace>(() => ({
-    ...namespaceForBackend(
-      selectedTask?.complexity === "heavy"
-        ? "private-ai-hub"
-        : "local-ollama",
-    ),
+    ...namespaceForBackend("local-ollama"),
     modelId: "unrouted:runtime-managed",
     modelDigest: "unrouted:digest-runtime-managed",
-    privacyLevel: selectedTask?.complexity === "heavy"
-      ? "private_infrastructure_only"
-      : "device_only",
-  }), [namespaceForBackend, selectedTask?.complexity]);
+    privacyLevel: "device_only",
+  }), [namespaceForBackend]);
   const runtimeRoute = useMemo(() => resolveClosedAIRoute({
     taskType,
     namespace: routingNamespace,
-    complexity: selectedTask?.complexity,
+    complexity: COORDINATOR_DIAGNOSTIC_COMPLEXITY,
     browserComputePolicy: computePolicy,
-  }, snapshots), [computePolicy, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
+  }, snapshots), [computePolicy, routingNamespace, snapshots, taskType]);
   const executionBackendId: ClosedAIBackendId =
     runtimeRoute.executionStatus === "routable"
       ? runtimeRoute.backend.id
-      : selectedTask?.complexity === "heavy"
-        ? "private-ai-hub"
-        : selectedTask?.complexity === "standard" || computePolicy === "quality-first"
-          ? "local-ollama"
-          : "browser-ai";
-  const executionSnapshot = snapshots.find(
-    (snapshot) => snapshot.id === executionBackendId,
-  );
-  const executionReady = runtimeRoute.executionStatus === "routable";
+      : "browser-ai";
   const fleetRequest = useMemo(() => ({
     taskType,
-    complexity: selectedTask?.complexity ?? "light",
-    preferLatency: qualityMode === "fast",
-  }), [qualityMode, selectedTask?.complexity, taskType]);
+    complexity: COORDINATOR_DIAGNOSTIC_COMPLEXITY,
+    preferLatency: true,
+  }), [taskType]);
   const localFleet = useMemo(
     () => rankPrivateModels(localModels, fleetRequest),
     [fleetRequest, localModels],
@@ -897,11 +668,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     ? hubFleet[0] ?? null
     : executionBackendId === "local-ollama"
       ? localFleet[0] ?? null
-      : null;
-  const selectedRuntimeModelId = executionBackendId === "private-ai-hub"
-    ? hubModelId
-    : executionBackendId === "local-ollama"
-      ? localModelId
       : null;
   const passwordlessConnectionEnabled = Boolean(
     currentOrigin
@@ -1778,151 +1544,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
-  function recordProgress(event: ClosedAIProgressEvent) {
-    setProgressEvents((current) => {
-      const previous = current.at(-1);
-      if (previous?.phase === event.phase) {
-        return [...current.slice(0, -1), event];
-      }
-      return [...current, event].slice(-12);
-    });
-    setStatus(event.label);
-  }
-
-  async function runTask() {
-    if (busy || !objective.trim()) return;
-    const controller = new AbortController();
-    taskController.current = controller;
-    setBusy(true);
-    setResult(null);
-    setProgressEvents([]);
-    setStatus("自動協調器正在選定並鎖住算力、建立計畫、執行並評估候選。");
-    try {
-      const runNamespace = namespace();
-      const repository = createNovelRepository();
-      const currentProject = await repository.get<NovelProject>("projects", projectId);
-      const sourceChapter = currentProject?.activeChapterId
-        ? await repository.get<Chapter>("chapters", currentProject.activeChapterId)
-        : null;
-      const next = await executeStudioClosedAgent({
-        taskId: `closed-agent-${crypto.randomUUID()}`,
-        projectId,
-        taskType,
-        objective,
-        context: storyContext.trim()
-          ? [{
-            id: `story-context:${projectId}`,
-            kind: "story-bible",
-            text: storyContext,
-            visibility: "both",
-            privacyLevel: runNamespace.privacyLevel,
-            approved: true,
-          }]
-          : [],
-        qualityMode: qualityMode === "auto" ? undefined : qualityMode,
-        browserComputePolicy: computePolicy,
-        allowPreAuthorizedClosedEscalation: false,
-        storyBibleRevision,
-        knowledgeScopeRevision,
-        sourceChapterId: sourceChapter?.id,
-        sourceRevision: sourceChapter?.revision,
-        signal: controller.signal,
-        onProgress: recordProgress,
-      });
-      setResult(next);
-      setStatus(`候選已由${BACKEND_LABELS[next.route.backendId]}完成，通過評估，等待你的核准。`);
-      await refresh(false);
-    } catch (error) {
-      setStatus(controller.signal.aborted ? "這次閉端 AI 工作已取消；未建立候選，也未修改 Canon。" : userMessage(error));
-    } finally {
-      taskController.current = null;
-      setBusy(false);
-    }
-  }
-
-  function cancelTask() {
-    taskController.current?.abort();
-    setStatus("正在取消模型工作。");
-  }
-
-  async function approve(applyToChapter = false) {
-    if (!result || busy) return;
-    setBusy(true);
-    try {
-      const canonicalCommit = applyToChapter
-        ? async ({
-          candidate,
-          idempotencyKey,
-        }: {
-          candidate: typeof result.candidate;
-          idempotencyKey: string;
-        }) => {
-          const repository = createNovelRepository();
-          if (!candidate.sourceChapterId || candidate.sourceRevision == null) {
-            throw Object.assign(new Error("The generated candidate has no canonical source chapter."), {
-              code: "CLOSED_AGENT_CANONICAL_CHAPTER_REQUIRED",
-            });
-          }
-          const taskType = result.task.taskType;
-          const committed = await commitStudioCandidateToChapter({
-            repository,
-            projectId,
-            chapterId: candidate.sourceChapterId,
-            sourceRevision: candidate.sourceRevision,
-            taskId: candidate.taskId,
-            idempotencyKey,
-            content: candidate.content,
-            mode: taskType === "story.summary"
-              ? "summary"
-              : taskType === "chapter.rewrite" || taskType === "chapter.compress" || taskType === "assistant.transform"
-                ? "replace"
-                : "append",
-          });
-          return {
-            commitId: committed.commitId,
-            storyBibleRevision,
-          };
-        }
-        : undefined;
-      const approved = await os.approveCandidate({
-        candidateId: result.candidate.id,
-        approvedBy: "local-author",
-        humanApproved: true,
-        canonicalCommit,
-      });
-      setResult({
-        ...result,
-        candidate: approved.candidate,
-      });
-      setStatus(
-        applyToChapter
-          ? "核准已簽章，候選已寫入目前章節並建立可驗證 Canon commit。"
-          : "核准已簽章並寫入核准記憶；本頁未修改 Canon。",
-      );
-      if (applyToChapter) setBrowserSemanticIndexRefresh((current) => current + 1);
-      await refresh(false);
-    } catch (error) {
-      setStatus(userMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function reject() {
-    if (!result || busy) return;
-    setBusy(true);
-    try {
-      const candidate = await os.rejectCandidate(result.candidate.id);
-      setResult({ ...result, candidate });
-      setStatus("候選已拒絕，不會寫入記憶或 Canon。");
-      await refresh(false);
-    } catch (error) {
-      setStatus(userMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function enableLearning() {
     setBusy(true);
     try {
@@ -1973,24 +1594,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
-  async function exportEvidence() {
-    if (!result) {
-      setStatus("請先完成一項任務，才能匯出該任務的不可變證據。");
-      return;
-    }
-    setBusy(true);
-    try {
-      const evidence = await os.ledger.exportEvidence(
-        `closed-agent:${projectId}:${result.task.id}`,
-        projectId,
-      );
-      saveJson(`closed-agent-evidence-${result.task.id}.json`, evidence);
-      setStatus("雜湊鏈、Merkle 與簽章驗證通過，證據已匯出。");
-    } catch (error) {
-      setStatus(userMessage(error));
-    } finally {
-      setBusy(false);
-    }
+  function exportGovernanceEvidence() {
+    saveJson(`closed-ai-governance-${projectId}.json`, {
+      schemaVersion: "novel-closed-ai-governance-evidence-v1",
+      exportedAt: new Date().toISOString(),
+      projectId,
+      dashboard,
+      backends: snapshots,
+      browserOffload,
+      lastBrowserExecutionReceipt,
+      canonicalMutationFromThisPage: 0,
+    });
+    setStatus("自動協調器的狀態、算力證明與治理摘要已匯出；不包含故事正文。");
   }
 
   async function exportLearning() {
@@ -2025,11 +1640,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         <div>
           <small>PRIVATE NOVEL INTELLIGENCE · CLOSED AGENT FABRIC</small>
           <h1>閉端 AI 自動協調器</h1>
-          <p>對外只有一個小說閉端 AI；內部自動協調故事因果、知識檢索、故事執行、算力、Cache、學習、核准與證據鏈。</p>
+          <p>這裡只管理同一個小說閉端 AI 的算力、知識索引、Cache、學習與證據；故事工作一律從故事工作台開始。</p>
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
-          {returnHref ? <Link href={returnHref}>返回原章寫作</Link> : null}
+          <Link href={`/studio/project/${projectId}/chat`}>返回故事工作台</Link>
           <Link href="/settings/local-ai">本機 AI 安裝精靈</Link>
           <button type="button" disabled={busy || runtimeBusy} onClick={() => void connectRuntimesAutomatically()}>
             重新連線／檢查
@@ -2047,10 +1662,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         </div>
         <div className={styles.deckCopy}>
           <small>NOVEL DOMAIN SUPER-AGENT</small>
-          <h2>使用者只說要做什麼，協調器自動分派</h2>
-          <p>Planner 拆解、Actor 生成、Critic 反方檢查、Evaluator 評分；候選經人工核准後，才可進入記憶或 Canon。</p>
+          <h2>自動協調器設定與治理中心</h2>
+          <p>故事工作台提出任務後，Planner、Actor、Critic 與 Evaluator 才會依序工作；本頁只呈現連線、狀態與治理證據。</p>
           <div className={styles.deckMetrics}>
-            <span><strong>{TASKS.length}</strong> 種小說任務</span>
+            <span><strong>1</strong> 個故事工作入口</span>
             <span><strong>{localModels.length + hubModels.length}</strong> 個已偵測私有模型</span>
             <span><strong>{snapshots.filter(hasVerifiedClosedAIGeneration).length}/3</strong> 內部算力來源已實測</span>
             <span><strong>{trainingModels.length}</strong> 個偏好模型成果</span>
@@ -2101,6 +1716,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               : browserSemanticIndexError ?? "等待完整作品索引"}</span>
           </article>
           <article>
+            <small>正式作品脈絡</small>
+            <strong>{contextInventory?.projectPresent ? "READY" : "WAITING"}</strong>
+            <span>{contextInventory
+              ? `${contextInventory.chapters} 章 · ${contextInventory.characters} 角色 · ${contextInventory.storyStates} StoryState`
+              : "等待作品資料索引"}</span>
+          </article>
+          <article>
             <small>GPU Queue</small>
             <strong>{browserWebLlm?.performance.activeGeneration ? "ACTIVE" : "IDLE"}</strong>
             <span>等待 {browserWebLlm?.performance.queuedGenerations ?? 0} · Worker 重啟 {browserWebLlm?.performance.workerRestartCount ?? 0} · Device lost {browserWebLlm?.performance.gpuDeviceLostCount ?? 0}</span>
@@ -2117,19 +1739,18 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </article>
           <article>
             <small>最近實際執行器</small>
-            <strong>{result?.candidate.actualExecutor
-              ?? lastBrowserExecutionReceipt?.actualExecutor
+            <strong>{lastBrowserExecutionReceipt?.actualExecutor
               ?? "尚未執行"}</strong>
-            <span>{result?.candidate.actualExecutor || lastBrowserExecutionReceipt
-              ? (result?.candidate.dataLeftDevice ?? lastBrowserExecutionReceipt?.dataLeftDevice)
+            <span>{lastBrowserExecutionReceipt
+              ? lastBrowserExecutionReceipt.dataLeftDevice
                 ? "資料離開裝置"
                 : "資料留在裝置"
               : "尚無執行紀錄"}</span>
           </article>
           <article>
             <small>核准邊界</small>
-            <strong>{result?.candidate.canonicalMutationCount ?? 0}</strong>
-            <span>未核准候選 Canon mutation</span>
+            <strong>LOCKED</strong>
+            <span>本管理頁 Canon mutation = 0</span>
           </article>
         </div>
       </section>
@@ -2580,203 +2201,22 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </details>
         </section>
 
-        <section className={`${styles.panel} ${styles.taskPanel}`} aria-labelledby="task-title">
+        <section className={`${styles.panel} ${styles.taskPanel}`} aria-labelledby="story-entry-title" data-testid="closed-ai-story-route">
           <div className={styles.panelHeading}>
-            <div><small>共用工作流</small><h2 id="task-title">交給 Closed Agent OS</h2></div>
-            <span>候選先評估，再由你核准</span>
+            <div><small>唯一故事入口</small><h2 id="story-entry-title">故事創作請回故事工作台</h2></div>
+            <span>本頁只管理自動協調器</span>
           </div>
-          {CHAPTER_COMMIT_TASKS.has(taskType) ? <div className={styles.modelRecommendation}>
-            <div>
-              <small>正文功能已整合到寫作區</small>
-              <strong>在章節旁直接產生、比較與核准 AI 候選</strong>
-              <span>寫作頁會先保存目前章節、讀取前後章與 Story Bible，核准前不會改動正文；本頁保留給模型連線、證明與進階診斷。</span>
-            </div>
-            <Link className={styles.secondaryLink} href={`/studio/project/${projectId}/write`}>返回整合寫作區</Link>
-          </div> : null}
-          <div className={styles.formGrid}>
-            <label>工作類型
-              <select data-testid="closed-ai-task-type" value={taskType} onChange={(event) => {
-                const next = event.target.value as PlatformTaskType;
-                const previous = TASKS.find((item) => item.id === taskType);
-                const task = TASKS.find((item) => item.id === next);
-                setTaskType(next);
-                if (
-                  task
-                  && (!objective.trim() || objective.trim() === previous?.defaultObjective)
-                ) {
-                  setObjective(task.defaultObjective);
-                }
-              }}>
-                {(Object.keys(TASK_GROUP_LABELS) as TaskGroup[]).map((group) => (
-                  <optgroup key={group} label={TASK_GROUP_LABELS[group]}>
-                    {TASKS.filter((task) => task.group === group).map((task) => (
-                      <option key={task.id} value={task.id}>{task.label} · {task.hint}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <label>品質模式
-              <select
-                data-testid="closed-ai-quality"
-                value={qualityMode}
-                onChange={(event) =>
-                  setQualityMode(event.target.value as ClosedAIQualityMode | "auto")}
-              >
-                {Object.entries(QUALITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className={styles.executionReadiness} data-testid="closed-ai-execution-readiness" data-ready={executionReady}>
-            <div>
-              <strong>{executionReady ? "可執行" : "尚未就緒"}</strong>
-              <span>
-                自動協調結果：
-                {BACKEND_LABELS[executionBackendId]} · {executionSnapshot?.modelId ?? "等待模型身分"}
-              </span>
-            </div>
-            <p>{executionReady
-              ? computePolicy === "browser-first"
-                ? "可在此裝置完成的分析與短篇生成會優先在瀏覽器執行，以降低其他模型負擔；資料不離開裝置。執行失敗不會偷換模型。"
-                : "按下執行後才會鎖定這個已就緒後端；執行途中失敗不會偷換模型。"
-              : selectedTask?.complexity === "heavy"
-                ? "這是重型工作；協調器正在等待私有中樞完成連線與真實推理驗證。"
-                : selectedTask?.complexity === "standard"
-                  ? "這是標準或正文工作；協調器正在等待個人本機算力完成連線與真實推理驗證。"
-                  : "協調器正在等待任一符合這項工作的裝置內算力完成實際模型測試。"}</p>
-            {!executionReady ? <button
-              type="button"
-              className={styles.secondary}
-              onClick={() => document.getElementById("backend-title")?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })}
-            >
-              前往連接真實 AI
-            </button> : null}
-          </div>
-          {recommendedFleetModel ? <div className={styles.modelRecommendation}>
-            <div>
-              <small>此任務的模型路由建議</small>
-              <strong>{recommendedFleetModel.modelId} · 適配 {recommendedFleetModel.score}%</strong>
-              <span>{recommendedFleetModel.reasons.slice(0, 3).join("；")}</span>
-            </div>
-            <span className={styles.activeModel}>{recommendedFleetModel.modelId === selectedRuntimeModelId
-              ? "協調器已採用"
-              : `目前鎖定 ${selectedRuntimeModelId ?? "待驗證模型"}；下次健康核對時重新排序`}</span>
-          </div> : null}
-          <label>你要完成什麼？
-            <textarea data-testid="closed-ai-objective" rows={4} value={objective} onChange={(event) => setObjective(event.target.value)} />
-          </label>
-          <label>已核准的故事脈絡（選填）
-            <textarea rows={5} value={storyContext} onChange={(event) => setStoryContext(event.target.value)} placeholder="只貼入你允許 Actor 與 Evaluator 共同看見的故事資料。" />
-          </label>
-          {contextInventory ? <small
-            className={styles.contextInventory}
-            data-testid="closed-ai-context-inventory"
-            data-project-ready={contextInventory.projectPresent}
-            data-story-state-ready={contextInventory.storyStates > 0}
-          >
-            正式脈絡：{contextInventory.repository === "indexeddb" ? "IndexedDB" : "工作階段記憶"}
-            {" · "}{contextInventory.chapters} 章
-            {" · "}{contextInventory.characters} 角色
-            {" · "}{contextInventory.storyStates} StoryState
-            {" · "}{contextInventory.tasks} 任務
-            {" · "}{contextInventory.achievements} 成就
-          </small> : null}
+          <p>續寫、改寫、章節分析、RPG 與 A／B／C 都由故事工作台呼叫同一個閉端 AI 自動協調器。</p>
+          <p data-testid="closed-ai-management-boundary">本頁不建立故事候選、不核准正文，也不直接寫入 Canon；只提供算力設定、狀態、證據、Cache 與學習治理。</p>
           <div className={styles.actions}>
-            <button data-testid="closed-ai-run" className={styles.primary} type="button" disabled={busy || !objective.trim() || !executionReady} onClick={() => void runTask()}>
-              {busy ? "模型執行中…" : "建立真實模型候選"}
-            </button>
-            {busy ? <button className={styles.danger} type="button" onClick={cancelTask}>取消模型工作</button> : null}
-          </div>
-          {progressEvents.length ? <div className={styles.progressPanel} aria-label="閉端 AI 執行進度">
-            <div className={styles.progressTrack}>
-              <span style={{ width: `${progressEvents.at(-1)?.percent ?? 0}%` }} />
-            </div>
-            <ol>
-              {progressEvents.map((event) => <li key={`${event.phase}:${event.occurredAt}`} data-current={event === progressEvents.at(-1)}>
-                <strong>{event.percent}%</strong>
-                <span>{event.label}</span>
-                {typeof event.generatedCharacters === "number" ? <small>{event.generatedCharacters} 字</small> : null}
-              </li>)}
-            </ol>
-          </div> : null}
-
-          <div className={styles.candidate} data-testid="closed-ai-candidate" data-empty={!result}>
-            {result ? <>
-              <header>
-                <div>
-                  <small>{BACKEND_LABELS[result.candidate.backendId]} · 評分 {Math.round(result.candidate.evaluation.score * 100)}%</small>
-                  <h3 data-testid="closed-ai-candidate-status">{candidateStatusLabel(result.candidate.status)}</h3>
-                </div>
-                <span data-testid="closed-ai-canonical-mutation-count">Canon 寫入：{result.candidate.canonicalMutationCount}</span>
-              </header>
-              <div className={styles.candidateText}>{result.candidate.content}</div>
-              <div className={styles.actions}>
-                {result.candidate.status === "awaiting-approval" ? <>
-                  {CHAPTER_COMMIT_TASKS.has(result.task.taskType) ? (
-                    <button data-testid="closed-ai-approve-canon" type="button" disabled={busy} onClick={() => void approve(true)}>核准並套用目前章節</button>
-                  ) : null}
-                  <button data-testid="closed-ai-approve-memory" className={styles.secondary} type="button" disabled={busy} onClick={() => void approve(false)}>只核准到記憶</button>
-                  <button data-testid="closed-ai-reject" className={styles.secondary} type="button" disabled={busy} onClick={() => void reject()}>拒絕</button>
-                </> : null}
-                <button className={styles.secondary} type="button" disabled={busy} onClick={() => void exportEvidence()}>匯出驗證證據</button>
-                {returnHref && result.candidate.status !== "awaiting-approval" ? <Link className={styles.secondaryLink} href={returnHref}>返回原章查看結果</Link> : null}
-              </div>
-              <details>
-                <summary>執行證明</summary>
-                <dl>
-                  <div><dt>後端鎖定</dt><dd>{result.route.locked ? "是" : "否"}</dd></div>
-                  <div><dt>靜默切換</dt><dd>{result.route.fallbackAttempted ? "有" : "無"}</dd></div>
-                  <div>
-                    <dt>可控學習</dt>
-                    <dd>{result.learning.applied
-                      ? `已採用版本 ${result.learning.versionId}`
-                      : `未套用（${result.learning.reasonCode ?? "沒有有效版本"}）`}</dd>
-                  </div>
-                  <div><dt>計畫雜湊</dt><dd>{result.plan.planDigest}</dd></div>
-                  <div><dt>實際執行器</dt><dd data-testid="closed-ai-actual-executor">{result.candidate.actualExecutor}</dd></div>
-                  <div><dt>生成模型</dt><dd data-testid="closed-ai-model-id">{result.candidate.modelId}</dd></div>
-                  <div><dt>模型雜湊</dt><dd>{result.candidate.modelDigest}</dd></div>
-                  <div><dt>脈絡雜湊</dt><dd data-testid="closed-ai-context-digest">{result.candidate.contextDigest ?? "舊候選未記錄"}</dd></div>
-                  <div><dt>脈絡來源摘要</dt><dd data-testid="closed-ai-context-source-summary">{result.candidate.contextSourceSummary ?? "舊候選未記錄"}</dd></div>
-                  <div><dt>資料離開裝置</dt><dd data-testid="closed-ai-data-left-device">{result.candidate.dataLeftDevice ? "是" : "否"}</dd></div>
-                  <div><dt>外部請求</dt><dd data-testid="closed-ai-external-request">{result.candidate.externalRequest ? "是" : "否"}</dd></div>
-                  {result.candidate.generationTelemetry ? <>
-                    <div><dt>任務設定</dt><dd>{result.candidate.generationTelemetry.profileId}</dd></div>
-                    <div><dt>品質管線</dt><dd>{QUALITY_LABELS[result.candidate.generationTelemetry.qualityMode]} · {result.candidate.generationTelemetry.qualityPasses} 次真實推理</dd></div>
-                    <div><dt>模型耗時</dt><dd>{result.candidate.generationTelemetry.elapsedMs} ms</dd></div>
-                    <div><dt>首字延遲</dt><dd>{result.candidate.generationTelemetry.firstTokenMs === null ? "整批回應" : `${result.candidate.generationTelemetry.firstTokenMs} ms`}</dd></div>
-                    <div><dt>真實生成事件</dt><dd data-testid="closed-ai-generated-token-events">{result.candidate.generationTelemetry.generatedTokenEvents}</dd></div>
-                    <div><dt>輸入／輸出</dt><dd>{result.candidate.generationTelemetry.inputCharacters}／{result.candidate.generationTelemetry.outputCharacters} 字</dd></div>
-                    <div><dt>預算省略</dt><dd>{result.candidate.generationTelemetry.omittedInputCharacters} 字</dd></div>
-                    {result.candidate.generationTelemetry.browserComputeReceiptId ? <>
-                      <div><dt>Browser Receipt</dt><dd>{result.candidate.generationTelemetry.browserComputeReceiptId}</dd></div>
-                      <div><dt>脈絡 Token</dt><dd>{result.candidate.generationTelemetry.contextTokensBefore ?? 0} → {result.candidate.generationTelemetry.contextTokensAfter ?? 0}</dd></div>
-                      <div><dt>節省 Token</dt><dd>{result.candidate.generationTelemetry.tokensSaved ?? 0}</dd></div>
-                    </> : null}
-                    {result.candidate.generationTelemetry.draftDigest ? <div><dt>暫存草稿雜湊</dt><dd>{result.candidate.generationTelemetry.draftDigest}</dd></div> : null}
-                    {result.candidate.generationTelemetry.criticDigest ? <div><dt>反方檢查雜湊</dt><dd>{result.candidate.generationTelemetry.criticDigest}</dd></div> : null}
-                  </> : null}
-                  <div><dt>候選快取</dt><dd>{result.cache.candidateHit ? "命中" : "未命中"}</dd></div>
-                  <div><dt>計畫快取</dt><dd>{result.cache.planHit ? "命中" : "未命中"}</dd></div>
-                  {result.candidate.adapterId ? <div><dt>偏好模型</dt><dd>{result.candidate.adapterId}</dd></div> : null}
-                  {result.candidate.adapterDigest ? <div><dt>偏好雜湊</dt><dd>{result.candidate.adapterDigest}</dd></div> : null}
-                  <div><dt>內容雜湊</dt><dd>{result.candidate.contentDigest}</dd></div>
-                  <div><dt>證據鏈 Head</dt><dd>{result.ledgerHeadHash}</dd></div>
-                </dl>
-              </details>
-            </> : <p>完成一項工作後，候選、評估、核准與證據會集中顯示在這裡。</p>}
+            <Link className={styles.primary} data-testid="closed-ai-open-story-workspace" href={`/studio/project/${projectId}/chat`}>前往唯一故事工作台</Link>
           </div>
         </section>
 
         <section className={`${styles.panel} ${styles.coordinatorGovernance}`} aria-labelledby="system-title">
           <div className={styles.panelHeading}>
             <div><small>同一自動協調器 · 治理職能</small><h2 id="system-title">Cache、學習、證據與回滾</h2></div>
-            <span>與執行融合，資料範圍仍隔離</span>
+            <span>供故事工作台共用，資料範圍仍隔離</span>
           </div>
           <div className={styles.metricGrid}>
             <article><small>AI Cache</small><strong>{dashboard?.cache.entries ?? 0}</strong><span>筆本機候選</span></article>
@@ -2891,6 +2331,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <h3>區塊鏈式可驗證機制</h3>
             <p>Blockchain-inspired verifiable architecture：使用 Append-only Audit Log、SHA-256 雜湊鏈、Merkle Tree、ECDSA 核准簽章、範圍隔離的內容定址、不可竄改證據與資料血緣追蹤。</p>
             <p>這是單一閉端 AI 自動協調器管理多種內部算力資源；不是多個 AI 或多個節點共同維護一條鏈，也不使用投票、重型共識、完整資料複製、公開帳本或每次生成的區塊鏈成本。</p>
+            <button className={styles.secondary} type="button" disabled={busy} onClick={exportGovernanceEvidence}>匯出治理證據</button>
           </div>
 
           <details>

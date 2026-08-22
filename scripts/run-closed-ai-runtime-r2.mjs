@@ -1118,25 +1118,30 @@ test("project-context-composer", "composer includes canonical project layers and
   };
 });
 
-test("quick-assistant-parity", "Studio AI entry points converge on the same Closed Agent OS service", async () => {
+test("quick-assistant-parity", "one story workspace owns generation while management stays coordinator-only", async () => {
   const files = await Promise.all([
     source("lib/novel-ai/web/studio-closed-ai.ts"),
     source("app/studio/studio-client.tsx"),
-    source("app/studio/project/[projectId]/ai/ai-workspace.tsx"),
+    source("app/studio/project/[projectId]/ai/page.tsx"),
     source("app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx"),
     source("app/studio/project/[projectId]/learning/learning-workspace.tsx"),
+    source("app/studio/project/[projectId]/chat/conversation-workspace.tsx"),
   ]);
   assert.match(files[0], /executeStudioClosedAgent/u);
   assert.match(files[1], /runStudioClosedAI/u);
-  assert.match(files[2], /executeStudioClosedAgent/u);
-  assert.match(files[3], /executeStudioClosedAgent/u);
+  assert.match(files[2], /redirect\(/u);
+  assert.match(files[2], /\/chat/u);
+  assert.match(files[3], /closed-ai-management-boundary/u);
+  assert.doesNotMatch(files[3], /executeStudioClosedAgent|commitStudioCandidateToChapter/u);
   assert.match(files[4], /runStudioClosedAI/u);
+  assert.match(files[5], /executeStudioClosedAgent/u);
   const service = await source("lib/novel-ai/web/closed-agent-os-service.ts");
   assert.match(service, /composeProjectContext/u);
   assert.match(service, /ClosedAIRuntimeCoordinator/u);
   assert.match(service, /os\.execute/u);
   return {
-    entryPointsChecked: files.length,
+    surfacesChecked: files.length,
+    storyGenerationEntryPoints: 1,
     coordinatorCount: 1,
     routingImplementationCount: 1,
   };

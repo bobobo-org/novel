@@ -1213,7 +1213,7 @@ export default function StudioClient({
   useEffect(() => {
     if (!loaded || screen !== "choice") return;
     if (!project?.id) {
-      commitScreen("create", true);
+      window.location.replace("/studio/create");
       return;
     }
     // The former /studio?screen=choice page exposed three deterministic strings
@@ -1221,7 +1221,7 @@ export default function StudioClient({
     // to the canonical RPG director where foundation, model proof and StoryState
     // effects are enforced.
     window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/chat?mode=play`);
-  }, [loaded, project?.id, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, project?.id, screen]);
   useEffect(() => {
     const onPopState = () => {
       const requested = new URL(location.href).searchParams.get("screen");
@@ -1307,10 +1307,14 @@ export default function StudioClient({
   }
 
   function screenDestination(value: Screen) {
+    if (value === "create") return "/studio/create";
+    if (value === "write") {
+      return project
+        ? `/studio/project/${encodeURIComponent(project.id)}/chat`
+        : "/studio/create";
+    }
     if (!project) return `/studio?screen=${encodeURIComponent(value)}`;
     const projectRoot = `/studio/project/${encodeURIComponent(project.id)}`;
-    if (value === "create") return "/studio/create";
-    if (value === "write") return `${projectRoot}/chat`;
     if (value === "world") return `${projectRoot}/characters`;
     if (value === "dashboard") return `${projectRoot}/tasks`;
     if (value === "backup") return `${projectRoot}/backups`;
@@ -1361,6 +1365,18 @@ export default function StudioClient({
   }
 
   async function requestScreenNavigation(value: Screen, replace = false) {
+    if (value === "create" || value === "write") {
+      const destinationHref = screenDestination(value);
+      if (STUDIO_TASK_SCREENS.includes(screen) && project) {
+        await leaveCurrentTask(destinationHref, STUDIO_SCREEN_LABELS[value], replace);
+      } else {
+        clearStudioTaskHandoff();
+        setTaskHandoff(null);
+        if (replace) window.location.replace(destinationHref);
+        else window.location.assign(destinationHref);
+      }
+      return;
+    }
     if (value === screen) return;
     if (STUDIO_TASK_SCREENS.includes(screen) && project) {
       if (value === "home") {
@@ -1509,7 +1525,7 @@ export default function StudioClient({
       wizard: { ...emptyWizard, optionalFields: emptyOptional() },
       wizardStep: 1,
     });
-    commitScreen("write", false, id);
+    window.location.assign(`/studio/project/${encodeURIComponent(id)}/chat`);
   }
   async function saveDraft(chapterId: string, title: string, draft: string) {
     if (!ensureCanonicalWritable("儲存草稿")) return;

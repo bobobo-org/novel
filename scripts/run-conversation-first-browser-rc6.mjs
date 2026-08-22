@@ -602,6 +602,7 @@ harness.test("browser", "route and component source expose the complete conversa
     "封存",
     "刪除",
     "小說專案訊息",
+    "閉端 AI 自動協調器",
     "停止生成",
     "重新產生",
     "latestInvocation?.actualExecutor",
@@ -679,6 +680,8 @@ harness.test("browser", "route and component source expose the complete conversa
   );
   assert.match(uiSource, /type="file"\s+multiple\s+accept="\.txt,\.md,\.markdown,\.html,\.htm,\.json,\.pdf,\.docx"/u);
   assert.doesNotMatch(uiSource, /ChatGPT|OpenAI/u);
+  assert.doesNotMatch(uiSource, /改用 Local Ollama|連接 Private AI Hub/u);
+  assert.doesNotMatch(uiSource, /\?backend=/u);
   assert.match(cssSource, /env\(safe-area-inset-bottom\)/u);
   assert.match(cssSource, /@media \(max-width: 900px\)/u);
   assert.match(cssSource, /\.artifactDrawer\s*\{[\s\S]*?position:\s*fixed/u);
@@ -691,7 +694,10 @@ harness.test("browser", "desktop creates a project and lands on a usable chat wo
   assert.equal(await page.getByLabel("小說專案欄").isVisible(), true);
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
   assert.equal(await page.getByLabel("小說專案訊息").isEnabled(), true);
-  assert.match(await page.getByTestId("conversation-first-workspace").innerText(), /Closed-only/u);
+  const workspaceText = await page.getByTestId("conversation-first-workspace").innerText();
+  assert.match(workspaceText, /閉端 AI 自動協調器/u);
+  assert.doesNotMatch(workspaceText, /改用 Local Ollama|連接 Private AI Hub/u);
+  assert.equal(await page.locator('a[href*="backend="]').count(), 0);
   assert.deepEqual(pageErrors, []);
 });
 
