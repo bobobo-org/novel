@@ -200,7 +200,11 @@ function backend(id, ready = true) {
 function task(taskType = "chapter.continue", privacyLevel = "device_only") {
   return {
     taskType,
-    complexity: taskType === "character.multiAgentSimulation" ? "heavy" : "standard",
+    complexity: taskType === "character.multiAgentSimulation"
+      ? "heavy"
+      : taskType === "story.summary"
+        ? "light"
+        : "standard",
     namespace: {
       tenantId: "test",
       userId: "test",
@@ -371,7 +375,7 @@ await test("packaged-provider-rejected", async () => {
     assert.equal(readiness.generationVerifiedBackends, 0);
     assert.equal(readiness.activeBackend, null);
   }
-  const route = resolveClosedAIRoute(task(), [packaged]);
+  const route = resolveClosedAIRoute(task("story.summary"), [packaged]);
   assert.equal(route.executionStatus, "not_executed");
   assert.equal(route.reasonCode, "CLOSED_AI_REQUIRED_BACKEND_NOT_READY");
   const capabilityBase = {
@@ -469,6 +473,15 @@ await test("bootstrap-no-download", async () => {
           modelDigest: "a".repeat(64),
         };
       },
+      finalizeSetup: async (_boundary, options) => options.onCommitted(),
+      cancelSetup: async () => ({
+        code: "BROWSER_WEBLLM_SETUP_CANCELLED",
+        cancellationAcknowledged: true,
+        cacheRetained: true,
+        metadataRollback: "deleted",
+      }),
+      failSetup: async () => undefined,
+      selectModel: async () => undefined,
     });
     const result = await coordinator.bootstrap({ projectId: "fresh-browser" });
     assert.equal(installCalls, 0, "automatic bootstrap must never download a model");
@@ -554,10 +567,20 @@ await test("bootstrap-immediate-cancel-retry", async () => {
         modelDigest: "a".repeat(64),
       };
     },
+    finalizeSetup: async (_boundary, options) => options.onCommitted(),
+    cancelSetup: async () => ({
+      code: "BROWSER_WEBLLM_SETUP_CANCELLED",
+      cancellationAcknowledged: true,
+      cacheRetained: true,
+      metadataRollback: "deleted",
+    }),
+    failSetup: async () => undefined,
+    selectModel: async () => undefined,
   });
   const firstController = new AbortController();
   const first = coordinator.prepareBrowserAi({
     projectId: "cancel-retry-browser",
+    taskType: "story.summary",
     userInitiated: true,
     signal: firstController.signal,
   });
@@ -570,11 +593,13 @@ await test("bootstrap-immediate-cancel-retry", async () => {
   const secondController = new AbortController();
   const second = coordinator.prepareBrowserAi({
     projectId: "cancel-retry-browser",
+    taskType: "story.summary",
     userInitiated: true,
     signal: secondController.signal,
   });
   const [firstError, secondResult] = await Promise.all([firstOutcome, second]);
-  assert.equal(firstError?.code, "BROWSER_MODEL_INSTALL_CANCELLED");
+  assert.equal(firstError?.code, "BROWSER_WEBLLM_SETUP_CANCELLED");
+  assert.equal(firstError?.cancellationAcknowledged, true);
   assert.equal(secondResult.status, "ready");
   assert.equal(secondResult.readiness.generationVerifiedBackends, 1);
   assert.equal(installCalls, 2, "immediate retry reused the cancelled install promise");
@@ -654,7 +679,7 @@ await test("candidate-executor-contract", async () => {
     state: new MemoryClosedAgentStateRepository(),
   });
   const request = {
-    ...task(),
+    ...task("chapter.rewrite"),
     taskId: "rc6-2-browser-candidate-contract",
     objective: "依照已核准設定續寫一段候選稿，不得直接修改正典。",
     context: [],
@@ -816,7 +841,7 @@ await test("model-identity-mismatch", async () => {
     });
     await assert.rejects(
       os.execute({
-        ...task(),
+        ...task("chapter.rewrite"),
         taskId: `rc6-2-${identityCase.name}`,
         objective: "驗證錯誤模型身分必須在建立 verified receipt 前失敗。",
         context: [],
@@ -841,28 +866,48 @@ await test("model-identity-mismatch", async () => {
 
 await test("production-matrix", () => {
   const cases = [
-    { name: "Browser only", ids: ["browser-ai"], expected: "browser-ai" },
-    { name: "Local only", ids: ["local-ollama"], expected: "local-ollama" },
+    { name: "Browser only", ids: ["browser-ai"], expected: "browser-ai", taskType: "chapter.rewrite" },
+    { name: "Local only", ids: ["local-ollama"], expected: "local-ollama", taskType: "chapter.rewrite" },
     { name: "Private Hub only", ids: ["private-ai-hub"], expected: "private-ai-hub", heavy: true },
-    { name: "Browser + Local", ids: ["browser-ai", "local-ollama"], expected: "browser-ai" },
-    { name: "Browser + Hub", ids: ["browser-ai", "private-ai-hub"], expected: "browser-ai" },
-    { name: "Local + Hub", ids: ["local-ollama", "private-ai-hub"], expected: "local-ollama" },
-    { name: "All three", ids: ["browser-ai", "local-ollama", "private-ai-hub"], expected: "browser-ai" },
-    { name: "None available", ids: [], expected: null },
+    { name: "Browser + Local", ids: ["browser-ai", "local-ollama"], expected: "browser-ai", taskType: "chapter.rewrite" },
+    { name: "Browser + Hub", ids: ["browser-ai", "private-ai-hub"], expected: "browser-ai", taskType: "chapter.rewrite" },
+    { name: "Local + Hub", ids: ["local-ollama", "private-ai-hub"], expected: "local-ollama", taskType: "chapter.rewrite" },
+    { name: "All three", ids: ["browser-ai", "local-ollama", "private-ai-hub"], expected: "browser-ai", taskType: "chapter.rewrite" },
+    { name: "None available", ids: [], expected: null, taskType: "chapter.rewrite" },
+    {
+      name: "Full prose requires an explicit backend",
+      ids: ["browser-ai", "local-ollama"],
+      expected: null,
+      taskType: "chapter.continue",
+      reasonCode: "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED",
+    },
+    {
+      name: "Full prose explicitly selects Local",
+      ids: ["browser-ai", "local-ollama"],
+      expected: "local-ollama",
+      taskType: "chapter.continue",
+      preferredBackend: "local-ollama",
+    },
   ];
   for (const matrixCase of cases) {
     const snapshots = matrixCase.ids.map((id) => backend(id));
     const request = matrixCase.heavy
       ? task("character.multiAgentSimulation", "private_infrastructure_only")
-      : task();
-    const route = resolveClosedAIRoute(request, snapshots);
+      : task(matrixCase.taskType);
+    const route = resolveClosedAIRoute(request, snapshots, {
+      preferredBackend: matrixCase.preferredBackend,
+    });
     if (matrixCase.expected) {
       assert.equal(route.executionStatus, "routable", matrixCase.name);
       assert.equal(route.backend.id, matrixCase.expected, matrixCase.name);
       assert.equal(route.fallbackAttempted, false, matrixCase.name);
     } else {
       assert.equal(route.executionStatus, "not_executed", matrixCase.name);
-      assert.equal(route.reasonCode, "CLOSED_AI_REQUIRED_BACKEND_NOT_READY", matrixCase.name);
+      assert.equal(
+        route.reasonCode,
+        matrixCase.reasonCode ?? "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+        matrixCase.name,
+      );
     }
     assert.equal(
       JSON.stringify(route).match(/openai|grok|gemini|claude/giu),
