@@ -10,7 +10,6 @@ import {
 } from "react";
 import type {
   ClosedAIBackendId,
-  ClosedAIProgressEvent,
 } from "@/lib/novel-ai/closed-agent-os";
 import {
   createClosedAgentFailureEvidence,
@@ -19,7 +18,6 @@ import {
 import { createExplicitRegenerationContract } from "@/lib/novel-ai/web/explicit-regeneration";
 import {
   type Chapter,
-  type Character,
   type ConversationArtifact,
   type ConversationAttachment,
   type ConversationMessage,
@@ -30,7 +28,6 @@ import {
   type NovelProject,
   type StoryBible,
   type StoryState,
-  type WorldRule,
 } from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
@@ -97,54 +94,21 @@ import type {
   ConversationMessageActions,
   DrawerPayload,
 } from "./components/conversation-types";
+import {
+  activeChapter,
+  artifactType,
+  errorCode,
+  errorMessage,
+  MAX_TRANSIENT_ATTACHMENT_CONTEXT,
+  progressLabel,
+  resolveArtifactBefore,
+  targetStore,
+} from "./conversation-workspace-support";
 import styles from "./conversation.module.css";
 
 const ArtifactDrawer = dynamic(() => import("./components/artifact-drawer"), {
   loading: () => <p className={styles.emptyNote} role="status">正在載入作品結果……</p>,
 });
-
-const MAX_TRANSIENT_ATTACHMENT_CONTEXT = 24_000;
-
-function errorCode(error: unknown) {
-  if (error && typeof error === "object" && "code" in error) {
-    return String((error as { code?: unknown }).code ?? "CONVERSATION_OPERATION_FAILED");
-  }
-  if ((error as { name?: string })?.name === "AbortError") return "CONVERSATION_CANCELLED";
-  return "CONVERSATION_OPERATION_FAILED";
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
-  return "操作沒有完成；正式作品維持原狀。";
-}
-
-function activeChapter(project: NovelProject | null, chapters: Chapter[]) {
-  return chapters.find((chapter) => chapter.id === project?.activeChapterId)
-    ?? [...chapters].sort((left, right) => left.order - right.order).at(-1)
-    ?? null;
-}
-
-
-function artifactType(plan: ConversationPlan): ConversationArtifact["artifactType"] {
-  if (plan.executionKind === "rpg") return "rpg";
-  if (plan.intent === "character_candidate") return "character";
-  if (plan.intent === "world_rule_candidate") return "world_rule";
-  if (plan.intent === "learning_rule_candidate") return "learning_rule";
-  if (plan.intent === "attachment_analysis") return "attachment_analysis";
-  return "novel";
-}
-
-function targetStore(plan: ConversationPlan): ConversationArtifact["targetStore"] {
-  if (plan.targetStore === "characters") return "characters";
-  if (plan.targetStore === "worldRules") return "worldRules";
-  if (plan.targetStore === "learningRules") return "controlledLearning";
-  return plan.targetStore === "chapters" ? "chapters" : "none";
-}
-
-function progressLabel(event: ClosedAIProgressEvent) {
-  const generated = event.generatedCharacters ?? 0;
-  return `${event.label}${generated ? ` · 已產生 ${generated} 字` : ""}`;
-}
 
 export default function ConversationWorkspace({
   projectId,
@@ -1778,46 +1742,13 @@ export default function ConversationWorkspace({
     setArtifactView(view);
     setArtifactBefore("");
     setArtifactOpen(true);
-    if (view === "comparison") {
-      const sourceMessage = messages.find((message) => message.id === artifact.sourceMessageId);
-      const previousArtifact = sourceMessage?.sourceMessageId
-        ? [...artifacts].reverse().find((candidate) => (
-          candidate.sourceMessageId === sourceMessage.sourceMessageId
-          && candidate.artifactType === artifact.artifactType
-          && candidate.targetStore === artifact.targetStore
-          && candidate.targetRecordId === artifact.targetRecordId
-        ))
-        : null;
-      setArtifactBefore(previousArtifact ? artifactStory(previousArtifact) : "");
-      return;
-    }
-    if (view !== "diff") return;
-    if (artifact.targetStore === "chapters") {
-      const chapter = await repository.get<Chapter>("chapters", artifact.targetRecordId);
-      setArtifactBefore(chapter?.content ?? "");
-      return;
-    }
-    if (artifact.targetStore === "characters") {
-      const character = await repository.get<Character>("characters", artifact.targetRecordId);
-      setArtifactBefore(character ? JSON.stringify(character, null, 2) : "");
-      return;
-    }
-    if (artifact.targetStore === "worldRules") {
-      const rule = await repository.get<WorldRule>("worldRules", artifact.targetRecordId);
-      setArtifactBefore(rule?.description ?? "");
-      return;
-    }
-    if (artifact.targetStore === "learningImportSessions") {
-      const importSession = await repository.get<LearningImportSession>(
-        "learningImportSessions",
-        artifact.targetRecordId,
-      );
-      setArtifactBefore(importSession ? JSON.stringify({
-        status: importSession.status,
-        revision: importSession.revision,
-        manifestDigest: importSession.manifestDigest,
-      }, null, 2) : "");
-    }
+    setArtifactBefore(await resolveArtifactBefore({
+      repository,
+      artifact,
+      view,
+      messages,
+      artifacts,
+    }));
   }
 
   const selectedArtifact = drawer?.kind === "artifact"
