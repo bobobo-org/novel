@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import {
   lstat,
+  link,
   mkdir,
   mkdtemp,
   readdir,
@@ -56,9 +57,13 @@ async function collectRegularFiles(root) {
         pending.push(path);
         continue;
       }
-      if (!stats.isFile() || stats.nlink !== 1) {
+      if (!stats.isFile()) {
         fail("RC6_4_PRODUCTION_DIAGNOSTICS_NON_REGULAR_FILE_REJECTED");
       }
+      // Vercel may materialize the same regular static asset under both
+      // `.next/static` and `.vercel/output/static` with a hard link. Every
+      // authorized path is still byte-scanned below; symbolic links and other
+      // non-regular filesystem entries remain rejected above.
       if (stats.size > MAX_FILE_BYTES) {
         fail("RC6_4_PRODUCTION_DIAGNOSTICS_FILE_SIZE_LIMIT_EXCEEDED");
       }
@@ -304,6 +309,7 @@ async function selfTest() {
     const dirty = join(root, "dirty");
     await Promise.all([mkdir(clean), mkdir(dirty)]);
     await writeFile(join(clean, "chunk.js"), "production client", "utf8");
+    await link(join(clean, "chunk.js"), join(clean, "chunk-hardlink.js"));
     await writeFile(join(dirty, "chunk.js"), [
       "prefix",
       ...RC6_4_PRODUCTION_FORBIDDEN_DIAGNOSTIC_BYTES,
@@ -312,6 +318,7 @@ async function selfTest() {
     const productCommit = "a".repeat(40);
     const result = await verifyRc64ProductionSealedDiagnosticsSeam({ roots: [clean], productCommit });
     assert.equal(result.status, "PASS");
+    assert.equal(result.fileCount, 2);
     await assert.rejects(
       () => verifyRc64ProductionSealedDiagnosticsSeam({ roots: [dirty], productCommit }),
       /RC6_4_PRODUCTION_DIAGNOSTIC_SEAM_PRESENT_IN_SEALED_BYTES/u,
