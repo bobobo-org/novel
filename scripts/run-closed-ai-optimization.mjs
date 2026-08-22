@@ -891,7 +891,7 @@ test("Studio exposes readiness, progress, telemetry and no-silent-fallback truth
   assert.match(ui, /executionReady/u);
   assert.match(ui, /os\.dashboard\(projectId, nextSnapshots\)/u);
   assert.match(ui, /Promise\.all\(\[\s*browserProbe,\s*localProbe,\s*hubProbe/u);
-  assert.match(ui, /系統不會暗中換用別的 AI/u);
+  assert.match(ui, /後端與模型一旦鎖定，失敗就停止，不在執行中暗中切換/u);
   assert.match(css, /\.progressPanel/u);
   assert.match(css, /\.executionReadiness/u);
   assert.match(localServer, /workload: \{ active: work\.active/u);

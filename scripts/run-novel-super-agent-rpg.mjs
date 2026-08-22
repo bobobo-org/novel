@@ -482,14 +482,21 @@ await test("mature character vault contains ten women and ten men with valid RPG
   };
 });
 
-await test("responsive navigation exposes RPG and offline updates cannot pin stale UI", async () => {
-  const [navigation, globalCss, workspace, serviceWorker] = await Promise.all([
+await test("unified story navigation absorbs RPG and offline updates cannot pin stale UI", async () => {
+  const [navigation, globalCss, rpgRoute, conversationRpg, workspace, serviceWorker] = await Promise.all([
     readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/rpg/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../public/studio-service-worker.js", import.meta.url), "utf8"),
   ]);
-  assert.match(navigation, /\["rpg","RPG 養成"\]/u);
+  assert.match(navigation, /\["chat", "ai", "rpg"\]\.includes\(active\)/u);
+  assert.match(navigation, /故事工作台/u);
+  assert.doesNotMatch(navigation, /\["rpg","RPG 養成"\]/u);
+  assert.match(rpgRoute, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
+  assert.match(conversationRpg, /buildRpgRuleChoicePlan/u);
+  assert.match(conversationRpg, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
   assert.match(globalCss, /\.p2ProjectNav\{display:grid/u);
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
   assert.match(workspace, /規則先結算 → 產生候選正文 → 你核准才原子寫入/u);
@@ -506,7 +513,7 @@ await test("responsive navigation exposes RPG and offline updates cannot pin sta
   assert.match(serviceWorker, /retainOnly\(cacheName\)/u);
   assert.match(serviceWorker, /url\.pathname\.startsWith\("\/_next\/static\/"\)[\s\S]*networkFirst\(request\)/u);
   return {
-    navigation: "RPG route present",
+    navigation: "one story workbench with RPG mode and compatibility redirect",
     mobileMenu: "four-column non-overflow grid",
     approval: "explicit, cancellable, and mutation-free until completion",
     turnRuntime: "single streamed generation with a 300-second ceiling",
