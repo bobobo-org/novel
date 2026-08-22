@@ -203,7 +203,6 @@ export default function ConversationWorkspace({
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const {
     project,
-    chapters,
     storyState,
     activeSessionId,
     messages,
