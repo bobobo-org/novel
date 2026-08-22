@@ -481,8 +481,12 @@ const studioSource = await readFile(
   new URL("../app/studio/studio-client.tsx", import.meta.url),
   "utf8",
 );
-const closedWorkspaceSource = await readFile(
-  new URL("../app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx", import.meta.url),
+const conversationWorkspaceSource = await readFile(
+  new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
+  "utf8",
+);
+const conversationApprovalSource = await readFile(
+  new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts", import.meta.url),
   "utf8",
 );
 const globalStyles = await readFile(
@@ -499,11 +503,11 @@ assert.match(studioSource, /data-testid="studio-candidate-diff"/);
 assert.match(studioSource, /contextSourceSummary: result\.contextSourceSummary/);
 assert.match(studioSource, /result\.executionReceipt\?\.generatedTokenEvents/);
 assert.match(studioSource, /initialProjectId/);
-assert.match(closedWorkspaceSource, /sourceChapterId: sourceChapter\?\.id/);
-assert.match(closedWorkspaceSource, /sourceRevision: sourceChapter\?\.revision/);
-assert.match(closedWorkspaceSource, /chapterId: candidate\.sourceChapterId/);
-assert.match(closedWorkspaceSource, /sourceRevision: candidate\.sourceRevision/);
-assert.match(closedWorkspaceSource, /commitStudioCandidateToChapter\(\{/);
+assert.match(conversationWorkspaceSource, /sourceChapterId: resolvedCanonicalTarget\?\.targetRecordId/);
+assert.match(conversationWorkspaceSource, /sourceRevision: resolvedCanonicalTarget\?\.sourceRevision/);
+assert.match(conversationApprovalSource, /sourceRevision: artifact\.sourceRevision/);
+assert.match(conversationApprovalSource, /approveStudioClosedAgentCandidate\(\{/);
+assert.match(conversationApprovalSource, /canonicalCommit: async \(\{ candidate \}\)/);
 assert.match(
   studioSource,
   /title === project\.chapterTitle && draft === project\.draft/,

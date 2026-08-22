@@ -331,13 +331,14 @@ await test("source contracts expose save-home-task gating and verified closed AI
     readFile("lib/novel-ai/web/manual-learning-file-validation.ts", "utf8"),
   ]);
   assert.match(studio, /saveDraft\(chapterId: string, title: string, draft: string\)/);
-  assert.match(studio, /commitScreen\("write", false, id\)/);
+  assert.match(studio, /window\.location\.assign\(`\/studio\/project\/\$\{encodeURIComponent\(id\)\}\/chat`\)/u);
+  assert.doesNotMatch(studio, /commitScreen\("(?:create|write)"/u);
   assert.match(studio, /url\.searchParams\.delete\("projectId"\)/);
   assert.match(studio, /item\.activeChapterId === canonical\.chapter\.id/);
   assert.match(studio, /studio-task-handoff-continue/);
   assert.match(studio, /續寫、改寫、RPG 與 A／B／C 都從這裡開始/u);
   assert.match(studio, /screen === "home" && value === "choice" && project/);
-  assert.match(studio, /if \(value === "write"\) return `\$\{projectRoot\}\/chat`/u);
+  assert.match(studio, /if \(value === "write"\)[\s\S]*?encodeURIComponent\(project\.id\)[\s\S]*?\/chat[\s\S]*?: "\/studio\/create"/u);
   assert.match(studio, /if \(value === "choice"\) return `\$\{projectRoot\}\/chat\?mode=play`/u);
   assert.match(studio, /window\.location\.replace\(`\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/chat\?mode=play`\)/u);
   assert.doesNotMatch(studio, /\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg/u);

@@ -23,6 +23,10 @@ import {
   CLOUD_SYNC_SCHEMA_VERSION,
 } from "../lib/novel-ai/cloud-sync/types.ts";
 import { NOVEL_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
+import {
+  BROWSER_AI_LIGHT_TASKS,
+  taskComplexity,
+} from "../lib/novel-ai/closed-agent-os/backend-manifest.ts";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -175,8 +179,7 @@ test("decryption rejects a snapshot whose record index was forged before encrypt
   );
 });
 
-test("closed AI workspace exposes every packaged browser analyzer as a light task", async () => {
-  const workspace = await readFile(new URL("../app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx", import.meta.url), "utf8");
+test("automatic coordinator manifest keeps every packaged browser analyzer light", async () => {
   const browserTasks = [
     "chapter.compress",
     "story.chapterReview",
@@ -190,11 +193,10 @@ test("closed AI workspace exposes every packaged browser analyzer as a light tas
     "story.originalityCheck",
   ];
   for (const taskId of browserTasks) {
-    const taskPattern = new RegExp(`id: [\"']${taskId.replaceAll(".", "\\.")}[\"'][^\\n]+complexity: [\"']light[\"']`, "u");
-    assert.match(workspace, taskPattern, `${taskId} must stay runnable on Browser AI`);
+    assert.ok(BROWSER_AI_LIGHT_TASKS.includes(taskId), `${taskId} must stay runnable on Browser AI`);
+    assert.equal(taskComplexity(taskId), "light", `${taskId} must remain a light task`);
   }
-  assert.match(workspace, /"chapter\.compress",\s*\n\s*"character\.dialogue"/u);
-  assert.match(workspace, /taskType === "chapter\.compress"/u);
+  assert.ok(BROWSER_AI_LIGHT_TASKS.includes("chapter.compress"));
 });
 
 test("offline failure remains in outbox and later replays successfully", async () => {

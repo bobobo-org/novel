@@ -864,14 +864,14 @@ test("Dashboard reuses supplied backend snapshots without another runtime probe"
   assert.deepEqual(dashboard.backends, snapshots);
 });
 
-test("Studio exposes readiness, progress, telemetry and no-silent-fallback truth", () => {
+test("one story workspace exposes progress while coordinator management keeps runtime truth", () => {
   const root = process.cwd();
   const ui = fs.readFileSync(
     path.join(root, "app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx"),
     "utf8",
   );
-  const css = fs.readFileSync(
-    path.join(root, "app/studio/project/[projectId]/closed-ai/closed-ai.module.css"),
+  const conversation = fs.readFileSync(
+    path.join(root, "app/studio/project/[projectId]/chat/conversation-workspace.tsx"),
     "utf8",
   );
   const localServer = fs.readFileSync(
@@ -886,14 +886,14 @@ test("Studio exposes readiness, progress, telemetry and no-silent-fallback truth
     path.join(root, "app/studio/studio-client.tsx"),
     "utf8",
   );
-  assert.match(ui, /onProgress: recordProgress/u);
-  assert.match(ui, /progressEvents/u);
-  assert.match(ui, /executionReady/u);
+  assert.match(conversation, /onProgress: \(event\) => setProgress\(progressLabel\(event\)\)/u);
+  assert.match(conversation, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(conversation, /executeStudioClosedAgent/u);
+  assert.match(ui, /closed-ai-management-boundary/u);
+  assert.doesNotMatch(ui, /executeStudioClosedAgent|commitStudioCandidateToChapter/u);
   assert.match(ui, /os\.dashboard\(projectId, nextSnapshots\)/u);
   assert.match(ui, /Promise\.all\(\[\s*browserProbe,\s*localProbe,\s*hubProbe/u);
   assert.match(ui, /後端與模型一旦鎖定，失敗就停止，不在執行中暗中切換/u);
-  assert.match(css, /\.progressPanel/u);
-  assert.match(css, /\.executionReadiness/u);
   assert.match(localServer, /workload: \{ active: work\.active/u);
   assert.match(localServer, /keep_alive: "30m"/u);
   assert.match(hubServer, /workload: \{/u);
