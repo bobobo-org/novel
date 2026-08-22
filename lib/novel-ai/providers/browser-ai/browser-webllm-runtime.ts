@@ -23,7 +23,6 @@ import {
   inspectBrowserModelShardCache,
   verifyBrowserModelShards,
 } from "./browser-model-installer";
-import type { BrowserAiSetupDiagnosticAttempt } from "./browser-ai-setup-diagnostics";
 import { BrowserGPUQueue } from "./browser-gpu-queue";
 import { sha256Hex, stableStringify } from "../../closed-ai-cache";
 import {
@@ -67,10 +66,55 @@ export type BrowserWebLLMSetupOwnership = Readonly<{
   epoch: number;
 }>;
 
+/**
+ * Optional setup-observation seam used only by an explicitly supplied test or
+ * qualification controller. Product runtime code never discovers or creates a
+ * controller, so fault injection is unreachable unless the caller injects an
+ * implementation at this boundary.
+ */
+export type BrowserWebLLMSetupDiagnosticSeam = Readonly<{
+  checkpoint(
+    checkpoint:
+      | "before-first-immutable-request"
+      | "all-shards-before-integrity-verify"
+      | "integrity-verify"
+      | "worker-engine-initialize"
+      | "warmup"
+      | "before-verified-metadata-transaction"
+      | "metadata-transaction"
+      | "before-generation-verification",
+    runtime?: Readonly<{
+      workerGeneration?: number | null;
+      engineGeneration?: number | null;
+      ordering?:
+        | "not-applicable"
+        | "before-worker-construction"
+        | "worker-created-before-engine-created"
+        | "engine-created-before-custom-integrity"
+        | "inside-open-readwrite-transaction-before-writes";
+    }>,
+  ): Promise<Readonly<{
+    disposition: "not-armed" | "released";
+    fault:
+      | "worker-crash"
+      | "metadata-transaction-abort"
+      | "stale-completion"
+      | null;
+  }>>;
+  acknowledgeCleanup(input: Readonly<{
+    engineOwnershipMatched: boolean;
+    engineDetached: boolean;
+    workerDisposeAcknowledged: boolean;
+    metadataCleanupAcknowledged: boolean;
+  }>): Readonly<{ cleanupAcknowledged: boolean }>;
+  recordStaleCompletion(): void;
+  recordLateFailure(): void;
+}>;
+
 export type BrowserWebLLMSetupBoundary = Readonly<{
   modelId: BrowserWebLLMModelId;
   setupOwnership: BrowserWebLLMSetupOwnership;
-  diagnostics?: BrowserAiSetupDiagnosticAttempt;
+  diagnostics?: BrowserWebLLMSetupDiagnosticSeam;
 }>;
 
 export type BrowserWebLLMSetupCancellationOutcome = Readonly<{
@@ -618,7 +662,7 @@ async function mutateSetupMetadataAtomically(
     current: BrowserWebLLMModelMetadata,
   ) => void,
   signal?: AbortSignal,
-  diagnostics?: BrowserAiSetupDiagnosticAttempt,
+  diagnostics?: BrowserWebLLMSetupDiagnosticSeam,
 ) {
   if (signal?.aborted) {
     throw new DOMException("已取消模型 metadata transaction。", "AbortError");
@@ -1120,7 +1164,7 @@ async function createEngine(
   onProgress?: (progress: BrowserWebLLMProgress) => void,
   signal?: AbortSignal,
   setupOwnership?: BrowserWebLLMSetupOwnership,
-  diagnostics?: BrowserAiSetupDiagnosticAttempt,
+  diagnostics?: BrowserWebLLMSetupDiagnosticSeam,
 ) {
   if (
     activeEngine
@@ -1466,7 +1510,7 @@ export async function installBrowserWebLLMModel(
     signal?: AbortSignal;
     onProgress?: (progress: BrowserWebLLMProgress) => void;
     setupOwnership: BrowserWebLLMSetupOwnership;
-    diagnostics?: BrowserAiSetupDiagnosticAttempt;
+    diagnostics?: BrowserWebLLMSetupDiagnosticSeam;
   },
 ) {
   if (options.userInitiated !== true) {

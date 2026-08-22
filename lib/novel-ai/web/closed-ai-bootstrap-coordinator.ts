@@ -14,21 +14,25 @@ import {
   prewarmBrowserWebLLMModel,
   repairSelectedBrowserWebLLMCache,
   selectBrowserWebLLMModel,
+  type BrowserWebLLMSetupDiagnosticSeam,
   type BrowserWebLLMSetupBoundary,
 } from "../providers/browser-ai/browser-webllm-runtime";
 import {
   BROWSER_WEBLLM_MODELS,
   type BrowserWebLLMModelId,
 } from "../providers/browser-ai/webllm-model-registry";
-import {
-  browserAiSetupDiagnosticController,
-  type BrowserAiSetupDiagnosticAttempt,
-  type BrowserAiSetupDiagnosticControllerHandle,
-} from "../providers/browser-ai/browser-ai-setup-diagnostics";
 import type {
   ClosedAIRuntimeCoordinator,
   ClosedAIRuntimeSnapshot,
 } from "./closed-ai-runtime-coordinator";
+
+export type BrowserAiSetupDiagnosticControllerInjection = Readonly<{
+  bindAttempt(ownership: Readonly<{
+    attemptId: string;
+    epoch: number;
+    abortControllerGenerationId: string;
+  }>): Promise<BrowserWebLLMSetupDiagnosticSeam>;
+}>;
 import {
   resolveClosedAiConsumerReadiness,
   type ClosedAiConsumerReadiness,
@@ -186,8 +190,8 @@ export class ClosedAiBootstrapCoordinator {
   private readonly browser: BrowserBootstrapDependencies;
   private readonly browserAiSetupStateMachine: BrowserAiSetupStateMachine;
   private readonly browserAiSetupDiagnostics:
-    | BrowserAiSetupDiagnosticControllerHandle
-    | Promise<BrowserAiSetupDiagnosticControllerHandle | null>
+    | BrowserAiSetupDiagnosticControllerInjection
+    | Promise<BrowserAiSetupDiagnosticControllerInjection | null>
     | null;
   private readonly abortControllerGenerations = new WeakMap<AbortSignal, string>();
   private previousBrowserAiSetupOwnership: BrowserAiSetupAttemptOwnership | null = null;
@@ -200,8 +204,8 @@ export class ClosedAiBootstrapCoordinator {
     options: {
       setupAttemptPrefix?: string;
       setupDiagnostics?:
-        | BrowserAiSetupDiagnosticControllerHandle
-        | Promise<BrowserAiSetupDiagnosticControllerHandle | null>
+        | BrowserAiSetupDiagnosticControllerInjection
+        | Promise<BrowserAiSetupDiagnosticControllerInjection | null>
         | null;
     } = {},
   ) {
@@ -210,9 +214,7 @@ export class ClosedAiBootstrapCoordinator {
     this.browserAiSetupStateMachine = new BrowserAiSetupStateMachine({
       attemptIdPrefix: options.setupAttemptPrefix ?? setupAttemptPrefix(),
     });
-    this.browserAiSetupDiagnostics = options.setupDiagnostics === undefined
-      ? browserAiSetupDiagnosticController()
-      : options.setupDiagnostics;
+    this.browserAiSetupDiagnostics = options.setupDiagnostics ?? null;
   }
 
   browserAiSetupSnapshot(): BrowserAiSetupStateSnapshot {
@@ -237,7 +239,7 @@ export class ClosedAiBootstrapCoordinator {
 
   private injectAuthorizedStaleCompletion(
     current: BrowserAiSetupAttemptOwnership,
-    diagnostics: BrowserAiSetupDiagnosticAttempt,
+    diagnostics: BrowserWebLLMSetupDiagnosticSeam,
   ) {
     const stale = this.previousBrowserAiSetupOwnership;
     if (!stale || stale === current) {
@@ -283,7 +285,7 @@ export class ClosedAiBootstrapCoordinator {
     operation: (
       ownership: BrowserAiSetupAttemptOwnership,
       markCompletionCommitted: () => void,
-      diagnostics: BrowserAiSetupDiagnosticAttempt | null,
+      diagnostics: BrowserWebLLMSetupDiagnosticSeam | null,
     ) => Promise<ClosedAiBootstrapResult>,
   ) {
     let completionCommitted = false;
@@ -299,7 +301,7 @@ export class ClosedAiBootstrapCoordinator {
       );
     }
     const { ownership } = acquisition;
-    let diagnosticAttempt: BrowserAiSetupDiagnosticAttempt | null = null;
+    let diagnosticAttempt: BrowserWebLLMSetupDiagnosticSeam | null = null;
     const requestCancellation = () => {
       if (completionCommitted) return;
       if (this.browserAiSetupStateMachine.owns(ownership)) {
