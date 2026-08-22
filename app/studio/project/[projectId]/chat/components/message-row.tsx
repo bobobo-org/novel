@@ -171,7 +171,7 @@ export const MessageRow = memo(function MessageRow({
             {branchPending ? "建立編輯分支中……" : "編輯並分支"}
           </button>
         ) : null}
-        {message.status === "completed" ? (
+        {message.status === "completed" && !rpgChoices ? (
           <button
             type="button"
             data-conversation-action="branch"
@@ -179,7 +179,7 @@ export const MessageRow = memo(function MessageRow({
             aria-busy={branchPending}
             onClick={() => actions.createBranch(message)}
           >
-            {branchPending ? "建立分支中……" : "從這裡分支"}
+            {branchPending ? "建立支線中……" : "另開支線"}
           </button>
         ) : null}
         {branchPending ? <span className={styles.emptyNote} role="status">分支建立中，請稍候。</span> : null}

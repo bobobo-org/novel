@@ -1,11 +1,11 @@
 import Link from "next/link";
-import type { Chapter, ConversationSession, NovelProject } from "@/lib/novel-ai/domain";
+import type { ConversationSession, NovelProject } from "@/lib/novel-ai/domain";
+import { projectManagementHref } from "@/lib/novel-ai/web/studio-task-session";
 import styles from "../conversation.module.css";
 
 export function SessionSidebar({
   projectId,
   project,
-  chapters,
   sessions,
   activeSessionId,
   switchingSessionId,
@@ -26,7 +26,6 @@ export function SessionSidebar({
 }: {
   projectId: string;
   project: NovelProject | null;
-  chapters: Chapter[];
   sessions: ConversationSession[];
   activeSessionId: string;
   switchingSessionId: string | null;
@@ -86,23 +85,14 @@ export function SessionSidebar({
           </div>
         ))}
       </div>
-      <div className={styles.sidebarHeading}><span>專業工具</span></div>
-      <p className={styles.emptyNote}>日常續寫、改寫、RPG 與 A／B／C 都留在故事工作台；只有要直接管理正式資料時才使用下列工具。</p>
-      <div className={styles.projectLinks}>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/write`}>章節全文校訂</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/story-bible`}>Story Bible</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/characters`}>角色與關係</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/world`}>世界規則</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/timeline`}>時間線</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/learning`}>閉端學習</Link>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/backups`}>備份與還原</Link>
-        <button className={styles.quietButton} type="button" disabled={busy || !activeSessionId} onClick={onExportSummary}>匯出目前對話摘要</button>
-      </div>
-      <div className={styles.sidebarHeading}><span>最近章節</span></div>
-      <div className={styles.recentChapters}>
-        {[...chapters].slice(-4).reverse().map((chapter) => (
-          <Link href={`/studio/project/${encodeURIComponent(projectId)}/write?chapterId=${encodeURIComponent(chapter.id)}`} key={chapter.id}>{chapter.title}</Link>
-        ))}
+      <div className={styles.sidebarUtilities}>
+        <Link className={styles.managementLink} href={projectManagementHref(projectId)}>
+          <strong>作品管理中心</strong>
+          <span>章節、角色、世界、任務、備份、學習與 AI 設定都在這裡</span>
+        </Link>
+        <button className={styles.exportSummary} type="button" disabled={busy || !activeSessionId} onClick={onExportSummary}>
+          匯出目前對話摘要
+        </button>
       </div>
     </aside>
   );

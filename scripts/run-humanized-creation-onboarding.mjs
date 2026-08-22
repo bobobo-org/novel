@@ -8,6 +8,12 @@ const creation = read("app/studio/create/create-project-client.tsx");
 const creationDomain = read("lib/novel-ai/domain/creation.ts");
 const playMode = read("lib/novel-ai/domain/play-mode.ts");
 const rpg = read("app/studio/project/[projectId]/rpg/rpg-workspace.tsx");
+const conversationShell = read("app/studio/project/[projectId]/chat/components/conversation-shell.tsx");
+const conversationTimeline = read("app/studio/project/[projectId]/chat/components/message-timeline.tsx");
+const conversationTurn = read("app/studio/project/[projectId]/chat/components/rpg-turn-card.tsx");
+const conversationApproval = read("app/studio/project/[projectId]/chat/components/approval-card.tsx");
+const conversationApprovalFlow = read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts");
+const rpgChatTurn = read("lib/novel-ai/web/rpg-chat-turn.ts");
 const globalCss = read("app/globals.css");
 const rpgCss = read("app/studio/project/[projectId]/rpg/rpg.module.css");
 
@@ -23,8 +29,8 @@ const checks = [
   ["一鍵代設入口可操作", /data-testid="studio-guide-autofill"/u.test(studio) && /buildLocalCreationGuide\(w\)/u.test(studio)],
   ["建立頁的 AI 工作不再突然跳頁", /!creationTasks\.has\(task\)/u.test(studio)],
   ["第一幕提供 AI、自寫與遊戲入口", /data-testid="studio-story-starter"/u.test(studio) && /請 AI 寫開場候選/u.test(studio) && /進入第一個遊戲回合/u.test(studio)],
-  ["RPG 新手流程清楚呈現", /data-testid="rpg-play-guide"/u.test(rpg) && /讀本回合故事 → 選一個行動 → 真實 AI 續寫與結算/u.test(rpg)],
-  ["RPG 選擇仍須明確核准", /data-testid="rpg-accept-choice"/u.test(rpg) && /確認選擇、續寫正文並同步數值/u.test(rpg) && /id="rpg-next-action"/u.test(rpg)],
+  ["RPG 新手流程已整合到單一故事工作台", /data-testid="conversation-first-workspace"/u.test(conversationShell) && /玩法已跟隨作品存檔/u.test(conversationTimeline) && /data-testid="rpg-inline-choices"/u.test(conversationTurn)],
+  ["RPG 選擇仍須明確核准", /data-testid="conversation-approve-candidate"/u.test(conversationApproval) && /核准寫入正文、狀態與收據/u.test(conversationApproval) && /approveRpgChatTurn/u.test(conversationApprovalFlow)],
   ["桌機與手機都有新手流程版面", /\.studioCreationGuide/u.test(globalCss) && /\.studioStoryStarter/u.test(globalCss) && /\.playGuide/u.test(rpgCss) && /@media \(max-width: 680px\)/u.test(rpgCss)],
   ["新版建立流程先要求名稱再鎖定單一玩法", /data-testid="p2-project-title"/u.test(creation) && /story\.playModeLocked/u.test(creationDomain) && /story\.setupComplete/u.test(creationDomain) && /STORY_PLAY_MODE_IDS/u.test(playMode)],
   ["引導建立每一題都會攔截空白答案", /請先回答第 \$\{draft\.step\} 題/u.test(creation) && /scrollIntoView/u.test(creation)],
@@ -32,7 +38,7 @@ const checks = [
   ["作品語言會鎖入正式 StoryState", /data-testid="p2-story-language"/u.test(creation) && /story\.language/u.test(creationDomain)],
   ["同一故事改玩法時建立獨立副本", /cloneFrom/u.test(creation) && /crypto\.randomUUID\(\)/u.test(creationDomain) && /複製故事種子/u.test(rpg)],
   ["五種玩法使用各自儀表板語彙與資源", /PLAY_MODE_DASHBOARD_COPY/u.test(rpg) && /RELATIONSHIP PULSE/u.test(rpg) && /BRANCH STATE/u.test(rpg) && /MANAGEMENT CAPITAL/u.test(rpg)],
-  ["只將選中分支續文與同筆數值交易寫入 Canon", /acceptedText = continuation/u.test(rpg) && /acceptStudioChoice\([\s\S]*?acceptedText/u.test(rpg) && /只套用這個選項；另外兩個選項不改正文/u.test(rpg)],
+  ["只將選中路線的續文與同筆數值交易寫入 Canon", /optionKey: input\.candidate\.choice\.key/u.test(rpgChatTurn) && /acceptStudioChoice\([\s\S]*?saved\.candidate\.id[\s\S]*?verifiedStory/u.test(rpgChatTurn) && /canonicalMutationCount: 1/u.test(rpgChatTurn)],
 ];
 
 for (const [name, pass] of checks) assert.equal(pass, true, name);

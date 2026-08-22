@@ -886,7 +886,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
-        <Link href="/studio">返回作品</Link>
+        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>返回作品管理中心</Link>
         <div>
           <small>{projectTitle}</small>
           <h1>閉端 AI 規則學習中心</h1>

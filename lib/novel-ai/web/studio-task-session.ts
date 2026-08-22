@@ -21,8 +21,14 @@ function safeProjectId(value: string) {
   return projectId;
 }
 
+export function projectManagementHref(projectId: string) {
+  const cleanProjectId = safeProjectId(projectId);
+  return `/professional?intent=library&projectId=${encodeURIComponent(cleanProjectId)}`;
+}
+
+/** @deprecated Use projectManagementHref. Kept for compatible task receipts. */
 export function studioHomeHref(projectId: string) {
-  return `/studio?screen=home&projectId=${encodeURIComponent(safeProjectId(projectId))}`;
+  return projectManagementHref(projectId);
 }
 
 export function validateStudioTaskDestination(projectId: string, href: string) {

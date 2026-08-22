@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Chapter, NovelProject, ProjectBackup, StoryState } from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
+  storyPlayModeDashboardHref,
   STORY_PLAY_MODE_LABELS,
 } from "@/lib/novel-ai/domain/play-mode";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
@@ -40,12 +41,28 @@ function storyWorkspaceHref(projectId: string, intent: string) {
   return intent === "play" ? `${root}?mode=play` : root;
 }
 
+function coordinatorTaskHref(projectId: string, prompt: string) {
+  const query = new URLSearchParams({
+    prompt,
+  });
+  return `/studio/project/${encodeURIComponent(projectId)}/chat?${query.toString()}`;
+}
+
+function consistencyReviewHref(projectId: string) {
+  return coordinatorTaskHref(
+    projectId,
+    "請檢查目前作品的角色、時間線、世界規則與章節因果，列出有證據的矛盾與可核准修正候選；不要直接修改 Canon。",
+  );
+}
+
 export default function ProfessionalClient({
   initialProjectId = "",
   intent = "library",
+  legacyMigration = "",
 }: {
   initialProjectId?: string;
   intent?: "write" | "play" | "library" | string;
+  legacyMigration?: "import" | "";
 }) {
   const router = useRouter();
   const repository = useMemo(() => createNovelRepository(), []);
@@ -87,17 +104,20 @@ export default function ProfessionalClient({
     try {
       // Professional 舊工具與 Studio 曾使用不同存放層。這裡只做非覆蓋匯入，
       // 之後所有閱讀、寫作、管理與備份都只讀正式 IndexedDB repository。
-      const migration = await migrateLegacyStudioProjects(repository, {
-        sourceKeys: EXPLICIT_LEGACY_STUDIO_KEYS,
-        overwriteExisting: false,
-      });
+      const migration = legacyMigration === "import"
+        ? await migrateLegacyStudioProjects(repository, {
+            sourceKeys: EXPLICIT_LEGACY_STUDIO_KEYS,
+            overwriteExisting: false,
+          })
+        : { migrated: 0, skippedExisting: 0 };
       const nextProjects = (await repository.list<NovelProject>("projects"))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
       setProjects(nextProjects);
       const explicitProject = nextProjects.some((item) => item.id === preferredProjectId);
-      const mustChoose = !explicitProject
+      const requestedProjectMissing = Boolean(preferredProjectId) && !explicitProject;
+      const mustChoose = requestedProjectMissing || (!explicitProject
         && nextProjects.length > 1
-        && isStoryIntent(intent);
+        && isStoryIntent(intent));
       const nextId = explicitProject
         ? preferredProjectId
         : mustChoose
@@ -111,7 +131,9 @@ export default function ProfessionalClient({
         return;
       }
       await loadSummary(nextId);
-      setStatus(mustChoose
+      setStatus(requestedProjectMissing
+        ? "網址指定的作品不在這個瀏覽器的正式作品庫中。系統已停止自動切換，請明確選擇作品；沒有載入其他作品代替。"
+        : mustChoose
         ? `找到 ${nextProjects.length} 部正式作品。請先選擇一部，再繼續；系統不會自行猜測或混用章節。`
         : migration.migrated
         ? `已將 ${migration.migrated} 部舊版作品非覆蓋地接到正式作品庫；原始資料仍保留。`
@@ -124,7 +146,7 @@ export default function ProfessionalClient({
     } finally {
       setLoading(false);
     }
-  }, [intent, loadSummary, repository, router]);
+  }, [intent, legacyMigration, loadSummary, repository, router]);
 
   const refreshAIStatus = useCallback(async () => {
     aiDiscoveryController.current?.abort("PROFESSIONAL_AI_DISCOVERY_REPLACED");
@@ -193,16 +215,18 @@ export default function ProfessionalClient({
   const project = summary?.project ?? null;
   const projectRoot = project ? `/studio/project/${encodeURIComponent(project.id)}` : "";
   const playMode = summary?.storyState ? resolveStoryPlayMode(summary.storyState) : "general";
-  const primaryWorkspace = project ? `${projectRoot}/chat` : "";
-  const playWorkspace = project ? `${projectRoot}/chat?mode=play` : "";
+  const primaryWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
+  const localAIHref = project
+    ? `/settings/local-ai?returnTo=${encodeURIComponent(primaryWorkspace)}`
+    : "/settings/local-ai";
 
   return (
     <main className="professionalModern" data-testid="professional-canonical-workbench">
       <header className="professionalModernHeader">
         <div>
-          <small>PROFESSIONAL · CANONICAL WORKBENCH</small>
-          <h1>專業工具與資料管理</h1>
-          <p>這裡只處理正式章節校訂、設定、模型、學習、備份與匯出；日常創作和 RPG 一律回到故事工作台。</p>
+          <small>PROJECT MANAGEMENT · ONE CANONICAL WORKSPACE</small>
+          <h1>作品管理中心</h1>
+          <p>舊工作台的所有功能都已重新分配到這裡；章節、角色、世界、進度、備份、學習與 AI 設定共用同一份正式作品資料。</p>
         </div>
         <div className="professionalModernStatus">
           <span>正式作品庫：{error ? "需要檢查" : loading ? "讀取中" : "已統一"}</span>
@@ -210,10 +234,10 @@ export default function ProfessionalClient({
         </div>
       </header>
 
-      <nav className="professionalModernTop" aria-label="專業工作台主要入口">
-        <Link href="/">首頁</Link>
+      <nav className="professionalModernTop" aria-label="作品管理中心主要入口">
+        <Link href="/">系統首頁</Link>
         <Link className="primary" href="/studio/create">建立新作品</Link>
-        {project ? <Link href={`${projectRoot}/chat`}>故事工作台</Link> : null}
+        {project ? <Link href={primaryWorkspace}>繼續目前玩法</Link> : null}
         {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}
       </nav>
 
@@ -221,7 +245,7 @@ export default function ProfessionalClient({
         {error ? `讀取失敗：${error}。${status}` : status}
       </p>
 
-      {projects.length && !isStoryIntent(intent) ? (
+      {projects.length > 0 && !isStoryIntent(intent) ? (
         <section className="professionalProjectPicker" aria-label="選擇正式作品">
           <strong>目前作品</strong>
           <select value={selectedId} disabled={loading} onChange={(event) => void selectProject(event.target.value)}>
@@ -240,7 +264,7 @@ export default function ProfessionalClient({
               <h2>{project.title}</h2>
               <p>{project.coreIdea.value || "尚未設定核心想法；可在作品設定或故事工作台中補上。"}</p>
               <div className="professionalHeroActions">
-                <Link className="primary" href={primaryWorkspace}>回到唯一故事工作台</Link>
+                <Link className="primary" href={primaryWorkspace}>繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link>
                 <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
                 <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
               </div>
@@ -249,39 +273,63 @@ export default function ProfessionalClient({
               <div><dt>章節</dt><dd>{summary.chapters.length}</dd></div>
               <div><dt>總字數</dt><dd>{wordCount(summary.chapters)}</dd></div>
               <div><dt>正式備份</dt><dd>{summary.backups.length}</dd></div>
+              <div><dt>固定玩法</dt><dd>{STORY_PLAY_MODE_LABELS[playMode]}</dd></div>
               <div><dt>最近更新</dt><dd>{formatTime(project.updatedAt)}</dd></div>
             </dl>
           </section>
 
-          <section className="professionalActionGroups">
-            <article>
-              <small>CANON & REVIEW</small><h2>正式稿與故事記憶</h2>
-              <p>這裡只校訂已採用的正式內容與故事資料；續寫、改寫和 RPG 請回故事工作台。</p>
-              <Link href={`${projectRoot}/write`}>章節正式稿校訂</Link>
-              <Link href={`${projectRoot}/story-bible`}>故事記憶</Link>
+          <section className="professionalActionGroups" aria-label="作品全部功能">
+            <article id="story-and-chapters">
+              <small>STORY & CHAPTERS</small><h2>故事與章節</h2>
+              <p>創作、RPG 與三選一在故事工作台進行；已採用正文則在校訂頁精修。</p>
+              <Link href={primaryWorkspace}>繼續目前玩法</Link>
+              <Link href={`${projectRoot}/write`}>章節全文校訂</Link>
+              <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
             </article>
-            <article>
-              <small>READ & MANAGE</small><h2>閱讀與資料管理</h2>
-              <p>閱讀、作品清單與備份全部指向 Canonical repository，不再跳回 Legacy 存檔槽。</p>
-              <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link>
-              <Link href={`/professional?intent=library&projectId=${encodeURIComponent(project.id)}`}>作品管理</Link>
-              <Link href={`${projectRoot}/backups`}>存檔／備份／匯出</Link>
+            <article id="world-and-characters">
+              <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
+              <p>管理正式人物、關係、世界規則、Story Bible 與時間線；所有頁面都留在同一作品。</p>
+              <Link href={`${projectRoot}/characters`}>角色與關係</Link>
+              <Link href={`${projectRoot}/world`}>世界規則</Link>
+              <Link href={`${projectRoot}/story-bible`}>Story Bible／故事記憶</Link>
+              <Link href={`${projectRoot}/timeline`}>時間線</Link>
             </article>
-            <article>
-              <small>WORLD & PLAY</small><h2>角色、世界與固定玩法</h2>
-              <p>目前固定為「{STORY_PLAY_MODE_LABELS[playMode]}」。同一作品不會在寫作途中切換玩法；需要另一種方式時會建立獨立副本。</p>
-              <Link href={`${projectRoot}/characters`}>角色管理</Link>
-              <Link href={`${projectRoot}/world`}>世界設定</Link>
-              {playMode !== "general" ? <Link href={playWorkspace}>在故事工作台繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link> : null}
+            <article id="progress-and-review">
+              <small>PROGRESS & REVIEW</small><h2>任務、成就與檢查</h2>
+              <p>追蹤目前作品的目標與里程碑；一致性檢查會回到同一故事工作台建立候選。</p>
+              <Link href={`${projectRoot}/tasks`}>任務與進度</Link>
+              <Link href={`${projectRoot}/achievements`}>成就與里程碑</Link>
+              <Link href={consistencyReviewHref(project.id)}>檢查作品一致性</Link>
+            </article>
+            <article id="data-and-safety">
+              <small>DATA & SAFETY</small><h2>作品、存檔與備份</h2>
+              <p>切換作品、完整備份、還原與儲存設定集中管理，不再回到舊版首頁。</p>
+              <Link href="/professional?intent=library">我的作品</Link>
+              <Link href={`${projectRoot}/backups`}>備份、還原與匯出</Link>
+              <Link href="/studio/settings/storage">本機儲存與雲端同步</Link>
               <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製為其他玩法</Link>
+            </article>
+            <article id="ai-and-learning">
+              <small>AI & LEARNING</small><h2>自動協調器與學習</h2>
+              <p>管理閉端算力、共享學習規則、資料邊界與本機模型；正文仍只在故事工作台產生。</p>
+              <Link href={`${projectRoot}/closed-ai`}>閉端 AI 自動協調器</Link>
+              <Link href={`${projectRoot}/learning`}>閉端 AI 規則學習</Link>
+              <Link href="/studio/settings/ai">AI 使用方式與資料邊界</Link>
+              <Link href={localAIHref}>本機 AI 安裝與連線</Link>
+            </article>
+            <article id="extended-creation">
+              <small>EXTENDED CREATION</small><h2>角色 AI 與內容延伸</h2>
+              <p>角色模擬與短劇改編保持候選／核准邊界，不會直接覆寫原作。</p>
+              <Link href={`${projectRoot}/character-ai`}>角色 AI</Link>
               <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
-            <article>
-              <small>INTELLIGENCE</small><h2>模型與治理</h2>
-              <p>模型連線、學習與系統檢查仍是專業功能，但不承擔正文編輯。</p>
-              <Link href={`${projectRoot}/closed-ai`}>閉端 AI 狀態</Link>
-              <Link href={`${projectRoot}/learning`}>閉端 AI 學習</Link>
-              <Link href={`${projectRoot}/timeline`}>時間線檢查</Link>
+            <article id="research-and-legacy-tools">
+              <small>RESEARCH & AUTHOR TOOLS</small><h2>研究與作者輔助</h2>
+              <p>舊版的書籍拆解、接力提示、批量規劃與連載研究已改由同一故事工作台處理，不再開啟另一套舊首頁。</p>
+              <Link href={coordinatorTaskHref(project.id, "請拆解目前作品的賣點、人物關係、核心衝突、伏筆與章節節奏，建立可核准的分析候選；不要直接修改正文。")}>書籍與作品拆解</Link>
+              <Link href={coordinatorTaskHref(project.id, "請為目前作品整理一份可複製的續寫接力提示，包含必要 Canon、上一章結果、未解伏筆與下一步限制；不要直接續寫正文。")}>續寫接力提示</Link>
+              <Link href={coordinatorTaskHref(project.id, "請規劃目前作品接下來多個章節的批量工作清單，只建立候選大綱與檢查點，不要直接修改正式章節。")}>多章批量規劃</Link>
+              <Link href={coordinatorTaskHref(project.id, "請分析目前作品的連載節奏、章尾鉤子、讀者留存、標籤定位與 IP 改編方向，提出可核准的優化候選。")}>連載、讀者與 IP 研究</Link>
             </article>
           </section>
         </>
@@ -312,11 +360,6 @@ export default function ProfessionalClient({
         </section>
       )}
 
-      <details className="professionalLegacyTools">
-        <summary>Legacy 相容工具（書籍拆解、接力提示等）</summary>
-        <p>這些是舊版輔助工具，不再作為作品、章節或備份的正式資料來源。</p>
-        <a href="/legacy/novel-system.html?mode=professional&view=breakdown">開啟相容工具</a>
-      </details>
     </main>
   );
 }

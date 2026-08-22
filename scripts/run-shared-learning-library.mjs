@@ -346,7 +346,7 @@ assert.match(rpgApproval, /await approveRpgChatTurn\(\{/u);
 assert.match(rpgApproval, /conversation-rpg-approval/u);
 assert.match(rpgRedirect, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
 assert.match(chatPage, /first\(query\.mode\) === "play"/u);
-assert.match(chatPage, /A／B／C/u);
+assert.match(chatPage, /開始目前玩法的第一回合/u);
 assert.match(migration, /create index if not exists idx_shared_learning_global_rank/u);
 assert.doesNotMatch(migration, /raw_story|source_text|source_sentence|dialogue_text/u);
 

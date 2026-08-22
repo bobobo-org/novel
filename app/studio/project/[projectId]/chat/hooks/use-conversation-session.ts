@@ -10,6 +10,7 @@ import type {
   ConversationToolInvocation,
   LearningImportSession,
   NovelProject,
+  StoryState,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
@@ -98,6 +99,7 @@ export function useConversationSessionController({
 }) {
   const [project, setProject] = useState<NovelProject | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [storyState, setStoryState] = useState<StoryState | null>(null);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -258,12 +260,21 @@ export function useConversationSessionController({
     setLoading(true);
     onError(null);
     try {
-      const [loadedProject, loadedChapters] = await Promise.all([
+      const [loadedProject, loadedChapters, loadedStoryStates] = await Promise.all([
         repository.get<NovelProject>("projects", projectId),
         repository.list<Chapter>("chapters", projectId),
+        repository.list<StoryState>("storyStates", projectId),
       ]);
       if (!loadedProject || loadedProject.deletedAt) {
         throw Object.assign(new Error("找不到這個小說專案。"), { code: "CONVERSATION_PROJECT_NOT_FOUND" });
+      }
+      const loadedStoryState = loadedStoryStates.find((item) => item.id === loadedProject.storyStateId)
+        ?? loadedStoryStates[0]
+        ?? null;
+      if (!loadedStoryState) {
+        throw Object.assign(new Error("作品玩法資料無法讀取；系統已停止，沒有把它誤當成一般小說。"), {
+          code: "CONVERSATION_PLAY_MODE_UNAVAILABLE",
+        });
       }
       let nextSessions = await conversation.listSessions(projectId, { includeArchived: showArchived });
       if (!nextSessions.length && !showArchived) {
@@ -287,6 +298,7 @@ export function useConversationSessionController({
       ) return false;
       setProject(loadedProject);
       setChapters([...loadedChapters].sort((left, right) => left.order - right.order));
+      setStoryState(loadedStoryState);
       setSessions(nextSessions);
       if (selected && snapshot) {
         commitSessionSnapshot(selected.id, snapshot, token, options.expectedIntentToken);
@@ -302,6 +314,7 @@ export function useConversationSessionController({
       return true;
     } catch (error) {
       if (token === requestTokenRef.current) {
+        setStoryState(null);
         onError({ code: operationErrorCode(error), message: operationErrorMessage(error) });
       }
       return false;
@@ -361,6 +374,7 @@ export function useConversationSessionController({
   return {
     project,
     chapters,
+    storyState,
     sessions,
     activeSessionId,
     messages,

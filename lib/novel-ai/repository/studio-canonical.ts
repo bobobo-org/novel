@@ -3,6 +3,10 @@ import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type Choi
 import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceConversationApprovalInput, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
+import {
+  isStoryPlayModeId,
+  type StoryPlayModeId,
+} from "../domain/play-mode";
 
 export type StudioProjectSeed = {
   id: string;
@@ -21,6 +25,7 @@ export type StudioProjectSeed = {
   conflict?: string | null;
   style?: string | null;
   enabledStats?: string[];
+  selectedPlayModeId?: StoryPlayModeId | null;
   adultMode?: boolean;
   adultExperienceProfile?: AdultExperienceProfile | null;
 };
@@ -52,6 +57,12 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     draft.answers.goal = value(input.goal);
     draft.answers.worldRule = value(input.worldRule || input.world);
     draft.answers.obstacle = value(input.conflict);
+    if (input.selectedPlayModeId) {
+      draft.answers.playMode = optionalValue(
+        input.selectedPlayModeId,
+        "user_defined",
+      );
+    }
     const bundle = buildProjectBundle(draft);
     bundle.project.adultMode = input.adultMode === true;
     bundle.project.adultExperienceProfile = input.adultMode ? input.adultExperienceProfile ?? null : null;
@@ -83,9 +94,25 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     chapter = await repository.put("chapters", chapter);
     project = await repository.put("projects", { ...project, activeChapterId: chapter.id }, project.revision);
   }
-  const storyState = (await repository.list<StoryState>("storyStates", input.id))[0];
+  let storyState = (await repository.list<StoryState>("storyStates", input.id))[0];
   const storyBible = (await repository.list<StoryBible>("storyBibles", input.id))[0];
   if (!storyState || !storyBible) throw new Error("CANONICAL_PROJECT_STATE_MISSING");
+  const importedPlayMode = input.selectedPlayModeId;
+  const storedPlayMode = storyState.worldFlags["story.playMode"];
+  if (
+    project.creationMode === "legacy"
+    && isStoryPlayModeId(importedPlayMode)
+    && storedPlayMode !== importedPlayMode
+  ) {
+    storyState = await repository.put("storyStates", {
+      ...storyState,
+      worldFlags: {
+        ...storyState.worldFlags,
+        "story.playMode": importedPlayMode,
+        "story.playModeLocked": true,
+      },
+    }, storyState.revision);
+  }
   if (input.enabledStats?.length && Object.keys(storyState.protagonistStats).length === 0) {
     const protagonistStats = Object.fromEntries(input.enabledStats.map((stat) => [stat, stat === "stamina" ? 100 : stat === "level" ? 1 : 0]));
     const updated = await repository.put("storyStates", { ...storyState, protagonistStats }, storyState.revision);

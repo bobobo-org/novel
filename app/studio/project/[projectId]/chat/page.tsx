@@ -18,7 +18,7 @@ export default async function Page({
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
   const requestedPrompt = safePrefill(first(query.prompt));
   const modePrompt = first(query.mode) === "play"
-    ? "開始 RPG 故事回合並給我三個真正不同且可玩的 A／B／C 選項。"
+    ? "開始目前玩法的第一回合。"
     : "";
   return (
     <ConversationWorkspace

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { makeRecord } from "../lib/novel-ai/domain/index.ts";
+import { resolveStoryPlayMode } from "../lib/novel-ai/domain/play-mode.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/index.ts";
 import {
   CLOSED_AI_CACHE_LAYERS,
@@ -103,7 +104,7 @@ await test("task handoff requires a same-project destination and survives one ho
   }, store);
   assert.equal(staged.chapterId, "chapter-5");
   assert.equal(readStudioTaskHandoff(store)?.destinationHref, "/studio/project/novel-1/chat?mode=play");
-  assert.equal(studioHomeHref("novel-1"), "/studio?screen=home&projectId=novel-1");
+  assert.equal(studioHomeHref("novel-1"), "/professional?intent=library&projectId=novel-1");
   clearStudioTaskHandoff(store);
   assert.equal(readStudioTaskHandoff(store), null);
   assert.throws(() => makeStudioTaskHandoff({
@@ -158,6 +159,29 @@ await test("saved chapter restores its exact editing position without storing du
   assert.equal(marker?.selectionEnd, 244);
   assert.equal(marker?.scrollTop, 920);
   assert.doesNotMatch(JSON.stringify([...store.values.values()]), /第五章正文/);
+});
+
+await test("legacy RPG, romance, and management projects retain their fixed play mode", async () => {
+  for (const selectedPlayModeId of ["rpg", "romance", "management"]) {
+    const repository = new MemoryNovelRepository();
+    const initial = await ensureStudioCanonicalProject(repository, {
+      id: `legacy-${selectedPlayModeId}`,
+      title: `舊存檔 ${selectedPlayModeId}`,
+      chapterTitle: "第一章",
+      draft: "已存在的故事正文。",
+      selectedPlayModeId,
+    });
+    assert.equal(resolveStoryPlayMode(initial.storyState), selectedPlayModeId);
+    const reopened = await ensureStudioCanonicalProject(repository, {
+      id: initial.project.id,
+      title: initial.project.title,
+      chapterId: initial.chapter.id,
+      chapterTitle: initial.chapter.title,
+      draft: initial.chapter.content,
+      selectedPlayModeId,
+    });
+    assert.equal(resolveStoryPlayMode(reopened.storyState), selectedPlayModeId);
+  }
 });
 
 await test("opening a saved project prewarms all six isolated AI cache layers", async () => {
@@ -388,7 +412,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(chatRpg, /故事與數值均未寫入/u);
   assert.match(rpgRedirect, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
   assert.match(chatPage, /first\(query\.mode\) === "play"/u);
-  assert.match(chatPage, /A／B／C/u);
+  assert.match(chatPage, /開始目前玩法的第一回合/u);
   assert.match(playMode, /const storyWorkspace = `\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat`/u);
   assert.doesNotMatch(playMode, /\/rpg/u);
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);

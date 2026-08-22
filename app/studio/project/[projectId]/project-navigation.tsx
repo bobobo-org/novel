@@ -10,8 +10,8 @@ import {
 } from "@/lib/novel-ai/domain/play-mode";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
+  projectManagementHref,
   stageStudioTaskHandoff,
-  studioHomeHref,
 } from "@/lib/novel-ai/web/studio-task-session";
 
 const PROJECT_LINKS = [
@@ -57,7 +57,7 @@ export default function ProjectNavigation({
   onNavigate?: (href: string, label: string) => void | Promise<void>;
 }) {
   const [playMode, setPlayMode] = useState<StoryPlayModeId | null>(null);
-  const projectHome = studioHomeHref(projectId);
+  const projectHome = projectManagementHref(projectId);
 
   useEffect(() => {
     let activeRequest = true;
@@ -103,11 +103,11 @@ export default function ProjectNavigation({
       ) : null}
       <Link
         href={projectHome}
-        {...guardedLink(projectHome, "作品首頁")}
+        {...guardedLink(projectHome, "作品管理中心")}
       >
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
-        <span className="p2NavLabel">作品首頁</span>
-        <span className="p2NavShort">首頁</span>
+        <span className="p2NavLabel">作品管理中心</span>
+        <span className="p2NavShort">管理</span>
       </Link>
       <Link
         className={["chat", "ai", "rpg"].includes(active) ? "active" : ""}
@@ -122,8 +122,8 @@ export default function ProjectNavigation({
       <details className="p2ProjectTools" open={PROJECT_LINKS.some(([path]) => path === active)}>
         <summary>
           <span className="p2NavIcon" aria-hidden="true">⌘</span>
-          <span className="p2NavLabel">專業工具</span>
-          <span className="p2NavShort">工具</span>
+          <span className="p2NavLabel">全部作品功能</span>
+          <span className="p2NavShort">功能</span>
         </summary>
         <p>只在需要直接管理正式章節、設定、學習、模型診斷或備份時使用；故事創作與 RPG 請回故事工作台。</p>
         <div className="p2ProjectToolGrid">

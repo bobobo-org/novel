@@ -6,7 +6,10 @@ import type {
   ProjectBundle,
 } from "../../domain/index";
 import { ensureStudioCanonicalProject } from "../studio-canonical";
-import { resolveStoryPlayMode } from "../../domain/play-mode";
+import {
+  isStoryPlayModeId,
+  resolveStoryPlayMode,
+} from "../../domain/play-mode";
 
 const LEGACY_KEYS = ["novel_p12_studio_state", "novel_p11r2_studio_state", "novel_p11_consumer_state"];
 
@@ -172,6 +175,9 @@ export async function migrateLegacyStudioProjects(
           enabledStats: Array.isArray(row.enabledStats)
             ? row.enabledStats.map(String)
             : Object.keys(stats),
+          selectedPlayModeId: isStoryPlayModeId(row.selectedPlayModeId)
+            ? row.selectedPlayModeId
+            : null,
         });
         const legacyUpdatedAt = Date.parse(text(row.updatedAt) ?? "");
         const canonicalUpdatedAt = Math.max(

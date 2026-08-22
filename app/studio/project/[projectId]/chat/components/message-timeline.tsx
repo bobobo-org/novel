@@ -7,6 +7,11 @@ import type {
   ConversationMessage,
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
+import {
+  isGameStoryPlayMode,
+  STORY_PLAY_MODE_LABELS,
+  type StoryPlayModeId,
+} from "@/lib/novel-ai/domain/play-mode";
 import { useConversationTimelineWindow } from "../hooks/use-conversation-timeline-window";
 import { useConversationApproval } from "../hooks/use-conversation-approval";
 import { useConversationAttachments } from "../hooks/use-conversation-attachments";
@@ -32,6 +37,7 @@ export function MessageTimeline({
   retryAvailable,
   retryLabel,
   branchPendingMessageIds,
+  fixedPlayMode,
   actions,
   onStarter,
   onRetry,
@@ -51,10 +57,25 @@ export function MessageTimeline({
   retryAvailable: boolean;
   retryLabel: string;
   branchPendingMessageIds: ReadonlySet<string>;
+  fixedPlayMode: StoryPlayModeId | null;
   actions: ConversationMessageActions;
   onStarter: (starter: string) => void;
   onRetry: () => void;
 }) {
+  const gameStory = fixedPlayMode ? isGameStoryPlayMode(fixedPlayMode) : false;
+  const starters = gameStory
+    ? [
+        "繼續目前故事。",
+        "檢查目前作品的設定矛盾。",
+        "查看目前狀態與資源。",
+        "建立一名能推動主線的新角色。",
+      ]
+    : [
+        "接續目前章節，寫出一個有後果的新場景。",
+        "檢查目前作品的設定矛盾。",
+        "建立一名能推動主線的新角色。",
+        "規劃下一章大綱。",
+      ];
   const { artifactsByMessage } = useConversationApproval(artifacts);
   const { attachmentsById } = useConversationAttachments(attachments);
   const { lineageByMessageId } = useConversationBranch(messages);
@@ -93,13 +114,17 @@ export function MessageTimeline({
       <div className={styles.threadInner}>
         {!messages.length && !loading ? (
           <section className={styles.welcome}>
-            <h2>把這部小說當成一個長期專案</h2>
-            <p>直接說你要續寫、改寫、建立角色、檢查矛盾、分析檔案，或開始故事回合。AI 只建立候選；按下採用前，正式正文與 RPG 狀態不會改變。</p>
-            <div className={styles.starterGrid}>
-              {["接續目前章節，寫出一個有後果的新場景。", "檢查目前作品的設定矛盾。", "建立一名能推動主線的新角色。", "開始 RPG 故事回合並給我 A／B／C。"].map((starter) => (
+            <h2>{!fixedPlayMode ? "正在確認作品玩法" : gameStory ? `繼續${STORY_PLAY_MODE_LABELS[fixedPlayMode]}` : "把這部小說當成一個長期專案"}</h2>
+            <p>{!fixedPlayMode
+              ? "玩法資料確認完成前不會啟動續寫，避免把原本的三選一存檔誤當成一般小說。"
+              : gameStory
+              ? "玩法已跟隨作品存檔。按下繼續後，系統會自動建立下一回合與可選路線；不必再次指定玩法。"
+              : "直接說你要續寫、改寫、建立角色、檢查矛盾或分析檔案。AI 只建立候選；按下採用前，正式正文不會改變。"}</p>
+            {fixedPlayMode ? <div className={styles.starterGrid}>
+              {starters.map((starter) => (
                 <button type="button" key={starter} onClick={() => onStarter(starter)}>{starter}</button>
               ))}
-            </div>
+            </div> : null}
           </section>
         ) : null}
 

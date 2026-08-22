@@ -415,7 +415,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
   return (
     <main className="p2ProjectShell">
       <header>
-        <Link href="/studio">我的作品</Link>
+        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>作品管理中心</Link>
         <div><small>{data.project.title}</small><h1>閉端 AI 創作</h1></div>
         <span>{status}</span>
       </header>

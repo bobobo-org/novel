@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { studioHomeHref } from "@/lib/novel-ai/web/studio-task-session";
+import { projectManagementHref } from "@/lib/novel-ai/web/studio-task-session";
 import { MobileProjectDrawer } from "./mobile-project-drawer";
 import styles from "../conversation.module.css";
 
@@ -9,6 +9,7 @@ export function ConversationShell({
   projectTitle,
   sessionTitle,
   chapterTitle,
+  playModeLabel,
   sidebarOpen,
   artifactOpen,
   loading,
@@ -25,6 +26,7 @@ export function ConversationShell({
   projectTitle: string;
   sessionTitle: string;
   chapterTitle: string | null;
+  playModeLabel: string;
   sidebarOpen: boolean;
   artifactOpen: boolean;
   loading: boolean;
@@ -51,11 +53,14 @@ export function ConversationShell({
         {sidebar}
         <section className={styles.main}>
           <header className={styles.threadHeader}>
-            <div><h1>{sessionTitle}</h1><p>{chapterTitle ? `目前章節：${chapterTitle}` : "尚未指定章節"}</p></div>
+            <div>
+              <h1>{sessionTitle}</h1>
+              <p>{chapterTitle ? `目前章節：${chapterTitle}` : "尚未指定章節"} · 玩法：{playModeLabel}</p>
+            </div>
             <div className={styles.rightActions}>
-              <Link className={styles.quietButton} href={studioHomeHref(projectId)}>作品首頁</Link>
+              <Link className={styles.quietButton} href="/">系統首頁</Link>
+              <Link className={styles.quietButton} href={projectManagementHref(projectId)}>作品管理中心</Link>
               <button className={styles.quietButton} type="button" onClick={onToggleArtifacts}>候選與核准</button>
-              <Link className={styles.quietButton} href={`/studio/project/${encodeURIComponent(projectId)}/write`}>章節全文校訂</Link>
             </div>
           </header>
           {timeline}

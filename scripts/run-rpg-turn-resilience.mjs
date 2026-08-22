@@ -14,7 +14,7 @@ const [
   readFile("app/studio/project/[projectId]/rpg/page.tsx", "utf8"),
   readFile("app/studio/project/[projectId]/chat/page.tsx", "utf8"),
   readFile("lib/novel-ai/domain/play-mode.ts", "utf8"),
-  readFile("app/studio/studio-client.tsx", "utf8"),
+  readFile("app/studio/page.tsx", "utf8"),
 ]);
 
 // The production RPG entry is Conversation. A check against the retired
@@ -44,13 +44,14 @@ assert.match(rpgService, /keys\.join\(""\) !== "ABC"/u);
 
 assert.match(compatibilityRedirect, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
 assert.match(chatPage, /first\(query\.mode\) === "play"/u);
-assert.match(chatPage, /開始 RPG 故事回合並給我三個真正不同且可玩的 A／B／C 選項。/u);
+assert.match(chatPage, /開始目前玩法的第一回合。/u);
 assert.doesNotMatch(chatPage, /目前狀態/u);
 assert.match(playMode, /const storyWorkspace = `\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat`/u);
 assert.doesNotMatch(playMode, /\/rpg/u);
-assert.match(studio, /if \(value === "write"\) return `\$\{projectRoot\}\/chat`/u);
-assert.match(studio, /if \(value === "choice"\) return `\$\{projectRoot\}\/chat\?mode=play`/u);
-assert.doesNotMatch(studio, /\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg/u);
+assert.doesNotMatch(studio, /StudioClient/u);
+assert.match(studio, /requestedScreen === "write"/u);
+assert.match(studio, /chat\?mode=play/u);
+assert.match(studio, /\["choice", "interactive", "rpg"\]/u);
 
 console.log(JSON.stringify({
   schemaVersion: "rpg-turn-resilience-v2",

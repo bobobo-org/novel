@@ -17,6 +17,12 @@ function branchErrorMessage(error: unknown) {
     : "分支沒有完成；原對話與正式作品都維持原狀。";
 }
 
+function branchTitle(sessionTitle: string, message: ConversationMessage) {
+  const base = sessionTitle.replace(/(?:\s*·\s*(?:(?:編輯)?分支|支線)(?:[：:][^·]{0,24})?)+$/gu, "").trim() || "主要對話";
+  const excerpt = message.content.normalize("NFKC").replace(/\s+/gu, " ").trim().slice(0, 18);
+  return `${base} · 支線${excerpt ? `：${excerpt}` : ""}`;
+}
+
 export function useConversationBranchController({
   projectId,
   conversation,
@@ -87,7 +93,7 @@ export function useConversationBranchController({
         projectId,
         sourceSessionId: sourceSession.id,
         fromMessageId: message.id,
-        title: `${sourceSession.title} · 分支`,
+        title: branchTitle(sourceSession.title, message),
       });
       if (editedContent?.trim()) {
         await conversation.appendMessage({

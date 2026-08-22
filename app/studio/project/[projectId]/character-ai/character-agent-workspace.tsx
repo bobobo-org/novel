@@ -680,7 +680,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
   return (
     <main className="p2ProjectShell">
-      <header><Link href="/studio">← 我的作品</Link><div><small>{data.project.title}</small><h1>角色 AI</h1></div><span>私人思考，核准後才套用</span></header>
+      <header><Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>← 作品管理中心</Link><div><small>{data.project.title}</small><h1>角色 AI</h1></div><span>私人思考，核准後才套用</span></header>
       <ProjectNavigation projectId={projectId} active="character-ai" />
       <section className={`${styles.root} characterAgentWorkspace`} data-testid="character-agent-workspace">
         <header className="characterAgentIntro">

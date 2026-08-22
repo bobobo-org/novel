@@ -559,7 +559,7 @@ export default function AISettingsClient() {
   };
 
   return <main className="p2Settings">
-    <header><Link href="/studio">← 返回創作中心</Link><h1>AI 使用方式</h1><p>預設只使用本機能力；跨出裝置前一定需要你的同意。</p></header>
+    <header><Link href="/professional?intent=library#ai-and-learning">← 返回作品管理中心</Link><h1>AI 使用方式</h1><p>預設只使用本機能力；跨出裝置前一定需要你的同意。</p></header>
     <section data-testid="local-ai-status"><h2>目前可用狀態</h2><dl>
       <div><dt>瀏覽器本機 AI</dt><dd>{status.browser}</dd></div><div><dt>Bridge process reachable</dt><dd>{status.bridge}</dd></div><div><dt>Origin authorized</dt><dd>{status.origin}</dd></div><div><dt>Bridge paired</dt><dd>{status.pairing}</dd></div><div><dt>Ollama reachable</dt><dd>{status.ollama}</dd></div><div><dt>Model available</dt><dd>{status.model}</dd></div><div><dt>Generation ready</dt><dd>{status.generation}</dd></div><div><dt>私有 AI 中樞</dt><dd>{status.hub}</dd></div>
     </dl>{status.error && <><p role="alert">{status.error}</p>{status.errorCode && <details><summary>查看連線分類</summary><code>{status.errorCode}</code></details>}</>}<button type="button" disabled={busy} onClick={() => void refresh()}>重新檢查</button></section>

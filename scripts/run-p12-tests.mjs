@@ -210,14 +210,19 @@ test("提供TXT Markdown HTML匯出", () =>
     studio.includes(label),
   ));
 test("專業工具首頁不是空殼", () =>
-  professional.includes("AI 與執行狀態") &&
-  professional.includes("資料管理") &&
-  professional.includes("系統檢查"));
+  professional.includes('data-testid="professional-canonical-workbench"') &&
+  professional.includes("故事與章節") &&
+  professional.includes("角色、世界與記憶") &&
+  professional.includes("任務、成就與檢查") &&
+  professional.includes("研究與作者輔助"));
 test("專業工具串接健康與本機狀態", () =>
   professional.includes('/api/ai/health') &&
   professional.includes("discoverStudioClosedAI"));
-test("專業工具保留Legacy入口", () =>
-  professional.includes("/legacy/novel-system.html?mode=professional"));
+test("專業工具整合舊功能但不再開啟舊版工作殼", () =>
+  professional.includes("書籍與作品拆解") &&
+  professional.includes("續寫接力提示") &&
+  professional.includes("多章批量規劃") &&
+  !professional.includes("/legacy/novel-system.html?mode=professional"));
 test("健康狀態回報正式故事庫", () =>
   health.includes("storyLibraryClassicTopicCount") &&
   health.includes("progressiveCreationStatus"));

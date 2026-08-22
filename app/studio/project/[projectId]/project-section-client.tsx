@@ -402,7 +402,7 @@ export default function ProjectSectionClient({
       data-memory-fallback="false"
     >
       <header>
-        <Link href="/studio">我的作品</Link>
+        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>作品管理中心</Link>
         <div><small>{data.project.title}</small><h1>{title}</h1></div>
         <span data-testid="indexeddb-ready">IndexedDB 本機保存正常</span>
       </header>

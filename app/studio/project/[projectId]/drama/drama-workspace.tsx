@@ -221,7 +221,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
   if (!data) return <main className="p2ProjectShell"><p role="status">{message}</p></main>;
   return (
     <main className="p2ProjectShell">
-      <header><Link href="/studio">← 我的作品</Link><div><small>{data.project.title}</small><h1>小說轉短劇</h1></div><span>原作與改編分開保存</span></header>
+      <header><Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>← 作品管理中心</Link><div><small>{data.project.title}</small><h1>小說轉短劇</h1></div><span>原作與改編分開保存</span></header>
       <ProjectNavigation projectId={projectId} active="drama" />
       <section className={`${styles.root} dramaWorkspace`}>
         <header>

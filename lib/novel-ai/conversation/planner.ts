@@ -2,6 +2,10 @@ import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import type { PlatformTaskType } from "../router/platform-types";
 import { STUDIO_CLOSED_AGENT_TOOL_IDS } from "../web/studio-closed-agent-tools";
 import {
+  isGameStoryPlayMode,
+  type StoryPlayModeId,
+} from "../domain/play-mode";
+import {
   CONVERSATION_LOCAL_TOOL_IDS,
   type ConversationPlannerToolId,
 } from "./tool-registry";
@@ -64,6 +68,7 @@ type PlannerInput = {
   content: string;
   attachmentCount?: number;
   hasActiveRpgTurn?: boolean;
+  fixedPlayMode?: StoryPlayModeId;
 };
 
 type IntentRule = {
@@ -229,7 +234,7 @@ const RULES: IntentRule[] = [
   },
   {
     intent: "continue_writing",
-    pattern: /(?:續寫|繼續寫|接著寫|往下寫|延續故事|下一段)|(?:(?:請|幫我|請幫我)\s*)?(?:開始(?:寫|撰寫)?|寫|撰寫)\s*(?:第\s*)?(?:一|1)\s*章/iu,
+    pattern: /(?:續寫|繼續寫|繼續(?:目前)?(?:故事|章節|劇情)|接續(?:目前)?(?:故事|章節|劇情)|接著寫|往下寫|延續故事|下一段)|(?:(?:請|幫我|請幫我)\s*)?(?:開始(?:寫|撰寫)?|寫|撰寫)\s*(?:第\s*)?(?:一|1)\s*章/iu,
     taskType: "chapter.continue",
     executionKind: "closed_agent",
     targetStore: "chapters",
@@ -295,6 +300,21 @@ function selectedRule(input: PlannerInput, objective: string): IntentRule | null
     };
   }
   const explicitRule = RULES.find((rule) => rule.pattern.test(classificationObjective)) ?? null;
+  if (
+    input.fixedPlayMode
+    && isGameStoryPlayMode(input.fixedPlayMode)
+    && !input.hasActiveRpgTurn
+    && ["continue_writing", "create_abc_choices", "rpg_turn"].includes(explicitRule?.intent ?? "")
+  ) {
+    return {
+      intent: "rpg_turn",
+      pattern: /./u,
+      taskType: "chapter.continue",
+      executionKind: "rpg",
+      targetStore: "chapters",
+      approvalRequired: true,
+    };
+  }
   const explicitContinuation = RULES.find((rule) => (
     rule.intent === "continue_writing"
     && rule.pattern.test(classificationObjective)

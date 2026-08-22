@@ -24,6 +24,7 @@ export default async function ProfessionalPage({
     <ProfessionalClient
       initialProjectId={safeProjectId(first(params.projectId))}
       intent={safeIntent(first(params.intent))}
+      legacyMigration={first(params.legacyMigration) === "import" ? "import" : ""}
     />
   );
 }

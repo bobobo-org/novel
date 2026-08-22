@@ -224,9 +224,9 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
             <button type="button" onClick={() => setShowLegacyDetails((value) => !value)}>
               {showLegacyDetails ? "收起遷移預覽" : "查看遷移預覽"}
             </button>
-            <Link data-testid="legacy-import-explicit" href="/studio?legacyMigration=import">匯入到新版作品庫</Link>
+            <Link data-testid="legacy-import-explicit" href="/professional?intent=library&legacyMigration=import">匯入到新版作品庫</Link>
             <button type="button" onClick={() => setDismissLegacy(true)}>暫不匯入</button>
-            <a href="/legacy/novel-system.html">繼續使用舊版</a>
+            <Link href="/professional?intent=library">到統一作品管理中心</Link>
           </div>
         </section>
       ) : null}
@@ -250,7 +250,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
         <Link href="/professional?intent=library">作品資料與專業工具</Link>
         <Link href={localAIHref}>閉端 AI 與本機模型設定</Link>
-        <a href="/legacy/novel-system.html">Legacy 相容工具</a>
+        <Link href="/professional?intent=library&legacyMigration=import">舊作品匯入與相容功能</Link>
       </footer>
     </main>
   );

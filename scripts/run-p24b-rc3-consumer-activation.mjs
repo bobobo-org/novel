@@ -70,10 +70,10 @@ async function studioModernDefault() {
     source("app/studio/page.tsx"),
     source("next.config.ts"),
   ]);
-  assert.match(page, /<StudioClient/);
-  assert.match(page, /initialProjectId/);
-  assert.match(page, /initialTask/);
-  assert.match(page, /initialScreen/);
+  assert.doesNotMatch(page, /StudioClient/);
+  assert.match(page, /redirect\(projectId \? managementHref\(projectId\) : "\/"\)/);
+  assert.match(page, /professional\?intent=library/);
+  assert.match(page, /chat\?mode=play/);
   assert.doesNotMatch(page, /legacy\/novel-system/);
   assert.doesNotMatch(config, /source:\s*["']\/studio["']/);
 }
@@ -92,10 +92,11 @@ async function legacyExplicitOnly() {
   assert.doesNotMatch(frontdoor, /function isExplicitLegacyRoute/);
   assert.doesNotMatch(frontdoor, /isExplicitLegacyRoute\(href\)/);
   assert.match(frontdoor, /<Link className="entryCard" href=\{href\}/);
-  assert.match(frontdoor, /<a href="\/legacy\/novel-system\.html"/);
+  assert.doesNotMatch(frontdoor, /href="\/legacy\/novel-system\.html"/);
   assert.match(studio, /<a className="studioProfessional" href="\/professional">/);
   assert.match(frontdoor, /暫不匯入/);
-  assert.match(frontdoor, /繼續使用舊版/);
+  assert.match(frontdoor, /到統一作品管理中心/);
+  assert.match(frontdoor, /舊作品匯入與相容功能/);
   assert.match(studio, /overwriteExisting:\s*false/);
   assert.match(studio, /const orderedKeys = \[STORAGE_KEY\]/);
   assert.doesNotMatch(createClient, /migrateLegacyStudioProjects/);
@@ -151,12 +152,21 @@ async function frontdoorProjectRouting() {
   assert.doesNotMatch(createClient, /storyPlayModeDashboardHref/);
   assert.match(createClient, /唯一故事工作台交給閉端 AI 自動協調器/);
   assert.doesNotMatch(createClient, /generateWithBrowserWebLLM|Browser AI 再深化|creation-ai-candidate/);
-  assert.match(professional, /\/professional\?intent=library&projectId=/);
+  assert.match(professional, /作品管理中心/u);
+  for (const section of [
+    "story-and-chapters",
+    "world-and-characters",
+    "progress-and-review",
+    "data-and-safety",
+    "ai-and-learning",
+    "extended-creation",
+    "research-and-legacy-tools",
+  ]) assert.ok(professional.includes(`id="${section}"`), `missing management section: ${section}`);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
-  assert.match(studio, /if \(value === "create"\) return "\/studio\/create";/);
-  assert.match(studio, /value === "write"[\s\S]*?\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/chat[\s\S]*?: "\/studio\/create"/);
-  assert.match(studio, /if \(value === "create" \|\| value === "write"\)[\s\S]*?window\.location\.assign\(destinationHref\)/);
-  assert.doesNotMatch(studio, /commitScreen\("(?:create|write)"/);
+  assert.doesNotMatch(studioPage, /StudioClient/);
+  assert.match(studioPage, /requestedScreen === "create"/);
+  assert.match(studioPage, /requestedScreen === "write"/);
+  assert.match(studioPage, /chat\?mode=play/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
   assert.match(wizard, /href=\{returnTo\}/);
 }

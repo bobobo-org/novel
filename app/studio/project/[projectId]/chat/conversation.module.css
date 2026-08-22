@@ -128,9 +128,7 @@
   background: rgba(24, 34, 53, 0.82);
 }
 
-.sessionList,
-.projectLinks,
-.recentChapters {
+.sessionList {
   display: grid;
   gap: 6px;
 }
@@ -155,9 +153,7 @@
 
 .sessionButton,
 .iconButton,
-.quietButton,
-.projectLinks a,
-.recentChapters button {
+.quietButton {
   border: 0;
   color: inherit;
   background: transparent;
@@ -193,9 +189,7 @@
 }
 
 .iconButton:hover,
-.quietButton:hover,
-.projectLinks a:hover,
-.recentChapters button:hover {
+.quietButton:hover {
   color: var(--accent);
   background: rgba(116, 219, 195, 0.09);
 }
@@ -208,14 +202,54 @@
   letter-spacing: 0.04em;
 }
 
-.projectLinks a,
-.recentChapters button {
-  padding: 8px 9px;
-  border-radius: 8px;
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sidebarUtilities {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.managementLink {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(116, 219, 195, 0.36);
+  border-radius: 12px;
+  color: var(--ink);
+  background: linear-gradient(135deg, rgba(34, 95, 84, 0.34), rgba(20, 38, 58, 0.78));
+  text-decoration: none;
+}
+
+.managementLink:hover,
+.managementLink:focus-visible {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(42, 122, 104, 0.42), rgba(24, 49, 73, 0.9));
+}
+
+.managementLink strong {
+  color: var(--accent);
+}
+
+.managementLink span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.exportSummary {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: rgba(20, 32, 51, 0.78);
+  cursor: pointer;
+}
+
+.exportSummary:hover:not(:disabled) {
+  border-color: rgba(116, 219, 195, 0.48);
+  color: var(--accent);
 }
 
 .main {

@@ -1966,6 +1966,24 @@ harness.test("routing", "natural-language planner maps supported intents to the 
   );
 });
 
+harness.test("routing", "saved three-choice modes automatically continue as RPG turns", async () => {
+  for (const fixedPlayMode of ["interactive", "rpg", "romance", "management"]) {
+    const plan = await planConversationRequest({
+      content: "繼續目前故事。",
+      fixedPlayMode,
+    });
+    assert.equal(plan.intent, "rpg_turn", fixedPlayMode);
+    assert.equal(plan.executionKind, "rpg", fixedPlayMode);
+    assert.deepEqual(plan.allowedToolIds, [CONVERSATION_LOCAL_TOOL_IDS.rpgChoicePlan]);
+  }
+  const general = await planConversationRequest({
+    content: "繼續目前故事。",
+    fixedPlayMode: "general",
+  });
+  assert.equal(general.intent, "continue_writing");
+  assert.equal(general.executionKind, "closed_agent");
+});
+
 harness.test("routing", "explicit continuation outranks incidental Canon entity mentions", async () => {
   const productionGatePrompt = "請依照目前已核准的角色、世界設定與章節內容，續寫一個有後果的新場景。只建立候選，不要直接修改 Canon。";
   const continuation = await planConversationRequest({ content: productionGatePrompt });

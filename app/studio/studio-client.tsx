@@ -830,6 +830,7 @@ function projectSeed(project: Project): StudioProjectSeed {
     conflict: optionalValue(project.optionalFields, "conflict"),
     style: optionalValue(project.optionalFields, "style"),
     enabledStats: project.enabledStats,
+    selectedPlayModeId: project.selectedPlayModeId as StudioProjectSeed["selectedPlayModeId"],
     adultMode: project.adultMode,
     adultExperienceProfile: project.adultExperienceProfile,
   };

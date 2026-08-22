@@ -32,6 +32,10 @@ import {
   type StoryState,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import {
+  resolveStoryPlayMode,
+  STORY_PLAY_MODE_LABELS,
+} from "@/lib/novel-ai/domain/play-mode";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   createProjectBackup,
@@ -200,6 +204,7 @@ export default function ConversationWorkspace({
   const {
     project,
     chapters,
+    storyState,
     activeSessionId,
     messages,
     artifacts,
@@ -232,6 +237,7 @@ export default function ConversationWorkspace({
     onError: setSafeError,
     onSidebarClose: closeSidebar,
   });
+  const fixedPlayMode = storyState ? resolveStoryPlayMode(storyState) : null;
   const {
     pendingMessageIds: branchPendingMessageIds,
     isBranchPending,
@@ -326,8 +332,11 @@ export default function ConversationWorkspace({
 
   useEffect(() => {
     if (initialPromptUsed.current || !initialPrompt) return;
-    initialPromptUsed.current = true;
-    const timer = window.setTimeout(() => setDraft(initialPrompt), 0);
+    const timer = window.setTimeout(() => {
+      if (initialPromptUsed.current) return;
+      initialPromptUsed.current = true;
+      setDraft(initialPrompt);
+    }, 0);
     return () => window.clearTimeout(timer);
   }, [initialPrompt]);
 
@@ -1330,15 +1339,39 @@ export default function ConversationWorkspace({
     setRetryAvailable(true);
     setRetryLabel("重試");
     operationLockRef.current = true;
+    const liveStoryState = project
+      ? await repository.get<StoryState>("storyStates", project.storyStateId).catch(() => null)
+      : null;
+    if (!liveStoryState) {
+      setDraft(content);
+      setSafeError({
+        code: "CONVERSATION_PLAY_MODE_UNAVAILABLE",
+        message: "作品玩法資料無法讀取；系統已停止，沒有把原玩法誤當成一般章節寫作。",
+      });
+      operationLockRef.current = false;
+      return;
+    }
+    const requestPlayMode = resolveStoryPlayMode(liveStoryState);
     const plan = await planConversationRequest({
       content,
       attachmentCount: localAttachments.length,
       hasActiveRpgTurn: Boolean(latestRpgChoices),
+      fixedPlayMode: requestPlayMode,
     }).catch((error) => {
       setSafeError({ code: errorCode(error), message: errorMessage(error) });
       return null;
     });
     if (!plan) {
+      operationLockRef.current = false;
+      return;
+    }
+    if (latestRpgChoices && plan.intent === "continue_writing") {
+      setDraft(content);
+      setSafeError({
+        code: "RPG_CHOICE_REQUIRED",
+        message: "目前回合正在等待路線選擇。請先點選畫面中的其中一條路線，或輸入一個具體的自訂行動；系統不會另開一條一般續寫來繞過本回合。",
+      });
+      setProgress("已保留你的文字；故事與數值都沒有改變。");
       operationLockRef.current = false;
       return;
     }
@@ -1815,7 +1848,14 @@ export default function ConversationWorkspace({
       void editMessage(message);
     },
     createBranch: (message) => {
-      void createBranch(message);
+      void createBranch(message).then((created) => {
+        if (!created) return;
+        setDraft("從這裡繼續故事。");
+        setProgress("支線已建立並切換完成；續寫指令已放入輸入框，可直接送出或先修改。");
+        window.setTimeout(() => {
+          document.querySelector<HTMLTextAreaElement>('[aria-label="小說專案訊息"]')?.focus();
+        }, 0);
+      });
     },
     retryMessage: (content) => {
       void sendRequest(content);
@@ -1829,6 +1869,7 @@ export default function ConversationWorkspace({
       projectTitle={project?.title ?? "小說專案"}
       sessionTitle={activeSession?.title ?? "小說專案對話"}
       chapterTitle={currentChapter?.title ?? null}
+      playModeLabel={fixedPlayMode ? STORY_PLAY_MODE_LABELS[fixedPlayMode] : "尚未確認"}
       sidebarOpen={sidebarOpen}
       artifactOpen={artifactOpen}
       loading={loading}
@@ -1843,7 +1884,6 @@ export default function ConversationWorkspace({
         <SessionSidebar
           projectId={projectId}
           project={project}
-          chapters={chapters}
           sessions={visibleSessions}
           activeSessionId={activeSessionId}
           switchingSessionId={switchingSessionId}
@@ -1880,6 +1920,7 @@ export default function ConversationWorkspace({
           retryAvailable={retryAvailable}
           retryLabel={retryLabel}
           branchPendingMessageIds={branchPendingMessageIds}
+          fixedPlayMode={fixedPlayMode}
           actions={messageActions}
           onStarter={setDraft}
           onRetry={() => retryActionRef.current?.()}

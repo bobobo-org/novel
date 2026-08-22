@@ -821,8 +821,10 @@ harness.test("browser", "natural-language dashboard query, branching, and reload
   await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).waitFor();
   const beforeBranch = await sidebar.locator("[data-active]").count();
   await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" })
-    .getByRole("button", { name: /從這裡.*分支/u }).click();
+    .getByRole("button", { name: /另開支線/u }).click();
   await page.waitForFunction((count) => document.querySelectorAll('aside[aria-label="小說專案欄"] [data-active]').length === count + 1, beforeBranch);
+  assert.equal(await composer.inputValue(), "從這裡繼續故事。");
+  assert.equal(await composer.evaluate((element) => element === document.activeElement), true);
   assert.equal(await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).count(), 1);
   assert.deepEqual(pageErrors, []);
 });

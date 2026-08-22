@@ -166,7 +166,10 @@ function seedFromPayload(draft: ProjectCreationDraft, payload: CandidatePayload,
 }
 
 function playModeOf(draft: ProjectCreationDraft) {
-  return selectedStoryPlayMode(draft.answers);
+  const mode = selectedStoryPlayMode(draft.answers);
+  // "interactive" is retained only for older saved projects. New projects
+  // use it as a parent choice and must select one concrete three-choice mode.
+  return mode === "interactive" ? null : mode;
 }
 
 type StoryLanguage = "zh-TW" | "zh-CN" | "en";
@@ -343,7 +346,16 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     if (ready) localStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, ready, storageKey]);
 
-  const currentPlayMode = selectedStoryPlayMode(draft.answers);
+  const storedPlayMode = selectedStoryPlayMode(draft.answers);
+  const currentPlayMode = playModeOf(draft);
+  const playStructure = draft.answers.playStructure?.value === "general"
+    || draft.answers.playStructure?.value === "choice"
+    ? draft.answers.playStructure.value
+    : storedPlayMode === "general"
+      ? "general"
+      : storedPlayMode
+        ? "choice"
+        : null;
   const topics = useMemo(
     () => listStoryTopics({ packId: draft.genrePackId || undefined, playModeId: currentPlayMode || undefined, limit: 80 }),
     [currentPlayMode, draft.genrePackId],
@@ -408,6 +420,30 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     setMessage(`已選擇「${STORY_PLAY_MODE_LABELS[mode]}」。作品建立後這個玩法會鎖定；若要比較其他玩法，請複製為新作品。`);
   };
 
+  const choosePlayStructure = (structure: "general" | "choice") => {
+    if (!requireTitle("選擇寫作方式")) return;
+    setDraft((current) => {
+      const existing = selectedStoryPlayMode(current.answers);
+      const keepThreeChoiceMode = existing === "rpg" || existing === "romance" || existing === "management";
+      return {
+        ...current,
+        answers: {
+          ...current.answers,
+          playStructure: optionalValue(structure, "user_defined"),
+          playMode: optionalValue(
+            structure === "general" ? "general" : keepThreeChoiceMode ? existing : null,
+            structure === "general" || keepThreeChoiceMode ? "user_defined" : "deferred",
+          ),
+        },
+        seedCandidate: null,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    setMessage(structure === "general"
+      ? "已選擇一般章節寫作。建立後仍可使用改寫、校訂、角色與世界工具。"
+      : "已選擇三選一互動。請再選 RPG 養成、戀愛養成或經營模擬。");
+  };
+
   const advance = () => {
     if (!requireTitle("進入下一步")) return;
     if (!currentPlayMode) {
@@ -445,7 +481,9 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   function applyProcedural() {
     if (!requireTitle("建立故事雛形")) return;
     if (!currentPlayMode) {
-      setMessage("先選擇一般寫作、三選一、RPG、戀愛或經營其中一種方式。");
+      setMessage(playStructure === "choice"
+        ? "請先選擇 RPG 養成、戀愛養成或經營模擬。"
+        : "請先選擇一般章節寫作或三選一互動。");
       return;
     }
     const payload = proceduralPayload(draft);
@@ -635,26 +673,38 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       <section className="p2PlayModeGate" aria-labelledby="p2-play-mode-title">
         <div>
           <span>第 1 個決定</span>
-          <h2 id="p2-play-mode-title">這部作品要用哪一種方式進行？</h2>
-          <p>只能選一種。建立後儀表板與後續流程會固定，不會寫到一半跳成另一套遊戲。</p>
+          <h2 id="p2-play-mode-title">先選擇寫作方式</h2>
+          <p>一般小說使用章節續寫；三選一作品會在下一步再選玩法，而且每個回合都由三條路線推進。</p>
         </div>
-        <div className="p2PlayModeGrid">
-          {(Object.keys(STORY_PLAY_MODE_LABELS) as StoryPlayModeId[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              disabled={!draft.title.trim()}
-              className={currentPlayMode === mode ? "active" : ""}
-              aria-pressed={currentPlayMode === mode}
-              data-testid={`create-play-mode-${mode}`}
-              onClick={() => choosePlayMode(mode)}
-            >
-              <b>{STORY_PLAY_MODE_LABELS[mode]}</b>
-              <span>{mode === "general" ? "章節編輯、AI 輔助與閱讀" : mode === "interactive" ? "每回合選一條路，只把選中結果寫入正文" : mode === "rpg" ? "能力、任務、裝備、貨幣與故事回合" : mode === "romance" ? "關係、信任、事件與人物成長" : "資金、人力、品質、聲望與風險"}</span>
-            </button>
-          ))}
+        <div className="p2PlayModeGrid" data-level="structure">
+          <button type="button" disabled={!draft.title.trim()} className={playStructure === "general" ? "active" : ""} aria-pressed={playStructure === "general"} data-testid="create-play-mode-general" data-play-structure="general" onClick={() => choosePlayStructure("general")}>
+            <b>一般章節寫作</b>
+            <span>自由續寫、改寫、章節校訂與閱讀，不強制回合選項。</span>
+          </button>
+          <button type="button" disabled={!draft.title.trim()} className={playStructure === "choice" ? "active" : ""} aria-pressed={playStructure === "choice"} data-testid="create-play-structure-choice" onClick={() => choosePlayStructure("choice")}>
+            <b>三選一互動</b>
+            <span>每回合自動提供三條真正不同的路線；只將選中的結果寫入正文。</span>
+          </button>
         </div>
       </section>
+
+      {playStructure === "choice" ? (
+        <section className="p2PlayModeGate p2PlaySubtypeGate" aria-labelledby="p2-play-subtype-title" data-testid="create-three-choice-subtypes">
+          <div>
+            <span>第 2 個決定</span>
+            <h2 id="p2-play-subtype-title">選擇三選一玩法</h2>
+            <p>三種玩法都採 A／B／C 回合；差別只在要追蹤的成長、關係與資源。</p>
+          </div>
+          <div className="p2PlayModeGrid" data-level="subtype">
+            {(["rpg", "romance", "management"] as StoryPlayModeId[]).map((mode) => (
+              <button key={mode} type="button" disabled={!draft.title.trim()} className={currentPlayMode === mode ? "active" : ""} aria-pressed={currentPlayMode === mode} data-testid={`create-play-mode-${mode}`} onClick={() => choosePlayMode(mode)}>
+                <b>{STORY_PLAY_MODE_LABELS[mode]}</b>
+                <span>{mode === "rpg" ? "能力、任務、裝備、貨幣與故事回合" : mode === "romance" ? "關係、信任、事件與人物成長" : "資金、人力、品質、聲望與風險"}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <nav className="p2ModeTabs" aria-label="建立方式">
         <button disabled={!draft.title.trim()} className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseBuildMode("quick")}><b>快速開始</b><span>少量設定，立即看可修改雛形</span></button>

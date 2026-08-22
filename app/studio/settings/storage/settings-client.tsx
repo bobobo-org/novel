@@ -155,7 +155,7 @@ export default function StorageSettingsClient() {
   return (
     <main className="p2Settings">
       <header>
-        <Link href="/studio">← 返回創作中心</Link>
+        <Link href="/">← 返回系統首頁</Link>
         <h1>作品儲存與加密雲端同步</h1>
         <p>同步成功且版本／密文雜湊回讀一致時，由 Supabase 保存正式版本；IndexedDB 是本機工作副本與離線 Outbox。內容仍須經使用者核准才會進入 Canon。</p>
       </header>
@@ -279,7 +279,7 @@ export default function StorageSettingsClient() {
       <section>
         <h2>資料安全</h2>
         <p>同步失敗時，新變更會明確標成 PendingSync，不會假裝已提交；舊版資料不會在遷移後立刻刪除。套用雲端前會先建立本機安全備份。</p>
-        <Link className="secondaryAction" href="/studio?screen=backup">前往備份中心</Link>
+        <Link className="secondaryAction" href="/professional?intent=library#data-and-safety">前往作品備份與資料管理</Link>
       </section>
     </main>
   );

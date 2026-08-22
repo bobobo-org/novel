@@ -30,6 +30,7 @@ export function RpgChoiceCard({
         disabled={disabled || Boolean(choice.disabledReason)}
         onClick={() => onChoose(choice.key)}
         data-choice-key={choice.key}
+        data-testid={`rpg-choice-${choice.key}`}
       >
         <span className={styles.choiceKey}>{choice.key} · {choice.strategyLabel}</span>
         <h3>{choice.title}</h3>
