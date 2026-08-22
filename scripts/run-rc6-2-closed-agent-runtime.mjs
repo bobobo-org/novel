@@ -1369,7 +1369,9 @@ await test("source-truth", async () => {
   assert.match(service, /externalFallback:\s*false/u);
   assert.doesNotMatch(service, /openai|grok/iu);
   assert.match(composer, /取消準備/u);
-  assert.match(composer, /重試 Browser AI/u);
+  assert.match(composer, /重試自動協調器/u);
+  assert.match(composer, /閉端 AI 自動協調器/u);
+  assert.doesNotMatch(composer, /改用 Local Ollama|連接 Private AI Hub|\?backend=/u);
   assert.match(composer, /closedAiSetupError\s*\n\s*\?\? closedAiSetupProgress\?\.message/u);
   assert.match(composer, /約 \{downloadMegabytes\} MB 本機儲存/u);
   assert.match(composer, /data-estimated-download-bytes/u);
@@ -1380,7 +1382,7 @@ await test("source-truth", async () => {
   assert.match(composer, /data-closed-ai-external-fallback/u);
   assert.match(composer, /data-setup-lifecycle=\{closedAiSetupLifecycle\}/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
-  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消準備/u);
+  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消自動協調器準備/u);
   assert.doesNotMatch(workspace, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
   assert.match(bootstrapHook, /verifiedConversationRegenerationBackend/u);
   assert.match(bootstrapHook, /sourceBackendStillReady/u);
