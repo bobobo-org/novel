@@ -980,7 +980,7 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   const approvalActions = sourceCandidateMessage.getByTestId("conversation-approval-actions");
   await approvalActions.waitFor({ state: "visible" });
   assert.equal(await approvalActions.getAttribute("data-artifact-id"), seeded.candidateArtifactId);
-  await approvalActions.getByRole("button", { name: "採用", exact: true }).click();
+  await approvalActions.getByTestId("conversation-approve-candidate").click();
   const approvedState = await waitForLongSessionState(
     page,
     projectId,

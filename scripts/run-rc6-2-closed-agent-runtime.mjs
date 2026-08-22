@@ -1943,7 +1943,7 @@ await test("source-truth", async () => {
   assert.match(browserGate, /assert\.equal\(truth\.body\.deploymentId, expectedDeploymentId\)/u);
   assert.match(browserGate, /secondCard\.getByRole\("button", \{ name: "放棄"/u);
   assert.match(browserGate, /name: "重新產生"/u);
-  assert.match(browserGate, /thirdCard\.getByRole\("button", \{ name: "採用"/u);
+  assert.match(browserGate, /thirdCard\.getByTestId\("conversation-approve-candidate"\)/u);
   assert.match(browserGate, /regenerationAttempt:\s*1/u);
   assert.match(browserGate, /regenerationAttempt:\s*2/u);
   assert.match(browserGate, /firstAfterDirectRegeneration\.candidate\.status, "awaiting-approval"/u);

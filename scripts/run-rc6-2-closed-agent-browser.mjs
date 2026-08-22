@@ -5188,7 +5188,7 @@ async function runGenerationLifecycle(projectId, storyBible) {
   assert.deepEqual(await readChapterTruth(projectId), canonBefore, "chained regeneration mutated Canon before approval");
 
   const thirdCard = page.locator(`[data-artifact-id="${third.artifact.id}"]`).first();
-  await thirdCard.getByRole("button", { name: "採用", exact: true }).click();
+  await thirdCard.getByTestId("conversation-approve-candidate").click();
   setRunnerCheckpoint("approval-revision-incremented-once");
   await waitForArtifactStatus(third.artifact.id, "approved");
   const canonAfterApproval = await readChapterTruth(projectId);
