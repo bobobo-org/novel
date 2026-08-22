@@ -258,7 +258,6 @@ function executionRequest(taskId = "runtime-r2-task") {
     context: [],
     complexity: "standard",
     qualityMode: "fast",
-    preferredBackend: "local-ollama",
     allowedToolIds: [],
     permissionScopes: [
       "story:read",
@@ -282,12 +281,14 @@ test("health-surface-separation", "health surfaces expose one responsibility eac
     cloud,
     persistence,
     contract,
+    platform,
     legacyHealth,
   ] = await Promise.all([
     source("app/api/release/identity/route.ts"),
     source("app/api/ai/cloud/health/route.ts"),
     source("app/api/persistence/health/route.ts"),
     source("app/api/ai/closed/contract/route.ts"),
+    source("app/api/ai/platform/status/route.ts"),
     source("app/api/ai/health/route.ts"),
   ]);
   assert.match(release, /X-Novel-Runtime-Surface": "release"/u);
@@ -297,12 +298,27 @@ test("health-surface-separation", "health surfaces expose one responsibility eac
   assert.match(persistence, /runtimeStatus: "client_probe_required"/u);
   assert.match(persistence, /provider: "Supabase"/u);
   assert.match(contract, /noSilentExternalFallback: true/u);
+  assert.match(contract, /label: "閉端 AI 自動協調器"/u);
+  assert.match(contract, /userFacingInstanceCount: 1/u);
+  assert.match(contract, /userBackendSelectionRequired: false/u);
+  assert.match(contract, /execution:[\s\S]*?integrated: true/u);
+  assert.match(contract, /governance:[\s\S]*?integrated: true/u);
+  assert.match(contract, /presentation: "internal-capacity-not-separate-user-facing-ai"/u);
+  assert.match(platform, /label: "閉端 AI 自動協調器"/u);
+  assert.match(platform, /executionAndGovernanceIntegrated: true/u);
+  assert.match(platform, /selection: "automatic-only"/u);
+  assert.match(legacyHealth, /closedAiProductId: CLOSED_AI_SERVER_RUNTIME_TRUTH\.productId/u);
+  assert.match(legacyHealth, /closedAiUserBackendSelectionRequired: CLOSED_AI_SERVER_RUNTIME_TRUTH\.userBackendSelectionRequired/u);
+  assert.match(legacyHealth, /legacyThreeClosedAIFieldsCompatibilityOnly: true/u);
   assert.doesNotMatch(legacyHealth, /health_checks|writeHealthCheck|insertHealth/u);
   return {
     releaseSurface: "isolated",
     cloudSurface: "external-and-consent-required",
     persistenceSurface: "client-local-plus-cloud",
     healthGetWrites: 0,
+    userFacingClosedAIInstances: 1,
+    automaticBackendSelection: true,
+    executionAndGovernanceIntegrated: true,
   };
 });
 
@@ -507,23 +523,23 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
   });
   const checks = [
     ["gemini-ready-closed-unpaired", route("chapter.continue", [browserTask, localUnpaired]).executionStatus === "not_executed"],
-    ["gemini-down-closed-paired", route("chapter.continue", [browserTask, localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
+    ["gemini-down-closed-paired", route("chapter.continue", [browserTask, localReady]).backend?.id === "local-ollama"],
     ["cloud-healthy-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "healthy" }) === "LOCAL_PLUS_CLOUD"],
     ["cloud-down-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "unreachable" }) === "CLOUD_DEGRADED"],
     ["cloud-healthy-indexeddb-blocked", derivePersistenceRuntimeMode({ localReady: false, cloudStatus: "healthy" }) === "LOCAL_BLOCKED"],
     ["browser-packaged-task-only", route("story.summary", [browserTask]).executionStatus === "not_executed"],
-    ["browser-webllm-prose-unqualified", route("chapter.continue", [browserGenerative]).reasonCode === "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED"],
+    ["browser-webllm-prose-unqualified", route("chapter.continue", [browserGenerative]).reasonCode === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"],
     ["bridge-running-unpaired", route("chapter.continue", [localUnpaired]).executionStatus === "not_executed"],
     ["bridge-paired-model-unverified", route("chapter.continue", [localUnverified]).recommendedNextAction === "verify_model"],
-    ["bridge-paired-model-verified", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
+    ["bridge-paired-model-verified", route("chapter.continue", [localReady]).backend?.id === "local-ollama"],
     ["private-hub-unpaired", route("character.privateArc", [privateUnpaired], { namespace: { privacyLevel: "private_infrastructure_only" } }).executionStatus === "not_executed"],
     ["private-hub-paired", route("character.privateArc", [privateReady], { namespace: { privacyLevel: "private_infrastructure_only" } }).backend?.id === "private-ai-hub"],
     ["page-reload", true],
     ["bridge-restart", true],
     ["expired-session", true],
     ["local-network-denied", route("chapter.continue", [backend("local-ollama", { status: "runtime_required", detailCode: "LOCAL_NETWORK_PERMISSION_DENIED" })]).recommendedNextAction === "allow_local_network"],
-    ["local-network-granted", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
-    ["desktop", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).executionStatus === "routable"],
+    ["local-network-granted", route("chapter.continue", [localReady]).executionStatus === "routable"],
+    ["desktop", route("chapter.continue", [localReady]).executionStatus === "routable"],
     ["mobile", route("story.summary", [browserGenerative]).executionStatus === "routable"],
     ["offline", route("story.summary", [browserGenerative]).backend?.dataBoundary === "device"],
   ];
@@ -531,7 +547,7 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
   assert.deepEqual(checks.filter(([, passed]) => !passed), []);
   const routed = [
     route("story.summary", [browserGenerative]),
-    route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }),
+    route("chapter.continue", [localReady]),
     route("character.privateArc", [privateReady], {
       namespace: { privacyLevel: "private_infrastructure_only" },
     }),
@@ -550,9 +566,7 @@ test("route-discovery-execution-parity", "route resolution and execution lock th
     backend("local-ollama"),
     backend("private-ai-hub"),
   ];
-  const discovery = route("chapter.continue", snapshots, {
-    policy: { preferredBackend: "local-ollama" },
-  });
+  const discovery = route("chapter.continue", snapshots);
   assert.equal(discovery.executionStatus, "routable");
   assert.equal(discovery.backend.id, "local-ollama");
   const { os, calls } = createRuntimeOS(snapshots);
@@ -598,7 +612,7 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
   assert.equal(standardWebLlm.executionStatus, "not_executed");
   assert.equal(
     standardWebLlm.reasonCode,
-    "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED",
+    "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
   );
   const result = runPackagedBrowserTaskModel(
     "story.summary",

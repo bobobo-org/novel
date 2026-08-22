@@ -280,16 +280,75 @@ function decodeHtmlEntities(value: string) {
     .replace(/&#39;|&apos;/giu, "'");
 }
 
+function htmlAttributes(tag: string) {
+  const values = new Map<string, string>();
+  for (const match of tag.matchAll(/([:\w-]+)\s*=\s*(["'])([\s\S]*?)\2/gu)) {
+    values.set(match[1].toLowerCase(), decodeHtmlEntities(match[3]).trim());
+  }
+  return values;
+}
+
+function extractPublicMetadata(html: string) {
+  const values: string[] = [];
+  let title = "";
+  for (const match of html.matchAll(/<meta\b[^>]*>/giu)) {
+    const attributes = htmlAttributes(match[0]);
+    const key = (attributes.get("property") || attributes.get("name") || attributes.get("itemprop") || "").toLowerCase();
+    const content = attributes.get("content") || "";
+    if (!content || content.length > 12_000) continue;
+    if (["og:title", "twitter:title", "headline"].includes(key) && !title) title = content;
+    if ([
+      "og:title", "twitter:title", "headline", "og:description", "twitter:description", "description",
+      "keywords", "author", "article:section", "video:tag",
+    ].includes(key)) values.push(content);
+  }
+  const allowedJsonKeys = new Set(["name", "headline", "description", "keywords", "genre", "about", "articleSection"]);
+  const collect = (value: unknown, depth = 0) => {
+    if (depth > 5 || values.join(" ").length > 24_000) return;
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 40)) collect(item, depth + 1);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (allowedJsonKeys.has(key) && typeof item === "string" && item.length <= 12_000) values.push(item);
+      else if (key === "interactionStatistic" || key === "author" || key === "creator" || key === "about") collect(item, depth + 1);
+    }
+  };
+  for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*(["'])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script>/giu)) {
+    if (match[2].length > 128_000) continue;
+    try {
+      collect(JSON.parse(decodeHtmlEntities(match[2])));
+    } catch {
+      // Invalid public metadata is ignored; visible page text remains available.
+    }
+  }
+  for (const match of html.matchAll(/"shortDescription"\s*:\s*"((?:\\.|[^"\\]){1,12000})"/gu)) {
+    try {
+      values.push(JSON.parse(`"${match[1]}"`) as string);
+    } catch {
+      // A malformed embedded description is not trusted.
+    }
+  }
+  return {
+    title: normalizeForLearning(title).slice(0, 180),
+    text: normalizeForLearning([...new Set(values.map((value) => normalizeForLearning(value)).filter(Boolean))].join("\n"))
+      .slice(0, 30_000),
+  };
+}
+
 function textFromHtml(html: string) {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1] || "";
+  const metadata = extractPublicMetadata(html);
   const withoutActiveContent = html
     .replace(/<!--[\s\S]*?-->/gu, " ")
     .replace(/<(script|style|noscript|template|svg|canvas|form|iframe)[^>]*>[\s\S]*?<\/\1>/giu, " ")
     .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/section|\/article|\/tr)>/giu, "\n")
     .replace(/<[^>]+>/gu, " ");
   return {
-    title: normalizeForLearning(decodeHtmlEntities(titleMatch)).slice(0, 180),
-    text: normalizeForLearning(decodeHtmlEntities(withoutActiveContent)),
+    title: metadata.title || normalizeForLearning(decodeHtmlEntities(titleMatch)).slice(0, 180),
+    text: normalizeForLearning([metadata.text, decodeHtmlEntities(withoutActiveContent)].filter(Boolean).join("\n")),
+    metadataCharacters: metadata.text.length,
   };
 }
 
@@ -346,7 +405,7 @@ export async function fetchControlledWebResearch(
   const raw = await result.readText();
   const extracted = contentType.includes("html")
     ? textFromHtml(raw)
-    : { title: "", text: normalizeForLearning(raw) };
+    : { title: "", text: normalizeForLearning(raw), metadataCharacters: 0 };
   if (CREDENTIAL_PATTERN.test(extracted.text)) {
     throw webResearchError("WEB_RESEARCH_CREDENTIAL_CONTENT_BLOCKED", "來源內容疑似包含密鑰或登入憑證，已阻止外送。", 403);
   }
@@ -382,7 +441,8 @@ export async function fetchControlledWebResearch(
       fingerprint: createTextFingerprint(sanitizedText),
       sanitizationStatus: boundary.findings.length ? "sanitized" : "unchanged",
       warningCodes: [...new Set(boundary.findings.map((finding) =>
-        `${heuristicOnly ? "HEURISTIC_REVIEW" : "UNTRUSTED_CONTENT"}_${finding.code}`))],
+        `${heuristicOnly ? "HEURISTIC_REVIEW" : "UNTRUSTED_CONTENT"}_${finding.code}`)
+        .concat(extracted.metadataCharacters > 0 ? ["PUBLIC_METADATA_ENRICHED"] : []))],
       rawContentRetained: false,
     },
     transientSanitizedText: sanitizedText,

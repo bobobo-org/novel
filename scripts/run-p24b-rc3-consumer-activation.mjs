@@ -10,10 +10,10 @@ import {
 const mode = process.argv[2] || "all";
 const artifactDir = "artifacts/p24b-rc3-consumer-activation/unit";
 const expectedIdentity = {
-  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.2",
-  releaseRevision: "rc6.2",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.2",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6.2",
+  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.5",
+  releaseRevision: "rc6.5",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.5",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.5",
   architectureStage: "P2.4B RC",
 };
 const cases = [];
@@ -45,10 +45,20 @@ async function consumerFrontdoorDefault() {
   assert.doesNotMatch(page, /redirect\s*\(/);
   assert.doesNotMatch(config, /source:\s*["']\/["']/);
   assert.match(frontdoor, /data-testid="modern-consumer-frontdoor"/);
-  for (const label of [
-    "開始新故事", "繼續小說專案", "小說專案助手", "互動故事／RPG",
-    "角色與世界", "我的作品", "本機 AI 設定", "進階工具",
-  ]) assert.ok(frontdoor.includes(label), `missing frontdoor entry: ${label}`);
+  const entryBlock = frontdoor.match(/const entries = \[([\s\S]*?)\n\s*\] as const;/u)?.[1] ?? "";
+  assert.equal(
+    (entryBlock.match(/^\s*\[/gmu) ?? []).length,
+    2,
+    "the homepage must expose exactly create/select as story starting choices",
+  );
+  for (const label of ["建立新作品", "選擇作品", "首頁只有兩個開始方式"]) {
+    assert.ok(frontdoor.includes(label), `missing unified frontdoor contract: ${label}`);
+  }
+  for (const obsoleteEntry of ["小說專案助手", "互動故事／RPG", "角色與世界", "進階工具"]) {
+    assert.ok(!entryBlock.includes(obsoleteEntry), `obsolete story entry remains: ${obsoleteEntry}`);
+  }
+  assert.match(frontdoor, /\/professional\?intent=library/);
+  assert.match(frontdoor, /\/settings\/local-ai\?returnTo=/);
   for (const truth of ["本機裝置", "未設定", "等待配對", "已就緒", "預設未使用"]) {
     assert.ok(frontdoor.includes(truth), `missing status truth: ${truth}`);
   }
@@ -79,9 +89,9 @@ async function legacyExplicitOnly() {
     source("public/legacy/consumer-app.js"),
   ]);
   assert.match(frontdoor, /legacyMigration=import/);
-  assert.match(frontdoor, /function isExplicitLegacyRoute/);
-  assert.match(frontdoor, /isExplicitLegacyRoute\(href\) \? \(/);
-  assert.match(frontdoor, /<a className="entryCard" href=\{href\}/);
+  assert.doesNotMatch(frontdoor, /function isExplicitLegacyRoute/);
+  assert.doesNotMatch(frontdoor, /isExplicitLegacyRoute\(href\)/);
+  assert.match(frontdoor, /<Link className="entryCard" href=\{href\}/);
   assert.match(frontdoor, /<a href="\/legacy\/novel-system\.html"/);
   assert.match(studio, /<a className="studioProfessional" href="\/professional">/);
   assert.match(frontdoor, /暫不匯入/);
@@ -119,8 +129,10 @@ async function frontdoorAISetupDiscovery() {
 }
 
 async function frontdoorProjectRouting() {
-  const [frontdoor, studioPage, wizard] = await Promise.all([
+  const [frontdoor, professional, createClient, studioPage, wizard] = await Promise.all([
     source("app/frontdoor-client.tsx"),
+    source("app/professional/professional-client.tsx"),
+    source("app/studio/create/create-project-client.tsx"),
     source("app/studio/page.tsx"),
     source("app/settings/local-ai/setup-wizard.tsx"),
   ]);
@@ -128,7 +140,15 @@ async function frontdoorProjectRouting() {
   assert.match(frontdoor, /projectCount === 1 && recentId/);
   assert.match(frontdoor, /`\/studio\/project\/\$\{encodeURIComponent\(recentId\)\}\/chat`/);
   assert.match(frontdoor, /projectCount > 0[\s\S]*?"\/professional\?intent=chat"/);
-  assert.match(frontdoor, /從 \$\{projectCount\} 部正式作品中選擇，不會誤開別部作品/);
+  assert.match(frontdoor, /從 \$\{projectCount\} 部正式作品中選擇；選定後直接進入該作品的故事工作台/);
+  assert.doesNotMatch(frontdoor, /\/studio\/project\/[^\s"'`]+\/(?:rpg|write)/);
+  assert.match(professional, /const root = `\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat`/);
+  assert.match(professional, /intent === "play" \? `\$\{root\}\?mode=play` : root/);
+  assert.match(professional, /router\.replace\(storyWorkspaceHref\(nextId, intent\)\)/);
+  assert.match(professional, /router\.push\(storyWorkspaceHref\(projectId, intent\)\)/);
+  assert.match(createClient, /\/chat\$\{createdMode === "general" \? "" : "\?mode=play"\}/);
+  assert.doesNotMatch(createClient, /storyPlayModeDashboardHref/);
+  assert.match(professional, /\/professional\?intent=library&projectId=/);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
   assert.match(wizard, /href=\{returnTo\}/);
@@ -344,7 +364,8 @@ async function rc3ReleaseIdentity() {
     Object.fromEntries(Object.keys(expectedIdentity).map((key) => [key, manifest[key]])),
     expectedIdentity,
   );
-  assert.equal(manifest.releaseEpoch, "2026-08-09T22:48:18.000Z");
+  assert.equal(new Date(manifest.releaseEpoch).toISOString(), manifest.releaseEpoch);
+  assert.equal(provenance.releaseEpoch, manifest.releaseEpoch);
   assert.match(manifest.consumerRelease, new RegExp(contract.consumerReleasePattern));
   assert.equal(provenance.releaseTag, expectedIdentity.releaseTag);
   assert.match(provenance.appCommit, /^[0-9a-f]{40}$/);

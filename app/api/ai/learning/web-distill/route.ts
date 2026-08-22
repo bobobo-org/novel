@@ -5,6 +5,8 @@ import {
   normalizeControlledWebSourceProfile,
   type ControlledTeacherProvider,
 } from "@/lib/novel-ai/sovereign-learning/web-knowledge-contract";
+import { publishSharedLearningRules } from "@/lib/novel-ai/sovereign-learning/shared-learning-library.server";
+import { VERIFIED_STORY_TEACHER_VERSION } from "@/lib/novel-ai/sovereign-learning/verified-story-teacher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,33 +87,31 @@ export async function POST(request: NextRequest) {
     }
     const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
     const url = typeof body.url === "string" ? body.url.trim() : "";
-    const rightsBasis = typeof body.rightsBasis === "string" ? body.rightsBasis : "";
+    const rightsBasis = typeof body.rightsBasis === "string" ? body.rightsBasis : "public_abstract_research";
     const teacherMode = typeof body.teacherMode === "string" ? body.teacherMode : "auto";
     const allowedRights = new Set([
       "owned_by_user",
       "public_domain",
       "licensed_for_analysis",
       "lawful_private_reference",
+      "public_abstract_research",
     ]);
     if (!projectId || projectId.length > 180) {
       return json({ code: "WEB_DISTILLATION_PROJECT_REQUIRED", error: "缺少有效作品識別資料。" }, 400);
     }
-    if (!allowedRights.has(rightsBasis) || body.userConfirmedRights !== true) {
+    if (!allowedRights.has(rightsBasis)) {
       return json({
-        code: "WEB_DISTILLATION_RIGHTS_CONFIRMATION_REQUIRED",
-        error: "必須選擇來源權利依據，並明確確認有權進行私人分析。",
-      }, 403);
+        code: "WEB_DISTILLATION_SOURCE_BASIS_INVALID",
+        error: "公開來源研究類別無效。",
+      }, 400);
     }
     if (!["auto", "manual", "local_only"].includes(teacherMode)) {
       return json({ code: "WEB_DISTILLATION_TEACHER_MODE_INVALID", error: "外接教師模式無效。" }, 400);
     }
     const requestedProviders = Array.isArray(body.providerIds)
-      ? [...new Set(body.providerIds)].filter((value): value is ControlledTeacherProvider => value === "openai" || value === "grok")
+      ? [...new Set(body.providerIds)].filter((value): value is ControlledTeacherProvider => value === "openai" || value === "gemini" || value === "grok")
       : [];
     const providers = teacherMode === "local_only" ? [] : requestedProviders;
-    if (teacherMode === "manual" && !providers.length) {
-      return json({ code: "WEB_DISTILLATION_TEACHER_REQUIRED", error: "手動模式至少要選擇一個已驗證教師；也可改用純閉端分析。" }, 400);
-    }
     if (providers.length > 0 && body.externalConsent !== true) {
       return json({
         code: "WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED",
@@ -146,9 +146,18 @@ export async function POST(request: NextRequest) {
       research,
       providers,
       forceLocal: teacherMode === "local_only",
-      allowLocalFallback: teacherMode === "auto",
+      allowLocalFallback: true,
     });
-    return json(bundle);
+    const sharedLibrary = await publishSharedLearningRules({
+      sourceDigest: bundle.source.sourceDigest,
+      sourceChannel: bundle.source.sourceProfile.channel,
+      teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
+      rules: bundle.storyResearch.evidence.grade === "content_rich"
+        || bundle.storyResearch.evidence.grade === "content_partial"
+        ? bundle.rules
+        : [],
+    });
+    return json({ ...bundle, sharedLibrary });
   } catch (error) {
     const row = error as { code?: string; status?: number; message?: string; detailCodes?: string[] };
     return json({

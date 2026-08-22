@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Chapter, NovelProject, ProjectBackup, StoryState } from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
   STORY_PLAY_MODE_LABELS,
-  storyPlayModeDashboardHref,
 } from "@/lib/novel-ai/domain/play-mode";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
@@ -31,6 +31,15 @@ function wordCount(chapters: Chapter[]) {
   return chapters.reduce((sum, chapter) => sum + chapter.content.replace(/\s/gu, "").length, 0);
 }
 
+function isStoryIntent(intent: string): intent is "chat" | "write" | "play" {
+  return intent === "chat" || intent === "write" || intent === "play";
+}
+
+function storyWorkspaceHref(projectId: string, intent: string) {
+  const root = `/studio/project/${encodeURIComponent(projectId)}/chat`;
+  return intent === "play" ? `${root}?mode=play` : root;
+}
+
 export default function ProfessionalClient({
   initialProjectId = "",
   intent = "library",
@@ -38,6 +47,7 @@ export default function ProfessionalClient({
   initialProjectId?: string;
   intent?: "write" | "play" | "library" | string;
 }) {
+  const router = useRouter();
   const repository = useMemo(() => createNovelRepository(), []);
   const [projects, setProjects] = useState<NovelProject[]>([]);
   const [selectedId, setSelectedId] = useState(initialProjectId);
@@ -87,13 +97,19 @@ export default function ProfessionalClient({
       const explicitProject = nextProjects.some((item) => item.id === preferredProjectId);
       const mustChoose = !explicitProject
         && nextProjects.length > 1
-        && (intent === "chat" || intent === "write" || intent === "play");
+        && isStoryIntent(intent);
       const nextId = explicitProject
         ? preferredProjectId
         : mustChoose
           ? ""
           : nextProjects[0]?.id ?? "";
       setSelectedId(nextId);
+      if (nextId && isStoryIntent(intent)) {
+        localStorage.setItem("novel_p2_active_project_id", nextId);
+        setStatus("已選定作品，正在進入唯一故事工作台……");
+        router.replace(storyWorkspaceHref(nextId, intent));
+        return;
+      }
       await loadSummary(nextId);
       setStatus(mustChoose
         ? `找到 ${nextProjects.length} 部正式作品。請先選擇一部，再繼續；系統不會自行猜測或混用章節。`
@@ -108,7 +124,7 @@ export default function ProfessionalClient({
     } finally {
       setLoading(false);
     }
-  }, [intent, loadSummary, repository]);
+  }, [intent, loadSummary, repository, router]);
 
   const refreshAIStatus = useCallback(async () => {
     aiDiscoveryController.current?.abort("PROFESSIONAL_AI_DISCOVERY_REPLACED");
@@ -159,11 +175,16 @@ export default function ProfessionalClient({
 
   async function selectProject(projectId: string) {
     setSelectedId(projectId);
+    localStorage.setItem("novel_p2_active_project_id", projectId);
+    if (isStoryIntent(intent)) {
+      setStatus("已選定作品，正在進入唯一故事工作台……");
+      router.push(storyWorkspaceHref(projectId, intent));
+      return;
+    }
     setLoading(true);
     try {
       await loadSummary(projectId);
-      localStorage.setItem("novel_p2_active_project_id", projectId);
-      setStatus("已切換作品；寫作、閱讀、管理與備份仍使用同一份正式資料。");
+      setStatus("已切換作品；閱讀、設定、管理與備份仍使用同一份正式資料。");
     } finally {
       setLoading(false);
     }
@@ -171,20 +192,17 @@ export default function ProfessionalClient({
 
   const project = summary?.project ?? null;
   const projectRoot = project ? `/studio/project/${encodeURIComponent(project.id)}` : "";
-  const activeChapter = summary?.chapters.find((item) => item.id === project?.activeChapterId)
-    ?? summary?.chapters.at(-1)
-    ?? null;
   const playMode = summary?.storyState ? resolveStoryPlayMode(summary.storyState) : "general";
   const primaryWorkspace = project ? `${projectRoot}/chat` : "";
-  const playWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
+  const playWorkspace = project ? `${projectRoot}/chat?mode=play` : "";
 
   return (
     <main className="professionalModern" data-testid="professional-canonical-workbench">
       <header className="professionalModernHeader">
         <div>
           <small>PROFESSIONAL · CANONICAL WORKBENCH</small>
-          <h1>諸天創作中心</h1>
-          <p>專業工具與簡易版共用同一份正式作品庫；切換畫面不會複製、隱藏或遺失章節。</p>
+          <h1>專業工具與資料管理</h1>
+          <p>這裡只處理正式章節校訂、設定、模型、學習、備份與匯出；日常創作和 RPG 一律回到故事工作台。</p>
         </div>
         <div className="professionalModernStatus">
           <span>正式作品庫：{error ? "需要檢查" : loading ? "讀取中" : "已統一"}</span>
@@ -193,9 +211,9 @@ export default function ProfessionalClient({
       </header>
 
       <nav className="professionalModernTop" aria-label="專業工作台主要入口">
-        <Link href="/studio">首頁</Link>
+        <Link href="/">首頁</Link>
         <Link className="primary" href="/studio/create">建立新作品</Link>
-        {project ? <Link href={`${projectRoot}/chat`}>專案對話</Link> : null}
+        {project ? <Link href={`${projectRoot}/chat`}>故事工作台</Link> : null}
         {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}
       </nav>
 
@@ -203,7 +221,7 @@ export default function ProfessionalClient({
         {error ? `讀取失敗：${error}。${status}` : status}
       </p>
 
-      {projects.length ? (
+      {projects.length && !isStoryIntent(intent) ? (
         <section className="professionalProjectPicker" aria-label="選擇正式作品">
           <strong>目前作品</strong>
           <select value={selectedId} disabled={loading} onChange={(event) => void selectProject(event.target.value)}>
@@ -218,12 +236,11 @@ export default function ProfessionalClient({
         <>
           <section className="professionalProjectHero">
             <div>
-              <small>CONTINUE THIS STORY</small>
+              <small>PROJECT DATA & TOOLS</small>
               <h2>{project.title}</h2>
-              <p>{project.coreIdea.value || "尚未設定核心想法；可在作品設定或寫作小精靈中補上。"}</p>
+              <p>{project.coreIdea.value || "尚未設定核心想法；可在作品設定或故事工作台中補上。"}</p>
               <div className="professionalHeroActions">
-                <Link className="primary" href={primaryWorkspace}>繼續小說專案對話</Link>
-                <Link href={`${projectRoot}/chat?prompt=${encodeURIComponent(`請接續「${activeChapter?.title || "目前章節"}」協助我創作。`)}`}>用自然語言繼續創作</Link>
+                <Link className="primary" href={primaryWorkspace}>回到唯一故事工作台</Link>
                 <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
                 <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
               </div>
@@ -238,10 +255,9 @@ export default function ProfessionalClient({
 
           <section className="professionalActionGroups">
             <article>
-              <small>CONVERSATION</small><h2>小說專案對話</h2>
-              <p>續寫、改寫、分析、角色與 RPG 都在同一條對話；採用前仍只是候選。</p>
-              <Link href={`${projectRoot}/chat`}>開啟專案對話</Link>
-              <Link href={`${projectRoot}/write`}>章節寫作</Link>
+              <small>CANON & REVIEW</small><h2>正式稿與故事記憶</h2>
+              <p>這裡只校訂已採用的正式內容與故事資料；續寫、改寫和 RPG 請回故事工作台。</p>
+              <Link href={`${projectRoot}/write`}>章節正式稿校訂</Link>
               <Link href={`${projectRoot}/story-bible`}>故事記憶</Link>
             </article>
             <article>
@@ -256,7 +272,7 @@ export default function ProfessionalClient({
               <p>目前固定為「{STORY_PLAY_MODE_LABELS[playMode]}」。同一作品不會在寫作途中切換玩法；需要另一種方式時會建立獨立副本。</p>
               <Link href={`${projectRoot}/characters`}>角色管理</Link>
               <Link href={`${projectRoot}/world`}>世界設定</Link>
-              {playMode !== "general" ? <Link href={playWorkspace}>開啟{STORY_PLAY_MODE_LABELS[playMode]}進階工作區</Link> : null}
+              {playMode !== "general" ? <Link href={playWorkspace}>在故事工作台繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link> : null}
               <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製為其他玩法</Link>
               <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
@@ -275,15 +291,15 @@ export default function ProfessionalClient({
         <section className="professionalProjectChoices" data-testid="canonical-project-picker">
           <header>
             <small>CHOOSE ONE CANONICAL PROJECT</small>
-            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : intent === "chat" ? "選擇要開啟對話的小說專案" : "選擇要繼續寫作的作品"}</h2>
-            <p>每個按鈕都綁定獨立 projectId；選擇前不會載入、覆蓋或混合任何章節。</p>
+            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : "選擇要繼續創作的作品"}</h2>
+            <p>選定後會直接進入該作品唯一的故事工作台；不會載入、覆蓋或混合其他作品的章節。</p>
           </header>
           <div>
             {projects.map((item) => (
               <button type="button" key={item.id} onClick={() => void selectProject(item.id)}>
                 <strong>{item.title}</strong>
                 <span>最後保存：{formatTime(item.updatedAt)}</span>
-                <small>{intent === "play" ? "選擇後顯示固定玩法入口" : intent === "chat" ? "選擇後開啟該作品的獨立對話與記憶" : "選擇後顯示章節與續寫入口"}</small>
+                <small>{intent === "play" ? "選擇後直接進入故事工作台的 RPG 模式" : "選擇後直接進入該作品的故事工作台"}</small>
               </button>
             ))}
           </div>

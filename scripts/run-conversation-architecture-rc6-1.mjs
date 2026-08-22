@@ -114,7 +114,11 @@ async function componentContract() {
     }
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-branch.ts"), /conversation\.branchSession\(/u);
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts"), /conversation\.approveChapterArtifact\(/u);
-    assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts"), /generateRpgChatTurnCandidate\(/u);
+    const rpgController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts");
+    assert.match(rpgController, /const plan = await buildRpgRuleChoicePlan\(\{/u);
+    assert.match(rpgController, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
+    assert.doesNotMatch(rpgController, /planRpgChatChoices\(/u);
+    assert.match(rpgController, /generateRpgChatTurnCandidate\(/u);
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-attachments.ts"), /extractManualLearningFileInWorker\(/u);
   });
 }

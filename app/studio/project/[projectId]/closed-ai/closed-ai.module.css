@@ -99,12 +99,33 @@
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.4fr) minmax(290px, 0.9fr);
+  grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.5fr);
   gap: 12px;
   min-height: 0;
   max-width: 1680px;
   width: 100%;
   margin: 0 auto;
+}
+
+.coordinatorPanel {
+  grid-column: 1;
+  grid-row: 1;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.coordinatorGovernance {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: -12px;
+  border-top: 0;
+  border-top-right-radius: 0;
+  border-top-left-radius: 0;
+}
+
+.taskPanel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 .panel {
@@ -1407,8 +1428,21 @@
   .workspace > .panel:last-child,
   .taskPanel {
     grid-column: auto;
+    grid-row: auto;
     width: auto;
     min-width: 0;
+  }
+
+  .taskPanel {
+    order: -1;
+  }
+
+  .coordinatorPanel {
+    order: 0;
+  }
+
+  .coordinatorGovernance {
+    order: 1;
   }
 
   .deckCopy,
@@ -1451,7 +1485,7 @@
   }
 
   .workspace {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.5fr);
     align-items: start;
     min-height: auto;
   }
@@ -1462,17 +1496,45 @@
   }
 
   .taskPanel {
-    order: -1;
-    grid-column: 1 / -1;
+    order: 0;
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 
   .workspace > .panel:last-child {
-    grid-column: auto;
+    grid-column: 1;
   }
 
   .panelHeading,
   #backend-title {
     scroll-margin-top: 18px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1120px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace > .panel,
+  .workspace > .panel:last-child,
+  .taskPanel,
+  .coordinatorPanel,
+  .coordinatorGovernance {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .taskPanel {
+    order: -1;
+  }
+
+  .coordinatorPanel {
+    order: 0;
+  }
+
+  .coordinatorGovernance {
+    order: 1;
   }
 }
 

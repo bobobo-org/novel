@@ -12,7 +12,8 @@ export type LearningSourceKind =
   | "video_transcript"
   | "novel_app_export"
   | "classical_chinese_public_domain"
-  | "web_research";
+  | "web_research"
+  | "shared_abstract_rules";
 
 export type LearningWebSourceChannel = "article" | "youtube" | "novel_app" | "popular_web" | "classical_chinese";
 
@@ -44,7 +45,10 @@ export type LearningRightsBasis =
   | "public_domain"
   | "licensed_for_analysis"
   | "lawful_private_reference"
-  | "ai_output_authorized";
+  | "ai_output_authorized"
+  | "public_abstract_research"
+  | "user_supplied_abstract_research"
+  | "abstract_idea";
 
 export type LearningSourceStatus = "active" | "quarantined" | "revoked";
 export type LearningRuleStatus = "candidate" | "approved" | "rejected" | "quarantined" | "revoked";
@@ -124,7 +128,7 @@ export type LearningSourceRecord = {
     rawContentRetained: false;
   } | null;
   teacherEvidence?: Array<{
-    provider: "openai" | "grok";
+    provider: "openai" | "gemini" | "grok";
     model: string;
     responseDigest: string;
     acceptedRuleCount: number;

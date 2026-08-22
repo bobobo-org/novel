@@ -69,11 +69,11 @@ check("chapter changes stay explicit and chapter scoped", () => {
   assert.match(writing, /sourceKey = `chapter:\$\{chapter\?\.id \|\| "missing"\}`/u);
 });
 
-check("writing elf guides setup, drafting, AI candidate and reading", () => {
-  assert.match(writing, /創作小精靈/u);
-  assert.match(writing, /先設定故事/u);
-  assert.match(writing, /AI 承接脈絡續寫/u);
-  assert.match(writing, /executeStudioClosedAgent/u);
+check("professional editor guides manual correction and preserves pending approval", () => {
+  assert.match(writing, /章節全文校訂（專業工具）/u);
+  assert.match(writing, /校訂指引/u);
+  assert.match(writing, /前往唯一故事工作台：續寫、改寫、RPG 與 A／B／C/u);
+  assert.doesNotMatch(writing, /executeStudioClosedAgent|runInlineWritingAI/u);
   assert.match(writing, /p2WritingAICandidate/u);
   assert.match(writing, /核准並寫入目前章節/u);
   assert.match(writing, /閱讀預覽/u);
@@ -94,11 +94,9 @@ check("reader has progress, searchable directory and previous-next navigation", 
   assert.match(reader, /nextChapter/u);
 });
 
-check("writing AI auto-connects while historical assistants hand off to project chat", () => {
-  assert.match(writing, /discoverStudioClosedAI/u);
-  assert.match(writing, /閉端 AI 自動連線/u);
-  assert.match(writing, /executeStudioClosedAgent/u);
-  assert.doesNotMatch(writing, /closedAIHref/u);
+check("all story generation assistants hand off to project chat", () => {
+  assert.doesNotMatch(writing, /discoverStudioClosedAI|executeStudioClosedAgent|閉端 AI 自動連線/u);
+  assert.match(writing, /`\/studio\/project\/\$\{projectId\}\/chat`/u);
   assert.match(quickAssistant, /\/chat\$\{query\.size/u);
   assert.match(quickAssistant, /professional\?intent=chat/u);
   assert.match(aiPage, /\/chat\$\{destination\.size/u);
@@ -106,12 +104,8 @@ check("writing AI auto-connects while historical assistants hand off to project 
   assert.doesNotMatch(aiPage, /write\?assistant=advanced#writing-ai/u);
 });
 
-check("writing tools are stage-correct and commit only an approved candidate", () => {
-  assert.match(writing, /"rewrite-selection"/u);
-  assert.match(writing, /"dialogue"/u);
-  assert.match(writing, /"tension"/u);
-  assert.match(writing, /"pacing"/u);
-  assert.match(writing, /"hook"/u);
+check("professional editor exposes no new story generator and commits only an existing approved candidate", () => {
+  assert.doesNotMatch(writing, /AI 承接脈絡續寫|比較 3 個故事方向|完整品質續寫|AI 整章改寫候選|重新產生/u);
   assert.match(writing, /approveInlineWritingAI/u);
   assert.match(writing, /selectedOption\?\.selection/u);
   assert.match(writing, /sourceSnapshot\.revision !== candidate\.sourceRevision/u);
@@ -161,11 +155,11 @@ check("character AI runs in the form and fills a validated RPG candidate", () =>
   assert.doesNotMatch(projectSections, /closedAIHref\(projectId, "character\.dialogue"/u);
 });
 
-check("an explicit runtime choice survives a same-tab reload without storing credentials", () => {
-  assert.match(closedAI, /closed-ai-workspace-preferences-v1/u);
-  assert.match(closedAI, /window\.sessionStorage\.setItem\(workspacePreferenceKey\(projectId\)/u);
-  assert.match(closedAI, /setBackend\(restored\)/u);
-  assert.doesNotMatch(closedAI, /workspacePreferenceKey[\s\S]{0,600}(?:token|csrf)/u);
+check("the unified coordinator ignores legacy runtime choices and exposes no backend picker", () => {
+  assert.match(closedAI, /閉端 AI 自動協調器/u);
+  assert.match(closedAI, /依任務自動分派，不需選擇 AI/u);
+  assert.doesNotMatch(closedAI, /closed-ai-workspace-preferences-v1/u);
+  assert.doesNotMatch(closedAI, /setBackend\(|data-testid="closed-ai-backend"|data-testid="browser-compute-policy"/u);
 });
 
 console.log(JSON.stringify({ status: "PASS", checks: checks.length, cases: checks }, null, 2));

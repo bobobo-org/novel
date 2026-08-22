@@ -1,31 +1,65 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [workspace, styles] = await Promise.all([
-  readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
-  readFile("app/studio/project/[projectId]/rpg/rpg.module.css", "utf8"),
+const [
+  chatController,
+  rpgService,
+  compatibilityRedirect,
+  chatPage,
+  playMode,
+  studio,
+] = await Promise.all([
+  readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
+  readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
+  readFile("app/studio/project/[projectId]/rpg/page.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/page.tsx", "utf8"),
+  readFile("lib/novel-ai/domain/play-mode.ts", "utf8"),
+  readFile("app/studio/studio-client.tsx", "utf8"),
 ]);
 
-assert.doesNotMatch(workspace, /RPG_AI_CHOICE_PLAN_REQUIRED/);
-assert.match(workspace, /disabled=\{busy \|\| !aiChoicesReady\}/);
-assert.doesNotMatch(workspace, /regenerateStudioClosedAI/);
-assert.match(workspace, /const RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000/);
-assert.match(workspace, /const RPG_TURN_TIMEOUT_MS = 300_000/);
-assert.match(workspace, /signal: controller\.signal/);
-assert.match(workspace, /data-testid="rpg-live-draft"/);
-assert.match(workspace, /data-testid="rpg-cancel-turn"/);
-assert.match(workspace, /停止本回合（不結算）/);
-assert.match(workspace, /數值、物品與貨幣均未結算/);
-assert.match(styles, /\.liveDraft\s*\{/);
-assert.match(styles, /\.cancelTurn\s*\{/);
-assert.match(styles, /\.choiceLoading\s*\{/);
+// The production RPG entry is Conversation. A check against the retired
+// rpg-workspace could pass while the real chat controller still waited for the
+// model queue for 180 seconds, so this gate reads the canonical controller.
+assert.match(chatController, /const plan = await buildRpgRuleChoicePlan\(\{/u);
+assert.match(chatController, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
+assert.doesNotMatch(chatController, /planRpgChatChoices\(/u);
+assert.doesNotMatch(chatController, /180_000|超過 180 秒/u);
+assert.match(chatController, /serializeRpgChoices\(envelope\)/u);
+assert.match(chatController, /generateRpgChatTurnCandidate\(/u);
+assert.match(chatController, /故事與數值均未寫入/u);
+
+const snapshotAt = chatController.indexOf("const snapshot = await loadRpgChatSnapshot");
+const immediatePlanAt = chatController.indexOf("const plan = await buildRpgRuleChoicePlan", snapshotAt);
+const completedMessageAt = chatController.indexOf("serializeRpgChoices(envelope)", immediatePlanAt);
+assert(snapshotAt >= 0, "the active chat controller must load the canonical RPG snapshot");
+assert(immediatePlanAt > snapshotAt, "the active chat controller must build rule choices immediately after loading the snapshot");
+assert(completedMessageAt > immediatePlanAt, "the exact A/B/C envelope must be committed after the immediate plan");
+
+assert.match(rpgService, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
+assert.match(rpgService, /enhancementController\.abort\("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"\)/u);
+assert.match(rpgService, /signal: enhancementController\.signal/u);
+assert.match(rpgService, /clearTimeout\(enhancementTimeout\)/u);
+assert.match(rpgService, /choices\.length !== 3/u);
+assert.match(rpgService, /keys\.join\(""\) !== "ABC"/u);
+
+assert.match(compatibilityRedirect, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
+assert.match(chatPage, /first\(query\.mode\) === "play"/u);
+assert.match(chatPage, /開始 RPG 故事回合並給我三個真正不同且可玩的 A／B／C 選項。/u);
+assert.doesNotMatch(chatPage, /目前狀態/u);
+assert.match(playMode, /const storyWorkspace = `\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat`/u);
+assert.doesNotMatch(playMode, /\/rpg/u);
+assert.match(studio, /if \(value === "write"\) return `\$\{projectRoot\}\/chat`/u);
+assert.match(studio, /if \(value === "choice"\) return `\$\{projectRoot\}\/chat\?mode=play`/u);
+assert.doesNotMatch(studio, /\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg/u);
 
 console.log(JSON.stringify({
-  schemaVersion: "rpg-turn-resilience-v1",
+  schemaVersion: "rpg-turn-resilience-v2",
   status: "PASS",
-  choiceAvailableDuringPlanning: false,
-  liveDraftVisible: true,
-  cancellable: true,
-  timeoutMs: 300_000,
-  mutationOnCancelOrTimeout: 0,
+  canonicalStoryEntry: "/chat",
+  compatibilityRedirect: "/rpg -> /chat?mode=play",
+  choicePlanner: "immediate-bounded-rule-plan",
+  exactChoiceKeys: ["A", "B", "C"],
+  modelRequiredBeforeChoices: false,
+  enhancementTimeoutMs: 12_000,
+  mutationBeforeApproval: 0,
 }, null, 2));

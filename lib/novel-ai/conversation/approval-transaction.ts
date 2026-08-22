@@ -17,6 +17,7 @@ import type {
 } from "../repository/contracts";
 import { RepositoryOperationError } from "../repository/contracts";
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
+import { isConversationClosedAgentInvocation } from "./closed-agent-lineage";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 
 export type ConversationArtifactApprovalInput =
@@ -355,11 +356,7 @@ function assertConversationClosedAgentApprovalBindingProof(
   const closedCandidateIds = sourceMessage.candidateIds.filter((candidateId) => (
     candidateId.startsWith("closed-agent-candidate:")
   ));
-  const suspiciousClosedInvocations = linked.filter((invocation) => (
-    invocation.toolId.startsWith("closed-agent-os:")
-    || invocation.executionReceipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
-    || invocation.executionReceipt?.closedAgentCacheOrigin !== undefined
-  ));
+  const suspiciousClosedInvocations = linked.filter(isConversationClosedAgentInvocation);
   const closedPlanInvocations = linked.filter((invocation) => (
     invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
   ));

@@ -34,6 +34,10 @@ import { RPG_RESOURCE_CATALOG_V3 } from "../game/progression/xianxia-ruleset-v3"
 import type { AcceptChoiceConversationApprovalInput, NovelRepository } from "../repository";
 import { createProjectBackup } from "../repository/backup";
 import {
+  buildApprovedLearningContext,
+  type SovereignLearningRepository,
+} from "../sovereign-learning";
+import {
   acceptStudioChoice,
   persistStudioChoiceCandidate,
   type StudioProjectSeed,
@@ -56,6 +60,7 @@ import { runStudioClosedAI } from "./studio-closed-ai";
 import { hasVerifiedExecutedStoryOutput } from "./story-output-quality";
 
 export const RPG_CHAT_TURN_SCHEMA_VERSION = "rpg-chat-turn-v1" as const;
+export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000;
 
 export type RpgChatSnapshot = {
   schemaVersion: typeof RPG_CHAT_TURN_SCHEMA_VERSION;
@@ -77,6 +82,12 @@ export type RpgChatSnapshot = {
   progression: RpgProgressionSnapshot;
   conflict: string;
   directorContext: Record<string, unknown>;
+  causalKnowledge: {
+    selectedRuleIds: string[];
+    instructions: string[];
+    maximumRules: 8;
+    entireLibraryScanned: false;
+  };
   baseChoices: RpgChoice[];
 };
 
@@ -95,6 +106,76 @@ export type RpgChatChoicePlan = {
   dataLeftDevice: false;
   externalRequest: false;
 };
+
+function assertThreePlayableChoices(choices: readonly RpgDirectedChoice[]) {
+  const keys = choices.map((choice) => choice.key);
+  const titles = new Set(choices.map((choice) => choice.title.trim().toLocaleLowerCase()));
+  const approaches = new Set(choices.map((choice) => choice.approach));
+  if (
+    choices.length !== 3
+    || keys.join("") !== "ABC"
+    || titles.size !== 3
+    || approaches.size !== 3
+    || choices.some((choice) => Boolean(choice.disabledReason))
+  ) {
+    throw Object.assign(new Error("閉端規則引擎沒有建立恰好三個可玩的不同選項。"), {
+      code: "RPG_CHAT_RULE_CHOICES_NOT_PLAYABLE",
+    });
+  }
+}
+
+export async function buildRpgRuleChoicePlan(input: {
+  snapshot: RpgChatSnapshot;
+  fallbackReason?: string;
+}): Promise<RpgChatChoicePlan> {
+  assertThreePlayableChoices(input.snapshot.baseChoices);
+  const fallbackBody = {
+    schemaVersion: RPG_CHAT_TURN_SCHEMA_VERSION,
+    sourceChapterId: input.snapshot.chapter.id,
+    sourceRevision: input.snapshot.chapter.revision,
+    storyStateRevision: input.snapshot.storyState.revision,
+    choices: input.snapshot.baseChoices.map((choice) => ({
+      key: choice.key,
+      title: choice.title,
+      description: choice.description,
+      consequenceTeaser: choice.consequenceTeaser,
+      strategy: choice.approach,
+      successChance: choice.successChance,
+    })),
+    fallbackReason: input.fallbackReason || "RPG_RULE_FIRST_IMMEDIATE_PLAN",
+  };
+  const contentDigest = await sha256Hex(stableStringify(fallbackBody));
+  const contextDigest = await sha256Hex(stableStringify(input.snapshot.directorContext));
+  const modelDigest = await sha256Hex("closed-causal-teacher:rules-only:xianxia-cultivation-v3");
+  const taskId = `rules-choice-plan:${contentDigest.slice(0, 24)}`;
+  return {
+    schemaVersion: RPG_CHAT_TURN_SCHEMA_VERSION,
+    choices: structuredClone(input.snapshot.baseChoices),
+    taskId,
+    candidateId: taskId,
+    contentDigest,
+    model: "closed-causal-teacher-rules",
+    modelDigest,
+    actualExecutor: "deterministic-rule-fallback",
+    executionReceipt: {
+      receiptId: `rules-receipt:${contentDigest.slice(0, 24)}`,
+      fallback: true,
+      fallbackReason: fallbackBody.fallbackReason,
+      choiceCount: 3,
+      exactKeys: ["A", "B", "C"],
+      causalKnowledgeRuleCount: input.snapshot.causalKnowledge.selectedRuleIds.length,
+      causalKnowledgeRuleIds: input.snapshot.causalKnowledge.selectedRuleIds,
+      causalKnowledgeSelection: "approved-indexed-top-k",
+      entireLibraryScanned: false,
+      externalRequest: false,
+      dataLeftDevice: false,
+    },
+    contextDigest,
+    canonicalMutationCount: 0,
+    dataLeftDevice: false,
+    externalRequest: false,
+  };
+}
 
 export type RpgChatTurnCandidate = {
   schemaVersion: typeof RPG_CHAT_TURN_SCHEMA_VERSION;
@@ -316,6 +397,7 @@ export async function loadRpgChatSnapshot(
   repository: NovelRepository,
   projectId: string,
   rules: RpgRuleSettings = DEFAULT_RPG_RULE_SETTINGS,
+  learningRepository?: SovereignLearningRepository,
 ): Promise<RpgChatSnapshot> {
   const project = await repository.get<NovelProject>("projects", projectId);
   if (!project || project.deletedAt) {
@@ -360,7 +442,31 @@ export async function loadRpgChatSnapshot(
     || project.coreIdea.value?.trim()
     || "目前局勢";
   const language = storyLanguage(storyState);
-  const directorContext = buildDirectorContext({
+  const causalKnowledge = learningRepository?.isAvailable()
+    ? await buildApprovedLearningContext({
+      repository: learningRepository,
+      projectId,
+      taskType: "three_choices",
+      maximumRules: 8,
+    }).then((context) => ({
+      selectedRuleIds: context.selectedRuleIds,
+      instructions: context.instructions,
+      maximumRules: 8 as const,
+      entireLibraryScanned: false as const,
+    })).catch(() => ({
+      selectedRuleIds: [],
+      instructions: [],
+      maximumRules: 8 as const,
+      entireLibraryScanned: false as const,
+    }))
+    : {
+      selectedRuleIds: [],
+      instructions: [],
+      maximumRules: 8 as const,
+      entireLibraryScanned: false as const,
+    };
+  const directorContext = {
+    ...buildDirectorContext({
     project,
     chapter,
     chapters,
@@ -378,7 +484,15 @@ export async function loadRpgChatSnapshot(
     language,
     progression,
     conflict,
-  });
+    }),
+    closedCausalTeacherKnowledge: {
+      instructions: causalKnowledge.instructions,
+      selectedRuleCount: causalKnowledge.selectedRuleIds.length,
+      selection: "approved-indexed-top-k",
+      maximumRules: causalKnowledge.maximumRules,
+      entireLibraryScanned: false,
+    },
+  };
   const baseChoices = buildRpgChoices({
     progression,
     protagonist: protagonist?.name ?? "主角",
@@ -386,7 +500,7 @@ export async function loadRpgChatSnapshot(
     conflict,
     mode,
     variant: progression.choiceVariant,
-    seed: `${project.id}|${storyState.revision}`,
+    seed: `${project.id}|${storyState.revision}|${causalKnowledge.selectedRuleIds.join("|")}`,
     rules,
     storyStateRevision: storyState.revision,
     storyState,
@@ -412,6 +526,7 @@ export async function loadRpgChatSnapshot(
     progression,
     conflict,
     directorContext,
+    causalKnowledge,
     baseChoices,
   };
 }
@@ -421,16 +536,19 @@ export async function planRpgChatChoices(input: {
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 }): Promise<RpgChatChoicePlan> {
-  if (input.snapshot.baseChoices.length !== 3) {
-    throw Object.assign(new Error("規則引擎沒有建立完整的三條策略。"), {
-      code: "RPG_CHAT_RULE_CHOICES_INCOMPLETE",
-    });
-  }
+  assertThreePlayableChoices(input.snapshot.baseChoices);
   const seed = (
     input.snapshot.storyState.revision * 997
     + input.snapshot.progression.turn * 131
     + input.snapshot.progression.choiceVariant * 17
   ) >>> 0;
+  const enhancementController = new AbortController();
+  const relayAbort = () => enhancementController.abort(input.signal?.reason);
+  if (input.signal?.aborted) relayAbort();
+  else input.signal?.addEventListener("abort", relayAbort, { once: true });
+  const enhancementTimeout = setTimeout(() => {
+    enhancementController.abort("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT");
+  }, RPG_CHAT_CHOICE_AI_TIMEOUT_MS);
   try {
     const result = await runStudioClosedAI({
       projectId: input.snapshot.project.id,
@@ -451,7 +569,7 @@ export async function planRpgChatChoices(input: {
         repetitionPenalty: 1.16,
         seed,
       },
-      signal: input.signal,
+      signal: enhancementController.signal,
       onProgress: input.onProgress,
     });
     if (
@@ -497,48 +615,19 @@ export async function planRpgChatChoices(input: {
       externalRequest: false,
     };
   } catch (error) {
-    if (input.signal?.aborted) throw error;
-    const fallbackBody = {
-      schemaVersion: RPG_CHAT_TURN_SCHEMA_VERSION,
-      sourceChapterId: input.snapshot.chapter.id,
-      sourceRevision: input.snapshot.chapter.revision,
-      storyStateRevision: input.snapshot.storyState.revision,
-      choices: input.snapshot.baseChoices.map((choice) => ({
-        key: choice.key,
-        title: choice.title,
-        description: choice.description,
-        consequenceTeaser: choice.consequenceTeaser,
-        strategy: choice.approach,
-        successChance: choice.successChance,
-      })),
+    return buildRpgRuleChoicePlan({
+      snapshot: input.snapshot,
       fallbackReason: error && typeof error === "object" && "code" in error
         ? String((error as { code?: unknown }).code ?? "RPG_CHOICE_AI_UNAVAILABLE")
-        : "RPG_CHOICE_AI_UNAVAILABLE",
-    };
-    const contentDigest = await sha256Hex(stableStringify(fallbackBody));
-    const contextDigest = await sha256Hex(stableStringify(input.snapshot.directorContext));
-    const modelDigest = await sha256Hex("rules-only:xianxia-cultivation-v3");
-    const taskId = `rules-choice-plan:${contentDigest.slice(0, 24)}`;
-    return {
-      schemaVersion: RPG_CHAT_TURN_SCHEMA_VERSION,
-      choices: structuredClone(input.snapshot.baseChoices),
-      taskId,
-      candidateId: taskId,
-      contentDigest,
-      model: "rules-only",
-      modelDigest,
-      actualExecutor: "deterministic-rule-fallback",
-      executionReceipt: {
-        receiptId: `rules-receipt:${contentDigest.slice(0, 24)}`,
-        fallback: true,
-        externalRequest: false,
-        dataLeftDevice: false,
-      },
-      contextDigest,
-      canonicalMutationCount: 0,
-      dataLeftDevice: false,
-      externalRequest: false,
-    };
+        : enhancementController.signal.aborted && !input.signal?.aborted
+          ? "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"
+        : input.signal?.aborted
+          ? "RPG_CHOICE_AI_ABORTED"
+          : "RPG_CHOICE_AI_UNAVAILABLE",
+    });
+  } finally {
+    clearTimeout(enhancementTimeout);
+    input.signal?.removeEventListener("abort", relayAbort);
   }
 }
 

@@ -1,4 +1,4 @@
-import RpgWorkspace from "./rpg-workspace";
+import { redirect } from "next/navigation";
 
 export default async function Page({
   params,
@@ -6,5 +6,5 @@ export default async function Page({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  return <RpgWorkspace projectId={projectId} />;
+  redirect(`/studio/project/${encodeURIComponent(projectId)}/chat?mode=play`);
 }

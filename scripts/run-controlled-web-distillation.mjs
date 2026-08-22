@@ -120,12 +120,14 @@ const [learningWorkspaceSource, writeWorkspaceSource] = await Promise.all([
 ]);
 assert.match(learningWorkspaceSource, /作品內容自動成為受控知識/u);
 assert.match(learningWorkspaceSource, /ingestFirstPartyProjectKnowledge/u);
-assert.match(learningWorkspaceSource, /連線方式/u);
-assert.match(learningWorkspaceSource, /local_only/u);
-assert.match(learningWorkspaceSource, /純閉端/u);
+assert.match(learningWorkspaceSource, /統合閉端 AI 自動協調器/u);
+assert.match(learningWorkspaceSource, /使用者不需要選擇哪一個 AI/u);
+assert.match(learningWorkspaceSource, /私人貼文、檔案與作品內容不會因自動協調而送往外接服務/u);
 assert.match(learningWorkspaceSource, /refreshExternalProviders/u);
 assert.doesNotMatch(learningWorkspaceSource, /toggleTeacher/u);
 assert.doesNotMatch(learningWorkspaceSource, /checked=\{externalConsent\}/u);
+assert.doesNotMatch(learningWorkspaceSource, /type TeacherMode|manualTeacherProviders|setManualTeacherProviders/u);
+assert.doesNotMatch(learningWorkspaceSource, /<label>連線方式/u);
 assert.match(writeWorkspaceSource, /syncChapterKnowledge\(projectId, saved\)/u);
 assert.match(writeWorkspaceSource, /sourceKey: `chapter:\$\{chapter\.id\}`/u);
 
@@ -261,6 +263,9 @@ assert.equal(bundle.privacy.rawTeacherResponseRetained, false);
 assert.equal(bundle.privacy.canonicalMutationCount, 0);
 assert.equal(bundle.source.sourceProfile.channel, "popular_web");
 assert.ok(bundle.teacherAgreement.crossTeacherRuleCount >= 1);
+assert.equal(bundle.storyResearch.teacher.verification, "verified");
+assert.equal(bundle.storyResearch.rawStoryRetained, false);
+assert.ok(bundle.storyResearch.mechanisms.length >= 12);
 assert.match(bundle.immutableDigest, /^[a-f0-9]{64}$/u);
 
 const localOnlyBundle = await distillControlledWebKnowledge({
@@ -273,8 +278,9 @@ assert.equal(localOnlyBundle.teachers.length, 0);
 assert.equal(localOnlyBundle.teacherAgreement.requestedTeachers, 0);
 assert.equal(localOnlyBundle.privacy.externalRequestCount, 0);
 assert.equal(localOnlyBundle.privacy.dataLeftDevice, false);
-assert.equal(localOnlyBundle.rules.every((rule) => rule.extractorKind === "deterministic_pattern"), true);
-assert.ok(localOnlyBundle.rules.length > 0);
+assert.equal(localOnlyBundle.rules.some((rule) => rule.extractorKind === "local_closed_ai"), true);
+assert.equal(localOnlyBundle.rules.some((rule) => rule.extractorKind === "external_teacher_ai"), false);
+assert.ok(localOnlyBundle.rules.length >= 12);
 
 const automaticFallbackBundle = await distillControlledWebKnowledge({
   research,

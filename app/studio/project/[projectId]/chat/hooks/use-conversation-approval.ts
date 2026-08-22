@@ -14,6 +14,7 @@ import type {
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { ClosedAgentCandidate } from "@/lib/novel-ai/closed-agent-os";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
+import { hasConversationClosedAgentLineage } from "@/lib/novel-ai/conversation/closed-agent-lineage";
 import {
   assertConversationClosedAgentApprovalBinding,
   assertConversationClosedAgentApprovalCallbackCandidate,
@@ -75,13 +76,10 @@ async function closedCandidateIdForUneditedApproval(
   const invocations = await Promise.all(message.toolInvocationIds.map((invocationId) => (
     repository.get<ConversationToolInvocation>("conversationToolInvocations", invocationId)
   )));
-  const hasClosedLineage = message.candidateIds.some((candidateId) => (
-    candidateId.startsWith("closed-agent-candidate:")
-  )) || invocations.some((invocation) => (
-    invocation?.toolId.startsWith("closed-agent-os:")
-    || invocation?.executionReceipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
-    || invocation?.executionReceipt?.closedAgentCacheOrigin !== undefined
-  ));
+  const hasClosedLineage = hasConversationClosedAgentLineage({
+    message,
+    invocations,
+  });
   if (!hasClosedLineage) return null;
   const candidateId = exactClosedCandidateId(message);
   if (!candidateId) {
@@ -234,7 +232,31 @@ export function useConversationApprovalController({
   setDrawer: (value: DrawerPayload) => void;
 }) {
   async function approveArtifact(artifact: ConversationArtifact, editedContent?: string) {
-    if (!activeSession || busy || operationLockRef.current || artifact.status !== "candidate") return;
+    if (!activeSession) {
+      setSafeError({
+        code: "CONVERSATION_APPROVAL_SESSION_NOT_READY",
+        message: "目前對話尚未準備完成，請稍後再按一次採用。",
+      });
+      return;
+    }
+    if (artifact.status !== "candidate") {
+      setSafeError({
+        code: "CONVERSATION_APPROVAL_CANDIDATE_NOT_CURRENT",
+        message: "這份候選已不是待採用狀態；正在重新整理目前對話。",
+      });
+      await refreshSession(activeSession.id).catch(() => undefined);
+      return;
+    }
+    if (busy || operationLockRef.current) {
+      setSafeError({
+        code: "CONVERSATION_APPROVAL_OPERATION_LOCKED",
+        message: "上一個故事操作尚未完全釋放；正式作品維持原狀，請按重試。",
+      });
+      setRetryAvailable(true);
+      setRetryLabel("重試採用");
+      retryActionRef.current = () => { void approveArtifact(artifact, editedContent); };
+      return;
+    }
     const contentWasEdited = (
       !["rpg", "learning_rule"].includes(artifact.artifactType)
       && editedContent !== undefined
@@ -643,8 +665,8 @@ export function useConversationApprovalController({
       setDrawer(null);
       await loadWorkspace(sessionId);
     } catch (error) {
-      setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
       await loadWorkspace(sessionId).catch(() => undefined);
+      setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
     } finally {
       operationLockRef.current = false;
       releaseLease();
@@ -719,8 +741,8 @@ export function useConversationApprovalController({
       }
       await refreshSession(sessionId);
     } catch (error) {
-      setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
       await refreshSession(sessionId).catch(() => undefined);
+      setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
     } finally {
       operationLockRef.current = false;
       releaseLease();

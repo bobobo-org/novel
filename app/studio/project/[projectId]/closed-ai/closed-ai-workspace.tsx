@@ -230,13 +230,6 @@ const QUALITY_LABELS: Record<ClosedAIQualityMode | "auto", string> = {
   deep: "深度（草稿＋反方檢查＋修訂）",
 };
 
-const WORKSPACE_PREFERENCE_SCHEMA_VERSION =
-  "closed-ai-workspace-preferences-v1" as const;
-
-function workspacePreferenceKey(projectId: string) {
-  return `novel:closed-ai-workspace-preferences:${projectId}`;
-}
-
 function statusLabel(status: ClosedAIBackendSnapshot["status"]) {
   if (status === "ready") return "真實生成已實測";
   if (status === "available") return "Runtime 可用，等待生成實測";
@@ -259,7 +252,6 @@ function candidateStatusLabel(status: ClosedAgentCandidate["status"]) {
   return labels[status];
 }
 
-const COMPLEXITY_RANK = { light: 1, standard: 2, heavy: 3 } as const;
 const CHAPTER_COMMIT_TASKS = new Set<PlatformTaskType>([
   "assistant.transform",
   "story.summary",
@@ -269,22 +261,6 @@ const CHAPTER_COMMIT_TASKS = new Set<PlatformTaskType>([
   "chapter.compress",
   "character.dialogue",
 ]);
-
-function backendCanRun(
-  snapshot: ClosedAIBackendSnapshot | undefined,
-  task: (typeof TASKS)[number] | undefined,
-) {
-  if (
-    !snapshot
-    || !task
-    || !hasVerifiedClosedAIGeneration(snapshot)
-  ) return false;
-  if (COMPLEXITY_RANK[snapshot.maximumComplexity] < COMPLEXITY_RANK[task.complexity]) {
-    return false;
-  }
-  return snapshot.supportedTaskTypes === "all"
-    || snapshot.supportedTaskTypes.includes(task.id);
-}
 
 function runtimeError(error: unknown) {
   const code = String((error as { code?: string })?.code || "");
@@ -304,7 +280,7 @@ function runtimeError(error: unknown) {
     TRAINING_RIGHTS_CONFIRMATION_REQUIRED: "請先確認訓練文字是你擁有或已獲明確授權的內容。",
     TRAINING_CREDENTIAL_INPUT_BLOCKED: "訓練文字疑似包含憑證或密鑰，已安全阻擋。",
     DATASET_DUPLICATE_EXAMPLES: "訓練資料集中有重複對照，請移除後再封印。",
-    BROWSER_AI_UNSUPPORTED: "此裝置不支援瀏覽器內建 AI；其他閉端後端不受影響。",
+    BROWSER_AI_UNSUPPORTED: "此裝置不支援瀏覽器內建算力；協調器仍會核對其他閉端算力來源。",
     BROWSER_AI_MODEL_NOT_READY: "此裝置可支援瀏覽器 AI，但裝置模型尚未可用。",
     BROWSER_WEBLLM_DEVICE_GATE_FAILED: "這個模型未通過目前裝置的 WebGPU、記憶體或儲存空間檢查。",
     BROWSER_WEBLLM_INSTALL_FAILED: "Browser AI 模型未安裝完成；請確認網路與可用空間後重試。",
@@ -363,7 +339,7 @@ function userMessage(error: unknown) {
     ?.recommendedBackendId;
   const messages: Record<string, string> = {
     CLOSED_AI_REQUIRED_BACKEND_NOT_READY: "這項工作所需的閉端 AI 尚未就緒；系統沒有暗中換用其他 AI。",
-    CLOSED_AI_SELECTED_BACKEND_NOT_READY: "你指定的閉端 AI 目前不能執行這項工作；系統已安全停止。",
+    CLOSED_AI_SELECTED_BACKEND_NOT_READY: "這次已鎖定的閉端算力目前不能執行；協調器已安全停止。",
     CLOSED_AGENT_PERMISSION_DENIED: "這項代理工作缺少必要權限，已安全停止。",
     CLOSED_AGENT_EVALUATION_BLOCKED: "候選未通過安全與品質評估，沒有進入核准區。",
     CONTROLLED_LEARNING_CONSENT_REQUIRED: "請先開啟這個作品的可控學習同意。",
@@ -372,7 +348,7 @@ function userMessage(error: unknown) {
   };
   const message = messages[code] ?? (error instanceof Error ? error.message : "操作失敗。");
   const routedMessage = recommendedBackendId
-    ? `${message} 可由你手動改選：${BACKEND_LABELS[recommendedBackendId]}。`
+    ? `${message} 自動協調器建議先完成 ${BACKEND_LABELS[recommendedBackendId]} 的連線與實測。`
     : message;
   return qualityReasonCodes.length
     ? `${routedMessage} 品質原因：${qualityReasonCodes.join("、")}。`
@@ -432,13 +408,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [snapshots, setSnapshots] = useState<ClosedAIBackendSnapshot[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [taskType, setTaskType] = useState<PlatformTaskType>("story.consistencyCheck");
-  const [backend, setBackend] = useState<ClosedAIBackendId | "auto">("auto");
-  const [computePolicy, setComputePolicy] = useState<BrowserComputePolicy>(
-    "browser-first",
-  );
   const [qualityMode, setQualityMode] = useState<ClosedAIQualityMode | "auto">("auto");
-  const [workspacePreferenceHydrated, setWorkspacePreferenceHydrated] =
-    useState(false);
+  const computePolicy: BrowserComputePolicy = qualityMode === "deep"
+    ? "quality-first"
+    : "browser-first";
   const [objective, setObjective] = useState(
     TASKS.find((task) => task.id === "story.consistencyCheck")!.defaultObjective,
   );
@@ -447,7 +420,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [knowledgeScopeRevision, setKnowledgeScopeRevision] = useState("current");
   const [returnHref, setReturnHref] = useState<string | null>(null);
   const [result, setResult] = useState<ClosedAgentExecutionResult | null>(null);
-  const [status, setStatus] = useState("正在核對三個閉端 AI 與共用系統。");
+  const [status, setStatus] = useState("正在啟動統合閉端 AI 自動協調器。");
   const [busy, setBusy] = useState(false);
   const taskController = useRef<AbortController | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
@@ -502,44 +475,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     && selectedBrowserModel.shardIntegrityVerified
     ? `${selectedBrowserModel.modelId}:${selectedBrowserModel.modelDigest}`
     : null;
-
-  useEffect(() => {
-    const restorePreference = window.setTimeout(() => {
-      try {
-        const raw = window.sessionStorage.getItem(workspacePreferenceKey(projectId));
-        const saved = raw
-          ? JSON.parse(raw) as { schemaVersion?: string; backend?: string }
-          : null;
-        if (
-          saved?.schemaVersion === WORKSPACE_PREFERENCE_SCHEMA_VERSION
-          && saved.backend
-          && (saved.backend === "auto"
-            || CLOSED_AI_BACKEND_IDS.includes(saved.backend as ClosedAIBackendId))
-        ) {
-          const restored = saved.backend as ClosedAIBackendId | "auto";
-          setBackend(restored);
-          if (restored !== "auto") setComputePolicy("manual");
-        }
-      } catch {
-        // A corrupt UI preference must not affect Canon, pairing, or execution.
-      } finally {
-        setWorkspacePreferenceHydrated(true);
-      }
-    }, 0);
-    return () => window.clearTimeout(restorePreference);
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!workspacePreferenceHydrated) return;
-    try {
-      window.sessionStorage.setItem(workspacePreferenceKey(projectId), JSON.stringify({
-        schemaVersion: WORKSPACE_PREFERENCE_SCHEMA_VERSION,
-        backend,
-      }));
-    } catch {
-      // Session preference persistence is optional; runtime truth is not.
-    }
-  }, [backend, projectId, workspacePreferenceHydrated]);
 
   useEffect(() => {
     const unsubscribeWebLlm = subscribeBrowserWebLLMProgress(setBrowserWebLlmProgress);
@@ -798,7 +733,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         setTaskType(requestedTask);
         const requested = TASKS.find((item) => item.id === requestedTask)!;
         setObjective(requested.defaultObjective);
-        setBackend("auto");
       }
       const requestedObjective = query.get("objective")?.trim();
       if (requestedObjective) setObjective(requestedObjective.slice(0, 4000));
@@ -904,15 +838,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
 
   const namespace = useCallback((): ClosedAINamespace => {
     const task = TASKS.find((item) => item.id === taskType);
-    const backendId = backend === "auto"
-      ? task?.complexity === "heavy"
-        ? "private-ai-hub"
-        : computePolicy === "quality-first"
-          ? "local-ollama"
-          : "browser-ai"
-      : backend;
+    const backendId = task?.complexity === "heavy"
+      ? "private-ai-hub"
+      : computePolicy === "quality-first" || task?.complexity === "standard"
+        ? "local-ollama"
+        : "browser-ai";
     return namespaceForBackend(backendId);
-  }, [backend, computePolicy, namespaceForBackend, taskType]);
+  }, [computePolicy, namespaceForBackend, taskType]);
 
   const selectedTask = useMemo(
     () => TASKS.find((item) => item.id === taskType),
@@ -935,29 +867,19 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     namespace: routingNamespace,
     complexity: selectedTask?.complexity,
     browserComputePolicy: computePolicy,
-  }, snapshots, {
-    preferredBackend: backend === "auto" ? undefined : backend,
-  }), [backend, computePolicy, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
+  }, snapshots), [computePolicy, routingNamespace, selectedTask?.complexity, snapshots, taskType]);
   const executionBackendId: ClosedAIBackendId =
     runtimeRoute.executionStatus === "routable"
       ? runtimeRoute.backend.id
-      : backend !== "auto"
-        ? backend
-        : selectedTask?.complexity === "heavy"
-          ? "private-ai-hub"
-          : computePolicy === "quality-first"
-            ? "local-ollama"
-            : "browser-ai";
+      : selectedTask?.complexity === "heavy"
+        ? "private-ai-hub"
+        : selectedTask?.complexity === "standard" || computePolicy === "quality-first"
+          ? "local-ollama"
+          : "browser-ai";
   const executionSnapshot = snapshots.find(
     (snapshot) => snapshot.id === executionBackendId,
   );
   const executionReady = runtimeRoute.executionStatus === "routable";
-  const localExecutionSnapshot = snapshots.find(
-    (snapshot) => snapshot.id === "local-ollama",
-  );
-  const explicitLocalEscalationAvailable = backend !== "local-ollama"
-    && selectedTask?.complexity !== "heavy"
-    && backendCanRun(localExecutionSnapshot, selectedTask);
   const fleetRequest = useMemo(() => ({
     taskType,
     complexity: selectedTask?.complexity ?? "light",
@@ -1000,7 +922,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
 
   const refreshRuntimes = useCallback(async () => {
     if (!currentOrigin) return;
-    setRuntimeStatus("正在檢查三個閉端 AI 的真實執行狀態。");
+    setRuntimeStatus("正在檢查自動協調器的全部閉端算力與資料邊界。");
     const browserProbe = Promise.all([
       detectBrowserAI(),
       repairSelectedBrowserWebLLMCache({
@@ -1166,9 +1088,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       taskType,
       storyBibleRevision,
       knowledgeScopeRevision,
-      policy: {
-        preferredBackend: backend === "auto" ? undefined : backend,
-      },
+      policy: {},
     });
     const nextSnapshots = runtime.backends;
     const [nextDashboard, receipts] = await Promise.all([
@@ -1183,10 +1103,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         Date.parse(right.completedAt) - Date.parse(left.completedAt))[0] ?? null,
     );
     if (announce) {
-      setStatus("三閉端 AI 與共用 Closed Agent OS 已完成核對。");
+      setStatus("統合閉端 AI 自動協調器已完成算力、知識與治理核對。");
     }
   }, [
-    backend,
     knowledgeScopeRevision,
     os,
     projectId,
@@ -1279,13 +1198,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       } else {
         messages.push(automaticConnectionFailure(privateHubResult.reason, "Private Hub"));
       }
-      setRuntimeStatus(`${messages.join("；")}。正在同步 Closed Agent OS 後端真相。`);
+      setRuntimeStatus(`${messages.join("；")}。正在同步自動協調器的算力真相。`);
       try {
         await refresh(false);
         setRuntimeStatus(`${messages.join("；")}。Browser AI 會依裝置能力直接使用。`);
       } catch (error) {
         setRuntimeStatus(
-          `${messages.join("；")}。後端真相同步失敗：${runtimeError(error)}`,
+          `${messages.join("；")}。算力真相同步失敗：${runtimeError(error)}`,
         );
       }
     } catch (error) {
@@ -1661,19 +1580,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
-  async function selectLocalModel(modelId: string) {
-    if (runtimeBusy) return;
-    setRuntimeBusy(true);
-    try {
-      await verifyLocalModel(modelId);
-      await refresh(false);
-    } catch (error) {
-      setRuntimeStatus(runtimeError(error));
-    } finally {
-      setRuntimeBusy(false);
-    }
-  }
-
   async function requestHubPairing() {
     if (runtimeBusy) return;
     setRuntimeBusy(true);
@@ -1747,19 +1653,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       setTrainingModels([]);
       setTrainingCandidate(null);
       setRuntimeStatus("Private Hub 本機節點配對已撤銷；訓練模型成果仍保存在本機節點。");
-      await refresh(false);
-    } catch (error) {
-      setRuntimeStatus(runtimeError(error));
-    } finally {
-      setRuntimeBusy(false);
-    }
-  }
-
-  async function selectHubModel(modelId: string) {
-    if (runtimeBusy) return;
-    setRuntimeBusy(true);
-    try {
-      await verifyHubModel(modelId);
       await refresh(false);
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
@@ -1903,7 +1796,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     setResult(null);
     setProgressEvents([]);
-    setStatus("正在鎖定後端、建立計畫、執行並評估候選。");
+    setStatus("自動協調器正在選定並鎖住算力、建立計畫、執行並評估候選。");
     try {
       const runNamespace = namespace();
       const repository = createNovelRepository();
@@ -1929,7 +1822,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         qualityMode: qualityMode === "auto" ? undefined : qualityMode,
         browserComputePolicy: computePolicy,
         allowPreAuthorizedClosedEscalation: false,
-        preferredBackend: backend === "auto" ? undefined : backend,
         storyBibleRevision,
         knowledgeScopeRevision,
         sourceChapterId: sourceChapter?.id,
@@ -2040,7 +1932,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           enabled: true,
         })));
       await os.learning.setKillSwitch(projectId, false);
-      setStatus("三個閉端後端的可控學習同意已開啟；仍只接受通過隱私過濾與人工核准的 L0／L1 候選。");
+      setStatus("統合閉端 AI 的可控學習同意已開啟；仍只接受通過隱私過濾與人工核准的 L0／L1 候選。");
       await refreshDashboardOnly();
     } catch (error) {
       setStatus(userMessage(error));
@@ -2132,8 +2024,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       <header className={styles.header}>
         <div>
           <small>PRIVATE NOVEL INTELLIGENCE · CLOSED AGENT FABRIC</small>
-          <h1>閉端 AI 指揮中心</h1>
-          <p>一個小說專用 Agent OS，協調三個私有算力後端、模型艦隊、記憶、工具、訓練與證據鏈。</p>
+          <h1>閉端 AI 自動協調器</h1>
+          <p>對外只有一個小說閉端 AI；內部自動協調故事因果、知識檢索、故事執行、算力、Cache、學習、核准與證據鏈。</p>
         </div>
         <div className={styles.headerActions}>
           <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
@@ -2155,12 +2047,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         </div>
         <div className={styles.deckCopy}>
           <small>NOVEL DOMAIN SUPER-AGENT</small>
-          <h2>讓每個模型各自做最擅長的工作</h2>
+          <h2>使用者只說要做什麼，協調器自動分派</h2>
           <p>Planner 拆解、Actor 生成、Critic 反方檢查、Evaluator 評分；候選經人工核准後，才可進入記憶或 Canon。</p>
           <div className={styles.deckMetrics}>
             <span><strong>{TASKS.length}</strong> 種小說任務</span>
             <span><strong>{localModels.length + hubModels.length}</strong> 個已偵測私有模型</span>
-            <span><strong>{snapshots.filter(hasVerifiedClosedAIGeneration).length}/3</strong> 後端已實測生成</span>
+            <span><strong>{snapshots.filter(hasVerifiedClosedAIGeneration).length}/3</strong> 內部算力來源已實測</span>
             <span><strong>{trainingModels.length}</strong> 個偏好模型成果</span>
           </div>
         </div>
@@ -2185,10 +2077,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       <section className={styles.panel} data-testid="browser-offload-dashboard">
         <div className={styles.panelHeading}>
           <div>
-            <small>BROWSER OFFLOAD DASHBOARD · DIGEST/COUNT ONLY</small>
-            <h2>Browser-First Sovereign Compute Plane</h2>
+            <small>UNIFIED CLOSED AI · DIGEST/COUNT ONLY</small>
+            <h2>自動協調器執行、知識與治理真相</h2>
           </div>
-          <span>{computePolicy} · 不允許靜默升級</span>
+          <span>任務前自動分派 · 執行中不靜默切換</span>
         </div>
         <div className={styles.metricGrid}>
           <article>
@@ -2243,10 +2135,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       </section>
 
       <div className={styles.workspace}>
-        <section className={styles.panel} aria-labelledby="backend-title">
+        <section className={`${styles.panel} ${styles.coordinatorPanel}`} aria-labelledby="backend-title">
           <div className={styles.panelHeading}>
-            <div><small>執行層</small><h2 id="backend-title">三個閉端 AI</h2></div>
-            <span>並存，不互相取代</span>
+            <div><small>單一入口 · 執行與治理融合</small><h2 id="backend-title">閉端 AI 自動協調器</h2></div>
+            <span>依任務自動分派，不需選擇 AI</span>
           </div>
           <label className={styles.sessionPreference}>
             <input
@@ -2260,7 +2152,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             {snapshots.map((snapshot) => (
               <article key={snapshot.id} data-status={snapshot.status}>
                 <div>
-                  <strong>{snapshot.label}</strong>
+                  <strong>{snapshot.id === "browser-ai"
+                    ? "裝置內瀏覽器算力"
+                    : snapshot.id === "local-ollama"
+                      ? "個人本機算力"
+                      : "私有中樞算力"}</strong>
                   <span>{statusLabel(snapshot.status)}</span>
                 </div>
                 <p>{snapshot.id === "browser-ai"
@@ -2558,21 +2454,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     </> : null}
                   </>}
                   {localClient.getSessionMetadata() ? <>
-                    {localModels.length ? <label>文字模型
-                      <select value={localModelId} disabled={runtimeBusy} onChange={(event) => void selectLocalModel(event.target.value)}>
-                        {localModels.map((model) => {
-                          const profile = localFleet.find((item) => item.modelId === model.modelId);
-                          return <option key={model.modelId} value={model.modelId}>
-                            {model.modelId}{profile ? ` · ${profile.parameterLabel} · 適配 ${profile.score}%` : ""}
-                          </option>;
-                        })}
-                      </select>
-                    </label> : null}
+                    {localModelId ? <p className={styles.proof}>
+                      自動選定模型：{localModelId}；協調器只會採用已通過真實推理與模型雜湊驗證的版本。
+                    </p> : null}
                     {localProof ? <p className={styles.proof}>
                       推理已驗證 {localProof.latencyMs} ms · <code>{localProof.outputDigest.slice(0, 12)}…</code>
-                    </p> : <button type="button" disabled={runtimeBusy || !localModelId} onClick={() => void selectLocalModel(localModelId)}>
-                      實際驗證模型
-                    </button>}
+                    </p> : <p className={styles.warning}>自動協調器正在等待本機模型完成真實推理驗證。</p>}
                     {localTelemetry ? <p className={styles.runtimeMetrics}>
                       控制面 {localTelemetry.controlLatencyMs} ms · 執行 {localTelemetry.active}/{localTelemetry.maxConcurrent} · 排隊 {localTelemetry.queued}/{localTelemetry.maxQueue} · Cache {localTelemetry.cacheEntries}
                     </p> : null}
@@ -2636,21 +2523,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     </> : null}
                   </>}
                   {hubClient.getSessionMetadata() ? <>
-                    {hubModels.length ? <label>中樞模型
-                      <select value={hubModelId} disabled={runtimeBusy} onChange={(event) => void selectHubModel(event.target.value)}>
-                        {hubModels.map((model) => {
-                          const profile = hubFleet.find((item) => item.modelId === model.modelId);
-                          return <option key={model.modelId} value={model.modelId}>
-                            {model.modelId}{profile ? ` · ${profile.parameterLabel} · 適配 ${profile.score}%` : ""}
-                          </option>;
-                        })}
-                      </select>
-                    </label> : null}
+                    {hubModelId ? <p className={styles.proof}>
+                      自動選定中樞模型：{hubModelId}；重型任務只使用已驗證且授權允許的版本。
+                    </p> : null}
                     {hubProof ? <p className={styles.proof}>
                       中樞推理已驗證 {hubProof.latencyMs} ms · <code>{hubProof.outputDigest.slice(0, 12)}…</code>
-                    </p> : <button type="button" disabled={runtimeBusy || !hubModelId} onClick={() => void selectHubModel(hubModelId)}>
-                      實際驗證中樞模型
-                    </button>}
+                    </p> : <p className={styles.warning}>自動協調器正在等待中樞模型完成真實推理驗證。</p>}
                     {hubTelemetry ? <p className={styles.runtimeMetrics}>
                       控制面 {hubTelemetry.controlLatencyMs} ms · 執行 {hubTelemetry.active}/{hubTelemetry.maxConcurrent} · 排隊 {hubTelemetry.queued}/{hubTelemetry.maxQueue} · 加密 Cache {hubTelemetry.cacheEntries}
                     </p> : null}
@@ -2665,10 +2543,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.fleetBoard}>
             <div className={styles.fleetHeading}>
               <div>
-                <small>MODEL FLEET ROUTER</small>
-                <h3>私有模型艦隊</h3>
+                <small>AUTOMATIC MODEL FLEET</small>
+                <h3>協調器內部模型排序</h3>
               </div>
-              <span>依目前任務即時計分</span>
+              <span>自動依任務、證明與資料邊界選定</span>
             </div>
             {localFleet.length || hubFleet.length ? (
               <div className={styles.fleetList}>
@@ -2688,7 +2566,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                   </article>
                 ))}
               </div>
-            ) : <p className={styles.fleetEmpty}>配對 Local Bridge 或 Private Hub 後，這裡會依工作難度、參數量、上下文與角色能力推薦已安裝模型。</p>}
+            ) : <p className={styles.fleetEmpty}>連線 Local Bridge 或 Private Hub 後，協調器會依工作難度、參數量、上下文、授權與真實推理證明自動選定已安裝模型。</p>}
           </div>
           <details>
             <summary>能力真相與限制</summary>
@@ -2696,7 +2574,8 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               <li>Browser AI 不承擔長篇推理或多代理工作。</li>
               <li>Local Ollama 需要本機 Bridge、配對與可用模型。</li>
               <li>Private AI Hub 可連接自架 loopback 私有節點；節點未啟動、未配對或未實測時，不宣稱已連線。</li>
-              <li>後端一旦鎖定，失敗就停止；系統不會暗中換用別的 AI。</li>
+              <li>協調器會在執行前自動選定可用算力；後端與模型一旦鎖定，失敗就停止，不在執行中暗中切換。</li>
+              <li>Cache、學習、證據、回滾與 Canon 核准由同一協調器治理，但各資料範圍仍維持隔離。</li>
             </ul>
           </details>
         </section>
@@ -2727,7 +2606,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 ) {
                   setObjective(task.defaultObjective);
                 }
-                setBackend("auto");
               }}>
                 {(Object.keys(TASK_GROUP_LABELS) as TaskGroup[]).map((group) => (
                   <optgroup key={group} label={TASK_GROUP_LABELS[group]}>
@@ -2736,43 +2614,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                     ))}
                   </optgroup>
                 ))}
-              </select>
-            </label>
-            <label>算力政策
-              <select
-                data-testid="browser-compute-policy"
-                value={computePolicy}
-                onChange={(event) => {
-                  const next = event.target.value as BrowserComputePolicy;
-                  setComputePolicy(next);
-                  if (next !== "manual") setBackend("auto");
-                }}
-              >
-                <option value="browser-first">瀏覽器優先（預設）</option>
-                <option value="balanced">平衡模式</option>
-                <option value="quality-first">本機高品質</option>
-                <option value="manual">手動指定</option>
-              </select>
-            </label>
-            <label>執行後端
-              <select data-testid="closed-ai-backend" value={backend} onChange={(event) => {
-                const next = event.target.value as ClosedAIBackendId | "auto";
-                setBackend(next);
-                if (next !== "auto") setComputePolicy("manual");
-              }}>
-                {Object.entries(BACKEND_LABELS).map(([value, label]) => {
-                  const backendId = value as ClosedAIBackendId | "auto";
-                  const snapshot = backendId === "auto"
-                    ? undefined
-                    : snapshots.find((item) => item.id === backendId);
-                  const runnable = backendId === "auto"
-                    || backendCanRun(snapshot, selectedTask);
-                  return (
-                    <option key={value} value={value} disabled={!runnable}>
-                      {label}{backendId === "auto" ? "" : ` · ${snapshot ? statusLabel(snapshot.status) : "核對中"}`}
-                    </option>
-                  );
-                })}
               </select>
             </label>
             <label>品質模式
@@ -2792,7 +2633,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
             <div>
               <strong>{executionReady ? "可執行" : "尚未就緒"}</strong>
               <span>
-                {backend === "auto" ? "自動選定：" : ""}
+                自動協調結果：
                 {BACKEND_LABELS[executionBackendId]} · {executionSnapshot?.modelId ?? "等待模型身分"}
               </span>
             </div>
@@ -2801,22 +2642,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                 ? "可在此裝置完成的分析與短篇生成會優先在瀏覽器執行，以降低其他模型負擔；資料不離開裝置。執行失敗不會偷換模型。"
                 : "按下執行後才會鎖定這個已就緒後端；執行途中失敗不會偷換模型。"
               : selectedTask?.complexity === "heavy"
-                ? "這是重型工作，請先配對並實測 Private Hub。"
+                ? "這是重型工作；協調器正在等待私有中樞完成連線與真實推理驗證。"
                 : selectedTask?.complexity === "standard"
-                  ? "請先安裝、驗證並實測 Browser AI；若工作超過瀏覽器能力，系統會先詢問，不會暗中切換 Local Ollama。"
-                  : "請先完成可執行後端的實際模型測試。"}</p>
-            {!executionReady && explicitLocalEscalationAvailable ? <button
-              type="button"
-              className={styles.primary}
-              data-testid="closed-ai-use-local-ollama"
-              onClick={() => {
-                setComputePolicy("manual");
-                setBackend("local-ollama");
-                setRuntimeStatus("已由你明確選擇 Local Ollama；後端已鎖定，本次失敗不會偷換模型。");
-              }}
-            >
-              使用已連線的 Local Ollama
-            </button> : !executionReady ? <button
+                  ? "這是標準或正文工作；協調器正在等待個人本機算力完成連線與真實推理驗證。"
+                  : "協調器正在等待任一符合這項工作的裝置內算力完成實際模型測試。"}</p>
+            {!executionReady ? <button
               type="button"
               className={styles.secondary}
               onClick={() => document.getElementById("backend-title")?.scrollIntoView({
@@ -2833,20 +2663,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               <strong>{recommendedFleetModel.modelId} · 適配 {recommendedFleetModel.score}%</strong>
               <span>{recommendedFleetModel.reasons.slice(0, 3).join("；")}</span>
             </div>
-            {recommendedFleetModel.modelId !== selectedRuntimeModelId ? <button
-              type="button"
-              className={styles.secondary}
-              disabled={runtimeBusy}
-              onClick={() => {
-                if (executionBackendId === "private-ai-hub") {
-                  void selectHubModel(recommendedFleetModel.modelId);
-                } else if (executionBackendId === "local-ollama") {
-                  void selectLocalModel(recommendedFleetModel.modelId);
-                }
-              }}
-            >
-              實測並採用建議模型
-            </button> : <span className={styles.activeModel}>目前已採用</span>}
+            <span className={styles.activeModel}>{recommendedFleetModel.modelId === selectedRuntimeModelId
+              ? "協調器已採用"
+              : `目前鎖定 ${selectedRuntimeModelId ?? "待驗證模型"}；下次健康核對時重新排序`}</span>
           </div> : null}
           <label>你要完成什麼？
             <textarea data-testid="closed-ai-objective" rows={4} value={objective} onChange={(event) => setObjective(event.target.value)} />
@@ -2954,10 +2773,10 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           </div>
         </section>
 
-        <section className={styles.panel} aria-labelledby="system-title">
+        <section className={`${styles.panel} ${styles.coordinatorGovernance}`} aria-labelledby="system-title">
           <div className={styles.panelHeading}>
-            <div><small>治理層</small><h2 id="system-title">Cache、學習與證據</h2></div>
-            <span>三個後端共用</span>
+            <div><small>同一自動協調器 · 治理職能</small><h2 id="system-title">Cache、學習、證據與回滾</h2></div>
+            <span>與執行融合，資料範圍仍隔離</span>
           </div>
           <div className={styles.metricGrid}>
             <article><small>AI Cache</small><strong>{dashboard?.cache.entries ?? 0}</strong><span>筆本機候選</span></article>
@@ -3071,7 +2890,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <div className={styles.systemGroup}>
             <h3>區塊鏈式可驗證機制</h3>
             <p>Blockchain-inspired verifiable architecture：使用 Append-only Audit Log、SHA-256 雜湊鏈、Merkle Tree、ECDSA 核准簽章、範圍隔離的內容定址、不可竄改證據與資料血緣追蹤。</p>
-            <p>這是一個 Closed Agent OS 管理三個算力後端；不是三個節點共同維護一條鏈，也不使用投票、重型共識、完整資料複製、公開帳本或每次生成的區塊鏈成本。</p>
+            <p>這是單一閉端 AI 自動協調器管理多種內部算力資源；不是多個 AI 或多個節點共同維護一條鏈，也不使用投票、重型共識、完整資料複製、公開帳本或每次生成的區塊鏈成本。</p>
           </div>
 
           <details>

@@ -875,18 +875,17 @@ await test("production-matrix", () => {
     { name: "All three", ids: ["browser-ai", "local-ollama", "private-ai-hub"], expected: "browser-ai", taskType: "chapter.rewrite" },
     { name: "None available", ids: [], expected: null, taskType: "chapter.rewrite" },
     {
-      name: "Full prose requires an explicit backend",
-      ids: ["browser-ai", "local-ollama"],
-      expected: null,
-      taskType: "chapter.continue",
-      reasonCode: "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED",
-    },
-    {
-      name: "Full prose explicitly selects Local",
+      name: "Full prose automatically selects Local",
       ids: ["browser-ai", "local-ollama"],
       expected: "local-ollama",
       taskType: "chapter.continue",
-      preferredBackend: "local-ollama",
+    },
+    {
+      name: "Full prose without a qualified Local route stops safely",
+      ids: ["browser-ai"],
+      expected: null,
+      taskType: "chapter.continue",
+      reasonCode: "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
     },
   ];
   for (const matrixCase of cases) {

@@ -1802,6 +1802,7 @@ export default function ConversationWorkspace({
       void openArtifact(artifact, view);
     },
     approveArtifact: (artifact) => {
+      setProgress("已收到採用指令；正在核對候選與正式作品版本。");
       void approveArtifact(artifact);
     },
     rejectArtifact: (artifact) => {

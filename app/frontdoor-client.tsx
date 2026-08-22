@@ -54,12 +54,6 @@ function safeProjectId(value: string) {
   return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : "";
 }
 
-function isExplicitLegacyRoute(href: string) {
-  return href === "/professional"
-    || href.startsWith("/professional?")
-    || href.startsWith("/legacy/");
-}
-
 export default function FrontdoorClient({ release, packs, classicTopics }: FrontdoorProps) {
   const [recentProject, setRecentProject] = useState<RecentProject | null>(null);
   const [projectCount, setProjectCount] = useState(0);
@@ -165,14 +159,8 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
   const entries = [
-    ["開始新故事", "先命名、固定玩法，再建立人物、世界與故事起點。", "/studio/create", "✦"],
-    ["繼續小說專案", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇，不會誤開別部作品。` : recentProject ? `回到《${recentProject.title}》的對話。` : "尚無作品時會引導你建立第一部小說。", continueHref, "↗"],
-    ["小說專案助手", "用自然語言續寫、改寫、分析、匯入檔案或進行故事回合。", continueHref, "AI"],
-    ["互動故事／RPG", "先選正式作品，再進入該作品已鎖定的單一玩法。", "/professional?intent=play", "ABC"],
-    ["角色與世界", "先選作品，再管理人物、關係、世界與 Story Bible。", "/professional?intent=library", "角"],
-    ["我的作品", "選擇作品並查看寫作、閱讀、版本與備份。", "/professional?intent=library", "冊"],
-    ["本機 AI 設定", "正式網址會直接連接；也可查看 Local Bridge、Private Hub 與模型實測狀態。", localAIHref, "⌁"],
-    ["進階工具", "開啟 Legacy 完整工具與技術診斷。", "/professional", "⚙"],
+    ["建立新作品", "先命名並選定玩法；建立後，續寫、改寫和 RPG 都在同一個故事工作台。", "/studio/create", "✦"],
+    [projectCount > 1 ? "選擇作品" : "繼續作品", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇；選定後直接進入該作品的故事工作台。` : recentProject ? `繼續《${recentProject.title}》；不需要再判斷該開哪一種寫作介面。` : "尚無作品時會引導你建立第一部作品。", continueHref, "↗"],
   ] as const;
 
   return (
@@ -189,20 +177,19 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </Link>
         <nav aria-label="主要導覽">
           <Link className="active" href="/">首頁</Link>
-          <Link href="/studio/create">創作</Link>
-          <Link href={continueHref}>AI 助手</Link>
-          <Link href="/professional?intent=play">互動故事</Link>
-          <Link href="/professional?intent=library">我的作品</Link>
+          <Link href="/studio/create">建立作品</Link>
+          <Link href={continueHref}>選擇作品</Link>
+          <Link href="/professional?intent=library">資料與專業工具</Link>
         </nav>
-        <Link className="navCta" href="/studio">進入創作中心</Link>
+        <Link className="navCta" href={continueHref}>{projectCount > 0 ? "選擇作品" : "建立新作品"}</Link>
       </header>
 
       <section className="frontdoorHero">
         <div className="heroCopy">
           <p className="eyebrow">本機優先・每一步由你確認</p>
           <h1>諸天萬界小說生成系統</h1>
-          <p className="lead">創作、互動、養成與經營的閉端 AI 故事平台</p>
-          <h2>今天想創作什麼樣的故事？</h2>
+          <p className="lead">首頁只負責建立或選擇作品；每部作品共用一個故事工作台</p>
+          <h2>建立新作品，或選擇一部繼續</h2>
           <div className="heroActions">
             <Link className="primaryAction" href="/studio/create">開始新故事</Link>
             <Link className="secondaryAction" href={continueHref}>{projectCount > 1 ? "選擇作品繼續" : "繼續最近作品"}</Link>
@@ -247,7 +234,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       <section className="frontdoorEntries" aria-labelledby="entryTitle">
         <div className="sectionTitle">
           <span>{packs} 個分類包・{classicTopics} 類經典題材</span>
-          <h2 id="entryTitle">所有功能都從首頁直接找到</h2>
+          <h2 id="entryTitle">首頁只有兩個開始方式</h2>
         </div>
         <div className="entryGrid">
           {entries.map(([title, description, href, icon]) => {
@@ -255,17 +242,15 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
               <span className="entryIndex">{icon}</span><h3>{title}</h3><p>{description}</p>
               <span className="entryArrow" aria-hidden="true">→</span>
             </>;
-            return isExplicitLegacyRoute(href) ? (
-              <a className="entryCard" href={href} key={title}>{content}</a>
-            ) : (
-              <Link className="entryCard" href={href} key={title}>{content}</Link>
-            );
+            return <Link className="entryCard" href={href} key={title}>{content}</Link>;
           })}
         </div>
       </section>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
-        <a href="/legacy/novel-system.html">Legacy 進階工具</a>
+        <Link href="/professional?intent=library">作品資料與專業工具</Link>
+        <Link href={localAIHref}>閉端 AI 與本機模型設定</Link>
+        <a href="/legacy/novel-system.html">Legacy 相容工具</a>
       </footer>
     </main>
   );

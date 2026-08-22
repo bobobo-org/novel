@@ -1,0 +1,24 @@
+{
+  "suite": "closed-ai-runtime-truth-persistence-product-recovery-r2",
+  "mode": "health-surface-separation",
+  "passed": 1,
+  "failed": 0,
+  "blockingSkip": 0,
+  "results": [
+    {
+      "scope": "health-surface-separation",
+      "name": "health surfaces expose one responsibility each",
+      "status": "PASS",
+      "elapsedMs": 6.25,
+      "detail": {
+        "releaseSurface": "isolated",
+        "cloudSurface": "external-and-consent-required",
+        "persistenceSurface": "client-local-plus-cloud",
+        "healthGetWrites": 0,
+        "userFacingClosedAIInstances": 1,
+        "automaticBackendSelection": true,
+        "executionAndGovernanceIntegrated": true
+      }
+    }
+  ]
+}

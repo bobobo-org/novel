@@ -216,8 +216,7 @@ export function resolveClosedAIRoute(
   );
   const learnedBackendId = learnedCandidate === "browser-ai"
     || (
-      !isBrowserFullProseTask(task.taskType)
-      && computePolicy === "quality-first"
+      computePolicy === "quality-first"
       && learnedCandidate === "local-ollama"
     )
     ? learnedCandidate
@@ -244,7 +243,7 @@ export function resolveClosedAIRoute(
   }
 
   const order = isBrowserFullProseTask(task.taskType)
-    ? ["browser-ai"] as const
+    ? ["local-ollama", "browser-ai"] as const
     : routeOrder(
       complexity,
       computePolicy,
@@ -269,10 +268,8 @@ export function resolveClosedAIRoute(
     executionStatus: "not_executed",
     backend: null,
     complexity,
-    automatic: !isBrowserFullProseTask(task.taskType),
-    reasonCode: isBrowserFullProseTask(task.taskType)
-      ? "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED"
-      : "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+    automatic: true,
+    reasonCode: "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
     requiredCapability: capability,
     recommendedNextAction: nextAction(snapshots, complexity),
     compatibleBackendIds: compatible,

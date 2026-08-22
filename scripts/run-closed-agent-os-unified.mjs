@@ -2836,7 +2836,10 @@ test("product UI and health expose the unified system truth", () => {
     path.join(root, "app", "api", "ai", "health", "route.ts"),
     "utf8",
   );
-  assert.match(ui, /三個閉端 AI/);
+  assert.match(ui, /閉端 AI 自動協調器/);
+  assert.match(ui, /依任務自動分派，不需選擇 AI/);
+  assert.doesNotMatch(ui, /data-testid="closed-ai-backend"/);
+  assert.doesNotMatch(ui, /data-testid="browser-compute-policy"/);
   assert.match(ui, /六層 AI Cache/);
   assert.match(ui, /可控自我學習/);
   assert.match(ui, /區塊鏈式可驗證機制/);

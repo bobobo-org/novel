@@ -15,7 +15,6 @@ import {
 import {
   selectedStoryPlayMode,
   STORY_PLAY_MODE_LABELS,
-  storyPlayModeDashboardHref,
   type StoryPlayModeId,
 } from "@/lib/novel-ai/domain/play-mode";
 import {
@@ -613,7 +612,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     aiController.current?.abort("CREATION_DRAFT_ABANDONED");
     localStorage.removeItem(storageKey);
     if (!cloneFrom) localStorage.removeItem(DRAFT_KEY);
-    window.location.assign("/professional");
+    window.location.assign("/");
   }
 
   async function finish() {
@@ -694,7 +693,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   }
 
   if (createdId) {
-    const primaryHref = `/studio/project/${encodeURIComponent(createdId)}/chat`;
+    const primaryHref = `/studio/project/${encodeURIComponent(createdId)}/chat${createdMode === "general" ? "" : "?mode=play"}`;
     return (
       <main
         className="p2CreateShell"
@@ -710,11 +709,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <p>{message}</p>
           <div>
             <Link className="primaryAction" href={primaryHref}>
-              進入小說專案對話
+              {createdMode === "general" ? "進入故事工作台" : "在故事工作台開始遊玩"}
             </Link>
-            {createdMode !== "general" ? <Link className="secondaryAction" href={storyPlayModeDashboardHref(createdId, createdMode)}>開啟進階玩法工作區</Link> : null}
-            <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>檢查章節正文</Link>
-            <Link className="secondaryAction" href={`/professional?projectId=${encodeURIComponent(createdId)}`}>回到作品工作台</Link>
+            <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>章節正式稿校訂（專業工具）</Link>
+            <Link className="secondaryAction" href={`/professional?intent=library&projectId=${encodeURIComponent(createdId)}`}>作品資料管理（專業工具）</Link>
           </div>
         </section>
       </main>
@@ -725,7 +723,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     <main className="p2CreateShell" data-testid="canonical-create-flow">
       <header>
         <div className="p2CreateExitActions">
-          <a href="/professional">儲存草稿並離開</a>
+          <Link href="/">儲存草稿並回首頁</Link>
           <button type="button" className="dangerAction" onClick={abandonCreation}>放棄此次建立</button>
         </div>
         <div>

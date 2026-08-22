@@ -48,7 +48,7 @@ export default async function StudioPage({
   }
   if (requestedScreen === "choice" || requestedScreen === "interactive") {
     redirect(projectId
-      ? `/studio/project/${encodeURIComponent(projectId)}/rpg`
+      ? `/studio/project/${encodeURIComponent(projectId)}/chat?mode=play`
       : "/professional?intent=play");
   }
   if (requestedScreen === "world" && projectId) {

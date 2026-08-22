@@ -8,7 +8,7 @@
     "WEB_RESEARCH_PRIVATE_ADDRESS_BLOCKED"
   ],
   "teacherCount": 2,
-  "ruleCount": 10,
+  "ruleCount": 16,
   "crossTeacherRuleCount": 1,
   "capabilityStatus": "passed",
   "capabilityDelta": 100,
@@ -19,7 +19,7 @@
   "rawTeacherResponseRetained": false,
   "canonicalMutationCount": 0,
   "popularSourceChannel": "popular_web",
-  "firstPartyAutoApproval": 8,
+  "firstPartyAutoApproval": 24,
   "firstPartyTargetedRevocation": 1,
   "popularSourceObservedCount": 250000
 }

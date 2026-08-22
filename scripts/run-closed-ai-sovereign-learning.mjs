@@ -201,7 +201,7 @@ test("deep extractor cannot preserve a near-verbatim source passage", async () =
   });
   assert(result.warnings.includes("LEARNING_RULE_SOURCE_COPY_RISK"));
   assert.equal(
-    result.rules.filter((rule) => rule.extractorKind === "local_closed_ai").length,
+    result.rules.filter((rule) => rule.extractorProvider === "local-ollama").length,
     0,
   );
 });
@@ -211,7 +211,7 @@ test("valid local deep extraction becomes a candidate, never auto-approved", asy
   const result = await ingestBase(repository, {
     deepExtractor: localDeepExtractor(validDeepRule()),
   });
-  const deepRule = result.rules.find((rule) => rule.extractorKind === "local_closed_ai");
+  const deepRule = result.rules.find((rule) => rule.extractorProvider === "local-ollama");
   assert(deepRule);
   assert.equal(deepRule.status, "candidate");
   assert.equal(deepRule.extractorProvider, "local-ollama");
@@ -298,7 +298,7 @@ test("conflicting approved rules require deliberate replacement", async () => {
     seed: "first-conflict",
     deepExtractor: localDeepExtractor(validDeepRule()),
   });
-  const firstRule = first.rules.find((rule) => rule.extractorKind === "local_closed_ai");
+  const firstRule = first.rules.find((rule) => rule.extractorProvider === "local-ollama");
   assert(firstRule);
   await approveLearningRule(repository, projectId, firstRule.id);
 
@@ -309,7 +309,7 @@ test("conflicting approved rules require deliberate replacement", async () => {
       statement: "Escalate pressure by making the remaining options increasingly incompatible.",
     })),
   });
-  const secondRule = second.rules.find((rule) => rule.extractorKind === "local_closed_ai");
+  const secondRule = second.rules.find((rule) => rule.extractorProvider === "local-ollama");
   assert(secondRule);
   await assert.rejects(
     () => approveLearningRule(repository, projectId, secondRule.id),

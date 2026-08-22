@@ -1,7 +1,7 @@
 {
   "suite": "closed-ai-runtime-truth-persistence-product-recovery-r2",
   "mode": "all",
-  "passed": 16,
+  "passed": 18,
   "failed": 0,
   "blockingSkip": 0,
   "results": [
@@ -9,19 +9,22 @@
       "scope": "health-surface-separation",
       "name": "health surfaces expose one responsibility each",
       "status": "PASS",
-      "elapsedMs": 4.65,
+      "elapsedMs": 47.58,
       "detail": {
         "releaseSurface": "isolated",
         "cloudSurface": "external-and-consent-required",
         "persistenceSurface": "client-local-plus-cloud",
-        "healthGetWrites": 0
+        "healthGetWrites": 0,
+        "userFacingClosedAIInstances": 1,
+        "automaticBackendSelection": true,
+        "executionAndGovernanceIntegrated": true
       }
     },
     {
       "scope": "server-ollama-semantic-truth",
       "name": "server Ollama health cannot impersonate the browser loopback runtime",
       "status": "PASS",
-      "elapsedMs": 0.73,
+      "elapsedMs": 9.79,
       "detail": {
         "serverProbeAttempts": 0,
         "clientLoopbackRequired": true
@@ -31,7 +34,7 @@
       "scope": "client-runtime-coordinator",
       "name": "coordinator keeps planned routing separate from actual execution",
       "status": "PASS",
-      "elapsedMs": 2.4,
+      "elapsedMs": 22.22,
       "detail": {
         "state": "ready_standard",
         "plannedBackend": "local-ollama",
@@ -41,9 +44,31 @@
     },
     {
       "scope": "client-runtime-coordinator",
+      "name": "ready Local Ollama never waits for optional Private Hub recovery",
+      "status": "PASS",
+      "elapsedMs": 0.86,
+      "detail": {
+        "localConnectCalls": 1,
+        "privateRestoreCalls": 0,
+        "localBlockedByPrivateHub": false
+      }
+    },
+    {
+      "scope": "client-runtime-coordinator",
+      "name": "denied Local Network Access suppresses repeated loopback probes",
+      "status": "PASS",
+      "elapsedMs": 8.8,
+      "detail": {
+        "localConnectCalls": 0,
+        "privateConnectCalls": 0,
+        "repeatedLoopbackProbes": 0
+      }
+    },
+    {
+      "scope": "client-runtime-coordinator",
       "name": "twenty-scenario runtime and persistence matrix has no silent fallback",
       "status": "PASS",
-      "elapsedMs": 1.16,
+      "elapsedMs": 55.64,
       "detail": {
         "scenarios": 20,
         "passed": 20,
@@ -54,7 +79,7 @@
       "scope": "route-discovery-execution-parity",
       "name": "route resolution and execution lock the same backend",
       "status": "PASS",
-      "elapsedMs": 49.68,
+      "elapsedMs": 1813.47,
       "detail": {
         "discovered": "local-ollama",
         "executed": "local-ollama",
@@ -65,17 +90,19 @@
       "scope": "browser-task-vs-generative",
       "name": "packaged browser task model cannot generate standard prose",
       "status": "PASS",
-      "elapsedMs": 1.03,
+      "elapsedMs": 16.44,
       "detail": {
         "packagedTaskModelProseGeneration": 0,
-        "nativePromptMaximumComplexity": "standard"
+        "nativePromptGenerationVerified": false,
+        "webLlmProseProductionQualified": false,
+        "webLlmMaximumComplexity": "standard"
       }
     },
     {
       "scope": "pairing-session-reload",
       "name": "tab-only pairing reload revalidates instance, model, and proof",
       "status": "PASS",
-      "elapsedMs": 42.11,
+      "elapsedMs": 120.81,
       "detail": {
         "restoredRequests": 3,
         "exactOriginEnforced": true,
@@ -87,7 +114,7 @@
       "scope": "automatic-local-connection",
       "name": "official origin connects without password or pairing code and verifies a real model proof",
       "status": "PASS",
-      "elapsedMs": 3.19,
+      "elapsedMs": 18.33,
       "detail": {
         "automaticSessionRequests": 2,
         "pairingCodeRequests": 0,
@@ -101,7 +128,7 @@
       "scope": "indexeddb-supabase-decoupling",
       "name": "missing IndexedDB never becomes an in-memory canonical store",
       "status": "PASS",
-      "elapsedMs": 8.4,
+      "elapsedMs": 9.43,
       "detail": {
         "silentMemoryFallback": false,
         "localCanonicalAuthority": "IndexedDB"
@@ -111,7 +138,7 @@
       "scope": "indexeddb-supabase-decoupling",
       "name": "newer public-frontdoor edits migrate into the existing canonical project",
       "status": "PASS",
-      "elapsedMs": 13.53,
+      "elapsedMs": 14.16,
       "detail": {
         "projectCount": 1,
         "latestChapterContentApplied": true,
@@ -122,7 +149,7 @@
       "scope": "supabase-degraded-local-flow",
       "name": "Supabase failure leaves healthy local canonical features enabled",
       "status": "PASS",
-      "elapsedMs": 0.2,
+      "elapsedMs": 0.99,
       "detail": {
         "localFlowBlockedBySupabaseError": 0,
         "cloudDegradedMode": "CLOUD_DEGRADED",
@@ -133,7 +160,7 @@
       "scope": "supabase-migration-idempotency",
       "name": "P0-B2 migration is additive and repeatable",
       "status": "PASS",
-      "elapsedMs": 4.18,
+      "elapsedMs": 6.02,
       "detail": {
         "destructiveStatements": 0,
         "firstApplyObjects": 6,
@@ -144,12 +171,13 @@
       "scope": "project-context-composer",
       "name": "composer includes canonical project layers and withholds author-only data",
       "status": "PASS",
-      "elapsedMs": 5.28,
+      "elapsedMs": 30.4,
       "detail": {
-        "contextDigest": "d7fa067f8ef0aa4b32c700712fe266c1d276c1ec773f5387586ff1d6b8c86235",
+        "contextDigest": "6293b12f38c574af3afd08d8cbc2acae05ce18a42b1913b7e6ac18f808a261bc",
         "includedSources": [
-          "PROJECT_METADATA",
           "APPROVED_STORY_BIBLE",
+          "CANONICAL_CHARACTER_IDENTITIES",
+          "PROJECT_METADATA",
           "ACTIVE_CHAPTER",
           "PROJECT_SEED",
           "RPG_STORY_STATE",
@@ -163,7 +191,7 @@
       "scope": "quick-assistant-parity",
       "name": "Studio AI entry points converge on the same Closed Agent OS service",
       "status": "PASS",
-      "elapsedMs": 1.47,
+      "elapsedMs": 5.6,
       "detail": {
         "entryPointsChecked": 5,
         "coordinatorCount": 1,
@@ -174,7 +202,7 @@
       "scope": "approval-local-with-cloud-down",
       "name": "local approval remains candidate-only unless a canonical commit is supplied",
       "status": "PASS",
-      "elapsedMs": 42.67,
+      "elapsedMs": 147.43,
       "detail": {
         "preApprovalCanonicalMutationCount": 0,
         "postApprovalWithoutCommitMutationCount": 0,
@@ -185,10 +213,10 @@
       "scope": "release-identity-alias",
       "name": "release identity and offline assets are commit-bound and non-cacheable",
       "status": "PASS",
-      "elapsedMs": 0.68,
+      "elapsedMs": 1.5,
       "detail": {
-        "appCommit": "6f240871abfe7d9b9d4ab028df709ac90d13ca21",
-        "assetManifestDigest": "6d2098cfc151d60293c5149410a6089f6d07801fe74abedb120c6c1322e6745f",
+        "appCommit": "7cc7986622f4d91dc3ffc748583e90bedd0576f9",
+        "assetManifestDigest": "84e96c773407d9cd7087ef4f3e320337f0ca1de4fe4b7d751ec0d9be7a08e54c",
         "cacheHeaders": "no-store",
         "restartRecovery": true
       }

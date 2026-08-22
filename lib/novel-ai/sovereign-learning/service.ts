@@ -6,6 +6,7 @@ import {
 import {
   createTextFingerprint,
   normalizeForLearning,
+  ruleSimilarity,
   sha256Hex,
   shortStableId,
   stableStringify,
@@ -28,6 +29,18 @@ import {
   type DistilledWebKnowledgeBundle,
 } from "./web-knowledge-contract";
 import {
+  normalizeSharedLearningRules,
+  SHARED_LEARNING_SCHEMA_VERSION,
+  type SharedLearningSnapshot,
+} from "./shared-learning-contract";
+import {
+  analyzeStoryWithVerifiedTeacher,
+  buildVerifiedStoryTeacherRules,
+  VERIFIED_STORY_RESEARCH_SCHEMA_VERSION,
+  VERIFIED_STORY_TEACHER_CONTRACT,
+  VERIFIED_STORY_TEACHER_VERSION,
+} from "./verified-story-teacher";
+import {
   SOVEREIGN_LEARNING_SCHEMA_VERSION,
   SOVEREIGN_LEARNING_SNAPSHOT_VERSION,
   type DeepRuleExtractor,
@@ -46,6 +59,7 @@ import {
 
 const MAX_SOURCE_CHARACTERS = 300_000;
 const MIN_SOURCE_CHARACTERS = 120;
+const VERIFIED_STORY_TEACHER_WARNING = `VERIFIED_STORY_TEACHER_${VERIFIED_STORY_TEACHER_VERSION.toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}`;
 
 const CREDENTIAL_PATTERNS: Array<{ code: string; pattern: RegExp }> = [
   { code: "VERCEL_CREDENTIAL_DETECTED", pattern: /\b(?:vcp|sbp)_[A-Za-z0-9_-]{20,}\b/gu },
@@ -100,13 +114,18 @@ function validateRights(input: {
   userConfirmedRights: boolean;
   rightsEvidence?: string;
 }) {
-  if (!input.userConfirmedRights) {
+  const automaticAbstractResearch = [
+    "public_abstract_research",
+    "user_supplied_abstract_research",
+    "abstract_idea",
+  ].includes(input.rightsBasis);
+  if (!automaticAbstractResearch && !input.userConfirmedRights) {
     throw learningError(
       "LEARNING_RIGHTS_CONFIRMATION_REQUIRED",
       "必須先確認你有權在本機分析這份內容。",
     );
   }
-  if (input.sourceKind === "ai_output" && input.rightsBasis !== "ai_output_authorized") {
+  if (input.sourceKind === "ai_output" && !["ai_output_authorized", "user_supplied_abstract_research"].includes(input.rightsBasis)) {
     throw learningError(
       "LEARNING_AI_OUTPUT_RIGHTS_MISMATCH",
       "其他 AI 的輸出必須標示為已獲授權的 AI 輸出。",
@@ -258,6 +277,7 @@ export async function ingestLearningSource(
   const duplicate = existingSources.find((source) =>
     source.contentHash === contentHash
     && source.status !== "revoked"
+    && source.warningCodes.includes(VERIFIED_STORY_TEACHER_WARNING)
     && (
       input.sourceKind !== "project_creation"
       || (
@@ -291,13 +311,17 @@ export async function ingestLearningSource(
   input.onProgress?.({ phase: "deterministic", current: 0, total: 1 });
   const fingerprint = createTextFingerprint(analysisText);
   const deterministicDrafts = extractDeterministicNarrativeRules(analysisText);
+  const verifiedStoryResearch = await analyzeStoryWithVerifiedTeacher({ sourceText: analysisText });
+  const verifiedTeacherDrafts = buildVerifiedStoryTeacherRules(analysisText, verifiedStoryResearch);
   const warningCodes = [
     ...boundary.findings.map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
+    VERIFIED_STORY_TEACHER_WARNING,
+    ...verifiedStoryResearch.warnings,
   ];
   const quarantined = boundary.sanitizationStatus === "quarantined";
   const deepDrafts: LearningRuleDraft[] = [];
-  let deepExtractionProvider: string | null = null;
-  let deepExtractionModel: string | null = null;
+  let deepExtractionProvider: string | null = VERIFIED_STORY_TEACHER_CONTRACT.teacherId;
+  let deepExtractionModel: string | null = VERIFIED_STORY_TEACHER_VERSION;
   let deepExtractionFailures = 0;
   if (input.deepExtractor && !quarantined) {
     const chunks = splitForDeepExtraction(analysisText);
@@ -319,8 +343,8 @@ export async function ingestLearningSource(
             "深度抽象結果離開裝置，已拒絕使用。",
           );
         }
-        deepExtractionProvider = result.provider;
-        deepExtractionModel = result.model;
+        deepExtractionProvider = `${VERIFIED_STORY_TEACHER_CONTRACT.teacherId}+${result.provider}`.slice(0, 240);
+        deepExtractionModel = `${VERIFIED_STORY_TEACHER_VERSION}+${result.model}`.slice(0, 240);
         const parsed = parseDeepRuleExtraction({
           raw: result.content,
           sourceText: chunk,
@@ -344,7 +368,18 @@ export async function ingestLearningSource(
     warningCodes.push("LEARNING_DEEP_EXTRACTION_SKIPPED_QUARANTINE");
   }
 
-  const drafts = deduplicateRuleDrafts([...deterministicDrafts, ...deepDrafts]);
+  // Keep the causal teacher as the knowledge layer's backbone, while reserving
+  // bounded slots for source-derived narrative DNA and optional deeper closed-AI
+  // abstractions. This prevents the fixed curriculum from crowding every
+  // story-specific rule out of the original knowledge layer.
+  const drafts = deduplicateRuleDrafts([
+    ...verifiedTeacherDrafts.slice(0, 12),
+    ...deterministicDrafts.slice(0, 6),
+    ...deepDrafts.slice(0, 6),
+    ...verifiedTeacherDrafts.slice(12),
+    ...deterministicDrafts.slice(6),
+    ...deepDrafts.slice(6),
+  ]).slice(0, 24);
   const sourceId = shortStableId(
     "learning-source",
     `${input.projectId}|${contentHash}|${input.sourceKind}`,
@@ -376,7 +411,7 @@ export async function ingestLearningSource(
       citationValid: Boolean(input.sourceReference || input.rightsEvidence),
       identityVerified: input.rightsBasis !== "lawful_private_reference",
     }),
-    deepExtractionAttempted: Boolean(input.deepExtractor),
+    deepExtractionAttempted: true,
     deepExtractionProvider,
     deepExtractionModel,
     dataLeftDevice: false,
@@ -395,16 +430,23 @@ export async function ingestLearningSource(
     quarantined,
     existingRules,
   });
+  const nextRuleIds = new Set(rules.map((rule) => rule.id));
+  const replacedRuleIds = existingRules
+    .filter((rule) => rule.sourceId === sourceId && !nextRuleIds.has(rule.id))
+    .map((rule) => rule.id);
   input.onProgress?.({ phase: "persisting", current: 1, total: 1 });
   await repository.commit({
     sources: [source],
     rules,
+    remove: replacedRuleIds.length ? { rules: replacedRuleIds } : undefined,
     audit: [auditRecord({
       projectId: input.projectId,
       action: quarantined ? "source_quarantined" : "source_ingested",
       sourceId,
       detailCodes: [
         `RULE_COUNT_${rules.length}`,
+        VERIFIED_STORY_TEACHER_WARNING,
+        ...(replacedRuleIds.length ? [`REPLACED_PRE_TEACHER_RULE_COUNT_${replacedRuleIds.length}`] : []),
         ...(input.deepExtractor ? ["DEEP_EXTRACTION_REQUESTED"] : ["DETERMINISTIC_ONLY"]),
       ],
     })],
@@ -597,9 +639,9 @@ function validateDistilledWebRules(bundle: DistilledWebKnowledgeBundle) {
     throw learningError("WEB_DISTILLATION_TEACHER_OUTPUT_QUARANTINED", "教師規則含有高風險指令，已阻止匯入。");
   }
   const allowedExtractorKinds = bundle.analysisMode === "local_deterministic"
-    ? new Set(["deterministic_pattern"])
+    ? new Set(["deterministic_pattern", "local_closed_ai"])
     : bundle.analysisMode === "hybrid"
-      ? new Set(["deterministic_pattern", "external_teacher_ai"])
+      ? new Set(["deterministic_pattern", "local_closed_ai", "external_teacher_ai"])
       : new Set(["external_teacher_ai"]);
   for (const rule of bundle.rules) {
     const recipe = rule.recipe;
@@ -658,9 +700,23 @@ export async function ingestDistilledWebKnowledge(
     || (!bundle.privacy.dataLeftDevice && bundle.privacy.externalRequestCount !== 0)
     || (bundle.privacy.externalRequestCount > 0 && !bundle.privacy.dataLeftDevice)
     || !bundle.source.sourceProfile
-    || (!["article", "classical_chinese"].includes(bundle.source.sourceProfile.channel) && (
-      !bundle.source.sourceProfile.engagement
-      || bundle.source.sourceProfile.engagement.thresholdPassed !== true
+    || !bundle.storyResearch
+    || bundle.storyResearch.schemaVersion !== VERIFIED_STORY_RESEARCH_SCHEMA_VERSION
+    || bundle.storyResearch.teacher.teacherId !== VERIFIED_STORY_TEACHER_CONTRACT.teacherId
+    || bundle.storyResearch.teacher.version !== VERIFIED_STORY_TEACHER_VERSION
+    || bundle.storyResearch.teacher.verification !== "verified"
+    || bundle.storyResearch.teacher.executionBoundary !== "closed_local_deterministic"
+    || bundle.storyResearch.teacher.externalRequestCount !== 0
+    || bundle.storyResearch.teacher.dataLeavesDevice !== false
+    || !/^[a-f0-9]{64}$/u.test(bundle.storyResearch.teacher.contractDigest)
+    || bundle.storyResearch.rawStoryRetained !== false
+    || bundle.storyResearch.sourceSentencesRetained !== false
+    || bundle.storyResearch.namedEntitiesRetained !== false
+    || !Array.isArray(bundle.storyResearch.mechanisms)
+    || bundle.storyResearch.mechanisms.length < 12
+    || bundle.storyResearch.mechanisms.length > 24
+    || (bundle.source.sourceProfile.engagement && (
+      bundle.source.sourceProfile.engagement.thresholdPassed !== true
       || bundle.source.sourceProfile.engagement.minimumRequired !== 100_000
       || bundle.source.sourceProfile.engagement.observedCount < 100_000
     ))
@@ -670,7 +726,7 @@ export async function ingestDistilledWebKnowledge(
     || bundle.teachers.some((teacher) =>
       teacher.candidateOnly !== true
       || teacher.rawResponseRetained !== false
-      || !["openai", "grok"].includes(teacher.provider))
+      || !["openai", "gemini", "grok"].includes(teacher.provider))
   ) {
     throw learningError("WEB_DISTILLATION_BUNDLE_INVALID", "受控蒸餾封包的隱私或候選邊界無效。");
   }
@@ -689,7 +745,9 @@ export async function ingestDistilledWebKnowledge(
 
   const existingSources = await repository.listSources(input.projectId);
   const duplicate = existingSources.find((source) =>
-    source.contentHash === bundle.source.sourceDigest && source.status !== "revoked");
+    source.contentHash === bundle.source.sourceDigest
+    && source.status !== "revoked"
+    && source.warningCodes.includes(VERIFIED_STORY_TEACHER_WARNING));
   if (duplicate) {
     const rules = (await repository.listRules(input.projectId)).filter((rule) => rule.sourceId === duplicate.id);
     await repository.commit({
@@ -758,8 +816,8 @@ export async function ingestDistilledWebKnowledge(
       identityVerified: false,
     }),
     deepExtractionAttempted: true,
-    deepExtractionProvider: providers.join("+") || "local-pattern-analyzer",
-    deepExtractionModel: models.join("+").slice(0, 240) || null,
+    deepExtractionProvider: providers.join("+") || VERIFIED_STORY_TEACHER_CONTRACT.teacherId,
+    deepExtractionModel: models.join("+").slice(0, 240) || VERIFIED_STORY_TEACHER_VERSION,
     dataLeftDevice: bundle.privacy.dataLeftDevice,
     externalRequestCount: bundle.privacy.externalRequestCount,
     webProvenance: {
@@ -793,9 +851,14 @@ export async function ingestDistilledWebKnowledge(
     quarantined: false,
     existingRules,
   });
+  const nextRuleIds = new Set(rules.map((rule) => rule.id));
+  const replacedRuleIds = existingRules
+    .filter((rule) => rule.sourceId === sourceId && !nextRuleIds.has(rule.id))
+    .map((rule) => rule.id);
   await repository.commit({
     sources: [source],
     rules,
+    remove: replacedRuleIds.length ? { rules: replacedRuleIds } : undefined,
     audit: [auditRecord({
       projectId: input.projectId,
       action: "source_ingested",
@@ -808,6 +871,7 @@ export async function ingestDistilledWebKnowledge(
         `CROSS_TEACHER_RULE_COUNT_${bundle.teacherAgreement.crossTeacherRuleCount}`,
         `SOURCE_CHANNEL_${bundle.source.sourceProfile.channel.toUpperCase()}`,
         `BUNDLE_DIGEST_${bundle.immutableDigest}`,
+        ...(replacedRuleIds.length ? [`REPLACED_PRE_TEACHER_RULE_COUNT_${replacedRuleIds.length}`] : []),
       ],
     })],
   });
@@ -819,6 +883,147 @@ export async function ingestDistilledWebKnowledge(
     dataLeftDevice: bundle.privacy.dataLeftDevice,
     rawContentRetained: false,
   };
+}
+
+export async function ingestSharedLearningSnapshot(
+  repository: SovereignLearningRepository,
+  input: { projectId: string; snapshot: SharedLearningSnapshot },
+) {
+  const projectId = input.projectId.trim();
+  const snapshot = input.snapshot;
+  if (
+    !projectId
+    || snapshot.schemaVersion !== SHARED_LEARNING_SCHEMA_VERSION
+    || snapshot.rules.length < 1
+    || snapshot.rules.length > 32
+    || snapshot.selection.entireLibraryScanned !== false
+    || snapshot.selection.databaseFetchLimit > 48
+    || snapshot.privacy.rawStoryIncluded !== false
+    || snapshot.privacy.sourceSentencesIncluded !== false
+    || snapshot.privacy.namedEntitiesIncluded !== false
+    || snapshot.privacy.abstractRulesOnly !== true
+  ) {
+    throw learningError("SHARED_LEARNING_SNAPSHOT_INVALID", "全站共享學習封包無效。");
+  }
+  const expectedDigest = await sha256Hex(stableStringify(snapshot.rules.map((rule) => rule.ruleHash)));
+  if (expectedDigest !== snapshot.libraryDigest) {
+    throw learningError("SHARED_LEARNING_SNAPSHOT_HASH_MISMATCH", "全站共享學習封包完整性驗證失敗。");
+  }
+  for (const rule of snapshot.rules) {
+    const normalized = await normalizeSharedLearningRules({
+      rules: [rule],
+      teacherVersion: rule.teacherVersion,
+      observationCount: rule.observationCount,
+    });
+    if (normalized.rules[0]?.ruleHash !== rule.ruleHash) {
+      throw learningError("SHARED_LEARNING_RULE_INVALID", "共享規則未通過抽象與安全契約。");
+    }
+  }
+  const sourceId = shortStableId("learning-source", `${projectId}|shared-abstract-learning-v1`);
+  const [sources, allRules] = await Promise.all([
+    repository.listSources(projectId),
+    repository.listRules(projectId),
+  ]);
+  const previousSource = sources.find((source) => source.id === sourceId) ?? null;
+  const previousRules = allRules.filter((rule) => rule.sourceId === sourceId);
+  if (previousSource?.contentHash === snapshot.libraryDigest && previousSource.status === "active") {
+    return { status: "unchanged" as const, source: previousSource, rules: previousRules, removedRuleCount: 0 };
+  }
+  const nonSharedRules = allRules.filter((rule) => rule.sourceId !== sourceId && !["rejected", "revoked"].includes(rule.status));
+  const selected = snapshot.rules.filter((rule) => !nonSharedRules.some((candidate) =>
+    candidate.family === rule.family
+    && candidate.dimension === rule.dimension
+    && ruleSimilarity(candidate.statement, rule.statement) >= 0.82));
+  const updatedAt = now();
+  const source: LearningSourceRecord = {
+    schemaVersion: SOVEREIGN_LEARNING_SCHEMA_VERSION,
+    id: sourceId,
+    projectId,
+    title: "全站共享閉端 AI 抽象規則",
+    author: "閉端故事因果教師",
+    sourceReference: "novel://shared-abstract-learning/v1",
+    sourceKind: "shared_abstract_rules",
+    rightsBasis: "abstract_idea",
+    rightsEvidenceHash: await sha256Hex("abstract-ideas-only:no-source-expression"),
+    userConfirmedRights: true,
+    localAnalysisOnly: false,
+    rawContentRetained: false,
+    contentHash: snapshot.libraryDigest,
+    fingerprint: createTextFingerprint(selected.map((rule) => rule.statement).join("\n")),
+    language: "zh-Hant",
+    status: "active",
+    sanitizationStatus: "unchanged",
+    warningCodes: [
+      "SHARED_ABSTRACT_RULES_ONLY",
+      "INDEXED_TOP_K_SELECTION",
+      "RAW_SOURCE_NOT_AVAILABLE",
+      `SHARED_RULE_COUNT_${selected.length}`,
+    ],
+    trustScore: 0.96,
+    deepExtractionAttempted: true,
+    deepExtractionProvider: VERIFIED_STORY_TEACHER_CONTRACT.teacherId,
+    deepExtractionModel: VERIFIED_STORY_TEACHER_VERSION,
+    dataLeftDevice: false,
+    externalRequestCount: 0,
+    webProvenance: null,
+    teacherEvidence: [],
+    createdAt: previousSource?.createdAt ?? updatedAt,
+    updatedAt,
+    revision: (previousSource?.revision ?? 0) + 1,
+  };
+  const rules = selected.map((rule): LearnedNarrativeRule => ({
+    family: rule.family,
+    dimension: rule.dimension,
+    statement: rule.statement,
+    tags: rule.tags,
+    parameters: {
+      ...rule.parameters,
+      sharedRuleHash: rule.ruleHash,
+      sharedQualityScore: rule.qualityScore,
+      sharedObservationCount: rule.observationCount,
+    },
+    recipe: rule.recipe,
+    confidence: rule.confidence,
+    extractorKind: rule.extractorKind,
+    extractorProvider: rule.extractorProvider,
+    extractorModel: rule.extractorModel,
+    sourceOverlapScore: rule.sourceOverlapScore,
+    longestSourceMatch: rule.longestSourceMatch,
+    abstractionScore: rule.abstractionScore,
+    conflictKey: null,
+    schemaVersion: SOVEREIGN_LEARNING_SCHEMA_VERSION,
+    id: shortStableId("learning-rule", `${projectId}|shared|${rule.ruleHash}`),
+    projectId,
+    sourceId,
+    status: "approved",
+    conflictRuleIds: [],
+    approvedAt: updatedAt,
+    rejectedAt: null,
+    revokedAt: null,
+    supersededByRuleId: null,
+    createdAt: previousRules.find((candidate) => candidate.parameters.sharedRuleHash === rule.ruleHash)?.createdAt ?? updatedAt,
+    updatedAt,
+    revision: (previousRules.find((candidate) => candidate.parameters.sharedRuleHash === rule.ruleHash)?.revision ?? 0) + 1,
+  }));
+  const nextRuleIds = new Set(rules.map((rule) => rule.id));
+  const removedRuleIds = previousRules.filter((rule) => !nextRuleIds.has(rule.id)).map((rule) => rule.id);
+  await repository.commit({
+    sources: [source],
+    rules,
+    remove: removedRuleIds.length ? { rules: removedRuleIds } : undefined,
+    audit: [auditRecord({
+      projectId,
+      action: "source_ingested",
+      sourceId,
+      detailCodes: [
+        "SHARED_ABSTRACT_LIBRARY_SYNC",
+        "INDEXED_TOP_K_SELECTION",
+        `RULE_COUNT_${rules.length}`,
+        `REMOVED_RULE_COUNT_${removedRuleIds.length}`,
+      ],
+    })],
+  });
+  return { status: "synced" as const, source, rules, removedRuleCount: removedRuleIds.length };
 }
 
 async function requireRuleAndSource(
@@ -1365,7 +1570,9 @@ export const SOVEREIGN_LEARNING_HEALTH = {
   originalityGuardStatus: "ready",
   combinationEngineStatus: "ready",
   localDeepExtractionStatus: "runtime_required",
-  controlledWebResearchStatus: "ready_with_explicit_rights_and_consent",
+  controlledWebResearchStatus: "ready_with_automatic_public_abstract_research",
+  verifiedClosedStoryTeacherStatus: "ready",
+  sharedAbstractRuleLibraryStatus: "server_runtime_required",
   externalTeacherDistillationStatus: "server_credentials_required",
   teacherOutputPromotionStatus: "candidate_only_human_approval_required",
   rawSourceRetention: false,

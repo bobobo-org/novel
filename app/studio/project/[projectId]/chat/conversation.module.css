@@ -433,8 +433,12 @@
   cursor: pointer;
 }
 
-.candidateActions .primaryAction {
+.candidateActions .approvalPrimary {
   color: #061510;
+  border-color: transparent;
+  background: linear-gradient(135deg, #8be8cf, #4cc9aa);
+  box-shadow: 0 10px 28px rgba(31, 178, 143, 0.16);
+  font-weight: 850;
 }
 
 .choices {
@@ -659,7 +663,8 @@
 }
 
 .sendButton:disabled,
-.primaryAction:disabled {
+.primaryAction:disabled,
+.approvalPrimary:disabled {
   cursor: not-allowed;
   filter: grayscale(0.6);
   opacity: 0.54;

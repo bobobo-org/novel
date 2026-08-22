@@ -11,16 +11,13 @@ import {
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   stageStudioTaskHandoff,
+  studioHomeHref,
 } from "@/lib/novel-ai/web/studio-task-session";
 
-// 保留既有的二欄導覽契約；顯示細節另外附加，避免新增介面破壞舊版驗證。
 const PROJECT_LINKS = [
-  ["chat","專案對話"],
-  ["write","寫作"],
-  ["ai","AI 創作"],
+  ["write","章節全文校訂"],
   ["closed-ai","閉端 AI 中心"],
   ["learning","閉端 AI 學習"],
-  ["rpg","RPG 養成"],
   ["character-ai","角色 AI"],
   ["drama","小說轉短劇"],
   ["characters","角色"],
@@ -36,12 +33,9 @@ const PROJECT_LINK_PRESENTATION: Record<(typeof PROJECT_LINKS)[number][0], {
   short: string;
   icon: string;
 }> = {
-  chat: { short: "對話", icon: "✦" },
-  write: { short: "寫作", icon: "✦" },
-  ai: { short: "AI 創作", icon: "AI" },
+  write: { short: "全文", icon: "文" },
   "closed-ai": { short: "AI 中心", icon: "◉" },
   learning: { short: "AI 學習", icon: "↟" },
-  rpg: { short: "RPG", icon: "◆" },
   "character-ai": { short: "角色 AI", icon: "♟" },
   drama: { short: "短劇", icon: "▶" },
   characters: { short: "角色", icon: "人" },
@@ -63,6 +57,7 @@ export default function ProjectNavigation({
   onNavigate?: (href: string, label: string) => void | Promise<void>;
 }) {
   const [playMode, setPlayMode] = useState<StoryPlayModeId | null>(null);
+  const projectHome = studioHomeHref(projectId);
 
   useEffect(() => {
     let activeRequest = true;
@@ -100,60 +95,77 @@ export default function ProjectNavigation({
   }
 
   return (
-    <nav className="p2ProjectNav" aria-label="作品功能">
+    <nav className="p2ProjectNav p2UnifiedProjectNav" aria-label="作品導覽">
       {playMode ? (
         <span className="p2LockedPlayMode" title="此作品的玩法已固定；要改用其他玩法，請複製為新作品。">
           固定玩法：{STORY_PLAY_MODE_LABELS[playMode]}
         </span>
       ) : null}
       <Link
-        className="p2NavWorkbench"
-        href={`/professional?projectId=${encodeURIComponent(projectId)}`}
-        prefetch={false}
-        {...guardedLink(`/professional?projectId=${encodeURIComponent(projectId)}`, "專業工作台")}
+        href={projectHome}
+        {...guardedLink(projectHome, "作品首頁")}
       >
         <span className="p2NavIcon" aria-hidden="true">⌂</span>
-        <span className="p2NavLabel">專業工作台</span>
-        <span className="p2NavShort">工作台</span>
+        <span className="p2NavLabel">作品首頁</span>
+        <span className="p2NavShort">首頁</span>
       </Link>
-      {PROJECT_LINKS.map(([path, label]) => {
-        if (path === "rpg" && (!playMode || playMode === "general")) return null;
-        const { icon, short } = PROJECT_LINK_PRESENTATION[path];
-        const displayedLabel = path === "rpg" && playMode
-          ? `${STORY_PLAY_MODE_LABELS[playMode]}儀表板`
-          : label;
-        const displayedShort = path === "rpg" && playMode
-          ? STORY_PLAY_MODE_LABELS[playMode].replace("養成", "").replace("模擬", "")
-          : short;
-        const href = path === "ai"
-          ? `/studio/project/${projectId}/chat?prompt=${encodeURIComponent("請協助我續寫、改寫或分析目前小說。")}`
-          : `/studio/project/${projectId}/${path}`;
-        return (
+      <Link
+        className={["chat", "ai", "rpg"].includes(active) ? "active" : ""}
+        href={`/studio/project/${projectId}/chat`}
+        aria-current={["chat", "ai", "rpg"].includes(active) ? "page" : undefined}
+        {...(["chat", "ai", "rpg"].includes(active) ? {} : guardedLink(`/studio/project/${projectId}/chat`, "故事工作台"))}
+      >
+        <span className="p2NavIcon" aria-hidden="true">✦</span>
+        <span className="p2NavLabel">故事工作台</span>
+        <span className="p2NavShort">故事</span>
+      </Link>
+      <details className="p2ProjectTools" open={PROJECT_LINKS.some(([path]) => path === active)}>
+        <summary>
+          <span className="p2NavIcon" aria-hidden="true">⌘</span>
+          <span className="p2NavLabel">專業工具</span>
+          <span className="p2NavShort">工具</span>
+        </summary>
+        <p>只在需要直接管理正式章節、設定、學習、模型診斷或備份時使用；故事創作與 RPG 請回故事工作台。</p>
+        <div className="p2ProjectToolGrid">
+          {PROJECT_LINKS.map(([path, label]) => {
+            const { icon, short } = PROJECT_LINK_PRESENTATION[path];
+            const href = `/studio/project/${projectId}/${path}`;
+            return (
+              <Link
+                key={path}
+                className={active === path ? "active" : ""}
+                href={href}
+                aria-current={active === path ? "page" : undefined}
+                {...(active === path ? {} : guardedLink(href, label))}
+              >
+                <span className="p2NavIcon" aria-hidden="true">{icon}</span>
+                <span className="p2NavLabel">{label}</span>
+                <span className="p2NavShort">{short}</span>
+              </Link>
+            );
+          })}
           <Link
-            key={path}
-            className={active === path ? "active" : ""}
-            href={href}
-            aria-current={active === path ? "page" : undefined}
-            {...(active === path ? {} : guardedLink(href, displayedLabel))}
+            className="p2NavWorkbench"
+            href={`/professional?projectId=${encodeURIComponent(projectId)}`}
+            prefetch={false}
+            {...guardedLink(`/professional?projectId=${encodeURIComponent(projectId)}`, "作品資料管理")}
           >
-            <span className="p2NavIcon" aria-hidden="true">{icon}</span>
-            <span className="p2NavLabel">{displayedLabel}</span>
-            <span className="p2NavShort">{displayedShort}</span>
+            <span className="p2NavIcon" aria-hidden="true">▦</span>
+            <span className="p2NavLabel">作品資料管理</span>
+            <span className="p2NavShort">資料</span>
           </Link>
-        );
-      })}
-      {playMode ? (
-        <Link
-          className="p2NavCloneMode"
-          href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}
-          prefetch={false}
-          {...guardedLink(`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`, "複製為其他玩法")}
-        >
-          <span className="p2NavIcon" aria-hidden="true">↗</span>
-          <span className="p2NavLabel">複製為其他玩法</span>
-          <span className="p2NavShort">複製玩法</span>
-        </Link>
-      ) : null}
+          {playMode ? <Link
+            className="p2NavCloneMode"
+            href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}
+            prefetch={false}
+            {...guardedLink(`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`, "複製為其他玩法")}
+          >
+            <span className="p2NavIcon" aria-hidden="true">↗</span>
+            <span className="p2NavLabel">複製為其他玩法</span>
+            <span className="p2NavShort">複製玩法</span>
+          </Link> : null}
+        </div>
+      </details>
     </nav>
   );
 }

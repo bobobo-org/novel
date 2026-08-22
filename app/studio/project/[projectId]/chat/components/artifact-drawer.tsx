@@ -101,7 +101,7 @@ export default function ArtifactDrawer({
             </details>
             {selectedArtifact.status === "candidate" ? (
               <div className={styles.candidateActions}>
-                <button className={styles.primaryAction} type="button" disabled={busy} onClick={() => onApprove(
+                <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
                   selectedArtifact,
                   ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)
                     ? undefined

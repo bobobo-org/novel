@@ -96,13 +96,13 @@ await test("task handoff requires a same-project destination and survives one ho
   const staged = stageStudioTaskHandoff({
     projectId: "novel-1",
     sourceLabel: "章節寫作",
-    destinationLabel: "RPG 儀表板",
-    destinationHref: "/studio/project/novel-1/rpg",
+    destinationLabel: "故事工作台 RPG 回合",
+    destinationHref: "/studio/project/novel-1/chat?mode=play",
     chapterId: "chapter-5",
     chapterTitle: "第五章",
   }, store);
   assert.equal(staged.chapterId, "chapter-5");
-  assert.equal(readStudioTaskHandoff(store)?.destinationHref, "/studio/project/novel-1/rpg");
+  assert.equal(readStudioTaskHandoff(store)?.destinationHref, "/studio/project/novel-1/chat?mode=play");
   assert.equal(studioHomeHref("novel-1"), "/studio?screen=home&projectId=novel-1");
   clearStudioTaskHandoff(store);
   assert.equal(readStudioTaskHandoff(store), null);
@@ -110,7 +110,7 @@ await test("task handoff requires a same-project destination and survives one ho
     projectId: "novel-1",
     sourceLabel: "寫作",
     destinationLabel: "別的作品",
-    destinationHref: "/studio/project/novel-2/rpg",
+    destinationHref: "/studio/project/novel-2/chat?mode=play",
   }), /OUT_OF_PROJECT/);
 });
 
@@ -293,12 +293,34 @@ await test("duplicate ABC output and parrot-like continuation are rejected", asy
 });
 
 await test("source contracts expose save-home-task gating and verified closed AI RPG execution", async () => {
-  const [studio, navigation, writer, rpg, rpgController, bridge, taskProfile, edgeGate, backends, studioClosedAI, learningWorkspace, manualLearningFile, manualLearningValidation] = await Promise.all([
+  const [
+    studio,
+    navigation,
+    writer,
+    chatRpg,
+    rpgController,
+    rpgApproval,
+    rpgRedirect,
+    chatPage,
+    playMode,
+    bridge,
+    taskProfile,
+    edgeGate,
+    backends,
+    studioClosedAI,
+    learningWorkspace,
+    manualLearningFile,
+    manualLearningValidation,
+  ] = await Promise.all([
     readFile("app/studio/studio-client.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/project-navigation.tsx", "utf8"),
     readFile("app/studio/project/[projectId]/write/write-workspace.tsx", "utf8"),
-    readFile("app/studio/project/[projectId]/rpg/rpg-workspace.tsx", "utf8"),
+    readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
     readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
+    readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts", "utf8"),
+    readFile("app/studio/project/[projectId]/rpg/page.tsx", "utf8"),
+    readFile("app/studio/project/[projectId]/chat/page.tsx", "utf8"),
+    readFile("lib/novel-ai/domain/play-mode.ts", "utf8"),
     readFile("local-ai/bridge/server.mjs", "utf8"),
     readFile("lib/novel-ai/providers/closed/task-profile.ts", "utf8"),
     readFile("scripts/run-p24b-rc3-1-manual-edge-gate.mjs", "utf8"),
@@ -313,44 +335,61 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(studio, /url\.searchParams\.delete\("projectId"\)/);
   assert.match(studio, /item\.activeChapterId === canonical\.chapter\.id/);
   assert.match(studio, /studio-task-handoff-continue/);
-  assert.match(studio, /studio-open-rpg-dashboard/);
+  assert.match(studio, /續寫、改寫、RPG 與 A／B／C 都從這裡開始/u);
   assert.match(studio, /screen === "home" && value === "choice" && project/);
-  assert.match(studio, /window\.location\.replace\(`\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg`\)/);
+  assert.match(studio, /if \(value === "write"\) return `\$\{projectRoot\}\/chat`/u);
+  assert.match(studio, /if \(value === "choice"\) return `\$\{projectRoot\}\/chat\?mode=play`/u);
+  assert.match(studio, /window\.location\.replace\(`\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/chat\?mode=play`\)/u);
+  assert.doesNotMatch(studio, /\/studio\/project\/\$\{encodeURIComponent\(project\.id\)\}\/rpg/u);
   assert.match(studio, /prewarmStudioProjectAIState/);
   assert.match(studio, /closedAgentQualityReasonCodes\(error\)/);
   assert.match(studio, /STUDIO_EXPLICIT_REGENERATION_FAILED/);
   assert.match(navigation, /stageStudioTaskHandoff/);
   assert.match(navigation, /prefetch=\{false\}/);
+  assert.match(navigation, /<span className="p2NavLabel">故事工作台<\/span>/u);
+  assert.match(navigation, /<details className="p2ProjectTools"/u);
+  assert.match(navigation, /故事創作與 RPG 請回故事工作台/u);
+  assert.doesNotMatch(navigation, /href=\{`\/studio\/project\/\$\{projectId\}\/rpg`\}/u);
   assert.match(writer, /Saving content must never select a chapter/);
   assert.match(writer, /freshTarget/);
   assert.match(writer, /readStudioWritingResume/);
-  assert.match(writer, /六層 AI Cache 已就緒/);
-  assert.match(rpg, /planRpgChatChoices/);
-  assert.match(rpg, /generateRpgChatTurnCandidate/);
-  assert.match(rpg, /approveRpgChatTurn/);
+  assert.match(writer, /章節全文校訂（專業工具）/u);
+  assert.match(writer, /前往唯一故事工作台：續寫、改寫、RPG 與 A／B／C/u);
+  assert.match(writer, /commitStudioCandidateToChapter/u);
+  assert.doesNotMatch(writer, /runInlineWritingAI|AI 承接脈絡續寫|比較 3 個故事方向|完整品質續寫|AI 整章改寫候選/u);
+  assert.match(chatRpg, /const plan = await buildRpgRuleChoicePlan\(\{/u);
+  assert.match(chatRpg, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
+  assert.doesNotMatch(chatRpg, /planRpgChatChoices\(/u);
+  assert.match(chatRpg, /serializeRpgChoices\(envelope\)/u);
+  assert.match(chatRpg, /generateRpgChatTurnCandidate\(/u);
+  assert.match(chatRpg, /canonicalMutationCount: 0/u);
+  assert.match(rpgApproval, /await approveRpgChatTurn\(\{/u);
+  assert.match(rpgApproval, /conversation-rpg-approval/u);
   assert.match(rpgController, /buildRpgChoiceDirectorPrompt/);
   assert.match(rpgController, /buildRpgResolutionDirectorPrompt/);
-  assert.match(rpg, /data-testid="rpg-foundation-gate"/);
   assert.match(edgeGate, /request\.failure\(\)\?\.errorText/);
   assert.match(edgeGate, /ERR_ABORTED/);
-  assert.match(rpg, /inspectRpgFoundation/);
-  assert.match(rpg, /!rpgFoundationReady/);
   assert.match(rpgController, /hasVerifiedExecutedStoryOutput/);
   assert.match(rpgController, /approveStudioClosedAgentCandidate/);
   assert.match(rpgController, /canonicalMutationCount !== 0/);
-  assert.match(rpg, /RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000/);
-  assert.match(rpg, /RPG_TURN_TIMEOUT_MS = 300_000/);
+  assert.match(rpgController, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
+  assert.match(rpgController, /enhancementController\.abort\("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"\)/u);
+  assert.match(rpgController, /signal: enhancementController\.signal/u);
+  assert.match(rpgController, /choices\.length !== 3/u);
+  assert.match(rpgController, /keys\.join\(""\) !== "ABC"/u);
   assert.match(rpgController, /qualityMode: "fast"/);
   assert.match(rpgController, /maxTokens: 520/);
   assert.match(rpgController, /targetLength: input\.snapshot\.language === "en" \? 1_700 : 1_600/);
   assert.match(rpgController, /maxTokens: 1_792/);
   assert.match(rpgController, /substantiveScene: true/);
-  assert.match(rpg, /signal: controller\.signal/);
-  assert.match(rpg, /data-testid="rpg-live-draft"/);
-  assert.match(rpg, /data-testid="rpg-cancel-turn"/);
-  assert.match(rpg, /aria-live="polite"/);
-  assert.match(rpg, /RPG_CLOSED_AI_RESOLUTION_FAILED/);
-  assert.match(rpg, /已產生 \$\{generated\} 字/);
+  assert.match(chatRpg, /signal: input\.signal/u);
+  assert.match(chatRpg, /已產生 \$\{generated\} 字/u);
+  assert.match(chatRpg, /故事與數值均未寫入/u);
+  assert.match(rpgRedirect, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
+  assert.match(chatPage, /first\(query\.mode\) === "play"/u);
+  assert.match(chatPage, /A／B／C/u);
+  assert.match(playMode, /const storyWorkspace = `\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat`/u);
+  assert.doesNotMatch(playMode, /\/rpg/u);
   assert.match(bridge, /body\.taskType === "chapter\.abcChoices"/);
   assert.match(bridge, /rpgChoiceDirectorFormat/);
   assert.match(taskProfile, /根層只能有 choices/);
@@ -360,10 +399,6 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(studioClosedAI, /BROWSER_TO_LOCAL_RETRY_CODES/);
   assert.match(studioClosedAI, /preferredBackend: "local-ollama"/);
   assert.match(studioClosedAI, /allowPreAuthorizedClosedEscalation: true/);
-  assert.match(rpg, /displayedRoundText/);
-  assert.match(rpg, /沉浸回合正文/);
-  assert.match(rpg, /【選項 \{choice\.key\}】/);
-  assert.match(rpg, /dashboardExpanded && progression\.rpgState\.customActionEnabled \? <div className=\{styles\.freeAction\}>/);
   assert.match(learningWorkspace, /extractManualLearningFile/);
   assert.match(learningWorkspace, /splitManualLearningDocument/);
   assert.match(learningWorkspace, /\.pdf,\.docx/);

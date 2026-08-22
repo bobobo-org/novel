@@ -16,10 +16,14 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  const requestedPrompt = safePrefill(first(query.prompt));
+  const modePrompt = first(query.mode) === "play"
+    ? "開始 RPG 故事回合並給我三個真正不同且可玩的 A／B／C 選項。"
+    : "";
   return (
     <ConversationWorkspace
       projectId={projectId}
-      initialPrompt={safePrefill(first(query.prompt))}
+      initialPrompt={requestedPrompt || modePrompt}
     />
   );
 }

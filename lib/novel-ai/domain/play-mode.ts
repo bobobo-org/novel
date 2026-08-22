@@ -66,7 +66,6 @@ export function isGameStoryPlayMode(mode: StoryPlayModeId) {
 }
 
 export function storyPlayModeDashboardHref(projectId: string, mode: StoryPlayModeId) {
-  return mode === "general"
-    ? `/studio/project/${encodeURIComponent(projectId)}/write`
-    : `/studio/project/${encodeURIComponent(projectId)}/rpg`;
+  const storyWorkspace = `/studio/project/${encodeURIComponent(projectId)}/chat`;
+  return mode === "general" ? storyWorkspace : `${storyWorkspace}?mode=play`;
 }

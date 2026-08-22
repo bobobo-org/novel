@@ -7,5 +7,8 @@ export * from "./combination-engine";
 export * from "./originality-guard";
 export * from "./service";
 export * from "./web-knowledge-contract";
+export * from "./shared-learning-contract";
+export * from "./verified-story-teacher";
+export * from "./unified-closed-ai-coordinator";
 export * from "./capability-evaluator";
 export * from "./autonomous-practice";

@@ -5,11 +5,13 @@ import type {
   LearningWebSourceProfile,
   TextFingerprint,
 } from "./types";
+import type { VerifiedStoryResearchProfile } from "./verified-story-teacher";
+import type { SharedLearningPublishReceipt } from "./shared-learning-contract";
 
-export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v3" as const;
+export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v4" as const;
 export const POPULAR_SOURCE_MINIMUM_ENGAGEMENT = 100_000 as const;
 
-export type ControlledTeacherProvider = "openai" | "grok";
+export type ControlledTeacherProvider = "openai" | "gemini" | "grok";
 export type ControlledWebAnalysisMode = "external_teacher" | "hybrid" | "local_deterministic";
 
 export type ControlledWebTeacherEvidence = {
@@ -55,6 +57,11 @@ export function normalizeControlledWebSourceProfile(input: {
     throw Object.assign(new Error("不支援的熱門來源類型。"), { code: "POPULAR_SOURCE_CHANNEL_INVALID" });
   }
   if (channel === "article" || channel === "classical_chinese") return { channel, engagement: null };
+  const rawCount = input.engagementCount;
+  const rawEvidence = String(input.engagementEvidence || "").trim();
+  if ((rawCount === null || rawCount === undefined || rawCount === "") && !rawEvidence) {
+    return { channel, engagement: null };
+  }
   const metric = String(input.engagementMetric || "views") as LearningEngagementMetric;
   if (!ENGAGEMENT_METRICS.has(metric)) {
     throw Object.assign(new Error("不支援的人氣衡量方式。"), { code: "POPULAR_SOURCE_METRIC_INVALID" });
@@ -63,7 +70,7 @@ export function normalizeControlledWebSourceProfile(input: {
   if (!Number.isSafeInteger(observedCount) || observedCount < POPULAR_SOURCE_MINIMUM_ENGAGEMENT) {
     throw Object.assign(new Error("熱門來源必須提供至少 100,000 次的可查證人氣指標。"), { code: "POPULAR_SOURCE_THRESHOLD_NOT_MET" });
   }
-  const evidenceReference = String(input.engagementEvidence || "").trim().slice(0, 500);
+  const evidenceReference = rawEvidence.slice(0, 500);
   if (evidenceReference.length < 4) {
     throw Object.assign(new Error("熱門來源必須提供公開計數、平台頁面或其他可稽核證據。"), { code: "POPULAR_SOURCE_EVIDENCE_REQUIRED" });
   }
@@ -85,6 +92,7 @@ export type DistilledWebKnowledgeBundle = {
   schemaVersion: typeof CONTROLLED_WEB_KNOWLEDGE_VERSION;
   analysisMode: ControlledWebAnalysisMode;
   source: ControlledWebSourceEvidence;
+  storyResearch: VerifiedStoryResearchProfile;
   rules: LearningRuleDraft[];
   teachers: ControlledWebTeacherEvidence[];
   teacherAgreement: {
@@ -103,11 +111,16 @@ export type DistilledWebKnowledgeBundle = {
   immutableDigest: string;
 };
 
+export type DistilledWebKnowledgeResponse = DistilledWebKnowledgeBundle & {
+  sharedLibrary: SharedLearningPublishReceipt;
+};
+
 export function distilledWebKnowledgePayload(bundle: DistilledWebKnowledgeBundle) {
   return {
     schemaVersion: bundle.schemaVersion,
     analysisMode: bundle.analysisMode,
     source: bundle.source,
+    storyResearch: bundle.storyResearch,
     rules: bundle.rules,
     teachers: bundle.teachers,
     teacherAgreement: bundle.teacherAgreement,

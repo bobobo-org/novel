@@ -9,6 +9,7 @@ import {
   approveLearningRule,
   buildApprovedLearningContext,
   clearLearningSourceQuarantine,
+  coordinateUnifiedClosedAI,
   createSovereignLearningRepository,
   createSovereignLearningSnapshot,
   evaluateApprovedLearningCapability,
@@ -17,6 +18,7 @@ import {
   ingestDistilledWebKnowledge,
   ingestFirstPartyProjectKnowledge,
   ingestLearningSource,
+  ingestSharedLearningSnapshot,
   rejectLearningRule,
   replaceLearningRule,
   restoreSovereignLearningSnapshot,
@@ -24,12 +26,16 @@ import {
   revokeLearningSource,
   type AutonomousPracticeExperience,
   type LearningEngagementMetric,
-  type LearningRightsBasis,
   type LearningSourceKind,
   type LearningWebSourceChannel,
   type ControlledTeacherProvider,
-  type DistilledWebKnowledgeBundle,
+  type DistilledWebKnowledgeResponse,
+  type SharedLearningPublishReceipt,
+  type SharedLearningSnapshot,
   type SovereignLearningSnapshot,
+  UNIFIED_CLOSED_AI_COORDINATOR_VERSION,
+  UNIFIED_CLOSED_AI_ROLES,
+  VERIFIED_STORY_TEACHER_VERSION,
 } from "@/lib/novel-ai/sovereign-learning";
 import { runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import {
@@ -51,8 +57,6 @@ type ExternalProviderStatus = {
   verificationCode: string;
   modelId: string;
 };
-type TeacherMode = "auto" | "manual" | "local_only";
-
 type AutonomousSettings = {
   enabled: boolean;
   syncEnabled: boolean;
@@ -66,26 +70,6 @@ type AutonomousSettings = {
 const AUTONOMOUS_SETTINGS_PREFIX = "novel-autonomous-learning-settings-v2";
 const LEGACY_AUTONOMOUS_SETTINGS_PREFIX = "novel-autonomous-learning-settings-v1";
 const AUTONOMOUS_QUEUE_KEY = "novel-autonomous-learning-queue-v1";
-
-const sourceKindOptions: Array<[LearningSourceKind, string]> = [
-  ["article", "文章"],
-  ["book_excerpt", "書籍節選"],
-  ["ai_output", "其他 AI 的輸出"],
-  ["personal_note", "自己的筆記"],
-  ["public_domain_work", "公版作品"],
-  ["licensed_material", "已授權資料"],
-  ["video_transcript", "自有／已授權影片字幕"],
-  ["novel_app_export", "自有／已授權小說 App 匯出"],
-  ["classical_chinese_public_domain", "公版中文典籍／詩詞書畫題跋"],
-];
-
-const rightsOptions: Array<[LearningRightsBasis, string]> = [
-  ["lawful_private_reference", "合法取得，只供本機私人分析"],
-  ["owned_by_user", "我擁有內容權利"],
-  ["public_domain", "已確認為公版"],
-  ["licensed_for_analysis", "已取得分析／衍生使用授權"],
-  ["ai_output_authorized", "AI 輸出，已獲准供本機分析"],
-];
 
 const taskOptions = [
   ["continue_writing", "續寫"],
@@ -106,13 +90,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "操作失敗，請稍後重試。";
 }
 
-function effectiveWebRightsEvidence(url: string, basis: LearningRightsBasis, note: string) {
-  if (note.trim()) return note.trim();
+function automaticPublicResearchEvidence(url: string) {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return `operator-confirmed:${basis}:${host}`;
+    return `automatic-public-abstract-research:${host}`;
   } catch {
-    return `operator-confirmed:${basis}:invalid-url`;
+    return "automatic-public-abstract-research:invalid-url";
   }
 }
 
@@ -175,14 +158,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [status, setStatus] = useState("正在讀取本機學習庫。");
   const [busy, setBusy] = useState(false);
-  const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("");
-  const [sourceReference, setSourceReference] = useState("");
   const [sourceKind, setSourceKind] = useState<LearningSourceKind>("article");
-  const [rightsBasis, setRightsBasis] = useState<LearningRightsBasis>("lawful_private_reference");
-  const [rightsEvidence, setRightsEvidence] = useState("");
-  const [rightsConfirmed, setRightsConfirmed] = useState(false);
-  const [deepExtraction, setDeepExtraction] = useState(true);
   const [content, setContent] = useState("");
   const [loadedFile, setLoadedFile] = useState<ManualLearningFileExtraction | null>(null);
   const [recipeTask, setRecipeTask] = useState("continue_writing");
@@ -193,15 +169,12 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [webEngagementMetric, setWebEngagementMetric] = useState<LearningEngagementMetric>("views");
   const [webEngagementCount, setWebEngagementCount] = useState("");
   const [webEngagementEvidence, setWebEngagementEvidence] = useState("");
-  const [webRightsBasis, setWebRightsBasis] = useState<LearningRightsBasis>("lawful_private_reference");
-  const [webRightsEvidence, setWebRightsEvidence] = useState("");
-  const [webRightsConfirmed, setWebRightsConfirmed] = useState(false);
   const [providerStatuses, setProviderStatuses] = useState<ExternalProviderStatus[]>([]);
-  const [teacherMode, setTeacherMode] = useState<TeacherMode>("auto");
-  const [manualTeacherProviders, setManualTeacherProviders] = useState<ControlledTeacherProvider[]>([]);
   const [providerBusy, setProviderBusy] = useState(false);
   const [firstPartyStatus, setFirstPartyStatus] = useState("正在同步本作品的創作知識。");
   const [firstPartyBusy, setFirstPartyBusy] = useState(false);
+  const [sharedLibraryStatus, setSharedLibraryStatus] = useState("正在同步全站共享抽象知識。");
+  const [sharedRuleCount, setSharedRuleCount] = useState(0);
   const [capabilityReport, setCapabilityReport] = useState<CapabilityReport | null>(null);
   const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings | null>(null);
   const [autonomousBusy, setAutonomousBusy] = useState(false);
@@ -215,21 +188,40 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const webRequiresEngagement = webSourceChannel !== "article" && webSourceChannel !== "classical_chinese";
   const verifiedTeacherProviders = useMemo(
     () => providerStatuses
-      .filter((provider) => provider.configured && provider.verification === "verified" && (provider.id === "openai" || provider.id === "grok"))
+      .filter((provider) => provider.configured && provider.verification === "verified" && (provider.id === "openai" || provider.id === "gemini" || provider.id === "grok"))
       .map((provider) => provider.id as ControlledTeacherProvider),
     [providerStatuses],
   );
-  const teacherProviders = useMemo(() => {
-    if (teacherMode === "local_only") return [];
-    if (teacherMode === "auto") return verifiedTeacherProviders;
-    return manualTeacherProviders.filter((provider) => verifiedTeacherProviders.includes(provider));
-  }, [manualTeacherProviders, teacherMode, verifiedTeacherProviders]);
+  const publicResearchCoordination = useMemo(
+    () => coordinateUnifiedClosedAI({
+      task: "public_story_research",
+      verifiedExternalProviderIds: verifiedTeacherProviders,
+    }),
+    [verifiedTeacherProviders],
+  );
 
   const load = useCallback(async (announce = true) => {
     const next = await getSovereignLearningDashboard(learningRepository, projectId);
     setDashboard(next);
     if (announce) setStatus("本機學習庫已就緒。");
   }, [learningRepository, projectId]);
+
+  const syncSharedLearningLibrary = useCallback(async (announce = false) => {
+    if (announce) setSharedLibraryStatus("正在用固定上限 Top-K 同步全站共享抽象知識。");
+    try {
+      const response = await fetch("/api/ai/learning/shared-library?limit=24", { cache: "no-store" });
+      if (!response.ok) throw new Error("共享學習庫目前無法讀取。");
+      const snapshot = await response.json() as SharedLearningSnapshot;
+      const result = await ingestSharedLearningSnapshot(learningRepository, { projectId, snapshot });
+      setSharedRuleCount(result.rules.length);
+      setSharedLibraryStatus(
+        `閉端因果教師與閉端 AI 已共用 ${result.rules.length} 條當下最相關規則；每次最多查詢 24 條，不掃描整座學習庫。`,
+      );
+      await load(false);
+    } catch (error) {
+      setSharedLibraryStatus(`共享同步暫時降級；閉端內建教師仍可使用：${errorMessage(error)}`);
+    }
+  }, [learningRepository, load, projectId]);
 
   const syncFirstPartyKnowledge = useCallback(async (announce = false) => {
     if (firstPartySyncRunningRef.current) return;
@@ -295,13 +287,14 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       setStatus("本機學習庫已就緒。");
       if (project?.title) setProjectTitle(project.title);
       void syncFirstPartyKnowledge(false);
+      void syncSharedLearningLibrary(false);
     }).catch((error) => {
       if (!cancelled) setStatus(errorMessage(error));
     });
     return () => {
       cancelled = true;
     };
-  }, [learningRepository, projectId, projectRepository, syncFirstPartyKnowledge]);
+  }, [learningRepository, projectId, projectRepository, syncFirstPartyKnowledge, syncSharedLearningLibrary]);
 
   useEffect(() => {
     const sync = () => void syncFirstPartyKnowledge(false);
@@ -315,27 +308,23 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
 
   const refreshExternalProviders = useCallback(async (announce = false) => {
     setProviderBusy(true);
-    if (announce) setStatus("正在重新實測 OpenAI 與 Grok 外接教師；憑證只留在伺服器端。");
+    if (announce) setStatus("正在重新實測 OpenAI、Gemini 與 Grok 外接教師；憑證只留在伺服器端。");
     try {
-      const response = await fetch("/api/ai/external/providers?probe=1&providers=openai,grok", { cache: "no-store" });
+      const response = await fetch("/api/ai/external/providers?probe=1&providers=openai,gemini,grok", { cache: "no-store" });
       if (!response.ok) throw new Error("無法讀取外接教師狀態。");
       const payload = await response.json() as { providers?: ExternalProviderStatus[] };
-      const supported = (payload.providers ?? []).filter((provider) => provider.id === "openai" || provider.id === "grok");
+      const supported = (payload.providers ?? []).filter((provider) => provider.id === "openai" || provider.id === "gemini" || provider.id === "grok");
       setProviderStatuses(supported);
       const verified = supported
         .filter((provider) => provider.configured && provider.verification === "verified")
         .map((provider) => provider.id as ControlledTeacherProvider);
-      setManualTeacherProviders((current) => current.length
-        ? current.filter((provider) => verified.includes(provider))
-        : verified);
       if (announce) {
         setStatus(verified.length
-          ? `外接教師實測完成：${verified.length} 個可用。`
-          : "目前沒有通過實測的外接教師；自動模式會安全改用純閉端分析，不會卡住研究流程。");
+          ? `自動協調器已實測 ${verified.length} 個公開研究外接算力；私人內容仍只在閉端處理。`
+          : "目前沒有通過實測的外接算力；統合閉端 AI 仍會完成分析，不會卡住研究流程。");
       }
     } catch (error) {
       setProviderStatuses([]);
-      setManualTeacherProviders([]);
       if (announce) setStatus(errorMessage(error));
     } finally {
       setProviderBusy(false);
@@ -416,42 +405,44 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   async function analyze() {
     if (busy) return;
     setBusy(true);
-    setStatus("正在檢查來源、授權與敏感資料。");
+    setStatus("正在檢查敏感資料，並由閉端故事因果教師分類與抽象。");
     try {
       const parts = splitManualLearningDocument(content);
       let ruleCount = 0;
       let duplicateParts = 0;
       let deepExtractionFailures = 0;
+      let sharedPublishedCount = 0;
+      let sharedPersistence: SharedLearningPublishReceipt["status"] = "no_safe_rules";
       for (const [partIndex, part] of parts.entries()) {
         const partLabel = parts.length > 1 ? `（第 ${partIndex + 1}/${parts.length} 卷）` : "";
+        const automaticTitle = loadedFile?.fileName?.replace(/\.[^.]+$/u, "") || "使用者貼上文字";
+        const localReference = loadedFile ? `local-file:${loadedFile.fileName}` : undefined;
         const result = await ingestLearningSource(learningRepository, {
           projectId,
-          title: `${title}${partLabel}`,
-          author,
+          title: `${automaticTitle}${partLabel}`,
+          author: "使用者提供",
           sourceReference: parts.length > 1
-            ? `${sourceReference || `local-file:${loadedFile?.fileName ?? title}`}#part-${partIndex + 1}`
-            : sourceReference,
+            ? `${localReference || "transient-user-text"}#part-${partIndex + 1}`
+            : localReference,
           sourceKind,
-          rightsBasis,
-          rightsEvidence,
-          userConfirmedRights: rightsConfirmed,
+          rightsBasis: "user_supplied_abstract_research",
+          rightsEvidence: "user-initiated-transient-abstract-analysis",
+          userConfirmedRights: true,
           content: part,
-          deepExtractor: deepExtraction
-            ? async ({ prompt }) => {
-              const result = await runStudioClosedAI({
-                projectId,
-                task: "knowledge_rule_extraction",
-                input: prompt,
-              });
-              return {
-                content: result.content,
-                provider: result.provider,
-                model: result.model,
-                externalRequest: result.externalRequest,
-                dataLeftDevice: result.dataLeftDevice,
-              };
-            }
-            : undefined,
+          deepExtractor: async ({ prompt }) => {
+            const result = await runStudioClosedAI({
+              projectId,
+              task: "knowledge_rule_extraction",
+              input: prompt,
+            });
+            return {
+              content: result.content,
+              provider: result.provider,
+              model: result.model,
+              externalRequest: result.externalRequest,
+              dataLeftDevice: result.dataLeftDevice,
+            };
+          },
           onProgress: ({ phase, current, total }) => {
             const labels = {
               validating: "正在檢查來源與安全邊界",
@@ -466,14 +457,35 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         ruleCount += result.rules.length;
         deepExtractionFailures += result.deepExtractionFailures;
         if (result.duplicate) duplicateParts += 1;
+        try {
+          const publishResponse = await fetch("/api/ai/learning/shared-library", {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceDigest: result.source.contentHash,
+              sourceChannel: "user_supplied",
+              teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
+              rules: result.rules,
+            }),
+          });
+          const receipt = await publishResponse.json() as SharedLearningPublishReceipt;
+          sharedPublishedCount += receipt.publishedCount ?? 0;
+          sharedPersistence = receipt.status;
+        } catch {
+          sharedPersistence = "persistence_degraded";
+        }
       }
+      const sharedLabel = sharedPersistence === "durably_recorded"
+        ? `其中 ${sharedPublishedCount} 條安全抽象已寫入全站共享庫。`
+        : "全站持久化暫時未完成；本機規則與內建因果教師仍可使用。";
       setStatus(duplicateParts === parts.length
-        ? `這份來源已分析過，沿用 ${ruleCount} 條既有規則。`
-        : `分析完成：${parts.length > 1 ? `長篇已安全分成 ${parts.length} 卷；` : ""}建立 ${ruleCount} 條規則候選；原文未保存。${deepExtractionFailures ? ` 有 ${deepExtractionFailures} 段深度抽象失敗，已保留本機統計結果。` : ""}`);
+        ? `這份文字已分析過，沿用 ${ruleCount} 條閉端因果規則；${sharedLabel}`
+        : `分析完成：${parts.length > 1 ? `長篇已安全分成 ${parts.length} 卷；` : ""}建立 ${ruleCount} 條規則候選；原文、人物名、台詞與具體情節均未保存。${sharedLabel}${deepExtractionFailures ? ` 有 ${deepExtractionFailures} 段選用的深度模型未完成，閉端因果教師已補足。` : ""}`);
       setContent("");
       setLoadedFile(null);
-      setRightsConfirmed(false);
       await load(false);
+      await syncSharedLearningLibrary(false);
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -486,8 +498,9 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     setBusy(true);
     setStatus("正在驗證 HTTPS、公開 DNS、robots 規則與提示注入風險。");
     try {
-      const rightsEvidence = effectiveWebRightsEvidence(webUrl, webRightsBasis, webRightsEvidence);
-      const externalConsent = teacherMode !== "local_only" && teacherProviders.length > 0;
+      const rightsEvidence = automaticPublicResearchEvidence(webUrl);
+      const externalConsent = publicResearchCoordination.externalAnalysisEnabled;
+      const hasEngagementEvidence = Number(webEngagementCount) >= 100_000 && Boolean(webEngagementEvidence.trim());
       const response = await fetch("/api/ai/learning/web-distill", {
         method: "POST",
         cache: "no-store",
@@ -495,19 +508,19 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         body: JSON.stringify({
           projectId,
           url: webUrl,
-          rightsBasis: webRightsBasis,
+          rightsBasis: "public_abstract_research",
           rightsEvidence,
-          userConfirmedRights: webRightsConfirmed,
-          teacherMode,
+          userConfirmedRights: true,
+          teacherMode: "auto",
           externalConsent,
-          providerIds: teacherProviders,
+          providerIds: publicResearchCoordination.externalProviderIds,
           sourceChannel: webSourceChannel,
           engagementMetric: webEngagementMetric,
-          engagementCount: webRequiresEngagement ? Number(webEngagementCount) : null,
-          engagementEvidence: webRequiresEngagement ? webEngagementEvidence : null,
+          engagementCount: webRequiresEngagement && hasEngagementEvidence ? Number(webEngagementCount) : null,
+          engagementEvidence: webRequiresEngagement && hasEngagementEvidence ? webEngagementEvidence : null,
         }),
       });
-      const payload = await response.json() as DistilledWebKnowledgeBundle & {
+      const payload = await response.json() as DistilledWebKnowledgeResponse & {
         error?: string;
         code?: string;
         detailCodes?: string[];
@@ -522,27 +535,29 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       const result = await ingestDistilledWebKnowledge(learningRepository, {
         projectId,
         bundle: payload,
-        rightsBasis: webRightsBasis,
+        rightsBasis: "public_abstract_research",
         rightsEvidence,
-        userConfirmedRights: webRightsConfirmed,
+        userConfirmedRights: true,
         externalConsent,
       });
       const modeLabel = payload.analysisMode === "local_deterministic"
-        ? "純閉端抽象"
+        ? "閉端故事因果教師"
         : payload.analysisMode === "hybrid"
           ? "外接教師＋閉端交叉分析"
           : "外接教師分析";
+      const detectedMechanisms = payload.storyResearch.mechanisms
+        .filter((mechanism) => mechanism.signalStrength > 0).length;
       setStatus(
         result.duplicate
-          ? `此網路來源已研究過，沿用 ${result.rules.length} 條既有規則。`
-          : `${modeLabel}完成：建立 ${result.rules.length} 條候選；外部請求 ${result.externalRequestCount} 次，${result.dataLeftDevice ? "清理後資料曾送往所選教師" : "資料未離開本機流程"}。原文與教師完整輸出均未保存；正式能力尚未變更。`,
+          ? `此公開頁面已由閉端因果教師研究過，沿用 ${result.rules.length} 條抽象規則。`
+          : `${modeLabel}完成：檢查 ${payload.storyResearch.mechanisms.length} 類故事機制、由目前證據辨識 ${detectedMechanisms} 類，因果完整度 ${Math.round(payload.storyResearch.causalMap.completeness * 100)}%，建立 ${result.rules.length} 條候選；${payload.sharedLibrary.status === "durably_recorded" ? `${payload.sharedLibrary.publishedCount} 條已寫入全站共享庫` : payload.sharedLibrary.status === "no_safe_rules" ? "目前證據不足以強化全站庫，本機候選仍保留" : "共享庫暫時降級，本機結果仍保留"}。原文、人物名、台詞與具體情節均未保存。`,
       );
       setWebUrl("");
       setWebEngagementCount("");
       setWebEngagementEvidence("");
-      setWebRightsConfirmed(false);
       setCapabilityReport(null);
       await load(false);
+      await syncSharedLearningLibrary(false);
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -875,20 +890,30 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         <div>
           <small>{projectTitle}</small>
           <h1>閉端 AI 規則學習中心</h1>
-          <p>吸收敘事機制，不保存原文、不模仿原句；所有規則先成為候選，經你核准才生效。</p>
+          <p>原本的閉端 AI 知識層已內建故事因果教師：分類、驗證並吸收抽象規則，不保存原文。</p>
         </div>
-        <span className={styles.localBadge}>本機主權＋選用外接教師</span>
+        <span className={styles.localBadge}>全站共享＋閉端因果教師</span>
       </header>
       <ProjectNavigation projectId={projectId} active="learning" />
 
       <section className={styles.statusGrid} aria-label="學習狀態">
-        <article><small>有效來源</small><strong>{dashboard?.counts.activeSources ?? 0}</strong></article>
+        <article><small>共享 Top-K 規則</small><strong>{sharedRuleCount}</strong></article>
         <article><small>待核准規則</small><strong>{dashboard?.counts.candidateRules ?? 0}</strong></article>
         <article><small>已核准規則</small><strong>{dashboard?.counts.approvedRules ?? 0}</strong></article>
         <article><small>有效組合空間</small><strong>{dashboard?.combinationSpace.display ?? "0"}</strong></article>
       </section>
 
       <p className={styles.status} role="status" aria-live="polite">{status}</p>
+
+      <section className={styles.panel} data-testid="shared-learning-status">
+        <div className={styles.panelHeading}>
+          <div><small>原閉端 AI 知識層</small><h2>因果教師分析，閉端 AI 直接使用</h2></div>
+          <span>索引／去重／快取／固定 Top-K</span>
+        </div>
+        <p>{sharedLibraryStatus}</p>
+        <button type="button" className={styles.secondary} onClick={() => void syncSharedLearningLibrary(true)}>立即同步共享規則</button>
+        <p className={styles.note}>這不是第二套知識庫。因果教師分析後直接寫回原知識層；全站中央索引只收抽象方法，不收原文、人物名、台詞或具體情節。</p>
+      </section>
 
       <section className={styles.panel}>
         <div className={styles.panelHeading}>
@@ -910,15 +935,11 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         <div className={styles.webResearchGrid}>
           <div>
             <label>公開來源網址
-              <input type="url" value={webUrl} onChange={(event) => setWebUrl(event.target.value)} placeholder="https://example.com/你有權分析的文章" />
+              <input type="url" value={webUrl} onChange={(event) => setWebUrl(event.target.value)} placeholder="https://example.com/public-story-or-analysis" />
             </label>
             <div className={styles.twoColumns}>
               <label>學習通道
-                <select value={webSourceChannel} onChange={(event) => {
-                  const channel = event.target.value as LearningWebSourceChannel;
-                  setWebSourceChannel(channel);
-                  if (channel === "classical_chinese") setWebRightsBasis("public_domain");
-                }}>
+                <select value={webSourceChannel} onChange={(event) => setWebSourceChannel(event.target.value as LearningWebSourceChannel)}>
                   <option value="article">一般文章／研究資料</option>
                   <option value="youtube">YouTube 熱門影片</option>
                   <option value="novel_app">小說 App／閱讀產品</option>
@@ -940,88 +961,64 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
               </label>}
             </div>
             {webRequiresEngagement ? <div className={styles.twoColumns}>
-              <label>公開數值（至少 100,000）
+              <label>公開數值（選填；填寫時至少 100,000）
                 <input type="number" min="100000" step="1" value={webEngagementCount} onChange={(event) => setWebEngagementCount(event.target.value)} placeholder="100000" />
               </label>
-              <label>人氣證據
+              <label>人氣證據（選填）
                 <input value={webEngagementEvidence} onChange={(event) => setWebEngagementEvidence(event.target.value)} placeholder="平台公開計數、統計頁或查核說明" />
               </label>
             </div> : null}
-            <div className={styles.twoColumns}>
-              <label>權利依據
-                <select value={webRightsBasis} onChange={(event) => setWebRightsBasis(event.target.value as LearningRightsBasis)}>
-                  {rightsOptions.filter(([value]) => value !== "ai_output_authorized").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label>來源備註（選填）
-                <input value={webRightsEvidence} onChange={(event) => setWebRightsEvidence(event.target.value)} placeholder="可填條款、年份或授權說明；合法私人分析會自動留下來源證明" />
-              </label>
-            </div>
+            <p className={styles.note}>公開網址不再要求授權勾選、出處或來源備註；系統只分析指定頁面，最後只留下不可還原的抽象規則。</p>
           </div>
           <div className={styles.teacherBox}>
-            <strong>研究引擎</strong>
-            <label>連線方式
-              <select value={teacherMode} onChange={(event) => setTeacherMode(event.target.value as TeacherMode)}>
-                <option value="auto">自動：外接可用就交叉分析，否則閉端完成</option>
-                <option value="manual">手動：只使用我選的已驗證教師</option>
-                <option value="local_only">純閉端：不連 OpenAI／Grok</option>
-              </select>
-            </label>
-            {(["openai", "grok"] as const).map((providerId) => {
-              const provider = providerStatuses.find((item) => item.id === providerId);
-              const verified = provider?.verification === "verified";
-              const checked = teacherMode === "auto"
-                ? verified
-                : teacherMode === "manual" && manualTeacherProviders.includes(providerId);
-              return <article className={styles.providerRow} data-ready={verified} key={providerId}>
-                <label>
-                  <input
-                    type="checkbox"
-                    disabled={teacherMode !== "manual" || !verified}
-                    checked={checked}
-                    onChange={(event) => setManualTeacherProviders((current) => event.target.checked
-                      ? [...new Set([...current, providerId])]
-                      : current.filter((item) => item !== providerId))}
-                  />
-                  <span>{provider?.label ?? (providerId === "openai" ? "OpenAI（ChatGPT 系列）" : "xAI Grok")}</span>
-                </label>
-                <small>{verified ? `${provider.modelId} · 已實測` : provider?.configured ? `未通過實測（${provider.verificationCode}）` : "伺服器尚未設定"}</small>
-              </article>;
-            })}
-            <div className={styles.teacherActions}>
-              <button type="button" className={styles.secondary} disabled={providerBusy} onClick={() => void refreshExternalProviders(true)}>
-                {providerBusy ? "實測中…" : "重新實測連線"}
-              </button>
-              <Link href="/studio/settings/ai">外接 AI 設定</Link>
-            </div>
-            <p className={styles.note}>{teacherMode === "local_only"
-              ? "本輪只使用閉端規則分析，來源不會送往 OpenAI 或 Grok。"
-              : teacherMode === "manual"
-                ? "只呼叫你勾選且已通過伺服器實測的教師；若未勾選，研究按鈕會保持停用。"
-                : verifiedTeacherProviders.length
-                  ? `已找到 ${verifiedTeacherProviders.length} 個可用教師；教師失敗時會安全降級為閉端分析。`
-                  : "目前無可用外接教師；仍可由純閉端分析完成，不會再卡住整個流程。"}</p>
+            <strong>統合閉端 AI 自動協調器</strong>
+            <p className={styles.note}>
+              一個入口、三種內部功能；系統會依任務自動協調，使用者不需要選擇哪一個 AI。
+            </p>
+            {UNIFIED_CLOSED_AI_ROLES.map((role) => (
+              <article className={styles.providerRow} data-ready="true" key={role.id}>
+                <div><span>{role.label}</span></div>
+                <small>{role.responsibility}</small>
+              </article>
+            ))}
+            <article className={styles.providerRow} data-ready="true">
+              <div><span>內建教師與協調契約</span></div>
+              <small>{VERIFIED_STORY_TEACHER_VERSION} · {UNIFIED_CLOSED_AI_COORDINATOR_VERSION} · 永遠可用</small>
+            </article>
+            <details>
+              <summary>公開研究的選用外接算力狀態</summary>
+              {(["openai", "gemini", "grok"] as const).map((providerId) => {
+                const provider = providerStatuses.find((item) => item.id === providerId);
+                const verified = provider?.verification === "verified";
+                return <article className={styles.providerRow} data-ready={verified} key={providerId}>
+                  <div><span>{provider?.label ?? (providerId === "openai" ? "OpenAI（ChatGPT 系列）" : providerId === "gemini" ? "Google Gemini" : "xAI Grok")}</span></div>
+                  <small>{verified ? `${provider.modelId} · 已實測，由協調器視需要採用` : provider?.configured ? `未通過實測（${provider.verificationCode}）` : "伺服器尚未設定"}</small>
+                </article>;
+              })}
+              <div className={styles.teacherActions}>
+                <button type="button" className={styles.secondary} disabled={providerBusy} onClick={() => void refreshExternalProviders(true)}>
+                  {providerBusy ? "實測中…" : "重新實測連線"}
+                </button>
+                <Link href="/studio/settings/ai">外接 AI 設定</Link>
+              </div>
+            </details>
+            <p className={styles.note}>{verifiedTeacherProviders.length
+              ? `已找到 ${verifiedTeacherProviders.length} 個可用外接算力；只可協助公開網址研究，失敗時由內建閉端教師完成。`
+              : "目前無可用外接算力；內建故事因果教師仍會完成研究，不會卡住流程。"} 私人貼文、檔案與作品內容不會因自動協調而送往外接服務。</p>
           </div>
         </div>
-        <label className={styles.check}>
-          <input type="checkbox" checked={webRightsConfirmed} onChange={(event) => setWebRightsConfirmed(event.target.checked)} />
-          我確認有權分析這個指定來源；系統不會自行遍歷整個網站，也不會保存來源原文
-        </label>
         <button
           type="button"
           disabled={
             busy
             || !webUrl.trim()
-            || !webRightsConfirmed
-            || (webRequiresEngagement && (Number(webEngagementCount) < 100_000 || !webEngagementEvidence.trim()))
-            || (teacherMode === "manual" && teacherProviders.length === 0)
           }
           onClick={() => void researchWeb()}
         >
-          {busy ? "處理中…" : "安全抓取並建立規則候選"}
+          {busy ? "處理中…" : "直接分析並建立抽象規則"}
         </button>
         <div className={styles.researchHelp}>
-          <p className={styles.note}>每次只處理你指定的一個公開頁面；受版權保護的小說不會整站下載或保存全文。完整文本僅接受你擁有、獲授權或公版的檔案。網站拒絕自動讀取時，可改用下方本機貼文分析。</p>
+          <p className={styles.note}>每次只處理你指定的一個公開頁面，不整站遍歷；分析後只保留抽象故事機制。網站拒絕自動讀取時，可直接把文字貼到下方。</p>
           <button type="button" className={styles.secondary} onClick={() => document.getElementById("manual-source-import")?.scrollIntoView({ behavior: "smooth", block: "start" })}>改用本機貼文／檔案</button>
         </div>
       </section>
@@ -1029,33 +1026,11 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       <div className={styles.columns}>
         <section className={styles.panel} id="manual-source-import">
           <div className={styles.panelHeading}>
-            <div><small>步驟 1</small><h2>匯入並抽象規則</h2></div>
+            <div><small>步驟 1</small><h2>貼上文字，立即抽象規則</h2></div>
             <span>原文分析後丟棄</span>
           </div>
-          <label>來源標題<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：某篇節奏分析文章" /></label>
-          <div className={styles.twoColumns}>
-            <label>來源類型
-              <select value={sourceKind} onChange={(event) => {
-                const kind = event.target.value as LearningSourceKind;
-                setSourceKind(kind);
-                if (kind === "ai_output") setRightsBasis("ai_output_authorized");
-              }}>
-                {sourceKindOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label>權利依據
-              <select value={rightsBasis} onChange={(event) => setRightsBasis(event.target.value as LearningRightsBasis)}>
-                {rightsOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className={styles.twoColumns}>
-            <label>作者／提供者<input value={author} onChange={(event) => setAuthor(event.target.value)} /></label>
-            <label>來源網址或識別資料<input value={sourceReference} onChange={(event) => setSourceReference(event.target.value)} /></label>
-          </div>
-          <label>授權證據或備註<input value={rightsEvidence} onChange={(event) => setRightsEvidence(event.target.value)} placeholder="公版年份、授權條款或取得方式" /></label>
-          <label>貼上文章、研究或小說
-            <textarea rows={12} value={content} onChange={(event) => { setContent(event.target.value); setLoadedFile(null); }} placeholder="原文只用於這次本機分析，不會寫入學習庫。" />
+          <label>貼上文章、研究、小說或故事文字
+            <textarea rows={12} value={content} onChange={(event) => { setContent(event.target.value); setLoadedFile(null); setSourceKind("article"); }} placeholder="直接貼上即可；不詢問標題、作者、出處或授權。原文只存在於這次分析。" />
           </label>
           <label className={styles.fileLabel}>或載入本機作品／研究檔
             <input type="file" accept=".txt,.md,.html,.json,.pdf,.docx,text/plain,text/markdown,text/html,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => {
@@ -1066,28 +1041,19 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
               void extractManualLearningFileInWorker(file).then((extraction) => {
                 setContent(extraction.text);
                 setLoadedFile(extraction);
-                setTitle(file.name.replace(/\.[^.]+$/u, ""));
-                setSourceReference(`local-file:${file.name}`);
                 if (file.name.toLowerCase().endsWith(".docx")) setSourceKind("novel_app_export");
-                setStatus(`已在瀏覽器內解析 ${file.name}：${extraction.pageCount ? `${extraction.pageCount} 頁、` : ""}${extraction.text.length.toLocaleString("zh-TW")} 字元。確認權利後即可交給閉端 AI 抽象。`);
+                setStatus(`已在瀏覽器內解析 ${file.name}：${extraction.pageCount ? `${extraction.pageCount} 頁、` : ""}${extraction.text.length.toLocaleString("zh-TW")} 字元，可直接交給閉端故事因果教師抽象。`);
               }).catch((error) => setStatus(errorMessage(error))).finally(() => { input.value = ""; });
             }} />
           </label>
           {loadedFile ? <p className={styles.note} data-testid="manual-learning-file-ready">
-            已載入：{loadedFile.fileName}（{loadedFile.format.toUpperCase()}）・{loadedFile.text.length.toLocaleString("zh-TW")} 字元{loadedFile.pageCount ? `・${loadedFile.pageCount} 頁` : ""}。超過單卷上限時會自動分卷；只保存抽象規則、來源指紋與授權稽核，不保存原文。
+            已載入：{loadedFile.fileName}（{loadedFile.format.toUpperCase()}）・{loadedFile.text.length.toLocaleString("zh-TW")} 字元{loadedFile.pageCount ? `・${loadedFile.pageCount} 頁` : ""}。超過單卷上限時會自動分卷；只保存抽象規則與不可還原指紋，不保存原文。
           </p> : null}
-          <label className={styles.check}>
-            <input type="checkbox" checked={deepExtraction} onChange={(event) => setDeepExtraction(event.target.checked)} />
-            若本機 Ollama／瀏覽器閉端 AI 可用，進行深度規則抽象
-          </label>
-          <label className={styles.check}>
-            <input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} />
-            我確認有權在自己的裝置上分析此內容，並了解來源文字不會被當成系統指令
-          </label>
-          <button type="button" disabled={busy || !content.trim() || !title.trim() || !rightsConfirmed} onClick={() => void analyze()}>
-            {busy ? "處理中…" : "分析並建立規則候選"}
+          <p className={styles.note}>統合閉端 AI 會自動協調內建因果教師、可用本機算力與固定上限知識檢索；不需要選擇執行引擎。</p>
+          <button type="button" disabled={busy || !content.trim()} onClick={() => void analyze()}>
+            {busy ? "處理中…" : "直接分析並共享安全抽象"}
           </button>
-          <p className={styles.note}>支援 TXT、Markdown、HTML、JSON、文字型 PDF 與 DOCX。若偵測到密鑰、提示注入或隱藏指令，系統會阻擋或隔離；不會偷偷抓取網站，也不會把作品送到外部 AI。</p>
+          <p className={styles.note}>不過問出處或來源；支援 TXT、Markdown、HTML、JSON、文字型 PDF 與 DOCX。密鑰、提示注入或隱藏指令仍會被阻擋；只有通過非抄寫檢查的抽象規則可進入全站共享索引。</p>
         </section>
 
         <section className={styles.panel}>
@@ -1239,9 +1205,10 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
         <section className={styles.panel}>
           <div className={styles.panelHeading}><div><small>復原與真相</small><h2>備份、還原與能力邊界</h2></div></div>
           <ul className={styles.truthList}>
-            <li>已實作：本機規則抽象、候選核准、來源撤銷、規則組合、回饋偏好與防抄指紋。</li>
-            <li>深度抽象：透過 Closed Agent OS 鎖定 Local Ollama；未配對時明確失敗，不會改用外部 AI。</li>
-            <li>受控網路蒸餾：只讀取指定 HTTPS 來源，檢查公開 DNS、robots、重新導向、內容大小與提示注入；OpenAI／Grok 只提供候選。</li>
+            <li>已實作：原閉端 AI 知識層內建故事因果教師，分析觸發、目標、因果鏈、道具、關係、反轉、爽點、後果與追更鉤子。</li>
+            <li>內建教師永遠可用；Local Ollama、OpenAI、Gemini、Grok 都只是選用的深化或交叉驗證算力，未設定時不阻塞分析。</li>
+            <li>受控網路研究：公開網址免填授權欄位；仍檢查 HTTPS、公開 DNS、robots、重新導向、內容大小與提示注入。</li>
+            <li>全站共享：因果教師只把非抄寫抽象規則寫回原知識層；閉端 AI 每次以索引、去重與快取讀取固定 Top-K。</li>
             <li>能力驗證：核准後用 Control／Treatment 比較規則是否真正進入執行期；分數代表整合完整度，不冒充模型權重品質。</li>
             <li>自我學習方式：核准規則＋本機 RAG／提示偏好，不會在背景偷偷改模型權重。</li>
             <li>L2 離線偏好模型：Private Hub 已可訓練、人工啟用與回滾；資料仍限定此作品。</li>

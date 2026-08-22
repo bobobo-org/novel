@@ -152,6 +152,7 @@
     "test:ai:external:modes": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-external-ai-modes.mjs",
     "test:ai:external:request-guard": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-external-ai-request-guard.mjs",
     "test:ai:controlled-web-distillation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-controlled-web-distillation.mjs",
+    "test:ai:shared-learning-library": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-shared-learning-library.mjs",
     "test:ai:browser:fabric-orchestrator": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-sovereign-ai-fabric-rc5.mjs fabric-orchestrator",
     "test:ai:browser:heterogeneous-engines": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-sovereign-ai-fabric-rc5.mjs heterogeneous-engines",
     "test:ai:browser:task-graph": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-sovereign-ai-fabric-rc5.mjs task-graph",

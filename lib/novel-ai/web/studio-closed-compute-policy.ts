@@ -1,41 +1,38 @@
 import type { BrowserComputePolicy } from "../router/platform-types";
 
 export const STUDIO_AI_SETTINGS_KEY = "novel_p2_ai_settings";
+export const STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY = "balanced" as const;
 
-export type StudioClosedComputePolicy = Extract<
-  BrowserComputePolicy,
-  "browser-first" | "quality-first"
->;
+/**
+ * Studio exposes one Closed AI automatic coordinator. The coordinator may use
+ * Browser AI, Local Ollama or Private Hub according to the task and verified
+ * runtime availability; authors no longer choose a compute backend per task.
+ */
+export type StudioClosedComputePolicy = typeof STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY;
 
 type SettingsStorage = Pick<Storage, "getItem">;
 
 export function normalizeStudioClosedComputePolicy(
-  value: unknown,
+  _value: unknown,
 ): StudioClosedComputePolicy {
-  return value === "quality-first" ? "quality-first" : "browser-first";
+  void _value;
+  return STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY;
 }
 
 export function readStudioClosedComputePolicy(
-  storage?: SettingsStorage | null,
+  _storage?: SettingsStorage | null,
 ): StudioClosedComputePolicy {
-  const availableStorage = storage ?? (
-    typeof window !== "undefined" ? window.localStorage : null
-  );
-  if (!availableStorage) return "browser-first";
-  try {
-    const saved = JSON.parse(
-      availableStorage.getItem(STUDIO_AI_SETTINGS_KEY) || "null",
-    ) as { closedComputePolicy?: unknown } | null;
-    return normalizeStudioClosedComputePolicy(saved?.closedComputePolicy);
-  } catch {
-    return "browser-first";
-  }
+  void _storage;
+  // Deliberately ignore legacy browser-first / quality-first localStorage.
+  // A stale browser preference must never override the current coordinator.
+  return STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY;
 }
 
 export function resolveStudioClosedComputePolicy(
-  explicitPolicy?: BrowserComputePolicy,
+  _explicitPolicy?: BrowserComputePolicy,
 ): BrowserComputePolicy {
-  return explicitPolicy ?? readStudioClosedComputePolicy();
+  void _explicitPolicy;
+  return STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY;
 }
 
 export function hasExplicitLocalComputeAuthorization(

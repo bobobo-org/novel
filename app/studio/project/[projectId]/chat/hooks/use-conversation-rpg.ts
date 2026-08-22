@@ -14,10 +14,10 @@ import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import { rejectStudioClosedAgentCandidate } from "@/lib/novel-ai/web/closed-agent-os-service";
 import {
+  buildRpgRuleChoicePlan,
   buildRpgChatCustomAction,
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
-  planRpgChatChoices,
   type RpgChatChoicePlan,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { parseRpgChoices, serializeRpgChoices } from "../components/conversation-presentation";
@@ -117,10 +117,14 @@ export function useConversationRpgController({
     });
     try {
       const snapshot = await loadRpgChatSnapshot(repository, projectId);
-      const plan = await planRpgChatChoices({
+      // Choices are a navigation control, so they must never wait for a local
+      // model queue.  The causal teacher has already selected a bounded Top-K
+      // rule set while loading the snapshot; turn it into the three playable
+      // routes immediately.  The selected route still goes through the normal
+      // closed-AI candidate, approval and atomic settlement flow below.
+      const plan = await buildRpgRuleChoicePlan({
         snapshot,
-        signal: input.signal,
-        onProgress: (event) => setProgress(rpgProgressLabel(event)),
+        fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE",
       });
       if (input.signal.aborted) {
         throw Object.assign(new Error("RPG choices cancelled."), { code: "CONVERSATION_CANCELLED" });

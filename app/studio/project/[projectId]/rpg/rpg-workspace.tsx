@@ -62,6 +62,11 @@ import {
 } from "@/lib/novel-ai/game/xianxia-procedural-rule-packs";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
+  createSovereignLearningRepository,
+  ingestSharedLearningSnapshot,
+  type SharedLearningSnapshot,
+} from "@/lib/novel-ai/sovereign-learning";
+import {
   STORY_PLAY_MODE_LABELS,
   resolveStoryPlayMode,
   type StoryPlayModeId,
@@ -75,6 +80,7 @@ import {
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import {
   approveRpgChatTurn,
+  buildRpgRuleChoicePlan,
   buildRpgChatCustomAction,
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
@@ -142,7 +148,7 @@ type RpgMutationLine = {
 
 const FORMULA = rpgFormulaExplanation();
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
-const RPG_CHOICE_PLAN_TIMEOUT_MS = 180_000;
+const RPG_CHOICE_ENHANCEMENT_TIMEOUT_MS = 12_000;
 const RPG_TURN_TIMEOUT_MS = 300_000;
 
 type PlayModeDashboardCopy = {
@@ -435,6 +441,7 @@ function splitRoundStory(text: string, fallbackTitle: string) {
 }
 
 export default function RpgWorkspace({ projectId }: { projectId: string }) {
+  const learningRepository = useMemo(() => createSovereignLearningRepository(), []);
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [customLibrary, setCustomLibrary] = useState<RpgCharacterTemplate[]>([]);
   const [status, setStatus] = useState("正在載入故事狀態與角色養成資料。");
@@ -462,6 +469,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [aiChoiceStatus, setAiChoiceStatus] = useState("等待故事與 RPG 狀態完成同步。 ");
   const [aiChoiceElapsedSeconds, setAiChoiceElapsedSeconds] = useState(0);
   const [aiChoiceRetry, setAiChoiceRetry] = useState(0);
+  const [causalKnowledgeRevision, setCausalKnowledgeRevision] = useState(0);
   const [turnDraft, setTurnDraft] = useState("");
   const [pendingTurnCandidate, setPendingTurnCandidate] = useState<RpgChatTurnCandidate | null>(null);
   const [turnElapsedSeconds, setTurnElapsedSeconds] = useState(0);
@@ -471,6 +479,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const aiChoiceCandidateRef = useRef<string | null>(null);
   const turnControllerRef = useRef<AbortController | null>(null);
   const turnRunIdRef = useRef(0);
+  const approvalRunningRef = useRef(false);
   const resultRef = useRef<HTMLElement | null>(null);
   const detailPanels = PLAY_MODE_DETAIL_PANELS[storyPlayMode];
   const visiblePanel = detailPanels.includes(activePanel) ? activePanel : detailPanels[0];
@@ -489,10 +498,25 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     turnControllerRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/ai/learning/shared-library?limit=24", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("SHARED_CAUSAL_KNOWLEDGE_UNAVAILABLE");
+        const snapshot = await response.json() as SharedLearningSnapshot;
+        await ingestSharedLearningSnapshot(learningRepository, { projectId, snapshot });
+        if (!cancelled) setCausalKnowledgeRevision((value) => value + 1);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [learningRepository, projectId]);
+
   function leaveRpg(href: string, label: string) {
     stageStudioTaskHandoff({
       projectId,
-      sourceLabel: "完整 RPG 儀表板",
+      sourceLabel: "故事工作台（RPG 模式）",
       destinationLabel: label,
       destinationHref: href,
       chapterId: data?.chapter.id ?? null,
@@ -638,6 +662,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       progression.choiceVariant,
       storyLanguage,
       aiChoiceRetry,
+      causalKnowledgeRevision,
     ].join(":")
     : "not-ready";
   const aiChoicesReady = Boolean(
@@ -673,44 +698,57 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     aiChoiceControllerRef.current?.abort();
     aiChoiceControllerRef.current = controller;
     const planningStartedAt = Date.now();
+    let rulePlanReady = false;
+    let enhancementTimeout: number | null = null;
     const planningElapsedTimer = window.setInterval(() => {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !rulePlanReady) {
         setAiChoiceElapsedSeconds(Math.floor((Date.now() - planningStartedAt) / 1_000));
       }
     }, 1_000);
-    const planningTimeout = window.setTimeout(() => {
-      if (controller.signal.aborted) return;
-      setAiChoiceStatus("選項規劃超過 180 秒，已安全停止；正式故事與數值維持原狀。");
-      controller.abort();
-    }, RPG_CHOICE_PLAN_TIMEOUT_MS);
     const resetTimer = window.setTimeout(() => {
       setSelectedChoice(null);
       setPendingTurnCandidate(null);
       setAiChoicePlan(null);
       setAiChoiceElapsedSeconds(0);
-      setAiChoiceStatus("規則引擎正在建立三條正式策略；閉端 AI 可用時只會潤飾顯示文案。");
+      setAiChoiceStatus("閉端因果教師正在用同一知識層建立三條正式策略；AI 只會在背景潤飾文案。");
     }, 0);
     const previousCandidateId = aiChoiceCandidateRef.current;
     aiChoiceCandidateRef.current = null;
     if (previousCandidateId) void rejectStudioClosedAgentCandidate(previousCandidateId).catch(() => undefined);
 
-    void loadRpgChatSnapshot(createNovelRepository(), projectId, rules)
-      .then((snapshot) => planRpgChatChoices({
-        snapshot,
-        signal: controller.signal,
-        onProgress: (event) => {
+    void loadRpgChatSnapshot(createNovelRepository(), projectId, rules, learningRepository)
+      .then(async (snapshot) => {
+        const rulePlan = await buildRpgRuleChoicePlan({
+          snapshot,
+          fallbackReason: "RPG_RULE_FIRST_IMMEDIATE_PLAN",
+        });
+        if (controller.signal.aborted) return null;
+        rulePlanReady = true;
+        window.clearInterval(planningElapsedTimer);
+        setAiChoiceElapsedSeconds(0);
+        setAiChoicePlan({ ...rulePlan, contextKey: aiContextKey });
+        setAiChoiceStatus("閉端因果教師已先完成 A／B／C；三條路線可立即遊玩，AI 文案潤飾在背景進行。");
+        enhancementTimeout = window.setTimeout(() => {
           if (controller.signal.aborted) return;
-          const generated = event.generatedCharacters ?? 0;
-          setAiChoiceStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
-        },
-      }))
+          setAiChoiceStatus("閉端因果教師已完成三選一；AI 文案潤飾超過 12 秒，已略過，不影響遊玩。");
+          controller.abort();
+        }, RPG_CHOICE_ENHANCEMENT_TIMEOUT_MS);
+        return planRpgChatChoices({
+          snapshot,
+          signal: controller.signal,
+          onProgress: (event) => {
+            if (controller.signal.aborted) return;
+            const generated = event.generatedCharacters ?? 0;
+            setAiChoiceStatus(`A／B／C 已可遊玩；${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}`);
+          },
+        });
+      })
       .then((plan) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !plan) return;
+        if (plan.actualExecutor === "deterministic-rule-fallback") return;
         aiChoiceCandidateRef.current = plan.candidateId;
         setAiChoicePlan({ ...plan, contextKey: aiContextKey });
-        setAiChoiceStatus(plan.actualExecutor === "deterministic-rule-fallback"
-          ? "閉端 AI 目前不可用；已誠實切換規則後備，三條策略仍可完整遊玩。"
-          : `閉端 AI 已潤飾本回合顯示文案：${plan.model}；策略、成本、成功率與效果仍由規則引擎鎖定。`);
+        setAiChoiceStatus(`閉端 AI 已潤飾本回合顯示文案：${plan.model}；策略、成本、成功率與效果仍由因果教師與規則引擎鎖定。`);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
@@ -718,16 +756,16 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         setAiChoiceStatus(`本回合選項尚未完成（${String((error as { code?: string })?.code ?? "RPG_CHOICE_PLAN_FAILED")}）；正式故事與數值維持原狀。`);
       })
       .finally(() => {
-        window.clearTimeout(planningTimeout);
+        if (enhancementTimeout !== null) window.clearTimeout(enhancementTimeout);
         window.clearInterval(planningElapsedTimer);
       });
     return () => {
       window.clearTimeout(resetTimer);
-      window.clearTimeout(planningTimeout);
+      if (enhancementTimeout !== null) window.clearTimeout(enhancementTimeout);
       window.clearInterval(planningElapsedTimer);
       controller.abort();
     };
-  }, [activated, aiChoiceRetry, aiContextKey, data, pendingTurnCandidate, progression, projectId, rpgFoundationReady, rules]);
+  }, [activated, aiChoiceRetry, aiContextKey, data, learningRepository, pendingTurnCandidate, progression, projectId, rpgFoundationReady, rules]);
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
   const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
     if (!data || !progression) return null;
@@ -884,7 +922,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setStatus(`已選擇「${choice.key}｜${choice.title}」；正在產生候選正文，正式 Canon 尚未修改。`);
     try {
       const repository = createNovelRepository();
-      const snapshot = await loadRpgChatSnapshot(repository, projectId, rules);
+      const snapshot = await loadRpgChatSnapshot(repository, projectId, rules, learningRepository);
       if (
         snapshot.chapter.id !== data.chapter.id
         || snapshot.chapter.revision !== data.chapter.revision
@@ -954,31 +992,34 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   }
 
   async function approvePendingTurn() {
-    if (!pendingTurnCandidate || !data || busy) return;
+    if (!pendingTurnCandidate || !data || busy || approvalRunningRef.current) return;
+    const candidate = pendingTurnCandidate;
+    approvalRunningRef.current = true;
     setBusy(true);
     setOperationError(null);
+    setStatus("已收到核准指令；正在原子寫入正文、故事狀態與唯一回合收據。");
     try {
       const repository = createNovelRepository();
       const snapshot = await loadRpgChatSnapshot(repository, projectId, rules);
       const result = await approveRpgChatTurn({
         repository,
         snapshot,
-        candidate: pendingTurnCandidate,
+        candidate,
       });
       const receipt = result.transaction.rpgTurnReceipt;
-      setLastResolution(pendingTurnCandidate.resolution);
+      setLastResolution(candidate.resolution);
       setLastMutationLines(pendingMutationLines);
-      setLastContinuation(pendingTurnCandidate.story);
-      setLastExecutorLabel(pendingTurnCandidate.actualExecutor === "deterministic-rule-fallback"
+      setLastContinuation(candidate.story);
+      setLastExecutorLabel(candidate.actualExecutor === "deterministic-rule-fallback"
         ? "規則後備敘事"
-        : `閉端模型 · ${pendingTurnCandidate.model}`);
+        : `閉端模型 · ${candidate.model}`);
       setPendingTurnCandidate(null);
       setPendingMutationLines([]);
       setSelectedChoice(null);
       setCustomAction("");
       setTurnDraft("");
       await load();
-      setStatus(`已核准並完成唯一一次原子交易：${pendingTurnCandidate.resolution.summary}${receipt ? `；收據 ${receipt.receiptId}` : ""}。`);
+      setStatus(`已核准並完成唯一一次原子交易：${candidate.resolution.summary}${receipt ? `；收據 ${receipt.receiptId}` : ""}。`);
     } catch (error) {
       const code = closedAIErrorCode(error) || "RPG_CANONICAL_APPROVAL_FAILED";
       const message = errorMessage(error);
@@ -986,6 +1027,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setStatus(message);
       await load().catch(() => undefined);
     } finally {
+      approvalRunningRef.current = false;
       setBusy(false);
     }
   }
@@ -1008,7 +1050,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       return;
     }
     try {
-      const snapshot = await loadRpgChatSnapshot(createNovelRepository(), projectId, rules);
+      const snapshot = await loadRpgChatSnapshot(createNovelRepository(), projectId, rules, learningRepository);
       setSelectedChoice(buildRpgChatCustomAction({ snapshot, action: customAction, rules }));
       setStatus("自由行動已轉成規則候選；請先產生候選正文，再決定核准或拒絕。");
     } catch (error) {
@@ -1516,10 +1558,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                     ) : null}
                     {!pendingTurnCandidate ? <button data-testid="rpg-generate-candidate" type="button" disabled={busy || !aiChoicesReady || Boolean(selectedChoice.disabledReason)} onClick={() => void generateTurnCandidate(selectedChoice)}>{busy ? `正在產生候選（${turnElapsedSeconds} 秒）…` : "產生候選正文（不寫入 Canon）"}</button> : null}
                     {pendingTurnCandidate ? <div className={styles.choiceTags}>
-                      <button data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void approvePendingTurn()}>{busy ? "正在原子提交…" : "核准寫入正文、狀態與收據"}</button>
+                      <button aria-describedby="rpg-approval-feedback" data-testid="rpg-accept-choice" type="button" disabled={busy} onClick={() => void approvePendingTurn()}>{busy ? "正在原子提交…" : "核准寫入正文、狀態與收據"}</button>
                       <button data-testid="rpg-reject-choice" className={styles.cancelTurn} type="button" disabled={busy} onClick={() => void rejectPendingTurn()}>拒絕候選（不結算）</button>
+                      <p id="rpg-approval-feedback" className={styles.approvalFeedback} data-state={operationError ? "failed" : busy ? "running" : "ready"}>{operationError?.message ?? status}</p>
                     </div> : null}
-                    {busy ? <button data-testid="rpg-cancel-turn" className={styles.cancelTurn} type="button" onClick={cancelTurn}>停止本回合（不結算）</button> : null}
+                    {busy && !pendingTurnCandidate ? <button data-testid="rpg-cancel-turn" className={styles.cancelTurn} type="button" onClick={cancelTurn}>停止本回合（不結算）</button> : null}
                   </div>
                 </aside>
               ) : null}

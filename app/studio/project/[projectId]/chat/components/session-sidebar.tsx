@@ -86,9 +86,10 @@ export function SessionSidebar({
           </div>
         ))}
       </div>
-      <div className={styles.sidebarHeading}><span>專案檔案與指令</span></div>
+      <div className={styles.sidebarHeading}><span>專業工具</span></div>
+      <p className={styles.emptyNote}>日常續寫、改寫、RPG 與 A／B／C 都留在故事工作台；只有要直接管理正式資料時才使用下列工具。</p>
       <div className={styles.projectLinks}>
-        <Link href={`/studio/project/${encodeURIComponent(projectId)}/write`}>章節正文</Link>
+        <Link href={`/studio/project/${encodeURIComponent(projectId)}/write`}>章節全文校訂</Link>
         <Link href={`/studio/project/${encodeURIComponent(projectId)}/story-bible`}>Story Bible</Link>
         <Link href={`/studio/project/${encodeURIComponent(projectId)}/characters`}>角色與關係</Link>
         <Link href={`/studio/project/${encodeURIComponent(projectId)}/world`}>世界規則</Link>

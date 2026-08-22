@@ -11,6 +11,7 @@ const TASK_FAMILIES: Record<string, LearningRuleFamily[]> = {
   dialogue_generation: ["dialogue", "character", "relationship", "style", "pacing"],
   scene_expansion: ["structure", "pacing", "character", "worldbuilding", "style"],
   outline_generation: ["structure", "pacing", "foreshadowing", "character", "relationship", "worldbuilding"],
+  three_choices: ["structure", "pacing", "character", "relationship", "foreshadowing", "worldbuilding", "revision", "dialogue"],
   default: ["structure", "pacing", "character", "dialogue", "style", "foreshadowing", "worldbuilding"],
 };
 

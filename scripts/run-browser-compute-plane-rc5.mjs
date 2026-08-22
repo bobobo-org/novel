@@ -10737,17 +10737,26 @@ test("explicit-escalation", () => {
   assert.equal(disclosedPlan.fallbackAttempted, false);
 });
 
-test("studio-explicit-local-compute-selection", () => {
+test("studio-automatic-closed-compute-coordinator", () => {
+  const studioSource = readFileSync(
+    resolve(root, "app/studio/studio-client.tsx"),
+    "utf8",
+  );
   const storage = {
     getItem() {
       return JSON.stringify({ closedComputePolicy: "quality-first" });
     },
   };
-  assert.equal(readStudioClosedComputePolicy(storage), "quality-first");
-  assert.equal(resolveStudioClosedComputePolicy("browser-first"), "browser-first");
+  assert.equal(readStudioClosedComputePolicy(storage), "balanced");
+  assert.equal(resolveStudioClosedComputePolicy("browser-first"), "balanced");
   assert.equal(hasExplicitLocalComputeAuthorization("quality-first"), true);
   assert.equal(hasExplicitLocalComputeAuthorization("browser-first"), false);
-  assert.equal(readStudioClosedComputePolicy({ getItem: () => "not-json" }), "browser-first");
+  assert.equal(readStudioClosedComputePolicy({ getItem: () => "not-json" }), "balanced");
+  assert.match(studioSource, /studio-closed-ai-automatic-coordinator/u);
+  assert.match(studioSource, /data-mode="automatic-coordinator"/u);
+  assert.doesNotMatch(studioSource, /data-testid="studio-closed-compute-policy"/u);
+  assert.doesNotMatch(studioSource, /Browser AI 優先|本機 Ollama 優先/u);
+  assert.doesNotMatch(studioSource, /localStorage\.getItem\(STUDIO_AI_SETTINGS_KEY\)/u);
 
   const balanced = adaptStudioProfileForExplicitLocalCompute({
     targetLength: 900,

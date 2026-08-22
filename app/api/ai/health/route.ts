@@ -11,7 +11,13 @@ import { PUBLIC_CORPUS_IMPORT_HEALTH } from "@/lib/novel-ai/corpus/import";
 import { H2C_HEALTH } from "@/lib/novel-ai/context";
 import { H2W3_HEALTH } from "@/lib/novel-ai/web/whole-novel-workspace-client";
 import { H2W3_VISIBLE_UI_BODY_HASH, H2W3_VISIBLE_UI_SEMANTIC_VERSION } from "@/lib/novel-ai/web/visible-ui-semantics";
-import { SOVEREIGN_LEARNING_HEALTH } from "@/lib/novel-ai/sovereign-learning";
+import {
+  SOVEREIGN_LEARNING_HEALTH,
+  UNIFIED_CLOSED_AI_COMPUTE_SOURCES,
+  UNIFIED_CLOSED_AI_COORDINATOR_VERSION,
+  UNIFIED_CLOSED_AI_GOVERNANCE,
+  UNIFIED_CLOSED_AI_ROLES,
+} from "@/lib/novel-ai/sovereign-learning";
 import { CLOSED_AI_CACHE_HEALTH } from "@/lib/novel-ai/closed-ai-cache";
 import { CONTROLLED_LEARNING_HEALTH } from "@/lib/novel-ai/controlled-learning-os";
 import { VERIFIABLE_LEDGER_HEALTH } from "@/lib/novel-ai/verifiable-ledger";
@@ -112,6 +118,16 @@ const L0A2E2D_TEST_META = {
  */
 const CLOSED_AI_SERVER_RUNTIME_TRUTH = {
   observationScope: "server",
+  productId: "unified_closed_ai",
+  productLabel: "閉端 AI 自動協調器",
+  productVersion: UNIFIED_CLOSED_AI_COORDINATOR_VERSION,
+  functionalRoles: UNIFIED_CLOSED_AI_ROLES,
+  computeSources: UNIFIED_CLOSED_AI_COMPUTE_SOURCES,
+  governancePolicies: UNIFIED_CLOSED_AI_GOVERNANCE,
+  userFacingInstanceCount: 1,
+  coordinationMode: "automatic",
+  userBackendSelectionRequired: false,
+  executionAndGovernanceIntegrated: true,
   status: "client_probe_required",
   generationVerifiedBackends: 0,
   activeBackend: null,
@@ -122,6 +138,8 @@ const CLOSED_AI_SERVER_RUNTIME_TRUTH = {
     { id: "local-ollama", status: "client_probe_required", generationVerified: false },
     { id: "private-ai-hub", status: "client_probe_required", generationVerified: false },
   ],
+  backendPresentation: "internal-runtime-resources",
+  legacyThreeBackendFieldsCompatibilityOnly: true,
 } as const;
 
 function deploymentId() {
@@ -178,6 +196,13 @@ export async function GET() {
     closedAiExternalFallback: CLOSED_AI_SERVER_RUNTIME_TRUTH.externalFallback,
     closedAiSilentExternalFallback: CLOSED_AI_SERVER_RUNTIME_TRUTH.silentExternalFallback,
     closedAiServerRuntimeTruth: CLOSED_AI_SERVER_RUNTIME_TRUTH,
+    closedAiProductId: CLOSED_AI_SERVER_RUNTIME_TRUTH.productId,
+    closedAiProductLabel: CLOSED_AI_SERVER_RUNTIME_TRUTH.productLabel,
+    closedAiUserFacingInstanceCount: CLOSED_AI_SERVER_RUNTIME_TRUTH.userFacingInstanceCount,
+    closedAiCoordinationMode: CLOSED_AI_SERVER_RUNTIME_TRUTH.coordinationMode,
+    closedAiUserBackendSelectionRequired: CLOSED_AI_SERVER_RUNTIME_TRUTH.userBackendSelectionRequired,
+    closedAiExecutionAndGovernanceIntegrated: CLOSED_AI_SERVER_RUNTIME_TRUTH.executionAndGovernanceIntegrated,
+    closedAiRuntimeResources: CLOSED_AI_SERVER_RUNTIME_TRUTH.backends,
     deploymentId: deploymentId(),
     productionVisualEvidenceStatus: "ready",
     initialHtmlConsumerShellStatus: "ready",
@@ -526,6 +551,7 @@ export async function GET() {
     verifiableLedger: VERIFIABLE_LEDGER_HEALTH,
     threeClosedAISharedSystemStatus: "not_verified",
     threeClosedAIBackendIds: ["browser-ai", "local-ollama", "private-ai-hub"],
+    legacyThreeClosedAIFieldsCompatibilityOnly: true,
     privateAIHubRuntimeTruthStatus: "self_hosted_loopback_runtime_ready_pairing_required",
     externalRequestCount: 0,
     dataLeftDevice: false,
@@ -683,7 +709,7 @@ export async function GET() {
     ],
     consumerDefaultProvider: "AUTO_VERIFIED_CLOSED_BACKEND",
     consumerDefaultModel: null,
-    consumerDefaultLabel: "閉端 AI 指揮中心交接",
+    consumerDefaultLabel: "閉端 AI 自動協調器",
     consumerExternalRequestDefault: 0,
     consumerDataLeftDeviceDefault: false,
     consumerDraftCandidateOnly: true,
@@ -724,6 +750,7 @@ export async function GET() {
     fullOfflineAIStatus: "ready_after_local_model_install",
     browserClosedAiStatus: "setup_required",
     threeClosedAiArchitectureStatus: "not_verified",
+    unifiedClosedAiCoordinatorStatus: "ready_runtime_dependent",
     continualLearningStatus: "ready_l0_l1_controlled",
     offlinePreferenceTrainingStatus: capabilityStatus(
       capabilityCatalog,

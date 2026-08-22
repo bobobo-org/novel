@@ -37,8 +37,7 @@ import {
   runStudioClosedAI,
 } from "@/lib/novel-ai/web/studio-closed-ai";
 import {
-  normalizeStudioClosedComputePolicy,
-  STUDIO_AI_SETTINGS_KEY,
+  STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY,
   type StudioClosedComputePolicy,
 } from "@/lib/novel-ai/web/studio-closed-compute-policy";
 import { adaptStudioProfileForExplicitLocalCompute } from "@/lib/novel-ai/web/studio-local-performance-policy";
@@ -106,9 +105,6 @@ import {
 } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 import {
-  EXTERNAL_AI_PROVIDER_IDS,
-  EXTERNAL_AI_PROVIDER_LABELS as EXTERNAL_AI_LABELS,
-  isExternalAIProviderId,
   type ExternalAIProviderId as ExternalAIConnectorId,
   type NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
@@ -136,7 +132,7 @@ const STUDIO_TASK_SCREENS: Screen[] = ["write", "choice", "inspect", "world", "d
 const STUDIO_SCREEN_LABELS: Record<Screen, string> = {
   home: "首頁",
   create: "開始創作",
-  write: "章節寫作",
+  write: "故事工作台",
   choice: "互動故事",
   inspect: "作品檢查",
   library: "我的作品",
@@ -992,11 +988,12 @@ export default function StudioClient({
     [legacyMigrationDismissed, setLegacyMigrationDismissed] = useState(false),
     [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false),
     [legacyMigrationStatus, setLegacyMigrationStatus] = useState(""),
-    [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
-    [studioAiSource, setStudioAiSource] = useState<"closed" | "external">("closed"),
-    [closedComputePolicy, setClosedComputePolicy] =
-      useState<StudioClosedComputePolicy>("browser-first"),
-    [externalConnectorId, setExternalConnectorId] = useState<ExternalAIConnectorId>("openai"),
+    [aiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
+    [studioAiSource] = useState<"closed" | "external">("closed"),
+    [closedComputePolicy] = useState<StudioClosedComputePolicy>(
+      STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY,
+    ),
+    [externalConnectorId] = useState<ExternalAIConnectorId>("openai"),
     [externalRunConsent, setExternalRunConsent] = useState(false),
     [aiModeMessage, setAiModeMessage] = useState(""),
     [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false),
@@ -1038,7 +1035,7 @@ export default function StudioClient({
     if (!loaded || screen !== "choice" || !project) return;
     // The former lightweight single-choice page hid the real RPG dashboard.
     // Keep old bookmarks compatible, but always land on the unified HUD.
-    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/chat?mode=play`);
   }, [loaded, project, screen]);
 
   function dismissCloudNotice() {
@@ -1223,7 +1220,7 @@ export default function StudioClient({
     // before a story existed. Keep the URL compatible, but move every consumer
     // to the canonical RPG director where foundation, model proof and StoryState
     // effects are enforced.
-    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+    window.location.replace(`/studio/project/${encodeURIComponent(project.id)}/chat?mode=play`);
   }, [loaded, project?.id, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onPopState = () => {
@@ -1235,53 +1232,20 @@ export default function StudioClient({
   }, [screen, project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded) return;
-    const timer = window.setTimeout(() => {
-      const saved = JSON.parse(
-        localStorage.getItem(STUDIO_AI_SETTINGS_KEY) || "null",
-      ) || {};
-      const mode: NovelAIExecutionMode = ["closed-only", "hybrid", "external-only"].includes(saved.executionMode)
-        ? saved.executionMode
-        : saved.privacy === "external-allowed"
-          ? "hybrid"
-          : "closed-only";
-      const provider: ExternalAIConnectorId = isExternalAIProviderId(saved.externalProviderId)
-        ? saved.externalProviderId
-        : "openai";
-      setAiExecutionMode(mode);
-      setStudioAiSource(mode === "external-only" ? "external" : "closed");
-      setClosedComputePolicy(
-        normalizeStudioClosedComputePolicy(saved.closedComputePolicy),
-      );
-      setExternalConnectorId(provider);
-      setAiPreferencesLoaded(true);
-    }, 0);
+    // The formal writing entry always starts in the unified closed coordinator.
+    // Legacy task-time backend/source preferences are intentionally ignored.
+    const timer = window.setTimeout(() => setAiPreferencesLoaded(true), 0);
     return () => window.clearTimeout(timer);
   }, [loaded]);
   useEffect(() => {
     if (!loaded) return;
-    const externalSelected = aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external");
-    if (externalSelected) {
-      fetch(`/api/ai/external/providers?probe=1&providers=${encodeURIComponent(externalConnectorId)}`, { cache: "no-store" })
-        .then((response) => response.json())
-        .then((payload: { providers?: Array<{ id: string; configured: boolean; verification: string }> }) => {
-          const selected = payload.providers?.find((provider) => provider.id === externalConnectorId);
-          const verified = selected?.configured === true && selected.verification === "verified";
-          setAssistantStatus(verified ? "external_ready" : "runtime_required");
-          setAiModeMessage(verified ? "外接 AI 金鑰與模型已實測可用；每次送出前仍需單次同意。" : "所選外接 AI 尚未通過金鑰與模型實測，請到 AI 使用方式查看。" );
-        })
-        .catch(() => {
-          setAssistantStatus("runtime_required");
-          setAiModeMessage("目前無法讀取外接 AI 狀態。");
-        });
-      return;
-    }
     discoverStudioClosedAI()
       .then((snapshot) => {
         setAssistantStatus(snapshot.status === "browser_ready" ? "runtime_ready" : snapshot.status);
         setAiModeMessage("");
       })
       .catch(() => setAssistantStatus("runtime_required"));
-  }, [aiExecutionMode, externalConnectorId, loaded, studioAiSource]);
+  }, [loaded]);
   useEffect(() => {
     if (
       initialTask
@@ -1346,17 +1310,17 @@ export default function StudioClient({
     if (!project) return `/studio?screen=${encodeURIComponent(value)}`;
     const projectRoot = `/studio/project/${encodeURIComponent(project.id)}`;
     if (value === "create") return "/studio/create";
-    if (value === "write") return `${projectRoot}/write`;
+    if (value === "write") return `${projectRoot}/chat`;
     if (value === "world") return `${projectRoot}/characters`;
     if (value === "dashboard") return `${projectRoot}/tasks`;
     if (value === "backup") return `${projectRoot}/backups`;
-    if (value === "choice") return `${projectRoot}/rpg`;
+    if (value === "choice") return `${projectRoot}/chat?mode=play`;
     if (value === "inspect") {
       const query = new URLSearchParams({
         task: "story.consistencyCheck",
         objective: "檢查目前作品的角色、時間線、世界規則與章節因果，列出可核准修正候選。",
         source: "studio-navigation",
-        returnTo: `${projectRoot}/write`,
+        returnTo: `${projectRoot}/chat`,
       });
       return `${projectRoot}/closed-ai?${query.toString()}`;
     }
@@ -1420,7 +1384,7 @@ export default function StudioClient({
     if (screen === "home" && value === "choice" && project) {
       clearStudioTaskHandoff();
       setTaskHandoff(null);
-      window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`);
+      window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/chat?mode=play`);
       return;
     }
     if (screen === "home" && project && isDirectProjectDestination(value)) {
@@ -1468,27 +1432,6 @@ export default function StudioClient({
   function dismissTaskHandoff() {
     clearStudioTaskHandoff();
     setTaskHandoff(null);
-  }
-  function persistStudioAISettings(input: {
-    mode?: NovelAIExecutionMode;
-    providerId?: ExternalAIConnectorId;
-    closedComputePolicy?: StudioClosedComputePolicy;
-  }) {
-    const mode = input.mode ?? aiExecutionMode;
-    const providerId = input.providerId ?? externalConnectorId;
-    const nextClosedComputePolicy = input.closedComputePolicy
-      ?? closedComputePolicy;
-    const saved = JSON.parse(
-      localStorage.getItem(STUDIO_AI_SETTINGS_KEY) || "null",
-    ) || {};
-    localStorage.setItem(STUDIO_AI_SETTINGS_KEY, JSON.stringify({
-      ...saved,
-      executionMode: mode,
-      externalProviderId: providerId,
-      closedComputePolicy: nextClosedComputePolicy,
-      privacy: mode === "closed-only" ? "strict-local" : "external-allowed",
-      external: mode !== "closed-only",
-    }));
   }
   async function createProject() {
     if (!ensureCanonicalWritable("建立作品")) return;
@@ -2966,13 +2909,12 @@ export default function StudioClient({
   const navItems: Array<[Screen, string]> = [
     ["home", "首頁"],
     ["create", "開始創作"],
-    ["write", "繼續寫作"],
+    ["write", "故事工作台"],
     ["world", "角色與世界"],
     ["dashboard", "任務與成就"],
     ["backup", "存檔與備份"],
     ["library", "我的作品"],
     ["inspect", "檢查作品"],
-    ["choice", "互動故事／RPG"],
   ];
   return (
     <div
@@ -3148,82 +3090,35 @@ export default function StudioClient({
           <nav>
             <button onClick={() => navigate("home")}>首頁</button>
             <button onClick={() => navigate("create")}>創作</button>
-            <button onClick={() => navigate("write")}>閉端創作助手</button>
-            <button onClick={() => navigate("choice")}>互動故事／RPG</button>
+            <button onClick={() => navigate("write")}>故事工作台</button>
           </nav>
           <span>
             {assistantStatus === "ollama_ready"
-              ? "真實本機 AI 已連線"
+              ? "閉端 AI 自動協調器已就緒"
               : assistantStatus === "external_ready"
                 ? `${externalConnectorId} 外接 AI 已就緒`
               : assistantStatus === "runtime_ready"
-                ? "瀏覽器閉端 AI 已就緒"
+                ? "閉端 AI 自動協調器已就緒"
                 : assistantStatus === "auth_required"
-                  ? "本機 AI 等待授權"
-                  : "真實 AI 尚未連線"}
+                  ? "自動協調器等待本機授權"
+                  : "自動協調器正在檢查算力"}
           </span>
         </header>
-        <section className="studioAiModeBar" data-testid="studio-ai-mode" data-mode={aiExecutionMode}>
-          <label>AI 模式
-            <select value={aiExecutionMode} onChange={(event) => {
-              const mode = event.target.value as NovelAIExecutionMode;
-              setAiExecutionMode(mode);
-              setStudioAiSource(mode === "external-only" ? "external" : "closed");
-              setExternalRunConsent(false);
-              persistStudioAISettings({ mode });
-            }}>
-              <option value="closed-only">全部閉端</option>
-              <option value="hybrid">閉端＋外接共用</option>
-              <option value="external-only">全部外接</option>
-            </select>
-          </label>
-          {aiExecutionMode === "hybrid" && <label>本次來源
-            <select value={studioAiSource} onChange={(event) => { setStudioAiSource(event.target.value as "closed" | "external"); setExternalRunConsent(false); }}>
-              <option value="closed">閉端 AI</option>
-              <option value="external">外接 AI</option>
-            </select>
-          </label>}
-          {(aiExecutionMode === "closed-only"
-            || (aiExecutionMode === "hybrid" && studioAiSource === "closed")) && (
-            <label>閉端引擎
-              <select
-                data-testid="studio-closed-compute-policy"
-                value={closedComputePolicy}
-                onChange={(event) => {
-                  const policy = normalizeStudioClosedComputePolicy(
-                    event.target.value,
-                  );
-                  setClosedComputePolicy(policy);
-                  persistStudioAISettings({ closedComputePolicy: policy });
-                  setAiModeMessage(
-                    policy === "quality-first"
-                      ? "已明確選擇本機 Ollama；後續閉端任務會使用已配對且驗證通過的本機模型。"
-                      : "已選擇 Browser AI 優先；瀏覽器模型無法完成時不會暗中轉交。",
-                  );
-                }}
-              >
-                <option value="browser-first">Browser AI 優先</option>
-                <option value="quality-first">本機 Ollama 優先</option>
-              </select>
-            </label>
-          )}
-          {(aiExecutionMode === "external-only" || (aiExecutionMode === "hybrid" && studioAiSource === "external")) && <>
-            <label>外接模型
-              <select value={externalConnectorId} onChange={(event) => {
-                const providerId = event.target.value as ExternalAIConnectorId;
-                setExternalConnectorId(providerId);
-                setExternalRunConsent(false);
-                persistStudioAISettings({ providerId });
-              }}>
-                {EXTERNAL_AI_PROVIDER_IDS.map((providerId) => (
-                  <option key={providerId} value={providerId}>
-                    {EXTERNAL_AI_LABELS[providerId]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="studioExternalApproval"><input type="checkbox" checked={externalRunConsent} onChange={(event) => setExternalRunConsent(event.target.checked)} /><span>同意下一次工作把內容傳給所選外接 AI（只用一次）</span></label>
-          </>}
+        <section
+          className="studioAiModeBar"
+          data-testid="studio-ai-mode"
+          data-mode="automatic-coordinator"
+          data-compute-policy={closedComputePolicy}
+        >
+          <div data-testid="studio-closed-ai-automatic-coordinator">
+            <strong>閉端 AI 自動協調器</strong>
+            <span>
+              系統依工作難度、已驗證模型、裝置能力與資料邊界，自動協調 Browser AI、個人本機 Ollama 與私有 AI Hub；不需要選擇後端。
+            </span>
+          </div>
+          <p>
+            候選內容仍須由你核准後才會寫入正式作品；實際模型、資料是否離開裝置與執行結果會保留在收據中。
+          </p>
           <Link href="/studio/settings/ai">完整 AI 設定</Link>
           {aiModeMessage && <p role="status">{aiModeMessage}</p>}
         </section>
@@ -3481,9 +3376,8 @@ function HomeScreen({
 
       <section className="studioHomePortals" aria-label="快速入口">
         <Link href="/studio/create"><i className="studioPortalGlyph" aria-hidden="true">創</i><small>01 · CREATE</small><b>建立新作品</b><span>由引導精靈陪你完成世界與人物</span></Link>
-        <button type="button" disabled={!project} onClick={() => navigate("write")}><i className="studioPortalGlyph" aria-hidden="true">章</i><small>02 · WRITE</small><b>章節寫作</b><span>回到上次游標與六層 AI Cache</span></button>
-        <button type="button" disabled={!project} onClick={() => project && window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}><i className="studioPortalGlyph" aria-hidden="true">遊</i><small>03 · PLAY</small><b>互動故事／RPG</b><span>讓選擇真正改變正文、關係與數值</span></button>
-        <Link href={project ? `/studio/project/${encodeURIComponent(project.id)}/closed-ai` : "/settings/local-ai"}><i className="studioPortalGlyph" aria-hidden="true">智</i><small>04 · INTELLIGENCE</small><b>閉端 AI 中樞</b><span>查看真實模型、裝置與執行證明</span></Link>
+        <button type="button" disabled={!project} onClick={() => navigate("write")}><i className="studioPortalGlyph" aria-hidden="true">章</i><small>02 · STORY</small><b>故事工作台</b><span>續寫、改寫、RPG 與 A／B／C 都從這裡開始</span></button>
+        <Link href={project ? `/studio/project/${encodeURIComponent(project.id)}/closed-ai` : "/settings/local-ai"}><i className="studioPortalGlyph" aria-hidden="true">智</i><small>03 · PROFESSIONAL</small><b>自動協調器與專業工具</b><span>只在管理模型、學習、證據或正式資料時使用</span></Link>
       </section>
 
       <section className="studioHomeLower">
@@ -3506,14 +3400,8 @@ function HomeScreen({
                   <span><small>最近保存</small><b>{formatTime(project.updatedAt)}</b></span>
                 </div>
                 <div className="recentActions">
-                  <button className="gold" onClick={() => navigate("write")}>繼續創作</button>
+                  <button className="gold" onClick={() => navigate("write")}>開啟故事工作台</button>
                   <Link href={`/studio/read/${project.id}`}>閱讀作品</Link>
-                  <button
-                    data-testid="studio-open-rpg-dashboard"
-                    onClick={() => window.location.assign(`/studio/project/${encodeURIComponent(project.id)}/rpg`)}
-                  >
-                    開啟完整 RPG 儀表板
-                  </button>
                 </div>
               </section>
             </article>
@@ -3531,7 +3419,7 @@ function HomeScreen({
           <p>{project ? "從保存的位置繼續，章節、世界與檢查各自清楚分流。" : "先開啟世界，再依序建立人物、篇章與正式故事。"}</p>
           <nav aria-label="創作下一步">
             <Link href="/studio/create"><span>01</span><div><b>建立新世界</b><small>由引導精靈開始</small></div></Link>
-            <button type="button" disabled={!project} onClick={() => navigate("write")}><span>02</span><div><b>續寫目前篇章</b><small>{project?.chapterTitle || "建立作品後開放"}</small></div></button>
+            <button type="button" disabled={!project} onClick={() => navigate("write")}><span>02</span><div><b>開啟故事工作台</b><small>{project?.chapterTitle || "建立作品後開放"}</small></div></button>
             <button type="button" disabled={!project} onClick={() => navigate("world")}><span>03</span><div><b>整理角色與世界</b><small>補齊設定與伏筆</small></div></button>
             <button type="button" disabled={!project} onClick={() => navigate("inspect")}><span>04</span><div><b>檢查作品</b><small>確認故事一致性</small></div></button>
           </nav>
@@ -4637,7 +4525,7 @@ function WriteScreen({
               <button type="button" onClick={() => editorRef.current?.focus()}>
                 我自己寫第一幕
               </button>
-              <button type="button" data-testid="studio-writing-open-rpg" onClick={() => requestTaskHref(`/studio/project/${project.id}/rpg`, "完整 RPG 儀表板")}>進入第一個遊戲回合</button>
+              <button type="button" data-testid="studio-writing-open-rpg" onClick={() => requestTaskHref(`/studio/project/${project.id}/chat?mode=play`, "故事工作台 RPG 回合")}>進入第一個遊戲回合</button>
               <button type="button" onClick={() => navigate("world")}>先調整人物與世界</button>
             </div>
           </section>

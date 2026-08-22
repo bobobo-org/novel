@@ -324,6 +324,8 @@ jobs:
             pnpm test:ai:manual-learning-import-transaction
             pnpm test:ai:manual-learning-worker
             pnpm test:ai:manual-learning-global-synthesis
+            pnpm test:ai:controlled-web-distillation
+            pnpm test:ai:shared-learning-library
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/conversation-gates.log"
 
       - name: Run required product suites
@@ -853,6 +855,16 @@ jobs:
 
       - name: Install Production repair tooling
         run: pnpm install --frozen-lockfile
+
+      - name: Refuse stale Product commit before shared learning schema mutation
+        if: github.event_name == 'push'
+        env:
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-production-main-head-cas.mjs
+
+      - name: Apply and verify additive shared abstract learning schema
+        if: github.event_name == 'push'
+        run: node scripts/apply-shared-learning-migration.mjs --required
 
       - name: Refuse stale Product commit immediately before Production environment mutation
         if: needs.production_env_audit.outputs.repair_required == 'true'
