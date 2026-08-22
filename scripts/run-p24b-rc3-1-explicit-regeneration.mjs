@@ -29,6 +29,7 @@ import {
   estimateBrowserTokens,
   fitBrowserPromptToTokenBudget,
 } from "../lib/novel-ai/providers/browser-ai/browser-performance-policy.ts";
+import { BROWSER_TASK_MODEL } from "../lib/novel-ai/providers/browser-ai/browser-task-model.ts";
 import { conversationContentDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { hasVerifiedClosedRegenerationProof } from "../app/studio/project/[projectId]/chat/components/conversation-regeneration-proof.ts";
@@ -45,10 +46,14 @@ const BACKEND_IDS = ["browser-ai", "local-ollama", "private-ai-hub"];
 
 function modelDigestForBackend(id) {
   return {
-    "browser-ai": "b".repeat(64),
+    "browser-ai": BROWSER_TASK_MODEL.modelDigest,
     "local-ollama": "c".repeat(64),
     "private-ai-hub": "d".repeat(64),
   }[id];
+}
+
+function modelIdForBackend(id) {
+  return id === "browser-ai" ? BROWSER_TASK_MODEL.modelId : `${id}-model`;
 }
 
 function namespace(backendId = "local-ollama", overrides = {}) {
@@ -116,7 +121,7 @@ class TestBackend {
           : "none",
         verifiedAt: generationVerified ? "2026-08-10T00:00:00.000Z" : null,
       },
-      modelId: generationVerified ? `${this.id}-model` : null,
+      modelId: generationVerified ? modelIdForBackend(this.id) : null,
       modelDigest: generationVerified ? modelDigestForBackend(this.id) : null,
       local: this.id !== "private-ai-hub",
       dataBoundary: this.id === "private-ai-hub"
@@ -145,7 +150,7 @@ class TestBackend {
     if (this.executionOverrides.waitFor) {
       await this.executionOverrides.waitFor;
     }
-    const modelId = this.executionOverrides.modelId ?? `${this.id}-model`;
+    const modelId = this.executionOverrides.modelId ?? modelIdForBackend(this.id);
     const modelDigest = this.executionOverrides.modelDigest ?? modelDigestForBackend(this.id);
     const browserInvocation = this.id === "browser-ai"
       ? await createBrowserFinalModelContextInvocationProof({
@@ -224,13 +229,20 @@ function createOS(options = {}) {
 }
 
 function baseRequest(taskId, backendId = "local-ollama", overrides = {}) {
+  const browserLightweightTask = backendId === "browser-ai";
   return {
     taskId,
     namespace: namespace(backendId),
-    taskType: "chapter.continue",
-    objective: "Continue the chapter with a concrete new conflict and consequence.",
+    taskType: browserLightweightTask ? "story.summary" : "chapter.continue",
+    objective: browserLightweightTask
+      ? "Summarize the chapter with its concrete conflict, consequence, and next action."
+      : "Continue the chapter with a concrete new conflict and consequence.",
     context: [],
-    complexity: backendId === "private-ai-hub" ? "heavy" : "standard",
+    complexity: backendId === "private-ai-hub"
+      ? "heavy"
+      : browserLightweightTask
+        ? "light"
+        : "standard",
     qualityMode: "fast",
     preferredBackend: backendId,
     allowedToolIds: [],
@@ -607,7 +619,7 @@ test("regeneration-no-external-fallback", async () => {
     const candidate = scenario.second.candidate;
     assert.equal(candidate.backendId, backendId);
     assert.equal(candidate.actualExecutor, backendId);
-    assert.equal(candidate.modelId, `${backendId}-model`);
+    assert.equal(candidate.modelId, modelIdForBackend(backendId));
     assert.equal(candidate.modelDigest, modelDigestForBackend(backendId));
     assert.equal(candidate.externalRequest, false);
     assert.equal(candidate.dataLeftDevice, false);
@@ -933,7 +945,7 @@ test("studio-injected-regeneration-seam-fails-closed", async () => {
         input: "Generate a distinct continuation candidate.",
         regeneration: contract,
         preferredBackend: backendId,
-        regenerationSourceModelId: `${backendId}-model`,
+        regenerationSourceModelId: modelIdForBackend(backendId),
         regenerationSourceModelDigest: modelDigestForBackend(backendId),
       }, async () => {
         calls += 1;

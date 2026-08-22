@@ -512,7 +512,7 @@ test("client-runtime-coordinator", "twenty-scenario runtime and persistence matr
     ["cloud-down-indexeddb-healthy", derivePersistenceRuntimeMode({ localReady: true, cloudStatus: "unreachable" }) === "CLOUD_DEGRADED"],
     ["cloud-healthy-indexeddb-blocked", derivePersistenceRuntimeMode({ localReady: false, cloudStatus: "healthy" }) === "LOCAL_BLOCKED"],
     ["browser-packaged-task-only", route("story.summary", [browserTask]).executionStatus === "not_executed"],
-    ["browser-webllm-ready", route("chapter.continue", [browserGenerative]).backend?.id === "browser-ai"],
+    ["browser-webllm-prose-unqualified", route("chapter.continue", [browserGenerative]).reasonCode === "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED"],
     ["bridge-running-unpaired", route("chapter.continue", [localUnpaired]).executionStatus === "not_executed"],
     ["bridge-paired-model-unverified", route("chapter.continue", [localUnverified]).recommendedNextAction === "verify_model"],
     ["bridge-paired-model-verified", route("chapter.continue", [localReady], { policy: { preferredBackend: "local-ollama" } }).backend?.id === "local-ollama"],
@@ -583,7 +583,7 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
     modelDigest: "browser-managed-model-digest-unavailable",
     detailCode: "browser_native_prompt_digest_not_verifiable",
   });
-  const verifiedWebLlm = backend("browser-ai", {
+  const unqualifiedWebLlm = backend("browser-ai", {
     maximumComplexity: "standard",
     supportedTaskTypes: "all",
     detailCode: "browser_hybrid_runtime_webllm_ready",
@@ -591,11 +591,15 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
   const light = route("story.summary", [packaged]);
   const standardBlocked = route("chapter.continue", [packaged]);
   const standardNative = route("chapter.continue", [nativePrompt]);
-  const standardWebLlm = route("chapter.continue", [verifiedWebLlm]);
+  const standardWebLlm = route("chapter.continue", [unqualifiedWebLlm]);
   assert.equal(light.executionStatus, "not_executed");
   assert.equal(standardBlocked.executionStatus, "not_executed");
   assert.equal(standardNative.executionStatus, "not_executed");
-  assert.equal(standardWebLlm.executionStatus, "routable");
+  assert.equal(standardWebLlm.executionStatus, "not_executed");
+  assert.equal(
+    standardWebLlm.reasonCode,
+    "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED",
+  );
   const result = runPackagedBrowserTaskModel(
     "story.summary",
     "The storm reached the city. The protagonist protected the archive and discovered a hidden map.",
@@ -612,6 +616,7 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
   return {
     packagedTaskModelProseGeneration: 0,
     nativePromptGenerationVerified: false,
+    webLlmProseProductionQualified: false,
     webLlmMaximumComplexity: "standard",
   };
 });
