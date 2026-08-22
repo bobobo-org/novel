@@ -1,4 +1,8 @@
 import type { PlatformAIRequest, PlatformProviderCapability, PlatformProviderId, PlatformProviderSnapshot, PlatformRouterDecision } from "./platform-types";
+import {
+  browserModelIdentityIsProductionQualifiedForTask,
+  isBrowserFullProseTask,
+} from "../providers/browser-ai/browser-prose-capability-policy";
 
 const external = new Set<PlatformProviderId>(["openai", "gemini", "grok", "claude"]);
 const privateHub = new Set<PlatformProviderId>(["private-ai-hub"]);
@@ -20,7 +24,10 @@ function allowed(id: PlatformProviderId, request: PlatformAIRequest) {
   if (request.closedOnly && !modelBackedClosed.has(id)) return false;
   if (request.offlineRequired && (external.has(id) || privateHub.has(id))) return false;
   if (request.privacyLevel === "device_only") return id === "browser-ai" || id === "local-ollama";
-  if (request.privacyLevel === "private_infrastructure_only") return modelBackedClosed.has(id);
+  if (request.privacyLevel === "private_infrastructure_only") {
+    return id === "private-ai-hub"
+      && request.privacyMode === "private-hub-allowed";
+  }
   if (external.has(id)) return request.privacyMode === "external-allowed" && request.externalConsent;
   if (privateHub.has(id)) return request.privacyMode === "private-hub-allowed";
   return true;
@@ -38,11 +45,36 @@ export function resolvePlatformProvider(request: PlatformAIRequest, providers: P
   const byId = new Map(providers.map((provider) => [provider.id, provider]));
   const warnings: string[] = [];
   const rejectedCandidates: Array<{ providerId: PlatformProviderId; reason: string }> = [];
-  const order = [...new Set([request.preferredProvider, ...defaultOrder].filter(Boolean) as PlatformProviderId[])];
+  const fullProseTask = isBrowserFullProseTask(request.taskType);
+  const requestedOrder = [request.preferredProvider, ...defaultOrder]
+    .filter(Boolean) as PlatformProviderId[];
+  // Full prose never treats a ready Local/Hub backend as an automatic fallback.
+  // An explicit provider is a locked route; otherwise only Browser may be
+  // considered automatically. Non-prose keeps the existing default order.
+  const order = fullProseTask
+    ? request.preferredProvider
+      ? [request.preferredProvider]
+      : ["browser-ai" as const]
+    : [...new Set(requestedOrder)];
   const required = requiredCapabilities(request);
   const viable = order.filter((id) => {
     const provider = byId.get(id);
     if (!provider) return false;
+    if (
+      id === "browser-ai"
+      && fullProseTask
+      && !browserModelIdentityIsProductionQualifiedForTask({
+        taskType: request.taskType,
+        modelId: provider.modelId,
+        modelDigest: provider.modelDigest,
+      })
+    ) {
+      rejectedCandidates.push({
+        providerId: id,
+        reason: "browser_prose_not_production_qualified",
+      });
+      return false;
+    }
     if (!allowed(id, request)) {
       warnings.push(`${id}: blocked_by_privacy_policy`);
       rejectedCandidates.push({ providerId: id, reason: "blocked_by_privacy_policy" });
@@ -73,9 +105,19 @@ export function resolvePlatformProvider(request: PlatformAIRequest, providers: P
   });
   const providerId = viable[0];
   if (!providerId) {
+    const explicitProseBackendRequired = fullProseTask
+      && !request.preferredProvider;
     throw new PlatformRouterError(
-      request.closedOnly ? "NO_CLOSED_PROVIDER_AVAILABLE" : "NO_ALLOWED_PROVIDER",
-      request.closedOnly ? "No closed AI provider is available for this request." : "No allowed provider is available for this request.",
+      explicitProseBackendRequired
+        ? "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED"
+        : request.closedOnly
+          ? "NO_CLOSED_PROVIDER_AVAILABLE"
+          : "NO_ALLOWED_PROVIDER",
+      explicitProseBackendRequired
+        ? "Full prose requires a ready Browser route or an explicitly selected Local/Hub backend."
+        : request.closedOnly
+          ? "No closed AI provider is available for this request."
+          : "No allowed provider is available for this request.",
       true,
     );
   }

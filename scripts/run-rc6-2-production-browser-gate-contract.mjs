@@ -13,7 +13,6 @@ import {
   realpath,
   rename,
   rm,
-  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";

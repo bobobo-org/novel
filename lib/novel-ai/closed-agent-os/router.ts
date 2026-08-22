@@ -1,6 +1,10 @@
 import { taskComplexity } from "./backend-manifest";
 import { learningPreferredBackend } from "../controlled-learning-os";
 import {
+  browserModelIdentityIsProductionQualifiedForTask,
+  isBrowserFullProseTask,
+} from "../providers/browser-ai/browser-prose-capability-policy";
+import {
   hasVerifiedClosedAIGeneration,
   type ClosedAIBackendId,
   type ClosedAIBackendSnapshot,
@@ -20,6 +24,15 @@ function supports(
   complexity: ClosedAITaskComplexity,
 ) {
   if (!hasVerifiedClosedAIGeneration(backend)) return false;
+  if (
+    backend.id === "browser-ai"
+    && isBrowserFullProseTask(request.taskType)
+    && !browserModelIdentityIsProductionQualifiedForTask({
+      taskType: request.taskType,
+      modelId: backend.modelId,
+      modelDigest: backend.modelDigest,
+    })
+  ) return false;
   if (complexityRank[backend.maximumComplexity] < complexityRank[complexity]) return false;
   if (backend.supportedTaskTypes !== "all" && !backend.supportedTaskTypes.includes(request.taskType)) return false;
   if (request.namespace.privacyLevel === "device_only" && backend.dataBoundary !== "device") return false;
@@ -202,7 +215,11 @@ export function resolveClosedAIRoute(
     task.learningConfiguration,
   );
   const learnedBackendId = learnedCandidate === "browser-ai"
-    || (computePolicy === "quality-first" && learnedCandidate === "local-ollama")
+    || (
+      !isBrowserFullProseTask(task.taskType)
+      && computePolicy === "quality-first"
+      && learnedCandidate === "local-ollama"
+    )
     ? learnedCandidate
     : null;
   if (learnedBackendId) {
@@ -226,11 +243,13 @@ export function resolveClosedAIRoute(
     }
   }
 
-  const order = routeOrder(
-    complexity,
-    computePolicy,
-    task.allowPreAuthorizedClosedEscalation ?? false,
-  );
+  const order = isBrowserFullProseTask(task.taskType)
+    ? ["browser-ai"] as const
+    : routeOrder(
+      complexity,
+      computePolicy,
+      task.allowPreAuthorizedClosedEscalation ?? false,
+    );
   const selected = order
     .map((backendId) => snapshots.find((snapshot) => snapshot.id === backendId))
     .find((snapshot) => snapshot && supports(snapshot, task, complexity));
@@ -250,8 +269,10 @@ export function resolveClosedAIRoute(
     executionStatus: "not_executed",
     backend: null,
     complexity,
-    automatic: true,
-    reasonCode: "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+    automatic: !isBrowserFullProseTask(task.taskType),
+    reasonCode: isBrowserFullProseTask(task.taskType)
+      ? "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED"
+      : "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
     requiredCapability: capability,
     recommendedNextAction: nextAction(snapshots, complexity),
     compatibleBackendIds: compatible,

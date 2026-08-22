@@ -3,8 +3,10 @@ import type {
   BrowserFinalContextExpectation,
   BrowserFinalContextSourceIdentity,
   BrowserFinalModelContextAttestation,
+  BrowserFinalModelContextInnerIndex,
   BrowserFinalModelContextInnerStage,
   BrowserFinalModelContextInvocationProof,
+  BrowserFinalModelContextPipelineKind,
 } from "../security/browser-final-model-context-proof";
 
 export type PlatformProviderId = "browser-ai" | "local-ollama" | "private-ai-hub" | "deterministic-local" | "openai" | "gemini" | "grok" | "claude";
@@ -47,8 +49,9 @@ export type PlatformAIRequest = {
   browserFinalContextOuterRequestId?: string;
   browserFinalContextOuterTaskType?: PlatformTaskType;
   browserFinalContextOuterQualityPhase?: "draft" | "critic" | "revision";
+  browserFinalContextPipelineKind?: BrowserFinalModelContextPipelineKind;
   browserFinalContextInnerStage?: BrowserFinalModelContextInnerStage;
-  browserFinalContextInnerIndex?: 0 | 1 | 2;
+  browserFinalContextInnerIndex?: BrowserFinalModelContextInnerIndex;
   preferredProvider?: PlatformProviderId;
   externalConsent: boolean;
   requiresStreaming?: boolean;

@@ -1,5 +1,10 @@
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import { learningPlannerStrategy } from "../controlled-learning-os";
+import {
+  assertBrowserProseTierProductionQualified,
+  type BrowserProseTierExecutionDecisionReceipt,
+} from "../providers/browser-ai/browser-prose-capability-policy";
+import { browserWebLLMModel } from "../providers/browser-ai/webllm-model-registry";
 import type {
   ClosedAgentPlan,
   ClosedAgentRole,
@@ -24,11 +29,37 @@ const rolesByComplexity: Record<ClosedAITaskComplexity, ClosedAgentRole[]> = {
   ],
 };
 
+export function resolveClosedAgentBrowserProsePlanningDecision(input: {
+  request: ClosedAgentTaskRequest;
+  backendId: ClosedAIBackendId;
+}): BrowserProseTierExecutionDecisionReceipt | null {
+  if (input.backendId !== "browser-ai") return null;
+  const selectedModel = browserWebLLMModel(input.request.namespace.modelId);
+  const selectedModelTier = selectedModel
+    && selectedModel.productionQualified
+    && selectedModel.usePolicy === "production"
+    && input.request.namespace.modelDigest === selectedModel.modelDigest
+    ? selectedModel.parameterLabel
+    : null;
+  return assertBrowserProseTierProductionQualified({
+    taskType: input.request.taskType,
+    selectedModelTier,
+    selectedModelId: selectedModel?.modelId ?? null,
+    selectedModelDigest: selectedModel?.modelDigest ?? null,
+    executor: "webllm-worker",
+  });
+}
+
 export async function createClosedAgentPlan(input: {
   request: ClosedAgentTaskRequest;
   backendId: ClosedAIBackendId;
   complexity: ClosedAITaskComplexity;
 }): Promise<ClosedAgentPlan> {
+  // Planning proves only the registry-bound task/tier identity and its receipt
+  // keeps modelCallClaimed=false. It does not claim an installed or executable
+  // runtime; every context/model boundary must still establish the durable
+  // setup-metadata + benchmark authority before executing this plan.
+  resolveClosedAgentBrowserProsePlanningDecision(input);
   const plannerStrategy = learningPlannerStrategy(
     input.request.learningConfiguration,
   );
@@ -102,7 +133,7 @@ export function resolveQualityMode(
   backendId: ClosedAIBackendId,
   complexity: ClosedAITaskComplexity,
 ): ClosedAIQualityMode {
-  if (backendId === "browser-ai") return "fast";
+  if (backendId === "browser-ai") return requested ?? "fast";
   if (requested) return requested;
   if (complexity === "heavy") return "deep";
   if (complexity === "standard") return "balanced";

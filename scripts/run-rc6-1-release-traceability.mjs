@@ -18,10 +18,10 @@ import {
 } from "../lib/novel-ai/runtime-truth/release-identity.ts";
 
 const RC6_BASE_COMMIT = "e9b1091916b53c34ed9676dc4d418baaf696786e";
-const RC6_TAG = "novel-ai-p24b-conversation-first-studio-rc6.2";
-const RC6_1_REVISION = "rc6.2";
-const RC6_1_NAME = "P2.4B Conversation-First Novel Project GPT RC6.2";
-const RC6_1_CONSUMER = "p2.4b-conversation-first-studio-rc6.2";
+const RC6_TAG = "novel-ai-p24b-conversation-first-studio-rc6.5";
+const RC6_1_REVISION = "rc6.5";
+const RC6_1_NAME = "P2.4B Conversation-First Novel Project GPT RC6.5";
+const RC6_1_CONSUMER = "p2.4b-conversation-first-studio-rc6.5";
 const mode = process.argv[2] || "all";
 const results = [];
 
@@ -87,7 +87,7 @@ function fixture(commit) {
   });
 }
 
-test("release-revision", "manifest declares the exact immutable RC6.2 identity", () => {
+test("release-revision", "manifest declares the exact active RC6.5 identity", () => {
   assert.equal(releaseManifest.releaseTag, RC6_TAG);
   assert.equal(releaseManifest.releaseRevision, RC6_1_REVISION);
   assert.equal(releaseManifest.releaseName, RC6_1_NAME);
@@ -96,7 +96,7 @@ test("release-revision", "manifest declares the exact immutable RC6.2 identity",
   assert.equal(releaseManifest.architectureStage, "P2.4B RC");
 });
 
-test("release-revision", "release identity and Legacy health expose RC6.2 fields", () => {
+test("release-revision", "release identity and Legacy health expose RC6.5 fields", () => {
   const identity = sources["lib/novel-ai/runtime-truth/release-identity.ts"];
   const releaseRoute = sources["app/api/release/identity/route.ts"];
   const legacyHealth = sources["app/api/ai/health/route.ts"];

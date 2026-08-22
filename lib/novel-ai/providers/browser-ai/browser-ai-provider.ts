@@ -19,6 +19,7 @@ import {
   cancelBrowserWebLLMGeneration,
   generateWithBrowserWebLLM,
   type BrowserWebLLMOutputConstraint,
+  type BrowserWebLLMSetupBoundary,
 } from "./browser-webllm-runtime";
 import type {
   BrowserWebLLMCacheBackend,
@@ -28,8 +29,28 @@ import type {
 import { browserWebLLMModel } from "./webllm-model-registry";
 import {
   evaluateBrowserDeviceBenchmark,
+  isCanonicalBrowserDeviceBenchmark,
   persistBrowserDeviceBenchmark,
+  readBrowserDeviceBenchmark,
+  type BrowserDeviceBenchmark,
 } from "./browser-device-benchmark";
+import {
+  BROWSER_PROSE_CANDIDATE_V2_GENERATION_POLICY,
+  BROWSER_PROSE_CANDIDATE_V2_IDENTITY,
+  BROWSER_PROSE_CANDIDATE_V2_PROMPT_PROFILE_VERSION,
+  BROWSER_PROSE_CANDIDATE_V2_SYSTEM_INSTRUCTION,
+  assertBrowserProseCandidateV2SafeOutput,
+  type BrowserProseCandidateV2SegmentRequest,
+  type BrowserProseCandidateV2SegmentResponse,
+} from "./browser-prose-candidate-v2";
+import {
+  createBrowserProseCandidateV2SegmentCallReceipt,
+  type BrowserProseCandidateV2SegmentCallReceipt,
+} from "./browser-prose-candidate-v2-receipt";
+import {
+  assertBrowserProseTierProductionQualified,
+  browserProseModelTierFromModelId,
+} from "./browser-prose-capability-policy";
 
 const BROWSER_GENERATION_VERIFICATION_SEED = 0x52433632;
 const BROWSER_GENERATION_VERIFICATION_SCHEMA = Object.freeze({
@@ -124,6 +145,17 @@ export type BrowserAIExecutionOptions = {
     maximumCombinedHanCharacters: number;
   };
 };
+
+export type BrowserAICandidateV2SegmentExecution = {
+  response: BrowserProseCandidateV2SegmentResponse;
+  callReceipt: BrowserProseCandidateV2SegmentCallReceipt;
+};
+
+export type BrowserAICandidateV2RuntimeDependencies = Readonly<Partial<{
+  runtimeSnapshot: typeof browserWebLLMRuntimeSnapshot;
+  readBenchmark: typeof readBrowserDeviceBenchmark;
+  generate: typeof generateWithBrowserWebLLM;
+}>>;
 
 function validStructuredBenchmarkOutput(content: string) {
   const normalized = content
@@ -299,10 +331,16 @@ export function getBrowserAIInferenceProof() {
   return browserInferenceProof ? { ...browserInferenceProof } : null;
 }
 
-export async function verifyBrowserAI(signal?: AbortSignal) {
+export async function verifyBrowserAI(
+  signal?: AbortSignal,
+  setupVerification?: BrowserWebLLMSetupBoundary,
+) {
   browserInferenceProof = null;
   const capability = await detectBrowserAI();
-  if (capability.status !== "ready") {
+  const stagedSetupModel = setupVerification
+    ? browserWebLLMModel(setupVerification.modelId)
+    : null;
+  if (capability.status !== "ready" && !stagedSetupModel) {
     const nativePromptAvailable = capability.promptAvailability === "available"
       || capability.promptAvailability === "readily";
     const digestNotVerifiable = nativePromptAvailable
@@ -324,9 +362,12 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
   }
   const startedAt = performance.now();
   if (
-    capability.webLlmInstalled
-    && capability.webLlmModelId
-    && capability.webLlmModelDigest
+    stagedSetupModel
+    || (
+      capability.webLlmInstalled
+      && capability.webLlmModelId
+      && capability.webLlmModelDigest
+    )
   ) {
     try {
       const result = await generateWithBrowserWebLLM({
@@ -337,6 +378,7 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
         seed: BROWSER_GENERATION_VERIFICATION_SEED,
         temperature: 0.2,
         maxTokens: 64,
+        setupVerification,
         signal,
       });
       const runtime = await browserWebLLMRuntimeSnapshot();
@@ -361,7 +403,7 @@ export async function verifyBrowserAI(signal?: AbortSignal) {
             completedAt: new Date().toISOString(),
           }],
         });
-        await persistBrowserDeviceBenchmark(benchmark);
+        await persistBrowserDeviceBenchmark(benchmark, runtime.device.tier);
         if (!benchmark.benchmarkPassed) {
           throw Object.assign(
             new Error("WebLLM 真實裝置 Benchmark 未達到此模型的執行門檻。"),
@@ -475,6 +517,7 @@ export async function detectBrowserAI(): Promise<BrowserAICapability> {
   const webLlmInstalling = selectedWebLlm?.installStatus === "installing";
   const webLlmInstalled = selectedWebLlm?.installStatus === "ready"
     && selectedWebLlm.cacheVerified
+    && selectedWebLlm.generationVerified
     && isCryptographicClosedAIModelDigest(selectedWebLlm.modelDigest);
   const webLlmModelId = webLlmInstalled ? selectedWebLlm.modelId : null;
   const webLlmModelDigest = webLlmInstalled ? selectedWebLlm.modelDigest : null;
@@ -589,6 +632,234 @@ function isAbortError(error: unknown, signal?: AbortSignal) {
   );
 }
 
+function browserProseCandidateV2SriHex(value: string): string | null {
+  if (!value.startsWith("sha256-")) return null;
+  try {
+    return [...atob(value.slice("sha256-".length))]
+      .map((character) => character.charCodeAt(0).toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null;
+  }
+}
+
+export async function runBrowserAICandidateV2Segment(input: {
+  request: PlatformAIRequest;
+  decision: PlatformRouterDecision;
+  segment: BrowserProseCandidateV2SegmentRequest;
+  contributorIndex: 0 | 1 | 2;
+  invocationRequestId: string;
+  contextDigest: string;
+  onProgress?: (progress: BrowserAIStreamProgress) => void;
+  /** Focused contract seam. Product callers always use the default runtime dependencies. */
+  runtimeDependencies?: BrowserAICandidateV2RuntimeDependencies;
+}): Promise<BrowserAICandidateV2SegmentExecution> {
+  const { request, decision, segment } = input;
+  const expected = BROWSER_PROSE_CANDIDATE_V2_GENERATION_POLICY.segmentPlan[
+    input.contributorIndex
+  ];
+  if (
+    !expected
+    || segment.segmentId !== expected.id
+    || segment.ordinal !== input.contributorIndex + 1
+    || segment.maxOutputTokens !== expected.maxOutputTokens
+    || segment.candidateIdentityDigest
+      !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.candidateIdentityDigest
+    || segment.temperature !== 0
+    || segment.topP !== 1
+    || segment.requestFullProse !== false
+  ) {
+    throw Object.assign(new Error("BROWSER_PROSE_CANDIDATE_V2_SEGMENT_REQUEST_INVALID"), {
+      code: "BROWSER_PROSE_CANDIDATE_V2_SEGMENT_REQUEST_INVALID",
+      fallbackAttempted: false,
+    });
+  }
+  if (
+    request.privacyMode !== "strict-local"
+    || !["chapter.continue", "chapter.expand"].includes(request.taskType)
+    || request.externalConsent !== false
+    || request.closedOnly !== true
+    || request.offlineRequired !== true
+    || request.fallbackPolicy !== "none"
+    || decision.providerId !== "browser-ai"
+    || decision.privacyMode !== "strict-local"
+    || decision.modelId !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId
+    || decision.modelDigest !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelDigest
+    || decision.externalRequest !== false
+    || decision.dataLeavesDevice !== false
+    || decision.fallbackChain.length !== 0
+  ) {
+    throw Object.assign(new Error("BROWSER_PROSE_CANDIDATE_V2_EXECUTION_BOUNDARY_INVALID"), {
+      code: "BROWSER_PROSE_CANDIDATE_V2_EXECUTION_BOUNDARY_INVALID",
+      fallbackAttempted: false,
+    });
+  }
+  const snapshot = await (
+    input.runtimeDependencies?.runtimeSnapshot ?? browserWebLLMRuntimeSnapshot
+  )();
+  const selectedModel = snapshot.models.find((model) => model.selected) ?? null;
+  const selectedManifest = browserWebLLMModel(BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId);
+  if (
+    snapshot.selectedModelId !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId
+    || selectedModel?.modelId !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId
+    || selectedModel.modelDigest !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelDigest
+    || selectedModel.installStatus !== "ready"
+    || selectedModel.cacheVerified !== true
+    || selectedModel.generationVerified !== true
+    || selectedManifest?.sourceRevision !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelRevision
+    || browserProseCandidateV2SriHex(selectedManifest?.integrity.model_lib ?? "")
+      !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelLibDigest
+  ) {
+    throw Object.assign(new Error("BROWSER_PROSE_CANDIDATE_V2_MODEL_NOT_READY"), {
+      code: "BROWSER_PROSE_CANDIDATE_V2_MODEL_NOT_READY",
+      fallbackAttempted: false,
+    });
+  }
+  const benchmark = await (
+    input.runtimeDependencies?.readBenchmark ?? readBrowserDeviceBenchmark
+  )(
+    BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId,
+    BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelDigest,
+    snapshot.device.tier,
+  ).catch(() => null) as BrowserDeviceBenchmark | null;
+  if (
+    !selectedManifest
+    || !benchmark
+    || benchmark.benchmarkPassed !== true
+    || !isCanonicalBrowserDeviceBenchmark(benchmark, {
+      model: selectedManifest,
+      currentDeviceTier: snapshot.device.tier,
+    })
+  ) {
+    throw Object.assign(
+      new Error("BROWSER_PROSE_CANDIDATE_V2_BENCHMARK_NOT_READY"),
+      {
+        code: "BROWSER_PROSE_CANDIDATE_V2_BENCHMARK_NOT_READY",
+        fallbackAttempted: false,
+        retryAttempted: false,
+        modelCallClaimed: false,
+      },
+    );
+  }
+  const started = performance.now();
+  try {
+    const generated = await (
+      input.runtimeDependencies?.generate ?? generateWithBrowserWebLLM
+    )({
+      systemInstruction: BROWSER_PROSE_CANDIDATE_V2_SYSTEM_INSTRUCTION,
+      prompt: segment.prompt,
+      trustedClosedPrompt: true,
+      temperature: segment.temperature,
+      topP: segment.topP,
+      maxTokens: segment.maxOutputTokens,
+      retryBudget: 0,
+      expectedModelIdentity: {
+        modelId: BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId,
+        modelDigest: BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelDigest,
+      },
+      invocationRequestId: input.invocationRequestId,
+      signal: request.signal,
+      onToken: (event) => input.onProgress?.({
+        generatedCharacters: event.content.length,
+        generatedTokenEvents: event.generatedTokenEvents,
+        delta: event.delta,
+        elapsedMs: event.elapsedMs,
+      }),
+    });
+    if (
+      generated.modelId !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelId
+      || generated.modelDigest !== BROWSER_PROSE_CANDIDATE_V2_IDENTITY.modelDigest
+      || generated.finishReason !== "stop"
+      || generated.externalRequest !== false
+      || generated.dataLeftDevice !== false
+      || generated.omittedInputCharacters !== 0
+      || !generated.content.trim()
+    ) {
+      throw Object.assign(new Error("BROWSER_PROSE_CANDIDATE_V2_GENERATION_RESULT_INVALID"), {
+        code: "BROWSER_PROSE_CANDIDATE_V2_GENERATION_RESULT_INVALID",
+      });
+    }
+    assertBrowserProseCandidateV2SafeOutput(
+      generated.content,
+      `segment-${segment.segmentId}`,
+    );
+    await recordInferenceProof(
+      generated.content,
+      started,
+      generated.modelId,
+      generated.modelDigest,
+      "generative-model",
+    );
+    const result: PlatformAIResult = {
+      requestId: input.invocationRequestId,
+      providerId: "browser-ai",
+      modelId: generated.modelId,
+      modelDigest: generated.modelDigest,
+      content: generated.content,
+      candidateOnly: true,
+      externalRequest: false,
+      dataLeavesDevice: false,
+      elapsedMs: generated.elapsedMs,
+      provenance: {
+        ...decision,
+        warnings: [
+          ...decision.warnings,
+          "Candidate V2 segment generated by the required on-device WebLLM worker.",
+        ],
+      },
+      profileId: BROWSER_PROSE_CANDIDATE_V2_PROMPT_PROFILE_VERSION,
+      firstTokenMs: generated.firstTokenMs,
+      inputCharacters: generated.inputCharacters,
+      outputCharacters: generated.outputCharacters,
+      generatedTokenEvents: generated.generatedTokenEvents,
+      omittedInputCharacters: generated.omittedInputCharacters,
+      runtimeStats: generated.runtimeStats,
+      tokensPerSecond: generated.tokensPerSecond,
+      estimatedMemoryMB: generated.estimatedVramMB,
+      executor: "webllm-worker",
+      performancePolicy: generated.performancePolicy,
+      queueWaitMs: generated.queueWaitMs,
+      engineReused: generated.engineReused,
+      generationFinishReason: generated.finishReason,
+      completionTokens: generated.completionTokens,
+      rawOutputCharacters: generated.outputCharacters,
+    };
+    const callReceipt = await createBrowserProseCandidateV2SegmentCallReceipt({
+      outerRequestId: request.requestId,
+      outerTaskType: request.taskType,
+      outerQualityPhase: request.qualityPhase ?? "draft",
+      invocationRequestId: input.invocationRequestId,
+      contributorIndex: input.contributorIndex,
+      contextDigest: input.contextDigest,
+      segment,
+      systemInstruction: BROWSER_PROSE_CANDIDATE_V2_SYSTEM_INSTRUCTION,
+      result,
+      executionSource: "browser-webllm-runtime",
+    });
+    return {
+      response: {
+        segmentId: segment.segmentId,
+        content: generated.content,
+        finishReason: generated.finishReason,
+      },
+      callReceipt,
+    };
+  } catch (error) {
+    cancelBrowserWebLLMGeneration();
+    if (isAbortError(error, request.signal)) throw error;
+    throw Object.assign(
+      new Error("Candidate V2 WebLLM segment failed; no fallback or retry was used."),
+      {
+        code: "BROWSER_PROSE_CANDIDATE_V2_SEGMENT_EXECUTION_FAILED",
+        fallbackAttempted: false,
+        retryAttempted: false,
+        causeCode: safeClosedAgentBrowserRuntimeCauseCode(error),
+        cause: error,
+      },
+    );
+  }
+}
+
 export async function runBrowserAI(
   request: PlatformAIRequest,
   decision: PlatformRouterDecision,
@@ -596,6 +867,14 @@ export async function runBrowserAI(
   options: BrowserAIExecutionOptions = {},
 ): Promise<PlatformAIResult> {
   const started = performance.now();
+  const decisionManifest = browserWebLLMModel(decision.modelId);
+  assertBrowserProseTierProductionQualified({
+    taskType: request.taskType,
+    selectedModelTier: browserProseModelTierFromModelId(decision.modelId),
+    selectedModelId: decision.modelId,
+    selectedModelDigest: decision.modelDigest,
+    executor: decisionManifest ? "webllm-worker" : "chromium-prompt-api",
+  });
   const sourceText = [...request.context, request.input].join("\n\n");
   const contextAttestation = options.contextAttestation
     ?? request.contextAttestation;
@@ -604,6 +883,7 @@ export async function runBrowserAI(
     request.browserFinalContextOuterRequestId,
     request.browserFinalContextOuterTaskType,
     request.browserFinalContextOuterQualityPhase,
+    request.browserFinalContextPipelineKind,
     request.browserFinalContextInnerStage,
     request.browserFinalContextInnerIndex,
   ].some((value) => value !== undefined);
@@ -719,6 +999,7 @@ export async function runBrowserAI(
         finalContextOuterRequestId: request.browserFinalContextOuterRequestId,
         finalContextOuterTaskType: request.browserFinalContextOuterTaskType,
         finalContextOuterQualityPhase: request.browserFinalContextOuterQualityPhase,
+        finalContextPipelineKind: request.browserFinalContextPipelineKind,
         finalContextInnerStage: request.browserFinalContextInnerStage,
         finalContextInnerIndex: request.browserFinalContextInnerIndex,
         invocationRequestId: request.requestId,

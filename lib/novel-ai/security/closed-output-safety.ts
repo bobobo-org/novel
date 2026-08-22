@@ -29,6 +29,10 @@ const MODEL_CONTROL_TOKEN = /<\|[^|<>\r\n]+\|>/iu;
 const MODEL_INSTRUCTION_TOKEN = /(?:\[\/?INST\]|<\/?s>)/iu;
 const UNSAFE_CONTROL_CHARACTER =
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
+// XGrammar 0.2.84 clamps non-ASCII members of a negated byte character
+// class. Enforce the Unicode paragraph invariant again at the independent
+// output gate instead of making a false grammar-level claim.
+const UNSAFE_UNICODE_PARAGRAPH_SEPARATOR = /[\u2028\u2029]/u;
 const CREDENTIAL = /\b(?:vcp|sbp|gh[pousr])_[A-Za-z0-9_-]{16,}\b|\bgithub_pat_[A-Za-z0-9_]{16,}\b|\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b|\bxox[baprs]-[A-Za-z0-9-]{12,}\b|\bAIza[A-Za-z0-9_-]{20,}\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*\b|\b(?:authorization|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|cookie)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,}|-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/iu;
 const RAW_REASONING = /\b(?:chain[-_ ]?of[-_ ]?thought|raw[_-]?reasoning|hidden reasoning|system[_-]?prompt)\b|(?:<|&lt;)\/?(?:think|analysis)(?:>|&gt;)|(?:^|\n)\s*(?:analysis|reasoning)\s*[:：]/iu;
 const MODEL_ROLE_ENVELOPE = /(?:(?:^|\n)\s*(?:system|assistant|user|developer|tool|助手|使用者|用[戶户]|[開开𫔭][發发]者|工具)\s*(?=[:：]|$)|(?:<|&lt;|&#0*60;|&#x0*3c;)\/?\s*(?:system|assistant|user|developer|tool|助手|使用者|用[戶户]|[開开𫔭][發发]者|工具)\s*\/?\s*(?:>|&gt;|&#0*62;|&#x0*3e;))/iu;
@@ -43,7 +47,10 @@ const INTERNAL_FINAL_CONTEXT_ENVELOPE = /(?:(?:<|&lt;|&#0*60;|&#x0*3c;)\s*\/?\s*
 export function closedOutputSafetyCode(
   value: string,
 ): ClosedOutputSafetyCode | null {
-  if (UNSAFE_CONTROL_CHARACTER.test(value)) return "control-token";
+  if (
+    UNSAFE_CONTROL_CHARACTER.test(value)
+    || UNSAFE_UNICODE_PARAGRAPH_SEPARATOR.test(value)
+  ) return "control-token";
   const normalized = value
     .replace(/\r\n?/gu, "\n")
     .normalize("NFKC")

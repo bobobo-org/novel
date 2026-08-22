@@ -162,7 +162,7 @@ export async function verifyBrowserModelShards(input: {
     shardCount: number;
     verifiedBytes: number;
     totalBytes: number;
-  }) => void;
+  }) => void | Promise<void>;
 }): Promise<BrowserModelShardVerification> {
   const validation = validateBrowserModelShardManifest();
   if (!validation.valid) {
@@ -225,7 +225,7 @@ export async function verifyBrowserModelShards(input: {
       }
       verifiedShardCount += 1;
       verifiedBytes += shard.bytes;
-      input.onProgress?.({
+      const callbackResult = input.onProgress?.({
         modelId: input.modelId,
         shardPath: shard.path,
         verifiedShardCount,
@@ -233,6 +233,7 @@ export async function verifyBrowserModelShards(input: {
         verifiedBytes,
         totalBytes: model.totalBytes,
       });
+      if (callbackResult instanceof Promise) await callbackResult;
     } catch {
       failures.push({
         path: shard.path,

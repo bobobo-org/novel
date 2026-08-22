@@ -217,7 +217,7 @@ async function readGithubJson(fetcher, url, token) {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,
       "X-GitHub-Api-Version": "2026-03-10",
-      "User-Agent": "novel-rc6.2-immutable-tag-verifier",
+      "User-Agent": "novel-rc6.5-immutable-tag-verifier",
     },
     signal: AbortSignal.timeout(10_000),
   });
@@ -351,7 +351,7 @@ async function main() {
   const { protection, remote } = verifiedRemote;
   if (process.env.RELEASE_TAG_PROOF_PATH) {
     const core = {
-      schemaVersion: "p24b-rc6.2-immutable-release-tag-proof-v2",
+      schemaVersion: "p24b-rc6.5-immutable-release-tag-proof-v1",
       status: "PASS",
       mode,
       releaseLine: policy.releaseLine,

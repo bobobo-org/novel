@@ -156,7 +156,7 @@ export function useClosedAiBootstrap(projectId: string) {
   }, [inspectAfterFailure, projectId]);
 
   const prepareClosedAi = useCallback(async () => {
-    if (closedAiSetupBusy) return;
+    if (closedAiSetupBusy || setupAbortRef.current) return;
     const controller = new AbortController();
     setupAbortRef.current = controller;
     setClosedAiSetupBusy(true);

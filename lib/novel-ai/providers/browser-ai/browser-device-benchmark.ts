@@ -2,6 +2,7 @@ import type {
   BrowserWebLLMDeviceProfile,
   BrowserWebLLMModelManifest,
 } from "./webllm-model-registry";
+import { browserWebLLMModel } from "./webllm-model-registry";
 
 const BENCHMARK_DB = "novel-browser-device-benchmark-v1";
 const BENCHMARK_STORE = "model-benchmarks";
@@ -72,6 +73,185 @@ const LIMITS: Record<BrowserWebLLMModelManifest["parameterLabel"], {
   },
 };
 
+const BENCHMARK_KEYS = [
+  "benchmarkPassed",
+  "deviceTier",
+  "failureReasons",
+  "firstTokenMs",
+  "gpuDeviceLostCount",
+  "initializationMs",
+  "key",
+  "measuredAt",
+  "modelDigest",
+  "modelId",
+  "outputFailureRate",
+  "parameterLabel",
+  "peakEstimatedMemoryMB",
+  "sampleCount",
+  "schemaVersion",
+  "structuredOutputSuccessRate",
+  "tokensPerSecond",
+  "workerCrashCount",
+] as const;
+const BENCHMARK_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1_000;
+const BENCHMARK_MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
+const DEVICE_TIER_RANK = {
+  unsupported: 0,
+  low: 1,
+  standard: 2,
+  high: 3,
+} as const;
+const BENCHMARK_FAILURE_REASONS = new Set([
+  "device_not_supported",
+  "no_valid_benchmark_sample",
+  "initialization_too_slow",
+  "first_token_too_slow",
+  "throughput_below_model_gate",
+  "worker_crash_observed",
+  "gpu_device_lost_repeated",
+  "output_failure_rate_too_high",
+  "structured_output_success_too_low",
+  "memory_budget_exceeded",
+]);
+
+function canonicalBenchmarkFailureReasons(input: {
+  benchmark: BrowserDeviceBenchmark;
+  model: BrowserWebLLMModelManifest;
+  currentDeviceTier: BrowserWebLLMDeviceProfile["tier"];
+}) {
+  const { benchmark, model, currentDeviceTier } = input;
+  const limits = LIMITS[model.parameterLabel];
+  const reasons: string[] = [];
+  if (
+    DEVICE_TIER_RANK[benchmark.deviceTier] < DEVICE_TIER_RANK[model.tier]
+    || DEVICE_TIER_RANK[currentDeviceTier] < DEVICE_TIER_RANK[model.tier]
+  ) reasons.push("device_not_supported");
+  if (benchmark.sampleCount < 1) reasons.push("no_valid_benchmark_sample");
+  if (benchmark.initializationMs > limits.maxInitializationMs) {
+    reasons.push("initialization_too_slow");
+  }
+  if (benchmark.firstTokenMs > limits.maxFirstTokenMs) {
+    reasons.push("first_token_too_slow");
+  }
+  if (benchmark.tokensPerSecond < limits.minTokensPerSecond) {
+    reasons.push("throughput_below_model_gate");
+  }
+  if (benchmark.workerCrashCount > 0) reasons.push("worker_crash_observed");
+  if (benchmark.gpuDeviceLostCount > 1) {
+    reasons.push("gpu_device_lost_repeated");
+  }
+  if (benchmark.outputFailureRate > limits.maxOutputFailureRate) {
+    reasons.push("output_failure_rate_too_high");
+  }
+  if (
+    benchmark.structuredOutputSuccessRate
+      < limits.minStructuredOutputSuccessRate
+  ) reasons.push("structured_output_success_too_low");
+  if (benchmark.peakEstimatedMemoryMB > model.estimatedVramMB * 1.5) {
+    reasons.push("memory_budget_exceeded");
+  }
+  return reasons;
+}
+
+export function isCanonicalBrowserDeviceBenchmark(
+  value: unknown,
+  input: {
+    model: BrowserWebLLMModelManifest;
+    currentDeviceTier: BrowserWebLLMDeviceProfile["tier"];
+    nowMs?: number;
+  },
+): value is BrowserDeviceBenchmark {
+  try {
+    if (!value || typeof value !== "object") return false;
+    const prototype = Object.getPrototypeOf(value);
+    const ownKeys = Reflect.ownKeys(value);
+    if (
+      prototype !== Object.prototype
+      && prototype !== null
+      || ownKeys.length !== BENCHMARK_KEYS.length
+      || ownKeys.some((key) => typeof key !== "string")
+      || [...BENCHMARK_KEYS].some((key) => !ownKeys.includes(key))
+      || ownKeys.some((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return !descriptor || !("value" in descriptor) || !descriptor.enumerable;
+      })
+    ) return false;
+    const benchmark = value as BrowserDeviceBenchmark;
+    if (
+      typeof benchmark.schemaVersion !== "string"
+      || typeof benchmark.key !== "string"
+      || typeof benchmark.modelId !== "string"
+      || typeof benchmark.modelDigest !== "string"
+      || typeof benchmark.parameterLabel !== "string"
+      || typeof benchmark.deviceTier !== "string"
+      || typeof benchmark.benchmarkPassed !== "boolean"
+      || typeof benchmark.measuredAt !== "string"
+      || !Array.isArray(benchmark.failureReasons)
+      || Object.getOwnPropertySymbols(benchmark.failureReasons).length > 0
+      || benchmark.failureReasons.some((reason) => typeof reason !== "string")
+    ) return false;
+    const measuredAtMs = Date.parse(benchmark.measuredAt);
+    const nowMs = input.nowMs ?? Date.now();
+    if (
+      benchmark.schemaVersion !== BROWSER_DEVICE_BENCHMARK_VERSION
+      || benchmark.key !== `${input.model.modelId}:${input.model.modelDigest}`
+      || benchmark.modelId !== input.model.modelId
+      || benchmark.modelDigest !== input.model.modelDigest
+      || benchmark.parameterLabel !== input.model.parameterLabel
+      || !input.model.productionQualified
+      || input.model.usePolicy !== "production"
+      || !(benchmark.deviceTier in DEVICE_TIER_RANK)
+      || typeof input.currentDeviceTier !== "string"
+      || !(input.currentDeviceTier in DEVICE_TIER_RANK)
+      || !Number.isFinite(nowMs)
+      || !Number.isSafeInteger(benchmark.sampleCount)
+      || benchmark.sampleCount < 1
+      || ![
+        benchmark.initializationMs,
+        benchmark.firstTokenMs,
+        benchmark.tokensPerSecond,
+        benchmark.peakEstimatedMemoryMB,
+      ].every(finiteNonNegative)
+      || !Number.isSafeInteger(benchmark.workerCrashCount)
+      || benchmark.workerCrashCount < 0
+      || !Number.isSafeInteger(benchmark.gpuDeviceLostCount)
+      || benchmark.gpuDeviceLostCount < 0
+      || !Number.isFinite(benchmark.outputFailureRate)
+      || benchmark.outputFailureRate < 0
+      || benchmark.outputFailureRate > 1
+      || !Number.isFinite(benchmark.structuredOutputSuccessRate)
+      || benchmark.structuredOutputSuccessRate < 0
+      || benchmark.structuredOutputSuccessRate > 1
+      || new Set(benchmark.failureReasons).size !== benchmark.failureReasons.length
+      || benchmark.failureReasons.some((reason) => (
+        !BENCHMARK_FAILURE_REASONS.has(reason)
+      ))
+      || !Number.isFinite(measuredAtMs)
+      || new Date(measuredAtMs).toISOString() !== benchmark.measuredAt
+      || measuredAtMs > nowMs + BENCHMARK_MAX_FUTURE_SKEW_MS
+      || nowMs - measuredAtMs > BENCHMARK_MAX_AGE_MS
+    ) return false;
+    const canonicalReasons = canonicalBenchmarkFailureReasons({
+      benchmark,
+      model: input.model,
+      currentDeviceTier: input.currentDeviceTier,
+    });
+    if (
+      canonicalReasons.length !== benchmark.failureReasons.length
+      || canonicalReasons.some((reason, index) => (
+        benchmark.failureReasons[index] !== reason
+      ))
+    ) {
+      return false;
+    }
+    return benchmark.benchmarkPassed === (
+      canonicalReasons.length === 0 && benchmark.failureReasons.length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 function finiteNonNegative(value: number) {
   return Number.isFinite(value) && value >= 0;
 }
@@ -98,14 +278,19 @@ export function evaluateBrowserDeviceBenchmark(input: {
     && finiteNonNegative(sample.firstTokenMs)
     && finiteNonNegative(sample.tokensPerSecond)
     && finiteNonNegative(sample.peakEstimatedMemoryMB)
-    && finiteNonNegative(sample.workerCrashCount)
-    && finiteNonNegative(sample.gpuDeviceLostCount)
+    && Number.isSafeInteger(sample.workerCrashCount)
+    && sample.workerCrashCount >= 0
+    && Number.isSafeInteger(sample.gpuDeviceLostCount)
+    && sample.gpuDeviceLostCount >= 0
     && sample.outputFailureRate >= 0
     && sample.outputFailureRate <= 1
     && sample.structuredOutputSuccessRate >= 0
     && sample.structuredOutputSuccessRate <= 1
+    && typeof sample.completedAt === "string"
+    && Number.isFinite(Date.parse(sample.completedAt))
+    && new Date(Date.parse(sample.completedAt)).toISOString()
+      === sample.completedAt
   ));
-  const limits = LIMITS[model.parameterLabel];
   const initializationMs = round(mean(samples.map((sample) => sample.initializationMs)));
   const firstTokenMs = round(mean(samples.map((sample) => sample.firstTokenMs)));
   const tokensPerSecond = round(mean(samples.map((sample) => sample.tokensPerSecond)));
@@ -127,37 +312,11 @@ export function evaluateBrowserDeviceBenchmark(input: {
   const structuredOutputSuccessRate = round(mean(
     samples.map((sample) => sample.structuredOutputSuccessRate),
   ), 4);
-  const failureReasons: string[] = [];
-  if (!device.supported) failureReasons.push("device_not_supported");
-  if (!samples.length) failureReasons.push("no_valid_benchmark_sample");
-  if (initializationMs > limits.maxInitializationMs) {
-    failureReasons.push("initialization_too_slow");
-  }
-  if (firstTokenMs > limits.maxFirstTokenMs) {
-    failureReasons.push("first_token_too_slow");
-  }
-  if (tokensPerSecond < limits.minTokensPerSecond) {
-    failureReasons.push("throughput_below_model_gate");
-  }
-  if (workerCrashCount > 0) failureReasons.push("worker_crash_observed");
-  if (gpuDeviceLostCount > 1) failureReasons.push("gpu_device_lost_repeated");
-  if (outputFailureRate > limits.maxOutputFailureRate) {
-    failureReasons.push("output_failure_rate_too_high");
-  }
-  if (structuredOutputSuccessRate < limits.minStructuredOutputSuccessRate) {
-    failureReasons.push("structured_output_success_too_low");
-  }
-  if (
-    device.deviceMemoryGB !== null
-    && peakEstimatedMemoryMB > device.deviceMemoryGB * 1024 * 0.82
-  ) {
-    failureReasons.push("memory_budget_exceeded");
-  }
   const measuredAt = samples
     .map((sample) => sample.completedAt)
     .sort()
     .at(-1) ?? new Date().toISOString();
-  return {
+  const benchmark: BrowserDeviceBenchmark = {
     schemaVersion: BROWSER_DEVICE_BENCHMARK_VERSION,
     key: `${model.modelId}:${model.modelDigest}`,
     modelId: model.modelId,
@@ -173,9 +332,19 @@ export function evaluateBrowserDeviceBenchmark(input: {
     gpuDeviceLostCount,
     outputFailureRate,
     structuredOutputSuccessRate,
+    benchmarkPassed: false,
+    failureReasons: [],
+    measuredAt,
+  };
+  const failureReasons = canonicalBenchmarkFailureReasons({
+    benchmark,
+    model,
+    currentDeviceTier: device.tier,
+  });
+  return {
+    ...benchmark,
     benchmarkPassed: failureReasons.length === 0,
     failureReasons,
-    measuredAt,
   };
 }
 
@@ -200,7 +369,20 @@ function openBenchmarkDatabase(): Promise<IDBDatabase> {
 
 export async function persistBrowserDeviceBenchmark(
   benchmark: BrowserDeviceBenchmark,
+  currentDeviceTier: BrowserWebLLMDeviceProfile["tier"],
 ) {
+  const model = browserWebLLMModel(benchmark.modelId);
+  if (
+    !model
+    || !isCanonicalBrowserDeviceBenchmark(benchmark, {
+      model,
+      currentDeviceTier,
+    })
+  ) {
+    throw Object.assign(new Error("Browser benchmark evidence is invalid."), {
+      code: "BROWSER_DEVICE_BENCHMARK_INVALID",
+    });
+  }
   const database = await openBenchmarkDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -219,19 +401,27 @@ export async function persistBrowserDeviceBenchmark(
 export async function readBrowserDeviceBenchmark(
   modelId: string,
   modelDigest: string,
+  currentDeviceTier: BrowserWebLLMDeviceProfile["tier"],
 ): Promise<BrowserDeviceBenchmark | null> {
   const database = await openBenchmarkDatabase();
   try {
-    return await new Promise((resolve, reject) => {
+    const value = await new Promise<unknown>((resolve, reject) => {
       const transaction = database.transaction(BENCHMARK_STORE, "readonly");
       const request = transaction.objectStore(BENCHMARK_STORE).get(
         `${modelId}:${modelDigest}`,
       );
-      request.onsuccess = () => resolve(
-        (request.result as BrowserDeviceBenchmark | undefined) ?? null,
-      );
+      request.onsuccess = () => resolve(request.result ?? null);
       request.onerror = () => reject(request.error);
     });
+    const model = browserWebLLMModel(modelId);
+    return model
+      && model.modelDigest === modelDigest
+      && isCanonicalBrowserDeviceBenchmark(value, {
+        model,
+        currentDeviceTier,
+      })
+      ? value
+      : null;
   } finally {
     database.close();
   }

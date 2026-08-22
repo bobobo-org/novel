@@ -23,6 +23,11 @@ import type {
   BrowserFabricTask,
 } from "./types";
 import { withBrowserGpuLock } from "./gpu-lock";
+import {
+  assertBrowserProseTierProductionQualified,
+  browserProseModelTierFromModelId,
+} from "../providers/browser-ai/browser-prose-capability-policy";
+import { browserWebLLMModel } from "../providers/browser-ai/webllm-model-registry";
 
 export type BrowserSovereignFabricExecution = BrowserComputeExecution & {
   fabric: {
@@ -82,6 +87,14 @@ export async function executeBrowserSovereignFabric(input: {
   deferTraditionalChineseNormalization?: boolean;
   onProgress?: (progress: BrowserAIStreamProgress) => void;
 }): Promise<BrowserSovereignFabricExecution> {
+  const selectedModel = browserWebLLMModel(input.decision.modelId);
+  assertBrowserProseTierProductionQualified({
+    taskType: input.request.taskType,
+    selectedModelTier: browserProseModelTierFromModelId(input.decision.modelId),
+    selectedModelId: input.decision.modelId,
+    selectedModelDigest: input.decision.modelDigest,
+    executor: selectedModel ? "webllm-worker" : "chromium-prompt-api",
+  });
   const task = fabricTask(input.request);
   const profile = await qualifyBrowserDevice();
   const engines = await browserFabricEngineRegistry({ profile });

@@ -2,9 +2,9 @@ import { sha256Hex, stableStringify } from "../closed-ai-cache";
 
 export const BROWSER_FINAL_CONTEXT_MARKER_VERSION = "CTX3" as const;
 export const BROWSER_FINAL_MODEL_CONTEXT_PROOF_VERSION =
-  "browser-final-model-context-proof-v3" as const;
+  "browser-final-model-context-proof-v4" as const;
 export const BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION =
-  "browser-final-model-context-attestation-v3" as const;
+  "browser-final-model-context-attestation-v4" as const;
 export const BROWSER_CONTEXT_ATTESTATION_POLICY_VERSION =
   "browser-context-attestation-policy-v1" as const;
 
@@ -50,7 +50,16 @@ export type BrowserFinalModelContextInnerStage =
   | "initial"
   | "repair"
   | "extension"
-  | "recovery";
+  | "recovery"
+  | "segment-1"
+  | "segment-2"
+  | "segment-3";
+
+export type BrowserFinalModelContextPipelineKind =
+  | "legacy-bounded-quality-v1"
+  | "browser-prose-composer-v1";
+
+export type BrowserFinalModelContextInnerIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type BrowserFinalContextOuterTaskType = string;
 
@@ -80,8 +89,9 @@ export type BrowserFinalModelContextInvocationProof = {
   invocationRequestIdDigest: string;
   outerTaskType: BrowserFinalContextOuterTaskType;
   outerQualityPhase: "draft" | "critic" | "revision";
+  pipelineKind: BrowserFinalModelContextPipelineKind;
   innerStage: BrowserFinalModelContextInnerStage;
-  innerIndex: 0 | 1 | 2;
+  innerIndex: BrowserFinalModelContextInnerIndex;
   modelId: string;
   modelDigest: string;
   callOptionsDigest: string;
@@ -98,7 +108,11 @@ export type BrowserFinalModelContextInvocationProof = {
 
 export type BrowserFinalModelContextAttestation = {
   schemaVersion: typeof BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION;
-  acceptedDisposition: "standalone" | "composed-extension";
+  pipelineKind: BrowserFinalModelContextPipelineKind;
+  acceptedDisposition:
+    | "standalone"
+    | "composed-extension"
+    | "composed-segments";
   acceptedStage: BrowserFinalModelContextInnerStage;
   extensionBaseStage: "initial" | "repair" | null;
   executedStages: BrowserFinalModelContextInnerStage[];
@@ -127,13 +141,43 @@ const INNER_STAGES = new Set<BrowserFinalModelContextInnerStage>([
   "repair",
   "extension",
   "recovery",
+  "segment-1",
+  "segment-2",
+  "segment-3",
+]);
+const PIPELINE_KINDS = new Set<BrowserFinalModelContextPipelineKind>([
+  "legacy-bounded-quality-v1",
+  "browser-prose-composer-v1",
 ]);
 const ACCEPTED_DISPOSITIONS = new Set<
   BrowserFinalModelContextAttestation["acceptedDisposition"]
->(["standalone", "composed-extension"]);
+>(["standalone", "composed-extension", "composed-segments"]);
 
-function expectedInnerIndex(stage: BrowserFinalModelContextInnerStage) {
+function expectedLegacyInnerIndex(stage: BrowserFinalModelContextInnerStage) {
   return stage === "initial" ? 0 : stage === "repair" ? 1 : 2;
+}
+
+function invocationStageMatchesPipeline(input: {
+  pipelineKind: BrowserFinalModelContextPipelineKind;
+  innerStage: BrowserFinalModelContextInnerStage;
+  innerIndex: BrowserFinalModelContextInnerIndex;
+}) {
+  if (input.pipelineKind === "legacy-bounded-quality-v1") {
+    return new Set<BrowserFinalModelContextInnerStage>([
+      "initial",
+      "repair",
+      "extension",
+      "recovery",
+    ]).has(input.innerStage)
+      && input.innerIndex === expectedLegacyInnerIndex(input.innerStage);
+  }
+  return input.innerStage === "initial"
+    ? input.innerIndex === 0
+    : new Set<BrowserFinalModelContextInnerStage>([
+      "segment-1",
+      "segment-2",
+      "segment-3",
+    ]).has(input.innerStage) && input.innerIndex >= 1;
 }
 
 function sourceAuthorityMatchesKind(
@@ -495,8 +539,9 @@ export async function createBrowserFinalModelContextInvocationProof(input: {
   invocationRequestId: string;
   outerTaskType: BrowserFinalContextOuterTaskType;
   outerQualityPhase: "draft" | "critic" | "revision";
+  pipelineKind?: BrowserFinalModelContextPipelineKind;
   innerStage: BrowserFinalModelContextInnerStage;
-  innerIndex: 0 | 1 | 2;
+  innerIndex: BrowserFinalModelContextInnerIndex;
   modelId: string;
   modelDigest: string;
   callOptionsDigest: string;
@@ -505,6 +550,7 @@ export async function createBrowserFinalModelContextInvocationProof(input: {
   expectations: BrowserFinalContextExpectation[];
   omittedCharacters: number;
 }): Promise<BrowserFinalModelContextInvocationProof> {
+  const pipelineKind = input.pipelineKind ?? "legacy-bounded-quality-v1";
   if (
     !input.outerRequestId.trim()
     || !input.invocationRequestId.trim()
@@ -512,9 +558,14 @@ export async function createBrowserFinalModelContextInvocationProof(input: {
     || !input.modelId.trim()
     || input.modelId.length > 192
     || !new Set(["draft", "critic", "revision"]).has(input.outerQualityPhase)
+    || !PIPELINE_KINDS.has(pipelineKind)
     || !INNER_STAGES.has(input.innerStage)
-    || !isSafeInteger(input.innerIndex, 0, 2)
-    || input.innerIndex !== expectedInnerIndex(input.innerStage)
+    || !isSafeInteger(input.innerIndex, 0, 5)
+    || !invocationStageMatchesPipeline({
+      pipelineKind,
+      innerStage: input.innerStage,
+      innerIndex: input.innerIndex,
+    })
     || !isSafeInteger(input.omittedCharacters, 0, 10_000_000)
   ) throw proofError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH");
   assertDigest(input.modelDigest, "BROWSER_FINAL_CONTEXT_BINDING_MISMATCH");
@@ -553,6 +604,7 @@ export async function createBrowserFinalModelContextInvocationProof(input: {
     invocationRequestIdDigest: await sha256Hex(input.invocationRequestId),
     outerTaskType: input.outerTaskType,
     outerQualityPhase: input.outerQualityPhase,
+    pipelineKind,
     innerStage: input.innerStage,
     innerIndex: input.innerIndex,
     modelId: input.modelId,
@@ -567,7 +619,7 @@ export async function createBrowserFinalModelContextInvocationProof(input: {
   return {
     ...body,
     bindingDigest: await sha256Hex(stableStringify({
-      domain: "browser-final-model-context-invocation-proof-v3",
+      domain: "browser-final-model-context-invocation-proof-v4",
       body,
     })),
   };
@@ -594,6 +646,7 @@ export async function verifyBrowserFinalModelContextInvocationProof(
         "outerRequestIdDigest",
         "outerTaskType",
         "outerQualityPhase",
+        "pipelineKind",
         "rawTextStored",
         "invocationRequestIdDigest",
         "requiredManifestDigest",
@@ -606,9 +659,10 @@ export async function verifyBrowserFinalModelContextInvocationProof(
       || value.modelId.length > 192
       || !/^[A-Za-z][A-Za-z0-9.-]{1,80}$/u.test(value.outerTaskType)
       || !new Set(["draft", "critic", "revision"]).has(value.outerQualityPhase)
+      || !PIPELINE_KINDS.has(value.pipelineKind)
       || !INNER_STAGES.has(value.innerStage)
-      || !isSafeInteger(value.innerIndex, 0, 2)
-      || value.innerIndex !== expectedInnerIndex(value.innerStage)
+      || !isSafeInteger(value.innerIndex, 0, 5)
+      || !invocationStageMatchesPipeline(value)
       || !isSafeInteger(value.omittedCharacters, 0, 10_000_000)
       || !Array.isArray(value.messageDescriptors)
       || value.messageDescriptors.length !== 2
@@ -709,7 +763,7 @@ export async function verifyBrowserFinalModelContextInvocationProof(
       !== value.requiredManifestDigest) return false;
     const { bindingDigest, ...body } = value;
     return bindingDigest === await sha256Hex(stableStringify({
-      domain: "browser-final-model-context-invocation-proof-v3",
+      domain: "browser-final-model-context-invocation-proof-v4",
       body,
     }));
   } catch {
@@ -717,26 +771,90 @@ export async function verifyBrowserFinalModelContextInvocationProof(
   }
 }
 
-function validExecutedStages(stages: BrowserFinalModelContextInnerStage[]) {
-  return stages.length >= 1
-    && stages.length <= 3
-    && stages[0] === "initial"
-    && (stages[1] === undefined || stages[1] === "repair")
-    && (stages[2] === undefined || stages[2] === "extension" || stages[2] === "recovery")
-    && new Set(stages).size === stages.length;
+/**
+ * Fail-closed assertion for a caller that already knows the exact composer or
+ * legacy invocation position. Unlike the legacy orchestrator-local assertion,
+ * this contract accepts the complete attested index range and requires an
+ * explicit pipeline kind, so a proof cannot be accepted through a defaulted
+ * pipeline or a stage-only comparison.
+ */
+export async function assertBrowserFinalModelContextInvocationProof(input: {
+  proof: BrowserFinalModelContextInvocationProof | null | undefined;
+  pipelineKind: BrowserFinalModelContextPipelineKind;
+  innerStage: BrowserFinalModelContextInnerStage;
+  innerIndex: BrowserFinalModelContextInnerIndex;
+}) {
+  if (
+    !input.proof
+    || !PIPELINE_KINDS.has(input.pipelineKind)
+    || !INNER_STAGES.has(input.innerStage)
+    || !isSafeInteger(input.innerIndex, 0, 5)
+    || !invocationStageMatchesPipeline({
+      pipelineKind: input.pipelineKind,
+      innerStage: input.innerStage,
+      innerIndex: input.innerIndex,
+    })
+    || input.proof.pipelineKind !== input.pipelineKind
+    || input.proof.innerStage !== input.innerStage
+    || input.proof.innerIndex !== input.innerIndex
+    || !await verifyBrowserFinalModelContextInvocationProof(input.proof)
+  ) throw proofError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH");
+  return input.proof;
+}
+
+function validExecutedStages(
+  pipelineKind: BrowserFinalModelContextPipelineKind,
+  stages: BrowserFinalModelContextInnerStage[],
+) {
+  if (!Array.isArray(stages) || stages.length < 1 || stages.length > 6) {
+    return false;
+  }
+  if (pipelineKind === "legacy-bounded-quality-v1") {
+    return stages.length <= 3
+      && stages[0] === "initial"
+      && (stages[1] === undefined || stages[1] === "repair")
+      && (stages[2] === undefined
+        || stages[2] === "extension"
+        || stages[2] === "recovery")
+      && new Set(stages).size === stages.length;
+  }
+  if (stages[0] !== "initial") return false;
+  const segmentStages = stages.slice(1);
+  if (segmentStages.some((stage) => (
+    stage !== "segment-1"
+    && stage !== "segment-2"
+    && stage !== "segment-3"
+  ))) return false;
+  const ranks = segmentStages.map((stage) => (
+    stage === "segment-1" ? 1 : stage === "segment-2" ? 2 : 3
+  ));
+  if (ranks.some((rank, index) => index > 0 && rank < ranks[index - 1])) {
+    return false;
+  }
+  const count = (stage: BrowserFinalModelContextInnerStage) => (
+    segmentStages.filter((candidate) => candidate === stage).length
+  );
+  return count("segment-1") <= 2
+    && count("segment-2") <= 2
+    && count("segment-3") <= 1;
 }
 
 export async function createBrowserFinalModelContextAttestation(input: {
-  acceptedDisposition: "standalone" | "composed-extension";
+  pipelineKind?: BrowserFinalModelContextPipelineKind;
+  acceptedDisposition: BrowserFinalModelContextAttestation["acceptedDisposition"];
   acceptedStage: BrowserFinalModelContextInnerStage;
   extensionBaseStage?: "initial" | "repair" | null;
   executedStages: BrowserFinalModelContextInnerStage[];
   contributingCalls: BrowserFinalModelContextInvocationProof[];
 }): Promise<BrowserFinalModelContextAttestation> {
+  const pipelineKind = input.pipelineKind
+    ?? input.contributingCalls[0]?.pipelineKind
+    ?? "legacy-bounded-quality-v1";
   if (
-    !ACCEPTED_DISPOSITIONS.has(input.acceptedDisposition)
+    !PIPELINE_KINDS.has(pipelineKind)
+    || !ACCEPTED_DISPOSITIONS.has(input.acceptedDisposition)
     || !INNER_STAGES.has(input.acceptedStage)
-    || !validExecutedStages(input.executedStages)
+    || !validExecutedStages(pipelineKind, input.executedStages)
   ) {
     throw proofError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH");
   }
@@ -754,47 +872,87 @@ export async function createBrowserFinalModelContextAttestation(input: {
     && call.modelId === first.modelId
     && call.modelDigest === first.modelDigest
     && call.requiredManifestDigest === first.requiredManifestDigest
+    && call.pipelineKind === pipelineKind
   ));
   const uniqueCalls = new Set(
     input.contributingCalls.map((call) => call.invocationRequestIdDigest),
   ).size === input.contributingCalls.length;
   const contributingStagesMatchExecution = input.contributingCalls.every(
     (call) => (
-      call.innerIndex === expectedInnerIndex(call.innerStage)
+      invocationStageMatchesPipeline(call)
       && input.executedStages[call.innerIndex] === call.innerStage
     ),
   );
+  const contributingIndexesStrictlyIncrease = input.contributingCalls.every(
+    (call, index) => index === 0
+      || call.innerIndex > input.contributingCalls[index - 1].innerIndex,
+  );
   const extensionBaseStage = input.extensionBaseStage ?? null;
-  const lineageValid = input.acceptedDisposition === "standalone"
+  const legacyStandalone = pipelineKind === "legacy-bounded-quality-v1"
+    && input.acceptedDisposition === "standalone"
     ? input.contributingCalls.length === 1
       && input.contributingCalls[0].innerStage === input.acceptedStage
       && input.contributingCalls[0].innerIndex
-        === expectedInnerIndex(input.acceptedStage)
-      && input.executedStages[expectedInnerIndex(input.acceptedStage)]
+        === expectedLegacyInnerIndex(input.acceptedStage)
+      && input.executedStages[expectedLegacyInnerIndex(input.acceptedStage)]
         === input.acceptedStage
       && input.acceptedStage !== "extension"
       && extensionBaseStage === null
-    : input.acceptedStage === "extension"
+    : false;
+  const legacyExtension = pipelineKind === "legacy-bounded-quality-v1"
+    && input.acceptedDisposition === "composed-extension"
+    ? input.acceptedStage === "extension"
       && (extensionBaseStage === "initial" || extensionBaseStage === "repair")
       && input.contributingCalls.length === 2
       && input.contributingCalls[0].innerStage === extensionBaseStage
       && input.contributingCalls[0].innerIndex
-        === expectedInnerIndex(extensionBaseStage)
+        === expectedLegacyInnerIndex(extensionBaseStage)
       && input.contributingCalls[1].innerStage === "extension"
-      && input.contributingCalls[1].innerIndex === expectedInnerIndex("extension")
-      && input.executedStages[expectedInnerIndex(extensionBaseStage)]
+      && input.contributingCalls[1].innerIndex
+        === expectedLegacyInnerIndex("extension")
+      && input.executedStages[expectedLegacyInnerIndex(extensionBaseStage)]
         === extensionBaseStage
-      && input.executedStages[expectedInnerIndex("extension")] === "extension";
+      && input.executedStages[expectedLegacyInnerIndex("extension")]
+        === "extension"
+    : false;
+  const composerStandalone = pipelineKind === "browser-prose-composer-v1"
+    && input.acceptedDisposition === "standalone"
+    ? input.acceptedStage === "initial"
+      && input.executedStages.length === 1
+      && input.contributingCalls.length === 1
+      && input.contributingCalls[0].innerStage === "initial"
+      && input.contributingCalls[0].innerIndex === 0
+      && extensionBaseStage === null
+    : false;
+  const expectedComposedStages = input.acceptedStage === "segment-3"
+    ? ["segment-1", "segment-2", "segment-3"] as const
+    : ["segment-1", "segment-2"] as const;
+  const composerSegments = pipelineKind === "browser-prose-composer-v1"
+    && input.acceptedDisposition === "composed-segments"
+    && (input.acceptedStage === "segment-2" || input.acceptedStage === "segment-3")
+    ? extensionBaseStage === null
+      && input.contributingCalls.length === expectedComposedStages.length
+      && input.contributingCalls.every((call, index) => (
+        call.innerStage === expectedComposedStages[index]
+      ))
+      && input.contributingCalls.at(-1)?.innerStage === input.acceptedStage
+    : false;
+  const lineageValid = legacyStandalone
+    || legacyExtension
+    || composerStandalone
+    || composerSegments;
   if (
     !sameBoundary
     || !uniqueCalls
     || !contributingStagesMatchExecution
+    || !contributingIndexesStrictlyIncrease
     || !lineageValid
   ) {
     throw proofError("BROWSER_FINAL_CONTEXT_BINDING_MISMATCH");
   }
   const body = {
     schemaVersion: BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION,
+    pipelineKind,
     acceptedDisposition: input.acceptedDisposition,
     acceptedStage: input.acceptedStage,
     extensionBaseStage,
@@ -809,7 +967,7 @@ export async function createBrowserFinalModelContextAttestation(input: {
   return {
     ...body,
     bindingDigest: await sha256Hex(stableStringify({
-      domain: "browser-final-model-context-attestation-v3",
+      domain: "browser-final-model-context-attestation-v4",
       body,
     })),
   };
@@ -832,11 +990,13 @@ export async function verifyBrowserFinalModelContextAttestation(
         "outerQualityPhase",
         "outerRequestIdDigest",
         "outerTaskType",
+        "pipelineKind",
         "rawTextStored",
         "requiredManifestDigest",
         "schemaVersion",
       ].sort().join(",")
       || value.schemaVersion !== BROWSER_FINAL_MODEL_CONTEXT_ATTESTATION_VERSION
+      || !PIPELINE_KINDS.has(value.pipelineKind)
       || !ACCEPTED_DISPOSITIONS.has(value.acceptedDisposition)
       || !INNER_STAGES.has(value.acceptedStage)
       || value.rawTextStored !== false
@@ -844,9 +1004,10 @@ export async function verifyBrowserFinalModelContextAttestation(
       || !DIGEST.test(value.requiredManifestDigest)
       || !Array.isArray(value.contributingCalls)
       || !Array.isArray(value.executedStages)
-      || !validExecutedStages(value.executedStages)
+      || !validExecutedStages(value.pipelineKind, value.executedStages)
     ) return false;
     const rebuilt = await createBrowserFinalModelContextAttestation({
+      pipelineKind: value.pipelineKind,
       acceptedDisposition: value.acceptedDisposition,
       acceptedStage: value.acceptedStage,
       extensionBaseStage: value.extensionBaseStage,

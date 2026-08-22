@@ -1,17 +1,19 @@
 {
   "schemaVersion": "p24b-release-metadata-contract-v2",
-  "provenanceSchemaVersion": "p24b-rc6.2-build-provenance-v1",
+  "provenanceSchemaVersion": "p24b-rc6.5-build-provenance-v1",
   "allowedProvenanceSchemaVersions": [
+    "p24b-rc6.5-build-provenance-v1",
+    "p24b-rc6.4-build-provenance-v1",
     "p24b-rc6.2-build-provenance-v1",
     "p24b-rc6.1-build-provenance-v1",
     "p21-build-provenance-v1"
   ],
   "immutableReleaseIdentity": {
     "releaseLine": "novel-ai-p24b-conversation-first-studio-rc6",
-    "releaseTag": "novel-ai-p24b-conversation-first-studio-rc6.2",
-    "releaseRevision": "rc6.2",
-    "releaseName": "P2.4B Conversation-First Novel Project GPT RC6.2",
-    "consumerRelease": "p2.4b-conversation-first-studio-rc6.2",
+    "releaseTag": "novel-ai-p24b-conversation-first-studio-rc6.5",
+    "releaseRevision": "rc6.5",
+    "releaseName": "P2.4B Conversation-First Novel Project GPT RC6.5",
+    "consumerRelease": "p2.4b-conversation-first-studio-rc6.5",
     "architectureStage": "P2.4B RC"
   },
   "provenanceHashAlgorithm": "sha256",

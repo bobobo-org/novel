@@ -88,10 +88,10 @@ function testOrdering() {
   assert.match(jobSection("audit_last_known_good"), /needs:\s*validate/u);
   assert.match(jobSection("production_env_audit"), /needs:\s*\[validate,\s*audit_last_known_good\]/u);
   assert.match(jobSection("production_env_repair"), /needs:\s*\[validate,\s*production_env_audit\]/u);
-  assert.match(jobSection("production_build"), /needs:\s*production_env_repair/u);
+  assert.match(jobSection("production_build"), /needs:\s*\[validate,\s*production_env_repair\]/u);
   assert.match(jobSection("post_build_secret_scan"), /needs:\s*production_build/u);
-  assert.match(jobSection("staged_deploy"), /needs:\s*\[production_build, post_build_secret_scan\]/u);
-  assert.match(jobSection("runtime_gates"), /needs:\s*staged_deploy/u);
+  assert.match(jobSection("staged_deploy"), /needs:\s*\[validate,\s*production_build,\s*post_build_secret_scan\]/u);
+  assert.match(jobSection("runtime_gates"), /needs:\s*\[validate,\s*staged_deploy\]/u);
   assert.match(jobSection("alias_cutover"), /needs:\s*\[validate,\s*staged_deploy,\s*runtime_gates\]/u);
   assert.match(jobSection("production_build"), /include-hidden-files:\s*true/u);
   assert.doesNotMatch(jobSection("validate"), /pnpm build(?:\s|$)|conversation-bundle-budget/u);
@@ -1771,7 +1771,10 @@ async function testLastKnownGoodAndRollback() {
   assert.match(aliasJob, /Write Last Known Good only after public verification passes/u);
   assert.match(aliasJob, /always\(\)[\s\S]*steps\.cutover\.outcome == 'success'[\s\S]*steps\.public_gate\.outcome == 'success'/u);
   assert.match(aliasJob, /production-last-known-good\.mjs download/u);
-  assert.doesNotMatch(aliasJob, /actions\/download-artifact/u);
+  assert.match(
+    aliasJob,
+    /Download sanitized staged Production deployment authority evidence[\s\S]*actions\/download-artifact[\s\S]*name:\s*production-deployment-authority-\$\{\{ env\.PRODUCT_COMMIT \}\}-control-\$\{\{ env\.CONTROL_COMMIT \}\}-\$\{\{ github\.run_id \}\}/u,
+  );
   const requiredFinalizationOutcomes = [
     "post_cutover_evidence",
     "last_known_good_write",

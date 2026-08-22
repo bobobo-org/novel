@@ -34,6 +34,7 @@ import { commitStudioCandidateToChapter } from "@/lib/novel-ai/web/studio-canoni
 import {
   executeStudioClosedAgent,
   getStudioClosedAgentOS,
+  getStudioClosedAIBootstrapCoordinator,
   getStudioClosedAIRuntimeCoordinator,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import type { ClosedAINamespace } from "@/lib/novel-ai/closed-ai-cache";
@@ -47,7 +48,6 @@ import {
 import {
   browserWebLLMRuntimeSnapshot,
   deleteBrowserWebLLMModel,
-  installBrowserWebLLMModel,
   prewarmBrowserWebLLMModel,
   repairSelectedBrowserWebLLMCache,
   selectBrowserWebLLMModel,
@@ -1370,11 +1370,14 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     setRuntimeBusy(true);
     setRuntimeStatus(`正在安裝 ${manifest.displayName}；可隨時停止，未完成的模型不會標記為可用。`);
     try {
-      const snapshot = await installBrowserWebLLMModel(modelId, {
+      await getStudioClosedAIBootstrapCoordinator().prepareBrowserAi({
+        projectId,
+        taskType: "chapter.continue",
+        requestedModelId: modelId,
         userInitiated: true,
         signal: controller.signal,
-        onProgress: setBrowserWebLlmProgress,
       });
+      const snapshot = await browserWebLLMRuntimeSnapshot();
       setBrowserWebLlm(snapshot);
       setRuntimeStatus(`${manifest.displayName} 已安裝，並完成離線快取驗證。`);
       await refresh(false);

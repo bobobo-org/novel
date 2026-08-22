@@ -3,7 +3,16 @@ import type {
   PlatformTaskType,
 } from "../../router/platform-types";
 import type { BrowserDeviceBenchmark } from "./browser-device-benchmark";
-import type { BrowserWebLLMModelManifest } from "./webllm-model-registry";
+import {
+  BROWSER_PROSE_TIER_CAPABILITY_DECISION_RECEIPT_DIGEST,
+  createBrowserProseTierExecutionDecision,
+  isBrowserFullProseTask,
+  type BrowserProseTierExecutionDecisionReceipt,
+} from "./browser-prose-capability-policy";
+import {
+  browserWebLLMModel,
+  type BrowserWebLLMModelManifest,
+} from "./webllm-model-registry";
 
 export type BrowserComputeTier = "T0" | "T1" | "T2" | "T3";
 export type BrowserComputePolicy =
@@ -150,6 +159,9 @@ export type BrowserTaskEligibility = {
   benchmarkRequired: boolean;
   benchmarkPassed: boolean;
   plannedPipeline: string[];
+  browserProseTierDecisionReceipt: BrowserProseTierExecutionDecisionReceipt;
+  browserProseTierCapabilityDecisionReceiptDigest:
+    typeof BROWSER_PROSE_TIER_CAPABILITY_DECISION_RECEIPT_DIGEST;
 };
 
 function browserModelLimits(parameterLabel: BrowserWebLLMModelManifest["parameterLabel"] | null) {
@@ -191,6 +203,8 @@ export function resolveBrowserTaskEligibility(input: {
   generativeRuntime?: "webllm-worker" | "chromium-prompt-api" | null;
   inferenceProofVerified: boolean;
   semanticModelReady?: boolean;
+  modelId?: string | null;
+  modelDigest?: string | null;
   modelParameterLabel?: BrowserWebLLMModelManifest["parameterLabel"] | null;
   benchmark?: Pick<BrowserDeviceBenchmark, "benchmarkPassed"> | null;
   contextTokens?: number;
@@ -206,9 +220,32 @@ export function resolveBrowserTaskEligibility(input: {
     : classifyBrowserTask(input.taskType);
   const contextTokens = Math.max(0, Math.round(input.contextTokens ?? 0));
   const outputTokens = Math.max(0, Math.round(input.outputTokens ?? 384));
-  const limits = browserModelLimits(input.modelParameterLabel ?? null);
+  const fullProseTask = isBrowserFullProseTask(input.taskType);
+  const manifest = fullProseTask ? browserWebLLMModel(input.modelId) : null;
+  const formalModel = fullProseTask
+    && manifest
+    && manifest.productionQualified
+    && manifest.usePolicy === "production"
+    && manifest.modelDigest === input.modelDigest
+    && manifest.parameterLabel === input.modelParameterLabel
+    ? manifest
+    : null;
+  const formalModelTier = fullProseTask
+    ? formalModel?.parameterLabel ?? null
+    : input.modelParameterLabel ?? null;
+  const limits = browserModelLimits(formalModelTier);
   const benchmarkPassed = Boolean(input.benchmark?.benchmarkPassed);
-  const browserExecutor = input.generativeRuntime ?? "webllm-worker";
+  const browserExecutor = input.generativeRuntime ?? (
+    fullProseTask ? null : "webllm-worker"
+  );
+  const browserProseTierDecisionReceipt =
+    createBrowserProseTierExecutionDecision({
+      taskType: input.taskType,
+      selectedModelTier: formalModelTier,
+      selectedModelId: formalModel?.modelId ?? null,
+      selectedModelDigest: formalModel?.modelDigest ?? null,
+      executor: browserExecutor,
+    });
   const base = {
     taskType: input.taskType,
     tier,
@@ -216,6 +253,9 @@ export function resolveBrowserTaskEligibility(input: {
     outputTokens,
     benchmarkRequired: tier === "T2",
     benchmarkPassed,
+    browserProseTierDecisionReceipt,
+    browserProseTierCapabilityDecisionReceiptDigest:
+      BROWSER_PROSE_TIER_CAPABILITY_DECISION_RECEIPT_DIGEST,
   };
 
   if (policy === "manual" && input.manualProvider !== "browser-ai") {
@@ -261,6 +301,22 @@ export function resolveBrowserTaskEligibility(input: {
       requiresExplicitEscalation: true,
       recommendedProvider: "private-ai-hub",
       plannedPipeline: ["browser-precompute", "explicit-private-hub-consent"],
+    };
+  }
+
+  if (!browserProseTierDecisionReceipt.eligible) {
+    return {
+      ...base,
+      eligible: false,
+      browserExecutor: null,
+      qualityClass: limits.qualityClass,
+      reasonCode: browserProseTierDecisionReceipt.reasonCode,
+      requiresExplicitEscalation: true,
+      recommendedProvider: "local-ollama",
+      plannedPipeline: [
+        "browser-prose-tier-gate",
+        "standard-browser-ai-or-explicit-closed-backend",
+      ],
     };
   }
 

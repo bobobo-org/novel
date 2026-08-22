@@ -7,6 +7,24 @@ export type BrowserWebLLMCacheBackend = NonNullable<AppConfig["cacheBackend"]>;
 
 export type BrowserWebLLMDeviceTier = "unsupported" | "low" | "standard" | "high";
 
+export const BROWSER_PROSE_QUALIFICATION_SCHEMA_VERSION =
+  "browser-prose-production-qualification-v1" as const;
+
+export type BrowserProseQualifiedTask =
+  | "chapter.continue"
+  | "chapter.expand";
+
+export type BrowserProseQualificationArtifact = Readonly<{
+  schemaVersion: typeof BROWSER_PROSE_QUALIFICATION_SCHEMA_VERSION;
+  modelId: string;
+  modelDigest: string;
+  candidateIdentityDigest: string;
+  generationPolicyDigest: string;
+  liveQualificationEvidenceDigest: string;
+  formalApprovalDigest: string;
+  qualifiedTasks: readonly BrowserProseQualifiedTask[];
+}>;
+
 export type BrowserWebLLMModelManifest = {
   modelId: string;
   displayName: string;
@@ -16,6 +34,7 @@ export type BrowserWebLLMModelManifest = {
   licenseUrl: string;
   usePolicy: "production" | "research-only";
   productionQualified: boolean;
+  proseQualification: BrowserProseQualificationArtifact | null;
   sourceModel: string;
   sourceRevision: string;
   modelUrl: string;
@@ -53,6 +72,7 @@ export const BROWSER_WEBLLM_MODELS = [
     licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/blob/main/LICENSE",
     usePolicy: "production",
     productionQualified: true,
+    proseQualification: null,
     sourceModel: "mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     sourceRevision: "32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/32ff081fe7e4dfe4ffb167b94c66fdf11e02b8ad/",
@@ -85,6 +105,7 @@ export const BROWSER_WEBLLM_MODELS = [
     licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE",
     usePolicy: "production",
     productionQualified: true,
+    proseQualification: null,
     sourceModel: "mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     sourceRevision: "9bd564b064631febf14deadcac492efb761d60c3",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/9bd564b064631febf14deadcac492efb761d60c3/",
@@ -117,6 +138,7 @@ export const BROWSER_WEBLLM_MODELS = [
     licenseUrl: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE",
     usePolicy: "research-only",
     productionQualified: false,
+    proseQualification: null,
     sourceModel: "mlc-ai/Qwen2.5-3B-Instruct-q4f16_1-MLC",
     sourceRevision: "7690aaaa46df36b1be0fe93b9c9abac0497eff6c",
     modelUrl: "https://huggingface.co/mlc-ai/Qwen2.5-3B-Instruct-q4f16_1-MLC/resolve/7690aaaa46df36b1be0fe93b9c9abac0497eff6c/",

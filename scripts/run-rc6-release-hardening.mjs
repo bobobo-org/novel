@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 
 const expected = {
   releaseLine: "novel-ai-p24b-conversation-first-studio-rc6",
-  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.2",
-  releaseRevision: "rc6.2",
-  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.2",
-  consumerRelease: "p2.4b-conversation-first-studio-rc6.2",
+  releaseTag: "novel-ai-p24b-conversation-first-studio-rc6.5",
+  releaseRevision: "rc6.5",
+  releaseName: "P2.4B Conversation-First Novel Project GPT RC6.5",
+  consumerRelease: "p2.4b-conversation-first-studio-rc6.5",
   architectureStage: "P2.4B RC",
   packageManager: "pnpm@10.34.5",
   vercelVersion: "56.3.2",
@@ -31,6 +31,18 @@ const requiredConversationGates = [
   "test:ai:manual-learning-worker",
   "test:ai:manual-learning-global-synthesis",
 ];
+const requiredBrowserCandidateGates = Object.freeze({
+  "test:ai:browser:setup-state-machine-rc6.4":
+    "node scripts/run-rc6-4-browser-setup-state-machine.mjs",
+  "test:ai:browser:setup-runtime-rc6.4":
+    "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rc6-4-browser-setup-runtime.mjs",
+  "test:ai:browser:setup-diagnostics-rc6.4":
+    "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rc6-4-browser-setup-diagnostics.mjs",
+  "test:ai:browser:prose-candidate-v2-rc6.5":
+    "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rc6-5-browser-prose-candidate-v2-contract.mjs",
+  "test:ai:browser:prose-candidate-v2-runtime-rc6.5":
+    "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rc6-5-browser-prose-candidate-v2-runtime-contract.mjs",
+});
 
 const [
   manifestText,
@@ -84,6 +96,10 @@ for (const gate of requiredConversationGates) {
   assert.equal(typeof packageJson.scripts?.[gate], "string", `${gate} package script is required`);
   assert.match(workflow, new RegExp(`pnpm ${gate}`, "u"));
 }
+for (const [gate, command] of Object.entries(requiredBrowserCandidateGates)) {
+  assert.equal(packageJson.scripts?.[gate], command, `${gate} package script drifted`);
+  assert.match(workflow, new RegExp(`pnpm ${gate.replaceAll(".", "\\.")}`, "u"));
+}
 assert.match(lockfile, /\n\s{6}vercel:\r?\n\s{8}specifier: 56\.3\.2\r?\n/u);
 assert.match(pnpmWorkspace, /^\s*esbuild:\s*true\s*$/mu);
 assert.doesNotMatch(pnpmWorkspace, /set this to true or false/u);
@@ -95,7 +111,21 @@ assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == gi
 assert.match(workflow, /VERCEL_GIT_COMMIT_SHA.*preview_ref/u);
 assert.doesNotMatch(workflow, /agent\/p24b-rc6-conversation-first/u);
 assert.doesNotMatch(workflow, /agent\/browser-sovereign-ai-fabric-rc5/u);
-assert.match(workflow, new RegExp(expected.releaseTag, "u"));
+// The active release identity is Product-owned. The normal workflow must read
+// and validate it from the exact checkout instead of embedding this RC's tag
+// as a workflow literal (historical Recovery identities remain separate).
+assert.doesNotMatch(workflow, new RegExp(expected.releaseTag, "u"));
+assert.match(workflow, /readFileSync\("release-manifest\.json", "utf8"\)/u);
+assert.match(workflow, /readFileSync\("release-metadata-contract\.json", "utf8"\)/u);
+assert.match(workflow, /readFileSync\("generated\/release-provenance\.json", "utf8"\)/u);
+assert.match(
+  workflow,
+  /release_tag:\s*\$\{\{ steps\.validated_release_identity\.outputs\.release_tag \}\}/u,
+);
+assert.match(
+  workflow,
+  /EXPECTED_RELEASE_TAG:\s*\$\{\{ needs\.validate\.outputs\.release_tag \}\}/u,
+);
 assert.match(workflow, /pnpm test:ci:rc6-release-hardening/u);
 assert.doesNotMatch(workflow, /conversation-ollama-real/u);
 assert.match(workflow, /pnpm lint:ci/u);

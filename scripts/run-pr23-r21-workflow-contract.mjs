@@ -220,7 +220,8 @@ assert.throws(
   );
   const omitted = auditControlProofFixture();
   delete omitted.c9ChangedPaths;
-  const { proofDigest: ignored, ...omittedBody } = omitted;
+  const omittedBody = { ...omitted };
+  delete omittedBody.proofDigest;
   assert.throws(
     () => validateAuditControlProof({ ...omittedBody, proofDigest: auditControlProofDigest(omittedBody) }, "omitted field negative fixture"),
     /exact v7 key set/u,
@@ -253,6 +254,7 @@ assert.equal(
 const jobNames = [
   "validate",
   "preview",
+  "historical_rc6_2_recovery_hold",
   "audit_last_known_good",
   "production_env_audit",
   "production_env_repair",
@@ -262,6 +264,7 @@ const jobNames = [
   "staged_deploy",
   "runtime_gates",
   "alias_cutover",
+  "main_push_complete",
   "recovery_complete",
 ];
 const jobsHeaderIndex = workflow.indexOf("\njobs:");
@@ -305,6 +308,7 @@ function failedStepOutcomes(step) {
 const globalConfiguration = workflow.slice(0, workflow.indexOf("\njobs:"));
 const validateJob = section("validate");
 const previewJob = section("preview");
+const historicalRecoveryHoldJob = section("historical_rc6_2_recovery_hold");
 const lastKnownGoodAuditJob = section("audit_last_known_good");
 const productionAuditJob = section("production_env_audit");
 const repairJob = section("production_env_repair");
@@ -314,6 +318,7 @@ const stagedJob = section("staged_deploy");
 const runtimeJob = section("runtime_gates");
 const aliasJob = section("alias_cutover");
 const restoreJob = section("restore_known_stable");
+const mainPushCompleteJob = section("main_push_complete");
 const recoveryCompleteJob = section("recovery_complete");
 
 assert.match(globalConfiguration, /permissions:\s*[\s\S]*contents:\s*read[\s\S]*actions:\s*read[\s\S]*attestations:\s*read/u);
@@ -366,6 +371,27 @@ assert.match(globalConfiguration, /deploy-immutable-product-recovery/u);
 assert.match(globalConfiguration, /audit-rc6-2-last-known-good/u);
 assert.match(globalConfiguration, /RECOVERY_PRODUCT_COMMIT:\s*29fc6e742672bb07187765d34ea818afdadf56ae/u);
 assert.match(globalConfiguration, /CONTROL_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
+assert.match(globalConfiguration, /PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*github\.sha/u);
+assert.match(globalConfiguration, /VERCEL_GIT_COMMIT_SHA:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*github\.sha/u);
+assert.doesNotMatch(globalConfiguration, /vars\.RC6_4_PRODUCT_COMMIT|vars\.RC6_4_RELEASE_DATABASE_ID/u);
+assert.match(validateJob, /Validate and export Product-owned release identity/u);
+assert.match(validateJob, /release-manifest\.json[\s\S]*release-metadata-contract\.json[\s\S]*generated\/release-provenance\.json/u);
+for (const [name, value] of [
+  ["RC6_2_LKG_APP_COMMIT", PRODUCT_COMMIT],
+  ["RC6_2_LKG_PRIMARY_DEPLOYMENT_ID", "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"],
+  ["RC6_2_LKG_MIRROR_DEPLOYMENT_ID", "dpl_8pqTpwAgQQAqmLKNzZNCzSfPuqNn"],
+  ["RC6_2_LKG_RELEASE_TAG", "novel-ai-p24b-conversation-first-studio-rc6.2"],
+  ["RC6_2_LKG_RELEASE_REVISION", "rc6.2"],
+  ["RC6_2_LKG_ARTIFACT_ID", "'9114871493'"],
+  ["RC6_2_LKG_ARTIFACT_NAME", "production-last-known-good-control-9cd074f239b73dd9b61f6d758fcf97fbd809face-product-29fc6e742672bb07187765d34ea818afdadf56ae"],
+  ["RC6_2_LKG_ARTIFACT_DIGEST", "sha256:b08153dd5ae5b908a1b972799746a1a2621cb2a33bf90025853fa1688f941a5b"],
+  ["RC6_2_LKG_RUN_ID", "'31524952520'"],
+  ["RC6_2_LKG_CONTROL_COMMIT", PRODUCTION_RECOVERY_CONTROL],
+  ["HISTORICAL_RC6_1_LKG_APP_COMMIT", "e84972aaec80885f9e2ab58e56252fb7b93522ea"],
+  ["HISTORICAL_RC6_1_LKG_DEPLOYMENT_ID", "dpl_EHemQJyNZtn1NS69tnxQ24dKBRN3"],
+  ["HISTORICAL_RC6_1_LKG_RELEASE_TAG", "novel-ai-p24b-conversation-first-studio-rc6"],
+  ["HISTORICAL_RC6_1_LKG_RELEASE_REVISION", "rc6.1"],
+]) assert.match(globalConfiguration, new RegExp(`^  ${name}: ${value}$`, "mu"));
 assert.match(globalConfiguration, /group:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*vercel-production-main/u);
 assert.match(globalConfiguration, /group:[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*vercel-lkg-audit/u);
 assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*deploy-immutable-product-recovery/u);
@@ -385,6 +411,14 @@ assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 assert.doesNotMatch(previewJob, /SUPABASE_ACCESS_TOKEN/u);
 assert.doesNotMatch(previewJob, /production-last-known-good|production-environment-governance|vercel-dual-alias-cutover/u);
 assert.doesNotMatch(previewJob, /\n  audit_last_known_good:/u);
+
+assert.match(historicalRecoveryHoldJob, /github\.event_name == 'workflow_dispatch'/u);
+assert.match(historicalRecoveryHoldJob, /github\.ref == 'refs\/heads\/main'/u);
+assert.match(historicalRecoveryHoldJob, /inputs\.operation == 'deploy-immutable-product-recovery'/u);
+assert.match(historicalRecoveryHoldJob, /github\.sha != '9cd074f239b73dd9b61f6d758fcf97fbd809face'/u);
+assert.match(historicalRecoveryHoldJob, /HOLD: RC6\.2 recovery is preserved only as read-only prior provenance/u);
+assert.match(historicalRecoveryHoldJob, /exit 1/u);
+assert.doesNotMatch(historicalRecoveryHoldJob, /actions\/checkout|vercel|gh\s+api|curl|wget/u);
 
 assert.match(
   lastKnownGoodAuditJob,
@@ -446,7 +480,7 @@ assert.ok(
   lastKnownGoodAuditJob.indexOf("Prove exact read-only RC6.2 browser-gate control lineage")
     < lastKnownGoodAuditJob.indexOf("Validate exact C10 read-only audit control proof")
   && lastKnownGoodAuditJob.indexOf("Validate exact C10 read-only audit control proof")
-    < lastKnownGoodAuditJob.indexOf("Discover exact prior RC6.1 Last Known Good artifact"),
+    < lastKnownGoodAuditJob.indexOf("Discover prior Last Known Good artifact"),
   "the v7 proof must be produced and validated before any LKG discovery or selection",
 );
 const auditControlProofProducerStart = browserGateContract.indexOf("async function writeAuditControlProof()");
@@ -482,16 +516,17 @@ assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs discover/u)
 assert.match(lastKnownGoodAuditJob, /production-last-known-good\.mjs download/u);
 assert.match(
   lastKnownGoodAuditJob,
-  /EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID:\s*\$\{\{ inputs\.operation != 'audit-rc6-2-last-known-good' && env\.EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID \|\| '' \}\}/u,
+  /EXPECTED_LKG_PRIMARY_DEPLOYMENT_ID:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*env\.RC6_2_LKG_PRIMARY_DEPLOYMENT_ID[^\r\n]*\|\| ''/u,
 );
 assert.match(
   lastKnownGoodAuditJob,
-  /EXPECTED_LKG_MIRROR_DEPLOYMENT_ID:\s*\$\{\{ inputs\.operation != 'audit-rc6-2-last-known-good' && env\.EXPECTED_LKG_MIRROR_DEPLOYMENT_ID \|\| '' \}\}/u,
+  /EXPECTED_LKG_MIRROR_DEPLOYMENT_ID:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*env\.RC6_2_LKG_MIRROR_DEPLOYMENT_ID[^\r\n]*\|\| ''/u,
 );
 assert.doesNotMatch(
   lastKnownGoodAuditJob,
-  /audit-rc6-2-last-known-good' && '' \|\| env\.EXPECTED_LKG_(?:PRIMARY|MIRROR)_DEPLOYMENT_ID/u,
+  /env\.EXPECTED_LKG_(?:PRIMARY|MIRROR)_DEPLOYMENT_ID/u,
 );
+assert.match(lastKnownGoodAuditJob, /Require cryptographic dynamic Last Known Good metadata for normal main push/u);
 assert.match(
   lastKnownGoodAuditJob,
   /AUDIT_PRODUCT_COMMIT:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*env\.PRODUCT_COMMIT[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*env\.RECOVERY_PRODUCT_COMMIT[^\r\n]*env\.AUDIT_COMMIT/u,
@@ -507,7 +542,7 @@ assert.match(
   lastKnownGoodAuditJob,
   /production-lkg-readonly-audit-rc62-\{0\}-\{1\}-\{2\}-\{3\}-\{4\}[\s\S]*steps\.browser_gate_control\.outputs\.proof_digest[\s\S]*steps\.lkg_selection\.outputs\.selection_proof_digest/u,
 );
-assert.match(lastKnownGoodAuditJob, /production-lkg-readonly-audit-rc61-\{0\}-\{1\}/u);
+assert.match(lastKnownGoodAuditJob, /production-lkg-readonly-audit-current-\{0\}-\{1\}/u);
 assert.match(lastKnownGoodAuditJob, /\$\{\{ runner\.temp \}\}\/rc6-2-browser-gate-control-proof\.json/u);
 assert.match(lastKnownGoodAuditJob, /LAST_KNOWN_GOOD_PRODUCT_COMMIT:\s*\$\{\{ steps\.lkg\.outputs\.product_commit \}\}/u);
 assert.match(lastKnownGoodAuditJob, /LAST_KNOWN_GOOD_CONTROL_COMMIT:\s*\$\{\{ steps\.lkg\.outputs\.control_commit \}\}/u);
@@ -539,7 +574,7 @@ assert.match(repairJob, /Record zero-mutation repair receipt/u);
 assert.match(repairJob, /if:\s*needs\.production_env_audit\.outputs\.repair_required != 'true'/u);
 assert.doesNotMatch(repairJob, /secrets\.OPENAI_API_KEY/u);
 
-assert.match(buildJob, /needs:\s*production_env_repair/u);
+assert.match(buildJob, /needs:\s*\[validate,\s*production_env_repair\]/u);
 assert.match(buildJob, /vercel build --prod/u);
 assert.match(buildJob, /production-prebuilt-/u);
 assert.match(buildJob, /verify-vercel-prebuilt-file-references\.mjs/u);
@@ -561,12 +596,18 @@ assert.match(postBuildSecretScanJob, /scan-sealed-production-artifact\.mjs/u);
 assert.match(postBuildSecretScanJob, /--expected-digest/u);
 assert.match(postBuildSecretScanJob, /--prior-receipt/u);
 
-assert.match(stagedJob, /needs:\s*\[production_build, post_build_secret_scan\]/u);
+assert.match(stagedJob, /needs:\s*\[validate,\s*production_build,\s*post_build_secret_scan\]/u);
 assert.match(stagedJob, /actions\/download-artifact@[a-f0-9]{40}/u);
 assert.match(stagedJob, /vercel deploy --prebuilt --prod --skip-domain/u);
 assert.match(stagedJob, /name:\s*production-prebuilt-\$\{\{ env\.PRODUCT_COMMIT \}\}-control-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/u);
 assert.match(stagedJob, /--meta "githubCommitSha=\$PRODUCT_COMMIT"/u);
 assert.match(stagedJob, /--meta "novelControlCommit=\$CONTROL_COMMIT"/u);
+assert.match(stagedJob, /--meta "novelDeploymentAuthority=github-actions"/u);
+assert.match(stagedJob, /Prove exact single Vercel Production deployment in the control plane/u);
+assert.match(stagedJob, /node \.release-control\/scripts\/run-main-push-auto-deploy-workflow-contract\.mjs verify-vercel-production-authority/u);
+assert.match(stagedJob, /PRODUCTION_AUTHORITY_RECEIPT_SCHEMA="p24b-production-deployment-authority-v1"/u);
+assert.match(stagedJob, /\.pageCount >= 1 and \.paginationComplete == true/u);
+assert.match(stagedJob, /\.rawApiBodyIncluded' "\$receipt_path"\)" = false/u);
 assert.match(stagedJob, /Checkout trusted Production control commit for staged-deploy CAS[\s\S]*ref:\s*\$\{\{ github\.sha \}\}[\s\S]*path:\s*\.release-control/u);
 const stagedMutationStep = stepSection(stagedJob, "Deploy staged production without alias mutation");
 assert.match(stagedMutationStep, /EXPECTED_MAIN_HEAD_COMMIT:\s*\$\{\{ github\.sha \}\}/u);
@@ -607,7 +648,7 @@ assert.doesNotMatch(stagedJob, /set -x|(?:echo|printf)[^\n]*\$VERCEL_TOKEN/u);
 assert.doesNotMatch(stagedJob, /vercel-dual-alias-cutover/u);
 assert.doesNotMatch(stagedJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
 
-assert.match(runtimeJob, /needs:\s*staged_deploy/u);
+assert.match(runtimeJob, /needs:\s*\[validate,\s*staged_deploy\]/u);
 assert.match(runtimeJob, /\/api\/release\/identity/u);
 assert.match(runtimeJob, /\/api\/persistence\/sync\/health/u);
 assert.match(runtimeJob, /\/api\/ai\/external\/providers/u);
@@ -658,7 +699,9 @@ assert.match(aliasJob, /APP_COMMIT:\s*\$\{\{ env\.PRODUCT_COMMIT \}\}/u);
 assert.match(aliasJob, /Checkout trusted Production control commit[\s\S]*fetch-depth:\s*3/u);
 assert.match(aliasJob, /Reproduce and bind recovery control proof for Last Known Good publication[\s\S]*verify-production-recovery-control\.mjs[\s\S]*needs\.validate\.outputs\.recovery_control_proof_digest/u);
 assert.match(aliasJob, /Write Last Known Good only after public verification passes[\s\S]*RECOVERY_CONTROL_PROOF_PATH:[^\r\n]*recovery-control-proof-for-lkg\.json[\s\S]*production-last-known-good\.mjs write/u);
-assert.match(aliasJob, /p24b-rc6\.2-new-luna-production-control-plane-evidence-v2/u);
+assert.match(aliasJob, /p24b-rc6\.5-new-luna-production-control-plane-evidence-v1/u);
+assert.match(aliasJob, /productionAuthorizationProofDigest:\$productionAuthorizationProofDigest/u);
+assert.match(aliasJob, /recoveryControl:\$recoveryControl/u);
 assert.match(aliasJob, /releaseProductCommit:\$releaseProductCommit,controlCommit:\$controlCommit/u);
 assert.match(aliasJob, /steps\.public_gate\.outcome == 'success'/u);
 assert.match(aliasJob, /IMMUTABLE_RELEASE_REQUIRE_REPOSITORY_SETTING:\s*'false'/u);
@@ -838,7 +881,12 @@ for (const budget of [
   "ROLLBACK_DEADLINE_MS: 240000",
 ]) assert.ok(aliasJob.includes(budget), `alias cutover deadline budget missing: ${budget}`);
 assert.match(aliasJob, /production-last-known-good\.mjs download/u);
-assert.doesNotMatch(aliasJob, /actions\/download-artifact/u);
+assert.match(aliasJob, /actions\/download-artifact@[a-f0-9]{40}/u);
+assert.match(aliasJob, /production-deployment-authority-\$\{\{ env\.PRODUCT_COMMIT \}\}-control-\$\{\{ env\.CONTROL_COMMIT \}\}/u);
+assert.match(aliasJob, /Recheck exact single Vercel Production deployment immediately before cutover/u);
+assert.match(aliasJob, /node scripts\/run-main-push-auto-deploy-workflow-contract\.mjs verify-vercel-production-authority/u);
+assert.match(aliasJob, /PRODUCTION_AUTHORITY_RECEIPT_SCHEMA="p24b-production-deployment-authority-recheck-v1"/u);
+assert.match(aliasJob, /\.pageCount >= 1 and \.paginationComplete == true/u);
 assert.match(aliasJob, /timeout-minutes:\s*20/u);
 
 assert.match(restoreJob, /inputs\.operation == 'restore-known-stable' && github\.ref == 'refs\/heads\/main'/u);
@@ -872,9 +920,15 @@ for (const [name, productionJob] of [
 ]) {
   assert.match(
     productionJob,
-    /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main' && inputs\.operation == 'deploy-immutable-product-recovery'/u,
+    /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main' && github\.sha == '9cd074f239b73dd9b61f6d758fcf97fbd809face' && inputs\.operation == 'deploy-immutable-product-recovery'/u,
     `${name} must support only the exact main recovery dispatch in addition to the immutable Product push`,
   );
+  assert.match(
+    productionJob,
+    /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/u,
+    `${name} must admit the exact main push SHA`,
+  );
+  assert.doesNotMatch(productionJob, /vars\.RC6_4_PRODUCT_COMMIT/u, `${name} must not retain a stale SHA gate`);
   assert.doesNotMatch(
     productionJob,
     /inputs\.operation == '(?:deploy-preview|audit-last-known-good|audit-rc6-2-last-known-good|restore-known-stable)'/u,
@@ -896,6 +950,11 @@ for (const result of [
   "RUNTIME_GATES_RESULT",
   "ALIAS_CUTOVER_RESULT",
 ]) assert.match(recoveryCompleteJob, new RegExp(`\\$${result}`, "u"));
+
+assert.match(mainPushCompleteJob, /if:\s*always\(\) && github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/u);
+assert.match(mainPushCompleteJob, /skipped_count=0[\s\S]*test "\$skipped_count" = 0/u);
+assert.match(mainPushCompleteJob, /test "\$PRODUCTION_DEPLOYMENT_AUTHORITY" = github-actions/u);
+assert.match(mainPushCompleteJob, /test "\$DUPLICATE_PRODUCTION_DEPLOY_COUNT" = 0/u);
 
 for (const publicRuntimeJob of [previewJob, runtimeJob]) {
   assert.match(publicRuntimeJob, /curl --connect-timeout 5 --max-time 10/u);
@@ -927,6 +986,11 @@ const requiredCommands = [
   "pnpm test:ci:dual-alias-rollback",
   "pnpm test:ci:workflow-contract",
   "pnpm test:ci:rc6-1-deployment-governance",
+  "pnpm test:ai:browser:setup-state-machine-rc6.4",
+  "pnpm test:ai:browser:setup-runtime-rc6.4",
+  "pnpm test:ai:browser:setup-diagnostics-rc6.4",
+  "pnpm test:ai:browser:prose-candidate-v2-rc6.5",
+  "pnpm test:ai:browser:prose-candidate-v2-runtime-rc6.5",
   "pnpm test:ci:release-revision",
   "pnpm test:ci:release-tag-commit-traceability",
   "pnpm test:ci:artifact-attestation",

@@ -32,8 +32,11 @@ export function validateGithubReleaseAttestation({
 }) {
   const expectedProduct = String(productCommit || "").toLowerCase();
   const expectedDatabaseId = String(releaseDatabaseId || "");
+  const supportedReleaseTag = releaseTag === "novel-ai-p24b-conversation-first-studio-rc6.5"
+    || releaseTag === "novel-ai-p24b-conversation-first-studio-rc6.2";
   if (!FULL_COMMIT.test(expectedProduct)
     || !DATABASE_ID.test(expectedDatabaseId)
+    || !supportedReleaseTag
     || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(repository || ""))
     || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(String(releaseTag || ""))) {
     throw failure("GITHUB_RELEASE_ATTESTATION_EXPECTATION_INVALID");
@@ -67,7 +70,9 @@ export function validateGithubReleaseAttestation({
     throw failure("GITHUB_RELEASE_ATTESTATION_MISMATCH");
   }
   const core = {
-    schemaVersion: "p24b-rc6.2-github-release-attestation-proof-v1",
+    schemaVersion: releaseTag.endsWith("rc6.2")
+      ? "p24b-rc6.2-github-release-attestation-proof-v1"
+      : "p24b-rc6.5-github-release-attestation-proof-v1",
     status: "PASS",
     repository,
     releaseTag,

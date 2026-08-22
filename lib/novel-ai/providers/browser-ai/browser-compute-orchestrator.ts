@@ -3316,6 +3316,7 @@ export async function executeBrowserCompute(input: {
     ? await readBrowserDeviceBenchmark(
       selected.modelId,
       selected.modelDigest,
+      webLlm?.device.tier ?? "unsupported",
     ).catch(() => null)
     : null;
   const proof = getBrowserAIInferenceProof();
