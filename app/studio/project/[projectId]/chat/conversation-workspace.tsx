@@ -1884,6 +1884,7 @@ export default function ConversationWorkspace({
           projectId={projectId}
           busy={busy}
           busyReason={branchPending ? "分支建立中；訊息與附件操作已暫停。" : null}
+          busyReasonTestId={branchPending ? "conversation-branch-global-status" : undefined}
           canStop={canStop}
           draft={draft}
           localAttachments={localAttachments}

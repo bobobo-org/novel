@@ -69,7 +69,7 @@ export function SessionSidebar({
       </div>
       <button className={styles.newSession} type="button" onClick={onNewSession} disabled={busy}>＋ 新對話</button>
       {branchPending ? (
-        <p className={styles.emptyNote} role="status" data-testid="conversation-branch-global-status">
+        <p className={styles.emptyNote} role="status">
           分支建立中。新對話、重新命名、封存與刪除已暫停；你仍可指定完成後要停留的對話。
         </p>
       ) : null}

@@ -17,6 +17,7 @@ export function MessageComposer({
   projectId,
   busy,
   busyReason,
+  busyReasonTestId,
   canStop,
   draft,
   localAttachments,
@@ -42,6 +43,7 @@ export function MessageComposer({
   projectId: string;
   busy: boolean;
   busyReason: string | null;
+  busyReasonTestId?: string;
   canStop: boolean;
   draft: string;
   localAttachments: LocalAttachment[];
@@ -163,7 +165,11 @@ export function MessageComposer({
           </div>
         </div>
       </div>
-      {busyReason ? <p className={styles.emptyNote} role="status">{busyReason}</p> : null}
+      {busyReason ? (
+        <p className={styles.emptyNote} role="status" data-testid={busyReasonTestId}>
+          {busyReason}
+        </p>
+      ) : null}
       <div className={styles.composerMeta}>
         <span>Enter 送出 · Shift＋Enter 換行</span>
         <span>·</span>

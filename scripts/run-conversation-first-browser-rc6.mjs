@@ -1096,6 +1096,7 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   const competingBranchButton = restoredTimeline.locator('article[data-message-id="rc6-long-message-0996"]')
     .locator('[data-conversation-action="branch"]');
   const raceDraft = "RC6 branch pending 期間不得送出的訊息";
+  const sidebarDuringBranch = await ensureDesktopSidebarOpen(page);
   await page.getByLabel("小說專案訊息").fill(raceDraft);
   await branchButton.evaluate((button) => {
     button.click();
@@ -1110,7 +1111,6 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   assert.equal(await composer.getAttribute("aria-busy"), "true");
   assert.equal(await page.getByLabel("小說專案訊息").isDisabled(), true);
   assert.match(await composer.innerText(), /分支建立中；訊息與附件操作已暫停/u);
-  const sidebarDuringBranch = page.getByTestId("conversation-session-sidebar");
   assert.equal(await sidebarDuringBranch.getByRole("button", { name: "＋ 新對話" }).isDisabled(), true);
   assert.equal(await sidebarDuringBranch.locator('[data-active="true"] button[title="重新命名"]').isDisabled(), true);
   await competingBranchButton.evaluate((button) => button.click());
@@ -1171,7 +1171,7 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   assert.equal(branchReloadState.sessions.length, 2);
   assert.equal(branchReloadState.chapterRevision, seeded.chapterRevision);
 
-  const sidebar = page.getByTestId("conversation-session-sidebar");
+  const sidebar = await ensureDesktopSidebarOpen(page);
   await sidebar.locator(`[data-session-id="${seeded.sessionId}"] > button`).click();
   await page.waitForFunction((sessionId) => {
     const active = document.querySelector('[data-testid="conversation-session-sidebar"] [data-active="true"]');
