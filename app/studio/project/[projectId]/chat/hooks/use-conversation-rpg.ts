@@ -37,7 +37,7 @@ function rpgErrorCode(error: unknown) {
 function rpgErrorMessage(error: unknown) {
   return error instanceof Error && error.message
     ? error.message
-    : "故事回合沒有完成；正文與數值都維持原狀。";
+    : "故事回合沒有完成；故事與數值均未寫入，原有內容維持不變。";
 }
 
 function rpgProgressLabel(event: ClosedAIProgressEvent) {
