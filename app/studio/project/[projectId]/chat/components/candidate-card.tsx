@@ -36,10 +36,14 @@ export function CandidateCard({
       <h3>{artifact.artifactType === "rpg" ? "本回合結果" : "Canon 候選"} · {statusLabel}</h3>
       {!rpgCandidate ? <p className={styles.candidatePreview}>{artifactStory(artifact)}</p> : null}
       {rpgCandidate ? (
-        <section className={styles.rpgOutcomeSummary} aria-label="本回合結果與數值變化">
+        <details
+          className={`${styles.rpgOutcomeSummary} ${styles.outcomeDetails}`}
+          aria-label="本回合結果與數值變化"
+        >
+          <summary>行動結果與數值變化（預設收合）</summary>
           <small>{artifact.status === "approved" ? "正文、狀態與回合收據已同步" : "這些變化在你核准前不會寫入正式故事"}</small>
           <ul>{rpgCandidate.outcomeLines.map((line) => <li key={line}>{line}</li>)}</ul>
-        </section>
+        </details>
       ) : null}
       <div className={styles.candidateActions}>
         <button type="button" onClick={() => onOpen(artifact, "candidate")}>查看完整候選</button>
