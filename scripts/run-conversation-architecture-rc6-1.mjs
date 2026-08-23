@@ -262,12 +262,13 @@ async function bundleBudget() {
 }
 
 async function lazyTools() {
-  await test("artifact and technical panels are demand-loaded at top-level dynamic boundaries", async () => {
+  await test("artifact and technical panels are demand-loaded while playable choice facts stay visible", async () => {
     const workspace = await read("app/studio/project/[projectId]/chat/conversation-workspace.tsx");
     const drawer = await read("app/studio/project/[projectId]/chat/components/artifact-drawer.tsx");
     const messageRow = await read("app/studio/project/[projectId]/chat/components/message-row.tsx");
     const attachmentCard = await read("app/studio/project/[projectId]/chat/components/attachment-card.tsx");
     const rpgChoiceCard = await read("app/studio/project/[projectId]/chat/components/rpg-choice-card.tsx");
+    const rpgAdvancedStatus = await read("app/studio/project/[projectId]/chat/components/rpg-advanced-status.tsx");
     const attachments = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-attachments.ts");
     const learningLoader = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-learning-loader.ts");
     const parser = await read("lib/novel-ai/web/manual-learning-file.ts");
@@ -281,7 +282,12 @@ async function lazyTools() {
     assert.doesNotMatch(messageRow, /attachment\.warnings\.map/u);
     assert.match(rpgChoiceCard, /const RpgAdvancedStatus = dynamic\(\(\) => import\("\.\/rpg-advanced-status"\)/u);
     assert.match(rpgChoiceCard, /advancedOpen \? <RpgAdvancedStatus/u);
-    assert.doesNotMatch(rpgChoiceCard, /choice\.knownCosts\.map/u);
+    assert.doesNotMatch(rpgChoiceCard, /import \{?\s*RpgAdvancedStatus/u);
+    assert.match(rpgChoiceCard, /data-kind="benefit"/u);
+    assert.match(rpgChoiceCard, /data-kind="cost"[\s\S]*?choice\.knownCosts\.map/u);
+    assert.match(rpgChoiceCard, /data-kind="risk"/u);
+    assert.doesNotMatch(rpgChoiceCard, /choice\.irreversibleWarning/u);
+    assert.match(rpgAdvancedStatus, /choice\.irreversibleWarning/u);
     assert.match(parser, /await import\("pdfjs-dist\/legacy\/build\/pdf\.mjs"\)/u);
     assert.match(parser, /await import\("mammoth"\)/u);
     assert.match(attachments, /await import\(\s*["']@\/lib\/novel-ai\/web\/manual-learning-worker-client["']\s*\)/u);

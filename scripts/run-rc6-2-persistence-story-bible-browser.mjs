@@ -16,6 +16,37 @@ const results = [];
 const consoleErrors = [];
 let serverProcess = null;
 
+const OPTIONAL_LOOPBACK_HEALTH_URLS = new Set([
+  "http://127.0.0.1:3217/health",
+  "http://127.0.0.1:3227/health",
+]);
+
+async function fulfillUnavailableOptionalLoopbackHealth(route) {
+  const request = route.request();
+  const headers = {
+    "Access-Control-Allow-Origin": new URL(baseUrl).origin,
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": request.headers()["access-control-request-headers"]
+      ?? "X-Bridge-Protocol, X-Private-Hub-Protocol",
+    Vary: "Origin",
+  };
+  if (request.method() === "OPTIONS") {
+    await route.fulfill({ status: 204, headers, body: "" });
+    return;
+  }
+  await route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers,
+    body: JSON.stringify({
+      bridgeProcessAlive: false,
+      runtimeReady: false,
+      ollamaReachable: false,
+      models: [],
+    }),
+  });
+}
+
 function check(name, condition, details = null) {
   const result = { name, status: condition ? "PASS" : "FAIL", details };
   results.push(result);
@@ -285,11 +316,19 @@ async function unavailableStorageGate(browser) {
 await startServer();
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-TW", serviceWorkers: "block" });
+for (const endpoint of OPTIONAL_LOOPBACK_HEALTH_URLS) {
+  await context.route(endpoint, fulfillUnavailableOptionalLoopbackHealth);
+}
 const page = await context.newPage();
 page.on("console", (message) => {
-  if (message.type() === "error") consoleErrors.push({ type: "console", text: message.text(), url: page.url() });
+  if (message.type() === "error") consoleErrors.push({
+    type: "console",
+    text: message.text(),
+    pageUrl: page.url(),
+    sourceUrl: message.location().url,
+  });
 });
-page.on("pageerror", (error) => consoleErrors.push({ type: "pageerror", text: error.message, url: page.url() }));
+page.on("pageerror", (error) => consoleErrors.push({ type: "pageerror", text: error.message, pageUrl: page.url() }));
 
 let report;
 try {
